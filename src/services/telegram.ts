@@ -140,15 +140,39 @@ export async function sendDailySummaryToUser(userId: number): Promise<void> {
 
 /**
  * Send daily summary to all users
+ * Generates summary once and sends to all users with personalized greetings
  */
 export async function sendDailySummaryToAll(): Promise<void> {
   const whitelistedIds = getWhitelistedIds();
+  const botInstance = getBot();
 
-  for (const userId of whitelistedIds) {
-    try {
-      await sendDailySummaryToUser(userId);
-    } catch (error) {
-      console.error(`Failed to send summary to user ${userId}:`, error);
+  try {
+    // Get the first user to fetch calendars (they all share the same calendars)
+    const firstUser = getUserByTelegramId(whitelistedIds[0]);
+    if (!firstUser) {
+      console.error('No users configured');
+      return;
     }
+
+    // Fetch calendar events once (shared by all users)
+    const events = await fetchTodayEvents(firstUser.googleRefreshToken, firstUser.calendars);
+
+    // Generate summary once (not user-specific, just the schedule)
+    const summary = await generateSummary(events, 'Family');
+
+    // Send to each user with their personalized greeting
+    for (const userId of whitelistedIds) {
+      try {
+        const user = getUserByTelegramId(userId);
+        if (!user) continue;
+
+        const message = `${user.greeting}\n\n${summary}`;
+        await botInstance.sendMessage(userId, message);
+      } catch (error) {
+        console.error(`Failed to send summary to user ${userId}:`, error);
+      }
+    }
+  } catch (error) {
+    console.error('Failed to generate summary for all users:', error);
   }
 }
