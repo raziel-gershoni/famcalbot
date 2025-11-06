@@ -137,31 +137,50 @@ npm run setup-webhook delete
 
 **Important:** Vercel uses webhooks for bot commands. Local development uses polling. You cannot run both at the same time. Delete the webhook when running locally, and set it when deploying to production.
 
-### 7. Set Up Cron Job
+### 7. Set Up Cron Jobs
 
 1. Go to [cron-job.org](https://cron-job.org)
-2. Create a new cron job:
+2. Create cron jobs for automated summaries:
+
+**Morning Summary (Today's events):**
    - URL: `https://your-project.vercel.app/api/daily-summary?secret=YOUR_CRON_SECRET`
    - Schedule: `0 7 * * *` (daily at 7:00 AM)
+   - Timezone: Asia/Jerusalem
+
+**Evening Summary (Tomorrow's events):**
+   - URL: `https://your-project.vercel.app/api/tomorrow-summary?secret=YOUR_CRON_SECRET`
+   - Schedule: Set your preferred evening time (e.g., `0 20 * * *` for 8:00 PM)
    - Timezone: Asia/Jerusalem
 
 ## Commands
 
 - `/start` - Welcome message and help
 - `/summary` - Get calendar summary for today
+- `/tomorrow` - Get calendar summary for tomorrow
 - `/help` - Show available commands
 
 ## API Endpoints
 
 ### `GET /api/daily-summary`
 
-Triggers daily summary for all users.
+Triggers daily summary for all users (today's events).
 
 **Authentication:** Requires `secret` query parameter or `x-cron-secret` header matching `CRON_SECRET`.
 
 Example:
 ```bash
 curl "https://your-project.vercel.app/api/daily-summary?secret=YOUR_SECRET"
+```
+
+### `GET /api/tomorrow-summary`
+
+Triggers tomorrow's summary for all users (tomorrow's events).
+
+**Authentication:** Requires `secret` query parameter or `x-cron-secret` header matching `CRON_SECRET`.
+
+Example:
+```bash
+curl "https://your-project.vercel.app/api/tomorrow-summary?secret=YOUR_SECRET"
 ```
 
 ### `POST /api/webhook`
@@ -174,6 +193,7 @@ Receives Telegram bot updates (commands from users).
 - `/start` - Welcome message
 - `/help` - Show available commands
 - `/summary` - Get today's calendar summary
+- `/tomorrow` - Get tomorrow's calendar summary
 
 This endpoint is automatically called by Telegram when users interact with the bot in production.
 

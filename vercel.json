@@ -12,6 +12,10 @@
       "dest": "/api/daily-summary.ts"
     },
     {
+      "src": "/api/tomorrow-summary",
+      "dest": "/api/tomorrow-summary.ts"
+    },
+    {
       "src": "/api/webhook",
       "dest": "/api/webhook.ts"
     }

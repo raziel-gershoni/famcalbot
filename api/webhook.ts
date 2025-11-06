@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handleStartCommand, handleHelpCommand, handleSummaryCommand } from '../src/services/telegram';
+import { handleStartCommand, handleHelpCommand, handleSummaryCommand, handleTomorrowCommand } from '../src/services/telegram';
 
 /**
  * Telegram Webhook Handler
@@ -41,6 +41,8 @@ export default async function handler(
       await handleHelpCommand(chatId, userId);
     } else if (text === '/summary') {
       await handleSummaryCommand(chatId, userId);
+    } else if (text === '/tomorrow') {
+      await handleTomorrowCommand(chatId, userId);
     }
     // Ignore other messages
 

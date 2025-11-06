@@ -1,6 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { getUserByTelegramId, getWhitelistedIds } from '../config/users';
-import { fetchTodayEvents } from './calendar';
+import { fetchTodayEvents, fetchTomorrowEvents } from './calendar';
 import { generateSummary } from './claude';
 
 let bot: TelegramBot | null = null;
@@ -63,7 +63,7 @@ export async function handleStartCommand(chatId: number, userId: number): Promis
 
   await getBot().sendMessage(
     chatId,
-    `Hello ${name}! I'm your family calendar bot. I'll send you daily summaries at 7 AM.\n\nCommands:\n/summary - Get today's calendar summary\n/help - Show this help message`
+    `Hello ${name}! I'm your family calendar bot. I'll send you daily summaries at 7 AM.\n\nCommands:\n/summary - Get today's calendar summary\n/tomorrow - Get tomorrow's calendar summary\n/help - Show this help message`
   );
 }
 
@@ -78,7 +78,7 @@ export async function handleHelpCommand(chatId: number, userId: number): Promise
 
   await getBot().sendMessage(
     chatId,
-    `Available commands:\n/start - Welcome message\n/summary - Get today's calendar summary\n/help - Show this help`
+    `Available commands:\n/start - Welcome message\n/summary - Get today's calendar summary\n/tomorrow - Get tomorrow's calendar summary\n/help - Show this help`
   );
 }
 
@@ -92,6 +92,18 @@ export async function handleSummaryCommand(chatId: number, userId: number): Prom
   }
 
   await sendDailySummaryToUser(userId);
+}
+
+/**
+ * Handle /tomorrow command
+ */
+export async function handleTomorrowCommand(chatId: number, userId: number): Promise<void> {
+  if (!isUserAuthorized(userId)) {
+    await getBot().sendMessage(chatId, 'Sorry, you are not authorized to use this bot.');
+    return;
+  }
+
+  await sendTomorrowSummaryToUser(userId);
 }
 
 /**
@@ -194,5 +206,76 @@ export async function sendDailySummaryToAll(): Promise<void> {
     }
   } catch (error) {
     console.error('Failed to generate summary for all users:', error);
+  }
+}
+
+/**
+ * Send tomorrow's summary to a specific user
+ */
+export async function sendTomorrowSummaryToUser(userId: number): Promise<void> {
+  const user = getUserByTelegramId(userId);
+  if (!user) {
+    console.error(`User with Telegram ID ${userId} not found`);
+    return;
+  }
+
+  const botInstance = getBot();
+
+  try {
+    await botInstance.sendMessage(userId, 'Fetching tomorrow\'s calendar...');
+
+    // Fetch calendar events for tomorrow
+    const events = await fetchTomorrowEvents(user.googleRefreshToken, user.calendars);
+
+    // Generate summary with Claude (personalized for this user)
+    const summary = await generateSummary(events, user.name, user.primaryCalendar);
+
+    // Send personalized message
+    const message = `🌙 Tomorrow's Schedule\n\n${summary}`;
+    await botInstance.sendMessage(userId, message);
+  } catch (error) {
+    console.error(`Error sending tomorrow's summary to user ${userId}:`, error);
+    await botInstance.sendMessage(
+      userId,
+      'Sorry, there was an error fetching tomorrow\'s calendar. Please try again later.'
+    );
+  }
+}
+
+/**
+ * Send tomorrow's summary to all users
+ * Generates personalized summary for each user based on their primary calendar
+ */
+export async function sendTomorrowSummaryToAll(): Promise<void> {
+  const whitelistedIds = getWhitelistedIds();
+  const botInstance = getBot();
+
+  try {
+    // Get the first user to fetch calendars (they all share the same calendars)
+    const firstUser = getUserByTelegramId(whitelistedIds[0]);
+    if (!firstUser) {
+      console.error('No users configured');
+      return;
+    }
+
+    // Fetch calendar events for tomorrow once (shared by all users)
+    const events = await fetchTomorrowEvents(firstUser.googleRefreshToken, firstUser.calendars);
+
+    // Send to each user with personalized summary
+    for (const userId of whitelistedIds) {
+      try {
+        const user = getUserByTelegramId(userId);
+        if (!user) continue;
+
+        // Generate personalized summary for this specific user
+        const summary = await generateSummary(events, user.name, user.primaryCalendar);
+        const message = `🌙 Tomorrow's Schedule\n\n${summary}`;
+        await botInstance.sendMessage(userId, message);
+      } catch (error) {
+        console.error(`Failed to send tomorrow's summary to user ${userId}:`, error);
+      }
+    }
+  } catch (error) {
+    console.error('Failed to generate tomorrow\'s summary for all users:', error);
   }
 }
