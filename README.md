@@ -22,9 +22,12 @@ famcalbot/
 │   │   ├── claude.ts         # Claude AI integration
 │   │   └── telegram.ts       # Telegram bot handlers
 │   ├── types.ts              # TypeScript types
-│   └── index.ts              # Local dev entry point
+│   └── index.ts              # Local dev entry point (polling mode)
 ├── api/
-│   └── daily-summary.ts      # Vercel serverless function
+│   ├── daily-summary.ts      # Vercel cron endpoint
+│   └── webhook.ts            # Telegram webhook endpoint
+├── scripts/
+│   └── setup-webhook.ts      # Webhook registration tool
 ├── .env.example              # Environment variables template
 ├── vercel.json               # Vercel deployment config
 └── package.json
@@ -94,6 +97,8 @@ Test commands:
 - `/summary` - Get today's calendar summary
 - `/help` - Show available commands
 
+**Note:** Local development uses polling mode. Make sure the webhook is not set (see webhook setup below).
+
 ### 6. Deploy to Vercel
 
 1. Install Vercel CLI:
@@ -112,6 +117,26 @@ vercel
 
 4. Note your deployment URL: `https://your-project.vercel.app`
 
+5. **Register webhook with Telegram:**
+
+Once deployed, register the webhook URL so Telegram sends updates to your Vercel function:
+
+```bash
+npm run setup-webhook set https://your-project.vercel.app/api/webhook
+```
+
+To check current webhook status:
+```bash
+npm run setup-webhook get
+```
+
+To delete webhook (for local development):
+```bash
+npm run setup-webhook delete
+```
+
+**Important:** Vercel uses webhooks for bot commands. Local development uses polling. You cannot run both at the same time. Delete the webhook when running locally, and set it when deploying to production.
+
 ### 7. Set Up Cron Job
 
 1. Go to [cron-job.org](https://cron-job.org)
@@ -126,7 +151,7 @@ vercel
 - `/summary` - Get calendar summary for today
 - `/help` - Show available commands
 
-## API Endpoint
+## API Endpoints
 
 ### `GET /api/daily-summary`
 
@@ -138,6 +163,19 @@ Example:
 ```bash
 curl "https://your-project.vercel.app/api/daily-summary?secret=YOUR_SECRET"
 ```
+
+### `POST /api/webhook`
+
+Receives Telegram bot updates (commands from users).
+
+**Authentication:** Handled by Telegram's webhook system. Only registered webhooks from Telegram servers are accepted.
+
+**Supported commands:**
+- `/start` - Welcome message
+- `/help` - Show available commands
+- `/summary` - Get today's calendar summary
+
+This endpoint is automatically called by Telegram when users interact with the bot in production.
 
 ## Security
 

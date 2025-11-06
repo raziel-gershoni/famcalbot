@@ -43,65 +43,86 @@ export function getBot(): TelegramBot {
 }
 
 /**
- * Setup bot command handlers
+ * Check if user is authorized
+ */
+export function isUserAuthorized(userId: number): boolean {
+  return getWhitelistedIds().includes(userId);
+}
+
+/**
+ * Handle /start command
+ */
+export async function handleStartCommand(chatId: number, userId: number): Promise<void> {
+  if (!isUserAuthorized(userId)) {
+    await getBot().sendMessage(chatId, 'Sorry, you are not authorized to use this bot.');
+    return;
+  }
+
+  const user = getUserByTelegramId(userId);
+  const name = user?.name || 'there';
+
+  await getBot().sendMessage(
+    chatId,
+    `Hello ${name}! I'm your family calendar bot. I'll send you daily summaries at 7 AM.\n\nCommands:\n/summary - Get today's calendar summary\n/help - Show this help message`
+  );
+}
+
+/**
+ * Handle /help command
+ */
+export async function handleHelpCommand(chatId: number, userId: number): Promise<void> {
+  if (!isUserAuthorized(userId)) {
+    await getBot().sendMessage(chatId, 'Sorry, you are not authorized to use this bot.');
+    return;
+  }
+
+  await getBot().sendMessage(
+    chatId,
+    `Available commands:\n/start - Welcome message\n/summary - Get today's calendar summary\n/help - Show this help`
+  );
+}
+
+/**
+ * Handle /summary command
+ */
+export async function handleSummaryCommand(chatId: number, userId: number): Promise<void> {
+  if (!isUserAuthorized(userId)) {
+    await getBot().sendMessage(chatId, 'Sorry, you are not authorized to use this bot.');
+    return;
+  }
+
+  await sendDailySummaryToUser(userId);
+}
+
+/**
+ * Setup bot command handlers for polling mode
  */
 function setupHandlers(bot: TelegramBot) {
-  const whitelistedIds = getWhitelistedIds();
-
-  // Middleware to check if user is whitelisted
-  bot.on('message', async (msg) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from?.id;
-
-    if (!userId || !whitelistedIds.includes(userId)) {
-      await bot.sendMessage(chatId, 'Sorry, you are not authorized to use this bot.');
-      return;
-    }
-  });
-
   // /start command
   bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from?.id;
-
-    if (!userId || !whitelistedIds.includes(userId)) {
-      return;
+    if (userId) {
+      await handleStartCommand(chatId, userId);
     }
-
-    const user = getUserByTelegramId(userId);
-    const name = user?.name || 'there';
-
-    await bot.sendMessage(
-      chatId,
-      `Hello ${name}! I'm your family calendar bot. I'll send you daily summaries at 7 AM.\n\nCommands:\n/summary - Get today's calendar summary\n/help - Show this help message`
-    );
   });
 
   // /help command
   bot.onText(/\/help/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from?.id;
-
-    if (!userId || !whitelistedIds.includes(userId)) {
-      return;
+    if (userId) {
+      await handleHelpCommand(chatId, userId);
     }
-
-    await bot.sendMessage(
-      chatId,
-      `Available commands:\n/start - Welcome message\n/summary - Get today's calendar summary\n/help - Show this help`
-    );
   });
 
   // /summary command
   bot.onText(/\/summary/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from?.id;
-
-    if (!userId || !whitelistedIds.includes(userId)) {
-      return;
+    if (userId) {
+      await handleSummaryCommand(chatId, userId);
     }
-
-    await sendDailySummaryToUser(userId);
   });
 }
 
