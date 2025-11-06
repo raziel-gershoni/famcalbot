@@ -231,7 +231,7 @@ export async function sendTomorrowSummaryToUser(userId: number): Promise<void> {
     const summary = await generateSummary(events, user.name, user.primaryCalendar);
 
     // Send personalized message
-    const message = `🌙 לוח מחר\n\n${summary}`;
+    const message = `${user.eveningGreeting}\n\n${summary}`;
     await botInstance.sendMessage(userId, message);
   } catch (error) {
     console.error(`Error sending tomorrow's summary to user ${userId}:`, error);
@@ -269,7 +269,7 @@ export async function sendTomorrowSummaryToAll(): Promise<void> {
 
         // Generate personalized summary for this specific user
         const summary = await generateSummary(events, user.name, user.primaryCalendar);
-        const message = `🌙 לוח מחר\n\n${summary}`;
+        const message = `${user.eveningGreeting}\n\n${summary}`;
         await botInstance.sendMessage(userId, message);
       } catch (error) {
         console.error(`Failed to send tomorrow's summary to user ${userId}:`, error);
