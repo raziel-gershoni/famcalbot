@@ -227,8 +227,12 @@ export async function sendTomorrowSummaryToUser(userId: number): Promise<void> {
     // Fetch calendar events for tomorrow
     const events = await fetchTomorrowEvents(user.googleRefreshToken, user.calendars);
 
-    // Generate summary with Claude (personalized for this user)
-    const summary = await generateSummary(events, user.name, user.primaryCalendar);
+    // Calculate tomorrow's date
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Generate summary with Claude (personalized for this user, with tomorrow's date)
+    const summary = await generateSummary(events, user.name, user.primaryCalendar, tomorrow);
 
     // Send personalized message
     const message = `${user.eveningGreeting}\n\n${summary}`;
@@ -261,14 +265,18 @@ export async function sendTomorrowSummaryToAll(): Promise<void> {
     // Fetch calendar events for tomorrow once (shared by all users)
     const events = await fetchTomorrowEvents(firstUser.googleRefreshToken, firstUser.calendars);
 
+    // Calculate tomorrow's date
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
     // Send to each user with personalized summary
     for (const userId of whitelistedIds) {
       try {
         const user = getUserByTelegramId(userId);
         if (!user) continue;
 
-        // Generate personalized summary for this specific user
-        const summary = await generateSummary(events, user.name, user.primaryCalendar);
+        // Generate personalized summary for this specific user (with tomorrow's date)
+        const summary = await generateSummary(events, user.name, user.primaryCalendar, tomorrow);
         const message = `${user.eveningGreeting}\n\n${summary}`;
         await botInstance.sendMessage(userId, message);
       } catch (error) {

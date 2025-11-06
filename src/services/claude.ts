@@ -9,9 +9,8 @@ const anthropic = new Anthropic({
 /**
  * Get Hebrew date information and check if today is Rosh Chodesh
  */
-function getHebrewDateInfo(): { hebrewDate: string; isRoshChodesh: boolean; hebrewDateFormatted: string } {
-  const now = new Date();
-  const hdate = new HDate(now);
+function getHebrewDateInfo(date: Date = new Date()): { hebrewDate: string; isRoshChodesh: boolean; hebrewDateFormatted: string } {
+  const hdate = new HDate(date);
 
   const day = hdate.getDate();
   const monthName = hdate.getMonthName('h'); // Hebrew month name
@@ -33,16 +32,16 @@ function getHebrewDateInfo(): { hebrewDate: string; isRoshChodesh: boolean; hebr
 export async function generateSummary(
   events: CalendarEvent[],
   userName: string,
-  primaryCalendar: string
+  primaryCalendar: string,
+  date: Date = new Date()
 ): Promise<string> {
   if (events.length === 0) {
     return "אין לך אירועים מתוכננים להיום. תהנה מיום פנוי!";
   }
 
   // Get Hebrew date and Rosh Chodesh information
-  const { hebrewDate, isRoshChodesh, hebrewDateFormatted } = getHebrewDateInfo();
-  const today = new Date();
-  const gregorianDate = today.toLocaleDateString('en-US', {
+  const { hebrewDate, isRoshChodesh, hebrewDateFormatted } = getHebrewDateInfo(date);
+  const gregorianDate = date.toLocaleDateString('en-US', {
     timeZone: 'Asia/Jerusalem',
     weekday: 'long',
     year: 'numeric',
