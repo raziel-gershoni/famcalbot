@@ -110,6 +110,7 @@ Generate a personalized daily schedule summary in Hebrew.
 - Add ⚠️ for unusual changes, ⭐ for Rosh Chodesh dismissals
 - Flag conflicts when multiple finish at same time
 - Be concise and factual in Hebrew
+- **IMPORTANT: Always display Hebrew date using Gematria (Hebrew numerals) not Arabic numbers**
 
 ---
 
