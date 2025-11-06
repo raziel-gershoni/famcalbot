@@ -17,7 +17,7 @@ const TELEGRAM_API_BASE = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
  */
 function telegramRequest(endpoint: string, data?: any): Promise<any> {
   return new Promise((resolve, reject) => {
-    const url = new URL(endpoint, TELEGRAM_API_BASE);
+    const url = `${TELEGRAM_API_BASE}${endpoint}`;
     const options = {
       method: data ? 'POST' : 'GET',
       headers: {
