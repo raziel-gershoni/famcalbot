@@ -63,7 +63,7 @@ export async function handleStartCommand(chatId: number, userId: number): Promis
 
   await getBot().sendMessage(
     chatId,
-    `Hello ${name}! I'm your family calendar bot. I'll send you daily summaries at 7 AM.\n\nCommands:\n/summary - Get today's calendar summary\n/tomorrow - Get tomorrow's calendar summary\n/help - Show this help message`
+    `Hello ${name}! 👋\n\nI'm your family calendar bot. I'll send you personalized daily summaries automatically:\n• Morning at 7 AM (today's schedule)\n• Evening (tomorrow's schedule)\n\nYou can also request summaries anytime with /summary or /tomorrow.\n\nNeed help? Use /help to see all commands.`
   );
 }
 
@@ -78,7 +78,7 @@ export async function handleHelpCommand(chatId: number, userId: number): Promise
 
   await getBot().sendMessage(
     chatId,
-    `Available commands:\n/start - Welcome message\n/summary - Get today's calendar summary\n/tomorrow - Get tomorrow's calendar summary\n/help - Show this help`
+    `📋 Available Commands:\n\n/summary - Get today's calendar summary\n/tomorrow - Get tomorrow's calendar summary\n/help - Show this help message\n/start - About this bot\n\nYou'll also receive automatic summaries:\n• Morning at 7 AM (today)\n• Evening (tomorrow)`
   );
 }
 
@@ -231,7 +231,7 @@ export async function sendTomorrowSummaryToUser(userId: number): Promise<void> {
     const summary = await generateSummary(events, user.name, user.primaryCalendar);
 
     // Send personalized message
-    const message = `🌙 Tomorrow's Schedule\n\n${summary}`;
+    const message = `🌙 לוח מחר\n\n${summary}`;
     await botInstance.sendMessage(userId, message);
   } catch (error) {
     console.error(`Error sending tomorrow's summary to user ${userId}:`, error);
@@ -269,7 +269,7 @@ export async function sendTomorrowSummaryToAll(): Promise<void> {
 
         // Generate personalized summary for this specific user
         const summary = await generateSummary(events, user.name, user.primaryCalendar);
-        const message = `🌙 Tomorrow's Schedule\n\n${summary}`;
+        const message = `🌙 לוח מחר\n\n${summary}`;
         await botInstance.sendMessage(userId, message);
       } catch (error) {
         console.error(`Failed to send tomorrow's summary to user ${userId}:`, error);
