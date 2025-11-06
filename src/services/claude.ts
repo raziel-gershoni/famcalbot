@@ -39,7 +39,17 @@ export async function generateSummary(
     return "אין לך אירועים מתוכננים להיום. תהנה מיום פנוי!";
   }
 
-  // Get Hebrew date and Rosh Chodesh information
+  // Get current date (today) for comparison
+  const currentDate = new Date();
+  const currentGregorianDate = currentDate.toLocaleDateString('en-US', {
+    timeZone: 'Asia/Jerusalem',
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
+  // Get summary date and Hebrew date information
   const { hebrewDate, isRoshChodesh, hebrewDateFormatted } = getHebrewDateInfo(date);
   const gregorianDate = date.toLocaleDateString('en-US', {
     timeZone: 'Asia/Jerusalem',
@@ -88,7 +98,8 @@ Generate a personalized daily schedule summary in Hebrew.
 
 ## Output Format
 
-**📅 TODAY - [Day], [Gregorian Date] ([Hebrew Date]) - [Regular Schedule/Rosh Chodesh if applicable]**
+**📅 [DAY LABEL] - [Day], [Gregorian Date] ([Hebrew Date]) - [Regular Schedule/Rosh Chodesh if applicable]**
+(Compare current date with summary date, use appropriate label for DAY LABEL)
 
 **Morning Start Times:**
 - HH:MM - [Person] starts ([Location/Activity])
@@ -113,12 +124,13 @@ Generate a personalized daily schedule summary in Hebrew.
 
 ---
 
-**TODAY'S DATE:**
-- Gregorian: ${gregorianDate}
-- Hebrew: ${hebrewDateFormatted}
+**DATE INFORMATION:**
+- Current Date (Today): ${currentGregorianDate}
+- Summary Date: ${gregorianDate}
+- Hebrew Date (Summary): ${hebrewDateFormatted}
 - Rosh Chodesh: ${isRoshChodesh ? 'YES ⭐ - Apply early dismissal (שירה לאה at 13:05)' : 'NO'}
 
-Today's events:
+Events for summary date:
 ${eventsText}
 
 **CRITICAL: Respond in Hebrew only. Write your entire summary in Hebrew.**`;
