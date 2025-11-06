@@ -144,8 +144,8 @@ export async function sendDailySummaryToUser(userId: number): Promise<void> {
     // Fetch calendar events
     const events = await fetchTodayEvents(user.googleRefreshToken, user.calendars);
 
-    // Generate summary with Claude
-    const summary = await generateSummary(events, user.name);
+    // Generate summary with Claude (use 'Family' for consistency)
+    const summary = await generateSummary(events, 'Family');
 
     // Send personalized message
     const message = `${user.greeting}\n\n${summary}`;
