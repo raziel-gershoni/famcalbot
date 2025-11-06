@@ -4,6 +4,7 @@ export interface UserConfig {
   calendars: string[];  // Google Calendar IDs
   greeting: string;
   googleRefreshToken: string;
+  primaryCalendar: string;  // User's personal calendar ID for personalization
 }
 
 export interface CalendarEvent {

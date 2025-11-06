@@ -27,6 +27,7 @@ const allUsers: UserConfig[] = [
     calendars: SHARED_CALENDARS,
     greeting: 'בוקר טוב!',
     googleRefreshToken: SHARED_REFRESH_TOKEN,
+    primaryCalendar: 'raziel@internety.co.il',
   },
   {
     telegramId: 721483494,
@@ -34,6 +35,7 @@ const allUsers: UserConfig[] = [
     calendars: SHARED_CALENDARS,
     greeting: 'בוקר טוב יקירה!',
     googleRefreshToken: SHARED_REFRESH_TOKEN,
+    primaryCalendar: 'yeshua7733@gmail.com',
   },
 ];
 

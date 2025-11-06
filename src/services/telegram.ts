@@ -144,8 +144,8 @@ export async function sendDailySummaryToUser(userId: number): Promise<void> {
     // Fetch calendar events
     const events = await fetchTodayEvents(user.googleRefreshToken, user.calendars);
 
-    // Generate summary with Claude (use 'Family' for consistency)
-    const summary = await generateSummary(events, 'Family');
+    // Generate summary with Claude (personalized for this user)
+    const summary = await generateSummary(events, user.name, user.primaryCalendar);
 
     // Send personalized message
     const message = `${user.greeting}\n\n${summary}`;
@@ -161,7 +161,7 @@ export async function sendDailySummaryToUser(userId: number): Promise<void> {
 
 /**
  * Send daily summary to all users
- * Generates summary once and sends to all users with personalized greetings
+ * Generates personalized summary for each user based on their primary calendar
  */
 export async function sendDailySummaryToAll(): Promise<void> {
   const whitelistedIds = getWhitelistedIds();
@@ -178,15 +178,14 @@ export async function sendDailySummaryToAll(): Promise<void> {
     // Fetch calendar events once (shared by all users)
     const events = await fetchTodayEvents(firstUser.googleRefreshToken, firstUser.calendars);
 
-    // Generate summary once (not user-specific, just the schedule)
-    const summary = await generateSummary(events, 'Family');
-
-    // Send to each user with their personalized greeting
+    // Send to each user with personalized summary
     for (const userId of whitelistedIds) {
       try {
         const user = getUserByTelegramId(userId);
         if (!user) continue;
 
+        // Generate personalized summary for this specific user
+        const summary = await generateSummary(events, user.name, user.primaryCalendar);
         const message = `${user.greeting}\n\n${summary}`;
         await botInstance.sendMessage(userId, message);
       } catch (error) {

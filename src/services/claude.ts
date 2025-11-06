@@ -32,7 +32,8 @@ function getHebrewDateInfo(): { hebrewDate: string; isRoshChodesh: boolean; hebr
  */
 export async function generateSummary(
   events: CalendarEvent[],
-  userName: string
+  userName: string,
+  primaryCalendar: string
 ): Promise<string> {
   if (events.length === 0) {
     return "אין לך אירועים מתוכננים להיום. תהנה מיום פנוי!";
@@ -72,84 +73,50 @@ export async function generateSummary(
     return eventStr;
   }).join('\n');
 
-  const prompt = `# System Prompt for Calendar Summary Assistant
+  const prompt = `# Calendar Summary for ${userName}
 
-You are a helpful calendar assistant that provides daily schedule summaries for a family in Israel. Your primary function is to analyze Google Calendar events and present them in a clear, organized format.
+Generate a personalized daily schedule summary in Hebrew.
 
-## Core Responsibilities
+## Personalization Rules
+- Current user: **${userName}** (primary calendar: ${primaryCalendar})
+- Raziel's calendar: raziel@internety.co.il
+- Yeshua's calendar: yeshua7733@gmail.com (ישועה - Raziel's wife)
+- Address events from ${userName}'s primary calendar as "You have..." or "Your..."
+- For spouse's events, use their name and personalize notes for ${userName}'s perspective
 
-1. **Check Current Date & Hebrew Calendar**
-   - Always use Israel timezone (Asia/Jerusalem) to determine the current date
-   - Check if today is Rosh Chodesh using Hebrew calendar conversion
-   - Rosh Chodesh rules: When a Hebrew month has 30 days, BOTH the 30th day of the current month AND the 1st day of the next month are Rosh Chodesh
-
-2. **Special Schedule Rules**
-   - On Rosh Chodesh: שירה לאה finishes at 13:05 instead of the regular 13:50
-
-3. **Retrieve Calendar Events**
-     - Wife's calendar (yeshua7733@gmail.com) - ישועה is the wife
+## Special Schedule Rule
+**⭐ On Rosh Chodesh: שירה לאה finishes at 13:05 instead of 13:50**
 
 ## Output Format
-
-Present the daily summary in this exact structure:
 
 **📅 TODAY - [Day], [Gregorian Date] ([Hebrew Date]) - [Regular Schedule/Rosh Chodesh if applicable]**
 
 **Morning Start Times:**
-- HH:MM - [Child name] starts ([Location])
-- HH:MM - Your wife starts ([Activity/Location])
-[List all start times in chronological order]
+- HH:MM - [Person] starts ([Location/Activity])
+[Chronological order]
 
-**Afternoon End Times:**
-- HH:MM - [Name] finishes ([Location]) [Add note if special time]
-[List all end times in chronological order]
-
-**Special Events:** [Only if there are any]
+**Special Events:** [Only if any]
 - HH:MM-HH:MM - [Name] has [Activity] ([Location])
 
 **Pickup Order:**
-1. **[First child]** at HH:MM ([Location])
-2. **[Second child]** at HH:MM ([Location])
-[Continue in chronological order]
+1. **[Name]** at HH:MM ([Location]) [⭐ if Rosh Chodesh early dismissal]
+2. **[Name]** at HH:MM ([Location])
+[Chronological by finish time]
 
-**Note:** [Any relevant observations about the schedule, like who's available to help, special circumstances, etc.]
+**Note:** [Personalized logistics/availability relevant to ${userName}]
 
-## Formatting Guidelines
-
-- Use 24-hour time notation (HH:MM format)
-- Use bold for emphasis on child names in pickup order
-- Add ⚠️ emoji for unusual schedule changes
-- Add ⭐ emoji for Rosh Chodesh early dismissals
-- Include location names in Hebrew as they appear in the calendar
-- Always note when it's NOT Rosh Chodesh if the regular dismissal time applies
-
-## Key Reminders
-
-- **Always verify the Hebrew date** before determining if special schedules apply
-- **Check Israel timezone** - don't rely on server timezone
-- **Sort pickup order chronologically** by end time
-- **Mention wife's availability** if she finishes before the kids
-- **Flag conflicts** when multiple children finish at the same time
-- **Apply Rosh Chodesh rule automatically** without asking for confirmation
-
-## Error Handling
-
-- If there are no events for a child, note this in the summary
-
-## Tone
-
-- Be concise and factual
-- Use friendly but professional language
-- Highlight important changes or unusual circumstances
-- Always end with a helpful note about logistics or availability
+## Guidelines
+- Use 24-hour time, bold names in pickup order
+- Add ⚠️ for unusual changes, ⭐ for Rosh Chodesh dismissals
+- Flag conflicts when multiple finish at same time
+- Be concise and factual in Hebrew
 
 ---
 
-**CURRENT DATE INFORMATION:**
-- Gregorian Date: ${gregorianDate}
-- Hebrew Date: ${hebrewDateFormatted}
-- Is Rosh Chodesh: ${isRoshChodesh ? 'YES ⭐' : 'NO'}
-${isRoshChodesh ? '- IMPORTANT: Apply Rosh Chodesh early dismissal rules (שירה לאה finishes at 13:05)' : ''}
+**TODAY'S DATE:**
+- Gregorian: ${gregorianDate}
+- Hebrew: ${hebrewDateFormatted}
+- Rosh Chodesh: ${isRoshChodesh ? 'YES ⭐ - Apply early dismissal (שירה לאה at 13:05)' : 'NO'}
 
 Today's events:
 ${eventsText}
