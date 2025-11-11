@@ -161,7 +161,7 @@ export async function sendDailySummaryToUser(userId: number): Promise<void> {
 
     // Send personalized message
     const message = `${user.greeting}\n\n${summary}`;
-    await botInstance.sendMessage(userId, message);
+    await botInstance.sendMessage(userId, message, { parse_mode: 'HTML' });
   } catch (error) {
     console.error(`Error sending summary to user ${userId}:`, error);
     await botInstance.sendMessage(
@@ -199,7 +199,7 @@ export async function sendDailySummaryToAll(): Promise<void> {
         // Generate personalized summary for this specific user
         const summary = await generateSummary(events, user.name, user.primaryCalendar);
         const message = `${user.greeting}\n\n${summary}`;
-        await botInstance.sendMessage(userId, message);
+        await botInstance.sendMessage(userId, message, { parse_mode: 'HTML' });
       } catch (error) {
         console.error(`Failed to send summary to user ${userId}:`, error);
       }
@@ -236,7 +236,7 @@ export async function sendTomorrowSummaryToUser(userId: number): Promise<void> {
 
     // Send personalized message
     const message = `${user.eveningGreeting}\n\n${summary}`;
-    await botInstance.sendMessage(userId, message);
+    await botInstance.sendMessage(userId, message, { parse_mode: 'HTML' });
   } catch (error) {
     console.error(`Error sending tomorrow's summary to user ${userId}:`, error);
     await botInstance.sendMessage(
@@ -278,7 +278,7 @@ export async function sendTomorrowSummaryToAll(): Promise<void> {
         // Generate personalized summary for this specific user (with tomorrow's date)
         const summary = await generateSummary(events, user.name, user.primaryCalendar, tomorrow);
         const message = `${user.eveningGreeting}\n\n${summary}`;
-        await botInstance.sendMessage(userId, message);
+        await botInstance.sendMessage(userId, message, { parse_mode: 'HTML' });
       } catch (error) {
         console.error(`Failed to send tomorrow's summary to user ${userId}:`, error);
       }

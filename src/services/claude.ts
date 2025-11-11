@@ -121,6 +121,7 @@ Generate a personalized daily schedule summary in Hebrew.
 - Flag conflicts when multiple finish at same time
 - Be concise and factual in Hebrew
 - **IMPORTANT: Always display Hebrew date using Gematria (Hebrew numerals) not Arabic numbers**
+- **FORMATTING: Use Telegram HTML tags - <b>bold</b>, <i>italic</i>, <u>underline</u>**
 
 ---
 
