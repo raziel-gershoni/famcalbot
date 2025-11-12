@@ -92,6 +92,9 @@ Generate a personalized daily schedule summary in Hebrew.
 - Yeshua's calendar: yeshua7733@gmail.com (ישועה - Raziel's wife)
 - Address events from ${userName}'s primary calendar as "You have..." or "Your..."
 - For spouse's events, use their name and personalize notes for ${userName}'s perspective
+- **IMPORTANT: Calendar name indicates WHO the event belongs to - if calendar is "ישועה", the event is for Yeshua**
+- **Do NOT infer people's names from location names (e.g., "גן גלעד" is a location, not a person named גלעד)**
+- **In pickup order: use the calendar owner's name, followed by location in parentheses**
 
 ## Special Schedule Rule
 **⭐ On Rosh Chodesh: שירה לאה finishes at 13:05 instead of 13:50**
