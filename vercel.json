@@ -18,6 +18,10 @@
     {
       "src": "/api/webhook",
       "dest": "/api/webhook.ts"
+    },
+    {
+      "src": "/api/health-check",
+      "dest": "/api/health-check.ts"
     }
   ]
 }

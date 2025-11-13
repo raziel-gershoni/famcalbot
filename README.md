@@ -152,6 +152,12 @@ npm run setup-webhook delete
    - Schedule: Set your preferred evening time (e.g., `0 20 * * *` for 8:00 PM)
    - Timezone: Asia/Jerusalem
 
+**Health Check (Token monitoring):**
+   - URL: `https://your-project.vercel.app/api/health-check?secret=YOUR_CRON_SECRET`
+   - Schedule: `0 6 * * *` (daily at 6:00 AM, before morning summary)
+   - Timezone: Asia/Jerusalem
+   - Alerts admin via Telegram if Google token is invalid
+
 ## Commands
 
 - `/start` - Welcome message and help
@@ -181,6 +187,19 @@ Triggers tomorrow's summary for all users (tomorrow's events).
 Example:
 ```bash
 curl "https://your-project.vercel.app/api/tomorrow-summary?secret=YOUR_SECRET"
+```
+
+### `GET /api/health-check`
+
+Tests Google Calendar token validity and alerts admin if broken.
+
+**Authentication:** Requires `secret` query parameter or `x-cron-secret` header matching `CRON_SECRET`.
+
+**Purpose:** Run daily (e.g., 6 AM) to proactively detect token issues before users notice.
+
+Example:
+```bash
+curl "https://your-project.vercel.app/api/health-check?secret=YOUR_SECRET"
 ```
 
 ### `POST /api/webhook`

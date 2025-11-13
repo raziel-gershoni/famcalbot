@@ -1,7 +1,9 @@
 import { google } from 'googleapis';
 import { CalendarEvent } from '../types';
+import { getBot } from './telegram';
 
 const TIMEZONE = 'Asia/Jerusalem';
+const ADMIN_USER_ID = 762715667; // Raziel's Telegram ID for alerts
 
 /**
  * Fetch today's events from Google Calendar for a user
@@ -64,6 +66,27 @@ export async function fetchTodayEvents(
       }
     } catch (error) {
       console.error(`Error fetching calendar ${calendarId}:`, error);
+
+      // Alert admin if it's a token issue
+      if (error instanceof Error && error.message.includes('invalid_grant')) {
+        try {
+          const bot = getBot();
+          await bot.sendMessage(
+            ADMIN_USER_ID,
+            '🚨 <b>URGENT: Google Calendar Token Expired!</b>\n\n' +
+            'The Google refresh token is no longer valid.\n\n' +
+            '<b>To fix:</b>\n' +
+            '1. Run: <code>npm run get-google-token</code>\n' +
+            '2. Update GOOGLE_REFRESH_TOKEN in .env and Vercel\n' +
+            '3. Redeploy\n\n' +
+            `Failed calendar: ${calendarId}`,
+            { parse_mode: 'HTML' }
+          );
+        } catch (alertError) {
+          console.error('Failed to send admin alert:', alertError);
+        }
+      }
+
       // Continue with other calendars even if one fails
     }
   }
@@ -138,6 +161,27 @@ export async function fetchTomorrowEvents(
       }
     } catch (error) {
       console.error(`Error fetching calendar ${calendarId}:`, error);
+
+      // Alert admin if it's a token issue
+      if (error instanceof Error && error.message.includes('invalid_grant')) {
+        try {
+          const bot = getBot();
+          await bot.sendMessage(
+            ADMIN_USER_ID,
+            '🚨 <b>URGENT: Google Calendar Token Expired!</b>\n\n' +
+            'The Google refresh token is no longer valid.\n\n' +
+            '<b>To fix:</b>\n' +
+            '1. Run: <code>npm run get-google-token</code>\n' +
+            '2. Update GOOGLE_REFRESH_TOKEN in .env and Vercel\n' +
+            '3. Redeploy\n\n' +
+            `Failed calendar: ${calendarId}`,
+            { parse_mode: 'HTML' }
+          );
+        } catch (alertError) {
+          console.error('Failed to send admin alert:', alertError);
+        }
+      }
+
       // Continue with other calendars even if one fails
     }
   }
