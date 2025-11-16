@@ -1,9 +1,34 @@
 import { google } from 'googleapis';
 import { CalendarEvent } from '../types';
 import { getBot } from './telegram';
+import { fromZonedTime } from 'date-fns-tz';
+import { addDays, format } from 'date-fns';
 
 const TIMEZONE = 'Asia/Jerusalem';
 const ADMIN_USER_ID = 762715667; // Raziel's Telegram ID for alerts
+
+/**
+ * Get start and end of day in Israel timezone as ISO strings
+ * Handles DST automatically using date-fns-tz
+ */
+function getDayBoundaries(daysOffset: number = 0): { start: string; end: string } {
+  // Get current date in Israel timezone
+  const nowInIsrael = new Date(new Date().toLocaleString('en-US', { timeZone: TIMEZONE }));
+
+  // Add offset for tomorrow, day after, etc.
+  const targetDate = addDays(nowInIsrael, daysOffset);
+  const dateStr = format(targetDate, 'yyyy-MM-dd');
+
+  // Convert Israel timezone midnight to UTC (handles DST automatically)
+  // fromZonedTime converts a date in a specific timezone to UTC
+  const start = fromZonedTime(`${dateStr} 00:00:00`, TIMEZONE);
+  const end = fromZonedTime(`${dateStr} 23:59:59`, TIMEZONE);
+
+  return {
+    start: start.toISOString(),
+    end: end.toISOString()
+  };
+}
 
 /**
  * Fetch today's events from Google Calendar for a user
@@ -24,13 +49,8 @@ export async function fetchTodayEvents(
 
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
-  // Get today's date range in user's timezone
-  const now = new Date();
-  const startOfDay = new Date(now.toLocaleString('en-US', { timeZone: TIMEZONE }));
-  startOfDay.setHours(0, 0, 0, 0);
-
-  const endOfDay = new Date(now.toLocaleString('en-US', { timeZone: TIMEZONE }));
-  endOfDay.setHours(23, 59, 59, 999);
+  // Get today's date boundaries in Israel timezone
+  const { start, end } = getDayBoundaries(0);
 
   const allEvents: CalendarEvent[] = [];
 
@@ -45,8 +65,8 @@ export async function fetchTodayEvents(
 
       const response = await calendar.events.list({
         calendarId: calendarId,
-        timeMin: startOfDay.toISOString(),
-        timeMax: endOfDay.toISOString(),
+        timeMin: start,
+        timeMax: end,
         singleEvents: true,
         orderBy: 'startTime',
         timeZone: TIMEZONE,
@@ -116,16 +136,8 @@ export async function fetchTomorrowEvents(
 
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
-  // Get tomorrow's date range in user's timezone
-  const now = new Date();
-  const tomorrow = new Date(now.toLocaleString('en-US', { timeZone: TIMEZONE }));
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
-  const startOfDay = new Date(tomorrow);
-  startOfDay.setHours(0, 0, 0, 0);
-
-  const endOfDay = new Date(tomorrow);
-  endOfDay.setHours(23, 59, 59, 999);
+  // Get tomorrow's date boundaries in Israel timezone
+  const { start, end } = getDayBoundaries(1); // 1 day offset for tomorrow
 
   const allEvents: CalendarEvent[] = [];
 
@@ -140,8 +152,8 @@ export async function fetchTomorrowEvents(
 
       const response = await calendar.events.list({
         calendarId: calendarId,
-        timeMin: startOfDay.toISOString(),
-        timeMax: endOfDay.toISOString(),
+        timeMin: start,
+        timeMax: end,
         singleEvents: true,
         orderBy: 'startTime',
         timeZone: TIMEZONE,

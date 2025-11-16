@@ -11,15 +11,22 @@
     "get-google-token": "tsx scripts/get-google-token.ts",
     "setup-webhook": "tsx scripts/setup-webhook.ts"
   },
-  "keywords": ["telegram", "bot", "calendar", "ai"],
+  "keywords": [
+    "telegram",
+    "bot",
+    "calendar",
+    "ai"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
-    "node-telegram-bot-api": "^0.66.0",
-    "googleapis": "^164.1.0",
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
     "dotenv": "^17.2.3",
-    "hebcal": "^2.3.2"
+    "googleapis": "^164.1.0",
+    "hebcal": "^2.3.2",
+    "node-telegram-bot-api": "^0.66.0"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",
