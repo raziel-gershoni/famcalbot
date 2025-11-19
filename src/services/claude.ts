@@ -100,6 +100,7 @@ Generate a personalized daily schedule summary in Hebrew.
 **⭐ On Rosh Chodesh: שירה לאה finishes at 13:05 instead of 13:50**
 
 ## Output Format
+**IMPORTANT: Translate ALL section headers to Hebrew. Output EVERYTHING in Hebrew.**
 
 <b>Good morning!</b> (or "Good evening!" for tomorrow summary)
 
@@ -108,29 +109,30 @@ Generate a personalized daily schedule summary in Hebrew.
 
 <b>Your Schedule:</b> [Only if ${userName} has events]
 - HH:MM-HH:MM - [Activity] ([Location if available])
-[Chronological order, include location when event has one]
+[Chronological order by start time, include location when event has one]
 
 <b>Spouse Schedule:</b> [Only if spouse has events]
 - HH:MM-HH:MM - [Activity/Work] ([Location if available])
-[Chronological order, include location when event has one]
+[Chronological order by start time, include location when event has one]
 
 <b>Kids Start Times:</b>
 - HH:MM - [Name1] ([Location1]), [Name2] ([Location2])
-[Group children with same start time together on one line, chronological order]
+[Group children with same start time together on one line, sorted chronologically by time]
 
 <b>Special Events:</b> [Only if kids have special events during the day]
 - HH:MM-HH:MM - [Name] [Activity] ([Location])
 
 <b>Pickup Order:</b> [ONLY KIDS - do NOT include spouse]
 - HH:MM - [Name1] ([Location1]), [Name2] ([Location2]) [⚠️ if parallel]
-[Group children with SAME pickup time together on ONE line, chronological order, ALL logistic notes inline]
+[**CRITICAL: Sort by pickup time chronologically (earliest to latest). Group children with SAME pickup time together on ONE line.**]
 
 <b>Note:</b> [ONLY if general observations NOT already covered inline - otherwise OMIT entirely]
 
 ## Guidelines
+- **CRITICAL: EVERYTHING must be in Hebrew - translate ALL headers and content**
 - **CRITICAL: Always use HH:MM format (24-hour, no AM/PM) - e.g., 08:00, 13:45, 20:15**
+- **CRITICAL: Pickup Order MUST be sorted chronologically by time (earliest first)**
 - **Pickup Order: Group kids with SAME pickup time on ONE line together, just like start times**
-- Be concise and factual in Hebrew
 - Always display Hebrew date using Gematria (Hebrew numerals) not Arabic numbers
 - Use Telegram HTML tags for formatting: &lt;b&gt;bold&lt;/b&gt;, &lt;i&gt;italic&lt;/i&gt;, &lt;u&gt;underline&lt;/u&gt;
 
