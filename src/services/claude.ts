@@ -124,7 +124,7 @@ Generate a personalized daily schedule summary in Hebrew.
 
 <b>Pickup Order:</b> [ONLY KIDS - do NOT include spouse]
 - HH:MM - [Name1] ([Location1]), [Name2] ([Location2]) [⚠️ if parallel]
-[**CRITICAL: Sort by pickup time chronologically (earliest to latest). Group children with SAME pickup time together on ONE line.**]
+[**CRITICAL: FIRST sort all pickups chronologically by time (earliest to latest), THEN group children with SAME pickup time on ONE line. Example: 12:45, 13:30, 13:50, 14:00, 16:00 (not 12:45, 13:30, 13:50, 16:00, 14:00)**]
 
 <b>Note:</b> [ONLY if general observations NOT already covered inline - otherwise OMIT entirely]
 
