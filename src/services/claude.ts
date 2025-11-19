@@ -101,16 +101,16 @@ Generate a personalized daily schedule summary in Hebrew.
 
 ## Output Format
 
-<b>[Greeting if morning/evening]</b>
+<b>Good morning!</b> (or "Good evening!" for tomorrow summary)
 
 <b>📅 [DAY LABEL] - [Day], [Gregorian Date] ([Hebrew Date]) - [Regular Schedule/Rosh Chodesh if applicable]</b>
 (Compare current date with summary date, use appropriate label for DAY LABEL)
 
-<b>${userName}'s Schedule:</b> [Only if ${userName} has events - translate header to Hebrew using ${userName}'s actual name]
+<b>Your Schedule:</b> [Only if ${userName} has events]
 - HH:MM-HH:MM - [Activity] ([Location if available])
 [Chronological order, include location when event has one]
 
-<b>[Spouse Name]'s Schedule:</b> [Only if spouse has events - translate header using spouse's actual name]
+<b>Spouse Schedule:</b> [Only if spouse has events]
 - HH:MM-HH:MM - [Activity/Work] ([Location if available])
 [Chronological order, include location when event has one]
 
@@ -122,14 +122,14 @@ Generate a personalized daily schedule summary in Hebrew.
 - HH:MM-HH:MM - [Name] [Activity] ([Location])
 
 <b>Pickup Order:</b> [ONLY KIDS - do NOT include spouse]
-1. [Name] at HH:MM ([Location]) [⚠️ inline for parallel pickups, ⭐ for Rosh Chodesh]
-OR if same time: [Name1] ([Location1]), [Name2] ([Location2]) at HH:MM [⚠️ if parallel]
-[Group kids with same pickup time together, chronological order, ALL logistic notes inline]
+- HH:MM - [Name1] ([Location1]), [Name2] ([Location2]) [⚠️ if parallel]
+[Group children with SAME pickup time together on ONE line, chronological order, ALL logistic notes inline]
 
 <b>Note:</b> [ONLY if general observations NOT already covered inline - otherwise OMIT entirely]
 
 ## Guidelines
-- Use 24-hour time format
+- **CRITICAL: Always use HH:MM format (24-hour, no AM/PM) - e.g., 08:00, 13:45, 20:15**
+- **Pickup Order: Group kids with SAME pickup time on ONE line together, just like start times**
 - Be concise and factual in Hebrew
 - Always display Hebrew date using Gematria (Hebrew numerals) not Arabic numbers
 - Use Telegram HTML tags for formatting: &lt;b&gt;bold&lt;/b&gt;, &lt;i&gt;italic&lt;/i&gt;, &lt;u&gt;underline&lt;/u&gt;
