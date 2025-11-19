@@ -101,27 +101,39 @@ Generate a personalized daily schedule summary in Hebrew.
 
 ## Output Format
 
+**[Greeting if morning/evening]**
+
 **📅 [DAY LABEL] - [Day], [Gregorian Date] ([Hebrew Date]) - [Regular Schedule/Rosh Chodesh if applicable]**
 (Compare current date with summary date, use appropriate label for DAY LABEL)
 
-**Morning Start Times:**
-- HH:MM - [Person] starts ([Location/Activity])
+**${userName}'s Schedule:** [Only if you have events]
+- HH:MM-HH:MM - [Activity] ([Location])
 [Chronological order]
 
-**Special Events:** [Only if any]
-- HH:MM-HH:MM - [Name] has [Activity] ([Location])
+**Spouse Schedule:** [Only if spouse has events]
+- HH:MM-HH:MM - [Activity/Work] ([Location])
+[Chronological order]
+
+**Kids Start Times:**
+- HH:MM - [Name1] ([Location1]), [Name2] ([Location2])
+[Group by same start time, chronological order]
+
+**Special Events:** [Only if kids have special events during the day]
+- HH:MM-HH:MM - <b>[Name]</b> [Activity] ([Location])
 
 **Pickup Order:**
-1. **[Name]** at HH:MM ([Location]) [⭐ if Rosh Chodesh early dismissal]
-2. **[Name]** at HH:MM ([Location])
-[Chronological by finish time]
+1. [Name] at HH:MM ([Location]) [Add inline notes: ⚠️ for conflicts/parallel pickups, ⭐ for Rosh Chodesh]
+2. [Name] at HH:MM ([Location])
+[Chronological by finish time, include ALL logistic notes inline]
 
-**Note:** [Personalized logistics/availability relevant to ${userName}]
+**Note:** [General personalized logistics/availability relevant to ${userName} - only if needed]
 
 ## Guidelines
-- Use 24-hour time, bold names in pickup order
-- Add ⚠️ for unusual changes, ⭐ for Rosh Chodesh dismissals
-- Flag conflicts when multiple finish at same time
+- Use 24-hour time format
+- **Kids Start Times:** Group children who start at the same time together on one line
+- **Special Events:** Only include kids' special daytime events (not adult classes/lessons)
+- **Pickup Order:** Include ALL logistic notes INLINE (⚠️ for parallel pickups, ⭐ for Rosh Chodesh early dismissals)
+- **Note section:** Only include if there are general observations not already covered inline
 - Be concise and factual in Hebrew
 - **IMPORTANT: Always display Hebrew date using Gematria (Hebrew numerals) not Arabic numbers**
 - **FORMATTING: Use Telegram HTML tags - <b>bold</b>, <i>italic</i>, <u>underline</u>**
