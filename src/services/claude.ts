@@ -101,42 +101,38 @@ Generate a personalized daily schedule summary in Hebrew.
 
 ## Output Format
 
-**[Greeting if morning/evening]**
+<b>[Greeting if morning/evening]</b>
 
-**📅 [DAY LABEL] - [Day], [Gregorian Date] ([Hebrew Date]) - [Regular Schedule/Rosh Chodesh if applicable]**
+<b>📅 [DAY LABEL] - [Day], [Gregorian Date] ([Hebrew Date]) - [Regular Schedule/Rosh Chodesh if applicable]</b>
 (Compare current date with summary date, use appropriate label for DAY LABEL)
 
-**${userName}'s Schedule:** [Only if you have events]
-- HH:MM-HH:MM - [Activity] ([Location])
-[Chronological order]
+<b>${userName}'s Schedule:</b> [Only if ${userName} has events - translate header to Hebrew using ${userName}'s actual name]
+- HH:MM-HH:MM - [Activity] ([Location if available])
+[Chronological order, include location when event has one]
 
-**Spouse Schedule:** [Only if spouse has events]
-- HH:MM-HH:MM - [Activity/Work] ([Location])
-[Chronological order]
+<b>[Spouse Name]'s Schedule:</b> [Only if spouse has events - translate header using spouse's actual name]
+- HH:MM-HH:MM - [Activity/Work] ([Location if available])
+[Chronological order, include location when event has one]
 
-**Kids Start Times:**
+<b>Kids Start Times:</b>
 - HH:MM - [Name1] ([Location1]), [Name2] ([Location2])
-[Group by same start time, chronological order]
+[Group children with same start time together on one line, chronological order]
 
-**Special Events:** [Only if kids have special events during the day]
-- HH:MM-HH:MM - <b>[Name]</b> [Activity] ([Location])
+<b>Special Events:</b> [Only if kids have special events during the day]
+- HH:MM-HH:MM - [Name] [Activity] ([Location])
 
-**Pickup Order:**
-1. [Name] at HH:MM ([Location]) [Add inline notes: ⚠️ for conflicts/parallel pickups, ⭐ for Rosh Chodesh]
-2. [Name] at HH:MM ([Location])
-[Chronological by finish time, include ALL logistic notes inline]
+<b>Pickup Order:</b> [ONLY KIDS - do NOT include spouse]
+1. [Name] at HH:MM ([Location]) [⚠️ inline for parallel pickups, ⭐ for Rosh Chodesh]
+OR if same time: [Name1] ([Location1]), [Name2] ([Location2]) at HH:MM [⚠️ if parallel]
+[Group kids with same pickup time together, chronological order, ALL logistic notes inline]
 
-**Note:** [General personalized logistics/availability relevant to ${userName} - only if needed]
+<b>Note:</b> [ONLY if general observations NOT already covered inline - otherwise OMIT entirely]
 
 ## Guidelines
 - Use 24-hour time format
-- **Kids Start Times:** Group children who start at the same time together on one line
-- **Special Events:** Only include kids' special daytime events (not adult classes/lessons)
-- **Pickup Order:** Include ALL logistic notes INLINE (⚠️ for parallel pickups, ⭐ for Rosh Chodesh early dismissals)
-- **Note section:** Only include if there are general observations not already covered inline
 - Be concise and factual in Hebrew
-- **IMPORTANT: Always display Hebrew date using Gematria (Hebrew numerals) not Arabic numbers**
-- **FORMATTING: Use Telegram HTML tags - <b>bold</b>, <i>italic</i>, <u>underline</u>**
+- Always display Hebrew date using Gematria (Hebrew numerals) not Arabic numbers
+- Use Telegram HTML tags for formatting: &lt;b&gt;bold&lt;/b&gt;, &lt;i&gt;italic&lt;/i&gt;, &lt;u&gt;underline&lt;/u&gt;
 
 ---
 
