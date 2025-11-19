@@ -123,8 +123,15 @@ Generate a personalized daily schedule summary in Hebrew.
 - HH:MM-HH:MM - [Name] [Activity] ([Location])
 
 <b>Pickup Order:</b> [ONLY KIDS - do NOT include spouse]
-- HH:MM - [Name1] ([Location1]), [Name2] ([Location2]) [⚠️ if parallel]
-[**CRITICAL: FIRST sort all pickups chronologically by time (earliest to latest), THEN group children with SAME pickup time on ONE line. Example: 12:45, 13:30, 13:50, 14:00, 16:00 (not 12:45, 13:30, 13:50, 16:00, 14:00)**]
+
+**ALGORITHM:**
+1. Extract all kid pickup END times from events
+2. Sort times numerically in ascending order (compare as numbers: 13:50 < 14:00 < 16:00)
+3. For each time slot (in sorted order), group all kids with that exact time on one line
+4. Output in this sorted time order with ⚠️ for same-time pickups
+
+- HH:MM - [Name] ([Location])
+- HH:MM - [Name1] ([Location1]), [Name2] ([Location2]) [⚠️ if multiple kids]
 
 <b>Note:</b> [ONLY if general observations NOT already covered inline - otherwise OMIT entirely]
 
