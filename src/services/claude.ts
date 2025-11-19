@@ -124,16 +124,19 @@ Generate a personalized daily schedule summary in Hebrew.
 
 <b>Pickup Order:</b> [ONLY KIDS - do NOT include spouse]
 
+**CRITICAL: ALL kids MUST appear in this section - do NOT put any kid pickups in the note section!**
+
 **ALGORITHM:**
-1. Extract all kid pickup END times from events
-2. Sort times numerically in ascending order (compare as numbers: 13:50 < 14:00 < 16:00)
-3. For each time slot (in sorted order), group all kids with that exact time on one line
+1. Extract ALL kid pickup END times from events (every single kid must be included)
+2. Sort times numerically in ascending order (e.g., 13:50 < 14:00 < 16:00)
+3. For each time slot (in sorted order), list all kids with that exact time on one line
 4. Output in this sorted time order with ⚠️ for same-time pickups
+5. Do NOT skip any kids - ALL must be in this list
 
 - HH:MM - [Name] ([Location])
 - HH:MM - [Name1] ([Location1]), [Name2] ([Location2]) [⚠️ if multiple kids]
 
-<b>Note:</b> [ONLY if general observations NOT already covered inline - otherwise OMIT entirely]
+<b>Note:</b> [ONLY for general observations NOT about pickup times/logistics - otherwise OMIT this section entirely]
 
 ## Guidelines
 - **CRITICAL: EVERYTHING must be in Hebrew - translate ALL headers and content**
