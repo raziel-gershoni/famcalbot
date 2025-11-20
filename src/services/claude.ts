@@ -144,7 +144,7 @@ Events have been pre-categorized into three groups:
 - HH:MM-HH:MM - [Activity] ([Location if available])
 [Chronological order by start time, include location when event has one]
 
-<b>Spouse Schedule:</b> [Only if spouse has events]
+<b>${spouseName} Schedule:</b> [Only if ${spouseName} has events]
 - HH:MM-HH:MM - [Activity/Work] ([Location if available])
 [Chronological order by start time, include location when event has one]
 
