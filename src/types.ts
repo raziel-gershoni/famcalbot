@@ -1,6 +1,7 @@
 export interface UserConfig {
   telegramId: number;
   name: string;
+  spouseName: string;  // Spouse's name for personalization
   calendars: string[];  // Google Calendar IDs to fetch events from
   googleRefreshToken: string;
   primaryCalendar: string;  // User's main personal calendar ID

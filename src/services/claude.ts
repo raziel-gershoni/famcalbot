@@ -34,6 +34,7 @@ export async function generateSummary(
   spouseEvents: CalendarEvent[],
   otherEvents: CalendarEvent[],
   userName: string,
+  spouseName: string,
   primaryCalendar: string,
   date: Date = new Date()
 ): Promise<string> {
@@ -112,14 +113,15 @@ export async function generateSummary(
 
 Generate a personalized daily schedule summary in Hebrew.
 
-## Event Categories
+## Event Categories & Personalization
 Events have been pre-categorized into three groups:
 
 1. **${userName}'s Events** - These are YOUR events (personal and work calendars)
    - Address these as "You have..." or "Your..."
 
-2. **Spouse's Events** - These belong to your spouse
-   - Use spouse's name and personalize for ${userName}'s perspective
+2. **${spouseName}'s Events** - These belong to ${spouseName} (${userName}'s spouse)
+   - Use ${spouseName}'s name when referring to these events
+   - Personalize from ${userName}'s perspective (e.g., "${spouseName} has a meeting at...")
 
 3. **Other Events** - Kids' events and shared family events
    - Infer ownership from calendar display name (e.g., "שירה לאה", "מתניה עדין", etc.)
