@@ -88,7 +88,7 @@ export async function fetchTodayEvents(
     } catch (error) {
       console.error(`Error fetching calendar ${calendarId}:`, error);
 
-      // Alert admin if it's a token issue
+      // Alert admin if it's a token issue and stop processing (all calendars will fail)
       if (error instanceof Error && error.message.includes('invalid_grant')) {
         try {
           const bot = getBot();
@@ -99,16 +99,16 @@ export async function fetchTodayEvents(
             '<b>To fix:</b>\n' +
             '1. Run: <code>npm run get-google-token</code>\n' +
             '2. Update GOOGLE_REFRESH_TOKEN in .env and Vercel\n' +
-            '3. Redeploy\n\n' +
-            `Failed calendar: ${calendarId}`,
+            '3. Redeploy',
             { parse_mode: 'HTML' }
           );
         } catch (alertError) {
           console.error('Failed to send admin alert:', alertError);
         }
+        break; // Stop processing - all calendars will fail with same token
       }
 
-      // Continue with other calendars even if one fails
+      // Continue with other calendars if it's a different error
     }
   }
 
@@ -176,7 +176,7 @@ export async function fetchTomorrowEvents(
     } catch (error) {
       console.error(`Error fetching calendar ${calendarId}:`, error);
 
-      // Alert admin if it's a token issue
+      // Alert admin if it's a token issue and stop processing (all calendars will fail)
       if (error instanceof Error && error.message.includes('invalid_grant')) {
         try {
           const bot = getBot();
@@ -187,16 +187,16 @@ export async function fetchTomorrowEvents(
             '<b>To fix:</b>\n' +
             '1. Run: <code>npm run get-google-token</code>\n' +
             '2. Update GOOGLE_REFRESH_TOKEN in .env and Vercel\n' +
-            '3. Redeploy\n\n' +
-            `Failed calendar: ${calendarId}`,
+            '3. Redeploy',
             { parse_mode: 'HTML' }
           );
         } catch (alertError) {
           console.error('Failed to send admin alert:', alertError);
         }
+        break; // Stop processing - all calendars will fail with same token
       }
 
-      // Continue with other calendars even if one fails
+      // Continue with other calendars if it's a different error
     }
   }
 
