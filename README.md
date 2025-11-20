@@ -1,14 +1,21 @@
 # Family Calendar Telegram Bot
 
-A private Telegram bot that sends daily calendar summaries using Google Calendar and Claude AI.
+A private Telegram bot that sends intelligent, personalized daily calendar summaries using Google Calendar and Claude AI.
 
 ## Features
 
-- Fetches events from multiple Google Calendars
-- Generates natural language summaries using Claude AI
-- Sends personalized daily messages at 7 AM (Asia/Jerusalem timezone)
-- Manual summary via `/summary` command
-- Whitelist-based security (only 2 authorized users)
+- **Multi-calendar support**: Fetches events from multiple Google Calendars with shared authentication
+- **AI-powered summaries**: Natural language summaries in Hebrew using Claude AI (Sonnet 4.5)
+- **Smart event categorization**: Pre-categorizes events by ownership (user, spouse, kids) for accurate attribution
+- **Personalized views**: Each user gets summaries personalized to their calendars with spouse name integration
+- **Time-based greetings**: Contextual greetings (Good morning/afternoon/evening) based on current time
+- **Hebrew date support**: Displays Hebrew dates with Gematria (Hebrew numerals)
+- **Rosh Chodesh awareness**: Automatically adjusts dismissal times for Rosh Chodesh
+- **Intelligent formatting**: Grouped start/pickup times, chronologically sorted, with conflict warnings
+- **Automated scheduling**: Daily morning summaries (7 AM) and optional evening summaries for tomorrow
+- **Proactive monitoring**: Daily health checks with admin alerts for token issues (single alert per error)
+- **Telegram HTML formatting**: Proper bold, italic, and underline rendering
+- **Security**: Whitelist-based access control and CRON secret protection
 
 ## Project Structure
 
@@ -53,8 +60,7 @@ Required variables:
 - `TELEGRAM_BOT_TOKEN` - Get from [@BotFather](https://t.me/botfather)
 - `GOOGLE_CLIENT_ID` - From Google Cloud Console
 - `GOOGLE_CLIENT_SECRET` - From Google Cloud Console
-- `GOOGLE_REFRESH_TOKEN_USER1` - OAuth refresh token for user 1
-- `GOOGLE_REFRESH_TOKEN_USER2` - OAuth refresh token for user 2
+- `GOOGLE_REFRESH_TOKEN` - OAuth refresh token (shared across all calendars)
 - `ANTHROPIC_API_KEY` - From Anthropic Console
 - `CRON_SECRET` - Random secret string for API protection
 
@@ -65,16 +71,28 @@ Edit `src/config/users.ts` to add your Telegram user IDs and calendar settings:
 ```typescript
 {
   telegramId: 123456789,  // Your Telegram user ID
-  name: 'Your Name',
-  calendars: ['primary', 'calendar_id@group.calendar.google.com'],
-  greeting: 'Good morning!',
-  googleRefreshToken: process.env.GOOGLE_REFRESH_TOKEN_USER1 || '',
+  name: 'Raziel',
+  spouseName: 'Yeshua',  // Spouse's name for personalization
+  calendars: SHARED_CALENDARS,  // Array of calendar IDs
+  googleRefreshToken: SHARED_REFRESH_TOKEN,
+  primaryCalendar: 'your-personal@gmail.com',  // Your main personal calendar
+  ownCalendars: [
+    'your-personal@gmail.com',  // Personal calendar
+    'your-work@company.com'      // Work calendar
+  ],
+  spouseCalendars: ['spouse@gmail.com'],
 }
 ```
 
-To get your Telegram user ID:
-1. Message [@userinfobot](https://t.me/userinfobot)
-2. It will reply with your user ID
+**Important fields:**
+- `telegramId`: Your Telegram user ID (get from [@userinfobot](https://t.me/userinfobot))
+- `name`: Your name (used in personalized summaries)
+- `spouseName`: Spouse's name (used when displaying their events)
+- `calendars`: Array of all Google Calendar IDs to fetch events from
+- `primaryCalendar`: Your main personal calendar ID
+- `ownCalendars`: All calendars that belong to you (personal + work)
+- `spouseCalendars`: Calendar IDs belonging to your spouse
+- `googleRefreshToken`: OAuth refresh token (typically shared across all users)
 
 ### 4. Set Up Google Calendar API
 
