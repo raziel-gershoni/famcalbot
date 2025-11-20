@@ -82,6 +82,7 @@ export async function fetchTodayEvents(
           description: event.description || undefined,
           location: event.location || undefined,
           calendarName: calendarName,
+          calendarId: calendarId,
         });
       }
     } catch (error) {
@@ -169,6 +170,7 @@ export async function fetchTomorrowEvents(
           description: event.description || undefined,
           location: event.location || undefined,
           calendarName: calendarName,
+          calendarId: calendarId,
         });
       }
     } catch (error) {

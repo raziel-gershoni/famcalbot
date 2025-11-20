@@ -30,12 +30,16 @@ function getHebrewDateInfo(date: Date = new Date()): { hebrewDate: string; isRos
  * Generate a natural language summary of calendar events using Claude
  */
 export async function generateSummary(
-  events: CalendarEvent[],
+  userEvents: CalendarEvent[],
+  spouseEvents: CalendarEvent[],
+  otherEvents: CalendarEvent[],
   userName: string,
   primaryCalendar: string,
   date: Date = new Date()
 ): Promise<string> {
-  if (events.length === 0) {
+  const allEvents = [...userEvents, ...spouseEvents, ...otherEvents];
+
+  if (allEvents.length === 0) {
     return "אין לך אירועים מתוכננים להיום. תהנה מיום פנוי!";
   }
 
@@ -49,6 +53,22 @@ export async function generateSummary(
     day: 'numeric',
   });
 
+  // Determine greeting based on current time in Asia/Jerusalem
+  const currentHour = parseInt(currentDate.toLocaleTimeString('en-US', {
+    timeZone: 'Asia/Jerusalem',
+    hour: '2-digit',
+    hour12: false
+  }));
+
+  let greeting: string;
+  if (currentHour < 12) {
+    greeting = 'Good morning!';
+  } else if (currentHour < 18) {
+    greeting = 'Good afternoon!';
+  } else {
+    greeting = 'Good evening!';
+  }
+
   // Get summary date and Hebrew date information
   const { hebrewDate, isRoshChodesh, hebrewDateFormatted } = getHebrewDateInfo(date);
   const gregorianDate = date.toLocaleDateString('en-US', {
@@ -60,41 +80,52 @@ export async function generateSummary(
   });
 
   // Format events for the prompt
-  const eventsText = events.map((event, index) => {
-    const startTime = new Date(event.start).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZone: 'Asia/Jerusalem',
-    });
-    const endTime = new Date(event.end).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZone: 'Asia/Jerusalem',
-    });
+  const formatEventList = (events: CalendarEvent[]) => {
+    return events.map((event, index) => {
+      const startTime = new Date(event.start).toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Asia/Jerusalem',
+      });
+      const endTime = new Date(event.end).toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Asia/Jerusalem',
+      });
 
-    let eventStr = `${index + 1}. ${event.summary} (${startTime} - ${endTime}) [${event.calendarName}]`;
-    if (event.location) {
-      eventStr += ` at ${event.location}`;
-    }
-    if (event.description) {
-      eventStr += `\n   Description: ${event.description}`;
-    }
-    return eventStr;
-  }).join('\n');
+      let eventStr = `${index + 1}. ${event.summary} (${startTime} - ${endTime}) [Calendar: ${event.calendarName}]`;
+      if (event.location) {
+        eventStr += ` at ${event.location}`;
+      }
+      if (event.description) {
+        eventStr += `\n   Description: ${event.description}`;
+      }
+      return eventStr;
+    }).join('\n');
+  };
+
+  const userEventsText = userEvents.length > 0 ? formatEventList(userEvents) : 'None';
+  const spouseEventsText = spouseEvents.length > 0 ? formatEventList(spouseEvents) : 'None';
+  const otherEventsText = otherEvents.length > 0 ? formatEventList(otherEvents) : 'None';
 
   const prompt = `# Calendar Summary for ${userName}
 
 Generate a personalized daily schedule summary in Hebrew.
 
-## Personalization Rules
-- Current user: **${userName}** (primary calendar: ${primaryCalendar})
-- Raziel's calendar: raziel@internety.co.il
-- Yeshua's calendar: yeshua7733@gmail.com (ישועה - Raziel's wife)
-- Address events from ${userName}'s primary calendar as "You have..." or "Your..."
-- For spouse's events, use their name and personalize notes for ${userName}'s perspective
-- **IMPORTANT: Calendar name indicates WHO the event belongs to - if calendar is "ישועה", the event is for Yeshua**
-- **Do NOT infer people's names from location names (e.g., "גן גלעד" is a location, not a person named גלעד)**
-- **In pickup order: use the calendar owner's name, followed by location in parentheses**
+## Event Categories
+Events have been pre-categorized into three groups:
+
+1. **${userName}'s Events** - These are YOUR events (personal and work calendars)
+   - Address these as "You have..." or "Your..."
+
+2. **Spouse's Events** - These belong to your spouse
+   - Use spouse's name and personalize for ${userName}'s perspective
+
+3. **Other Events** - Kids' events and shared family events
+   - Infer ownership from calendar display name (e.g., "שירה לאה", "מתניה עדין", etc.)
+   - **IMPORTANT: Do NOT confuse location names with people's names**
+   - Example: "גן גלעד" is a LOCATION (kindergarten), not a person named גלעד
+   - **In pickup order: use the calendar owner's name, followed by location in parentheses**
 
 ## Special Schedule Rule
 **⭐ On Rosh Chodesh: שירה לאה finishes at 13:05 instead of 13:50**
@@ -102,7 +133,7 @@ Generate a personalized daily schedule summary in Hebrew.
 ## Output Format
 **IMPORTANT: Translate ALL section headers to Hebrew. Output EVERYTHING in Hebrew.**
 
-<b>Good morning!</b> (or "Good evening!" for tomorrow summary)
+<b>${greeting}</b>
 
 <b>📅 [DAY LABEL] - [Day], [Gregorian Date] ([Hebrew Date]) - [Regular Schedule/Rosh Chodesh if applicable]</b>
 (Compare current date with summary date, use appropriate label for DAY LABEL)
@@ -154,8 +185,14 @@ Generate a personalized daily schedule summary in Hebrew.
 - Hebrew Date (Summary): ${hebrewDateFormatted}
 - Rosh Chodesh: ${isRoshChodesh ? 'YES ⭐ - Apply early dismissal (שירה לאה at 13:05)' : 'NO'}
 
-Events for summary date:
-${eventsText}
+**${userName}'S EVENTS:**
+${userEventsText}
+
+**SPOUSE'S EVENTS:**
+${spouseEventsText}
+
+**OTHER EVENTS (Kids & Family):**
+${otherEventsText}
 
 **CRITICAL: Respond in Hebrew only. Write your entire summary in Hebrew.**`;
 

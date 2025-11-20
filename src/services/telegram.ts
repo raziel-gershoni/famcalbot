@@ -2,6 +2,20 @@ import TelegramBot from 'node-telegram-bot-api';
 import { getUserByTelegramId, getWhitelistedIds } from '../config/users';
 import { fetchTodayEvents, fetchTomorrowEvents } from './calendar';
 import { generateSummary } from './claude';
+import { CalendarEvent, UserConfig } from '../types';
+
+/**
+ * Categorize events by ownership for a specific user
+ */
+function categorizeEvents(events: CalendarEvent[], user: UserConfig) {
+  return {
+    userEvents: events.filter(e => user.ownCalendars.includes(e.calendarId)),
+    spouseEvents: events.filter(e => user.spouseCalendars.includes(e.calendarId)),
+    otherEvents: events.filter(
+      e => !user.ownCalendars.includes(e.calendarId) && !user.spouseCalendars.includes(e.calendarId)
+    ),
+  };
+}
 
 let bot: TelegramBot | null = null;
 
@@ -156,8 +170,11 @@ export async function sendDailySummaryToUser(userId: number): Promise<void> {
     // Fetch calendar events
     const events = await fetchTodayEvents(user.googleRefreshToken, user.calendars);
 
+    // Categorize events by ownership
+    const categorized = categorizeEvents(events, user);
+
     // Generate summary with Claude (personalized for this user)
-    const summary = await generateSummary(events, user.name, user.primaryCalendar);
+    const summary = await generateSummary(categorized.userEvents, categorized.spouseEvents, categorized.otherEvents, user.name, user.primaryCalendar);
 
     // Send personalized message (greeting is included in the summary)
     await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
@@ -195,8 +212,11 @@ export async function sendDailySummaryToAll(): Promise<void> {
         const user = getUserByTelegramId(userId);
         if (!user) continue;
 
+        // Categorize events by ownership for this user
+        const categorized = categorizeEvents(events, user);
+
         // Generate personalized summary for this specific user (greeting is included in the summary)
-        const summary = await generateSummary(events, user.name, user.primaryCalendar);
+        const summary = await generateSummary(categorized.userEvents, categorized.spouseEvents, categorized.otherEvents, user.name, user.primaryCalendar);
         await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
       } catch (error) {
         console.error(`Failed to send summary to user ${userId}:`, error);
@@ -225,12 +245,15 @@ export async function sendTomorrowSummaryToUser(userId: number): Promise<void> {
     // Fetch calendar events for tomorrow
     const events = await fetchTomorrowEvents(user.googleRefreshToken, user.calendars);
 
+    // Categorize events by ownership
+    const categorized = categorizeEvents(events, user);
+
     // Calculate tomorrow's date
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     // Generate summary with Claude (personalized for this user, with tomorrow's date)
-    const summary = await generateSummary(events, user.name, user.primaryCalendar, tomorrow);
+    const summary = await generateSummary(categorized.userEvents, categorized.spouseEvents, categorized.otherEvents, user.name, user.primaryCalendar, tomorrow);
 
     // Send personalized message (greeting is included in the summary)
     await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
@@ -272,8 +295,11 @@ export async function sendTomorrowSummaryToAll(): Promise<void> {
         const user = getUserByTelegramId(userId);
         if (!user) continue;
 
+        // Categorize events by ownership for this user
+        const categorized = categorizeEvents(events, user);
+
         // Generate personalized summary for this specific user (with tomorrow's date, greeting included in summary)
-        const summary = await generateSummary(events, user.name, user.primaryCalendar, tomorrow);
+        const summary = await generateSummary(categorized.userEvents, categorized.spouseEvents, categorized.otherEvents, user.name, user.primaryCalendar, tomorrow);
         await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
       } catch (error) {
         console.error(`Failed to send tomorrow's summary to user ${userId}:`, error);

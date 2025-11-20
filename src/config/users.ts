@@ -26,7 +26,12 @@ const allUsers: UserConfig[] = [
     name: 'Raziel',
     calendars: SHARED_CALENDARS,
     googleRefreshToken: SHARED_REFRESH_TOKEN,
-    primaryCalendar: 'raziel@internety.co.il',
+    primaryCalendar: 'zhendos13@gmail.com',  // Main personal calendar
+    ownCalendars: [
+      'zhendos13@gmail.com',      // Personal calendar
+      'raziel@internety.co.il'     // Work calendar
+    ],
+    spouseCalendars: ['yeshua7733@gmail.com'],
   },
   {
     telegramId: 721483494,
@@ -34,6 +39,11 @@ const allUsers: UserConfig[] = [
     calendars: SHARED_CALENDARS,
     googleRefreshToken: SHARED_REFRESH_TOKEN,
     primaryCalendar: 'yeshua7733@gmail.com',
+    ownCalendars: ['yeshua7733@gmail.com'],
+    spouseCalendars: [
+      'zhendos13@gmail.com',      // Raziel's personal
+      'raziel@internety.co.il'     // Raziel's work
+    ],
   },
 ];
 

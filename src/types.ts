@@ -1,9 +1,11 @@
 export interface UserConfig {
   telegramId: number;
   name: string;
-  calendars: string[];  // Google Calendar IDs
+  calendars: string[];  // Google Calendar IDs to fetch events from
   googleRefreshToken: string;
-  primaryCalendar: string;  // User's personal calendar ID for personalization
+  primaryCalendar: string;  // User's main personal calendar ID
+  ownCalendars: string[];  // All calendars belonging to this user (personal + work)
+  spouseCalendars: string[];  // Spouse's calendar IDs
 }
 
 export interface CalendarEvent {
@@ -13,4 +15,5 @@ export interface CalendarEvent {
   description?: string;
   location?: string;
   calendarName: string;
+  calendarId: string;
 }
