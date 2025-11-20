@@ -129,8 +129,12 @@ Events have been pre-categorized into three groups:
    - Example: "גן גלעד" is a LOCATION (kindergarten), not a person named גלעד
    - **In pickup order: use the calendar owner's name, followed by location in parentheses**
 
-## Special Schedule Rule
-**⭐ On Rosh Chodesh: שירה לאה finishes at 13:05 instead of 13:50**
+## Special Schedule Rule: Rosh Chodesh Early Dismissal
+**⭐ On Rosh Chodesh ONLY:**
+- IF שירה לאה's dismissal time is 13:50 → change to 13:05
+- IF she already finishes earlier (e.g., 12:00 on Fridays) → keep the earlier time, do NOT mention Rosh Chodesh
+- This rule ONLY applies when replacing the regular 13:50 dismissal with 13:05
+- Do NOT apply this rule to any other times
 
 ## Output Format
 **IMPORTANT: Translate ALL section headers to Hebrew. Output EVERYTHING in Hebrew.**
@@ -185,7 +189,7 @@ Events have been pre-categorized into three groups:
 - Current Date (Today): ${currentGregorianDate}
 - Summary Date: ${gregorianDate}
 - Hebrew Date (Summary): ${hebrewDateFormatted}
-- Rosh Chodesh: ${isRoshChodesh ? 'YES ⭐ - Apply early dismissal (שירה לאה at 13:05)' : 'NO'}
+- Rosh Chodesh: ${isRoshChodesh ? 'YES ⭐ - Apply early dismissal rule (שירה לאה: 13:50→13:05 ONLY if her time is 13:50)' : 'NO'}
 
 **${userName}'S EVENTS:**
 ${userEventsText}
