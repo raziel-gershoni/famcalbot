@@ -1,4 +1,5 @@
 import { CalendarEvent } from '../types';
+import { TIMEZONE } from '../config/constants';
 
 /**
  * Format a single event for inclusion in the Claude prompt
@@ -7,12 +8,12 @@ export function formatEventForPrompt(event: CalendarEvent, index: number): strin
   const startTime = new Date(event.start).toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
-    timeZone: 'Asia/Jerusalem',
+    timeZone: TIMEZONE,
   });
   const endTime = new Date(event.end).toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
-    timeZone: 'Asia/Jerusalem',
+    timeZone: TIMEZONE,
   });
 
   let eventStr = `${index + 1}. ${event.summary} (${startTime} - ${endTime}) [Calendar: ${event.calendarName}]`;
