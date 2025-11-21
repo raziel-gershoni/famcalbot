@@ -30,11 +30,16 @@ function getDayBoundaries(daysOffset: number = 0): { start: string; end: string 
 }
 
 /**
- * Fetch today's events from Google Calendar for a user
+ * Fetch events from Google Calendar for a specific day
+ * @param refreshToken - Google OAuth refresh token
+ * @param calendarIds - Array of calendar IDs to fetch from
+ * @param daysOffset - Number of days from today (0 = today, 1 = tomorrow, etc.)
+ * @returns Array of calendar events sorted by start time
  */
-export async function fetchTodayEvents(
+async function fetchEvents(
   refreshToken: string,
-  calendarIds: string[]
+  calendarIds: string[],
+  daysOffset: number
 ): Promise<CalendarEvent[]> {
   // Create OAuth2 client
   const oauth2Client = new google.auth.OAuth2(
@@ -48,8 +53,8 @@ export async function fetchTodayEvents(
 
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
-  // Get today's date boundaries in Israel timezone
-  const { start, end } = getDayBoundaries(0);
+  // Get day boundaries in Israel timezone
+  const { start, end } = getDayBoundaries(daysOffset);
 
   const allEvents: CalendarEvent[] = [];
 
@@ -113,84 +118,21 @@ export async function fetchTodayEvents(
 }
 
 /**
+ * Fetch today's events from Google Calendar for a user
+ */
+export async function fetchTodayEvents(
+  refreshToken: string,
+  calendarIds: string[]
+): Promise<CalendarEvent[]> {
+  return fetchEvents(refreshToken, calendarIds, 0);
+}
+
+/**
  * Fetch tomorrow's events from Google Calendar for a user
  */
 export async function fetchTomorrowEvents(
   refreshToken: string,
   calendarIds: string[]
 ): Promise<CalendarEvent[]> {
-  // Create OAuth2 client
-  const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET
-  );
-
-  oauth2Client.setCredentials({
-    refresh_token: refreshToken,
-  });
-
-  const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-
-  // Get tomorrow's date boundaries in Israel timezone
-  const { start, end } = getDayBoundaries(1); // 1 day offset for tomorrow
-
-  const allEvents: CalendarEvent[] = [];
-
-  // Fetch events from each calendar
-  for (const calendarId of calendarIds) {
-    try {
-      // Fetch calendar metadata to get the display name
-      const calendarInfo = await calendar.calendars.get({
-        calendarId: calendarId,
-      });
-      const calendarName = calendarInfo.data.summary || calendarId;
-
-      const response = await calendar.events.list({
-        calendarId: calendarId,
-        timeMin: start,
-        timeMax: end,
-        singleEvents: true,
-        orderBy: 'startTime',
-        timeZone: TIMEZONE,
-      });
-
-      const events = response.data.items || [];
-
-      for (const event of events) {
-        allEvents.push({
-          summary: event.summary || 'No title',
-          start: event.start?.dateTime || event.start?.date || '',
-          end: event.end?.dateTime || event.end?.date || '',
-          description: event.description || undefined,
-          location: event.location || undefined,
-          calendarName: calendarName,
-          calendarId: calendarId,
-        });
-      }
-    } catch (error) {
-      console.error(`Error fetching calendar ${calendarId}:`, error);
-
-      // Alert admin if it's a token issue and stop processing (all calendars will fail)
-      if (error instanceof Error && error.message.includes('invalid_grant')) {
-        try {
-          const bot = getBot();
-          await bot.sendMessage(
-            ADMIN_USER_ID,
-            ALERT_MESSAGES.TOKEN_EXPIRED,
-            { parse_mode: 'HTML' }
-          );
-        } catch (alertError) {
-          console.error('Failed to send admin alert:', alertError);
-        }
-        break; // Stop processing - all calendars will fail with same token
-      }
-
-      // Continue with other calendars if it's a different error
-    }
-  }
-
-  // Sort all events by start time
-  allEvents.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
-
-  return allEvents;
+  return fetchEvents(refreshToken, calendarIds, 1);
 }
