@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { google } from 'googleapis';
 import { getBot } from '../src/services/telegram';
-
-const ADMIN_USER_ID = 762715667; // Raziel's Telegram ID
+import { ADMIN_USER_ID } from '../src/config/constants';
+import { ALERT_MESSAGES } from '../src/config/messages';
 
 /**
  * Health Check Endpoint
@@ -70,13 +70,7 @@ export default async function handler(
 
       await bot.sendMessage(
         ADMIN_USER_ID,
-        '🚨 <b>Health Check Failed!</b>\n\n' +
-        'Google Calendar token test failed.\n\n' +
-        `<b>Error:</b> ${errorMessage}\n\n` +
-        '<b>Action needed:</b>\n' +
-        '1. Run: <code>npm run get-google-token</code>\n' +
-        '2. Update GOOGLE_REFRESH_TOKEN in .env and Vercel\n' +
-        '3. Redeploy',
+        ALERT_MESSAGES.HEALTH_CHECK_FAILED(errorMessage),
         { parse_mode: 'HTML' }
       );
     } catch (alertError) {

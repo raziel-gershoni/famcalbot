@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { HDate, months } from 'hebcal';
 import { CalendarEvent } from '../types';
+import { CLAUDE_CONFIG, TIMEZONE } from '../config/constants';
+import { USER_MESSAGES } from '../config/messages';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -43,7 +45,7 @@ export async function generateSummary(
   const allEvents = [...userEvents, ...spouseEvents, ...otherEvents];
 
   if (allEvents.length === 0) {
-    return "אין לך אירועים מתוכננים להיום. תהנה מיום פנוי!";
+    return USER_MESSAGES.NO_EVENTS_TODAY;
   }
 
   // Get current date (today) for comparison
@@ -210,8 +212,8 @@ ${otherEventsText}
 
   try {
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
-      max_tokens: 1500,
+      model: CLAUDE_CONFIG.MODEL,
+      max_tokens: CLAUDE_CONFIG.MAX_TOKENS,
       messages: [
         {
           role: 'user',

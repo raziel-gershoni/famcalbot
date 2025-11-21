@@ -3,9 +3,8 @@ import { CalendarEvent } from '../types';
 import { getBot } from './telegram';
 import { fromZonedTime } from 'date-fns-tz';
 import { addDays, format } from 'date-fns';
-
-const TIMEZONE = 'Asia/Jerusalem';
-const ADMIN_USER_ID = 762715667; // Raziel's Telegram ID for alerts
+import { TIMEZONE, ADMIN_USER_ID } from '../config/constants';
+import { ALERT_MESSAGES } from '../config/messages';
 
 /**
  * Get start and end of day in Israel timezone as ISO strings
@@ -94,12 +93,7 @@ export async function fetchTodayEvents(
           const bot = getBot();
           await bot.sendMessage(
             ADMIN_USER_ID,
-            '🚨 <b>URGENT: Google Calendar Token Expired!</b>\n\n' +
-            'The Google refresh token is no longer valid.\n\n' +
-            '<b>To fix:</b>\n' +
-            '1. Run: <code>npm run get-google-token</code>\n' +
-            '2. Update GOOGLE_REFRESH_TOKEN in .env and Vercel\n' +
-            '3. Redeploy',
+            ALERT_MESSAGES.TOKEN_EXPIRED,
             { parse_mode: 'HTML' }
           );
         } catch (alertError) {
@@ -182,12 +176,7 @@ export async function fetchTomorrowEvents(
           const bot = getBot();
           await bot.sendMessage(
             ADMIN_USER_ID,
-            '🚨 <b>URGENT: Google Calendar Token Expired!</b>\n\n' +
-            'The Google refresh token is no longer valid.\n\n' +
-            '<b>To fix:</b>\n' +
-            '1. Run: <code>npm run get-google-token</code>\n' +
-            '2. Update GOOGLE_REFRESH_TOKEN in .env and Vercel\n' +
-            '3. Redeploy',
+            ALERT_MESSAGES.TOKEN_EXPIRED,
             { parse_mode: 'HTML' }
           );
         } catch (alertError) {

@@ -3,6 +3,7 @@ import { getUserByTelegramId, getWhitelistedIds } from '../config/users';
 import { fetchTodayEvents, fetchTomorrowEvents } from './calendar';
 import { generateSummary } from './claude';
 import { CalendarEvent, UserConfig } from '../types';
+import { USER_MESSAGES } from '../config/messages';
 
 /**
  * Categorize events by ownership for a specific user
@@ -68,17 +69,14 @@ export function isUserAuthorized(userId: number): boolean {
  */
 export async function handleStartCommand(chatId: number, userId: number): Promise<void> {
   if (!isUserAuthorized(userId)) {
-    await getBot().sendMessage(chatId, 'Sorry, you are not authorized to use this bot.');
+    await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     return;
   }
 
   const user = getUserByTelegramId(userId);
   const name = user?.name || 'there';
 
-  await getBot().sendMessage(
-    chatId,
-    `Hello ${name}! 👋\n\nI'm your family calendar bot. I'll send you personalized daily summaries automatically:\n• Morning at 7 AM (today's schedule)\n• Evening (tomorrow's schedule)\n\nYou can also request summaries anytime with /summary or /tomorrow.\n\nNeed help? Use /help to see all commands.`
-  );
+  await getBot().sendMessage(chatId, USER_MESSAGES.WELCOME(name));
 }
 
 /**
@@ -86,14 +84,11 @@ export async function handleStartCommand(chatId: number, userId: number): Promis
  */
 export async function handleHelpCommand(chatId: number, userId: number): Promise<void> {
   if (!isUserAuthorized(userId)) {
-    await getBot().sendMessage(chatId, 'Sorry, you are not authorized to use this bot.');
+    await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     return;
   }
 
-  await getBot().sendMessage(
-    chatId,
-    `📋 Available Commands:\n\n/summary - Get today's calendar summary\n/tomorrow - Get tomorrow's calendar summary\n/help - Show this help message\n/start - About this bot\n\nYou'll also receive automatic summaries:\n• Morning at 7 AM (today)\n• Evening (tomorrow)`
-  );
+  await getBot().sendMessage(chatId, USER_MESSAGES.HELP);
 }
 
 /**
@@ -101,7 +96,7 @@ export async function handleHelpCommand(chatId: number, userId: number): Promise
  */
 export async function handleSummaryCommand(chatId: number, userId: number): Promise<void> {
   if (!isUserAuthorized(userId)) {
-    await getBot().sendMessage(chatId, 'Sorry, you are not authorized to use this bot.');
+    await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     return;
   }
 
@@ -113,7 +108,7 @@ export async function handleSummaryCommand(chatId: number, userId: number): Prom
  */
 export async function handleTomorrowCommand(chatId: number, userId: number): Promise<void> {
   if (!isUserAuthorized(userId)) {
-    await getBot().sendMessage(chatId, 'Sorry, you are not authorized to use this bot.');
+    await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     return;
   }
 
@@ -165,7 +160,7 @@ export async function sendDailySummaryToUser(userId: number): Promise<void> {
   const botInstance = getBot();
 
   try {
-    await botInstance.sendMessage(userId, 'Fetching your calendar...');
+    await botInstance.sendMessage(userId, USER_MESSAGES.FETCHING_CALENDAR);
 
     // Fetch calendar events
     const events = await fetchTodayEvents(user.googleRefreshToken, user.calendars);
@@ -180,10 +175,7 @@ export async function sendDailySummaryToUser(userId: number): Promise<void> {
     await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
   } catch (error) {
     console.error(`Error sending summary to user ${userId}:`, error);
-    await botInstance.sendMessage(
-      userId,
-      'Sorry, there was an error fetching your calendar. Please try again later.'
-    );
+    await botInstance.sendMessage(userId, USER_MESSAGES.ERROR_GENERIC);
   }
 }
 
@@ -240,7 +232,7 @@ export async function sendTomorrowSummaryToUser(userId: number): Promise<void> {
   const botInstance = getBot();
 
   try {
-    await botInstance.sendMessage(userId, 'Fetching tomorrow\'s calendar...');
+    await botInstance.sendMessage(userId, USER_MESSAGES.FETCHING_TOMORROW);
 
     // Fetch calendar events for tomorrow
     const events = await fetchTomorrowEvents(user.googleRefreshToken, user.calendars);
@@ -259,10 +251,7 @@ export async function sendTomorrowSummaryToUser(userId: number): Promise<void> {
     await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
   } catch (error) {
     console.error(`Error sending tomorrow's summary to user ${userId}:`, error);
-    await botInstance.sendMessage(
-      userId,
-      'Sorry, there was an error fetching tomorrow\'s calendar. Please try again later.'
-    );
+    await botInstance.sendMessage(userId, USER_MESSAGES.ERROR_TOMORROW);
   }
 }
 
