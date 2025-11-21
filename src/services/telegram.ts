@@ -148,9 +148,20 @@ function setupHandlers(bot: TelegramBot) {
 }
 
 /**
- * Send daily summary to a specific user
+ * Generic function to send summary to a specific user
+ * @param userId - Telegram user ID
+ * @param fetchFunction - Function to fetch calendar events (today or tomorrow)
+ * @param summaryDate - Date for the summary (undefined for today, tomorrow's date for tomorrow)
+ * @param fetchingMessage - Message to show while fetching
+ * @param errorMessage - Message to show on error
  */
-export async function sendDailySummaryToUser(userId: number): Promise<void> {
+async function sendSummaryToUser(
+  userId: number,
+  fetchFunction: (refreshToken: string, calendarIds: string[]) => Promise<CalendarEvent[]>,
+  summaryDate: Date | undefined,
+  fetchingMessage: string,
+  errorMessage: string
+): Promise<void> {
   const user = getUserByTelegramId(userId);
   if (!user) {
     console.error(`User with Telegram ID ${userId} not found`);
@@ -160,30 +171,44 @@ export async function sendDailySummaryToUser(userId: number): Promise<void> {
   const botInstance = getBot();
 
   try {
-    await botInstance.sendMessage(userId, USER_MESSAGES.FETCHING_CALENDAR);
+    await botInstance.sendMessage(userId, fetchingMessage);
 
     // Fetch calendar events
-    const events = await fetchTodayEvents(user.googleRefreshToken, user.calendars);
+    const events = await fetchFunction(user.googleRefreshToken, user.calendars);
 
     // Categorize events by ownership
     const categorized = categorizeEvents(events, user);
 
     // Generate summary with Claude (personalized for this user)
-    const summary = await generateSummary(categorized.userEvents, categorized.spouseEvents, categorized.otherEvents, user.name, user.hebrewName, user.spouseName, user.spouseHebrewName, user.primaryCalendar);
+    const summary = await generateSummary(
+      categorized.userEvents,
+      categorized.spouseEvents,
+      categorized.otherEvents,
+      user.name,
+      user.hebrewName,
+      user.spouseName,
+      user.spouseHebrewName,
+      user.primaryCalendar,
+      summaryDate
+    );
 
     // Send personalized message (greeting is included in the summary)
     await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
   } catch (error) {
     console.error(`Error sending summary to user ${userId}:`, error);
-    await botInstance.sendMessage(userId, USER_MESSAGES.ERROR_GENERIC);
+    await botInstance.sendMessage(userId, errorMessage);
   }
 }
 
 /**
- * Send daily summary to all users
- * Generates personalized summary for each user based on their primary calendar
+ * Generic function to send summary to all users
+ * @param fetchFunction - Function to fetch calendar events (today or tomorrow)
+ * @param summaryDate - Date for the summary (undefined for today, tomorrow's date for tomorrow)
  */
-export async function sendDailySummaryToAll(): Promise<void> {
+async function sendSummaryToAll(
+  fetchFunction: (refreshToken: string, calendarIds: string[]) => Promise<CalendarEvent[]>,
+  summaryDate: Date | undefined
+): Promise<void> {
   const whitelistedIds = getWhitelistedIds();
   const botInstance = getBot();
 
@@ -196,7 +221,7 @@ export async function sendDailySummaryToAll(): Promise<void> {
     }
 
     // Fetch calendar events once (shared by all users)
-    const events = await fetchTodayEvents(firstUser.googleRefreshToken, firstUser.calendars);
+    const events = await fetchFunction(firstUser.googleRefreshToken, firstUser.calendars);
 
     // Send to each user with personalized summary
     for (const userId of whitelistedIds) {
@@ -207,8 +232,18 @@ export async function sendDailySummaryToAll(): Promise<void> {
         // Categorize events by ownership for this user
         const categorized = categorizeEvents(events, user);
 
-        // Generate personalized summary for this specific user (greeting is included in the summary)
-        const summary = await generateSummary(categorized.userEvents, categorized.spouseEvents, categorized.otherEvents, user.name, user.hebrewName, user.spouseName, user.spouseHebrewName, user.primaryCalendar);
+        // Generate personalized summary for this specific user
+        const summary = await generateSummary(
+          categorized.userEvents,
+          categorized.spouseEvents,
+          categorized.otherEvents,
+          user.name,
+          user.hebrewName,
+          user.spouseName,
+          user.spouseHebrewName,
+          user.primaryCalendar,
+          summaryDate
+        );
         await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
       } catch (error) {
         console.error(`Failed to send summary to user ${userId}:`, error);
@@ -220,39 +255,40 @@ export async function sendDailySummaryToAll(): Promise<void> {
 }
 
 /**
+ * Send daily summary to a specific user
+ */
+export async function sendDailySummaryToUser(userId: number): Promise<void> {
+  await sendSummaryToUser(
+    userId,
+    fetchTodayEvents,
+    undefined,
+    USER_MESSAGES.FETCHING_CALENDAR,
+    USER_MESSAGES.ERROR_GENERIC
+  );
+}
+
+/**
+ * Send daily summary to all users
+ * Generates personalized summary for each user based on their primary calendar
+ */
+export async function sendDailySummaryToAll(): Promise<void> {
+  await sendSummaryToAll(fetchTodayEvents, undefined);
+}
+
+/**
  * Send tomorrow's summary to a specific user
  */
 export async function sendTomorrowSummaryToUser(userId: number): Promise<void> {
-  const user = getUserByTelegramId(userId);
-  if (!user) {
-    console.error(`User with Telegram ID ${userId} not found`);
-    return;
-  }
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
 
-  const botInstance = getBot();
-
-  try {
-    await botInstance.sendMessage(userId, USER_MESSAGES.FETCHING_TOMORROW);
-
-    // Fetch calendar events for tomorrow
-    const events = await fetchTomorrowEvents(user.googleRefreshToken, user.calendars);
-
-    // Categorize events by ownership
-    const categorized = categorizeEvents(events, user);
-
-    // Calculate tomorrow's date
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    // Generate summary with Claude (personalized for this user, with tomorrow's date)
-    const summary = await generateSummary(categorized.userEvents, categorized.spouseEvents, categorized.otherEvents, user.name, user.hebrewName, user.spouseName, user.spouseHebrewName, user.primaryCalendar, tomorrow);
-
-    // Send personalized message (greeting is included in the summary)
-    await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
-  } catch (error) {
-    console.error(`Error sending tomorrow's summary to user ${userId}:`, error);
-    await botInstance.sendMessage(userId, USER_MESSAGES.ERROR_TOMORROW);
-  }
+  await sendSummaryToUser(
+    userId,
+    fetchTomorrowEvents,
+    tomorrow,
+    USER_MESSAGES.FETCHING_TOMORROW,
+    USER_MESSAGES.ERROR_TOMORROW
+  );
 }
 
 /**
@@ -260,41 +296,8 @@ export async function sendTomorrowSummaryToUser(userId: number): Promise<void> {
  * Generates personalized summary for each user based on their primary calendar
  */
 export async function sendTomorrowSummaryToAll(): Promise<void> {
-  const whitelistedIds = getWhitelistedIds();
-  const botInstance = getBot();
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
 
-  try {
-    // Get the first user to fetch calendars (they all share the same calendars)
-    const firstUser = getUserByTelegramId(whitelistedIds[0]);
-    if (!firstUser) {
-      console.error('No users configured');
-      return;
-    }
-
-    // Fetch calendar events for tomorrow once (shared by all users)
-    const events = await fetchTomorrowEvents(firstUser.googleRefreshToken, firstUser.calendars);
-
-    // Calculate tomorrow's date
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    // Send to each user with personalized summary
-    for (const userId of whitelistedIds) {
-      try {
-        const user = getUserByTelegramId(userId);
-        if (!user) continue;
-
-        // Categorize events by ownership for this user
-        const categorized = categorizeEvents(events, user);
-
-        // Generate personalized summary for this specific user (with tomorrow's date, greeting included in summary)
-        const summary = await generateSummary(categorized.userEvents, categorized.spouseEvents, categorized.otherEvents, user.name, user.hebrewName, user.spouseName, user.spouseHebrewName, user.primaryCalendar, tomorrow);
-        await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
-      } catch (error) {
-        console.error(`Failed to send tomorrow's summary to user ${userId}:`, error);
-      }
-    }
-  } catch (error) {
-    console.error('Failed to generate tomorrow\'s summary for all users:', error);
-  }
+  await sendSummaryToAll(fetchTomorrowEvents, tomorrow);
 }
