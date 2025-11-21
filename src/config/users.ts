@@ -24,7 +24,9 @@ const allUsers: UserConfig[] = [
   {
     telegramId: 762715667,
     name: 'Raziel',
+    hebrewName: 'רזיאל',
     spouseName: 'Yeshua',
+    spouseHebrewName: 'ישועה',
     calendars: SHARED_CALENDARS,
     googleRefreshToken: SHARED_REFRESH_TOKEN,
     primaryCalendar: 'zhendos13@gmail.com',  // Main personal calendar
@@ -37,7 +39,9 @@ const allUsers: UserConfig[] = [
   {
     telegramId: 721483494,
     name: 'Yeshua',
+    hebrewName: 'ישועה',
     spouseName: 'Raziel',
+    spouseHebrewName: 'רזיאל',
     calendars: SHARED_CALENDARS,
     googleRefreshToken: SHARED_REFRESH_TOKEN,
     primaryCalendar: 'yeshua7733@gmail.com',

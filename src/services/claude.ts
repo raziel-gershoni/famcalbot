@@ -34,7 +34,9 @@ export async function generateSummary(
   spouseEvents: CalendarEvent[],
   otherEvents: CalendarEvent[],
   userName: string,
+  userHebrewName: string,
   spouseName: string,
+  spouseHebrewName: string,
   primaryCalendar: string,
   date: Date = new Date()
 ): Promise<string> {
@@ -112,6 +114,10 @@ export async function generateSummary(
   const prompt = `# Calendar Summary for ${userName}
 
 Generate a personalized daily schedule summary in Hebrew.
+
+**IMPORTANT: When translating to Hebrew, use these exact names in your output:**
+- User: ${userHebrewName}
+- Spouse: ${spouseHebrewName}
 
 ## Event Categories & Personalization
 Events have been pre-categorized into three groups:

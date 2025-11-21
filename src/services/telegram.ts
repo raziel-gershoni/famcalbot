@@ -174,7 +174,7 @@ export async function sendDailySummaryToUser(userId: number): Promise<void> {
     const categorized = categorizeEvents(events, user);
 
     // Generate summary with Claude (personalized for this user)
-    const summary = await generateSummary(categorized.userEvents, categorized.spouseEvents, categorized.otherEvents, user.name, user.spouseName, user.primaryCalendar);
+    const summary = await generateSummary(categorized.userEvents, categorized.spouseEvents, categorized.otherEvents, user.name, user.hebrewName, user.spouseName, user.spouseHebrewName, user.primaryCalendar);
 
     // Send personalized message (greeting is included in the summary)
     await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
@@ -216,7 +216,7 @@ export async function sendDailySummaryToAll(): Promise<void> {
         const categorized = categorizeEvents(events, user);
 
         // Generate personalized summary for this specific user (greeting is included in the summary)
-        const summary = await generateSummary(categorized.userEvents, categorized.spouseEvents, categorized.otherEvents, user.name, user.spouseName, user.primaryCalendar);
+        const summary = await generateSummary(categorized.userEvents, categorized.spouseEvents, categorized.otherEvents, user.name, user.hebrewName, user.spouseName, user.spouseHebrewName, user.primaryCalendar);
         await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
       } catch (error) {
         console.error(`Failed to send summary to user ${userId}:`, error);
@@ -253,7 +253,7 @@ export async function sendTomorrowSummaryToUser(userId: number): Promise<void> {
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     // Generate summary with Claude (personalized for this user, with tomorrow's date)
-    const summary = await generateSummary(categorized.userEvents, categorized.spouseEvents, categorized.otherEvents, user.name, user.spouseName, user.primaryCalendar, tomorrow);
+    const summary = await generateSummary(categorized.userEvents, categorized.spouseEvents, categorized.otherEvents, user.name, user.hebrewName, user.spouseName, user.spouseHebrewName, user.primaryCalendar, tomorrow);
 
     // Send personalized message (greeting is included in the summary)
     await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
@@ -299,7 +299,7 @@ export async function sendTomorrowSummaryToAll(): Promise<void> {
         const categorized = categorizeEvents(events, user);
 
         // Generate personalized summary for this specific user (with tomorrow's date, greeting included in summary)
-        const summary = await generateSummary(categorized.userEvents, categorized.spouseEvents, categorized.otherEvents, user.name, user.spouseName, user.primaryCalendar, tomorrow);
+        const summary = await generateSummary(categorized.userEvents, categorized.spouseEvents, categorized.otherEvents, user.name, user.hebrewName, user.spouseName, user.spouseHebrewName, user.primaryCalendar, tomorrow);
         await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
       } catch (error) {
         console.error(`Failed to send tomorrow's summary to user ${userId}:`, error);
