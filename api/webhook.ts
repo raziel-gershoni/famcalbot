@@ -43,6 +43,10 @@ export default async function handler(
       await handleSummaryCommand(chatId, userId);
     } else if (text === '/tomorrow') {
       await handleTomorrowCommand(chatId, userId);
+    } else if (text.startsWith('/testmodels')) {
+      const args = text.replace('/testmodels', '').trim();
+      const { handleTestModelsCommand } = await import('../src/services/telegram');
+      await handleTestModelsCommand(chatId, userId, args || undefined);
     }
     // Ignore other messages
 

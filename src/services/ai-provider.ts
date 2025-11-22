@@ -5,7 +5,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
-import { AI_CONFIG, ADMIN_USER_ID } from '../config/constants';
+import { getAIConfig, AI_RETRY_CONFIG, ADMIN_USER_ID } from '../config/constants';
 import { getBot } from './telegram';
 
 // Initialize API clients
@@ -65,10 +65,12 @@ The AI response was truncated. Consider increasing AI_MAX_TOKENS in environment 
 /**
  * Call Claude API with a prompt
  */
-async function callClaude(prompt: string): Promise<AICompletionResult> {
+async function callClaude(prompt: string, modelId?: string): Promise<AICompletionResult> {
+  const config = getAIConfig(modelId);
+
   const message = await anthropic.messages.create({
-    model: AI_CONFIG.MODEL_CONFIG.modelId,
-    max_tokens: AI_CONFIG.MAX_TOKENS,
+    model: config.MODEL_CONFIG.modelId,
+    max_tokens: config.MAX_TOKENS,
     messages: [
       {
         role: 'user',
@@ -84,13 +86,13 @@ async function callClaude(prompt: string): Promise<AICompletionResult> {
   // Check if response was truncated
   if (message.stop_reason === 'max_tokens') {
     console.warn('⚠️ WARNING: Claude response was truncated due to token limit!');
-    console.warn(`Used ${message.usage.output_tokens}/${AI_CONFIG.MAX_TOKENS} output tokens`);
+    console.warn(`Used ${message.usage.output_tokens}/${config.MAX_TOKENS} output tokens`);
 
     // Send alert to admin (non-blocking)
     alertTokenCeiling(
-      AI_CONFIG.MODEL_CONFIG.displayName,
+      config.MODEL_CONFIG.displayName,
       message.usage.output_tokens,
-      AI_CONFIG.MAX_TOKENS
+      config.MAX_TOKENS
     ).catch(err => console.error('Alert failed:', err));
   }
 
@@ -101,17 +103,19 @@ async function callClaude(prompt: string): Promise<AICompletionResult> {
       outputTokens: message.usage.output_tokens,
     },
     stopReason: message.stop_reason ?? 'unknown',
-    model: AI_CONFIG.MODEL_CONFIG.displayName,
+    model: config.MODEL_CONFIG.displayName,
   };
 }
 
 /**
  * Call OpenAI API with a prompt
  */
-async function callOpenAI(prompt: string): Promise<AICompletionResult> {
+async function callOpenAI(prompt: string, modelId?: string): Promise<AICompletionResult> {
+  const config = getAIConfig(modelId);
+
   const completion = await openai.chat.completions.create({
-    model: AI_CONFIG.MODEL_CONFIG.modelId,
-    max_tokens: AI_CONFIG.MAX_TOKENS,
+    model: config.MODEL_CONFIG.modelId,
+    max_tokens: config.MAX_TOKENS,
     messages: [
       {
         role: 'user',
@@ -127,13 +131,13 @@ async function callOpenAI(prompt: string): Promise<AICompletionResult> {
   if (choice?.finish_reason === 'length') {
     const outputTokens = completion.usage?.completion_tokens || 0;
     console.warn('⚠️ WARNING: OpenAI response was truncated due to token limit!');
-    console.warn(`Used ${outputTokens}/${AI_CONFIG.MAX_TOKENS} output tokens`);
+    console.warn(`Used ${outputTokens}/${config.MAX_TOKENS} output tokens`);
 
     // Send alert to admin (non-blocking)
     alertTokenCeiling(
-      AI_CONFIG.MODEL_CONFIG.displayName,
+      config.MODEL_CONFIG.displayName,
       outputTokens,
-      AI_CONFIG.MAX_TOKENS
+      config.MAX_TOKENS
     ).catch(err => console.error('Alert failed:', err));
   }
 
@@ -144,7 +148,7 @@ async function callOpenAI(prompt: string): Promise<AICompletionResult> {
       outputTokens: completion.usage?.completion_tokens || 0,
     },
     stopReason: choice?.finish_reason ?? 'unknown',
-    model: AI_CONFIG.MODEL_CONFIG.displayName,
+    model: config.MODEL_CONFIG.displayName,
   };
 }
 
@@ -153,20 +157,22 @@ async function callOpenAI(prompt: string): Promise<AICompletionResult> {
  * Automatically routes to the configured provider (Claude or OpenAI)
  *
  * @param prompt - The prompt to send to the AI
+ * @param modelId - Optional model ID to override default model
  * @returns AI completion result with text and usage statistics
  * @throws Error if all retries fail
  */
-export async function generateAICompletion(prompt: string): Promise<AICompletionResult> {
+export async function generateAICompletion(prompt: string, modelId?: string): Promise<AICompletionResult> {
   let lastError: Error | null = null;
-  const maxRetries = AI_CONFIG.MAX_RETRIES;
+  const maxRetries = AI_RETRY_CONFIG.MAX_RETRIES;
+  const config = getAIConfig(modelId);
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       // Route to the appropriate provider
       const result =
-        AI_CONFIG.MODEL_CONFIG.provider === 'claude'
-          ? await callClaude(prompt)
-          : await callOpenAI(prompt);
+        config.MODEL_CONFIG.provider === 'claude'
+          ? await callClaude(prompt, modelId)
+          : await callOpenAI(prompt, modelId);
 
       // Log successful completion
       console.log('AI Completion Success:', {
@@ -187,7 +193,7 @@ export async function generateAICompletion(prompt: string): Promise<AICompletion
       }
 
       // Calculate exponential backoff delay: 1s, 2s, 4s, 8s, etc.
-      const delay = AI_CONFIG.INITIAL_RETRY_DELAY * Math.pow(2, attempt);
+      const delay = AI_RETRY_CONFIG.INITIAL_RETRY_DELAY * Math.pow(2, attempt);
 
       console.warn(
         `AI API error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`,

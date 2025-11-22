@@ -159,3 +159,10 @@ export function getModelsByProvider(provider: 'claude' | 'openai'): Record<strin
     Object.entries(AI_MODELS).filter(([, config]) => config.provider === provider)
   );
 }
+
+/**
+ * Get recommended models for testing (fast, balanced, powerful)
+ */
+export function getRecommendedModels(): string[] {
+  return ['claude-sonnet-4.5', 'gpt-4.1-mini', 'gpt-4.1'];
+}

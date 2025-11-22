@@ -100,10 +100,11 @@ function buildPromptData(
  * Call AI provider with retry logic
  * @param prompt - The prompt to send to AI
  * @param includeModelInfo - Whether to append model info footer (for admin only)
+ * @param modelId - Optional model ID to override default model
  */
-async function callAI(prompt: string, includeModelInfo: boolean = false): Promise<string> {
+async function callAI(prompt: string, includeModelInfo: boolean = false, modelId?: string): Promise<string> {
   try {
-    const result = await generateAICompletion(prompt);
+    const result = await generateAICompletion(prompt, modelId);
 
     // Add model info footer only if requested (for admin user)
     if (includeModelInfo) {
@@ -131,7 +132,8 @@ export async function generateSummary(
   spouseHebrewName: string,
   primaryCalendar: string,
   date: Date = new Date(),
-  includeModelInfo: boolean = false
+  includeModelInfo: boolean = false,
+  modelId?: string
 ): Promise<string> {
   const allEvents = [...userEvents, ...spouseEvents, ...otherEvents];
 
@@ -155,5 +157,5 @@ export async function generateSummary(
   const prompt = buildCalendarSummaryPrompt(promptData);
 
   // Call AI provider with retry logic, including model info if requested
-  return await callAI(prompt, includeModelInfo);
+  return await callAI(prompt, includeModelInfo, modelId);
 }

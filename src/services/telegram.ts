@@ -117,6 +117,57 @@ export async function handleTomorrowCommand(chatId: number, userId: number): Pro
 }
 
 /**
+ * Handle /testmodels command (admin only)
+ */
+export async function handleTestModelsCommand(chatId: number, userId: number, args?: string): Promise<void> {
+  // Admin-only command
+  if (userId !== ADMIN_USER_ID) {
+    await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    return;
+  }
+
+  const user = getUserByTelegramId(userId);
+  if (!user) {
+    console.error(`User with Telegram ID ${userId} not found`);
+    return;
+  }
+
+  const { testModels, getModelsToTest } = await import('./model-tester');
+
+  try {
+    // Fetch today and tomorrow events
+    const todayEvents = await fetchTodayEvents(user.googleRefreshToken, user.calendars);
+    const tomorrowEvents = await fetchTomorrowEvents(user.googleRefreshToken, user.calendars);
+
+    // Categorize events by ownership
+    const categorizedToday = categorizeEvents(todayEvents, user);
+    const categorizedTomorrow = categorizeEvents(tomorrowEvents, user);
+
+    // Get list of models to test
+    const modelsToTest = getModelsToTest(args);
+
+    // Run the tests
+    await testModels(
+      modelsToTest,
+      todayEvents,
+      tomorrowEvents,
+      categorizedToday.userEvents,
+      categorizedToday.spouseEvents,
+      categorizedToday.otherEvents,
+      user.name,
+      user.hebrewName,
+      user.spouseName,
+      user.spouseHebrewName,
+      user.primaryCalendar,
+      chatId
+    );
+  } catch (error) {
+    console.error('Error in testmodels command:', error);
+    await getBot().sendMessage(chatId, 'Sorry, there was an error running the model tests.');
+  }
+}
+
+/**
  * Setup bot command handlers for polling mode
  */
 function setupHandlers(bot: TelegramBot) {
@@ -144,6 +195,25 @@ function setupHandlers(bot: TelegramBot) {
     const userId = msg.from?.id;
     if (userId) {
       await handleSummaryCommand(chatId, userId);
+    }
+  });
+
+  // /tomorrow command
+  bot.onText(/\/tomorrow/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+    if (userId) {
+      await handleTomorrowCommand(chatId, userId);
+    }
+  });
+
+  // /testmodels command (admin only)
+  bot.onText(/\/testmodels(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+    const args = match?.[1]?.trim();
+    if (userId) {
+      await handleTestModelsCommand(chatId, userId, args);
     }
   });
 }
