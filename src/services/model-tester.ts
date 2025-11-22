@@ -9,6 +9,9 @@ import { getAIConfig } from '../config/constants';
 import { getBot } from './telegram';
 import { getAvailableModels, getModelsByProvider, getRecommendedModels } from '../config/ai-models';
 
+// Execution lock to prevent duplicate runs
+let isTestingInProgress = false;
+
 /**
  * Calculate estimated cost for a completion
  * HTML-escaped for Telegram
@@ -139,43 +142,75 @@ export async function testModels(
 ): Promise<void> {
   const botInstance = getBot();
 
-  // Send intro message
-  await botInstance.sendMessage(
-    chatId,
-    `🧪 <b>Model Testing Started</b>\n\nTesting ${modelsToTest.length} models...\nEach will send 2 messages (today + tomorrow).`,
-    { parse_mode: 'HTML' }
-  );
-
-  // Test each model sequentially (to avoid rate limits)
-  for (const modelId of modelsToTest) {
-    await testSingleModel(
-      modelId,
-      todayEvents,
-      tomorrowEvents,
-      todayUserEvents,
-      todaySpouseEvents,
-      todayOtherEvents,
-      tomorrowUserEvents,
-      tomorrowSpouseEvents,
-      tomorrowOtherEvents,
-      userName,
-      userHebrewName,
-      spouseName,
-      spouseHebrewName,
-      primaryCalendar,
-      chatId
+  // Check if already running
+  if (isTestingInProgress) {
+    await botInstance.sendMessage(
+      chatId,
+      '⚠️ <b>Test already in progress!</b>\n\nPlease wait for the current test to complete.',
+      { parse_mode: 'HTML' }
     );
-
-    // Small delay between models to avoid rate limits
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    return;
   }
 
-  // Send completion message
-  await botInstance.sendMessage(
-    chatId,
-    `✅ <b>Testing Complete!</b>\n\nTested ${modelsToTest.length} models (${modelsToTest.length * 2} messages). Compare the results above to find your favorite!`,
-    { parse_mode: 'HTML' }
-  );
+  // Set lock
+  isTestingInProgress = true;
+
+  try {
+    // Send intro message
+    await botInstance.sendMessage(
+      chatId,
+      `🧪 <b>Model Testing Started</b>\n\nTesting ${modelsToTest.length} models...\nEach will send 2 messages (today + tomorrow).\n\n<i>This will take ~${modelsToTest.length * 10} seconds.</i>`,
+      { parse_mode: 'HTML' }
+    );
+
+    // Test each model sequentially (to avoid rate limits)
+    for (let i = 0; i < modelsToTest.length; i++) {
+      const modelId = modelsToTest[i];
+
+      console.log(`Testing model ${i + 1}/${modelsToTest.length}: ${modelId}`);
+
+      await testSingleModel(
+        modelId,
+        todayEvents,
+        tomorrowEvents,
+        todayUserEvents,
+        todaySpouseEvents,
+        todayOtherEvents,
+        tomorrowUserEvents,
+        tomorrowSpouseEvents,
+        tomorrowOtherEvents,
+        userName,
+        userHebrewName,
+        spouseName,
+        spouseHebrewName,
+        primaryCalendar,
+        chatId
+      );
+
+      // Delay between models to avoid rate limits
+      if (i < modelsToTest.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Increased to 2s
+      }
+    }
+
+    // Send completion message
+    await botInstance.sendMessage(
+      chatId,
+      `✅ <b>Testing Complete!</b>\n\nTested ${modelsToTest.length} models (${modelsToTest.length * 2} messages). Compare the results above to find your favorite!`,
+      { parse_mode: 'HTML' }
+    );
+  } catch (error) {
+    console.error('Error in testModels:', error);
+    await botInstance.sendMessage(
+      chatId,
+      `❌ <b>Testing Failed</b>\n\n${error instanceof Error ? error.message : 'Unknown error'}`,
+      { parse_mode: 'HTML' }
+    );
+  } finally {
+    // Always release lock
+    isTestingInProgress = false;
+    console.log('Model testing completed, lock released');
+  }
 }
 
 /**
