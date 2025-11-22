@@ -30,9 +30,12 @@ async function testSingleModel(
   modelId: string,
   todayEvents: CalendarEvent[],
   tomorrowEvents: CalendarEvent[],
-  userEvents: CalendarEvent[],
-  spouseEvents: CalendarEvent[],
-  otherEvents: CalendarEvent[],
+  todayUserEvents: CalendarEvent[],
+  todaySpouseEvents: CalendarEvent[],
+  todayOtherEvents: CalendarEvent[],
+  tomorrowUserEvents: CalendarEvent[],
+  tomorrowSpouseEvents: CalendarEvent[],
+  tomorrowOtherEvents: CalendarEvent[],
   userName: string,
   userHebrewName: string,
   spouseName: string,
@@ -44,14 +47,14 @@ async function testSingleModel(
   const config = getAIConfig(modelId);
 
   try {
-    // Start timing
-    const startTime = Date.now();
+    // Start timing for today
+    const todayStartTime = Date.now();
 
-    // Generate summaries for today and tomorrow
+    // Generate today's summary
     const todaySummary = await generateSummary(
-      userEvents.filter(e => todayEvents.includes(e)),
-      spouseEvents.filter(e => todayEvents.includes(e)),
-      otherEvents.filter(e => todayEvents.includes(e)),
+      todayUserEvents,
+      todaySpouseEvents,
+      todayOtherEvents,
       userName,
       userHebrewName,
       spouseName,
@@ -62,13 +65,28 @@ async function testSingleModel(
       modelId
     );
 
+    const todayElapsed = Date.now() - todayStartTime;
+
+    // Send today's result
+    const todayMessage = `🧪 <b>${config.MODEL_CONFIG.displayName}</b> - TODAY
+
+${todaySummary}
+
+<i>⏱️ ${(todayElapsed / 1000).toFixed(1)}s | 💰 ~${calculateCost(1400, 250, modelId)}</i>`;
+
+    await botInstance.sendMessage(chatId, todayMessage, { parse_mode: 'HTML' });
+
+    // Start timing for tomorrow
+    const tomorrowStartTime = Date.now();
+
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
 
+    // Generate tomorrow's summary
     const tomorrowSummary = await generateSummary(
-      userEvents.filter(e => tomorrowEvents.includes(e)),
-      spouseEvents.filter(e => tomorrowEvents.includes(e)),
-      otherEvents.filter(e => tomorrowEvents.includes(e)),
+      tomorrowUserEvents,
+      tomorrowSpouseEvents,
+      tomorrowOtherEvents,
       userName,
       userHebrewName,
       spouseName,
@@ -79,22 +97,16 @@ async function testSingleModel(
       modelId
     );
 
-    // Calculate elapsed time
-    const elapsedTime = Date.now() - startTime;
-    const seconds = (elapsedTime / 1000).toFixed(1);
+    const tomorrowElapsed = Date.now() - tomorrowStartTime;
 
-    // Format the test result message
-    const message = `🧪 <b>${config.MODEL_CONFIG.displayName}</b>
+    // Send tomorrow's result
+    const tomorrowMessage = `🧪 <b>${config.MODEL_CONFIG.displayName}</b> - TOMORROW
 
-<b>📅 TODAY:</b>
-${todaySummary}
-
-<b>📅 TOMORROW:</b>
 ${tomorrowSummary}
 
-<i>⏱️ ${seconds}s | 💰 ~${calculateCost(1400, 250, modelId)} per summary</i>`;
+<i>⏱️ ${(tomorrowElapsed / 1000).toFixed(1)}s | 💰 ~${calculateCost(1400, 250, modelId)}</i>`;
 
-    await botInstance.sendMessage(chatId, message, { parse_mode: 'HTML' });
+    await botInstance.sendMessage(chatId, tomorrowMessage, { parse_mode: 'HTML' });
   } catch (error) {
     console.error(`Error testing model ${modelId}:`, error);
     await botInstance.sendMessage(
@@ -112,9 +124,12 @@ export async function testModels(
   modelsToTest: string[],
   todayEvents: CalendarEvent[],
   tomorrowEvents: CalendarEvent[],
-  userEvents: CalendarEvent[],
-  spouseEvents: CalendarEvent[],
-  otherEvents: CalendarEvent[],
+  todayUserEvents: CalendarEvent[],
+  todaySpouseEvents: CalendarEvent[],
+  todayOtherEvents: CalendarEvent[],
+  tomorrowUserEvents: CalendarEvent[],
+  tomorrowSpouseEvents: CalendarEvent[],
+  tomorrowOtherEvents: CalendarEvent[],
   userName: string,
   userHebrewName: string,
   spouseName: string,
@@ -127,7 +142,7 @@ export async function testModels(
   // Send intro message
   await botInstance.sendMessage(
     chatId,
-    `🧪 <b>Model Testing Started</b>\n\nTesting ${modelsToTest.length} models...\nEach will send today's and tomorrow's summaries.`,
+    `🧪 <b>Model Testing Started</b>\n\nTesting ${modelsToTest.length} models...\nEach will send 2 messages (today + tomorrow).`,
     { parse_mode: 'HTML' }
   );
 
@@ -137,9 +152,12 @@ export async function testModels(
       modelId,
       todayEvents,
       tomorrowEvents,
-      userEvents,
-      spouseEvents,
-      otherEvents,
+      todayUserEvents,
+      todaySpouseEvents,
+      todayOtherEvents,
+      tomorrowUserEvents,
+      tomorrowSpouseEvents,
+      tomorrowOtherEvents,
       userName,
       userHebrewName,
       spouseName,
@@ -155,7 +173,7 @@ export async function testModels(
   // Send completion message
   await botInstance.sendMessage(
     chatId,
-    `✅ <b>Testing Complete!</b>\n\nTested ${modelsToTest.length} models. Compare the results above to find your favorite!`,
+    `✅ <b>Testing Complete!</b>\n\nTested ${modelsToTest.length} models (${modelsToTest.length * 2} messages). Compare the results above to find your favorite!`,
     { parse_mode: 'HTML' }
   );
 }

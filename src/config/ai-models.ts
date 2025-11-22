@@ -161,8 +161,17 @@ export function getModelsByProvider(provider: 'claude' | 'openai'): Record<strin
 }
 
 /**
- * Get recommended models for testing (fast, balanced, powerful)
+ * Get recommended models for testing
+ * Mix of Claude and OpenAI, covering different price/performance points
  */
 export function getRecommendedModels(): string[] {
-  return ['claude-sonnet-4.5', 'gpt-4.1-mini', 'gpt-4.1'];
+  return [
+    'claude-sonnet-4.5',   // Latest Claude, best coding
+    'gpt-4.1',             // Latest GPT, balanced
+    'gpt-4.1-mini',        // Fast & cheap GPT
+    'gpt-4.1-nano',        // Cheapest option
+    'claude-3.5-sonnet',   // Legacy Claude (for comparison)
+    'gpt-4o-mini',         // Multimodal cheap
+    'claude-opus-4.1',     // Most powerful (expensive)
+  ];
 }

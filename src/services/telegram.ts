@@ -139,7 +139,7 @@ export async function handleTestModelsCommand(chatId: number, userId: number, ar
     const todayEvents = await fetchTodayEvents(user.googleRefreshToken, user.calendars);
     const tomorrowEvents = await fetchTomorrowEvents(user.googleRefreshToken, user.calendars);
 
-    // Categorize events by ownership
+    // Categorize events by ownership - separately for today and tomorrow
     const categorizedToday = categorizeEvents(todayEvents, user);
     const categorizedTomorrow = categorizeEvents(tomorrowEvents, user);
 
@@ -154,6 +154,9 @@ export async function handleTestModelsCommand(chatId: number, userId: number, ar
       categorizedToday.userEvents,
       categorizedToday.spouseEvents,
       categorizedToday.otherEvents,
+      categorizedTomorrow.userEvents,
+      categorizedTomorrow.spouseEvents,
+      categorizedTomorrow.otherEvents,
       user.name,
       user.hebrewName,
       user.spouseName,
