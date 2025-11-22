@@ -1,14 +1,10 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { HDate, months } from 'hebcal';
 import { CalendarEvent } from '../types';
-import { CLAUDE_CONFIG, TIMEZONE } from '../config/constants';
+import { TIMEZONE } from '../config/constants';
 import { USER_MESSAGES } from '../config/messages';
 import { buildCalendarSummaryPrompt, SummaryPromptData } from '../prompts/calendar-summary';
 import { formatEventList } from '../utils/event-formatter';
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+import { generateAICompletion } from './ai-provider';
 
 /**
  * Get Hebrew date information and check if today is Rosh Chodesh
@@ -101,25 +97,14 @@ function buildPromptData(
 }
 
 /**
- * Call Claude API with a prompt
+ * Call AI provider with retry logic
  */
-async function callClaude(prompt: string): Promise<string> {
+async function callAI(prompt: string): Promise<string> {
   try {
-    const message = await anthropic.messages.create({
-      model: CLAUDE_CONFIG.MODEL,
-      max_tokens: CLAUDE_CONFIG.MAX_TOKENS,
-      messages: [
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-    });
-
-    const textContent = message.content.find(block => block.type === 'text');
-    return textContent && 'text' in textContent ? textContent.text : 'Unable to generate summary.';
+    const result = await generateAICompletion(prompt);
+    return result.text;
   } catch (error) {
-    console.error('Error generating summary with Claude:', error);
+    console.error('Error generating summary with AI:', error);
     return 'Sorry, I could not generate a summary at this time.';
   }
 }
@@ -159,6 +144,6 @@ export async function generateSummary(
   // Build the prompt
   const prompt = buildCalendarSummaryPrompt(promptData);
 
-  // Call Claude API
-  return await callClaude(prompt);
+  // Call AI provider with retry logic
+  return await callAI(prompt);
 }
