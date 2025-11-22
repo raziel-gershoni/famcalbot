@@ -11,6 +11,7 @@ import { getAvailableModels, getModelsByProvider, getRecommendedModels } from '.
 
 /**
  * Calculate estimated cost for a completion
+ * HTML-escaped for Telegram
  */
 function calculateCost(inputTokens: number, outputTokens: number, modelId: string): string {
   const config = getAIConfig(modelId);
@@ -18,7 +19,8 @@ function calculateCost(inputTokens: number, outputTokens: number, modelId: strin
   const outputCost = (outputTokens / 1000000) * config.MODEL_CONFIG.costPer1MTokens.output;
   const totalCost = inputCost + outputCost;
 
-  return totalCost < 0.01 ? `<$0.01` : `$${totalCost.toFixed(3)}`;
+  // Use &lt; instead of < to avoid HTML parsing issues in Telegram
+  return totalCost < 0.01 ? `&lt;$0.01` : `$${totalCost.toFixed(3)}`;
 }
 
 /**
