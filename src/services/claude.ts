@@ -98,10 +98,19 @@ function buildPromptData(
 
 /**
  * Call AI provider with retry logic
+ * @param prompt - The prompt to send to AI
+ * @param includeModelInfo - Whether to append model info footer (for admin only)
  */
-async function callAI(prompt: string): Promise<string> {
+async function callAI(prompt: string, includeModelInfo: boolean = false): Promise<string> {
   try {
     const result = await generateAICompletion(prompt);
+
+    // Add model info footer only if requested (for admin user)
+    if (includeModelInfo) {
+      const modelFooter = `\n\n<i>📊 ${result.model} | ${result.usage.inputTokens}→${result.usage.outputTokens} tokens</i>`;
+      return result.text + modelFooter;
+    }
+
     return result.text;
   } catch (error) {
     console.error('Error generating summary with AI:', error);
@@ -121,7 +130,8 @@ export async function generateSummary(
   spouseName: string,
   spouseHebrewName: string,
   primaryCalendar: string,
-  date: Date = new Date()
+  date: Date = new Date(),
+  includeModelInfo: boolean = false
 ): Promise<string> {
   const allEvents = [...userEvents, ...spouseEvents, ...otherEvents];
 
@@ -144,6 +154,6 @@ export async function generateSummary(
   // Build the prompt
   const prompt = buildCalendarSummaryPrompt(promptData);
 
-  // Call AI provider with retry logic
-  return await callAI(prompt);
+  // Call AI provider with retry logic, including model info if requested
+  return await callAI(prompt, includeModelInfo);
 }

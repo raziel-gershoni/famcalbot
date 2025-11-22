@@ -4,6 +4,7 @@ import { fetchTodayEvents, fetchTomorrowEvents } from './calendar';
 import { generateSummary } from './claude';
 import { CalendarEvent, UserConfig } from '../types';
 import { USER_MESSAGES } from '../config/messages';
+import { ADMIN_USER_ID } from '../config/constants';
 
 /**
  * Categorize events by ownership for a specific user
@@ -179,7 +180,8 @@ async function sendSummaryToUser(
     // Categorize events by ownership
     const categorized = categorizeEvents(events, user);
 
-    // Generate summary with Claude (personalized for this user)
+    // Generate summary with AI (personalized for this user)
+    // Include model info footer only for admin user
     const summary = await generateSummary(
       categorized.userEvents,
       categorized.spouseEvents,
@@ -189,7 +191,8 @@ async function sendSummaryToUser(
       user.spouseName,
       user.spouseHebrewName,
       user.primaryCalendar,
-      summaryDate
+      summaryDate,
+      userId === ADMIN_USER_ID
     );
 
     // Send personalized message (greeting is included in the summary)
@@ -233,6 +236,7 @@ async function sendSummaryToAll(
         const categorized = categorizeEvents(events, user);
 
         // Generate personalized summary for this specific user
+        // Include model info footer only for admin user
         const summary = await generateSummary(
           categorized.userEvents,
           categorized.spouseEvents,
@@ -242,7 +246,8 @@ async function sendSummaryToAll(
           user.spouseName,
           user.spouseHebrewName,
           user.primaryCalendar,
-          summaryDate
+          summaryDate,
+          userId === ADMIN_USER_ID
         );
         await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
       } catch (error) {

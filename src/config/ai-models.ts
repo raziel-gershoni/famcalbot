@@ -31,29 +31,49 @@ export const AI_MODELS: Record<string, ModelConfig> = {
     modelId: 'claude-sonnet-4-5-20250929',
     displayName: 'Claude Sonnet 4.5',
     maxOutputTokens: 64000,
-    contextWindow: 1000000, // 1M with context-1m-2025-08-07 beta header
+    contextWindow: 1000000,
     costPer1MTokens: { input: 3, output: 15 },
-    description: 'Latest Claude model, excellent balance of speed and capability',
+    description: 'Latest Claude model (Sep 2025), best coding model in the world',
   },
 
-  'claude-opus-4': {
+  'claude-opus-4.1': {
     provider: 'claude',
-    modelId: 'claude-opus-4',
-    displayName: 'Claude Opus 4',
+    modelId: 'claude-opus-4-1-20250805',
+    displayName: 'Claude Opus 4.1',
     maxOutputTokens: 64000,
     contextWindow: 1000000,
     costPer1MTokens: { input: 15, output: 75 },
-    description: 'Most powerful Claude model, best for complex reasoning and coding',
+    description: 'Most powerful Claude (Aug 2025), optimized for agentic tasks and reasoning',
   },
 
   'claude-sonnet-4': {
     provider: 'claude',
-    modelId: 'claude-sonnet-4',
+    modelId: 'claude-sonnet-4-20250514',
     displayName: 'Claude Sonnet 4',
     maxOutputTokens: 64000,
     contextWindow: 1000000,
     costPer1MTokens: { input: 3, output: 15 },
-    description: 'Previous generation, still very capable',
+    description: 'Previous Sonnet (May 2025), still very capable',
+  },
+
+  'claude-3.7-sonnet': {
+    provider: 'claude',
+    modelId: 'claude-3-7-sonnet-20250219',
+    displayName: 'Claude 3.7 Sonnet',
+    maxOutputTokens: 64000,
+    contextWindow: 200000,
+    costPer1MTokens: { input: 3, output: 15 },
+    description: 'Hybrid model (Feb 2025) with optional extended thinking mode',
+  },
+
+  'claude-3.5-sonnet': {
+    provider: 'claude',
+    modelId: 'claude-3-5-sonnet-20241022',
+    displayName: 'Claude 3.5 Sonnet',
+    maxOutputTokens: 8192,
+    contextWindow: 200000,
+    costPer1MTokens: { input: 3, output: 15 },
+    description: 'Legacy model (Oct 2024), consider upgrading to 4.x',
   },
 
   // ============================================
