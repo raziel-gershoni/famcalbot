@@ -21,6 +21,9 @@ export default async function handler(
 
     const update = req.body;
 
+    // Immediately respond 200 OK to Telegram to prevent retries
+    res.status(200).json({ ok: true });
+
     // Telegram sends updates in this format:
     // { update_id: number, message: { chat: { id: number }, from: { id: number }, text: string } }
 
@@ -48,15 +51,9 @@ export default async function handler(
       const { handleTestModelsCommand } = await import('../src/services/telegram');
       await handleTestModelsCommand(chatId, userId, args || undefined);
     }
-    // Ignore other messages
-
-    res.status(200).json({ ok: true });
+    // Ignore other messages (already responded above)
   } catch (error) {
     console.error('Error in webhook handler:', error);
-    res.status(500).json({
-      ok: false,
-      error: 'Internal server error',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
+    // Don't send error response - already sent 200 OK above
   }
 }

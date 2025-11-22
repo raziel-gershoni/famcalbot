@@ -120,6 +120,16 @@ export async function handleTomorrowCommand(chatId: number, userId: number): Pro
  * Handle /testmodels command (admin only)
  */
 export async function handleTestModelsCommand(chatId: number, userId: number, args?: string): Promise<void> {
+  // Check if disabled via env var (emergency kill switch)
+  if (process.env.DISABLE_TESTMODELS === 'true') {
+    await getBot().sendMessage(
+      chatId,
+      '⚠️ <b>testmodels is currently disabled</b>\n\nContact admin to re-enable.',
+      { parse_mode: 'HTML' }
+    );
+    return;
+  }
+
   // Admin-only command
   if (userId !== ADMIN_USER_ID) {
     await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
