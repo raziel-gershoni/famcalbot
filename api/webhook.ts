@@ -21,14 +21,12 @@ export default async function handler(
 
     const update = req.body;
 
-    // Immediately respond 200 OK to Telegram to prevent retries
-    res.status(200).json({ ok: true });
-
     // Telegram sends updates in this format:
     // { update_id: number, message: { chat: { id: number }, from: { id: number }, text: string } }
 
     if (!update.message || !update.message.text) {
       // Not a text message, ignore
+      res.status(200).json({ ok: true });
       return;
     }
 
@@ -36,7 +34,16 @@ export default async function handler(
     const userId = update.message.from.id;
     const text = update.message.text;
 
-    // Route to appropriate command handler
+    // For /testmodels, respond immediately to prevent Telegram retries on long execution
+    if (text.startsWith('/testmodels')) {
+      res.status(200).json({ ok: true });
+      const args = text.replace('/testmodels', '').trim();
+      const { handleTestModelsCommand } = await import('../src/services/telegram');
+      await handleTestModelsCommand(chatId, userId, args || undefined);
+      return;
+    }
+
+    // Route to appropriate command handler (process BEFORE responding)
     if (text === '/start') {
       await handleStartCommand(chatId, userId);
     } else if (text === '/help') {
@@ -45,12 +52,10 @@ export default async function handler(
       await handleSummaryCommand(chatId, userId);
     } else if (text === '/tomorrow') {
       await handleTomorrowCommand(chatId, userId);
-    } else if (text.startsWith('/testmodels')) {
-      const args = text.replace('/testmodels', '').trim();
-      const { handleTestModelsCommand } = await import('../src/services/telegram');
-      await handleTestModelsCommand(chatId, userId, args || undefined);
     }
-    // Ignore other messages (already responded above)
+
+    // Respond after processing (prevents function shutdown issues)
+    res.status(200).json({ ok: true });
   } catch (error) {
     console.error('Error in webhook handler:', error);
     // Notify admin of webhook errors
