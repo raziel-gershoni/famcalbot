@@ -113,9 +113,18 @@ async function callClaude(prompt: string, modelId?: string): Promise<AICompletio
 async function callOpenAI(prompt: string, modelId?: string): Promise<AICompletionResult> {
   const config = getAIConfig(modelId);
 
+  // GPT-5/5.1 and o-series models use 'max_completion_tokens', older models use 'max_tokens'
+  const useNewTokenParam = config.MODEL_CONFIG.modelId.startsWith('gpt-5') ||
+                           config.MODEL_CONFIG.modelId.startsWith('o1') ||
+                           config.MODEL_CONFIG.modelId.startsWith('o3') ||
+                           config.MODEL_CONFIG.modelId.startsWith('o4');
+
   const completion = await openai.chat.completions.create({
     model: config.MODEL_CONFIG.modelId,
-    max_tokens: config.MAX_TOKENS,
+    ...(useNewTokenParam
+      ? { max_completion_tokens: config.MAX_TOKENS }
+      : { max_tokens: config.MAX_TOKENS }
+    ),
     messages: [
       {
         role: 'user',
