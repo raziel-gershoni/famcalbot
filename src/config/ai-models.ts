@@ -1,6 +1,6 @@
 /**
  * AI Model Catalog
- * Updated: 2025-11-22
+ * Updated: 2025-11-23
  *
  * Defines available AI models with their specifications.
  * Use simple identifiers (e.g., 'claude-sonnet-4.5') in environment variables.
@@ -77,61 +77,101 @@ export const AI_MODELS: Record<string, ModelConfig> = {
   },
 
   // ============================================
-  // OPENAI MODELS (GPT-4.1 Series - Latest)
+  // OPENAI MODELS (GPT-5.1 Series - Newest)
   // ============================================
 
-  'gpt-4.1': {
+  'gpt-5.1': {
     provider: 'openai',
-    modelId: 'gpt-4.1-2025-04-14',
-    displayName: 'GPT-4.1',
+    modelId: 'gpt-5.1-2025-11-13',
+    displayName: 'GPT-5.1',
     maxOutputTokens: 16000,
-    contextWindow: 1000000, // 1M tokens
-    costPer1MTokens: { input: 2.5, output: 10 },
-    description: 'Latest GPT model, major improvements in coding and instruction following',
+    contextWindow: 196000, // 196K for thinking mode
+    costPer1MTokens: { input: 1.25, output: 10 }, // Estimated based on GPT-5
+    description: 'Latest GPT (Nov 2025), adaptive reasoning, balances intelligence and speed',
   },
 
-  'gpt-4.1-mini': {
+  'gpt-5.1-instant': {
     provider: 'openai',
-    modelId: 'gpt-4.1-mini-2025-04-14',
-    displayName: 'GPT-4.1 Mini',
-    maxOutputTokens: 16000,
-    contextWindow: 1000000,
-    costPer1MTokens: { input: 0.15, output: 0.6 },
-    description: 'Faster and more affordable, excellent for most tasks',
-  },
-
-  'gpt-4.1-nano': {
-    provider: 'openai',
-    modelId: 'gpt-4.1-nano-2025-04-14',
-    displayName: 'GPT-4.1 Nano',
-    maxOutputTokens: 16000,
-    contextWindow: 1000000,
-    costPer1MTokens: { input: 0.04, output: 0.16 },
-    description: 'Fastest and cheapest, great for simple tasks like summaries',
-  },
-
-  // ============================================
-  // OPENAI MODELS (GPT-4o Series - Multimodal)
-  // ============================================
-
-  'gpt-4o': {
-    provider: 'openai',
-    modelId: 'gpt-4o',
-    displayName: 'GPT-4o',
+    modelId: 'gpt-5.1-chat-latest',
+    displayName: 'GPT-5.1 Instant',
     maxOutputTokens: 16000,
     contextWindow: 128000,
-    costPer1MTokens: { input: 2.5, output: 10 },
-    description: 'Multimodal model (audio, vision, text), real-time capabilities',
+    costPer1MTokens: { input: 1.25, output: 10 }, // Estimated
+    description: 'Fast mode with adaptive reasoning, 128K context',
   },
 
-  'gpt-4o-mini': {
+  'gpt-5.1-codex': {
     provider: 'openai',
-    modelId: 'gpt-4o-mini',
-    displayName: 'GPT-4o Mini',
+    modelId: 'gpt-5.1-codex',
+    displayName: 'GPT-5.1 Codex',
     maxOutputTokens: 16000,
     contextWindow: 128000,
-    costPer1MTokens: { input: 0.15, output: 0.6 },
-    description: 'Cheaper multimodal model, good balance of speed and cost',
+    costPer1MTokens: { input: 1.25, output: 10 }, // Estimated
+    description: 'Coding-optimized GPT-5.1 variant',
+  },
+
+  'gpt-5.1-codex-mini': {
+    provider: 'openai',
+    modelId: 'gpt-5.1-codex-mini',
+    displayName: 'GPT-5.1 Codex Mini',
+    maxOutputTokens: 16000,
+    contextWindow: 128000,
+    costPer1MTokens: { input: 0.25, output: 2 }, // Estimated based on mini pricing
+    description: 'Smaller coding model, 4x more usage',
+  },
+
+  // ============================================
+  // OPENAI MODELS (GPT-5 Series - Current Flagship)
+  // ============================================
+
+  'gpt-5': {
+    provider: 'openai',
+    modelId: 'gpt-5-2025-08-07',
+    displayName: 'GPT-5',
+    maxOutputTokens: 16000,
+    contextWindow: 272000, // ~272K
+    costPer1MTokens: { input: 1.25, output: 10 },
+    description: 'GPT-5 flagship (Aug 2025), state-of-the-art reasoning with 90% cache discount',
+  },
+
+  'gpt-5-mini': {
+    provider: 'openai',
+    modelId: 'gpt-5-mini-2025-08-07',
+    displayName: 'GPT-5 Mini',
+    maxOutputTokens: 16000,
+    contextWindow: 272000,
+    costPer1MTokens: { input: 0.25, output: 2 },
+    description: 'Balanced GPT-5 variant, great for most tasks',
+  },
+
+  'gpt-5-nano': {
+    provider: 'openai',
+    modelId: 'gpt-5-nano-2025-08-07',
+    displayName: 'GPT-5 Nano',
+    maxOutputTokens: 16000,
+    contextWindow: 272000,
+    costPer1MTokens: { input: 0.05, output: 0.4 },
+    description: 'Cheapest GPT-5, excellent for summaries and simple tasks',
+  },
+
+  'gpt-5-pro': {
+    provider: 'openai',
+    modelId: 'gpt-5-pro-2025-10-06',
+    displayName: 'GPT-5 Pro',
+    maxOutputTokens: 16000,
+    contextWindow: 272000,
+    costPer1MTokens: { input: 2.5, output: 20 }, // Estimated higher than base
+    description: 'Most powerful GPT-5 (Oct 2025), extended reasoning',
+  },
+
+  'gpt-5-codex': {
+    provider: 'openai',
+    modelId: 'gpt-5-codex',
+    displayName: 'GPT-5 Codex',
+    maxOutputTokens: 16000,
+    contextWindow: 272000,
+    costPer1MTokens: { input: 1.25, output: 10 },
+    description: 'Coding-optimized GPT-5 variant',
   },
 };
 
@@ -162,16 +202,14 @@ export function getModelsByProvider(provider: 'claude' | 'openai'): Record<strin
 
 /**
  * Get recommended models for testing
- * Mix of Claude and OpenAI, covering different price/performance points
+ * Focus on GPT-5/5.1 series for quick OpenAI comparison
  */
 export function getRecommendedModels(): string[] {
   return [
-    'claude-sonnet-4.5',   // Latest Claude, best coding
-    'gpt-4.1',             // Latest GPT, balanced
-    'gpt-4.1-mini',        // Fast & cheap GPT
-    'gpt-4.1-nano',        // Cheapest option
-    'claude-3.5-sonnet',   // Legacy Claude (for comparison)
-    'gpt-4o-mini',         // Multimodal cheap
-    'claude-opus-4.1',     // Most powerful (expensive)
+    'gpt-5.1',             // Latest GPT (Nov 2025)
+    'gpt-5.1-instant',     // Fast adaptive reasoning
+    'gpt-5',               // Current flagship (Aug 2025)
+    'gpt-5-mini',          // Balanced performance
+    'gpt-5-nano',          // Cheapest option
   ];
 }
