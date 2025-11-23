@@ -29,7 +29,6 @@ export default async function handler(
 
     if (!update.message || !update.message.text) {
       // Not a text message, ignore
-      res.status(200).json({ ok: true });
       return;
     }
 
@@ -54,6 +53,12 @@ export default async function handler(
     // Ignore other messages (already responded above)
   } catch (error) {
     console.error('Error in webhook handler:', error);
-    // Don't send error response - already sent 200 OK above
+    // Notify admin of webhook errors
+    try {
+      const { notifyAdminError } = await import('../src/utils/error-notifier');
+      await notifyAdminError('Webhook Handler', error, `Update: ${JSON.stringify(req.body)}`);
+    } catch (notifyError) {
+      console.error('Failed to notify admin:', notifyError);
+    }
   }
 }

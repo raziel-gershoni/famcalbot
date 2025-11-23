@@ -177,6 +177,10 @@ export async function handleTestModelsCommand(chatId: number, userId: number, ar
   } catch (error) {
     console.error('Error in testmodels command:', error);
     await getBot().sendMessage(chatId, 'Sorry, there was an error running the model tests.');
+
+    // Notify admin
+    const { notifyAdminError } = await import('../utils/error-notifier');
+    await notifyAdminError('TestModels Command', error, `Args: ${args || 'none'}`);
   }
 }
 
@@ -283,6 +287,14 @@ async function sendSummaryToUser(
   } catch (error) {
     console.error(`Error sending summary to user ${userId}:`, error);
     await botInstance.sendMessage(userId, errorMessage);
+
+    // Notify admin of summary failures
+    const { notifyAdminError } = await import('../utils/error-notifier');
+    await notifyAdminError(
+      'Summary Generation',
+      error,
+      `User: ${userId}, Date: ${summaryDate ? summaryDate.toISOString() : 'today'}`
+    );
   }
 }
 
@@ -335,10 +347,20 @@ async function sendSummaryToAll(
         await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
       } catch (error) {
         console.error(`Failed to send summary to user ${userId}:`, error);
+        // Individual user failures in batch - log but don't spam admin
+        // Will be caught by outer try-catch if entire batch fails
       }
     }
   } catch (error) {
     console.error('Failed to generate summary for all users:', error);
+
+    // Notify admin of batch failure
+    const { notifyAdminError } = await import('../utils/error-notifier');
+    await notifyAdminError(
+      'Batch Summary Generation',
+      error,
+      `Date: ${summaryDate ? summaryDate.toISOString() : 'today'}`
+    );
   }
 }
 

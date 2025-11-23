@@ -48,6 +48,15 @@ export function createCronHandler(
       });
     } catch (error) {
       console.error('Error in cron handler:', error);
+
+      // Notify admin of cron job failures
+      try {
+        const { notifyAdminError } = await import('../../src/utils/error-notifier');
+        await notifyAdminError('Cron Job', error, `Job: ${successMessage}`);
+      } catch (notifyError) {
+        console.error('Failed to notify admin:', notifyError);
+      }
+
       res.status(500).json({
         success: false,
         error: 'Failed to send summaries',
