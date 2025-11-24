@@ -119,12 +119,18 @@ async function callOpenAI(prompt: string, modelId?: string): Promise<AICompletio
                            config.MODEL_CONFIG.modelId.startsWith('o3') ||
                            config.MODEL_CONFIG.modelId.startsWith('o4');
 
+  // GPT-5 (not 5.1): Set reasoning_effort to "minimal" to reduce reasoning tokens
+  const isGpt5NonDot1 = config.MODEL_CONFIG.modelId.startsWith('gpt-5') &&
+                        !config.MODEL_CONFIG.modelId.includes('5.1') &&
+                        !config.MODEL_CONFIG.modelId.includes('chat-latest');
+
   const completion = await openai.chat.completions.create({
     model: config.MODEL_CONFIG.modelId,
     ...(useNewTokenParam
       ? { max_completion_tokens: config.MAX_TOKENS }
       : { max_tokens: config.MAX_TOKENS }
     ),
+    ...(isGpt5NonDot1 && { reasoning_effort: 'minimal' }),
     messages: [
       {
         role: 'user',
