@@ -391,6 +391,11 @@ async function sendSummaryToAll(
           userId === ADMIN_USER_ID
         );
         await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
+
+        // Generate and send voice message for all users (only for daily morning summary)
+        if (summaryDate === undefined) {
+          await sendVoiceMessage(userId, summary);
+        }
       } catch (error) {
         console.error(`Failed to send summary to user ${userId}:`, error);
         // Individual user failures in batch - log but don't spam admin
