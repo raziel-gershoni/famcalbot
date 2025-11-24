@@ -149,6 +149,9 @@ export async function testModels(
       { parse_mode: 'HTML' }
     );
 
+    // Start timing the entire test
+    const testStartTime = Date.now();
+
     // Test each model sequentially (to avoid rate limits)
     for (let i = 0; i < modelsToTest.length; i++) {
       const modelId = modelsToTest[i];
@@ -179,10 +182,14 @@ export async function testModels(
       }
     }
 
-    // Send completion message
+    // Calculate total elapsed time
+    const totalElapsed = Date.now() - testStartTime;
+    const totalSeconds = (totalElapsed / 1000).toFixed(1);
+
+    // Send completion message with timing
     await botInstance.sendMessage(
       chatId,
-      `✅ <b>Testing Complete!</b>\n\nTested ${modelsToTest.length} models (${modelsToTest.length * 2} messages). Compare the results above to find your favorite!`,
+      `✅ <b>Testing Complete!</b>\n\nTested ${modelsToTest.length} models (${modelsToTest.length * 2} messages). Compare the results above to find your favorite!\n\n<i>⏱️ Total time: ${totalSeconds}s</i>`,
       { parse_mode: 'HTML' }
     );
   } catch (error) {
