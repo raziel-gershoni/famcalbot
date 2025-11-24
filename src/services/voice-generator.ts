@@ -113,6 +113,9 @@ function stripHtmlTags(html: string): string {
     .replace(/\n\n+/g, '\n\n') // Normalize multiple newlines
     .trim();
 
+  // Normalize dates for better pronunciation
+  text = normalizeDatesForTTS(text);
+
   // Normalize times for better Hebrew pronunciation
   text = normalizeTimesForTTS(text);
 
@@ -123,6 +126,65 @@ function stripHtmlTags(html: string): string {
   text = addNaturalPauses(text);
 
   return text;
+}
+
+/**
+ * Normalize dates for better TTS pronunciation
+ */
+function normalizeDatesForTTS(text: string): string {
+  let result = text;
+
+  // Hebrew Gematria: just spell out the letter names
+  // כ״ח → כף חת, י״ד → יוד דלת
+  result = result.replace(/([א-ת])״([א-ת])/g, (match, letter1, letter2) => {
+    const name1 = getHebrewLetterName(letter1);
+    const name2 = getHebrewLetterName(letter2);
+    return `${name1} ${name2}`;
+  });
+
+  // Single letter with geresh: ה׳ → הא
+  result = result.replace(/([א-ת])׳/g, (match, letter) => {
+    return getHebrewLetterName(letter);
+  });
+
+  return result;
+}
+
+/**
+ * Get the phonetic name of a Hebrew letter
+ */
+function getHebrewLetterName(letter: string): string {
+  const letterNames: Record<string, string> = {
+    'א': 'אלף',
+    'ב': 'בית',
+    'ג': 'גימל',
+    'ד': 'דלת',
+    'ה': 'הא',
+    'ו': 'וו',
+    'ז': 'זיין',
+    'ח': 'חת',
+    'ט': 'טת',
+    'י': 'יוד',
+    'כ': 'כף',
+    'ך': 'כף סופית',
+    'ל': 'למד',
+    'מ': 'מם',
+    'ם': 'מם סופית',
+    'נ': 'נון',
+    'ן': 'נון סופית',
+    'ס': 'סמך',
+    'ע': 'עין',
+    'פ': 'פא',
+    'ף': 'פא סופית',
+    'צ': 'צדיק',
+    'ץ': 'צדיק סופית',
+    'ק': 'קוף',
+    'ר': 'ריש',
+    'ש': 'שין',
+    'ת': 'תו',
+  };
+
+  return letterNames[letter] || letter;
 }
 
 /**
