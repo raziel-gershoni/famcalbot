@@ -9,10 +9,23 @@ import path from 'path';
 import { randomBytes } from 'crypto';
 
 // Initialize Google Cloud TTS client
+const getCredentials = () => {
+  if (!process.env.GOOGLE_TTS_CREDENTIALS) {
+    return undefined;
+  }
+
+  const creds = JSON.parse(process.env.GOOGLE_TTS_CREDENTIALS);
+
+  // Fix escaped newlines in private key (Vercel may store \\n instead of \n)
+  if (creds.private_key) {
+    creds.private_key = creds.private_key.replace(/\\n/g, '\n');
+  }
+
+  return creds;
+};
+
 const client = new textToSpeech.TextToSpeechClient({
-  credentials: process.env.GOOGLE_TTS_CREDENTIALS
-    ? JSON.parse(process.env.GOOGLE_TTS_CREDENTIALS)
-    : undefined,
+  credentials: getCredentials(),
 });
 
 export interface VoiceOptions {
