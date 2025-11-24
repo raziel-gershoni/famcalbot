@@ -34,13 +34,19 @@ export default async function handler(
     const userId = update.message.from.id;
     const text = update.message.text;
 
-    // For /testmodels, respond immediately to prevent Telegram retries on long execution
+    // For /testmodels, respond immediately and fire-and-forget to prevent blocking
     if (text.startsWith('/testmodels')) {
       res.status(200).json({ ok: true });
       const args = text.replace('/testmodels', '').trim();
-      const { handleTestModelsCommand } = await import('../src/services/telegram');
-      await handleTestModelsCommand(chatId, userId, args || undefined);
-      return;
+
+      // Fire-and-forget: don't await, let it run in background
+      import('../src/services/telegram').then(({ handleTestModelsCommand }) => {
+        handleTestModelsCommand(chatId, userId, args || undefined).catch(error => {
+          console.error('Error in background testmodels execution:', error);
+        });
+      });
+
+      return;  // Handler exits immediately, invocation completes
     }
 
     // Route to appropriate command handler (process BEFORE responding)
