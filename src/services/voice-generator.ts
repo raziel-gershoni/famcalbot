@@ -134,37 +134,79 @@ function stripHtmlTags(html: string): string {
 function normalizeDatesForTTS(text: string): string {
   let result = text;
 
-  // 1. Gregorian dates: convert numbers to Hebrew words
-  // "24/11" → "עשרים וארבעה לאחד עשר" or simpler: just remove slashes
-  // Pattern: day/month or day.month
-  result = result.replace(/\b(\d{1,2})[\/\.](\d{1,2})(?:[\/\.](\d{2,4}))?\b/g, (match, day, month, year) => {
+  // 1. Gregorian dates with text month: "24 נובמבר" or "24 November 2024"
+  // Convert day and year numbers to Hebrew words
+  result = result.replace(/\b(\d{1,2})\s+(ינואר|פברואר|מרץ|מרס|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר|January|February|March|April|May|June|July|August|September|October|November|December)(?:\s+(\d{4}))?\b/gi,
+    (match, day, month, year) => {
+      const dayWords = convertNumberToHebrewWords(parseInt(day, 10));
+      if (year) {
+        // Read year as: "אלפיים עשרים וארבעה" (two thousand twenty-four)
+        const yearWords = convertYearToHebrewWords(parseInt(year, 10));
+        return `${dayWords} ${month} ${yearWords}`;
+      }
+      return `${dayWords} ${month}`;
+    }
+  );
+
+  // 2. Numeric dates with slashes (just in case): "24/11"
+  result = result.replace(/\b(\d{1,2})[\/\.](\d{1,2})\b/g, (match, day, month) => {
     const dayWords = convertNumberToHebrewWords(parseInt(day, 10));
     const monthWords = convertNumberToHebrewWords(parseInt(month, 10));
-
-    if (year) {
-      // If year included, just spell it out digit by digit
-      const yearDigits = year.split('').map((d: string) => convertNumberToHebrewWords(parseInt(d, 10))).join(' ');
-      return `${dayWords} ${monthWords} ${yearDigits}`;
-    }
     return `${dayWords} ${monthWords}`;
   });
 
-  // 2. Hebrew Gematria: spell out letter names
-  // More robust - handle various combinations
-  // כ״ח → כף חת, ט״ו → טת וו
-  result = result.replace(/([א-ת]{1,2})[״׳]([א-ת])?/g, (match, letters, secondLetter) => {
-    if (secondLetter) {
-      // Two letters with gershayim: כ״ח
-      const name1 = getHebrewLetterName(letters[letters.length - 1]);
-      const name2 = getHebrewLetterName(secondLetter);
-      return `${name1} ${name2}`;
+  // 3. Hebrew Gematria: spell out letter names
+  // Handles dates (כ״ח) and years (תשפ״ד)
+  // Pattern: [letters][gershayim/geresh][optional letter]
+  result = result.replace(/([א-ת]+)[״׳]([א-ת])?/g, (match, beforeMark, afterMark) => {
+    // Split all letters before the mark
+    const beforeNames = beforeMark.split('').map((l: string) => getHebrewLetterName(l)).join(' ');
+
+    if (afterMark) {
+      // Gershayim case: תשפ״ד → "תו שין פא דלת"
+      const afterName = getHebrewLetterName(afterMark);
+      return `${beforeNames} ${afterName}`;
     } else {
-      // Single letter or multiple letters: spell them all
-      return letters.split('').map((l: string) => getHebrewLetterName(l)).join(' ');
+      // Geresh case: ה׳ → "הא"
+      return beforeNames;
     }
   });
 
   return result;
+}
+
+/**
+ * Convert year to Hebrew words
+ * 2024 → "אלפיים עשרים וארבעה" (two thousand twenty-four)
+ */
+function convertYearToHebrewWords(year: number): string {
+  if (year >= 2000 && year < 3000) {
+    // Modern years: 2024 → "אלפיים עשרים וארבעה"
+    const thousands = Math.floor(year / 1000);
+    const remainder = year % 1000;
+
+    const thousandsWords = thousands === 2 ? 'אלפיים' : `${convertNumberToHebrewWords(thousands)} אלפים`;
+
+    if (remainder === 0) {
+      return thousandsWords;
+    } else if (remainder < 100) {
+      // 2024 → "אלפיים עשרים וארבעה"
+      return `${thousandsWords} ${convertNumberToHebrewWords(remainder)}`;
+    } else {
+      // 2124 → "אלפיים מאה עשרים וארבעה"
+      const hundreds = Math.floor(remainder / 100);
+      const tens = remainder % 100;
+      const hundredsWords = hundreds === 1 ? 'מאה' : `${convertNumberToHebrewWords(hundreds)} מאות`;
+
+      if (tens === 0) {
+        return `${thousandsWords} ${hundredsWords}`;
+      }
+      return `${thousandsWords} ${hundredsWords} ${convertNumberToHebrewWords(tens)}`;
+    }
+  }
+
+  // For other years, just say digits
+  return year.toString().split('').map((d: string) => convertNumberToHebrewWords(parseInt(d, 10))).join(' ');
 }
 
 /**
