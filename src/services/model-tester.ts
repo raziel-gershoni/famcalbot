@@ -9,9 +9,6 @@ import { getAIConfig } from '../config/constants';
 import { getBot } from './telegram';
 import { getAvailableModels, getModelsByProvider, getRecommendedModels } from '../config/ai-models';
 
-// Execution lock to prevent duplicate runs
-let isTestingInProgress = false;
-
 /**
  * Calculate estimated cost for a completion
  * HTML-escaped for Telegram
@@ -143,18 +140,8 @@ export async function testModels(
 ): Promise<void> {
   const botInstance = getBot();
 
-  // Check if already running (in-memory lock for same invocation)
-  if (isTestingInProgress) {
-    await botInstance.sendMessage(
-      chatId,
-      '⚠️ <b>Test already in progress!</b>\n\nPlease wait for the current test to complete.',
-      { parse_mode: 'HTML' }
-    );
-    return;
-  }
-
-  // Set lock
-  isTestingInProgress = true;
+  // Note: Lock is now handled via Redis in handleTestModelsCommand
+  // No need for in-memory lock here (doesn't work in serverless anyway)
 
   try {
     // Send intro message with unique marker to detect Telegram retries
@@ -207,11 +194,9 @@ export async function testModels(
       `❌ <b>Testing Failed</b>\n\n${error instanceof Error ? error.message : 'Unknown error'}`,
       { parse_mode: 'HTML' }
     );
-  } finally {
-    // Always release lock
-    isTestingInProgress = false;
-    console.log('Model testing completed, lock released');
   }
+
+  console.log('Model testing completed');
 }
 
 /**

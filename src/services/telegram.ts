@@ -136,20 +136,25 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
     return;
   }
 
-  // Check for duplicate execution (Telegram retry)
-  // Look for a recent message with this update_id to detect retries
+  // Use Redis-based distributed lock to prevent duplicate executions
   const bot = getBot();
   const uniqueMarker = `[testrun-${updateId}]`;
 
   console.log(`Testmodels invoked with update_id: ${updateId}`);
 
-  // Note: Can't check for duplicates with webhooks (getUpdates doesn't work)
-  // If Telegram retries due to slow execution, user will see duplicate intro messages
-  // The uniqueMarker in the intro helps identify which run is which
+  // Try to acquire lock
+  const { acquireTestModelsLock, releaseTestModelsLock } = await import('../utils/redis-lock');
+  const lockAcquired = await acquireTestModelsLock(userId, updateId);
+
+  if (!lockAcquired) {
+    console.log(`Lock not acquired - test already running or duplicate retry for user ${userId}`);
+    return;
+  }
 
   const user = getUserByTelegramId(userId);
   if (!user) {
     console.error(`User with Telegram ID ${userId} not found`);
+    await releaseTestModelsLock(userId);
     return;
   }
 
@@ -193,6 +198,9 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
     // Notify admin
     const { notifyAdminError } = await import('../utils/error-notifier');
     await notifyAdminError('TestModels Command', error, `Args: ${args || 'none'}`);
+  } finally {
+    // Always release lock when done (success or failure)
+    await releaseTestModelsLock(userId);
   }
 }
 
