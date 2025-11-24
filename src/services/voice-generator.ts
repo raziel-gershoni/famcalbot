@@ -199,9 +199,14 @@ function formatHebrewTime(hour: number, minute: number, isEndTime: boolean = fal
     } else {
       return `${hourText} ורבע`; // "שמונה ורבע" (8:45 as standalone)
     }
+  } else if (minute >= 1 && minute <= 9) {
+    // For single-digit minutes (01-09), add "zero" for clarity
+    // "13:05" → "אחת ואפס חמש" (one zero five)
+    const minuteText = convertMinutesToHebrew(minute);
+    return `${hourText} ואפס ${minuteText}`;
   } else {
-    // For other minutes, say hour and minute separately
-    return `${hourText} ${convertMinutesToHebrew(minute)}`;
+    // For other minutes (10-59, excluding special cases above)
+    return `${hourText} ו${convertMinutesToHebrew(minute)}`;
   }
 }
 
@@ -233,41 +238,29 @@ function convertMinutesToHebrew(minute: number): string {
 
 /**
  * Add natural pauses for better TTS flow
- * Uses punctuation to create breathing room between sections
+ * Conservative approach - only essential pauses
  */
 function addNaturalPauses(text: string): string {
   let result = text;
 
-  // Pause after greetings (בוקר טוב, ערב טוב, צהריים טובים, etc.)
-  result = result.replace(/(בוקר טוב|ערב טוב|צהריים טובים|לילה טוב)/g, '$1...');
+  // 1. Pause after greetings at the start
+  result = result.replace(/^(בוקר טוב|ערב טוב|צהריים טובים|לילה טוב)([,!]?\s+)/m, '$1... ');
 
-  // Pause after date headers (e.g., "יום שלישי, כ״ח בכסלו")
-  result = result.replace(/([א-ת]+ [א-ת]+, [א-ת״׳]+)/g, '$1...');
+  // 2. Major section breaks (double newlines) → medium pause
+  result = result.replace(/\n\n+/g, '. ');
 
-  // Double newlines = section breaks → longer pause
-  result = result.replace(/\n\n+/g, '... ');
+  // 3. Single newlines → keep natural flow, just replace with space
+  result = result.replace(/\n/g, ' ');
 
-  // Single newlines = list items or short breaks → shorter pause
-  result = result.replace(/\n/g, '. ');
+  // 4. Pause before summary headers (common patterns in calendar summaries)
+  result = result.replace(/\s+(לסיכום|שימו לב|חשוב):/g, '... $1:');
 
-  // Pause before common header words (if at start of sentence)
-  result = result.replace(/\b(לסיכום|שימו לב|חשוב|היום|מחר|בוקר|צהריים|אחר הצהריים|ערב):/g, '... $1:');
-
-  // Pause after bullet points and list markers
-  result = result.replace(/^([•▪︎▫︎–-])\s*/gm, '$1 ');
-
-  // Pause after emojis (often used as section markers)
-  result = result.replace(/([\u{1F300}-\u{1F9FF}])/gu, '$1... ');
-
-  // Add brief pause after event names before times (colon or dash before time)
-  result = result.replace(/([א-ת])\s+(מ[א-ת]+\s+עד)/g, '$1, $2');
-
-  // Cleanup: remove multiple consecutive pauses
-  result = result.replace(/\.{4,}/g, '...');
-  result = result.replace(/,\s*,/g, ',');
+  // 5. Brief pause before time ranges in event descriptions
+  // Pattern: Hebrew text followed by time range
+  result = result.replace(/([א-ת])\s+(מ[א-ת]+\s+עד\s+[א-ת]+)/g, '$1, $2');
 
   // Cleanup: excessive spaces
-  result = result.replace(/\s{3,}/g, '  ');
+  result = result.replace(/\s{2,}/g, ' ');
 
   return result.trim();
 }
