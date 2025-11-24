@@ -34,7 +34,7 @@ export interface VoiceOptions {
 }
 
 const DEFAULT_OPTIONS: VoiceOptions = {
-  voice: (process.env.VOICE_DEFAULT as any) || 'he-IL-Wavenet-B', // Female voice, clear
+  voice: (process.env.VOICE_DEFAULT as any) || 'he-IL-Wavenet-D', // Male voice, natural
   speed: parseFloat(process.env.VOICE_SPEED || '1.0'),
 };
 
@@ -131,11 +131,29 @@ function stripHtmlTagsOnly(html: string): string {
     .replace(/\n\n+/g, '\n\n') // Normalize multiple newlines
     .trim();
 
-  // Fix 1: Convert time range dashes to Hebrew "עד" (until)
+  // Fix 1: Transliterate problematic English words to Hebrew phonetics
+  // Only words that Google TTS mispronounces badly
+  const transliterations: Record<string, string> = {
+    'Zoom': 'זום',
+    'zoom': 'זום',
+    'Teams': 'טימס',
+    'teams': 'טימס',
+    'Skype': 'סקייפ',
+    'skype': 'סקייפ',
+    'Google': 'גוגל',
+    'google': 'גוגל',
+  };
+
+  for (const [english, hebrew] of Object.entries(transliterations)) {
+    const regex = new RegExp(`\\b${english}\\b`, 'g');
+    text = text.replace(regex, hebrew);
+  }
+
+  // Fix 2: Convert time range dashes to Hebrew "עד" (until)
   // 8:00-16:00 → 8:00 עד 16:00
   text = text.replace(/(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})/g, '$1 עד $2');
 
-  // Fix 2: Add pauses before newlines
+  // Fix 3: Add pauses before newlines
   // Single newline → short pause (,)
   text = text.replace(/\n/g, ', ');
 
