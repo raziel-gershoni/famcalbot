@@ -265,6 +265,15 @@ function setupHandlers(bot: TelegramBot) {
       await handleTestModelsCommand(chatId, userId, updateId, args);
     }
   });
+
+  // /testvoices command (admin only)
+  bot.onText(/\/testvoices/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+    if (userId) {
+      await handleTestVoicesCommand(chatId, userId);
+    }
+  });
 }
 
 /**
@@ -316,6 +325,11 @@ async function sendSummaryToUser(
 
     // Send personalized message (greeting is included in the summary)
     await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
+
+    // Generate and send voice message for admin user only (for /summary command only)
+    if (userId === ADMIN_USER_ID && summaryDate === undefined) {
+      await sendVoiceMessage(userId, summary);
+    }
   } catch (error) {
     console.error(`Error sending summary to user ${userId}:`, error);
     await botInstance.sendMessage(userId, errorMessage);
@@ -442,4 +456,129 @@ export async function sendTomorrowSummaryToAll(): Promise<void> {
   tomorrow.setDate(tomorrow.getDate() + 1);
 
   await sendSummaryToAll(fetchTomorrowEvents, tomorrow);
+}
+
+/**
+ * Generate and send voice version of summary
+ * Non-blocking - errors logged but don't affect text summary delivery
+ * Admin-only feature for testing
+ */
+async function sendVoiceMessage(userId: number, summary: string): Promise<void> {
+  let voiceFilePath: string | null = null;
+
+  try {
+    const { generateVoiceMessage, cleanupVoiceFile } = await import('./voice-generator');
+
+    console.log(`Generating voice message for user ${userId}...`);
+
+    // Generate voice file with default settings (nova voice, 1.0 speed)
+    voiceFilePath = await generateVoiceMessage(summary);
+
+    // Send as voice message to Telegram
+    const botInstance = getBot();
+    await botInstance.sendVoice(userId, voiceFilePath);
+
+    console.log(`Voice message sent successfully to user ${userId}`);
+  } catch (error) {
+    console.error(`Voice generation failed for user ${userId}:`, error);
+
+    // Notify admin but don't interrupt user experience
+    const { notifyAdminWarning } = await import('../utils/error-notifier');
+    await notifyAdminWarning(
+      'Voice Generation',
+      `Failed to generate voice message:\n${error instanceof Error ? error.message : 'Unknown error'}\n\nText summary was delivered successfully.`
+    );
+  } finally {
+    // Always attempt cleanup
+    if (voiceFilePath) {
+      const { cleanupVoiceFile } = await import('./voice-generator');
+      await cleanupVoiceFile(voiceFilePath).catch(err =>
+        console.warn('Voice file cleanup failed:', err)
+      );
+    }
+  }
+}
+
+/**
+ * Handle /testvoices command (admin only)
+ * Tests all 6 OpenAI voices with a sample Hebrew text
+ */
+export async function handleTestVoicesCommand(chatId: number, userId: number): Promise<void> {
+  // Admin-only command
+  if (userId !== ADMIN_USER_ID) {
+    await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    return;
+  }
+
+  const botInstance = getBot();
+  const voices: Array<'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer'> = [
+    'alloy',
+    'echo',
+    'fable',
+    'onyx',
+    'nova',
+    'shimmer'
+  ];
+
+  const testText = `שלום! זהו טסט של קול עברי. אני אומר את המספרים: אחת, שתיים, שלוש. ואת הזמן: שמונה אפס אפס. תודה!`;
+
+  try {
+    await botInstance.sendMessage(
+      chatId,
+      `🎤 <b>Testing ${voices.length} OpenAI Voices</b>\n\nGenerating voice samples for each voice...\n\n<i>Test text: "${testText}"</i>`,
+      { parse_mode: 'HTML' }
+    );
+
+    const { generateVoiceMessage, cleanupVoiceFile } = await import('./voice-generator');
+
+    // Test each voice
+    for (const voice of voices) {
+      let voiceFilePath: string | null = null;
+
+      try {
+        console.log(`Testing voice: ${voice}`);
+
+        // Generate voice sample
+        voiceFilePath = await generateVoiceMessage(testText, { voice, speed: 1.0 });
+
+        // Send voice message with caption
+        await botInstance.sendVoice(chatId, voiceFilePath, {
+          caption: `🎤 Voice: <b>${voice}</b>`,
+          parse_mode: 'HTML'
+        });
+
+        console.log(`Voice ${voice} sent successfully`);
+      } catch (error) {
+        console.error(`Failed to test voice ${voice}:`, error);
+        await botInstance.sendMessage(
+          chatId,
+          `❌ Voice <b>${voice}</b> failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          { parse_mode: 'HTML' }
+        );
+      } finally {
+        if (voiceFilePath) {
+          await cleanupVoiceFile(voiceFilePath).catch(err =>
+            console.warn(`Cleanup failed for ${voice}:`, err)
+          );
+        }
+      }
+
+      // Small delay between voices to avoid rate limits
+      if (voice !== voices[voices.length - 1]) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    await botInstance.sendMessage(
+      chatId,
+      `✅ <b>Voice Testing Complete!</b>\n\nTested ${voices.length} voices. Listen and compare to choose your favorite!`,
+      { parse_mode: 'HTML' }
+    );
+  } catch (error) {
+    console.error('Error in testvoices command:', error);
+    await botInstance.sendMessage(chatId, 'Sorry, there was an error running voice tests.');
+
+    const { notifyAdminError } = await import('../utils/error-notifier');
+    await notifyAdminError('TestVoices Command', error);
+  }
 }

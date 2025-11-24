@@ -7,6 +7,7 @@ A private Telegram bot that sends intelligent, personalized daily calendar summa
 - **Multi-calendar support**: Fetches events from multiple Google Calendars with shared authentication
 - **Multi-provider AI**: Supports both Claude (Anthropic) and OpenAI GPT models with easy switching
 - **AI model testing**: `/testmodels` command for side-by-side model comparison with performance metrics
+- **Voice messages**: Admin can receive audio summaries using OpenAI TTS (6 voices available)
 - **Smart event categorization**: Pre-categorizes events by ownership (user, spouse, kids) for accurate attribution
 - **Personalized views**: Each user gets summaries personalized to their calendars with spouse name integration
 - **Time-based greetings**: Contextual greetings (Good morning/afternoon/evening) based on current time
@@ -52,7 +53,8 @@ famcalbot/
 │   │   ├── calendar.ts        # Google Calendar integration
 │   │   ├── claude.ts          # Summary generation with metrics
 │   │   ├── model-tester.ts    # Multi-model testing service
-│   │   └── telegram.ts        # Telegram bot handlers
+│   │   ├── telegram.ts        # Telegram bot handlers
+│   │   └── voice-generator.ts # OpenAI TTS voice generation
 │   ├── utils/
 │   │   ├── error-notifier.ts  # Admin error notifications
 │   │   ├── event-formatter.ts # Event formatting for prompts
@@ -258,6 +260,7 @@ npm run setup-webhook delete
 
 ### Admin Commands
 - `/testmodels [filter]` - Test multiple AI models side-by-side
+- `/testvoices` - Test all 6 OpenAI TTS voices with Hebrew sample
 
 **Test model filters:**
 ```bash
@@ -283,6 +286,35 @@ Example output:
 
 ⏱️ 2.3s | 🔢 1407→256 tokens | 💰 $0.004 | end_turn
 ```
+
+## Voice Messages
+
+**Current status**: Admin-only feature for `/summary` command (Phase 1)
+
+The bot can generate voice versions of calendar summaries using OpenAI Text-to-Speech API.
+
+**Features:**
+- 6 available voices: alloy, echo, fable, onyx, nova (default), shimmer
+- High-quality tts-1-hd model
+- Opus format optimized for Telegram
+- HTML tag stripping for clean pronunciation
+- Automatic cleanup of temporary files
+- Non-blocking: voice errors don't affect text summary delivery
+
+**Commands:**
+- `/summary` - Admin users automatically receive voice message after text summary
+- `/testvoices` - Test all 6 voices with Hebrew sample to choose your favorite
+
+**Configuration** (all optional):
+```env
+VOICE_MODEL=tts-1-hd              # tts-1 (fast) or tts-1-hd (quality)
+VOICE_DEFAULT=nova                # alloy, echo, fable, onyx, nova, shimmer
+VOICE_SPEED=1.0                   # 0.25 to 4.0 (1.0 = normal)
+```
+
+**Cost**: ~$0.015-0.025 per summary (~$0.90-1.50/month for daily summaries)
+
+**Future plans**: See `.claude/VOICE_MESSAGES_FEATURE.md` for full roadmap including per-user preferences and Google Cloud TTS evaluation.
 
 ## API Endpoints
 
