@@ -68,9 +68,13 @@ The AI response was truncated. Consider increasing AI_MAX_TOKENS in environment 
 async function callClaude(prompt: string, modelId?: string): Promise<AICompletionResult> {
   const config = getAIConfig(modelId);
 
+  // Cap at 8192 to avoid "streaming required for >10 min" error
+  // Calendar summaries never need more than ~5000 tokens
+  const maxTokens = Math.min(config.MAX_TOKENS, 8192);
+
   const message = await anthropic.messages.create({
     model: config.MODEL_CONFIG.modelId,
-    max_tokens: config.MAX_TOKENS,
+    max_tokens: maxTokens,
     messages: [
       {
         role: 'user',
@@ -86,13 +90,13 @@ async function callClaude(prompt: string, modelId?: string): Promise<AICompletio
   // Check if response was truncated
   if (message.stop_reason === 'max_tokens') {
     console.warn('⚠️ WARNING: Claude response was truncated due to token limit!');
-    console.warn(`Used ${message.usage.output_tokens}/${config.MAX_TOKENS} output tokens`);
+    console.warn(`Used ${message.usage.output_tokens}/${maxTokens} output tokens`);
 
     // Send alert to admin (non-blocking)
     alertTokenCeiling(
       config.MODEL_CONFIG.displayName,
       message.usage.output_tokens,
-      config.MAX_TOKENS
+      maxTokens
     ).catch(err => console.error('Alert failed:', err));
   }
 
