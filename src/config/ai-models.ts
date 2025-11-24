@@ -7,7 +7,7 @@
  */
 
 export interface ModelConfig {
-  provider: 'claude' | 'openai';
+  provider: 'claude' | 'openai' | 'gemini';
   modelId: string;
   displayName: string;
   maxOutputTokens: number;
@@ -107,6 +107,40 @@ export const AI_MODELS: Record<string, ModelConfig> = {
     description: 'Cheapest GPT-5, excellent for summaries and simple tasks',
     reasoningEffort: 'minimal',
   },
+
+  // ============================================
+  // GEMINI MODELS (Google AI)
+  // ============================================
+
+  'gemini-3-pro': {
+    provider: 'gemini',
+    modelId: 'gemini-3-pro-preview',
+    displayName: 'Gemini 3 Pro',
+    maxOutputTokens: 65536,
+    contextWindow: 1048576,
+    costPer1MTokens: { input: 2.00, output: 12.00 }, // ≤200K context
+    description: 'Latest Gemini (Nov 2025), best multimodal reasoning, 1M context',
+  },
+
+  'gemini-2.5-flash': {
+    provider: 'gemini',
+    modelId: 'gemini-2.5-flash',
+    displayName: 'Gemini 2.5 Flash',
+    maxOutputTokens: 65536,
+    contextWindow: 1048576,
+    costPer1MTokens: { input: 0.30, output: 2.50 },
+    description: 'Best price-performance, advanced reasoning, 1M context',
+  },
+
+  'gemini-2.5-flash-lite': {
+    provider: 'gemini',
+    modelId: 'gemini-2.5-flash-lite',
+    displayName: 'Gemini 2.5 Flash-Lite',
+    maxOutputTokens: 65536,
+    contextWindow: 1048576,
+    costPer1MTokens: { input: 0.10, output: 0.40 },
+    description: 'Ultra-cheap, fastest flash model, perfect for summaries',
+  },
 };
 
 /**
@@ -128,7 +162,7 @@ export function getAvailableModels(): string[] {
 /**
  * Get models by provider
  */
-export function getModelsByProvider(provider: 'claude' | 'openai'): Record<string, ModelConfig> {
+export function getModelsByProvider(provider: 'claude' | 'openai' | 'gemini'): Record<string, ModelConfig> {
   return Object.fromEntries(
     Object.entries(AI_MODELS).filter(([, config]) => config.provider === provider)
   );
@@ -136,14 +170,13 @@ export function getModelsByProvider(provider: 'claude' | 'openai'): Record<strin
 
 /**
  * Get recommended models for testing
- * Focus on Claude 4.5, GPT-5.1 family, and key GPT-5 models
+ * Focus on Claude 4.5 and Gemini family for comparison
  */
 export function getRecommendedModels(): string[] {
   return [
-    'claude-sonnet-4.5',   // Fast, reliable Claude
-    'gpt-5.1',             // Latest GPT (Nov 2025)
-    'gpt-5.1-instant',     // Fast adaptive reasoning
-    'gpt-5',               // GPT-5 flagship with minimal reasoning
-    'gpt-5-mini',          // Balanced GPT-5 variant
+    'claude-sonnet-4.5',        // Fast, reliable Claude baseline
+    'gemini-3-pro',             // Latest Gemini (Nov 2025)
+    'gemini-2.5-flash',         // Best price-performance
+    'gemini-2.5-flash-lite',    // Ultra-cheap, fastest
   ];
 }

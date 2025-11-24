@@ -5,6 +5,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getAIConfig, AI_RETRY_CONFIG, ADMIN_USER_ID } from '../config/constants';
 import { getBot } from './telegram';
 
@@ -16,6 +17,8 @@ const anthropic = new Anthropic({
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 /**
  * Result from AI completion request
@@ -177,8 +180,48 @@ async function callOpenAI(prompt: string, modelId?: string): Promise<AICompletio
 }
 
 /**
+ * Call Gemini API with a prompt
+ */
+async function callGemini(prompt: string, modelId?: string): Promise<AICompletionResult> {
+  const config = getAIConfig(modelId);
+
+  const model = gemini.getGenerativeModel({ model: config.MODEL_CONFIG.modelId });
+
+  const result = await model.generateContent(prompt);
+  const response = result.response;
+  const text = response.text();
+
+  // Check if response was truncated
+  const finishReason = response.candidates?.[0]?.finishReason || 'STOP';
+  const finishReasonStr = String(finishReason);
+
+  if (finishReasonStr.includes('MAX_TOKENS') || finishReasonStr === 'OTHER') {
+    const outputTokens = response.usageMetadata?.candidatesTokenCount || 0;
+    console.warn('⚠️ WARNING: Gemini response may have been truncated!');
+    console.warn(`Used ${outputTokens}/${config.MAX_TOKENS} output tokens`);
+
+    // Send alert to admin (non-blocking)
+    alertTokenCeiling(
+      config.MODEL_CONFIG.displayName,
+      outputTokens,
+      config.MAX_TOKENS
+    ).catch(err => console.error('Alert failed:', err));
+  }
+
+  return {
+    text,
+    usage: {
+      inputTokens: response.usageMetadata?.promptTokenCount || 0,
+      outputTokens: response.usageMetadata?.candidatesTokenCount || 0,
+    },
+    stopReason: finishReasonStr,
+    model: config.MODEL_CONFIG.displayName,
+  };
+}
+
+/**
  * Generate AI completion with retry logic and exponential backoff
- * Automatically routes to the configured provider (Claude or OpenAI)
+ * Automatically routes to the configured provider (Claude, OpenAI, or Gemini)
  *
  * @param prompt - The prompt to send to the AI
  * @param modelId - Optional model ID to override default model
@@ -193,10 +236,14 @@ export async function generateAICompletion(prompt: string, modelId?: string): Pr
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       // Route to the appropriate provider
-      const result =
-        config.MODEL_CONFIG.provider === 'claude'
-          ? await callClaude(prompt, modelId)
-          : await callOpenAI(prompt, modelId);
+      let result: AICompletionResult;
+      if (config.MODEL_CONFIG.provider === 'claude') {
+        result = await callClaude(prompt, modelId);
+      } else if (config.MODEL_CONFIG.provider === 'gemini') {
+        result = await callGemini(prompt, modelId);
+      } else {
+        result = await callOpenAI(prompt, modelId);
+      }
 
       // Log successful completion
       console.log('AI Completion Success:', {
