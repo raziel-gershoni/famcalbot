@@ -119,7 +119,7 @@ export async function handleTomorrowCommand(chatId: number, userId: number): Pro
 /**
  * Handle /testmodels command (admin only)
  */
-export async function handleTestModelsCommand(chatId: number, userId: number, args?: string): Promise<void> {
+export async function handleTestModelsCommand(chatId: number, userId: number, updateId: number, args?: string): Promise<void> {
   // Check if disabled via env var (emergency kill switch)
   if (process.env.DISABLE_TESTMODELS === 'true') {
     await getBot().sendMessage(
@@ -134,6 +134,33 @@ export async function handleTestModelsCommand(chatId: number, userId: number, ar
   if (userId !== ADMIN_USER_ID) {
     await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     return;
+  }
+
+  // Check for duplicate execution (Telegram retry)
+  // Look for a recent message with this update_id to detect retries
+  const bot = getBot();
+  const uniqueMarker = `[testrun-${updateId}]`;
+
+  console.log(`Testmodels invoked with update_id: ${updateId}`);
+
+  // Check last 50 messages to see if we already started this test
+  try {
+    const updates = await bot.getUpdates({ limit: 50, offset: -1 });
+    const recentBotMessages = updates
+      .filter(u => u.message?.from?.is_bot && u.message?.chat?.id === chatId)
+      .slice(-20);  // Last 20 bot messages
+
+    const alreadyProcessed = recentBotMessages.some(
+      u => u.message?.text?.includes(uniqueMarker)
+    );
+
+    if (alreadyProcessed) {
+      console.log(`Duplicate testmodels request detected (update_id: ${updateId}), ignoring`);
+      return;
+    }
+  } catch (error) {
+    console.warn('Could not check for duplicate testmodels execution:', error);
+    // Continue anyway - better to have duplicates than no execution
   }
 
   const user = getUserByTelegramId(userId);
@@ -172,7 +199,8 @@ export async function handleTestModelsCommand(chatId: number, userId: number, ar
       user.spouseName,
       user.spouseHebrewName,
       user.primaryCalendar,
-      chatId
+      chatId,
+      uniqueMarker
     );
   } catch (error) {
     console.error('Error in testmodels command:', error);
@@ -229,8 +257,10 @@ function setupHandlers(bot: TelegramBot) {
     const chatId = msg.chat.id;
     const userId = msg.from?.id;
     const args = match?.[1]?.trim();
+    // In polling mode, use message_id as updateId since we don't have update_id
+    const updateId = msg.message_id;
     if (userId) {
-      await handleTestModelsCommand(chatId, userId, args);
+      await handleTestModelsCommand(chatId, userId, updateId, args);
     }
   });
 }

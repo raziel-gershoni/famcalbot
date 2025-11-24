@@ -34,19 +34,16 @@ export default async function handler(
     const userId = update.message.from.id;
     const text = update.message.text;
 
-    // For /testmodels, respond immediately and fire-and-forget to prevent blocking
+    // For /testmodels, respond immediately but continue processing
+    // The function will check for duplicate retries using update_id
     if (text.startsWith('/testmodels')) {
       res.status(200).json({ ok: true });
       const args = text.replace('/testmodels', '').trim();
+      const updateId = update.update_id;
 
-      // Fire-and-forget: don't await, let it run in background
-      import('../src/services/telegram').then(({ handleTestModelsCommand }) => {
-        handleTestModelsCommand(chatId, userId, args || undefined).catch(error => {
-          console.error('Error in background testmodels execution:', error);
-        });
-      });
-
-      return;  // Handler exits immediately, invocation completes
+      const { handleTestModelsCommand } = await import('../src/services/telegram');
+      await handleTestModelsCommand(chatId, userId, updateId, args || undefined);
+      return;
     }
 
     // Route to appropriate command handler (process BEFORE responding)

@@ -138,11 +138,12 @@ export async function testModels(
   spouseName: string,
   spouseHebrewName: string,
   primaryCalendar: string,
-  chatId: number
+  chatId: number,
+  uniqueMarker: string
 ): Promise<void> {
   const botInstance = getBot();
 
-  // Check if already running
+  // Check if already running (in-memory lock for same invocation)
   if (isTestingInProgress) {
     await botInstance.sendMessage(
       chatId,
@@ -156,10 +157,10 @@ export async function testModels(
   isTestingInProgress = true;
 
   try {
-    // Send intro message
+    // Send intro message with unique marker to detect Telegram retries
     await botInstance.sendMessage(
       chatId,
-      `🧪 <b>Model Testing Started</b>\n\nTesting ${modelsToTest.length} models...\nEach will send 2 messages (today + tomorrow).\n\n<i>This will take ~${modelsToTest.length * 10} seconds.</i>`,
+      `🧪 <b>Model Testing Started</b> ${uniqueMarker}\n\nTesting ${modelsToTest.length} models...\nEach will send 2 messages (today + tomorrow).\n\n<i>This will take ~${modelsToTest.length * 10} seconds.</i>`,
       { parse_mode: 'HTML' }
     );
 
