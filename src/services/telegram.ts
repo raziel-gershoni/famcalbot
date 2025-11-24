@@ -143,28 +143,9 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
 
   console.log(`Testmodels invoked with update_id: ${updateId}`);
 
-  // Check last 15 messages to see if we already started this test
-  // Only check recent messages (last 2 minutes) to allow running tests back-to-back
-  try {
-    const updates = await bot.getUpdates({ limit: 50, offset: -1 });
-    const twoMinutesAgo = Math.floor(Date.now() / 1000) - 120;
-
-    const recentBotMessages = updates
-      .filter(u => u.message?.from?.is_bot && u.message?.chat?.id === chatId && u.message?.date > twoMinutesAgo)
-      .slice(-15);  // Last 15 bot messages from last 2 minutes
-
-    const alreadyProcessed = recentBotMessages.some(
-      u => u.message?.text?.includes(uniqueMarker)
-    );
-
-    if (alreadyProcessed) {
-      console.log(`Duplicate testmodels request detected (update_id: ${updateId}), ignoring`);
-      return;
-    }
-  } catch (error) {
-    console.warn('Could not check for duplicate testmodels execution:', error);
-    // Continue anyway - better to have duplicates than no execution
-  }
+  // Note: Can't check for duplicates with webhooks (getUpdates doesn't work)
+  // If Telegram retries due to slow execution, user will see duplicate intro messages
+  // The uniqueMarker in the intro helps identify which run is which
 
   const user = getUserByTelegramId(userId);
   if (!user) {
