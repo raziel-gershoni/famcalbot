@@ -116,11 +116,12 @@ export async function cleanupVoiceFile(filePath: string): Promise<void> {
 }
 
 /**
- * Strip HTML tags only - minimal processing
- * Let Google TTS handle Hebrew, Gematria, times, dates natively
+ * Strip HTML tags and apply minimal normalization
+ * Let Google TTS handle Hebrew, Gematria, dates natively
+ * Only fix: pauses and time range dashes
  */
 function stripHtmlTagsOnly(html: string): string {
-  return html
+  let text = html
     .replace(/<[^>]*>/g, '') // Remove HTML tags
     .replace(/&lt;/g, '<')   // Decode HTML entities
     .replace(/&gt;/g, '>')
@@ -129,6 +130,19 @@ function stripHtmlTagsOnly(html: string): string {
     .replace(/&#39;/g, "'")
     .replace(/\n\n+/g, '\n\n') // Normalize multiple newlines
     .trim();
+
+  // Fix 1: Convert time range dashes to Hebrew "עד" (until)
+  // 8:00-16:00 → 8:00 עד 16:00
+  text = text.replace(/(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})/g, '$1 עד $2');
+
+  // Fix 2: Add pauses before newlines
+  // Single newline → short pause (,)
+  text = text.replace(/\n/g, ', ');
+
+  // Double newline → medium pause (...)
+  text = text.replace(/,\s*,/g, '... ');
+
+  return text;
 }
 
 /*
