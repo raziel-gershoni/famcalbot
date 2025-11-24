@@ -34,15 +34,16 @@ export default async function handler(
     const userId = update.message.from.id;
     const text = update.message.text;
 
-    // For /testmodels, respond immediately but continue processing
-    // The function will check for duplicate retries using update_id
+    // For /testmodels, process THEN respond (Redis lock prevents duplicates from retries)
+    // Telegram will retry after ~60s if no response, but Redis lock will reject duplicates
     if (text.startsWith('/testmodels')) {
-      res.status(200).json({ ok: true });
       const args = text.replace('/testmodels', '').trim();
       const updateId = update.update_id;
 
       const { handleTestModelsCommand } = await import('../src/services/telegram');
       await handleTestModelsCommand(chatId, userId, updateId, args || undefined);
+
+      res.status(200).json({ ok: true });
       return;
     }
 

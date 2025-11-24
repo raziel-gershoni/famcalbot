@@ -151,6 +151,7 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
     return;
   }
 
+  console.log('Lock acquired, getting user config...');
   const user = getUserByTelegramId(userId);
   if (!user) {
     console.error(`User with Telegram ID ${userId} not found`);
@@ -158,12 +159,16 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
     return;
   }
 
+  console.log('User found, importing test modules...');
   const { testModels, getModelsToTest } = await import('./model-tester');
 
   try {
+    console.log('Fetching calendar events...');
     // Fetch today and tomorrow events
     const todayEvents = await fetchTodayEvents(user.googleRefreshToken, user.calendars);
+    console.log(`Fetched ${todayEvents.length} today events`);
     const tomorrowEvents = await fetchTomorrowEvents(user.googleRefreshToken, user.calendars);
+    console.log(`Fetched ${tomorrowEvents.length} tomorrow events`);
 
     // Categorize events by ownership - separately for today and tomorrow
     const categorizedToday = categorizeEvents(todayEvents, user);
@@ -171,8 +176,10 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
 
     // Get list of models to test
     const modelsToTest = getModelsToTest(args);
+    console.log(`Will test ${modelsToTest.length} models: ${modelsToTest.join(', ')}`);
 
     // Run the tests
+    console.log('Starting testModels execution...');
     await testModels(
       modelsToTest,
       todayEvents,
@@ -191,6 +198,7 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
       chatId,
       uniqueMarker
     );
+    console.log('testModels execution completed successfully');
   } catch (error) {
     console.error('Error in testmodels command:', error);
     await getBot().sendMessage(chatId, 'Sorry, there was an error running the model tests.');
@@ -200,7 +208,9 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
     await notifyAdminError('TestModels Command', error, `Args: ${args || 'none'}`);
   } finally {
     // Always release lock when done (success or failure)
+    console.log('Releasing lock...');
     await releaseTestModelsLock(userId);
+    console.log('Lock released, testmodels handler complete');
   }
 }
 
