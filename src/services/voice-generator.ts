@@ -156,9 +156,12 @@ function normalizeDatesForTTS(text: string): string {
   });
 
   // 3. Hebrew Gematria: spell out letter names
-  // Handles dates (כ״ח) and years (תשפ״ד)
-  // Pattern: [letters][gershayim/geresh][optional letter]
-  result = result.replace(/([א-ת]+)[״׳]([א-ת])?/g, (match, beforeMark, afterMark) => {
+  // ONLY process the beginning of text (where dates are) to avoid abbreviations like לו״ז
+  const dateHeaderLength = 150; // Date header is at the start
+  const beginning = result.slice(0, dateHeaderLength);
+  const rest = result.slice(dateHeaderLength);
+
+  const processedBeginning = beginning.replace(/([א-ת]+)[״׳]([א-ת])?/g, (match, beforeMark, afterMark) => {
     // Split all letters before the mark
     const beforeNames = beforeMark.split('').map((l: string) => getHebrewLetterName(l)).join(' ');
 
@@ -171,6 +174,8 @@ function normalizeDatesForTTS(text: string): string {
       return beforeNames;
     }
   });
+
+  result = processedBeginning + rest;
 
   return result;
 }
