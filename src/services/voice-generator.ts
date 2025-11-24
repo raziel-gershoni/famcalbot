@@ -116,15 +116,41 @@ function stripHtmlTags(html: string): string {
   // Normalize times for better Hebrew pronunciation
   text = normalizeTimesForTTS(text);
 
+  // Transliterate English words to Hebrew phonetics
+  text = transliterateEnglishToHebrew(text);
+
   return text;
 }
 
 /**
  * Convert time formats to Hebrew-friendly TTS format
- * Converts "08:00" → "שמונה", "15:30" → "שלוש וחצי", etc.
+ * Handles both ranges and single times naturally
  */
 function normalizeTimesForTTS(text: string): string {
-  // Hebrew number words
+  // First, handle time ranges (e.g., "08:00 - 11:45" or "08:00-11:45")
+  text = text.replace(/\b(\d{1,2}):(\d{2})\s*[-–—]\s*(\d{1,2}):(\d{2})\b/g,
+    (match, h1, m1, h2, m2) => {
+      const startTime = formatHebrewTime(parseInt(h1, 10), parseInt(m1, 10));
+      const endTime = formatHebrewTime(parseInt(h2, 10), parseInt(m2, 10), true);
+      return `מ${startTime} עד ${endTime}`;
+    }
+  );
+
+  // Then, handle remaining single times
+  text = text.replace(/\b(\d{1,2}):(\d{2})\b/g, (match, h, m) => {
+    return formatHebrewTime(parseInt(h, 10), parseInt(m, 10));
+  });
+
+  return text;
+}
+
+/**
+ * Format a time in Hebrew
+ * @param hour - Hour (0-23)
+ * @param minute - Minute (0-59)
+ * @param isEndTime - If true, uses "quarter to" format for :45 times
+ */
+function formatHebrewTime(hour: number, minute: number, isEndTime: boolean = false): string {
   const hours: Record<number, string> = {
     0: 'חצות',
     1: 'אחת',
@@ -152,29 +178,28 @@ function normalizeTimesForTTS(text: string): string {
     23: 'אחת עשרה',
   };
 
-  // Match time patterns like "08:00" or "15:30"
-  return text.replace(/\b(\d{1,2}):(\d{2})\b/g, (match, h, m) => {
-    const hour = parseInt(h, 10);
-    const minute = parseInt(m, 10);
+  const hourText = hours[hour] || hour.toString();
 
-    // Get hour in Hebrew
-    const hourText = hours[hour] || h;
-
-    // Handle minutes
-    if (minute === 0) {
-      return hourText; // "שמונה" (8:00)
-    } else if (minute === 30) {
-      return `${hourText} וחצי`; // "שמונה וחצי" (8:30)
-    } else if (minute === 15) {
-      return `${hourText} ורבע`; // "שמונה ורבע" (8:15)
-    } else if (minute === 45) {
-      return `${hourText} ורבע לתשע`; // Could simplify to "רבע לתשע"
+  // Handle special minutes
+  if (minute === 0) {
+    return hourText; // "שמונה" (8:00)
+  } else if (minute === 30) {
+    return `${hourText} וחצי`; // "שמונה וחצי" (8:30)
+  } else if (minute === 15) {
+    return `${hourText} ורבע`; // "שמונה ורבע" (8:15)
+  } else if (minute === 45) {
+    // For end times, use natural "quarter to" format
+    if (isEndTime) {
+      const nextHour = (hour + 1) % 24;
+      const nextHourText = hours[nextHour] || nextHour.toString();
+      return `רבע ל${nextHourText}`; // "רבע לשתים עשרה" (quarter to twelve)
     } else {
-      // For other minutes, say hour and minute separately
-      // "8:25" → "שמונה עשרים וחמש"
-      return `${hourText} ${convertMinutesToHebrew(minute)}`;
+      return `${hourText} ורבע`; // "שמונה ורבע" (8:45 as standalone)
     }
-  });
+  } else {
+    // For other minutes, say hour and minute separately
+    return `${hourText} ${convertMinutesToHebrew(minute)}`;
+  }
 }
 
 /**
@@ -201,4 +226,61 @@ function convertMinutesToHebrew(minute: number): string {
       return `${tens[tensDigit]} ו${ones[onesDigit]}`;
     }
   }
+}
+
+/**
+ * Transliterate common English words to Hebrew phonetics for TTS
+ * Helps TTS pronounce English names/terms that would otherwise be skipped
+ */
+function transliterateEnglishToHebrew(text: string): string {
+  // Common English terms in calendar events with Hebrew phonetic equivalents
+  const transliterations: Record<string, string> = {
+    // Common calendar terms
+    'meeting': 'מיטינג',
+    'zoom': 'זום',
+    'call': 'קול',
+    'doctor': 'דוקטור',
+    'pickup': 'פיקאפ',
+    'drop': 'דרופ',
+    'dropoff': 'דרופ-אוף',
+    'school': 'סקול',
+    'office': 'אופיס',
+    'park': 'פארק',
+    'mall': 'מול',
+    'gym': 'ג\'ים',
+    'pool': 'פול',
+    'class': 'קלאס',
+    'lesson': 'לסון',
+    'appointment': 'אפוינטמנט',
+    'birthday': 'בירת\'דיי',
+    'party': 'פארטי',
+
+    // Days of week (in case they appear in English)
+    'sunday': 'סאנדיי',
+    'monday': 'מאנדיי',
+    'tuesday': 'טיוזדיי',
+    'wednesday': 'ונזדיי',
+    'thursday': 'ת\'רסדיי',
+    'friday': 'פריידיי',
+    'saturday': 'סאטרדיי',
+
+    // Tech/apps
+    'google': 'גוגל',
+    'teams': 'טימס',
+    'skype': 'סקייפ',
+    'whatsapp': 'ווטסאפ',
+  };
+
+  // Replace whole words (case-insensitive, preserve word boundaries)
+  let result = text;
+  for (const [english, hebrew] of Object.entries(transliterations)) {
+    const regex = new RegExp(`\\b${english}\\b`, 'gi');
+    result = result.replace(regex, hebrew);
+  }
+
+  // For remaining English words: add spaces around them to help TTS separate them
+  // This helps the model understand they're distinct entities
+  result = result.replace(/\b([a-zA-Z]{2,})\b/g, ' $1 ').replace(/\s+/g, ' ').trim();
+
+  return result;
 }
