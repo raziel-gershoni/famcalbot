@@ -4,7 +4,7 @@
  */
 
 import { CalendarEvent } from '../types';
-import { generateSummary } from './claude';
+import { generateSummaryWithMetrics } from './claude';
 import { getAIConfig } from '../config/constants';
 import { getBot } from './telegram';
 import { getAvailableModels, getModelsByProvider, getRecommendedModels } from '../config/ai-models';
@@ -50,8 +50,8 @@ async function testSingleModel(
     // Start timing for today
     const todayStartTime = Date.now();
 
-    // Generate today's summary
-    const todaySummary = await generateSummary(
+    // Generate today's summary with full metrics
+    const todayResult = await generateSummaryWithMetrics(
       todayUserEvents,
       todaySpouseEvents,
       todayOtherEvents,
@@ -61,18 +61,17 @@ async function testSingleModel(
       spouseHebrewName,
       primaryCalendar,
       new Date(),
-      false, // Don't include regular model info
       modelId
     );
 
     const todayElapsed = Date.now() - todayStartTime;
 
-    // Send today's result
+    // Send today's result with actual token usage
     const todayMessage = `🧪 <b>${config.MODEL_CONFIG.displayName}</b> - TODAY
 
-${todaySummary}
+${todayResult.text}
 
-<i>⏱️ ${(todayElapsed / 1000).toFixed(1)}s | 💰 ~${calculateCost(1400, 250, modelId)}</i>`;
+<i>⏱️ ${(todayElapsed / 1000).toFixed(1)}s | 🔢 ${todayResult.usage.inputTokens}→${todayResult.usage.outputTokens} tokens | 💰 ${calculateCost(todayResult.usage.inputTokens, todayResult.usage.outputTokens, modelId)} | ${todayResult.stopReason}</i>`;
 
     await botInstance.sendMessage(chatId, todayMessage, { parse_mode: 'HTML' });
 
@@ -82,8 +81,8 @@ ${todaySummary}
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // Generate tomorrow's summary
-    const tomorrowSummary = await generateSummary(
+    // Generate tomorrow's summary with full metrics
+    const tomorrowResult = await generateSummaryWithMetrics(
       tomorrowUserEvents,
       tomorrowSpouseEvents,
       tomorrowOtherEvents,
@@ -93,18 +92,17 @@ ${todaySummary}
       spouseHebrewName,
       primaryCalendar,
       tomorrow,
-      false, // Don't include regular model info
       modelId
     );
 
     const tomorrowElapsed = Date.now() - tomorrowStartTime;
 
-    // Send tomorrow's result
+    // Send tomorrow's result with actual token usage
     const tomorrowMessage = `🧪 <b>${config.MODEL_CONFIG.displayName}</b> - TOMORROW
 
-${tomorrowSummary}
+${tomorrowResult.text}
 
-<i>⏱️ ${(tomorrowElapsed / 1000).toFixed(1)}s | 💰 ~${calculateCost(1400, 250, modelId)}</i>`;
+<i>⏱️ ${(tomorrowElapsed / 1000).toFixed(1)}s | 🔢 ${tomorrowResult.usage.inputTokens}→${tomorrowResult.usage.outputTokens} tokens | 💰 ${calculateCost(tomorrowResult.usage.inputTokens, tomorrowResult.usage.outputTokens, modelId)} | ${tomorrowResult.stopReason}</i>`;
 
     await botInstance.sendMessage(chatId, tomorrowMessage, { parse_mode: 'HTML' });
   } catch (error) {

@@ -159,3 +159,49 @@ export async function generateSummary(
   // Call AI provider with retry logic, including model info if requested
   return await callAI(prompt, includeModelInfo, modelId);
 }
+
+/**
+ * Generate summary with full metrics for testing
+ * Returns the AICompletionResult with actual token usage
+ */
+export async function generateSummaryWithMetrics(
+  userEvents: CalendarEvent[],
+  spouseEvents: CalendarEvent[],
+  otherEvents: CalendarEvent[],
+  userName: string,
+  userHebrewName: string,
+  spouseName: string,
+  spouseHebrewName: string,
+  primaryCalendar: string,
+  date: Date = new Date(),
+  modelId?: string
+) {
+  const allEvents = [...userEvents, ...spouseEvents, ...otherEvents];
+
+  if (allEvents.length === 0) {
+    return {
+      text: USER_MESSAGES.NO_EVENTS_TODAY,
+      model: 'none',
+      usage: { inputTokens: 0, outputTokens: 0 },
+      stopReason: 'no_events' as const
+    };
+  }
+
+  // Build prompt data
+  const promptData = buildPromptData(
+    userEvents,
+    spouseEvents,
+    otherEvents,
+    userName,
+    userHebrewName,
+    spouseName,
+    spouseHebrewName,
+    date
+  );
+
+  // Build the prompt
+  const prompt = buildCalendarSummaryPrompt(promptData);
+
+  // Call AI provider and return full result
+  return await generateAICompletion(prompt, modelId);
+}

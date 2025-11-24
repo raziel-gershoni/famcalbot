@@ -202,15 +202,11 @@ export function getModelsByProvider(provider: 'claude' | 'openai'): Record<strin
 
 /**
  * Get recommended models for testing
- * Focus on GPT-5/5.1 series for quick OpenAI comparison
+ * Focus on GPT-5 series only
  */
 export function getRecommendedModels(): string[] {
   return [
-    "claude-sonnet-4.5",
-    "claude-sonnet-4",
-    'gpt-5.1',             // Latest GPT (Nov 2025)
-    'gpt-5.1-instant',     // Fast adaptive reasoning
-    'gpt-5',               // Current flagship (Aug 2025)
+    'gpt-5',               // GPT-5 flagship (Aug 2025)
     'gpt-5-mini',          // Balanced performance
     'gpt-5-nano',          // Cheapest option
   ];
