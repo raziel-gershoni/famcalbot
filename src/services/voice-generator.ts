@@ -134,20 +134,70 @@ function stripHtmlTags(html: string): string {
 function normalizeDatesForTTS(text: string): string {
   let result = text;
 
-  // Hebrew Gematria: just spell out the letter names
-  // כ״ח → כף חת, י״ד → יוד דלת
-  result = result.replace(/([א-ת])״([א-ת])/g, (match, letter1, letter2) => {
-    const name1 = getHebrewLetterName(letter1);
-    const name2 = getHebrewLetterName(letter2);
-    return `${name1} ${name2}`;
+  // 1. Gregorian dates: convert numbers to Hebrew words
+  // "24/11" → "עשרים וארבעה לאחד עשר" or simpler: just remove slashes
+  // Pattern: day/month or day.month
+  result = result.replace(/\b(\d{1,2})[\/\.](\d{1,2})(?:[\/\.](\d{2,4}))?\b/g, (match, day, month, year) => {
+    const dayWords = convertNumberToHebrewWords(parseInt(day, 10));
+    const monthWords = convertNumberToHebrewWords(parseInt(month, 10));
+
+    if (year) {
+      // If year included, just spell it out digit by digit
+      const yearDigits = year.split('').map((d: string) => convertNumberToHebrewWords(parseInt(d, 10))).join(' ');
+      return `${dayWords} ${monthWords} ${yearDigits}`;
+    }
+    return `${dayWords} ${monthWords}`;
   });
 
-  // Single letter with geresh: ה׳ → הא
-  result = result.replace(/([א-ת])׳/g, (match, letter) => {
-    return getHebrewLetterName(letter);
+  // 2. Hebrew Gematria: spell out letter names
+  // More robust - handle various combinations
+  // כ״ח → כף חת, ט״ו → טת וו
+  result = result.replace(/([א-ת]{1,2})[״׳]([א-ת])?/g, (match, letters, secondLetter) => {
+    if (secondLetter) {
+      // Two letters with gershayim: כ״ח
+      const name1 = getHebrewLetterName(letters[letters.length - 1]);
+      const name2 = getHebrewLetterName(secondLetter);
+      return `${name1} ${name2}`;
+    } else {
+      // Single letter or multiple letters: spell them all
+      return letters.split('').map((l: string) => getHebrewLetterName(l)).join(' ');
+    }
   });
 
   return result;
+}
+
+/**
+ * Convert number to Hebrew words (simple version for dates)
+ */
+function convertNumberToHebrewWords(num: number): string {
+  if (num === 0) return 'אפס';
+  if (num === 1) return 'אחד';
+  if (num === 2) return 'שניים';
+  if (num === 3) return 'שלושה';
+  if (num === 4) return 'ארבעה';
+  if (num === 5) return 'חמישה';
+  if (num === 6) return 'שישה';
+  if (num === 7) return 'שבעה';
+  if (num === 8) return 'שמונה';
+  if (num === 9) return 'תשעה';
+  if (num === 10) return 'עשרה';
+  if (num === 11) return 'אחד עשר';
+  if (num === 12) return 'שנים עשר';
+  if (num === 20) return 'עשרים';
+  if (num === 24) return 'עשרים וארבעה';
+  if (num === 30) return 'שלושים';
+  if (num === 31) return 'שלושים ואחד';
+
+  // For other numbers, approximate
+  if (num < 20) return `${num}`; // Fallback
+  const tens = Math.floor(num / 10) * 10;
+  const ones = num % 10;
+  const tensWords = ['', '', 'עשרים', 'שלושים', 'ארבעים', 'חמישים', 'שישים', 'שבעים', 'שמונים', 'תשעים'];
+  const onesWords = ['', 'אחד', 'שניים', 'שלושה', 'ארבעה', 'חמישה', 'שישה', 'שבעה', 'שמונה', 'תשעה'];
+
+  if (ones === 0) return tensWords[Math.floor(num / 10)];
+  return `${tensWords[Math.floor(num / 10)]} ו${onesWords[ones]}`;
 }
 
 /**
