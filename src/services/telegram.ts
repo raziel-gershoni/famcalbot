@@ -520,7 +520,7 @@ export async function handleTestVoicesCommand(chatId: number, userId: number): P
     'he-IL-Standard-B',
   ];
 
-  const testText = `שלום! זהו טסט של קול עברי. אני אומר את המספרים: אחת, שתיים, שלוש. ואת הזמן: שמונה אפס אפס. תודה!`;
+  const testText = `שלום! זהו טסט של קול עברי. יש לי meeting עם John ב-Zoom בשעה 8:00-16:00. המספרים: אחת, שתיים, שלוש. התאריך: כ״ח בכסלו תשפ״ה. Doctor Smith אמר תודה!`;
 
   try {
     await botInstance.sendMessage(
