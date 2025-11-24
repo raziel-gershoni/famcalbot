@@ -136,6 +136,13 @@ async function callOpenAI(prompt: string, modelId?: string): Promise<AICompletio
   const choice = completion.choices[0];
   const text = choice?.message?.content || 'Unable to generate summary.';
 
+  // Debug logging for missing content
+  if (!choice?.message?.content) {
+    console.error('❌ OpenAI returned no content!');
+    console.error('Choice:', JSON.stringify(choice, null, 2));
+    console.error('Completion:', JSON.stringify(completion, null, 2));
+  }
+
   // Check if response was truncated
   if (choice?.finish_reason === 'length') {
     const outputTokens = completion.usage?.completion_tokens || 0;

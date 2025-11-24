@@ -36,7 +36,7 @@ export function getAIConfig(modelId?: string) {
     MODEL_CONFIG: modelConfig,
     MAX_TOKENS: process.env.AI_MAX_TOKENS
       ? parseInt(process.env.AI_MAX_TOKENS, 10)
-      : Math.min(modelConfig.maxOutputTokens, 2000),
+      : Math.min(modelConfig.maxOutputTokens, 4000), // Increased default from 2000 to 4000
   };
 }
 
