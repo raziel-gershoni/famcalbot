@@ -501,7 +501,7 @@ async function sendVoiceMessage(userId: number, summary: string): Promise<void> 
 
 /**
  * Handle /testvoices command (admin only)
- * Tests all 6 OpenAI voices with a sample Hebrew text
+ * Tests all Google Hebrew TTS voices with a sample Hebrew text
  */
 export async function handleTestVoicesCommand(chatId: number, userId: number): Promise<void> {
   // Admin-only command
@@ -511,13 +511,13 @@ export async function handleTestVoicesCommand(chatId: number, userId: number): P
   }
 
   const botInstance = getBot();
-  const voices: Array<'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer'> = [
-    'alloy',
-    'echo',
-    'fable',
-    'onyx',
-    'nova',
-    'shimmer'
+  const voices: Array<'he-IL-Wavenet-A' | 'he-IL-Wavenet-B' | 'he-IL-Wavenet-C' | 'he-IL-Wavenet-D' | 'he-IL-Standard-A' | 'he-IL-Standard-B'> = [
+    'he-IL-Wavenet-A',
+    'he-IL-Wavenet-B',
+    'he-IL-Wavenet-C',
+    'he-IL-Wavenet-D',
+    'he-IL-Standard-A',
+    'he-IL-Standard-B',
   ];
 
   const testText = `שלום! זהו טסט של קול עברי. אני אומר את המספרים: אחת, שתיים, שלוש. ואת הזמן: שמונה אפס אפס. תודה!`;
@@ -525,7 +525,7 @@ export async function handleTestVoicesCommand(chatId: number, userId: number): P
   try {
     await botInstance.sendMessage(
       chatId,
-      `🎤 <b>Testing ${voices.length} OpenAI Voices</b>\n\nGenerating voice samples for each voice...\n\n<i>Test text: "${testText}"</i>`,
+      `🎤 <b>Testing ${voices.length} Google Hebrew Voices</b>\n\nGenerating voice samples...\n\n<i>Wavenet = High quality (neural)\nStandard = Basic quality</i>`,
       { parse_mode: 'HTML' }
     );
 

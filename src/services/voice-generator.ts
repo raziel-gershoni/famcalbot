@@ -1,27 +1,28 @@
 /**
  * Voice Generation Service
- * Converts text summaries to speech using OpenAI TTS
+ * Converts text summaries to speech using Google Cloud Text-to-Speech
  */
 
-import OpenAI from 'openai';
+import textToSpeech from '@google-cloud/text-to-speech';
 import fs from 'fs/promises';
 import path from 'path';
 import { randomBytes } from 'crypto';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+// Initialize Google Cloud TTS client
+const client = new textToSpeech.TextToSpeechClient({
+  credentials: process.env.GOOGLE_TTS_CREDENTIALS
+    ? JSON.parse(process.env.GOOGLE_TTS_CREDENTIALS)
+    : undefined,
 });
 
 export interface VoiceOptions {
-  voice?: 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
+  voice?: 'he-IL-Wavenet-A' | 'he-IL-Wavenet-B' | 'he-IL-Wavenet-C' | 'he-IL-Wavenet-D' | 'he-IL-Standard-A' | 'he-IL-Standard-B';
   speed?: number; // 0.25 to 4.0
-  model?: 'tts-1' | 'tts-1-hd';
 }
 
 const DEFAULT_OPTIONS: VoiceOptions = {
-  voice: (process.env.VOICE_DEFAULT as any) || 'nova',
+  voice: (process.env.VOICE_DEFAULT as any) || 'he-IL-Wavenet-B', // Female voice, clear
   speed: parseFloat(process.env.VOICE_SPEED || '1.0'),
-  model: (process.env.VOICE_MODEL as any) || 'tts-1-hd',
 };
 
 /**
@@ -36,27 +37,31 @@ export async function generateVoiceMessage(
 ): Promise<string> {
   const startTime = Date.now();
 
-  // Strip HTML tags for clean TTS
-  const cleanText = stripHtmlTags(text);
+  // Strip HTML tags only - let Google TTS handle Hebrew natively
+  const cleanText = stripHtmlTagsOnly(text);
 
   // Merge with defaults
   const config = { ...DEFAULT_OPTIONS, ...options };
 
-  console.log('Generating voice message:', {
+  console.log('Generating voice message (Google TTS):', {
     textLength: cleanText.length,
     voice: config.voice,
     speed: config.speed,
-    model: config.model,
   });
 
   try {
-    // Call OpenAI TTS API
-    const response = await openai.audio.speech.create({
-      model: config.model!,
-      voice: config.voice!,
-      input: cleanText,
-      speed: config.speed,
-      response_format: 'opus', // Best for Telegram voice messages
+    // Call Google Cloud TTS API
+    const [response] = await client.synthesizeSpeech({
+      input: { text: cleanText },
+      voice: {
+        languageCode: 'he-IL',
+        name: config.voice,
+      },
+      audioConfig: {
+        audioEncoding: 'OGG_OPUS', // Best for Telegram
+        speakingRate: config.speed,
+        pitch: 0,
+      },
     });
 
     // Generate unique filename
@@ -66,13 +71,13 @@ export async function generateVoiceMessage(
     const filePath = path.join('/tmp', filename);
 
     // Write to temp file
-    const buffer = Buffer.from(await response.arrayBuffer());
-    await fs.writeFile(filePath, buffer);
+    const audioContent = response.audioContent as Buffer;
+    await fs.writeFile(filePath, audioContent);
 
     const elapsed = Date.now() - startTime;
     console.log('Voice generated successfully:', {
       filePath,
-      sizeKB: (buffer.length / 1024).toFixed(2),
+      sizeKB: (audioContent.length / 1024).toFixed(2),
       durationMs: elapsed,
     });
 
@@ -98,12 +103,11 @@ export async function cleanupVoiceFile(filePath: string): Promise<void> {
 }
 
 /**
- * Strip HTML tags and normalize for TTS
- * @param html - Text with HTML formatting
- * @returns Plain text optimized for Hebrew TTS
+ * Strip HTML tags only - minimal processing
+ * Let Google TTS handle Hebrew, Gematria, times, dates natively
  */
-function stripHtmlTags(html: string): string {
-  let text = html
+function stripHtmlTagsOnly(html: string): string {
+  return html
     .replace(/<[^>]*>/g, '') // Remove HTML tags
     .replace(/&lt;/g, '<')   // Decode HTML entities
     .replace(/&gt;/g, '>')
@@ -112,6 +116,14 @@ function stripHtmlTags(html: string): string {
     .replace(/&#39;/g, "'")
     .replace(/\n\n+/g, '\n\n') // Normalize multiple newlines
     .trim();
+}
+
+/*
+// OLD NORMALIZATION CODE - COMMENTED OUT FOR TESTING
+// Uncomment sections below if Google TTS doesn't handle specific cases well
+
+function stripHtmlTags(html: string): string {
+  let text = stripHtmlTagsOnly(html);
 
   // Normalize dates for better pronunciation
   text = normalizeDatesForTTS(text);
@@ -127,6 +139,7 @@ function stripHtmlTags(html: string): string {
 
   return text;
 }
+*/
 
 /**
  * Normalize dates for better TTS pronunciation

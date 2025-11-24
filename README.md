@@ -291,30 +291,43 @@ Example output:
 
 **Current status**: Admin-only feature for `/summary` command (Phase 1)
 
-The bot can generate voice versions of calendar summaries using OpenAI Text-to-Speech API.
+The bot generates voice versions of calendar summaries using **Google Cloud Text-to-Speech** with native Hebrew voices.
 
 **Features:**
-- 6 available voices: alloy, echo, fable, onyx, nova (default), shimmer
-- High-quality tts-1-hd model
+- Native Hebrew TTS with excellent pronunciation
+- 6 available voices: Wavenet A/B/C/D (neural), Standard A/B (basic)
 - Opus format optimized for Telegram
-- HTML tag stripping for clean pronunciation
+- Intelligent text normalization:
+  - Time ranges: "08:00-11:45" → "משמונה עד רבע לשתים עשרה"
+  - Hebrew dates: "כ״ח בכסלו" → "כף חת בכסלו"
+  - Gregorian dates: "24 נובמבר 2024" → "עשרים וארבעה נובמבר אלפיים עשרים וארבעה"
+  - English transliteration: zoom → זום
 - Automatic cleanup of temporary files
 - Non-blocking: voice errors don't affect text summary delivery
 
 **Commands:**
 - `/summary` - Admin users automatically receive voice message after text summary
-- `/testvoices` - Test all 6 voices with Hebrew sample to choose your favorite
+- `/testvoices` - Test all 6 Google Hebrew voices to choose your favorite
+
+**Setup:**
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Enable **Cloud Text-to-Speech API**
+3. Create a service account and download JSON key
+4. Add to Vercel environment variables as `GOOGLE_TTS_CREDENTIALS` (single-line JSON string)
 
 **Configuration** (all optional):
 ```env
-VOICE_MODEL=tts-1-hd              # tts-1 (fast) or tts-1-hd (quality)
-VOICE_DEFAULT=nova                # alloy, echo, fable, onyx, nova, shimmer
+GOOGLE_TTS_CREDENTIALS={"type":"service_account",...}  # Service account JSON key
+VOICE_DEFAULT=he-IL-Wavenet-B     # Wavenet-A/B/C/D (neural), Standard-A/B (basic)
 VOICE_SPEED=1.0                   # 0.25 to 4.0 (1.0 = normal)
 ```
 
-**Cost**: ~$0.015-0.025 per summary (~$0.90-1.50/month for daily summaries)
+**Cost**: Google Cloud TTS pricing
+- Free tier: 0-4M characters/month
+- After free tier: ~$0.016 per 1K characters
+- Estimated: ~$0.30-0.60/month for daily summaries (well within free tier!)
 
-**Future plans**: See `.claude/VOICE_MESSAGES_FEATURE.md` for full roadmap including per-user preferences and Google Cloud TTS evaluation.
+**Future plans**: See `.claude/VOICE_MESSAGES_FEATURE.md` for full roadmap including per-user preferences.
 
 ## API Endpoints
 
