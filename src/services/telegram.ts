@@ -473,11 +473,20 @@ async function sendVoiceMessage(userId: number, summary: string): Promise<void> 
 
   try {
     const { generateVoiceMessage, cleanupVoiceFile } = await import('./voice-generator');
+    const { buildVoiceCondenserPrompt } = await import('../prompts/voice-condenser');
+    const { generateAICompletion } = await import('./ai-provider');
 
     console.log(`Generating voice message for user ${userId}...`);
 
-    // Generate voice file with default settings (nova voice, 1.0 speed)
-    voiceFilePath = await generateVoiceMessage(summary);
+    // Step 1: Condense summary for voice (ultra-brief, 30-45 seconds)
+    const condenserPrompt = buildVoiceCondenserPrompt(summary);
+    const condensedResult = await generateAICompletion(condenserPrompt);
+    const condensedSummary = condensedResult.text;
+
+    console.log(`Voice summary condensed: ${summary.length} → ${condensedSummary.length} chars`);
+
+    // Step 2: Generate voice file from condensed summary
+    voiceFilePath = await generateVoiceMessage(condensedSummary);
 
     // Send as voice message to Telegram
     const botInstance = getBot();
