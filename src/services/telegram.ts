@@ -359,7 +359,7 @@ async function sendSummaryToUser(
 
     // Generate and send voice message for admin user only (for /summary command only)
     if (userId === ADMIN_USER_ID && summaryDate === undefined) {
-      await sendVoiceMessage(userId, summary);
+      await sendVoiceMessage(userId, summary, modelId);
     }
   } catch (error) {
     console.error(`Error sending summary to user ${userId}:`, error);
@@ -500,8 +500,9 @@ export async function sendTomorrowSummaryToAll(): Promise<void> {
  * Generate and send voice version of summary
  * Non-blocking - errors logged but don't affect text summary delivery
  * Admin-only feature for testing
+ * @param modelId - Optional model ID to use for condensing (same as text summary)
  */
-async function sendVoiceMessage(userId: number, summary: string): Promise<void> {
+async function sendVoiceMessage(userId: number, summary: string, modelId?: string): Promise<void> {
   let voiceFilePath: string | null = null;
 
   try {
@@ -513,7 +514,7 @@ async function sendVoiceMessage(userId: number, summary: string): Promise<void> 
 
     // Step 1: Condense summary for voice (ultra-brief, 30-45 seconds)
     const condenserPrompt = buildVoiceCondenserPrompt(summary);
-    const condensedResult = await generateAICompletion(condenserPrompt);
+    const condensedResult = await generateAICompletion(condenserPrompt, modelId);
     const condensedSummary = condensedResult.text;
 
     console.log(`Voice summary condensed: ${summary.length} → ${condensedSummary.length} chars`);
