@@ -25,9 +25,9 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
 
 Generate a personalized daily schedule summary in Hebrew.
 
-**IMPORTANT: When translating to Hebrew, use these exact names in your output:**
-- User: ${data.userHebrewName} (${data.userGender} - use correct Hebrew grammar forms)
-- Spouse: ${data.spouseHebrewName} (${data.spouseGender} - use correct Hebrew grammar forms)
+**IMPORTANT: Use these exact names in your output:**
+- User: ${data.userHebrewName} (${data.userGender} - use correct grammar forms)
+- Spouse: ${data.spouseHebrewName} (${data.spouseGender} - use correct grammar forms)
 
 ## Event Categories & Personalization
 Events have been pre-categorized into three groups:
