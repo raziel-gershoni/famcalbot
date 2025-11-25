@@ -128,6 +128,7 @@ function stripHtmlTagsOnly(html: string): string {
     .replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/\*+/g, '')     // Remove asterisks (markdown formatting)
     .replace(/\n\n+/g, '\n\n') // Normalize multiple newlines
     .trim();
 
