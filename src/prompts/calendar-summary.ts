@@ -6,8 +6,10 @@
 export interface SummaryPromptData {
   userName: string;
   userHebrewName: string;
+  userGender: 'male' | 'female';
   spouseName: string;
   spouseHebrewName: string;
+  spouseGender: 'male' | 'female';
   currentGregorianDate: string;
   summaryGregorianDate: string;
   summaryHebrewDate: string;
@@ -24,8 +26,8 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
 Generate a personalized daily schedule summary in Hebrew.
 
 **IMPORTANT: When translating to Hebrew, use these exact names in your output:**
-- User: ${data.userHebrewName}
-- Spouse: ${data.spouseHebrewName}
+- User: ${data.userHebrewName} (${data.userGender} - use correct Hebrew grammar forms)
+- Spouse: ${data.spouseHebrewName} (${data.spouseGender} - use correct Hebrew grammar forms)
 
 ## Event Categories & Personalization
 Events have been pre-categorized into three groups:
@@ -88,11 +90,10 @@ Events have been pre-categorized into three groups:
 - HH:MM - [Name] ([Location])
 - HH:MM - [Name1] ([Location1]), [Name2] ([Location2]) [⚠️ if multiple kids]
 
-<b>💡 Schedule Insights:</b> [Analyze the schedule and provide 1-3 helpful observations, such as:]
-- **Pickup logistics**: Who's available to pick up kids based on work schedules (e.g., "${data.spouseHebrewName} finishes at 16:00, can pick up the kids")
-- **Continuous stays**: If a kid has back-to-back events at same location, note they stay there continuously (e.g., "מתניה stays at school until 17:00, not 16:00")
-- **Scheduling conflicts**: If pickups overlap or are very tight
-- **General flow**: Observations about the day's structure (e.g., "Light morning, busy afternoon")
+<b>💡 תובנה:</b> [ONE concise sentence (max 10-15 words) with a helpful observation, such as:]
+- Pickup logistics: Who's available based on work schedules
+- Continuous stays: If kid has back-to-back events at same location
+- Conflicts: If pickups overlap or timing is tight
 - OMIT this section entirely if there are no meaningful insights
 
 ## Guidelines

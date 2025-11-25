@@ -38,8 +38,10 @@ async function testSingleModel(
   tomorrowOtherEvents: CalendarEvent[],
   userName: string,
   userHebrewName: string,
+  userGender: 'male' | 'female',
   spouseName: string,
   spouseHebrewName: string,
+  spouseGender: 'male' | 'female',
   primaryCalendar: string,
   chatId: number
 ): Promise<void> {
@@ -57,8 +59,10 @@ async function testSingleModel(
       todayOtherEvents,
       userName,
       userHebrewName,
+      userGender,
       spouseName,
       spouseHebrewName,
+      spouseGender,
       primaryCalendar,
       new Date(),
       modelId
@@ -88,8 +92,10 @@ ${todayResult.text}
       tomorrowOtherEvents,
       userName,
       userHebrewName,
+      userGender,
       spouseName,
       spouseHebrewName,
+      spouseGender,
       primaryCalendar,
       tomorrow,
       modelId
@@ -130,8 +136,10 @@ export async function testModels(
   tomorrowOtherEvents: CalendarEvent[],
   userName: string,
   userHebrewName: string,
+  userGender: 'male' | 'female',
   spouseName: string,
   spouseHebrewName: string,
+  spouseGender: 'male' | 'female',
   primaryCalendar: string,
   chatId: number,
   uniqueMarker: string
@@ -170,8 +178,10 @@ export async function testModels(
         tomorrowOtherEvents,
         userName,
         userHebrewName,
+        userGender,
         spouseName,
         spouseHebrewName,
+        spouseGender,
         primaryCalendar,
         chatId
       );

@@ -192,8 +192,10 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
       categorizedTomorrow.otherEvents,
       user.name,
       user.hebrewName,
+      user.gender,
       user.spouseName,
       user.spouseHebrewName,
+      user.spouseGender,
       user.primaryCalendar,
       chatId,
       uniqueMarker
@@ -316,8 +318,10 @@ async function sendSummaryToUser(
       categorized.otherEvents,
       user.name,
       user.hebrewName,
+      user.gender,
       user.spouseName,
       user.spouseHebrewName,
+      user.spouseGender,
       user.primaryCalendar,
       summaryDate,
       userId === ADMIN_USER_ID
@@ -384,8 +388,10 @@ async function sendSummaryToAll(
           categorized.otherEvents,
           user.name,
           user.hebrewName,
+          user.gender,
           user.spouseName,
           user.spouseHebrewName,
+          user.spouseGender,
           user.primaryCalendar,
           summaryDate,
           userId === ADMIN_USER_ID

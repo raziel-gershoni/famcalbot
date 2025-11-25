@@ -35,8 +35,10 @@ function buildPromptData(
   otherEvents: CalendarEvent[],
   userName: string,
   userHebrewName: string,
+  userGender: 'male' | 'female',
   spouseName: string,
   spouseHebrewName: string,
+  spouseGender: 'male' | 'female',
   date: Date
 ): SummaryPromptData {
   // Get current date (today) for comparison
@@ -83,8 +85,10 @@ function buildPromptData(
   return {
     userName,
     userHebrewName,
+    userGender,
     spouseName,
     spouseHebrewName,
+    spouseGender,
     currentGregorianDate,
     summaryGregorianDate: gregorianDate,
     summaryHebrewDate: hebrewDateFormatted,
@@ -128,8 +132,10 @@ export async function generateSummary(
   otherEvents: CalendarEvent[],
   userName: string,
   userHebrewName: string,
+  userGender: 'male' | 'female',
   spouseName: string,
   spouseHebrewName: string,
+  spouseGender: 'male' | 'female',
   primaryCalendar: string,
   date: Date = new Date(),
   includeModelInfo: boolean = false,
@@ -148,8 +154,10 @@ export async function generateSummary(
     otherEvents,
     userName,
     userHebrewName,
+    userGender,
     spouseName,
     spouseHebrewName,
+    spouseGender,
     date
   );
 
@@ -170,8 +178,10 @@ export async function generateSummaryWithMetrics(
   otherEvents: CalendarEvent[],
   userName: string,
   userHebrewName: string,
+  userGender: 'male' | 'female',
   spouseName: string,
   spouseHebrewName: string,
+  spouseGender: 'male' | 'female',
   primaryCalendar: string,
   date: Date = new Date(),
   modelId?: string
@@ -194,8 +204,10 @@ export async function generateSummaryWithMetrics(
     otherEvents,
     userName,
     userHebrewName,
+    userGender,
     spouseName,
     spouseHebrewName,
+    spouseGender,
     date
   );
 

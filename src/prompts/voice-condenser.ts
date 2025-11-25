@@ -14,11 +14,11 @@ export function buildVoiceCondenserPrompt(fullSummary: string): string {
 5. For pickup order: Keep ONLY time + name(s) (remove locations)
 6. Remove ALL HTML tags (convert to plain text)
 7. Remove ALL emojis
-8. Keep all section headers
+8. REMOVE ALL section headers (like "Your Schedule:", "Pickup Order:", etc.) - output should flow naturally without headers
 9. Output ONLY in Hebrew
 
 **Original Summary:**
 ${fullSummary}
 
-**Output the condensed voice-friendly version (plain text, no HTML, no emojis, Hebrew only):**`;
+**Output the condensed voice-friendly version (plain text, no HTML, no emojis, no section headers, Hebrew only):**`;
 }
