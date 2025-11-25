@@ -276,6 +276,30 @@ function setupHandlers(bot: TelegramBot) {
       await handleTestVoicesCommand(chatId, userId);
     }
   });
+
+  // /testai command - show model selection buttons (admin only)
+  bot.onText(/\/testai/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+    if (userId) {
+      await handleTestAICommand(chatId, userId);
+    }
+  });
+
+  // Handle callback queries from inline keyboard buttons
+  bot.on('callback_query', async (query) => {
+    const chatId = query.message?.chat.id;
+    const userId = query.from.id;
+    const data = query.data;
+
+    if (!chatId || !data) return;
+
+    // Handle model selection callbacks
+    if (data.startsWith('testai:')) {
+      const modelId = data.replace('testai:', '');
+      await handleTestAICallback(chatId, userId, modelId, query.id);
+    }
+  });
 }
 
 /**
@@ -285,13 +309,15 @@ function setupHandlers(bot: TelegramBot) {
  * @param summaryDate - Date for the summary (undefined for today, tomorrow's date for tomorrow)
  * @param fetchingMessage - Message to show while fetching
  * @param errorMessage - Message to show on error
+ * @param modelId - Optional model ID to override default model
  */
 async function sendSummaryToUser(
   userId: number,
   fetchFunction: (refreshToken: string, calendarIds: string[]) => Promise<CalendarEvent[]>,
   summaryDate: Date | undefined,
   fetchingMessage: string,
-  errorMessage: string
+  errorMessage: string,
+  modelId?: string
 ): Promise<void> {
   const user = getUserByTelegramId(userId);
   if (!user) {
@@ -324,7 +350,8 @@ async function sendSummaryToUser(
       user.spouseGender,
       user.primaryCalendar,
       summaryDate,
-      userId === ADMIN_USER_ID
+      userId === ADMIN_USER_ID,
+      modelId
     );
 
     // Send personalized message (greeting is included in the summary)
@@ -600,5 +627,118 @@ export async function handleTestVoicesCommand(chatId: number, userId: number): P
 
     const { notifyAdminError } = await import('../utils/error-notifier');
     await notifyAdminError('TestVoices Command', error);
+  }
+}
+
+/**
+ * Handle /testai command - show model selection buttons
+ */
+export async function handleTestAICommand(chatId: number, userId: number): Promise<void> {
+  // Admin-only command
+  if (userId !== ADMIN_USER_ID) {
+    await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    return;
+  }
+
+  const { getAvailableModels, getModelConfig } = await import('../config/ai-models');
+  const botInstance = getBot();
+
+  try {
+    const models = getAvailableModels();
+
+    // Create inline keyboard buttons (2 per row)
+    const keyboard: any[][] = [];
+    for (let i = 0; i < models.length; i += 2) {
+      const row = [];
+
+      // First button in row
+      const modelId1 = models[i];
+      const config1 = getModelConfig(modelId1);
+      if (config1) {
+        row.push({
+          text: config1.displayName,
+          callback_data: `testai:${modelId1}`
+        });
+      }
+
+      // Second button in row (if exists)
+      if (i + 1 < models.length) {
+        const modelId2 = models[i + 1];
+        const config2 = getModelConfig(modelId2);
+        if (config2) {
+          row.push({
+            text: config2.displayName,
+            callback_data: `testai:${modelId2}`
+          });
+        }
+      }
+
+      keyboard.push(row);
+    }
+
+    await botInstance.sendMessage(
+      chatId,
+      `🤖 <b>Test AI Models</b>\n\nSelect a model to generate today's summary with voice:\n\n<i>Each model will generate both text and voice summary.</i>`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: keyboard
+        }
+      }
+    );
+  } catch (error) {
+    console.error('Error in testai command:', error);
+    await botInstance.sendMessage(chatId, 'Sorry, there was an error showing model options.');
+
+    const { notifyAdminError } = await import('../utils/error-notifier');
+    await notifyAdminError('TestAI Command', error);
+  }
+}
+
+/**
+ * Handle callback when user clicks a model button
+ */
+export async function handleTestAICallback(
+  chatId: number,
+  userId: number,
+  modelId: string,
+  queryId: string
+): Promise<void> {
+  // Admin-only
+  if (userId !== ADMIN_USER_ID) {
+    await getBot().answerCallbackQuery(queryId, { text: 'Unauthorized' });
+    return;
+  }
+
+  const botInstance = getBot();
+  const { getModelConfig } = await import('../config/ai-models');
+
+  try {
+    const config = getModelConfig(modelId);
+    if (!config) {
+      await botInstance.answerCallbackQuery(queryId, { text: 'Invalid model' });
+      return;
+    }
+
+    // Answer the callback to remove loading state
+    await botInstance.answerCallbackQuery(queryId, {
+      text: `Generating with ${config.displayName}...`
+    });
+
+    // Send summary with the selected model
+    await sendSummaryToUser(
+      userId,
+      fetchTodayEvents,
+      undefined,
+      `🤖 Generating summary with <b>${config.displayName}</b>...`,
+      'Sorry, there was an error generating the summary.',
+      modelId
+    );
+  } catch (error) {
+    console.error('Error in testai callback:', error);
+    await botInstance.sendMessage(chatId, 'Sorry, there was an error generating the summary.');
+
+    const { notifyAdminError } = await import('../utils/error-notifier');
+    await notifyAdminError('TestAI Callback', error);
   }
 }
