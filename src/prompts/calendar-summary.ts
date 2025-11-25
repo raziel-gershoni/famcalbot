@@ -88,7 +88,12 @@ Events have been pre-categorized into three groups:
 - HH:MM - [Name] ([Location])
 - HH:MM - [Name1] ([Location1]), [Name2] ([Location2]) [⚠️ if multiple kids]
 
-<b>Note:</b> [ONLY for general observations NOT about pickup times/logistics - otherwise OMIT this section entirely]
+<b>💡 Schedule Insights:</b> [Analyze the schedule and provide 1-3 helpful observations, such as:]
+- **Pickup logistics**: Who's available to pick up kids based on work schedules (e.g., "${data.spouseHebrewName} finishes at 16:00, can pick up the kids")
+- **Continuous stays**: If a kid has back-to-back events at same location, note they stay there continuously (e.g., "מתניה stays at school until 17:00, not 16:00")
+- **Scheduling conflicts**: If pickups overlap or are very tight
+- **General flow**: Observations about the day's structure (e.g., "Light morning, busy afternoon")
+- OMIT this section entirely if there are no meaningful insights
 
 ## Guidelines
 - **CRITICAL: EVERYTHING must be in Hebrew - translate ALL headers and content**
