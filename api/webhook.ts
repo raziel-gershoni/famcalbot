@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handleStartCommand, handleHelpCommand, handleSummaryCommand, handleTomorrowCommand, handleTestVoicesCommand } from '../src/services/telegram';
+import { handleStartCommand, handleHelpCommand, handleSummaryCommand, handleTomorrowCommand, handleTestVoicesCommand, handleTestAICommand, handleTestAICallback } from '../src/services/telegram';
 
 /**
  * Telegram Webhook Handler
@@ -21,7 +21,24 @@ export default async function handler(
 
     const update = req.body;
 
-    // Telegram sends updates in this format:
+    // Handle callback queries (inline keyboard button clicks)
+    if (update.callback_query) {
+      const callbackQuery = update.callback_query;
+      const chatId = callbackQuery.message?.chat.id;
+      const userId = callbackQuery.from.id;
+      const data = callbackQuery.data;
+      const queryId = callbackQuery.id;
+
+      if (chatId && data && data.startsWith('testai:')) {
+        const modelId = data.replace('testai:', '');
+        await handleTestAICallback(chatId, userId, modelId, queryId);
+      }
+
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    // Telegram sends message updates in this format:
     // { update_id: number, message: { chat: { id: number }, from: { id: number }, text: string } }
 
     if (!update.message || !update.message.text) {
@@ -58,6 +75,8 @@ export default async function handler(
       await handleTomorrowCommand(chatId, userId);
     } else if (text === '/testvoices') {
       await handleTestVoicesCommand(chatId, userId);
+    } else if (text === '/testai') {
+      await handleTestAICommand(chatId, userId);
     }
 
     // Respond after processing (prevents function shutdown issues)
