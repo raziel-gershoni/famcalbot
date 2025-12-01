@@ -39,7 +39,8 @@ function buildPromptData(
   spouseName: string,
   spouseHebrewName: string,
   spouseGender: 'male' | 'female',
-  date: Date
+  date: Date,
+  weatherSummary?: string
 ): SummaryPromptData {
   // Get current date (today) for comparison
   const currentDate = new Date();
@@ -97,6 +98,7 @@ function buildPromptData(
     userEventsText,
     spouseEventsText,
     otherEventsText,
+    weatherSummary,
   };
 }
 
@@ -139,12 +141,31 @@ export async function generateSummary(
   primaryCalendar: string,
   date: Date = new Date(),
   includeModelInfo: boolean = false,
-  modelId?: string
+  modelId?: string,
+  location?: string
 ): Promise<string> {
   const allEvents = [...userEvents, ...spouseEvents, ...otherEvents];
 
   if (allEvents.length === 0) {
     return USER_MESSAGES.NO_EVENTS_TODAY;
+  }
+
+  // Fetch weather data if location is provided
+  let weatherSummary: string | undefined;
+  if (location) {
+    try {
+      const { fetchWeather } = await import('./weather/open-meteo');
+      const { getWeatherDescription } = await import('./weather/open-meteo');
+      const weatherData = await fetchWeather(location);
+
+      // Build weather summary for prompt
+      weatherSummary = `Current: ${weatherData.current.temperature}°C (feels like ${weatherData.current.feelsLike}°C), ${getWeatherDescription(weatherData.current.weatherCode)}
+Today: High ${weatherData.today.tempMax}°C, Low ${weatherData.today.tempMin}°C, ${weatherData.today.precipitationProbability}% chance of rain
+${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low ${weatherData.tomorrow.tempMin}°C, ${weatherData.tomorrow.precipitationProbability}% chance of rain` : ''}`;
+    } catch (error) {
+      console.error('Failed to fetch weather for summary:', error);
+      // Continue without weather if it fails
+    }
   }
 
   // Build prompt data
@@ -158,7 +179,8 @@ export async function generateSummary(
     spouseName,
     spouseHebrewName,
     spouseGender,
-    date
+    date,
+    weatherSummary
   );
 
   // Build the prompt
@@ -184,7 +206,8 @@ export async function generateSummaryWithMetrics(
   spouseGender: 'male' | 'female',
   primaryCalendar: string,
   date: Date = new Date(),
-  modelId?: string
+  modelId?: string,
+  location?: string
 ) {
   const allEvents = [...userEvents, ...spouseEvents, ...otherEvents];
 
@@ -195,6 +218,24 @@ export async function generateSummaryWithMetrics(
       usage: { inputTokens: 0, outputTokens: 0 },
       stopReason: 'no_events' as const
     };
+  }
+
+  // Fetch weather data if location is provided
+  let weatherSummary: string | undefined;
+  if (location) {
+    try {
+      const { fetchWeather } = await import('./weather/open-meteo');
+      const { getWeatherDescription } = await import('./weather/open-meteo');
+      const weatherData = await fetchWeather(location);
+
+      // Build weather summary for prompt
+      weatherSummary = `Current: ${weatherData.current.temperature}°C (feels like ${weatherData.current.feelsLike}°C), ${getWeatherDescription(weatherData.current.weatherCode)}
+Today: High ${weatherData.today.tempMax}°C, Low ${weatherData.today.tempMin}°C, ${weatherData.today.precipitationProbability}% chance of rain
+${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low ${weatherData.tomorrow.tempMin}°C, ${weatherData.tomorrow.precipitationProbability}% chance of rain` : ''}`;
+    } catch (error) {
+      console.error('Failed to fetch weather for summary:', error);
+      // Continue without weather if it fails
+    }
   }
 
   // Build prompt data
@@ -208,7 +249,8 @@ export async function generateSummaryWithMetrics(
     spouseName,
     spouseHebrewName,
     spouseGender,
-    date
+    date,
+    weatherSummary
   );
 
   // Build the prompt

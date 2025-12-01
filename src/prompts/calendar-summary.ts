@@ -18,6 +18,7 @@ export interface SummaryPromptData {
   userEventsText: string;
   spouseEventsText: string;
   otherEventsText: string;
+  weatherSummary?: string;  // AI-generated weather summary with tips
 }
 
 export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
@@ -90,11 +91,19 @@ Events have been pre-categorized into three groups:
 - HH:MM - [Name] ([Location])
 - HH:MM - [Name1] ([Location1]), [Name2] ([Location2]) [⚠️ if multiple kids]
 
-<b>💡 תובנה:</b> [ONE concise sentence (max 10-15 words) with a helpful observation, such as:]
+<b>💡 Insight:</b> [ONE concise sentence (max 10-15 words) with a helpful observation, such as:]
 - Pickup logistics: Who's available based on work schedules
 - Continuous stays: If kid has back-to-back events at same location
 - Conflicts: If pickups overlap or timing is tight
 - OMIT this section entirely if there are no meaningful insights
+
+<b>🌤️ Weather:</b> [ONLY if weather data is provided below]
+[Weather summary with helpful tip when applicable]
+Examples of helpful tips:
+- "Don't forget an umbrella" - when rain is expected
+- "Bring water" - when it's hot
+- "Bring a jacket" - when it's cold or temperature drops
+- Keep it concise and actionable (one sentence)
 
 ## Guidelines
 - **CRITICAL: EVERYTHING must be in Hebrew - translate ALL headers and content**
@@ -120,6 +129,9 @@ ${data.spouseEventsText}
 
 **OTHER EVENTS (Kids & Family):**
 ${data.otherEventsText}
+${data.weatherSummary ? `
+**WEATHER INFORMATION:**
+${data.weatherSummary}` : ''}
 
 **CRITICAL: Respond in Hebrew only. Write your entire summary in Hebrew.**`;
 }

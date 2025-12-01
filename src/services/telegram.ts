@@ -286,6 +286,16 @@ function setupHandlers(bot: TelegramBot) {
     }
   });
 
+  // /weather command - supports /weather, /weather std, /weather dtl
+  bot.onText(/\/weather(?:\s+(std|dtl))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+    const args = match?.[1]?.trim();
+    if (userId) {
+      await handleWeatherCommand(chatId, userId, args);
+    }
+  });
+
   // Handle callback queries from inline keyboard buttons
   bot.on('callback_query', async (query) => {
     const chatId = query.message?.chat.id;
@@ -351,7 +361,8 @@ async function sendSummaryToUser(
       user.primaryCalendar,
       summaryDate,
       userId === ADMIN_USER_ID,
-      modelId
+      modelId,
+      user.location
     );
 
     // Send personalized message (greeting is included in the summary)
@@ -421,7 +432,9 @@ async function sendSummaryToAll(
           user.spouseGender,
           user.primaryCalendar,
           summaryDate,
-          userId === ADMIN_USER_ID
+          userId === ADMIN_USER_ID,
+          undefined,
+          user.location
         );
         await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
 
@@ -741,5 +754,58 @@ export async function handleTestAICallback(
 
     const { notifyAdminError } = await import('../utils/error-notifier');
     await notifyAdminError('TestAI Callback', error);
+  }
+}
+
+/**
+ * Handle /weather command
+ * Supports: /weather, /weather std, /weather dtl
+ */
+export async function handleWeatherCommand(chatId: number, userId: number, args?: string): Promise<void> {
+  if (!isUserAuthorized(userId)) {
+    await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    return;
+  }
+
+  const user = getUserByTelegramId(userId);
+  if (!user) {
+    console.error(`User with Telegram ID ${userId} not found`);
+    return;
+  }
+
+  const botInstance = getBot();
+
+  try {
+    // Determine format: 'std' or 'dtl' (default to 'std')
+    const format = args?.toLowerCase() === 'dtl' ? 'dtl' : 'std';
+
+    await botInstance.sendMessage(chatId, '🌤️ Fetching weather data...');
+
+    // Fetch weather data
+    const { fetchWeather } = await import('./weather/open-meteo');
+    const weatherData = await fetchWeather(user.location);
+
+    // Format weather based on requested format
+    const { formatWeatherStandard, formatWeatherDetailed } = await import('./weather/formatter');
+    const formattedWeather = format === 'dtl'
+      ? await formatWeatherDetailed(weatherData)
+      : await formatWeatherStandard(weatherData);
+
+    // Send formatted weather
+    await botInstance.sendMessage(chatId, formattedWeather, { parse_mode: 'Markdown' });
+  } catch (error) {
+    console.error(`Error fetching weather for user ${userId}:`, error);
+    await botInstance.sendMessage(
+      chatId,
+      '❌ Sorry, there was an error fetching weather data. Please try again later.'
+    );
+
+    // Notify admin of weather failures
+    const { notifyAdminError } = await import('../utils/error-notifier');
+    await notifyAdminError(
+      'Weather Command',
+      error,
+      `User: ${userId}, Location: ${user.location}`
+    );
   }
 }
