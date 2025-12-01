@@ -18,11 +18,13 @@ export function buildVoiceCondenserPrompt(fullSummary: string): string {
    - Rain timing: ONE WORD only (night, morning, afternoon, evening, "early morning")
    - Keep helpful tips (umbrella, jacket, water)
 7. Remove ALL formatting: HTML tags, emojis, asterisks, bold/italic
-8. **BE DIRECT - minimize transitions:**
-   - DON'T say "You have...", "Today you have...", "About the weather..."
-   - Just list: "09:00 meeting, 14:00 pickup Danny"
-   - Weather: "Rain afternoon, bring umbrella" NOT "Rain in the afternoon..."
-9. Ultra-brief, direct, spoken Hebrew
+8. **Add minimal section labels (2-3 words max) before each content type:**
+   - User/spouse schedule: "For you:" or "Your schedule:"
+   - Kids activities: "Kids:"
+   - Pickups: "Pickup:"
+   - Weather: "Weather:"
+   - Labels provide structure, keep everything else ultra-brief
+9. Ultra-brief, direct, spoken Hebrew with minimal structure labels
 
 **Example of WRONG output (too wordy):**
 Monday, 28 Kislev
@@ -30,11 +32,11 @@ Today you have a meeting at 09:00.
 For pickups, you need to pick up Danny at 14:00.
 About the weather, it will rain today so don't forget your umbrella.
 
-**Example of CORRECT output (ultra-brief):**
+**Example of CORRECT output (brief with minimal labels):**
 Monday, 28 Kislev
-09:00 meeting
-14:00 Danny
-Rain afternoon, bring umbrella
+For you: 09:00 meeting
+Pickup: 14:00 Danny
+Weather: Rain afternoon, bring umbrella
 
 **Original Summary:**
 ${fullSummary}
