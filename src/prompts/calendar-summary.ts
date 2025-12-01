@@ -99,8 +99,9 @@ Events have been pre-categorized into three groups:
 
 <b>🌤️ Weather:</b> [ONLY if weather data is provided below]
 [Weather summary with helpful tip when applicable]
+**If rain expected today: Include specific hour spans (e.g., "Rain 14:00-18:00, bring umbrella")**
 Examples of helpful tips:
-- "Don't forget an umbrella" - when rain is expected
+- "Don't forget an umbrella" - when rain is expected (with hours)
 - "Bring water" - when it's hot
 - "Bring a jacket" - when it's cold or temperature drops
 - Keep it concise and actionable (one sentence)

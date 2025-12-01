@@ -6,38 +6,38 @@
 export function buildVoiceCondenserPrompt(fullSummary: string): string {
   return `You are condensing a calendar summary for voice message listening (target: 30-45 seconds).
 
-**CRITICAL: This is for VOICE listening, not reading. Output must flow naturally like spoken language.**
+**CRITICAL: BE EXTREMELY BRIEF. This is for VOICE - every word costs listening time. Remove ALL fluff.**
 
 **RULES:**
-1. Keep Hebrew date with weekday (e.g., "day name, Hebrew date")
-2. For user & spouse events: Keep ONLY time + title (remove locations, remove descriptions)
-3. For kids start times: Keep time + name (remove locations)
-4. For special kids events: Keep as-is (time, name, activity, location)
-5. For pickup order: Keep ONLY time + name(s) (remove locations)
-6. **Weather: Keep weather summary and helpful tips** (e.g., "don't forget umbrella") - this is important
-7. Remove ALL formatting: HTML tags, emojis, asterisks, bold/italic markers
-8. **Transform section headers into natural conversational transitions:**
-   - Instead of "Your Schedule:" → "You have..." or "Today you have..."
-   - Instead of "Pickup Order:" → "Pick up..." or "To pick up..."
-   - Instead of "Kids Start Times:" → "The kids start at..." or "Start times..."
-   - Instead of "Weather:" → "About the weather..." or "Weather-wise..." or just integrate naturally
-   - Headers should flow naturally like you're speaking to someone, not announcing categories
-9. Output flows as a single narrative in Hebrew, like you're having a conversation
+1. Keep ONLY Hebrew date with weekday (remove all other date formats)
+2. For user & spouse events: ONLY time + title (no locations, no descriptions)
+3. For kids start times: ONLY time + name (no locations)
+4. For special kids events: Keep time, name, activity
+5. For pickup order: ONLY time + name(s) (no locations)
+6. **Weather: Keep brief conditions + rain timing as single word**
+   - Rain timing: ONE WORD only (night, morning, afternoon, evening, "early morning")
+   - Keep helpful tips (umbrella, jacket, water)
+7. Remove ALL formatting: HTML tags, emojis, asterisks, bold/italic
+8. **BE DIRECT - minimize transitions:**
+   - DON'T say "You have...", "Today you have...", "About the weather..."
+   - Just list: "09:00 meeting, 14:00 pickup Danny"
+   - Weather: "Rain afternoon, bring umbrella" NOT "Rain in the afternoon..."
+9. Ultra-brief, direct, spoken Hebrew
 
-**Example of WRONG output (rigid headers):**
+**Example of WRONG output (too wordy):**
 Monday, 28 Kislev
-Your Schedule:
-09:00 - Meeting
-Pickup Order:
-14:00 - Danny
+Today you have a meeting at 09:00.
+For pickups, you need to pick up Danny at 14:00.
+About the weather, it will rain today so don't forget your umbrella.
 
-**Example of CORRECT output (conversational flow):**
+**Example of CORRECT output (ultra-brief):**
 Monday, 28 Kislev
-You have a meeting at 09:00.
-Pick up Danny at 14:00.
+09:00 meeting
+14:00 Danny
+Rain afternoon, bring umbrella
 
 **Original Summary:**
 ${fullSummary}
 
-**Output the condensed voice-friendly version (plain text, natural flow, NO headers, Hebrew only):**`;
+**Output the ultra-brief voice version (plain text, direct, Hebrew only):**`;
 }
