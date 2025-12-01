@@ -38,13 +38,14 @@ I'm your family calendar bot. I'll send you personalized daily summaries automat
 • Morning at 7 AM (today's schedule)
 • Evening (tomorrow's schedule)
 
-You can also request summaries anytime with /summary or /tomorrow.
+You can also request summaries anytime with /summary or /summary tmrw.
 
 Need help? Use /help to see all commands.`,
   HELP: `📋 Available Commands:
 
 /summary - Get today's calendar summary
-/tomorrow - Get tomorrow's calendar summary
+/summary tmrw - Get tomorrow's calendar summary
+/weather - Get weather forecast (std/dtl)
 /help - Show this help message
 /start - About this bot
 

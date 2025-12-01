@@ -94,27 +94,22 @@ export async function handleHelpCommand(chatId: number, userId: number): Promise
 
 /**
  * Handle /summary command
+ * Supports: /summary (today), /summary tmrw
  */
-export async function handleSummaryCommand(chatId: number, userId: number): Promise<void> {
+export async function handleSummaryCommand(chatId: number, userId: number, args?: string): Promise<void> {
   if (!isUserAuthorized(userId)) {
     await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     return;
   }
 
-  await sendDailySummaryToUser(userId);
-}
-
-/**
- * Handle /tomorrow command
- */
-export async function handleTomorrowCommand(chatId: number, userId: number): Promise<void> {
-  if (!isUserAuthorized(userId)) {
-    await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
-    return;
+  // Check if user wants tomorrow's summary
+  if (args?.toLowerCase().trim() === 'tmrw') {
+    await sendTomorrowSummaryToUser(userId);
+  } else {
+    await sendDailySummaryToUser(userId);
   }
-
-  await sendTomorrowSummaryToUser(userId);
 }
+
 
 /**
  * Handle /testmodels command (admin only)
@@ -238,21 +233,13 @@ function setupHandlers(bot: TelegramBot) {
     }
   });
 
-  // /summary command
-  bot.onText(/\/summary/, async (msg) => {
+  // /summary command - supports /summary, /summary tmrw
+  bot.onText(/\/summary(?:\s+(.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from?.id;
+    const args = match?.[1]?.trim();
     if (userId) {
-      await handleSummaryCommand(chatId, userId);
-    }
-  });
-
-  // /tomorrow command
-  bot.onText(/\/tomorrow/, async (msg) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from?.id;
-    if (userId) {
-      await handleTomorrowCommand(chatId, userId);
+      await handleSummaryCommand(chatId, userId, args);
     }
   });
 
