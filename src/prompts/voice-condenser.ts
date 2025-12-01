@@ -9,7 +9,7 @@ export function buildVoiceCondenserPrompt(fullSummary: string): string {
 **CRITICAL: BE EXTREMELY BRIEF. This is for VOICE - every word costs listening time. Remove ALL fluff.**
 
 **RULES:**
-1. Keep ONLY Hebrew date with weekday (remove all other date formats)
+1. Keep ONLY Hebrew date with weekday (remove Gregorian date, remove Hebrew year)
 2. For user & spouse events: ONLY time + title (no locations, no descriptions)
 3. For kids start times: ONLY time + name (no locations)
 4. For special kids events: Keep time, name, activity
@@ -27,7 +27,7 @@ export function buildVoiceCondenserPrompt(fullSummary: string): string {
 9. Ultra-brief, direct, spoken Hebrew with minimal structure labels
 
 **Example of WRONG output (too wordy):**
-Monday, 28 Kislev
+Monday, 28 Kislev 5785
 Today you have a meeting at 09:00.
 For pickups, you need to pick up Danny at 14:00.
 About the weather, it will rain today so don't forget your umbrella.
