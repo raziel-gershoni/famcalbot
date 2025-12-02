@@ -15,9 +15,9 @@ export function buildVoiceCondenserPrompt(fullSummary: string, language: string 
 **RULES:**
 1. Keep ONLY ${dateFormat}
 2. **IMPORTANT: Weather comes IMMEDIATELY after date, BEFORE schedule**
-   - Keep brief conditions + rain timing as single word
-   - Rain timing: ONE WORD only (night, morning, afternoon, evening, "early morning")
-   - Keep helpful tips (umbrella, jacket, water)
+   - Write as natural, flowing sentence (brief but fluent, not choppy)
+   - Include conditions, timing, and practical tip in one smooth sentence
+   - Example: "Rainy afternoon, bring an umbrella" or "Hot day, drink water"
 3. For user & spouse events: ONLY time + title (no locations, no descriptions)
 4. For kids start times: ONLY time + name (no locations)
 5. For special kids events: Keep time, name, activity
@@ -39,7 +39,7 @@ About the weather, it will rain today so don't forget your umbrella.
 
 **Example of CORRECT output (brief with minimal labels):**
 Monday, 28 Kislev
-Weather: Rain afternoon, bring umbrella
+Weather: Rainy afternoon, bring an umbrella
 For you: 09:00 meeting
 Pickup: 14:00 Danny
 
