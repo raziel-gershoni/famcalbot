@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handleStartCommand, handleHelpCommand, handleSummaryCommand, handleTestVoicesCommand, handleTestAICommand, handleTestAICallback, handleWeatherCommand } from '../src/services/telegram';
+import { handleStartCommand, handleHelpCommand, handleSummaryCommand, handleTestVoicesCommand, handleTestAICommand, handleTestAICallback, handleWeatherCommand, handleWeatherCallback } from '../src/services/telegram';
 
 /**
  * Telegram Webhook Handler
@@ -29,9 +29,14 @@ export default async function handler(
       const data = callbackQuery.data;
       const queryId = callbackQuery.id;
 
-      if (chatId && data && data.startsWith('testai:')) {
-        const modelId = data.replace('testai:', '');
-        await handleTestAICallback(chatId, userId, modelId, queryId);
+      if (chatId && data) {
+        if (data.startsWith('testai:')) {
+          const modelId = data.replace('testai:', '');
+          await handleTestAICallback(chatId, userId, modelId, queryId);
+        } else if (data.startsWith('weather:')) {
+          const format = data.replace('weather:', '');
+          await handleWeatherCallback(chatId, userId, format, queryId);
+        }
       }
 
       res.status(200).json({ ok: true });

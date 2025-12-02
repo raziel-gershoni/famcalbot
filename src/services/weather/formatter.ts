@@ -6,6 +6,29 @@
 import { WeatherData } from '../../types';
 import { getWeatherDescription, getWeatherEmoji } from './open-meteo';
 
+/**
+ * Translate weather report to user's language using AI
+ */
+async function translateWeatherReport(englishReport: string, targetLanguage: string = 'Hebrew'): Promise<string> {
+  const { generateAICompletion } = await import('../ai-provider');
+
+  const prompt = `Translate this weather report to ${targetLanguage}. Keep all formatting (emojis, markdown, numbers, symbols) exactly as is. Only translate the text.
+
+Weather Report:
+${englishReport}
+
+Translated Report:`;
+
+  try {
+    const result = await generateAICompletion(prompt);
+    return result.text.trim();
+  } catch (error) {
+    console.error('Failed to translate weather report:', error);
+    // Return original English report if translation fails
+    return englishReport;
+  }
+}
+
 interface RainHours {
   startTime: string;
   endTime: string;
@@ -234,7 +257,7 @@ function generateTemperatureGraph(daily: WeatherData['daily']): string {
  * Format weather data in standard format
  * Simple, concise view with current conditions and forecast
  */
-export async function formatWeatherStandard(weather: WeatherData): Promise<string> {
+export async function formatWeatherStandard(weather: WeatherData, language?: string): Promise<string> {
   let output = `🌤️ *Weather for ${weather.location}*\n\n`;
 
   // Current conditions
@@ -286,6 +309,11 @@ export async function formatWeatherStandard(weather: WeatherData): Promise<strin
     }
   }
 
+  // Translate to user's language if specified
+  if (language) {
+    return await translateWeatherReport(output, language);
+  }
+
   return output;
 }
 
@@ -293,7 +321,7 @@ export async function formatWeatherStandard(weather: WeatherData): Promise<strin
  * Format weather data in detailed format
  * Comprehensive view with hourly breakdown, UV, sunrise/sunset, and temperature graph
  */
-export async function formatWeatherDetailed(weather: WeatherData): Promise<string> {
+export async function formatWeatherDetailed(weather: WeatherData, language?: string): Promise<string> {
   let output = `🌤️ *Weather for ${weather.location}*\n\n`;
 
   // ========== CURRENT CONDITIONS ==========
@@ -424,6 +452,11 @@ export async function formatWeatherDetailed(weather: WeatherData): Promise<strin
 
       output += `\n`;
     }
+  }
+
+  // Translate to user's language if specified
+  if (language) {
+    return await translateWeatherReport(output, language);
   }
 
   return output;

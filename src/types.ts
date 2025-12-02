@@ -7,6 +7,7 @@ export interface UserConfig {
   spouseHebrewName: string;  // Spouse's name in Hebrew
   spouseGender: 'male' | 'female';  // Spouse's gender for Hebrew grammar
   location: string;  // User's location for weather (e.g., "Harish, Israel")
+  language?: string;  // User's preferred language for weather reports (e.g., "Hebrew", "English"). If not set, weather will be in English.
   calendars: string[];  // Google Calendar IDs to fetch events from
   googleRefreshToken: string;
   primaryCalendar: string;  // User's main personal calendar ID

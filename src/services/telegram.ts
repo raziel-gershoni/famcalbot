@@ -309,6 +309,12 @@ function setupHandlers(bot: TelegramBot) {
       const modelId = data.replace('testai:', '');
       await handleTestAICallback(chatId, userId, modelId, query.id);
     }
+
+    // Handle weather format selection callbacks
+    if (data.startsWith('weather:')) {
+      const format = data.replace('weather:', '');
+      await handleWeatherCallback(chatId, userId, format, query.id);
+    }
   });
 }
 
@@ -782,9 +788,28 @@ export async function handleWeatherCommand(chatId: number, userId: number, args?
   const messagingService = getMessagingService();
   const botInstance = getBot(); // Still needed for voice and callbacks
 
+  // If no args provided, show buttons to choose format
+  if (!args) {
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '📊 Standard', callback_data: 'weather:std' },
+          { text: '📈 Detailed', callback_data: 'weather:dtl' }
+        ]
+      ]
+    };
+
+    await messagingService.sendMessage(
+      chatId,
+      '🌤️ Choose weather report format:',
+      { replyMarkup: keyboard }
+    );
+    return;
+  }
+
+  // Handle format selection (called from callback or legacy command with args)
   try {
-    // Determine format: 'std' or 'dtl' (default to 'std')
-    const format = args?.toLowerCase() === 'dtl' ? 'dtl' : 'std';
+    const format = args.toLowerCase() === 'dtl' ? 'dtl' : 'std';
 
     await messagingService.sendMessage(chatId, '🌤️ Fetching weather data...');
 
@@ -792,11 +817,11 @@ export async function handleWeatherCommand(chatId: number, userId: number, args?
     const { fetchWeather } = await import('./weather/open-meteo');
     const weatherData = await fetchWeather(user.location);
 
-    // Format weather based on requested format
+    // Format weather based on requested format (translate only if user has language set)
     const { formatWeatherStandard, formatWeatherDetailed } = await import('./weather/formatter');
     const formattedWeather = format === 'dtl'
-      ? await formatWeatherDetailed(weatherData)
-      : await formatWeatherStandard(weatherData);
+      ? await formatWeatherDetailed(weatherData, user.language)
+      : await formatWeatherStandard(weatherData, user.language);
 
     // Send formatted weather
     await messagingService.sendMessage(chatId, formattedWeather, { format: MessageFormat.MARKDOWN });
@@ -815,4 +840,17 @@ export async function handleWeatherCommand(chatId: number, userId: number, args?
       `User: ${userId}, Location: ${user.location}`
     );
   }
+}
+
+/**
+ * Handle weather format selection callback
+ */
+export async function handleWeatherCallback(chatId: number, userId: number, format: string, queryId: string): Promise<void> {
+  const botInstance = getBot();
+
+  // Answer the callback query to remove the loading state
+  await botInstance.answerCallbackQuery(queryId);
+
+  // Call handleWeatherCommand with the selected format
+  await handleWeatherCommand(chatId, userId, format);
 }
