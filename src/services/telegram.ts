@@ -5,6 +5,7 @@ import { generateSummary } from './claude';
 import { CalendarEvent, UserConfig } from '../types';
 import { USER_MESSAGES } from '../config/messages';
 import { ADMIN_USER_ID } from '../config/constants';
+import { IMessagingService, getTelegramService, MessageFormat } from './messaging';
 
 /**
  * Categorize events by ownership for a specific user
@@ -20,6 +21,7 @@ function categorizeEvents(events: CalendarEvent[], user: UserConfig) {
 }
 
 let bot: TelegramBot | null = null;
+let messagingService: IMessagingService | null = null;
 
 /**
  * Initialize the Telegram bot
@@ -59,6 +61,17 @@ export function getBot(): TelegramBot {
 }
 
 /**
+ * Get or create messaging service instance
+ */
+export function getMessagingService(): IMessagingService {
+  if (!messagingService) {
+    const botInstance = getBot();
+    messagingService = getTelegramService(botInstance);
+  }
+  return messagingService;
+}
+
+/**
  * Check if user is authorized
  */
 export function isUserAuthorized(userId: number): boolean {
@@ -70,14 +83,14 @@ export function isUserAuthorized(userId: number): boolean {
  */
 export async function handleStartCommand(chatId: number, userId: number): Promise<void> {
   if (!isUserAuthorized(userId)) {
-    await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    await getMessagingService().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     return;
   }
 
   const user = getUserByTelegramId(userId);
   const name = user?.name || 'there';
 
-  await getBot().sendMessage(chatId, USER_MESSAGES.WELCOME(name));
+  await getMessagingService().sendMessage(chatId, USER_MESSAGES.WELCOME(name));
 }
 
 /**
@@ -85,11 +98,11 @@ export async function handleStartCommand(chatId: number, userId: number): Promis
  */
 export async function handleHelpCommand(chatId: number, userId: number): Promise<void> {
   if (!isUserAuthorized(userId)) {
-    await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    await getMessagingService().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     return;
   }
 
-  await getBot().sendMessage(chatId, USER_MESSAGES.HELP);
+  await getMessagingService().sendMessage(chatId, USER_MESSAGES.HELP);
 }
 
 /**
@@ -98,7 +111,7 @@ export async function handleHelpCommand(chatId: number, userId: number): Promise
  */
 export async function handleSummaryCommand(chatId: number, userId: number, args?: string): Promise<void> {
   if (!isUserAuthorized(userId)) {
-    await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    await getMessagingService().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     return;
   }
 
@@ -117,17 +130,17 @@ export async function handleSummaryCommand(chatId: number, userId: number, args?
 export async function handleTestModelsCommand(chatId: number, userId: number, updateId: number, args?: string): Promise<void> {
   // Check if disabled via env var (emergency kill switch)
   if (process.env.DISABLE_TESTMODELS === 'true') {
-    await getBot().sendMessage(
+    await getMessagingService().sendMessage(
       chatId,
       '⚠️ <b>testmodels is currently disabled</b>\n\nContact admin to re-enable.',
-      { parse_mode: 'HTML' }
+      { format: MessageFormat.HTML }
     );
     return;
   }
 
   // Admin-only command
   if (userId !== ADMIN_USER_ID) {
-    await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    await getMessagingService().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     return;
   }
 
@@ -198,7 +211,7 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
     console.log('testModels execution completed successfully');
   } catch (error) {
     console.error('Error in testmodels command:', error);
-    await getBot().sendMessage(chatId, 'Sorry, there was an error running the model tests.');
+    await getMessagingService().sendMessage(chatId, 'Sorry, there was an error running the model tests.');
 
     // Notify admin
     const { notifyAdminError } = await import('../utils/error-notifier');
@@ -322,10 +335,11 @@ async function sendSummaryToUser(
     return;
   }
 
-  const botInstance = getBot();
+  const messagingService = getMessagingService();
+  const botInstance = getBot(); // Still needed for voice and callbacks
 
   try {
-    await botInstance.sendMessage(userId, fetchingMessage);
+    await messagingService.sendMessage(userId, fetchingMessage);
 
     // Fetch calendar events
     const events = await fetchFunction(user.googleRefreshToken, user.calendars);
@@ -353,7 +367,7 @@ async function sendSummaryToUser(
     );
 
     // Send personalized message (greeting is included in the summary)
-    await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
+    await messagingService.sendMessage(userId, summary, { format: MessageFormat.HTML });
 
     // Generate and send voice message for admin user only (for /summary command only)
     if (userId === ADMIN_USER_ID && summaryDate === undefined) {
@@ -361,7 +375,7 @@ async function sendSummaryToUser(
     }
   } catch (error) {
     console.error(`Error sending summary to user ${userId}:`, error);
-    await botInstance.sendMessage(userId, errorMessage);
+    await messagingService.sendMessage(userId, errorMessage);
 
     // Notify admin of summary failures
     const { notifyAdminError } = await import('../utils/error-notifier');
@@ -383,7 +397,8 @@ async function sendSummaryToAll(
   summaryDate: Date | undefined
 ): Promise<void> {
   const whitelistedIds = getWhitelistedIds();
-  const botInstance = getBot();
+  const messagingService = getMessagingService();
+  const botInstance = getBot(); // Still needed for voice and callbacks
 
   try {
     // Get the first user to fetch calendars (they all share the same calendars)
@@ -423,7 +438,7 @@ async function sendSummaryToAll(
           undefined,
           user.location
         );
-        await botInstance.sendMessage(userId, summary, { parse_mode: 'HTML' });
+        await messagingService.sendMessage(userId, summary, { format: MessageFormat.HTML });
 
         // Generate and send voice message for all users (only for daily morning summary)
         if (summaryDate === undefined) {
@@ -523,7 +538,8 @@ async function sendVoiceMessage(userId: number, summary: string, modelId?: strin
     voiceFilePath = await generateVoiceMessage(condensedSummary);
 
     // Send as voice message to Telegram
-    const botInstance = getBot();
+    const messagingService = getMessagingService();
+  const botInstance = getBot(); // Still needed for voice and callbacks
     await botInstance.sendVoice(userId, voiceFilePath);
 
     console.log(`Voice message sent successfully to user ${userId}`);
@@ -554,11 +570,12 @@ async function sendVoiceMessage(userId: number, summary: string, modelId?: strin
 export async function handleTestVoicesCommand(chatId: number, userId: number): Promise<void> {
   // Admin-only command
   if (userId !== ADMIN_USER_ID) {
-    await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    await getMessagingService().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     return;
   }
 
-  const botInstance = getBot();
+  const messagingService = getMessagingService();
+  const botInstance = getBot(); // Still needed for voice and callbacks
   const voices: Array<'he-IL-Wavenet-A' | 'he-IL-Wavenet-B' | 'he-IL-Wavenet-C' | 'he-IL-Wavenet-D' | 'he-IL-Standard-A' | 'he-IL-Standard-B'> = [
     'he-IL-Wavenet-A',
     'he-IL-Wavenet-B',
@@ -571,10 +588,10 @@ export async function handleTestVoicesCommand(chatId: number, userId: number): P
   const testText = `שלום! זהו טסט של קול עברי. יש לי meeting עם John דרך Zoom בשעה 8:00-16:00. גם Teams וגם zoom קטן. המספרים: אחת, שתיים, שלוש. התאריך: כ״ח בכסלו תשפ״ה. Doctor Smith אמר תודה!`;
 
   try {
-    await botInstance.sendMessage(
+    await messagingService.sendMessage(
       chatId,
       `🎤 <b>Testing ${voices.length} Google Hebrew Voices</b>\n\nGenerating voice samples...\n\n<i>Wavenet = High quality (neural)\nStandard = Basic quality</i>`,
-      { parse_mode: 'HTML' }
+      { format: MessageFormat.HTML }
     );
 
     const { generateVoiceMessage, cleanupVoiceFile } = await import('./voice-generator');
@@ -598,10 +615,10 @@ export async function handleTestVoicesCommand(chatId: number, userId: number): P
         console.log(`Voice ${voice} sent successfully`);
       } catch (error) {
         console.error(`Failed to test voice ${voice}:`, error);
-        await botInstance.sendMessage(
+        await messagingService.sendMessage(
           chatId,
           `❌ Voice <b>${voice}</b> failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          { parse_mode: 'HTML' }
+          { format: MessageFormat.HTML }
         );
       } finally {
         if (voiceFilePath) {
@@ -617,14 +634,14 @@ export async function handleTestVoicesCommand(chatId: number, userId: number): P
       }
     }
 
-    await botInstance.sendMessage(
+    await messagingService.sendMessage(
       chatId,
       `✅ <b>Voice Testing Complete!</b>\n\nTested ${voices.length} voices. Listen and compare to choose your favorite!`,
-      { parse_mode: 'HTML' }
+      { format: MessageFormat.HTML }
     );
   } catch (error) {
     console.error('Error in testvoices command:', error);
-    await botInstance.sendMessage(chatId, 'Sorry, there was an error running voice tests.');
+    await messagingService.sendMessage(chatId, 'Sorry, there was an error running voice tests.');
 
     const { notifyAdminError } = await import('../utils/error-notifier');
     await notifyAdminError('TestVoices Command', error);
@@ -637,12 +654,13 @@ export async function handleTestVoicesCommand(chatId: number, userId: number): P
 export async function handleTestAICommand(chatId: number, userId: number): Promise<void> {
   // Admin-only command
   if (userId !== ADMIN_USER_ID) {
-    await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    await getMessagingService().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     return;
   }
 
   const { getAvailableModels, getModelConfig } = await import('../config/ai-models');
-  const botInstance = getBot();
+  const messagingService = getMessagingService();
+  const botInstance = getBot(); // Still needed for voice and callbacks
 
   try {
     const models = getAvailableModels();
@@ -677,19 +695,19 @@ export async function handleTestAICommand(chatId: number, userId: number): Promi
       keyboard.push(row);
     }
 
-    await botInstance.sendMessage(
+    await messagingService.sendMessage(
       chatId,
       `🤖 <b>Test AI Models</b>\n\nSelect a model to generate today's summary with voice:\n\n<i>Each model will generate both text and voice summary.</i>`,
       {
-        parse_mode: 'HTML',
-        reply_markup: {
+        format: MessageFormat.HTML,
+        replyMarkup: {
           inline_keyboard: keyboard
         }
       }
     );
   } catch (error) {
     console.error('Error in testai command:', error);
-    await botInstance.sendMessage(chatId, 'Sorry, there was an error showing model options.');
+    await messagingService.sendMessage(chatId, 'Sorry, there was an error showing model options.');
 
     const { notifyAdminError } = await import('../utils/error-notifier');
     await notifyAdminError('TestAI Command', error);
@@ -711,7 +729,8 @@ export async function handleTestAICallback(
     return;
   }
 
-  const botInstance = getBot();
+  const messagingService = getMessagingService();
+  const botInstance = getBot(); // Still needed for voice and callbacks
   const { getModelConfig } = await import('../config/ai-models');
 
   try {
@@ -737,7 +756,7 @@ export async function handleTestAICallback(
     );
   } catch (error) {
     console.error('Error in testai callback:', error);
-    await botInstance.sendMessage(chatId, 'Sorry, there was an error generating the summary.');
+    await messagingService.sendMessage(chatId, 'Sorry, there was an error generating the summary.');
 
     const { notifyAdminError } = await import('../utils/error-notifier');
     await notifyAdminError('TestAI Callback', error);
@@ -750,7 +769,7 @@ export async function handleTestAICallback(
  */
 export async function handleWeatherCommand(chatId: number, userId: number, args?: string): Promise<void> {
   if (!isUserAuthorized(userId)) {
-    await getBot().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    await getMessagingService().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     return;
   }
 
@@ -760,13 +779,14 @@ export async function handleWeatherCommand(chatId: number, userId: number, args?
     return;
   }
 
-  const botInstance = getBot();
+  const messagingService = getMessagingService();
+  const botInstance = getBot(); // Still needed for voice and callbacks
 
   try {
     // Determine format: 'std' or 'dtl' (default to 'std')
     const format = args?.toLowerCase() === 'dtl' ? 'dtl' : 'std';
 
-    await botInstance.sendMessage(chatId, '🌤️ Fetching weather data...');
+    await messagingService.sendMessage(chatId, '🌤️ Fetching weather data...');
 
     // Fetch weather data
     const { fetchWeather } = await import('./weather/open-meteo');
@@ -779,10 +799,10 @@ export async function handleWeatherCommand(chatId: number, userId: number, args?
       : await formatWeatherStandard(weatherData);
 
     // Send formatted weather
-    await botInstance.sendMessage(chatId, formattedWeather, { parse_mode: 'Markdown' });
+    await messagingService.sendMessage(chatId, formattedWeather, { format: MessageFormat.MARKDOWN });
   } catch (error) {
     console.error(`Error fetching weather for user ${userId}:`, error);
-    await botInstance.sendMessage(
+    await messagingService.sendMessage(
       chatId,
       '❌ Sorry, there was an error fetching weather data. Please try again later.'
     );
