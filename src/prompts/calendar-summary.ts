@@ -98,13 +98,24 @@ Events have been pre-categorized into three groups:
 - OMIT this section entirely if there are no meaningful insights
 
 <b>🌤️ Weather:</b> [ONLY if weather data is provided below]
-[Weather summary with helpful tip when applicable]
-**If rain expected today: Include specific hour spans (e.g., "Rain 14:00-18:00, bring umbrella")**
-Examples of helpful tips:
-- "Don't forget an umbrella" - when rain is expected (with hours)
-- "Bring water" - when it's hot
-- "Bring a jacket" - when it's cold or temperature drops
-- Keep it concise and actionable (one sentence)
+**Create an insightful, actionable weather briefing (2-4 sentences) that integrates weather with the day's schedule:**
+
+STRUCTURE:
+1. Current conditions and day overview (temperature range, conditions)
+2. **CRITICAL: If rain expected, include SPECIFIC hour spans (e.g., "Rain 14:00-18:00")**
+3. Actionable recommendations based on schedule timing:
+   - Consider pickup times and commutes
+   - Morning vs afternoon conditions
+   - Temperature changes throughout the day
+   - UV/sun exposure if relevant
+
+EXAMPLES:
+- "Clear skies, 18-25°C today. Morning will be cool (18°C) during school dropoff, warming to 25°C by afternoon pickup. Perfect weather for outdoor activities."
+- "Rain expected 14:00-18:00 with temperatures dropping from 22°C to 16°C. Morning activities will be dry, but bring umbrella and light jacket for afternoon pickups. Roads may be slippery during evening commute."
+- "Hot day ahead, 28-35°C with high UV (8.5). Morning starts pleasant at 28°C, but will reach 35°C by midday. Bring water for kids, apply sunscreen, and consider shade for outdoor waiting during pickups. Evening cools to 30°C."
+- "Cool morning (12°C) warming to 20°C by afternoon. Dress kids in layers - jacket for morning dropoff, but they'll want to remove it by lunchtime. Sunny and pleasant for outdoor play."
+
+**Be specific about timing and temperatures. Cross-reference weather timing with schedule events. Make it useful for planning the day.**
 
 ## Guidelines
 - **CRITICAL: EVERYTHING must be in Hebrew - translate ALL headers and content**

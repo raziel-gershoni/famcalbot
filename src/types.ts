@@ -37,23 +37,33 @@ export interface WeatherData {
     humidity: number;
     weatherCode: number;
     windSpeed: number;
+    uvIndex: number;
   };
   today: {
     tempMax: number;
     tempMin: number;
     precipitationProbability: number;
     weatherCode: number;
+    sunrise: string;
+    sunset: string;
+    uvIndexMax: number;
   };
   tomorrow?: {
     tempMax: number;
     tempMin: number;
     precipitationProbability: number;
     weatherCode: number;
+    sunrise: string;
+    sunset: string;
+    uvIndexMax: number;
   };
   hourly?: {
     time: string[];
+    temperature: number[];
     precipitation_probability: number[];
     precipitation: number[];
+    weatherCode: number[];
+    windSpeed: number[];
   };
   daily?: Array<{
     date: string;
@@ -61,6 +71,9 @@ export interface WeatherData {
     tempMin: number;
     precipitationProbability: number;
     weatherCode: number;
+    sunrise: string;
+    sunset: string;
+    uvIndexMax: number;
   }>;
   summary?: string;  // AI-generated summary
 }

@@ -15,6 +15,7 @@ interface OpenMeteoResponse {
     apparent_temperature: number;
     weather_code: number;
     wind_speed_10m: number;
+    uv_index: number;
   };
   hourly: {
     time: string[];
@@ -22,6 +23,7 @@ interface OpenMeteoResponse {
     precipitation_probability: number[];
     precipitation: number[];
     weather_code: number[];
+    wind_speed_10m: number[];
   };
   daily: {
     time: string[];
@@ -30,6 +32,9 @@ interface OpenMeteoResponse {
     precipitation_probability_max: number[];
     weather_code: number[];
     wind_speed_10m_max: number[];
+    sunrise: string[];
+    sunset: string[];
+    uv_index_max: number[];
   };
 }
 
@@ -53,9 +58,9 @@ export async function fetchWeather(
   const params = new URLSearchParams({
     latitude: coords.latitude.toString(),
     longitude: coords.longitude.toString(),
-    current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m',
-    hourly: 'temperature_2m,precipitation_probability,precipitation,weather_code',
-    daily: 'temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code,wind_speed_10m_max',
+    current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,uv_index',
+    hourly: 'temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m',
+    daily: 'temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code,wind_speed_10m_max,sunrise,sunset,uv_index_max',
     timezone: timezone,
     forecast_days: '7'
   });
@@ -81,31 +86,44 @@ export async function fetchWeather(
         feelsLike: Math.round(data.current.apparent_temperature),
         humidity: data.current.relative_humidity_2m,
         weatherCode: data.current.weather_code,
-        windSpeed: Math.round(data.current.wind_speed_10m)
+        windSpeed: Math.round(data.current.wind_speed_10m),
+        uvIndex: Math.round(data.current.uv_index * 10) / 10  // One decimal place
       },
       today: {
         tempMax: Math.round(data.daily.temperature_2m_max[0]),
         tempMin: Math.round(data.daily.temperature_2m_min[0]),
         precipitationProbability: data.daily.precipitation_probability_max[0],
-        weatherCode: data.daily.weather_code[0]
+        weatherCode: data.daily.weather_code[0],
+        sunrise: data.daily.sunrise[0],
+        sunset: data.daily.sunset[0],
+        uvIndexMax: Math.round(data.daily.uv_index_max[0] * 10) / 10
       },
       tomorrow: data.daily.time.length > 1 ? {
         tempMax: Math.round(data.daily.temperature_2m_max[1]),
         tempMin: Math.round(data.daily.temperature_2m_min[1]),
         precipitationProbability: data.daily.precipitation_probability_max[1],
-        weatherCode: data.daily.weather_code[1]
+        weatherCode: data.daily.weather_code[1],
+        sunrise: data.daily.sunrise[1],
+        sunset: data.daily.sunset[1],
+        uvIndexMax: Math.round(data.daily.uv_index_max[1] * 10) / 10
       } : undefined,
       hourly: {
         time: data.hourly.time,
+        temperature: data.hourly.temperature_2m,
         precipitation_probability: data.hourly.precipitation_probability,
-        precipitation: data.hourly.precipitation
+        precipitation: data.hourly.precipitation,
+        weatherCode: data.hourly.weather_code,
+        windSpeed: data.hourly.wind_speed_10m
       },
       daily: data.daily.time.map((date, index) => ({
         date,
         tempMax: Math.round(data.daily.temperature_2m_max[index]),
         tempMin: Math.round(data.daily.temperature_2m_min[index]),
         precipitationProbability: data.daily.precipitation_probability_max[index],
-        weatherCode: data.daily.weather_code[index]
+        weatherCode: data.daily.weather_code[index],
+        sunrise: data.daily.sunrise[index],
+        sunset: data.daily.sunset[index],
+        uvIndexMax: Math.round(data.daily.uv_index_max[index] * 10) / 10
       }))
     };
 
