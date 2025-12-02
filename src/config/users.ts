@@ -30,7 +30,7 @@ const allUsers: UserConfig[] = [
     spouseHebrewName: 'ישועה',
     spouseGender: 'female' as const,
     location: process.env.WEATHER_LOCATION || 'Harish, Israel',
-    language: 'Hebrew',
+    language: 'Spanish',
     calendars: SHARED_CALENDARS,
     googleRefreshToken: SHARED_REFRESH_TOKEN,
     primaryCalendar: 'zhendos13@gmail.com',  // Main personal calendar
