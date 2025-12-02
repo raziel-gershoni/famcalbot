@@ -10,19 +10,20 @@ export function buildVoiceCondenserPrompt(fullSummary: string): string {
 
 **RULES:**
 1. Keep ONLY Hebrew date with weekday (remove Gregorian date, remove Hebrew year)
-2. For user & spouse events: ONLY time + title (no locations, no descriptions)
-3. For kids start times: ONLY time + name (no locations)
-4. For special kids events: Keep time, name, activity
-5. For pickup order: ONLY time + name(s) (no locations)
-6. **Weather: Keep brief conditions + rain timing as single word**
+2. **IMPORTANT: Weather comes IMMEDIATELY after date, BEFORE schedule**
+   - Keep brief conditions + rain timing as single word
    - Rain timing: ONE WORD only (night, morning, afternoon, evening, "early morning")
    - Keep helpful tips (umbrella, jacket, water)
+3. For user & spouse events: ONLY time + title (no locations, no descriptions)
+4. For kids start times: ONLY time + name (no locations)
+5. For special kids events: Keep time, name, activity
+6. For pickup order: ONLY time + name(s) (no locations)
 7. Remove ALL formatting: HTML tags, emojis, asterisks, bold/italic
 8. **Add minimal section labels (2-3 words max) before each content type:**
+   - Weather: "Weather:" (MUST come right after date, before schedule)
    - User/spouse schedule: "For you:" or "Your schedule:"
    - Kids activities: "Kids:"
    - Pickups: "Pickup:"
-   - Weather: "Weather:"
    - Labels provide structure, keep everything else ultra-brief
 9. Ultra-brief, direct, spoken Hebrew with minimal structure labels
 
@@ -34,9 +35,9 @@ About the weather, it will rain today so don't forget your umbrella.
 
 **Example of CORRECT output (brief with minimal labels):**
 Monday, 28 Kislev
+Weather: Rain afternoon, bring umbrella
 For you: 09:00 meeting
 Pickup: 14:00 Danny
-Weather: Rain afternoon, bring umbrella
 
 **Original Summary:**
 ${fullSummary}
