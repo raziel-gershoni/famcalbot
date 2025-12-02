@@ -3,13 +3,17 @@
  * Takes existing calendar summary and makes it voice-friendly
  */
 
-export function buildVoiceCondenserPrompt(fullSummary: string): string {
-  return `You are condensing a calendar summary for voice message listening (target: 30-45 seconds).
+export function buildVoiceCondenserPrompt(fullSummary: string, language: string = 'English'): string {
+  const dateFormat = language === 'Hebrew'
+    ? 'Hebrew date with weekday (remove Gregorian date, remove Hebrew year)'
+    : 'Date with weekday';
+
+  return `You are condensing a calendar summary for voice message listening (target: 30-45 seconds) in ${language}.
 
 **CRITICAL: BE EXTREMELY BRIEF. This is for VOICE - every word costs listening time. Remove ALL fluff.**
 
 **RULES:**
-1. Keep ONLY Hebrew date with weekday (remove Gregorian date, remove Hebrew year)
+1. Keep ONLY ${dateFormat}
 2. **IMPORTANT: Weather comes IMMEDIATELY after date, BEFORE schedule**
    - Keep brief conditions + rain timing as single word
    - Rain timing: ONE WORD only (night, morning, afternoon, evening, "early morning")
@@ -25,7 +29,7 @@ export function buildVoiceCondenserPrompt(fullSummary: string): string {
    - Kids activities: "Kids:"
    - Pickups: "Pickup:"
    - Labels provide structure, keep everything else ultra-brief
-9. Ultra-brief, direct, spoken Hebrew with minimal structure labels
+9. Ultra-brief, direct, spoken ${language} with minimal structure labels
 
 **Example of WRONG output (too wordy):**
 Monday, 28 Kislev 5785
@@ -42,5 +46,5 @@ Pickup: 14:00 Danny
 **Original Summary:**
 ${fullSummary}
 
-**Output the ultra-brief voice version (plain text, direct, Hebrew only):**`;
+**Output the ultra-brief voice version (plain text, direct, in ${language}):**`;
 }

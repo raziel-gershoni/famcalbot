@@ -19,27 +19,30 @@ export interface SummaryPromptData {
   spouseEventsText: string;
   otherEventsText: string;
   weatherSummary?: string;  // AI-generated weather summary with tips
+  language?: string;  // Target language for summary (e.g., "Hebrew", "English", "Spanish"). If not set, defaults to English.
 }
 
 export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
+  const targetLanguage = data.language || 'English';
+
   return `# Calendar Summary for ${data.userName}
 
-Generate a personalized daily schedule summary in Hebrew.
+Generate a personalized daily schedule summary in ${targetLanguage}.
 
-**IMPORTANT: Use these exact names in your output:**
-- User: ${data.userHebrewName} (${data.userGender} - use correct grammar forms)
-- Spouse: ${data.spouseHebrewName} (${data.spouseGender} - use correct grammar forms)
+**IMPORTANT: Names and grammar:**
+- User: ${data.userName} (${data.userGender} - use appropriate ${targetLanguage} grammar forms)
+- Spouse: ${data.spouseName} (${data.spouseGender} - use appropriate ${targetLanguage} grammar forms)
 
 ## Event Categories & Personalization
 Events have been pre-categorized into three groups:
 
 1. **User's Events** - These are YOUR events (personal and work calendars)
-   - Address these as "You have..." or "Your..." (translated)
-   - When mentioning by name, use: ${data.userHebrewName}
+   - Address these as "You have..." or "Your..." (in ${targetLanguage})
+   - When mentioning by name, use: ${data.userName}
 
 2. **Spouse's Events** - These belong to the spouse
-   - When referring to spouse by name, use: ${data.spouseHebrewName}
-   - Personalize from user's perspective (e.g., "${data.spouseHebrewName} has a meeting at...")
+   - When referring to spouse by name, use: ${data.spouseName}
+   - Personalize from user's perspective (e.g., "${data.spouseName} has a meeting at...")
 
 3. **Other Events** - Kids' events and shared family events
    - Infer ownership from calendar display name (e.g., "שירה לאה", "מתניה עדין", etc.)
@@ -118,11 +121,11 @@ EXAMPLES:
 **Be specific about timing and temperatures. Cross-reference weather timing with schedule events. Make it useful for planning the day.**
 
 ## Guidelines
-- **CRITICAL: EVERYTHING must be in Hebrew - translate ALL headers and content**
+- **CRITICAL: EVERYTHING must be in ${targetLanguage} - translate ALL headers and content to ${targetLanguage}**
 - **CRITICAL: Always use HH:MM format (24-hour, no AM/PM) - e.g., 08:00, 13:45, 20:15**
 - **CRITICAL: Pickup Order MUST be sorted chronologically by time (earliest first)**
-- **Pickup Order: Group kids with SAME pickup time on ONE line together, just like start times**
-- Always display Hebrew date using Gematria (Hebrew numerals) not Arabic numbers
+- **CRITICAL: Pickup Order: Group kids with SAME pickup time on ONE line together, just like start times**
+${targetLanguage === 'Hebrew' ? '- Always display Hebrew date using Gematria (Hebrew numerals) not Arabic numbers' : '- Display Hebrew date using standard numerals (e.g., "28 Kislev 5785")'}
 - Use Telegram HTML tags for formatting: <b>bold</b>, <i>italic</i>, <u>underline</u>
 
 ---
@@ -145,5 +148,5 @@ ${data.weatherSummary ? `
 **WEATHER INFORMATION:**
 ${data.weatherSummary}` : ''}
 
-**CRITICAL: Respond in Hebrew only. Write your entire summary in Hebrew.**`;
+**CRITICAL: Respond in ${targetLanguage} only. Write your entire summary in ${targetLanguage}.**`;
 }

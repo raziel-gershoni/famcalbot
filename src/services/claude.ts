@@ -40,7 +40,8 @@ function buildPromptData(
   spouseHebrewName: string,
   spouseGender: 'male' | 'female',
   date: Date,
-  weatherSummary?: string
+  weatherSummary?: string,
+  language?: string
 ): SummaryPromptData {
   // Get current date (today) for comparison
   const currentDate = new Date();
@@ -99,6 +100,7 @@ function buildPromptData(
     spouseEventsText,
     otherEventsText,
     weatherSummary,
+    language,
   };
 }
 
@@ -142,7 +144,8 @@ export async function generateSummary(
   date: Date = new Date(),
   includeModelInfo: boolean = false,
   modelId?: string,
-  location?: string
+  location?: string,
+  language?: string
 ): Promise<string> {
   const allEvents = [...userEvents, ...spouseEvents, ...otherEvents];
 
@@ -180,7 +183,8 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
     spouseHebrewName,
     spouseGender,
     date,
-    weatherSummary
+    weatherSummary,
+    language
   );
 
   // Build the prompt
@@ -207,7 +211,8 @@ export async function generateSummaryWithMetrics(
   primaryCalendar: string,
   date: Date = new Date(),
   modelId?: string,
-  location?: string
+  location?: string,
+  language?: string
 ) {
   const allEvents = [...userEvents, ...spouseEvents, ...otherEvents];
 
@@ -250,7 +255,8 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
     spouseHebrewName,
     spouseGender,
     date,
-    weatherSummary
+    weatherSummary,
+    language
   );
 
   // Build the prompt

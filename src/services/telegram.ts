@@ -268,14 +268,6 @@ function setupHandlers(bot: TelegramBot) {
     }
   });
 
-  // /testvoices command (admin only)
-  bot.onText(/\/testvoices/, async (msg) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from?.id;
-    if (userId) {
-      await handleTestVoicesCommand(chatId, userId);
-    }
-  });
 
   // /testai command - show model selection buttons (admin only)
   bot.onText(/\/testai/, async (msg) => {
@@ -369,7 +361,8 @@ async function sendSummaryToUser(
       summaryDate,
       userId === ADMIN_USER_ID,
       modelId,
-      user.location
+      user.location,
+      user.language
     );
 
     // Send personalized message (greeting is included in the summary)
@@ -377,7 +370,7 @@ async function sendSummaryToUser(
 
     // Generate and send voice message for admin user only (for /summary command only)
     if (userId === ADMIN_USER_ID && summaryDate === undefined) {
-      await sendVoiceMessage(userId, summary, modelId);
+      await sendVoiceMessage(userId, summary, modelId, user.language);
     }
   } catch (error) {
     console.error(`Error sending summary to user ${userId}:`, error);
@@ -442,13 +435,14 @@ async function sendSummaryToAll(
           summaryDate,
           userId === ADMIN_USER_ID,
           undefined,
-          user.location
+          user.location,
+          user.language
         );
         await messagingService.sendMessage(userId, summary, { format: MessageFormat.HTML });
 
         // Generate and send voice message for all users (only for daily morning summary)
         if (summaryDate === undefined) {
-          await sendVoiceMessage(userId, summary);
+          await sendVoiceMessage(userId, summary, undefined, user.language);
         }
       } catch (error) {
         console.error(`Failed to send summary to user ${userId}:`, error);
@@ -522,8 +516,9 @@ export async function sendTomorrowSummaryToAll(): Promise<void> {
  * Non-blocking - errors logged but don't affect text summary delivery
  * Admin-only feature for testing
  * @param modelId - Optional model ID to use for condensing (same as text summary)
+ * @param language - Optional language for voice (defaults to English if not provided)
  */
-async function sendVoiceMessage(userId: number, summary: string, modelId?: string): Promise<void> {
+async function sendVoiceMessage(userId: number, summary: string, modelId?: string, language?: string): Promise<void> {
   let voiceFilePath: string | null = null;
 
   try {
@@ -534,14 +529,15 @@ async function sendVoiceMessage(userId: number, summary: string, modelId?: strin
     console.log(`Generating voice message for user ${userId}...`);
 
     // Step 1: Condense summary for voice (ultra-brief, 30-45 seconds)
-    const condenserPrompt = buildVoiceCondenserPrompt(summary);
+    const targetLanguage = language || 'English';
+    const condenserPrompt = buildVoiceCondenserPrompt(summary, targetLanguage);
     const condensedResult = await generateAICompletion(condenserPrompt, modelId);
     const condensedSummary = condensedResult.text;
 
     console.log(`Voice summary condensed: ${summary.length} → ${condensedSummary.length} chars`);
 
     // Step 2: Generate voice file from condensed summary
-    voiceFilePath = await generateVoiceMessage(condensedSummary);
+    voiceFilePath = await generateVoiceMessage(condensedSummary, targetLanguage);
 
     // Send as voice message to Telegram
     const messagingService = getMessagingService();
@@ -566,91 +562,6 @@ async function sendVoiceMessage(userId: number, summary: string, modelId?: strin
         console.warn('Voice file cleanup failed:', err)
       );
     }
-  }
-}
-
-/**
- * Handle /testvoices command (admin only)
- * Tests all Google Hebrew TTS voices with a sample Hebrew text
- */
-export async function handleTestVoicesCommand(chatId: number, userId: number): Promise<void> {
-  // Admin-only command
-  if (userId !== ADMIN_USER_ID) {
-    await getMessagingService().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
-    return;
-  }
-
-  const messagingService = getMessagingService();
-  const botInstance = getBot(); // Still needed for voice and callbacks
-  const voices: Array<'he-IL-Wavenet-A' | 'he-IL-Wavenet-B' | 'he-IL-Wavenet-C' | 'he-IL-Wavenet-D' | 'he-IL-Standard-A' | 'he-IL-Standard-B'> = [
-    'he-IL-Wavenet-A',
-    'he-IL-Wavenet-B',
-    'he-IL-Wavenet-C',
-    'he-IL-Wavenet-D',
-    'he-IL-Standard-A',
-    'he-IL-Standard-B',
-  ];
-
-  const testText = `שלום! זהו טסט של קול עברי. יש לי meeting עם John דרך Zoom בשעה 8:00-16:00. גם Teams וגם zoom קטן. המספרים: אחת, שתיים, שלוש. התאריך: כ״ח בכסלו תשפ״ה. Doctor Smith אמר תודה!`;
-
-  try {
-    await messagingService.sendMessage(
-      chatId,
-      `🎤 <b>Testing ${voices.length} Google Hebrew Voices</b>\n\nGenerating voice samples...\n\n<i>Wavenet = High quality (neural)\nStandard = Basic quality</i>`,
-      { format: MessageFormat.HTML }
-    );
-
-    const { generateVoiceMessage, cleanupVoiceFile } = await import('./voice-generator');
-
-    // Test each voice
-    for (const voice of voices) {
-      let voiceFilePath: string | null = null;
-
-      try {
-        console.log(`Testing voice: ${voice}`);
-
-        // Generate voice sample
-        voiceFilePath = await generateVoiceMessage(testText, { voice, speed: 1.0 });
-
-        // Send voice message with caption
-        await botInstance.sendVoice(chatId, voiceFilePath, {
-          caption: `🎤 Voice: <b>${voice}</b>`,
-          parse_mode: 'HTML'
-        });
-
-        console.log(`Voice ${voice} sent successfully`);
-      } catch (error) {
-        console.error(`Failed to test voice ${voice}:`, error);
-        await messagingService.sendMessage(
-          chatId,
-          `❌ Voice <b>${voice}</b> failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          { format: MessageFormat.HTML }
-        );
-      } finally {
-        if (voiceFilePath) {
-          await cleanupVoiceFile(voiceFilePath).catch(err =>
-            console.warn(`Cleanup failed for ${voice}:`, err)
-          );
-        }
-      }
-
-      // Small delay between voices to avoid rate limits
-      if (voice !== voices[voices.length - 1]) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-    }
-
-    await messagingService.sendMessage(
-      chatId,
-      `✅ <b>Voice Testing Complete!</b>\n\nTested ${voices.length} voices. Listen and compare to choose your favorite!`,
-      { format: MessageFormat.HTML }
-    );
-  } catch (error) {
-    console.error('Error in testvoices command:', error);
-    await messagingService.sendMessage(chatId, 'Sorry, there was an error running voice tests.');
-
-    const { notifyAdminError } = await import('../utils/error-notifier');
-    await notifyAdminError('TestVoices Command', error);
   }
 }
 

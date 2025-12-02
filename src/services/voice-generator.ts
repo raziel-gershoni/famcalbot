@@ -29,7 +29,7 @@ const client = new textToSpeech.TextToSpeechClient({
 });
 
 export interface VoiceOptions {
-  voice?: 'he-IL-Wavenet-A' | 'he-IL-Wavenet-B' | 'he-IL-Wavenet-C' | 'he-IL-Wavenet-D' | 'he-IL-Standard-A' | 'he-IL-Standard-B';
+  voice?: string;  // Google TTS voice name (e.g., 'he-IL-Wavenet-D', 'en-US-Wavenet-D', 'es-ES-Wavenet-B')
   speed?: number; // 0.25 to 4.0
 }
 
@@ -39,25 +39,51 @@ const DEFAULT_OPTIONS: VoiceOptions = {
 };
 
 /**
+ * Map user-friendly language names to Google TTS language codes and default voices
+ */
+function getLanguageConfig(language: string = 'English'): { code: string; voice: string } {
+  const configs: Record<string, { code: string; voice: string }> = {
+    'Hebrew': { code: 'he-IL', voice: 'he-IL-Wavenet-D' },  // Male, natural
+    'English': { code: 'en-US', voice: 'en-US-Wavenet-D' }, // Male, neutral
+    'Spanish': { code: 'es-ES', voice: 'es-ES-Wavenet-B' }, // Male, neutral
+    'French': { code: 'fr-FR', voice: 'fr-FR-Wavenet-B' },  // Male, neutral
+    'German': { code: 'de-DE', voice: 'de-DE-Wavenet-B' },  // Male, neutral
+  };
+
+  return configs[language] || configs['English']; // Default to English if language not found
+}
+
+/**
  * Generate voice message from text
- * @param text - Hebrew text summary (HTML tags will be stripped)
- * @param options - Voice generation options
+ * @param text - Text summary (HTML tags will be stripped)
+ * @param language - Target language (e.g., "Hebrew", "English", "Spanish")
+ * @param options - Voice generation options (voice name, speed)
  * @returns Path to generated audio file in /tmp
  */
 export async function generateVoiceMessage(
   text: string,
+  language: string = 'English',
   options: VoiceOptions = {}
 ): Promise<string> {
   const startTime = Date.now();
 
-  // Strip HTML tags only - let Google TTS handle Hebrew natively
+  // Strip HTML tags only - let Google TTS handle text natively
   const cleanText = stripHtmlTagsOnly(text);
 
-  // Merge with defaults
-  const config = { ...DEFAULT_OPTIONS, ...options };
+  // Get language-specific configuration
+  const langConfig = getLanguageConfig(language);
+
+  // Merge with defaults, prioritizing options, then language defaults
+  const config = {
+    ...DEFAULT_OPTIONS,
+    voice: options.voice || langConfig.voice,
+    speed: options.speed !== undefined ? options.speed : DEFAULT_OPTIONS.speed,
+  };
 
   console.log('Generating voice message (Google TTS):', {
     textLength: cleanText.length,
+    language,
+    languageCode: langConfig.code,
     voice: config.voice,
     speed: config.speed,
   });
@@ -67,7 +93,7 @@ export async function generateVoiceMessage(
     const [response] = await client.synthesizeSpeech({
       input: { text: cleanText },
       voice: {
-        languageCode: 'he-IL',
+        languageCode: langConfig.code,
         name: config.voice,
       },
       audioConfig: {
