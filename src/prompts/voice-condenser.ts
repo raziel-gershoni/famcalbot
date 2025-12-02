@@ -10,38 +10,37 @@ export function buildVoiceCondenserPrompt(fullSummary: string, language: string 
 
   return `You are condensing a calendar summary for voice message listening (target: 30-45 seconds) in ${language}.
 
-**CRITICAL: BE EXTREMELY BRIEF. This is for VOICE - every word costs listening time. Remove ALL fluff.**
+**CRITICAL: This is for VOICE listening - make it sound NATURAL and FLUENT like human speech, not robotic. Be brief but conversational.**
 
 **RULES:**
 1. Keep ONLY ${dateFormat}
 2. **IMPORTANT: Weather comes IMMEDIATELY after date, BEFORE schedule**
-   - Write as natural, flowing sentence (brief but fluent, not choppy)
-   - Include conditions, timing, and practical tip in one smooth sentence
-   - Example: "Rainy afternoon, bring an umbrella" or "Hot day, drink water"
-3. For user & spouse events: ONLY time + title (no locations, no descriptions)
-4. For kids start times: ONLY time + name (no locations)
-5. For special kids events: Keep time, name, activity
-6. For pickup order: ONLY time + name(s) (no locations)
-7. Remove ALL formatting: HTML tags, emojis, asterisks, bold/italic
-8. **Add minimal section labels (2-3 words max) before each content type:**
-   - Weather: "Weather:" (MUST come right after date, before schedule)
-   - User/spouse schedule: "For you:" or "Your schedule:"
-   - Kids activities: "Kids:"
-   - Pickups: "Pickup:"
-   - Labels provide structure, keep everything else ultra-brief
-9. Ultra-brief, direct, spoken ${language} with minimal structure labels
+   - Write as natural, flowing sentences (smooth and conversational, NOT choppy)
+   - Include conditions, timing, and practical tip naturally
+   - Example: "It'll rain in the afternoon, so bring an umbrella" NOT "Rain afternoon, bring umbrella"
+3. For schedule items: Write as brief but natural sentences
+   - Use natural connectors and flow
+   - Example: "You have a meeting at 09:00" NOT "09:00 meeting"
+4. For kids: Keep brief but natural
+   - Example: "Pick up Danny at 14:00" NOT "14:00 Danny"
+5. Remove ALL formatting: HTML tags, emojis, asterisks, bold/italic
+6. **Section labels in ${language}:**
+   - Use minimal labels (1-2 words) to separate sections
+   - Labels MUST be in ${language}, not English
+   - Keep everything natural and conversational
+7. Write as if you're speaking to someone - natural, brief, fluent ${language}
 
-**Example of WRONG output (too wordy):**
-Monday, 28 Kislev 5785
-Today you have a meeting at 09:00.
-For pickups, you need to pick up Danny at 14:00.
-About the weather, it will rain today so don't forget your umbrella.
-
-**Example of CORRECT output (brief with minimal labels):**
+**Example of WRONG output (robotic and choppy):**
 Monday, 28 Kislev
-Weather: Rainy afternoon, bring an umbrella
+Weather: Rain afternoon, bring umbrella
 For you: 09:00 meeting
 Pickup: 14:00 Danny
+
+**Example of CORRECT output (natural and fluent):**
+Monday, 28 Kislev
+It'll rain in the afternoon, so bring an umbrella.
+You have a meeting at 09:00.
+Pick up Danny at 14:00.
 
 **Original Summary:**
 ${fullSummary}
