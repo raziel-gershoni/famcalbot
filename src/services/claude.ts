@@ -1,7 +1,6 @@
 import { HDate, months } from 'hebcal';
 import { CalendarEvent } from '../types';
 import { TIMEZONE } from '../config/constants';
-import { USER_MESSAGES } from '../config/messages';
 import { buildCalendarSummaryPrompt, SummaryPromptData } from '../prompts/calendar-summary';
 import { formatEventList } from '../utils/event-formatter';
 import { generateAICompletion } from './ai-provider';
@@ -147,12 +146,6 @@ export async function generateSummary(
   location?: string,
   language?: string
 ): Promise<string> {
-  const allEvents = [...userEvents, ...spouseEvents, ...otherEvents];
-
-  if (allEvents.length === 0) {
-    return USER_MESSAGES.NO_EVENTS_TODAY;
-  }
-
   // Fetch weather data if location is provided
   let weatherSummary: string | undefined;
   if (location) {
@@ -214,17 +207,6 @@ export async function generateSummaryWithMetrics(
   location?: string,
   language?: string
 ) {
-  const allEvents = [...userEvents, ...spouseEvents, ...otherEvents];
-
-  if (allEvents.length === 0) {
-    return {
-      text: USER_MESSAGES.NO_EVENTS_TODAY,
-      model: 'none',
-      usage: { inputTokens: 0, outputTokens: 0 },
-      stopReason: 'no_events' as const
-    };
-  }
-
   // Fetch weather data if location is provided
   let weatherSummary: string | undefined;
   if (location) {
