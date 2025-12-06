@@ -4,14 +4,16 @@ A private Telegram bot that sends intelligent, personalized daily calendar summa
 
 ## Features
 
+- **Multi-language support**: Summaries and voice messages in Hebrew, English, Spanish, French, German with AI translation
 - **Multi-calendar support**: Fetches events from multiple Google Calendars with shared authentication
 - **Multi-provider AI**: Supports both Claude (Anthropic) and OpenAI GPT models with easy switching
 - **AI model testing**: `/testmodels` command for side-by-side model comparison with performance metrics
-- **Voice messages**: Admin can receive audio summaries using OpenAI TTS (6 voices available)
+- **Voice messages**: Natural, fluent audio summaries using Google Cloud TTS in user's preferred language
+- **Weather integration**: AI-powered weather summaries integrated with daily schedule
 - **Smart event categorization**: Pre-categorizes events by ownership (user, spouse, kids) for accurate attribution
 - **Personalized views**: Each user gets summaries personalized to their calendars with spouse name integration
 - **Time-based greetings**: Contextual greetings (Good morning/afternoon/evening) based on current time
-- **Hebrew date support**: Displays Hebrew dates with Gematria (Hebrew numerals) using Hebcal
+- **Hebrew date support**: Displays Hebrew dates with Gematria (Hebrew numerals) for Hebrew, standard for other languages
 - **Rosh Chodesh awareness**: Automatically adjusts dismissal times for Rosh Chodesh
 - **Intelligent formatting**: Grouped start/pickup times, chronologically sorted, with conflict warnings
 - **Automated scheduling**: Daily morning summaries (7 AM) and optional evening summaries for tomorrow
@@ -140,6 +142,8 @@ Edit `src/config/users.ts` to add your Telegram user IDs and calendar settings:
   hebrewName: 'רזיאל',  // Your Hebrew name
   spouseName: 'Yeshua',
   spouseHebrewName: 'ישועה',
+  language: 'Hebrew',  // Preferred language: 'Hebrew', 'English', 'Spanish', 'French', 'German'
+  location: 'Tel Aviv, Israel',  // Location for weather forecasts
   calendars: SHARED_CALENDARS,  // Array of calendar IDs
   googleRefreshToken: SHARED_REFRESH_TOKEN,
   primaryCalendar: 'your-personal@gmail.com',
@@ -157,6 +161,8 @@ Edit `src/config/users.ts` to add your Telegram user IDs and calendar settings:
 - `hebrewName`: Your Hebrew name (for Hebrew summaries)
 - `spouseName`: Spouse's name (used when displaying their events)
 - `spouseHebrewName`: Spouse's Hebrew name
+- `language`: Preferred language for summaries and voice messages (defaults to English if not set)
+- `location`: Location for weather forecasts (optional)
 - `calendars`: Array of all Google Calendar IDs to fetch events from
 - `primaryCalendar`: Your main personal calendar ID
 - `ownCalendars`: All calendars that belong to you (personal + work)
@@ -186,7 +192,8 @@ npm run dev
 Test commands:
 - `/start` - Welcome message
 - `/summary` - Get today's calendar summary
-- `/tomorrow` - Get tomorrow's calendar summary
+- `/summary tmrw` - Get tomorrow's calendar summary
+- `/weather` - Get weather forecast
 - `/help` - Show available commands
 
 **Note:** Local development uses polling mode. Make sure the webhook is not set (see webhook setup below).
@@ -255,12 +262,13 @@ npm run setup-webhook delete
 ### User Commands
 - `/start` - Welcome message and help
 - `/summary` - Get calendar summary for today
-- `/tomorrow` - Get calendar summary for tomorrow
+- `/summary tmrw` - Get calendar summary for tomorrow
+- `/weather` - Get weather forecast (shows buttons for Standard/Detailed)
 - `/help` - Show available commands
 
 ### Admin Commands
 - `/testmodels [filter]` - Test multiple AI models side-by-side
-- `/testvoices` - Test all 6 OpenAI TTS voices with Hebrew sample
+- `/testai` - Test AI models with interactive buttons
 
 **Test model filters:**
 ```bash
@@ -289,25 +297,27 @@ Example output:
 
 ## Voice Messages
 
-**Current status**: Admin-only feature for `/summary` command (Phase 1)
+**Current status**: Admin-only feature for `/summary` command
 
-The bot generates voice versions of calendar summaries using **Google Cloud Text-to-Speech** with native Hebrew voices.
+The bot generates natural, fluent voice versions of calendar summaries using **Google Cloud Text-to-Speech** with multi-language support.
 
 **Features:**
-- Native Hebrew TTS with excellent pronunciation
-- 6 available voices: Wavenet A/B/C/D (neural), Standard A/B (basic)
-- Opus format optimized for Telegram
-- Intelligent text normalization:
-  - Time ranges: "08:00-11:45" → "משמונה עד רבע לשתים עשרה"
-  - Hebrew dates: "כ״ח בכסלו" → "כף חת בכסלו"
-  - Gregorian dates: "24 נובמבר 2024" → "עשרים וארבעה נובמבר אלפיים עשרים וארבעה"
-  - English transliteration: zoom → זום
-- Automatic cleanup of temporary files
-- Non-blocking: voice errors don't affect text summary delivery
+- **Multi-language support**: Hebrew, English, Spanish, French, German
+- **Natural, conversational speech**: AI condenses summaries into brief, fluent spoken language
+- **Language-specific voices**: Automatically uses appropriate voice for user's language
+- **Intelligent condensing**: 30-45 second summaries with natural flow
+- **Weather integration**: Includes weather in natural, flowing sentences
+- **Opus format**: Optimized for Telegram
+- **Automatic cleanup**: Temporary files cleaned up after sending
+- **Non-blocking**: Voice errors don't affect text summary delivery
+- **No events handling**: AI generates friendly "no events today" message with weather in user's language
 
-**Commands:**
-- `/summary` - Admin users automatically receive voice message after text summary
-- `/testvoices` - Test all 6 Google Hebrew voices to choose your favorite
+**Supported TTS Voices:**
+- Hebrew: he-IL-Wavenet-D (male, natural)
+- English: en-US-Wavenet-D (male, neutral)
+- Spanish: es-ES-Wavenet-B (male, neutral)
+- French: fr-FR-Wavenet-B (male, neutral)
+- German: de-DE-Wavenet-B (male, neutral)
 
 **Setup:**
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
@@ -318,8 +328,7 @@ The bot generates voice versions of calendar summaries using **Google Cloud Text
 **Configuration** (all optional):
 ```env
 GOOGLE_TTS_CREDENTIALS={"type":"service_account",...}  # Service account JSON key
-VOICE_DEFAULT=he-IL-Wavenet-B     # Wavenet-A/B/C/D (neural), Standard-A/B (basic)
-VOICE_SPEED=1.0                   # 0.25 to 4.0 (1.0 = normal)
+VOICE_SPEED=1.0                                        # 0.25 to 4.0 (1.0 = normal)
 ```
 
 **Cost**: Google Cloud TTS pricing
@@ -376,8 +385,10 @@ Receives Telegram bot updates (commands from users).
 - `/start` - Welcome message
 - `/help` - Show available commands
 - `/summary` - Get today's calendar summary
-- `/tomorrow` - Get tomorrow's calendar summary
+- `/summary tmrw` - Get tomorrow's calendar summary
+- `/weather` - Get weather forecast with interactive buttons
 - `/testmodels [filter]` - Test AI models (admin only)
+- `/testai` - Test AI models with interactive buttons (admin only)
 
 This endpoint is automatically called by Telegram when users interact with the bot in production.
 
