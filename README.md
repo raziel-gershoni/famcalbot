@@ -29,14 +29,23 @@ A private Telegram bot that sends intelligent, personalized daily calendar summa
 - **Claude Sonnet 4.5** (DEFAULT) - Latest model (Sep 2025), 64K tokens, best coding
 - **Claude Sonnet 4** - Previous version (May 2025), still very capable
 
-### OpenAI GPT-5.1 (Latest - Nov 2025)
+### OpenAI GPT-5.2 (Latest - Dec 2025)
+- **GPT-5.2** - Latest standard model with improved reasoning and efficiency
+- **GPT-5.2 Pro** - Enhanced pro version with advanced capabilities
+
+### OpenAI GPT-5.1
 - **GPT-5.1** - Adaptive reasoning (defaults to none), fast and efficient
 - **GPT-5.1 Instant** - Fast mode with 128K context
 
-### OpenAI GPT-5 (Current Flagship)
+### OpenAI GPT-5
 - **GPT-5** - Flagship with minimal reasoning enabled
 - **GPT-5 Mini** - Balanced variant, great for most tasks
 - **GPT-5 Nano** - Cheapest option, excellent for summaries
+
+### Google Gemini
+- **Gemini 3 Pro** - Latest Gemini (Nov 2025), best multimodal reasoning, 1M context
+- **Gemini 2.5 Flash** - Best price-performance, advanced reasoning
+- **Gemini 2.5 Flash-Lite** - Ultra-cheap, fastest flash model
 
 **Switch models** by setting the `AI_MODEL` environment variable. All models use intelligent token management and provider-specific optimizations.
 
@@ -46,7 +55,7 @@ A private Telegram bot that sends intelligent, personalized daily calendar summa
 famcalbot/
 ├── src/
 │   ├── config/
-│   │   ├── ai-models.ts       # AI model catalog with 7 models
+│   │   ├── ai-models.ts       # AI model catalog with 12 models
 │   │   ├── constants.ts       # App constants, timezone, admin ID
 │   │   ├── messages.ts        # Telegram message templates
 │   │   └── users.ts           # User configuration
@@ -272,11 +281,12 @@ npm run setup-webhook delete
 
 **Test model filters:**
 ```bash
-/testmodels              # Test recommended models (5 models)
-/testmodels all          # Test all 7 available models
-/testmodels claude       # Test all Claude models
-/testmodels openai       # Test all OpenAI models
-/testmodels gpt-5-mini   # Test single specific model
+/testmodels              # Test recommended models (6 models)
+/testmodels all          # Test all 12 available models
+/testmodels claude       # Test all Claude models (2)
+/testmodels openai       # Test all OpenAI models (7)
+/testmodels gemini       # Test all Gemini models (3)
+/testmodels gpt-5.2      # Test single specific model
 ```
 
 **Test output includes:**
