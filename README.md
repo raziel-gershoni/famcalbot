@@ -31,7 +31,6 @@ A private Telegram bot that sends intelligent, personalized daily calendar summa
 
 ### OpenAI GPT-5.2 (Latest - Dec 2025)
 - **GPT-5.2** - Latest standard model with improved reasoning and efficiency
-- **GPT-5.2 Pro** - Enhanced pro version with advanced capabilities
 
 ### OpenAI GPT-5.1
 - **GPT-5.1** - Adaptive reasoning (defaults to none), fast and efficient
@@ -55,7 +54,7 @@ A private Telegram bot that sends intelligent, personalized daily calendar summa
 famcalbot/
 ├── src/
 │   ├── config/
-│   │   ├── ai-models.ts       # AI model catalog with 12 models
+│   │   ├── ai-models.ts       # AI model catalog with 11 models
 │   │   ├── constants.ts       # App constants, timezone, admin ID
 │   │   ├── messages.ts        # Telegram message templates
 │   │   └── users.ts           # User configuration
@@ -281,10 +280,10 @@ npm run setup-webhook delete
 
 **Test model filters:**
 ```bash
-/testmodels              # Test recommended models (6 models)
-/testmodels all          # Test all 12 available models
+/testmodels              # Test recommended models (5 models)
+/testmodels all          # Test all 11 available models
 /testmodels claude       # Test all Claude models (2)
-/testmodels openai       # Test all OpenAI models (7)
+/testmodels openai       # Test all OpenAI models (6)
 /testmodels gemini       # Test all Gemini models (3)
 /testmodels gpt-5.2      # Test single specific model
 ```

@@ -61,16 +61,6 @@ export const AI_MODELS: Record<string, ModelConfig> = {
     description: 'Latest GPT (Dec 2025), improved reasoning and efficiency',
   },
 
-  'gpt-5.2-pro': {
-    provider: 'openai',
-    modelId: 'gpt-5.2-pro-2025-12-11',
-    displayName: 'GPT-5.2 Pro',
-    maxOutputTokens: 16000,
-    contextWindow: 200000,
-    costPer1MTokens: { input: 2.5, output: 20 },
-    description: 'Pro version with enhanced capabilities (Dec 2025)',
-  },
-
   // ============================================
   // OPENAI MODELS (GPT-5.1 Series)
   // ============================================
@@ -200,7 +190,6 @@ export function getRecommendedModels(): string[] {
   return [
     'claude-sonnet-4.5',        // Fast, reliable Claude baseline
     'gpt-5.2',                  // Latest OpenAI (Dec 2025)
-    'gpt-5.2-pro',              // OpenAI Pro version
     'gemini-3-pro',             // Latest Gemini (Nov 2025)
     'gemini-2.5-flash',         // Best price-performance
     'gemini-2.5-flash-lite',    // Ultra-cheap, fastest
