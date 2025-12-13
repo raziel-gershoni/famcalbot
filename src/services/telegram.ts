@@ -541,8 +541,10 @@ async function sendVoiceMessage(userId: number, summary: string, modelId?: strin
 
     // Send as voice message to Telegram
     const messagingService = getMessagingService();
-  const botInstance = getBot(); // Still needed for voice and callbacks
-    await botInstance.sendVoice(userId, voiceFilePath);
+    const botInstance = getBot(); // Still needed for voice and callbacks
+    await botInstance.sendVoice(userId, voiceFilePath, {}, {
+      contentType: 'audio/ogg'
+    });
 
     console.log(`Voice message sent successfully to user ${userId}`);
   } catch (error) {
