@@ -1,9 +1,10 @@
-# Family Calendar Telegram Bot
+# Family Calendar Bot
 
-A private Telegram bot that sends intelligent, personalized daily calendar summaries using Google Calendar and AI (Claude/OpenAI).
+A private messaging bot that sends intelligent, personalized daily calendar summaries using Google Calendar and AI (Claude/OpenAI). Supports both Telegram and WhatsApp.
 
 ## Features
 
+- **Multi-platform support**: Works on both Telegram and WhatsApp with platform-specific routing and cross-platform notifications
 - **Multi-language support**: Summaries and voice messages in Hebrew, English, Spanish, French, German with AI translation
 - **Multi-calendar support**: Fetches events from multiple Google Calendars with shared authentication
 - **Multi-provider AI**: Supports both Claude (Anthropic) and OpenAI GPT models with easy switching
@@ -165,6 +166,8 @@ Edit `src/config/users.ts` to add your Telegram user IDs and calendar settings:
 
 **Important fields:**
 - `telegramId`: Your Telegram user ID (get from [@userinfobot](https://t.me/userinfobot))
+- `whatsappPhone`: (Optional) Your WhatsApp phone in E.164 format (e.g., "+972501234567")
+- `messagingPlatform`: (Optional) Where to send automated summaries - `'telegram'` (default), `'whatsapp'`, or `'all'`
 - `name`: Your name (used in personalized summaries)
 - `hebrewName`: Your Hebrew name (for Hebrew summaries)
 - `spouseName`: Spouse's name (used when displaying their events)
@@ -177,7 +180,68 @@ Edit `src/config/users.ts` to add your Telegram user IDs and calendar settings:
 - `spouseCalendars`: Calendar IDs belonging to your spouse
 - `googleRefreshToken`: OAuth refresh token (typically shared across all users)
 
-### 5. Set Up Google Calendar API
+### 5. Set Up WhatsApp Business API (Optional)
+
+The bot supports WhatsApp Business Cloud API for multi-platform messaging. This is completely optional - the bot works perfectly with just Telegram.
+
+#### Prerequisites
+- Meta Business account
+- WhatsApp Business App
+- Verified business phone number
+
+#### Setup Steps
+
+1. **Create Meta Business App**
+   - Go to [Meta for Developers](https://developers.facebook.com/apps)
+   - Create a new app → Select "Business" type
+   - Add "WhatsApp" product to your app
+
+2. **Get WhatsApp Credentials**
+   - Go to WhatsApp → API Setup
+   - Copy **Phone Number ID** (found under "Phone number")
+   - Generate **Permanent Access Token**:
+     - Go to Business Settings → System Users
+     - Create system user with admin rights
+     - Generate permanent token with `whatsapp_business_messaging` permission
+
+3. **Configure Environment Variables**
+   ```env
+   WHATSAPP_ACCESS_TOKEN=your_permanent_access_token
+   WHATSAPP_PHONE_NUMBER_ID=your_phone_number_id
+   WHATSAPP_WEBHOOK_VERIFY_TOKEN=random_secret_string
+   ```
+
+4. **Configure Webhook** (after deploying to Vercel)
+   - Go to WhatsApp → Configuration
+   - Set Webhook URL: `https://your-project.vercel.app/api/webhook`
+   - Set Verify Token: Same as `WHATSAPP_WEBHOOK_VERIFY_TOKEN`
+   - Subscribe to webhook field: `messages`
+
+5. **Add WhatsApp Phone to User Config**
+   ```typescript
+   {
+     telegramId: 123456789,
+     whatsappPhone: '+972501234567',  // E.164 format
+     messagingPlatform: 'telegram',   // or 'whatsapp' or 'all'
+     // ... other fields
+   }
+   ```
+
+#### Platform Behavior
+- **Command responses**: Sent to the platform where the command was received
+- **Service messages** (errors, alerts): Always sent to Telegram
+- **Cron job summaries**: Controlled by `messagingPlatform` field
+  - `'telegram'`: Telegram only (default)
+  - `'whatsapp'`: WhatsApp only
+  - `'all'`: Both platforms
+- **Cross-platform notifications**: When you send a command via WhatsApp, you get a notification on Telegram
+
+#### Command Differences
+- **Telegram**: Use slash commands (`/summary`, `/weather`, `/help`)
+- **WhatsApp**: Use keywords without slash (`summary`, `weather`, `help`)
+- **Limitations**: WhatsApp doesn't support inline keyboards (use text arguments instead)
+
+### 6. Set Up Google Calendar API
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a new project or select existing
@@ -189,7 +253,7 @@ Edit `src/config/users.ts` to add your Telegram user IDs and calendar settings:
    ```
 6. Add token to `.env` as `GOOGLE_REFRESH_TOKEN`
 
-### 6. Local Development
+### 7. Local Development
 
 Run the bot with polling enabled:
 
@@ -206,7 +270,7 @@ Test commands:
 
 **Note:** Local development uses polling mode. Make sure the webhook is not set (see webhook setup below).
 
-### 7. Deploy to Vercel
+### 8. Deploy to Vercel
 
 1. Install Vercel CLI:
 ```bash
@@ -244,7 +308,7 @@ npm run setup-webhook delete
 
 **Important:** Vercel uses webhooks for bot commands. Local development uses polling. You cannot run both at the same time. Delete the webhook when running locally, and set it when deploying to production.
 
-### 8. Set Up Cron Jobs
+### 9. Set Up Cron Jobs
 
 1. Go to [cron-job.org](https://cron-job.org)
 2. Create cron jobs for automated summaries:

@@ -67,13 +67,15 @@ export function getMessagingService(
  * Detect platform from webhook request
  */
 export function detectPlatform(req: any): MessagingPlatform {
-  // Telegram webhook has 'message' or 'callback_query' at root
-  if (req.body?.message || req.body?.callback_query) {
+  const body = req.body;
+
+  // Telegram: has 'message' or 'callback_query' at root, or update_id
+  if (body?.message || body?.callback_query || body?.update_id !== undefined) {
     return MessagingPlatform.TELEGRAM;
   }
 
-  // WhatsApp webhook has 'entry' array with 'changes'
-  if (req.body?.entry?.[0]?.changes) {
+  // WhatsApp: has 'entry' array with 'changes' and object === 'whatsapp_business_account'
+  if (body?.object === 'whatsapp_business_account' && body?.entry?.[0]?.changes) {
     return MessagingPlatform.WHATSAPP;
   }
 

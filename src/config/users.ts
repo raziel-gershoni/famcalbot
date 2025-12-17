@@ -76,6 +76,20 @@ export function getUserByTelegramId(telegramId: number): UserConfig | undefined 
   return allUsers.find(user => user.telegramId === telegramId);
 }
 
+// Helper to get user by WhatsApp phone number
+export function getUserByWhatsAppPhone(phone: string): UserConfig | undefined {
+  return allUsers.find(user => user.whatsappPhone === phone);
+}
+
+// Helper to get user by identifier (number for Telegram, string for WhatsApp)
+export function getUserByIdentifier(id: number | string): UserConfig | undefined {
+  if (typeof id === 'number') {
+    return getUserByTelegramId(id);
+  } else {
+    return getUserByWhatsAppPhone(id);
+  }
+}
+
 // Get all whitelisted Telegram IDs (always includes all users for security)
 export function getWhitelistedIds(): number[] {
   return allUsers.map(user => user.telegramId);

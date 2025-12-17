@@ -1,5 +1,7 @@
 export interface UserConfig {
   telegramId: number;
+  whatsappPhone?: string;  // WhatsApp phone number in E.164 format (e.g., "+972501234567")
+  messagingPlatform?: 'telegram' | 'whatsapp' | 'all';  // Where to send automated messages (default: telegram)
   name: string;
   hebrewName: string;  // User's name in Hebrew for accurate Claude output
   gender: 'male' | 'female';  // User's gender for Hebrew grammar

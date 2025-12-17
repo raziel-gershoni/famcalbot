@@ -1,11 +1,11 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { getUserByTelegramId, getWhitelistedIds } from '../config/users';
+import { getUserByTelegramId, getUserByIdentifier, getWhitelistedIds } from '../config/users';
 import { fetchTodayEvents, fetchTomorrowEvents } from './calendar';
 import { generateSummary } from './claude';
 import { CalendarEvent, UserConfig } from '../types';
 import { USER_MESSAGES } from '../config/messages';
 import { ADMIN_USER_ID } from '../config/constants';
-import { IMessagingService, getTelegramService, MessageFormat } from './messaging';
+import { IMessagingService, getTelegramService, getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from './messaging';
 
 /**
  * Categorize events by ownership for a specific user
@@ -72,54 +72,88 @@ export function getMessagingService(): IMessagingService {
 }
 
 /**
- * Check if user is authorized
+ * Check if user is authorized (supports both Telegram ID and WhatsApp phone)
  */
-export function isUserAuthorized(userId: number): boolean {
-  return getWhitelistedIds().includes(userId);
+export function isUserAuthorized(userId: number | string): boolean {
+  const user = getUserByIdentifier(userId);
+  return user !== undefined;
 }
 
 /**
  * Handle /start command
  */
-export async function handleStartCommand(chatId: number, userId: number): Promise<void> {
+export async function handleStartCommand(
+  chatId: number | string,
+  userId: number | string,
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM
+): Promise<void> {
   if (!isUserAuthorized(userId)) {
-    await getMessagingService().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    const service = platform === MessagingPlatform.TELEGRAM
+      ? getMessagingService()
+      : getMessagingServiceByPlatform(platform);
+    await service.sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     return;
   }
 
-  const user = getUserByTelegramId(userId);
+  const user = getUserByIdentifier(userId);
   const name = user?.name || 'there';
 
-  await getMessagingService().sendMessage(chatId, USER_MESSAGES.WELCOME(name));
+  const service = platform === MessagingPlatform.TELEGRAM
+    ? getMessagingService()
+    : getMessagingServiceByPlatform(platform);
+  await service.sendMessage(chatId, USER_MESSAGES.WELCOME(name));
 }
 
 /**
  * Handle /help command
  */
-export async function handleHelpCommand(chatId: number, userId: number): Promise<void> {
+export async function handleHelpCommand(
+  chatId: number | string,
+  userId: number | string,
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM
+): Promise<void> {
   if (!isUserAuthorized(userId)) {
-    await getMessagingService().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    const service = platform === MessagingPlatform.TELEGRAM
+      ? getMessagingService()
+      : getMessagingServiceByPlatform(platform);
+    await service.sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     return;
   }
 
-  await getMessagingService().sendMessage(chatId, USER_MESSAGES.HELP);
+  const service = platform === MessagingPlatform.TELEGRAM
+    ? getMessagingService()
+    : getMessagingServiceByPlatform(platform);
+  await service.sendMessage(chatId, USER_MESSAGES.HELP);
 }
 
 /**
  * Handle /summary command
  * Supports: /summary (today), /summary tmrw
  */
-export async function handleSummaryCommand(chatId: number, userId: number, args?: string): Promise<void> {
+export async function handleSummaryCommand(
+  chatId: number | string,
+  userId: number | string,
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
+  args?: string
+): Promise<void> {
   if (!isUserAuthorized(userId)) {
-    await getMessagingService().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    const service = platform === MessagingPlatform.TELEGRAM
+      ? getMessagingService()
+      : getMessagingServiceByPlatform(platform);
+    await service.sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     return;
   }
 
+  // For now, summary commands only work with Telegram ID
+  // TODO: Update sendDailySummaryToUser to support platform parameter
+  const user = getUserByIdentifier(userId);
+  if (!user) return;
+
   // Check if user wants tomorrow's summary
   if (args?.toLowerCase().trim() === 'tmrw') {
-    await sendTomorrowSummaryToUser(userId);
+    await sendTomorrowSummaryToUser(user.telegramId);
   } else {
-    await sendDailySummaryToUser(userId);
+    await sendDailySummaryToUser(user.telegramId);
   }
 }
 
@@ -252,7 +286,7 @@ function setupHandlers(bot: TelegramBot) {
     const userId = msg.from?.id;
     const args = match?.[1]?.trim();
     if (userId) {
-      await handleSummaryCommand(chatId, userId, args);
+      await handleSummaryCommand(chatId, userId, MessagingPlatform.TELEGRAM, args);
     }
   });
 
@@ -284,7 +318,7 @@ function setupHandlers(bot: TelegramBot) {
     const userId = msg.from?.id;
     const args = match?.[1]?.trim();
     if (userId) {
-      await handleWeatherCommand(chatId, userId, args);
+      await handleWeatherCommand(chatId, userId, MessagingPlatform.TELEGRAM, args);
     }
   });
 
@@ -438,11 +472,45 @@ async function sendSummaryToAll(
           user.location,
           user.language
         );
-        await messagingService.sendMessage(userId, summary, { format: MessageFormat.HTML });
+        // Route message based on user's messaging platform preference
+        const platform = user.messagingPlatform || 'telegram'; // Default to telegram
 
-        // Generate and send voice message for all users (only for daily morning summary)
-        if (summaryDate === undefined) {
-          await sendVoiceMessage(userId, summary, undefined, user.language);
+        switch (platform) {
+          case 'telegram':
+            // Send to Telegram only
+            await messagingService.sendMessage(userId, summary, { format: MessageFormat.HTML });
+            if (summaryDate === undefined) {
+              await sendVoiceMessage(userId, summary, undefined, user.language);
+            }
+            break;
+
+          case 'whatsapp':
+            // Send to WhatsApp only
+            if (user.whatsappPhone) {
+              const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
+              await whatsappService.sendMessage(user.whatsappPhone, summary, { format: MessageFormat.HTML });
+              if (summaryDate === undefined) {
+                // TODO: Implement voice message for WhatsApp
+                // await whatsappService.sendVoice(user.whatsappPhone, voiceFile);
+              }
+            }
+            break;
+
+          case 'all':
+            // Send to both platforms
+            await messagingService.sendMessage(userId, summary, { format: MessageFormat.HTML });
+            if (summaryDate === undefined) {
+              await sendVoiceMessage(userId, summary, undefined, user.language);
+            }
+            if (user.whatsappPhone) {
+              const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
+              await whatsappService.sendMessage(user.whatsappPhone, summary, { format: MessageFormat.HTML });
+              if (summaryDate === undefined) {
+                // TODO: Implement voice message for WhatsApp
+                // await whatsappService.sendVoice(user.whatsappPhone, voiceFile);
+              }
+            }
+            break;
         }
       } catch (error) {
         console.error(`Failed to send summary to user ${userId}:`, error);
@@ -686,23 +754,43 @@ export async function handleTestAICallback(
  * Handle /weather command
  * Supports: /weather, /weather std, /weather dtl
  */
-export async function handleWeatherCommand(chatId: number, userId: number, args?: string): Promise<void> {
+export async function handleWeatherCommand(
+  chatId: number | string,
+  userId: number | string,
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
+  args?: string
+): Promise<void> {
   if (!isUserAuthorized(userId)) {
-    await getMessagingService().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    const service = platform === MessagingPlatform.TELEGRAM
+      ? getMessagingService()
+      : getMessagingServiceByPlatform(platform);
+    await service.sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     return;
   }
 
-  const user = getUserByTelegramId(userId);
+  const user = getUserByIdentifier(userId);
   if (!user) {
-    console.error(`User with Telegram ID ${userId} not found`);
+    console.error(`User with ID ${userId} not found`);
     return;
   }
 
-  const messagingService = getMessagingService();
-  const botInstance = getBot(); // Still needed for voice and callbacks
+  const messagingService = platform === MessagingPlatform.TELEGRAM
+    ? getMessagingService()
+    : getMessagingServiceByPlatform(platform);
 
-  // If no args provided, show buttons to choose format
+  // If no args provided
   if (!args) {
+    // WhatsApp doesn't support inline keyboards
+    if (platform === MessagingPlatform.WHATSAPP) {
+      await messagingService.sendMessage(
+        chatId,
+        '🌤️ Please specify format:\n• "weather std" for standard\n• "weather dtl" for detailed'
+      );
+      return;
+    }
+
+    // Telegram: show inline keyboard
+    const botInstance = getBot();
     const keyboard = {
       inline_keyboard: [
         [
@@ -765,5 +853,5 @@ export async function handleWeatherCallback(chatId: number, userId: number, form
   await botInstance.answerCallbackQuery(queryId);
 
   // Call handleWeatherCommand with the selected format
-  await handleWeatherCommand(chatId, userId, format);
+  await handleWeatherCommand(chatId, userId, MessagingPlatform.TELEGRAM, format);
 }

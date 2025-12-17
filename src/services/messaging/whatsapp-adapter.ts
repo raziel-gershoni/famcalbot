@@ -31,21 +31,28 @@ export class WhatsAppAdapter implements IMessagingService {
     text: string,
     options?: MessageOptions
   ): Promise<void> {
-    // TODO: Implement WhatsApp message sending
-    // WhatsApp uses phone numbers as chat IDs
-    // Format: text with Markdown (*bold*, _italic_)
-
     const formattedText = options?.format
       ? this.formatText(text, options.format)
       : text;
 
-    console.log(`[WhatsApp] Would send to ${chatId}: ${formattedText}`);
+    const url = `${this.apiUrl}/messages`;
+    const body = {
+      messaging_product: 'whatsapp',
+      to: chatId.toString(),
+      type: 'text',
+      text: { body: formattedText },
+    };
 
-    // Implementation would use WhatsApp Cloud API:
-    // POST https://graph.facebook.com/v18.0/{phone-number-id}/messages
-    // Body: { messaging_product: "whatsapp", to: chatId, type: "text", text: { body: formattedText } }
-
-    throw new Error('WhatsApp adapter not yet implemented');
+    try {
+      const response = await this.makeRequest(url, body);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(`WhatsApp API error: ${JSON.stringify(error)}`);
+      }
+    } catch (error) {
+      console.error(`[WhatsApp] Failed to send message to ${chatId}:`, error);
+      throw error;
+    }
   }
 
   async sendVoice(
@@ -53,12 +60,28 @@ export class WhatsAppAdapter implements IMessagingService {
     audioPath: string,
     options?: VoiceOptions
   ): Promise<void> {
-    // TODO: Implement WhatsApp voice message sending
-    // WhatsApp requires uploading media first, then sending media ID
+    try {
+      // Step 1: Upload media to get media ID
+      const mediaId = await this.uploadMedia(audioPath);
 
-    console.log(`[WhatsApp] Would send voice to ${chatId}: ${audioPath}`);
+      // Step 2: Send voice message with media ID
+      const url = `${this.apiUrl}/messages`;
+      const body = {
+        messaging_product: 'whatsapp',
+        to: chatId.toString(),
+        type: 'audio',
+        audio: { id: mediaId },
+      };
 
-    throw new Error('WhatsApp adapter not yet implemented');
+      const response = await this.makeRequest(url, body);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(`WhatsApp API error: ${JSON.stringify(error)}`);
+      }
+    } catch (error) {
+      console.error(`[WhatsApp] Failed to send voice to ${chatId}:`, error);
+      throw error;
+    }
   }
 
   parseCommand(text: string): ParsedCommand | null {
@@ -121,5 +144,80 @@ export class WhatsAppAdapter implements IMessagingService {
       .replace(/<code>(.+?)<\/code>/g, '`$1`') // <code>code</code> → `code`
       .replace(/<u>(.+?)<\/u>/g, '$1')        // <u>underline</u> → underline (no support)
       .replace(/<[^>]+>/g, '');                // Remove other HTML tags
+  }
+
+  /**
+   * Make a request to WhatsApp API with retry logic
+   */
+  private async makeRequest(url: string, body: any, retries = 3): Promise<Response> {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.accessToken}`,
+          },
+          body: JSON.stringify(body),
+        });
+
+        // Retry on rate limit (429) or server errors (5xx)
+        if ((response.status === 429 || response.status >= 500) && attempt < retries) {
+          const waitTime = Math.pow(2, attempt) * 1000; // Exponential backoff
+          console.log(`[WhatsApp] Rate limited or server error, retrying in ${waitTime}ms...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue;
+        }
+
+        return response;
+      } catch (error) {
+        if (attempt === retries) throw error;
+        const waitTime = Math.pow(2, attempt) * 1000;
+        console.log(`[WhatsApp] Request failed, retrying in ${waitTime}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+
+    throw new Error('Max retries exceeded');
+  }
+
+  /**
+   * Upload media file to WhatsApp and return media ID
+   */
+  private async uploadMedia(filePath: string): Promise<string> {
+    const fs = await import('fs');
+    const path = await import('path');
+    const FormData = (await import('form-data')).default;
+
+    const url = `${this.apiUrl}/media`;
+    const fileStream = fs.createReadStream(filePath);
+    const fileName = path.basename(filePath);
+
+    const formData = new FormData();
+    formData.append('messaging_product', 'whatsapp');
+    formData.append('file', fileStream, fileName);
+    formData.append('type', 'audio/ogg');
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          ...formData.getHeaders(),
+        },
+        body: formData as any,
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(`WhatsApp media upload error: ${JSON.stringify(error)}`);
+      }
+
+      const data = await response.json() as { id: string };
+      return data.id;
+    } catch (error) {
+      console.error('[WhatsApp] Media upload failed:', error);
+      throw error;
+    }
   }
 }
