@@ -39,11 +39,14 @@ export default async function handler(
 
     // Detect platform from webhook structure
     const platform = detectPlatform(req);
+    console.log(`[Webhook] Detected platform: ${platform}, Body object field: ${req.body?.object}`);
 
     // Route to platform-specific handler
     if (platform === MessagingPlatform.WHATSAPP) {
+      console.log('[Webhook] Routing to WhatsApp handler');
       await handleWhatsAppWebhook(req, res);
     } else {
+      console.log('[Webhook] Routing to Telegram handler');
       await handleTelegramWebhook(req, res);
     }
   } catch (error) {
