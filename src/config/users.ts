@@ -23,6 +23,8 @@ const SHARED_REFRESH_TOKEN = process.env.GOOGLE_REFRESH_TOKEN || '';
 const allUsers: UserConfig[] = [
   {
     telegramId: 762715667,
+    whatsappPhone: '+972526367600',
+    messagingPlatform: 'telegram' as const,  // 'telegram' | 'whatsapp' | 'all'
     name: 'Raziel',
     hebrewName: 'רזיאל',
     gender: 'male' as const,
