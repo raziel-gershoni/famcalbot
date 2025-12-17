@@ -132,21 +132,34 @@ export async function handleWhatsAppWebhook(
   // Parse command (WhatsApp uses keywords, not slash commands)
   const lowerText = text.toLowerCase().trim();
 
-  // Handle commands
-  if (lowerText === 'start') {
-    await handleStartCommand(from, user.telegramId, MessagingPlatform.WHATSAPP);
-    await notifyTelegramAboutWhatsApp(user.telegramId, 'start');
-  } else if (lowerText === 'help') {
-    await handleHelpCommand(from, user.telegramId, MessagingPlatform.WHATSAPP);
-    await notifyTelegramAboutWhatsApp(user.telegramId, 'help');
-  } else if (lowerText.startsWith('summary')) {
-    const args = lowerText.replace('summary', '').trim();
-    await handleSummaryCommand(from, user.telegramId, MessagingPlatform.WHATSAPP, args || undefined);
-    await notifyTelegramAboutWhatsApp(user.telegramId, 'summary');
-  } else if (lowerText.startsWith('weather')) {
-    const args = lowerText.replace('weather', '').trim();
-    await handleWeatherCommand(from, user.telegramId, MessagingPlatform.WHATSAPP, args || undefined);
-    await notifyTelegramAboutWhatsApp(user.telegramId, 'weather');
+  console.log(`[WhatsApp] Processing command from ${from}: "${text}"`);
+
+  try {
+    // Handle commands
+    if (lowerText === 'start') {
+      console.log(`[WhatsApp] Handling start command`);
+      await handleStartCommand(from, user.telegramId, MessagingPlatform.WHATSAPP);
+      await notifyTelegramAboutWhatsApp(user.telegramId, 'start');
+    } else if (lowerText === 'help') {
+      console.log(`[WhatsApp] Handling help command`);
+      await handleHelpCommand(from, user.telegramId, MessagingPlatform.WHATSAPP);
+      await notifyTelegramAboutWhatsApp(user.telegramId, 'help');
+    } else if (lowerText.startsWith('summary')) {
+      console.log(`[WhatsApp] Handling summary command`);
+      const args = lowerText.replace('summary', '').trim();
+      await handleSummaryCommand(from, user.telegramId, MessagingPlatform.WHATSAPP, args || undefined);
+      await notifyTelegramAboutWhatsApp(user.telegramId, 'summary');
+    } else if (lowerText.startsWith('weather')) {
+      console.log(`[WhatsApp] Handling weather command`);
+      const args = lowerText.replace('weather', '').trim();
+      await handleWeatherCommand(from, user.telegramId, MessagingPlatform.WHATSAPP, args || undefined);
+      await notifyTelegramAboutWhatsApp(user.telegramId, 'weather');
+    } else {
+      console.log(`[WhatsApp] Unknown command: ${text}`);
+    }
+  } catch (error) {
+    console.error('[WhatsApp] Error handling command:', error);
+    // Still return 200 to WhatsApp to avoid retries
   }
 
   res.status(200).json({ ok: true });
