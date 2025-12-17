@@ -110,13 +110,16 @@ export async function handleWhatsAppWebhook(
   }
 
   const message = messages[0];
-  const from = message.from; // Phone number in E.164 format
+  const rawPhone = message.from; // Phone number from WhatsApp (without + prefix)
   const text = message.text?.body;
 
-  if (!from || !text) {
+  if (!rawPhone || !text) {
     res.status(200).json({ ok: true });
     return;
   }
+
+  // Normalize phone number to E.164 format (add + prefix if missing)
+  const from = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
 
   // Get user by WhatsApp phone number
   const user = getUserByWhatsAppPhone(from);
