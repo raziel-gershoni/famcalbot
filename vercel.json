@@ -22,6 +22,10 @@
     {
       "src": "/api/health-check",
       "dest": "/api/health-check.ts"
+    },
+    {
+      "src": "/api/privacy",
+      "dest": "/api/privacy.ts"
     }
   ]
 }
