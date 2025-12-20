@@ -36,8 +36,10 @@ export async function handleTelegramWebhook(
 
     if (chatId && data) {
       if (data.startsWith('testai:')) {
-        const modelId = data.replace('testai:', '');
-        await handleTestAICallback(chatId, userId, modelId, queryId);
+        const parts = data.replace('testai:', '').split(':');
+        const modelId = parts[0];
+        const timeframe = parts[1] || 'today'; // Default to 'today' if not specified
+        await handleTestAICallback(chatId, userId, modelId, queryId, timeframe);
       } else if (data.startsWith('weather:')) {
         const format = data.replace('weather:', '');
         await handleWeatherCallback(chatId, userId, format, queryId);
@@ -78,8 +80,9 @@ export async function handleTelegramWebhook(
   } else if (text.startsWith('/summary')) {
     const args = text.replace('/summary', '').trim();
     await handleSummaryCommand(chatId, userId, MessagingPlatform.TELEGRAM, args || undefined);
-  } else if (text === '/testai') {
-    await handleTestAICommand(chatId, userId);
+  } else if (text.startsWith('/testai')) {
+    const args = text.replace('/testai', '').trim();
+    await handleTestAICommand(chatId, userId, args || undefined);
   } else if (text.startsWith('/weather')) {
     const args = text.replace('/weather', '').trim();
     await handleWeatherCommand(chatId, userId, MessagingPlatform.TELEGRAM, args || undefined);

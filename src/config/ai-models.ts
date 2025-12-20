@@ -1,6 +1,6 @@
 /**
  * AI Model Catalog
- * Updated: 2025-12-06
+ * Updated: 2025-12-20
  *
  * Defines available AI models with their specifications.
  * Use simple identifiers (e.g., 'claude-sonnet-4.5') in environment variables.
@@ -136,6 +136,16 @@ export const AI_MODELS: Record<string, ModelConfig> = {
     description: 'Latest Gemini (Nov 2025), best multimodal reasoning, 1M context',
   },
 
+  'gemini-3-flash': {
+    provider: 'gemini',
+    modelId: 'gemini-3-flash-preview',
+    displayName: 'Gemini 3 Flash',
+    maxOutputTokens: 65536,
+    contextWindow: 1048576,
+    costPer1MTokens: { input: 0.50, output: 3.00 },
+    description: 'Latest Flash (Dec 2025), Pro-grade reasoning with Flash latency, 3x faster than 2.5 Pro',
+  },
+
   'gemini-2.5-flash': {
     provider: 'gemini',
     modelId: 'gemini-2.5-flash',
@@ -191,6 +201,7 @@ export function getRecommendedModels(): string[] {
     'claude-sonnet-4.5',        // Fast, reliable Claude baseline
     'gpt-5.2',                  // Latest OpenAI (Dec 2025)
     'gemini-3-pro',             // Latest Gemini (Nov 2025)
+    'gemini-3-flash',           // Latest Flash (Dec 2025), now default in Gemini app
     'gemini-2.5-flash',         // Best price-performance
     'gemini-2.5-flash-lite',    // Ultra-cheap, fastest
   ];

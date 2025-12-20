@@ -303,12 +303,13 @@ function setupHandlers(bot: TelegramBot) {
   });
 
 
-  // /testai command - show model selection buttons (admin only)
-  bot.onText(/\/testai/, async (msg) => {
+  // /testai command - show model selection buttons (admin only), supports /testai or /testai tmrw
+  bot.onText(/\/testai(?:\s+(.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from?.id;
+    const args = match?.[1]?.trim();
     if (userId) {
-      await handleTestAICommand(chatId, userId);
+      await handleTestAICommand(chatId, userId, args);
     }
   });
 
@@ -332,8 +333,10 @@ function setupHandlers(bot: TelegramBot) {
 
     // Handle model selection callbacks
     if (data.startsWith('testai:')) {
-      const modelId = data.replace('testai:', '');
-      await handleTestAICallback(chatId, userId, modelId, query.id);
+      const parts = data.replace('testai:', '').split(':');
+      const modelId = parts[0];
+      const timeframe = parts[1] || 'today'; // Default to 'today' if not specified
+      await handleTestAICallback(chatId, userId, modelId, query.id, timeframe);
     }
 
     // Handle weather format selection callbacks
@@ -637,8 +640,9 @@ async function sendVoiceMessage(userId: number, summary: string, modelId?: strin
 
 /**
  * Handle /testai command - show model selection buttons
+ * Supports: /testai (today) or /testai tmrw (tomorrow)
  */
-export async function handleTestAICommand(chatId: number, userId: number): Promise<void> {
+export async function handleTestAICommand(chatId: number, userId: number, args?: string): Promise<void> {
   // Admin-only command
   if (userId !== ADMIN_USER_ID) {
     await getMessagingService().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
@@ -648,6 +652,10 @@ export async function handleTestAICommand(chatId: number, userId: number): Promi
   const { getAvailableModels, getModelConfig } = await import('../config/ai-models');
   const messagingService = getMessagingService();
   const botInstance = getBot(); // Still needed for voice and callbacks
+
+  // Determine timeframe based on args
+  const timeframe = args?.toLowerCase().includes('tmrw') || args?.toLowerCase().includes('tomorrow') ? 'tmrw' : 'today';
+  const timeLabel = timeframe === 'tmrw' ? 'tomorrow' : 'today';
 
   try {
     const models = getAvailableModels();
@@ -663,7 +671,7 @@ export async function handleTestAICommand(chatId: number, userId: number): Promi
       if (config1) {
         row.push({
           text: config1.displayName,
-          callback_data: `testai:${modelId1}`
+          callback_data: `testai:${modelId1}:${timeframe}`
         });
       }
 
@@ -674,7 +682,7 @@ export async function handleTestAICommand(chatId: number, userId: number): Promi
         if (config2) {
           row.push({
             text: config2.displayName,
-            callback_data: `testai:${modelId2}`
+            callback_data: `testai:${modelId2}:${timeframe}`
           });
         }
       }
@@ -684,7 +692,7 @@ export async function handleTestAICommand(chatId: number, userId: number): Promi
 
     await messagingService.sendMessage(
       chatId,
-      `🤖 <b>Test AI Models</b>\n\nSelect a model to generate today's summary with voice:\n\n<i>Each model will generate both text and voice summary.</i>`,
+      `🤖 <b>Test AI Models</b>\n\nSelect a model to generate <b>${timeLabel}'s</b> summary with voice:\n\n<i>Each model will generate both text and voice summary.</i>`,
       {
         format: MessageFormat.HTML,
         replyMarkup: {
@@ -708,7 +716,8 @@ export async function handleTestAICallback(
   chatId: number,
   userId: number,
   modelId: string,
-  queryId: string
+  queryId: string,
+  timeframe: string = 'today'
 ): Promise<void> {
   // Admin-only
   if (userId !== ADMIN_USER_ID) {
@@ -727,17 +736,27 @@ export async function handleTestAICallback(
       return;
     }
 
+    // Determine fetch function and date based on timeframe
+    const isTomorrow = timeframe === 'tmrw';
+    const fetchFunction = isTomorrow ? fetchTomorrowEvents : fetchTodayEvents;
+    const summaryDate = isTomorrow ? (() => {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      return tomorrow;
+    })() : undefined;
+    const timeLabel = isTomorrow ? 'tomorrow' : 'today';
+
     // Answer the callback to remove loading state
     await botInstance.answerCallbackQuery(queryId, {
-      text: `Generating with ${config.displayName}...`
+      text: `Generating ${timeLabel}'s summary with ${config.displayName}...`
     });
 
     // Send summary with the selected model
     await sendSummaryToUser(
       userId,
-      fetchTodayEvents,
-      undefined,
-      `🤖 Generating summary with <b>${config.displayName}</b>...`,
+      fetchFunction,
+      summaryDate,
+      `🤖 Generating <b>${timeLabel}'s</b> summary with <b>${config.displayName}</b>...`,
       'Sorry, there was an error generating the summary.',
       modelId
     );
