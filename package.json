@@ -5,7 +5,6 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "postinstall": "prisma generate",
     "vercel-build": "prisma generate && prisma migrate deploy",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
