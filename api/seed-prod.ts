@@ -46,18 +46,19 @@ export default async function handler(
     const SHARED_CALENDARS = [
       'zhendos13@gmail.com',
       '16c9d51d0c05e9b56240e0c08017c54a93873904a759f2121e4ec6d59a32f0dc@group.calendar.google.com',
-      'addressbook#contacts@group.v.calendar.google.com',
-      'en.israeli#holiday@group.v.calendar.google.com',
-      '24c3fdf74ea833f4a53e7f8f6f1e0a41ba44eeb6e27b03ccf74a5a62d39cdf72@group.calendar.google.com',
-      '2fb0f07dce4bc0bdd61ff02b17f49f5ebac370b7c04a2cc93c6e3bf89edbe31e@group.calendar.google.com',
-      'c_03c62c1ac1e2a9d5f4a2d00e2e77a5be7e8b85c3f1a45eb1bf0866a166e5b5d1@group.calendar.google.com',
-      'c_0418edcf2ed3abd2a6fb0c9dad41d4e5ce8ffd026c78cdb3b80c13f6e7b71697@group.calendar.google.com'
+      '9d55e08b104e434dee3ac8722e651da0dce13cd4a676caa2fe4a45b05b8700db@group.calendar.google.com',
+      'b70cd372f1b57dcbc093b36509bb66d6c827a8fd7eb79e8d432fde3d3ff97eca@group.calendar.google.com',
+      '43e09cf368ffed0d61bf8fa3af38f929caab0e9f2b733f097373a828d46864f4@group.calendar.google.com',
+      '670983d1e4006e027ba2685297fd48514979f438a18458a5acf0d6e90c2146ba@group.calendar.google.com',
+      'yeshua7733@gmail.com',
+      'raziel@internety.co.il'
     ];
 
-    const RAZIEL_CALENDARS = ['zhendos13@gmail.com'];
-    const YESHUA_CALENDARS = [
-      '16c9d51d0c05e9b56240e0c08017c54a93873904a759f2121e4ec6d59a32f0dc@group.calendar.google.com'
+    const RAZIEL_CALENDARS = [
+      'zhendos13@gmail.com',
+      'raziel@internety.co.il'
     ];
+    const YESHUA_CALENDARS = ['yeshua7733@gmail.com'];
 
     // User 1: Raziel
     const raziel = await prisma.user.create({
@@ -68,7 +69,7 @@ export default async function handler(
         hebrewName: 'רזיאל',
         gender: 'male',
         spouseName: 'Yeshua',
-        spouseHebrewName: 'יֵשׁוּעָ',
+        spouseHebrewName: 'ישועה',
         spouseGender: 'female',
         location: 'Harish, Israel',
         language: 'Hebrew',
@@ -84,10 +85,10 @@ export default async function handler(
     // User 2: Yeshua
     const yeshua = await prisma.user.create({
       data: {
-        telegramId: BigInt(1234567890), // TODO: Replace with actual Telegram ID
+        telegramId: BigInt(721483494),
         whatsappPhone: null, // Will add WhatsApp later
         name: 'Yeshua',
-        hebrewName: 'יֵשׁוּעָ',
+        hebrewName: 'ישועה',
         gender: 'female',
         spouseName: 'Raziel',
         spouseHebrewName: 'רזיאל',
@@ -97,7 +98,7 @@ export default async function handler(
         messagingPlatform: 'telegram',
         googleRefreshToken: process.env.GOOGLE_REFRESH_TOKEN!,
         calendars: SHARED_CALENDARS,
-        primaryCalendar: '16c9d51d0c05e9b56240e0c08017c54a93873904a759f2121e4ec6d59a32f0dc@group.calendar.google.com',
+        primaryCalendar: 'yeshua7733@gmail.com',
         ownCalendars: YESHUA_CALENDARS,
         spouseCalendars: RAZIEL_CALENDARS
       }
