@@ -30,6 +30,10 @@
     {
       "src": "/api/seed-prod",
       "dest": "/api/seed-prod.ts"
+    },
+    {
+      "src": "/api/migrate-prod",
+      "dest": "/api/migrate-prod.ts"
     }
   ]
 }
