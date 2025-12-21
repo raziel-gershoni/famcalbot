@@ -6,12 +6,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
   handleStartCommand,
-  handleHelpCommand,
   handleSummaryCommand,
   handleTestAICommand,
   handleTestAICallback,
   handleWeatherCommand,
-  handleWeatherCallback,
   getBot
 } from './telegram';
 import { getUserByWhatsAppPhone } from './user-service';
@@ -40,9 +38,6 @@ export async function handleTelegramWebhook(
         const modelId = parts[0];
         const timeframe = parts[1] || 'today'; // Default to 'today' if not specified
         await handleTestAICallback(chatId, userId, modelId, queryId, timeframe);
-      } else if (data.startsWith('weather:')) {
-        const format = data.replace('weather:', '');
-        await handleWeatherCallback(chatId, userId, format, queryId);
       }
     }
 
@@ -75,8 +70,6 @@ export async function handleTelegramWebhook(
   // Route to appropriate command handler
   if (text === '/start') {
     await handleStartCommand(chatId, userId, MessagingPlatform.TELEGRAM);
-  } else if (text === '/help') {
-    await handleHelpCommand(chatId, userId, MessagingPlatform.TELEGRAM);
   } else if (text.startsWith('/summary')) {
     const args = text.replace('/summary', '').trim();
     await handleSummaryCommand(chatId, userId, MessagingPlatform.TELEGRAM, args || undefined);
@@ -143,10 +136,6 @@ export async function handleWhatsAppWebhook(
       console.log(`[WhatsApp] Handling start command`);
       await handleStartCommand(from, user.telegramId, MessagingPlatform.WHATSAPP);
       await notifyTelegramAboutWhatsApp(user.telegramId, 'start');
-    } else if (lowerText === 'help') {
-      console.log(`[WhatsApp] Handling help command`);
-      await handleHelpCommand(from, user.telegramId, MessagingPlatform.WHATSAPP);
-      await notifyTelegramAboutWhatsApp(user.telegramId, 'help');
     } else if (lowerText.startsWith('summary')) {
       console.log(`[WhatsApp] Handling summary command`);
       const args = lowerText.replace('summary', '').trim();

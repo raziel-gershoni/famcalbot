@@ -134,6 +134,108 @@ export async function handleStartCommand(
 }
 
 /**
+ * Handle /summary command
+ * Supports: /summary (today), /summary tmrw
+ * Called via dashboard deep links and WhatsApp commands
+ */
+export async function handleSummaryCommand(
+  chatId: number | string,
+  userId: number | string,
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
+  args?: string
+): Promise<void> {
+  if (!(await isUserAuthorized(userId))) {
+    const service = platform === MessagingPlatform.TELEGRAM
+      ? getMessagingService()
+      : getMessagingServiceByPlatform(platform);
+    await service.sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    return;
+  }
+
+  const user = await getUserByIdentifier(userId);
+  if (!user) return;
+
+  // Check if user wants tomorrow's summary
+  if (args?.toLowerCase().trim() === 'tmrw') {
+    await sendTomorrowSummaryToUser(user.telegramId);
+  } else {
+    await sendDailySummaryToUser(user.telegramId);
+  }
+}
+
+/**
+ * Handle /weather command
+ * Supports: /weather std, /weather dtl
+ * Called via dashboard deep links and WhatsApp commands
+ */
+export async function handleWeatherCommand(
+  chatId: number | string,
+  userId: number | string,
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
+  args?: string
+): Promise<void> {
+  if (!(await isUserAuthorized(userId))) {
+    const service = platform === MessagingPlatform.TELEGRAM
+      ? getMessagingService()
+      : getMessagingServiceByPlatform(platform);
+    await service.sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    return;
+  }
+
+  const user = await getUserByIdentifier(userId);
+  if (!user) {
+    console.error(`User with ID ${userId} not found`);
+    return;
+  }
+
+  const messagingService = platform === MessagingPlatform.TELEGRAM
+    ? getMessagingService()
+    : getMessagingServiceByPlatform(platform);
+
+  // Args should be 'std' or 'dtl' from dashboard buttons
+  if (!args) {
+    await messagingService.sendMessage(
+      chatId,
+      '🌤️ Please specify format: "std" for standard or "dtl" for detailed'
+    );
+    return;
+  }
+
+  try {
+    const format = args.toLowerCase() === 'dtl' ? 'dtl' : 'std';
+
+    await messagingService.sendMessage(chatId, '🌤️ Fetching weather data...');
+
+    // Fetch weather data
+    const { fetchWeather } = await import('./weather/open-meteo');
+    const weatherData = await fetchWeather(user.location);
+
+    // Format weather based on requested format
+    const { formatWeatherStandard, formatWeatherDetailed } = await import('./weather/formatter');
+    const formattedWeather = format === 'dtl'
+      ? await formatWeatherDetailed(weatherData, user.language)
+      : await formatWeatherStandard(weatherData, user.language);
+
+    // Send formatted weather
+    await messagingService.sendMessage(chatId, formattedWeather, { format: MessageFormat.MARKDOWN });
+  } catch (error) {
+    console.error(`Error fetching weather for user ${userId}:`, error);
+    await messagingService.sendMessage(
+      chatId,
+      '❌ Sorry, there was an error fetching weather data. Please try again later.'
+    );
+
+    // Notify admin of weather failures
+    const { notifyAdminError } = await import('../utils/error-notifier');
+    await notifyAdminError(
+      'Weather Command',
+      error,
+      `User: ${userId}, Location: ${user.location}`
+    );
+  }
+}
+
+/**
  * Handle /testmodels command (admin only)
  */
 export async function handleTestModelsCommand(chatId: number, userId: number, updateId: number, args?: string): Promise<void> {
@@ -414,6 +516,9 @@ async function sendSummaryToAll(
 
     // Send to each user with personalized summary
     for (const user of users) {
+      // Route message based on user's messaging platform preference
+      const platform = user.messagingPlatform || 'telegram'; // Default to telegram
+
       try {
 
         // Categorize events by ownership for this user
@@ -438,8 +543,6 @@ async function sendSummaryToAll(
           user.location,
           user.language
         );
-        // Route message based on user's messaging platform preference
-        const platform = user.messagingPlatform || 'telegram'; // Default to telegram
 
         switch (platform) {
           case 'telegram':

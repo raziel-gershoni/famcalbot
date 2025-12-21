@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getUserByTelegramId } from '../src/services/user-service';
-import prisma from '../src/lib/prisma';
+import prisma from '../src/utils/prisma';
 
 /**
  * Admin Panel Webapp
@@ -361,7 +361,7 @@ export default async function handler(
 
               <h3 style="font-size: 14px; font-weight: 600; color: #6b7280; margin-bottom: 8px;">Recent Users</h3>
               <div class="user-list">
-                ${recentUsers.map(u => `
+                ${recentUsers.map((u: { name: string; createdAt: Date; language: string; messagingPlatform: string }) => `
                   <div class="user-item">
                     <div class="user-name">${u.name}</div>
                     <div class="user-meta">
