@@ -26,6 +26,6 @@
     {
       "src": "/api/privacy",
       "dest": "/api/privacy.ts"
-    },
-    {
+    }
+  ]
 }
