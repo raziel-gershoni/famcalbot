@@ -127,3 +127,45 @@ export async function fetchTomorrowEvents(
 ): Promise<CalendarEvent[]> {
   return fetchEvents(refreshToken, calendarIds, 1);
 }
+
+/**
+ * Calendar information returned from Google Calendar API
+ */
+export interface CalendarInfo {
+  id: string;
+  name: string;
+  description: string;
+  primary: boolean;
+  accessRole: string;
+  backgroundColor: string;
+}
+
+/**
+ * List all calendars the user has access to
+ * @param refreshToken - Google OAuth refresh token
+ * @returns Array of calendar information
+ */
+export async function listUserCalendars(refreshToken: string): Promise<CalendarInfo[]> {
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET
+  );
+
+  oauth2Client.setCredentials({
+    refresh_token: refreshToken,
+  });
+
+  const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+
+  const response = await calendar.calendarList.list();
+  const calendars = response.data.items || [];
+
+  return calendars.map(cal => ({
+    id: cal.id || '',
+    name: cal.summary || 'Unnamed Calendar',
+    description: cal.description || '',
+    primary: cal.primary || false,
+    accessRole: cal.accessRole || 'reader',
+    backgroundColor: cal.backgroundColor || '#039BE5'
+  }));
+}

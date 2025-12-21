@@ -96,8 +96,53 @@ export async function handleStartCommand(
   }
 
   const user = await getUserByIdentifier(userId);
-  const name = user?.name || 'there';
+  if (!user) return;
 
+  const name = user.name || 'there';
+
+  // Check if user needs setup
+  const needsOAuth = !user.googleRefreshToken;
+  const needsCalendars = user.calendars.length === 0;
+
+  if (needsOAuth) {
+    // New user - needs OAuth
+    const refreshUrl = `https://famcalbot.vercel.app/api/refresh-token?user_id=${user.telegramId}`;
+    const message = `👋 <b>Welcome ${name}!</b>\n\n` +
+      `Let's get you set up. First, connect your Google Calendar:\n\n` +
+      `Tap the button below to connect:`;
+
+    const service = getMessagingService();
+    await service.sendMessage(chatId, message, {
+      format: MessageFormat.HTML,
+      replyMarkup: {
+        inline_keyboard: [[
+          { text: '🔐 Connect Google Calendar', url: refreshUrl }
+        ]]
+      }
+    });
+    return;
+  }
+
+  if (needsCalendars) {
+    // Has OAuth but no calendars
+    const selectUrl = `https://famcalbot.vercel.app/api/select-calendars?user_id=${user.telegramId}`;
+    const message = `👋 <b>Welcome back ${name}!</b>\n\n` +
+      `You're connected to Google, but you haven't selected any calendars yet.\n\n` +
+      `Tap the button below to select calendars:`;
+
+    const service = getMessagingService();
+    await service.sendMessage(chatId, message, {
+      format: MessageFormat.HTML,
+      replyMarkup: {
+        inline_keyboard: [[
+          { text: '📅 Select Calendars', url: selectUrl }
+        ]]
+      }
+    });
+    return;
+  }
+
+  // All set up - show normal welcome message
   const service = platform === MessagingPlatform.TELEGRAM
     ? getMessagingService()
     : getMessagingServiceByPlatform(platform);
@@ -320,6 +365,15 @@ function setupHandlers(bot: TelegramBot) {
     const args = match?.[1]?.trim();
     if (userId) {
       await handleWeatherCommand(chatId, userId, MessagingPlatform.TELEGRAM, args);
+    }
+  });
+
+  // /calendars command - manage calendar selections
+  bot.onText(/\/calendars/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+    if (userId) {
+      await handleCalendarsCommand(chatId, userId, MessagingPlatform.TELEGRAM);
     }
   });
 
@@ -916,6 +970,61 @@ export async function handleWeatherCommand(
       `User: ${userId}, Location: ${user.location}`
     );
   }
+}
+
+/**
+ * Handle /calendars command - open calendar selection webapp
+ */
+export async function handleCalendarsCommand(
+  chatId: number,
+  userId: number,
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM
+): Promise<void> {
+  if (!(await isUserAuthorized(userId))) {
+    const service = getMessagingService();
+    await service.sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    return;
+  }
+
+  const user = await getUserByTelegramId(userId);
+  if (!user) return;
+
+  if (!user.googleRefreshToken) {
+    // No token - need OAuth first
+    const refreshUrl = `https://famcalbot.vercel.app/api/refresh-token?user_id=${userId}`;
+    const message = `🔑 <b>Google Calendar Not Connected</b>\n\n` +
+      `You need to connect your Google Calendar first.\n\n` +
+      `Tap the button below:`;
+
+    await getMessagingService().sendMessage(chatId, message, {
+      format: MessageFormat.HTML,
+      replyMarkup: {
+        inline_keyboard: [[
+          { text: '🔐 Connect Google Calendar', url: refreshUrl }
+        ]]
+      }
+    });
+    return;
+  }
+
+  // Has token - open calendar selection webapp
+  const selectUrl = `https://famcalbot.vercel.app/api/select-calendars?user_id=${userId}`;
+  const message = `📅 <b>Calendar Settings</b>\n\n` +
+    `Manage which calendars to sync with your bot.\n\n` +
+    `Current selections:\n` +
+    `• Primary: ${user.primaryCalendar || 'Not set'}\n` +
+    `• Own calendars: ${user.ownCalendars?.length || 0}\n` +
+    `• Spouse calendars: ${user.spouseCalendars?.length || 0}\n\n` +
+    `Tap the button below to update:`;
+
+  await getMessagingService().sendMessage(chatId, message, {
+    format: MessageFormat.HTML,
+    replyMarkup: {
+      inline_keyboard: [[
+        { text: '📅 Select Calendars', url: selectUrl }
+      ]]
+    }
+  });
 }
 
 /**

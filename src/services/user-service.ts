@@ -97,3 +97,29 @@ export async function updateGoogleRefreshToken(
 
   return convertPrismaUserToConfig(updatedUser);
 }
+
+/**
+ * Update user's calendar selections
+ */
+export async function updateUserCalendars(
+  telegramId: number,
+  calendarSelections: {
+    all: string[];           // All selected calendar IDs
+    primary: string;         // Primary calendar ID
+    own: string[];          // User's own calendars
+    spouse: string[];       // Spouse's calendars
+  }
+): Promise<UserConfig> {
+  const updatedUser = await prisma.user.update({
+    where: { telegramId: BigInt(telegramId) },
+    data: {
+      calendars: calendarSelections.all,
+      primaryCalendar: calendarSelections.primary,
+      ownCalendars: calendarSelections.own,
+      spouseCalendars: calendarSelections.spouse,
+      updatedAt: new Date()
+    }
+  });
+
+  return convertPrismaUserToConfig(updatedUser);
+}

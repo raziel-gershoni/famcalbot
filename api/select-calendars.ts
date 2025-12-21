@@ -1,39 +1,44 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { updateGoogleRefreshToken, getUserByTelegramId, updateUserCalendars } from '../src/services/user-service';
-import { prisma } from '../src/utils/prisma';
-import crypto from 'crypto';
+import { getUserByTelegramId, updateUserCalendars } from '../src/services/user-service';
+import { listUserCalendars } from '../src/services/calendar';
 
 /**
- * User-Facing Google Token Refresh
- * Opens in Telegram web view when user's token expires
+ * Standalone Calendar Selection Endpoint
+ * Allows users to change calendar selections without OAuth
  */
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ): Promise<void> {
+  const { user_id } = req.query;
+
+  if (!user_id) {
+    res.status(400).send('Missing user_id parameter');
+    return;
+  }
+
+  const userId = parseInt(user_id as string);
+  const user = await getUserByTelegramId(userId);
+
+  if (!user) {
+    res.status(404).send('User not found');
+    return;
+  }
+
+  if (!user.googleRefreshToken) {
+    res.status(400).send('No Google token found. Please refresh your token first.');
+    return;
+  }
+
   // Handle calendar selection submission
-  if (req.method === 'POST' && req.body && req.body.user_id) {
-    const { user_id, state_token, primary, own_calendars, spouse_calendars } = req.body;
+  if (req.method === 'POST') {
+    const { primary, own_calendars, spouse_calendars } = req.body;
 
-    // Validate state token is still valid (if present)
-    if (state_token) {
-      const stateRecord = await prisma.oAuthState.findUnique({
-        where: { token: state_token }
-      });
-
-      if (!stateRecord || stateRecord.expiresAt < new Date()) {
-        res.status(400).send('Session expired. Please try again.');
-        return;
-      }
-    }
-
-    // Parse calendar selections
     const ownCals = Array.isArray(own_calendars) ? own_calendars : (own_calendars ? [own_calendars] : []);
     const spouseCals = spouse_calendars ? (Array.isArray(spouse_calendars) ? spouse_calendars : [spouse_calendars]) : [];
-    const allCals = [...new Set([...ownCals, ...spouseCals])]; // Deduplicate
+    const allCals = [...new Set([...ownCals, ...spouseCals])];
 
-    // Save to database
-    await updateUserCalendars(parseInt(user_id), {
+    await updateUserCalendars(userId, {
       all: allCals,
       primary: primary,
       own: ownCals,
@@ -41,13 +46,9 @@ export default async function handler(
     });
 
     // Get updated user for success page
-    const user = await getUserByTelegramId(parseInt(user_id));
-    if (!user) {
-      res.status(404).send('User not found');
-      return;
-    }
+    const updatedUser = await getUserByTelegramId(userId);
 
-    // Show success page
+    // Show simple success page
     const botUsername = process.env.TELEGRAM_BOT_USERNAME || 'family_calendar_telegram_bot';
     res.setHeader('Content-Type', 'text/html');
     res.send(`
@@ -93,36 +94,20 @@ export default async function handler(
               border-radius: 8px;
               margin: 20px 0;
             }
-            .actions {
-              margin: 30px 0;
-              display: flex;
-              flex-direction: column;
-              gap: 10px;
-            }
             .btn {
+              width: 100%;
               padding: 15px 30px;
+              background: #667eea;
+              color: white;
               border: none;
               border-radius: 8px;
               font-size: 16px;
               font-weight: 600;
               cursor: pointer;
               transition: all 0.2s;
-            }
-            .btn-primary {
-              background: #667eea;
-              color: white;
-            }
-            .btn-primary:hover { background: #5a67d8; }
-            .btn-secondary {
-              background: #f3f4f6;
-              color: #374151;
-            }
-            .btn-secondary:hover { background: #e5e7eb; }
-            .note {
-              color: #6b7280;
-              font-size: 14px;
               margin-top: 20px;
             }
+            .btn:hover { background: #5a67d8; }
           </style>
         </head>
         <body>
@@ -131,24 +116,12 @@ export default async function handler(
               <div class="icon">✅</div>
               <h1>Calendars Saved!</h1>
               <div class="user-info">
-                <strong>${user.name}</strong><br>
+                <strong>${updatedUser?.name || 'User'}</strong><br>
                 Your calendar settings have been updated successfully
               </div>
-
-              <div class="actions">
-                <p><strong>Get your calendar summary:</strong></p>
-                <button onclick="runSummary('today')" class="btn btn-primary">
-                  📅 Today's Summary
-                </button>
-                <button onclick="runSummary('tmrw')" class="btn btn-primary">
-                  📆 Tomorrow's Summary
-                </button>
-                <button onclick="closeWindow()" class="btn btn-secondary">
-                  ← Back to Chat
-                </button>
-              </div>
-
-              <p class="note">Tap a button to continue</p>
+              <button onclick="closeWindow()" class="btn">
+                ← Back to Chat
+              </button>
             </div>
           </div>
 
@@ -156,20 +129,6 @@ export default async function handler(
             const tg = window.Telegram.WebApp;
             tg.expand();
             tg.ready();
-
-            function runSummary(timeframe) {
-              const botUsername = '${botUsername}';
-              const command = timeframe === 'today' ? '/summary' : '/summary tmrw';
-
-              // Use Telegram deep link to return to chat with command
-              const deepLink = \`https://t.me/\${botUsername}?text=\${encodeURIComponent(command)}\`;
-
-              // Open the link
-              tg.openLink(deepLink);
-
-              // Small delay before closing to ensure link opens
-              setTimeout(() => tg.close(), 500);
-            }
 
             function closeWindow() {
               tg.close();
@@ -181,261 +140,16 @@ export default async function handler(
     return;
   }
 
-  const { code, state } = req.query;
-
-  // If no code, show the authorization page
-  if (!code) {
-    const userId = req.query.user_id;
-    if (!userId) {
-      res.status(400).send('Missing user_id parameter');
-      return;
-    }
-
-    // Generate secure state token
-    const stateToken = crypto.randomBytes(32).toString('hex');
-
-    // Store state in database with 10-minute expiration
-    await prisma.oAuthState.create({
-      data: {
-        userId: parseInt(userId as string),
-        token: stateToken,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
-      }
-    });
-
-    // Generate OAuth URL
-    const baseUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
-    const redirectUri = `https://${req.headers.host}/api/refresh-token`;
-    const params = new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID || '',
-      redirect_uri: redirectUri,
-      response_type: 'code',
-      scope: 'https://www.googleapis.com/auth/calendar.readonly',
-      access_type: 'offline',
-      prompt: 'consent', // Force consent to get refresh token
-      state: stateToken // Secure random token instead of userId
-    });
-
-    const oauthUrl = `${baseUrl}?${params.toString()}`;
-
-    // Show authorization page
-    res.setHeader('Content-Type', 'text/html');
-    res.send(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Refresh Calendar Access</title>
-          <meta name="viewport" content="width=device-width, initial-scale=1">
-          <script src="https://telegram.org/js/telegram-web-app.js"></script>
-          <style>
-            body {
-              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-              min-height: 100vh;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              margin: 0;
-              padding: 20px;
-            }
-            .container {
-              background: white;
-              padding: 40px;
-              border-radius: 15px;
-              box-shadow: 0 10px 40px rgba(0,0,0,0.3);
-              max-width: 400px;
-              text-align: center;
-            }
-            .icon { font-size: 64px; margin-bottom: 20px; }
-            h2 { margin: 0 0 20px 0; color: #333; }
-            p { color: #666; line-height: 1.6; margin-bottom: 30px; }
-            .btn {
-              display: inline-block;
-              padding: 15px 30px;
-              background: #667eea;
-              color: white;
-              text-decoration: none;
-              border-radius: 8px;
-              font-size: 16px;
-              font-weight: 600;
-              transition: background 0.3s;
-            }
-            .btn:hover { background: #5a67d8; }
-            .steps {
-              text-align: left;
-              background: #f9fafb;
-              padding: 20px;
-              border-radius: 8px;
-              margin-bottom: 30px;
-            }
-            .steps ol { margin: 0; padding-left: 20px; }
-            .steps li { margin-bottom: 10px; color: #555; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="icon">🔄</div>
-            <h2>Refresh Calendar Access</h2>
-            <p>Your Google Calendar access has expired. Let's refresh it!</p>
-
-            <div class="steps">
-              <strong>What will happen:</strong>
-              <ol>
-                <li>You'll log in to Google</li>
-                <li>Grant calendar access</li>
-                <li>Your bot will work again!</li>
-              </ol>
-            </div>
-
-            <a href="${oauthUrl}" class="btn">
-              🔐 Connect Google Calendar
-            </a>
-          </div>
-
-          <script>
-            // If running in Telegram Web App
-            if (window.Telegram && window.Telegram.WebApp) {
-              const tg = window.Telegram.WebApp;
-              tg.expand();
-              tg.MainButton.setText('Connect Google Calendar');
-              tg.MainButton.onClick(() => {
-                window.location.href = '${oauthUrl}';
-              });
-              tg.MainButton.show();
-            }
-          </script>
-        </body>
-      </html>
-    `);
-    return;
-  }
-
-  // Handle OAuth callback - validate state token
-  if (!state || typeof state !== 'string') {
-    res.status(400).send('Missing or invalid state parameter');
-    return;
-  }
-
-  // Look up state token in database
-  const stateRecord = await prisma.oAuthState.findUnique({
-    where: { token: state }
-  });
-
-  // Validate state exists
-  if (!stateRecord) {
-    res.status(400).send('Invalid or expired state token. Please try again.');
-    return;
-  }
-
-  // Validate state hasn't expired
-  if (stateRecord.expiresAt < new Date()) {
-    await prisma.oAuthState.delete({ where: { id: stateRecord.id } });
-    res.status(400).send('State token expired. Please try again.');
-    return;
-  }
-
-  const telegramId = stateRecord.userId;
-
-  // Delete used state token (one-time use only)
-  await prisma.oAuthState.delete({ where: { id: stateRecord.id } });
-
+  // GET: Show calendar selection screen
   try {
-    // Exchange code for tokens
-    const redirectUri = `https://${req.headers.host}/api/refresh-token`;
-    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        code,
-        client_id: process.env.GOOGLE_CLIENT_ID,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET,
-        redirect_uri: redirectUri,
-        grant_type: 'authorization_code'
-      })
-    });
-
-    const tokens = await tokenResponse.json();
-
-    if (!tokens.refresh_token) {
-      // No refresh token - need to revoke and retry
-      res.setHeader('Content-Type', 'text/html');
-      res.send(`
-        <html>
-          <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <script src="https://telegram.org/js/telegram-web-app.js"></script>
-            <style>
-              body {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-                background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-                min-height: 100vh;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                margin: 0;
-                padding: 20px;
-              }
-              .container {
-                background: white;
-                padding: 40px;
-                border-radius: 15px;
-                max-width: 400px;
-                text-align: center;
-              }
-              .icon { font-size: 64px; margin-bottom: 20px; }
-              h2 { margin: 0 0 20px 0; color: #333; }
-              p { color: #666; line-height: 1.6; }
-              a { color: #667eea; text-decoration: none; font-weight: 600; }
-              .btn {
-                display: inline-block;
-                margin-top: 20px;
-                padding: 15px 30px;
-                background: #667eea;
-                color: white;
-                text-decoration: none;
-                border-radius: 8px;
-              }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <div class="icon">⚠️</div>
-              <h2>One More Step</h2>
-              <p>Google didn't provide a new refresh token because you've authorized before.</p>
-              <p><strong>Please revoke access first:</strong></p>
-              <p>1. Go to <a href="https://myaccount.google.com/permissions" target="_blank">Google Permissions</a></p>
-              <p>2. Remove "FamCalBot"</p>
-              <p>3. Come back and try again</p>
-              <a href="/api/refresh-token?user_id=${telegramId}" class="btn">Try Again</a>
-            </div>
-          </body>
-        </html>
-      `);
-      return;
-    }
-
-    // Get user to verify
-    const user = await getUserByTelegramId(telegramId);
-    if (!user) {
-      res.status(404).send('User not found');
-      return;
-    }
-
-    // Save new refresh token
-    await updateGoogleRefreshToken(telegramId, tokens.refresh_token);
-
-    // Fetch available calendars using the new token
-    const { listUserCalendars } = await import('../src/services/calendar');
-    const availableCalendars = await listUserCalendars(tokens.refresh_token);
-
-    // Get user's current calendar selections (if any)
+    const availableCalendars = await listUserCalendars(user.googleRefreshToken);
     const currentSelections = {
-      primary: user?.primaryCalendar || '',
-      own: user?.ownCalendars || [],
-      spouse: user?.spouseCalendars || []
+      primary: user.primaryCalendar || '',
+      own: user.ownCalendars || [],
+      spouse: user.spouseCalendars || []
     };
 
-    // Show calendar selection screen
+    // Show calendar selection HTML
     res.setHeader('Content-Type', 'text/html');
     res.send(`
       <!DOCTYPE html>
@@ -562,9 +276,8 @@ export default async function handler(
             <h1>📅 Select Your Calendars</h1>
             <p class="subtitle">Choose which calendars to sync with your bot</p>
 
-            <form id="calendarForm" method="POST" action="/api/refresh-token">
-              <input type="hidden" name="user_id" value="${telegramId}">
-              <input type="hidden" name="state_token" value="${state}">
+            <form id="calendarForm" method="POST" action="/api/select-calendars?user_id=${userId}">
+              <input type="hidden" name="user_id" value="${userId}">
 
               <!-- Primary Calendar Selection -->
               <div class="section">
@@ -674,13 +387,13 @@ export default async function handler(
       </html>
     `);
   } catch (error) {
-    console.error('OAuth error:', error);
+    console.error('Error listing calendars:', error);
     res.status(500).send(`
       <html>
         <body style="font-family: Arial; padding: 40px; text-align: center;">
           <h2>❌ Error</h2>
           <p>${error instanceof Error ? error.message : 'Unknown error'}</p>
-          <p><a href="/api/refresh-token?user_id=${telegramId}">Try Again</a></p>
+          <p><a href="/api/select-calendars?user_id=${userId}">Try Again</a></p>
         </body>
       </html>
     `);
