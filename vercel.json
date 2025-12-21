@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "installCommand": "npm ci && npx prisma generate && npx prisma migrate deploy",
+  "installCommand": "npm ci && npx prisma@5.22.0 generate && npx prisma@5.22.0 migrate deploy",
   "routes": [
     {
       "src": "/api/daily-summary",
