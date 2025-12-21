@@ -1,20 +1,26 @@
-export interface UserConfig {
-  telegramId: number;
-  whatsappPhone?: string;  // WhatsApp phone number in E.164 format (e.g., "+972501234567")
-  messagingPlatform?: 'telegram' | 'whatsapp' | 'all';  // Where to send automated messages (default: telegram)
-  name: string;
-  hebrewName: string;  // User's name in Hebrew for accurate Claude output
-  gender: 'male' | 'female';  // User's gender for Hebrew grammar
-  spouseName: string;  // Spouse's name for personalization
-  spouseHebrewName: string;  // Spouse's name in Hebrew
-  spouseGender: 'male' | 'female';  // Spouse's gender for Hebrew grammar
-  location: string;  // User's location for weather (e.g., "Harish, Israel")
-  language?: string;  // User's preferred language for weather reports (e.g., "Hebrew", "English"). If not set, weather will be in English.
-  calendars: string[];  // Google Calendar IDs to fetch events from
-  googleRefreshToken: string;
-  primaryCalendar: string;  // User's main personal calendar ID
-  ownCalendars: string[];  // All calendars belonging to this user (personal + work)
-  spouseCalendars: string[];  // Spouse's calendar IDs
+import { User as PrismaUser } from '@prisma/client';
+
+// Prisma User type with BigInt converted to number for compatibility
+export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'gender' | 'spouseGender'> & {
+  telegramId: number;  // Convert BigInt to number
+  whatsappPhone?: string | null;  // Make optional and allow null
+  messagingPlatform?: 'telegram' | 'whatsapp' | 'all';
+  language?: string;
+  gender: 'male' | 'female';  // Narrow type for type safety
+  spouseGender: 'male' | 'female';  // Narrow type for type safety
+};
+
+// Helper to convert Prisma User to UserConfig
+export function convertPrismaUserToConfig(user: PrismaUser): UserConfig {
+  return {
+    ...user,
+    telegramId: Number(user.telegramId),
+    whatsappPhone: user.whatsappPhone ?? undefined,
+    messagingPlatform: user.messagingPlatform as 'telegram' | 'whatsapp' | 'all',
+    language: user.language ?? undefined,
+    gender: user.gender as 'male' | 'female',
+    spouseGender: user.spouseGender as 'male' | 'female'
+  };
 }
 
 export interface CalendarEvent {

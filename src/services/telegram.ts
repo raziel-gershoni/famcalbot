@@ -1,5 +1,5 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { getUserByTelegramId, getUserByIdentifier, getWhitelistedIds } from '../config/users';
+import { getUserByTelegramId, getUserByIdentifier, getWhitelistedIds, getAllUsers } from './user-service';
 import { fetchTodayEvents, fetchTomorrowEvents } from './calendar';
 import { generateSummary } from './claude';
 import { CalendarEvent, UserConfig } from '../types';
@@ -74,8 +74,8 @@ export function getMessagingService(): IMessagingService {
 /**
  * Check if user is authorized (supports both Telegram ID and WhatsApp phone)
  */
-export function isUserAuthorized(userId: number | string): boolean {
-  const user = getUserByIdentifier(userId);
+export async function isUserAuthorized(userId: number | string): Promise<boolean> {
+  const user = await getUserByIdentifier(userId);
   return user !== undefined;
 }
 
@@ -87,7 +87,7 @@ export async function handleStartCommand(
   userId: number | string,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM
 ): Promise<void> {
-  if (!isUserAuthorized(userId)) {
+  if (!(await isUserAuthorized(userId))) {
     const service = platform === MessagingPlatform.TELEGRAM
       ? getMessagingService()
       : getMessagingServiceByPlatform(platform);
@@ -95,7 +95,7 @@ export async function handleStartCommand(
     return;
   }
 
-  const user = getUserByIdentifier(userId);
+  const user = await getUserByIdentifier(userId);
   const name = user?.name || 'there';
 
   const service = platform === MessagingPlatform.TELEGRAM
@@ -112,7 +112,7 @@ export async function handleHelpCommand(
   userId: number | string,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM
 ): Promise<void> {
-  if (!isUserAuthorized(userId)) {
+  if (!(await isUserAuthorized(userId))) {
     const service = platform === MessagingPlatform.TELEGRAM
       ? getMessagingService()
       : getMessagingServiceByPlatform(platform);
@@ -136,7 +136,7 @@ export async function handleSummaryCommand(
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
   args?: string
 ): Promise<void> {
-  if (!isUserAuthorized(userId)) {
+  if (!(await isUserAuthorized(userId))) {
     const service = platform === MessagingPlatform.TELEGRAM
       ? getMessagingService()
       : getMessagingServiceByPlatform(platform);
@@ -146,7 +146,7 @@ export async function handleSummaryCommand(
 
   // For now, summary commands only work with Telegram ID
   // TODO: Update sendDailySummaryToUser to support platform parameter
-  const user = getUserByIdentifier(userId);
+  const user = await getUserByIdentifier(userId);
   if (!user) return;
 
   // Check if user wants tomorrow's summary
@@ -194,7 +194,7 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
   }
 
   console.log('Lock acquired, getting user config...');
-  const user = getUserByTelegramId(userId);
+  const user = await getUserByTelegramId(userId);
   if (!user) {
     console.error(`User with Telegram ID ${userId} not found`);
     await releaseTestModelsLock(userId);
@@ -364,7 +364,7 @@ async function sendSummaryToUser(
   errorMessage: string,
   modelId?: string
 ): Promise<void> {
-  const user = getUserByTelegramId(userId);
+  const user = await getUserByTelegramId(userId);
   if (!user) {
     console.error(`User with Telegram ID ${userId} not found`);
     return;
@@ -432,26 +432,26 @@ async function sendSummaryToAll(
   fetchFunction: (refreshToken: string, calendarIds: string[]) => Promise<CalendarEvent[]>,
   summaryDate: Date | undefined
 ): Promise<void> {
-  const whitelistedIds = getWhitelistedIds();
   const messagingService = getMessagingService();
   const botInstance = getBot(); // Still needed for voice and callbacks
 
   try {
-    // Get the first user to fetch calendars (they all share the same calendars)
-    const firstUser = getUserByTelegramId(whitelistedIds[0]);
-    if (!firstUser) {
+    // Get all users from database (single query instead of multiple)
+    const users = await getAllUsers();
+    if (users.length === 0) {
       console.error('No users configured');
       return;
     }
+
+    // Get the first user to fetch calendars (they all share the same calendars)
+    const firstUser = users[0];
 
     // Fetch calendar events once (shared by all users)
     const events = await fetchFunction(firstUser.googleRefreshToken, firstUser.calendars);
 
     // Send to each user with personalized summary
-    for (const userId of whitelistedIds) {
+    for (const user of users) {
       try {
-        const user = getUserByTelegramId(userId);
-        if (!user) continue;
 
         // Categorize events by ownership for this user
         const categorized = categorizeEvents(events, user);
@@ -470,7 +470,7 @@ async function sendSummaryToAll(
           user.spouseGender,
           user.primaryCalendar,
           summaryDate,
-          userId === ADMIN_USER_ID,
+          user.telegramId === ADMIN_USER_ID,
           undefined,
           user.location,
           user.language
@@ -481,9 +481,9 @@ async function sendSummaryToAll(
         switch (platform) {
           case 'telegram':
             // Send to Telegram only
-            await messagingService.sendMessage(userId, summary, { format: MessageFormat.HTML });
+            await messagingService.sendMessage(user.telegramId, summary, { format: MessageFormat.HTML });
             if (summaryDate === undefined) {
-              await sendVoiceMessage(userId, summary, undefined, user.language);
+              await sendVoiceMessage(user.telegramId, summary, undefined, user.language);
             }
             break;
 
@@ -501,9 +501,9 @@ async function sendSummaryToAll(
 
           case 'all':
             // Send to both platforms
-            await messagingService.sendMessage(userId, summary, { format: MessageFormat.HTML });
+            await messagingService.sendMessage(user.telegramId, summary, { format: MessageFormat.HTML });
             if (summaryDate === undefined) {
-              await sendVoiceMessage(userId, summary, undefined, user.language);
+              await sendVoiceMessage(user.telegramId, summary, undefined, user.language);
             }
             if (user.whatsappPhone) {
               const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
@@ -516,7 +516,7 @@ async function sendSummaryToAll(
             break;
         }
       } catch (error) {
-        console.error(`Failed to send summary to user ${userId}:`, error);
+        console.error(`Failed to send summary to user ${user.telegramId}:`, error);
         // Individual user failures in batch - log but don't spam admin
         // Will be caught by outer try-catch if entire batch fails
       }
@@ -779,7 +779,7 @@ export async function handleWeatherCommand(
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
   args?: string
 ): Promise<void> {
-  if (!isUserAuthorized(userId)) {
+  if (!(await isUserAuthorized(userId))) {
     const service = platform === MessagingPlatform.TELEGRAM
       ? getMessagingService()
       : getMessagingServiceByPlatform(platform);
@@ -787,7 +787,7 @@ export async function handleWeatherCommand(
     return;
   }
 
-  const user = getUserByIdentifier(userId);
+  const user = await getUserByIdentifier(userId);
   if (!user) {
     console.error(`User with ID ${userId} not found`);
     return;

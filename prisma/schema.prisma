@@ -1,0 +1,47 @@
+// Prisma schema for FamCalBot
+// Database: Neon (Serverless Postgres)
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")      // Pooled connection for queries
+  directUrl = env("DIRECT_URL")        // Direct connection for migrations
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id Int @id @default(autoincrement())
+
+  // Platform identifiers
+  telegramId    BigInt? @unique
+  whatsappPhone String? @unique
+
+  // Personal info
+  name              String
+  hebrewName        String
+  gender            String  // 'male' | 'female'
+  spouseName        String
+  spouseHebrewName  String
+  spouseGender      String  // 'male' | 'female'
+
+  // Settings
+  location          String  @default("Harish, Israel")
+  language          String  @default("Hebrew")
+  messagingPlatform String  @default("telegram") // 'telegram' | 'whatsapp' | 'all'
+
+  // Calendar integration (shared token for now)
+  googleRefreshToken String  @db.Text
+  calendars          String[] // Array of all calendar IDs
+  primaryCalendar    String   // Main personal calendar
+  ownCalendars       String[] // User's own calendars (personal + work)
+  spouseCalendars    String[] // Spouse's calendar IDs
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([telegramId])
+  @@index([whatsappPhone])
+}

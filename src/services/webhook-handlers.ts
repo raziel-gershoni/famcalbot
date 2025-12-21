@@ -14,7 +14,7 @@ import {
   handleWeatherCallback,
   getBot
 } from './telegram';
-import { getUserByWhatsAppPhone } from '../config/users';
+import { getUserByWhatsAppPhone } from './user-service';
 import { MessagingPlatform } from './messaging';
 
 /**
@@ -125,7 +125,7 @@ export async function handleWhatsAppWebhook(
   const from = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
 
   // Get user by WhatsApp phone number
-  const user = getUserByWhatsAppPhone(from);
+  const user = await getUserByWhatsAppPhone(from);
   if (!user) {
     console.log(`[WhatsApp] Unauthorized user: ${from}`);
     res.status(200).json({ ok: true });
