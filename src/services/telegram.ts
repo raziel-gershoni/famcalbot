@@ -411,6 +411,22 @@ async function sendSummaryToUser(
     }
   } catch (error) {
     console.error(`Error sending summary to user ${userId}:`, error);
+
+    // Check if it's a token expiration error
+    if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
+      const refreshUrl = `https://famcalbot.vercel.app/api/refresh-token?user_id=${userId}`;
+      const expiredMessage = `🔑 <b>Google Calendar Token Expired</b>\n\nYour Google Calendar access has expired. Please refresh your token to continue receiving summaries.\n\n<a href="${refreshUrl}">🔄 Refresh Token</a>`;
+      await messagingService.sendMessage(userId, expiredMessage, { format: MessageFormat.HTML });
+
+      // Notify admin
+      const { notifyAdminWarning } = await import('../utils/error-notifier');
+      await notifyAdminWarning(
+        'Token Expired',
+        `User ${userId} needs to refresh their Google Calendar token`
+      );
+      return;
+    }
+
     await messagingService.sendMessage(userId, errorMessage);
 
     // Notify admin of summary failures
@@ -517,6 +533,32 @@ async function sendSummaryToAll(
         }
       } catch (error) {
         console.error(`Failed to send summary to user ${user.telegramId}:`, error);
+
+        // Check if it's a token expiration error
+        if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
+          const refreshUrl = `https://famcalbot.vercel.app/api/refresh-token?user_id=${user.telegramId}`;
+          const expiredMessage = `🔑 <b>Google Calendar Token Expired</b>\n\nYour Google Calendar access has expired. Please refresh your token to continue receiving summaries.\n\n<a href="${refreshUrl}">🔄 Refresh Token</a>`;
+
+          // Send token expired message to the user
+          try {
+            if (platform === 'telegram' || platform === 'all') {
+              await messagingService.sendMessage(user.telegramId, expiredMessage, { format: MessageFormat.HTML });
+            }
+            if ((platform === 'whatsapp' || platform === 'all') && user.whatsappPhone) {
+              const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
+              await whatsappService.sendMessage(user.whatsappPhone, expiredMessage, { format: MessageFormat.HTML });
+            }
+          } catch (msgError) {
+            console.error(`Failed to send token expired message to user ${user.telegramId}:`, msgError);
+          }
+
+          // Notify admin
+          const { notifyAdminWarning } = await import('../utils/error-notifier');
+          await notifyAdminWarning(
+            'Token Expired',
+            `User ${user.telegramId} (${user.name}) needs to refresh their Google Calendar token`
+          );
+        }
         // Individual user failures in batch - log but don't spam admin
         // Will be caught by outer try-catch if entire batch fails
       }
