@@ -10,15 +10,21 @@ const IV_LENGTH = 16;
 const AUTH_TAG_LENGTH = 16;
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 
-if (!ENCRYPTION_KEY) {
-  throw new Error('ENCRYPTION_KEY environment variable is required');
-}
+// Get key buffer (lazy initialization to avoid startup errors)
+function getKeyBuffer(): Buffer {
+  if (!ENCRYPTION_KEY) {
+    console.error('ENCRYPTION_KEY environment variable is not set');
+    throw new Error('ENCRYPTION_KEY environment variable is required');
+  }
 
-// Convert hex key to buffer
-const keyBuffer = Buffer.from(ENCRYPTION_KEY, 'hex');
+  const keyBuffer = Buffer.from(ENCRYPTION_KEY, 'hex');
 
-if (keyBuffer.length !== 32) {
-  throw new Error('ENCRYPTION_KEY must be 32 bytes (64 hex characters)');
+  if (keyBuffer.length !== 32) {
+    console.error(`ENCRYPTION_KEY has wrong length: ${keyBuffer.length} bytes (expected 32)`);
+    throw new Error('ENCRYPTION_KEY must be 32 bytes (64 hex characters)');
+  }
+
+  return keyBuffer;
 }
 
 /**
