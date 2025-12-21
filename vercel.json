@@ -26,6 +26,10 @@
     {
       "src": "/api/privacy",
       "dest": "/api/privacy.ts"
+    },
+    {
+      "src": "/api/seed-prod",
+      "dest": "/api/seed-prod.ts"
     }
   ]
 }
