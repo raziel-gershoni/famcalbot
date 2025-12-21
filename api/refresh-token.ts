@@ -1,5 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { updateGoogleRefreshToken, getUserByTelegramId } from '../src/services/user-service';
+import { prisma } from '../src/utils/prisma';
+import crypto from 'crypto';
 
 /**
  * User-Facing Google Token Refresh
@@ -19,6 +21,18 @@ export default async function handler(
       return;
     }
 
+    // Generate secure state token
+    const stateToken = crypto.randomBytes(32).toString('hex');
+
+    // Store state in database with 10-minute expiration
+    await prisma.oAuthState.create({
+      data: {
+        userId: parseInt(userId as string),
+        token: stateToken,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+      }
+    });
+
     // Generate OAuth URL
     const baseUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
     const redirectUri = `https://${req.headers.host}/api/refresh-token`;
@@ -29,7 +43,7 @@ export default async function handler(
       scope: 'https://www.googleapis.com/auth/calendar.readonly',
       access_type: 'offline',
       prompt: 'consent', // Force consent to get refresh token
-      state: userId.toString()
+      state: stateToken // Secure random token instead of userId
     });
 
     const oauthUrl = `${baseUrl}?${params.toString()}`;
@@ -126,12 +140,34 @@ export default async function handler(
     return;
   }
 
-  // Handle OAuth callback
-  const telegramId = state ? parseInt(state as string) : null;
-  if (!telegramId) {
-    res.status(400).send('Missing user ID in state');
+  // Handle OAuth callback - validate state token
+  if (!state || typeof state !== 'string') {
+    res.status(400).send('Missing or invalid state parameter');
     return;
   }
+
+  // Look up state token in database
+  const stateRecord = await prisma.oAuthState.findUnique({
+    where: { token: state }
+  });
+
+  // Validate state exists
+  if (!stateRecord) {
+    res.status(400).send('Invalid or expired state token. Please try again.');
+    return;
+  }
+
+  // Validate state hasn't expired
+  if (stateRecord.expiresAt < new Date()) {
+    await prisma.oAuthState.delete({ where: { id: stateRecord.id } });
+    res.status(400).send('State token expired. Please try again.');
+    return;
+  }
+
+  const telegramId = stateRecord.userId;
+
+  // Delete used state token (one-time use only)
+  await prisma.oAuthState.delete({ where: { id: stateRecord.id } });
 
   try {
     // Exchange code for tokens
@@ -218,17 +254,20 @@ export default async function handler(
     // Save new refresh token
     await updateGoogleRefreshToken(telegramId, tokens.refresh_token);
 
-    // Success page
+    // Success page with deep link buttons
+    const botUsername = process.env.TELEGRAM_BOT_USERNAME || 'family_calendar_telegram_bot';
     res.setHeader('Content-Type', 'text/html');
     res.send(`
+      <!DOCTYPE html>
       <html>
         <head>
+          <title>✅ Token Refreshed</title>
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <script src="https://telegram.org/js/telegram-web-app.js"></script>
           <style>
             body {
               font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-              background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
               min-height: 100vh;
               display: flex;
               align-items: center;
@@ -236,61 +275,114 @@ export default async function handler(
               margin: 0;
               padding: 20px;
             }
-            .container {
+            .container { max-width: 500px; width: 100%; }
+            .success-box {
               background: white;
               padding: 40px;
               border-radius: 15px;
-              box-shadow: 0 10px 40px rgba(0,0,0,0.3);
-              max-width: 400px;
+              box-shadow: 0 10px 40px rgba(0,0,0,0.2);
               text-align: center;
             }
-            .icon { font-size: 64px; margin-bottom: 20px; animation: bounce 1s; }
+            .icon {
+              font-size: 64px;
+              margin-bottom: 20px;
+              animation: bounce 1s;
+            }
             @keyframes bounce {
               0%, 100% { transform: translateY(0); }
               50% { transform: translateY(-20px); }
             }
-            h2 { margin: 0 0 20px 0; color: #333; }
-            p { color: #666; line-height: 1.6; margin-bottom: 30px; }
+            h1 { color: #22c55e; margin: 0 0 10px 0; }
+            p { color: #666; line-height: 1.6; }
             .user-info {
               background: #f9fafb;
               padding: 15px;
               border-radius: 8px;
-              margin-bottom: 30px;
+              margin: 20px 0;
             }
-            .close-btn {
+            .actions {
+              margin: 30px 0;
+              display: flex;
+              flex-direction: column;
+              gap: 10px;
+            }
+            .btn {
               padding: 15px 30px;
-              background: #667eea;
-              color: white;
               border: none;
               border-radius: 8px;
               font-size: 16px;
+              font-weight: 600;
               cursor: pointer;
+              transition: all 0.2s;
+            }
+            .btn-primary {
+              background: #667eea;
+              color: white;
+            }
+            .btn-primary:hover { background: #5a67d8; }
+            .btn-secondary {
+              background: #f3f4f6;
+              color: #374151;
+            }
+            .btn-secondary:hover { background: #e5e7eb; }
+            .note {
+              color: #6b7280;
+              font-size: 14px;
+              margin-top: 20px;
             }
           </style>
         </head>
         <body>
           <div class="container">
-            <div class="icon">✅</div>
-            <h2>All Set!</h2>
-            <div class="user-info">
-              <strong>${user.name}</strong><br>
-              Calendar access refreshed successfully
+            <div class="success-box">
+              <div class="icon">✅</div>
+              <h1>Token Refreshed!</h1>
+              <div class="user-info">
+                <strong>${user.name}</strong><br>
+                Your Google Calendar access has been updated successfully
+              </div>
+
+              <div class="actions">
+                <p><strong>Get your missed summary:</strong></p>
+                <button onclick="runSummary('today')" class="btn btn-primary">
+                  📅 Today's Summary
+                </button>
+                <button onclick="runSummary('tmrw')" class="btn btn-primary">
+                  📆 Tomorrow's Summary
+                </button>
+                <button onclick="closeWindow()" class="btn btn-secondary">
+                  ← Back to Chat
+                </button>
+              </div>
+
+              <p class="note">Tap a button to continue</p>
             </div>
-            <p>You can now use all calendar commands again!</p>
-            <button class="close-btn" onclick="closeWindow()">Close</button>
           </div>
 
           <script>
-            function closeWindow() {
-              if (window.Telegram && window.Telegram.WebApp) {
-                window.Telegram.WebApp.close();
-              } else {
-                window.close();
-              }
+            const tg = window.Telegram.WebApp;
+            tg.expand();
+            tg.ready();
+
+            function runSummary(timeframe) {
+              const botUsername = '${botUsername}';
+              const command = timeframe === 'today' ? '/summary' : '/summary tmrw';
+
+              // Use Telegram deep link to return to chat with command
+              const deepLink = \`https://t.me/\${botUsername}?text=\${encodeURIComponent(command)}\`;
+
+              // Open the link
+              tg.openLink(deepLink);
+
+              // Small delay before closing to ensure link opens
+              setTimeout(() => tg.close(), 500);
             }
 
-            // Auto-close after 3 seconds
-            setTimeout(closeWindow, 3000);
+            function closeWindow() {
+              tg.close();
+            }
+
+            // No auto-close - user must click a button
           </script>
         </body>
       </html>

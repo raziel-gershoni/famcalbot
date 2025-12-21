@@ -45,3 +45,14 @@ model User {
   @@index([telegramId])
   @@index([whatsappPhone])
 }
+
+model OAuthState {
+  id        String   @id @default(cuid())
+  userId    Int
+  token     String   @unique
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([token])
+  @@index([userId])
+}

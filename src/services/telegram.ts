@@ -415,8 +415,15 @@ async function sendSummaryToUser(
     // Check if it's a token expiration error
     if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
       const refreshUrl = `https://famcalbot.vercel.app/api/refresh-token?user_id=${userId}`;
-      const expiredMessage = `🔑 <b>Google Calendar Token Expired</b>\n\nYour Google Calendar access has expired. Please refresh your token to continue receiving summaries.\n\n<a href="${refreshUrl}">🔄 Refresh Token</a>`;
-      await messagingService.sendMessage(userId, expiredMessage, { format: MessageFormat.HTML });
+      const expiredMessage = `🔑 <b>Google Calendar Token Expired</b>\n\nYour Google Calendar access has expired. Please refresh your token to continue receiving summaries.\n\nTap the button below to refresh:`;
+      await messagingService.sendMessage(userId, expiredMessage, {
+        format: MessageFormat.HTML,
+        replyMarkup: {
+          inline_keyboard: [[
+            { text: '🔄 Refresh Google Calendar', url: refreshUrl }
+          ]]
+        }
+      });
 
       // Notify admin
       const { notifyAdminWarning } = await import('../utils/error-notifier');
@@ -537,12 +544,19 @@ async function sendSummaryToAll(
         // Check if it's a token expiration error
         if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
           const refreshUrl = `https://famcalbot.vercel.app/api/refresh-token?user_id=${user.telegramId}`;
-          const expiredMessage = `🔑 <b>Google Calendar Token Expired</b>\n\nYour Google Calendar access has expired. Please refresh your token to continue receiving summaries.\n\n<a href="${refreshUrl}">🔄 Refresh Token</a>`;
+          const expiredMessage = `🔑 <b>Google Calendar Token Expired</b>\n\nYour Google Calendar access has expired. Please refresh your token to continue receiving summaries.\n\nTap the button below to refresh:`;
 
           // Send token expired message to the user
           try {
             if (platform === 'telegram' || platform === 'all') {
-              await messagingService.sendMessage(user.telegramId, expiredMessage, { format: MessageFormat.HTML });
+              await messagingService.sendMessage(user.telegramId, expiredMessage, {
+                format: MessageFormat.HTML,
+                replyMarkup: {
+                  inline_keyboard: [[
+                    { text: '🔄 Refresh Google Calendar', url: refreshUrl }
+                  ]]
+                }
+              });
             }
             if ((platform === 'whatsapp' || platform === 'all') && user.whatsappPhone) {
               const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
