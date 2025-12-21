@@ -1,4 +1,5 @@
 import { User as PrismaUser } from '@prisma/client';
+import { safeDecrypt } from './utils/encryption';
 
 // Prisma User type with BigInt converted to number for compatibility
 export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'gender' | 'spouseGender'> & {
@@ -10,7 +11,7 @@ export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'gend
   spouseGender: 'male' | 'female';  // Narrow type for type safety
 };
 
-// Helper to convert Prisma User to UserConfig
+// Helper to convert Prisma User to UserConfig (with decryption)
 export function convertPrismaUserToConfig(user: PrismaUser): UserConfig {
   return {
     ...user,
@@ -19,7 +20,8 @@ export function convertPrismaUserToConfig(user: PrismaUser): UserConfig {
     messagingPlatform: user.messagingPlatform as 'telegram' | 'whatsapp' | 'all',
     language: user.language ?? undefined,
     gender: user.gender as 'male' | 'female',
-    spouseGender: user.spouseGender as 'male' | 'female'
+    spouseGender: user.spouseGender as 'male' | 'female',
+    googleRefreshToken: safeDecrypt(user.googleRefreshToken) // Decrypt OAuth token
   };
 }
 

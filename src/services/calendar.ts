@@ -5,6 +5,7 @@ import { fromZonedTime } from 'date-fns-tz';
 import { addDays, format } from 'date-fns';
 import { TIMEZONE, ADMIN_USER_ID } from '../config/constants';
 import { ALERT_MESSAGES } from '../config/messages';
+import { isTokenError } from '../utils/errors';
 
 /**
  * Get start and end of day in Israel timezone as ISO strings
@@ -92,22 +93,12 @@ async function fetchEvents(
     } catch (error) {
       console.error(`Error fetching calendar ${calendarId}:`, error);
 
-      // Alert admin if it's a token issue and stop processing (all calendars will fail)
-      if (error instanceof Error && error.message.includes('invalid_grant')) {
-        try {
-          const bot = getBot();
-          await bot.sendMessage(
-            ADMIN_USER_ID,
-            ALERT_MESSAGES.TOKEN_EXPIRED,
-            { parse_mode: 'HTML' }
-          );
-        } catch (alertError) {
-          console.error('Failed to send admin alert:', alertError);
-        }
-        break; // Stop processing - all calendars will fail with same token
+      // If it's a token error, re-throw so calling code can handle it
+      if (isTokenError(error)) {
+        throw new Error('GOOGLE_TOKEN_EXPIRED');
       }
 
-      // Continue with other calendars if it's a different error
+      // Continue with other calendars if it's a different error (calendar-specific issue)
     }
   }
 

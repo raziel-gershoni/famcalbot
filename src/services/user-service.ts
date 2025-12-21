@@ -1,7 +1,7 @@
-import { PrismaClient, User as PrismaUser } from '@prisma/client';
+import { User as PrismaUser } from '@prisma/client';
 import { UserConfig, convertPrismaUserToConfig } from '../types';
-
-const prisma = new PrismaClient();
+import { prisma } from '../utils/prisma';
+import { encrypt, safeDecrypt } from '../utils/encryption';
 
 /**
  * Get user by Telegram ID
@@ -66,9 +66,33 @@ export async function getWhitelistedIds(): Promise<number[]> {
  * Update user settings
  */
 export async function updateUser(telegramId: number, data: Partial<PrismaUser>): Promise<UserConfig> {
+  // Encrypt Google refresh token if provided
+  const encryptedData = { ...data };
+  if (data.googleRefreshToken) {
+    encryptedData.googleRefreshToken = encrypt(data.googleRefreshToken);
+  }
+
   const updatedUser = await prisma.user.update({
     where: { telegramId: BigInt(telegramId) },
-    data
+    data: encryptedData
+  });
+
+  return convertPrismaUserToConfig(updatedUser);
+}
+
+/**
+ * Update Google refresh token for a user
+ */
+export async function updateGoogleRefreshToken(
+  telegramId: number,
+  refreshToken: string
+): Promise<UserConfig> {
+  const updatedUser = await prisma.user.update({
+    where: { telegramId: BigInt(telegramId) },
+    data: {
+      googleRefreshToken: encrypt(refreshToken),
+      updatedAt: new Date()
+    }
   });
 
   return convertPrismaUserToConfig(updatedUser);
