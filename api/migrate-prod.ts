@@ -1,8 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { execSync } from 'child_process';
+import { PrismaClient } from '@prisma/client';
 
 /**
  * One-time production database migration endpoint
+ * Runs SQL migrations directly without using Prisma CLI
  *
  * Usage:
  *   POST https://your-domain.vercel.app/api/migrate-prod
@@ -29,33 +30,82 @@ export default async function handler(
     return;
   }
 
+  const prisma = new PrismaClient();
+
   try {
-    console.log('Running database migrations...');
+    console.log('Checking if User table exists...');
 
-    // Run migrations
-    const output = execSync('npx prisma migrate deploy', {
-      encoding: 'utf-8',
-      stdio: 'pipe',
-      env: {
-        ...process.env,
-        DATABASE_URL: process.env.DIRECT_URL || process.env.DATABASE_URL
-      }
-    });
+    // Check if table already exists
+    const tableCheck = await prisma.$queryRaw`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_schema = 'public'
+        AND table_name = 'User'
+      );
+    ` as Array<{ exists: boolean }>;
 
-    console.log('Migration output:', output);
+    if (tableCheck[0]?.exists) {
+      await prisma.$disconnect();
+      res.status(200).json({
+        success: true,
+        message: 'Database already migrated (User table exists)',
+        alreadyMigrated: true
+      });
+      return;
+    }
+
+    console.log('Running migrations...');
+
+    // Create User table
+    await prisma.$executeRaw`
+      CREATE TABLE "User" (
+        "id" SERIAL NOT NULL,
+        "telegramId" BIGINT,
+        "whatsappPhone" TEXT,
+        "name" TEXT NOT NULL,
+        "hebrewName" TEXT NOT NULL,
+        "gender" TEXT NOT NULL,
+        "spouseName" TEXT NOT NULL,
+        "spouseHebrewName" TEXT NOT NULL,
+        "spouseGender" TEXT NOT NULL,
+        "location" TEXT NOT NULL DEFAULT 'Harish, Israel',
+        "language" TEXT NOT NULL DEFAULT 'Hebrew',
+        "messagingPlatform" TEXT NOT NULL DEFAULT 'telegram',
+        "googleRefreshToken" TEXT NOT NULL,
+        "calendars" TEXT[],
+        "primaryCalendar" TEXT NOT NULL,
+        "ownCalendars" TEXT[],
+        "spouseCalendars" TEXT[],
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL,
+
+        CONSTRAINT "User_pkey" PRIMARY KEY ("id")
+      );
+    `;
+
+    console.log('Creating indexes...');
+
+    // Create indexes
+    await prisma.$executeRaw`CREATE UNIQUE INDEX "User_telegramId_key" ON "User"("telegramId");`;
+    await prisma.$executeRaw`CREATE UNIQUE INDEX "User_whatsappPhone_key" ON "User"("whatsappPhone");`;
+    await prisma.$executeRaw`CREATE INDEX "User_telegramId_idx" ON "User"("telegramId");`;
+    await prisma.$executeRaw`CREATE INDEX "User_whatsappPhone_idx" ON "User"("whatsappPhone");`;
+
+    console.log('Migrations completed successfully');
+
+    await prisma.$disconnect();
 
     res.status(200).json({
       success: true,
       message: 'Database migrations completed successfully',
-      output: output,
       reminder: '🚨 DELETE api/migrate-prod.ts and redeploy immediately!'
     });
   } catch (error) {
+    await prisma.$disconnect();
     console.error('Migration error:', error);
     res.status(500).json({
       error: 'Failed to run migrations',
-      details: error instanceof Error ? error.message : 'Unknown error',
-      stderr: (error as any).stderr?.toString()
+      details: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 }
