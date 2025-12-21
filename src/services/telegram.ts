@@ -81,6 +81,7 @@ export async function isUserAuthorized(userId: number | string): Promise<boolean
 
 /**
  * Handle /start command
+ * Opens unified dashboard webapp
  */
 export async function handleStartCommand(
   chatId: number | string,
@@ -99,109 +100,38 @@ export async function handleStartCommand(
   if (!user) return;
 
   const name = user.name || 'there';
+  const dashboardUrl = `https://famcalbot.vercel.app/api/dashboard?user_id=${user.telegramId}`;
+  const service = getMessagingService();
 
-  // Check if user needs setup
-  const needsOAuth = !user.googleRefreshToken;
-  const needsCalendars = user.calendars.length === 0;
+  // Check if user is admin
+  if (user.isAdmin) {
+    const adminUrl = `https://famcalbot.vercel.app/api/admin-panel?user_id=${user.telegramId}`;
+    const message = `👋 <b>Welcome ${name}!</b>\n\nChoose your dashboard:`;
 
-  if (needsOAuth) {
-    // New user - needs OAuth
-    const refreshUrl = `https://famcalbot.vercel.app/api/refresh-token?user_id=${user.telegramId}`;
-    const message = `👋 <b>Welcome ${name}!</b>\n\n` +
-      `Let's get you set up. First, connect your Google Calendar:\n\n` +
-      `Tap the button below to connect:`;
-
-    const service = getMessagingService();
     await service.sendMessage(chatId, message, {
       format: MessageFormat.HTML,
       replyMarkup: {
-        inline_keyboard: [[
-          { text: '🔐 Connect Google Calendar', url: refreshUrl }
-        ]]
+        inline_keyboard: [
+          [{ text: '📱 User Dashboard', web_app: { url: dashboardUrl } }],
+          [{ text: '👑 Admin Panel', web_app: { url: adminUrl } }]
+        ]
       }
     });
     return;
   }
 
-  if (needsCalendars) {
-    // Has OAuth but no calendars
-    const selectUrl = `https://famcalbot.vercel.app/api/select-calendars?user_id=${user.telegramId}`;
-    const message = `👋 <b>Welcome back ${name}!</b>\n\n` +
-      `You're connected to Google, but you haven't selected any calendars yet.\n\n` +
-      `Tap the button below to select calendars:`;
+  // Regular user - open dashboard webapp
+  const message = `👋 <b>Welcome ${name}!</b>\n\nTap the button below to open your dashboard:`;
 
-    const service = getMessagingService();
-    await service.sendMessage(chatId, message, {
-      format: MessageFormat.HTML,
-      replyMarkup: {
-        inline_keyboard: [[
-          { text: '📅 Select Calendars', url: selectUrl }
-        ]]
-      }
-    });
-    return;
-  }
-
-  // All set up - show normal welcome message
-  const service = platform === MessagingPlatform.TELEGRAM
-    ? getMessagingService()
-    : getMessagingServiceByPlatform(platform);
-  await service.sendMessage(chatId, USER_MESSAGES.WELCOME(name));
+  await service.sendMessage(chatId, message, {
+    format: MessageFormat.HTML,
+    replyMarkup: {
+      inline_keyboard: [[
+        { text: '🚀 Open Dashboard', web_app: { url: dashboardUrl } }
+      ]]
+    }
+  });
 }
-
-/**
- * Handle /help command
- */
-export async function handleHelpCommand(
-  chatId: number | string,
-  userId: number | string,
-  platform: MessagingPlatform = MessagingPlatform.TELEGRAM
-): Promise<void> {
-  if (!(await isUserAuthorized(userId))) {
-    const service = platform === MessagingPlatform.TELEGRAM
-      ? getMessagingService()
-      : getMessagingServiceByPlatform(platform);
-    await service.sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
-    return;
-  }
-
-  const service = platform === MessagingPlatform.TELEGRAM
-    ? getMessagingService()
-    : getMessagingServiceByPlatform(platform);
-  await service.sendMessage(chatId, USER_MESSAGES.HELP);
-}
-
-/**
- * Handle /summary command
- * Supports: /summary (today), /summary tmrw
- */
-export async function handleSummaryCommand(
-  chatId: number | string,
-  userId: number | string,
-  platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
-  args?: string
-): Promise<void> {
-  if (!(await isUserAuthorized(userId))) {
-    const service = platform === MessagingPlatform.TELEGRAM
-      ? getMessagingService()
-      : getMessagingServiceByPlatform(platform);
-    await service.sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
-    return;
-  }
-
-  // For now, summary commands only work with Telegram ID
-  // TODO: Update sendDailySummaryToUser to support platform parameter
-  const user = await getUserByIdentifier(userId);
-  if (!user) return;
-
-  // Check if user wants tomorrow's summary
-  if (args?.toLowerCase().trim() === 'tmrw') {
-    await sendTomorrowSummaryToUser(user.telegramId);
-  } else {
-    await sendDailySummaryToUser(user.telegramId);
-  }
-}
-
 
 /**
  * Handle /testmodels command (admin only)
@@ -316,25 +246,6 @@ function setupHandlers(bot: TelegramBot) {
     }
   });
 
-  // /help command
-  bot.onText(/\/help/, async (msg) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from?.id;
-    if (userId) {
-      await handleHelpCommand(chatId, userId);
-    }
-  });
-
-  // /summary command - supports /summary, /summary tmrw
-  bot.onText(/\/summary(?:\s+(.+))?/, async (msg, match) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from?.id;
-    const args = match?.[1]?.trim();
-    if (userId) {
-      await handleSummaryCommand(chatId, userId, MessagingPlatform.TELEGRAM, args);
-    }
-  });
-
   // /testmodels command (admin only)
   bot.onText(/\/testmodels(?:\s+(.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
@@ -358,25 +269,6 @@ function setupHandlers(bot: TelegramBot) {
     }
   });
 
-  // /weather command - supports /weather, /weather std, /weather dtl
-  bot.onText(/\/weather(?:\s+(std|dtl))?/, async (msg, match) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from?.id;
-    const args = match?.[1]?.trim();
-    if (userId) {
-      await handleWeatherCommand(chatId, userId, MessagingPlatform.TELEGRAM, args);
-    }
-  });
-
-  // /calendars command - manage calendar selections
-  bot.onText(/\/calendars/, async (msg) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from?.id;
-    if (userId) {
-      await handleCalendarsCommand(chatId, userId, MessagingPlatform.TELEGRAM);
-    }
-  });
-
   // Handle callback queries from inline keyboard buttons
   bot.on('callback_query', async (query) => {
     const chatId = query.message?.chat.id;
@@ -391,12 +283,6 @@ function setupHandlers(bot: TelegramBot) {
       const modelId = parts[0];
       const timeframe = parts[1] || 'today'; // Default to 'today' if not specified
       await handleTestAICallback(chatId, userId, modelId, query.id, timeframe);
-    }
-
-    // Handle weather format selection callbacks
-    if (data.startsWith('weather:')) {
-      const format = data.replace('weather:', '');
-      await handleWeatherCallback(chatId, userId, format, query.id);
     }
   });
 }
@@ -877,165 +763,4 @@ export async function handleTestAICallback(
     const { notifyAdminError } = await import('../utils/error-notifier');
     await notifyAdminError('TestAI Callback', error);
   }
-}
-
-/**
- * Handle /weather command
- * Supports: /weather, /weather std, /weather dtl
- */
-export async function handleWeatherCommand(
-  chatId: number | string,
-  userId: number | string,
-  platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
-  args?: string
-): Promise<void> {
-  if (!(await isUserAuthorized(userId))) {
-    const service = platform === MessagingPlatform.TELEGRAM
-      ? getMessagingService()
-      : getMessagingServiceByPlatform(platform);
-    await service.sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
-    return;
-  }
-
-  const user = await getUserByIdentifier(userId);
-  if (!user) {
-    console.error(`User with ID ${userId} not found`);
-    return;
-  }
-
-  const messagingService = platform === MessagingPlatform.TELEGRAM
-    ? getMessagingService()
-    : getMessagingServiceByPlatform(platform);
-
-  // If no args provided
-  if (!args) {
-    // WhatsApp doesn't support inline keyboards
-    if (platform === MessagingPlatform.WHATSAPP) {
-      await messagingService.sendMessage(
-        chatId,
-        '🌤️ Please specify format:\n• "weather std" for standard\n• "weather dtl" for detailed'
-      );
-      return;
-    }
-
-    // Telegram: show inline keyboard
-    const botInstance = getBot();
-    const keyboard = {
-      inline_keyboard: [
-        [
-          { text: '📊 Standard', callback_data: 'weather:std' },
-          { text: '📈 Detailed', callback_data: 'weather:dtl' }
-        ]
-      ]
-    };
-
-    await messagingService.sendMessage(
-      chatId,
-      '🌤️ Choose weather report format:',
-      { replyMarkup: keyboard }
-    );
-    return;
-  }
-
-  // Handle format selection (called from callback or legacy command with args)
-  try {
-    const format = args.toLowerCase() === 'dtl' ? 'dtl' : 'std';
-
-    await messagingService.sendMessage(chatId, '🌤️ Fetching weather data...');
-
-    // Fetch weather data
-    const { fetchWeather } = await import('./weather/open-meteo');
-    const weatherData = await fetchWeather(user.location);
-
-    // Format weather based on requested format (translate only if user has language set)
-    const { formatWeatherStandard, formatWeatherDetailed } = await import('./weather/formatter');
-    const formattedWeather = format === 'dtl'
-      ? await formatWeatherDetailed(weatherData, user.language)
-      : await formatWeatherStandard(weatherData, user.language);
-
-    // Send formatted weather
-    await messagingService.sendMessage(chatId, formattedWeather, { format: MessageFormat.MARKDOWN });
-  } catch (error) {
-    console.error(`Error fetching weather for user ${userId}:`, error);
-    await messagingService.sendMessage(
-      chatId,
-      '❌ Sorry, there was an error fetching weather data. Please try again later.'
-    );
-
-    // Notify admin of weather failures
-    const { notifyAdminError } = await import('../utils/error-notifier');
-    await notifyAdminError(
-      'Weather Command',
-      error,
-      `User: ${userId}, Location: ${user.location}`
-    );
-  }
-}
-
-/**
- * Handle /calendars command - open calendar selection webapp
- */
-export async function handleCalendarsCommand(
-  chatId: number,
-  userId: number,
-  platform: MessagingPlatform = MessagingPlatform.TELEGRAM
-): Promise<void> {
-  if (!(await isUserAuthorized(userId))) {
-    const service = getMessagingService();
-    await service.sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
-    return;
-  }
-
-  const user = await getUserByTelegramId(userId);
-  if (!user) return;
-
-  if (!user.googleRefreshToken) {
-    // No token - need OAuth first
-    const refreshUrl = `https://famcalbot.vercel.app/api/refresh-token?user_id=${userId}`;
-    const message = `🔑 <b>Google Calendar Not Connected</b>\n\n` +
-      `You need to connect your Google Calendar first.\n\n` +
-      `Tap the button below:`;
-
-    await getMessagingService().sendMessage(chatId, message, {
-      format: MessageFormat.HTML,
-      replyMarkup: {
-        inline_keyboard: [[
-          { text: '🔐 Connect Google Calendar', url: refreshUrl }
-        ]]
-      }
-    });
-    return;
-  }
-
-  // Has token - open calendar selection webapp
-  const selectUrl = `https://famcalbot.vercel.app/api/select-calendars?user_id=${userId}`;
-  const message = `📅 <b>Calendar Settings</b>\n\n` +
-    `Manage which calendars to sync with your bot.\n\n` +
-    `Current selections:\n` +
-    `• Primary: ${user.primaryCalendar || 'Not set'}\n` +
-    `• Own calendars: ${user.ownCalendars?.length || 0}\n` +
-    `• Spouse calendars: ${user.spouseCalendars?.length || 0}\n\n` +
-    `Tap the button below to update:`;
-
-  await getMessagingService().sendMessage(chatId, message, {
-    format: MessageFormat.HTML,
-    replyMarkup: {
-      inline_keyboard: [[
-        { text: '📅 Select Calendars', url: selectUrl }
-      ]]
-    }
-  });
-}
-
-/**
- * Handle weather format selection callback
- */
-export async function handleWeatherCallback(chatId: number, userId: number, format: string, queryId: string): Promise<void> {
-  const botInstance = getBot();
-
-  // Answer the callback query to remove the loading state
-  await botInstance.answerCallbackQuery(queryId);
-
-  // Call handleWeatherCommand with the selected format
-  await handleWeatherCommand(chatId, userId, MessagingPlatform.TELEGRAM, format);
 }

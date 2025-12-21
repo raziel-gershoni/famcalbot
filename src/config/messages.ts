@@ -34,22 +34,31 @@ export const USER_MESSAGES = {
   UNAUTHORIZED: 'Sorry, you are not authorized to use this bot.',
   WELCOME: (name: string) => `Hello ${name}! 👋
 
-I'm your family calendar bot. I'll send you personalized daily summaries automatically:
-• Morning at 7 AM (today's schedule)
-• Evening (tomorrow's schedule)
+I'm your family calendar bot. All features are available through the webapp dashboard.
 
-You can also request summaries anytime with /summary or /summary tmrw.
-
-Need help? Use /help to see all commands.`,
-  HELP: `📋 Available Commands:
-
-/summary - Get today's calendar summary
-/summary tmrw - Get tomorrow's calendar summary
-/weather - Get weather forecast (std/dtl)
-/help - Show this help message
-/start - About this bot
+Use /start to open your dashboard and access:
+• 📅 Calendar summaries (today & tomorrow)
+• 🌤️ Weather forecasts
+• 📋 Calendar management
+• ⚙️ Settings & preferences
 
 You'll also receive automatic summaries:
-• Morning at 7 AM (today)
-• Evening (tomorrow)`,
+• Morning at 7 AM (today's schedule)
+• Evening (tomorrow's schedule)`,
+  HELP: `📱 <b>FamCalBot</b>
+
+All features are accessible through the webapp dashboard.
+Just send /start to open your dashboard!
+
+<b>Features:</b>
+• 📅 Calendar summaries (today & tomorrow)
+• 🌤️ Weather forecasts
+• 📋 Calendar management
+• ⚙️ Settings & preferences
+
+<b>Automated Features:</b>
+• Daily summary at 7 AM
+• Evening summary for tomorrow
+
+Use /start to get started!`,
 } as const;

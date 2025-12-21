@@ -30,6 +30,7 @@ model User {
   location          String  @default("Harish, Israel")
   language          String  @default("Hebrew")
   messagingPlatform String  @default("telegram") // 'telegram' | 'whatsapp' | 'all'
+  isAdmin           Boolean @default(false)       // Admin panel access
 
   // Calendar integration (shared token for now)
   googleRefreshToken String  @db.Text

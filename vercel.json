@@ -38,6 +38,18 @@
     {
       "src": "/api/admin(.*)",
       "dest": "/api/admin.ts"
+    },
+    {
+      "src": "/api/dashboard",
+      "dest": "/api/dashboard.ts"
+    },
+    {
+      "src": "/api/settings",
+      "dest": "/api/settings.ts"
+    },
+    {
+      "src": "/api/admin-panel",
+      "dest": "/api/admin-panel.ts"
     }
   ]
 }
