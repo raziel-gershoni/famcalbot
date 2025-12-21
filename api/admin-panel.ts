@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getUserByTelegramId } from '../src/services/user-service';
-import prisma from '../src/utils/prisma';
+import { prisma } from '../src/utils/prisma';
 
 /**
  * Admin Panel Webapp
