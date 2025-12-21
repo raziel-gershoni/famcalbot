@@ -1,12 +1,6 @@
 {
   "version": 2,
-  "installCommand": "npm install && npx prisma generate && npx prisma migrate deploy",
-  "builds": [
-    {
-      "src": "api/**/*.ts",
-      "use": "@vercel/node"
-    }
-  ],
+  "installCommand": "npm ci && npx prisma generate && npx prisma migrate deploy",
   "routes": [
     {
       "src": "/api/daily-summary",
