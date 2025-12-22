@@ -12,7 +12,7 @@ export default async function handler(
   // Safety check - only allow with secret token
   const { token } = req.query;
 
-  if (token !== process.env.ADMIN_SECRET_TOKEN) {
+  if (token !== process.env.CRON_SECRET) {
     res.status(403).json({ error: 'Unauthorized' });
     return;
   }
