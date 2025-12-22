@@ -45,6 +45,14 @@
     {
       "src": "/api/admin-panel",
       "dest": "/api/admin-panel.ts"
+    },
+    {
+      "src": "/api/reset-db",
+      "dest": "/api/reset-db.ts"
+    },
+    {
+      "src": "/api/seed-users",
+      "dest": "/api/seed-users.ts"
     }
   ]
 }
