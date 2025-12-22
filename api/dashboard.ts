@@ -244,11 +244,11 @@ export default async function handler(
               <div class="section">
                 <h2 class="section-title">📅 Calendar Summary</h2>
                 <div class="button-group">
-                  <button class="action-button" onclick="getSummary('today')">
+                  <button class="action-button" onclick="getSummary('today', event)">
                     <span class="icon">☀️</span>
                     <span>Today</span>
                   </button>
-                  <button class="action-button" onclick="getSummary('tmrw')">
+                  <button class="action-button" onclick="getSummary('tmrw', event)">
                     <span class="icon">🌙</span>
                     <span>Tomorrow</span>
                   </button>
@@ -260,11 +260,11 @@ export default async function handler(
                 <h2 class="section-title">🌤️ Weather Forecast</h2>
                 <p class="section-subtitle">${user.location}</p>
                 <div class="button-group">
-                  <button class="action-button" onclick="getWeather('std')">
+                  <button class="action-button" onclick="getWeather('std', event)">
                     <span class="icon">📊</span>
                     <span>Standard</span>
                   </button>
-                  <button class="action-button" onclick="getWeather('dtl')">
+                  <button class="action-button" onclick="getWeather('dtl', event)">
                     <span class="icon">📋</span>
                     <span>Detailed</span>
                   </button>
@@ -292,18 +292,71 @@ export default async function handler(
           tg.setHeaderColor('#667eea');
           tg.setBackgroundColor('#ffffff');
 
-          function getSummary(timeframe) {
-            const command = timeframe === 'today' ? '/summary' : '/summary tmrw';
-            const deepLink = \`https://t.me/${botUsername}?text=\${encodeURIComponent(command)}\`;
-            tg.openLink(deepLink);
-            tg.close();
+          async function executeCommand(command, args, event) {
+            const button = event.target.closest('.action-button');
+            const originalHTML = button.innerHTML;
+            const labelElement = button.querySelector('span:last-child');
+            const iconElement = button.querySelector('.icon');
+
+            try {
+              // Show loading state
+              button.disabled = true;
+              if (iconElement) iconElement.textContent = '⏳';
+              if (labelElement) labelElement.textContent = 'Sending...';
+              button.style.opacity = '0.6';
+
+              // Call API endpoint
+              const response = await fetch('/api/execute-command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  user_id: ${userId},
+                  command: command,
+                  args: args,
+                  secret: '${process.env.CRON_SECRET}'
+                })
+              });
+
+              const data = await response.json();
+
+              if (!response.ok) {
+                throw new Error(data.error || 'Failed to execute command');
+              }
+
+              // Show success
+              if (iconElement) iconElement.textContent = '✓';
+              if (labelElement) labelElement.textContent = 'Sent!';
+              button.style.background = '#22c55e';
+              button.style.borderColor = '#22c55e';
+              button.style.color = 'white';
+
+              // Auto-close after 1.5 seconds
+              setTimeout(() => tg.close(), 1500);
+
+            } catch (error) {
+              // Show error
+              if (iconElement) iconElement.textContent = '✗';
+              if (labelElement) labelElement.textContent = 'Error';
+              button.style.background = '#ef4444';
+              button.style.borderColor = '#ef4444';
+              button.style.color = 'white';
+              console.error('Command failed:', error);
+
+              // Restore after 2 seconds
+              setTimeout(() => {
+                button.innerHTML = originalHTML;
+                button.style = '';
+                button.disabled = false;
+              }, 2000);
+            }
           }
 
-          function getWeather(format) {
-            const command = \`/weather \${format}\`;
-            const deepLink = \`https://t.me/${botUsername}?text=\${encodeURIComponent(command)}\`;
-            tg.openLink(deepLink);
-            tg.close();
+          function getSummary(timeframe, event) {
+            executeCommand('summary', timeframe === 'tmrw' ? 'tmrw' : undefined, event);
+          }
+
+          function getWeather(format, event) {
+            executeCommand('weather', format, event);
           }
 
           function openCalendarSettings() {

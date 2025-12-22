@@ -328,10 +328,10 @@ export default async function handler(
             <div class="section">
               <h2 class="section-title">🤖 AI Model Testing</h2>
               <div class="button-group">
-                <button class="action-button" onclick="testModel('today')">
+                <button class="action-button" onclick="testModel('today', event)">
                   Test Today
                 </button>
-                <button class="action-button" onclick="testModel('tmrw')">
+                <button class="action-button" onclick="testModel('tmrw', event)">
                   Test Tomorrow
                 </button>
               </div>
@@ -407,11 +407,55 @@ export default async function handler(
           tg.setHeaderColor('#ef4444');
           tg.setBackgroundColor('#ffffff');
 
-          function testModel(timeframe) {
-            const command = timeframe === 'today' ? '/testai' : '/testai tmrw';
-            const deepLink = \`https://t.me/${botUsername}?text=\${encodeURIComponent(command)}\`;
-            tg.openLink(deepLink);
-            tg.close();
+          async function testModel(timeframe, event) {
+            const button = event.target;
+            const originalText = button.textContent;
+
+            try {
+              // Show loading state
+              button.disabled = true;
+              button.textContent = 'Sending...';
+              button.style.opacity = '0.6';
+
+              // Call API endpoint
+              const response = await fetch('/api/execute-command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  user_id: ${userId},
+                  command: 'testai',
+                  args: timeframe === 'tmrw' ? 'tmrw' : undefined,
+                  secret: '${process.env.CRON_SECRET}'
+                })
+              });
+
+              const data = await response.json();
+
+              if (!response.ok) {
+                throw new Error(data.error || 'Failed to execute command');
+              }
+
+              // Show success
+              button.textContent = '✓ Sent!';
+              button.style.background = '#22c55e';
+
+              // Auto-close after 1 second
+              setTimeout(() => tg.close(), 1000);
+
+            } catch (error) {
+              // Show error
+              button.textContent = '✗ Error';
+              button.style.background = '#ef4444';
+              console.error('Command failed:', error);
+
+              // Restore after 2 seconds
+              setTimeout(() => {
+                button.textContent = originalText;
+                button.style.background = '';
+                button.style.opacity = '';
+                button.disabled = false;
+              }, 2000);
+            }
           }
 
           function openUserDashboard() {

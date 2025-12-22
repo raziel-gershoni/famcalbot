@@ -41,6 +41,10 @@
     {
       "src": "/api/seed-users",
       "dest": "/api/seed-users.ts"
+    },
+    {
+      "src": "/api/execute-command",
+      "dest": "/api/execute-command.ts"
     }
   ]
 }
