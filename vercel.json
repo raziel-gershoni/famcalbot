@@ -15,14 +15,6 @@
       "dest": "/api/webhook.ts"
     },
     {
-      "src": "/api/health-check",
-      "dest": "/api/health-check.ts"
-    },
-    {
-      "src": "/api/privacy",
-      "dest": "/api/privacy.ts"
-    },
-    {
       "src": "/api/refresh-token",
       "dest": "/api/refresh-token.ts"
     },
@@ -45,10 +37,6 @@
     {
       "src": "/api/admin-panel",
       "dest": "/api/admin-panel.ts"
-    },
-    {
-      "src": "/api/reset-db",
-      "dest": "/api/reset-db.ts"
     },
     {
       "src": "/api/seed-users",
