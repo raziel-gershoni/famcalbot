@@ -1,0 +1,134 @@
+{
+  "common": {
+    "appName": "FamCalBot",
+    "loading": "Loading...",
+    "sending": "Sending...",
+    "sent": "Sent!",
+    "success": "Success!",
+    "error": "Error",
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "back": "Back",
+    "next": "Next",
+    "done": "Done",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "dashboard": {
+    "title": "FamCalBot",
+    "subtitle": "Family Calendar Bot",
+    "welcomeMessage": "This is a Telegram Web App. Open it through your Telegram bot.",
+    "setup": {
+      "connectGoogle": "Connect Google Calendar",
+      "connectGoogleDesc": "Link your Google account to get started with calendar summaries",
+      "selectCalendars": "Select Your Calendars",
+      "selectCalendarsDesc": "Choose which calendars to sync with your bot"
+    },
+    "summary": {
+      "title": "Calendar Summary",
+      "today": "Today",
+      "tomorrow": "Tomorrow"
+    },
+    "weather": {
+      "title": "Weather Forecast",
+      "standard": "Standard",
+      "detailed": "Detailed"
+    },
+    "settings": {
+      "title": "Calendar Settings",
+      "calendars": "{count} calendars synced"
+    }
+  },
+  "adminPanel": {
+    "title": "Admin Panel",
+    "badge": "ADMIN",
+    "unauthorized": {
+      "title": "Unauthorized",
+      "message": "This area is restricted to administrators only."
+    },
+    "testing": {
+      "title": "AI Model Testing",
+      "testToday": "Test Today",
+      "testTomorrow": "Test Tomorrow"
+    },
+    "stats": {
+      "title": "User Statistics",
+      "totalUsers": "Total Users",
+      "withOAuth": "With OAuth",
+      "withCalendars": "With Calendars",
+      "needSetup": "Need Setup",
+      "recentUsers": "Recent Users"
+    },
+    "health": {
+      "title": "System Health",
+      "database": "Database Connection",
+      "setupCompletion": "Setup Completion"
+    },
+    "actions": {
+      "openDashboard": "Open User Dashboard"
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "personal": {
+      "title": "Personal Information",
+      "name": "Name",
+      "hebrewName": "Hebrew Name",
+      "gender": "Gender",
+      "male": "Male",
+      "female": "Female",
+      "location": "Location",
+      "locationPlaceholder": "Enter your location (e.g., Tel Aviv)"
+    },
+    "spouse": {
+      "title": "Spouse Information",
+      "name": "Spouse Name",
+      "hebrewName": "Spouse Hebrew Name",
+      "gender": "Spouse Gender"
+    },
+    "preferences": {
+      "title": "Preferences",
+      "language": "Language",
+      "primaryCalendar": "Primary Calendar"
+    },
+    "actions": {
+      "save": "Save Settings",
+      "saving": "Saving...",
+      "saved": "Settings Saved!",
+      "error": "Failed to save settings"
+    }
+  },
+  "calendars": {
+    "title": "Select Calendars",
+    "subtitle": "Choose which calendars to sync",
+    "loading": "Loading your calendars...",
+    "noCalendars": "No calendars found",
+    "ownership": {
+      "title": "Calendar Ownership",
+      "own": "Your Calendar",
+      "spouse": "Spouse's Calendar",
+      "other": "Other Calendar"
+    },
+    "actions": {
+      "save": "Save Calendar Selection",
+      "saving": "Saving...",
+      "saved": "Calendars Saved!",
+      "error": "Failed to save calendars"
+    }
+  },
+  "oauth": {
+    "title": "Connect Google Calendar",
+    "description": "Authorize access to your Google Calendar to receive daily summaries",
+    "authorize": "Authorize Google Calendar",
+    "success": "Successfully connected!",
+    "error": "Authorization failed",
+    "redirecting": "Redirecting..."
+  },
+  "errors": {
+    "unauthorized": "You are not authorized to use this bot",
+    "userNotFound": "User not found",
+    "missingParameter": "Missing required parameter",
+    "generic": "Something went wrong. Please try again."
+  }
+}

@@ -1,0 +1,94 @@
+interface HeaderProps {
+  title: string;
+  userName?: string;
+  onSettingsClick?: () => void;
+  backgroundColor?: string;
+  isAdmin?: boolean;
+}
+
+/**
+ * Header Component
+ * Common header for all webapp pages
+ */
+export default function Header({
+  title,
+  userName,
+  onSettingsClick,
+  backgroundColor = '#667eea',
+  isAdmin = false,
+}: HeaderProps) {
+  const bgGradient = isAdmin
+    ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
+    : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+
+  return (
+    <header style={{ background: bgGradient }}>
+      <style jsx>{`
+        header {
+          color: white;
+          padding: 20px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        h1 {
+          font-size: 24px;
+          font-weight: 600;
+          margin: 0;
+        }
+
+        .user-info {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          font-size: 16px;
+        }
+
+        .admin-badge {
+          background: rgba(255, 255, 255, 0.3);
+          padding: 6px 12px;
+          border-radius: 12px;
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 1px;
+        }
+
+        .settings-icon {
+          background: rgba(255, 255, 255, 0.2);
+          border: none;
+          color: white;
+          font-size: 24px;
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: background 0.2s;
+        }
+
+        .settings-icon:hover {
+          background: rgba(255, 255, 255, 0.3);
+        }
+      `}</style>
+
+      <h1>{title}</h1>
+
+      <div className="user-info">
+        {isAdmin && <div className="admin-badge">ADMIN</div>}
+        {userName && <span>{userName}</span>}
+        {onSettingsClick && (
+          <button
+            className="settings-icon"
+            onClick={onSettingsClick}
+            aria-label="Settings"
+          >
+            ⚙️
+          </button>
+        )}
+      </div>
+    </header>
+  );
+}

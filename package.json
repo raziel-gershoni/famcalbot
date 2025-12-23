@@ -4,10 +4,12 @@
   "description": "Family Calendar Telegram Bot with Google Calendar and Claude AI",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
-    "vercel-build": "prisma generate && prisma migrate deploy",
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
+    "dev": "tsx scripts/dev.ts",
+    "dev:next": "next dev",
+    "dev:bot": "tsx src/index.ts",
+    "build": "next build",
+    "start": "next start",
+    "vercel-build": "prisma generate && prisma migrate deploy && next build",
     "type-check": "tsc --noEmit",
     "get-google-token": "tsx scripts/get-google-token.ts",
     "setup-webhook": "tsx scripts/setup-webhook.ts"
@@ -34,14 +36,21 @@
     "dotenv": "^17.2.3",
     "googleapis": "^164.1.0",
     "hebcal": "^2.3.2",
+    "next": "^16.1.1",
+    "next-intl": "^4.6.1",
     "node-telegram-bot-api": "^0.66.0",
     "openai": "^6.9.1",
-    "prisma": "^5.22.0"
+    "prisma": "^5.22.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",
     "@types/node-telegram-bot-api": "^0.64.7",
     "@vercel/node": "^5.5.4",
+    "eslint": "^9.39.2",
+    "eslint-config-next": "^16.1.1",
+    "prettier": "^3.7.4",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   },

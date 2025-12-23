@@ -25,6 +25,8 @@ let messagingService: IMessagingService | null = null;
 
 /**
  * Initialize the Telegram bot
+ * In development: uses polling mode
+ * In production: uses webhook mode (no polling)
  */
 export function initBot(): TelegramBot {
   if (bot) {
@@ -36,9 +38,18 @@ export function initBot(): TelegramBot {
     throw new Error('TELEGRAM_BOT_TOKEN is not set');
   }
 
-  bot = new TelegramBot(token, { polling: true });
+  const isDevelopment = process.env.NODE_ENV === 'development';
 
-  setupHandlers(bot);
+  if (isDevelopment) {
+    // Development mode: use polling
+    bot = new TelegramBot(token, { polling: true });
+    setupHandlers(bot);
+    console.log('🤖 Telegram bot initialized in POLLING mode (development)');
+  } else {
+    // Production mode: no polling (webhook-based)
+    bot = new TelegramBot(token);
+    console.log('🤖 Telegram bot initialized in WEBHOOK mode (production)');
+  }
 
   return bot;
 }

@@ -1,0 +1,134 @@
+{
+  "common": {
+    "appName": "בוט לוח שנה משפחתי",
+    "loading": "טוען...",
+    "sending": "שולח...",
+    "sent": "נשלח!",
+    "success": "הצלחה!",
+    "error": "שגיאה",
+    "save": "שמור",
+    "cancel": "ביטול",
+    "close": "סגור",
+    "back": "חזור",
+    "next": "הבא",
+    "done": "סיום",
+    "yes": "כן",
+    "no": "לא"
+  },
+  "dashboard": {
+    "title": "בוט לוח שנה משפחתי",
+    "subtitle": "בוט לוח שנה משפחתי",
+    "welcomeMessage": "זוהי אפליקציית אינטרנט של טלגרם. פתח אותה דרך הבוט שלך בטלגרם.",
+    "setup": {
+      "connectGoogle": "חיבור ליומן Google",
+      "connectGoogleDesc": "קשר את חשבון Google שלך כדי להתחיל לקבל סיכומי לוח שנה",
+      "selectCalendars": "בחר את היומנים שלך",
+      "selectCalendarsDesc": "בחר אילו יומנים לסנכרן עם הבוט"
+    },
+    "summary": {
+      "title": "סיכום לוח שנה",
+      "today": "היום",
+      "tomorrow": "מחר"
+    },
+    "weather": {
+      "title": "תחזית מזג אוויר",
+      "standard": "רגיל",
+      "detailed": "מפורט"
+    },
+    "settings": {
+      "title": "הגדרות לוח שנה",
+      "calendars": "{count} יומנים מסונכרנים"
+    }
+  },
+  "adminPanel": {
+    "title": "פאנל ניהול",
+    "badge": "מנהל",
+    "unauthorized": {
+      "title": "לא מורשה",
+      "message": "אזור זה מוגבל למנהלים בלבד."
+    },
+    "testing": {
+      "title": "בדיקת מודלים AI",
+      "testToday": "בדוק היום",
+      "testTomorrow": "בדוק מחר"
+    },
+    "stats": {
+      "title": "סטטיסטיקות משתמשים",
+      "totalUsers": "סה\"כ משתמשים",
+      "withOAuth": "עם OAuth",
+      "withCalendars": "עם יומנים",
+      "needSetup": "צריכים הגדרה",
+      "recentUsers": "משתמשים אחרונים"
+    },
+    "health": {
+      "title": "בריאות המערכת",
+      "database": "חיבור למסד נתונים",
+      "setupCompletion": "השלמת הגדרה"
+    },
+    "actions": {
+      "openDashboard": "פתח לוח בקרה למשתמש"
+    }
+  },
+  "settings": {
+    "title": "הגדרות",
+    "personal": {
+      "title": "מידע אישי",
+      "name": "שם",
+      "hebrewName": "שם עברי",
+      "gender": "מין",
+      "male": "זכר",
+      "female": "נקבה",
+      "location": "מיקום",
+      "locationPlaceholder": "הזן את המיקום שלך (לדוגמה, תל אביב)"
+    },
+    "spouse": {
+      "title": "מידע על בן/בת זוג",
+      "name": "שם בן/בת זוג",
+      "hebrewName": "שם עברי של בן/בת זוג",
+      "gender": "מין בן/בת זוג"
+    },
+    "preferences": {
+      "title": "העדפות",
+      "language": "שפה",
+      "primaryCalendar": "יומן ראשי"
+    },
+    "actions": {
+      "save": "שמור הגדרות",
+      "saving": "שומר...",
+      "saved": "הגדרות נשמרו!",
+      "error": "שמירת ההגדרות נכשלה"
+    }
+  },
+  "calendars": {
+    "title": "בחר יומנים",
+    "subtitle": "בחר אילו יומנים לסנכרן",
+    "loading": "טוען את היומנים שלך...",
+    "noCalendars": "לא נמצאו יומנים",
+    "ownership": {
+      "title": "בעלות על יומן",
+      "own": "היומן שלך",
+      "spouse": "יומן בן/בת זוג",
+      "other": "יומן אחר"
+    },
+    "actions": {
+      "save": "שמור בחירת יומנים",
+      "saving": "שומר...",
+      "saved": "יומנים נשמרו!",
+      "error": "שמירת היומנים נכשלה"
+    }
+  },
+  "oauth": {
+    "title": "התחבר ליומן Google",
+    "description": "אשר גישה ליומן Google שלך כדי לקבל סיכומים יומיים",
+    "authorize": "אשר יומן Google",
+    "success": "התחברות הצליחה!",
+    "error": "ההרשאה נכשלה",
+    "redirecting": "מעביר..."
+  },
+  "errors": {
+    "unauthorized": "אינך מורשה להשתמש בבוט זה",
+    "userNotFound": "משתמש לא נמצא",
+    "missingParameter": "חסר פרמטר נדרש",
+    "generic": "משהו השתבש. אנא נסה שוב."
+  }
+}
