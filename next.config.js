@@ -4,17 +4,14 @@ const withNextIntl = require('next-intl/plugin')();
 const nextConfig = {
   // Enable experimental features for App Router
   experimental: {
-    serverActions: true,
+    serverActions: {
+      bodySizeLimit: '2mb',
+    },
   },
 
   // Disable type checking during build (we'll do it separately)
   typescript: {
     ignoreBuildErrors: false,
-  },
-
-  // Disable ESLint during build (run separately)
-  eslint: {
-    ignoreDuringBuilds: false,
   },
 
   // Environment variables available to the client
