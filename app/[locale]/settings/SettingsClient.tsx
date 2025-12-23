@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
+import { TelegramLayout } from '@/components/Layout';
 
 interface SettingsClientProps {
   userId: number;
@@ -81,16 +82,13 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
 
   if (formState === 'success') {
     return (
-      <>
+      <TelegramLayout>
         <style jsx>{`
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          .success-container {
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin: 0;
             padding: 20px;
           }
           .success-box {
@@ -108,24 +106,20 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
           h1 { color: #22c55e; margin: 0 0 10px 0; }
           p { color: #666; }
         `}</style>
-        <div className="success-box">
-          <div className="icon">✅</div>
-          <h1>{t('actions.saved')}</h1>
-          <p>{t('successMessage')}</p>
+        <div className="success-container">
+          <div className="success-box">
+            <div className="icon">✅</div>
+            <h1>{t('actions.saved')}</h1>
+            <p>{t('successMessage')}</p>
+          </div>
         </div>
-      </>
+      </TelegramLayout>
     );
   }
 
   return (
-    <>
+    <TelegramLayout>
       <style jsx>{`
-        * {
-          margin: 0;
-          padding: 0;
-          box-sizing: border-box;
-        }
-
         .container {
           max-width: 600px;
           margin: 0 auto;
@@ -291,6 +285,6 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
           </form>
         </div>
       </div>
-    </>
+    </TelegramLayout>
   );
 }

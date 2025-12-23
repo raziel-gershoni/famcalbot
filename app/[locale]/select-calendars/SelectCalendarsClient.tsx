@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { TelegramLayout } from '@/components/Layout';
 
 interface Calendar {
   id: string;
@@ -46,14 +47,6 @@ export default function SelectCalendarsClient({
           .map(cal => cal.id)
   );
   const [spouseCalendars, setSpouseCalendars] = useState<string[]>(currentSelections.spouse);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-      const tg = window.Telegram.WebApp;
-      tg.expand();
-      tg.ready();
-    }
-  }, []);
 
   const handlePrimaryChange = (calendarId: string) => {
     setPrimary(calendarId);
@@ -132,16 +125,13 @@ export default function SelectCalendarsClient({
 
   if (formState === 'success') {
     return (
-      <>
+      <TelegramLayout>
         <style jsx>{`
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          .success-container {
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin: 0;
             padding: 20px;
           }
           .container { max-width: 500px; width: 100%; }
@@ -170,29 +160,28 @@ export default function SelectCalendarsClient({
             margin: 20px 0;
           }
         `}</style>
-        <div className="container">
-          <div className="success-box">
-            <div className="icon">✅</div>
-            <h1>{t('actions.saved')}</h1>
-            <div className="user-info">
-              <strong>{userName}</strong><br />
-              {t('successMessage')}
+        <div className="success-container">
+          <div className="container">
+            <div className="success-box">
+              <div className="icon">✅</div>
+              <h1>{t('actions.saved')}</h1>
+              <div className="user-info">
+                <strong>{userName}</strong><br />
+                {t('successMessage')}
+              </div>
             </div>
           </div>
         </div>
-      </>
+      </TelegramLayout>
     );
   }
 
   return (
-    <>
+    <TelegramLayout>
       <style jsx>{`
-        body {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        .page-container {
           min-height: 100vh;
           padding: 20px;
-          margin: 0;
         }
         .container {
           max-width: 600px;
@@ -303,7 +292,8 @@ export default function SelectCalendarsClient({
         }
       `}</style>
 
-      <div className="container">
+      <div className="page-container">
+        <div className="container">
         <h1>{t('title')}</h1>
         <p className="subtitle">{t('subtitle')}</p>
 
@@ -403,7 +393,8 @@ export default function SelectCalendarsClient({
             {formState === 'idle' && t('actions.save')}
           </button>
         </form>
+        </div>
       </div>
-    </>
+    </TelegramLayout>
   );
 }

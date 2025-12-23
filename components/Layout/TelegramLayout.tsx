@@ -30,20 +30,24 @@ export default function TelegramLayout({
 
   return (
     <div className="telegram-webapp">
-      <style jsx>{`
+      <style jsx global>{`
+        @import url('https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&display=swap');
+
         .telegram-webapp {
           min-height: 100vh;
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
 
-        :global(body) {
+        body {
           margin: 0;
           padding: 0;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto',
-            'Helvetica', 'Arial', sans-serif;
+          font-family: 'Rubik', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+            'Roboto', 'Helvetica Neue', Arial, sans-serif;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
         }
 
-        :global(*) {
+        * {
           margin: 0;
           padding: 0;
           box-sizing: border-box;
