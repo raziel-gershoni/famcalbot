@@ -6,16 +6,31 @@ import { CalendarEvent, UserConfig } from '../types';
 import { USER_MESSAGES } from '../config/messages';
 import { ADMIN_USER_ID } from '../config/constants';
 import { IMessagingService, getTelegramService, getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from './messaging';
+import { getCalendarsByLabel } from '../utils/calendar-helpers';
 
 /**
  * Categorize events by ownership for a specific user
+ * Supports both new calendarAssignments format and legacy fields
  */
 function categorizeEvents(events: CalendarEvent[], user: UserConfig) {
+  let ownCalendars: string[];
+  let spouseCalendars: string[];
+
+  // Use new calendarAssignments if available, otherwise fall back to legacy fields
+  if (user.calendarAssignments && user.calendarAssignments.length > 0) {
+    ownCalendars = getCalendarsByLabel(user.calendarAssignments, 'yours');
+    spouseCalendars = getCalendarsByLabel(user.calendarAssignments, 'spouse');
+  } else {
+    // Legacy fallback
+    ownCalendars = user.ownCalendars || [];
+    spouseCalendars = user.spouseCalendars || [];
+  }
+
   return {
-    userEvents: events.filter(e => user.ownCalendars.includes(e.calendarId)),
-    spouseEvents: events.filter(e => user.spouseCalendars.includes(e.calendarId)),
+    userEvents: events.filter(e => ownCalendars.includes(e.calendarId)),
+    spouseEvents: events.filter(e => spouseCalendars.includes(e.calendarId)),
     otherEvents: events.filter(
-      e => !user.ownCalendars.includes(e.calendarId) && !user.spouseCalendars.includes(e.calendarId)
+      e => !ownCalendars.includes(e.calendarId) && !spouseCalendars.includes(e.calendarId)
     ),
   };
 }

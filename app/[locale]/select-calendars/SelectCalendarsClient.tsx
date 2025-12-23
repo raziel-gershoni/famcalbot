@@ -3,6 +3,9 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { TelegramLayout } from '@/components/Layout';
+import CategoryIcon from '@/components/Forms/CategoryIcon';
+import { CalendarLabel, CalendarAssignment } from '@/src/types';
+import { validateCalendarAssignments } from '@/src/utils/calendar-helpers';
 
 interface Calendar {
   id: string;
@@ -18,9 +21,8 @@ interface SelectCalendarsClientProps {
   userName: string;
   availableCalendars: Calendar[];
   currentSelections: {
-    primary: string;
-    own: string[];
-    spouse: string[];
+    selectedCalendars: Set<string>;
+    calendarLabels: Map<string, Set<CalendarLabel>>;
   };
 }
 
@@ -34,80 +36,152 @@ export default function SelectCalendarsClient({
 }: SelectCalendarsClientProps) {
   const t = useTranslations('calendars');
   const [formState, setFormState] = useState<FormState>('idle');
-  const [primary, setPrimary] = useState(
-    currentSelections.primary ||
-    availableCalendars.find(cal => cal.primary)?.id ||
-    ''
+  const [selectedCalendars, setSelectedCalendars] = useState<Set<string>>(
+    currentSelections.selectedCalendars
   );
-  const [ownCalendars, setOwnCalendars] = useState<string[]>(
-    currentSelections.own.length > 0
-      ? currentSelections.own
-      : availableCalendars
-          .filter(cal => cal.accessRole === 'owner' || cal.accessRole === 'writer')
-          .map(cal => cal.id)
+  const [calendarLabels, setCalendarLabels] = useState<Map<string, Set<CalendarLabel>>>(
+    currentSelections.calendarLabels
   );
-  const [spouseCalendars, setSpouseCalendars] = useState<string[]>(currentSelections.spouse);
 
-  const handlePrimaryChange = (calendarId: string) => {
-    setPrimary(calendarId);
-    // Auto-check in "Own Calendars" when selected as primary
-    if (!ownCalendars.includes(calendarId)) {
-      setOwnCalendars([...ownCalendars, calendarId]);
+  // Toggle calendar checkbox
+  const handleCalendarToggle = (calendarId: string) => {
+    setSelectedCalendars(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(calendarId)) {
+        // Unchecking: Remove from selected AND remove all labels
+        newSet.delete(calendarId);
+        setCalendarLabels(prevLabels => {
+          const newLabels = new Map(prevLabels);
+          newLabels.delete(calendarId);
+          return newLabels;
+        });
+      } else {
+        // Checking: Add to selected (no labels yet)
+        newSet.add(calendarId);
+      }
+      return newSet;
+    });
+  };
+
+  // Toggle category label
+  const handleLabelToggle = (calendarId: string, label: CalendarLabel) => {
+    setCalendarLabels(prev => {
+      const newLabels = new Map(prev);
+      const labels = new Set(newLabels.get(calendarId) || []);
+
+      if (label === 'primary') {
+        // Radio behavior: Remove primary from all others
+        for (const [otherCalId, otherLabels] of newLabels) {
+          if (otherCalId !== calendarId) {
+            otherLabels.delete('primary');
+          }
+        }
+        // Add to this calendar
+        labels.add('primary');
+        // Force-add 'yours' as well (primary must be in yours)
+        labels.add('yours');
+      } else {
+        // Toggle behavior
+        if (labels.has(label)) {
+          // Removing: Check if primary+yours edge case
+          if (label === 'yours' && labels.has('primary')) {
+            alert(t('validation.primaryMustBeYours'));
+            return prev; // Don't remove
+          }
+          labels.delete(label);
+        } else {
+          // Adding: Check mutual exclusivity
+          const mutuallyExclusive: CalendarLabel[] = ['yours', 'spouse', 'kids', 'birthdays'];
+          for (const other of mutuallyExclusive) {
+            if (other !== label && labels.has(other)) {
+              labels.delete(other); // Auto-remove conflicting label
+            }
+          }
+          labels.add(label);
+        }
+      }
+
+      newLabels.set(calendarId, labels);
+      return newLabels;
+    });
+  };
+
+  // Validation before submit
+  const validateSelection = (): { valid: boolean; error?: string } => {
+    // At least one calendar must be selected
+    if (selectedCalendars.size === 0) {
+      return { valid: false, error: t('validation.noneSelected') };
     }
-  };
 
-  const handleOwnCalendarToggle = (calendarId: string) => {
-    setOwnCalendars(prev =>
-      prev.includes(calendarId)
-        ? prev.filter(id => id !== calendarId)
-        : [...prev, calendarId]
-    );
-  };
+    // At least one calendar must have 'yours' label
+    const hasYours = Array.from(calendarLabels.values())
+      .some(labels => labels.has('yours'));
+    if (!hasYours) {
+      return { valid: false, error: t('validation.yours') };
+    }
 
-  const handleSpouseCalendarToggle = (calendarId: string) => {
-    setSpouseCalendars(prev =>
-      prev.includes(calendarId)
-        ? prev.filter(id => id !== calendarId)
-        : [...prev, calendarId]
-    );
+    // Must have exactly one primary
+    const primaryCount = Array.from(calendarLabels.values())
+      .filter(labels => labels.has('primary')).length;
+    if (primaryCount === 0) {
+      return { valid: false, error: t('validation.primary') };
+    }
+
+    return { valid: true };
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Validation
-    if (!primary) {
-      alert(t('validation.primary'));
-      return;
-    }
-
-    if (ownCalendars.length === 0) {
-      alert(t('validation.own'));
+    const validation = validateSelection();
+    if (!validation.valid) {
+      alert(validation.error);
       return;
     }
 
     setFormState('submitting');
 
     try {
+      // Build calendarAssignments array
+      const calendarAssignments: CalendarAssignment[] = Array.from(selectedCalendars).map(calId => {
+        const calendar = availableCalendars.find(c => c.id === calId);
+        const labels = Array.from(calendarLabels.get(calId) || []);
+
+        return {
+          calendarId: calId,
+          labels: labels,
+          name: calendar?.name || calId,
+          color: calendar?.backgroundColor || '#4285f4'
+        };
+      });
+
+      // Server-side validation
+      const serverValidation = validateCalendarAssignments(calendarAssignments);
+      if (!serverValidation.valid) {
+        alert(serverValidation.errors[0]);
+        setFormState('idle');
+        return;
+      }
+
       const response = await fetch(`/api/select-calendars?user_id=${userId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          primary,
-          own_calendars: ownCalendars,
-          spouse_calendars: spouseCalendars
+          calendarAssignments
         })
       });
 
       if (!response.ok) {
-        throw new Error('Failed to save calendars');
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to save calendars');
       }
 
       setFormState('success');
 
       // Auto-close after 2 seconds
       setTimeout(() => {
-        if (window.Telegram?.WebApp) {
+        if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
           window.Telegram.WebApp.close();
         }
       }, 2000);
@@ -134,13 +208,13 @@ export default function SelectCalendarsClient({
             justify-content: center;
             padding: 20px;
           }
-          .container { max-width: 500px; width: 100%; }
           .success-box {
             background: white;
             padding: 40px;
             border-radius: 15px;
             box-shadow: 0 10px 40px rgba(0,0,0,0.2);
             text-align: center;
+            max-width: 500px;
           }
           .icon {
             font-size: 64px;
@@ -161,14 +235,12 @@ export default function SelectCalendarsClient({
           }
         `}</style>
         <div className="success-container">
-          <div className="container">
-            <div className="success-box">
-              <div className="icon">✅</div>
-              <h1>{t('actions.saved')}</h1>
-              <div className="user-info">
-                <strong>{userName}</strong><br />
-                {t('successMessage')}
-              </div>
+          <div className="success-box">
+            <div className="icon">✅</div>
+            <h1>{t('actions.saved')}</h1>
+            <div className="user-info">
+              <strong>{userName}</strong><br />
+              {t('successMessage')}
             </div>
           </div>
         </div>
@@ -198,59 +270,68 @@ export default function SelectCalendarsClient({
         }
         .subtitle {
           color: #6b7280;
-          margin-bottom: 30px;
+          margin-bottom: 20px;
+          font-size: 14px;
         }
-        .section {
-          margin-bottom: 30px;
+        .help-text {
+          color: #6b7280;
+          font-size: 13px;
+          margin-bottom: 20px;
+          padding: 12px;
+          background: #f9fafb;
+          border-radius: 8px;
+          border-left: 3px solid #667eea;
         }
-        .section-title {
-          font-weight: 600;
-          color: #374151;
-          margin-bottom: 15px;
-          font-size: 16px;
+        .calendar-list {
+          margin-bottom: 30px;
         }
         .calendar-item {
-          display: flex;
-          align-items: center;
-          padding: 12px;
           border: 2px solid #e5e7eb;
-          border-radius: 8px;
-          margin-bottom: 10px;
-          cursor: pointer;
+          border-radius: 12px;
+          padding: 16px;
+          margin-bottom: 12px;
           transition: all 0.2s;
-        }
-        .calendar-item:hover {
-          border-color: #667eea;
-          background: #f9fafb;
         }
         .calendar-item.selected {
           border-color: #667eea;
-          background: #ede9fe;
+          background: #f9fafb;
+        }
+        .calendar-header {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          cursor: pointer;
+        }
+        .checkbox {
+          width: 20px;
+          height: 20px;
+          cursor: pointer;
         }
         .calendar-color {
-          width: 16px;
-          height: 16px;
+          width: 24px;
+          height: 24px;
           border-radius: 50%;
-          margin-right: 12px;
           flex-shrink: 0;
         }
         .calendar-info {
           flex: 1;
         }
         .calendar-name {
-          font-weight: 500;
+          font-weight: 600;
           color: #111827;
+          font-size: 15px;
         }
         .calendar-desc {
           font-size: 13px;
           color: #6b7280;
+          margin-top: 2px;
         }
-        input[type="checkbox"],
-        input[type="radio"] {
-          margin-right: 12px;
-          width: 18px;
-          height: 18px;
-          cursor: pointer;
+        .label-icons {
+          display: flex;
+          gap: 8px;
+          margin-top: 12px;
+          padding-top: 12px;
+          border-top: 1px solid #e5e7eb;
         }
         .btn {
           width: 100%;
@@ -268,131 +349,100 @@ export default function SelectCalendarsClient({
           background: #5a67d8;
         }
         .btn:disabled {
-          background: #9ca3af;
-          cursor: not-allowed;
           opacity: 0.6;
+          cursor: not-allowed;
         }
         .btn-error {
           background: #ef4444;
-        }
-        .help-text {
-          font-size: 13px;
-          color: #6b7280;
-          margin-top: 8px;
-        }
-        .badge {
-          display: inline-block;
-          padding: 2px 8px;
-          background: #dbeafe;
-          color: #1e40af;
-          border-radius: 4px;
-          font-size: 11px;
-          font-weight: 600;
-          margin-left: 8px;
         }
       `}</style>
 
       <div className="page-container">
         <div className="container">
-        <h1>{t('title')}</h1>
-        <p className="subtitle">{t('subtitle')}</p>
+          <h1>{t('title')}</h1>
+          <p className="subtitle">{t('subtitle')}</p>
 
-        <form onSubmit={handleSubmit}>
-          {/* Primary Calendar Selection */}
-          <div className="section">
-            <div className="section-title">{t('ownership.primaryLabel')}</div>
-            <p className="help-text">{t('ownership.primaryHelp')}</p>
+          <div className="help-text">
+            {t('categoryHelp')}
+          </div>
 
-            {availableCalendars.map(cal => (
-              <label
-                key={`primary-${cal.id}`}
-                className={`calendar-item ${primary === cal.id ? 'selected' : ''}`}
-                onClick={() => handlePrimaryChange(cal.id)}
-              >
-                <input
-                  type="radio"
-                  name="primary"
-                  value={cal.id}
-                  checked={primary === cal.id}
-                  onChange={() => {}}
-                  disabled={formState !== 'idle'}
-                />
-                <div className="calendar-color" style={{ backgroundColor: cal.backgroundColor }} />
-                <div className="calendar-info">
-                  <div className="calendar-name">
-                    {cal.name}
-                    {cal.primary && <span className="badge">PRIMARY</span>}
+          <form onSubmit={handleSubmit}>
+            <div className="calendar-list">
+              {availableCalendars.map(calendar => {
+                const isSelected = selectedCalendars.has(calendar.id);
+                const labels = calendarLabels.get(calendar.id) || new Set();
+
+                return (
+                  <div
+                    key={calendar.id}
+                    className={`calendar-item ${isSelected ? 'selected' : ''}`}
+                  >
+                    <div
+                      className="calendar-header"
+                      onClick={() => handleCalendarToggle(calendar.id)}
+                    >
+                      <input
+                        type="checkbox"
+                        className="checkbox"
+                        checked={isSelected}
+                        onChange={() => {}} // Handled by parent div click
+                      />
+                      <div
+                        className="calendar-color"
+                        style={{ background: calendar.backgroundColor }}
+                      />
+                      <div className="calendar-info">
+                        <div className="calendar-name">{calendar.name}</div>
+                        {calendar.description && (
+                          <div className="calendar-desc">{calendar.description}</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {isSelected && (
+                      <div className="label-icons">
+                        <CategoryIcon
+                          label="primary"
+                          active={labels.has('primary')}
+                          onClick={() => handleLabelToggle(calendar.id, 'primary')}
+                        />
+                        <CategoryIcon
+                          label="yours"
+                          active={labels.has('yours')}
+                          onClick={() => handleLabelToggle(calendar.id, 'yours')}
+                        />
+                        <CategoryIcon
+                          label="spouse"
+                          active={labels.has('spouse')}
+                          onClick={() => handleLabelToggle(calendar.id, 'spouse')}
+                        />
+                        <CategoryIcon
+                          label="kids"
+                          active={labels.has('kids')}
+                          onClick={() => handleLabelToggle(calendar.id, 'kids')}
+                        />
+                        <CategoryIcon
+                          label="birthdays"
+                          active={labels.has('birthdays')}
+                          onClick={() => handleLabelToggle(calendar.id, 'birthdays')}
+                        />
+                      </div>
+                    )}
                   </div>
-                  {cal.description && <div className="calendar-desc">{cal.description}</div>}
-                </div>
-              </label>
-            ))}
-          </div>
+                );
+              })}
+            </div>
 
-          {/* Own Calendars */}
-          <div className="section">
-            <div className="section-title">{t('ownership.ownLabel')}</div>
-            <p className="help-text">{t('ownership.ownHelp')}</p>
-
-            {availableCalendars.map(cal => (
-              <label
-                key={`own-${cal.id}`}
-                className={`calendar-item ${ownCalendars.includes(cal.id) ? 'selected' : ''}`}
-              >
-                <input
-                  type="checkbox"
-                  name="own_calendars"
-                  value={cal.id}
-                  checked={ownCalendars.includes(cal.id)}
-                  onChange={() => handleOwnCalendarToggle(cal.id)}
-                  disabled={formState !== 'idle'}
-                />
-                <div className="calendar-color" style={{ backgroundColor: cal.backgroundColor }} />
-                <div className="calendar-info">
-                  <div className="calendar-name">{cal.name}</div>
-                  {cal.description && <div className="calendar-desc">{cal.description}</div>}
-                </div>
-              </label>
-            ))}
-          </div>
-
-          {/* Spouse Calendars (optional) */}
-          <div className="section">
-            <div className="section-title">{t('ownership.spouseLabel')}</div>
-            <p className="help-text">{t('ownership.spouseHelp')}</p>
-
-            {availableCalendars.map(cal => (
-              <label
-                key={`spouse-${cal.id}`}
-                className={`calendar-item ${spouseCalendars.includes(cal.id) ? 'selected' : ''}`}
-              >
-                <input
-                  type="checkbox"
-                  name="spouse_calendars"
-                  value={cal.id}
-                  checked={spouseCalendars.includes(cal.id)}
-                  onChange={() => handleSpouseCalendarToggle(cal.id)}
-                  disabled={formState !== 'idle'}
-                />
-                <div className="calendar-color" style={{ backgroundColor: cal.backgroundColor }} />
-                <div className="calendar-info">
-                  <div className="calendar-name">{cal.name}</div>
-                  {cal.description && <div className="calendar-desc">{cal.description}</div>}
-                </div>
-              </label>
-            ))}
-          </div>
-
-          <button
-            type="submit"
-            className={`btn ${formState === 'error' ? 'btn-error' : ''}`}
-            disabled={formState !== 'idle'}
-          >
-            {formState === 'submitting' && t('actions.saving')}
-            {formState === 'error' && t('actions.error')}
-            {formState === 'idle' && t('actions.save')}
-          </button>
-        </form>
+            <button
+              type="submit"
+              className={`btn ${formState === 'error' ? 'btn-error' : ''}`}
+              disabled={formState !== 'idle'}
+            >
+              {formState === 'submitting' && t('actions.saving')}
+              {formState === 'error' && t('actions.error')}
+              {formState === 'idle' && t('actions.save')}
+            </button>
+          </form>
         </div>
       </div>
     </TelegramLayout>

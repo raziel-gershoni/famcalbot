@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserByTelegramId, updateUserCalendars } from '@/src/services/user-service';
+import { getUserByTelegramId } from '@/src/services/user-service';
+import { validateCalendarAssignments } from '@/src/utils/calendar-helpers';
+import { CalendarAssignment } from '@/src/types';
+import { prisma } from '@/src/utils/prisma';
+import { encrypt } from '@/src/utils/encryption';
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,27 +18,54 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { primary, own_calendars, spouse_calendars } = body;
+    const { calendarAssignments } = body as { calendarAssignments: CalendarAssignment[] };
 
-    const ownCals = Array.isArray(own_calendars) ? own_calendars : (own_calendars ? [own_calendars] : []);
-    const spouseCals = spouse_calendars ? (Array.isArray(spouse_calendars) ? spouse_calendars : [spouse_calendars]) : [];
-    const allCals = [...new Set([...ownCals, ...spouseCals])];
+    // Validate the calendar assignments
+    const validation = validateCalendarAssignments(calendarAssignments);
+    if (!validation.valid) {
+      return NextResponse.json(
+        { error: validation.errors[0] },
+        { status: 400 }
+      );
+    }
 
-    await updateUserCalendars(parseInt(userId), {
-      all: allCals,
-      primary: primary,
-      own: ownCals,
-      spouse: spouseCals
+    // Extract data for dual-write to legacy fields
+    const allCalendarIds = [...new Set(calendarAssignments.map(a => a.calendarId))];
+    const primaryCalendar = calendarAssignments.find(a => a.labels.includes('primary'))?.calendarId || '';
+    const ownCalendars = calendarAssignments
+      .filter(a => a.labels.includes('yours'))
+      .map(a => a.calendarId);
+    const spouseCalendars = calendarAssignments
+      .filter(a => a.labels.includes('spouse'))
+      .map(a => a.calendarId);
+
+    // Get current user to preserve encrypted refresh token
+    const currentUser = await getUserByTelegramId(parseInt(userId));
+    if (!currentUser) {
+      return NextResponse.json(
+        { error: 'User not found' },
+        { status: 404 }
+      );
+    }
+
+    // Update user with new calendarAssignments + dual-write to legacy fields
+    await prisma.user.update({
+      where: { telegramId: BigInt(userId) },
+      data: {
+        calendarAssignments: calendarAssignments as any,
+        calendars: allCalendarIds,
+        primaryCalendar: primaryCalendar,
+        ownCalendars: ownCalendars,
+        spouseCalendars: spouseCalendars,
+        googleRefreshToken: encrypt(currentUser.googleRefreshToken) // Re-encrypt
+      }
     });
-
-    // Get updated user for response
-    const updatedUser = await getUserByTelegramId(parseInt(userId));
 
     return NextResponse.json({
       success: true,
       user: {
-        name: updatedUser?.name,
-        calendarsCount: allCals.length
+        name: currentUser.name,
+        calendarsCount: allCalendarIds.length
       }
     });
   } catch (error) {

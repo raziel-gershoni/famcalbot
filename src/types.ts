@@ -1,14 +1,26 @@
 import { User as PrismaUser } from '@prisma/client';
 import { safeDecrypt } from './utils/encryption';
 
+// Calendar category labels
+export type CalendarLabel = 'primary' | 'yours' | 'spouse' | 'kids' | 'birthdays';
+
+// Single calendar assignment with metadata
+export interface CalendarAssignment {
+  calendarId: string;
+  labels: CalendarLabel[];
+  name: string;
+  color: string;
+}
+
 // Prisma User type with BigInt converted to number for compatibility
-export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'gender' | 'spouseGender'> & {
+export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'gender' | 'spouseGender' | 'calendarAssignments'> & {
   telegramId: number;  // Convert BigInt to number
   whatsappPhone?: string | null;  // Make optional and allow null
   messagingPlatform?: 'telegram' | 'whatsapp' | 'all';
   language?: string;
   gender: 'male' | 'female';  // Narrow type for type safety
   spouseGender: 'male' | 'female';  // Narrow type for type safety
+  calendarAssignments?: CalendarAssignment[];  // Parsed from JSON
 };
 
 // Helper to convert Prisma User to UserConfig (with decryption)
@@ -21,7 +33,10 @@ export function convertPrismaUserToConfig(user: PrismaUser): UserConfig {
     language: user.language ?? undefined,
     gender: user.gender as 'male' | 'female',
     spouseGender: user.spouseGender as 'male' | 'female',
-    googleRefreshToken: safeDecrypt(user.googleRefreshToken) // Decrypt OAuth token
+    googleRefreshToken: safeDecrypt(user.googleRefreshToken), // Decrypt OAuth token
+    calendarAssignments: user.calendarAssignments
+      ? (user.calendarAssignments as any as CalendarAssignment[])
+      : undefined
   };
 }
 

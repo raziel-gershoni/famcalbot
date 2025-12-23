@@ -106,24 +106,27 @@
   },
   "calendars": {
     "title": "📅 בחר את היומנים שלך",
-    "subtitle": "בחר אילו יומנים לסנכרן עם הבוט",
+    "subtitle": "בחר אילו יומנים לכלול בסיכום היומי שלך",
+    "categoryHelp": "סמן יומנים כדי לכלול אותם בסיכום. לאחר מכן לחץ על סמלי הקטגוריה כדי לארגן אותם.",
     "loading": "טוען את היומנים שלך...",
     "noCalendars": "לא נמצאו יומנים",
-    "ownership": {
-      "title": "בעלות על יומן",
-      "own": "היומן שלך",
-      "spouse": "יומן בן/בת זוג",
-      "other": "יומן אחר",
-      "primaryLabel": "יומן ראשי",
-      "primaryHelp": "היומן האישי הראשי שלך (משמש כברירת מחדל)",
-      "ownLabel": "היומנים שלך",
-      "ownHelp": "בחר את היומנים האישיים ויומני העבודה שלך",
-      "spouseLabel": "יומני בן/בת זוג (אופציונלי)",
-      "spouseHelp": "בחר יומנים השייכים לבן/בת הזוג שלך"
+    "categories": {
+      "primary": "ראשי",
+      "primaryDesc": "היומן האישי הראשי שלך (אחד בלבד)",
+      "yours": "שלך",
+      "yoursDesc": "היומנים האישיים ויומני העבודה שלך",
+      "spouse": "בן/בת זוג",
+      "spouseDesc": "יומני בן/בת הזוג שלך",
+      "kids": "ילדים",
+      "kidsDesc": "יומני הילדים שלך",
+      "birthdays": "ימי הולדת",
+      "birthdaysDesc": "יומני ימי הולדת ותאריכים מיוחדים"
     },
     "validation": {
+      "noneSelected": "אנא בחר לפחות יומן אחד",
       "primary": "אנא בחר יומן ראשי",
-      "own": "אנא בחר לפחות אחד מהיומנים שלך"
+      "yours": "לפחות יומן אחד חייב להיות מסומן כ'שלך'",
+      "primaryMustBeYours": "היומן הראשי חייב להיות בקטגוריה 'שלך'"
     },
     "successMessage": "הגדרות היומן שלך עודכנו בהצלחה",
     "actions": {

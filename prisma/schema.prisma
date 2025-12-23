@@ -33,11 +33,12 @@ model User {
   isAdmin           Boolean @default(false)       // Admin panel access
 
   // Calendar integration (shared token for now)
-  googleRefreshToken String  @db.Text
-  calendars          String[] // Array of all calendar IDs
-  primaryCalendar    String   // Main personal calendar
-  ownCalendars       String[] // User's own calendars (personal + work)
-  spouseCalendars    String[] // Spouse's calendar IDs
+  googleRefreshToken  String  @db.Text
+  calendars           String[] // Array of all calendar IDs
+  primaryCalendar     String   // Main personal calendar
+  ownCalendars        String[] // User's own calendars (personal + work)
+  spouseCalendars     String[] // Spouse's calendar IDs
+  calendarAssignments Json?    // New: Array of {calendarId, labels[], name, color}
 
   // Timestamps
   createdAt DateTime @default(now())

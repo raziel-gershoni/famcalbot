@@ -106,24 +106,27 @@
   },
   "calendars": {
     "title": "📅 Select Your Calendars",
-    "subtitle": "Choose which calendars to sync with your bot",
+    "subtitle": "Choose which calendars to include in your daily summary",
+    "categoryHelp": "Check calendars to include them in your summary. Then click the category icons to organize them.",
     "loading": "Loading your calendars...",
     "noCalendars": "No calendars found",
-    "ownership": {
-      "title": "Calendar Ownership",
-      "own": "Your Calendar",
-      "spouse": "Spouse's Calendar",
-      "other": "Other Calendar",
-      "primaryLabel": "Primary Calendar",
-      "primaryHelp": "Your main personal calendar (used as default)",
-      "ownLabel": "Your Calendars",
-      "ownHelp": "Select your personal and work calendars",
-      "spouseLabel": "Spouse's Calendars (Optional)",
-      "spouseHelp": "Select calendars belonging to your spouse"
+    "categories": {
+      "primary": "Primary",
+      "primaryDesc": "Your main personal calendar (only one)",
+      "yours": "Yours",
+      "yoursDesc": "Your personal and work calendars",
+      "spouse": "Spouse",
+      "spouseDesc": "Your spouse's calendars",
+      "kids": "Kids",
+      "kidsDesc": "Your children's calendars",
+      "birthdays": "Birthdays",
+      "birthdaysDesc": "Birthday and anniversary calendars"
     },
     "validation": {
+      "noneSelected": "Please select at least one calendar",
       "primary": "Please select a primary calendar",
-      "own": "Please select at least one of your calendars"
+      "yours": "At least one calendar must be marked as 'yours'",
+      "primaryMustBeYours": "Primary calendar must be in 'yours' category"
     },
     "successMessage": "Your calendar settings have been updated successfully",
     "actions": {

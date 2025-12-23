@@ -1,11 +1,63 @@
 import { notFound } from 'next/navigation';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { listUserCalendars } from '@/src/services/calendar';
+import { CalendarAssignment, CalendarLabel } from '@/src/types';
 import SelectCalendarsClient from './SelectCalendarsClient';
 
 interface PageProps {
   params: Promise<{ locale: string }>;
   searchParams: Promise<{ user_id?: string }>;
+}
+
+// Convert calendarAssignments to state format
+function convertAssignmentsToSelections(assignments: CalendarAssignment[]): {
+  selectedCalendars: Set<string>;
+  calendarLabels: Map<string, Set<CalendarLabel>>;
+} {
+  const selectedCalendars = new Set<string>();
+  const calendarLabels = new Map<string, Set<CalendarLabel>>();
+
+  for (const assignment of assignments) {
+    selectedCalendars.add(assignment.calendarId);
+    calendarLabels.set(assignment.calendarId, new Set(assignment.labels));
+  }
+
+  return { selectedCalendars, calendarLabels };
+}
+
+// Convert legacy fields to state format
+function convertLegacyToSelections(
+  primaryCalendar: string,
+  ownCalendars: string[],
+  spouseCalendars: string[]
+): {
+  selectedCalendars: Set<string>;
+  calendarLabels: Map<string, Set<CalendarLabel>>;
+} {
+  const selectedCalendars = new Set<string>();
+  const calendarLabels = new Map<string, Set<CalendarLabel>>();
+
+  // Add primary calendar (must be in 'yours' too)
+  if (primaryCalendar) {
+    selectedCalendars.add(primaryCalendar);
+    calendarLabels.set(primaryCalendar, new Set<CalendarLabel>(['primary', 'yours']));
+  }
+
+  // Add own calendars (skip if already added as primary)
+  for (const calId of ownCalendars) {
+    selectedCalendars.add(calId);
+    if (!calendarLabels.has(calId)) {
+      calendarLabels.set(calId, new Set<CalendarLabel>(['yours']));
+    }
+  }
+
+  // Add spouse calendars
+  for (const calId of spouseCalendars) {
+    selectedCalendars.add(calId);
+    calendarLabels.set(calId, new Set<CalendarLabel>(['spouse']));
+  }
+
+  return { selectedCalendars, calendarLabels };
 }
 
 export default async function SelectCalendarsPage({ params, searchParams }: PageProps) {
@@ -80,11 +132,21 @@ export default async function SelectCalendarsPage({ params, searchParams }: Page
 
   try {
     const availableCalendars = await listUserCalendars(user.googleRefreshToken);
-    const currentSelections = {
-      primary: user.primaryCalendar || '',
-      own: user.ownCalendars || [],
-      spouse: user.spouseCalendars || []
-    };
+
+    // Convert user's current selections to new state format
+    let currentSelections;
+
+    if (user.calendarAssignments && user.calendarAssignments.length > 0) {
+      // New format: use calendarAssignments
+      currentSelections = convertAssignmentsToSelections(user.calendarAssignments);
+    } else {
+      // Legacy format: convert from old fields
+      currentSelections = convertLegacyToSelections(
+        user.primaryCalendar || '',
+        user.ownCalendars || [],
+        user.spouseCalendars || []
+      );
+    }
 
     return (
       <SelectCalendarsClient

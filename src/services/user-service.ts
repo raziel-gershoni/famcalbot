@@ -72,9 +72,12 @@ export async function updateUser(telegramId: number, data: Partial<PrismaUser>):
     encryptedData.googleRefreshToken = encrypt(data.googleRefreshToken);
   }
 
+  // Remove immutable fields that shouldn't be in update
+  const { id, createdAt, updatedAt, ...updateData } = encryptedData;
+
   const updatedUser = await prisma.user.update({
     where: { telegramId: BigInt(telegramId) },
-    data: encryptedData
+    data: updateData as any // Type assertion needed for JSON fields
   });
 
   return convertPrismaUserToConfig(updatedUser);
