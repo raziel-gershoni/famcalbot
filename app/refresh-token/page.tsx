@@ -66,7 +66,7 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
   // Generate OAuth URL
   const baseUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
   const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || 'https://famcalbot.vercel.app'}/api/refresh-token`;
-  const params = new URLSearchParams({
+  const urlParams = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID || '',
     redirect_uri: redirectUri,
     response_type: 'code',
@@ -76,7 +76,7 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
     state: stateToken // Secure random token
   });
 
-  const oauthUrl = `${baseUrl}?${params.toString()}`;
+  const oauthUrl = `${baseUrl}?${urlParams.toString()}`;
 
   return <RefreshTokenClient oauthUrl={oauthUrl} />;
 }
