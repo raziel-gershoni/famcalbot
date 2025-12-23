@@ -15,12 +15,14 @@ interface User {
 
 interface DashboardClientProps {
   user: User;
+  locale: string;
   needsOAuth: boolean;
   needsCalendars: boolean;
 }
 
 export default function DashboardClient({
   user,
+  locale,
   needsOAuth,
   needsCalendars,
 }: DashboardClientProps) {
@@ -52,7 +54,7 @@ export default function DashboardClient({
   };
 
   const handleOpenSettings = () => {
-    router.push(`/settings?user_id=${user.id}`);
+    router.push(`/${locale}/settings?user_id=${user.id}`);
   };
 
   const handleConnectGoogle = () => {
@@ -60,7 +62,7 @@ export default function DashboardClient({
   };
 
   const handleSelectCalendars = () => {
-    router.push(`/select-calendars?user_id=${user.id}`);
+    router.push(`/${locale}/select-calendars?user_id=${user.id}`);
   };
 
   return (

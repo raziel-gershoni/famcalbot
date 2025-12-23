@@ -4,13 +4,15 @@ import { getUserByTelegramId } from '@/src/services/user-service';
 import DashboardClient from './DashboardClient';
 
 interface PageProps {
+  params: Promise<{ locale: string }>;
   searchParams: Promise<{ user_id?: string }>;
 }
 
-export default async function DashboardPage({ searchParams }: PageProps) {
-  // Await searchParams (Next.js 15+ requirement)
-  const params = await searchParams;
-  const userId = params.user_id ? parseInt(params.user_id) : null;
+export default async function DashboardPage({ params, searchParams }: PageProps) {
+  // Await params and searchParams (Next.js 15+ requirement)
+  const { locale } = await params;
+  const searchParamsData = await searchParams;
+  const userId = searchParamsData.user_id ? parseInt(searchParamsData.user_id) : null;
 
   if (!userId) {
     return (
@@ -38,6 +40,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         location: user.location,
         calendarsCount: user.calendars.length,
       }}
+      locale={locale}
       needsOAuth={needsOAuth}
       needsCalendars={needsCalendars}
     />

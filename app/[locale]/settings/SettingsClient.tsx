@@ -54,9 +54,12 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
 
       setFormState('success');
 
+      // Map language to locale
+      const locale = language === 'Hebrew' ? 'he' : 'en';
+
       // Auto-redirect after 2 seconds
       setTimeout(() => {
-        router.push(`/dashboard?user_id=${userId}`);
+        router.push(`/${locale}/dashboard?user_id=${userId}`);
       }, 2000);
 
     } catch (error) {
@@ -71,7 +74,9 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
   };
 
   const handleCancel = () => {
-    router.push(`/dashboard?user_id=${userId}`);
+    // Map current language to locale
+    const locale = language === 'Hebrew' ? 'he' : 'en';
+    router.push(`/${locale}/dashboard?user_id=${userId}`);
   };
 
   if (formState === 'success') {
