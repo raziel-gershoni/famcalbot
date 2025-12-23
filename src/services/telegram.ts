@@ -111,12 +111,13 @@ export async function handleStartCommand(
   if (!user) return;
 
   const name = user.name || 'there';
-  const dashboardUrl = `https://famcalbot.vercel.app/api/dashboard?user_id=${user.telegramId}`;
+  const locale = user.language === 'Hebrew' ? 'he' : 'en';
+  const dashboardUrl = `https://famcalbot.vercel.app/${locale}/dashboard?user_id=${user.telegramId}`;
   const service = getMessagingService();
 
   // Check if user is admin
   if (user.isAdmin) {
-    const adminUrl = `https://famcalbot.vercel.app/api/admin-panel?user_id=${user.telegramId}`;
+    const adminUrl = `https://famcalbot.vercel.app/${locale}/admin-panel?user_id=${user.telegramId}`;
     const message = `👋 <b>Welcome ${name}!</b>\n\nChoose your dashboard:`;
 
     await service.sendMessage(chatId, message, {
@@ -467,7 +468,7 @@ async function sendSummaryToUser(
 
     // Check if it's a token expiration error
     if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
-      const refreshUrl = `https://famcalbot.vercel.app/api/refresh-token?user_id=${userId}`;
+      const refreshUrl = `https://famcalbot.vercel.app/refresh-token?user_id=${userId}`;
       const expiredMessage = `🔑 <b>Google Calendar Token Expired</b>\n\nYour Google Calendar access has expired. Please refresh your token to continue receiving summaries.\n\nTap the button below to refresh:`;
       await messagingService.sendMessage(userId, expiredMessage, {
         format: MessageFormat.HTML,
@@ -597,7 +598,7 @@ async function sendSummaryToAll(
 
         // Check if it's a token expiration error
         if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
-          const refreshUrl = `https://famcalbot.vercel.app/api/refresh-token?user_id=${user.telegramId}`;
+          const refreshUrl = `https://famcalbot.vercel.app/refresh-token?user_id=${user.telegramId}`;
           const expiredMessage = `🔑 <b>Google Calendar Token Expired</b>\n\nYour Google Calendar access has expired. Please refresh your token to continue receiving summaries.\n\nTap the button below to refresh:`;
 
           // Send token expired message to the user
