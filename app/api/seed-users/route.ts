@@ -1,20 +1,17 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 
 /**
  * ONE-TIME ONLY: Seed initial users after fresh migration
  * DELETE THIS FILE AFTER USE
  */
-export default async function handler(
-  req: VercelRequest,
-  res: VercelResponse
-): Promise<void> {
+export async function GET(request: NextRequest) {
   // Safety check - only allow with secret token
-  const { token } = req.query;
+  const { searchParams } = new URL(request.url);
+  const token = searchParams.get('token');
 
   if (token !== process.env.CRON_SECRET) {
-    res.status(403).json({ error: 'Unauthorized' });
-    return;
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
   }
 
   const prisma = new PrismaClient();
@@ -94,7 +91,7 @@ export default async function handler(
       }
     });
 
-    res.status(200).json({
+    return NextResponse.json({
       success: true,
       message: 'Users seeded successfully',
       users: [
@@ -104,7 +101,10 @@ export default async function handler(
     });
   } catch (error) {
     console.error('Seeding failed:', error);
-    res.status(500).json({ error: 'Seeding failed', details: error });
+    return NextResponse.json(
+      { error: 'Seeding failed', details: error },
+      { status: 500 }
+    );
   } finally {
     await prisma.$disconnect();
   }
