@@ -48,7 +48,6 @@ export default function AdminPanelClient({ userId, stats, recentUsers }: AdminPa
           user_id: userId,
           command: 'testai',
           args: timeframe === 'tmrw' ? 'tmrw' : undefined,
-          secret: process.env.NEXT_PUBLIC_CRON_SECRET
         })
       });
 

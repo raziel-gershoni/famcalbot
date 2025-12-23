@@ -35,7 +35,6 @@ export default function DashboardClient({
         user_id: user.id,
         command,
         args,
-        secret: process.env.NEXT_PUBLIC_CRON_SECRET || '',
       }),
     });
 

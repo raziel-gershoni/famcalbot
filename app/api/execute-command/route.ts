@@ -11,15 +11,15 @@ export async function POST(request: NextRequest) {
     const { user_id, command, args, secret } = body;
 
     // Validate required parameters
-    if (!user_id || !command || !secret) {
+    if (!user_id || !command) {
       return NextResponse.json({
         success: false,
-        error: 'Missing required parameters: user_id, command, secret'
+        error: 'Missing required parameters: user_id, command'
       }, { status: 400 });
     }
 
-    // Validate secret
-    if (secret !== process.env.CRON_SECRET) {
+    // Validate secret if provided (for server-side calls like cron)
+    if (secret && secret !== process.env.CRON_SECRET) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
