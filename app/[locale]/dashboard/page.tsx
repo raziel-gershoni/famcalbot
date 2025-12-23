@@ -4,13 +4,13 @@ import { getUserByTelegramId } from '@/src/services/user-service';
 import DashboardClient from './DashboardClient';
 
 interface PageProps {
-  searchParams: { user_id?: string };
+  searchParams: Promise<{ user_id?: string }>;
 }
 
 export default async function DashboardPage({ searchParams }: PageProps) {
-  const userId = searchParams.user_id
-    ? parseInt(searchParams.user_id)
-    : null;
+  // Await searchParams (Next.js 15+ requirement)
+  const params = await searchParams;
+  const userId = params.user_id ? parseInt(params.user_id) : null;
 
   if (!userId) {
     return (
