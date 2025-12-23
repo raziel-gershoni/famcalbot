@@ -24,18 +24,24 @@ export async function POST(request: NextRequest) {
     const platform = detectPlatform({ body } as any);
     console.log(`[Webhook] Detected platform: ${platform}, Body object field: ${body?.object}`);
 
+    // Create mock VercelRequest/Response objects for compatibility
+    const mockReq = { body } as any;
+    const mockRes = {
+      status: () => ({ json: () => {} })
+    } as any;
+
     // Route to platform-specific handler
     if (platform === MessagingPlatform.WHATSAPP) {
       console.log('[Webhook] Routing to WhatsApp handler');
       const { handleWhatsAppWebhook } = await import('@/src/services/webhook-handlers');
-      await handleWhatsAppWebhook({ body } as any, null as any);
-      return NextResponse.json({ success: true });
+      await handleWhatsAppWebhook(mockReq, mockRes);
     } else {
       console.log('[Webhook] Routing to Telegram handler');
       const { handleTelegramWebhook } = await import('@/src/services/webhook-handlers');
-      await handleTelegramWebhook({ body } as any, null as any);
-      return NextResponse.json({ success: true });
+      await handleTelegramWebhook(mockReq, mockRes);
     }
+
+    return NextResponse.json({ ok: true });
   } catch (error) {
     console.error('[Webhook] Error:', error);
     return NextResponse.json(
