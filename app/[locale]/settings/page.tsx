@@ -3,12 +3,14 @@ import { getUserByTelegramId } from '@/src/services/user-service';
 import SettingsClient from './SettingsClient';
 
 interface PageProps {
+  params: Promise<{ locale: string }>;
   searchParams: Promise<{ user_id?: string }>;
 }
 
-export default async function SettingsPage({ searchParams }: PageProps) {
-  const params = await searchParams;
-  const userId = params.user_id ? parseInt(params.user_id) : null;
+export default async function SettingsPage({ params, searchParams }: PageProps) {
+  const { locale } = await params;
+  const searchParamsData = await searchParams;
+  const userId = searchParamsData.user_id ? parseInt(searchParamsData.user_id) : null;
 
   if (!userId) {
     return (
@@ -40,6 +42,13 @@ export default async function SettingsPage({ searchParams }: PageProps) {
 
   if (!user) {
     notFound();
+  }
+
+  // Check if URL locale matches user's language preference
+  const userLocale = user.language === 'Hebrew' ? 'he' : 'en';
+  if (locale !== userLocale) {
+    const { redirect } = await import('next/navigation');
+    redirect(`/${userLocale}/settings?user_id=${userId}`);
   }
 
   return (

@@ -28,6 +28,14 @@ export default async function DashboardPage({ params, searchParams }: PageProps)
     notFound();
   }
 
+  // Check if URL locale matches user's language preference
+  const userLocale = user.language === 'Hebrew' ? 'he' : 'en';
+  if (locale !== userLocale) {
+    // User's language was updated but they're using an old URL - redirect to correct locale
+    const { redirect } = await import('next/navigation');
+    redirect(`/${userLocale}/dashboard?user_id=${userId}`);
+  }
+
   // Check setup status
   const needsOAuth = !user.googleRefreshToken;
   const needsCalendars = user.calendars.length === 0;
