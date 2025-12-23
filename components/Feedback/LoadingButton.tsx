@@ -81,10 +81,10 @@ export default function LoadingButton({
 
   const getButtonStyle = () => {
     const baseVariants = {
-      primary: { bg: '#667eea', hover: '#5a67d8', border: '#667eea', color: 'white' },
-      secondary: { bg: 'white', hover: '#f9fafb', border: '#e5e7eb', color: '#111827' },
-      danger: { bg: '#ef4444', hover: '#dc2626', border: '#ef4444', color: 'white' },
-      success: { bg: '#22c55e', hover: '#16a34a', border: '#22c55e', color: 'white' },
+      primary: { bg: '#667eea', hover: '#5a67d8', border: '#667eea', color: 'white', opacity: 1 },
+      secondary: { bg: 'white', hover: '#f9fafb', border: '#e5e7eb', color: '#111827', opacity: 1 },
+      danger: { bg: '#ef4444', hover: '#dc2626', border: '#ef4444', color: 'white', opacity: 1 },
+      success: { bg: '#22c55e', hover: '#16a34a', border: '#22c55e', color: 'white', opacity: 1 },
     };
 
     if (state === 'success') {
