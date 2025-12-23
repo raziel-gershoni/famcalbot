@@ -40,20 +40,19 @@
       "calendars": "{count} calendars synced"
     }
   },
-  "adminPanel": {
-    "title": "Admin Panel",
+  "admin": {
+    "title": "👑 Admin Panel",
     "badge": "ADMIN",
-    "unauthorized": {
-      "title": "Unauthorized",
-      "message": "This area is restricted to administrators only."
-    },
     "testing": {
-      "title": "AI Model Testing",
+      "title": "🤖 AI Model Testing",
       "testToday": "Test Today",
-      "testTomorrow": "Test Tomorrow"
+      "testTomorrow": "Test Tomorrow",
+      "sending": "Sending...",
+      "sent": "✓ Sent!",
+      "error": "✗ Error"
     },
-    "stats": {
-      "title": "User Statistics",
+    "statistics": {
+      "title": "👥 User Statistics",
       "totalUsers": "Total Users",
       "withOAuth": "With OAuth",
       "withCalendars": "With Calendars",
@@ -61,13 +60,12 @@
       "recentUsers": "Recent Users"
     },
     "health": {
-      "title": "System Health",
+      "title": "🏥 System Health",
       "database": "Database Connection",
+      "totalUsers": "Total Users",
       "setupCompletion": "Setup Completion"
     },
-    "actions": {
-      "openDashboard": "Open User Dashboard"
-    }
+    "openDashboard": "📱 Open User Dashboard"
   },
   "settings": {
     "title": "Settings",
