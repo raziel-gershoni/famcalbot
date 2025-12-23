@@ -1,41 +1,34 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { sendDailySummaryToAll } from '../src/services/telegram';
-import { prisma } from '../src/utils/prisma';
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/src/utils/prisma';
 
-/**
- * Daily Summary Cron Endpoint
- * Sends today's calendar summary to all users
- * Triggered by cron job at 7 AM daily
- */
-export default async function handler(
-  req: VercelRequest,
-  res: VercelResponse
-): Promise<void> {
-  // Only allow GET requests
-  if (req.method !== 'GET') {
-    res.status(405).json({ error: 'Method not allowed' });
-    return;
-  }
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
+export async function GET(request: NextRequest) {
   // Verify the secret token
-  const providedSecret = req.query.secret || req.headers['x-cron-secret'];
+  const { searchParams } = new URL(request.url);
+  const providedSecret = searchParams.get('secret') || request.headers.get('x-cron-secret');
   const expectedSecret = process.env.CRON_SECRET;
 
   if (!expectedSecret) {
     console.error('CRON_SECRET is not configured');
-    res.status(500).json({ error: 'Server configuration error' });
-    return;
+    return NextResponse.json(
+      { error: 'Server configuration error' },
+      { status: 500 }
+    );
   }
 
   if (providedSecret !== expectedSecret) {
     console.error('Invalid secret token provided');
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
+    return NextResponse.json(
+      { error: 'Unauthorized' },
+      { status: 401 }
+    );
   }
 
   try {
-    // Load environment variables for serverless
-    await import('dotenv/config');
+    // Dynamically import to avoid build-time initialization
+    const { sendDailySummaryToAll } = await import('@/src/services/telegram');
 
     // Execute the summary function
     await sendDailySummaryToAll();
@@ -55,7 +48,7 @@ export default async function handler(
       // Don't fail the cron job if cleanup fails
     }
 
-    res.status(200).json({
+    return NextResponse.json({
       success: true,
       message: 'Daily summaries sent successfully',
       timestamp: new Date().toISOString(),
@@ -65,16 +58,16 @@ export default async function handler(
 
     // Notify admin of cron job failures
     try {
-      const { notifyAdminError } = await import('../src/utils/error-notifier');
+      const { notifyAdminError } = await import('@/src/utils/error-notifier');
       await notifyAdminError('Cron Job', error, 'Job: Daily summaries sent successfully');
     } catch (notifyError) {
       console.error('Failed to notify admin:', notifyError);
     }
 
-    res.status(500).json({
+    return NextResponse.json({
       success: false,
       error: 'Failed to send summaries',
       message: error instanceof Error ? error.message : 'Unknown error',
-    });
+    }, { status: 500 });
   }
 }

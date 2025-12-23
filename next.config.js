@@ -21,17 +21,6 @@ const nextConfig = {
 
   // Vercel-specific settings
   poweredByHeader: false,
-
-  // Redirect old API routes if needed
-  async rewrites() {
-    return [
-      // Keep existing API routes working
-      {
-        source: '/api/:path*',
-        destination: '/api/:path*',
-      },
-    ];
-  },
 };
 
 module.exports = withNextIntl(nextConfig);
