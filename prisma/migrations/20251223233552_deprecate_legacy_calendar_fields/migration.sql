@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "User" ALTER COLUMN "calendars" SET DEFAULT ARRAY[]::TEXT[],
+ALTER COLUMN "primaryCalendar" SET DEFAULT '',
+ALTER COLUMN "ownCalendars" SET DEFAULT ARRAY[]::TEXT[],
+ALTER COLUMN "spouseCalendars" SET DEFAULT ARRAY[]::TEXT[];

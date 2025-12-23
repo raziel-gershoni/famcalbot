@@ -1,24 +1,7 @@
-/**
- * Data Migration Script: Convert legacy calendar fields to calendarAssignments
- *
- * This script migrates existing user calendar data from the legacy format:
- *   - calendars: string[]
- *   - primaryCalendar: string
- *   - ownCalendars: string[]
- *   - spouseCalendars: string[]
- *
- * To the new flexible calendarAssignments format:
- *   - calendarAssignments: CalendarAssignment[]
- *
- * Run this script ONCE after deploying the new code:
- *   npx ts-node prisma/migrations/migrate-calendar-data.ts
- */
-
-import { PrismaClient } from '@prisma/client';
-import { CalendarAssignment, CalendarLabel } from '../../src/types.js';
-import { encrypt } from '../../src/utils/encryption.js';
-
-const prisma = new PrismaClient();
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/src/utils/prisma';
+import { CalendarAssignment, CalendarLabel } from '@/src/types';
+import { encrypt } from '@/src/utils/encryption';
 
 interface LegacyUserData {
   id: number;
@@ -81,10 +64,25 @@ function convertLegacyToAssignments(
   return assignments;
 }
 
-async function migrateCalendarData() {
-  console.log('🔄 Starting calendar data migration...\n');
-
+/**
+ * Protected migration endpoint
+ * Call with: /api/migrate-calendar-data?secret=YOUR_CRON_SECRET
+ */
+export async function GET(request: NextRequest) {
   try {
+    // Authentication check
+    const { searchParams } = new URL(request.url);
+    const secret = searchParams.get('secret');
+
+    if (secret !== process.env.CRON_SECRET) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    console.log('🔄 Starting calendar data migration...');
+
     // Fetch all users
     const users = await prisma.user.findMany({
       select: {
@@ -100,24 +98,25 @@ async function migrateCalendarData() {
       }
     }) as LegacyUserData[];
 
-    console.log(`📊 Found ${users.length} users in database\n`);
+    console.log(`📊 Found ${users.length} users in database`);
 
     let migratedCount = 0;
     let skippedCount = 0;
     let errorCount = 0;
+    const logs: string[] = [];
 
     for (const user of users) {
       try {
         // Skip if already migrated
         if (user.calendarAssignments && Array.isArray(user.calendarAssignments) && user.calendarAssignments.length > 0) {
-          console.log(`⏭️  Skipping user ${user.name} (ID: ${user.id}) - already migrated`);
+          logs.push(`⏭️  Skipped user ${user.name} (ID: ${user.id}) - already migrated`);
           skippedCount++;
           continue;
         }
 
         // Skip if no legacy data exists
         if (!user.primaryCalendar && (!user.ownCalendars || user.ownCalendars.length === 0) && (!user.spouseCalendars || user.spouseCalendars.length === 0)) {
-          console.log(`⏭️  Skipping user ${user.name} (ID: ${user.id}) - no calendar data`);
+          logs.push(`⏭️  Skipped user ${user.name} (ID: ${user.id}) - no calendar data`);
           skippedCount++;
           continue;
         }
@@ -129,11 +128,11 @@ async function migrateCalendarData() {
           user.spouseCalendars || []
         );
 
-        console.log(`✅ Migrating user ${user.name} (ID: ${user.id}):`);
-        console.log(`   - Primary: ${user.primaryCalendar || 'none'}`);
-        console.log(`   - Own: ${user.ownCalendars?.length || 0} calendars`);
-        console.log(`   - Spouse: ${user.spouseCalendars?.length || 0} calendars`);
-        console.log(`   → Created ${calendarAssignments.length} assignments`);
+        logs.push(`✅ Migrating user ${user.name} (ID: ${user.id}):`);
+        logs.push(`   - Primary: ${user.primaryCalendar || 'none'}`);
+        logs.push(`   - Own: ${user.ownCalendars?.length || 0} calendars`);
+        logs.push(`   - Spouse: ${user.spouseCalendars?.length || 0} calendars`);
+        logs.push(`   → Created ${calendarAssignments.length} assignments`);
 
         // Update user with new calendarAssignments
         await prisma.user.update({
@@ -145,33 +144,38 @@ async function migrateCalendarData() {
         });
 
         migratedCount++;
-        console.log(`   ✓ Migration successful\n`);
+        logs.push(`   ✓ Migration successful`);
 
       } catch (error) {
         errorCount++;
-        console.error(`❌ Error migrating user ${user.name} (ID: ${user.id}):`, error);
-        console.log('');
+        logs.push(`❌ Error migrating user ${user.name} (ID: ${user.id}): ${error}`);
       }
     }
 
-    console.log('\n📈 Migration Summary:');
-    console.log(`   Total users: ${users.length}`);
-    console.log(`   ✅ Migrated: ${migratedCount}`);
-    console.log(`   ⏭️  Skipped: ${skippedCount}`);
-    console.log(`   ❌ Errors: ${errorCount}`);
-    console.log('\n✨ Migration completed!\n');
+    const summary = {
+      totalUsers: users.length,
+      migrated: migratedCount,
+      skipped: skippedCount,
+      errors: errorCount,
+      logs: logs
+    };
+
+    console.log('📈 Migration Summary:', summary);
+
+    return NextResponse.json({
+      success: true,
+      message: '✨ Migration completed!',
+      summary
+    });
 
   } catch (error) {
     console.error('❌ Migration failed:', error);
-    throw error;
-  } finally {
-    await prisma.$disconnect();
+    return NextResponse.json(
+      {
+        error: 'Migration failed',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    );
   }
 }
-
-// Run migration
-migrateCalendarData()
-  .catch((error) => {
-    console.error('Fatal error:', error);
-    process.exit(1);
-  });
