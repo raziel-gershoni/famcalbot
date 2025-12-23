@@ -112,19 +112,3 @@ export default function RefreshTokenClient({ oauthUrl }: RefreshTokenClientProps
     </>
   );
 }
-
-// Extend Window interface for TypeScript
-declare global {
-  interface Window {
-    Telegram?: {
-      WebApp: {
-        expand: () => void;
-        MainButton: {
-          setText: (text: string) => void;
-          onClick: (callback: () => void) => void;
-          show: () => void;
-        };
-      };
-    };
-  }
-}

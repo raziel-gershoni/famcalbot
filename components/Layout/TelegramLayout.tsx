@@ -65,6 +65,11 @@ declare global {
         setHeaderColor: (color: string) => void;
         setBackgroundColor: (color: string) => void;
         openLink: (url: string) => void;
+        MainButton: {
+          setText: (text: string) => void;
+          onClick: (callback: () => void) => void;
+          show: () => void;
+        };
       };
     };
   }

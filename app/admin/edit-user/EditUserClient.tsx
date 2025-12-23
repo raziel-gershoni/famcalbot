@@ -1,11 +1,11 @@
 'use client';
 
 interface User {
-  telegramId: bigint;
+  telegramId: number;
   name: string;
   hebrewName: string;
   location: string;
-  whatsappPhone: string | null;
+  whatsappPhone?: string | null;
   messagingPlatform: string;
 }
 

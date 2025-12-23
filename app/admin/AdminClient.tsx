@@ -1,10 +1,10 @@
 'use client';
 
 interface User {
-  telegramId: bigint;
+  telegramId: number;
   name: string;
   hebrewName: string;
-  whatsappPhone: string | null;
+  whatsappPhone?: string | null;
   messagingPlatform: string;
   location: string;
 }
@@ -14,7 +14,7 @@ interface AdminClientProps {
 }
 
 export default function AdminClient({ users }: AdminClientProps) {
-  const getOAuthUrl = (telegramId: bigint) => {
+  const getOAuthUrl = (telegramId: number) => {
     const baseUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
     const params = new URLSearchParams({
       client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '',

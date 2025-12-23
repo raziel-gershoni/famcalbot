@@ -156,17 +156,3 @@ export default function SuccessClient({ userName, botUsername }: SuccessClientPr
     </html>
   );
 }
-
-// Extend Window interface for TypeScript
-declare global {
-  interface Window {
-    Telegram?: {
-      WebApp: {
-        expand: () => void;
-        ready: () => void;
-        close: () => void;
-        openLink: (url: string) => void;
-      };
-    };
-  }
-}

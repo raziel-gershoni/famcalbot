@@ -326,20 +326,3 @@ export default function CalendarSelectionClient({
     </html>
   );
 }
-
-// Extend Window interface for TypeScript
-declare global {
-  interface Window {
-    Telegram?: {
-      WebApp: {
-        expand: () => void;
-        ready: () => void;
-        MainButton: {
-          setText: (text: string) => void;
-          onClick: (callback: () => void) => void;
-          show: () => void;
-        };
-      };
-    };
-  }
-}
