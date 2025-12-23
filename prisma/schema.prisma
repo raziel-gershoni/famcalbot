@@ -36,12 +36,6 @@ model User {
   googleRefreshToken  String   @db.Text
   calendarAssignments Json?    // Array of {calendarId, labels[], name, color}
 
-  // DEPRECATED: Legacy calendar fields (keep for backward compatibility, will be removed in future)
-  calendars           String[] @default([])
-  primaryCalendar     String   @default("")
-  ownCalendars        String[] @default([])
-  spouseCalendars     String[] @default([])
-
   // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
