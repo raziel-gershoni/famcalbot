@@ -47,6 +47,8 @@
   "devDependencies": {
     "@types/node": "^24.10.0",
     "@types/node-telegram-bot-api": "^0.64.7",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
     "@vercel/node": "^5.5.4",
     "eslint": "^9.39.2",
     "eslint-config-next": "^16.1.1",
