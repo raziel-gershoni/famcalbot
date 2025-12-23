@@ -68,7 +68,7 @@
     "openDashboard": "📱 פתח לוח בקרה למשתמש"
   },
   "settings": {
-    "title": "הגדרות",
+    "title": "⚙️ הגדרות",
     "personal": {
       "title": "מידע אישי",
       "name": "שם",
@@ -90,6 +90,13 @@
       "language": "שפה",
       "primaryCalendar": "יומן ראשי"
     },
+    "languageHelp": "שפה לסיכומים והודעות",
+    "locationHelp": "משמש לתחזיות מזג אוויר",
+    "platformLabel": "פלטפורמת הודעות",
+    "platformHelp": "היכן לקבל הודעות",
+    "platformBoth": "שניהם",
+    "successMessage": "ההעדפות שלך עודכנו בהצלחה",
+    "cancelButton": "ביטול",
     "actions": {
       "save": "שמור הגדרות",
       "saving": "שומר...",

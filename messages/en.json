@@ -68,7 +68,7 @@
     "openDashboard": "📱 Open User Dashboard"
   },
   "settings": {
-    "title": "Settings",
+    "title": "⚙️ Settings",
     "personal": {
       "title": "Personal Information",
       "name": "Name",
@@ -90,6 +90,13 @@
       "language": "Language",
       "primaryCalendar": "Primary Calendar"
     },
+    "languageHelp": "Language for summaries and messages",
+    "locationHelp": "Used for weather forecasts",
+    "platformLabel": "Messaging Platform",
+    "platformHelp": "Where to receive messages",
+    "platformBoth": "Both",
+    "successMessage": "Your preferences have been updated successfully",
+    "cancelButton": "Cancel",
     "actions": {
       "save": "Save Settings",
       "saving": "Saving...",
