@@ -105,16 +105,27 @@
     }
   },
   "calendars": {
-    "title": "בחר יומנים",
-    "subtitle": "בחר אילו יומנים לסנכרן",
+    "title": "📅 בחר את היומנים שלך",
+    "subtitle": "בחר אילו יומנים לסנכרן עם הבוט",
     "loading": "טוען את היומנים שלך...",
     "noCalendars": "לא נמצאו יומנים",
     "ownership": {
       "title": "בעלות על יומן",
       "own": "היומן שלך",
       "spouse": "יומן בן/בת זוג",
-      "other": "יומן אחר"
+      "other": "יומן אחר",
+      "primaryLabel": "יומן ראשי",
+      "primaryHelp": "היומן האישי הראשי שלך (משמש כברירת מחדל)",
+      "ownLabel": "היומנים שלך",
+      "ownHelp": "בחר את היומנים האישיים ויומני העבודה שלך",
+      "spouseLabel": "יומני בן/בת זוג (אופציונלי)",
+      "spouseHelp": "בחר יומנים השייכים לבן/בת הזוג שלך"
     },
+    "validation": {
+      "primary": "אנא בחר יומן ראשי",
+      "own": "אנא בחר לפחות אחד מהיומנים שלך"
+    },
+    "successMessage": "הגדרות היומן שלך עודכנו בהצלחה",
     "actions": {
       "save": "שמור בחירת יומנים",
       "saving": "שומר...",

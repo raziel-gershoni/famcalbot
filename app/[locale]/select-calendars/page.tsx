@@ -1,0 +1,119 @@
+import { notFound } from 'next/navigation';
+import { getUserByTelegramId } from '@/src/services/user-service';
+import { listUserCalendars } from '@/src/services/calendar';
+import SelectCalendarsClient from './SelectCalendarsClient';
+
+interface PageProps {
+  searchParams: Promise<{ user_id?: string }>;
+}
+
+export default async function SelectCalendarsPage({ searchParams }: PageProps) {
+  const params = await searchParams;
+  const userId = params.user_id ? parseInt(params.user_id) : null;
+
+  if (!userId) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        padding: '20px'
+      }}>
+        <div style={{
+          background: 'white',
+          padding: '40px',
+          borderRadius: '15px',
+          boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+          textAlign: 'center',
+          maxWidth: '400px'
+        }}>
+          <div style={{ fontSize: '64px', marginBottom: '20px' }}>⚠️</div>
+          <h1 style={{ color: '#ef4444', margin: '0 0 10px 0' }}>Missing Parameter</h1>
+          <p style={{ color: '#666' }}>user_id parameter is required</p>
+        </div>
+      </div>
+    );
+  }
+
+  const user = await getUserByTelegramId(userId);
+
+  if (!user) {
+    notFound();
+  }
+
+  if (!user.googleRefreshToken) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        padding: '20px'
+      }}>
+        <div style={{
+          background: 'white',
+          padding: '40px',
+          borderRadius: '15px',
+          boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+          textAlign: 'center',
+          maxWidth: '400px'
+        }}>
+          <div style={{ fontSize: '64px', marginBottom: '20px' }}>⚠️</div>
+          <h1 style={{ color: '#ef4444', margin: '0 0 10px 0' }}>No Google Token</h1>
+          <p style={{ color: '#666' }}>Please refresh your token first.</p>
+        </div>
+      </div>
+    );
+  }
+
+  try {
+    const availableCalendars = await listUserCalendars(user.googleRefreshToken);
+    const currentSelections = {
+      primary: user.primaryCalendar || '',
+      own: user.ownCalendars || [],
+      spouse: user.spouseCalendars || []
+    };
+
+    return (
+      <SelectCalendarsClient
+        userId={userId}
+        userName={user.name}
+        availableCalendars={availableCalendars}
+        currentSelections={currentSelections}
+      />
+    );
+  } catch (error) {
+    console.error('Error listing calendars:', error);
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        padding: '20px'
+      }}>
+        <div style={{
+          background: 'white',
+          padding: '40px',
+          borderRadius: '15px',
+          boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+          textAlign: 'center',
+          maxWidth: '400px'
+        }}>
+          <div style={{ fontSize: '64px', marginBottom: '20px' }}>❌</div>
+          <h1 style={{ color: '#ef4444', margin: '0 0 10px 0' }}>Error</h1>
+          <p style={{ color: '#666' }}>
+            {error instanceof Error ? error.message : 'Unknown error'}
+          </p>
+          <a href={`/select-calendars?user_id=${userId}`} style={{ color: '#667eea' }}>
+            Try Again
+          </a>
+        </div>
+      </div>
+    );
+  }
+}

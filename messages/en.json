@@ -105,16 +105,27 @@
     }
   },
   "calendars": {
-    "title": "Select Calendars",
-    "subtitle": "Choose which calendars to sync",
+    "title": "📅 Select Your Calendars",
+    "subtitle": "Choose which calendars to sync with your bot",
     "loading": "Loading your calendars...",
     "noCalendars": "No calendars found",
     "ownership": {
       "title": "Calendar Ownership",
       "own": "Your Calendar",
       "spouse": "Spouse's Calendar",
-      "other": "Other Calendar"
+      "other": "Other Calendar",
+      "primaryLabel": "Primary Calendar",
+      "primaryHelp": "Your main personal calendar (used as default)",
+      "ownLabel": "Your Calendars",
+      "ownHelp": "Select your personal and work calendars",
+      "spouseLabel": "Spouse's Calendars (Optional)",
+      "spouseHelp": "Select calendars belonging to your spouse"
     },
+    "validation": {
+      "primary": "Please select a primary calendar",
+      "own": "Please select at least one of your calendars"
+    },
+    "successMessage": "Your calendar settings have been updated successfully",
     "actions": {
       "save": "Save Calendar Selection",
       "saving": "Saving...",
