@@ -4,7 +4,7 @@ interface SectionProps {
   title?: string;
   subtitle?: string;
   children: ReactNode;
-  icon?: string;
+  icon?: string | ReactNode;
 }
 
 /**
@@ -40,6 +40,9 @@ export default function Section({
 
         .section-icon {
           font-size: 20px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
 
         .section-subtitle {

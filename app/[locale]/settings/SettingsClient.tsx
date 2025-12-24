@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { TelegramLayout } from '@/components/Layout';
+import { CheckCircle2 } from 'lucide-react';
 
 interface SettingsClientProps {
   userId: number;
@@ -108,7 +109,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
         `}</style>
         <div className="success-container">
           <div className="success-box">
-            <div className="icon">✅</div>
+            <div className="icon"><CheckCircle2 size={64} color="#22c55e" /></div>
             <h1>{t('actions.saved')}</h1>
             <p>{t('successMessage')}</p>
           </div>

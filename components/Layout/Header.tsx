@@ -1,3 +1,5 @@
+import { Crown, Settings } from 'lucide-react';
+
 interface HeaderProps {
   title: string;
   userName?: string;
@@ -19,9 +21,7 @@ export default function Header({
   backgroundColor = '#667eea',
   isAdmin = false,
 }: HeaderProps) {
-  const bgGradient = isAdmin
-    ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
-    : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+  const bgGradient = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
 
   return (
     <header style={{ background: bgGradient }}>
@@ -87,7 +87,7 @@ export default function Header({
             onClick={onAdminClick}
             aria-label="Admin Panel"
           >
-            👑
+            <Crown size={20} color="white" />
           </button>
         )}
         {onSettingsClick && (
@@ -96,7 +96,7 @@ export default function Header({
             onClick={onSettingsClick}
             aria-label="Settings"
           >
-            ⚙️
+            <Settings size={20} color="white" />
           </button>
         )}
       </div>

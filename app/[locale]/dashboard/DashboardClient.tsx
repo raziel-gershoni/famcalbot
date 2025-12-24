@@ -7,6 +7,7 @@ import { LoadingButton } from '@/components/Feedback';
 import { useRouter } from 'next/navigation';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
+import { KeyRound, Calendar, Sun, Moon, CloudSun, BarChart3, ClipboardList, RefreshCw } from 'lucide-react';
 
 interface User {
   id: number;
@@ -120,6 +121,12 @@ export default function DashboardClient({
 
           .action-button .icon {
             font-size: 32px;
+          }
+
+          .inline-icon {
+            vertical-align: middle;
+            display: inline-block;
+            margin-right: 4px;
           }
 
           .setup-card {
@@ -260,31 +267,31 @@ export default function DashboardClient({
         <div className="dashboard-content">
           {needsOAuth ? (
             <div className="setup-card" onClick={handleConnectGoogle}>
-              <h3>🔐 {t('setup.connectGoogle')}</h3>
+              <h3><KeyRound size={20} className="inline-icon" /> {t('setup.connectGoogle')}</h3>
               <p>{t('setup.connectGoogleDesc')}</p>
             </div>
           ) : needsCalendars ? (
             <div className="setup-card" onClick={handleSelectCalendars}>
-              <h3>📅 {t('setup.selectCalendars')}</h3>
+              <h3><Calendar size={20} className="inline-icon" /> {t('setup.selectCalendars')}</h3>
               <p>{t('setup.selectCalendarsDesc')}</p>
             </div>
           ) : (
             <>
               {/* Summary Section */}
-              <Section title={t('summary.title')} icon="📅">
+              <Section title={t('summary.title')} icon={<Calendar size={20} />}>
                 <div className="button-group">
                   <button
                     className="action-button"
                     onClick={() => executeCommand('summary')}
                   >
-                    <span className="icon">☀️</span>
+                    <span className="icon"><Sun size={32} /></span>
                     <span>{t('summary.today')}</span>
                   </button>
                   <button
                     className="action-button"
                     onClick={() => executeCommand('summary', 'tmrw')}
                   >
-                    <span className="icon">🌙</span>
+                    <span className="icon"><Moon size={32} /></span>
                     <span>{t('summary.tomorrow')}</span>
                   </button>
                 </div>
@@ -294,28 +301,28 @@ export default function DashboardClient({
               <Section
                 title={t('weather.title')}
                 subtitle={user.location}
-                icon="🌤️"
+                icon={<CloudSun size={20} />}
               >
                 <div className="button-group">
                   <button
                     className="action-button"
                     onClick={() => executeCommand('weather', 'std')}
                   >
-                    <span className="icon">📊</span>
+                    <span className="icon"><BarChart3 size={32} /></span>
                     <span>{t('weather.standard')}</span>
                   </button>
                   <button
                     className="action-button"
                     onClick={() => executeCommand('weather', 'dtl')}
                   >
-                    <span className="icon">📋</span>
+                    <span className="icon"><ClipboardList size={32} /></span>
                     <span>{t('weather.detailed')}</span>
                   </button>
                 </div>
               </Section>
 
               {/* Calendar Settings Card */}
-              <Section title={t('settings.title')} icon="📋">
+              <Section title={t('settings.title')} icon={<ClipboardList size={20} />}>
                 <div className="settings-card">
                   <div
                     onClick={() => handleSelectCalendars()}
@@ -357,7 +364,7 @@ export default function DashboardClient({
                       handleConnectGoogle();
                     }}
                   >
-                    🔄 {t('settings.renewToken')}
+                    <RefreshCw size={16} className="inline-icon" /> {t('settings.renewToken')}
                   </button>
                 </div>
               </Section>

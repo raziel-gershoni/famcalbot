@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { prisma } from '@/src/utils/prisma';
 import { Prisma } from '@prisma/client';
+import { AlertTriangle, Lock } from 'lucide-react';
 import AdminPanelClient from './AdminPanelClient';
 
 interface PageProps {
@@ -32,7 +33,7 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
           textAlign: 'center',
           maxWidth: '400px'
         }}>
-          <div style={{ fontSize: '64px', marginBottom: '20px' }}>⚠️</div>
+          <div style={{ marginBottom: '20px' }}><AlertTriangle size={64} color="#f59e0b" /></div>
           <h1 style={{ color: '#ef4444', margin: '0 0 10px 0' }}>Missing Parameter</h1>
           <p style={{ color: '#666' }}>user_id parameter is required</p>
         </div>
@@ -72,7 +73,7 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
           textAlign: 'center',
           maxWidth: '400px'
         }}>
-          <div style={{ fontSize: '64px', marginBottom: '20px' }}>🔒</div>
+          <div style={{ marginBottom: '20px' }}><Lock size={64} color="#ef4444" /></div>
           <h1 style={{ color: '#ef4444', margin: '0 0 10px 0' }}>Unauthorized</h1>
           <p style={{ color: '#666' }}>This area is restricted to administrators only.</p>
         </div>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { CheckCircle2 } from 'lucide-react';
 
 interface AdminPanelClientProps {
   userId: number;
@@ -31,7 +32,7 @@ export default function AdminPanelClient({ userId, stats, recentUsers }: AdminPa
       const tg = window.Telegram.WebApp;
       tg.expand();
       tg.ready();
-      tg.setHeaderColor('#ef4444');
+      tg.setHeaderColor('#667eea');
       tg.setBackgroundColor('#ffffff');
     }
   }, []);
@@ -121,10 +122,11 @@ export default function AdminPanelClient({ userId, stats, recentUsers }: AdminPa
           margin: 0 auto;
           background: white;
           min-height: 100vh;
+          font-family: 'Rubik', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
         }
 
         header {
-          background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           color: white;
           padding: 20px;
           display: flex;
@@ -208,8 +210,8 @@ export default function AdminPanelClient({ userId, stats, recentUsers }: AdminPa
         }
 
         .action-button:hover:not(:disabled) {
-          border-color: #ef4444;
-          background: #fef2f2;
+          border-color: #667eea;
+          background: #f9fafb;
           transform: translateY(-2px);
           box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
@@ -381,7 +383,7 @@ export default function AdminPanelClient({ userId, stats, recentUsers }: AdminPa
             <div className="health-list">
               <div className="health-item">
                 <span className="health-label">{t('health.database')}</span>
-                <span className="status-icon">✅</span>
+                <span className="status-icon"><CheckCircle2 size={20} color="#22c55e" /></span>
               </div>
               <div className="health-item">
                 <span className="health-label">{t('health.totalUsers')}</span>
