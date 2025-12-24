@@ -15,7 +15,7 @@ export async function GET() {
       menu_button: {
         type: 'web_app',
         text: '🚀 Dashboard',
-        web_app: { url: 'https://famcalbot.vercel.app/dashboard' }
+        web_app: { url: 'https://famcalbot.vercel.app/en/dashboard' }
       }
     });
 
@@ -25,7 +25,7 @@ export async function GET() {
       menuButton: {
         type: 'web_app',
         text: '🚀 Dashboard',
-        url: 'https://famcalbot.vercel.app/dashboard'
+        url: 'https://famcalbot.vercel.app/en/dashboard'
       }
     });
   } catch (error) {

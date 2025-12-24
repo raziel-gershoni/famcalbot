@@ -64,7 +64,7 @@ export function initBot(): TelegramBot {
     menu_button: {
       type: 'web_app',
       text: '🚀 Dashboard',
-      web_app: { url: 'https://famcalbot.vercel.app/dashboard' }
+      web_app: { url: 'https://famcalbot.vercel.app/en/dashboard' }
     }
   }).then(() => {
     console.log('✅ Menu button configured successfully');

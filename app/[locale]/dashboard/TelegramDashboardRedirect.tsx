@@ -3,7 +3,11 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-export default function DashboardRedirectPage() {
+interface TelegramDashboardRedirectProps {
+  locale: string;
+}
+
+export default function TelegramDashboardRedirect({ locale }: TelegramDashboardRedirectProps) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [debug, setDebug] = useState<string[]>([]);
@@ -14,7 +18,7 @@ export default function DashboardRedirectPage() {
       setDebug(prev => [...prev, message]);
     };
 
-    debugLog('🔍 Dashboard page loaded');
+    debugLog('🔍 Dashboard page loaded (no user_id in URL)');
 
     // CRITICAL: Call ready() IMMEDIATELY to remove loading screen
     if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
@@ -44,13 +48,13 @@ export default function DashboardRedirectPage() {
       debugLog(`📊 Full initDataUnsafe: ${JSON.stringify(tg.initDataUnsafe || {})}`);
       debugLog(`📱 Platform: ${tg.platform || 'unknown'}`);
       debugLog(`🔢 Version: ${tg.version || 'unknown'}`);
+      debugLog(`🌐 Current locale from URL: ${locale}`);
 
       if (userId) {
-        // Determine locale (default to 'en' if not Hebrew)
-        const locale = languageCode === 'he' ? 'he' : 'en';
+        // Use the locale from the URL (already determined by next-intl)
         debugLog(`🔀 Redirecting to: /${locale}/dashboard?user_id=${userId}`);
 
-        // Redirect to localized dashboard with user ID
+        // Redirect to same locale with user ID
         router.push(`/${locale}/dashboard?user_id=${userId}`);
       } else {
         // Fallback: User ID not available in initData
@@ -79,7 +83,7 @@ export default function DashboardRedirectPage() {
 
       return () => clearInterval(checkInterval);
     }
-  }, [router]);
+  }, [router, locale]);
 
   return (
     <div style={{

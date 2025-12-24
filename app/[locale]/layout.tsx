@@ -1,6 +1,7 @@
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import Script from 'next/script';
 import { locales } from '@/i18n';
 
 export function generateStaticParams() {
@@ -28,7 +29,10 @@ export default async function LocaleLayout({
   return (
     <html lang={locale} dir={locale === 'he' ? 'rtl' : 'ltr'}>
       <head>
-        <script src="https://telegram.org/js/telegram-web-app.js" />
+        <Script
+          src="https://telegram.org/js/telegram-web-app.js"
+          strategy="beforeInteractive"
+        />
       </head>
       <body>
         <NextIntlClientProvider messages={messages}>

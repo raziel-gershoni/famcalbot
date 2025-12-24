@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import DashboardClient from './DashboardClient';
+import TelegramDashboardRedirect from './TelegramDashboardRedirect';
 
 interface PageProps {
   params: Promise<{ locale: string }>;
@@ -14,12 +15,9 @@ export default async function DashboardPage({ params, searchParams }: PageProps)
   const searchParamsData = await searchParams;
   const userId = searchParamsData.user_id ? parseInt(searchParamsData.user_id) : null;
 
+  // If no user_id, show Telegram redirect component that reads from initData
   if (!userId) {
-    return (
-      <div style={{ padding: '20px', textAlign: 'center' }}>
-        <h1>Missing user_id parameter</h1>
-      </div>
-    );
+    return <TelegramDashboardRedirect locale={locale} />;
   }
 
   const user = await getUserByTelegramId(userId);
