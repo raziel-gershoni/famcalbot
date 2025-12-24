@@ -213,6 +213,30 @@ export default function DashboardClient({
             flex-shrink: 0;
           }
 
+          .renew-token-button {
+            width: 100%;
+            margin-top: 12px;
+            padding: 10px 16px;
+            background: white;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            color: #6b7280;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+          }
+
+          .renew-token-button:hover {
+            background: #f9fafb;
+            border-color: #667eea;
+            color: #667eea;
+          }
+
           @media (max-width: 400px) {
             .button-group {
               grid-template-columns: 1fr;
@@ -285,38 +309,49 @@ export default function DashboardClient({
 
               {/* Calendar Settings Card */}
               <Section title={t('settings.title')} icon="📋">
-                <div
-                  className="settings-card"
-                  onClick={() => handleSelectCalendars()}
-                >
-                  <div className="calendar-list-header">
-                    <p>{t('settings.calendars', { count: user.calendarsCount })}</p>
-                    <span className="arrow">→</span>
-                  </div>
-                  {calendarAssignments.length > 0 && (
-                    <div className="calendar-list">
-                      {calendarAssignments.map((cal) => (
-                        <div key={cal.calendarId} className="calendar-item-compact">
-                          <div
-                            className="calendar-color-dot"
-                            style={{ backgroundColor: cal.color }}
-                          />
-                          <span className="calendar-name-compact">{cal.name}</span>
-                          <div className="calendar-icons-compact">
-                            {cal.labels.map((label) => (
-                              <CategoryIcon
-                                key={label}
-                                label={label as CalendarLabel}
-                                active={true}
-                                onClick={() => {}}
-                                disabled={true}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      ))}
+                <div className="settings-card">
+                  <div
+                    onClick={() => handleSelectCalendars()}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="calendar-list-header">
+                      <p>{t('settings.calendars', { count: user.calendarsCount })}</p>
+                      <span className="arrow">→</span>
                     </div>
-                  )}
+                    {calendarAssignments.length > 0 && (
+                      <div className="calendar-list">
+                        {calendarAssignments.map((cal) => (
+                          <div key={cal.calendarId} className="calendar-item-compact">
+                            <div
+                              className="calendar-color-dot"
+                              style={{ backgroundColor: cal.color }}
+                            />
+                            <span className="calendar-name-compact">{cal.name}</span>
+                            <div className="calendar-icons-compact">
+                              {cal.labels.map((label) => (
+                                <CategoryIcon
+                                  key={label}
+                                  label={label as CalendarLabel}
+                                  active={true}
+                                  onClick={() => {}}
+                                  disabled={true}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    className="renew-token-button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleConnectGoogle();
+                    }}
+                  >
+                    🔄 {t('settings.renewToken')}
+                  </button>
                 </div>
               </Section>
             </>

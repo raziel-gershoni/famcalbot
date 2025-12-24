@@ -37,7 +37,8 @@
     },
     "settings": {
       "title": "הגדרות לוח שנה",
-      "calendars": "{count} יומנים מסונכרנים"
+      "calendars": "{count} יומנים מסונכרנים",
+      "renewToken": "חדש אסימון Google"
     }
   },
   "admin": {

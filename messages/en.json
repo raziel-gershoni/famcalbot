@@ -37,7 +37,8 @@
     },
     "settings": {
       "title": "Calendar Settings",
-      "calendars": "{count} calendars synced"
+      "calendars": "{count} calendars synced",
+      "renewToken": "Renew Google Token"
     }
   },
   "admin": {
