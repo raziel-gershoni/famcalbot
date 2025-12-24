@@ -544,21 +544,17 @@ async function sendSummaryToAll(
       return;
     }
 
-    // Get the first user to fetch calendars (they all share the same calendars)
-    const firstUser = users[0];
-
-    // Extract all calendar IDs from assignments
-    const allCalendarIds = firstUser.calendarAssignments?.map(a => a.calendarId) || [];
-
-    // Fetch calendar events once (shared by all users)
-    const events = await fetchFunction(firstUser.googleRefreshToken, allCalendarIds);
-
-    // Send to each user with personalized summary
+    // Send to each user with personalized summary based on their own calendar selection
     for (const user of users) {
       // Route message based on user's messaging platform preference
       const platform = user.messagingPlatform || 'telegram'; // Default to telegram
 
       try {
+        // Extract calendar IDs for this specific user
+        const allCalendarIds = user.calendarAssignments?.map(a => a.calendarId) || [];
+
+        // Fetch calendar events for this user's selected calendars
+        const events = await fetchFunction(user.googleRefreshToken, allCalendarIds);
 
         // Categorize events by ownership for this user
         const categorized = categorizeEvents(events, user);
