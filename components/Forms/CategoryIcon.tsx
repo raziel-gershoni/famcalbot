@@ -46,54 +46,59 @@ export default function CategoryIcon({ label, active, onClick, disabled = false 
   const config = LABEL_CONFIG[label];
   const Icon = config.Icon;
 
+  const buttonStyle: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '24px',
+    height: '24px',
+    borderRadius: '6px',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    transition: 'all 0.2s',
+    border: '1px solid',
+    background: active ? `${config.color}15` : 'transparent',
+    borderColor: active ? config.color : '#d1d5db',
+    opacity: disabled ? 0.5 : 1,
+    padding: '3px',
+  };
+
   return (
-    <>
-      <style jsx>{`
-        .category-icon {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: 24px;
-          height: 24px;
-          border-radius: 6px;
-          cursor: ${disabled ? 'not-allowed' : 'pointer'};
-          transition: all 0.2s;
-          border: 1px solid;
-          background: ${active ? `${config.color}15` : 'transparent'};
-          border-color: ${active ? config.color : '#d1d5db'};
-          opacity: ${disabled ? 0.5 : 1};
-          padding: 3px;
+    <button
+      style={buttonStyle}
+      onClick={onClick}
+      disabled={disabled}
+      type="button"
+      title={config.name}
+      aria-label={`${config.name} ${active ? '(active)' : ''}`}
+      onMouseEnter={(e) => {
+        if (!disabled) {
+          e.currentTarget.style.transform = 'scale(1.1)';
+          e.currentTarget.style.boxShadow = `0 1px 4px ${config.color}30`;
         }
-
-        .category-icon :global(.icon) {
-          stroke: ${active ? config.color : '#9ca3af'};
+      }}
+      onMouseLeave={(e) => {
+        if (!disabled) {
+          e.currentTarget.style.transform = '';
+          e.currentTarget.style.boxShadow = '';
         }
-
-        .category-icon:hover:not(:disabled) {
-          transform: ${disabled ? 'none' : 'scale(1.1)'};
-          box-shadow: ${disabled ? 'none' : `0 1px 4px ${config.color}30`};
+      }}
+      onMouseDown={(e) => {
+        if (!disabled) {
+          e.currentTarget.style.transform = 'scale(0.95)';
         }
-
-        .category-icon:active:not(:disabled) {
-          transform: ${disabled ? 'none' : 'scale(0.95)'};
+      }}
+      onMouseUp={(e) => {
+        if (!disabled) {
+          e.currentTarget.style.transform = 'scale(1.1)';
         }
-      `}</style>
-
-      <button
-        className="category-icon"
-        onClick={onClick}
-        disabled={disabled}
-        type="button"
-        title={config.name}
-        aria-label={`${config.name} ${active ? '(active)' : ''}`}
-      >
-        <Icon
-          className="icon"
-          size={18}
-          fill={active ? config.color : 'none'}
-          strokeWidth={active ? 0 : 2}
-        />
-      </button>
-    </>
+      }}
+    >
+      <Icon
+        size={18}
+        fill={active ? config.color : 'none'}
+        stroke={active ? config.color : '#9ca3af'}
+        strokeWidth={active ? 0 : 2}
+      />
+    </button>
   );
 }
