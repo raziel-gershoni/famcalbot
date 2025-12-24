@@ -2,6 +2,9 @@ const withNextIntl = require('next-intl/plugin')();
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Transpile Heroicons to avoid build issues
+  transpilePackages: ['@heroicons/react'],
+
   // Enable experimental features for App Router
   experimental: {
     serverActions: {
