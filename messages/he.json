@@ -130,6 +130,13 @@
       "primaryMustBeYours": "היומן הראשי חייב להיות בקטגוריה 'שלך'"
     },
     "successMessage": "הגדרות היומן שלך עודכנו בהצלחה",
+    "feedback": {
+      "added": "נוסף",
+      "removed": "הוסר",
+      "addedTo": "נוסף ל",
+      "removedFrom": "הוסר מ",
+      "setPrimary": "הוגדר כראשי"
+    },
     "actions": {
       "save": "שמור בחירת יומנים",
       "saving": "שומר...",

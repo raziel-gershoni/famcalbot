@@ -130,6 +130,13 @@
       "primaryMustBeYours": "Primary calendar must be in 'yours' category"
     },
     "successMessage": "Your calendar settings have been updated successfully",
+    "feedback": {
+      "added": "added",
+      "removed": "removed",
+      "addedTo": "added to",
+      "removedFrom": "removed from",
+      "setPrimary": "set as primary"
+    },
     "actions": {
       "save": "Save Calendar Selection",
       "saving": "Saving...",

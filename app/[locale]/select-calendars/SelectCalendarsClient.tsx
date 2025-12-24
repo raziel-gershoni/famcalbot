@@ -26,7 +26,11 @@ interface SelectCalendarsClientProps {
   };
 }
 
-type FormState = 'idle' | 'submitting' | 'success' | 'error';
+interface FeedbackMessage {
+  text: string;
+  type: 'success' | 'error';
+  id: number;
+}
 
 export default function SelectCalendarsClient({
   userId,
@@ -35,118 +39,35 @@ export default function SelectCalendarsClient({
   currentSelections
 }: SelectCalendarsClientProps) {
   const t = useTranslations('calendars');
-  const [formState, setFormState] = useState<FormState>('idle');
   const [selectedCalendars, setSelectedCalendars] = useState<Set<string>>(
     currentSelections.selectedCalendars
   );
   const [calendarLabels, setCalendarLabels] = useState<Map<string, Set<CalendarLabel>>>(
     currentSelections.calendarLabels
   );
+  const [feedbackMessages, setFeedbackMessages] = useState<FeedbackMessage[]>([]);
+  const [messageIdCounter, setMessageIdCounter] = useState(0);
 
-  // Toggle calendar checkbox
-  const handleCalendarToggle = (calendarId: string) => {
-    setSelectedCalendars(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(calendarId)) {
-        // Unchecking: Remove from selected AND remove all labels
-        newSet.delete(calendarId);
-        setCalendarLabels(prevLabels => {
-          const newLabels = new Map(prevLabels);
-          newLabels.delete(calendarId);
-          return newLabels;
-        });
-      } else {
-        // Checking: Add to selected (no labels yet)
-        newSet.add(calendarId);
-      }
-      return newSet;
-    });
+  // Show feedback message
+  const showFeedback = (text: string, type: 'success' | 'error' = 'success') => {
+    const id = messageIdCounter;
+    setMessageIdCounter(prev => prev + 1);
+
+    const message: FeedbackMessage = { text, type, id };
+    setFeedbackMessages(prev => [...prev, message]);
+
+    // Auto-dismiss after 3 seconds
+    setTimeout(() => {
+      setFeedbackMessages(prev => prev.filter(m => m.id !== id));
+    }, 3000);
   };
 
-  // Toggle category label
-  const handleLabelToggle = (calendarId: string, label: CalendarLabel) => {
-    setCalendarLabels(prev => {
-      const newLabels = new Map(prev);
-      const labels = new Set(newLabels.get(calendarId) || []);
-
-      if (label === 'primary') {
-        // Radio behavior: Remove primary from all others
-        for (const [otherCalId, otherLabels] of newLabels) {
-          if (otherCalId !== calendarId) {
-            otherLabels.delete('primary');
-          }
-        }
-        // Add to this calendar
-        labels.add('primary');
-        // Force-add 'yours' as well (primary must be in yours)
-        labels.add('yours');
-      } else {
-        // Toggle behavior
-        if (labels.has(label)) {
-          // Removing: Check if primary+yours edge case
-          if (label === 'yours' && labels.has('primary')) {
-            alert(t('validation.primaryMustBeYours'));
-            return prev; // Don't remove
-          }
-          labels.delete(label);
-        } else {
-          // Adding: Check mutual exclusivity
-          const mutuallyExclusive: CalendarLabel[] = ['yours', 'spouse', 'kids', 'birthdays'];
-          for (const other of mutuallyExclusive) {
-            if (other !== label && labels.has(other)) {
-              labels.delete(other); // Auto-remove conflicting label
-            }
-          }
-          labels.add(label);
-        }
-      }
-
-      newLabels.set(calendarId, labels);
-      return newLabels;
-    });
-  };
-
-  // Validation before submit
-  const validateSelection = (): { valid: boolean; error?: string } => {
-    // At least one calendar must be selected
-    if (selectedCalendars.size === 0) {
-      return { valid: false, error: t('validation.noneSelected') };
-    }
-
-    // At least one calendar must have 'yours' label
-    const hasYours = Array.from(calendarLabels.values())
-      .some(labels => labels.has('yours'));
-    if (!hasYours) {
-      return { valid: false, error: t('validation.yours') };
-    }
-
-    // Must have exactly one primary
-    const primaryCount = Array.from(calendarLabels.values())
-      .filter(labels => labels.has('primary')).length;
-    if (primaryCount === 0) {
-      return { valid: false, error: t('validation.primary') };
-    }
-
-    return { valid: true };
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Validation
-    const validation = validateSelection();
-    if (!validation.valid) {
-      alert(validation.error);
-      return;
-    }
-
-    setFormState('submitting');
-
+  // Save current state to server
+  const saveToServer = async (newSelectedCalendars: Set<string>, newCalendarLabels: Map<string, Set<CalendarLabel>>) => {
     try {
-      // Build calendarAssignments array
-      const calendarAssignments: CalendarAssignment[] = Array.from(selectedCalendars).map(calId => {
+      const calendarAssignments: CalendarAssignment[] = Array.from(newSelectedCalendars).map(calId => {
         const calendar = availableCalendars.find(c => c.id === calId);
-        const labels = Array.from(calendarLabels.get(calId) || []);
+        const labels = Array.from(newCalendarLabels.get(calId) || []);
 
         return {
           calendarId: calId,
@@ -156,97 +77,132 @@ export default function SelectCalendarsClient({
         };
       });
 
-      // Server-side validation
-      const serverValidation = validateCalendarAssignments(calendarAssignments);
-      if (!serverValidation.valid) {
-        alert(serverValidation.errors[0]);
-        setFormState('idle');
-        return;
-      }
-
       const response = await fetch(`/api/select-calendars?user_id=${userId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          calendarAssignments
-        })
+        body: JSON.stringify({ calendarAssignments })
       });
 
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error || 'Failed to save calendars');
+        throw new Error(data.error || 'Failed to save');
       }
 
-      setFormState('success');
-
-      // Auto-close after 2 seconds
-      setTimeout(() => {
-        if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-          window.Telegram.WebApp.close();
-        }
-      }, 2000);
-
+      return true;
     } catch (error) {
-      console.error('Error saving calendars:', error);
-      setFormState('error');
-
-      // Reset after 3 seconds
-      setTimeout(() => {
-        setFormState('idle');
-      }, 3000);
+      console.error('Error saving:', error);
+      showFeedback(t('actions.error'), 'error');
+      return false;
     }
   };
 
-  if (formState === 'success') {
-    return (
-      <TelegramLayout>
-        <style jsx>{`
-          .success-container {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
+  // Get calendar name by ID
+  const getCalendarName = (calendarId: string) => {
+    return availableCalendars.find(c => c.id === calendarId)?.name || calendarId;
+  };
+
+  // Get label display name
+  const getLabelName = (label: CalendarLabel) => {
+    return t(`categories.${label}`);
+  };
+
+  // Toggle calendar checkbox
+  const handleCalendarToggle = async (calendarId: string) => {
+    const isCurrentlySelected = selectedCalendars.has(calendarId);
+    const calendarName = getCalendarName(calendarId);
+
+    let newSelectedCalendars: Set<string>;
+    let newCalendarLabels: Map<string, Set<CalendarLabel>>;
+
+    if (isCurrentlySelected) {
+      // Unchecking: Remove from selected AND remove all labels
+      newSelectedCalendars = new Set(selectedCalendars);
+      newSelectedCalendars.delete(calendarId);
+
+      newCalendarLabels = new Map(calendarLabels);
+      newCalendarLabels.delete(calendarId);
+
+      setSelectedCalendars(newSelectedCalendars);
+      setCalendarLabels(newCalendarLabels);
+
+      // Save and show feedback
+      const success = await saveToServer(newSelectedCalendars, newCalendarLabels);
+      if (success) {
+        showFeedback(`${calendarName} ${t('feedback.removed')}`);
+      }
+    } else {
+      // Checking: Add to selected (no labels yet)
+      newSelectedCalendars = new Set(selectedCalendars);
+      newSelectedCalendars.add(calendarId);
+
+      newCalendarLabels = new Map(calendarLabels);
+
+      setSelectedCalendars(newSelectedCalendars);
+
+      // Save and show feedback
+      const success = await saveToServer(newSelectedCalendars, newCalendarLabels);
+      if (success) {
+        showFeedback(`${calendarName} ${t('feedback.added')}`);
+      }
+    }
+  };
+
+  // Toggle category label
+  const handleLabelToggle = async (calendarId: string, label: CalendarLabel) => {
+    const calendarName = getCalendarName(calendarId);
+    const labelName = getLabelName(label);
+
+    const newLabels = new Map(calendarLabels);
+    const labels = new Set(newLabels.get(calendarId) || []);
+    const hadLabel = labels.has(label);
+
+    if (label === 'primary') {
+      // Radio behavior: Remove primary from all others
+      for (const [otherCalId, otherLabels] of newLabels) {
+        if (otherCalId !== calendarId) {
+          otherLabels.delete('primary');
+        }
+      }
+      // Add to this calendar
+      labels.add('primary');
+      // Force-add 'yours' as well (primary must be in yours)
+      labels.add('yours');
+    } else {
+      // Toggle behavior
+      if (labels.has(label)) {
+        // Removing: Check if primary+yours edge case
+        if (label === 'yours' && labels.has('primary')) {
+          showFeedback(t('validation.primaryMustBeYours'), 'error');
+          return; // Don't remove
+        }
+        labels.delete(label);
+      } else {
+        // Adding: Check mutual exclusivity
+        const mutuallyExclusive: CalendarLabel[] = ['yours', 'spouse', 'kids', 'birthdays'];
+        for (const other of mutuallyExclusive) {
+          if (other !== label && labels.has(other)) {
+            labels.delete(other); // Auto-remove conflicting label
           }
-          .success-box {
-            background: white;
-            padding: 40px;
-            border-radius: 15px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-            text-align: center;
-            max-width: 500px;
-          }
-          .icon {
-            font-size: 64px;
-            margin-bottom: 20px;
-            animation: bounce 1s;
-          }
-          @keyframes bounce {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-20px); }
-          }
-          h1 { color: #22c55e; margin: 0 0 10px 0; }
-          p { color: #666; line-height: 1.6; }
-          .user-info {
-            background: #f9fafb;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 20px 0;
-          }
-        `}</style>
-        <div className="success-container">
-          <div className="success-box">
-            <div className="icon">✅</div>
-            <h1>{t('actions.saved')}</h1>
-            <div className="user-info">
-              <strong>{userName}</strong><br />
-              {t('successMessage')}
-            </div>
-          </div>
-        </div>
-      </TelegramLayout>
-    );
-  }
+        }
+        labels.add(label);
+      }
+    }
+
+    newLabels.set(calendarId, labels);
+    setCalendarLabels(newLabels);
+
+    // Save and show feedback
+    const success = await saveToServer(selectedCalendars, newLabels);
+    if (success) {
+      if (label === 'primary') {
+        showFeedback(`${calendarName} ${t('feedback.setPrimary')}`);
+      } else if (hadLabel) {
+        showFeedback(`${calendarName} ${t('feedback.removedFrom')} ${labelName}`);
+      } else {
+        showFeedback(`${calendarName} ${t('feedback.addedTo')} ${labelName}`);
+      }
+    }
+  };
 
   return (
     <TelegramLayout>
@@ -364,7 +320,63 @@ export default function SelectCalendarsClient({
         .btn-error {
           background: #ef4444;
         }
+
+        .feedback-container {
+          position: fixed;
+          top: 20px;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 1000;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          max-width: 90%;
+          width: 400px;
+        }
+
+        .feedback-message {
+          background: white;
+          border-radius: 8px;
+          padding: 12px 16px;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 14px;
+          animation: slideIn 0.3s ease-out;
+        }
+
+        .feedback-message.success {
+          border-left: 4px solid #22c55e;
+          color: #166534;
+        }
+
+        .feedback-message.error {
+          border-left: 4px solid #ef4444;
+          color: #991b1b;
+        }
+
+        @keyframes slideIn {
+          from {
+            opacity: 0;
+            transform: translateY(-20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
       `}</style>
+
+      {/* Feedback Messages */}
+      <div className="feedback-container">
+        {feedbackMessages.map(msg => (
+          <div key={msg.id} className={`feedback-message ${msg.type}`}>
+            <span>{msg.type === 'success' ? '✓' : '✗'}</span>
+            <span>{msg.text}</span>
+          </div>
+        ))}
+      </div>
 
       <div className="page-container">
         <div className="container">
@@ -375,8 +387,7 @@ export default function SelectCalendarsClient({
             {t('categoryHelp')}
           </div>
 
-          <form onSubmit={handleSubmit}>
-            <div className="calendar-list">
+          <div className="calendar-list">
               {availableCalendars.map(calendar => {
                 const isSelected = selectedCalendars.has(calendar.id);
                 const labels = calendarLabels.get(calendar.id) || new Set();
@@ -443,19 +454,8 @@ export default function SelectCalendarsClient({
                 );
               })}
             </div>
-
-            <button
-              type="submit"
-              className={`btn ${formState === 'error' ? 'btn-error' : ''}`}
-              disabled={formState !== 'idle'}
-            >
-              {formState === 'submitting' && t('actions.saving')}
-              {formState === 'error' && t('actions.error')}
-              {formState === 'idle' && t('actions.save')}
-            </button>
-          </form>
+          </div>
         </div>
-      </div>
-    </TelegramLayout>
-  );
-}
+      </TelegramLayout>
+    );
+  }
