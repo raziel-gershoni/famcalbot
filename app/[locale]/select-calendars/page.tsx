@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { listUserCalendars } from '@/src/services/calendar';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
+import { AlertTriangle, XCircle } from 'lucide-react';
 import SelectCalendarsClient from './SelectCalendarsClient';
 
 interface PageProps {
@@ -48,7 +49,7 @@ export default async function SelectCalendarsPage({ params, searchParams }: Page
           textAlign: 'center',
           maxWidth: '400px'
         }}>
-          <div style={{ fontSize: '64px', marginBottom: '20px' }}>⚠️</div>
+          <div style={{ marginBottom: '20px' }}><AlertTriangle size={64} color="#f59e0b" /></div>
           <h1 style={{ color: '#ef4444', margin: '0 0 10px 0' }}>Missing Parameter</h1>
           <p style={{ color: '#666' }}>user_id parameter is required</p>
         </div>
@@ -87,7 +88,7 @@ export default async function SelectCalendarsPage({ params, searchParams }: Page
           textAlign: 'center',
           maxWidth: '400px'
         }}>
-          <div style={{ fontSize: '64px', marginBottom: '20px' }}>⚠️</div>
+          <div style={{ marginBottom: '20px' }}><AlertTriangle size={64} color="#f59e0b" /></div>
           <h1 style={{ color: '#ef4444', margin: '0 0 10px 0' }}>No Google Token</h1>
           <p style={{ color: '#666' }}>Please refresh your token first.</p>
         </div>
@@ -130,7 +131,7 @@ export default async function SelectCalendarsPage({ params, searchParams }: Page
           textAlign: 'center',
           maxWidth: '400px'
         }}>
-          <div style={{ fontSize: '64px', marginBottom: '20px' }}>❌</div>
+          <div style={{ marginBottom: '20px' }}><XCircle size={64} color="#ef4444" /></div>
           <h1 style={{ color: '#ef4444', margin: '0 0 10px 0' }}>Error</h1>
           <p style={{ color: '#666' }}>
             {error instanceof Error ? error.message : 'Unknown error'}

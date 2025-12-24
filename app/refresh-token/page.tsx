@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import crypto from 'crypto';
 import { prisma } from '@/src/utils/prisma';
+import { XCircle } from 'lucide-react';
 import RefreshTokenClient from './RefreshTokenClient';
 
 interface PageProps {
@@ -41,7 +42,7 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
           maxWidth: '400px',
           textAlign: 'center'
         }}>
-          <div style={{ fontSize: '64px', marginBottom: '20px' }}>❌</div>
+          <div style={{ marginBottom: '20px' }}><XCircle size={64} color="#ef4444" /></div>
           <h2 style={{ margin: '0 0 20px 0', color: '#333' }}>Missing Parameter</h2>
           <p style={{ color: '#666', lineHeight: '1.6' }}>
             Missing user_id parameter. Please use the link provided by the bot.

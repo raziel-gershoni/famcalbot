@@ -1,5 +1,7 @@
 'use client';
 
+import { Settings2, Users, RefreshCw, PencilLine, Wrench, Database } from 'lucide-react';
+
 interface User {
   telegramId: number;
   name: string;
@@ -117,14 +119,14 @@ export default function AdminClient({ users }: AdminClientProps) {
       <body>
         <div className="container">
           <header>
-            <h1>🎛️ FamCalBot Admin</h1>
+            <h1><Settings2 size={20} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> FamCalBot Admin</h1>
             <a href="/api/admin/logout" className="btn logout">
               Logout
             </a>
           </header>
 
           <div className="section">
-            <h2>👥 User Management</h2>
+            <h2><Users size={20} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> User Management</h2>
             {users.map((user) => (
               <div key={user.telegramId.toString()} className="user-card">
                 <h3>{user.name} ({user.hebrewName})</h3>
@@ -145,22 +147,22 @@ export default function AdminClient({ users }: AdminClientProps) {
                   href={getOAuthUrl(user.telegramId)}
                   className="btn btn-success"
                 >
-                  🔄 Refresh Google Token
+                  <RefreshCw size={16} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Refresh Google Token
                 </a>
                 <a
                   href={`/admin/edit-user?id=${user.telegramId.toString()}`}
                   className="btn"
                 >
-                  ✏️ Edit User
+                  <PencilLine size={16} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Edit User
                 </a>
               </div>
             ))}
           </div>
 
           <div className="section">
-            <h2>🔧 System Tools</h2>
+            <h2><Wrench size={20} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> System Tools</h2>
             <a href="/admin/migrations" className="btn">
-              📦 View Database Schema
+              <Database size={16} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> View Database Schema
             </a>
           </div>
         </div>

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { prisma } from '@/src/utils/prisma';
 import { getUserByTelegramId, updateGoogleRefreshToken } from '@/src/services/user-service';
+import { XCircle, AlertTriangle } from 'lucide-react';
 
 interface PageProps {
   searchParams: Promise<{
@@ -51,7 +52,7 @@ function ErrorPage({ message, telegramId }: { message: string; telegramId?: numb
       </head>
       <body>
         <div className="container">
-          <div className="icon">❌</div>
+          <div className="icon"><XCircle size={64} color="#ef4444" /></div>
           <h2>Error</h2>
           <p>{message}</p>
           {telegramId && (
@@ -107,7 +108,7 @@ function NoRefreshTokenPage({ telegramId }: { telegramId: number }) {
       </head>
       <body>
         <div className="container">
-          <div className="icon">⚠️</div>
+          <div className="icon"><AlertTriangle size={64} color="#f59e0b" /></div>
           <h2>One More Step</h2>
           <p>Google didn&apos;t provide a new refresh token because you&apos;ve authorized before.</p>
           <p><strong>Please revoke access first:</strong></p>

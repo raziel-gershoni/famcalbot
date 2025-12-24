@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { CheckCircle2, Calendar } from 'lucide-react';
 
 interface SuccessClientProps {
   userName: string;
@@ -42,7 +43,7 @@ export default function SuccessClient({ userName, botUsername }: SuccessClientPr
   return (
     <html>
       <head>
-        <title>✅ Calendars Saved</title>
+        <title>Calendars Saved</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <script src="https://telegram.org/js/telegram-web-app.js"></script>
         <style>{`
@@ -129,7 +130,7 @@ export default function SuccessClient({ userName, botUsername }: SuccessClientPr
       <body>
         <div className="container">
           <div className="success-box">
-            <div className="icon">✅</div>
+            <div className="icon"><CheckCircle2 size={64} color="#22c55e" /></div>
             <h1>Calendars Saved!</h1>
             <div className="user-info">
               <strong>{userName}</strong><br />
@@ -139,10 +140,10 @@ export default function SuccessClient({ userName, botUsername }: SuccessClientPr
             <div className="actions">
               <p><strong>Get your calendar summary:</strong></p>
               <button onClick={() => runSummary('today')} className="btn btn-primary">
-                📅 Today&apos;s Summary
+                <Calendar size={16} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Today&apos;s Summary
               </button>
               <button onClick={() => runSummary('tmrw')} className="btn btn-primary">
-                📆 Tomorrow&apos;s Summary
+                <Calendar size={16} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Tomorrow&apos;s Summary
               </button>
               <button onClick={closeWindow} className="btn btn-secondary">
                 ← Back to Chat

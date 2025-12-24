@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { AlertTriangle } from 'lucide-react';
 
 interface TelegramDashboardRedirectProps {
   locale: string;
@@ -77,7 +78,7 @@ export default function TelegramDashboardRedirect({ locale }: TelegramDashboardR
           maxWidth: '400px',
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)'
         }}>
-          <div style={{ fontSize: '48px', marginBottom: '20px' }}>⚠️</div>
+          <div style={{ marginBottom: '20px' }}><AlertTriangle size={48} color="#f59e0b" /></div>
           <h2 style={{ color: '#333', marginBottom: '10px', fontSize: '20px' }}>{error}</h2>
           <p style={{ color: '#666', fontSize: '14px' }}>Type /start in your Telegram chat to begin</p>
         </div>

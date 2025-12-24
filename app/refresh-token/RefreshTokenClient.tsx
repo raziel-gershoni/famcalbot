@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { RefreshCw, KeyRound } from 'lucide-react';
 
 interface RefreshTokenClientProps {
   oauthUrl: string;
@@ -86,7 +87,7 @@ export default function RefreshTokenClient({ oauthUrl }: RefreshTokenClientProps
       `}</style>
 
       <div className="container">
-        <div className="icon">🔄</div>
+        <div className="icon"><RefreshCw size={64} color="#667eea" /></div>
         <h2>Refresh Calendar Access</h2>
         <p>Your Google Calendar access has expired. Let&apos;s refresh it!</p>
 
@@ -100,7 +101,7 @@ export default function RefreshTokenClient({ oauthUrl }: RefreshTokenClientProps
         </div>
 
         <a href={oauthUrl} className="btn">
-          🔐 Connect Google Calendar
+          <KeyRound size={20} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Connect Google Calendar
         </a>
       </div>
 
