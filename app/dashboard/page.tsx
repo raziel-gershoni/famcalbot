@@ -16,44 +16,69 @@ export default function DashboardRedirectPage() {
 
     debugLog('🔍 Dashboard page loaded');
 
-    // Wait a bit for Telegram script to load
-    setTimeout(() => {
-      debugLog(`📱 Window.Telegram exists: ${!!window.Telegram}`);
-      debugLog(`🌐 Window.Telegram.WebApp exists: ${!!window.Telegram?.WebApp}`);
+    // CRITICAL: Call ready() IMMEDIATELY to remove loading screen
+    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+      const tg = window.Telegram.WebApp;
 
-      // Check if running in Telegram WebApp
-      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-        const tg = window.Telegram.WebApp;
-        debugLog('✅ Telegram WebApp found');
-        tg.ready();
-        debugLog('📞 Called tg.ready()');
+      debugLog('✅ Telegram WebApp found');
 
-        // Get user ID from initData
-        const userId = tg.initDataUnsafe?.user?.id;
-        const languageCode = tg.initDataUnsafe?.user?.language_code;
+      // MUST call ready() first thing - this removes black loading screen
+      tg.ready();
+      debugLog('📞 Called tg.ready()');
 
-        debugLog(`👤 User ID: ${userId || 'NOT FOUND'}`);
-        debugLog(`🌍 Language: ${languageCode || 'NOT FOUND'}`);
-        debugLog(`📊 Full initDataUnsafe: ${JSON.stringify(tg.initDataUnsafe || {})}`);
-
-        if (userId) {
-          // Determine locale (default to 'en' if not Hebrew)
-          const locale = languageCode === 'he' ? 'he' : 'en';
-          debugLog(`🔀 Redirecting to: /${locale}/dashboard?user_id=${userId}`);
-
-          // Redirect to localized dashboard with user ID
-          router.push(`/${locale}/dashboard?user_id=${userId}`);
-        } else {
-          // Fallback: User ID not available in initData
-          setError('❌ User ID not available in initData');
-          debugLog('❌ User ID not found in initDataUnsafe');
-        }
-      } else {
-        // Not opened from Telegram
-        setError('❌ Not opened from Telegram');
-        debugLog('❌ window.Telegram.WebApp not available');
+      // Set theme colors to ensure visibility
+      try {
+        tg.setHeaderColor('secondary_bg_color');
+        tg.setBackgroundColor('#ffffff');
+        debugLog('🎨 Set theme colors');
+      } catch (e) {
+        debugLog(`⚠️ Could not set colors: ${e}`);
       }
-    }, 500);
+
+      // Get user ID from initData
+      const userId = tg.initDataUnsafe?.user?.id;
+      const languageCode = tg.initDataUnsafe?.user?.language_code;
+
+      debugLog(`👤 User ID: ${userId || 'NOT FOUND'}`);
+      debugLog(`🌍 Language: ${languageCode || 'NOT FOUND'}`);
+      debugLog(`📊 Full initDataUnsafe: ${JSON.stringify(tg.initDataUnsafe || {})}`);
+      debugLog(`📱 Platform: ${tg.platform || 'unknown'}`);
+      debugLog(`🔢 Version: ${tg.version || 'unknown'}`);
+
+      if (userId) {
+        // Determine locale (default to 'en' if not Hebrew)
+        const locale = languageCode === 'he' ? 'he' : 'en';
+        debugLog(`🔀 Redirecting to: /${locale}/dashboard?user_id=${userId}`);
+
+        // Redirect to localized dashboard with user ID
+        router.push(`/${locale}/dashboard?user_id=${userId}`);
+      } else {
+        // Fallback: User ID not available in initData
+        setError('❌ User ID not available in initData');
+        debugLog('❌ User ID not found in initDataUnsafe');
+      }
+    } else {
+      // Not opened from Telegram - wait a bit for SDK to load
+      debugLog('⏳ Waiting for Telegram WebApp SDK...');
+
+      let attempts = 0;
+      const checkInterval = setInterval(() => {
+        attempts++;
+        debugLog(`🔄 Attempt ${attempts}/10 to find Telegram WebApp`);
+
+        if (window.Telegram?.WebApp) {
+          clearInterval(checkInterval);
+          debugLog('✅ Telegram WebApp loaded after waiting');
+          window.location.reload(); // Reload to re-run useEffect with SDK available
+        } else if (attempts >= 10) {
+          clearInterval(checkInterval);
+          setError('❌ Not opened from Telegram (SDK not loading)');
+          debugLog('❌ window.Telegram.WebApp not available after 10 attempts');
+        }
+      }, 200);
+
+      return () => clearInterval(checkInterval);
+    }
   }, [router]);
 
   return (
