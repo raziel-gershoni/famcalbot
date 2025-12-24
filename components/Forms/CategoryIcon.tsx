@@ -47,20 +47,7 @@ export default function CategoryIcon({ label, active, onClick, disabled = false 
   const Icon = config.Icon;
 
   return (
-    <button
-      className="category-icon"
-      onClick={onClick}
-      disabled={disabled}
-      type="button"
-      title={config.name}
-      aria-label={`${config.name} ${active ? '(active)' : ''}`}
-    >
-      <Icon
-        className="icon"
-        size={18}
-        fill={active ? config.color : 'none'}
-        strokeWidth={active ? 0 : 2}
-      />
+    <>
       <style jsx>{`
         .category-icon {
           display: inline-flex;
@@ -91,6 +78,22 @@ export default function CategoryIcon({ label, active, onClick, disabled = false 
           transform: ${disabled ? 'none' : 'scale(0.95)'};
         }
       `}</style>
-    </button>
+
+      <button
+        className="category-icon"
+        onClick={onClick}
+        disabled={disabled}
+        type="button"
+        title={config.name}
+        aria-label={`${config.name} ${active ? '(active)' : ''}`}
+      >
+        <Icon
+          className="icon"
+          size={18}
+          fill={active ? config.color : 'none'}
+          strokeWidth={active ? 0 : 2}
+        />
+      </button>
+    </>
   );
 }
