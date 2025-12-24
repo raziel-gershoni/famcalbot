@@ -47,6 +47,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps)
         name: user.name,
         location: user.location,
         calendarsCount: user.calendarAssignments?.length || 0,
+        isAdmin: user.isAdmin || false,
       }}
       calendarAssignments={user.calendarAssignments || []}
       locale={locale}

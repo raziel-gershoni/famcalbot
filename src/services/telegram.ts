@@ -59,6 +59,19 @@ export function initBot(): TelegramBot {
     console.log('🤖 Telegram bot initialized in WEBHOOK mode (production)');
   }
 
+  // Set menu button for quick dashboard access
+  bot.setChatMenuButton({
+    menu_button: {
+      type: 'web_app',
+      text: '🚀 Dashboard',
+      web_app: { url: 'https://famcalbot.vercel.app/dashboard' }
+    }
+  }).then(() => {
+    console.log('✅ Menu button configured successfully');
+  }).catch((error) => {
+    console.error('❌ Failed to set menu button:', error);
+  });
+
   return bot;
 }
 

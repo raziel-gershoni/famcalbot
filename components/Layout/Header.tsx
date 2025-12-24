@@ -2,6 +2,7 @@ interface HeaderProps {
   title: string;
   userName?: string;
   onSettingsClick?: () => void;
+  onAdminClick?: () => void;
   backgroundColor?: string;
   isAdmin?: boolean;
 }
@@ -14,6 +15,7 @@ export default function Header({
   title,
   userName,
   onSettingsClick,
+  onAdminClick,
   backgroundColor = '#667eea',
   isAdmin = false,
 }: HeaderProps) {
@@ -79,6 +81,15 @@ export default function Header({
       <div className="user-info">
         {isAdmin && <div className="admin-badge">ADMIN</div>}
         {userName && <span>{userName}</span>}
+        {isAdmin && onAdminClick && (
+          <button
+            className="settings-icon"
+            onClick={onAdminClick}
+            aria-label="Admin Panel"
+          >
+            👑
+          </button>
+        )}
         {onSettingsClick && (
           <button
             className="settings-icon"

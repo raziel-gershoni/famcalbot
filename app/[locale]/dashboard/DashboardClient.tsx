@@ -13,6 +13,7 @@ interface User {
   name: string;
   location: string;
   calendarsCount: number;
+  isAdmin: boolean;
 }
 
 interface DashboardClientProps {
@@ -59,6 +60,10 @@ export default function DashboardClient({
 
   const handleOpenSettings = () => {
     router.push(`/${locale}/settings?user_id=${user.id}`);
+  };
+
+  const handleOpenAdminPanel = () => {
+    router.push(`/${locale}/admin-panel?user_id=${user.id}`);
   };
 
   const handleConnectGoogle = () => {
@@ -248,6 +253,8 @@ export default function DashboardClient({
           title={t('title')}
           userName={user.name}
           onSettingsClick={handleOpenSettings}
+          onAdminClick={user.isAdmin ? handleOpenAdminPanel : undefined}
+          isAdmin={user.isAdmin}
         />
 
         <div className="dashboard-content">

@@ -57,24 +57,4 @@ export default function TelegramLayout({
     </div>
   );
 }
-
-// Type declaration for Telegram WebApp
-declare global {
-  interface Window {
-    Telegram?: {
-      WebApp: {
-        ready: () => void;
-        expand: () => void;
-        close: () => void;
-        setHeaderColor: (color: string) => void;
-        setBackgroundColor: (color: string) => void;
-        openLink: (url: string) => void;
-        MainButton: {
-          setText: (text: string) => void;
-          onClick: (callback: () => void) => void;
-          show: () => void;
-        };
-      };
-    };
-  }
-}
+// Type declarations for Telegram WebApp are now in /src/types/telegram-webapp.d.ts
