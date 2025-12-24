@@ -298,6 +298,7 @@ export default function SelectCalendarsClient({
         }
         .calendar-header-wrapper {
           display: flex;
+          flex-wrap: wrap;
           justify-content: space-between;
           align-items: center;
           gap: 12px;
@@ -307,7 +308,7 @@ export default function SelectCalendarsClient({
           align-items: center;
           gap: 12px;
           flex: 1;
-          min-width: 0;
+          min-width: 200px;
           cursor: pointer;
         }
         .checkbox {
@@ -348,18 +349,7 @@ export default function SelectCalendarsClient({
           display: flex;
           gap: 6px;
           flex-shrink: 0;
-        }
-        @media (max-width: 767px) {
-          .calendar-header-wrapper {
-            flex-direction: column;
-            align-items: flex-start;
-          }
-          .label-icons {
-            width: 100%;
-            padding-top: 8px;
-            margin-top: 8px;
-            border-top: 1px solid #e5e7eb;
-          }
+          flex-wrap: wrap;
         }
         .btn {
           width: 100%;
