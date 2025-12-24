@@ -5,6 +5,8 @@ import { TelegramLayout, Header } from '@/components/Layout';
 import { Section } from '@/components/UI';
 import { LoadingButton } from '@/components/Feedback';
 import { useRouter } from 'next/navigation';
+import CategoryIcon from '@/components/Forms/CategoryIcon';
+import { CalendarAssignment, CalendarLabel } from '@/src/types';
 
 interface User {
   id: number;
@@ -15,6 +17,7 @@ interface User {
 
 interface DashboardClientProps {
   user: User;
+  calendarAssignments: CalendarAssignment[];
   locale: string;
   needsOAuth: boolean;
   needsCalendars: boolean;
@@ -22,6 +25,7 @@ interface DashboardClientProps {
 
 export default function DashboardClient({
   user,
+  calendarAssignments,
   locale,
   needsOAuth,
   needsCalendars,
@@ -154,13 +158,14 @@ export default function DashboardClient({
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
           }
 
-          .card-content {
+          .calendar-list-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            margin-bottom: 12px;
           }
 
-          .card-content p {
+          .calendar-list-header p {
             color: #6b7280;
             font-size: 14px;
           }
@@ -168,6 +173,44 @@ export default function DashboardClient({
           .arrow {
             font-size: 20px;
             color: #9ca3af;
+          }
+
+          .calendar-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+          }
+
+          .calendar-item-compact {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px;
+            background: #f9fafb;
+            border-radius: 8px;
+            font-size: 13px;
+          }
+
+          .calendar-color-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            flex-shrink: 0;
+          }
+
+          .calendar-name-compact {
+            flex: 1;
+            color: #374151;
+            font-weight: 500;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+
+          .calendar-icons-compact {
+            display: flex;
+            gap: 4px;
+            flex-shrink: 0;
           }
 
           @media (max-width: 400px) {
@@ -246,12 +289,34 @@ export default function DashboardClient({
                   className="settings-card"
                   onClick={() => handleSelectCalendars()}
                 >
-                  <div className="card-content">
-                    <p>
-                      {t('settings.calendars', { count: user.calendarsCount })}
-                    </p>
+                  <div className="calendar-list-header">
+                    <p>{t('settings.calendars', { count: user.calendarsCount })}</p>
                     <span className="arrow">→</span>
                   </div>
+                  {calendarAssignments.length > 0 && (
+                    <div className="calendar-list">
+                      {calendarAssignments.map((cal) => (
+                        <div key={cal.calendarId} className="calendar-item-compact">
+                          <div
+                            className="calendar-color-dot"
+                            style={{ backgroundColor: cal.color }}
+                          />
+                          <span className="calendar-name-compact">{cal.name}</span>
+                          <div className="calendar-icons-compact">
+                            {cal.labels.map((label) => (
+                              <CategoryIcon
+                                key={label}
+                                label={label as CalendarLabel}
+                                active={true}
+                                onClick={() => {}}
+                                disabled={true}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </Section>
             </>

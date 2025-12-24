@@ -48,6 +48,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps)
         location: user.location,
         calendarsCount: user.calendarAssignments?.length || 0,
       }}
+      calendarAssignments={user.calendarAssignments || []}
       locale={locale}
       needsOAuth={needsOAuth}
       needsCalendars={needsCalendars}

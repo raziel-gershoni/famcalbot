@@ -298,7 +298,7 @@ export default function SelectCalendarsClient({
         }
         .calendar-header-wrapper {
           display: flex;
-          justify-content: space-between;
+          flex-wrap: wrap;
           align-items: center;
           gap: 12px;
         }
@@ -306,8 +306,8 @@ export default function SelectCalendarsClient({
           display: flex;
           align-items: center;
           gap: 12px;
-          flex: 1;
-          min-width: 0;
+          flex: 1 1 auto;
+          min-width: 250px;
           cursor: pointer;
         }
         .checkbox {
@@ -327,22 +327,15 @@ export default function SelectCalendarsClient({
           flex-direction: column;
           gap: 2px;
           flex: 1;
-          min-width: 0;
         }
         .calendar-name {
           font-weight: 600;
           color: #111827;
           font-size: 15px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
         }
         .calendar-desc {
           font-size: 13px;
           color: #6b7280;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
         }
         .label-icons {
           display: flex;
