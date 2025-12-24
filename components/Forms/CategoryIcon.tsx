@@ -1,21 +1,7 @@
 'use client';
 
 import { CalendarLabel } from '@/src/types';
-import {
-  StarIcon,
-  BriefcaseIcon,
-  HeartIcon,
-  UserGroupIcon,
-  CakeIcon
-} from '@heroicons/react/24/outline';
-
-import {
-  StarIcon as StarSolid,
-  BriefcaseIcon as BriefcaseSolid,
-  HeartIcon as HeartSolid,
-  UserGroupIcon as UserGroupSolid,
-  CakeIcon as CakeSolid
-} from '@heroicons/react/24/solid';
+import { Star, Briefcase, Heart, Users, Cake } from 'lucide-react';
 
 interface CategoryIconProps {
   label: CalendarLabel;
@@ -25,38 +11,32 @@ interface CategoryIconProps {
 }
 
 const LABEL_CONFIG: Record<CalendarLabel, {
-  IconOutline: typeof StarIcon;
-  IconSolid: typeof StarSolid;
+  Icon: typeof Star;
   color: string;
   name: string;
 }> = {
   primary: {
-    IconOutline: StarIcon,
-    IconSolid: StarSolid,
+    Icon: Star,
     color: '#3b82f6',
     name: 'Primary'
   },
   yours: {
-    IconOutline: BriefcaseIcon,
-    IconSolid: BriefcaseSolid,
+    Icon: Briefcase,
     color: '#8b5cf6',
     name: 'Yours'
   },
   spouse: {
-    IconOutline: HeartIcon,
-    IconSolid: HeartSolid,
+    Icon: Heart,
     color: '#ec4899',
     name: 'Spouse'
   },
   kids: {
-    IconOutline: UserGroupIcon,
-    IconSolid: UserGroupSolid,
+    Icon: Users,
     color: '#f59e0b',
     name: 'Kids'
   },
   birthdays: {
-    IconOutline: CakeIcon,
-    IconSolid: CakeSolid,
+    Icon: Cake,
     color: '#10b981',
     name: 'Birthdays'
   }
@@ -64,7 +44,7 @@ const LABEL_CONFIG: Record<CalendarLabel, {
 
 export default function CategoryIcon({ label, active, onClick, disabled = false }: CategoryIconProps) {
   const config = LABEL_CONFIG[label];
-  const Icon = active ? config.IconSolid : config.IconOutline;
+  const Icon = config.Icon;
 
   return (
     <button
@@ -75,7 +55,12 @@ export default function CategoryIcon({ label, active, onClick, disabled = false 
       title={config.name}
       aria-label={`${config.name} ${active ? '(active)' : ''}`}
     >
-      <Icon className="icon" />
+      <Icon
+        className="icon"
+        size={18}
+        fill={active ? config.color : 'none'}
+        strokeWidth={active ? 0 : 2}
+      />
       <style jsx>{`
         .category-icon {
           display: inline-flex;
@@ -94,9 +79,7 @@ export default function CategoryIcon({ label, active, onClick, disabled = false 
         }
 
         .category-icon :global(.icon) {
-          width: 18px;
-          height: 18px;
-          color: ${active ? config.color : '#9ca3af'};
+          stroke: ${active ? config.color : '#9ca3af'};
         }
 
         .category-icon:hover:not(:disabled) {
