@@ -1,18 +1,21 @@
 'use client';
 
 import { CalendarLabel } from '@/src/types';
-// Import icons directly to avoid loading entire barrel file during build
-import StarIcon from '@heroicons/react/24/outline/StarIcon';
-import BriefcaseIcon from '@heroicons/react/24/outline/BriefcaseIcon';
-import HeartIcon from '@heroicons/react/24/outline/HeartIcon';
-import UserGroupIcon from '@heroicons/react/24/outline/UserGroupIcon';
-import CakeIcon from '@heroicons/react/24/outline/CakeIcon';
+import {
+  StarIcon,
+  BriefcaseIcon,
+  HeartIcon,
+  UserGroupIcon,
+  CakeIcon
+} from '@heroicons/react/24/outline';
 
-import StarSolid from '@heroicons/react/24/solid/StarIcon';
-import BriefcaseSolid from '@heroicons/react/24/solid/BriefcaseIcon';
-import HeartSolid from '@heroicons/react/24/solid/HeartIcon';
-import UserGroupSolid from '@heroicons/react/24/solid/UserGroupIcon';
-import CakeSolid from '@heroicons/react/24/solid/CakeIcon';
+import {
+  StarIcon as StarSolid,
+  BriefcaseIcon as BriefcaseSolid,
+  HeartIcon as HeartSolid,
+  UserGroupIcon as UserGroupSolid,
+  CakeIcon as CakeSolid
+} from '@heroicons/react/24/solid';
 
 interface CategoryIconProps {
   label: CalendarLabel;

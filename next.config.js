@@ -10,6 +10,8 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: '2mb',
     },
+    // Optimize barrel file imports (fixes build hanging with icon libraries)
+    optimizePackageImports: ['@heroicons/react'],
   },
 
   // Disable type checking during build (we'll do it separately)
