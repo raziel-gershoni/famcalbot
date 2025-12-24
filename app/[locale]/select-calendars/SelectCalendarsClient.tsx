@@ -259,7 +259,7 @@ export default function SelectCalendarsClient({
           max-width: 600px;
           margin: 0 auto;
           background: white;
-          padding: 30px;
+          padding: 20px;
           border-radius: 15px;
           box-shadow: 0 10px 40px rgba(0,0,0,0.2);
         }
@@ -288,24 +288,33 @@ export default function SelectCalendarsClient({
         .calendar-item {
           border: 2px solid #e5e7eb;
           border-radius: 12px;
-          padding: 16px;
-          margin-bottom: 12px;
+          padding: 12px;
+          margin-bottom: 8px;
           transition: all 0.2s;
         }
         .calendar-item.selected {
           border-color: #667eea;
           background: #f9fafb;
         }
-        .calendar-header {
+        .calendar-header-wrapper {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+        }
+        .calendar-info {
           display: flex;
           align-items: center;
           gap: 12px;
+          flex: 1;
+          min-width: 0;
           cursor: pointer;
         }
         .checkbox {
           width: 20px;
           height: 20px;
           cursor: pointer;
+          flex-shrink: 0;
         }
         .calendar-color {
           width: 24px;
@@ -313,25 +322,44 @@ export default function SelectCalendarsClient({
           border-radius: 50%;
           flex-shrink: 0;
         }
-        .calendar-info {
+        .name-container {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
           flex: 1;
+          min-width: 0;
         }
         .calendar-name {
           font-weight: 600;
           color: #111827;
           font-size: 15px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
         .calendar-desc {
           font-size: 13px;
           color: #6b7280;
-          margin-top: 2px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
         .label-icons {
           display: flex;
-          gap: 8px;
-          margin-top: 12px;
-          padding-top: 12px;
-          border-top: 1px solid #e5e7eb;
+          gap: 6px;
+          flex-shrink: 0;
+        }
+        @media (max-width: 767px) {
+          .calendar-header-wrapper {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+          .label-icons {
+            width: 100%;
+            padding-top: 8px;
+            margin-top: 8px;
+            border-top: 1px solid #e5e7eb;
+          }
         }
         .btn {
           width: 100%;
@@ -377,57 +405,59 @@ export default function SelectCalendarsClient({
                     key={calendar.id}
                     className={`calendar-item ${isSelected ? 'selected' : ''}`}
                   >
-                    <div
-                      className="calendar-header"
-                      onClick={() => handleCalendarToggle(calendar.id)}
-                    >
-                      <input
-                        type="checkbox"
-                        className="checkbox"
-                        checked={isSelected}
-                        onChange={() => {}} // Handled by parent div click
-                      />
+                    <div className="calendar-header-wrapper">
                       <div
-                        className="calendar-color"
-                        style={{ background: calendar.backgroundColor }}
-                      />
-                      <div className="calendar-info">
-                        <div className="calendar-name">{calendar.name}</div>
-                        {calendar.description && (
-                          <div className="calendar-desc">{calendar.description}</div>
-                        )}
+                        className="calendar-info"
+                        onClick={() => handleCalendarToggle(calendar.id)}
+                      >
+                        <input
+                          type="checkbox"
+                          className="checkbox"
+                          checked={isSelected}
+                          onChange={() => {}} // Handled by parent div click
+                        />
+                        <div
+                          className="calendar-color"
+                          style={{ background: calendar.backgroundColor }}
+                        />
+                        <div className="name-container">
+                          <div className="calendar-name">{calendar.name}</div>
+                          {calendar.description && (
+                            <div className="calendar-desc">{calendar.description}</div>
+                          )}
+                        </div>
                       </div>
-                    </div>
 
-                    {isSelected && (
-                      <div className="label-icons">
-                        <CategoryIcon
-                          label="primary"
-                          active={labels.has('primary')}
-                          onClick={() => handleLabelToggle(calendar.id, 'primary')}
-                        />
-                        <CategoryIcon
-                          label="yours"
-                          active={labels.has('yours')}
-                          onClick={() => handleLabelToggle(calendar.id, 'yours')}
-                        />
-                        <CategoryIcon
-                          label="spouse"
-                          active={labels.has('spouse')}
-                          onClick={() => handleLabelToggle(calendar.id, 'spouse')}
-                        />
-                        <CategoryIcon
-                          label="kids"
-                          active={labels.has('kids')}
-                          onClick={() => handleLabelToggle(calendar.id, 'kids')}
-                        />
-                        <CategoryIcon
-                          label="birthdays"
-                          active={labels.has('birthdays')}
-                          onClick={() => handleLabelToggle(calendar.id, 'birthdays')}
-                        />
-                      </div>
-                    )}
+                      {isSelected && (
+                        <div className="label-icons">
+                          <CategoryIcon
+                            label="primary"
+                            active={labels.has('primary')}
+                            onClick={() => handleLabelToggle(calendar.id, 'primary')}
+                          />
+                          <CategoryIcon
+                            label="yours"
+                            active={labels.has('yours')}
+                            onClick={() => handleLabelToggle(calendar.id, 'yours')}
+                          />
+                          <CategoryIcon
+                            label="spouse"
+                            active={labels.has('spouse')}
+                            onClick={() => handleLabelToggle(calendar.id, 'spouse')}
+                          />
+                          <CategoryIcon
+                            label="kids"
+                            active={labels.has('kids')}
+                            onClick={() => handleLabelToggle(calendar.id, 'kids')}
+                          />
+                          <CategoryIcon
+                            label="birthdays"
+                            active={labels.has('birthdays')}
+                            onClick={() => handleLabelToggle(calendar.id, 'birthdays')}
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })}
