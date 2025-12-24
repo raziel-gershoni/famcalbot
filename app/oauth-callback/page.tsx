@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation';
 import { prisma } from '@/src/utils/prisma';
 import { getUserByTelegramId, updateGoogleRefreshToken } from '@/src/services/user-service';
-import CalendarSelectionClient from './CalendarSelectionClient';
 
 interface PageProps {
   searchParams: Promise<{

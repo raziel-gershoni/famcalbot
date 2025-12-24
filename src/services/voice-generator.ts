@@ -190,29 +190,6 @@ function stripHtmlTagsOnly(html: string): string {
   return text;
 }
 
-/*
-// OLD NORMALIZATION CODE - COMMENTED OUT FOR TESTING
-// Uncomment sections below if Google TTS doesn't handle specific cases well
-
-function stripHtmlTags(html: string): string {
-  let text = stripHtmlTagsOnly(html);
-
-  // Normalize dates for better pronunciation
-  text = normalizeDatesForTTS(text);
-
-  // Normalize times for better Hebrew pronunciation
-  text = normalizeTimesForTTS(text);
-
-  // Transliterate English words to Hebrew phonetics
-  text = transliterateEnglishToHebrew(text);
-
-  // Add natural pauses for better flow
-  text = addNaturalPauses(text);
-
-  return text;
-}
-*/
-
 /**
  * Normalize dates for better TTS pronunciation
  */
