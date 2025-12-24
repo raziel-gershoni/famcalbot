@@ -59,12 +59,13 @@ export default function DashboardRedirectPage() {
   return (
     <div style={{
       padding: '20px',
-      backgroundColor: 'white',
+      backgroundColor: '#ffffff',
       minHeight: '100vh',
       fontFamily: 'monospace',
-      fontSize: '12px'
+      fontSize: '14px',
+      color: '#000000'
     }}>
-      <h2 style={{ color: '#667eea' }}>🔍 Dashboard Debug</h2>
+      <h2 style={{ color: '#667eea', fontSize: '24px', marginBottom: '20px' }}>🔍 Dashboard Debug</h2>
 
       {error && (
         <div style={{
@@ -80,21 +81,29 @@ export default function DashboardRedirectPage() {
       )}
 
       <div style={{
-        background: '#f9fafb',
+        background: '#f0f0f0',
         padding: '15px',
         borderRadius: '8px',
-        border: '1px solid #e5e7eb'
+        border: '2px solid #333',
+        color: '#000'
       }}>
-        <h3 style={{ margin: '0 0 10px 0' }}>Debug Log:</h3>
+        <h3 style={{ margin: '0 0 10px 0', color: '#000', fontSize: '18px' }}>Debug Log:</h3>
         {debug.map((log, i) => (
           <div key={i} style={{
-            padding: '5px',
-            borderBottom: '1px solid #e5e7eb'
+            padding: '8px',
+            borderBottom: '1px solid #ccc',
+            fontSize: '14px',
+            color: '#000',
+            backgroundColor: i % 2 === 0 ? '#fff' : '#f5f5f5'
           }}>
             {log}
           </div>
         ))}
-        {debug.length === 0 && <div>Waiting for logs...</div>}
+        {debug.length === 0 && (
+          <div style={{ fontSize: '16px', color: '#000', padding: '10px' }}>
+            ⏳ Waiting for logs...
+          </div>
+        )}
       </div>
 
       <div style={{ marginTop: '20px', color: '#666' }}>
