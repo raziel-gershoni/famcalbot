@@ -6,45 +6,101 @@ import { useRouter } from 'next/navigation';
 export default function DashboardRedirectPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [debug, setDebug] = useState<string[]>([]);
 
   useEffect(() => {
-    // Check if running in Telegram WebApp
-    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-      const tg = window.Telegram.WebApp;
-      tg.ready();
+    const debugLog = (message: string) => {
+      console.log(message);
+      setDebug(prev => [...prev, message]);
+    };
 
-      // Get user ID from initData
-      const userId = tg.initDataUnsafe?.user?.id;
-      const languageCode = tg.initDataUnsafe?.user?.language_code;
+    debugLog('🔍 Dashboard page loaded');
 
-      if (userId) {
-        // Determine locale (default to 'en' if not Hebrew)
-        const locale = languageCode === 'he' ? 'he' : 'en';
+    // Wait a bit for Telegram script to load
+    setTimeout(() => {
+      debugLog(`📱 Window.Telegram exists: ${!!window.Telegram}`);
+      debugLog(`🌐 Window.Telegram.WebApp exists: ${!!window.Telegram?.WebApp}`);
 
-        // Redirect to localized dashboard with user ID
-        router.push(`/${locale}/dashboard?user_id=${userId}`);
+      // Check if running in Telegram WebApp
+      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+        const tg = window.Telegram.WebApp;
+        debugLog('✅ Telegram WebApp found');
+        tg.ready();
+        debugLog('📞 Called tg.ready()');
+
+        // Get user ID from initData
+        const userId = tg.initDataUnsafe?.user?.id;
+        const languageCode = tg.initDataUnsafe?.user?.language_code;
+
+        debugLog(`👤 User ID: ${userId || 'NOT FOUND'}`);
+        debugLog(`🌍 Language: ${languageCode || 'NOT FOUND'}`);
+        debugLog(`📊 Full initDataUnsafe: ${JSON.stringify(tg.initDataUnsafe || {})}`);
+
+        if (userId) {
+          // Determine locale (default to 'en' if not Hebrew)
+          const locale = languageCode === 'he' ? 'he' : 'en';
+          debugLog(`🔀 Redirecting to: /${locale}/dashboard?user_id=${userId}`);
+
+          // Redirect to localized dashboard with user ID
+          router.push(`/${locale}/dashboard?user_id=${userId}`);
+        } else {
+          // Fallback: User ID not available in initData
+          setError('❌ User ID not available in initData');
+          debugLog('❌ User ID not found in initDataUnsafe');
+        }
       } else {
-        // Fallback: User ID not available in initData
-        setError('Please open this bot in Telegram and type /start');
+        // Not opened from Telegram
+        setError('❌ Not opened from Telegram');
+        debugLog('❌ window.Telegram.WebApp not available');
       }
-    } else {
-      // Not opened from Telegram
-      setError('This app must be opened from Telegram');
-    }
+    }, 500);
   }, [router]);
 
-  if (error) {
-    return (
-      <div style={{ padding: '20px', textAlign: 'center' }}>
-        <h1>{error}</h1>
-        <p>Type /start in your Telegram chat to begin</p>
-      </div>
-    );
-  }
-
   return (
-    <div style={{ padding: '20px', textAlign: 'center' }}>
-      <p>Loading your dashboard...</p>
+    <div style={{
+      padding: '20px',
+      backgroundColor: 'white',
+      minHeight: '100vh',
+      fontFamily: 'monospace',
+      fontSize: '12px'
+    }}>
+      <h2 style={{ color: '#667eea' }}>🔍 Dashboard Debug</h2>
+
+      {error && (
+        <div style={{
+          padding: '15px',
+          background: '#fee',
+          border: '2px solid #f00',
+          borderRadius: '8px',
+          marginBottom: '20px'
+        }}>
+          <h3 style={{ color: '#c00', margin: '0 0 10px 0' }}>{error}</h3>
+          <p>Type /start in your Telegram chat to begin</p>
+        </div>
+      )}
+
+      <div style={{
+        background: '#f9fafb',
+        padding: '15px',
+        borderRadius: '8px',
+        border: '1px solid #e5e7eb'
+      }}>
+        <h3 style={{ margin: '0 0 10px 0' }}>Debug Log:</h3>
+        {debug.map((log, i) => (
+          <div key={i} style={{
+            padding: '5px',
+            borderBottom: '1px solid #e5e7eb'
+          }}>
+            {log}
+          </div>
+        ))}
+        {debug.length === 0 && <div>Waiting for logs...</div>}
+      </div>
+
+      <div style={{ marginTop: '20px', color: '#666' }}>
+        <p>If you see this screen, the page is loading but something is preventing the redirect.</p>
+        <p>Check the debug log above to see what's happening.</p>
+      </div>
     </div>
   );
 }
