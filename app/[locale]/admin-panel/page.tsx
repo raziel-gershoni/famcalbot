@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { prisma } from '@/src/utils/prisma';
+import { Prisma } from '@prisma/client';
 import AdminPanelClient from './AdminPanelClient';
 
 interface PageProps {
@@ -90,8 +91,8 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
   });
   const usersWithCalendars = await prisma.user.count({
     where: {
-      calendars: {
-        isEmpty: false
+      calendarAssignments: {
+        not: Prisma.JsonNull
       }
     }
   });

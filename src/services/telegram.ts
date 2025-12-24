@@ -6,25 +6,18 @@ import { CalendarEvent, UserConfig } from '../types';
 import { USER_MESSAGES } from '../config/messages';
 import { ADMIN_USER_ID } from '../config/constants';
 import { IMessagingService, getTelegramService, getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from './messaging';
-import { getCalendarsByLabel } from '../utils/calendar-helpers';
+import { getCalendarsByLabel, getPrimaryCalendar } from '../utils/calendar-helpers';
 
 /**
  * Categorize events by ownership for a specific user
- * Supports both new calendarAssignments format and legacy fields
  */
 function categorizeEvents(events: CalendarEvent[], user: UserConfig) {
-  let ownCalendars: string[];
-  let spouseCalendars: string[];
-
-  // Use new calendarAssignments if available, otherwise fall back to legacy fields
-  if (user.calendarAssignments && user.calendarAssignments.length > 0) {
-    ownCalendars = getCalendarsByLabel(user.calendarAssignments, 'yours');
-    spouseCalendars = getCalendarsByLabel(user.calendarAssignments, 'spouse');
-  } else {
-    // Legacy fallback
-    ownCalendars = user.ownCalendars || [];
-    spouseCalendars = user.spouseCalendars || [];
-  }
+  const ownCalendars = user.calendarAssignments
+    ? getCalendarsByLabel(user.calendarAssignments, 'yours')
+    : [];
+  const spouseCalendars = user.calendarAssignments
+    ? getCalendarsByLabel(user.calendarAssignments, 'spouse')
+    : [];
 
   return {
     userEvents: events.filter(e => ownCalendars.includes(e.calendarId)),
@@ -310,10 +303,13 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
 
   try {
     console.log('Fetching calendar events...');
+    // Extract all calendar IDs from assignments
+    const allCalendarIds = user.calendarAssignments?.map(a => a.calendarId) || [];
+
     // Fetch today and tomorrow events
-    const todayEvents = await fetchTodayEvents(user.googleRefreshToken, user.calendars);
+    const todayEvents = await fetchTodayEvents(user.googleRefreshToken, allCalendarIds);
     console.log(`Fetched ${todayEvents.length} today events`);
-    const tomorrowEvents = await fetchTomorrowEvents(user.googleRefreshToken, user.calendars);
+    const tomorrowEvents = await fetchTomorrowEvents(user.googleRefreshToken, allCalendarIds);
     console.log(`Fetched ${tomorrowEvents.length} tomorrow events`);
 
     // Categorize events by ownership - separately for today and tomorrow
@@ -323,6 +319,11 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
     // Get list of models to test
     const modelsToTest = getModelsToTest(args);
     console.log(`Will test ${modelsToTest.length} models: ${modelsToTest.join(', ')}`);
+
+    // Extract primary calendar ID
+    const primaryCalendar = user.calendarAssignments
+      ? getPrimaryCalendar(user.calendarAssignments) || ''
+      : '';
 
     // Run the tests
     console.log('Starting testModels execution...');
@@ -342,7 +343,7 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
       user.spouseName,
       user.spouseHebrewName,
       user.spouseGender,
-      user.primaryCalendar,
+      primaryCalendar,
       chatId,
       uniqueMarker
     );
@@ -445,11 +446,19 @@ async function sendSummaryToUser(
   try {
     await messagingService.sendMessage(userId, fetchingMessage);
 
+    // Extract all calendar IDs from assignments
+    const allCalendarIds = user.calendarAssignments?.map(a => a.calendarId) || [];
+
     // Fetch calendar events
-    const events = await fetchFunction(user.googleRefreshToken, user.calendars);
+    const events = await fetchFunction(user.googleRefreshToken, allCalendarIds);
 
     // Categorize events by ownership
     const categorized = categorizeEvents(events, user);
+
+    // Extract primary calendar ID
+    const primaryCalendar = user.calendarAssignments
+      ? getPrimaryCalendar(user.calendarAssignments) || ''
+      : '';
 
     // Generate summary with AI (personalized for this user)
     // Include model info footer only for admin user
@@ -463,7 +472,7 @@ async function sendSummaryToUser(
       user.spouseName,
       user.spouseHebrewName,
       user.spouseGender,
-      user.primaryCalendar,
+      primaryCalendar,
       summaryDate,
       userId === ADMIN_USER_ID,
       modelId,
@@ -538,8 +547,11 @@ async function sendSummaryToAll(
     // Get the first user to fetch calendars (they all share the same calendars)
     const firstUser = users[0];
 
+    // Extract all calendar IDs from assignments
+    const allCalendarIds = firstUser.calendarAssignments?.map(a => a.calendarId) || [];
+
     // Fetch calendar events once (shared by all users)
-    const events = await fetchFunction(firstUser.googleRefreshToken, firstUser.calendars);
+    const events = await fetchFunction(firstUser.googleRefreshToken, allCalendarIds);
 
     // Send to each user with personalized summary
     for (const user of users) {
@@ -550,6 +562,11 @@ async function sendSummaryToAll(
 
         // Categorize events by ownership for this user
         const categorized = categorizeEvents(events, user);
+
+        // Extract primary calendar ID for this user
+        const primaryCalendar = user.calendarAssignments
+          ? getPrimaryCalendar(user.calendarAssignments) || ''
+          : '';
 
         // Generate personalized summary for this specific user
         // Include model info footer only for admin user
@@ -563,7 +580,7 @@ async function sendSummaryToAll(
           user.spouseName,
           user.spouseHebrewName,
           user.spouseGender,
-          user.primaryCalendar,
+          primaryCalendar,
           summaryDate,
           user.telegramId === ADMIN_USER_ID,
           undefined,

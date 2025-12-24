@@ -51,14 +51,27 @@ export async function GET(request: NextRequest) {
         spouseGender: 'female',
         location: 'Harish, Israel',
         language: 'Hebrew',
-        calendars: SHARED_CALENDARS,
         googleRefreshToken: SHARED_REFRESH_TOKEN,
-        primaryCalendar: 'zhendos13@gmail.com',
-        ownCalendars: [
-          'zhendos13@gmail.com',
-          'raziel@internety.co.il'
+        calendarAssignments: [
+          {
+            calendarId: 'zhendos13@gmail.com',
+            labels: ['primary', 'yours'],
+            name: 'Primary Calendar',
+            color: '#4285f4'
+          },
+          {
+            calendarId: 'raziel@internety.co.il',
+            labels: ['yours'],
+            name: 'Work Calendar',
+            color: '#8b5cf6'
+          },
+          {
+            calendarId: 'yeshua7733@gmail.com',
+            labels: ['spouse'],
+            name: 'Spouse Calendar',
+            color: '#ec4899'
+          }
         ],
-        spouseCalendars: ['yeshua7733@gmail.com'],
         isAdmin: true  // Raziel is admin
       }
     });
@@ -79,13 +92,26 @@ export async function GET(request: NextRequest) {
         spouseGender: 'male',
         location: 'Harish, Israel',
         language: 'Hebrew',
-        calendars: SHARED_CALENDARS,
         googleRefreshToken: SHARED_REFRESH_TOKEN,
-        primaryCalendar: 'yeshua7733@gmail.com',
-        ownCalendars: ['yeshua7733@gmail.com'],
-        spouseCalendars: [
-          'zhendos13@gmail.com',
-          'raziel@internety.co.il'
+        calendarAssignments: [
+          {
+            calendarId: 'yeshua7733@gmail.com',
+            labels: ['primary', 'yours'],
+            name: 'Primary Calendar',
+            color: '#4285f4'
+          },
+          {
+            calendarId: 'zhendos13@gmail.com',
+            labels: ['spouse'],
+            name: 'Spouse Calendar',
+            color: '#ec4899'
+          },
+          {
+            calendarId: 'raziel@internety.co.il',
+            labels: ['spouse'],
+            name: 'Spouse Work',
+            color: '#ec4899'
+          }
         ],
         isAdmin: false
       }

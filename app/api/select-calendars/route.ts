@@ -29,16 +29,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Extract data for dual-write to legacy fields
-    const allCalendarIds = [...new Set(calendarAssignments.map(a => a.calendarId))];
-    const primaryCalendar = calendarAssignments.find(a => a.labels.includes('primary'))?.calendarId || '';
-    const ownCalendars = calendarAssignments
-      .filter(a => a.labels.includes('yours'))
-      .map(a => a.calendarId);
-    const spouseCalendars = calendarAssignments
-      .filter(a => a.labels.includes('spouse'))
-      .map(a => a.calendarId);
-
     // Get current user to preserve encrypted refresh token
     const currentUser = await getUserByTelegramId(parseInt(userId));
     if (!currentUser) {
@@ -48,15 +38,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Update user with new calendarAssignments + dual-write to legacy fields
+    // Update user with new calendarAssignments
     await prisma.user.update({
       where: { telegramId: BigInt(userId) },
       data: {
         calendarAssignments: calendarAssignments as any,
-        calendars: allCalendarIds,
-        primaryCalendar: primaryCalendar,
-        ownCalendars: ownCalendars,
-        spouseCalendars: spouseCalendars,
         googleRefreshToken: encrypt(currentUser.googleRefreshToken) // Re-encrypt
       }
     });
@@ -65,7 +51,7 @@ export async function POST(request: NextRequest) {
       success: true,
       user: {
         name: currentUser.name,
-        calendarsCount: allCalendarIds.length
+        calendarsCount: calendarAssignments.length
       }
     });
   } catch (error) {

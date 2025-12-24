@@ -38,7 +38,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps)
 
   // Check setup status
   const needsOAuth = !user.googleRefreshToken;
-  const needsCalendars = user.calendars.length === 0;
+  const needsCalendars = !user.calendarAssignments || user.calendarAssignments.length === 0;
 
   return (
     <DashboardClient
@@ -46,7 +46,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps)
         id: userId,
         name: user.name,
         location: user.location,
-        calendarsCount: user.calendars.length,
+        calendarsCount: user.calendarAssignments?.length || 0,
       }}
       locale={locale}
       needsOAuth={needsOAuth}

@@ -185,26 +185,9 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
     // Save new refresh token
     await updateGoogleRefreshToken(telegramId, tokens.refresh_token);
 
-    // Fetch available calendars using the new token
-    const { listUserCalendars } = await import('@/src/services/calendar');
-    const availableCalendars = await listUserCalendars(tokens.refresh_token);
-
-    // Get user's current calendar selections (if any)
-    const currentSelections = {
-      primary: user?.primaryCalendar || '',
-      own: user?.ownCalendars || [],
-      spouse: user?.spouseCalendars || []
-    };
-
-    // Show calendar selection screen
-    return (
-      <CalendarSelectionClient
-        userId={telegramId}
-        stateToken={state}
-        availableCalendars={availableCalendars}
-        currentSelections={currentSelections}
-      />
-    );
+    // Redirect to calendar selection page with new UI
+    const userLocale = user.language === 'Hebrew' ? 'he' : 'en';
+    redirect(`/${userLocale}/select-calendars?user_id=${telegramId}`);
   } catch (error) {
     console.error('OAuth error:', error);
     return (
