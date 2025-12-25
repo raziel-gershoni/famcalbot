@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { RefreshCw, KeyRound } from 'lucide-react';
+import { RefreshCw, KeyRound, ArrowLeft } from 'lucide-react';
 
 interface RefreshTokenClientProps {
   oauthUrl: string;
@@ -155,7 +155,37 @@ export default function RefreshTokenClient({ oauthUrl }: RefreshTokenClientProps
         .btn:active {
           transform: translateY(0);
         }
+
+        .back-button {
+          position: absolute;
+          top: 20px;
+          left: 20px;
+          background: rgba(255, 255, 255, 0.2);
+          border: none;
+          color: white;
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: background 0.2s;
+          backdrop-filter: blur(10px);
+        }
+
+        .back-button:hover {
+          background: rgba(255, 255, 255, 0.3);
+        }
       `}</style>
+
+      <button
+        className="back-button"
+        onClick={() => window.history.back()}
+        aria-label="Go back"
+      >
+        <ArrowLeft size={20} />
+      </button>
 
       <div className="container">
         <div className="icon-wrapper">
