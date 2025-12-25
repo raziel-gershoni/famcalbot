@@ -36,7 +36,13 @@ export default function DashboardClient({
   const router = useRouter();
 
   const executeCommand = async (command: string, args?: string) => {
-    const response = await fetch('/api/execute-command', {
+    // Close webapp immediately for better UX
+    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+      window.Telegram.WebApp.close();
+    }
+
+    // Execute command in background (non-blocking)
+    fetch('/api/execute-command', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -44,19 +50,9 @@ export default function DashboardClient({
         command,
         args,
       }),
+    }).catch((error) => {
+      console.error('Command execution error:', error);
     });
-
-    if (!response.ok) {
-      const data = await response.json();
-      throw new Error(data.error || 'Failed to execute command');
-    }
-
-    // Close webapp after successful execution
-    setTimeout(() => {
-      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-        window.Telegram.WebApp.close();
-      }
-    }, 1500);
   };
 
   const handleOpenSettings = () => {
