@@ -185,9 +185,9 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
     // Save new refresh token
     await updateGoogleRefreshToken(telegramId, tokens.refresh_token);
 
-    // Redirect to calendar selection page with new UI
+    // Redirect to success page which will guide user back to Telegram
     const userLocale = user.language === 'Hebrew' ? 'he' : 'en';
-    redirect(`/${userLocale}/select-calendars?user_id=${telegramId}`);
+    redirect(`/oauth-complete?user_id=${telegramId}&locale=${userLocale}`);
   } catch (error) {
     console.error('OAuth error:', error);
     return (

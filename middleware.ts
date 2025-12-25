@@ -15,5 +15,5 @@ export default createMiddleware({
 export const config = {
   // Match only internationalized pathnames
   // Skip API routes, OAuth routes, and static files
-  matcher: ['/((?!api|_next|_vercel|refresh-token|oauth-callback|oauth-success|.*\\..*).*)'],
+  matcher: ['/((?!api|_next|_vercel|refresh-token|oauth-callback|oauth-success|oauth-complete|.*\\..*).*)'],
 };

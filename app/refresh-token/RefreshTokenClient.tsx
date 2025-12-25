@@ -15,7 +15,8 @@ export default function RefreshTokenClient({ oauthUrl }: RefreshTokenClientProps
       tg.expand();
       tg.MainButton.setText('Connect Google Calendar');
       tg.MainButton.onClick(() => {
-        window.location.href = oauthUrl;
+        // Open in external browser to avoid Google's disallowed_useragent error
+        tg.openLink(oauthUrl);
       });
       tg.MainButton.show();
     }
@@ -100,9 +101,19 @@ export default function RefreshTokenClient({ oauthUrl }: RefreshTokenClientProps
           </ol>
         </div>
 
-        <a href={oauthUrl} className="btn">
+        <button
+          onClick={() => {
+            if (window.Telegram?.WebApp) {
+              window.Telegram.WebApp.openLink(oauthUrl);
+            } else {
+              window.open(oauthUrl, '_blank');
+            }
+          }}
+          className="btn"
+          style={{ border: 'none', cursor: 'pointer' }}
+        >
           <KeyRound size={20} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Connect Google Calendar
-        </a>
+        </button>
       </div>
 
       <script
