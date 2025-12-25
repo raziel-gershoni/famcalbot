@@ -266,13 +266,14 @@ export default function SelectCalendarsClient({
         .calendar-header-wrapper {
           display: flex;
           flex-wrap: wrap;
-          align-items: flex-start;
+          align-items: center;
           gap: 12px;
         }
         .calendar-info {
           display: flex;
           align-items: center;
           gap: 12px;
+          /* Grow to fill space, but allow natural wrapping */
           flex: 1 1 auto;
           min-width: 0;
           cursor: pointer;
@@ -311,8 +312,8 @@ export default function SelectCalendarsClient({
         .label-icons {
           display: flex;
           gap: 6px;
-          flex-shrink: 0;
-          flex-basis: auto;
+          /* Fixed width - 5 icons (24px) + 4 gaps (6px) = 144px */
+          flex: 0 0 auto;
         }
         .btn {
           width: 100%;
@@ -380,33 +381,6 @@ export default function SelectCalendarsClient({
           to {
             opacity: 1;
             transform: translateY(0);
-          }
-        }
-
-        /* On narrow screens, force icons to wrap to new line */
-        @media (max-width: 450px) {
-          .label-icons {
-            flex-basis: 100%;
-            order: 2;
-            justify-content: flex-end;
-          }
-
-          .calendar-info {
-            order: 1;
-            flex-basis: 100%;
-          }
-        }
-
-        /* When very narrow, also constrain name with ellipsis */
-        @media (max-width: 350px) {
-          .calendar-name {
-            max-width: 200px;
-          }
-        }
-
-        @media (max-width: 280px) {
-          .calendar-name {
-            max-width: 150px;
           }
         }
       `}</style>
