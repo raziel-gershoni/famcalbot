@@ -7,7 +7,7 @@ import { LoadingButton } from '@/components/Feedback';
 import { useRouter } from 'next/navigation';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
-import { KeyRound, Calendar, Sun, Moon, CloudSun, BarChart3, ClipboardList, RefreshCw, PencilLine } from 'lucide-react';
+import { KeyRound, Calendar, Sun, Moon, CloudSun, Gauge, FileText, RefreshCw, PencilLine } from 'lucide-react';
 
 interface User {
   id: number;
@@ -308,14 +308,14 @@ export default function DashboardClient({
                     className="action-button"
                     onClick={() => executeCommand('weather', 'std')}
                   >
-                    <span className="icon"><BarChart3 size={32} /></span>
+                    <span className="icon"><Gauge size={32} /></span>
                     <span>{t('weather.standard')}</span>
                   </button>
                   <button
                     className="action-button"
                     onClick={() => executeCommand('weather', 'dtl')}
                   >
-                    <span className="icon"><ClipboardList size={32} /></span>
+                    <span className="icon"><FileText size={32} /></span>
                     <span>{t('weather.detailed')}</span>
                   </button>
                 </div>

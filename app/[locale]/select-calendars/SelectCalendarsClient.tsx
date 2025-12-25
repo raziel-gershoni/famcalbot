@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { TelegramLayout } from '@/components/Layout';
+import { useRouter } from 'next/navigation';
+import { TelegramLayout, Header } from '@/components/Layout';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarLabel, CalendarAssignment } from '@/src/types';
 import { validateCalendarAssignments } from '@/src/utils/calendar-helpers';
@@ -39,6 +40,7 @@ export default function SelectCalendarsClient({
   currentSelections
 }: SelectCalendarsClientProps) {
   const t = useTranslations('calendars');
+  const router = useRouter();
   const [selectedCalendars, setSelectedCalendars] = useState<Set<string>>(
     currentSelections.selectedCalendars
   );
@@ -47,6 +49,10 @@ export default function SelectCalendarsClient({
   );
   const [feedbackMessages, setFeedbackMessages] = useState<FeedbackMessage[]>([]);
   const [messageIdCounter, setMessageIdCounter] = useState(0);
+
+  const handleBack = () => {
+    router.back();
+  };
 
   // Show feedback message
   const showFeedback = (text: string, type: 'success' | 'error' = 'success') => {
@@ -206,6 +212,11 @@ export default function SelectCalendarsClient({
 
   return (
     <TelegramLayout>
+      <Header
+        title={t('title')}
+        userName={userName}
+        onBackClick={handleBack}
+      />
       <style jsx>{`
         .page-container {
           min-height: 100vh;
@@ -254,7 +265,7 @@ export default function SelectCalendarsClient({
         }
         .calendar-header-wrapper {
           display: flex;
-          flex-wrap: wrap;
+          flex-wrap: nowrap;
           align-items: center;
           gap: 12px;
         }
@@ -262,8 +273,8 @@ export default function SelectCalendarsClient({
           display: flex;
           align-items: center;
           gap: 12px;
-          flex: 1 1 auto;
-          min-width: 250px;
+          flex: 1 1 0;
+          min-width: 0;
           cursor: pointer;
         }
         .checkbox {
@@ -283,11 +294,15 @@ export default function SelectCalendarsClient({
           flex-direction: column;
           gap: 2px;
           flex: 1;
+          min-width: 0;
         }
         .calendar-name {
           font-weight: 600;
           color: #111827;
           font-size: 15px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .calendar-desc {
           font-size: 13px;

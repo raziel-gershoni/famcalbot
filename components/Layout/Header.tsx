@@ -1,10 +1,11 @@
-import { Crown, Settings } from 'lucide-react';
+import { Crown, Settings, ArrowLeft } from 'lucide-react';
 
 interface HeaderProps {
   title: string;
   userName?: string;
   onSettingsClick?: () => void;
   onAdminClick?: () => void;
+  onBackClick?: () => void;
   backgroundColor?: string;
   isAdmin?: boolean;
 }
@@ -18,6 +19,7 @@ export default function Header({
   userName,
   onSettingsClick,
   onAdminClick,
+  onBackClick,
   backgroundColor = '#667eea',
   isAdmin = false,
 }: HeaderProps) {
@@ -34,10 +36,34 @@ export default function Header({
           align-items: center;
         }
 
+        .left-section {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+
         h1 {
           font-size: 24px;
           font-weight: 600;
           margin: 0;
+        }
+
+        .back-button {
+          background: rgba(255, 255, 255, 0.2);
+          border: none;
+          color: white;
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: background 0.2s;
+        }
+
+        .back-button:hover {
+          background: rgba(255, 255, 255, 0.3);
         }
 
         .user-info {
@@ -76,7 +102,18 @@ export default function Header({
         }
       `}</style>
 
-      <h1>{title}</h1>
+      <div className="left-section">
+        {onBackClick && (
+          <button
+            className="back-button"
+            onClick={onBackClick}
+            aria-label="Go Back"
+          >
+            <ArrowLeft size={20} color="white" />
+          </button>
+        )}
+        <h1>{title}</h1>
+      </div>
 
       <div className="user-info">
         {isAdmin && <div className="admin-badge">ADMIN</div>}
