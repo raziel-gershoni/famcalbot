@@ -154,10 +154,12 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   // Delete used state token (one-time use only)
   await prisma.oAuthState.delete({ where: { id: stateRecord.id } });
 
+  // Exchange code for tokens
+  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || 'https://famcalbot.vercel.app'}/api/refresh-token`;
+  let tokenResponse;
+
   try {
-    // Exchange code for tokens
-    const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || 'https://famcalbot.vercel.app'}/api/refresh-token`;
-    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+    tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -168,33 +170,43 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
         grant_type: 'authorization_code'
       })
     });
-
-    const tokens = await tokenResponse.json();
-
-    if (!tokens.refresh_token) {
-      // No refresh token - need to revoke and retry
-      return <NoRefreshTokenPage telegramId={telegramId} />;
-    }
-
-    // Get user to verify
-    const user = await getUserByTelegramId(telegramId);
-    if (!user) {
-      return <ErrorPage message="User not found" telegramId={telegramId} />;
-    }
-
-    // Save new refresh token
-    await updateGoogleRefreshToken(telegramId, tokens.refresh_token);
-
-    // Redirect to success page which will guide user back to Telegram
-    const userLocale = user.language === 'Hebrew' ? 'he' : 'en';
-    redirect(`/oauth-complete?user_id=${telegramId}&locale=${userLocale}`);
   } catch (error) {
-    console.error('OAuth error:', error);
+    console.error('OAuth token exchange error:', error);
     return (
       <ErrorPage
-        message={`Error during OAuth: ${error instanceof Error ? error.message : 'Unknown error'}`}
+        message={`Error exchanging authorization code: ${error instanceof Error ? error.message : 'Unknown error'}`}
         telegramId={telegramId}
       />
     );
   }
+
+  const tokens = await tokenResponse.json();
+
+  if (!tokens.refresh_token) {
+    // No refresh token - need to revoke and retry
+    return <NoRefreshTokenPage telegramId={telegramId} />;
+  }
+
+  // Get user to verify
+  const user = await getUserByTelegramId(telegramId);
+  if (!user) {
+    return <ErrorPage message="User not found" telegramId={telegramId} />;
+  }
+
+  // Save new refresh token
+  try {
+    await updateGoogleRefreshToken(telegramId, tokens.refresh_token);
+  } catch (error) {
+    console.error('Error saving refresh token:', error);
+    return (
+      <ErrorPage
+        message={`Error saving token: ${error instanceof Error ? error.message : 'Unknown error'}`}
+        telegramId={telegramId}
+      />
+    );
+  }
+
+  // Redirect to success page which will guide user back to Telegram
+  const userLocale = user.language === 'Hebrew' ? 'he' : 'en';
+  redirect(`/oauth-complete?user_id=${telegramId}&locale=${userLocale}`);
 }
