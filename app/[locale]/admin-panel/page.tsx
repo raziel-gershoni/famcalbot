@@ -115,6 +115,7 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
   return (
     <AdminPanelClient
       userId={userId}
+      locale={locale}
       stats={{
         totalUsers,
         usersWithOAuth,

@@ -5,8 +5,12 @@ import { useTranslations } from 'next-intl';
 import { CheckCircle2 } from 'lucide-react';
 import { HDate } from 'hebcal';
 
+// @ts-ignore - Hebcal doesn't export gematriya in types
+import Hebcal from 'hebcal';
+
 interface AdminPanelClientProps {
   userId: number;
+  locale: string;
   stats: {
     totalUsers: number;
     usersWithOAuth: number;
@@ -23,7 +27,7 @@ interface AdminPanelClientProps {
 
 type ButtonState = 'idle' | 'loading' | 'success' | 'error';
 
-export default function AdminPanelClient({ userId, stats, recentUsers }: AdminPanelClientProps) {
+export default function AdminPanelClient({ userId, locale, stats, recentUsers }: AdminPanelClientProps) {
   const t = useTranslations('admin');
   const [todayState, setTodayState] = useState<ButtonState>('idle');
   const [tomorrowState, setTomorrowState] = useState<ButtonState>('idle');
@@ -31,22 +35,26 @@ export default function AdminPanelClient({ userId, stats, recentUsers }: AdminPa
   // Format dates for today and tomorrow buttons
   const todayLabel = useMemo(() => {
     const now = new Date();
-    const greg = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'short' });
+    const userLocale = locale === 'he' ? 'he-IL' : 'en-US';
+    const greg = now.toLocaleDateString(userLocale, { month: 'short', day: 'numeric' });
+    const dayOfWeek = now.toLocaleDateString(userLocale, { weekday: 'short' });
     const hdate = new HDate(now);
-    const heb = `${hdate.getDate()} ${hdate.getMonthName('h')}`;
-    return `${dayOfWeek} ${greg} • ${heb}`;
-  }, []);
+    const hebDay = locale === 'he' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
+    const hebMonth = hdate.getMonthName('h');
+    return `${dayOfWeek} ${greg} • ${hebDay} ${hebMonth}`;
+  }, [locale]);
 
   const tomorrowLabel = useMemo(() => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    const greg = tomorrow.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const dayOfWeek = tomorrow.toLocaleDateString('en-US', { weekday: 'short' });
+    const userLocale = locale === 'he' ? 'he-IL' : 'en-US';
+    const greg = tomorrow.toLocaleDateString(userLocale, { month: 'short', day: 'numeric' });
+    const dayOfWeek = tomorrow.toLocaleDateString(userLocale, { weekday: 'short' });
     const hdate = new HDate(tomorrow);
-    const heb = `${hdate.getDate()} ${hdate.getMonthName('h')}`;
-    return `${dayOfWeek} ${greg} • ${heb}`;
-  }, []);
+    const hebDay = locale === 'he' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
+    const hebMonth = hdate.getMonthName('h');
+    return `${dayOfWeek} ${greg} • ${hebDay} ${hebMonth}`;
+  }, [locale]);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && window.Telegram?.WebApp) {

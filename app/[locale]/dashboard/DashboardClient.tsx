@@ -5,9 +5,14 @@ import { TelegramLayout, Header } from '@/components/Layout';
 import { Section } from '@/components/UI';
 import { LoadingButton } from '@/components/Feedback';
 import { useRouter } from 'next/navigation';
+import { useMemo } from 'react';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
 import { KeyRound, Calendar, Sun, Moon, CloudSun, Gauge, FileText, RefreshCw, PencilLine, ClipboardList } from 'lucide-react';
+import { HDate } from 'hebcal';
+
+// @ts-ignore - Hebcal doesn't export gematriya in types
+import Hebcal from 'hebcal';
 
 interface User {
   id: number;
@@ -34,6 +39,30 @@ export default function DashboardClient({
 }: DashboardClientProps) {
   const t = useTranslations('dashboard');
   const router = useRouter();
+
+  // Format dates for today and tomorrow summary buttons
+  const todaySummaryLabel = useMemo(() => {
+    const now = new Date();
+    const userLocale = user.language === 'Hebrew' ? 'he-IL' : 'en-US';
+    const greg = now.toLocaleDateString(userLocale, { month: 'short', day: 'numeric' });
+    const dayOfWeek = now.toLocaleDateString(userLocale, { weekday: 'short' });
+    const hdate = new HDate(now);
+    const hebDay = user.language === 'Hebrew' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
+    const hebMonth = hdate.getMonthName('h');
+    return `${dayOfWeek} ${greg} • ${hebDay} ${hebMonth}`;
+  }, [user.language]);
+
+  const tomorrowSummaryLabel = useMemo(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const userLocale = user.language === 'Hebrew' ? 'he-IL' : 'en-US';
+    const greg = tomorrow.toLocaleDateString(userLocale, { month: 'short', day: 'numeric' });
+    const dayOfWeek = tomorrow.toLocaleDateString(userLocale, { weekday: 'short' });
+    const hdate = new HDate(tomorrow);
+    const hebDay = user.language === 'Hebrew' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
+    const hebMonth = hdate.getMonthName('h');
+    return `${dayOfWeek} ${greg} • ${hebDay} ${hebMonth}`;
+  }, [user.language]);
 
   const executeCommand = async (command: string, args?: string) => {
     // Close webapp immediately for better UX
@@ -280,15 +309,13 @@ export default function DashboardClient({
                     className="action-button"
                     onClick={() => executeCommand('summary')}
                   >
-                    <span className="icon"><Sun size={32} /></span>
-                    <span>{t('summary.today')}</span>
+                    <span>{todaySummaryLabel}</span>
                   </button>
                   <button
                     className="action-button"
                     onClick={() => executeCommand('summary', 'tmrw')}
                   >
-                    <span className="icon"><Moon size={32} /></span>
-                    <span>{t('summary.tomorrow')}</span>
+                    <span>{tomorrowSummaryLabel}</span>
                   </button>
                 </div>
               </Section>
