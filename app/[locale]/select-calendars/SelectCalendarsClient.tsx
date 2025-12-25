@@ -274,8 +274,8 @@ export default function SelectCalendarsClient({
           align-items: center;
           gap: 12px;
           flex: 1 1 auto;
-          min-width: 200px;
-          max-width: 100%;
+          min-width: 0;
+          max-width: calc(100% - 180px);
           cursor: pointer;
         }
         .checkbox {
@@ -380,6 +380,12 @@ export default function SelectCalendarsClient({
           to {
             opacity: 1;
             transform: translateY(0);
+          }
+        }
+
+        @media (max-width: 400px) {
+          .calendar-info {
+            max-width: 100%;
           }
         }
       `}</style>
