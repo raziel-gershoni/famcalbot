@@ -9,16 +9,35 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getAIConfig, AI_RETRY_CONFIG, ADMIN_USER_ID } from '../config/constants';
 import { getBot } from './telegram';
 
-// Initialize API clients
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+// Lazy initialization of API clients to avoid build-time errors
+let anthropic: Anthropic | null = null;
+let openai: OpenAI | null = null;
+let gemini: GoogleGenerativeAI | null = null;
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const getAnthropic = () => {
+  if (!anthropic) {
+    anthropic = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+    });
+  }
+  return anthropic;
+};
 
-const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const getOpenAI = () => {
+  if (!openai) {
+    openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+  return openai;
+};
+
+const getGemini = () => {
+  if (!gemini) {
+    gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+  }
+  return gemini;
+};
 
 /**
  * Result from AI completion request
@@ -75,7 +94,7 @@ async function callClaude(prompt: string, modelId?: string): Promise<AICompletio
   // Calendar summaries never need more than ~5000 tokens
   const maxTokens = Math.min(config.MAX_TOKENS, 8192);
 
-  const message = await anthropic.messages.create({
+  const message = await getAnthropic().messages.create({
     model: config.MODEL_CONFIG.modelId,
     max_tokens: maxTokens,
     messages: [
@@ -129,7 +148,7 @@ async function callOpenAI(prompt: string, modelId?: string): Promise<AICompletio
   // Use reasoning_effort from model config if specified
   const reasoningEffort = config.MODEL_CONFIG.reasoningEffort;
 
-  const completion = await openai.chat.completions.create({
+  const completion = await getOpenAI().chat.completions.create({
     model: config.MODEL_CONFIG.modelId,
     ...(useNewTokenParam
       ? { max_completion_tokens: config.MAX_TOKENS }
@@ -185,7 +204,7 @@ async function callOpenAI(prompt: string, modelId?: string): Promise<AICompletio
 async function callGemini(prompt: string, modelId?: string): Promise<AICompletionResult> {
   const config = getAIConfig(modelId);
 
-  const model = gemini.getGenerativeModel({ model: config.MODEL_CONFIG.modelId });
+  const model = getGemini().getGenerativeModel({ model: config.MODEL_CONFIG.modelId });
 
   const result = await model.generateContent(prompt);
   const response = result.response;

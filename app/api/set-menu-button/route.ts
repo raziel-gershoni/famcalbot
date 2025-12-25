@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getBot } from '@/src/services/telegram';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * Manual endpoint to set Telegram menu button
  * Call this endpoint to configure the menu button

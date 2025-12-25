@@ -43,26 +43,28 @@ export default function DashboardClient({
   // Format dates for today and tomorrow summary buttons
   const todaySummaryLabel = useMemo(() => {
     const now = new Date();
-    const userLocale = user.language === 'Hebrew' ? 'he-IL' : 'en-US';
+    const userLocale = locale === 'he' ? 'he-IL' : 'en-US';
     const greg = now.toLocaleDateString(userLocale, { month: 'short', day: 'numeric' });
     const dayOfWeek = now.toLocaleDateString(userLocale, { weekday: 'short' });
     const hdate = new HDate(now);
-    const hebDay = user.language === 'Hebrew' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
+    // @ts-expect-error - gematriya exists but not in type definitions
+    const hebDay = locale === 'he' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
     const hebMonth = hdate.getMonthName('h');
     return `${dayOfWeek} ${greg} • ${hebDay} ${hebMonth}`;
-  }, [user.language]);
+  }, [locale]);
 
   const tomorrowSummaryLabel = useMemo(() => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    const userLocale = user.language === 'Hebrew' ? 'he-IL' : 'en-US';
+    const userLocale = locale === 'he' ? 'he-IL' : 'en-US';
     const greg = tomorrow.toLocaleDateString(userLocale, { month: 'short', day: 'numeric' });
     const dayOfWeek = tomorrow.toLocaleDateString(userLocale, { weekday: 'short' });
     const hdate = new HDate(tomorrow);
-    const hebDay = user.language === 'Hebrew' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
+    // @ts-expect-error - gematriya exists but not in type definitions
+    const hebDay = locale === 'he' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
     const hebMonth = hdate.getMonthName('h');
     return `${dayOfWeek} ${greg} • ${hebDay} ${hebMonth}`;
-  }, [user.language]);
+  }, [locale]);
 
   const executeCommand = async (command: string, args?: string) => {
     // Close webapp immediately for better UX

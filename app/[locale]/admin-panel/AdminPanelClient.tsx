@@ -39,6 +39,7 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
     const greg = now.toLocaleDateString(userLocale, { month: 'short', day: 'numeric' });
     const dayOfWeek = now.toLocaleDateString(userLocale, { weekday: 'short' });
     const hdate = new HDate(now);
+    // @ts-expect-error - gematriya exists but not in type definitions
     const hebDay = locale === 'he' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
     const hebMonth = hdate.getMonthName('h');
     return `${dayOfWeek} ${greg} • ${hebDay} ${hebMonth}`;
@@ -51,6 +52,7 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
     const greg = tomorrow.toLocaleDateString(userLocale, { month: 'short', day: 'numeric' });
     const dayOfWeek = tomorrow.toLocaleDateString(userLocale, { weekday: 'short' });
     const hdate = new HDate(tomorrow);
+    // @ts-expect-error - gematriya exists but not in type definitions
     const hebDay = locale === 'he' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
     const hebMonth = hdate.getMonthName('h');
     return `${dayOfWeek} ${greg} • ${hebDay} ${hebMonth}`;
