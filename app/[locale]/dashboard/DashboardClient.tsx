@@ -7,7 +7,7 @@ import { LoadingButton } from '@/components/Feedback';
 import { useRouter } from 'next/navigation';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
-import { KeyRound, Calendar, Sun, Moon, CloudSun, Gauge, FileText, RefreshCw, PencilLine } from 'lucide-react';
+import { KeyRound, Calendar, Sun, Moon, CloudSun, Gauge, FileText, RefreshCw, PencilLine, ClipboardList } from 'lucide-react';
 
 interface User {
   id: number;

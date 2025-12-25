@@ -33,7 +33,8 @@ export default function AdminPanelClient({ userId, stats, recentUsers }: AdminPa
     const now = new Date();
     const greg = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'short' });
-    const heb = new HDate(now).renderGematriya();
+    const hdate = new HDate(now);
+    const heb = `${hdate.getDate()} ${hdate.getMonthName('h')}`;
     return `${dayOfWeek} ${greg} • ${heb}`;
   }, []);
 
@@ -42,7 +43,8 @@ export default function AdminPanelClient({ userId, stats, recentUsers }: AdminPa
     tomorrow.setDate(tomorrow.getDate() + 1);
     const greg = tomorrow.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const dayOfWeek = tomorrow.toLocaleDateString('en-US', { weekday: 'short' });
-    const heb = new HDate(tomorrow).renderGematriya();
+    const hdate = new HDate(tomorrow);
+    const heb = `${hdate.getDate()} ${hdate.getMonthName('h')}`;
     return `${dayOfWeek} ${greg} • ${heb}`;
   }, []);
 
