@@ -49,8 +49,11 @@ export default function DashboardClient({
     const hdate = new HDate(now);
     // @ts-expect-error - gematriya exists but not in type definitions
     const hebDay = locale === 'he' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
-    const hebMonth = hdate.getMonthName('h');
-    return `${dayOfWeek} ${greg} • ${hebDay} ${hebMonth}`;
+    const hebMonth = locale === 'he' ? hdate.getMonthName('h') : hdate.getMonthName('s');
+    return {
+      gregorian: `${dayOfWeek} ${greg}`,
+      hebrew: `${hebDay} ${hebMonth}`
+    };
   }, [locale]);
 
   const tomorrowSummaryLabel = useMemo(() => {
@@ -62,8 +65,11 @@ export default function DashboardClient({
     const hdate = new HDate(tomorrow);
     // @ts-expect-error - gematriya exists but not in type definitions
     const hebDay = locale === 'he' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
-    const hebMonth = hdate.getMonthName('h');
-    return `${dayOfWeek} ${greg} • ${hebDay} ${hebMonth}`;
+    const hebMonth = locale === 'he' ? hdate.getMonthName('h') : hdate.getMonthName('s');
+    return {
+      gregorian: `${dayOfWeek} ${greg}`,
+      hebrew: `${hebDay} ${hebMonth}`
+    };
   }, [locale]);
 
   const executeCommand = async (command: string, args?: string) => {
@@ -311,13 +317,21 @@ export default function DashboardClient({
                     className="action-button"
                     onClick={() => executeCommand('summary')}
                   >
-                    <span>{todaySummaryLabel}</span>
+                    <span>
+                      {todaySummaryLabel.gregorian}
+                      <br />
+                      {todaySummaryLabel.hebrew}
+                    </span>
                   </button>
                   <button
                     className="action-button"
                     onClick={() => executeCommand('summary', 'tmrw')}
                   >
-                    <span>{tomorrowSummaryLabel}</span>
+                    <span>
+                      {tomorrowSummaryLabel.gregorian}
+                      <br />
+                      {tomorrowSummaryLabel.hebrew}
+                    </span>
                   </button>
                 </div>
               </Section>

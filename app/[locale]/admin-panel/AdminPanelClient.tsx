@@ -41,8 +41,11 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
     const hdate = new HDate(now);
     // @ts-expect-error - gematriya exists but not in type definitions
     const hebDay = locale === 'he' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
-    const hebMonth = hdate.getMonthName('h');
-    return `${dayOfWeek} ${greg} • ${hebDay} ${hebMonth}`;
+    const hebMonth = locale === 'he' ? hdate.getMonthName('h') : hdate.getMonthName('s');
+    return {
+      gregorian: `${dayOfWeek} ${greg}`,
+      hebrew: `${hebDay} ${hebMonth}`
+    };
   }, [locale]);
 
   const tomorrowLabel = useMemo(() => {
@@ -54,8 +57,11 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
     const hdate = new HDate(tomorrow);
     // @ts-expect-error - gematriya exists but not in type definitions
     const hebDay = locale === 'he' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
-    const hebMonth = hdate.getMonthName('h');
-    return `${dayOfWeek} ${greg} • ${hebDay} ${hebMonth}`;
+    const hebMonth = locale === 'he' ? hdate.getMonthName('h') : hdate.getMonthName('s');
+    return {
+      gregorian: `${dayOfWeek} ${greg}`,
+      hebrew: `${hebDay} ${hebMonth}`
+    };
   }, [locale]);
 
   useEffect(() => {
@@ -113,7 +119,7 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
     window.location.href = `/dashboard?user_id=${userId}`;
   };
 
-  const getButtonContent = (state: ButtonState, label: string) => {
+  const getButtonContent = (state: ButtonState, label: { gregorian: string; hebrew: string }) => {
     switch (state) {
       case 'loading':
         return t('testing.sending');
@@ -122,7 +128,13 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
       case 'error':
         return t('testing.error');
       default:
-        return label;
+        return (
+          <>
+            {label.gregorian}
+            <br />
+            {label.hebrew}
+          </>
+        );
     }
   };
 

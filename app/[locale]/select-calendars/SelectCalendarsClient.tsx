@@ -265,7 +265,7 @@ export default function SelectCalendarsClient({
         }
         .calendar-header-wrapper {
           display: flex;
-          flex-wrap: nowrap;
+          flex-wrap: wrap;
           align-items: center;
           gap: 12px;
         }
@@ -273,8 +273,9 @@ export default function SelectCalendarsClient({
           display: flex;
           align-items: center;
           gap: 12px;
-          flex: 1 1 0;
-          min-width: 0;
+          flex: 1 1 auto;
+          min-width: 200px;
+          max-width: 100%;
           cursor: pointer;
         }
         .checkbox {
