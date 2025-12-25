@@ -266,7 +266,7 @@ export default function SelectCalendarsClient({
         .calendar-header-wrapper {
           display: flex;
           flex-wrap: wrap;
-          align-items: center;
+          align-items: flex-start;
           gap: 12px;
         }
         .calendar-info {
@@ -275,7 +275,6 @@ export default function SelectCalendarsClient({
           gap: 12px;
           flex: 1 1 auto;
           min-width: 0;
-          max-width: calc(100% - 180px);
           cursor: pointer;
         }
         .checkbox {
@@ -313,6 +312,7 @@ export default function SelectCalendarsClient({
           display: flex;
           gap: 6px;
           flex-shrink: 0;
+          flex-basis: auto;
         }
         .btn {
           width: 100%;
@@ -383,9 +383,30 @@ export default function SelectCalendarsClient({
           }
         }
 
-        @media (max-width: 400px) {
+        /* On narrow screens, force icons to wrap to new line */
+        @media (max-width: 450px) {
+          .label-icons {
+            flex-basis: 100%;
+            order: 2;
+            justify-content: flex-end;
+          }
+
           .calendar-info {
-            max-width: 100%;
+            order: 1;
+            flex-basis: 100%;
+          }
+        }
+
+        /* When very narrow, also constrain name with ellipsis */
+        @media (max-width: 350px) {
+          .calendar-name {
+            max-width: 200px;
+          }
+        }
+
+        @media (max-width: 280px) {
+          .calendar-name {
+            max-width: 150px;
           }
         }
       `}</style>
