@@ -26,7 +26,7 @@ export default function RefreshTokenClient({ oauthUrl }: RefreshTokenClientProps
     <>
       <style jsx>{`
         body {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+          font-family: 'Rubik', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           min-height: 100vh;
           display: flex;

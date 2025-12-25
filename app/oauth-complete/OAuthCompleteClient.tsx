@@ -29,15 +29,14 @@ export default function OAuthCompleteClient({ userId, locale, botUsername }: OAu
     return () => clearInterval(timer);
   }, []);
 
-  const redirectToTelegram = () => {
-    // Deep link to open Telegram bot
-    const deepLink = `https://t.me/${botUsername}`;
-    window.location.href = deepLink;
-  };
-
   const selectCalendarsUrl = userId
     ? `/${locale}/select-calendars?user_id=${userId}`
     : `/${locale}/select-calendars`;
+
+  const redirectToTelegram = () => {
+    // Redirect to select calendars page to continue setup
+    window.location.href = selectCalendarsUrl;
+  };
 
   return (
     <html lang={locale}>
@@ -182,21 +181,15 @@ export default function OAuthCompleteClient({ userId, locale, botUsername }: OAu
 
           {countdown > 0 && (
             <div className="countdown">
-              <div className="countdown-text">Returning to Telegram in</div>
+              <div className="countdown-text">Continuing in</div>
               <div className="countdown-number">{countdown}</div>
             </div>
           )}
 
           <button onClick={redirectToTelegram} className="btn">
-            Return to Telegram Now
+            Continue to Select Calendars
             <ArrowRight size={20} />
           </button>
-
-          <div className="divider">or</div>
-
-          <a href={selectCalendarsUrl} className="secondary-link">
-            Continue to Select Calendars in Browser
-          </a>
         </div>
       </body>
     </html>

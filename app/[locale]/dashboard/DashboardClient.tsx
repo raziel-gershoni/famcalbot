@@ -7,7 +7,7 @@ import { LoadingButton } from '@/components/Feedback';
 import { useRouter } from 'next/navigation';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
-import { KeyRound, Calendar, Sun, Moon, CloudSun, BarChart3, ClipboardList, RefreshCw } from 'lucide-react';
+import { KeyRound, Calendar, Sun, Moon, CloudSun, BarChart3, ClipboardList, RefreshCw, PencilLine } from 'lucide-react';
 
 interface User {
   id: number;
@@ -330,7 +330,7 @@ export default function DashboardClient({
                   >
                     <div className="calendar-list-header">
                       <p>{t('settings.calendars', { count: user.calendarsCount })}</p>
-                      <span className="arrow">→</span>
+                      <PencilLine size={16} className="inline-icon" style={{ opacity: 0.6 }} />
                     </div>
                     {calendarAssignments.length > 0 && (
                       <div className="calendar-list">

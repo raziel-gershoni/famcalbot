@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { CheckCircle2 } from 'lucide-react';
+import { HDate } from 'hebcal';
 
 interface AdminPanelClientProps {
   userId: number;
@@ -26,6 +27,24 @@ export default function AdminPanelClient({ userId, stats, recentUsers }: AdminPa
   const t = useTranslations('admin');
   const [todayState, setTodayState] = useState<ButtonState>('idle');
   const [tomorrowState, setTomorrowState] = useState<ButtonState>('idle');
+
+  // Format dates for today and tomorrow buttons
+  const todayLabel = useMemo(() => {
+    const now = new Date();
+    const greg = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'short' });
+    const heb = new HDate(now).renderGematriya();
+    return `${dayOfWeek} ${greg} • ${heb}`;
+  }, []);
+
+  const tomorrowLabel = useMemo(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const greg = tomorrow.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const dayOfWeek = tomorrow.toLocaleDateString('en-US', { weekday: 'short' });
+    const heb = new HDate(tomorrow).renderGematriya();
+    return `${dayOfWeek} ${greg} • ${heb}`;
+  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
@@ -327,7 +346,7 @@ export default function AdminPanelClient({ userId, stats, recentUsers }: AdminPa
                 disabled={todayState !== 'idle'}
                 style={getButtonStyle(todayState)}
               >
-                {getButtonContent(todayState, t('testing.testToday'))}
+                {getButtonContent(todayState, todayLabel)}
               </button>
               <button
                 className="action-button"
@@ -335,7 +354,7 @@ export default function AdminPanelClient({ userId, stats, recentUsers }: AdminPa
                 disabled={tomorrowState !== 'idle'}
                 style={getButtonStyle(tomorrowState)}
               >
-                {getButtonContent(tomorrowState, t('testing.testTomorrow'))}
+                {getButtonContent(tomorrowState, tomorrowLabel)}
               </button>
             </div>
           </div>
