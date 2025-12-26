@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation';
 import { useMemo } from 'react';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
-import { KeyRound, Calendar, Sun, CloudRain, CloudSun, RefreshCw, PencilLine, ClipboardList } from 'lucide-react';
+import { KeyRound, Calendar, Info, FileText, CloudSun, RefreshCw, PencilLine, ClipboardList } from 'lucide-react';
 import { HDate } from 'hebcal';
 
 // @ts-ignore - Hebcal doesn't export gematriya in types
@@ -347,14 +347,14 @@ export default function DashboardClient({
                     className="action-button"
                     onClick={() => executeCommand('weather', 'std')}
                   >
-                    <span className="icon"><Sun size={32} /></span>
+                    <span className="icon"><Info size={32} /></span>
                     <span>{t('weather.standard')}</span>
                   </button>
                   <button
                     className="action-button"
                     onClick={() => executeCommand('weather', 'dtl')}
                   >
-                    <span className="icon"><CloudRain size={32} /></span>
+                    <span className="icon"><FileText size={32} /></span>
                     <span>{t('weather.detailed')}</span>
                   </button>
                 </div>
