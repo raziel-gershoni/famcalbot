@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation';
 import { useMemo } from 'react';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
-import { KeyRound, Calendar, Info, FileText, CloudSun, RefreshCw, PencilLine, ClipboardList, Eye, ScrollText, Zap, TrendingUp } from 'lucide-react';
+import { KeyRound, Calendar, Zap, TrendingUp, CloudSun, RefreshCw, PencilLine, ClipboardList } from 'lucide-react';
 import { HDate } from 'hebcal';
 
 // @ts-ignore - Hebcal doesn't export gematriya in types
@@ -343,40 +343,6 @@ export default function DashboardClient({
                 icon={<CloudSun size={20} />}
               >
                 <div className="button-group">
-                  <button
-                    className="action-button"
-                    onClick={() => executeCommand('weather', 'std')}
-                  >
-                    <span className="icon"><Info size={32} /></span>
-                    <span>{t('weather.standard')}</span>
-                  </button>
-                  <button
-                    className="action-button"
-                    onClick={() => executeCommand('weather', 'dtl')}
-                  >
-                    <span className="icon"><FileText size={32} /></span>
-                    <span>{t('weather.detailed')}</span>
-                  </button>
-                </div>
-
-                <div className="button-group" style={{ marginTop: '12px' }}>
-                  <button
-                    className="action-button"
-                    onClick={() => executeCommand('weather', 'std')}
-                  >
-                    <span className="icon"><Eye size={32} /></span>
-                    <span>{t('weather.standard')}</span>
-                  </button>
-                  <button
-                    className="action-button"
-                    onClick={() => executeCommand('weather', 'dtl')}
-                  >
-                    <span className="icon"><ScrollText size={32} /></span>
-                    <span>{t('weather.detailed')}</span>
-                  </button>
-                </div>
-
-                <div className="button-group" style={{ marginTop: '12px' }}>
                   <button
                     className="action-button"
                     onClick={() => executeCommand('weather', 'std')}
