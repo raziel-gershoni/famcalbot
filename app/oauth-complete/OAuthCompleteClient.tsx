@@ -4,12 +4,11 @@ import { useEffect, useState } from 'react';
 import { CheckCircle2, ArrowRight } from 'lucide-react';
 
 interface OAuthCompleteClientProps {
-  userId?: string;
   locale: string;
   botUsername: string;
 }
 
-export default function OAuthCompleteClient({ userId, locale, botUsername }: OAuthCompleteClientProps) {
+export default function OAuthCompleteClient({ locale, botUsername }: OAuthCompleteClientProps) {
   const [countdown, setCountdown] = useState(3);
 
   useEffect(() => {
@@ -29,13 +28,9 @@ export default function OAuthCompleteClient({ userId, locale, botUsername }: OAu
     return () => clearInterval(timer);
   }, []);
 
-  const selectCalendarsUrl = userId
-    ? `/${locale}/select-calendars?user_id=${userId}`
-    : `/${locale}/select-calendars`;
-
   const redirectToTelegram = () => {
-    // Redirect to select calendars page to continue setup
-    window.location.href = selectCalendarsUrl;
+    // Deep link to open Telegram bot
+    window.location.href = `https://t.me/${botUsername}`;
   };
 
   return (
@@ -181,13 +176,13 @@ export default function OAuthCompleteClient({ userId, locale, botUsername }: OAu
 
           {countdown > 0 && (
             <div className="countdown">
-              <div className="countdown-text">Continuing in</div>
+              <div className="countdown-text">Returning to Telegram in</div>
               <div className="countdown-number">{countdown}</div>
             </div>
           )}
 
           <button onClick={redirectToTelegram} className="btn">
-            Continue to Select Calendars
+            Return to Telegram
             <ArrowRight size={20} />
           </button>
         </div>
