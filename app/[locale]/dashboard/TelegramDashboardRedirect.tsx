@@ -28,18 +28,12 @@ export default function TelegramDashboardRedirect({ locale }: TelegramDashboardR
         console.error('Could not set Telegram colors:', e);
       }
 
-      // Get user ID and start_param from initData
+      // Get user ID from initData
       const userId = tg.initDataUnsafe?.user?.id;
-      const startParam = tg.initDataUnsafe?.start_param;
 
       if (userId) {
-        // Check if we should redirect to a specific page based on start_param
-        if (startParam === 'select_calendars') {
-          router.push(`/${locale}/select-calendars?user_id=${userId}`);
-        } else {
-          // Default: redirect to dashboard
-          router.push(`/${locale}/dashboard?user_id=${userId}`);
-        }
+        // Redirect to dashboard with user ID
+        router.push(`/${locale}/dashboard?user_id=${userId}`);
       } else {
         // Fallback: User ID not available
         console.error('User ID not found in Telegram initDataUnsafe');

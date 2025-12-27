@@ -1,28 +1,78 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { RefreshCw, KeyRound, ArrowLeft } from 'lucide-react';
 
 interface RefreshTokenClientProps {
   oauthUrl: string;
+  userId: string;
 }
 
-export default function RefreshTokenClient({ oauthUrl }: RefreshTokenClientProps) {
+const OAUTH_PENDING_KEY = 'famcalbot_oauth_pending';
+
+export default function RefreshTokenClient({ oauthUrl, userId }: RefreshTokenClientProps) {
+  const checkTokenRefresh = useCallback(async () => {
+    const pending = localStorage.getItem(OAUTH_PENDING_KEY);
+    if (!pending) return;
+
+    try {
+      const { userId: pendingUserId, startTime } = JSON.parse(pending);
+      const response = await fetch(`/api/check-token-refresh?user_id=${pendingUserId}&since=${startTime}`);
+      const data = await response.json();
+
+      if (data.refreshed) {
+        // Clear the pending flag
+        localStorage.removeItem(OAUTH_PENDING_KEY);
+        // Navigate to calendar selection
+        window.location.href = `/en/select-calendars?user_id=${pendingUserId}`;
+      }
+    } catch (error) {
+      console.error('Error checking token refresh:', error);
+    }
+  }, []);
+
+  const startOAuth = useCallback(() => {
+    // Save pending OAuth flag
+    localStorage.setItem(OAUTH_PENDING_KEY, JSON.stringify({
+      userId,
+      startTime: Date.now()
+    }));
+
+    // Open OAuth in external browser
+    if (window.Telegram?.WebApp) {
+      window.Telegram.WebApp.openLink(oauthUrl);
+    } else {
+      window.open(oauthUrl, '_blank');
+    }
+  }, [oauthUrl, userId]);
+
   useEffect(() => {
     // Initialize Telegram WebApp if available
     if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
       const tg = window.Telegram.WebApp;
       tg.expand();
       tg.MainButton.setText('Connect Google Calendar');
-      tg.MainButton.onClick(() => {
-        // Open in external browser to avoid Google's disallowed_useragent error
-        tg.openLink(oauthUrl);
-        // Close WebApp so there's no duplicate when returning from OAuth
-        setTimeout(() => tg.close(), 300);
-      });
+      tg.MainButton.onClick(startOAuth);
       tg.MainButton.show();
     }
-  }, [oauthUrl]);
+
+    // Listen for visibility changes to detect return from OAuth
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        // Small delay to ensure OAuth callback has completed
+        setTimeout(checkTokenRefresh, 500);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Also check on mount in case user already completed OAuth
+    checkTokenRefresh();
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [oauthUrl, startOAuth, checkTokenRefresh]);
 
   return (
     <>
@@ -209,16 +259,7 @@ export default function RefreshTokenClient({ oauthUrl }: RefreshTokenClientProps
         </div>
 
         <button
-          onClick={() => {
-            if (window.Telegram?.WebApp) {
-              const tg = window.Telegram.WebApp;
-              tg.openLink(oauthUrl);
-              // Close WebApp so there's no duplicate when returning from OAuth
-              setTimeout(() => tg.close(), 300);
-            } else {
-              window.open(oauthUrl, '_blank');
-            }
-          }}
+          onClick={startOAuth}
           className="btn"
         >
           <KeyRound size={20} />

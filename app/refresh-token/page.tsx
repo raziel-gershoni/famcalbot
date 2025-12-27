@@ -79,5 +79,5 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
 
   const oauthUrl = `${baseUrl}?${urlParams.toString()}`;
 
-  return <RefreshTokenClient oauthUrl={oauthUrl} />;
+  return <RefreshTokenClient oauthUrl={oauthUrl} userId={user_id} />;
 }

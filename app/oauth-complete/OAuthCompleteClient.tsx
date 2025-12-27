@@ -29,8 +29,8 @@ export default function OAuthCompleteClient({ locale, botUsername }: OAuthComple
   }, []);
 
   const redirectToTelegram = () => {
-    // Deep link to open Telegram Mini App directly to calendar selection
-    window.location.href = `https://t.me/${botUsername}/dashboard?startapp=select_calendars`;
+    // Deep link to open Telegram bot
+    window.location.href = `https://t.me/${botUsername}`;
   };
 
   return (
@@ -145,22 +145,6 @@ export default function OAuthCompleteClient({ locale, botUsername }: OAuthComple
           .btn:active {
             transform: translateY(0);
           }
-          .secondary-link {
-            display: block;
-            margin-top: 15px;
-            color: #667eea;
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 500;
-          }
-          .secondary-link:hover {
-            text-decoration: underline;
-          }
-          .divider {
-            margin: 25px 0;
-            color: #9ca3af;
-            font-size: 13px;
-          }
         `}</style>
       </head>
       <body>
@@ -169,7 +153,7 @@ export default function OAuthCompleteClient({ locale, botUsername }: OAuthComple
             <CheckCircle2 size={48} color="white" />
           </div>
 
-          <h1>Successfully Connected! 🎉</h1>
+          <h1>Successfully Connected!</h1>
           <p className="subtitle">
             Your Google Calendar is now connected to FamCalBot.
           </p>
