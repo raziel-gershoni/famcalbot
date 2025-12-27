@@ -17,6 +17,8 @@ export default function RefreshTokenClient({ oauthUrl }: RefreshTokenClientProps
       tg.MainButton.onClick(() => {
         // Open in external browser to avoid Google's disallowed_useragent error
         tg.openLink(oauthUrl);
+        // Close WebApp so there's no duplicate when returning from OAuth
+        setTimeout(() => tg.close(), 300);
       });
       tg.MainButton.show();
     }
@@ -209,7 +211,10 @@ export default function RefreshTokenClient({ oauthUrl }: RefreshTokenClientProps
         <button
           onClick={() => {
             if (window.Telegram?.WebApp) {
-              window.Telegram.WebApp.openLink(oauthUrl);
+              const tg = window.Telegram.WebApp;
+              tg.openLink(oauthUrl);
+              // Close WebApp so there's no duplicate when returning from OAuth
+              setTimeout(() => tg.close(), 300);
             } else {
               window.open(oauthUrl, '_blank');
             }
