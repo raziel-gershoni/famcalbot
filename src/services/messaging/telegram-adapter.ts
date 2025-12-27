@@ -24,7 +24,7 @@ export class TelegramAdapter implements IMessagingService {
     chatId: number | string,
     text: string,
     options?: MessageOptions
-  ): Promise<void> {
+  ): Promise<number> {
     const telegramOptions: any = {};
 
     // Set parse mode based on format
@@ -44,7 +44,53 @@ export class TelegramAdapter implements IMessagingService {
       telegramOptions.reply_markup = options.replyMarkup;
     }
 
-    await this.bot.sendMessage(chatId, text, telegramOptions);
+    const message = await this.bot.sendMessage(chatId, text, telegramOptions);
+    return message.message_id;
+  }
+
+  async updateMessage(
+    chatId: number | string,
+    messageId: number | string,
+    text: string,
+    options?: MessageOptions
+  ): Promise<void> {
+    const telegramOptions: any = {
+      chat_id: chatId,
+      message_id: messageId,
+    };
+
+    // Set parse mode based on format
+    if (options?.format === MessageFormat.HTML) {
+      telegramOptions.parse_mode = 'HTML';
+    } else if (options?.format === MessageFormat.MARKDOWN) {
+      telegramOptions.parse_mode = 'Markdown';
+    }
+
+    // Disable link preview
+    if (options?.disablePreview) {
+      telegramOptions.disable_web_page_preview = true;
+    }
+
+    try {
+      await this.bot.editMessageText(text, telegramOptions);
+    } catch (error: any) {
+      // Ignore "message is not modified" errors
+      if (!error.message?.includes('message is not modified')) {
+        throw error;
+      }
+    }
+  }
+
+  async deleteMessage(
+    chatId: number | string,
+    messageId: number | string
+  ): Promise<void> {
+    try {
+      await this.bot.deleteMessage(chatId, messageId as number);
+    } catch (error) {
+      // Ignore deletion errors (message may already be deleted)
+      console.warn('Failed to delete message:', error);
+    }
   }
 
   async sendVoice(

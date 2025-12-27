@@ -30,7 +30,7 @@ export class WhatsAppAdapter implements IMessagingService {
     chatId: number | string,
     text: string,
     options?: MessageOptions
-  ): Promise<void> {
+  ): Promise<string> {
     const formattedText = options?.format
       ? this.formatText(text, options.format)
       : text;
@@ -49,10 +49,32 @@ export class WhatsAppAdapter implements IMessagingService {
         const error = await response.json();
         throw new Error(`WhatsApp API error: ${JSON.stringify(error)}`);
       }
+      const data = await response.json() as { messages?: Array<{ id: string }> };
+      return data.messages?.[0]?.id || '';
     } catch (error) {
       console.error(`[WhatsApp] Failed to send message to ${chatId}:`, error);
       throw error;
     }
+  }
+
+  async updateMessage(
+    chatId: number | string,
+    messageId: number | string,
+    text: string,
+    options?: MessageOptions
+  ): Promise<void> {
+    // WhatsApp doesn't support message editing
+    // Fall back to sending a new message
+    console.warn('[WhatsApp] Message editing not supported, sending new message');
+    await this.sendMessage(chatId, text, options);
+  }
+
+  async deleteMessage(
+    chatId: number | string,
+    messageId: number | string
+  ): Promise<void> {
+    // WhatsApp message deletion is limited and requires specific conditions
+    console.warn('[WhatsApp] Message deletion not implemented');
   }
 
   async sendVoice(

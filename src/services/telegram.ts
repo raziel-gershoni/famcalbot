@@ -8,6 +8,7 @@ import { ADMIN_USER_ID } from '../config/constants';
 import { IMessagingService, getTelegramService, getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from './messaging';
 import { getCalendarsByLabel, getPrimaryCalendar } from '../utils/calendar-helpers';
 import { getLocaleFromLanguage } from '../utils/locale';
+import { sendProgressWithAnimation, ProgressType } from './progress-message';
 
 /**
  * Categorize events by ownership for a specific user
@@ -235,10 +236,17 @@ export async function handleWeatherCommand(
     return;
   }
 
+  // Start animated progress for weather
+  const userLanguage = user.language || 'en';
+  const { messageId, stopAnimation } = await sendProgressWithAnimation(
+    chatId,
+    'weather',
+    userLanguage,
+    messagingService
+  );
+
   try {
     const format = args.toLowerCase() === 'dtl' ? 'dtl' : 'std';
-
-    await messagingService.sendMessage(chatId, '🌤️ Fetching weather data...');
 
     // Fetch weather data
     const { fetchWeather } = await import('./weather/open-meteo');
@@ -250,12 +258,15 @@ export async function handleWeatherCommand(
       ? await formatWeatherDetailed(weatherData, user.language)
       : await formatWeatherStandard(weatherData, user.language);
 
-    // Send formatted weather
-    await messagingService.sendMessage(chatId, formattedWeather, { format: MessageFormat.MARKDOWN });
+    // Stop animation and update with weather
+    stopAnimation();
+    await messagingService.updateMessage(chatId, messageId, formattedWeather, { format: MessageFormat.MARKDOWN });
   } catch (error) {
+    stopAnimation();
     console.error(`Error fetching weather for user ${userId}:`, error);
-    await messagingService.sendMessage(
+    await messagingService.updateMessage(
       chatId,
+      messageId,
       '❌ Sorry, there was an error fetching weather data. Please try again later.'
     );
 
@@ -433,10 +444,10 @@ function setupHandlers(bot: TelegramBot) {
 
 /**
  * Generic function to send summary to a specific user
+ * Uses animated progress messages that get edited with the final result
  * @param userId - Telegram user ID
  * @param fetchFunction - Function to fetch calendar events (today or tomorrow)
  * @param summaryDate - Date for the summary (undefined for today, tomorrow's date for tomorrow)
- * @param fetchingMessage - Message to show while fetching
  * @param errorMessage - Message to show on error
  * @param modelId - Optional model ID to override default model
  */
@@ -444,7 +455,6 @@ async function sendSummaryToUser(
   userId: number,
   fetchFunction: (refreshToken: string, calendarIds: string[]) => Promise<CalendarEvent[]>,
   summaryDate: Date | undefined,
-  fetchingMessage: string,
   errorMessage: string,
   modelId?: string
 ): Promise<void> {
@@ -457,9 +467,19 @@ async function sendSummaryToUser(
   const messagingService = getMessagingService();
   const botInstance = getBot(); // Still needed for voice and callbacks
 
-  try {
-    await messagingService.sendMessage(userId, fetchingMessage);
+  // Determine progress type based on date
+  const progressType: ProgressType = summaryDate ? 'summaryTomorrow' : 'summary';
+  const userLanguage = user.language || 'en';
 
+  // Start animated progress message
+  const { messageId, stopAnimation } = await sendProgressWithAnimation(
+    userId,
+    progressType,
+    userLanguage,
+    messagingService
+  );
+
+  try {
     // Extract all calendar IDs from assignments
     const allCalendarIds = user.calendarAssignments?.map(a => a.calendarId) || [];
 
@@ -494,22 +514,29 @@ async function sendSummaryToUser(
       user.language
     );
 
-    // Send personalized message (greeting is included in the summary)
-    await messagingService.sendMessage(userId, summary, { format: MessageFormat.HTML });
+    // Stop animation and update message with summary
+    stopAnimation();
+    await messagingService.updateMessage(userId, messageId, summary, { format: MessageFormat.HTML });
 
     // Generate and send voice message for admin user only (for /summary command only)
     if (userId === ADMIN_USER_ID && summaryDate === undefined) {
-      await sendVoiceMessage(userId, summary, modelId, user.language);
+      await sendVoiceMessage(userId, summary, modelId, user.language, messagingService);
     }
   } catch (error) {
+    // Stop animation on error
+    stopAnimation();
+
     console.error(`Error sending summary to user ${userId}:`, error);
 
     // Check if it's a token expiration error
     if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
       const refreshUrl = `https://famcalbot.vercel.app/refresh-token?user_id=${userId}`;
       const expiredMessage = `🔑 <b>Google Calendar Token Expired</b>\n\nYour Google Calendar access has expired. Please refresh your token to continue receiving summaries.\n\nTap the button below to refresh:`;
-      await messagingService.sendMessage(userId, expiredMessage, {
-        format: MessageFormat.HTML,
+      await messagingService.updateMessage(userId, messageId, expiredMessage, {
+        format: MessageFormat.HTML
+      });
+      // Send refresh button as new message (can't add inline keyboard when editing)
+      await messagingService.sendMessage(userId, 'Tap below to refresh:', {
         replyMarkup: {
           inline_keyboard: [[
             { text: '🔄 Refresh Google Calendar', url: refreshUrl }
@@ -526,7 +553,8 @@ async function sendSummaryToUser(
       return;
     }
 
-    await messagingService.sendMessage(userId, errorMessage);
+    // Update progress message with error
+    await messagingService.updateMessage(userId, messageId, errorMessage);
 
     // Notify admin of summary failures
     const { notifyAdminError } = await import('../utils/error-notifier');
@@ -695,7 +723,6 @@ export async function sendDailySummaryToUser(userId: number): Promise<void> {
     userId,
     fetchTodayEvents,
     undefined,
-    USER_MESSAGES.FETCHING_CALENDAR,
     USER_MESSAGES.ERROR_GENERIC
   );
 }
@@ -719,7 +746,6 @@ export async function sendTomorrowSummaryToUser(userId: number): Promise<void> {
     userId,
     fetchTomorrowEvents,
     tomorrow,
-    USER_MESSAGES.FETCHING_TOMORROW,
     USER_MESSAGES.ERROR_TOMORROW
   );
 }
@@ -737,13 +763,31 @@ export async function sendTomorrowSummaryToAll(): Promise<void> {
 
 /**
  * Generate and send voice version of summary
+ * Shows animated progress that gets deleted when voice arrives
  * Non-blocking - errors logged but don't affect text summary delivery
  * Admin-only feature for testing
  * @param modelId - Optional model ID to use for condensing (same as text summary)
  * @param language - Optional language for voice (defaults to English if not provided)
+ * @param service - Messaging service instance
  */
-async function sendVoiceMessage(userId: number, summary: string, modelId?: string, language?: string): Promise<void> {
+async function sendVoiceMessage(
+  userId: number,
+  summary: string,
+  modelId?: string,
+  language?: string,
+  service?: IMessagingService
+): Promise<void> {
   let voiceFilePath: string | null = null;
+  const messagingService = service || getMessagingService();
+  const userLanguage = language || 'en';
+
+  // Start voice progress animation
+  const { messageId, stopAnimation } = await sendProgressWithAnimation(
+    userId,
+    'voice',
+    userLanguage,
+    messagingService
+  );
 
   try {
     const { generateVoiceMessage, cleanupVoiceFile } = await import('./voice-generator');
@@ -763,15 +807,23 @@ async function sendVoiceMessage(userId: number, summary: string, modelId?: strin
     // Step 2: Generate voice file from condensed summary
     voiceFilePath = await generateVoiceMessage(condensedSummary, targetLanguage);
 
+    // Stop animation and delete progress message
+    stopAnimation();
+    await messagingService.deleteMessage(userId, messageId);
+
     // Send as voice message to Telegram
-    const messagingService = getMessagingService();
-    const botInstance = getBot(); // Still needed for voice and callbacks
+    const botInstance = getBot();
     await botInstance.sendVoice(userId, voiceFilePath, {}, {
       contentType: 'audio/ogg'
     });
 
     console.log(`Voice message sent successfully to user ${userId}`);
   } catch (error) {
+    // Stop animation on error
+    stopAnimation();
+    // Delete progress message on error too
+    await messagingService.deleteMessage(userId, messageId);
+
     console.error(`Voice generation failed for user ${userId}:`, error);
 
     // Notify admin but don't interrupt user experience
@@ -909,7 +961,6 @@ export async function handleTestAICallback(
       userId,
       fetchFunction,
       summaryDate,
-      `🤖 Generating <b>${timeLabel}'s</b> summary with <b>${config.displayName}</b>...`,
       'Sorry, there was an error generating the summary.',
       modelId
     );

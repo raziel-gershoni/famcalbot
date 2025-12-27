@@ -173,5 +173,11 @@
     "userNotFound": "User not found",
     "missingParameter": "Missing required parameter",
     "generic": "Something went wrong. Please try again."
+  },
+  "progress": {
+    "summary": "Generating your summary",
+    "summaryTomorrow": "Generating tomorrow's summary",
+    "weather": "Fetching weather forecast",
+    "voice": "Generating voice message"
   }
 }

@@ -173,5 +173,11 @@
     "userNotFound": "משתמש לא נמצא",
     "missingParameter": "חסר פרמטר נדרש",
     "generic": "משהו השתבש. אנא נסה שוב."
+  },
+  "progress": {
+    "summary": "מכין את הסיכום שלך",
+    "summaryTomorrow": "מכין את סיכום המחר",
+    "weather": "מביא את תחזית מזג האוויר",
+    "voice": "מכין הודעה קולית"
   }
 }

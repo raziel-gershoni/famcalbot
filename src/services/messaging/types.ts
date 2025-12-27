@@ -75,11 +75,30 @@ export interface CallbackQuery {
 export interface IMessagingService {
   /**
    * Send a text message
+   * @returns Message ID for later editing/deletion
    */
   sendMessage(
     chatId: number | string,
     text: string,
     options?: MessageOptions
+  ): Promise<number | string>;
+
+  /**
+   * Update an existing message
+   */
+  updateMessage(
+    chatId: number | string,
+    messageId: number | string,
+    text: string,
+    options?: MessageOptions
+  ): Promise<void>;
+
+  /**
+   * Delete a message
+   */
+  deleteMessage(
+    chatId: number | string,
+    messageId: number | string
   ): Promise<void>;
 
   /**
