@@ -53,7 +53,7 @@ export default function SelectCalendarsClient({
   const [messageIdCounter, setMessageIdCounter] = useState(0);
 
   const handleBack = () => {
-    router.push(`/${locale}/settings?user_id=${userId}`);
+    router.push(`/${locale}/dashboard?user_id=${userId}`);
   };
 
   // Show feedback message

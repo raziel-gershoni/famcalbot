@@ -3,13 +3,22 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, ArrowRight } from 'lucide-react';
 
+interface Translations {
+  title: string;
+  subtitle: string;
+  countdown: string;
+  button: string;
+}
+
 interface OAuthCompleteClientProps {
   locale: string;
   botUsername: string;
+  translations: Translations;
 }
 
-export default function OAuthCompleteClient({ locale, botUsername }: OAuthCompleteClientProps) {
+export default function OAuthCompleteClient({ locale, botUsername, translations: t }: OAuthCompleteClientProps) {
   const [countdown, setCountdown] = useState(3);
+  const isRTL = locale === 'he';
 
   useEffect(() => {
     // Countdown timer
@@ -34,9 +43,9 @@ export default function OAuthCompleteClient({ locale, botUsername }: OAuthComple
   };
 
   return (
-    <html lang={locale}>
+    <html lang={locale} dir={isRTL ? 'rtl' : 'ltr'}>
       <head>
-        <title>Google Calendar Connected</title>
+        <title>{t.title}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <style>{`
           * {
@@ -153,21 +162,19 @@ export default function OAuthCompleteClient({ locale, botUsername }: OAuthComple
             <CheckCircle2 size={48} color="white" />
           </div>
 
-          <h1>Successfully Connected!</h1>
-          <p className="subtitle">
-            Your Google Calendar is now connected to FamCalBot.
-          </p>
+          <h1>{t.title}</h1>
+          <p className="subtitle">{t.subtitle}</p>
 
           {countdown > 0 && (
             <div className="countdown">
-              <div className="countdown-text">Returning to Telegram in</div>
+              <div className="countdown-text">{t.countdown}</div>
               <div className="countdown-number">{countdown}</div>
             </div>
           )}
 
           <button onClick={redirectToTelegram} className="btn">
-            Return to Telegram
-            <ArrowRight size={20} />
+            {t.button}
+            <ArrowRight size={20} style={isRTL ? { transform: 'scaleX(-1)' } : undefined} />
           </button>
         </div>
       </body>

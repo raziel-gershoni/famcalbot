@@ -145,6 +145,23 @@ export default function DashboardClient({
             color: #111827;
           }
 
+          .summary-button {
+            padding: 16px 20px;
+            gap: 4px;
+          }
+
+          .summary-label {
+            font-size: 18px;
+            font-weight: 600;
+            color: #667eea;
+          }
+
+          .summary-date {
+            font-size: 13px;
+            font-weight: 400;
+            color: #6b7280;
+          }
+
           .action-button:hover {
             border-color: #667eea;
             background: #f9fafb;
@@ -314,23 +331,21 @@ export default function DashboardClient({
               <Section title={t('summary.title')} icon={<Calendar size={20} />}>
                 <div className="button-group">
                   <button
-                    className="action-button"
+                    className="action-button summary-button"
                     onClick={() => executeCommand('summary')}
                   >
-                    <span>
-                      {todaySummaryLabel.gregorian}
-                      <br />
-                      {todaySummaryLabel.hebrew}
+                    <span className="summary-label">{t('summary.today')}</span>
+                    <span className="summary-date">
+                      {todaySummaryLabel.gregorian} • {todaySummaryLabel.hebrew}
                     </span>
                   </button>
                   <button
-                    className="action-button"
+                    className="action-button summary-button"
                     onClick={() => executeCommand('summary', 'tmrw')}
                   >
-                    <span>
-                      {tomorrowSummaryLabel.gregorian}
-                      <br />
-                      {tomorrowSummaryLabel.hebrew}
+                    <span className="summary-label">{t('summary.tomorrow')}</span>
+                    <span className="summary-date">
+                      {tomorrowSummaryLabel.gregorian} • {tomorrowSummaryLabel.hebrew}
                     </span>
                   </button>
                 </div>

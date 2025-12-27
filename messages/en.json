@@ -162,6 +162,12 @@
     "button": "Connect Google Calendar",
     "checking": "Checking authentication..."
   },
+  "oauthComplete": {
+    "title": "Successfully Connected!",
+    "subtitle": "Your Google Calendar is now connected to FamCalBot.",
+    "countdown": "Returning to Telegram in",
+    "button": "Return to Telegram"
+  },
   "errors": {
     "unauthorized": "You are not authorized to use this bot",
     "userNotFound": "User not found",

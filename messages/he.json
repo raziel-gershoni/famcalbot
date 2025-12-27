@@ -162,6 +162,12 @@
     "button": "התחבר ליומן Google",
     "checking": "בודק אימות..."
   },
+  "oauthComplete": {
+    "title": "התחברות הצליחה!",
+    "subtitle": "יומן Google שלך מחובר כעת ל-FamCalBot.",
+    "countdown": "חוזר לטלגרם בעוד",
+    "button": "חזור לטלגרם"
+  },
   "errors": {
     "unauthorized": "אינך מורשה להשתמש בבוט זה",
     "userNotFound": "משתמש לא נמצא",
