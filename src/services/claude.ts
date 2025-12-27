@@ -9,8 +9,10 @@ import { generateAICompletion } from './ai-provider';
 /**
  * Get Hebrew date information and check if today is Rosh Chodesh
  */
-function getHebrewDateInfo(date: Date = new Date()): { hebrewDate: string; isRoshChodesh: boolean; hebrewDateFormatted: string } {
-  const hdate = new HDate(date);
+function getHebrewDateInfo(date: Date = new Date(), timezone: string = TIMEZONE): { hebrewDate: string; isRoshChodesh: boolean; hebrewDateFormatted: string } {
+  // Convert to user's timezone to get correct Hebrew date (server runs in UTC)
+  const localDate = new Date(date.toLocaleString('en-US', { timeZone: timezone }));
+  const hdate = new HDate(localDate);
 
   const day = hdate.getDate();
   const monthName = Locale.lookupTranslation(hdate.getMonthName(), 'he') || hdate.getMonthName();
@@ -40,13 +42,14 @@ function buildPromptData(
   spouseHebrewName: string,
   spouseGender: 'male' | 'female',
   date: Date,
+  timezone: string = TIMEZONE,
   weatherSummary?: string,
   language?: string
 ): SummaryPromptData {
   // Get current date (today) for comparison
   const currentDate = new Date();
   const currentGregorianDate = currentDate.toLocaleDateString('en-US', {
-    timeZone: TIMEZONE,
+    timeZone: timezone,
     weekday: 'long',
     year: 'numeric',
     month: 'long',
@@ -55,7 +58,7 @@ function buildPromptData(
 
   // Determine greeting based on current time
   const currentHour = parseInt(currentDate.toLocaleTimeString('en-US', {
-    timeZone: TIMEZONE,
+    timeZone: timezone,
     hour: '2-digit',
     hour12: false
   }));
@@ -70,9 +73,9 @@ function buildPromptData(
   }
 
   // Get summary date and Hebrew date information
-  const { isRoshChodesh, hebrewDateFormatted } = getHebrewDateInfo(date);
+  const { isRoshChodesh, hebrewDateFormatted } = getHebrewDateInfo(date, timezone);
   const gregorianDate = date.toLocaleDateString('en-US', {
-    timeZone: TIMEZONE,
+    timeZone: timezone,
     weekday: 'long',
     year: 'numeric',
     month: 'long',
@@ -147,21 +150,28 @@ export async function generateSummary(
   location?: string,
   language?: string
 ): Promise<string> {
-  // Fetch weather data if location is provided
+  // Get timezone from location (or use default)
+  let timezone = TIMEZONE;
   let weatherSummary: string | undefined;
+
   if (location) {
     try {
-      const { fetchWeather } = await import('./weather/open-meteo');
-      const { getWeatherDescription } = await import('./weather/open-meteo');
-      const weatherData = await fetchWeather(location);
+      const { getTimezone } = await import('./weather/geocoding');
+      const { fetchWeather, getWeatherDescription } = await import('./weather/open-meteo');
+
+      // Get timezone for the location
+      timezone = await getTimezone(location);
+
+      // Fetch weather data
+      const weatherData = await fetchWeather(location, timezone);
 
       // Build weather summary for prompt
       weatherSummary = `Current: ${weatherData.current.temperature}°C (feels like ${weatherData.current.feelsLike}°C), ${getWeatherDescription(weatherData.current.weatherCode)}
 Today: High ${weatherData.today.tempMax}°C, Low ${weatherData.today.tempMin}°C, ${weatherData.today.precipitationProbability}% chance of rain
 ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low ${weatherData.tomorrow.tempMin}°C, ${weatherData.tomorrow.precipitationProbability}% chance of rain` : ''}`;
     } catch (error) {
-      console.error('Failed to fetch weather for summary:', error);
-      // Continue without weather if it fails
+      console.error('Failed to fetch weather/timezone for summary:', error);
+      // Continue with defaults if it fails
     }
   }
 
@@ -177,6 +187,7 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
     spouseHebrewName,
     spouseGender,
     date,
+    timezone,
     weatherSummary,
     language
   );
@@ -208,21 +219,28 @@ export async function generateSummaryWithMetrics(
   location?: string,
   language?: string
 ) {
-  // Fetch weather data if location is provided
+  // Get timezone from location (or use default)
+  let timezone = TIMEZONE;
   let weatherSummary: string | undefined;
+
   if (location) {
     try {
-      const { fetchWeather } = await import('./weather/open-meteo');
-      const { getWeatherDescription } = await import('./weather/open-meteo');
-      const weatherData = await fetchWeather(location);
+      const { getTimezone } = await import('./weather/geocoding');
+      const { fetchWeather, getWeatherDescription } = await import('./weather/open-meteo');
+
+      // Get timezone for the location
+      timezone = await getTimezone(location);
+
+      // Fetch weather data
+      const weatherData = await fetchWeather(location, timezone);
 
       // Build weather summary for prompt
       weatherSummary = `Current: ${weatherData.current.temperature}°C (feels like ${weatherData.current.feelsLike}°C), ${getWeatherDescription(weatherData.current.weatherCode)}
 Today: High ${weatherData.today.tempMax}°C, Low ${weatherData.today.tempMin}°C, ${weatherData.today.precipitationProbability}% chance of rain
 ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low ${weatherData.tomorrow.tempMin}°C, ${weatherData.tomorrow.precipitationProbability}% chance of rain` : ''}`;
     } catch (error) {
-      console.error('Failed to fetch weather for summary:', error);
-      // Continue without weather if it fails
+      console.error('Failed to fetch weather/timezone for summary:', error);
+      // Continue with defaults if it fails
     }
   }
 
@@ -238,6 +256,7 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
     spouseHebrewName,
     spouseGender,
     date,
+    timezone,
     weatherSummary,
     language
   );
