@@ -40,12 +40,14 @@ export default function DashboardClient({
   const t = useTranslations('dashboard');
   const router = useRouter();
 
+  // Map app locale to Intl locale
+  const intlLocale = { he: 'he-IL', ru: 'ru-RU', en: 'en-US' }[locale] ?? 'en-US';
+
   // Format dates for today and tomorrow summary buttons
   const todaySummaryLabel = useMemo(() => {
     const now = new Date();
-    const userLocale = locale === 'he' ? 'he-IL' : 'en-US';
-    const greg = now.toLocaleDateString(userLocale, { month: 'short', day: 'numeric' });
-    const dayOfWeek = now.toLocaleDateString(userLocale, { weekday: 'short' });
+    const greg = now.toLocaleDateString(intlLocale, { month: 'short', day: 'numeric' });
+    const dayOfWeek = now.toLocaleDateString(intlLocale, { weekday: 'short' });
     const hdate = new HDate(now);
     // @ts-expect-error - gematriya exists but not in type definitions
     const hebDay = locale === 'he' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
@@ -54,14 +56,13 @@ export default function DashboardClient({
       gregorian: `${dayOfWeek} ${greg}`,
       hebrew: `${hebDay} ${hebMonth}`
     };
-  }, [locale]);
+  }, [locale, intlLocale]);
 
   const tomorrowSummaryLabel = useMemo(() => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    const userLocale = locale === 'he' ? 'he-IL' : 'en-US';
-    const greg = tomorrow.toLocaleDateString(userLocale, { month: 'short', day: 'numeric' });
-    const dayOfWeek = tomorrow.toLocaleDateString(userLocale, { weekday: 'short' });
+    const greg = tomorrow.toLocaleDateString(intlLocale, { month: 'short', day: 'numeric' });
+    const dayOfWeek = tomorrow.toLocaleDateString(intlLocale, { weekday: 'short' });
     const hdate = new HDate(tomorrow);
     // @ts-expect-error - gematriya exists but not in type definitions
     const hebDay = locale === 'he' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
@@ -70,7 +71,7 @@ export default function DashboardClient({
       gregorian: `${dayOfWeek} ${greg}`,
       hebrew: `${hebDay} ${hebMonth}`
     };
-  }, [locale]);
+  }, [locale, intlLocale]);
 
   const executeCommand = async (command: string, args?: string) => {
     // Close webapp immediately for better UX

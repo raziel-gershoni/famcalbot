@@ -32,12 +32,14 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
   const [todayState, setTodayState] = useState<ButtonState>('idle');
   const [tomorrowState, setTomorrowState] = useState<ButtonState>('idle');
 
+  // Map app locale to Intl locale
+  const intlLocale = { he: 'he-IL', ru: 'ru-RU', en: 'en-US' }[locale] ?? 'en-US';
+
   // Format dates for today and tomorrow buttons
   const todayLabel = useMemo(() => {
     const now = new Date();
-    const userLocale = locale === 'he' ? 'he-IL' : 'en-US';
-    const greg = now.toLocaleDateString(userLocale, { month: 'short', day: 'numeric' });
-    const dayOfWeek = now.toLocaleDateString(userLocale, { weekday: 'short' });
+    const greg = now.toLocaleDateString(intlLocale, { month: 'short', day: 'numeric' });
+    const dayOfWeek = now.toLocaleDateString(intlLocale, { weekday: 'short' });
     const hdate = new HDate(now);
     // @ts-expect-error - gematriya exists but not in type definitions
     const hebDay = locale === 'he' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
@@ -46,14 +48,13 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
       gregorian: `${dayOfWeek} ${greg}`,
       hebrew: `${hebDay} ${hebMonth}`
     };
-  }, [locale]);
+  }, [locale, intlLocale]);
 
   const tomorrowLabel = useMemo(() => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    const userLocale = locale === 'he' ? 'he-IL' : 'en-US';
-    const greg = tomorrow.toLocaleDateString(userLocale, { month: 'short', day: 'numeric' });
-    const dayOfWeek = tomorrow.toLocaleDateString(userLocale, { weekday: 'short' });
+    const greg = tomorrow.toLocaleDateString(intlLocale, { month: 'short', day: 'numeric' });
+    const dayOfWeek = tomorrow.toLocaleDateString(intlLocale, { weekday: 'short' });
     const hdate = new HDate(tomorrow);
     // @ts-expect-error - gematriya exists but not in type definitions
     const hebDay = locale === 'he' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
@@ -62,7 +63,7 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
       gregorian: `${dayOfWeek} ${greg}`,
       hebrew: `${hebDay} ${hebMonth}`
     };
-  }, [locale]);
+  }, [locale, intlLocale]);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
@@ -411,7 +412,7 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
                 <div key={index} className="user-item">
                   <div className="user-name">{user.name}</div>
                   <div className="user-meta">
-                    {new Date(user.createdAt).toLocaleDateString()} •{' '}
+                    {new Date(user.createdAt).toLocaleDateString(intlLocale)} •{' '}
                     {user.language} •{' '}
                     {user.messagingPlatform}
                   </div>
