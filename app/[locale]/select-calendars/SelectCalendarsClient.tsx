@@ -25,6 +25,7 @@ interface SelectCalendarsClientProps {
     selectedCalendars: Set<string>;
     calendarLabels: Map<string, Set<CalendarLabel>>;
   };
+  locale: string;
 }
 
 interface FeedbackMessage {
@@ -37,7 +38,8 @@ export default function SelectCalendarsClient({
   userId,
   userName,
   availableCalendars,
-  currentSelections
+  currentSelections,
+  locale
 }: SelectCalendarsClientProps) {
   const t = useTranslations('calendars');
   const router = useRouter();
@@ -51,7 +53,7 @@ export default function SelectCalendarsClient({
   const [messageIdCounter, setMessageIdCounter] = useState(0);
 
   const handleBack = () => {
-    router.back();
+    router.push(`/${locale}/settings?user_id=${userId}`);
   };
 
   // Show feedback message

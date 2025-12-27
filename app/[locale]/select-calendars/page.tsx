@@ -110,6 +110,7 @@ export default async function SelectCalendarsPage({ params, searchParams }: Page
         userName={user.name}
         availableCalendars={availableCalendars}
         currentSelections={currentSelections}
+        locale={userLocale}
       />
     );
   } catch (error) {

@@ -52,6 +52,15 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
     );
   }
 
+  // Get user's language preference
+  const user = await prisma.user.findFirst({
+    where: { telegramId: BigInt(user_id) },
+    select: { language: true }
+  });
+
+  // Map language to locale code
+  const locale = user?.language === 'Hebrew' ? 'he' : 'en';
+
   // Generate secure state token
   const stateToken = crypto.randomBytes(32).toString('hex');
 
@@ -79,5 +88,5 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
 
   const oauthUrl = `${baseUrl}?${urlParams.toString()}`;
 
-  return <RefreshTokenClient oauthUrl={oauthUrl} userId={user_id} />;
+  return <RefreshTokenClient oauthUrl={oauthUrl} userId={user_id} locale={locale} />;
 }

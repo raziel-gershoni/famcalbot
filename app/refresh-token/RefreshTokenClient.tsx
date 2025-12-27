@@ -1,20 +1,24 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
-import { RefreshCw, KeyRound, ArrowLeft } from 'lucide-react';
+import { useEffect, useCallback, useState } from 'react';
+import { RefreshCw, KeyRound, ArrowLeft, Loader2 } from 'lucide-react';
 
 interface RefreshTokenClientProps {
   oauthUrl: string;
   userId: string;
+  locale: string;
 }
 
 const OAUTH_PENDING_KEY = 'famcalbot_oauth_pending';
 
-export default function RefreshTokenClient({ oauthUrl, userId }: RefreshTokenClientProps) {
+export default function RefreshTokenClient({ oauthUrl, userId, locale }: RefreshTokenClientProps) {
+  const [isChecking, setIsChecking] = useState(false);
+
   const checkTokenRefresh = useCallback(async () => {
     const pending = localStorage.getItem(OAUTH_PENDING_KEY);
     if (!pending) return;
 
+    setIsChecking(true);
     try {
       const { userId: pendingUserId, startTime } = JSON.parse(pending);
       const response = await fetch(`/api/check-token-refresh?user_id=${pendingUserId}&since=${startTime}`);
@@ -23,13 +27,16 @@ export default function RefreshTokenClient({ oauthUrl, userId }: RefreshTokenCli
       if (data.refreshed) {
         // Clear the pending flag
         localStorage.removeItem(OAUTH_PENDING_KEY);
-        // Navigate to calendar selection
-        window.location.href = `/en/select-calendars?user_id=${pendingUserId}`;
+        // Navigate to calendar selection with user's locale
+        window.location.href = `/${locale}/select-calendars?user_id=${pendingUserId}`;
+      } else {
+        setIsChecking(false);
       }
     } catch (error) {
       console.error('Error checking token refresh:', error);
+      setIsChecking(false);
     }
-  }, []);
+  }, [locale]);
 
   const startOAuth = useCallback(() => {
     // Save pending OAuth flag
@@ -229,7 +236,45 @@ export default function RefreshTokenClient({ oauthUrl, userId }: RefreshTokenCli
         .back-button:hover {
           background: rgba(255, 255, 255, 0.3);
         }
+
+        .loading-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(255, 255, 255, 0.95);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          z-index: 100;
+          gap: 20px;
+        }
+
+        .spinner {
+          animation: spin 1s linear infinite;
+          color: #667eea;
+        }
+
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+          color: #4b5563;
+          font-size: 16px;
+          font-weight: 500;
+        }
       `}</style>
+
+      {isChecking && (
+        <div className="loading-overlay">
+          <Loader2 size={48} className="spinner" />
+          <div className="loading-text">Checking authentication...</div>
+        </div>
+      )}
 
       <button
         className="back-button"
