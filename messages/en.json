@@ -152,6 +152,16 @@
     "error": "Authorization failed",
     "redirecting": "Redirecting..."
   },
+  "refreshToken": {
+    "title": "Refresh Calendar Access",
+    "subtitle": "Your Google Calendar access has expired. Let's refresh it!",
+    "stepsTitle": "What will happen:",
+    "step1": "You'll log in to Google",
+    "step2": "Grant calendar access",
+    "step3": "Your bot will work again!",
+    "button": "Connect Google Calendar",
+    "checking": "Checking authentication..."
+  },
   "errors": {
     "unauthorized": "You are not authorized to use this bot",
     "userNotFound": "User not found",

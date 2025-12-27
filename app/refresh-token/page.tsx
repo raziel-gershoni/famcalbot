@@ -3,6 +3,8 @@ import crypto from 'crypto';
 import { prisma } from '@/src/utils/prisma';
 import { XCircle } from 'lucide-react';
 import RefreshTokenClient from './RefreshTokenClient';
+import enMessages from '@/messages/en.json';
+import heMessages from '@/messages/he.json';
 
 interface PageProps {
   searchParams: Promise<{
@@ -60,6 +62,8 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
 
   // Map language to locale code
   const locale = user?.language === 'Hebrew' ? 'he' : 'en';
+  const messages = locale === 'he' ? heMessages : enMessages;
+  const t = messages.refreshToken;
 
   // Generate secure state token
   const stateToken = crypto.randomBytes(32).toString('hex');
@@ -88,5 +92,5 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
 
   const oauthUrl = `${baseUrl}?${urlParams.toString()}`;
 
-  return <RefreshTokenClient oauthUrl={oauthUrl} userId={user_id} locale={locale} />;
+  return <RefreshTokenClient oauthUrl={oauthUrl} userId={user_id} locale={locale} translations={t} />;
 }

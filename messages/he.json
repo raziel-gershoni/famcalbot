@@ -152,6 +152,16 @@
     "error": "ההרשאה נכשלה",
     "redirecting": "מעביר..."
   },
+  "refreshToken": {
+    "title": "רענון גישה ליומן",
+    "subtitle": "הגישה ליומן Google שלך פגה. בוא נרענן אותה!",
+    "stepsTitle": "מה יקרה:",
+    "step1": "תתחבר ל-Google",
+    "step2": "תאשר גישה ליומן",
+    "step3": "הבוט יעבוד שוב!",
+    "button": "התחבר ליומן Google",
+    "checking": "בודק אימות..."
+  },
   "errors": {
     "unauthorized": "אינך מורשה להשתמש בבוט זה",
     "userNotFound": "משתמש לא נמצא",

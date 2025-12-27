@@ -3,15 +3,28 @@
 import { useEffect, useCallback, useState } from 'react';
 import { RefreshCw, KeyRound, ArrowLeft, Loader2 } from 'lucide-react';
 
+interface Translations {
+  title: string;
+  subtitle: string;
+  stepsTitle: string;
+  step1: string;
+  step2: string;
+  step3: string;
+  button: string;
+  checking: string;
+}
+
 interface RefreshTokenClientProps {
   oauthUrl: string;
   userId: string;
   locale: string;
+  translations: Translations;
 }
 
 const OAUTH_PENDING_KEY = 'famcalbot_oauth_pending';
 
-export default function RefreshTokenClient({ oauthUrl, userId, locale }: RefreshTokenClientProps) {
+export default function RefreshTokenClient({ oauthUrl, userId, locale, translations: t }: RefreshTokenClientProps) {
+  const isRTL = locale === 'he';
   const [isChecking, setIsChecking] = useState(false);
 
   const checkTokenRefresh = useCallback(async () => {
@@ -271,35 +284,34 @@ export default function RefreshTokenClient({ oauthUrl, userId, locale }: Refresh
 
       {isChecking && (
         <div className="loading-overlay">
-          <Loader2 size={48} className="spinner" />
-          <div className="loading-text">Checking authentication...</div>
+          <Loader2 size={48} style={{ animation: 'spin 1s linear infinite', color: '#667eea' }} />
+          <div className="loading-text">{t.checking}</div>
         </div>
       )}
 
       <button
         className="back-button"
+        style={isRTL ? { left: 'auto', right: '20px' } : undefined}
         onClick={() => window.history.back()}
         aria-label="Go back"
       >
-        <ArrowLeft size={20} />
+        <ArrowLeft size={20} style={isRTL ? { transform: 'scaleX(-1)' } : undefined} />
       </button>
 
-      <div className="container">
+      <div className="container" style={{ direction: isRTL ? 'rtl' : 'ltr' }}>
         <div className="icon-wrapper">
           <RefreshCw size={48} color="white" />
         </div>
 
-        <h2>Refresh Calendar Access</h2>
-        <p className="subtitle">
-          Your Google Calendar access has expired. Let&apos;s refresh it!
-        </p>
+        <h2>{t.title}</h2>
+        <p className="subtitle">{t.subtitle}</p>
 
         <div className="steps">
-          <strong>What will happen:</strong>
+          <strong>{t.stepsTitle}</strong>
           <ol>
-            <li>You&apos;ll log in to Google</li>
-            <li>Grant calendar access</li>
-            <li>Your bot will work again!</li>
+            <li>{t.step1}</li>
+            <li>{t.step2}</li>
+            <li>{t.step3}</li>
           </ol>
         </div>
 
@@ -308,7 +320,7 @@ export default function RefreshTokenClient({ oauthUrl, userId, locale }: Refresh
           className="btn"
         >
           <KeyRound size={20} />
-          Connect Google Calendar
+          {t.button}
         </button>
       </div>
 
