@@ -29,8 +29,8 @@ export default function OAuthCompleteClient({ locale, botUsername }: OAuthComple
   }, []);
 
   const redirectToTelegram = () => {
-    // Deep link to open Telegram bot
-    window.location.href = `https://t.me/${botUsername}`;
+    // Deep link to open Telegram Mini App directly to calendar selection
+    window.location.href = `https://t.me/${botUsername}/dashboard?startapp=select_calendars`;
   };
 
   return (
