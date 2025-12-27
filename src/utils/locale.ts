@@ -1,0 +1,20 @@
+const LANGUAGE_TO_LOCALE: Record<string, string> = {
+  Hebrew: 'he',
+  Russian: 'ru',
+  English: 'en',
+};
+
+const RTL_LOCALES = ['he', 'ar', 'fa'];
+
+export function getLocaleFromLanguage(language: string | undefined | null): string {
+  return (language && LANGUAGE_TO_LOCALE[language]) || 'en';
+}
+
+export function isRtlLocale(locale: string): boolean {
+  return RTL_LOCALES.includes(locale);
+}
+
+export function getLocaleInfo(language: string | undefined | null): { locale: string; dir: 'rtl' | 'ltr' } {
+  const locale = getLocaleFromLanguage(language);
+  return { locale, dir: isRtlLocale(locale) ? 'rtl' : 'ltr' };
+}

@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { getUserByTelegramId } from '@/src/services/user-service';
+import { getLocaleFromLanguage } from '@/src/utils/locale';
 import { AlertTriangle } from 'lucide-react';
 import SettingsClient from './SettingsClient';
 
@@ -46,7 +47,7 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
   }
 
   // Check if URL locale matches user's language preference
-  const userLocale = user.language === 'Hebrew' ? 'he' : 'en';
+  const userLocale = getLocaleFromLanguage(user.language);
   if (locale !== userLocale) {
     const { redirect } = await import('next/navigation');
     redirect(`/${userLocale}/settings?user_id=${userId}`);

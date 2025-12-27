@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
-import { useTranslations } from 'next-intl';
 import { getUserByTelegramId } from '@/src/services/user-service';
+import { getLocaleFromLanguage } from '@/src/utils/locale';
 import DashboardClient from './DashboardClient';
 import TelegramDashboardRedirect from './TelegramDashboardRedirect';
 
@@ -27,7 +27,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps)
   }
 
   // Check if URL locale matches user's language preference
-  const userLocale = user.language === 'Hebrew' ? 'he' : 'en';
+  const userLocale = getLocaleFromLanguage(user.language);
   if (locale !== userLocale) {
     // User's language was updated but they're using an old URL - redirect to correct locale
     const { redirect } = await import('next/navigation');

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { prisma } from '@/src/utils/prisma';
 import { getUserByTelegramId, updateGoogleRefreshToken } from '@/src/services/user-service';
+import { getLocaleFromLanguage } from '@/src/utils/locale';
 import { XCircle, AlertTriangle } from 'lucide-react';
 
 interface PageProps {
@@ -207,6 +208,6 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   }
 
   // Redirect to success page which will guide user back to Telegram
-  const userLocale = user.language === 'Hebrew' ? 'he' : 'en';
+  const userLocale = getLocaleFromLanguage(user.language);
   redirect(`/oauth-complete?user_id=${telegramId}&locale=${userLocale}`);
 }

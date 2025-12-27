@@ -1,10 +1,12 @@
 import { redirect } from 'next/navigation';
 import crypto from 'crypto';
 import { prisma } from '@/src/utils/prisma';
+import { getLocaleFromLanguage } from '@/src/utils/locale';
 import { XCircle } from 'lucide-react';
 import RefreshTokenClient from './RefreshTokenClient';
 import enMessages from '@/messages/en.json';
 import heMessages from '@/messages/he.json';
+import ruMessages from '@/messages/ru.json';
 
 interface PageProps {
   searchParams: Promise<{
@@ -61,8 +63,8 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
   });
 
   // Map language to locale code
-  const locale = user?.language === 'Hebrew' ? 'he' : 'en';
-  const messages = locale === 'he' ? heMessages : enMessages;
+  const locale = getLocaleFromLanguage(user?.language);
+  const messages = { en: enMessages, he: heMessages, ru: ruMessages }[locale] ?? enMessages;
   const t = messages.refreshToken;
 
   // Generate secure state token

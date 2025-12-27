@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { TelegramLayout } from '@/components/Layout';
+import { getLocaleFromLanguage } from '@/src/utils/locale';
 import { CheckCircle2 } from 'lucide-react';
 
 interface SettingsClientProps {
@@ -57,7 +58,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
       setFormState('success');
 
       // Map language to locale
-      const locale = language === 'Hebrew' ? 'he' : 'en';
+      const locale = getLocaleFromLanguage(language);
 
       // Auto-redirect after 2 seconds
       setTimeout(() => {
@@ -77,7 +78,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
 
   const handleCancel = () => {
     // Map current language to locale
-    const locale = language === 'Hebrew' ? 'he' : 'en';
+    const locale = getLocaleFromLanguage(language);
     router.push(`/${locale}/dashboard?user_id=${userId}`);
   };
 
@@ -232,6 +233,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
               >
                 <option value="Hebrew">עברית (Hebrew)</option>
                 <option value="English">English</option>
+                <option value="Russian">Русский (Russian)</option>
               </select>
               <p className="help-text">{t('languageHelp')}</p>
             </div>

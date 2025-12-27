@@ -7,6 +7,7 @@ import { USER_MESSAGES } from '../config/messages';
 import { ADMIN_USER_ID } from '../config/constants';
 import { IMessagingService, getTelegramService, getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from './messaging';
 import { getCalendarsByLabel, getPrimaryCalendar } from '../utils/calendar-helpers';
+import { getLocaleFromLanguage } from '../utils/locale';
 
 /**
  * Categorize events by ownership for a specific user
@@ -132,7 +133,7 @@ export async function handleStartCommand(
   if (!user) return;
 
   const name = user.name || 'there';
-  const locale = user.language === 'Hebrew' ? 'he' : 'en';
+  const locale = getLocaleFromLanguage(user.language);
   const dashboardUrl = `https://famcalbot.vercel.app/${locale}/dashboard?user_id=${user.telegramId}`;
   const service = getMessagingService();
 
