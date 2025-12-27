@@ -9,10 +9,8 @@ import { useMemo } from 'react';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
 import { KeyRound, Calendar, Zap, TrendingUp, CloudSun, RefreshCw, PencilLine, ClipboardList } from 'lucide-react';
-import { HDate } from 'hebcal';
-
-// @ts-ignore - Hebcal doesn't export gematriya in types
-import Hebcal from 'hebcal';
+import { HDate, Locale, gematriya } from '@hebcal/core';
+import '@hebcal/locales';
 
 interface User {
   id: number;
@@ -49,9 +47,8 @@ export default function DashboardClient({
     const greg = now.toLocaleDateString(intlLocale, { month: 'short', day: 'numeric' });
     const dayOfWeek = now.toLocaleDateString(intlLocale, { weekday: 'short' });
     const hdate = new HDate(now);
-    // @ts-expect-error - gematriya exists but not in type definitions
-    const hebDay = locale === 'he' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
-    const hebMonth = locale === 'he' ? hdate.getMonthName('h') : hdate.getMonthName('s');
+    const hebDay = locale === 'he' ? gematriya(hdate.getDate()) : hdate.getDate();
+    const hebMonth = Locale.lookupTranslation(hdate.getMonthName(), locale) || hdate.getMonthName();
     return {
       gregorian: `${dayOfWeek} ${greg}`,
       hebrew: `${hebDay} ${hebMonth}`
@@ -64,9 +61,8 @@ export default function DashboardClient({
     const greg = tomorrow.toLocaleDateString(intlLocale, { month: 'short', day: 'numeric' });
     const dayOfWeek = tomorrow.toLocaleDateString(intlLocale, { weekday: 'short' });
     const hdate = new HDate(tomorrow);
-    // @ts-expect-error - gematriya exists but not in type definitions
-    const hebDay = locale === 'he' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
-    const hebMonth = locale === 'he' ? hdate.getMonthName('h') : hdate.getMonthName('s');
+    const hebDay = locale === 'he' ? gematriya(hdate.getDate()) : hdate.getDate();
+    const hebMonth = Locale.lookupTranslation(hdate.getMonthName(), locale) || hdate.getMonthName();
     return {
       gregorian: `${dayOfWeek} ${greg}`,
       hebrew: `${hebDay} ${hebMonth}`

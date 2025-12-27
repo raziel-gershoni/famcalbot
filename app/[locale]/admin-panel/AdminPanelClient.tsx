@@ -3,10 +3,8 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { CheckCircle2 } from 'lucide-react';
-import { HDate } from 'hebcal';
-
-// @ts-ignore - Hebcal doesn't export gematriya in types
-import Hebcal from 'hebcal';
+import { HDate, Locale, gematriya } from '@hebcal/core';
+import '@hebcal/locales';
 
 interface AdminPanelClientProps {
   userId: number;
@@ -41,9 +39,8 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
     const greg = now.toLocaleDateString(intlLocale, { month: 'short', day: 'numeric' });
     const dayOfWeek = now.toLocaleDateString(intlLocale, { weekday: 'short' });
     const hdate = new HDate(now);
-    // @ts-expect-error - gematriya exists but not in type definitions
-    const hebDay = locale === 'he' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
-    const hebMonth = locale === 'he' ? hdate.getMonthName('h') : hdate.getMonthName('s');
+    const hebDay = locale === 'he' ? gematriya(hdate.getDate()) : hdate.getDate();
+    const hebMonth = Locale.lookupTranslation(hdate.getMonthName(), locale) || hdate.getMonthName();
     return {
       gregorian: `${dayOfWeek} ${greg}`,
       hebrew: `${hebDay} ${hebMonth}`
@@ -56,9 +53,8 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
     const greg = tomorrow.toLocaleDateString(intlLocale, { month: 'short', day: 'numeric' });
     const dayOfWeek = tomorrow.toLocaleDateString(intlLocale, { weekday: 'short' });
     const hdate = new HDate(tomorrow);
-    // @ts-expect-error - gematriya exists but not in type definitions
-    const hebDay = locale === 'he' ? Hebcal.gematriya(hdate.getDate()) : hdate.getDate();
-    const hebMonth = locale === 'he' ? hdate.getMonthName('h') : hdate.getMonthName('s');
+    const hebDay = locale === 'he' ? gematriya(hdate.getDate()) : hdate.getDate();
+    const hebMonth = Locale.lookupTranslation(hdate.getMonthName(), locale) || hdate.getMonthName();
     return {
       gregorian: `${dayOfWeek} ${greg}`,
       hebrew: `${hebDay} ${hebMonth}`

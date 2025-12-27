@@ -1,4 +1,5 @@
-import { HDate, months } from 'hebcal';
+import { HDate, Locale } from '@hebcal/core';
+import '@hebcal/locales';
 import { CalendarEvent } from '../types';
 import { TIMEZONE } from '../config/constants';
 import { buildCalendarSummaryPrompt, SummaryPromptData } from '../prompts/calendar-summary';
@@ -12,7 +13,7 @@ function getHebrewDateInfo(date: Date = new Date()): { hebrewDate: string; isRos
   const hdate = new HDate(date);
 
   const day = hdate.getDate();
-  const monthName = hdate.getMonthName('h'); // Hebrew month name
+  const monthName = Locale.lookupTranslation(hdate.getMonthName(), 'he') || hdate.getMonthName();
   const year = hdate.getFullYear();
 
   // Check if it's Rosh Chodesh
