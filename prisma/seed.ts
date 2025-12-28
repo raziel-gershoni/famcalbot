@@ -36,7 +36,7 @@ async function main() {
       gender: 'male',
       culture: 'jewish',
       location: 'Harish, Israel',
-      language: 'Hebrew',
+      language: 'he',
       googleRefreshToken: SHARED_REFRESH_TOKEN,
       calendarAssignments: [
         {
@@ -80,7 +80,7 @@ async function main() {
       gender: 'female',
       culture: 'jewish',
       location: 'Harish, Israel',
-      language: 'Hebrew',
+      language: 'he',
       googleRefreshToken: SHARED_REFRESH_TOKEN,
       calendarAssignments: [
         {

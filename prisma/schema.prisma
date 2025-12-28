@@ -28,7 +28,7 @@ model User {
   culture           String  @default("default")         // 'jewish' | 'default'
   locationForced    Boolean @default(false)             // true = user confirmed their location
   globalRules       String[] @default([])               // Max 3 free-text rules for all calendars
-  language          String  @default("Hebrew")
+  language          String  @default("he")       // Locale code: 'he' | 'en' | 'ru'
   messagingPlatform String  @default("telegram") // 'telegram' | 'whatsapp' | 'all'
   isAdmin           Boolean @default(false)       // Admin panel access
 

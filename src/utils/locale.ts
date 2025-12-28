@@ -1,40 +1,30 @@
-const LANGUAGE_TO_LOCALE: Record<string, string> = {
-  Hebrew: 'he',
-  Russian: 'ru',
-  English: 'en',
-};
-
-const LOCALE_TO_LANGUAGE: Record<string, string> = {
-  he: 'Hebrew',
-  ru: 'Russian',
-  en: 'English',
-};
+// Valid locale codes used in the app
+export const VALID_LOCALES = ['he', 'en', 'ru'] as const;
+export type Locale = (typeof VALID_LOCALES)[number];
 
 const RTL_LOCALES = ['he', 'ar', 'fa'];
 
-export function getLocaleFromLanguage(language: string | undefined | null): string {
-  if (!language) return 'en';
-  // Handle full language names (Hebrew, English, Russian)
-  if (LANGUAGE_TO_LOCALE[language]) return LANGUAGE_TO_LOCALE[language];
-  // Handle locale codes that might already be in DB (he, en, ru) - for backwards compatibility
-  if (LOCALE_TO_LANGUAGE[language]) return language;
+/**
+ * Validate and normalize a locale code
+ * Returns the locale if valid, 'en' as fallback
+ */
+export function normalizeLocale(locale: string | undefined | null): Locale {
+  if (!locale) return 'en';
+  if (VALID_LOCALES.includes(locale as Locale)) return locale as Locale;
   return 'en';
 }
 
-export function getLanguageFromLocale(locale: string | undefined | null): string {
-  if (!locale) return 'English';
-  // Handle locale codes (he, en, ru)
-  if (LOCALE_TO_LANGUAGE[locale]) return LOCALE_TO_LANGUAGE[locale];
-  // Handle full language names that might already be correct (Hebrew, English, Russian)
-  if (LANGUAGE_TO_LOCALE[locale]) return locale;
-  return 'English';
-}
-
+/**
+ * Check if a locale uses right-to-left text direction
+ */
 export function isRtlLocale(locale: string): boolean {
   return RTL_LOCALES.includes(locale);
 }
 
-export function getLocaleInfo(language: string | undefined | null): { locale: string; dir: 'rtl' | 'ltr' } {
-  const locale = getLocaleFromLanguage(language);
-  return { locale, dir: isRtlLocale(locale) ? 'rtl' : 'ltr' };
+/**
+ * Get locale info including text direction
+ */
+export function getLocaleInfo(locale: string | undefined | null): { locale: Locale; dir: 'rtl' | 'ltr' } {
+  const normalized = normalizeLocale(locale);
+  return { locale: normalized, dir: isRtlLocale(normalized) ? 'rtl' : 'ltr' };
 }
