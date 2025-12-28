@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
-import { CheckCircle2 } from 'lucide-react';
+import { Activity, Crown, Bot, Users, LayoutDashboard } from 'lucide-react';
 import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
 
@@ -356,14 +356,14 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
 
       <div className="admin-panel">
         <header>
-          <h1>{t('title')}</h1>
+          <h1><Crown size={24} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 8 }} />{t('title')}</h1>
           <div className="admin-badge">{t('badge')}</div>
         </header>
 
         <div className="admin-content">
           {/* AI Model Testing Section */}
           <div className="section">
-            <h2 className="section-title">{t('testing.title')}</h2>
+            <h2 className="section-title"><Bot size={20} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 8 }} />{t('testing.title')}</h2>
             <div className="button-group">
               <button
                 className="action-button"
@@ -386,7 +386,7 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
 
           {/* User Statistics Section */}
           <div className="section">
-            <h2 className="section-title">{t('statistics.title')}</h2>
+            <h2 className="section-title"><Users size={20} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 8 }} />{t('statistics.title')}</h2>
             <div className="stats-grid">
               <div className="stat-card">
                 <div className="stat-value">{stats.totalUsers}</div>
@@ -423,11 +423,11 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
 
           {/* System Health Section */}
           <div className="section">
-            <h2 className="section-title">{t('health.title')}</h2>
+            <h2 className="section-title"><Activity size={20} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 8 }} />{t('health.title')}</h2>
             <div className="health-list">
               <div className="health-item">
                 <span className="health-label">{t('health.database')}</span>
-                <span className="status-icon"><CheckCircle2 size={20} color="#22c55e" /></span>
+                <span className="status-icon"><Activity size={20} color="#22c55e" /></span>
               </div>
               <div className="health-item">
                 <span className="health-label">{t('health.totalUsers')}</span>
@@ -444,7 +444,7 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
 
           {/* User Dashboard Link */}
           <button className="dashboard-btn" onClick={openUserDashboard}>
-            {t('openDashboard')}
+            <LayoutDashboard size={20} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 8 }} />{t('openDashboard')}
           </button>
         </div>
       </div>

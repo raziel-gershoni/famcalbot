@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { TelegramLayout } from '@/components/Layout';
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, Settings } from 'lucide-react';
 
 interface SettingsClientProps {
   userId: number;
@@ -216,7 +216,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
 
       <div className="container">
         <header>
-          <h1>{t('title')}</h1>
+          <h1><Settings size={24} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 8 }} />{t('title')}</h1>
         </header>
 
         <div className="content">

@@ -42,18 +42,18 @@
     }
   },
   "admin": {
-    "title": "👑 Admin Panel",
+    "title": "Admin Panel",
     "badge": "ADMIN",
     "testing": {
-      "title": "🤖 AI Model Testing",
+      "title": "AI Model Testing",
       "testToday": "Test Today",
       "testTomorrow": "Test Tomorrow",
       "sending": "Sending...",
-      "sent": "✓ Sent!",
-      "error": "✗ Error"
+      "sent": "Sent!",
+      "error": "Error"
     },
     "statistics": {
-      "title": "👥 User Statistics",
+      "title": "User Statistics",
       "totalUsers": "Total Users",
       "withOAuth": "With OAuth",
       "withCalendars": "With Calendars",
@@ -61,15 +61,15 @@
       "recentUsers": "Recent Users"
     },
     "health": {
-      "title": "🏥 System Health",
+      "title": "System Health",
       "database": "Database Connection",
       "totalUsers": "Total Users",
       "setupCompletion": "Setup Completion"
     },
-    "openDashboard": "📱 Open User Dashboard"
+    "openDashboard": "Open User Dashboard"
   },
   "settings": {
-    "title": "⚙️ Settings",
+    "title": "Settings",
     "personal": {
       "title": "Personal Information",
       "name": "Name",
@@ -106,7 +106,7 @@
     }
   },
   "calendars": {
-    "title": "📅 Select Your Calendars",
+    "title": "Select Your Calendars",
     "subtitle": "Choose which calendars to include in your daily summary",
     "categoryHelp": "Check calendars to include them in your summary. Then click the category icons to organize them.",
     "loading": "Loading your calendars...",

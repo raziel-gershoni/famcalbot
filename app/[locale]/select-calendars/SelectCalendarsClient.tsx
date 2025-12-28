@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { TelegramLayout, Header } from '@/components/Layout';
+import { Calendar } from 'lucide-react';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarLabel, CalendarAssignment } from '@/src/types';
 import { validateCalendarAssignments } from '@/src/utils/calendar-helpers';
@@ -402,7 +403,7 @@ export default function SelectCalendarsClient({
 
       <div className="page-container">
         <div className="container">
-          <h1>{t('title')}</h1>
+          <h1><Calendar size={24} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 8 }} />{t('title')}</h1>
           <p className="subtitle">{t('subtitle')}</p>
 
           <div className="help-text">
