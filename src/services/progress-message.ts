@@ -41,16 +41,21 @@ export function getProgressText(type: ProgressType, language: string = 'en'): st
 }
 
 /**
- * Clock face emojis for smooth spinning animation (12 frames)
+ * Clock face emojis for ultra-smooth spinning animation (24 frames)
+ * Alternates between hour and half-hour positions
  */
-const CLOCK_FRAMES = ['🕐', '🕑', '🕒', '🕓', '🕔', '🕕', '🕖', '🕗', '🕘', '🕙', '🕚', '🕛'];
+const CLOCK_FRAMES = [
+  '🕐', '🕜', '🕑', '🕝', '🕒', '🕞', '🕓', '🕟',
+  '🕔', '🕠', '🕕', '🕡', '🕖', '🕢', '🕗', '🕣',
+  '🕘', '🕤', '🕙', '🕥', '🕚', '🕦', '🕛', '🕧'
+];
 
 /**
  * Format progress message with spinning clock and cycling dots
- * 12 clock frames / 3 dot states = syncs every 4 frames
+ * 24 clock frames / 3 dot states = syncs every 8 frames
  */
 export function formatProgressMessage(baseText: string, frame: number = 0): string {
-  const emoji = CLOCK_FRAMES[frame % 12];
+  const emoji = CLOCK_FRAMES[frame % 24];
   const dotCount = (frame % 3) + 1;
   const dots = '.'.repeat(dotCount);
   return `${emoji} ${baseText}${dots}`;
