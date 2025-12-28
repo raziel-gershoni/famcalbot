@@ -76,6 +76,9 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
     setState('loading');
 
     try {
+      // Get Telegram Web App initData for authentication
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+
       const response = await fetch('/api/execute-command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -83,6 +86,7 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
           user_id: userId,
           command: 'testai',
           args: timeframe === 'tmrw' ? 'tmrw' : undefined,
+          initData,
         })
       });
 
