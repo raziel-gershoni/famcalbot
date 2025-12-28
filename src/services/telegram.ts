@@ -805,13 +805,14 @@ async function sendVoiceMessage(
 ): Promise<void> {
   let voiceFilePath: string | null = null;
   const messagingService = service || getMessagingService();
-  const userLanguage = language || 'en';
+  // Convert 'Hebrew'/'Russian'/'English' to 'he'/'ru'/'en' for progress messages
+  const userLocale = getLocaleFromLanguage(language);
 
   // Start voice progress animation
   const { messageId, stopAnimation } = await sendProgressWithAnimation(
     userId,
     'voice',
-    userLanguage,
+    userLocale,
     messagingService
   );
 
