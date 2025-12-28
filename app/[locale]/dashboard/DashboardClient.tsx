@@ -324,7 +324,7 @@ export default function DashboardClient({
             background: white;
           }
 
-          .spinner {
+          :global(.spinner) {
             animation: spin 1s linear infinite;
           }
 
@@ -412,7 +412,7 @@ export default function DashboardClient({
                     disabled={loadingCommand !== null}
                   >
                     {isLoading('weather', 'std') ? (
-                      <Loader2 size={32} className="spinner" />
+                      <Loader2 size={28} className="spinner" />
                     ) : (
                       <>
                         <span className="icon"><Zap size={32} /></span>
@@ -426,7 +426,7 @@ export default function DashboardClient({
                     disabled={loadingCommand !== null}
                   >
                     {isLoading('weather', 'dtl') ? (
-                      <Loader2 size={32} className="spinner" />
+                      <Loader2 size={28} className="spinner" />
                     ) : (
                       <>
                         <span className="icon"><TrendingUp size={32} /></span>

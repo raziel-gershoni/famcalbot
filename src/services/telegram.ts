@@ -239,7 +239,8 @@ export async function handleWeatherCommand(
   }
 
   // Use existing progress message or create new one
-  const userLanguage = user.language || 'en';
+  // Convert 'Hebrew'/'Russian'/'English' to 'he'/'ru'/'en' for progress messages
+  const userLocale = getLocaleFromLanguage(user.language);
   let messageId: number | string;
   let stopAnimation: () => void;
 
@@ -247,10 +248,10 @@ export async function handleWeatherCommand(
     // Progress message already sent by API route, just start animation
     messageId = existingProgressMessageId;
     const { startProgressAnimation, getProgressText } = await import('./progress-message');
-    stopAnimation = startProgressAnimation(chatId, messageId, getProgressText('weather', userLanguage), messagingService);
+    stopAnimation = startProgressAnimation(chatId, messageId, getProgressText('weather', userLocale), messagingService);
   } else {
     // Send new progress message
-    const result = await sendProgressWithAnimation(chatId, 'weather', userLanguage, messagingService);
+    const result = await sendProgressWithAnimation(chatId, 'weather', userLocale, messagingService);
     messageId = result.messageId;
     stopAnimation = result.stopAnimation;
   }
@@ -481,7 +482,8 @@ async function sendSummaryToUser(
 
   // Determine progress type based on date
   const progressType: ProgressType = summaryDate ? 'summaryTomorrow' : 'summary';
-  const userLanguage = user.language || 'en';
+  // Convert 'Hebrew'/'Russian'/'English' to 'he'/'ru'/'en' for progress messages
+  const userLocale = getLocaleFromLanguage(user.language);
 
   // Use existing progress message or create new one
   let messageId: number | string;
@@ -491,10 +493,10 @@ async function sendSummaryToUser(
     // Progress message already sent by API route, just start animation
     messageId = existingProgressMessageId;
     const { startProgressAnimation, getProgressText } = await import('./progress-message');
-    stopAnimation = startProgressAnimation(userId, messageId, getProgressText(progressType, userLanguage), messagingService);
+    stopAnimation = startProgressAnimation(userId, messageId, getProgressText(progressType, userLocale), messagingService);
   } else {
     // Send new progress message
-    const result = await sendProgressWithAnimation(userId, progressType, userLanguage, messagingService);
+    const result = await sendProgressWithAnimation(userId, progressType, userLocale, messagingService);
     messageId = result.messageId;
     stopAnimation = result.stopAnimation;
   }
