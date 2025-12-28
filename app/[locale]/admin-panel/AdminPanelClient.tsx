@@ -216,24 +216,10 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
           background: rgba(255, 255, 255, 0.3);
         }
 
-        .section-icon {
-          display: inline-flex;
+        .header-left {
+          display: flex;
           align-items: center;
-          justify-content: center;
-          margin-right: 8px;
-          vertical-align: middle;
-        }
-
-        .header-title-icon {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          background: rgba(255, 255, 255, 0.2);
-          width: 36px;
-          height: 36px;
-          border-radius: 8px;
-          margin-right: 12px;
-          vertical-align: middle;
+          gap: 10px;
         }
 
         .admin-content {
@@ -244,11 +230,24 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
           margin-bottom: 30px;
         }
 
+        .section-header {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+
         .section-title {
           font-size: 18px;
           font-weight: 600;
           color: #111827;
-          margin-bottom: 12px;
+          margin: 0;
+        }
+
+        .section-icon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
 
         .stats-grid {
@@ -382,7 +381,10 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
 
       <div className="admin-panel">
         <header>
-          <h1><span className="header-title-icon"><Crown size={22} /></span>{t('title')}</h1>
+          <div className="header-left">
+            <Crown size={24} />
+            <h1>{t('title')}</h1>
+          </div>
           <div className="header-right">
             <div className="admin-badge">{t('badge')}</div>
             <button className="header-icon-btn" onClick={openUserDashboard} aria-label="User Dashboard">
@@ -394,7 +396,10 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
         <div className="admin-content">
           {/* AI Model Testing Section */}
           <div className="section">
-            <h2 className="section-title"><span className="section-icon"><Bot size={18} /></span>{t('testing.title')}</h2>
+            <div className="section-header">
+              <span className="section-icon"><Bot size={20} /></span>
+              <h2 className="section-title">{t('testing.title')}</h2>
+            </div>
             <div className="button-group">
               <button
                 className="action-button"
@@ -417,7 +422,10 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
 
           {/* User Statistics Section */}
           <div className="section">
-            <h2 className="section-title"><span className="section-icon"><Users size={18} /></span>{t('statistics.title')}</h2>
+            <div className="section-header">
+              <span className="section-icon"><Users size={20} /></span>
+              <h2 className="section-title">{t('statistics.title')}</h2>
+            </div>
             <div className="stats-grid">
               <div className="stat-card">
                 <div className="stat-value">{stats.totalUsers}</div>
@@ -454,7 +462,10 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
 
           {/* System Health Section */}
           <div className="section">
-            <h2 className="section-title"><span className="section-icon"><Activity size={18} /></span>{t('health.title')}</h2>
+            <div className="section-header">
+              <span className="section-icon"><Activity size={20} /></span>
+              <h2 className="section-title">{t('health.title')}</h2>
+            </div>
             <div className="health-list">
               <div className="health-item">
                 <span className="health-label">{t('health.database')}</span>
