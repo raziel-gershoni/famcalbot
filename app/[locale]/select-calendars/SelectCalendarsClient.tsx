@@ -439,9 +439,8 @@ export default function SelectCalendarsClient({
         }
         .panel-summary {
           font-size: 13px;
-          color: #6b7280;
+          color: #374151;
           flex: 1;
-          margin-left: 8px;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
@@ -450,7 +449,9 @@ export default function SelectCalendarsClient({
           display: flex;
           align-items: center;
           gap: 4px;
-          color: #9ca3af;
+          color: #667eea;
+          flex-shrink: 0;
+          margin-left: 8px;
         }
         .panel-content {
           padding: 0 12px 12px 12px;
@@ -503,11 +504,6 @@ export default function SelectCalendarsClient({
         }
         .rule-input::placeholder {
           color: #9ca3af;
-        }
-        .add-text {
-          font-size: 12px;
-          color: #9ca3af;
-          font-style: italic;
         }
         .calendar-header-wrapper {
           display: flex;
@@ -718,7 +714,7 @@ export default function SelectCalendarsClient({
                     {isSelected && labels.has('spouse') && (() => {
                       const spouseSummary = getSpouseSummary(calendar.id);
                       const hasData = hasSpouseData(calendar.id);
-                      const isExpanded = expandedSpouse.has(calendar.id) || !hasData;
+                      const isExpanded = expandedSpouse.has(calendar.id);
 
                       return (
                         <div className="collapsible-panel spouse">
@@ -726,19 +722,23 @@ export default function SelectCalendarsClient({
                             className="panel-header"
                             onClick={() => toggleSpouseExpanded(calendar.id)}
                           >
-                            <div className="panel-title">
-                              <span>{t('spouseInfo.title')}</span>
-                            </div>
-                            {!isExpanded && spouseSummary && (
-                              <span className="panel-summary">{spouseSummary}</span>
+                            {hasData ? (
+                              <>
+                                <span className="panel-summary">{spouseSummary}</span>
+                                <div className="panel-actions">
+                                  <Pencil size={14} />
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="panel-title">
+                                  <span>{t('spouseInfo.title')}</span>
+                                </div>
+                                <div className="panel-actions">
+                                  <Pencil size={14} />
+                                </div>
+                              </>
                             )}
-                            {!isExpanded && !spouseSummary && (
-                              <span className="add-text">{t('spouseInfo.tapToAdd')}</span>
-                            )}
-                            <div className="panel-actions">
-                              {hasData && <Pencil size={14} />}
-                              {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                            </div>
                           </div>
                           {isExpanded && (
                             <div className="panel-content">
@@ -791,7 +791,7 @@ export default function SelectCalendarsClient({
                     {isSelected && (() => {
                       const rule = calendarRules.get(calendar.id);
                       const hasRule = !!rule;
-                      const isExpanded = expandedRules.has(calendar.id) || !hasRule;
+                      const isExpanded = expandedRules.has(calendar.id);
 
                       return (
                         <div className="collapsible-panel rule">
@@ -799,19 +799,23 @@ export default function SelectCalendarsClient({
                             className="panel-header"
                             onClick={() => toggleRuleExpanded(calendar.id)}
                           >
-                            <div className="panel-title">
-                              <span>{t('calendarRule.label')}</span>
-                            </div>
-                            {!isExpanded && rule && (
-                              <span className="panel-summary">{rule}</span>
+                            {hasRule ? (
+                              <>
+                                <span className="panel-summary">{rule}</span>
+                                <div className="panel-actions">
+                                  <Pencil size={14} />
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="panel-title">
+                                  <span>{t('calendarRule.label')}</span>
+                                </div>
+                                <div className="panel-actions">
+                                  <Pencil size={14} />
+                                </div>
+                              </>
                             )}
-                            {!isExpanded && !rule && (
-                              <span className="add-text">{t('calendarRule.tapToAdd')}</span>
-                            )}
-                            <div className="panel-actions">
-                              {hasRule && <Pencil size={14} />}
-                              {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                            </div>
                           </div>
                           {isExpanded && (
                             <div className="panel-content">
