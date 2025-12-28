@@ -24,6 +24,10 @@ interface SpouseMetadata {
   personGender?: 'male' | 'female';
 }
 
+interface CalendarRules {
+  [calendarId: string]: string;
+}
+
 interface SelectCalendarsClientProps {
   userId: number;
   userName: string;
@@ -32,6 +36,7 @@ interface SelectCalendarsClientProps {
     selectedCalendars: Set<string>;
     calendarLabels: Map<string, Set<CalendarLabel>>;
     spouseMetadata: Map<string, SpouseMetadata>;
+    calendarRules: Map<string, string>;
   };
   locale: string;
 }
@@ -60,6 +65,9 @@ export default function SelectCalendarsClient({
   const [spouseMetadata, setSpouseMetadata] = useState<Map<string, SpouseMetadata>>(
     currentSelections.spouseMetadata
   );
+  const [calendarRules, setCalendarRules] = useState<Map<string, string>>(
+    currentSelections.calendarRules
+  );
   const [feedbackMessages, setFeedbackMessages] = useState<FeedbackMessage[]>([]);
   const [messageIdCounter, setMessageIdCounter] = useState(0);
 
@@ -85,14 +93,17 @@ export default function SelectCalendarsClient({
   const saveToServer = async (
     newSelectedCalendars: Set<string>,
     newCalendarLabels: Map<string, Set<CalendarLabel>>,
-    newSpouseMetadata?: Map<string, SpouseMetadata>
+    newSpouseMetadata?: Map<string, SpouseMetadata>,
+    newCalendarRules?: Map<string, string>
   ) => {
     const metadataToUse = newSpouseMetadata || spouseMetadata;
+    const rulesToUse = newCalendarRules || calendarRules;
     try {
       const calendarAssignments: CalendarAssignment[] = Array.from(newSelectedCalendars).map(calId => {
         const calendar = availableCalendars.find(c => c.id === calId);
         const labels = Array.from(newCalendarLabels.get(calId) || []);
         const metadata = metadataToUse.get(calId);
+        const rule = rulesToUse.get(calId);
 
         return {
           calendarId: calId,
@@ -104,7 +115,9 @@ export default function SelectCalendarsClient({
             personName: metadata.personName,
             personEnglishName: metadata.personEnglishName,
             personGender: metadata.personGender,
-          } : {})
+          } : {}),
+          // Include rule if present
+          ...(rule ? { rules: [rule] } : {})
         };
       });
 
@@ -156,16 +169,19 @@ export default function SelectCalendarsClient({
       newCalendarLabels = new Map(calendarLabels);
       newCalendarLabels.delete(calendarId);
 
-      // Also remove spouse metadata if unchecking
+      // Also remove spouse metadata and rules if unchecking
       const newSpouseMetadata = new Map(spouseMetadata);
       newSpouseMetadata.delete(calendarId);
+      const newCalendarRules = new Map(calendarRules);
+      newCalendarRules.delete(calendarId);
 
       setSelectedCalendars(newSelectedCalendars);
       setCalendarLabels(newCalendarLabels);
       setSpouseMetadata(newSpouseMetadata);
+      setCalendarRules(newCalendarRules);
 
       // Save and show feedback
-      const success = await saveToServer(newSelectedCalendars, newCalendarLabels, newSpouseMetadata);
+      const success = await saveToServer(newSelectedCalendars, newCalendarLabels, newSpouseMetadata, newCalendarRules);
       if (success) {
         showFeedback(`${calendarName} ${t('feedback.removed')}`);
       }
@@ -199,9 +215,28 @@ export default function SelectCalendarsClient({
 
   // Save spouse metadata on blur
   const handleSpouseMetadataBlur = async (calendarId: string) => {
-    const success = await saveToServer(selectedCalendars, calendarLabels, spouseMetadata);
+    const success = await saveToServer(selectedCalendars, calendarLabels, spouseMetadata, calendarRules);
     if (success) {
       showFeedback(t('feedback.spouseInfoSaved') || 'Spouse info saved');
+    }
+  };
+
+  // Update calendar rule
+  const handleRuleChange = (calendarId: string, value: string) => {
+    const newRules = new Map(calendarRules);
+    if (value.trim()) {
+      newRules.set(calendarId, value);
+    } else {
+      newRules.delete(calendarId);
+    }
+    setCalendarRules(newRules);
+  };
+
+  // Save rule on blur
+  const handleRuleBlur = async (calendarId: string) => {
+    const success = await saveToServer(selectedCalendars, calendarLabels, spouseMetadata, calendarRules);
+    if (success) {
+      showFeedback(t('feedback.ruleSaved') || 'Rule saved');
     }
   };
 
@@ -367,6 +402,25 @@ export default function SelectCalendarsClient({
           font-size: 11px;
           color: #6b7280;
           margin-bottom: 2px;
+        }
+        .calendar-rule {
+          margin-top: 10px;
+          padding-top: 10px;
+          border-top: 1px solid #e5e7eb;
+        }
+        .rule-input {
+          width: 100%;
+          padding: 8px 12px;
+          border: 1px solid #e5e7eb;
+          border-radius: 6px;
+          font-size: 14px;
+        }
+        .rule-input:focus {
+          outline: none;
+          border-color: #667eea;
+        }
+        .rule-input::placeholder {
+          color: #9ca3af;
         }
         .calendar-header-wrapper {
           display: flex;
@@ -621,6 +675,21 @@ export default function SelectCalendarsClient({
                             </select>
                           </div>
                         </div>
+                      </div>
+                    )}
+
+                    {/* Calendar rule input - shown for all selected calendars */}
+                    {isSelected && (
+                      <div className="calendar-rule">
+                        <div className="input-label">{t('calendarRule.label')}</div>
+                        <input
+                          type="text"
+                          className="rule-input"
+                          placeholder={t('calendarRule.placeholder')}
+                          value={calendarRules.get(calendar.id) || ''}
+                          onChange={(e) => handleRuleChange(calendar.id, e.target.value)}
+                          onBlur={() => handleRuleBlur(calendar.id)}
+                        />
                       </div>
                     )}
                   </div>

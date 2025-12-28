@@ -154,7 +154,12 @@
       "addedTo": "נוסף ל",
       "removedFrom": "הוסר מ",
       "setPrimary": "הוגדר כראשי",
-      "spouseInfoSaved": "פרטי בן/בת זוג נשמרו"
+      "spouseInfoSaved": "פרטי בן/בת זוג נשמרו",
+      "ruleSaved": "הכלל נשמר"
+    },
+    "calendarRule": {
+      "label": "כלל מותאם",
+      "placeholder": "לדוגמה, יציאה מוקדמת בכל יום שישי"
     },
     "actions": {
       "save": "שמור בחירת יומנים",

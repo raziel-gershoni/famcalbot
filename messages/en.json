@@ -154,7 +154,12 @@
       "addedTo": "added to",
       "removedFrom": "removed from",
       "setPrimary": "set as primary",
-      "spouseInfoSaved": "Spouse info saved"
+      "spouseInfoSaved": "Spouse info saved",
+      "ruleSaved": "Rule saved"
+    },
+    "calendarRule": {
+      "label": "Custom Rule",
+      "placeholder": "e.g., Early dismissal every Friday"
     },
     "actions": {
       "save": "Save Calendar Selection",
