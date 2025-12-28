@@ -41,22 +41,29 @@ export function getProgressText(type: ProgressType, language: string = 'en'): st
 }
 
 /**
+ * Hourglass emojis that cycle to simulate animation
+ */
+const HOURGLASS_FRAMES = ['⏳', '⌛'];
+
+/**
  * Format progress message with emoji and dots
  */
-export function formatProgressMessage(baseText: string, dotCount: number = 1): string {
+export function formatProgressMessage(baseText: string, frame: number = 0): string {
+  const emoji = HOURGLASS_FRAMES[frame % 2];
+  const dotCount = (frame % 3) + 1;
   const dots = '.'.repeat(dotCount);
-  return `⏳ ${baseText}${dots}`;
+  return `${emoji} ${baseText}${dots}`;
 }
 
 /**
- * Start progress animation that cycles dots
+ * Start progress animation that cycles hourglass emoji and dots
  * Returns a cleanup function to stop the animation
  *
  * @param chatId - Chat to send progress to
  * @param messageId - Message ID to update
  * @param baseText - Base progress text (without dots)
  * @param service - Messaging service to use for updates
- * @param intervalMs - Interval between dot updates (default 800ms)
+ * @param intervalMs - Interval between frame updates (default 600ms)
  * @returns Cleanup function to stop the animation
  */
 export function startProgressAnimation(
@@ -64,16 +71,16 @@ export function startProgressAnimation(
   messageId: number | string,
   baseText: string,
   service: IMessagingService,
-  intervalMs: number = 800
+  intervalMs: number = 600
 ): () => void {
-  let dotCount = 1;
+  let frame = 1;
   let isRunning = true;
 
   const interval = setInterval(async () => {
     if (!isRunning) return;
 
-    dotCount = (dotCount % 3) + 1;
-    const progressText = formatProgressMessage(baseText, dotCount);
+    frame++;
+    const progressText = formatProgressMessage(baseText, frame);
 
     try {
       await service.updateMessage(chatId, messageId, progressText);
