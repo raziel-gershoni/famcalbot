@@ -4,7 +4,6 @@ import { fetchTodayEvents, fetchTomorrowEvents } from './calendar';
 import { generateSummary } from './claude';
 import { CalendarEvent, UserConfig } from '../types';
 import { USER_MESSAGES } from '../config/messages';
-import { ADMIN_USER_ID } from '../config/constants';
 import { IMessagingService, getTelegramService, getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from './messaging';
 import { getCalendarsByLabel, getPrimaryCalendar } from '../utils/calendar-helpers';
 import { sendProgressWithAnimation, ProgressType } from './progress-message';
@@ -303,12 +302,6 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
     return;
   }
 
-  // Admin-only command
-  if (userId !== ADMIN_USER_ID) {
-    await getMessagingService().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
-    return;
-  }
-
   // Use Redis-based distributed lock to prevent duplicate executions
   const bot = getBot();
   const uniqueMarker = `[testrun-${updateId}]`;
@@ -328,6 +321,13 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
   const user = await getUserByTelegramId(userId);
   if (!user) {
     console.error(`User with Telegram ID ${userId} not found`);
+    await releaseTestModelsLock(userId);
+    return;
+  }
+
+  // Admin-only command (check DB field)
+  if (!user.isAdmin) {
+    await getMessagingService().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     await releaseTestModelsLock(userId);
     return;
   }
@@ -527,7 +527,7 @@ async function sendSummaryToUser(
       user.spouseGender,
       primaryCalendar,
       summaryDate,
-      userId === ADMIN_USER_ID,
+      user.isAdmin,
       modelId,
       user.location,
       user.language
@@ -538,7 +538,7 @@ async function sendSummaryToUser(
     await messagingService.updateMessage(userId, messageId, summary, { format: MessageFormat.HTML });
 
     // Generate and send voice message for admin user only (for /summary command only)
-    if (userId === ADMIN_USER_ID && summaryDate === undefined) {
+    if (user.isAdmin && summaryDate === undefined) {
       await sendVoiceMessage(userId, summary, modelId, user.language, messagingService);
     }
   } catch (error) {
@@ -639,7 +639,7 @@ async function sendSummaryToAll(
           user.spouseGender,
           primaryCalendar,
           summaryDate,
-          user.telegramId === ADMIN_USER_ID,
+          user.isAdmin,
           undefined,
           user.location,
           user.language
@@ -871,8 +871,9 @@ async function sendVoiceMessage(
  * Supports: /testai (today) or /testai tmrw (tomorrow)
  */
 export async function handleTestAICommand(chatId: number, userId: number, args?: string): Promise<void> {
-  // Admin-only command
-  if (userId !== ADMIN_USER_ID) {
+  // Check admin status from database
+  const user = await getUserByTelegramId(userId);
+  if (!user?.isAdmin) {
     await getMessagingService().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
     return;
   }
@@ -947,8 +948,9 @@ export async function handleTestAICallback(
   queryId: string,
   timeframe: string = 'today'
 ): Promise<void> {
-  // Admin-only
-  if (userId !== ADMIN_USER_ID) {
+  // Check admin status from database
+  const user = await getUserByTelegramId(userId);
+  if (!user?.isAdmin) {
     await getBot().answerCallbackQuery(queryId, { text: 'Unauthorized' });
     return;
   }

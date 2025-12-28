@@ -3,6 +3,8 @@ import { after } from 'next/server';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { MessagingPlatform } from '@/src/services/messaging';
 import { getProgressText, formatProgressMessage } from '@/src/services/progress-message';
+import { verifyUserAccess } from '@/src/lib/telegram-auth';
+import { checkRateLimit, commandRateLimiter, getRateLimitHeaders } from '@/src/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -21,7 +23,7 @@ function getProgressType(command: string, args?: string): 'summary' | 'summaryTo
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { user_id, command, args, secret, language } = body;
+    const { user_id, command, args, secret, language, initData } = body;
 
     // Validate required parameters
     if (!user_id || !command) {
@@ -31,12 +33,28 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Validate secret if provided (for server-side calls like cron)
-    if (secret && secret !== process.env.CRON_SECRET) {
+    // Authentication: Either server secret OR valid Telegram initData
+    const hasServerSecret = secret && secret === process.env.CRON_SECRET;
+    const hasTelegramAuth = initData && verifyUserAccess(initData, user_id);
+
+    if (!hasServerSecret && !hasTelegramAuth) {
+      console.warn(`[execute-command] Unauthorized access attempt for user ${user_id}`);
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
+    }
+
+    // Rate limiting (skip for server-side cron calls)
+    if (!hasServerSecret) {
+      const rateLimitResult = await checkRateLimit(commandRateLimiter, user_id);
+      if (!rateLimitResult.success) {
+        console.warn(`[execute-command] Rate limit exceeded for user ${user_id}`);
+        return NextResponse.json(
+          { success: false, error: 'Too many requests. Please wait a minute.' },
+          { status: 429, headers: getRateLimitHeaders(rateLimitResult) }
+        );
+      }
     }
 
     // Send progress message IMMEDIATELY (before any DB queries)
@@ -111,6 +129,23 @@ export async function POST(request: NextRequest) {
         }
       } catch (err) {
         console.error(`${command} command error:`, err);
+
+        // Send error message to user
+        try {
+          const { getMessagingService } = await import('@/src/services/telegram');
+          const messagingService = getMessagingService();
+          const errorMessage = '❌ Sorry, something went wrong processing your request. Please try again.';
+
+          if (progressMessageId) {
+            // Update progress message with error
+            await messagingService.updateMessage(user_id, progressMessageId, errorMessage);
+          } else {
+            // Send new error message
+            await messagingService.sendMessage(user_id, errorMessage);
+          }
+        } catch (notifyErr) {
+          console.error('Failed to notify user of error:', notifyErr);
+        }
       }
     });
 

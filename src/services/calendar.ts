@@ -3,7 +3,7 @@ import { CalendarEvent } from '../types';
 import { getBot } from './telegram';
 import { fromZonedTime } from 'date-fns-tz';
 import { addDays, format } from 'date-fns';
-import { TIMEZONE, ADMIN_USER_ID } from '../config/constants';
+import { TIMEZONE } from '../config/constants';
 import { ALERT_MESSAGES } from '../config/messages';
 import { isTokenError } from '../utils/errors';
 

@@ -1,10 +1,26 @@
 /**
  * Error Notification Utility
- * Sends critical errors to admin via Telegram
+ * Sends critical errors to admin users via Telegram
  */
 
 import { getBot } from '../services/telegram';
-import { ADMIN_USER_ID } from '../config/constants';
+import { prisma } from './prisma';
+
+/**
+ * Get all admin user Telegram IDs
+ */
+async function getAdminUserIds(): Promise<number[]> {
+  try {
+    const admins = await prisma.user.findMany({
+      where: { isAdmin: true },
+      select: { telegramId: true }
+    });
+    return admins.map(a => Number(a.telegramId));
+  } catch (error) {
+    console.error('Failed to fetch admin users:', error);
+    return [];
+  }
+}
 
 /**
  * Notify admin of a critical error via Telegram
@@ -37,7 +53,8 @@ export async function notifyAdminError(
 
     message += `\n\n<i>Time: ${new Date().toISOString()}</i>`;
 
-    await bot.sendMessage(ADMIN_USER_ID, message, { parse_mode: 'HTML' });
+    const adminIds = await getAdminUserIds();
+    await Promise.all(adminIds.map(id => bot.sendMessage(id, message, { parse_mode: 'HTML' })));
   } catch (notificationError) {
     // If notification fails, at least log it
     console.error('Failed to send error notification to admin:', notificationError);
@@ -52,7 +69,9 @@ export async function notifyAdminWarning(context: string, message: string): Prom
   try {
     const bot = getBot();
     const warningMessage = `⚠️ <b>Warning: ${context}</b>\n\n${message}\n\n<i>Time: ${new Date().toISOString()}</i>`;
-    await bot.sendMessage(ADMIN_USER_ID, warningMessage, { parse_mode: 'HTML' });
+
+    const adminIds = await getAdminUserIds();
+    await Promise.all(adminIds.map(id => bot.sendMessage(id, warningMessage, { parse_mode: 'HTML' })));
   } catch (error) {
     console.error('Failed to send warning notification:', error);
   }

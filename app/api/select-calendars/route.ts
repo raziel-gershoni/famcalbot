@@ -4,6 +4,8 @@ import { validateCalendarAssignments } from '@/src/utils/calendar-helpers';
 import { CalendarAssignment } from '@/src/types';
 import { prisma } from '@/src/utils/prisma';
 import { encrypt } from '@/src/utils/encryption';
+import { verifyUserAccess } from '@/src/lib/telegram-auth';
+import { checkRateLimit, settingsRateLimiter, getRateLimitHeaders } from '@/src/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,7 +20,25 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { calendarAssignments } = body as { calendarAssignments: CalendarAssignment[] };
+    const { calendarAssignments, initData } = body as { calendarAssignments: CalendarAssignment[]; initData?: string };
+
+    // Authentication: Verify Telegram initData
+    if (!verifyUserAccess(initData || null, parseInt(userId))) {
+      console.warn(`[select-calendars] Unauthorized access attempt for user ${userId}`);
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    // Rate limiting
+    const rateLimitResult = await checkRateLimit(settingsRateLimiter, userId);
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please wait a minute.' },
+        { status: 429, headers: getRateLimitHeaders(rateLimitResult) }
+      );
+    }
 
     // Validate the calendar assignments
     const validation = validateCalendarAssignments(calendarAssignments);

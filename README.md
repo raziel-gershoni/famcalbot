@@ -551,7 +551,7 @@ npm run get-google-token
 ### Test models not working
 - Check Redis credentials in environment variables
 - Verify DISABLE_TESTMODELS is not set to 'true'
-- Ensure user is admin (ADMIN_USER_ID in constants.ts)
+- Ensure user has `isAdmin: true` in the database
 
 ### Bot not responding
 - Check Vercel deployment logs

@@ -6,8 +6,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { getAIConfig, AI_RETRY_CONFIG, ADMIN_USER_ID } from '../config/constants';
-import { getBot } from './telegram';
+import { getAIConfig, AI_RETRY_CONFIG } from '../config/constants';
+import { notifyAdminWarning } from '../utils/error-notifier';
 
 // Lazy initialization of API clients to avoid build-time errors
 let anthropic: Anthropic | null = null;
@@ -67,21 +67,10 @@ async function alertTokenCeiling(
   outputTokens: number,
   maxTokens: number
 ): Promise<void> {
-  try {
-    const bot = getBot();
-    await bot.sendMessage(
-      ADMIN_USER_ID,
-      `⚠️ <b>AI Token Ceiling Hit!</b>
-
-Model: ${model}
-Output tokens: ${outputTokens}/${maxTokens}
-
-The AI response was truncated. Consider increasing AI_MAX_TOKENS in environment variables.`,
-      { parse_mode: 'HTML' }
-    );
-  } catch (error) {
-    console.error('Failed to send token ceiling alert:', error);
-  }
+  await notifyAdminWarning(
+    'AI Token Ceiling Hit',
+    `Model: ${model}\nOutput tokens: ${outputTokens}/${maxTokens}\n\nThe AI response was truncated. Consider increasing AI_MAX_TOKENS.`
+  );
 }
 
 /**

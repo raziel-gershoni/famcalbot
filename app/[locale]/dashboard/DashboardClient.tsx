@@ -78,6 +78,9 @@ export default function DashboardClient({
     setLoadingCommand(commandKey);
 
     try {
+      // Get Telegram Web App initData for authentication
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+
       // Wait for API to send progress message to Telegram
       await fetch('/api/execute-command', {
         method: 'POST',
@@ -87,6 +90,7 @@ export default function DashboardClient({
           command,
           args,
           language: locale,
+          initData, // Include for authentication
         }),
       });
     } catch (error) {

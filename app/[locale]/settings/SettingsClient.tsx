@@ -40,13 +40,17 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
     setFormState('saving');
 
     try {
+      // Get Telegram Web App initData for authentication
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+
       const response = await fetch(`/api/settings?user_id=${userId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           language,
           location,
-          messagingPlatform
+          messagingPlatform,
+          initData
         })
       });
 

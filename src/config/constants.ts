@@ -5,7 +5,6 @@
 import { getModelConfig, ModelConfig } from './ai-models';
 
 export const TIMEZONE = 'Asia/Jerusalem';
-export const ADMIN_USER_ID = 762715667; // Raziel's Telegram ID for system alerts
 
 // Default AI model from environment
 export const DEFAULT_AI_MODEL = process.env.AI_MODEL || 'claude-sonnet-4.5';

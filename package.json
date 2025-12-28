@@ -32,6 +32,8 @@
     "@hebcal/core": "^6.0.6",
     "@hebcal/locales": "^6.3.0",
     "@prisma/client": "^5.22.0",
+    "@sentry/nextjs": "^10.32.1",
+    "@upstash/ratelimit": "^2.0.7",
     "@upstash/redis": "^1.35.6",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",

@@ -1,3 +1,4 @@
+const { withSentryConfig } = require('@sentry/nextjs');
 const withNextIntl = require('next-intl/plugin')();
 
 /** @type {import('next').NextConfig} */
@@ -23,4 +24,25 @@ const nextConfig = {
   poweredByHeader: false,
 };
 
-module.exports = withNextIntl(nextConfig);
+const sentryWebpackPluginOptions = {
+  // Suppresses source map uploading logs during build
+  silent: true,
+  // Upload source maps to Sentry (only in production)
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+};
+
+const sentryOptions = {
+  // Hides source maps from generated client bundles
+  hideSourceMaps: true,
+  // Disable Sentry build-time features in development
+  disableLogger: true,
+  // Automatically tree-shake Sentry SDK in production
+  widenClientFileUpload: true,
+};
+
+module.exports = withSentryConfig(
+  withNextIntl(nextConfig),
+  sentryWebpackPluginOptions,
+  sentryOptions
+);

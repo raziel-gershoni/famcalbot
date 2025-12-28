@@ -85,10 +85,13 @@ export default function SelectCalendarsClient({
         };
       });
 
+      // Get Telegram Web App initData for authentication
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+
       const response = await fetch(`/api/select-calendars?user_id=${userId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ calendarAssignments })
+        body: JSON.stringify({ calendarAssignments, initData })
       });
 
       if (!response.ok) {
