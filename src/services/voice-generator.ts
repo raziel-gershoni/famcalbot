@@ -39,18 +39,19 @@ const DEFAULT_OPTIONS: VoiceOptions = {
 };
 
 /**
- * Map user-friendly language names to Google TTS language codes and default voices
+ * Map locale codes to Google TTS language codes and default voices
  */
-function getLanguageConfig(language: string = 'English'): { code: string; voice: string } {
+function getLanguageConfig(language: string = 'en'): { code: string; voice: string } {
   const configs: Record<string, { code: string; voice: string }> = {
-    'Hebrew': { code: 'he-IL', voice: 'he-IL-Wavenet-D' },  // Male, natural
-    'English': { code: 'en-US', voice: 'en-US-Wavenet-D' }, // Male, neutral
-    'Spanish': { code: 'es-ES', voice: 'es-ES-Wavenet-B' }, // Male, neutral
-    'French': { code: 'fr-FR', voice: 'fr-FR-Wavenet-B' },  // Male, neutral
-    'German': { code: 'de-DE', voice: 'de-DE-Wavenet-B' },  // Male, neutral
+    'he': { code: 'he-IL', voice: 'he-IL-Wavenet-D' },  // Male, natural
+    'en': { code: 'en-US', voice: 'en-US-Wavenet-D' },  // Male, neutral
+    'ru': { code: 'ru-RU', voice: 'ru-RU-Wavenet-D' },  // Male, neutral
+    'es': { code: 'es-ES', voice: 'es-ES-Wavenet-B' },  // Male, neutral
+    'fr': { code: 'fr-FR', voice: 'fr-FR-Wavenet-B' },  // Male, neutral
+    'de': { code: 'de-DE', voice: 'de-DE-Wavenet-B' },  // Male, neutral
   };
 
-  return configs[language] || configs['English']; // Default to English if language not found
+  return configs[language] || configs['en']; // Default to English if language not found
 }
 
 /**
@@ -62,7 +63,7 @@ function getLanguageConfig(language: string = 'English'): { code: string; voice:
  */
 export async function generateVoiceMessage(
   text: string,
-  language: string = 'English',
+  language: string = 'en',
   options: VoiceOptions = {}
 ): Promise<string> {
   const startTime = Date.now();

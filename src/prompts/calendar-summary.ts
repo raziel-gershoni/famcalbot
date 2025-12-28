@@ -3,6 +3,8 @@
  * Separated from business logic for easier maintenance, testing, and versioning
  */
 
+import { getLanguageFromLocale } from '../utils/locale';
+
 export interface SummaryPromptData {
   userName: string;
   userHebrewName: string;
@@ -23,7 +25,8 @@ export interface SummaryPromptData {
 }
 
 export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
-  const targetLanguage = data.language || 'English';
+  const localeCode = data.language || 'en';
+  const targetLanguage = getLanguageFromLocale(localeCode);
 
   return `# Calendar Summary for ${data.userName}
 
@@ -125,7 +128,7 @@ EXAMPLES:
 - **CRITICAL: Always use HH:MM format (24-hour, no AM/PM) - e.g., 08:00, 13:45, 20:15**
 - **CRITICAL: Pickup Order MUST be sorted chronologically by time (earliest first)**
 - **CRITICAL: Pickup Order: Group kids with SAME pickup time on ONE line together, just like start times**
-${targetLanguage === 'Hebrew' ? '- Always display Hebrew date using Gematria (Hebrew numerals) not Arabic numbers' : '- Display Hebrew date using standard numerals (e.g., "28 Kislev 5785")'}
+${localeCode === 'he' ? '- Always display Hebrew date using Gematria (Hebrew numerals) not Arabic numbers' : '- Display Hebrew date using standard numerals (e.g., "28 Kislev 5785")'}
 - Use Telegram HTML tags for formatting: <b>bold</b>, <i>italic</i>, <u>underline</u>
 
 ---

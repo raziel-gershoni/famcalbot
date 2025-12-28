@@ -3,8 +3,11 @@
  * Takes existing calendar summary and makes it voice-friendly
  */
 
-export function buildVoiceCondenserPrompt(fullSummary: string, language: string = 'English'): string {
-  const dateFormat = language === 'Hebrew'
+import { getLanguageFromLocale } from '../utils/locale';
+
+export function buildVoiceCondenserPrompt(fullSummary: string, locale: string = 'en'): string {
+  const language = getLanguageFromLocale(locale);
+  const dateFormat = locale === 'he'
     ? 'Hebrew date with weekday (remove Gregorian date, remove Hebrew year)'
     : 'Date with weekday';
 
