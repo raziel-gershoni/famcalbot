@@ -63,7 +63,7 @@ export function initBot(): TelegramBot {
   bot.setChatMenuButton({
     menu_button: {
       type: 'web_app',
-      text: '🚀 Dashboard',
+      text: 'Dashboard',
       web_app: { url: 'https://famcalbot.vercel.app/en/dashboard' }
     }
   }).then(() => {
@@ -160,7 +160,7 @@ export async function handleStartCommand(
     format: MessageFormat.HTML,
     replyMarkup: {
       inline_keyboard: [[
-        { text: '🚀 Open Dashboard', web_app: { url: dashboardUrl } }
+        { text: 'Open Dashboard', web_app: { url: dashboardUrl } }
       ]]
     }
   });

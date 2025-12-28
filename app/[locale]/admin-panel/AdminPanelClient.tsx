@@ -220,11 +220,19 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          width: 28px;
-          height: 28px;
-          background: #f3f4f6;
-          border-radius: 6px;
-          margin-right: 10px;
+          margin-right: 8px;
+          vertical-align: middle;
+        }
+
+        .header-title-icon {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(255, 255, 255, 0.2);
+          width: 36px;
+          height: 36px;
+          border-radius: 8px;
+          margin-right: 12px;
           vertical-align: middle;
         }
 
@@ -374,7 +382,7 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
 
       <div className="admin-panel">
         <header>
-          <h1><Crown size={24} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 8 }} />{t('title')}</h1>
+          <h1><span className="header-title-icon"><Crown size={22} /></span>{t('title')}</h1>
           <div className="header-right">
             <div className="admin-badge">{t('badge')}</div>
             <button className="header-icon-btn" onClick={openUserDashboard} aria-label="User Dashboard">

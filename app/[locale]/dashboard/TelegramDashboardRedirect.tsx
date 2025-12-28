@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Loader2 } from 'lucide-react';
 
 interface TelegramDashboardRedirectProps {
   locale: string;
@@ -100,18 +100,17 @@ export default function TelegramDashboardRedirect({ locale }: TelegramDashboardR
         color: 'white'
       }}>
         <div style={{
-          fontSize: '48px',
           marginBottom: '20px',
-          animation: 'pulse 1.5s ease-in-out infinite'
+          animation: 'spin 1s linear infinite'
         }}>
-          🚀
+          <Loader2 size={48} />
         </div>
         <h2 style={{ fontSize: '24px', fontWeight: '500' }}>Loading Dashboard...</h2>
       </div>
       <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.8; transform: scale(1.1); }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
         }
       `}</style>
     </div>
