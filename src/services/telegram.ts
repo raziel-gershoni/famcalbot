@@ -7,7 +7,6 @@ import { USER_MESSAGES } from '../config/messages';
 import { ADMIN_USER_ID } from '../config/constants';
 import { IMessagingService, getTelegramService, getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from './messaging';
 import { getCalendarsByLabel, getPrimaryCalendar } from '../utils/calendar-helpers';
-import { getLocaleFromLanguage } from '../utils/locale';
 import { sendProgressWithAnimation, ProgressType } from './progress-message';
 
 /**
@@ -134,7 +133,7 @@ export async function handleStartCommand(
   if (!user) return;
 
   const name = user.name || 'there';
-  const locale = getLocaleFromLanguage(user.language);
+  const locale = user.language || 'en';
   const dashboardUrl = `https://famcalbot.vercel.app/${locale}/dashboard?user_id=${user.telegramId}`;
   const service = getMessagingService();
 
@@ -239,8 +238,7 @@ export async function handleWeatherCommand(
   }
 
   // Use existing progress message or create new one
-  // Convert 'Hebrew'/'Russian'/'English' to 'he'/'ru'/'en' for progress messages
-  const userLocale = getLocaleFromLanguage(user.language);
+  const userLanguage = user.language || 'en';
   let messageId: number | string;
   let stopAnimation: () => void;
 
@@ -248,10 +246,10 @@ export async function handleWeatherCommand(
     // Progress message already sent by API route, just start animation
     messageId = existingProgressMessageId;
     const { startProgressAnimation, getProgressText } = await import('./progress-message');
-    stopAnimation = startProgressAnimation(chatId, messageId, getProgressText('weather', userLocale), messagingService);
+    stopAnimation = startProgressAnimation(chatId, messageId, getProgressText('weather', userLanguage), messagingService);
   } else {
     // Send new progress message
-    const result = await sendProgressWithAnimation(chatId, 'weather', userLocale, messagingService);
+    const result = await sendProgressWithAnimation(chatId, 'weather', userLanguage, messagingService);
     messageId = result.messageId;
     stopAnimation = result.stopAnimation;
   }
@@ -482,8 +480,7 @@ async function sendSummaryToUser(
 
   // Determine progress type based on date
   const progressType: ProgressType = summaryDate ? 'summaryTomorrow' : 'summary';
-  // Convert 'Hebrew'/'Russian'/'English' to 'he'/'ru'/'en' for progress messages
-  const userLocale = getLocaleFromLanguage(user.language);
+  const userLanguage = user.language || 'en';
 
   // Use existing progress message or create new one
   let messageId: number | string;
@@ -493,10 +490,10 @@ async function sendSummaryToUser(
     // Progress message already sent by API route, just start animation
     messageId = existingProgressMessageId;
     const { startProgressAnimation, getProgressText } = await import('./progress-message');
-    stopAnimation = startProgressAnimation(userId, messageId, getProgressText(progressType, userLocale), messagingService);
+    stopAnimation = startProgressAnimation(userId, messageId, getProgressText(progressType, userLanguage), messagingService);
   } else {
     // Send new progress message
-    const result = await sendProgressWithAnimation(userId, progressType, userLocale, messagingService);
+    const result = await sendProgressWithAnimation(userId, progressType, userLanguage, messagingService);
     messageId = result.messageId;
     stopAnimation = result.stopAnimation;
   }
@@ -805,14 +802,13 @@ async function sendVoiceMessage(
 ): Promise<void> {
   let voiceFilePath: string | null = null;
   const messagingService = service || getMessagingService();
-  // Convert 'Hebrew'/'Russian'/'English' to 'he'/'ru'/'en' for progress messages
-  const userLocale = getLocaleFromLanguage(language);
+  const userLanguage = language || 'en';
 
   // Start voice progress animation
   const { messageId, stopAnimation } = await sendProgressWithAnimation(
     userId,
     'voice',
-    userLocale,
+    userLanguage,
     messagingService
   );
 

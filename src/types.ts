@@ -1,5 +1,6 @@
 import { User as PrismaUser } from '@prisma/client';
 import { safeDecrypt } from './utils/encryption';
+import { getLocaleFromLanguage } from './utils/locale';
 
 // Calendar category labels
 export type CalendarLabel = 'primary' | 'yours' | 'spouse' | 'kids' | 'birthdays';
@@ -30,7 +31,8 @@ export function convertPrismaUserToConfig(user: PrismaUser): UserConfig {
     telegramId: Number(user.telegramId),
     whatsappPhone: user.whatsappPhone ?? undefined,
     messagingPlatform: user.messagingPlatform as 'telegram' | 'whatsapp' | 'all',
-    language: user.language ?? undefined,
+    // Normalize language: 'Hebrew'/'Russian'/'English' → 'he'/'ru'/'en'
+    language: getLocaleFromLanguage(user.language),
     gender: user.gender as 'male' | 'female',
     spouseGender: user.spouseGender as 'male' | 'female',
     googleRefreshToken: safeDecrypt(user.googleRefreshToken), // Decrypt OAuth token
