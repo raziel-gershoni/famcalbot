@@ -32,11 +32,8 @@ async function main() {
       whatsappPhone: '+972526367600',
       messagingPlatform: 'telegram',
       name: 'Raziel',
-      englishName: 'Raziel',  // Was: hebrewName
+      englishName: 'Raziel',
       gender: 'male',
-      spouseName: 'Yeshua',
-      spouseEnglishName: 'Yeshua',  // Was: spouseHebrewName
-      spouseGender: 'female',
       culture: 'jewish',
       location: 'Harish, Israel',
       language: 'Hebrew',
@@ -58,7 +55,11 @@ async function main() {
           calendarId: 'yeshua7733@gmail.com',
           labels: ['spouse'],
           name: 'Spouse Calendar',
-          color: '#ec4899'
+          color: '#ec4899',
+          // Spouse metadata stored in calendar assignment
+          personName: 'Yeshua',
+          personEnglishName: 'Yeshua',
+          personGender: 'female'
         }
       ]
     }
@@ -75,11 +76,8 @@ async function main() {
       whatsappPhone: null,  // Telegram only for now
       messagingPlatform: 'telegram',
       name: 'Yeshua',
-      englishName: 'Yeshua',  // Was: hebrewName
+      englishName: 'Yeshua',
       gender: 'female',
-      spouseName: 'Raziel',
-      spouseEnglishName: 'Raziel',  // Was: spouseHebrewName
-      spouseGender: 'male',
       culture: 'jewish',
       location: 'Harish, Israel',
       language: 'Hebrew',
@@ -95,13 +93,18 @@ async function main() {
           calendarId: 'zhendos13@gmail.com',
           labels: ['spouse'],
           name: 'Spouse Calendar',
-          color: '#ec4899'
+          color: '#ec4899',
+          // Spouse metadata stored in calendar assignment
+          personName: 'Raziel',
+          personEnglishName: 'Raziel',
+          personGender: 'male'
         },
         {
           calendarId: 'raziel@internety.co.il',
           labels: ['spouse'],
           name: 'Spouse Work',
           color: '#ec4899'
+          // Note: spouse metadata only needed on one calendar
         }
       ]
     }

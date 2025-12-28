@@ -10,11 +10,10 @@ export interface SpouseInfo {
 }
 
 /**
- * Get spouse info from calendar assignments (or fallback to legacy user fields)
- * Returns null if no spouse calendar exists
+ * Get spouse info from calendar assignments
+ * Returns null if no spouse calendar exists or if spouse metadata is incomplete
  */
 export function getSpouseInfo(user: UserConfig): SpouseInfo | null {
-  // First, try to get from calendar assignment
   const spouseCalendar = user.calendarAssignments?.find(a => a.labels.includes('spouse'));
 
   if (spouseCalendar?.personName && spouseCalendar?.personGender) {
@@ -22,15 +21,6 @@ export function getSpouseInfo(user: UserConfig): SpouseInfo | null {
       name: spouseCalendar.personName,
       englishName: spouseCalendar.personEnglishName,
       gender: spouseCalendar.personGender,
-    };
-  }
-
-  // Fallback to legacy user fields (for migration period)
-  if (user.spouseName && user.spouseGender) {
-    return {
-      name: user.spouseName,
-      englishName: user.spouseEnglishName || undefined,
-      gender: user.spouseGender,
     };
   }
 

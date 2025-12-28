@@ -20,17 +20,11 @@ model User {
 
   // Personal info
   name              String                              // Name in user's natural language
-  englishName       String  @default("")                // English name for reference (was: hebrewName)
+  englishName       String  @default("")                // English name for reference
   gender            String                              // 'male' | 'female'
 
-  // DEPRECATED: Spouse info now stored in calendar assignments
-  // These will be removed in a future migration after data is migrated
-  spouseName        String?                             // DEPRECATED
-  spouseEnglishName String?                             // DEPRECATED (was: spouseHebrewName)
-  spouseGender      String?                             // DEPRECATED
-
   // Settings
-  location          String  @default("Harish, Israel")  // TODO: Change default to "" after migration
+  location          String  @default("")                // User's location for weather/timezone
   culture           String  @default("default")         // 'jewish' | 'default'
   locationForced    Boolean @default(false)             // true = user confirmed their location
   globalRules       String[] @default([])               // Max 3 free-text rules for all calendars
@@ -40,7 +34,7 @@ model User {
 
   // Calendar integration (shared token for now)
   googleRefreshToken  String   @db.Text
-  calendarAssignments Json?    // Array of {calendarId, labels[], name, color}
+  calendarAssignments Json?    // Array of CalendarAssignment: {calendarId, labels[], name, color, personName?, personEnglishName?, personGender?, rules?[]}
 
   // Timestamps
   createdAt DateTime @default(now())
