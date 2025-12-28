@@ -1,41 +1,11 @@
 /**
- * Calendar Summary Prompt Template
- * Separated from business logic for easier maintenance, testing, and versioning
+ * English Calendar Summary Prompt
  */
 
-import { getLanguageFromLocale } from '../utils/locale';
+import { SummaryPromptData } from './types';
 
-export interface SummaryPromptData {
-  userName: string;
-  userEnglishName: string;
-  userGender: 'male' | 'female';
-  spouseName?: string;        // Optional - only if spouse calendar exists
-  spouseEnglishName?: string; // Optional - only if spouse calendar exists
-  spouseGender?: 'male' | 'female'; // Optional - only if spouse calendar exists
-  currentGregorianDate: string;
-  summaryGregorianDate: string;
-  summaryHebrewDate: string;
-  isRoshChodesh: boolean;
-  greeting: string;
-  userEventsText: string;
-  spouseEventsText: string;
-  otherEventsText: string;
-  weatherSummary?: string;  // AI-generated weather summary with tips
-  language?: string;  // Target language for summary (e.g., "Hebrew", "English", "Spanish"). If not set, defaults to English.
-  // New fields for public release
-  culture?: string;  // 'jewish' | 'default'
-  globalRules?: string[];  // User's global rules (max 3)
-  calendarRules?: { calendarName: string; rule: string }[];  // Per-calendar rules
-  hasKidsCalendars?: boolean;  // Whether user has kids calendars configured
-}
-
-/**
- * Build spouse context section (only if spouse calendar exists)
- */
-function buildSpouseContext(data: SummaryPromptData, targetLanguage: string): string {
-  if (!data.spouseName) {
-    return '';
-  }
+function buildSpouseContext(data: SummaryPromptData): string {
+  if (!data.spouseName) return '';
 
   return `
 2. **Spouse's Events** - These belong to the spouse
@@ -44,9 +14,6 @@ function buildSpouseContext(data: SummaryPromptData, targetLanguage: string): st
 `;
 }
 
-/**
- * Build kids context section
- */
 function buildKidsContext(data: SummaryPromptData): string {
   if (!data.hasKidsCalendars) {
     return `
@@ -64,43 +31,27 @@ function buildKidsContext(data: SummaryPromptData): string {
 `;
 }
 
-/**
- * Build Hebrew date section (only for Jewish culture)
- */
-function buildHebrewDateContext(data: SummaryPromptData, localeCode: string): string {
-  if (data.culture !== 'jewish') {
-    return '';
-  }
-
-  const hebrewDateFormat = localeCode === 'he'
-    ? '- Always display Hebrew date using Gematria (Hebrew numerals) not Arabic numbers'
-    : '- Display Hebrew date using standard numerals (e.g., "28 Kislev 5785")';
+function buildHebrewDateContext(data: SummaryPromptData): string {
+  if (data.culture !== 'jewish') return '';
 
   return `
 ## Hebrew Calendar
 - Include the Hebrew date in the summary header
 - Hebrew Date: ${data.summaryHebrewDate}
 - ${data.isRoshChodesh ? 'TODAY IS ROSH CHODESH - mention this in the header' : ''}
-${hebrewDateFormat}
+- Display Hebrew date using standard numerals (e.g., "28 Kislev 5785")
 `;
 }
 
-/**
- * Build global rules section
- */
 function buildGlobalRules(data: SummaryPromptData): string {
-  if (!data.globalRules || data.globalRules.length === 0) {
-    return '';
-  }
+  if (!data.globalRules || data.globalRules.length === 0) return '';
 
   const rules = data.globalRules
     .filter(r => r.trim())
     .map((rule, i) => `${i + 1}. ${rule}`)
     .join('\n');
 
-  if (!rules) {
-    return '';
-  }
+  if (!rules) return '';
 
   return `
 ## User's Custom Rules (ALWAYS apply these)
@@ -108,22 +59,15 @@ ${rules}
 `;
 }
 
-/**
- * Build per-calendar rules section
- */
 function buildCalendarRules(data: SummaryPromptData): string {
-  if (!data.calendarRules || data.calendarRules.length === 0) {
-    return '';
-  }
+  if (!data.calendarRules || data.calendarRules.length === 0) return '';
 
   const rules = data.calendarRules
     .filter(r => r.rule?.trim())
     .map(r => `- **${r.calendarName}**: ${r.rule}`)
     .join('\n');
 
-  if (!rules) {
-    return '';
-  }
+  if (!rules) return '';
 
   return `
 ## Calendar-Specific Rules
@@ -131,9 +75,6 @@ ${rules}
 `;
 }
 
-/**
- * Build the date information section
- */
 function buildDateInfo(data: SummaryPromptData): string {
   let dateInfo = `**DATE INFORMATION:**
 - Current Date (Today): ${data.currentGregorianDate}
@@ -149,32 +90,25 @@ function buildDateInfo(data: SummaryPromptData): string {
 }
 
 export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
-  const localeCode = data.language || 'en';
-  const targetLanguage = getLanguageFromLocale(localeCode);
-
-  // Build conditional sections
-  const spouseContext = buildSpouseContext(data, targetLanguage);
+  const spouseContext = buildSpouseContext(data);
   const kidsContext = buildKidsContext(data);
-  const hebrewDateContext = buildHebrewDateContext(data, localeCode);
+  const hebrewDateContext = buildHebrewDateContext(data);
   const globalRules = buildGlobalRules(data);
   const calendarRules = buildCalendarRules(data);
   const dateInfo = buildDateInfo(data);
 
-  // Build spouse name line conditionally
   const spouseNameLine = data.spouseName
-    ? `- Spouse: ${data.spouseName} (${data.spouseGender} - use appropriate ${targetLanguage} grammar forms)`
+    ? `- Spouse: ${data.spouseName} (${data.spouseGender} - use appropriate English grammar forms)`
     : '';
 
-  // Build spouse schedule section conditionally
   const spouseScheduleHeader = data.spouseName
-    ? `<b>${data.spouseEnglishName || data.spouseName} Schedule:</b> [Only if ${data.spouseName} has events]
+    ? `<b>${data.spouseEnglishName || data.spouseName}'s Schedule:</b> [Only if ${data.spouseName} has events]
 - HH:MM-HH:MM - [Activity/Work] ([Location if available])
 [Chronological order by start time, include location when event has one]
 
 `
     : '';
 
-  // Build pickup/kids sections conditionally
   const kidsScheduleSection = data.hasKidsCalendars
     ? `<b>Kids Start Times:</b>
 - HH:MM - [Name1] ([Location1]), [Name2] ([Location2])
@@ -200,7 +134,6 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
 `
     : '';
 
-  // Build insight section
   const insightSection = data.hasKidsCalendars
     ? `<b>Insight:</b> [ONE concise sentence (max 10-15 words) with a helpful observation, such as:]
 - Pickup logistics: Who's available based on work schedules
@@ -211,7 +144,6 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
 `
     : '';
 
-  // Build spouse events section conditionally
   const spouseEventsSection = data.spouseName && data.spouseEventsText
     ? `**SPOUSE'S EVENTS:**
 ${data.spouseEventsText}
@@ -219,29 +151,28 @@ ${data.spouseEventsText}
 `
     : '';
 
-  // Build other events section header
   const otherEventsHeader = data.hasKidsCalendars
     ? '**OTHER EVENTS (Kids & Family):**'
     : '**OTHER EVENTS:**';
 
   return `# Calendar Summary for ${data.userName}
 
-Generate a personalized daily schedule summary in ${targetLanguage}.
+Generate a personalized daily schedule summary in English.
 
 **IMPORTANT: Names and grammar:**
-- User: ${data.userName} (${data.userGender} - use appropriate ${targetLanguage} grammar forms)
+- User: ${data.userName} (${data.userGender} - use appropriate English grammar forms)
 ${spouseNameLine}
 
 ## Event Categories & Personalization
 Events have been pre-categorized into groups:
 
 1. **User's Events** - These are YOUR events (personal and work calendars)
-   - Address these as "You have..." or "Your..." (in ${targetLanguage})
+   - Address these as "You have..." or "Your..."
    - When mentioning by name, use: ${data.userName}
 ${spouseContext}${kidsContext}
 ${hebrewDateContext}${globalRules}${calendarRules}
 ## Output Format
-**IMPORTANT: Output EVERYTHING in ${targetLanguage}.**
+**IMPORTANT: Output EVERYTHING in English.**
 
 <b>${data.greeting}</b>
 
@@ -263,7 +194,7 @@ STRUCTURE:
 **Be specific about timing and temperatures. Cross-reference weather timing with schedule events. Make it useful for planning the day.**
 
 ## Guidelines
-- **CRITICAL: EVERYTHING must be in ${targetLanguage} - translate ALL headers and content to ${targetLanguage}**
+- **CRITICAL: EVERYTHING must be in English**
 - **CRITICAL: Always use HH:MM format (24-hour, no AM/PM) - e.g., 08:00, 13:45, 20:15**
 ${data.hasKidsCalendars ? `- **CRITICAL: Pickup Order MUST be sorted chronologically by time (earliest first)**
 - **CRITICAL: Pickup Order: Group kids with SAME pickup time on ONE line together**
@@ -282,5 +213,5 @@ ${data.weatherSummary ? `
 **WEATHER INFORMATION:**
 ${data.weatherSummary}` : ''}
 
-**CRITICAL: Respond in ${targetLanguage} only. Write your entire summary in ${targetLanguage}.**`;
+**CRITICAL: Respond in English only. Write your entire summary in English.**`;
 }

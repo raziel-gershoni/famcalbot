@@ -1,0 +1,218 @@
+/**
+ * Hebrew Calendar Summary Prompt
+ * כל ההוראות בעברית כדי שכללים בעברית יובנו בצורה טבעית
+ */
+
+import { SummaryPromptData } from './types';
+
+function buildSpouseContext(data: SummaryPromptData): string {
+  if (!data.spouseName) return '';
+
+  return `
+2. **אירועי בן/בת הזוג** - אלו אירועים של בן/בת הזוג
+   - כשמתייחסים לבן/בת הזוג בשם, השתמש ב: ${data.spouseName}
+   - התאם את הפנייה מנקודת המבט של המשתמש (לדוגמה: "ל${data.spouseName} יש פגישה ב...")
+`;
+}
+
+function buildKidsContext(data: SummaryPromptData): string {
+  if (!data.hasKidsCalendars) {
+    return `
+3. **אירועים אחרים** - אירועים משפחתיים משותפים ויומנים אחרים
+   - כלול אותם בסעיף "אירועים אחרים" אם יש כאלה
+`;
+  }
+
+  return `
+3. **אירועים אחרים** - אירועי ילדים ואירועים משפחתיים
+   - **זהה שמות ילדים משמות היומנים או מתוכן האירועים** (לדוגמה: אם היומן נקרא "שירה" או האירוע הוא "רופא שיניים של שירה", הילדה נקראת שירה)
+   - **חשוב: אל תבלבל בין שמות מיקומים לשמות אנשים**
+   - דוגמה: מיקום שמסתיים ב"גן" או "גן ילדים" הוא מיקום, לא שם אדם
+   - **בסדר האיסוף: השתמש בשם הילד, ואחריו המיקום בסוגריים**
+`;
+}
+
+function buildHebrewDateContext(data: SummaryPromptData): string {
+  if (data.culture !== 'jewish') return '';
+
+  return `
+## לוח עברי
+- כלול את התאריך העברי בכותרת הסיכום
+- תאריך עברי: ${data.summaryHebrewDate}
+- ${data.isRoshChodesh ? 'היום ראש חודש - ציין זאת בכותרת' : ''}
+- השתמש בגימטריה לתאריך העברי (כ"ח כסלו תשפ"ה)
+`;
+}
+
+function buildGlobalRules(data: SummaryPromptData): string {
+  if (!data.globalRules || data.globalRules.length === 0) return '';
+
+  const rules = data.globalRules
+    .filter(r => r.trim())
+    .map((rule, i) => `${i + 1}. ${rule}`)
+    .join('\n');
+
+  if (!rules) return '';
+
+  return `
+## כללים מותאמים אישית (יש ליישם תמיד)
+${rules}
+`;
+}
+
+function buildCalendarRules(data: SummaryPromptData): string {
+  if (!data.calendarRules || data.calendarRules.length === 0) return '';
+
+  const rules = data.calendarRules
+    .filter(r => r.rule?.trim())
+    .map(r => `- **${r.calendarName}**: ${r.rule}`)
+    .join('\n');
+
+  if (!rules) return '';
+
+  return `
+## כללים ספציפיים ליומן
+${rules}
+`;
+}
+
+function buildDateInfo(data: SummaryPromptData): string {
+  let dateInfo = `**מידע על תאריכים:**
+- תאריך נוכחי (היום): ${data.currentGregorianDate}
+- תאריך הסיכום: ${data.summaryGregorianDate}`;
+
+  if (data.culture === 'jewish') {
+    dateInfo += `
+- תאריך עברי (סיכום): ${data.summaryHebrewDate}
+- ראש חודש: ${data.isRoshChodesh ? 'כן' : 'לא'}`;
+  }
+
+  return dateInfo;
+}
+
+export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
+  const spouseContext = buildSpouseContext(data);
+  const kidsContext = buildKidsContext(data);
+  const hebrewDateContext = buildHebrewDateContext(data);
+  const globalRules = buildGlobalRules(data);
+  const calendarRules = buildCalendarRules(data);
+  const dateInfo = buildDateInfo(data);
+
+  const spouseNameLine = data.spouseName
+    ? `- בן/בת זוג: ${data.spouseName} (${data.spouseGender === 'male' ? 'זכר' : 'נקבה'} - השתמש בצורות דקדוק מתאימות)`
+    : '';
+
+  const spouseScheduleHeader = data.spouseName
+    ? `<b>לוח הזמנים של ${data.spouseName}:</b> [רק אם ל${data.spouseName} יש אירועים]
+- HH:MM-HH:MM - [פעילות/עבודה] ([מיקום אם זמין])
+[סדר כרונולוגי לפי שעת התחלה, כלול מיקום כשיש]
+
+`
+    : '';
+
+  const kidsScheduleSection = data.hasKidsCalendars
+    ? `<b>שעות התחלה של הילדים:</b>
+- HH:MM - [שם1] ([מיקום1]), [שם2] ([מיקום2])
+[קבץ ילדים עם אותה שעת התחלה בשורה אחת, ממוין כרונולוגית]
+
+<b>אירועים מיוחדים:</b> [רק אם לילדים יש אירועים מיוחדים במהלך היום]
+- HH:MM-HH:MM - [שם] [פעילות] ([מיקום])
+
+<b>סדר איסוף:</b> [רק ילדים - אל תכלול בן/בת זוג]
+
+**קריטי: כל הילדים חייבים להופיע בסעיף הזה - אל תשים איסופי ילדים בסעיף ההערות!**
+
+**אלגוריתם:**
+1. חלץ את כל שעות הסיום של איסוף ילדים מהאירועים (כל ילד חייב להיכלל)
+2. מיין את השעות בסדר עולה (לדוגמה: 13:50 < 14:00 < 16:00)
+3. לכל משבצת זמן (בסדר ממוין), רשום את כל הילדים עם אותה שעה בשורה אחת
+4. פלט בסדר הזמנים הממוין
+5. אל תדלג על ילדים - כולם חייבים להופיע ברשימה
+
+- HH:MM - [שם] ([מיקום])
+- HH:MM - [שם1] ([מיקום1]), [שם2] ([מיקום2])
+
+`
+    : '';
+
+  const insightSection = data.hasKidsCalendars
+    ? `<b>תובנה:</b> [משפט אחד קצר (מקסימום 10-15 מילים) עם תצפית מועילה, כגון:]
+- לוגיסטיקת איסוף: מי פנוי בהתאם ללוחות זמנים של עבודה
+- שהייה רציפה: אם לילד יש אירועים רצופים באותו מיקום
+- התנגשויות: אם איסופים חופפים או התזמון צפוף
+- השמט סעיף זה לחלוטין אם אין תובנות משמעותיות
+
+`
+    : '';
+
+  const spouseEventsSection = data.spouseName && data.spouseEventsText
+    ? `**אירועי בן/בת הזוג:**
+${data.spouseEventsText}
+
+`
+    : '';
+
+  const otherEventsHeader = data.hasKidsCalendars
+    ? '**אירועים אחרים (ילדים ומשפחה):**'
+    : '**אירועים אחרים:**';
+
+  return `# סיכום יומן עבור ${data.userName}
+
+צור סיכום לוח זמנים יומי מותאם אישית בעברית.
+
+**חשוב: שמות ודקדוק:**
+- משתמש: ${data.userName} (${data.userGender === 'male' ? 'זכר' : 'נקבה'} - השתמש בצורות דקדוק מתאימות)
+${spouseNameLine}
+
+## קטגוריות אירועים והתאמה אישית
+האירועים מחולקים מראש לקבוצות:
+
+1. **האירועים שלך** - אלו האירועים שלך (יומנים אישיים ועבודה)
+   - פנה אליהם כ"יש לך..." או "ה... שלך"
+   - כשמזכירים בשם, השתמש ב: ${data.userName}
+${spouseContext}${kidsContext}
+${hebrewDateContext}${globalRules}${calendarRules}
+## פורמט פלט
+**חשוב: כתוב הכל בעברית.**
+
+<b>${data.greeting}</b>
+
+<b>[תווית יום] - [יום], [תאריך לועזי]${data.culture === 'jewish' ? ' ([תאריך עברי])' : ''}</b>
+(השווה את התאריך הנוכחי לתאריך הסיכום, השתמש בתווית מתאימה)
+
+<b>לוח הזמנים שלך:</b> [רק אם ל${data.userName} יש אירועים]
+- HH:MM-HH:MM - [פעילות] ([מיקום אם זמין])
+[סדר כרונולוגי לפי שעת התחלה, כלול מיקום כשיש]
+
+${spouseScheduleHeader}${kidsScheduleSection}${insightSection}<b>מזג אוויר:</b> [רק אם יש מידע על מזג אוויר למטה]
+**צור תדריך מזג אוויר מעשי ומועיל (2-4 משפטים) שמשלב מזג אוויר עם לוח הזמנים:**
+
+מבנה:
+1. תנאים נוכחיים וסקירת היום (טווח טמפרטורות, תנאים)
+2. **קריטי: אם צפוי גשם, כלול שעות ספציפיות (לדוגמה: "גשם 14:00-18:00")**
+3. המלצות מעשיות בהתאם לתזמון הלוח
+
+**היה ספציפי לגבי תזמון וטמפרטורות. הצלב עם אירועי הלוח. הפוך את זה לשימושי לתכנון היום.**
+
+## הנחיות
+- **קריטי: הכל חייב להיות בעברית**
+- **קריטי: תמיד השתמש בפורמט HH:MM (24 שעות, בלי AM/PM) - לדוגמה: 08:00, 13:45, 20:15**
+${data.hasKidsCalendars ? `- **קריטי: סדר האיסוף חייב להיות ממוין כרונולוגית לפי שעה (הכי מוקדם קודם)**
+- **קריטי: סדר איסוף: קבץ ילדים עם אותה שעת איסוף בשורה אחת**
+` : ''}- השתמש בתגיות HTML של טלגרם לעיצוב: <b>מודגש</b>, <i>נטוי</i>, <u>קו תחתון</u>
+
+---
+
+${dateInfo}
+
+**האירועים של ${data.userName}:**
+${data.userEventsText}
+
+${spouseEventsSection}${otherEventsHeader}
+${data.otherEventsText}
+${data.weatherSummary ? `
+**מידע על מזג אוויר:**
+${data.weatherSummary}` : ''}
+
+**קריטי: ענה בעברית בלבד. כתוב את כל הסיכום בעברית.**`;
+}
