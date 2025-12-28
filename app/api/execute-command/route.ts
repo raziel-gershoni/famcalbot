@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { after } from 'next/server';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { MessagingPlatform } from '@/src/services/messaging';
 import { getProgressText, formatProgressMessage } from '@/src/services/progress-message';
@@ -81,41 +82,47 @@ export async function POST(request: NextRequest) {
       handleWeatherCommand
     } = await import('@/src/services/telegram');
 
-    // Execute command in background (don't await) so we can return immediately
-    // The progress message is already sent, command will update it when done
-    switch (command) {
-      case 'testai':
-        handleTestAICommand(user_id, user_id, args).catch(err =>
-          console.error('testai command error:', err)
-        );
-        break;
-      case 'summary':
-        handleSummaryCommand(
-          user_id,
-          user_id,
-          MessagingPlatform.TELEGRAM,
-          args,
-          progressMessageId
-        ).catch(err => console.error('summary command error:', err));
-        break;
-      case 'weather':
-        handleWeatherCommand(
-          user_id,
-          user_id,
-          MessagingPlatform.TELEGRAM,
-          args,
-          progressMessageId
-        ).catch(err => console.error('weather command error:', err));
-        break;
-      default:
-        return NextResponse.json({
-          success: false,
-          error: `Unknown command: ${command}`
-        }, { status: 400 });
+    // Schedule command to run after response is sent (keeps function alive)
+    // Using Next.js `after()` to ensure background work completes
+    after(async () => {
+      try {
+        switch (command) {
+          case 'testai':
+            await handleTestAICommand(user_id, user_id, args);
+            break;
+          case 'summary':
+            await handleSummaryCommand(
+              user_id,
+              user_id,
+              MessagingPlatform.TELEGRAM,
+              args,
+              progressMessageId
+            );
+            break;
+          case 'weather':
+            await handleWeatherCommand(
+              user_id,
+              user_id,
+              MessagingPlatform.TELEGRAM,
+              args,
+              progressMessageId
+            );
+            break;
+        }
+      } catch (err) {
+        console.error(`${command} command error:`, err);
+      }
+    });
+
+    if (command !== 'testai' && command !== 'summary' && command !== 'weather') {
+      return NextResponse.json({
+        success: false,
+        error: `Unknown command: ${command}`
+      }, { status: 400 });
     }
 
     // Return immediately after progress message is sent
-    // Command continues executing in background
+    // Command continues executing via after()
     return NextResponse.json({
       success: true,
       message: 'Command started',
