@@ -41,35 +41,27 @@ export function getProgressText(type: ProgressType, language: string = 'en'): st
 }
 
 /**
- * Clock face emojis for ultra-smooth spinning animation (24 frames)
- * Alternates between hour and half-hour positions
+ * Braille spinner frames (10 frames) - smooth rotating effect
  */
-const CLOCK_FRAMES = [
-  '🕐', '🕜', '🕑', '🕝', '🕒', '🕞', '🕓', '🕟',
-  '🕔', '🕠', '🕕', '🕡', '🕖', '🕢', '🕗', '🕣',
-  '🕘', '🕤', '🕙', '🕥', '🕚', '🕦', '🕛', '🕧'
-];
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 /**
- * Format progress message with spinning clock and cycling dots
- * 24 clock frames / 3 dot states = syncs every 8 frames
+ * Format progress message with spinning braille and static dots
  */
 export function formatProgressMessage(baseText: string, frame: number = 0): string {
-  const emoji = CLOCK_FRAMES[frame % 24];
-  const dotCount = (frame % 3) + 1;
-  const dots = '.'.repeat(dotCount);
-  return `${emoji} ${baseText}${dots}`;
+  const spinner = SPINNER_FRAMES[frame % 10];
+  return `${spinner} ${baseText}...`;
 }
 
 /**
- * Start progress animation with spinning clock and cycling dots
+ * Start progress animation with spinning braille
  * Returns a cleanup function to stop the animation
  *
  * @param chatId - Chat to send progress to
  * @param messageId - Message ID to update
  * @param baseText - Base progress text (without dots)
  * @param service - Messaging service to use for updates
- * @param intervalMs - Interval between frame updates (default 600ms)
+ * @param intervalMs - Interval between frame updates (default 300ms)
  * @returns Cleanup function to stop the animation
  */
 export function startProgressAnimation(
@@ -77,7 +69,7 @@ export function startProgressAnimation(
   messageId: number | string,
   baseText: string,
   service: IMessagingService,
-  intervalMs: number = 600
+  intervalMs: number = 300
 ): () => void {
   let frame = 1;
   let isRunning = true;
