@@ -41,22 +41,23 @@ export function getProgressText(type: ProgressType, language: string = 'en'): st
 }
 
 /**
- * Hourglass emojis that cycle to simulate animation
+ * Clock face emojis for smooth spinning animation (12 frames)
  */
-const HOURGLASS_FRAMES = ['⏳', '⌛'];
+const CLOCK_FRAMES = ['🕐', '🕑', '🕒', '🕓', '🕔', '🕕', '🕖', '🕗', '🕘', '🕙', '🕚', '🕛'];
 
 /**
- * Format progress message with emoji and dots
+ * Format progress message with spinning clock and cycling dots
+ * 12 clock frames / 3 dot states = syncs every 4 frames
  */
 export function formatProgressMessage(baseText: string, frame: number = 0): string {
-  const emoji = HOURGLASS_FRAMES[frame % 2];
+  const emoji = CLOCK_FRAMES[frame % 12];
   const dotCount = (frame % 3) + 1;
   const dots = '.'.repeat(dotCount);
   return `${emoji} ${baseText}${dots}`;
 }
 
 /**
- * Start progress animation that cycles hourglass emoji and dots
+ * Start progress animation with spinning clock and cycling dots
  * Returns a cleanup function to stop the animation
  *
  * @param chatId - Chat to send progress to
