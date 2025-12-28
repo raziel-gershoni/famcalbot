@@ -5,10 +5,10 @@ import { TelegramLayout, Header } from '@/components/Layout';
 import { Section } from '@/components/UI';
 import { LoadingButton } from '@/components/Feedback';
 import { useRouter } from 'next/navigation';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
-import { KeyRound, Calendar, Zap, TrendingUp, CloudSun, RefreshCw, PencilLine, ClipboardList } from 'lucide-react';
+import { KeyRound, Calendar, Zap, TrendingUp, CloudSun, RefreshCw, PencilLine, ClipboardList, Loader2 } from 'lucide-react';
 import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
 
@@ -69,25 +69,39 @@ export default function DashboardClient({
     };
   }, [locale, intlLocale]);
 
+  // Track which button is loading
+  const [loadingCommand, setLoadingCommand] = useState<string | null>(null);
+
   const executeCommand = async (command: string, args?: string) => {
-    // Close webapp immediately for better UX
+    // Show loading spinner in button
+    const commandKey = args ? `${command}-${args}` : command;
+    setLoadingCommand(commandKey);
+
+    try {
+      // Wait for API to send progress message to Telegram
+      await fetch('/api/execute-command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user.id,
+          command,
+          args,
+          language: locale,
+        }),
+      });
+    } catch (error) {
+      console.error('Command execution error:', error);
+    }
+
+    // Close webapp after progress message is sent
     if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
       window.Telegram.WebApp.close();
     }
+  };
 
-    // Execute command in background (non-blocking)
-    fetch('/api/execute-command', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: user.id,
-        command,
-        args,
-        language: locale,
-      }),
-    }).catch((error) => {
-      console.error('Command execution error:', error);
-    });
+  const isLoading = (command: string, args?: string) => {
+    const commandKey = args ? `${command}-${args}` : command;
+    return loadingCommand === commandKey;
   };
 
   const handleOpenSettings = () => {
@@ -297,6 +311,28 @@ export default function DashboardClient({
             color: #667eea;
           }
 
+          .action-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+          }
+
+          .action-button:disabled:hover {
+            transform: none;
+            box-shadow: none;
+            border-color: #e5e7eb;
+            background: white;
+          }
+
+          .spinner {
+            animation: spin 1s linear infinite;
+          }
+
+          @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+
           @media (max-width: 400px) {
             .button-group {
               grid-template-columns: 1fr;
@@ -331,20 +367,34 @@ export default function DashboardClient({
                   <button
                     className="action-button summary-button"
                     onClick={() => executeCommand('summary')}
+                    disabled={loadingCommand !== null}
                   >
-                    <span className="summary-label">{t('summary.today')}</span>
-                    <span className="summary-date">
-                      {todaySummaryLabel.gregorian} • {todaySummaryLabel.hebrew}
-                    </span>
+                    {isLoading('summary') ? (
+                      <Loader2 size={24} className="spinner" />
+                    ) : (
+                      <>
+                        <span className="summary-label">{t('summary.today')}</span>
+                        <span className="summary-date">
+                          {todaySummaryLabel.gregorian} • {todaySummaryLabel.hebrew}
+                        </span>
+                      </>
+                    )}
                   </button>
                   <button
                     className="action-button summary-button"
                     onClick={() => executeCommand('summary', 'tmrw')}
+                    disabled={loadingCommand !== null}
                   >
-                    <span className="summary-label">{t('summary.tomorrow')}</span>
-                    <span className="summary-date">
-                      {tomorrowSummaryLabel.gregorian} • {tomorrowSummaryLabel.hebrew}
-                    </span>
+                    {isLoading('summary', 'tmrw') ? (
+                      <Loader2 size={24} className="spinner" />
+                    ) : (
+                      <>
+                        <span className="summary-label">{t('summary.tomorrow')}</span>
+                        <span className="summary-date">
+                          {tomorrowSummaryLabel.gregorian} • {tomorrowSummaryLabel.hebrew}
+                        </span>
+                      </>
+                    )}
                   </button>
                 </div>
               </Section>
@@ -359,16 +409,30 @@ export default function DashboardClient({
                   <button
                     className="action-button"
                     onClick={() => executeCommand('weather', 'std')}
+                    disabled={loadingCommand !== null}
                   >
-                    <span className="icon"><Zap size={32} /></span>
-                    <span>{t('weather.standard')}</span>
+                    {isLoading('weather', 'std') ? (
+                      <Loader2 size={32} className="spinner" />
+                    ) : (
+                      <>
+                        <span className="icon"><Zap size={32} /></span>
+                        <span>{t('weather.standard')}</span>
+                      </>
+                    )}
                   </button>
                   <button
                     className="action-button"
                     onClick={() => executeCommand('weather', 'dtl')}
+                    disabled={loadingCommand !== null}
                   >
-                    <span className="icon"><TrendingUp size={32} /></span>
-                    <span>{t('weather.detailed')}</span>
+                    {isLoading('weather', 'dtl') ? (
+                      <Loader2 size={32} className="spinner" />
+                    ) : (
+                      <>
+                        <span className="icon"><TrendingUp size={32} /></span>
+                        <span>{t('weather.detailed')}</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </Section>

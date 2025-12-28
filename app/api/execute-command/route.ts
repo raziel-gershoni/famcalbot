@@ -81,29 +81,31 @@ export async function POST(request: NextRequest) {
       handleWeatherCommand
     } = await import('@/src/services/telegram');
 
-    // Execute command (chatId = userId for Telegram)
-    // Pass progressMessageId so handler can update instead of create new
+    // Execute command in background (don't await) so we can return immediately
+    // The progress message is already sent, command will update it when done
     switch (command) {
       case 'testai':
-        await handleTestAICommand(user_id, user_id, args);
+        handleTestAICommand(user_id, user_id, args).catch(err =>
+          console.error('testai command error:', err)
+        );
         break;
       case 'summary':
-        await handleSummaryCommand(
+        handleSummaryCommand(
           user_id,
           user_id,
           MessagingPlatform.TELEGRAM,
           args,
           progressMessageId
-        );
+        ).catch(err => console.error('summary command error:', err));
         break;
       case 'weather':
-        await handleWeatherCommand(
+        handleWeatherCommand(
           user_id,
           user_id,
           MessagingPlatform.TELEGRAM,
           args,
           progressMessageId
-        );
+        ).catch(err => console.error('weather command error:', err));
         break;
       default:
         return NextResponse.json({
@@ -112,9 +114,12 @@ export async function POST(request: NextRequest) {
         }, { status: 400 });
     }
 
+    // Return immediately after progress message is sent
+    // Command continues executing in background
     return NextResponse.json({
       success: true,
-      message: 'Command executed successfully',
+      message: 'Command started',
+      progressMessageId,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
