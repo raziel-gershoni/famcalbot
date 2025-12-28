@@ -146,7 +146,9 @@
       "gender": "מין",
       "selectGender": "בחר מין",
       "male": "זכר",
-      "female": "נקבה"
+      "female": "נקבה",
+      "tapToAdd": "לחץ להוספה",
+      "optional": "אופציונלי"
     },
     "feedback": {
       "added": "נוסף",
@@ -159,7 +161,8 @@
     },
     "calendarRule": {
       "label": "כלל מותאם",
-      "placeholder": "לדוגמה, יציאה מוקדמת בכל יום שישי"
+      "placeholder": "לדוגמה, יציאה מוקדמת בכל יום שישי",
+      "tapToAdd": "לחץ להוספה"
     },
     "actions": {
       "save": "שמור בחירת יומנים",

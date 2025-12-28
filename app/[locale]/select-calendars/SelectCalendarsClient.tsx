@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { TelegramLayout, Header } from '@/components/Layout';
-import { Calendar } from 'lucide-react';
+import { Calendar, Pencil, ChevronDown, ChevronUp } from 'lucide-react';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarLabel, CalendarAssignment } from '@/src/types';
 import { validateCalendarAssignments } from '@/src/utils/calendar-helpers';
@@ -70,6 +70,9 @@ export default function SelectCalendarsClient({
   );
   const [feedbackMessages, setFeedbackMessages] = useState<FeedbackMessage[]>([]);
   const [messageIdCounter, setMessageIdCounter] = useState(0);
+  // Track which panels are expanded (collapsed by default if data exists)
+  const [expandedSpouse, setExpandedSpouse] = useState<Set<string>>(new Set());
+  const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
 
   const handleBack = () => {
     router.push(`/${locale}/dashboard?user_id=${userId}`);
@@ -240,6 +243,53 @@ export default function SelectCalendarsClient({
     }
   };
 
+  // Toggle expanded state for spouse panel
+  const toggleSpouseExpanded = (calendarId: string) => {
+    setExpandedSpouse(prev => {
+      const next = new Set(prev);
+      if (next.has(calendarId)) {
+        next.delete(calendarId);
+      } else {
+        next.add(calendarId);
+      }
+      return next;
+    });
+  };
+
+  // Toggle expanded state for rule panel
+  const toggleRuleExpanded = (calendarId: string) => {
+    setExpandedRules(prev => {
+      const next = new Set(prev);
+      if (next.has(calendarId)) {
+        next.delete(calendarId);
+      } else {
+        next.add(calendarId);
+      }
+      return next;
+    });
+  };
+
+  // Get spouse summary text
+  const getSpouseSummary = (calendarId: string): string | null => {
+    const metadata = spouseMetadata.get(calendarId);
+    if (!metadata?.personName) return null;
+
+    const parts: string[] = [metadata.personName];
+    if (metadata.personEnglishName) {
+      parts.push(`(${metadata.personEnglishName})`);
+    }
+    if (metadata.personGender) {
+      parts.push(`- ${t(`spouseInfo.${metadata.personGender}`)}`);
+    }
+    return parts.join(' ');
+  };
+
+  // Check if spouse has any data
+  const hasSpouseData = (calendarId: string): boolean => {
+    const metadata = spouseMetadata.get(calendarId);
+    return !!(metadata?.personName || metadata?.personEnglishName || metadata?.personGender);
+  };
+
   // Toggle category label
   const handleLabelToggle = async (calendarId: string, label: CalendarLabel) => {
     const calendarName = getCalendarName(calendarId);
@@ -350,49 +400,85 @@ export default function SelectCalendarsClient({
           border-color: #667eea;
           background: #f9fafb;
         }
-        .spouse-metadata {
-          margin-top: 12px;
-          padding: 12px;
-          background: #fef3f2;
+        .collapsible-panel {
+          margin-top: 10px;
           border-radius: 8px;
+          overflow: hidden;
+        }
+        .collapsible-panel.spouse {
+          background: #fef3f2;
           border: 1px solid #fecaca;
         }
-        .spouse-metadata-title {
+        .collapsible-panel.rule {
+          background: #f0f9ff;
+          border: 1px solid #bae6fd;
+        }
+        .panel-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 10px 12px;
+          cursor: pointer;
+          user-select: none;
+        }
+        .panel-header:hover {
+          opacity: 0.8;
+        }
+        .panel-title {
           font-size: 13px;
           font-weight: 600;
-          color: #b91c1c;
-          margin-bottom: 10px;
           display: flex;
           align-items: center;
           gap: 6px;
+        }
+        .collapsible-panel.spouse .panel-title {
+          color: #b91c1c;
+        }
+        .collapsible-panel.rule .panel-title {
+          color: #0369a1;
+        }
+        .panel-summary {
+          font-size: 13px;
+          color: #6b7280;
+          flex: 1;
+          margin-left: 8px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .panel-actions {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          color: #9ca3af;
+        }
+        .panel-content {
+          padding: 0 12px 12px 12px;
         }
         .spouse-input-group {
           display: flex;
           flex-direction: column;
           gap: 8px;
         }
-        .spouse-input-row {
-          display: flex;
-          gap: 8px;
-        }
         .spouse-input {
-          flex: 1;
+          width: 100%;
           padding: 8px 12px;
           border: 1px solid #e5e7eb;
           border-radius: 6px;
           font-size: 14px;
+          background: white;
         }
         .spouse-input:focus {
           outline: none;
           border-color: #667eea;
         }
         .spouse-select {
+          width: 100%;
           padding: 8px 12px;
           border: 1px solid #e5e7eb;
           border-radius: 6px;
           font-size: 14px;
           background: white;
-          min-width: 100px;
         }
         .spouse-select:focus {
           outline: none;
@@ -403,17 +489,13 @@ export default function SelectCalendarsClient({
           color: #6b7280;
           margin-bottom: 2px;
         }
-        .calendar-rule {
-          margin-top: 10px;
-          padding-top: 10px;
-          border-top: 1px solid #e5e7eb;
-        }
         .rule-input {
           width: 100%;
           padding: 8px 12px;
           border: 1px solid #e5e7eb;
           border-radius: 6px;
           font-size: 14px;
+          background: white;
         }
         .rule-input:focus {
           outline: none;
@@ -421,6 +503,11 @@ export default function SelectCalendarsClient({
         }
         .rule-input::placeholder {
           color: #9ca3af;
+        }
+        .add-text {
+          font-size: 12px;
+          color: #9ca3af;
+          font-style: italic;
         }
         .calendar-header-wrapper {
           display: flex;
@@ -627,71 +714,120 @@ export default function SelectCalendarsClient({
                       )}
                     </div>
 
-                    {/* Spouse metadata inputs - shown when calendar is marked as spouse */}
-                    {isSelected && labels.has('spouse') && (
-                      <div className="spouse-metadata">
-                        <div className="spouse-metadata-title">
-                          <span>{t('spouseInfo.title')}</span>
-                        </div>
-                        <div className="spouse-input-group">
-                          <div className="spouse-input-row">
-                            <div style={{ flex: 1 }}>
-                              <div className="input-label">{t('spouseInfo.name')}</div>
-                              <input
-                                type="text"
-                                className="spouse-input"
-                                placeholder={t('spouseInfo.namePlaceholder')}
-                                value={spouseMetadata.get(calendar.id)?.personName || ''}
-                                onChange={(e) => handleSpouseMetadataChange(calendar.id, 'personName', e.target.value)}
-                                onBlur={() => handleSpouseMetadataBlur(calendar.id)}
-                              />
-                            </div>
-                            <div style={{ flex: 1 }}>
-                              <div className="input-label">{t('spouseInfo.englishName')}</div>
-                              <input
-                                type="text"
-                                className="spouse-input"
-                                placeholder={t('spouseInfo.englishNamePlaceholder')}
-                                value={spouseMetadata.get(calendar.id)?.personEnglishName || ''}
-                                onChange={(e) => handleSpouseMetadataChange(calendar.id, 'personEnglishName', e.target.value)}
-                                onBlur={() => handleSpouseMetadataBlur(calendar.id)}
-                              />
-                            </div>
-                          </div>
-                          <div>
-                            <div className="input-label">{t('spouseInfo.gender')}</div>
-                            <select
-                              className="spouse-select"
-                              value={spouseMetadata.get(calendar.id)?.personGender || ''}
-                              onChange={(e) => {
-                                handleSpouseMetadataChange(calendar.id, 'personGender', e.target.value as 'male' | 'female');
-                                // Save immediately on select change
-                                setTimeout(() => handleSpouseMetadataBlur(calendar.id), 100);
-                              }}
-                            >
-                              <option value="">{t('spouseInfo.selectGender')}</option>
-                              <option value="male">{t('spouseInfo.male')}</option>
-                              <option value="female">{t('spouseInfo.female')}</option>
-                            </select>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                    {/* Spouse metadata - collapsible panel */}
+                    {isSelected && labels.has('spouse') && (() => {
+                      const spouseSummary = getSpouseSummary(calendar.id);
+                      const hasData = hasSpouseData(calendar.id);
+                      const isExpanded = expandedSpouse.has(calendar.id) || !hasData;
 
-                    {/* Calendar rule input - shown for all selected calendars */}
-                    {isSelected && (
-                      <div className="calendar-rule">
-                        <div className="input-label">{t('calendarRule.label')}</div>
-                        <input
-                          type="text"
-                          className="rule-input"
-                          placeholder={t('calendarRule.placeholder')}
-                          value={calendarRules.get(calendar.id) || ''}
-                          onChange={(e) => handleRuleChange(calendar.id, e.target.value)}
-                          onBlur={() => handleRuleBlur(calendar.id)}
-                        />
-                      </div>
-                    )}
+                      return (
+                        <div className="collapsible-panel spouse">
+                          <div
+                            className="panel-header"
+                            onClick={() => toggleSpouseExpanded(calendar.id)}
+                          >
+                            <div className="panel-title">
+                              <span>{t('spouseInfo.title')}</span>
+                            </div>
+                            {!isExpanded && spouseSummary && (
+                              <span className="panel-summary">{spouseSummary}</span>
+                            )}
+                            {!isExpanded && !spouseSummary && (
+                              <span className="add-text">{t('spouseInfo.tapToAdd')}</span>
+                            )}
+                            <div className="panel-actions">
+                              {hasData && <Pencil size={14} />}
+                              {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            </div>
+                          </div>
+                          {isExpanded && (
+                            <div className="panel-content">
+                              <div className="spouse-input-group">
+                                <div>
+                                  <div className="input-label">{t('spouseInfo.name')}</div>
+                                  <input
+                                    type="text"
+                                    className="spouse-input"
+                                    placeholder={t('spouseInfo.namePlaceholder')}
+                                    value={spouseMetadata.get(calendar.id)?.personName || ''}
+                                    onChange={(e) => handleSpouseMetadataChange(calendar.id, 'personName', e.target.value)}
+                                    onBlur={() => handleSpouseMetadataBlur(calendar.id)}
+                                  />
+                                </div>
+                                <div>
+                                  <div className="input-label">{t('spouseInfo.englishName')} ({t('spouseInfo.optional')})</div>
+                                  <input
+                                    type="text"
+                                    className="spouse-input"
+                                    placeholder={t('spouseInfo.englishNamePlaceholder')}
+                                    value={spouseMetadata.get(calendar.id)?.personEnglishName || ''}
+                                    onChange={(e) => handleSpouseMetadataChange(calendar.id, 'personEnglishName', e.target.value)}
+                                    onBlur={() => handleSpouseMetadataBlur(calendar.id)}
+                                  />
+                                </div>
+                                <div>
+                                  <div className="input-label">{t('spouseInfo.gender')}</div>
+                                  <select
+                                    className="spouse-select"
+                                    value={spouseMetadata.get(calendar.id)?.personGender || ''}
+                                    onChange={(e) => {
+                                      handleSpouseMetadataChange(calendar.id, 'personGender', e.target.value as 'male' | 'female');
+                                      setTimeout(() => handleSpouseMetadataBlur(calendar.id), 100);
+                                    }}
+                                  >
+                                    <option value="">{t('spouseInfo.selectGender')}</option>
+                                    <option value="male">{t('spouseInfo.male')}</option>
+                                    <option value="female">{t('spouseInfo.female')}</option>
+                                  </select>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Calendar rule - collapsible panel */}
+                    {isSelected && (() => {
+                      const rule = calendarRules.get(calendar.id);
+                      const hasRule = !!rule;
+                      const isExpanded = expandedRules.has(calendar.id) || !hasRule;
+
+                      return (
+                        <div className="collapsible-panel rule">
+                          <div
+                            className="panel-header"
+                            onClick={() => toggleRuleExpanded(calendar.id)}
+                          >
+                            <div className="panel-title">
+                              <span>{t('calendarRule.label')}</span>
+                            </div>
+                            {!isExpanded && rule && (
+                              <span className="panel-summary">{rule}</span>
+                            )}
+                            {!isExpanded && !rule && (
+                              <span className="add-text">{t('calendarRule.tapToAdd')}</span>
+                            )}
+                            <div className="panel-actions">
+                              {hasRule && <Pencil size={14} />}
+                              {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            </div>
+                          </div>
+                          {isExpanded && (
+                            <div className="panel-content">
+                              <input
+                                type="text"
+                                className="rule-input"
+                                placeholder={t('calendarRule.placeholder')}
+                                value={calendarRules.get(calendar.id) || ''}
+                                onChange={(e) => handleRuleChange(calendar.id, e.target.value)}
+                                onBlur={() => handleRuleBlur(calendar.id)}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}
