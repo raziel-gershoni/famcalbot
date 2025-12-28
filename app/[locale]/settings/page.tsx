@@ -58,7 +58,9 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
       currentSettings={{
         language: user.language,
         location: user.location,
-        messagingPlatform: user.messagingPlatform
+        messagingPlatform: user.messagingPlatform,
+        culture: user.culture || 'default',
+        globalRules: user.globalRules || []
       }}
     />
   );

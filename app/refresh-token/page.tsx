@@ -7,6 +7,7 @@ import RefreshTokenClient from './RefreshTokenClient';
 import enMessages from '@/messages/en.json';
 import heMessages from '@/messages/he.json';
 import ruMessages from '@/messages/ru.json';
+import { buildUrl } from '@/src/config/urls';
 
 interface PageProps {
   searchParams: Promise<{
@@ -76,7 +77,7 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
 
   // Generate OAuth URL
   const baseUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || 'https://famcalbot.vercel.app'}/api/refresh-token`;
+  const redirectUri = buildUrl('/api/refresh-token');
   const urlParams = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID || '',
     redirect_uri: redirectUri,

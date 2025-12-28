@@ -18,6 +18,12 @@ interface Calendar {
   accessRole?: string;
 }
 
+interface SpouseMetadata {
+  personName?: string;
+  personEnglishName?: string;
+  personGender?: 'male' | 'female';
+}
+
 interface SelectCalendarsClientProps {
   userId: number;
   userName: string;
@@ -25,6 +31,7 @@ interface SelectCalendarsClientProps {
   currentSelections: {
     selectedCalendars: Set<string>;
     calendarLabels: Map<string, Set<CalendarLabel>>;
+    spouseMetadata: Map<string, SpouseMetadata>;
   };
   locale: string;
 }
@@ -50,6 +57,9 @@ export default function SelectCalendarsClient({
   const [calendarLabels, setCalendarLabels] = useState<Map<string, Set<CalendarLabel>>>(
     currentSelections.calendarLabels
   );
+  const [spouseMetadata, setSpouseMetadata] = useState<Map<string, SpouseMetadata>>(
+    currentSelections.spouseMetadata
+  );
   const [feedbackMessages, setFeedbackMessages] = useState<FeedbackMessage[]>([]);
   const [messageIdCounter, setMessageIdCounter] = useState(0);
 
@@ -72,17 +82,29 @@ export default function SelectCalendarsClient({
   };
 
   // Save current state to server
-  const saveToServer = async (newSelectedCalendars: Set<string>, newCalendarLabels: Map<string, Set<CalendarLabel>>) => {
+  const saveToServer = async (
+    newSelectedCalendars: Set<string>,
+    newCalendarLabels: Map<string, Set<CalendarLabel>>,
+    newSpouseMetadata?: Map<string, SpouseMetadata>
+  ) => {
+    const metadataToUse = newSpouseMetadata || spouseMetadata;
     try {
       const calendarAssignments: CalendarAssignment[] = Array.from(newSelectedCalendars).map(calId => {
         const calendar = availableCalendars.find(c => c.id === calId);
         const labels = Array.from(newCalendarLabels.get(calId) || []);
+        const metadata = metadataToUse.get(calId);
 
         return {
           calendarId: calId,
           labels: labels,
           name: calendar?.name || calId,
-          color: calendar?.backgroundColor || '#4285f4'
+          color: calendar?.backgroundColor || '#4285f4',
+          // Include spouse metadata if this is a spouse calendar
+          ...(labels.includes('spouse') && metadata ? {
+            personName: metadata.personName,
+            personEnglishName: metadata.personEnglishName,
+            personGender: metadata.personGender,
+          } : {})
         };
       });
 
@@ -134,11 +156,16 @@ export default function SelectCalendarsClient({
       newCalendarLabels = new Map(calendarLabels);
       newCalendarLabels.delete(calendarId);
 
+      // Also remove spouse metadata if unchecking
+      const newSpouseMetadata = new Map(spouseMetadata);
+      newSpouseMetadata.delete(calendarId);
+
       setSelectedCalendars(newSelectedCalendars);
       setCalendarLabels(newCalendarLabels);
+      setSpouseMetadata(newSpouseMetadata);
 
       // Save and show feedback
-      const success = await saveToServer(newSelectedCalendars, newCalendarLabels);
+      const success = await saveToServer(newSelectedCalendars, newCalendarLabels, newSpouseMetadata);
       if (success) {
         showFeedback(`${calendarName} ${t('feedback.removed')}`);
       }
@@ -156,6 +183,25 @@ export default function SelectCalendarsClient({
       if (success) {
         showFeedback(`${calendarName} ${t('feedback.added')}`);
       }
+    }
+  };
+
+  // Update spouse metadata for a calendar
+  const handleSpouseMetadataChange = async (calendarId: string, field: keyof SpouseMetadata, value: string) => {
+    const newMetadata = new Map(spouseMetadata);
+    const current = newMetadata.get(calendarId) || {};
+    newMetadata.set(calendarId, { ...current, [field]: value || undefined });
+    setSpouseMetadata(newMetadata);
+
+    // Debounce save (save after user stops typing)
+    // For now, we'll save on blur instead
+  };
+
+  // Save spouse metadata on blur
+  const handleSpouseMetadataBlur = async (calendarId: string) => {
+    const success = await saveToServer(selectedCalendars, calendarLabels, spouseMetadata);
+    if (success) {
+      showFeedback(t('feedback.spouseInfoSaved') || 'Spouse info saved');
     }
   };
 
@@ -268,6 +314,59 @@ export default function SelectCalendarsClient({
         .calendar-item.selected {
           border-color: #667eea;
           background: #f9fafb;
+        }
+        .spouse-metadata {
+          margin-top: 12px;
+          padding: 12px;
+          background: #fef3f2;
+          border-radius: 8px;
+          border: 1px solid #fecaca;
+        }
+        .spouse-metadata-title {
+          font-size: 13px;
+          font-weight: 600;
+          color: #b91c1c;
+          margin-bottom: 10px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .spouse-input-group {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .spouse-input-row {
+          display: flex;
+          gap: 8px;
+        }
+        .spouse-input {
+          flex: 1;
+          padding: 8px 12px;
+          border: 1px solid #e5e7eb;
+          border-radius: 6px;
+          font-size: 14px;
+        }
+        .spouse-input:focus {
+          outline: none;
+          border-color: #667eea;
+        }
+        .spouse-select {
+          padding: 8px 12px;
+          border: 1px solid #e5e7eb;
+          border-radius: 6px;
+          font-size: 14px;
+          background: white;
+          min-width: 100px;
+        }
+        .spouse-select:focus {
+          outline: none;
+          border-color: #667eea;
+        }
+        .input-label {
+          font-size: 11px;
+          color: #6b7280;
+          margin-bottom: 2px;
         }
         .calendar-header-wrapper {
           display: flex;
@@ -473,6 +572,57 @@ export default function SelectCalendarsClient({
                         </div>
                       )}
                     </div>
+
+                    {/* Spouse metadata inputs - shown when calendar is marked as spouse */}
+                    {isSelected && labels.has('spouse') && (
+                      <div className="spouse-metadata">
+                        <div className="spouse-metadata-title">
+                          <span>{t('spouseInfo.title')}</span>
+                        </div>
+                        <div className="spouse-input-group">
+                          <div className="spouse-input-row">
+                            <div style={{ flex: 1 }}>
+                              <div className="input-label">{t('spouseInfo.name')}</div>
+                              <input
+                                type="text"
+                                className="spouse-input"
+                                placeholder={t('spouseInfo.namePlaceholder')}
+                                value={spouseMetadata.get(calendar.id)?.personName || ''}
+                                onChange={(e) => handleSpouseMetadataChange(calendar.id, 'personName', e.target.value)}
+                                onBlur={() => handleSpouseMetadataBlur(calendar.id)}
+                              />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div className="input-label">{t('spouseInfo.englishName')}</div>
+                              <input
+                                type="text"
+                                className="spouse-input"
+                                placeholder={t('spouseInfo.englishNamePlaceholder')}
+                                value={spouseMetadata.get(calendar.id)?.personEnglishName || ''}
+                                onChange={(e) => handleSpouseMetadataChange(calendar.id, 'personEnglishName', e.target.value)}
+                                onBlur={() => handleSpouseMetadataBlur(calendar.id)}
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <div className="input-label">{t('spouseInfo.gender')}</div>
+                            <select
+                              className="spouse-select"
+                              value={spouseMetadata.get(calendar.id)?.personGender || ''}
+                              onChange={(e) => {
+                                handleSpouseMetadataChange(calendar.id, 'personGender', e.target.value as 'male' | 'female');
+                                // Save immediately on select change
+                                setTimeout(() => handleSpouseMetadataBlur(calendar.id), 100);
+                              }}
+                            >
+                              <option value="">{t('spouseInfo.selectGender')}</option>
+                              <option value="male">{t('spouseInfo.male')}</option>
+                              <option value="female">{t('spouseInfo.female')}</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}

@@ -96,6 +96,13 @@
     "platformLabel": "Платформа для сообщений",
     "platformHelp": "Где получать сообщения",
     "platformBoth": "Обе",
+    "cultureLabel": "Культура",
+    "cultureDefault": "По умолчанию",
+    "cultureJewish": "Еврейская",
+    "cultureHelp": "Еврейская культура включает даты по еврейскому календарю и праздничный контекст",
+    "globalRulesLabel": "Пользовательские правила",
+    "globalRulesHelp": "Добавьте правила, которые применяются ко всем календарям (напр., ранний уход в определённые дни)",
+    "globalRulesPlaceholder": "Правило {number}",
     "successMessage": "Ваши настройки успешно обновлены",
     "cancelButton": "Отмена",
     "actions": {
@@ -130,12 +137,24 @@
       "primaryMustBeYours": "Основной календарь должен быть в категории 'ваш'"
     },
     "successMessage": "Настройки календаря успешно обновлены",
+    "spouseInfo": {
+      "title": "Информация о супруге",
+      "name": "Имя",
+      "namePlaceholder": "Имя супруга",
+      "englishName": "Имя на английском",
+      "englishNamePlaceholder": "Имя на английском (необязательно)",
+      "gender": "Пол",
+      "selectGender": "Выберите пол",
+      "male": "Мужской",
+      "female": "Женский"
+    },
     "feedback": {
       "added": "добавлен",
       "removed": "удалён",
       "addedTo": "добавлен в",
       "removedFrom": "удалён из",
-      "setPrimary": "установлен как основной"
+      "setPrimary": "установлен как основной",
+      "spouseInfoSaved": "Информация о супруге сохранена"
     },
     "actions": {
       "save": "Сохранить выбор календарей",

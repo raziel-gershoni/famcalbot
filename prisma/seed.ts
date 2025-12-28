@@ -32,11 +32,12 @@ async function main() {
       whatsappPhone: '+972526367600',
       messagingPlatform: 'telegram',
       name: 'Raziel',
-      hebrewName: 'רזיאל',
+      englishName: 'Raziel',  // Was: hebrewName
       gender: 'male',
       spouseName: 'Yeshua',
-      spouseHebrewName: 'ישועה',
+      spouseEnglishName: 'Yeshua',  // Was: spouseHebrewName
       spouseGender: 'female',
+      culture: 'jewish',
       location: 'Harish, Israel',
       language: 'Hebrew',
       googleRefreshToken: SHARED_REFRESH_TOKEN,
@@ -74,11 +75,12 @@ async function main() {
       whatsappPhone: null,  // Telegram only for now
       messagingPlatform: 'telegram',
       name: 'Yeshua',
-      hebrewName: 'ישועה',
+      englishName: 'Yeshua',  // Was: hebrewName
       gender: 'female',
       spouseName: 'Raziel',
-      spouseHebrewName: 'רזיאל',
+      spouseEnglishName: 'Raziel',  // Was: spouseHebrewName
       spouseGender: 'male',
+      culture: 'jewish',
       location: 'Harish, Israel',
       language: 'Hebrew',
       googleRefreshToken: SHARED_REFRESH_TOKEN,

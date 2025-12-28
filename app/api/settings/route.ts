@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { language, location, messagingPlatform, initData } = body;
+    const { language, location, messagingPlatform, culture, globalRules, initData } = body;
 
     // Authentication: Verify Telegram initData
     if (!verifyUserAccess(initData, parseInt(userId))) {
@@ -40,7 +40,9 @@ export async function POST(request: NextRequest) {
     await updateUser(parseInt(userId), {
       language: language || undefined,
       location: location || undefined,
-      messagingPlatform: messagingPlatform || undefined
+      messagingPlatform: messagingPlatform || undefined,
+      culture: culture || undefined,
+      globalRules: Array.isArray(globalRules) ? globalRules : undefined
     });
 
     return NextResponse.json({ success: true });

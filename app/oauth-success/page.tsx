@@ -73,7 +73,11 @@ export default async function OAuthSuccessPage({ searchParams }: PageProps) {
     );
   }
 
-  const botUsername = process.env.TELEGRAM_BOT_USERNAME || 'family_calendar_telegram_bot';
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME;
+
+  if (!botUsername) {
+    throw new Error('TELEGRAM_BOT_USERNAME environment variable is required');
+  }
 
   return <SuccessClient userName={user.name || 'User'} botUsername={botUsername} />;
 }

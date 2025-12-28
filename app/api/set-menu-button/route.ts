@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getBot } from '@/src/services/telegram';
 import { captureError } from '@/src/lib/error-capture';
+import { buildUrl } from '@/src/config/urls';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,11 +15,12 @@ export async function GET() {
     const bot = getBot();
 
     // Set menu button for quick dashboard access
+    const dashboardUrl = buildUrl('/en/dashboard');
     await bot.setChatMenuButton({
       menu_button: {
         type: 'web_app',
         text: 'Dashboard',
-        web_app: { url: 'https://famcalbot.vercel.app/en/dashboard' }
+        web_app: { url: dashboardUrl }
       }
     });
 
@@ -28,7 +30,7 @@ export async function GET() {
       menuButton: {
         type: 'web_app',
         text: 'Dashboard',
-        url: 'https://famcalbot.vercel.app/en/dashboard'
+        url: dashboardUrl
       }
     });
   } catch (error) {

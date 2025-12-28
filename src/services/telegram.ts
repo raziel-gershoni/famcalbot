@@ -1,12 +1,13 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { getUserByTelegramId, getUserByIdentifier, getWhitelistedIds, getAllUsers } from './user-service';
 import { fetchTodayEvents, fetchTomorrowEvents } from './calendar';
-import { generateSummary } from './claude';
+import { generateSummary, SummaryUserContext } from './claude';
 import { CalendarEvent, UserConfig } from '../types';
 import { USER_MESSAGES } from '../config/messages';
 import { IMessagingService, getTelegramService, getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from './messaging';
-import { getCalendarsByLabel, getPrimaryCalendar } from '../utils/calendar-helpers';
+import { getCalendarsByLabel, getPrimaryCalendar, getSpouseInfo } from '../utils/calendar-helpers';
 import { sendProgressWithAnimation, ProgressType } from './progress-message';
+import { getBaseUrl, buildUrl } from '../config/urls';
 
 /**
  * Categorize events by ownership for a specific user
@@ -64,7 +65,7 @@ export function initBot(): TelegramBot {
     menu_button: {
       type: 'web_app',
       text: 'Dashboard',
-      web_app: { url: 'https://famcalbot.vercel.app/en/dashboard' }
+      web_app: { url: buildUrl('/en/dashboard') }
     }
   }).then(() => {
     console.log('✅ Menu button configured successfully');
@@ -133,12 +134,12 @@ export async function handleStartCommand(
 
   const name = user.name || 'there';
   const locale = user.language || 'en';
-  const dashboardUrl = `https://famcalbot.vercel.app/${locale}/dashboard?user_id=${user.telegramId}`;
+  const dashboardUrl = buildUrl(`/${locale}/dashboard?user_id=${user.telegramId}`);
   const service = getMessagingService();
 
   // Check if user is admin
   if (user.isAdmin) {
-    const adminUrl = `https://famcalbot.vercel.app/${locale}/admin-panel?user_id=${user.telegramId}`;
+    const adminUrl = buildUrl(`/${locale}/admin-panel?user_id=${user.telegramId}`);
     const message = `👋 <b>Welcome ${name}!</b>\n\nChoose your dashboard:`;
 
     await service.sendMessage(chatId, message, {
@@ -359,6 +360,9 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
       ? getPrimaryCalendar(user.calendarAssignments) || ''
       : '';
 
+    // Get spouse info from calendar assignment or legacy fields
+    const spouseInfo = getSpouseInfo(user);
+
     // Run the tests
     console.log('Starting testModels execution...');
     await testModels(
@@ -372,11 +376,11 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
       categorizedTomorrow.spouseEvents,
       categorizedTomorrow.otherEvents,
       user.name,
-      user.hebrewName,
+      user.englishName,
       user.gender,
-      user.spouseName,
-      user.spouseHebrewName,
-      user.spouseGender,
+      spouseInfo?.name,
+      spouseInfo?.englishName,
+      spouseInfo?.gender,
       primaryCalendar,
       chatId,
       uniqueMarker
@@ -513,6 +517,16 @@ async function sendSummaryToUser(
       ? getPrimaryCalendar(user.calendarAssignments) || ''
       : '';
 
+    // Get spouse info from calendar assignment or legacy fields
+    const spouseInfo = getSpouseInfo(user);
+
+    // Build user context for summary generation
+    const userContext: SummaryUserContext = {
+      culture: user.culture,
+      globalRules: user.globalRules,
+      calendarAssignments: user.calendarAssignments,
+    };
+
     // Generate summary with AI (personalized for this user)
     // Include model info footer only for admin user
     const summary = await generateSummary(
@@ -520,17 +534,18 @@ async function sendSummaryToUser(
       categorized.spouseEvents,
       categorized.otherEvents,
       user.name,
-      user.hebrewName,
+      user.englishName,
       user.gender,
-      user.spouseName,
-      user.spouseHebrewName,
-      user.spouseGender,
+      spouseInfo?.name,
+      spouseInfo?.englishName,
+      spouseInfo?.gender,
       primaryCalendar,
       summaryDate,
       user.isAdmin,
       modelId,
       user.location,
-      user.language
+      user.language,
+      userContext
     );
 
     // Stop animation and update message with summary
@@ -549,7 +564,7 @@ async function sendSummaryToUser(
 
     // Check if it's a token expiration error
     if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
-      const refreshUrl = `https://famcalbot.vercel.app/refresh-token?user_id=${userId}`;
+      const refreshUrl = buildUrl(`/refresh-token?user_id=${userId}`);
       const expiredMessage = `🔑 <b>Google Calendar Token Expired</b>\n\nYour Google Calendar access has expired. Please refresh your token to continue receiving summaries.\n\nTap the button below to refresh:`;
       await messagingService.updateMessage(userId, messageId, expiredMessage, {
         format: MessageFormat.HTML
@@ -625,6 +640,16 @@ async function sendSummaryToAll(
           ? getPrimaryCalendar(user.calendarAssignments) || ''
           : '';
 
+        // Get spouse info from calendar assignment or legacy fields
+        const spouseInfo = getSpouseInfo(user);
+
+        // Build user context for summary generation
+        const userContext: SummaryUserContext = {
+          culture: user.culture,
+          globalRules: user.globalRules,
+          calendarAssignments: user.calendarAssignments,
+        };
+
         // Generate personalized summary for this specific user
         // Include model info footer only for admin user
         const summary = await generateSummary(
@@ -632,17 +657,18 @@ async function sendSummaryToAll(
           categorized.spouseEvents,
           categorized.otherEvents,
           user.name,
-          user.hebrewName,
+          user.englishName,
           user.gender,
-          user.spouseName,
-          user.spouseHebrewName,
-          user.spouseGender,
+          spouseInfo?.name,
+          spouseInfo?.englishName,
+          spouseInfo?.gender,
           primaryCalendar,
           summaryDate,
           user.isAdmin,
           undefined,
           user.location,
-          user.language
+          user.language,
+          userContext
         );
 
         switch (platform) {
@@ -687,7 +713,7 @@ async function sendSummaryToAll(
 
         // Check if it's a token expiration error
         if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
-          const refreshUrl = `https://famcalbot.vercel.app/refresh-token?user_id=${user.telegramId}`;
+          const refreshUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}`);
           const expiredMessage = `🔑 <b>Google Calendar Token Expired</b>\n\nYour Google Calendar access has expired. Please refresh your token to continue receiving summaries.\n\nTap the button below to refresh:`;
 
           // Send token expired message to the user

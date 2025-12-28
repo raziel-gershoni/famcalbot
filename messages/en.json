@@ -96,6 +96,13 @@
     "platformLabel": "Messaging Platform",
     "platformHelp": "Where to receive messages",
     "platformBoth": "Both",
+    "cultureLabel": "Culture",
+    "cultureDefault": "Default",
+    "cultureJewish": "Jewish",
+    "cultureHelp": "Jewish culture includes Hebrew dates and holiday context",
+    "globalRulesLabel": "Custom Rules",
+    "globalRulesHelp": "Add rules that apply to all calendars (e.g., early dismissal on certain days)",
+    "globalRulesPlaceholder": "Rule {number}",
     "successMessage": "Your preferences have been updated successfully",
     "cancelButton": "Cancel",
     "actions": {
@@ -130,12 +137,24 @@
       "primaryMustBeYours": "Primary calendar must be in 'yours' category"
     },
     "successMessage": "Your calendar settings have been updated successfully",
+    "spouseInfo": {
+      "title": "Spouse Information",
+      "name": "Name",
+      "namePlaceholder": "Spouse name",
+      "englishName": "English Name",
+      "englishNamePlaceholder": "English name (optional)",
+      "gender": "Gender",
+      "selectGender": "Select gender",
+      "male": "Male",
+      "female": "Female"
+    },
     "feedback": {
       "added": "added",
       "removed": "removed",
       "addedTo": "added to",
       "removedFrom": "removed from",
-      "setPrimary": "set as primary"
+      "setPrimary": "set as primary",
+      "spouseInfoSaved": "Spouse info saved"
     },
     "actions": {
       "save": "Save Calendar Selection",

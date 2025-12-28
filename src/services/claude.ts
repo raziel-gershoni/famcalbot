@@ -1,10 +1,19 @@
 import { HDate, Locale } from '@hebcal/core';
 import '@hebcal/locales';
-import { CalendarEvent } from '../types';
+import { CalendarEvent, CalendarAssignment } from '../types';
 import { TIMEZONE } from '../config/constants';
 import { buildCalendarSummaryPrompt, SummaryPromptData } from '../prompts/calendar-summary';
 import { formatEventList } from '../utils/event-formatter';
 import { generateAICompletion } from './ai-provider';
+
+/**
+ * User context for summary generation
+ */
+export interface SummaryUserContext {
+  culture?: string;
+  globalRules?: string[];
+  calendarAssignments?: CalendarAssignment[];
+}
 
 /**
  * Get Hebrew date information and check if today is Rosh Chodesh
@@ -36,15 +45,16 @@ function buildPromptData(
   spouseEvents: CalendarEvent[],
   otherEvents: CalendarEvent[],
   userName: string,
-  userHebrewName: string,
+  userEnglishName: string,
   userGender: 'male' | 'female',
-  spouseName: string,
-  spouseHebrewName: string,
-  spouseGender: 'male' | 'female',
+  spouseName: string | undefined,
+  spouseEnglishName: string | undefined,
+  spouseGender: 'male' | 'female' | undefined,
   date: Date,
   timezone: string = TIMEZONE,
   weatherSummary?: string,
-  language?: string
+  language?: string,
+  userContext?: SummaryUserContext
 ): SummaryPromptData {
   // Get current date (today) for comparison
   const currentDate = new Date();
@@ -87,12 +97,20 @@ function buildPromptData(
   const spouseEventsText = formatEventList(spouseEvents);
   const otherEventsText = formatEventList(otherEvents);
 
+  // Extract calendar rules from assignments
+  const calendarRules = userContext?.calendarAssignments
+    ?.filter(a => a.rules && a.rules.length > 0)
+    .map(a => ({ calendarName: a.name, rule: a.rules![0] })) || [];
+
+  // Check if user has kids calendars
+  const hasKidsCalendars = userContext?.calendarAssignments?.some(a => a.labels.includes('kids')) ?? false;
+
   return {
     userName,
-    userHebrewName,
+    userEnglishName,
     userGender,
     spouseName,
-    spouseHebrewName,
+    spouseEnglishName,
     spouseGender,
     currentGregorianDate,
     summaryGregorianDate: gregorianDate,
@@ -104,6 +122,11 @@ function buildPromptData(
     otherEventsText,
     weatherSummary,
     language,
+    // New fields
+    culture: userContext?.culture,
+    globalRules: userContext?.globalRules,
+    calendarRules,
+    hasKidsCalendars,
   };
 }
 
@@ -138,17 +161,18 @@ export async function generateSummary(
   spouseEvents: CalendarEvent[],
   otherEvents: CalendarEvent[],
   userName: string,
-  userHebrewName: string,
+  userEnglishName: string,
   userGender: 'male' | 'female',
-  spouseName: string,
-  spouseHebrewName: string,
-  spouseGender: 'male' | 'female',
+  spouseName: string | undefined,
+  spouseEnglishName: string | undefined,
+  spouseGender: 'male' | 'female' | undefined,
   primaryCalendar: string,
   date: Date = new Date(),
   includeModelInfo: boolean = false,
   modelId?: string,
   location?: string,
-  language?: string
+  language?: string,
+  userContext?: SummaryUserContext
 ): Promise<string> {
   // Get timezone from location (or use default)
   let timezone = TIMEZONE;
@@ -181,15 +205,16 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
     spouseEvents,
     otherEvents,
     userName,
-    userHebrewName,
+    userEnglishName,
     userGender,
     spouseName,
-    spouseHebrewName,
+    spouseEnglishName,
     spouseGender,
     date,
     timezone,
     weatherSummary,
-    language
+    language,
+    userContext
   );
 
   // Build the prompt
@@ -208,16 +233,17 @@ export async function generateSummaryWithMetrics(
   spouseEvents: CalendarEvent[],
   otherEvents: CalendarEvent[],
   userName: string,
-  userHebrewName: string,
+  userEnglishName: string,
   userGender: 'male' | 'female',
-  spouseName: string,
-  spouseHebrewName: string,
-  spouseGender: 'male' | 'female',
+  spouseName: string | undefined,
+  spouseEnglishName: string | undefined,
+  spouseGender: 'male' | 'female' | undefined,
   primaryCalendar: string,
   date: Date = new Date(),
   modelId?: string,
   location?: string,
-  language?: string
+  language?: string,
+  userContext?: SummaryUserContext
 ) {
   // Get timezone from location (or use default)
   let timezone = TIMEZONE;
@@ -250,15 +276,16 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
     spouseEvents,
     otherEvents,
     userName,
-    userHebrewName,
+    userEnglishName,
     userGender,
     spouseName,
-    spouseHebrewName,
+    spouseEnglishName,
     spouseGender,
     date,
     timezone,
     weatherSummary,
-    language
+    language,
+    userContext
   );
 
   // Build the prompt

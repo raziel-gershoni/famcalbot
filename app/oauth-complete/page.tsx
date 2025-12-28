@@ -12,7 +12,11 @@ interface PageProps {
 export default async function OAuthCompletePage({ searchParams }: PageProps) {
   const params = await searchParams;
   const locale = params.locale || 'en';
-  const botUsername = process.env.TELEGRAM_BOT_USERNAME || 'family_calendar_telegram_bot';
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME;
+
+  if (!botUsername) {
+    throw new Error('TELEGRAM_BOT_USERNAME environment variable is required');
+  }
 
   const messages = { en: enMessages, he: heMessages, ru: ruMessages }[locale] ?? enMessages;
   const t = messages.oauthComplete;

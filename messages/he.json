@@ -96,6 +96,13 @@
     "platformLabel": "פלטפורמת הודעות",
     "platformHelp": "היכן לקבל הודעות",
     "platformBoth": "שניהם",
+    "cultureLabel": "תרבות",
+    "cultureDefault": "ברירת מחדל",
+    "cultureJewish": "יהודית",
+    "cultureHelp": "תרבות יהודית כוללת תאריכים עבריים והקשר חגים",
+    "globalRulesLabel": "כללים מותאמים",
+    "globalRulesHelp": "הוסף כללים שחלים על כל היומנים (לדוגמה, יציאה מוקדמת בימים מסוימים)",
+    "globalRulesPlaceholder": "כלל {number}",
     "successMessage": "ההעדפות שלך עודכנו בהצלחה",
     "cancelButton": "ביטול",
     "actions": {
@@ -130,12 +137,24 @@
       "primaryMustBeYours": "היומן הראשי חייב להיות בקטגוריה 'שלך'"
     },
     "successMessage": "הגדרות היומן שלך עודכנו בהצלחה",
+    "spouseInfo": {
+      "title": "פרטי בן/בת זוג",
+      "name": "שם",
+      "namePlaceholder": "שם בן/בת הזוג",
+      "englishName": "שם באנגלית",
+      "englishNamePlaceholder": "שם באנגלית (אופציונלי)",
+      "gender": "מין",
+      "selectGender": "בחר מין",
+      "male": "זכר",
+      "female": "נקבה"
+    },
     "feedback": {
       "added": "נוסף",
       "removed": "הוסר",
       "addedTo": "נוסף ל",
       "removedFrom": "הוסר מ",
-      "setPrimary": "הוגדר כראשי"
+      "setPrimary": "הוגדר כראשי",
+      "spouseInfoSaved": "פרטי בן/בת זוג נשמרו"
     },
     "actions": {
       "save": "שמור בחירת יומנים",

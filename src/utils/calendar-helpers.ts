@@ -1,4 +1,41 @@
-import { CalendarAssignment, CalendarLabel } from '../types';
+import { CalendarAssignment, CalendarLabel, UserConfig } from '../types';
+
+/**
+ * Spouse info extracted from calendar assignment or legacy user fields
+ */
+export interface SpouseInfo {
+  name: string;
+  englishName?: string;
+  gender: 'male' | 'female';
+}
+
+/**
+ * Get spouse info from calendar assignments (or fallback to legacy user fields)
+ * Returns null if no spouse calendar exists
+ */
+export function getSpouseInfo(user: UserConfig): SpouseInfo | null {
+  // First, try to get from calendar assignment
+  const spouseCalendar = user.calendarAssignments?.find(a => a.labels.includes('spouse'));
+
+  if (spouseCalendar?.personName && spouseCalendar?.personGender) {
+    return {
+      name: spouseCalendar.personName,
+      englishName: spouseCalendar.personEnglishName,
+      gender: spouseCalendar.personGender,
+    };
+  }
+
+  // Fallback to legacy user fields (for migration period)
+  if (user.spouseName && user.spouseGender) {
+    return {
+      name: user.spouseName,
+      englishName: user.spouseEnglishName || undefined,
+      gender: user.spouseGender,
+    };
+  }
+
+  return null;
+}
 
 /**
  * Get all calendar IDs that have a specific label

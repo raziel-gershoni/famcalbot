@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { prisma } from '@/src/utils/prisma';
 import { getUserByTelegramId, updateGoogleRefreshToken } from '@/src/services/user-service';
 import { XCircle, AlertTriangle } from 'lucide-react';
+import { buildUrl } from '@/src/config/urls';
 
 interface PageProps {
   searchParams: Promise<{
@@ -155,7 +156,7 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   await prisma.oAuthState.delete({ where: { id: stateRecord.id } });
 
   // Exchange code for tokens
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || 'https://famcalbot.vercel.app'}/api/refresh-token`;
+  const redirectUri = buildUrl('/api/refresh-token');
   let tokenResponse;
 
   try {

@@ -10,20 +10,38 @@ interface PageProps {
   searchParams: Promise<{ user_id?: string }>;
 }
 
+// Spouse metadata for a calendar
+interface SpouseMetadata {
+  personName?: string;
+  personEnglishName?: string;
+  personGender?: 'male' | 'female';
+}
+
 // Convert calendarAssignments to state format
 function convertAssignmentsToSelections(assignments: CalendarAssignment[]): {
   selectedCalendars: Set<string>;
   calendarLabels: Map<string, Set<CalendarLabel>>;
+  spouseMetadata: Map<string, SpouseMetadata>;
 } {
   const selectedCalendars = new Set<string>();
   const calendarLabels = new Map<string, Set<CalendarLabel>>();
+  const spouseMetadata = new Map<string, SpouseMetadata>();
 
   for (const assignment of assignments) {
     selectedCalendars.add(assignment.calendarId);
     calendarLabels.set(assignment.calendarId, new Set(assignment.labels));
+
+    // Store spouse metadata if present
+    if (assignment.personName || assignment.personEnglishName || assignment.personGender) {
+      spouseMetadata.set(assignment.calendarId, {
+        personName: assignment.personName,
+        personEnglishName: assignment.personEnglishName,
+        personGender: assignment.personGender,
+      });
+    }
   }
 
-  return { selectedCalendars, calendarLabels };
+  return { selectedCalendars, calendarLabels, spouseMetadata };
 }
 
 export default async function SelectCalendarsPage({ params, searchParams }: PageProps) {
@@ -102,7 +120,7 @@ export default async function SelectCalendarsPage({ params, searchParams }: Page
     // Convert user's current selections to new state format
     const currentSelections = user.calendarAssignments && user.calendarAssignments.length > 0
       ? convertAssignmentsToSelections(user.calendarAssignments)
-      : { selectedCalendars: new Set<string>(), calendarLabels: new Map() };
+      : { selectedCalendars: new Set<string>(), calendarLabels: new Map(), spouseMetadata: new Map() };
 
     return (
       <SelectCalendarsClient

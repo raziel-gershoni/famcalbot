@@ -19,15 +19,21 @@ model User {
   whatsappPhone String? @unique
 
   // Personal info
-  name              String
-  hebrewName        String
-  gender            String  // 'male' | 'female'
-  spouseName        String
-  spouseHebrewName  String
-  spouseGender      String  // 'male' | 'female'
+  name              String                              // Name in user's natural language
+  englishName       String  @default("")                // English name for reference (was: hebrewName)
+  gender            String                              // 'male' | 'female'
+
+  // DEPRECATED: Spouse info now stored in calendar assignments
+  // These will be removed in a future migration after data is migrated
+  spouseName        String?                             // DEPRECATED
+  spouseEnglishName String?                             // DEPRECATED (was: spouseHebrewName)
+  spouseGender      String?                             // DEPRECATED
 
   // Settings
-  location          String  @default("Harish, Israel")
+  location          String  @default("Harish, Israel")  // TODO: Change default to "" after migration
+  culture           String  @default("default")         // 'jewish' | 'default'
+  locationForced    Boolean @default(false)             // true = user confirmed their location
+  globalRules       String[] @default([])               // Max 3 free-text rules for all calendars
   language          String  @default("Hebrew")
   messagingPlatform String  @default("telegram") // 'telegram' | 'whatsapp' | 'all'
   isAdmin           Boolean @default(false)       // Admin panel access

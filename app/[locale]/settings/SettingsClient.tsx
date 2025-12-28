@@ -12,6 +12,8 @@ interface SettingsClientProps {
     language: string;
     location: string;
     messagingPlatform: string;
+    culture: string;
+    globalRules: string[];
   };
 }
 
@@ -24,6 +26,12 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
   const [language, setLanguage] = useState(currentSettings.language);
   const [location, setLocation] = useState(currentSettings.location);
   const [messagingPlatform, setMessagingPlatform] = useState(currentSettings.messagingPlatform);
+  const [culture, setCulture] = useState(currentSettings.culture);
+  const [globalRules, setGlobalRules] = useState<string[]>(
+    currentSettings.globalRules.length > 0
+      ? [...currentSettings.globalRules, '', '', ''].slice(0, 3)
+      : ['', '', '']
+  );
 
   useEffect(() => {
     if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
@@ -50,6 +58,8 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
           language,
           location,
           messagingPlatform,
+          culture,
+          globalRules: globalRules.filter(r => r.trim() !== ''),
           initData
         })
       });
@@ -265,6 +275,41 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
                 <option value="all">{t('platformBoth')}</option>
               </select>
               <p className="help-text">{t('platformHelp')}</p>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="culture">{t('cultureLabel')}</label>
+              <select
+                name="culture"
+                id="culture"
+                value={culture}
+                onChange={(e) => setCulture(e.target.value)}
+                disabled={formState !== 'idle'}
+              >
+                <option value="default">{t('cultureDefault')}</option>
+                <option value="jewish">{t('cultureJewish')}</option>
+              </select>
+              <p className="help-text">{t('cultureHelp')}</p>
+            </div>
+
+            <div className="form-group">
+              <label>{t('globalRulesLabel')}</label>
+              <p className="help-text" style={{ marginBottom: '8px' }}>{t('globalRulesHelp')}</p>
+              {[0, 1, 2].map((index) => (
+                <input
+                  key={index}
+                  type="text"
+                  value={globalRules[index] || ''}
+                  onChange={(e) => {
+                    const newRules = [...globalRules];
+                    newRules[index] = e.target.value;
+                    setGlobalRules(newRules);
+                  }}
+                  placeholder={t('globalRulesPlaceholder', { number: index + 1 })}
+                  disabled={formState !== 'idle'}
+                  style={{ marginBottom: '8px' }}
+                />
+              ))}
             </div>
 
             <button

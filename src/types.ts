@@ -11,6 +11,12 @@ export interface CalendarAssignment {
   labels: CalendarLabel[];
   name: string;
   color: string;
+  // NEW: For spouse calendar only
+  personName?: string;        // Spouse name in user's language
+  personEnglishName?: string; // Spouse English name (optional)
+  personGender?: 'male' | 'female';
+  // NEW: Rules for any calendar (max 1 per calendar)
+  rules?: string[];
 }
 
 // Prisma User type with BigInt converted to number for compatibility
@@ -20,8 +26,12 @@ export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'gend
   messagingPlatform?: 'telegram' | 'whatsapp' | 'all';
   language?: string;
   gender: 'male' | 'female';  // Narrow type for type safety
-  spouseGender: 'male' | 'female';  // Narrow type for type safety
+  spouseGender?: 'male' | 'female' | null;  // DEPRECATED - now optional, use calendar assignment
   calendarAssignments?: CalendarAssignment[];  // Parsed from JSON
+  // New settings
+  culture?: string;
+  locationForced?: boolean;
+  globalRules?: string[];
 };
 
 // Helper to convert Prisma User to UserConfig (with decryption)
@@ -34,11 +44,15 @@ export function convertPrismaUserToConfig(user: PrismaUser): UserConfig {
     // Normalize language: 'Hebrew'/'Russian'/'English' → 'he'/'ru'/'en'
     language: getLocaleFromLanguage(user.language),
     gender: user.gender as 'male' | 'female',
-    spouseGender: user.spouseGender as 'male' | 'female',
+    spouseGender: user.spouseGender ? (user.spouseGender as 'male' | 'female') : null, // DEPRECATED - now optional
     googleRefreshToken: safeDecrypt(user.googleRefreshToken), // Decrypt OAuth token
     calendarAssignments: user.calendarAssignments
       ? (user.calendarAssignments as any as CalendarAssignment[])
-      : undefined
+      : undefined,
+    // New settings
+    culture: user.culture,
+    locationForced: user.locationForced,
+    globalRules: user.globalRules,
   };
 }
 
