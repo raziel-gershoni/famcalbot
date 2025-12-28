@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/src/utils/prisma';
+import { captureError } from '@/src/lib/error-capture';
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ refreshed: wasRefreshed });
   } catch (error) {
-    console.error('Error checking token refresh:', error);
+    captureError(error, 'check-token-refresh', { api_route: '/api/check-token-refresh' });
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

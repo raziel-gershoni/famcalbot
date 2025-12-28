@@ -5,6 +5,7 @@ import { MessagingPlatform } from '@/src/services/messaging';
 import { getProgressText, formatProgressMessage } from '@/src/services/progress-message';
 import { verifyUserAccess } from '@/src/lib/telegram-auth';
 import { checkRateLimit, commandRateLimiter, getRateLimitHeaders } from '@/src/lib/rate-limit';
+import { captureError } from '@/src/lib/error-capture';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -128,7 +129,12 @@ export async function POST(request: NextRequest) {
             break;
         }
       } catch (err) {
-        console.error(`${command} command error:`, err);
+        captureError(err, 'execute-command', {
+          command,
+          user_id,
+          args,
+          api_route: '/api/execute-command'
+        });
 
         // Send error message to user
         try {
@@ -144,7 +150,7 @@ export async function POST(request: NextRequest) {
             await messagingService.sendMessage(user_id, errorMessage);
           }
         } catch (notifyErr) {
-          console.error('Failed to notify user of error:', notifyErr);
+          captureError(notifyErr, 'execute-command-notify', { user_id });
         }
       }
     });
@@ -165,7 +171,7 @@ export async function POST(request: NextRequest) {
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Command execution error:', error);
+    captureError(error, 'execute-command', { api_route: '/api/execute-command' });
     return NextResponse.json({
       success: false,
       error: 'Command execution failed',

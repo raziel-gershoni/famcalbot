@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { updateUser } from '@/src/services/user-service';
 import { verifyUserAccess } from '@/src/lib/telegram-auth';
 import { checkRateLimit, settingsRateLimiter, getRateLimitHeaders } from '@/src/lib/rate-limit';
+import { captureError } from '@/src/lib/error-capture';
 
 export async function POST(request: NextRequest) {
   try {
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Error updating settings:', error);
+    captureError(error, 'settings', { api_route: '/api/settings' });
     return NextResponse.json(
       { error: 'Failed to update settings' },
       { status: 500 }

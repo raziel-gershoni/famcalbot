@@ -6,6 +6,7 @@ import { prisma } from '@/src/utils/prisma';
 import { encrypt } from '@/src/utils/encryption';
 import { verifyUserAccess } from '@/src/lib/telegram-auth';
 import { checkRateLimit, settingsRateLimiter, getRateLimitHeaders } from '@/src/lib/rate-limit';
+import { captureError } from '@/src/lib/error-capture';
 
 export async function POST(request: NextRequest) {
   try {
@@ -75,7 +76,7 @@ export async function POST(request: NextRequest) {
       }
     });
   } catch (error) {
-    console.error('Error updating calendars:', error);
+    captureError(error, 'select-calendars', { api_route: '/api/select-calendars' });
     return NextResponse.json(
       { error: 'Failed to update calendars' },
       { status: 500 }

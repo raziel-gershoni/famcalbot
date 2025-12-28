@@ -1,8 +1,9 @@
 /**
  * Error Notification Utility
- * Sends critical errors to admin users via Telegram
+ * Sends critical errors to admin users via Telegram AND Sentry
  */
 
+import * as Sentry from '@sentry/nextjs';
 import { getBot } from '../services/telegram';
 import { prisma } from './prisma';
 
@@ -23,7 +24,7 @@ async function getAdminUserIds(): Promise<number[]> {
 }
 
 /**
- * Notify admin of a critical error via Telegram
+ * Notify admin of a critical error via Telegram and Sentry
  * @param context - Where the error occurred (e.g., "Webhook Handler", "Daily Summary Cron")
  * @param error - The error object or message
  * @param additionalInfo - Optional additional context
@@ -33,6 +34,16 @@ export async function notifyAdminError(
   error: unknown,
   additionalInfo?: string
 ): Promise<void> {
+  // Always capture to Sentry first
+  Sentry.withScope(scope => {
+    scope.setTag('context', context);
+    scope.setLevel('error');
+    scope.setTag('notified_admin', 'true');
+    if (additionalInfo) scope.setExtra('additionalInfo', additionalInfo);
+    Sentry.captureException(error);
+  });
+
+  // Then notify via Telegram
   try {
     const bot = getBot();
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -56,9 +67,12 @@ export async function notifyAdminError(
     const adminIds = await getAdminUserIds();
     await Promise.all(adminIds.map(id => bot.sendMessage(id, message, { parse_mode: 'HTML' })));
   } catch (notificationError) {
-    // If notification fails, at least log it
+    // If Telegram notification fails, capture that too
     console.error('Failed to send error notification to admin:', notificationError);
     console.error('Original error:', error);
+    Sentry.captureException(notificationError, {
+      tags: { context: 'admin_notification_failed' }
+    });
   }
 }
 
@@ -66,6 +80,15 @@ export async function notifyAdminError(
  * Notify admin of a warning (non-critical)
  */
 export async function notifyAdminWarning(context: string, message: string): Promise<void> {
+  // Capture warning to Sentry
+  Sentry.withScope(scope => {
+    scope.setTag('context', context);
+    scope.setLevel('warning');
+    scope.setTag('notified_admin', 'true');
+    Sentry.captureMessage(message);
+  });
+
+  // Then notify via Telegram
   try {
     const bot = getBot();
     const warningMessage = `⚠️ <b>Warning: ${context}</b>\n\n${message}\n\n<i>Time: ${new Date().toISOString()}</i>`;
@@ -74,5 +97,8 @@ export async function notifyAdminWarning(context: string, message: string): Prom
     await Promise.all(adminIds.map(id => bot.sendMessage(id, warningMessage, { parse_mode: 'HTML' })));
   } catch (error) {
     console.error('Failed to send warning notification:', error);
+    Sentry.captureException(error, {
+      tags: { context: 'admin_warning_notification_failed' }
+    });
   }
 }

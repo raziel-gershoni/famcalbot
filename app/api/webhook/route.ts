@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { detectPlatform, MessagingPlatform } from '@/src/services/messaging';
+import { captureError } from '@/src/lib/error-capture';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error('[Webhook] Error:', error);
+    captureError(error, 'webhook', { api_route: '/api/webhook' });
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

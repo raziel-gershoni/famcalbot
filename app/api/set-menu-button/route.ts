@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getBot } from '@/src/services/telegram';
+import { captureError } from '@/src/lib/error-capture';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,7 +32,7 @@ export async function GET() {
       }
     });
   } catch (error) {
-    console.error('❌ Failed to set menu button:', error);
+    captureError(error, 'set-menu-button', { api_route: '/api/set-menu-button' });
 
     return NextResponse.json({
       success: false,
