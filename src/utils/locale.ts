@@ -13,11 +13,21 @@ const LOCALE_TO_LANGUAGE: Record<string, string> = {
 const RTL_LOCALES = ['he', 'ar', 'fa'];
 
 export function getLocaleFromLanguage(language: string | undefined | null): string {
-  return (language && LANGUAGE_TO_LOCALE[language]) || 'en';
+  if (!language) return 'en';
+  // Handle full language names (Hebrew, English, Russian)
+  if (LANGUAGE_TO_LOCALE[language]) return LANGUAGE_TO_LOCALE[language];
+  // Handle locale codes that might already be in DB (he, en, ru) - for backwards compatibility
+  if (LOCALE_TO_LANGUAGE[language]) return language;
+  return 'en';
 }
 
 export function getLanguageFromLocale(locale: string | undefined | null): string {
-  return (locale && LOCALE_TO_LANGUAGE[locale]) || 'English';
+  if (!locale) return 'English';
+  // Handle locale codes (he, en, ru)
+  if (LOCALE_TO_LANGUAGE[locale]) return LOCALE_TO_LANGUAGE[locale];
+  // Handle full language names that might already be correct (Hebrew, English, Russian)
+  if (LANGUAGE_TO_LOCALE[locale]) return locale;
+  return 'English';
 }
 
 export function isRtlLocale(locale: string): boolean {

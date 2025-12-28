@@ -3,6 +3,7 @@ import { updateUser } from '@/src/services/user-service';
 import { verifyUserAccess } from '@/src/lib/telegram-auth';
 import { checkRateLimit, settingsRateLimiter, getRateLimitHeaders } from '@/src/lib/rate-limit';
 import { captureError } from '@/src/lib/error-capture';
+import { getLanguageFromLocale } from '@/src/utils/locale';
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,7 +39,8 @@ export async function POST(request: NextRequest) {
     }
 
     await updateUser(parseInt(userId), {
-      language: language || undefined,
+      // Convert locale code ('he', 'en', 'ru') back to full language name ('Hebrew', 'English', 'Russian')
+      language: language ? getLanguageFromLocale(language) : undefined,
       location: location || undefined,
       messagingPlatform: messagingPlatform || undefined,
       culture: culture || undefined,
