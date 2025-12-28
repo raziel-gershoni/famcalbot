@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { TelegramLayout } from '@/components/Layout';
-import { getLocaleFromLanguage } from '@/src/utils/locale';
 import { CheckCircle2 } from 'lucide-react';
 
 interface SettingsClientProps {
@@ -57,12 +56,9 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
 
       setFormState('success');
 
-      // Map language to locale
-      const locale = getLocaleFromLanguage(language);
-
-      // Auto-redirect after 2 seconds
+      // Auto-redirect after 2 seconds (language is already locale code)
       setTimeout(() => {
-        router.push(`/${locale}/dashboard?user_id=${userId}`);
+        router.push(`/${language}/dashboard?user_id=${userId}`);
       }, 2000);
 
     } catch (error) {
@@ -77,9 +73,8 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
   };
 
   const handleCancel = () => {
-    // Map current language to locale
-    const locale = getLocaleFromLanguage(language);
-    router.push(`/${locale}/dashboard?user_id=${userId}`);
+    // language is already locale code ('he', 'en', 'ru')
+    router.push(`/${language}/dashboard?user_id=${userId}`);
   };
 
   if (formState === 'success') {
@@ -231,9 +226,9 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
                 onChange={(e) => setLanguage(e.target.value)}
                 disabled={formState !== 'idle'}
               >
-                <option value="Hebrew">עברית (Hebrew)</option>
-                <option value="English">English</option>
-                <option value="Russian">Русский (Russian)</option>
+                <option value="he">עברית (Hebrew)</option>
+                <option value="en">English</option>
+                <option value="ru">Русский (Russian)</option>
               </select>
               <p className="help-text">{t('languageHelp')}</p>
             </div>
