@@ -1,14 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { MessagingPlatform } from '@/src/services/messaging';
+import { getProgressText, formatProgressMessage } from '@/src/services/progress-message';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+// Map command to progress type
+function getProgressType(command: string, args?: string): 'summary' | 'summaryTomorrow' | 'weather' | null {
+  if (command === 'summary') {
+    return args?.toLowerCase().trim() === 'tmrw' ? 'summaryTomorrow' : 'summary';
+  }
+  if (command === 'weather') {
+    return 'weather';
+  }
+  return null;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { user_id, command, args, secret } = body;
+    const { user_id, command, args, secret, language } = body;
 
     // Validate required parameters
     if (!user_id || !command) {
@@ -26,7 +38,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get user from database
+    // Send progress message IMMEDIATELY (before any DB queries)
+    // This makes the response feel instant
+    let progressMessageId: number | undefined;
+    const progressType = getProgressType(command, args);
+
+    if (progressType && language) {
+      try {
+        const { getMessagingService } = await import('@/src/services/telegram');
+        const messagingService = getMessagingService();
+        const progressText = getProgressText(progressType, language);
+        progressMessageId = await messagingService.sendMessage(
+          user_id,
+          formatProgressMessage(progressText, 0)
+        ) as number;
+      } catch (err) {
+        console.error('Failed to send initial progress:', err);
+      }
+    }
+
+    // Now get user from database
     const user = await getUserByTelegramId(user_id);
     if (!user) {
       return NextResponse.json(
@@ -51,6 +82,7 @@ export async function POST(request: NextRequest) {
     } = await import('@/src/services/telegram');
 
     // Execute command (chatId = userId for Telegram)
+    // Pass progressMessageId so handler can update instead of create new
     switch (command) {
       case 'testai':
         await handleTestAICommand(user_id, user_id, args);
@@ -60,7 +92,8 @@ export async function POST(request: NextRequest) {
           user_id,
           user_id,
           MessagingPlatform.TELEGRAM,
-          args
+          args,
+          progressMessageId
         );
         break;
       case 'weather':
@@ -68,7 +101,8 @@ export async function POST(request: NextRequest) {
           user_id,
           user_id,
           MessagingPlatform.TELEGRAM,
-          args
+          args,
+          progressMessageId
         );
         break;
       default:

@@ -83,6 +83,7 @@ export default function DashboardClient({
         user_id: user.id,
         command,
         args,
+        language: locale,
       }),
     }).catch((error) => {
       console.error('Command execution error:', error);

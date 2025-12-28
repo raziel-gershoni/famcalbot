@@ -177,7 +177,8 @@ export async function handleSummaryCommand(
   chatId: number | string,
   userId: number | string,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
-  args?: string
+  args?: string,
+  existingProgressMessageId?: number
 ): Promise<void> {
   if (!(await isUserAuthorized(userId))) {
     const service = platform === MessagingPlatform.TELEGRAM
@@ -192,9 +193,9 @@ export async function handleSummaryCommand(
 
   // Check if user wants tomorrow's summary
   if (args?.toLowerCase().trim() === 'tmrw') {
-    await sendTomorrowSummaryToUser(user.telegramId);
+    await sendTomorrowSummaryToUser(user.telegramId, existingProgressMessageId);
   } else {
-    await sendDailySummaryToUser(user.telegramId);
+    await sendDailySummaryToUser(user.telegramId, existingProgressMessageId);
   }
 }
 
@@ -207,7 +208,8 @@ export async function handleWeatherCommand(
   chatId: number | string,
   userId: number | string,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
-  args?: string
+  args?: string,
+  existingProgressMessageId?: number
 ): Promise<void> {
   if (!(await isUserAuthorized(userId))) {
     const service = platform === MessagingPlatform.TELEGRAM
@@ -236,14 +238,22 @@ export async function handleWeatherCommand(
     return;
   }
 
-  // Start animated progress for weather
+  // Use existing progress message or create new one
   const userLanguage = user.language || 'en';
-  const { messageId, stopAnimation } = await sendProgressWithAnimation(
-    chatId,
-    'weather',
-    userLanguage,
-    messagingService
-  );
+  let messageId: number | string;
+  let stopAnimation: () => void;
+
+  if (existingProgressMessageId) {
+    // Progress message already sent by API route, just start animation
+    messageId = existingProgressMessageId;
+    const { startProgressAnimation, getProgressText } = await import('./progress-message');
+    stopAnimation = startProgressAnimation(chatId, messageId, getProgressText('weather', userLanguage), messagingService);
+  } else {
+    // Send new progress message
+    const result = await sendProgressWithAnimation(chatId, 'weather', userLanguage, messagingService);
+    messageId = result.messageId;
+    stopAnimation = result.stopAnimation;
+  }
 
   try {
     const format = args.toLowerCase() === 'dtl' ? 'dtl' : 'std';
@@ -450,13 +460,15 @@ function setupHandlers(bot: TelegramBot) {
  * @param summaryDate - Date for the summary (undefined for today, tomorrow's date for tomorrow)
  * @param errorMessage - Message to show on error
  * @param modelId - Optional model ID to override default model
+ * @param existingProgressMessageId - Optional message ID if progress was already sent
  */
 async function sendSummaryToUser(
   userId: number,
   fetchFunction: (refreshToken: string, calendarIds: string[]) => Promise<CalendarEvent[]>,
   summaryDate: Date | undefined,
   errorMessage: string,
-  modelId?: string
+  modelId?: string,
+  existingProgressMessageId?: number
 ): Promise<void> {
   const user = await getUserByTelegramId(userId);
   if (!user) {
@@ -471,13 +483,21 @@ async function sendSummaryToUser(
   const progressType: ProgressType = summaryDate ? 'summaryTomorrow' : 'summary';
   const userLanguage = user.language || 'en';
 
-  // Start animated progress message
-  const { messageId, stopAnimation } = await sendProgressWithAnimation(
-    userId,
-    progressType,
-    userLanguage,
-    messagingService
-  );
+  // Use existing progress message or create new one
+  let messageId: number | string;
+  let stopAnimation: () => void;
+
+  if (existingProgressMessageId) {
+    // Progress message already sent by API route, just start animation
+    messageId = existingProgressMessageId;
+    const { startProgressAnimation, getProgressText } = await import('./progress-message');
+    stopAnimation = startProgressAnimation(userId, messageId, getProgressText(progressType, userLanguage), messagingService);
+  } else {
+    // Send new progress message
+    const result = await sendProgressWithAnimation(userId, progressType, userLanguage, messagingService);
+    messageId = result.messageId;
+    stopAnimation = result.stopAnimation;
+  }
 
   try {
     // Extract all calendar IDs from assignments
@@ -718,12 +738,14 @@ async function sendSummaryToAll(
 /**
  * Send daily summary to a specific user
  */
-export async function sendDailySummaryToUser(userId: number): Promise<void> {
+export async function sendDailySummaryToUser(userId: number, existingProgressMessageId?: number): Promise<void> {
   await sendSummaryToUser(
     userId,
     fetchTodayEvents,
     undefined,
-    USER_MESSAGES.ERROR_GENERIC
+    USER_MESSAGES.ERROR_GENERIC,
+    undefined,
+    existingProgressMessageId
   );
 }
 
@@ -738,7 +760,7 @@ export async function sendDailySummaryToAll(): Promise<void> {
 /**
  * Send tomorrow's summary to a specific user
  */
-export async function sendTomorrowSummaryToUser(userId: number): Promise<void> {
+export async function sendTomorrowSummaryToUser(userId: number, existingProgressMessageId?: number): Promise<void> {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
 
@@ -746,7 +768,9 @@ export async function sendTomorrowSummaryToUser(userId: number): Promise<void> {
     userId,
     fetchTomorrowEvents,
     tomorrow,
-    USER_MESSAGES.ERROR_TOMORROW
+    USER_MESSAGES.ERROR_TOMORROW,
+    undefined,
+    existingProgressMessageId
   );
 }
 
