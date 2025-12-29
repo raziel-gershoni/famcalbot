@@ -8,6 +8,7 @@ import { IMessagingService, getTelegramService, getMessagingService as getMessag
 import { getCalendarsByLabel, getPrimaryCalendar, getSpouseInfo } from '../utils/calendar-helpers';
 import { sendProgressWithAnimation, ProgressType } from './progress-message';
 import { getBaseUrl, buildUrl } from '../config/urls';
+import { VALID_LOCALES } from '../utils/locale';
 
 /**
  * Categorize events by ownership for a specific user
@@ -190,6 +191,21 @@ export async function handleSummaryCommand(
   const user = await getUserByIdentifier(userId);
   if (!user) return;
 
+  // Check if user has invalid/legacy language setting
+  if (!user.language || !VALID_LOCALES.includes(user.language as any)) {
+    const service = platform === MessagingPlatform.TELEGRAM
+      ? getMessagingService()
+      : getMessagingServiceByPlatform(platform);
+    const settingsUrl = buildUrl(`/en/settings?user_id=${user.telegramId}`);
+    await service.sendMessage(
+      chatId,
+      `⚠️ Please update your language preference in Settings to continue.\n\n` +
+      `👉 <a href="${settingsUrl}">Open Settings</a>`,
+      { format: MessageFormat.HTML }
+    );
+    return;
+  }
+
   // Check if user wants tomorrow's summary
   if (args?.toLowerCase().trim() === 'tmrw') {
     await sendTomorrowSummaryToUser(user.telegramId, existingProgressMessageId);
@@ -227,6 +243,18 @@ export async function handleWeatherCommand(
   const messagingService = platform === MessagingPlatform.TELEGRAM
     ? getMessagingService()
     : getMessagingServiceByPlatform(platform);
+
+  // Check if user has invalid/legacy language setting
+  if (!user.language || !VALID_LOCALES.includes(user.language as any)) {
+    const settingsUrl = buildUrl(`/en/settings?user_id=${user.telegramId}`);
+    await messagingService.sendMessage(
+      chatId,
+      `⚠️ Please update your language preference in Settings to continue.\n\n` +
+      `👉 <a href="${settingsUrl}">Open Settings</a>`,
+      { format: MessageFormat.HTML }
+    );
+    return;
+  }
 
   // Args should be 'std' or 'dtl' from dashboard buttons
   if (!args) {
