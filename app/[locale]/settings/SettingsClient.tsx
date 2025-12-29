@@ -37,6 +37,13 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locationValidating, setLocationValidating] = useState(false);
 
+  // Valid location types for weather (cities, towns, regions, etc.)
+  const VALID_LOCATION_TYPES = [
+    'city', 'town', 'village', 'municipality', 'county', 'state',
+    'country', 'suburb', 'hamlet', 'locality', 'region', 'province',
+    'district', 'neighbourhood', 'borough', 'quarter'
+  ];
+
   // Validate location by attempting to geocode it
   const validateLocation = async (loc: string): Promise<boolean> => {
     if (!loc.trim()) {
@@ -49,7 +56,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
 
     try {
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(loc)}&format=json&limit=1`,
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(loc)}&format=json&limit=1&addressdetails=1`,
         {
           headers: {
             'User-Agent': 'FamCalBot/1.0'
@@ -65,8 +72,19 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
       const data = await response.json();
 
       if (Array.isArray(data) && data.length > 0) {
-        setLocationError(null);
-        return true;
+        const result = data[0];
+        // Check if it's a valid location type (not a building, ridge, etc.)
+        if (VALID_LOCATION_TYPES.includes(result.addresstype)) {
+          setLocationError(null);
+          return true;
+        }
+        // Fallback: accept if importance is high enough (major places)
+        if (result.importance > 0.4) {
+          setLocationError(null);
+          return true;
+        }
+        setLocationError(t('locationInvalid'));
+        return false;
       } else {
         setLocationError(t('locationInvalid'));
         return false;
