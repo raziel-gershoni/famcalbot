@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { getUserByTelegramId } from '@/src/services/user-service';
+import { normalizeLocale } from '@/src/utils/locale';
 import { prisma } from '@/src/utils/prisma';
 import { Prisma } from '@prisma/client';
 import { AlertTriangle, Lock } from 'lucide-react';
@@ -47,8 +48,9 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
     notFound();
   }
 
-  // Check if URL locale matches user's language preference (already normalized)
-  const userLocale = user.language || 'en';
+  // Check if URL locale matches user's language preference
+  // normalizeLocale handles legacy values like 'Hebrew' -> 'he'
+  const userLocale = normalizeLocale(user.language);
   if (locale !== userLocale) {
     const { redirect } = await import('next/navigation');
     redirect(`/${userLocale}/admin-panel?user_id=${userId}`);

@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { getUserByTelegramId } from '@/src/services/user-service';
+import { normalizeLocale } from '@/src/utils/locale';
 import { AlertTriangle } from 'lucide-react';
 import SettingsClient from './SettingsClient';
 
@@ -45,8 +46,9 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
     notFound();
   }
 
-  // Check if URL locale matches user's language preference (already normalized)
-  const userLocale = user.language || 'en';
+  // Check if URL locale matches user's language preference
+  // normalizeLocale handles legacy values like 'Hebrew' -> 'he'
+  const userLocale = normalizeLocale(user.language);
   if (locale !== userLocale) {
     const { redirect } = await import('next/navigation');
     redirect(`/${userLocale}/settings?user_id=${userId}`);
@@ -56,7 +58,7 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
     <SettingsClient
       userId={userId}
       currentSettings={{
-        language: user.language,
+        language: userLocale,  // Pass normalized locale
         location: user.location,
         messagingPlatform: user.messagingPlatform,
         culture: user.culture || 'default',

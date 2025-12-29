@@ -7,6 +7,25 @@ import { formatEventList } from '../utils/event-formatter';
 import { generateAICompletion } from './ai-provider';
 
 /**
+ * Localized greetings by language and time of day
+ */
+const GREETINGS: Record<string, { morning: string; afternoon: string; evening: string }> = {
+  he: { morning: 'בוקר טוב!', afternoon: 'צהריים טובים!', evening: 'ערב טוב!' },
+  en: { morning: 'Good morning!', afternoon: 'Good afternoon!', evening: 'Good evening!' },
+  ru: { morning: 'Доброе утро!', afternoon: 'Добрый день!', evening: 'Добрый вечер!' },
+};
+
+/**
+ * Get localized greeting based on time of day and language
+ */
+function getLocalizedGreeting(hour: number, language: string = 'en'): string {
+  const greetings = GREETINGS[language] || GREETINGS.en;
+  if (hour < 12) return greetings.morning;
+  if (hour < 18) return greetings.afternoon;
+  return greetings.evening;
+}
+
+/**
  * User context for summary generation
  */
 export interface SummaryUserContext {
@@ -66,21 +85,13 @@ function buildPromptData(
     day: 'numeric',
   });
 
-  // Determine greeting based on current time
+  // Determine greeting based on current time and user's language
   const currentHour = parseInt(currentDate.toLocaleTimeString('en-US', {
     timeZone: timezone,
     hour: '2-digit',
     hour12: false
   }));
-
-  let greeting: string;
-  if (currentHour < 12) {
-    greeting = 'Good morning!';
-  } else if (currentHour < 18) {
-    greeting = 'Good afternoon!';
-  } else {
-    greeting = 'Good evening!';
-  }
+  const greeting = getLocalizedGreeting(currentHour, language);
 
   // Get summary date and Hebrew date information
   const { isRoshChodesh, hebrewDateFormatted } = getHebrewDateInfo(date, timezone);

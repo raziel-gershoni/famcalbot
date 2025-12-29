@@ -6,7 +6,8 @@ const RTL_LOCALES = ['he', 'ar', 'fa'];
 
 /**
  * Validate and normalize a locale code
- * Returns the locale if valid, 'en' as fallback
+ * Only accepts valid locale codes ('he', 'en', 'ru')
+ * Returns 'en' as fallback for any invalid value (including legacy 'Hebrew', 'Russian')
  */
 export function normalizeLocale(locale: string | undefined | null): Locale {
   if (!locale) return 'en';

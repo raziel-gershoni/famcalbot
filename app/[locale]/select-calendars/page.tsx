@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { getUserByTelegramId } from '@/src/services/user-service';
+import { normalizeLocale } from '@/src/utils/locale';
 import { listUserCalendars } from '@/src/services/calendar';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
 import { AlertTriangle, XCircle } from 'lucide-react';
@@ -88,8 +89,9 @@ export default async function SelectCalendarsPage({ params, searchParams }: Page
     notFound();
   }
 
-  // Check if URL locale matches user's language preference (already normalized)
-  const userLocale = user.language || 'en';
+  // Check if URL locale matches user's language preference
+  // normalizeLocale handles legacy values like 'Hebrew' -> 'he'
+  const userLocale = normalizeLocale(user.language);
   if (locale !== userLocale) {
     const { redirect } = await import('next/navigation');
     redirect(`/${userLocale}/select-calendars?user_id=${userId}`);
