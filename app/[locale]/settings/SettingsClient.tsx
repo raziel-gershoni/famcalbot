@@ -39,7 +39,6 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
 
   // Validate location by attempting to geocode it
   const validateLocation = async (loc: string): Promise<boolean> => {
-    console.log('[Location] Validating:', loc);
     if (!loc.trim()) {
       setLocationError(null);
       return true; // Empty is allowed
@@ -50,22 +49,29 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
 
     try {
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(loc)}&format=json&limit=1`
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(loc)}&format=json&limit=1`,
+        {
+          headers: {
+            'User-Agent': 'FamCalBot/1.0'
+          }
+        }
       );
-      const data = await response.json();
-      console.log('[Location] Nominatim response:', data);
 
-      if (data && data.length > 0) {
-        console.log('[Location] Valid - found:', data[0].display_name);
+      if (!response.ok) {
+        setLocationError(t('locationValidationError'));
+        return false;
+      }
+
+      const data = await response.json();
+
+      if (Array.isArray(data) && data.length > 0) {
         setLocationError(null);
         return true;
       } else {
-        console.log('[Location] Invalid - no results');
         setLocationError(t('locationInvalid'));
         return false;
       }
     } catch (error) {
-      console.error('[Location] Error validating:', error);
       setLocationError(t('locationValidationError'));
       return false;
     } finally {
@@ -156,20 +162,15 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('[Submit] Starting, location:', location);
 
     // Validate location before saving
     if (location.trim()) {
-      console.log('[Submit] Validating location...');
       const isValid = await validateLocation(location);
-      console.log('[Submit] Validation result:', isValid);
       if (!isValid) {
-        console.log('[Submit] Blocked - invalid location');
         return; // Don't save if location is invalid
       }
     }
 
-    console.log('[Submit] Proceeding to save');
     setFormState('saving');
 
     try {
