@@ -8,6 +8,34 @@ import { verifyUserAccess } from '@/src/lib/telegram-auth';
 import { checkRateLimit, settingsRateLimiter, getRateLimitHeaders } from '@/src/lib/rate-limit';
 import { captureError } from '@/src/lib/error-capture';
 
+/**
+ * Sync spouse metadata across all spouse calendars
+ * If any spouse calendar has personName/personGender, copy to all others
+ */
+function syncSpouseMetadata(assignments: CalendarAssignment[]): CalendarAssignment[] {
+  // Find the spouse calendar that has metadata
+  const spouseWithInfo = assignments.find(
+    a => a.labels.includes('spouse') && a.personName && a.personGender
+  );
+
+  if (!spouseWithInfo) {
+    return assignments; // No spouse metadata to sync
+  }
+
+  // Copy metadata to all spouse calendars
+  return assignments.map(a => {
+    if (a.labels.includes('spouse')) {
+      return {
+        ...a,
+        personName: spouseWithInfo.personName,
+        personEnglishName: spouseWithInfo.personEnglishName,
+        personGender: spouseWithInfo.personGender,
+      };
+    }
+    return a;
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -50,6 +78,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Sync spouse metadata across all spouse calendars
+    const syncedAssignments = syncSpouseMetadata(calendarAssignments);
+
     // Get current user to preserve encrypted refresh token
     const currentUser = await getUserByTelegramId(parseInt(userId));
     if (!currentUser) {
@@ -63,7 +94,7 @@ export async function POST(request: NextRequest) {
     await prisma.user.update({
       where: { telegramId: BigInt(userId) },
       data: {
-        calendarAssignments: calendarAssignments as any,
+        calendarAssignments: syncedAssignments as any,
         googleRefreshToken: encrypt(currentUser.googleRefreshToken) // Re-encrypt
       }
     });

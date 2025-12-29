@@ -12,15 +12,19 @@ export interface SpouseInfo {
 /**
  * Get spouse info from calendar assignments
  * Returns null if no spouse calendar exists or if spouse metadata is incomplete
+ * Searches ALL spouse calendars for metadata (not just the first one)
  */
 export function getSpouseInfo(user: UserConfig): SpouseInfo | null {
-  const spouseCalendar = user.calendarAssignments?.find(a => a.labels.includes('spouse'));
+  // Find any spouse calendar that has the metadata (name & gender)
+  const spouseCalendarWithInfo = user.calendarAssignments?.find(
+    a => a.labels.includes('spouse') && a.personName && a.personGender
+  );
 
-  if (spouseCalendar?.personName && spouseCalendar?.personGender) {
+  if (spouseCalendarWithInfo) {
     return {
-      name: spouseCalendar.personName,
-      englishName: spouseCalendar.personEnglishName,
-      gender: spouseCalendar.personGender,
+      name: spouseCalendarWithInfo.personName!,
+      englishName: spouseCalendarWithInfo.personEnglishName,
+      gender: spouseCalendarWithInfo.personGender!,
     };
   }
 
