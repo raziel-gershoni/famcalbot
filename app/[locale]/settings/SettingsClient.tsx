@@ -34,6 +34,47 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
   );
   const [locationLoading, setLocationLoading] = useState(false);
   const [detectedLocation, setDetectedLocation] = useState<string | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [locationValidating, setLocationValidating] = useState(false);
+
+  // Validate location by attempting to geocode it
+  const validateLocation = async (loc: string): Promise<boolean> => {
+    if (!loc.trim()) {
+      setLocationError(null);
+      return true; // Empty is allowed
+    }
+
+    setLocationValidating(true);
+    setLocationError(null);
+
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(loc)}&format=json&limit=1`
+      );
+      const data = await response.json();
+
+      if (data && data.length > 0) {
+        setLocationError(null);
+        return true;
+      } else {
+        setLocationError(t('locationInvalid'));
+        return false;
+      }
+    } catch (error) {
+      console.error('Error validating location:', error);
+      setLocationError(t('locationValidationError'));
+      return false;
+    } finally {
+      setLocationValidating(false);
+    }
+  };
+
+  // Validate on blur
+  const handleLocationBlur = () => {
+    if (location.trim()) {
+      validateLocation(location);
+    }
+  };
 
   // Get current location using browser geolocation + reverse geocoding
   const handleGetLocation = async () => {
@@ -90,6 +131,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
   const handleAcceptLocation = () => {
     if (detectedLocation) {
       setLocation(detectedLocation);
+      setLocationError(null); // Clear any previous error - detected location is valid
     }
     setDetectedLocation(null);
   };
@@ -110,6 +152,15 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validate location before saving
+    if (location.trim()) {
+      const isValid = await validateLocation(location);
+      if (!isValid) {
+        return; // Don't save if location is invalid
+      }
+    }
+
     setFormState('saving');
 
     try {
@@ -250,6 +301,28 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
           font-size: 13px;
           color: #6b7280;
           margin-top: 4px;
+        }
+
+        .error-text {
+          font-size: 13px;
+          color: #ef4444;
+          margin-top: 4px;
+        }
+
+        .validating-text {
+          font-size: 13px;
+          color: #6b7280;
+          margin-top: 4px;
+          display: flex;
+          align-items: center;
+        }
+
+        .input-error {
+          border-color: #ef4444 !important;
+        }
+
+        .input-error:focus {
+          border-color: #ef4444 !important;
         }
 
         .btn {
@@ -444,9 +517,14 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
                   name="location"
                   id="location"
                   value={location}
-                  onChange={(e) => setLocation(e.target.value)}
+                  onChange={(e) => {
+                    setLocation(e.target.value);
+                    setLocationError(null); // Clear error on change
+                  }}
+                  onBlur={handleLocationBlur}
                   placeholder={t('personal.locationPlaceholder')}
                   disabled={formState !== 'idle' || locationLoading}
+                  className={locationError ? 'input-error' : ''}
                 />
                 <button
                   type="button"
@@ -462,6 +540,13 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
                   )}
                 </button>
               </div>
+              {locationValidating && (
+                <p className="validating-text">
+                  <Loader2 size={14} className="spinning" style={{ display: 'inline', marginRight: 4 }} />
+                  {t('locationValidating')}
+                </p>
+              )}
+              {locationError && <p className="error-text">{locationError}</p>}
               <p className="help-text">{t('locationHelp')}</p>
             </div>
 
