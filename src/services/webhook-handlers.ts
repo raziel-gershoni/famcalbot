@@ -69,7 +69,8 @@ export async function handleTelegramWebhook(
 
   // Route to appropriate command handler
   if (text === '/start') {
-    await handleStartCommand(chatId, userId, MessagingPlatform.TELEGRAM);
+    // Pass Telegram user info for auto-registration
+    await handleStartCommand(chatId, userId, MessagingPlatform.TELEGRAM, update.message.from);
   } else if (text.startsWith('/summary')) {
     const args = text.replace('/summary', '').trim();
     await handleSummaryCommand(chatId, userId, MessagingPlatform.TELEGRAM, args || undefined);

@@ -1,5 +1,5 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { getUserByTelegramId, getUserByIdentifier, getWhitelistedIds, getAllUsers } from './user-service';
+import { getUserByTelegramId, getUserByIdentifier, getWhitelistedIds, getAllUsers, getOrCreateUser, TelegramUserInfo } from './user-service';
 import { fetchTodayEvents, fetchTomorrowEvents } from './calendar';
 import { generateSummary, SummaryUserContext } from './claude';
 import { CalendarEvent, UserConfig } from '../types';
@@ -115,23 +115,19 @@ export async function isUserAuthorized(userId: number | string): Promise<boolean
 
 /**
  * Handle /start command
- * Opens unified dashboard webapp
+ * Auto-registers new users and opens unified dashboard webapp
  */
 export async function handleStartCommand(
   chatId: number | string,
   userId: number | string,
-  platform: MessagingPlatform = MessagingPlatform.TELEGRAM
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
+  telegramUser?: TelegramUserInfo
 ): Promise<void> {
-  if (!(await isUserAuthorized(userId))) {
-    const service = platform === MessagingPlatform.TELEGRAM
-      ? getMessagingService()
-      : getMessagingServiceByPlatform(platform);
-    await service.sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
-    return;
-  }
-
-  const user = await getUserByIdentifier(userId);
-  if (!user) return;
+  // Auto-register user if new (no authorization check for /start)
+  const user = await getOrCreateUser(
+    typeof userId === 'number' ? userId : parseInt(String(userId)),
+    telegramUser
+  );
 
   const name = user.name || 'there';
   const locale = user.language || 'en';
@@ -433,12 +429,13 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
  * Setup bot command handlers for polling mode
  */
 function setupHandlers(bot: TelegramBot) {
-  // /start command
+  // /start command - auto-registers new users
   bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from?.id;
     if (userId) {
-      await handleStartCommand(chatId, userId);
+      // Pass Telegram user info for auto-registration
+      await handleStartCommand(chatId, userId, MessagingPlatform.TELEGRAM, msg.from);
     }
   });
 

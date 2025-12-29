@@ -101,4 +101,66 @@ export async function updateGoogleRefreshToken(
   return convertPrismaUserToConfig(updatedUser);
 }
 
+/**
+ * Map Telegram language code to our supported locales
+ */
+function mapTelegramLanguage(code?: string): string {
+  if (!code) return 'en';
+  if (code.startsWith('he')) return 'he';
+  if (code.startsWith('ru')) return 'ru';
+  return 'en';
+}
+
+/**
+ * Telegram user info for registration
+ */
+export interface TelegramUserInfo {
+  first_name?: string;
+  last_name?: string;
+  language_code?: string;
+}
+
+/**
+ * Get or create user by Telegram ID
+ * Auto-registers new users with minimal defaults from Telegram profile
+ */
+export async function getOrCreateUser(
+  telegramId: number,
+  telegramUser?: TelegramUserInfo
+): Promise<UserConfig> {
+  // Try to find existing user
+  const existingUser = await prisma.user.findUnique({
+    where: { telegramId: BigInt(telegramId) }
+  });
+
+  if (existingUser) {
+    return convertPrismaUserToConfig(existingUser);
+  }
+
+  // Map Telegram language code to our locale
+  const language = mapTelegramLanguage(telegramUser?.language_code);
+
+  // Build name from Telegram data
+  const name = [telegramUser?.first_name, telegramUser?.last_name]
+    .filter(Boolean).join(' ') || 'User';
+
+  // Create new user with defaults
+  const newUser = await prisma.user.create({
+    data: {
+      telegramId: BigInt(telegramId),
+      name,
+      englishName: '',
+      gender: 'male',  // Default, user can change in settings
+      language,
+      location: '',
+      culture: 'default',
+      messagingPlatform: 'telegram',
+      googleRefreshToken: '',  // Empty until OAuth
+    }
+  });
+
+  console.log(`[User] Created new user: ${name} (Telegram ID: ${telegramId})`);
+  return convertPrismaUserToConfig(newUser);
+}
+
 // updateUserCalendars function removed - use /api/select-calendars endpoint instead
