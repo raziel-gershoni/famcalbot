@@ -33,6 +33,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
       : ['', '', '']
   );
   const [locationLoading, setLocationLoading] = useState(false);
+  const [detectedLocation, setDetectedLocation] = useState<string | null>(null);
 
   // Get current location using browser geolocation + reverse geocoding
   const handleGetLocation = async () => {
@@ -63,12 +64,19 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
       const city = data.address?.city || data.address?.town || data.address?.village || data.address?.municipality;
       const country = data.address?.country;
 
+      let locationString = '';
       if (city && country) {
-        setLocation(`${city}, ${country}`);
+        locationString = `${city}, ${country}`;
       } else if (data.display_name) {
         // Fallback to display name, but shorten it
         const parts = data.display_name.split(',');
-        setLocation(parts.slice(0, 2).join(',').trim());
+        locationString = parts.slice(0, 2).join(',').trim();
+      }
+
+      if (locationString) {
+        setDetectedLocation(locationString);
+      } else {
+        alert('Could not determine your location. Please enter it manually.');
       }
     } catch (error) {
       console.error('Error getting location:', error);
@@ -76,6 +84,17 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
     } finally {
       setLocationLoading(false);
     }
+  };
+
+  const handleAcceptLocation = () => {
+    if (detectedLocation) {
+      setLocation(detectedLocation);
+    }
+    setDetectedLocation(null);
+  };
+
+  const handleDeclineLocation = () => {
+    setDetectedLocation(null);
   };
 
   useEffect(() => {
@@ -311,6 +330,86 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
         .spinning {
           animation: spin 1s linear infinite;
         }
+
+        .modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+          padding: 20px;
+        }
+
+        .modal {
+          background: white;
+          border-radius: 12px;
+          padding: 24px;
+          max-width: 320px;
+          width: 100%;
+          text-align: center;
+          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        .modal-icon {
+          margin-bottom: 16px;
+          color: #667eea;
+        }
+
+        .modal-title {
+          font-size: 18px;
+          font-weight: 600;
+          color: #374151;
+          margin: 0 0 8px 0;
+        }
+
+        .modal-location {
+          font-size: 16px;
+          color: #667eea;
+          font-weight: 500;
+          margin: 0 0 20px 0;
+          padding: 12px;
+          background: #f3f4f6;
+          border-radius: 8px;
+        }
+
+        .modal-buttons {
+          display: flex;
+          gap: 12px;
+        }
+
+        .modal-btn {
+          flex: 1;
+          padding: 12px;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          border: none;
+          transition: all 0.2s;
+        }
+
+        .modal-btn-accept {
+          background: #667eea;
+          color: white;
+        }
+
+        .modal-btn-accept:hover {
+          background: #5a67d8;
+        }
+
+        .modal-btn-decline {
+          background: #f3f4f6;
+          color: #374151;
+        }
+
+        .modal-btn-decline:hover {
+          background: #e5e7eb;
+        }
       `}</style>
 
       <div className="container">
@@ -436,6 +535,35 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
           </form>
         </div>
       </div>
+
+      {/* Location confirmation modal */}
+      {detectedLocation && (
+        <div className="modal-overlay" onClick={handleDeclineLocation}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-icon">
+              <MapPin size={48} />
+            </div>
+            <h2 className="modal-title">{t('locationDetected')}</h2>
+            <p className="modal-location">{detectedLocation}</p>
+            <div className="modal-buttons">
+              <button
+                type="button"
+                className="modal-btn modal-btn-decline"
+                onClick={handleDeclineLocation}
+              >
+                {t('locationDecline')}
+              </button>
+              <button
+                type="button"
+                className="modal-btn modal-btn-accept"
+                onClick={handleAcceptLocation}
+              >
+                {t('locationAccept')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </TelegramLayout>
   );
 }
