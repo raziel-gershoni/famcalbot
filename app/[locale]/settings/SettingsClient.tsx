@@ -55,8 +55,9 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
       const { latitude, longitude } = position.coords;
 
       // Reverse geocode using Nominatim (free, no API key needed)
+      // Force English output for geocoding compatibility
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&zoom=10`
+        `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&zoom=10&accept-language=en`
       );
       const data = await response.json();
 
