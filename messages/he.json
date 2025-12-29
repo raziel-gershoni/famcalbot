@@ -93,6 +93,7 @@
     },
     "languageHelp": "שפה לסיכומים והודעות",
     "locationHelp": "משמש לתחזיות מזג אוויר",
+    "useCurrentLocation": "השתמש במיקום הנוכחי",
     "platformLabel": "פלטפורמת הודעות",
     "platformHelp": "היכן לקבל הודעות",
     "platformBoth": "שניהם",

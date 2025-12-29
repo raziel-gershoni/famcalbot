@@ -93,6 +93,7 @@
     },
     "languageHelp": "Язык для сводок и сообщений",
     "locationHelp": "Используется для прогноза погоды",
+    "useCurrentLocation": "Использовать текущее местоположение",
     "platformLabel": "Платформа для сообщений",
     "platformHelp": "Где получать сообщения",
     "platformBoth": "Обе",

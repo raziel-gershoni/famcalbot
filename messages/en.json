@@ -93,6 +93,7 @@
     },
     "languageHelp": "Language for summaries and messages",
     "locationHelp": "Used for weather forecasts",
+    "useCurrentLocation": "Use current location",
     "platformLabel": "Messaging Platform",
     "platformHelp": "Where to receive messages",
     "platformBoth": "Both",

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { TelegramLayout } from '@/components/Layout';
-import { CheckCircle2, Settings } from 'lucide-react';
+import { CheckCircle2, Settings, MapPin, Loader2 } from 'lucide-react';
 
 interface SettingsClientProps {
   userId: number;
@@ -32,6 +32,51 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
       ? [...currentSettings.globalRules, '', '', ''].slice(0, 3)
       : ['', '', '']
   );
+  const [locationLoading, setLocationLoading] = useState(false);
+
+  // Get current location using browser geolocation + reverse geocoding
+  const handleGetLocation = async () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser');
+      return;
+    }
+
+    setLocationLoading(true);
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: false,
+          timeout: 10000,
+          maximumAge: 300000 // 5 minutes cache
+        });
+      });
+
+      const { latitude, longitude } = position.coords;
+
+      // Reverse geocode using Nominatim (free, no API key needed)
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&zoom=10`
+      );
+      const data = await response.json();
+
+      // Extract city and country
+      const city = data.address?.city || data.address?.town || data.address?.village || data.address?.municipality;
+      const country = data.address?.country;
+
+      if (city && country) {
+        setLocation(`${city}, ${country}`);
+      } else if (data.display_name) {
+        // Fallback to display name, but shorten it
+        const parts = data.display_name.split(',');
+        setLocation(parts.slice(0, 2).join(',').trim());
+      }
+    } catch (error) {
+      console.error('Error getting location:', error);
+      alert('Could not get your location. Please enter it manually.');
+    } finally {
+      setLocationLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
@@ -222,6 +267,50 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
         .btn-error {
           background: #ef4444;
         }
+
+        .location-row {
+          display: flex;
+          gap: 8px;
+        }
+
+        .location-row input {
+          flex: 1;
+        }
+
+        .location-btn {
+          padding: 12px;
+          background: #f3f4f6;
+          border: 2px solid #e5e7eb;
+          border-radius: 8px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s;
+          flex-shrink: 0;
+        }
+
+        .location-btn:hover:not(:disabled) {
+          background: #e5e7eb;
+          border-color: #667eea;
+        }
+
+        .location-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .location-btn svg {
+          color: #667eea;
+        }
+
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+
+        .spinning {
+          animation: spin 1s linear infinite;
+        }
       `}</style>
 
       <div className="container">
@@ -249,15 +338,30 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
 
             <div className="form-group">
               <label htmlFor="location">{t('personal.location')}</label>
-              <input
-                type="text"
-                name="location"
-                id="location"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder={t('personal.locationPlaceholder')}
-                disabled={formState !== 'idle'}
-              />
+              <div className="location-row">
+                <input
+                  type="text"
+                  name="location"
+                  id="location"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  placeholder={t('personal.locationPlaceholder')}
+                  disabled={formState !== 'idle' || locationLoading}
+                />
+                <button
+                  type="button"
+                  className="location-btn"
+                  onClick={handleGetLocation}
+                  disabled={formState !== 'idle' || locationLoading}
+                  title={t('useCurrentLocation')}
+                >
+                  {locationLoading ? (
+                    <Loader2 size={20} className="spinning" />
+                  ) : (
+                    <MapPin size={20} />
+                  )}
+                </button>
+              </div>
               <p className="help-text">{t('locationHelp')}</p>
             </div>
 
