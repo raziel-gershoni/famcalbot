@@ -10,26 +10,36 @@ import { captureError } from '@/src/lib/error-capture';
 
 /**
  * Sync spouse metadata across all spouse calendars
- * If any spouse calendar has personName/personGender, copy to all others
+ * Merges any partial metadata and applies to all spouse calendars
  */
 function syncSpouseMetadata(assignments: CalendarAssignment[]): CalendarAssignment[] {
-  // Find the spouse calendar that has metadata
-  const spouseWithInfo = assignments.find(
-    a => a.labels.includes('spouse') && a.personName && a.personGender
-  );
+  // Merge all spouse metadata from any spouse calendar
+  const spouseCalendars = assignments.filter(a => a.labels.includes('spouse'));
 
-  if (!spouseWithInfo) {
-    return assignments; // No spouse metadata to sync
+  if (spouseCalendars.length === 0) {
+    return assignments;
   }
 
-  // Copy metadata to all spouse calendars
+  // Merge metadata from all spouse calendars (first non-empty value wins)
+  const mergedInfo = spouseCalendars.reduce((acc, a) => ({
+    personName: acc.personName || a.personName,
+    personEnglishName: acc.personEnglishName || a.personEnglishName,
+    personGender: acc.personGender || a.personGender,
+  }), {} as { personName?: string; personEnglishName?: string; personGender?: 'male' | 'female' });
+
+  // If no metadata at all, return unchanged
+  if (!mergedInfo.personName && !mergedInfo.personEnglishName && !mergedInfo.personGender) {
+    return assignments;
+  }
+
+  // Apply merged info to all spouse calendars
   return assignments.map(a => {
     if (a.labels.includes('spouse')) {
       return {
         ...a,
-        personName: spouseWithInfo.personName,
-        personEnglishName: spouseWithInfo.personEnglishName,
-        personGender: spouseWithInfo.personGender,
+        personName: mergedInfo.personName,
+        personEnglishName: mergedInfo.personEnglishName,
+        personGender: mergedInfo.personGender,
       };
     }
     return a;

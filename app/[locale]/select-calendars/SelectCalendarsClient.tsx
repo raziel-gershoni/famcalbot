@@ -18,7 +18,7 @@ interface Calendar {
   accessRole?: string;
 }
 
-interface SpouseMetadata {
+interface SpouseInfo {
   personName?: string;
   personEnglishName?: string;
   personGender?: 'male' | 'female';
@@ -35,7 +35,7 @@ interface SelectCalendarsClientProps {
   currentSelections: {
     selectedCalendars: Set<string>;
     calendarLabels: Map<string, Set<CalendarLabel>>;
-    spouseMetadata: Map<string, SpouseMetadata>;
+    spouseInfo: SpouseInfo | null;
     calendarRules: Map<string, string>;
   };
   locale: string;
@@ -62,8 +62,9 @@ export default function SelectCalendarsClient({
   const [calendarLabels, setCalendarLabels] = useState<Map<string, Set<CalendarLabel>>>(
     currentSelections.calendarLabels
   );
-  const [spouseMetadata, setSpouseMetadata] = useState<Map<string, SpouseMetadata>>(
-    currentSelections.spouseMetadata
+  // Single spouse info (applies to all spouse calendars)
+  const [spouseInfo, setSpouseInfo] = useState<SpouseInfo | null>(
+    currentSelections.spouseInfo
   );
   const [calendarRules, setCalendarRules] = useState<Map<string, string>>(
     currentSelections.calendarRules
@@ -71,7 +72,7 @@ export default function SelectCalendarsClient({
   const [feedbackMessages, setFeedbackMessages] = useState<FeedbackMessage[]>([]);
   const [messageIdCounter, setMessageIdCounter] = useState(0);
   // Track which panels are expanded (collapsed by default if data exists)
-  const [expandedSpouse, setExpandedSpouse] = useState<Set<string>>(new Set());
+  const [expandedSpouseCard, setExpandedSpouseCard] = useState(false);
   const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
 
   const handleBack = () => {
@@ -96,28 +97,28 @@ export default function SelectCalendarsClient({
   const saveToServer = async (
     newSelectedCalendars: Set<string>,
     newCalendarLabels: Map<string, Set<CalendarLabel>>,
-    newSpouseMetadata?: Map<string, SpouseMetadata>,
+    newSpouseInfo?: SpouseInfo | null,
     newCalendarRules?: Map<string, string>
   ) => {
-    const metadataToUse = newSpouseMetadata || spouseMetadata;
+    const spouseInfoToUse = newSpouseInfo !== undefined ? newSpouseInfo : spouseInfo;
     const rulesToUse = newCalendarRules || calendarRules;
     try {
       const calendarAssignments: CalendarAssignment[] = Array.from(newSelectedCalendars).map(calId => {
         const calendar = availableCalendars.find(c => c.id === calId);
         const labels = Array.from(newCalendarLabels.get(calId) || []);
-        const metadata = metadataToUse.get(calId);
         const rule = rulesToUse.get(calId);
+        const isSpouse = labels.includes('spouse');
 
         return {
           calendarId: calId,
           labels: labels,
           name: calendar?.name || calId,
           color: calendar?.backgroundColor || '#4285f4',
-          // Include spouse metadata if this is a spouse calendar
-          ...(labels.includes('spouse') && metadata ? {
-            personName: metadata.personName,
-            personEnglishName: metadata.personEnglishName,
-            personGender: metadata.personGender,
+          // Apply spouseInfo to ALL spouse calendars (single source of truth)
+          ...(isSpouse && spouseInfoToUse ? {
+            personName: spouseInfoToUse.personName,
+            personEnglishName: spouseInfoToUse.personEnglishName,
+            personGender: spouseInfoToUse.personGender,
           } : {}),
           // Include rule if present
           ...(rule ? { rules: [rule] } : {})
@@ -172,19 +173,16 @@ export default function SelectCalendarsClient({
       newCalendarLabels = new Map(calendarLabels);
       newCalendarLabels.delete(calendarId);
 
-      // Also remove spouse metadata and rules if unchecking
-      const newSpouseMetadata = new Map(spouseMetadata);
-      newSpouseMetadata.delete(calendarId);
+      // Also remove rules if unchecking
       const newCalendarRules = new Map(calendarRules);
       newCalendarRules.delete(calendarId);
 
       setSelectedCalendars(newSelectedCalendars);
       setCalendarLabels(newCalendarLabels);
-      setSpouseMetadata(newSpouseMetadata);
       setCalendarRules(newCalendarRules);
 
       // Save and show feedback
-      const success = await saveToServer(newSelectedCalendars, newCalendarLabels, newSpouseMetadata, newCalendarRules);
+      const success = await saveToServer(newSelectedCalendars, newCalendarLabels, undefined, newCalendarRules);
       if (success) {
         showFeedback(`${calendarName} ${t('feedback.removed')}`);
       }
@@ -205,24 +203,40 @@ export default function SelectCalendarsClient({
     }
   };
 
-  // Update spouse metadata for a calendar
-  const handleSpouseMetadataChange = async (calendarId: string, field: keyof SpouseMetadata, value: string) => {
-    const newMetadata = new Map(spouseMetadata);
-    const current = newMetadata.get(calendarId) || {};
-    newMetadata.set(calendarId, { ...current, [field]: value || undefined });
-    setSpouseMetadata(newMetadata);
-
-    // Debounce save (save after user stops typing)
-    // For now, we'll save on blur instead
+  // Update spouse info field
+  const handleSpouseInfoChange = (field: keyof SpouseInfo, value: string) => {
+    setSpouseInfo(prev => ({
+      ...prev,
+      [field]: value || undefined
+    }));
   };
 
-  // Save spouse metadata on blur
-  const handleSpouseMetadataBlur = async (calendarId: string) => {
-    const success = await saveToServer(selectedCalendars, calendarLabels, spouseMetadata, calendarRules);
+  // Save spouse info on blur
+  const handleSpouseInfoBlur = async () => {
+    const success = await saveToServer(selectedCalendars, calendarLabels, spouseInfo, calendarRules);
     if (success) {
       showFeedback(t('feedback.spouseInfoSaved') || 'Spouse info saved');
     }
   };
+
+  // Check if any calendar has spouse label
+  const hasAnySpouseCalendar = Array.from(calendarLabels.values()).some(labels => labels.has('spouse'));
+
+  // Get spouse summary text
+  const getSpouseInfoSummary = (): string | null => {
+    if (!spouseInfo?.personName) return null;
+    const parts: string[] = [spouseInfo.personName];
+    if (spouseInfo.personEnglishName) {
+      parts.push(`(${spouseInfo.personEnglishName})`);
+    }
+    if (spouseInfo.personGender) {
+      parts.push(`- ${t(`spouseInfo.${spouseInfo.personGender}`)}`);
+    }
+    return parts.join(' ');
+  };
+
+  // Check if spouse has any data
+  const hasSpouseInfoData = !!(spouseInfo?.personName || spouseInfo?.personEnglishName || spouseInfo?.personGender);
 
   // Update calendar rule
   const handleRuleChange = (calendarId: string, value: string) => {
@@ -237,23 +251,10 @@ export default function SelectCalendarsClient({
 
   // Save rule on blur
   const handleRuleBlur = async (calendarId: string) => {
-    const success = await saveToServer(selectedCalendars, calendarLabels, spouseMetadata, calendarRules);
+    const success = await saveToServer(selectedCalendars, calendarLabels, spouseInfo, calendarRules);
     if (success) {
       showFeedback(t('feedback.ruleSaved') || 'Rule saved');
     }
-  };
-
-  // Toggle expanded state for spouse panel
-  const toggleSpouseExpanded = (calendarId: string) => {
-    setExpandedSpouse(prev => {
-      const next = new Set(prev);
-      if (next.has(calendarId)) {
-        next.delete(calendarId);
-      } else {
-        next.add(calendarId);
-      }
-      return next;
-    });
   };
 
   // Toggle expanded state for rule panel
@@ -267,27 +268,6 @@ export default function SelectCalendarsClient({
       }
       return next;
     });
-  };
-
-  // Get spouse summary text
-  const getSpouseSummary = (calendarId: string): string | null => {
-    const metadata = spouseMetadata.get(calendarId);
-    if (!metadata?.personName) return null;
-
-    const parts: string[] = [metadata.personName];
-    if (metadata.personEnglishName) {
-      parts.push(`(${metadata.personEnglishName})`);
-    }
-    if (metadata.personGender) {
-      parts.push(`- ${t(`spouseInfo.${metadata.personGender}`)}`);
-    }
-    return parts.join(' ');
-  };
-
-  // Check if spouse has any data
-  const hasSpouseData = (calendarId: string): boolean => {
-    const metadata = spouseMetadata.get(calendarId);
-    return !!(metadata?.personName || metadata?.personEnglishName || metadata?.personGender);
   };
 
   // Toggle category label
@@ -710,83 +690,6 @@ export default function SelectCalendarsClient({
                       )}
                     </div>
 
-                    {/* Spouse metadata - collapsible panel */}
-                    {isSelected && labels.has('spouse') && (() => {
-                      const spouseSummary = getSpouseSummary(calendar.id);
-                      const hasData = hasSpouseData(calendar.id);
-                      const isExpanded = expandedSpouse.has(calendar.id);
-
-                      return (
-                        <div className="collapsible-panel spouse">
-                          <div
-                            className="panel-header"
-                            onClick={() => toggleSpouseExpanded(calendar.id)}
-                          >
-                            {hasData ? (
-                              <>
-                                <span className="panel-summary">{spouseSummary}</span>
-                                <div className="panel-actions">
-                                  <Pencil size={14} />
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                <div className="panel-title">
-                                  <span>{t('spouseInfo.title')}</span>
-                                </div>
-                                <div className="panel-actions">
-                                  <Pencil size={14} />
-                                </div>
-                              </>
-                            )}
-                          </div>
-                          {isExpanded && (
-                            <div className="panel-content">
-                              <div className="spouse-input-group">
-                                <div>
-                                  <div className="input-label">{t('spouseInfo.name')}</div>
-                                  <input
-                                    type="text"
-                                    className="spouse-input"
-                                    placeholder={t('spouseInfo.namePlaceholder')}
-                                    value={spouseMetadata.get(calendar.id)?.personName || ''}
-                                    onChange={(e) => handleSpouseMetadataChange(calendar.id, 'personName', e.target.value)}
-                                    onBlur={() => handleSpouseMetadataBlur(calendar.id)}
-                                  />
-                                </div>
-                                <div>
-                                  <div className="input-label">{t('spouseInfo.englishName')} ({t('spouseInfo.optional')})</div>
-                                  <input
-                                    type="text"
-                                    className="spouse-input"
-                                    placeholder={t('spouseInfo.englishNamePlaceholder')}
-                                    value={spouseMetadata.get(calendar.id)?.personEnglishName || ''}
-                                    onChange={(e) => handleSpouseMetadataChange(calendar.id, 'personEnglishName', e.target.value)}
-                                    onBlur={() => handleSpouseMetadataBlur(calendar.id)}
-                                  />
-                                </div>
-                                <div>
-                                  <div className="input-label">{t('spouseInfo.gender')}</div>
-                                  <select
-                                    className="spouse-select"
-                                    value={spouseMetadata.get(calendar.id)?.personGender || ''}
-                                    onChange={(e) => {
-                                      handleSpouseMetadataChange(calendar.id, 'personGender', e.target.value as 'male' | 'female');
-                                      setTimeout(() => handleSpouseMetadataBlur(calendar.id), 100);
-                                    }}
-                                  >
-                                    <option value="">{t('spouseInfo.selectGender')}</option>
-                                    <option value="male">{t('spouseInfo.male')}</option>
-                                    <option value="female">{t('spouseInfo.female')}</option>
-                                  </select>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-
                     {/* Calendar rule - collapsible panel */}
                     {isSelected && (() => {
                       const rule = calendarRules.get(calendar.id);
@@ -836,6 +739,79 @@ export default function SelectCalendarsClient({
                 );
               })}
             </div>
+
+            {/* Spouse Info Card - appears when any calendar has 'spouse' label */}
+            {hasAnySpouseCalendar && (
+              <div className="collapsible-panel spouse" style={{ marginBottom: '20px' }}>
+                <div
+                  className="panel-header"
+                  onClick={() => setExpandedSpouseCard(!expandedSpouseCard)}
+                >
+                  {hasSpouseInfoData ? (
+                    <>
+                      <span className="panel-summary">{getSpouseInfoSummary()}</span>
+                      <div className="panel-actions">
+                        <Pencil size={14} />
+                        {expandedSpouseCard ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="panel-title">
+                        <span>{t('spouseInfo.title')}</span>
+                      </div>
+                      <div className="panel-actions">
+                        <Pencil size={14} />
+                        {expandedSpouseCard ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </div>
+                    </>
+                  )}
+                </div>
+                {expandedSpouseCard && (
+                  <div className="panel-content">
+                    <div className="spouse-input-group">
+                      <div>
+                        <div className="input-label">{t('spouseInfo.name')}</div>
+                        <input
+                          type="text"
+                          className="spouse-input"
+                          placeholder={t('spouseInfo.namePlaceholder')}
+                          value={spouseInfo?.personName || ''}
+                          onChange={(e) => handleSpouseInfoChange('personName', e.target.value)}
+                          onBlur={handleSpouseInfoBlur}
+                        />
+                      </div>
+                      <div>
+                        <div className="input-label">{t('spouseInfo.englishName')} ({t('spouseInfo.optional')})</div>
+                        <input
+                          type="text"
+                          className="spouse-input"
+                          placeholder={t('spouseInfo.englishNamePlaceholder')}
+                          value={spouseInfo?.personEnglishName || ''}
+                          onChange={(e) => handleSpouseInfoChange('personEnglishName', e.target.value)}
+                          onBlur={handleSpouseInfoBlur}
+                        />
+                      </div>
+                      <div>
+                        <div className="input-label">{t('spouseInfo.gender')}</div>
+                        <select
+                          className="spouse-select"
+                          value={spouseInfo?.personGender || ''}
+                          onChange={(e) => {
+                            handleSpouseInfoChange('personGender', e.target.value as 'male' | 'female');
+                            setTimeout(handleSpouseInfoBlur, 100);
+                          }}
+                        >
+                          <option value="">{t('spouseInfo.selectGender')}</option>
+                          <option value="male">{t('spouseInfo.male')}</option>
+                          <option value="female">{t('spouseInfo.female')}</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </TelegramLayout>
