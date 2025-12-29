@@ -39,6 +39,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
 
   // Validate location by attempting to geocode it
   const validateLocation = async (loc: string): Promise<boolean> => {
+    console.log('[Location] Validating:', loc);
     if (!loc.trim()) {
       setLocationError(null);
       return true; // Empty is allowed
@@ -52,16 +53,19 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
         `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(loc)}&format=json&limit=1`
       );
       const data = await response.json();
+      console.log('[Location] Nominatim response:', data);
 
       if (data && data.length > 0) {
+        console.log('[Location] Valid - found:', data[0].display_name);
         setLocationError(null);
         return true;
       } else {
+        console.log('[Location] Invalid - no results');
         setLocationError(t('locationInvalid'));
         return false;
       }
     } catch (error) {
-      console.error('Error validating location:', error);
+      console.error('[Location] Error validating:', error);
       setLocationError(t('locationValidationError'));
       return false;
     } finally {
@@ -152,15 +156,20 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('[Submit] Starting, location:', location);
 
     // Validate location before saving
     if (location.trim()) {
+      console.log('[Submit] Validating location...');
       const isValid = await validateLocation(location);
+      console.log('[Submit] Validation result:', isValid);
       if (!isValid) {
+        console.log('[Submit] Blocked - invalid location');
         return; // Don't save if location is invalid
       }
     }
 
+    console.log('[Submit] Proceeding to save');
     setFormState('saving');
 
     try {
@@ -604,7 +613,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
             <button
               type="submit"
               className={`btn ${formState === 'error' ? 'btn-error' : ''}`}
-              disabled={formState !== 'idle'}
+              disabled={formState !== 'idle' || locationValidating || !!locationError}
             >
               {formState === 'saving' && t('actions.saving')}
               {formState === 'error' && t('actions.error')}
