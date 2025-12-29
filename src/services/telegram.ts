@@ -195,9 +195,14 @@ export async function handleSummaryCommand(
     const settingsUrl = buildUrl(`/en/settings?user_id=${user.telegramId}`);
     await service.sendMessage(
       chatId,
-      `⚠️ Please update your language preference in Settings to continue.\n\n` +
-      `👉 <a href="${settingsUrl}">Open Settings</a>`,
-      { format: MessageFormat.HTML }
+      `⚠️ Please update your language preference in Settings to continue.`,
+      {
+        replyMarkup: {
+          inline_keyboard: [[
+            { text: '⚙️ Open Settings', web_app: { url: settingsUrl } }
+          ]]
+        }
+      }
     );
     return;
   }
@@ -245,9 +250,14 @@ export async function handleWeatherCommand(
     const settingsUrl = buildUrl(`/en/settings?user_id=${user.telegramId}`);
     await messagingService.sendMessage(
       chatId,
-      `⚠️ Please update your language preference in Settings to continue.\n\n` +
-      `👉 <a href="${settingsUrl}">Open Settings</a>`,
-      { format: MessageFormat.HTML }
+      `⚠️ Please update your language preference in Settings to continue.`,
+      {
+        replyMarkup: {
+          inline_keyboard: [[
+            { text: '⚙️ Open Settings', web_app: { url: settingsUrl } }
+          ]]
+        }
+      }
     );
     return;
   }
