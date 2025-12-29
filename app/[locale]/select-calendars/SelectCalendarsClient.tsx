@@ -281,12 +281,12 @@ export default function SelectCalendarsClient({
   };
 
   // Toggle spouse panel for a calendar, save on collapse
-  const toggleSpousePanel = async (calendarId: string) => {
+  const toggleSpousePanel = (calendarId: string) => {
     const isCurrentlyExpanded = expandedSpousePanels.has(calendarId);
 
     if (isCurrentlyExpanded) {
-      // Collapsing - save immediately
-      await immediateSave('feedback.spouseInfoSaved');
+      // Collapsing - save in background (don't block UI)
+      immediateSave('feedback.spouseInfoSaved');
     }
 
     setExpandedSpousePanels(prev => {
@@ -329,12 +329,12 @@ export default function SelectCalendarsClient({
   };
 
   // Toggle expanded state for rule panel, save on collapse
-  const toggleRuleExpanded = async (calendarId: string) => {
+  const toggleRuleExpanded = (calendarId: string) => {
     const isCurrentlyExpanded = expandedRules.has(calendarId);
 
     if (isCurrentlyExpanded) {
-      // Collapsing - save immediately
-      await immediateSave('feedback.ruleSaved');
+      // Collapsing - save in background (don't block UI)
+      immediateSave('feedback.ruleSaved');
     }
 
     setExpandedRules(prev => {
@@ -357,10 +357,10 @@ export default function SelectCalendarsClient({
   };
 
   // Toggle global rules panel, save on collapse
-  const toggleGlobalRulesPanel = async () => {
+  const toggleGlobalRulesPanel = () => {
     if (expandedGlobalRules) {
-      // Collapsing - save immediately
-      await immediateSave('feedback.globalRulesSaved');
+      // Collapsing - save in background (don't block UI)
+      immediateSave('feedback.globalRulesSaved');
     }
     setExpandedGlobalRules(!expandedGlobalRules);
   };
