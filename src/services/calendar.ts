@@ -157,7 +157,9 @@ export async function listUserCalendars(refreshToken: string): Promise<CalendarI
 
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
-  const response = await calendar.calendarList.list();
+  const response = await calendar.calendarList.list({
+    showHidden: true,  // Include hidden calendars like birthdays
+  });
   const calendars = response.data.items || [];
 
   return calendars.map(cal => ({
