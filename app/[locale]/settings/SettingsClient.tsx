@@ -13,7 +13,6 @@ interface SettingsClientProps {
     location: string;
     messagingPlatform: string;
     culture: string;
-    globalRules: string[];
   };
 }
 
@@ -27,11 +26,6 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
   const [location, setLocation] = useState(currentSettings.location);
   const [messagingPlatform, setMessagingPlatform] = useState(currentSettings.messagingPlatform);
   const [culture, setCulture] = useState(currentSettings.culture);
-  const [globalRules, setGlobalRules] = useState<string[]>(
-    currentSettings.globalRules.length > 0
-      ? [...currentSettings.globalRules, '', '', ''].slice(0, 3)
-      : ['', '', '']
-  );
   const [locationLoading, setLocationLoading] = useState(false);
   const [detectedLocation, setDetectedLocation] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -203,7 +197,6 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
           location,
           messagingPlatform,
           culture,
-          globalRules: globalRules.filter(r => r.trim() !== ''),
           initData
         })
       });
@@ -607,26 +600,6 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
                 <option value="jewish">{t('cultureJewish')}</option>
               </select>
               <p className="help-text">{t('cultureHelp')}</p>
-            </div>
-
-            <div className="form-group">
-              <label>{t('globalRulesLabel')}</label>
-              <p className="help-text" style={{ marginBottom: '8px' }}>{t('globalRulesHelp')}</p>
-              {[0, 1, 2].map((index) => (
-                <input
-                  key={index}
-                  type="text"
-                  value={globalRules[index] || ''}
-                  onChange={(e) => {
-                    const newRules = [...globalRules];
-                    newRules[index] = e.target.value;
-                    setGlobalRules(newRules);
-                  }}
-                  placeholder={t('globalRulesPlaceholder', { number: index + 1 })}
-                  disabled={formState !== 'idle'}
-                  style={{ marginBottom: '8px' }}
-                />
-              ))}
             </div>
 
             <button

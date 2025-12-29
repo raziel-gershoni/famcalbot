@@ -164,7 +164,13 @@
       "removedFrom": "הוסר מ",
       "setPrimary": "הוגדר כראשי",
       "spouseInfoSaved": "פרטי בן/בת זוג נשמרו",
-      "ruleSaved": "הכלל נשמר"
+      "ruleSaved": "הכלל נשמר",
+      "globalRulesSaved": "הכללים הגלובליים נשמרו"
+    },
+    "globalRules": {
+      "title": "כללים גלובליים",
+      "help": "כללים שחלים על כל היומנים (לדוגמה, יציאה מוקדמת בימים מסוימים)",
+      "placeholder": "כלל {number}"
     },
     "calendarRule": {
       "label": "כלל מותאם",

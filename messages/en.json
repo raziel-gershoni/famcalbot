@@ -164,7 +164,13 @@
       "removedFrom": "removed from",
       "setPrimary": "set as primary",
       "spouseInfoSaved": "Spouse info saved",
-      "ruleSaved": "Rule saved"
+      "ruleSaved": "Rule saved",
+      "globalRulesSaved": "Global rules saved"
+    },
+    "globalRules": {
+      "title": "Global Rules",
+      "help": "Rules that apply to all calendars (e.g., early dismissal on certain days)",
+      "placeholder": "Rule {number}"
     },
     "calendarRule": {
       "label": "Custom Rule",

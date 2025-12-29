@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { TelegramLayout, Header } from '@/components/Layout';
@@ -37,6 +37,7 @@ interface SelectCalendarsClientProps {
     calendarLabels: Map<string, Set<CalendarLabel>>;
     spouseInfo: SpouseInfo | null;
     calendarRules: Map<string, string>;
+    globalRules: string[];
   };
   locale: string;
 }
@@ -69,11 +70,22 @@ export default function SelectCalendarsClient({
   const [calendarRules, setCalendarRules] = useState<Map<string, string>>(
     currentSelections.calendarRules
   );
+  // Global rules (up to 3)
+  const [globalRules, setGlobalRules] = useState<string[]>(
+    currentSelections.globalRules.length > 0
+      ? [...currentSelections.globalRules, '', '', ''].slice(0, 3)
+      : ['', '', '']
+  );
   const [feedbackMessages, setFeedbackMessages] = useState<FeedbackMessage[]>([]);
   const [messageIdCounter, setMessageIdCounter] = useState(0);
   // Track which panels are expanded (collapsed by default if data exists)
-  const [expandedSpouseCard, setExpandedSpouseCard] = useState(false);
+  const [expandedGlobalRules, setExpandedGlobalRules] = useState(false);
+  const [expandedSpousePanels, setExpandedSpousePanels] = useState<Set<string>>(new Set());
   const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
+
+  // Debounce timer ref for spouse info and rules
+  const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const DEBOUNCE_DELAY = 500; // ms
 
   const handleBack = () => {
     router.push(`/${locale}/dashboard?user_id=${userId}`);
@@ -93,15 +105,66 @@ export default function SelectCalendarsClient({
     }, 3000);
   };
 
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Debounced save for spouse info, rules, and global rules
+  const debouncedSave = useCallback((
+    newSpouseInfo?: SpouseInfo | null,
+    newRules?: Map<string, string>,
+    newGlobalRules?: string[],
+    feedbackKey?: string
+  ) => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+
+    saveTimerRef.current = setTimeout(async () => {
+      const success = await saveToServer(
+        selectedCalendars,
+        calendarLabels,
+        newSpouseInfo !== undefined ? newSpouseInfo : spouseInfo,
+        newRules !== undefined ? newRules : calendarRules,
+        newGlobalRules !== undefined ? newGlobalRules : globalRules
+      );
+      if (success && feedbackKey) {
+        showFeedback(t(feedbackKey) || feedbackKey);
+      }
+    }, DEBOUNCE_DELAY);
+  }, [selectedCalendars, calendarLabels, spouseInfo, calendarRules, globalRules]);
+
+  // Immediate save (for panel collapse)
+  const immediateSave = useCallback(async (feedbackKey?: string) => {
+    // Cancel any pending debounced save
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+
+    const success = await saveToServer(selectedCalendars, calendarLabels, spouseInfo, calendarRules, globalRules);
+    if (success && feedbackKey) {
+      showFeedback(t(feedbackKey) || feedbackKey);
+    }
+    return success;
+  }, [selectedCalendars, calendarLabels, spouseInfo, calendarRules, globalRules]);
+
   // Save current state to server
   const saveToServer = async (
     newSelectedCalendars: Set<string>,
     newCalendarLabels: Map<string, Set<CalendarLabel>>,
     newSpouseInfo?: SpouseInfo | null,
-    newCalendarRules?: Map<string, string>
+    newCalendarRules?: Map<string, string>,
+    newGlobalRules?: string[]
   ) => {
     const spouseInfoToUse = newSpouseInfo !== undefined ? newSpouseInfo : spouseInfo;
     const rulesToUse = newCalendarRules || calendarRules;
+    const globalRulesToUse = newGlobalRules || globalRules;
     try {
       const calendarAssignments: CalendarAssignment[] = Array.from(newSelectedCalendars).map(calId => {
         const calendar = availableCalendars.find(c => c.id === calId);
@@ -131,7 +194,11 @@ export default function SelectCalendarsClient({
       const response = await fetch(`/api/select-calendars?user_id=${userId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ calendarAssignments, initData })
+        body: JSON.stringify({
+          calendarAssignments,
+          globalRules: globalRulesToUse.filter(r => r.trim() !== ''),
+          initData
+        })
       });
 
       if (!response.ok) {
@@ -203,24 +270,35 @@ export default function SelectCalendarsClient({
     }
   };
 
-  // Update spouse info field
+  // Update spouse info field with debounced save
   const handleSpouseInfoChange = (field: keyof SpouseInfo, value: string) => {
-    setSpouseInfo(prev => ({
-      ...prev,
+    const newSpouseInfo = {
+      ...spouseInfo,
       [field]: value || undefined
-    }));
+    };
+    setSpouseInfo(newSpouseInfo);
+    debouncedSave(newSpouseInfo, undefined, undefined, 'feedback.spouseInfoSaved');
   };
 
-  // Save spouse info on blur
-  const handleSpouseInfoBlur = async () => {
-    const success = await saveToServer(selectedCalendars, calendarLabels, spouseInfo, calendarRules);
-    if (success) {
-      showFeedback(t('feedback.spouseInfoSaved') || 'Spouse info saved');
+  // Toggle spouse panel for a calendar, save on collapse
+  const toggleSpousePanel = async (calendarId: string) => {
+    const isCurrentlyExpanded = expandedSpousePanels.has(calendarId);
+
+    if (isCurrentlyExpanded) {
+      // Collapsing - save immediately
+      await immediateSave('feedback.spouseInfoSaved');
     }
-  };
 
-  // Check if any calendar has spouse label
-  const hasAnySpouseCalendar = Array.from(calendarLabels.values()).some(labels => labels.has('spouse'));
+    setExpandedSpousePanels(prev => {
+      const next = new Set(prev);
+      if (next.has(calendarId)) {
+        next.delete(calendarId);
+      } else {
+        next.add(calendarId);
+      }
+      return next;
+    });
+  };
 
   // Get spouse summary text
   const getSpouseInfoSummary = (): string | null => {
@@ -238,7 +316,7 @@ export default function SelectCalendarsClient({
   // Check if spouse has any data
   const hasSpouseInfoData = !!(spouseInfo?.personName || spouseInfo?.personEnglishName || spouseInfo?.personGender);
 
-  // Update calendar rule
+  // Update calendar rule with debounced save
   const handleRuleChange = (calendarId: string, value: string) => {
     const newRules = new Map(calendarRules);
     if (value.trim()) {
@@ -247,18 +325,18 @@ export default function SelectCalendarsClient({
       newRules.delete(calendarId);
     }
     setCalendarRules(newRules);
+    debouncedSave(undefined, newRules, undefined, 'feedback.ruleSaved');
   };
 
-  // Save rule on blur
-  const handleRuleBlur = async (calendarId: string) => {
-    const success = await saveToServer(selectedCalendars, calendarLabels, spouseInfo, calendarRules);
-    if (success) {
-      showFeedback(t('feedback.ruleSaved') || 'Rule saved');
+  // Toggle expanded state for rule panel, save on collapse
+  const toggleRuleExpanded = async (calendarId: string) => {
+    const isCurrentlyExpanded = expandedRules.has(calendarId);
+
+    if (isCurrentlyExpanded) {
+      // Collapsing - save immediately
+      await immediateSave('feedback.ruleSaved');
     }
-  };
 
-  // Toggle expanded state for rule panel
-  const toggleRuleExpanded = (calendarId: string) => {
     setExpandedRules(prev => {
       const next = new Set(prev);
       if (next.has(calendarId)) {
@@ -268,6 +346,34 @@ export default function SelectCalendarsClient({
       }
       return next;
     });
+  };
+
+  // Update global rule with debounced save
+  const handleGlobalRuleChange = (index: number, value: string) => {
+    const newRules = [...globalRules];
+    newRules[index] = value;
+    setGlobalRules(newRules);
+    debouncedSave(undefined, undefined, newRules, 'feedback.globalRulesSaved');
+  };
+
+  // Toggle global rules panel, save on collapse
+  const toggleGlobalRulesPanel = async () => {
+    if (expandedGlobalRules) {
+      // Collapsing - save immediately
+      await immediateSave('feedback.globalRulesSaved');
+    }
+    setExpandedGlobalRules(!expandedGlobalRules);
+  };
+
+  // Check if any global rules have data
+  const hasGlobalRulesData = globalRules.some(r => r.trim() !== '');
+
+  // Get global rules summary text
+  const getGlobalRulesSummary = (): string => {
+    const filledRules = globalRules.filter(r => r.trim() !== '');
+    if (filledRules.length === 0) return '';
+    if (filledRules.length === 1) return filledRules[0];
+    return `${filledRules.length} rules`;
   };
 
   // Toggle category label
@@ -393,6 +499,10 @@ export default function SelectCalendarsClient({
           background: #f0f9ff;
           border: 1px solid #bae6fd;
         }
+        .collapsible-panel.global-rules {
+          background: #faf5ff;
+          border: 1px solid #e9d5ff;
+        }
         .panel-header {
           display: flex;
           align-items: center;
@@ -416,6 +526,9 @@ export default function SelectCalendarsClient({
         }
         .collapsible-panel.rule .panel-title {
           color: #0369a1;
+        }
+        .collapsible-panel.global-rules .panel-title {
+          color: #7c3aed;
         }
         .panel-summary {
           font-size: 13px;
@@ -626,6 +739,53 @@ export default function SelectCalendarsClient({
             {t('categoryHelp')}
           </div>
 
+          {/* Global Rules Panel - collapsed by default */}
+          <div className="collapsible-panel global-rules" style={{ marginBottom: '20px' }}>
+            <div
+              className="panel-header"
+              onClick={toggleGlobalRulesPanel}
+            >
+              {hasGlobalRulesData ? (
+                <>
+                  <span className="panel-summary">{getGlobalRulesSummary()}</span>
+                  <div className="panel-actions">
+                    <Pencil size={14} />
+                    {expandedGlobalRules ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="panel-title">
+                    <span>{t('globalRules.title')}</span>
+                  </div>
+                  <div className="panel-actions">
+                    <Pencil size={14} />
+                    {expandedGlobalRules ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </div>
+                </>
+              )}
+            </div>
+            {expandedGlobalRules && (
+              <div className="panel-content">
+                <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '10px' }}>
+                  {t('globalRules.help')}
+                </p>
+                <div className="spouse-input-group">
+                  {[0, 1, 2].map((index) => (
+                    <input
+                      key={index}
+                      type="text"
+                      className="spouse-input"
+                      value={globalRules[index] || ''}
+                      onChange={(e) => handleGlobalRuleChange(index, e.target.value)}
+                      placeholder={t('globalRules.placeholder', { number: index + 1 })}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="calendar-list">
               {availableCalendars.map(calendar => {
                 const isSelected = selectedCalendars.has(calendar.id);
@@ -728,8 +888,79 @@ export default function SelectCalendarsClient({
                                 placeholder={t('calendarRule.placeholder')}
                                 value={calendarRules.get(calendar.id) || ''}
                                 onChange={(e) => handleRuleChange(calendar.id, e.target.value)}
-                                onBlur={() => handleRuleBlur(calendar.id)}
                               />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Spouse info panel - synced across all spouse calendars */}
+                    {isSelected && labels.has('spouse') && (() => {
+                      const isExpanded = expandedSpousePanels.has(calendar.id);
+
+                      return (
+                        <div className="collapsible-panel spouse">
+                          <div
+                            className="panel-header"
+                            onClick={() => toggleSpousePanel(calendar.id)}
+                          >
+                            {hasSpouseInfoData ? (
+                              <>
+                                <span className="panel-summary">{getSpouseInfoSummary()}</span>
+                                <div className="panel-actions">
+                                  <Pencil size={14} />
+                                  {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="panel-title">
+                                  <span>{t('spouseInfo.title')}</span>
+                                </div>
+                                <div className="panel-actions">
+                                  <Pencil size={14} />
+                                  {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                          {isExpanded && (
+                            <div className="panel-content">
+                              <div className="spouse-input-group">
+                                <div>
+                                  <div className="input-label">{t('spouseInfo.name')}</div>
+                                  <input
+                                    type="text"
+                                    className="spouse-input"
+                                    placeholder={t('spouseInfo.namePlaceholder')}
+                                    value={spouseInfo?.personName || ''}
+                                    onChange={(e) => handleSpouseInfoChange('personName', e.target.value)}
+                                  />
+                                </div>
+                                <div>
+                                  <div className="input-label">{t('spouseInfo.englishName')} ({t('spouseInfo.optional')})</div>
+                                  <input
+                                    type="text"
+                                    className="spouse-input"
+                                    placeholder={t('spouseInfo.englishNamePlaceholder')}
+                                    value={spouseInfo?.personEnglishName || ''}
+                                    onChange={(e) => handleSpouseInfoChange('personEnglishName', e.target.value)}
+                                  />
+                                </div>
+                                <div>
+                                  <div className="input-label">{t('spouseInfo.gender')}</div>
+                                  <select
+                                    className="spouse-select"
+                                    value={spouseInfo?.personGender || ''}
+                                    onChange={(e) => handleSpouseInfoChange('personGender', e.target.value as 'male' | 'female')}
+                                  >
+                                    <option value="">{t('spouseInfo.selectGender')}</option>
+                                    <option value="male">{t('spouseInfo.male')}</option>
+                                    <option value="female">{t('spouseInfo.female')}</option>
+                                  </select>
+                                </div>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -739,79 +970,6 @@ export default function SelectCalendarsClient({
                 );
               })}
             </div>
-
-            {/* Spouse Info Card - appears when any calendar has 'spouse' label */}
-            {hasAnySpouseCalendar && (
-              <div className="collapsible-panel spouse" style={{ marginBottom: '20px' }}>
-                <div
-                  className="panel-header"
-                  onClick={() => setExpandedSpouseCard(!expandedSpouseCard)}
-                >
-                  {hasSpouseInfoData ? (
-                    <>
-                      <span className="panel-summary">{getSpouseInfoSummary()}</span>
-                      <div className="panel-actions">
-                        <Pencil size={14} />
-                        {expandedSpouseCard ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="panel-title">
-                        <span>{t('spouseInfo.title')}</span>
-                      </div>
-                      <div className="panel-actions">
-                        <Pencil size={14} />
-                        {expandedSpouseCard ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                      </div>
-                    </>
-                  )}
-                </div>
-                {expandedSpouseCard && (
-                  <div className="panel-content">
-                    <div className="spouse-input-group">
-                      <div>
-                        <div className="input-label">{t('spouseInfo.name')}</div>
-                        <input
-                          type="text"
-                          className="spouse-input"
-                          placeholder={t('spouseInfo.namePlaceholder')}
-                          value={spouseInfo?.personName || ''}
-                          onChange={(e) => handleSpouseInfoChange('personName', e.target.value)}
-                          onBlur={handleSpouseInfoBlur}
-                        />
-                      </div>
-                      <div>
-                        <div className="input-label">{t('spouseInfo.englishName')} ({t('spouseInfo.optional')})</div>
-                        <input
-                          type="text"
-                          className="spouse-input"
-                          placeholder={t('spouseInfo.englishNamePlaceholder')}
-                          value={spouseInfo?.personEnglishName || ''}
-                          onChange={(e) => handleSpouseInfoChange('personEnglishName', e.target.value)}
-                          onBlur={handleSpouseInfoBlur}
-                        />
-                      </div>
-                      <div>
-                        <div className="input-label">{t('spouseInfo.gender')}</div>
-                        <select
-                          className="spouse-select"
-                          value={spouseInfo?.personGender || ''}
-                          onChange={(e) => {
-                            handleSpouseInfoChange('personGender', e.target.value as 'male' | 'female');
-                            setTimeout(handleSpouseInfoBlur, 100);
-                          }}
-                        >
-                          <option value="">{t('spouseInfo.selectGender')}</option>
-                          <option value="male">{t('spouseInfo.male')}</option>
-                          <option value="female">{t('spouseInfo.female')}</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </div>
       </TelegramLayout>

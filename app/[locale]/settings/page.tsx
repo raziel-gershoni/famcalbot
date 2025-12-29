@@ -61,8 +61,7 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
         language: userLocale,  // Pass normalized locale
         location: user.location,
         messagingPlatform: user.messagingPlatform,
-        culture: user.culture || 'default',
-        globalRules: user.globalRules || []
+        culture: user.culture || 'default'
       }}
     />
   );

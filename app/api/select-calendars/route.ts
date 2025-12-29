@@ -59,7 +59,11 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { calendarAssignments, initData } = body as { calendarAssignments: CalendarAssignment[]; initData?: string };
+    const { calendarAssignments, globalRules, initData } = body as {
+      calendarAssignments: CalendarAssignment[];
+      globalRules?: string[];
+      initData?: string;
+    };
 
     // Authentication: Verify Telegram initData
     if (!verifyUserAccess(initData || null, parseInt(userId))) {
@@ -100,11 +104,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Update user with new calendarAssignments
+    // Update user with new calendarAssignments and globalRules
     await prisma.user.update({
       where: { telegramId: BigInt(userId) },
       data: {
         calendarAssignments: syncedAssignments as any,
+        ...(globalRules !== undefined && { globalRules }),
         googleRefreshToken: encrypt(currentUser.googleRefreshToken) // Re-encrypt
       }
     });

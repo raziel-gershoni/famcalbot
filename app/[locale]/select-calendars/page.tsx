@@ -19,11 +19,12 @@ interface SpouseInfo {
 }
 
 // Convert calendarAssignments to state format
-function convertAssignmentsToSelections(assignments: CalendarAssignment[]): {
+function convertAssignmentsToSelections(assignments: CalendarAssignment[], userGlobalRules?: string[]): {
   selectedCalendars: Set<string>;
   calendarLabels: Map<string, Set<CalendarLabel>>;
   spouseInfo: SpouseInfo | null;
   calendarRules: Map<string, string>;
+  globalRules: string[];
 } {
   const selectedCalendars = new Set<string>();
   const calendarLabels = new Map<string, Set<CalendarLabel>>();
@@ -53,7 +54,7 @@ function convertAssignmentsToSelections(assignments: CalendarAssignment[]): {
     }
   }
 
-  return { selectedCalendars, calendarLabels, spouseInfo, calendarRules };
+  return { selectedCalendars, calendarLabels, spouseInfo, calendarRules, globalRules: userGlobalRules || [] };
 }
 
 export default async function SelectCalendarsPage({ params, searchParams }: PageProps) {
@@ -132,8 +133,8 @@ export default async function SelectCalendarsPage({ params, searchParams }: Page
 
     // Convert user's current selections to new state format
     const currentSelections = user.calendarAssignments && user.calendarAssignments.length > 0
-      ? convertAssignmentsToSelections(user.calendarAssignments)
-      : { selectedCalendars: new Set<string>(), calendarLabels: new Map(), spouseInfo: null, calendarRules: new Map() };
+      ? convertAssignmentsToSelections(user.calendarAssignments, user.globalRules)
+      : { selectedCalendars: new Set<string>(), calendarLabels: new Map(), spouseInfo: null, calendarRules: new Map(), globalRules: user.globalRules || [] };
 
     return (
       <SelectCalendarsClient
