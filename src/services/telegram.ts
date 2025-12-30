@@ -583,14 +583,16 @@ async function sendSummaryToUser(
       userContext
     );
 
-    // Stop animation and update message with summary
+    // Stop animation and deliver via unified pipeline
     stopAnimation();
-    await messagingService.updateMessage(userId, messageId, summary, { format: MessageFormat.HTML });
-
-    // Generate and send voice message if enabled by user
-    if (user.voiceSummaryEnabled !== false) {
-      await sendVoiceMessage(userId, summary, modelId, user.language, messagingService);
-    }
+    await deliverSummary({
+      userId,
+      summary,
+      user,
+      progressMessageId: messageId,
+      showVoiceProgress: true,
+      modelId
+    });
   } catch (error) {
     // Stop animation on error
     stopAnimation();
@@ -706,57 +708,15 @@ async function sendSummaryToAll(
           userContext
         );
 
-        // Check if user has disabled both text and voice - skip entirely
-        if (user.textSummaryEnabled === false && user.voiceSummaryEnabled === false) {
-          continue;
-        }
-
-        switch (platform) {
-          case 'telegram':
-            // Send text to Telegram if enabled
-            if (user.textSummaryEnabled !== false) {
-              await messagingService.sendMessage(user.telegramId, summary, { format: MessageFormat.HTML });
-            }
-            // Send voice if enabled
-            if (user.voiceSummaryEnabled !== false) {
-              await sendVoiceMessage(user.telegramId, summary, undefined, user.language);
-            }
-            break;
-
-          case 'whatsapp':
-            // Send to WhatsApp only
-            if (user.whatsappPhone) {
-              const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
-              if (user.textSummaryEnabled !== false) {
-                await whatsappService.sendMessage(user.whatsappPhone, summary, { format: MessageFormat.HTML });
-              }
-              if (user.voiceSummaryEnabled !== false) {
-                // TODO: Implement voice message for WhatsApp
-                // await whatsappService.sendVoice(user.whatsappPhone, voiceFile);
-              }
-            }
-            break;
-
-          case 'all':
-            // Send to both platforms
-            if (user.textSummaryEnabled !== false) {
-              await messagingService.sendMessage(user.telegramId, summary, { format: MessageFormat.HTML });
-            }
-            if (user.voiceSummaryEnabled !== false) {
-              await sendVoiceMessage(user.telegramId, summary, undefined, user.language);
-            }
-            if (user.whatsappPhone) {
-              const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
-              if (user.textSummaryEnabled !== false) {
-                await whatsappService.sendMessage(user.whatsappPhone, summary, { format: MessageFormat.HTML });
-              }
-              if (user.voiceSummaryEnabled !== false) {
-                // TODO: Implement voice message for WhatsApp
-                // await whatsappService.sendVoice(user.whatsappPhone, voiceFile);
-              }
-            }
-            break;
-        }
+        // Deliver via unified pipeline (handles text/voice preferences and platform routing)
+        await deliverSummary({
+          userId: user.telegramId,
+          summary,
+          user,
+          platform: platform as 'telegram' | 'whatsapp' | 'all'
+          // No progressMessageId = send new messages (scheduled batch)
+          // showVoiceProgress defaults to false for scheduled
+        });
       } catch (error) {
         console.error(`Failed to send summary to user ${user.telegramId}:`, error);
 
@@ -861,31 +821,39 @@ export async function sendTomorrowSummaryToAll(): Promise<void> {
 
 /**
  * Generate and send voice version of summary
- * Shows animated progress that gets deleted when voice arrives
+ * Shows animated progress that gets deleted when voice arrives (optional)
  * Non-blocking - errors logged but don't affect text summary delivery
- * Admin-only feature for testing
  * @param modelId - Optional model ID to use for condensing (same as text summary)
  * @param language - Optional language for voice (defaults to English if not provided)
  * @param service - Messaging service instance
+ * @param showProgress - Whether to show progress animation (default: true)
  */
 async function sendVoiceMessage(
   userId: number,
   summary: string,
   modelId?: string,
   language?: string,
-  service?: IMessagingService
+  service?: IMessagingService,
+  showProgress: boolean = true
 ): Promise<void> {
   let voiceFilePath: string | null = null;
-  const messagingService = service || getMessagingService();
+  const msgService = service || getMessagingService();
   const userLanguage = language || 'en';
 
-  // Start voice progress animation
-  const { messageId, stopAnimation } = await sendProgressWithAnimation(
-    userId,
-    'voice',
-    userLanguage,
-    messagingService
-  );
+  // Start voice progress animation (if enabled)
+  let messageId: number | string | null = null;
+  let stopAnimation: (() => void) | null = null;
+
+  if (showProgress) {
+    const progress = await sendProgressWithAnimation(
+      userId,
+      'voice',
+      userLanguage,
+      msgService
+    );
+    messageId = progress.messageId;
+    stopAnimation = progress.stopAnimation;
+  }
 
   try {
     const { generateVoiceMessage, cleanupVoiceFile } = await import('./voice-generator');
@@ -905,9 +873,9 @@ async function sendVoiceMessage(
     // Step 2: Generate voice file from condensed summary
     voiceFilePath = await generateVoiceMessage(condensedSummary, targetLanguage);
 
-    // Stop animation and delete progress message
-    stopAnimation();
-    await messagingService.deleteMessage(userId, messageId);
+    // Stop animation and delete progress message (if shown)
+    if (stopAnimation) stopAnimation();
+    if (messageId) await msgService.deleteMessage(userId, messageId);
 
     // Send as voice message to Telegram
     const botInstance = getBot();
@@ -917,10 +885,10 @@ async function sendVoiceMessage(
 
     console.log(`Voice message sent successfully to user ${userId}`);
   } catch (error) {
-    // Stop animation on error
-    stopAnimation();
-    // Delete progress message on error too
-    await messagingService.deleteMessage(userId, messageId);
+    // Stop animation on error (if shown)
+    if (stopAnimation) stopAnimation();
+    // Delete progress message on error too (if shown)
+    if (messageId) await msgService.deleteMessage(userId, messageId);
 
     console.error(`Voice generation failed for user ${userId}:`, error);
 
@@ -938,6 +906,102 @@ async function sendVoiceMessage(
         console.warn('Voice file cleanup failed:', err)
       );
     }
+  }
+}
+
+/**
+ * Route text message to appropriate platform(s)
+ * Used by deliverSummary for scheduled batch delivery
+ */
+async function routeTextMessage(
+  userId: number,
+  text: string,
+  user: UserConfig,
+  platform?: string
+): Promise<void> {
+  const targetPlatform = platform || user.messagingPlatform || 'telegram';
+  const msgService = getMessagingService();
+
+  if (targetPlatform === 'telegram' || targetPlatform === 'all') {
+    await msgService.sendMessage(userId, text, { format: MessageFormat.HTML });
+  }
+
+  if ((targetPlatform === 'whatsapp' || targetPlatform === 'all') && user.whatsappPhone) {
+    const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
+    await whatsappService.sendMessage(user.whatsappPhone, text, { format: MessageFormat.HTML });
+  }
+}
+
+/**
+ * Delivery options for unified summary delivery
+ */
+interface DeliveryOptions {
+  // Required
+  userId: number;
+  summary: string;
+  user: UserConfig;
+
+  // Progress handling
+  progressMessageId?: number | string;  // If set, update this message with text
+  showVoiceProgress?: boolean;          // Show "generating voice" message (default: true for user-invoked)
+
+  // Overrides (for admin testing)
+  modelId?: string;
+
+  // Platform routing (for batch)
+  platform?: 'telegram' | 'whatsapp' | 'all';
+}
+
+/**
+ * Unified summary delivery pipeline
+ * Handles both user-invoked and scheduled summary delivery
+ * Respects user text/voice preferences
+ */
+async function deliverSummary(options: DeliveryOptions): Promise<void> {
+  const {
+    userId,
+    summary,
+    user,
+    progressMessageId,
+    showVoiceProgress = true,
+    modelId,
+    platform
+  } = options;
+
+  const msgService = getMessagingService();
+
+  // Determine what to send based on user settings
+  const sendText = user.textSummaryEnabled !== false;
+  const sendVoice = user.voiceSummaryEnabled !== false;
+
+  // Skip if both disabled
+  if (!sendText && !sendVoice) {
+    // If there's a progress message, delete it
+    if (progressMessageId) {
+      await msgService.deleteMessage(userId, progressMessageId);
+    }
+    return;
+  }
+
+  // Handle text delivery
+  if (sendText) {
+    if (progressMessageId) {
+      // Update existing progress message (user-invoked)
+      await msgService.updateMessage(userId, progressMessageId, summary, { format: MessageFormat.HTML });
+    } else {
+      // Send new message (scheduled batch)
+      await routeTextMessage(userId, summary, user, platform);
+    }
+  } else if (progressMessageId) {
+    // Text disabled but we have a progress message - delete it
+    await msgService.deleteMessage(userId, progressMessageId);
+  }
+
+  // Handle voice delivery (async, non-blocking)
+  if (sendVoice) {
+    // For scheduled (no progressMessageId), don't show voice progress
+    const shouldShowVoiceProgress = progressMessageId ? showVoiceProgress : false;
+    await sendVoiceMessage(userId, summary, modelId, user.language, msgService, shouldShowVoiceProgress);
   }
 }
 
