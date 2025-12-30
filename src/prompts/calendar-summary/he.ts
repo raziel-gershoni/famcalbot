@@ -6,12 +6,13 @@
 import { SummaryPromptData } from './types';
 
 function buildSpouseContext(data: SummaryPromptData): string {
-  if (!data.spouseName) return '';
+  if (!data.hasSpouseCalendar) return '';
 
+  const spouseLabel = data.spouseName || 'בן/בת הזוג';
   return `
 2. **אירועי בן/בת הזוג** - אלו אירועים של בן/בת הזוג
-   - כשמתייחסים לבן/בת הזוג בשם, השתמש ב: ${data.spouseName}
-   - התאם את הפנייה מנקודת המבט של המשתמש (לדוגמה: "ל${data.spouseName} יש פגישה ב...")
+   - כשמתייחסים לבן/בת הזוג בשם, השתמש ב: ${spouseLabel}
+   - התאם את הפנייה מנקודת המבט של המשתמש (לדוגמה: "ל${spouseLabel} יש פגישה ב...")
 `;
 }
 
@@ -98,12 +99,14 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
   const calendarRules = buildCalendarRules(data);
   const dateInfo = buildDateInfo(data);
 
-  const spouseNameLine = data.spouseName
-    ? `- בן/בת זוג: ${data.spouseName} (${data.spouseGender === 'male' ? 'זכר' : 'נקבה'} - השתמש בצורות דקדוק מתאימות)`
+  const spouseLabel = data.spouseName || 'בן/בת הזוג';
+  const genderText = data.spouseGender ? (data.spouseGender === 'male' ? 'זכר' : 'נקבה') : null;
+  const spouseNameLine = data.hasSpouseCalendar
+    ? `- בן/בת זוג: ${spouseLabel}${genderText ? ` (${genderText} - השתמש בצורות דקדוק מתאימות)` : ''}`
     : '';
 
-  const spouseScheduleHeader = data.spouseName
-    ? `<b>לוח הזמנים של ${data.spouseName}:</b> [רק אם ל${data.spouseName} יש אירועים]
+  const spouseScheduleHeader = data.hasSpouseCalendar
+    ? `<b>לוח הזמנים של ${spouseLabel}:</b> [רק אם ל${spouseLabel} יש אירועים]
 - HH:MM-HH:MM - [פעילות/עבודה] ([מיקום אם זמין])
 [סדר כרונולוגי לפי שעת התחלה, כלול מיקום כשיש]
 
@@ -145,7 +148,7 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
 `
     : '';
 
-  const spouseEventsSection = data.spouseName && data.spouseEventsText
+  const spouseEventsSection = data.hasSpouseCalendar && data.spouseEventsText
     ? `**אירועי בן/בת הזוג:**
 ${data.spouseEventsText}
 

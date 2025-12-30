@@ -6,9 +6,10 @@ export interface SummaryPromptData {
   userName: string;
   userEnglishName: string;
   userGender: 'male' | 'female';
-  spouseName?: string;        // Optional - only if spouse calendar exists
-  spouseEnglishName?: string; // Optional - only if spouse calendar exists
-  spouseGender?: 'male' | 'female'; // Optional - only if spouse calendar exists
+  hasSpouseCalendar: boolean; // True if spouse calendar exists (has events)
+  spouseName?: string;        // Optional - use "Spouse" fallback if missing
+  spouseEnglishName?: string; // Optional
+  spouseGender?: 'male' | 'female'; // Optional
   currentGregorianDate: string;
   summaryGregorianDate: string;
   summaryHebrewDate: string;

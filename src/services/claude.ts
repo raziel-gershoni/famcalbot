@@ -120,6 +120,7 @@ function buildPromptData(
     userName,
     userEnglishName,
     userGender,
+    hasSpouseCalendar: spouseEvents.length > 0,
     spouseName,
     spouseEnglishName,
     spouseGender,

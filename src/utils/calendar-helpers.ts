@@ -2,33 +2,33 @@ import { CalendarAssignment, CalendarLabel, UserConfig } from '../types';
 
 /**
  * Spouse info extracted from calendar assignment or legacy user fields
+ * All fields are optional - spouse events should appear even without metadata
  */
 export interface SpouseInfo {
-  name: string;
+  name?: string;              // Optional - use "Spouse" fallback if missing
   englishName?: string;
-  gender: 'male' | 'female';
+  gender?: 'male' | 'female'; // Optional
 }
 
 /**
  * Get spouse info from calendar assignments
- * Returns null if no spouse calendar exists or if spouse metadata is incomplete
- * Searches ALL spouse calendars for metadata (not just the first one)
+ * Returns null only if no spouse calendar exists
+ * Returns partial info if spouse calendar exists but metadata is incomplete
  */
 export function getSpouseInfo(user: UserConfig): SpouseInfo | null {
-  // Find any spouse calendar that has the metadata (name & gender)
-  const spouseCalendarWithInfo = user.calendarAssignments?.find(
-    a => a.labels.includes('spouse') && a.personName && a.personGender
+  // Find any spouse calendar (may or may not have metadata)
+  const spouseCalendar = user.calendarAssignments?.find(
+    a => a.labels.includes('spouse')
   );
 
-  if (spouseCalendarWithInfo) {
-    return {
-      name: spouseCalendarWithInfo.personName!,
-      englishName: spouseCalendarWithInfo.personEnglishName,
-      gender: spouseCalendarWithInfo.personGender!,
-    };
-  }
+  if (!spouseCalendar) return null;
 
-  return null;
+  // Return whatever metadata is available (may have partial or no data)
+  return {
+    name: spouseCalendar.personName,
+    englishName: spouseCalendar.personEnglishName,
+    gender: spouseCalendar.personGender,
+  };
 }
 
 /**

@@ -6,12 +6,13 @@
 import { SummaryPromptData } from './types';
 
 function buildSpouseContext(data: SummaryPromptData): string {
-  if (!data.spouseName) return '';
+  if (!data.hasSpouseCalendar) return '';
 
+  const spouseLabel = data.spouseName || 'Супруг/супруга';
   return `
 2. **События супруга/супруги** - Это события супруга/супруги
-   - При обращении по имени используйте: ${data.spouseName}
-   - Персонализируйте с точки зрения пользователя (например: "У ${data.spouseName} встреча в...")
+   - При обращении по имени используйте: ${spouseLabel}
+   - Персонализируйте с точки зрения пользователя (например: "У ${spouseLabel} встреча в...")
 `;
 }
 
@@ -99,14 +100,15 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
   const dateInfo = buildDateInfo(data);
 
   const genderRu = data.userGender === 'male' ? 'мужской род' : 'женский род';
-  const spouseGenderRu = data.spouseGender === 'male' ? 'мужской род' : 'женский род';
+  const spouseGenderRu = data.spouseGender ? (data.spouseGender === 'male' ? 'мужской род' : 'женский род') : null;
 
-  const spouseNameLine = data.spouseName
-    ? `- Супруг/супруга: ${data.spouseName} (${spouseGenderRu} - используйте соответствующие грамматические формы)`
+  const spouseLabel = data.spouseName || 'Супруг/супруга';
+  const spouseNameLine = data.hasSpouseCalendar
+    ? `- Супруг/супруга: ${spouseLabel}${spouseGenderRu ? ` (${spouseGenderRu} - используйте соответствующие грамматические формы)` : ''}`
     : '';
 
-  const spouseScheduleHeader = data.spouseName
-    ? `<b>Расписание ${data.spouseEnglishName || data.spouseName}:</b> [Только если у ${data.spouseName} есть события]
+  const spouseScheduleHeader = data.hasSpouseCalendar
+    ? `<b>Расписание ${data.spouseEnglishName || spouseLabel}:</b> [Только если у ${spouseLabel} есть события]
 - HH:MM-HH:MM - [Активность/Работа] ([Место, если есть])
 [Хронологический порядок по времени начала, включайте место когда есть]
 
@@ -148,7 +150,7 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
 `
     : '';
 
-  const spouseEventsSection = data.spouseName && data.spouseEventsText
+  const spouseEventsSection = data.hasSpouseCalendar && data.spouseEventsText
     ? `**СОБЫТИЯ СУПРУГА/СУПРУГИ:**
 ${data.spouseEventsText}
 

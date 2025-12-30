@@ -5,12 +5,13 @@
 import { SummaryPromptData } from './types';
 
 function buildSpouseContext(data: SummaryPromptData): string {
-  if (!data.spouseName) return '';
+  if (!data.hasSpouseCalendar) return '';
 
+  const spouseLabel = data.spouseName || 'Spouse';
   return `
 2. **Spouse's Events** - These belong to the spouse
-   - When referring to spouse by name, use: ${data.spouseName}
-   - Personalize from user's perspective (e.g., "${data.spouseName} has a meeting at...")
+   - When referring to spouse by name, use: ${spouseLabel}
+   - Personalize from user's perspective (e.g., "${spouseLabel} has a meeting at...")
 `;
 }
 
@@ -97,12 +98,13 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
   const calendarRules = buildCalendarRules(data);
   const dateInfo = buildDateInfo(data);
 
-  const spouseNameLine = data.spouseName
-    ? `- Spouse: ${data.spouseName} (${data.spouseGender} - use appropriate English grammar forms)`
+  const spouseLabel = data.spouseName || 'Spouse';
+  const spouseNameLine = data.hasSpouseCalendar
+    ? `- Spouse: ${spouseLabel}${data.spouseGender ? ` (${data.spouseGender} - use appropriate English grammar forms)` : ''}`
     : '';
 
-  const spouseScheduleHeader = data.spouseName
-    ? `<b>${data.spouseEnglishName || data.spouseName}'s Schedule:</b> [Only if ${data.spouseName} has events]
+  const spouseScheduleHeader = data.hasSpouseCalendar
+    ? `<b>${data.spouseEnglishName || spouseLabel}'s Schedule:</b> [Only if ${spouseLabel} has events]
 - HH:MM-HH:MM - [Activity/Work] ([Location if available])
 [Chronological order by start time, include location when event has one]
 
@@ -144,7 +146,7 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
 `
     : '';
 
-  const spouseEventsSection = data.spouseName && data.spouseEventsText
+  const spouseEventsSection = data.hasSpouseCalendar && data.spouseEventsText
     ? `**SPOUSE'S EVENTS:**
 ${data.spouseEventsText}
 
