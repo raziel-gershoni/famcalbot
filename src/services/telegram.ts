@@ -713,7 +713,7 @@ async function sendSummaryToAll(
           userId: user.telegramId,
           summary,
           user,
-          platform: platform as 'telegram' | 'whatsapp' | 'all'
+          platform
           // No progressMessageId = send new messages (scheduled batch)
           // showVoiceProgress defaults to false for scheduled
         });
@@ -909,6 +909,9 @@ async function sendVoiceMessage(
   }
 }
 
+/** Platform options for message delivery */
+type DeliveryPlatform = 'telegram' | 'whatsapp' | 'all';
+
 /**
  * Route text message to appropriate platform(s)
  * Used by deliverSummary for scheduled batch delivery
@@ -917,18 +920,26 @@ async function routeTextMessage(
   userId: number,
   text: string,
   user: UserConfig,
-  platform?: string
+  platform?: DeliveryPlatform
 ): Promise<void> {
   const targetPlatform = platform || user.messagingPlatform || 'telegram';
   const msgService = getMessagingService();
 
   if (targetPlatform === 'telegram' || targetPlatform === 'all') {
-    await msgService.sendMessage(userId, text, { format: MessageFormat.HTML });
+    try {
+      await msgService.sendMessage(userId, text, { format: MessageFormat.HTML });
+    } catch (e) {
+      console.error(`Telegram text delivery failed for ${userId}:`, e);
+    }
   }
 
   if ((targetPlatform === 'whatsapp' || targetPlatform === 'all') && user.whatsappPhone) {
-    const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
-    await whatsappService.sendMessage(user.whatsappPhone, text, { format: MessageFormat.HTML });
+    try {
+      const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
+      await whatsappService.sendMessage(user.whatsappPhone, text, { format: MessageFormat.HTML });
+    } catch (e) {
+      console.error(`WhatsApp text delivery failed for ${user.whatsappPhone}:`, e);
+    }
   }
 }
 
@@ -949,13 +960,17 @@ interface DeliveryOptions {
   modelId?: string;
 
   // Platform routing (for batch)
-  platform?: 'telegram' | 'whatsapp' | 'all';
+  platform?: DeliveryPlatform;
 }
 
 /**
  * Unified summary delivery pipeline
  * Handles both user-invoked and scheduled summary delivery
  * Respects user text/voice preferences
+ *
+ * Note: Voice messages are currently only supported for Telegram.
+ * WhatsApp users with voice enabled will receive text only.
+ * TODO: Implement voice message support for WhatsApp
  */
 async function deliverSummary(options: DeliveryOptions): Promise<void> {
   const {
