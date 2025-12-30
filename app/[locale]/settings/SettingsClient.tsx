@@ -13,6 +13,8 @@ interface SettingsClientProps {
     location: string;
     messagingPlatform: string;
     culture: string;
+    textSummaryEnabled: boolean;
+    voiceSummaryEnabled: boolean;
   };
 }
 
@@ -26,6 +28,8 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
   const [location, setLocation] = useState(currentSettings.location);
   const [messagingPlatform, setMessagingPlatform] = useState(currentSettings.messagingPlatform);
   const [culture, setCulture] = useState(currentSettings.culture);
+  const [textSummaryEnabled, setTextSummaryEnabled] = useState(currentSettings.textSummaryEnabled);
+  const [voiceSummaryEnabled, setVoiceSummaryEnabled] = useState(currentSettings.voiceSummaryEnabled);
   const [locationLoading, setLocationLoading] = useState(false);
   const [detectedLocation, setDetectedLocation] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -197,6 +201,8 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
           location,
           messagingPlatform,
           culture,
+          textSummaryEnabled,
+          voiceSummaryEnabled,
           initData
         })
       });
@@ -505,6 +511,81 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
         .modal-btn-decline:hover {
           background: #e5e7eb;
         }
+
+        .toggle-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 16px 0;
+          border-bottom: 1px solid #e5e7eb;
+        }
+
+        .toggle-row:last-child {
+          border-bottom: none;
+        }
+
+        .toggle-info {
+          flex: 1;
+        }
+
+        .toggle-label {
+          font-weight: 600;
+          color: #374151;
+          font-size: 14px;
+          margin: 0 0 4px 0;
+        }
+
+        .toggle-description {
+          font-size: 13px;
+          color: #6b7280;
+          margin: 0;
+        }
+
+        .toggle-switch {
+          position: relative;
+          width: 50px;
+          height: 26px;
+          background: #d1d5db;
+          border-radius: 13px;
+          cursor: pointer;
+          transition: background 0.2s;
+          flex-shrink: 0;
+          margin-left: 16px;
+        }
+
+        .toggle-switch.checked {
+          background: #667eea;
+        }
+
+        .toggle-switch.disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .toggle-slider {
+          position: absolute;
+          top: 3px;
+          left: 3px;
+          width: 20px;
+          height: 20px;
+          background: white;
+          border-radius: 50%;
+          transition: transform 0.2s;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+
+        .toggle-switch.checked .toggle-slider {
+          transform: translateX(24px);
+        }
+
+        .section-title {
+          font-size: 16px;
+          font-weight: 600;
+          color: #374151;
+          margin: 24px 0 8px 0;
+          padding-bottom: 8px;
+          border-bottom: 2px solid #667eea;
+        }
       `}</style>
 
       <div className="container">
@@ -600,6 +681,52 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
                 <option value="jewish">{t('cultureJewish')}</option>
               </select>
               <p className="help-text">{t('cultureHelp')}</p>
+            </div>
+
+            <h3 className="section-title">{t('summaryPreferences')}</h3>
+
+            <div className="toggle-row">
+              <div className="toggle-info">
+                <p className="toggle-label">{t('textSummary')}</p>
+                <p className="toggle-description">{t('textSummaryDescription')}</p>
+              </div>
+              <div
+                className={`toggle-switch ${textSummaryEnabled ? 'checked' : ''} ${formState !== 'idle' ? 'disabled' : ''}`}
+                onClick={() => formState === 'idle' && setTextSummaryEnabled(!textSummaryEnabled)}
+                role="switch"
+                aria-checked={textSummaryEnabled}
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    formState === 'idle' && setTextSummaryEnabled(!textSummaryEnabled);
+                  }
+                }}
+              >
+                <div className="toggle-slider" />
+              </div>
+            </div>
+
+            <div className="toggle-row">
+              <div className="toggle-info">
+                <p className="toggle-label">{t('voiceSummary')}</p>
+                <p className="toggle-description">{t('voiceSummaryDescription')}</p>
+              </div>
+              <div
+                className={`toggle-switch ${voiceSummaryEnabled ? 'checked' : ''} ${formState !== 'idle' ? 'disabled' : ''}`}
+                onClick={() => formState === 'idle' && setVoiceSummaryEnabled(!voiceSummaryEnabled)}
+                role="switch"
+                aria-checked={voiceSummaryEnabled}
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    formState === 'idle' && setVoiceSummaryEnabled(!voiceSummaryEnabled);
+                  }
+                }}
+              >
+                <div className="toggle-slider" />
+              </div>
             </div>
 
             <button

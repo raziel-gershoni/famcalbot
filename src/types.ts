@@ -29,6 +29,8 @@ export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'gend
   culture?: string;
   locationForced?: boolean;
   globalRules?: string[];
+  textSummaryEnabled?: boolean;
+  voiceSummaryEnabled?: boolean;
 };
 
 // Helper to convert Prisma User to UserConfig (with decryption)
@@ -46,6 +48,8 @@ export function convertPrismaUserToConfig(user: PrismaUser): UserConfig {
     culture: user.culture,
     locationForced: user.locationForced,
     globalRules: user.globalRules,
+    textSummaryEnabled: user.textSummaryEnabled,
+    voiceSummaryEnabled: user.voiceSummaryEnabled,
   };
 }
 

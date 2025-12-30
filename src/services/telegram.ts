@@ -587,8 +587,8 @@ async function sendSummaryToUser(
     stopAnimation();
     await messagingService.updateMessage(userId, messageId, summary, { format: MessageFormat.HTML });
 
-    // Generate and send voice message for admin user only (for /summary command only)
-    if (user.isAdmin && summaryDate === undefined) {
+    // Generate and send voice message if enabled by user
+    if (user.voiceSummaryEnabled !== false) {
       await sendVoiceMessage(userId, summary, modelId, user.language, messagingService);
     }
   } catch (error) {
@@ -706,11 +706,19 @@ async function sendSummaryToAll(
           userContext
         );
 
+        // Check if user has disabled both text and voice - skip entirely
+        if (user.textSummaryEnabled === false && user.voiceSummaryEnabled === false) {
+          continue;
+        }
+
         switch (platform) {
           case 'telegram':
-            // Send to Telegram only
-            await messagingService.sendMessage(user.telegramId, summary, { format: MessageFormat.HTML });
-            if (summaryDate === undefined) {
+            // Send text to Telegram if enabled
+            if (user.textSummaryEnabled !== false) {
+              await messagingService.sendMessage(user.telegramId, summary, { format: MessageFormat.HTML });
+            }
+            // Send voice if enabled
+            if (user.voiceSummaryEnabled !== false) {
               await sendVoiceMessage(user.telegramId, summary, undefined, user.language);
             }
             break;
@@ -719,8 +727,10 @@ async function sendSummaryToAll(
             // Send to WhatsApp only
             if (user.whatsappPhone) {
               const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
-              await whatsappService.sendMessage(user.whatsappPhone, summary, { format: MessageFormat.HTML });
-              if (summaryDate === undefined) {
+              if (user.textSummaryEnabled !== false) {
+                await whatsappService.sendMessage(user.whatsappPhone, summary, { format: MessageFormat.HTML });
+              }
+              if (user.voiceSummaryEnabled !== false) {
                 // TODO: Implement voice message for WhatsApp
                 // await whatsappService.sendVoice(user.whatsappPhone, voiceFile);
               }
@@ -729,14 +739,18 @@ async function sendSummaryToAll(
 
           case 'all':
             // Send to both platforms
-            await messagingService.sendMessage(user.telegramId, summary, { format: MessageFormat.HTML });
-            if (summaryDate === undefined) {
+            if (user.textSummaryEnabled !== false) {
+              await messagingService.sendMessage(user.telegramId, summary, { format: MessageFormat.HTML });
+            }
+            if (user.voiceSummaryEnabled !== false) {
               await sendVoiceMessage(user.telegramId, summary, undefined, user.language);
             }
             if (user.whatsappPhone) {
               const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
-              await whatsappService.sendMessage(user.whatsappPhone, summary, { format: MessageFormat.HTML });
-              if (summaryDate === undefined) {
+              if (user.textSummaryEnabled !== false) {
+                await whatsappService.sendMessage(user.whatsappPhone, summary, { format: MessageFormat.HTML });
+              }
+              if (user.voiceSummaryEnabled !== false) {
                 // TODO: Implement voice message for WhatsApp
                 // await whatsappService.sendVoice(user.whatsappPhone, voiceFile);
               }
