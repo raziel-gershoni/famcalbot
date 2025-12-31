@@ -117,6 +117,8 @@
     "weatherSummaryDescription": "כלול תחזית מזג אוויר בסיכום",
     "weekLookahead": "מבט לשבוע הקרוב",
     "weekLookaheadDescription": "כלול אירועים קרובים בסיכום המחר",
+    "lookaheadAlways7Days": "תמיד 7 ימים",
+    "lookaheadAlways7DaysDescription": "הצג 7 ימים הבאים במקום עד סוף השבוע",
     "globalRulesLabel": "כללים מותאמים",
     "globalRulesHelp": "הוסף כללים שחלים על כל היומנים (לדוגמה, יציאה מוקדמת בימים מסוימים)",
     "globalRulesPlaceholder": "כלל {number}",

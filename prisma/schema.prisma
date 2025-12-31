@@ -36,6 +36,7 @@ model User {
   weatherEnabled       Boolean @default(true)       // Include weather in summaries
   includeWeeklyInLookahead Boolean @default(false)  // Include weekly recurring in week lookahead
   includeLookaheadInTomorrow Boolean @default(false) // Include week lookahead in tomorrow summary
+  lookaheadAlways7Days Boolean @default(false) // true = always 7 days, false = until end of week
 
   // Calendar integration (shared token for now)
   googleRefreshToken  String   @db.Text

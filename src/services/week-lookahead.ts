@@ -29,24 +29,31 @@ export interface WeekLookahead {
 const recurrenceCache = new Map<string, string[] | null>();
 
 /**
- * Get the next week boundary based on culture
- * - Jewish: next Sunday (week starts Sunday)
- * - Default: next Monday (week starts Monday)
+ * Get the next week boundary based on user settings
+ * - If lookaheadAlways7Days: always 7 days from now
+ * - Jewish culture: next Sunday (week starts Sunday)
+ * - Default culture: next Monday (week starts Monday)
  */
-function getNextWeekBoundary(culture?: string): Date {
+function getNextWeekBoundary(culture?: string, always7Days?: boolean): Date {
   const now = new Date();
   // Get current day in Israel timezone
   const israelTime = new Date(now.toLocaleString('en-US', { timeZone: TIMEZONE }));
-  const dayOfWeek = israelTime.getDay(); // 0=Sun, 1=Mon, ...
 
   let daysUntilBoundary: number;
 
-  if (culture === 'jewish') {
-    // Next Sunday (week ends Friday, so scan until Sunday = start of next week)
-    daysUntilBoundary = (7 - dayOfWeek) % 7 || 7;
+  if (always7Days) {
+    // Always 7 days
+    daysUntilBoundary = 7;
   } else {
-    // Next Monday
-    daysUntilBoundary = ((8 - dayOfWeek) % 7) || 7;
+    const dayOfWeek = israelTime.getDay(); // 0=Sun, 1=Mon, ...
+
+    if (culture === 'jewish') {
+      // Next Sunday (week ends Friday, so scan until Sunday = start of next week)
+      daysUntilBoundary = (7 - dayOfWeek) % 7 || 7;
+    } else {
+      // Next Monday
+      daysUntilBoundary = ((8 - dayOfWeek) % 7) || 7;
+    }
   }
 
   const boundary = new Date(israelTime);
@@ -193,7 +200,7 @@ export async function getWeekLookahead(
   calendars: CalendarAssignment[]
 ): Promise<WeekLookahead> {
   const now = new Date();
-  const endDate = getNextWeekBoundary(user.culture);
+  const endDate = getNextWeekBoundary(user.culture, user.lookaheadAlways7Days);
 
   // Get calendar IDs (exclude birthdays calendars from the scan)
   const calendarIds = calendars

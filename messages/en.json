@@ -117,6 +117,8 @@
     "weatherSummaryDescription": "Include weather forecast in your summary",
     "weekLookahead": "Week Lookahead",
     "weekLookaheadDescription": "Include upcoming events in tomorrow's summary",
+    "lookaheadAlways7Days": "Always 7 Days",
+    "lookaheadAlways7DaysDescription": "Show next 7 days instead of until end of week",
     "globalRulesLabel": "Custom Rules",
     "globalRulesHelp": "Add rules that apply to all calendars (e.g., early dismissal on certain days)",
     "globalRulesPlaceholder": "Rule {number}",

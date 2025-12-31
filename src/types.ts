@@ -34,6 +34,7 @@ export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'gend
   weatherEnabled?: boolean;
   includeWeeklyInLookahead?: boolean;
   includeLookaheadInTomorrow?: boolean;
+  lookaheadAlways7Days?: boolean;
 };
 
 // Helper to convert Prisma User to UserConfig (with decryption)
@@ -56,6 +57,7 @@ export function convertPrismaUserToConfig(user: PrismaUser): UserConfig {
     weatherEnabled: user.weatherEnabled,
     includeWeeklyInLookahead: user.includeWeeklyInLookahead,
     includeLookaheadInTomorrow: user.includeLookaheadInTomorrow,
+    lookaheadAlways7Days: user.lookaheadAlways7Days,
   };
 }
 

@@ -117,6 +117,8 @@
     "weatherSummaryDescription": "Включить прогноз погоды в сводку",
     "weekLookahead": "Обзор недели",
     "weekLookaheadDescription": "Включить предстоящие события в сводку на завтра",
+    "lookaheadAlways7Days": "Всегда 7 дней",
+    "lookaheadAlways7DaysDescription": "Показывать следующие 7 дней вместо до конца недели",
     "globalRulesLabel": "Пользовательские правила",
     "globalRulesHelp": "Добавьте правила, которые применяются ко всем календарям (напр., ранний уход в определённые дни)",
     "globalRulesPlaceholder": "Правило {number}",

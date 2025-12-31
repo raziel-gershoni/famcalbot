@@ -17,6 +17,7 @@ interface SettingsClientProps {
     voiceSummaryEnabled: boolean;
     weatherEnabled: boolean;
     includeLookaheadInTomorrow: boolean;
+    lookaheadAlways7Days: boolean;
   };
 }
 
@@ -34,6 +35,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
   const [voiceSummaryEnabled, setVoiceSummaryEnabled] = useState(currentSettings.voiceSummaryEnabled);
   const [weatherEnabled, setWeatherEnabled] = useState(currentSettings.weatherEnabled);
   const [includeLookaheadInTomorrow, setIncludeLookaheadInTomorrow] = useState(currentSettings.includeLookaheadInTomorrow);
+  const [lookaheadAlways7Days, setLookaheadAlways7Days] = useState(currentSettings.lookaheadAlways7Days);
   const [locationLoading, setLocationLoading] = useState(false);
   const [detectedLocation, setDetectedLocation] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -209,6 +211,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
           voiceSummaryEnabled,
           weatherEnabled,
           includeLookaheadInTomorrow,
+          lookaheadAlways7Days,
           initData
         })
       });
@@ -772,6 +775,28 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
                     formState === 'idle' && setIncludeLookaheadInTomorrow(!includeLookaheadInTomorrow);
+                  }
+                }}
+              >
+                <div className="toggle-slider" />
+              </div>
+            </div>
+
+            <div className="toggle-row">
+              <div className="toggle-info">
+                <p className="toggle-label">{t('lookaheadAlways7Days')}</p>
+                <p className="toggle-description">{t('lookaheadAlways7DaysDescription')}</p>
+              </div>
+              <div
+                className={`toggle-switch ${lookaheadAlways7Days ? 'checked' : ''} ${formState !== 'idle' ? 'disabled' : ''}`}
+                onClick={() => formState === 'idle' && setLookaheadAlways7Days(!lookaheadAlways7Days)}
+                role="switch"
+                aria-checked={lookaheadAlways7Days}
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    formState === 'idle' && setLookaheadAlways7Days(!lookaheadAlways7Days);
                   }
                 }}
               >
