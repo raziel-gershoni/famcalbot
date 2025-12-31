@@ -1,10 +1,12 @@
 import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
-import { CalendarEvent, CalendarAssignment } from '../types';
+import { CalendarEvent, CalendarAssignment, UserConfig } from '../types';
 import { TIMEZONE } from '../config/constants';
 import { buildCalendarSummaryPrompt, SummaryPromptData } from '../prompts/calendar-summary';
+import { buildWeekLookaheadPrompt, WeekLookaheadPromptData, LookaheadDayData, LookaheadEventData } from '../prompts/week-lookahead';
 import { formatEventList } from '../utils/event-formatter';
 import { generateAICompletion } from './ai-provider';
+import type { WeekLookahead, LookaheadEvent } from './week-lookahead';
 
 /**
  * Localized greetings by language and time of day
@@ -345,4 +347,184 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
 
   // Call AI provider and return full result
   return await generateAICompletion(prompt, modelId);
+}
+
+/**
+ * Localized relative day labels
+ */
+const RELATIVE_LABELS: Record<string, Record<string, string>> = {
+  en: { today: 'Today', tomorrow: 'Tomorrow', inDays: 'In {n} days' },
+  he: { today: 'היום', tomorrow: 'מחר', inDays: 'בעוד {n} ימים' },
+  ru: { today: 'Сегодня', tomorrow: 'Завтра', inDays: 'Через {n} дней' },
+};
+
+/**
+ * Get relative day label based on days from now
+ */
+function getRelativeLabel(daysFromNow: number, language: string): string {
+  const labels = RELATIVE_LABELS[language] || RELATIVE_LABELS.en;
+  if (daysFromNow === 0) return labels.today;
+  if (daysFromNow === 1) return labels.tomorrow;
+  return labels.inDays.replace('{n}', String(daysFromNow));
+}
+
+/**
+ * Format date for week lookahead display
+ */
+function formatLookaheadDate(
+  date: Date,
+  language: string,
+  timezone: string = TIMEZONE
+): string {
+  const intlLocale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
+  return date.toLocaleDateString(intlLocale, {
+    timeZone: timezone,
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short',
+  });
+}
+
+/**
+ * Get Hebrew date string for a given date
+ */
+function getHebrewDateString(date: Date, language: string, timezone: string = TIMEZONE): string {
+  const localDate = new Date(date.toLocaleString('en-US', { timeZone: timezone }));
+  const hdate = new HDate(localDate);
+  const hebDay = language === 'he' ? gematriya(hdate.getDate()) : hdate.getDate();
+  const hebMonth = Locale.lookupTranslation(hdate.getMonthName(), language) || hdate.getMonthName();
+  return `${hebDay} ${hebMonth}`;
+}
+
+/**
+ * Build week lookahead prompt data from lookahead events and user info
+ */
+function buildWeekLookaheadPromptData(
+  lookahead: WeekLookahead,
+  user: UserConfig,
+  language: string,
+  timezone: string = TIMEZONE
+): WeekLookaheadPromptData {
+  const { events, dateRange } = lookahead;
+
+  // Format today's date
+  const today = new Date();
+  const todayGregorian = formatLookaheadDate(today, language, timezone);
+  const weekEndGregorian = formatLookaheadDate(dateRange.end, language, timezone);
+
+  // Hebrew dates if Jewish culture
+  const todayHebrew = user.culture === 'jewish' ? getHebrewDateString(today, language, timezone) : undefined;
+  const weekEndHebrew = user.culture === 'jewish' ? getHebrewDateString(dateRange.end, language, timezone) : undefined;
+
+  // Check for spouse and kids calendars
+  const hasSpouseCalendar = user.calendarAssignments?.some(c => c.labels.includes('spouse')) ?? false;
+  const hasKidsCalendars = user.calendarAssignments?.some(c => c.labels.includes('kids')) ?? false;
+
+  // Get spouse name from calendar assignment
+  const spouseCalendar = user.calendarAssignments?.find(c => c.labels.includes('spouse'));
+  const spouseName = spouseCalendar?.personName;
+
+  // Group events by day
+  const eventsByDayMap = new Map<string, LookaheadEvent[]>();
+  for (const event of events) {
+    const dayKey = event.start.toDateString();
+    if (!eventsByDayMap.has(dayKey)) {
+      eventsByDayMap.set(dayKey, []);
+    }
+    eventsByDayMap.get(dayKey)!.push(event);
+  }
+
+  // Format events by day
+  const intlLocale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
+  const allDayLabel = language === 'he' ? 'כל היום' : language === 'ru' ? 'Весь день' : 'All day';
+
+  const eventsByDay: LookaheadDayData[] = [];
+  for (const [dayKey, dayEvents] of eventsByDayMap) {
+    const date = new Date(dayKey);
+    const daysFromNow = dayEvents[0].daysFromNow;
+
+    const dayLabel = formatLookaheadDate(date, language, timezone);
+    const hebrewDate = user.culture === 'jewish' ? getHebrewDateString(date, language, timezone) : undefined;
+    const relativeLabel = getRelativeLabel(daysFromNow, language);
+
+    const formattedEvents: LookaheadEventData[] = dayEvents.map(event => {
+      // Format time
+      const time = event.start.toLocaleTimeString(intlLocale, {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: timezone,
+      });
+      const isAllDay = time === '00:00';
+
+      return {
+        time: isAllDay ? allDayLabel : time,
+        summary: event.summary,
+        calendarName: event.calendarName,
+        calendarLabel: event.calendarLabel as 'yours' | 'spouse' | 'kids',
+        isRecurring: event.recurrenceType !== 'single',
+        recurrenceType: event.recurrenceType !== 'single' ? event.recurrenceType as 'weekly' | 'monthly' | 'yearly' : undefined,
+      };
+    });
+
+    eventsByDay.push({
+      dayLabel,
+      hebrewDate,
+      daysFromNow,
+      relativeLabel,
+      events: formattedEvents,
+    });
+  }
+
+  // Count unique days with events
+  const totalDays = eventsByDay.length;
+
+  return {
+    userName: user.name,
+    userEnglishName: user.englishName,
+    userGender: user.gender as 'male' | 'female' | undefined,
+    hasSpouseCalendar,
+    spouseName,
+    culture: user.culture,
+    language,
+    todayGregorian,
+    todayHebrew,
+    weekEndGregorian,
+    weekEndHebrew,
+    eventsByDay,
+    globalRules: user.globalRules,
+    hasKidsCalendars,
+    totalEvents: events.length,
+    totalDays,
+  };
+}
+
+/**
+ * Generate AI-rendered week lookahead
+ */
+export async function generateWeekLookahead(
+  lookahead: WeekLookahead,
+  user: UserConfig,
+  language: string,
+  modelId?: string
+): Promise<string> {
+  // Build prompt data
+  const promptData = buildWeekLookaheadPromptData(lookahead, user, language);
+
+  // Handle empty lookahead
+  if (lookahead.events.length === 0) {
+    const noEventsMsg = {
+      en: `<b>Week Ahead</b>\n<b>${promptData.todayGregorian} - ${promptData.weekEndGregorian}</b>${promptData.culture === 'jewish' ? `\n<i>${promptData.todayHebrew} - ${promptData.weekEndHebrew}</i>` : ''}\n\nNo notable events for the upcoming week. Enjoy the clear schedule!`,
+      he: `<b>מבט לשבוע הקרוב</b>\n<b>${promptData.todayGregorian} - ${promptData.weekEndGregorian}</b>${promptData.culture === 'jewish' ? `\n<i>${promptData.todayHebrew} - ${promptData.weekEndHebrew}</i>` : ''}\n\nאין אירועים מיוחדים לשבוע הקרוב. תהנה מהשבוע הפנוי!`,
+      ru: `<b>Неделя вперёд</b>\n<b>${promptData.todayGregorian} - ${promptData.weekEndGregorian}</b>${promptData.culture === 'jewish' ? `\n<i>${promptData.todayHebrew} - ${promptData.weekEndHebrew}</i>` : ''}\n\nНет примечательных событий на ближайшую неделю. Наслаждайтесь свободным расписанием!`,
+    };
+    return noEventsMsg[language as keyof typeof noEventsMsg] || noEventsMsg.en;
+  }
+
+  // Build the prompt
+  const prompt = buildWeekLookaheadPrompt(promptData);
+
+  // Call AI provider
+  const result = await generateAICompletion(prompt, modelId);
+  return result.text;
 }
