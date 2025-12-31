@@ -410,11 +410,16 @@ function buildWeekLookaheadPromptData(
   // Format today's date
   const today = new Date();
   const todayGregorian = formatLookaheadDate(today, language, timezone);
-  const weekEndGregorian = formatLookaheadDate(dateRange.end, language, timezone);
+
+  // Fix: use noon of boundary day to avoid timezone spillover when formatting
+  // (23:59 UTC becomes next day in Israel timezone)
+  const weekEndForDisplay = new Date(dateRange.end);
+  weekEndForDisplay.setUTCHours(12, 0, 0, 0);
+  const weekEndGregorian = formatLookaheadDate(weekEndForDisplay, language, timezone);
 
   // Hebrew dates if Jewish culture
   const todayHebrew = user.culture === 'jewish' ? getHebrewDateString(today, language, timezone) : undefined;
-  const weekEndHebrew = user.culture === 'jewish' ? getHebrewDateString(dateRange.end, language, timezone) : undefined;
+  const weekEndHebrew = user.culture === 'jewish' ? getHebrewDateString(weekEndForDisplay, language, timezone) : undefined;
 
   // Check for spouse and kids calendars
   const hasSpouseCalendar = user.calendarAssignments?.some(c => c.labels.includes('spouse')) ?? false;

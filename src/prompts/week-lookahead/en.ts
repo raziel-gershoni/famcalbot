@@ -9,7 +9,7 @@ function buildSpouseContext(data: WeekLookaheadPromptData): string {
 
   const spouseLabel = data.spouseName || 'Spouse';
   return `
-- **Spouse's events**: Belong to ${spouseLabel} - mention as "${spouseLabel}'s [event]" or "from ${spouseLabel}'s calendar"`;
+- **Spouse's events**: Belong to ${spouseLabel} - mention as "${spouseLabel} has [event]" (don't add "from calendar" - it's already clear from context)`;
 }
 
 function buildKidsContext(data: WeekLookaheadPromptData): string {
@@ -112,7 +112,7 @@ Generate a friendly, conversational preview. Structure:
 
 ## Guidelines
 - **Be conversational but concise** - this is a quick heads-up, not a detailed summary
-- **Always mention calendar source** - e.g., "from your work calendar", "from ${data.spouseName || 'spouse'}'s calendar", "from [child]'s calendar"
+- **Calendar attribution** - For your events, mention source (e.g., "from your work calendar"). For spouse/kids, the name already implies source - don't repeat.
 - **Use relative day references** - "Tomorrow", "In 3 days" alongside actual dates
 - **Highlight recurring events** - if something is monthly/yearly, note it (e.g., "monthly checkup")
 - **Time format**: Always use HH:MM (24-hour) - e.g., 08:00, 14:30
