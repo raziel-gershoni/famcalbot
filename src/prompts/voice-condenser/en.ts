@@ -3,9 +3,30 @@
  * Condenses calendar summary for voice message listening
  */
 
-export function buildVoiceCondenserPrompt(fullSummary: string): string {
+import { VoiceCondenserContext } from './types';
+
+export function buildVoiceCondenserPrompt(context: VoiceCondenserContext): string {
+  const { summary, userName, spouseName, hasKidsCalendars, globalRules } = context;
+
+  // Build context section
+  let familyContext = `The user's name is ${userName}.`;
+  if (spouseName) {
+    familyContext += ` Their spouse is ${spouseName}.`;
+  }
+  if (hasKidsCalendars) {
+    familyContext += ` They have kids' calendars.`;
+  }
+
+  // Build rules section if applicable
+  const rulesSection = globalRules?.length
+    ? `\n**User's Custom Rules (apply these):**\n${globalRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n`
+    : '';
+
   return `You are condensing a calendar summary for voice message listening (target: 30-45 seconds) in English.
 
+**CONTEXT:**
+${familyContext}
+${rulesSection}
 **CRITICAL: This is for VOICE listening - make it sound NATURAL and FLUENT like human speech, not robotic. Be brief but conversational.**
 
 **RULES:**
@@ -24,6 +45,7 @@ export function buildVoiceCondenserPrompt(fullSummary: string): string {
    - Use minimal labels (1-2 words) to separate sections
    - Keep everything natural and conversational
 7. Write as if you're speaking to someone - natural, brief, fluent English
+8. **Keep full names** - don't shorten (e.g., "Daniel" not "Dan")
 
 **Example of WRONG output (robotic and choppy):**
 Monday, December 28
@@ -38,7 +60,7 @@ You have a meeting at 09:00.
 Pick up Danny at 14:00.
 
 **Original Summary:**
-${fullSummary}
+${summary}
 
 **Output the ultra-brief voice version (plain text, direct, in English):**`;
 }

@@ -3,13 +3,39 @@
  * קיצור סיכום יומן להאזנה קולית
  */
 
-export function buildVoiceCondenserPrompt(fullSummary: string): string {
+import { VoiceCondenserContext } from './types';
+
+export function buildVoiceCondenserPrompt(context: VoiceCondenserContext): string {
+  const { summary, userName, spouseName, hasKidsCalendars, culture, globalRules } = context;
+
+  // Build context section in Hebrew
+  let familyContext = `שם המשתמש: ${userName}.`;
+  if (spouseName) {
+    familyContext += ` שם בן/בת הזוג: ${spouseName}.`;
+  }
+  if (hasKidsCalendars) {
+    familyContext += ` יש יומנים של ילדים.`;
+  }
+
+  // Build rules section if applicable
+  const rulesSection = globalRules?.length
+    ? `\n**כללים מותאמים אישית (יש ליישם):**\n${globalRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n`
+    : '';
+
+  // Date format based on culture
+  const dateRule = culture === 'jewish'
+    ? '1. השאר רק תאריך עברי עם יום בשבוע (הסר תאריך לועזי, הסר שנה עברית)'
+    : '1. השאר תאריך עם יום בשבוע';
+
   return `אתה מקצר סיכום יומן להאזנה קולית (יעד: 30-45 שניות) בעברית.
 
+**הקשר:**
+${familyContext}
+${rulesSection}
 **קריטי: זה להאזנה קולית - זה חייב להישמע טבעי וזורם כמו דיבור אנושי, לא רובוטי. קצר אבל שיחתי.**
 
 **כללים:**
-1. השאר רק תאריך עברי עם יום בשבוע (הסר תאריך לועזי, הסר שנה עברית)
+${dateRule}
 2. **חשוב: מזג אוויר מגיע מיד אחרי התאריך, לפני לוח הזמנים**
    - כתוב כמשפטים טבעיים וזורמים (חלקים ושיחתיים, לא קטועים)
    - כלול תנאים, תזמון וטיפ מעשי בצורה טבעית
@@ -40,7 +66,7 @@ export function buildVoiceCondenserPrompt(fullSummary: string): string {
 לאסוף את דָּנִי ב-14:00.
 
 **הסיכום המקורי:**
-${fullSummary}
+${summary}
 
 **פלט את הגרסה הקולית המקוצרת (טקסט פשוט, ישיר, בעברית):**`;
 }

@@ -3,9 +3,30 @@
  * Сокращение сводки календаря для голосового прослушивания
  */
 
-export function buildVoiceCondenserPrompt(fullSummary: string): string {
+import { VoiceCondenserContext } from './types';
+
+export function buildVoiceCondenserPrompt(context: VoiceCondenserContext): string {
+  const { summary, userName, spouseName, hasKidsCalendars, globalRules } = context;
+
+  // Build context section in Russian
+  let familyContext = `Имя пользователя: ${userName}.`;
+  if (spouseName) {
+    familyContext += ` Имя супруга/супруги: ${spouseName}.`;
+  }
+  if (hasKidsCalendars) {
+    familyContext += ` Есть календари детей.`;
+  }
+
+  // Build rules section if applicable
+  const rulesSection = globalRules?.length
+    ? `\n**Пользовательские правила (применить):**\n${globalRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n`
+    : '';
+
   return `Ты сокращаешь сводку календаря для голосового прослушивания (цель: 30-45 секунд) на русском языке.
 
+**КОНТЕКСТ:**
+${familyContext}
+${rulesSection}
 **КРИТИЧНО: Это для ГОЛОСОВОГО прослушивания - должно звучать ЕСТЕСТВЕННО и ПЛАВНО как человеческая речь, не роботизированно. Кратко, но разговорно.**
 
 **ПРАВИЛА:**
@@ -24,6 +45,7 @@ export function buildVoiceCondenserPrompt(fullSummary: string): string {
    - Используй минимальные названия (1-2 слова) для разделения секций
    - Держи всё естественным и разговорным
 7. Пиши как будто говоришь с кем-то - естественный, краткий, плавный русский
+8. **Полные имена:** Оставляй полные имена - не сокращай (например, "Даниил" вместо "Даня")
 
 **Пример НЕПРАВИЛЬНОГО вывода (роботизированный и обрывистый):**
 Понедельник, 28 декабря
@@ -38,7 +60,7 @@ export function buildVoiceCondenserPrompt(fullSummary: string): string {
 Забрать Даню в 14:00.
 
 **Оригинальная сводка:**
-${fullSummary}
+${summary}
 
 **Выведи ультракраткую голосовую версию (простой текст, прямо, на русском):**`;
 }

@@ -9,6 +9,7 @@ import { getCalendarsByLabel, getPrimaryCalendar, getSpouseInfo } from '../utils
 import { sendProgressWithAnimation, ProgressType } from './progress-message';
 import { getBaseUrl, buildUrl } from '../config/urls';
 import { VALID_LOCALES } from '../utils/locale';
+import type { VoiceCondenserContext } from '../prompts/voice-condenser';
 
 /**
  * Categorize events by ownership for a specific user
@@ -841,22 +842,22 @@ export async function sendTomorrowSummaryToAll(): Promise<void> {
  * Generate and send voice version of summary
  * Shows animated progress that gets deleted when voice arrives (optional)
  * Non-blocking - errors logged but don't affect text summary delivery
+ * @param user - User config with context for voice condensing
  * @param modelId - Optional model ID to use for condensing (same as text summary)
- * @param language - Optional language for voice (defaults to English if not provided)
  * @param service - Messaging service instance
  * @param showProgress - Whether to show progress animation (default: true)
  */
 async function sendVoiceMessage(
   userId: number,
   summary: string,
+  user: UserConfig,
   modelId?: string,
-  language?: string,
   service?: IMessagingService,
   showProgress: boolean = true
 ): Promise<void> {
   let voiceFilePath: string | null = null;
   const msgService = service || getMessagingService();
-  const userLanguage = language || 'en';
+  const userLanguage = user.language || 'en';
 
   // Start voice progress animation (if enabled)
   let messageId: number | string | null = null;
@@ -880,16 +881,37 @@ async function sendVoiceMessage(
 
     console.log(`Generating voice message for user ${userId}...`);
 
+    // Extract spouse name from calendar assignments
+    const spouseCalendar = user.calendarAssignments?.find(cal =>
+      cal.labels.includes('spouse')
+    );
+    const spouseName = spouseCalendar?.personName;
+
+    // Check if user has kids calendars
+    const hasKidsCalendars = user.calendarAssignments?.some(cal =>
+      cal.labels.includes('kids')
+    ) ?? false;
+
+    // Build voice condenser context
+    const condenserContext: VoiceCondenserContext = {
+      summary,
+      locale: userLanguage,
+      userName: user.name,
+      spouseName,
+      hasKidsCalendars,
+      culture: user.culture,
+      globalRules: user.globalRules,
+    };
+
     // Step 1: Condense summary for voice (ultra-brief, 30-45 seconds)
-    const targetLanguage = language || 'English';
-    const condenserPrompt = buildVoiceCondenserPrompt(summary, targetLanguage);
+    const condenserPrompt = buildVoiceCondenserPrompt(condenserContext);
     const condensedResult = await generateAICompletion(condenserPrompt, modelId);
     const condensedSummary = condensedResult.text;
 
     console.log(`Voice summary condensed: ${summary.length} → ${condensedSummary.length} chars`);
 
     // Step 2: Generate voice file from condensed summary
-    voiceFilePath = await generateVoiceMessage(condensedSummary, targetLanguage);
+    voiceFilePath = await generateVoiceMessage(condensedSummary, userLanguage);
 
     // Stop animation and delete progress message (if shown)
     if (stopAnimation) stopAnimation();
@@ -1052,7 +1074,7 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
 
     // For scheduled (no progressMessageId), don't show voice progress
     const shouldShowVoiceProgress = progressMessageId ? showVoiceProgress : false;
-    await sendVoiceMessage(userId, summary, modelId, user.language, msgService, shouldShowVoiceProgress);
+    await sendVoiceMessage(userId, summary, user, modelId, msgService, shouldShowVoiceProgress);
   }
 }
 

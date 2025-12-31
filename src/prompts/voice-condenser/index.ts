@@ -8,8 +8,11 @@
 import { buildVoiceCondenserPrompt as buildEnglishPrompt } from './en';
 import { buildVoiceCondenserPrompt as buildHebrewPrompt } from './he';
 import { buildVoiceCondenserPrompt as buildRussianPrompt } from './ru';
+import { VoiceCondenserContext } from './types';
 
-type PromptBuilder = (fullSummary: string) => string;
+export type { VoiceCondenserContext } from './types';
+
+type PromptBuilder = (context: VoiceCondenserContext) => string;
 
 const promptBuilders: Record<string, PromptBuilder> = {
   en: buildEnglishPrompt,
@@ -27,8 +30,9 @@ export function getPromptForLocale(locale: string): PromptBuilder {
 
 /**
  * Build a voice condenser prompt for a given locale
+ * @param context - Full context including summary, family structure, and preferences
  */
-export function buildVoiceCondenserPrompt(fullSummary: string, locale: string = 'en'): string {
-  const builder = getPromptForLocale(locale);
-  return builder(fullSummary);
+export function buildVoiceCondenserPrompt(context: VoiceCondenserContext): string {
+  const builder = getPromptForLocale(context.locale);
+  return builder(context);
 }
