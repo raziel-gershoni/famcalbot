@@ -34,6 +34,8 @@ model User {
   textSummaryEnabled   Boolean @default(true)       // Receive text summaries
   voiceSummaryEnabled  Boolean @default(true)       // Receive voice summaries
   weatherEnabled       Boolean @default(true)       // Include weather in summaries
+  includeWeeklyInLookahead Boolean @default(false)  // Include weekly recurring in week lookahead
+  includeLookaheadInTomorrow Boolean @default(false) // Include week lookahead in tomorrow summary
 
   // Calendar integration (shared token for now)
   googleRefreshToken  String   @db.Text

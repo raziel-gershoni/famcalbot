@@ -28,7 +28,8 @@
     "summary": {
       "title": "סיכום לוח שנה",
       "today": "היום",
-      "tomorrow": "מחר"
+      "tomorrow": "מחר",
+      "weekLookahead": "השבוע הקרוב"
     },
     "weather": {
       "title": "תחזית מזג אוויר",
@@ -114,6 +115,8 @@
     "voiceSummaryDescription": "קבל סיכום יומי כהודעה קולית",
     "weatherSummary": "תחזית מזג אוויר",
     "weatherSummaryDescription": "כלול תחזית מזג אוויר בסיכום",
+    "weekLookahead": "מבט לשבוע הקרוב",
+    "weekLookaheadDescription": "כלול אירועים קרובים בסיכום המחר",
     "globalRulesLabel": "כללים מותאמים",
     "globalRulesHelp": "הוסף כללים שחלים על כל היומנים (לדוגמה, יציאה מוקדמת בימים מסוימים)",
     "globalRulesPlaceholder": "כלל {number}",

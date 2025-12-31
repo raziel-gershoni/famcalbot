@@ -16,6 +16,7 @@ interface SettingsClientProps {
     textSummaryEnabled: boolean;
     voiceSummaryEnabled: boolean;
     weatherEnabled: boolean;
+    includeLookaheadInTomorrow: boolean;
   };
 }
 
@@ -32,6 +33,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
   const [textSummaryEnabled, setTextSummaryEnabled] = useState(currentSettings.textSummaryEnabled);
   const [voiceSummaryEnabled, setVoiceSummaryEnabled] = useState(currentSettings.voiceSummaryEnabled);
   const [weatherEnabled, setWeatherEnabled] = useState(currentSettings.weatherEnabled);
+  const [includeLookaheadInTomorrow, setIncludeLookaheadInTomorrow] = useState(currentSettings.includeLookaheadInTomorrow);
   const [locationLoading, setLocationLoading] = useState(false);
   const [detectedLocation, setDetectedLocation] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -206,6 +208,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
           textSummaryEnabled,
           voiceSummaryEnabled,
           weatherEnabled,
+          includeLookaheadInTomorrow,
           initData
         })
       });
@@ -747,6 +750,28 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
                     formState === 'idle' && setWeatherEnabled(!weatherEnabled);
+                  }
+                }}
+              >
+                <div className="toggle-slider" />
+              </div>
+            </div>
+
+            <div className="toggle-row">
+              <div className="toggle-info">
+                <p className="toggle-label">{t('weekLookahead')}</p>
+                <p className="toggle-description">{t('weekLookaheadDescription')}</p>
+              </div>
+              <div
+                className={`toggle-switch ${includeLookaheadInTomorrow ? 'checked' : ''} ${formState !== 'idle' ? 'disabled' : ''}`}
+                onClick={() => formState === 'idle' && setIncludeLookaheadInTomorrow(!includeLookaheadInTomorrow)}
+                role="switch"
+                aria-checked={includeLookaheadInTomorrow}
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    formState === 'idle' && setIncludeLookaheadInTomorrow(!includeLookaheadInTomorrow);
                   }
                 }}
               >

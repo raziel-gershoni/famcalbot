@@ -64,7 +64,8 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
         culture: user.culture || 'default',
         textSummaryEnabled: user.textSummaryEnabled,
         voiceSummaryEnabled: user.voiceSummaryEnabled,
-        weatherEnabled: user.weatherEnabled
+        weatherEnabled: user.weatherEnabled,
+        includeLookaheadInTomorrow: user.includeLookaheadInTomorrow
       }}
     />
   );

@@ -28,7 +28,8 @@
     "summary": {
       "title": "Calendar Summary",
       "today": "Today",
-      "tomorrow": "Tomorrow"
+      "tomorrow": "Tomorrow",
+      "weekLookahead": "Week Ahead"
     },
     "weather": {
       "title": "Weather Forecast",
@@ -114,6 +115,8 @@
     "voiceSummaryDescription": "Receive daily summary as voice message",
     "weatherSummary": "Weather Forecast",
     "weatherSummaryDescription": "Include weather forecast in your summary",
+    "weekLookahead": "Week Lookahead",
+    "weekLookaheadDescription": "Include upcoming events in tomorrow's summary",
     "globalRulesLabel": "Custom Rules",
     "globalRulesHelp": "Add rules that apply to all calendars (e.g., early dismissal on certain days)",
     "globalRulesPlaceholder": "Rule {number}",

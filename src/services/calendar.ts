@@ -1,4 +1,4 @@
-import { google } from 'googleapis';
+import { google, calendar_v3 } from 'googleapis';
 import { CalendarEvent } from '../types';
 import { getBot } from './telegram';
 import { fromZonedTime } from 'date-fns-tz';
@@ -6,6 +6,25 @@ import { addDays, format } from 'date-fns';
 import { TIMEZONE } from '../config/constants';
 import { ALERT_MESSAGES } from '../config/messages';
 import { isTokenError } from '../utils/errors';
+
+// Re-export TIMEZONE for convenience
+export { TIMEZONE };
+
+/**
+ * Create a Google Calendar API client with OAuth credentials
+ */
+export function getCalendarClient(refreshToken: string): calendar_v3.Calendar {
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET
+  );
+
+  oauth2Client.setCredentials({
+    refresh_token: refreshToken,
+  });
+
+  return google.calendar({ version: 'v3', auth: oauth2Client });
+}
 
 /**
  * Get start and end of day in Israel timezone as ISO strings
@@ -88,6 +107,8 @@ async function fetchEvents(
           location: event.location || undefined,
           calendarName: calendarName,
           calendarId: calendarId,
+          eventType: event.eventType || undefined,
+          recurringEventId: event.recurringEventId || undefined,
         });
       }
     } catch (error) {

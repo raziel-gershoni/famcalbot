@@ -325,6 +325,202 @@ export async function handleWeatherCommand(
 }
 
 /**
+ * Handle /lookahead command
+ * Displays notable upcoming events for the week
+ * Called via dashboard deep links and WhatsApp commands
+ */
+export async function handleLookaheadCommand(
+  chatId: number | string,
+  userId: number | string,
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
+  existingProgressMessageId?: number
+): Promise<void> {
+  if (!(await isUserAuthorized(userId))) {
+    const service = platform === MessagingPlatform.TELEGRAM
+      ? getMessagingService()
+      : getMessagingServiceByPlatform(platform);
+    await service.sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    return;
+  }
+
+  const user = await getUserByIdentifier(userId);
+  if (!user) {
+    console.error(`User with ID ${userId} not found`);
+    return;
+  }
+
+  const messagingService = platform === MessagingPlatform.TELEGRAM
+    ? getMessagingService()
+    : getMessagingServiceByPlatform(platform);
+
+  // Check if user has invalid/legacy language setting
+  if (!user.language || !VALID_LOCALES.includes(user.language as any)) {
+    const settingsUrl = buildUrl(`/en/settings?user_id=${user.telegramId}`);
+    await messagingService.sendMessage(
+      chatId,
+      `⚠️ Please update your language preference in Settings to continue.`,
+      {
+        replyMarkup: {
+          inline_keyboard: [[
+            { text: '⚙️ Open Settings', web_app: { url: settingsUrl } }
+          ]]
+        }
+      }
+    );
+    return;
+  }
+
+  // Use existing progress message or create new one
+  const userLanguage = user.language || 'en';
+  let messageId: number | string;
+  let stopAnimation: () => void;
+
+  if (existingProgressMessageId) {
+    // Progress message already sent by API route, just start animation
+    messageId = existingProgressMessageId;
+    const { startProgressAnimation, getProgressText } = await import('./progress-message');
+    stopAnimation = startProgressAnimation(chatId, messageId, getProgressText('lookahead', userLanguage), messagingService);
+  } else {
+    // Send new progress message
+    const result = await sendProgressWithAnimation(chatId, 'lookahead', userLanguage, messagingService);
+    messageId = result.messageId;
+    stopAnimation = result.stopAnimation;
+  }
+
+  try {
+    // Get week lookahead data
+    const { getWeekLookahead } = await import('./week-lookahead');
+    const lookahead = await getWeekLookahead(user, user.calendarAssignments || []);
+
+    // Format lookahead into message
+    const formattedLookahead = formatLookahead(lookahead, userLanguage, user.culture);
+
+    // Stop animation and update with lookahead
+    stopAnimation();
+    await messagingService.updateMessage(chatId, messageId, formattedLookahead, { format: MessageFormat.HTML });
+  } catch (error) {
+    stopAnimation();
+    console.error(`Error fetching lookahead for user ${userId}:`, error);
+    await messagingService.updateMessage(
+      chatId,
+      messageId,
+      '❌ Sorry, there was an error fetching upcoming events. Please try again later.'
+    );
+
+    // Notify admin of lookahead failures
+    const { notifyAdminError } = await import('../utils/error-notifier');
+    await notifyAdminError(
+      'Lookahead Command',
+      error,
+      `User: ${userId}`
+    );
+  }
+}
+
+/**
+ * Format week lookahead into HTML message
+ */
+function formatLookahead(
+  lookahead: import('./week-lookahead').WeekLookahead,
+  language: string,
+  culture?: string
+): string {
+  const { events, dateRange } = lookahead;
+
+  // Localized strings
+  const labels = {
+    en: {
+      title: '📅 Week Ahead',
+      noEvents: 'No notable events for the upcoming week.',
+      today: 'Today',
+      tomorrow: 'Tomorrow',
+      days: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+      spouse: '👫',
+      kids: '👶',
+      yours: '📌',
+    },
+    he: {
+      title: '📅 השבוע הקרוב',
+      noEvents: 'אין אירועים מיוחדים לשבוע הקרוב.',
+      today: 'היום',
+      tomorrow: 'מחר',
+      days: ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'],
+      spouse: '👫',
+      kids: '👶',
+      yours: '📌',
+    },
+    ru: {
+      title: '📅 Неделя вперёд',
+      noEvents: 'Нет примечательных событий на ближайшую неделю.',
+      today: 'Сегодня',
+      tomorrow: 'Завтра',
+      days: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
+      spouse: '👫',
+      kids: '👶',
+      yours: '📌',
+    },
+  };
+
+  const l = labels[language as keyof typeof labels] || labels.en;
+
+  if (events.length === 0) {
+    return `<b>${l.title}</b>\n\n${l.noEvents}`;
+  }
+
+  // Group events by day
+  const eventsByDay = new Map<string, typeof events>();
+  for (const event of events) {
+    const dayKey = event.start.toDateString();
+    if (!eventsByDay.has(dayKey)) {
+      eventsByDay.set(dayKey, []);
+    }
+    eventsByDay.get(dayKey)!.push(event);
+  }
+
+  // Build message
+  let message = `<b>${l.title}</b>\n`;
+
+  const intlLocale = { he: 'he-IL', ru: 'ru-RU', en: 'en-US' }[language] ?? 'en-US';
+
+  for (const [dayKey, dayEvents] of eventsByDay) {
+    const date = new Date(dayKey);
+    const dayOfWeek = l.days[date.getDay()];
+
+    // Format date label
+    let dateLabel: string;
+    if (dayEvents[0].daysFromNow === 0) {
+      dateLabel = l.today;
+    } else if (dayEvents[0].daysFromNow === 1) {
+      dateLabel = l.tomorrow;
+    } else {
+      const formatted = date.toLocaleDateString(intlLocale, { month: 'short', day: 'numeric' });
+      dateLabel = `${dayOfWeek} ${formatted}`;
+    }
+
+    message += `\n<b>${dateLabel}</b>\n`;
+
+    for (const event of dayEvents) {
+      // Format time
+      const time = event.start.toLocaleTimeString(intlLocale, { hour: '2-digit', minute: '2-digit', hour12: false });
+      const isAllDay = time === '00:00';
+
+      // Get icon for calendar label
+      const icon = event.calendarLabel === 'spouse' ? l.spouse
+        : event.calendarLabel === 'kids' ? l.kids
+        : '';
+
+      if (isAllDay) {
+        message += `  ${icon} ${event.summary}\n`;
+      } else {
+        message += `  ${icon} ${time} - ${event.summary}\n`;
+      }
+    }
+  }
+
+  return message;
+}
+
+/**
  * Handle /testmodels command (admin only)
  */
 export async function handleTestModelsCommand(chatId: number, userId: number, updateId: number, args?: string): Promise<void> {

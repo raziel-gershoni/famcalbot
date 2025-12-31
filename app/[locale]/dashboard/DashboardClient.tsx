@@ -401,6 +401,18 @@ export default function DashboardClient({
                     )}
                   </button>
                 </div>
+                <button
+                  className="action-button summary-button lookahead-button"
+                  onClick={() => executeCommand('lookahead')}
+                  disabled={loadingCommand !== null}
+                  style={{ marginTop: '12px', width: '100%' }}
+                >
+                  {isLoading('lookahead') ? (
+                    <Loader2 size={24} className="spinner" />
+                  ) : (
+                    <span className="summary-label">{t('summary.weekLookahead')}</span>
+                  )}
+                </button>
               </Section>
 
               {/* Weather Section */}

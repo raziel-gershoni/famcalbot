@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { language, location, messagingPlatform, culture, globalRules, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, initData } = body;
+    const { language, location, messagingPlatform, culture, globalRules, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, initData } = body;
 
     // Authentication: Verify Telegram initData
     if (!verifyUserAccess(initData, parseInt(userId))) {
@@ -45,7 +45,8 @@ export async function POST(request: NextRequest) {
       globalRules: Array.isArray(globalRules) ? globalRules : undefined,
       textSummaryEnabled: typeof textSummaryEnabled === 'boolean' ? textSummaryEnabled : undefined,
       voiceSummaryEnabled: typeof voiceSummaryEnabled === 'boolean' ? voiceSummaryEnabled : undefined,
-      weatherEnabled: typeof weatherEnabled === 'boolean' ? weatherEnabled : undefined
+      weatherEnabled: typeof weatherEnabled === 'boolean' ? weatherEnabled : undefined,
+      includeLookaheadInTomorrow: typeof includeLookaheadInTomorrow === 'boolean' ? includeLookaheadInTomorrow : undefined
     });
 
     return NextResponse.json({ success: true });

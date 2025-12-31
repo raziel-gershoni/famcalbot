@@ -28,7 +28,8 @@
     "summary": {
       "title": "Сводка календаря",
       "today": "Сегодня",
-      "tomorrow": "Завтра"
+      "tomorrow": "Завтра",
+      "weekLookahead": "Неделя вперёд"
     },
     "weather": {
       "title": "Прогноз погоды",
@@ -114,6 +115,8 @@
     "voiceSummaryDescription": "Получать сводку голосовым сообщением",
     "weatherSummary": "Прогноз погоды",
     "weatherSummaryDescription": "Включить прогноз погоды в сводку",
+    "weekLookahead": "Обзор недели",
+    "weekLookaheadDescription": "Включить предстоящие события в сводку на завтра",
     "globalRulesLabel": "Пользовательские правила",
     "globalRulesHelp": "Добавьте правила, которые применяются ко всем календарям (напр., ранний уход в определённые дни)",
     "globalRulesPlaceholder": "Правило {number}",

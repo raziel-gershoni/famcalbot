@@ -32,6 +32,8 @@ export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'gend
   textSummaryEnabled?: boolean;
   voiceSummaryEnabled?: boolean;
   weatherEnabled?: boolean;
+  includeWeeklyInLookahead?: boolean;
+  includeLookaheadInTomorrow?: boolean;
 };
 
 // Helper to convert Prisma User to UserConfig (with decryption)
@@ -52,6 +54,8 @@ export function convertPrismaUserToConfig(user: PrismaUser): UserConfig {
     textSummaryEnabled: user.textSummaryEnabled,
     voiceSummaryEnabled: user.voiceSummaryEnabled,
     weatherEnabled: user.weatherEnabled,
+    includeWeeklyInLookahead: user.includeWeeklyInLookahead,
+    includeLookaheadInTomorrow: user.includeLookaheadInTomorrow,
   };
 }
 
@@ -63,6 +67,9 @@ export interface CalendarEvent {
   location?: string;
   calendarName: string;
   calendarId: string;
+  // For recurrence detection
+  eventType?: string;         // 'default' | 'birthday' | etc
+  recurringEventId?: string;  // ID of master event if this is a recurring instance
 }
 
 export interface Coordinates {
