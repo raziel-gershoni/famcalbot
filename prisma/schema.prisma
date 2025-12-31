@@ -33,6 +33,7 @@ model User {
   isAdmin              Boolean @default(false)      // Admin panel access
   textSummaryEnabled   Boolean @default(true)       // Receive text summaries
   voiceSummaryEnabled  Boolean @default(true)       // Receive voice summaries
+  weatherEnabled       Boolean @default(true)       // Include weather in summaries
 
   // Calendar integration (shared token for now)
   googleRefreshToken  String   @db.Text

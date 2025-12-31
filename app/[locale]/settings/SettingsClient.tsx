@@ -15,6 +15,7 @@ interface SettingsClientProps {
     culture: string;
     textSummaryEnabled: boolean;
     voiceSummaryEnabled: boolean;
+    weatherEnabled: boolean;
   };
 }
 
@@ -30,6 +31,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
   const [culture, setCulture] = useState(currentSettings.culture);
   const [textSummaryEnabled, setTextSummaryEnabled] = useState(currentSettings.textSummaryEnabled);
   const [voiceSummaryEnabled, setVoiceSummaryEnabled] = useState(currentSettings.voiceSummaryEnabled);
+  const [weatherEnabled, setWeatherEnabled] = useState(currentSettings.weatherEnabled);
   const [locationLoading, setLocationLoading] = useState(false);
   const [detectedLocation, setDetectedLocation] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -203,6 +205,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
           culture,
           textSummaryEnabled,
           voiceSummaryEnabled,
+          weatherEnabled,
           initData
         })
       });
@@ -722,6 +725,28 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
                     formState === 'idle' && setVoiceSummaryEnabled(!voiceSummaryEnabled);
+                  }
+                }}
+              >
+                <div className="toggle-slider" />
+              </div>
+            </div>
+
+            <div className="toggle-row">
+              <div className="toggle-info">
+                <p className="toggle-label">{t('weatherSummary')}</p>
+                <p className="toggle-description">{t('weatherSummaryDescription')}</p>
+              </div>
+              <div
+                className={`toggle-switch ${weatherEnabled ? 'checked' : ''} ${formState !== 'idle' ? 'disabled' : ''}`}
+                onClick={() => formState === 'idle' && setWeatherEnabled(!weatherEnabled)}
+                role="switch"
+                aria-checked={weatherEnabled}
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    formState === 'idle' && setWeatherEnabled(!weatherEnabled);
                   }
                 }}
               >

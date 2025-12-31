@@ -112,6 +112,8 @@
     "textSummaryDescription": "Receive daily summary as text message",
     "voiceSummary": "Voice Summary",
     "voiceSummaryDescription": "Receive daily summary as voice message",
+    "weatherSummary": "Weather Forecast",
+    "weatherSummaryDescription": "Include weather forecast in your summary",
     "globalRulesLabel": "Custom Rules",
     "globalRulesHelp": "Add rules that apply to all calendars (e.g., early dismissal on certain days)",
     "globalRulesPlaceholder": "Rule {number}",

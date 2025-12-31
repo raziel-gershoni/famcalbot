@@ -112,6 +112,8 @@
     "textSummaryDescription": "Получать сводку текстовым сообщением",
     "voiceSummary": "Голосовая сводка",
     "voiceSummaryDescription": "Получать сводку голосовым сообщением",
+    "weatherSummary": "Прогноз погоды",
+    "weatherSummaryDescription": "Включить прогноз погоды в сводку",
     "globalRulesLabel": "Пользовательские правила",
     "globalRulesHelp": "Добавьте правила, которые применяются ко всем календарям (напр., ранний уход в определённые дни)",
     "globalRulesPlaceholder": "Правило {number}",

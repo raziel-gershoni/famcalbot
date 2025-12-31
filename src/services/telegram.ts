@@ -1,7 +1,7 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { getUserByTelegramId, getUserByIdentifier, getWhitelistedIds, getAllUsers, getOrCreateUser, TelegramUserInfo } from './user-service';
 import { fetchTodayEvents, fetchTomorrowEvents } from './calendar';
-import { generateSummary, SummaryUserContext } from './claude';
+import { generateSummary, SummaryUserContext, formatDateHeader } from './claude';
 import { CalendarEvent, UserConfig } from '../types';
 import { USER_MESSAGES } from '../config/messages';
 import { IMessagingService, getTelegramService, getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from './messaging';
@@ -580,7 +580,15 @@ async function sendSummaryToUser(
       modelId,
       user.location,
       user.language,
-      userContext
+      userContext,
+      user.weatherEnabled
+    );
+
+    // Generate date header for voice-only delivery
+    const dateHeader = formatDateHeader(
+      summaryDate || new Date(),
+      user.language,
+      user.culture
     );
 
     // Stop animation and deliver via unified pipeline
@@ -591,7 +599,8 @@ async function sendSummaryToUser(
       user,
       progressMessageId: messageId,
       showVoiceProgress: true,
-      modelId
+      modelId,
+      dateHeader
     });
   } catch (error) {
     // Stop animation on error
@@ -705,7 +714,15 @@ async function sendSummaryToAll(
           undefined,
           user.location,
           user.language,
-          userContext
+          userContext,
+          user.weatherEnabled
+        );
+
+        // Generate date header for voice-only delivery
+        const dateHeader = formatDateHeader(
+          summaryDate || new Date(),
+          user.language,
+          user.culture
         );
 
         // Deliver via unified pipeline (handles text/voice preferences and platform routing)
@@ -713,7 +730,8 @@ async function sendSummaryToAll(
           userId: user.telegramId,
           summary,
           user,
-          platform
+          platform,
+          dateHeader
           // No progressMessageId = send new messages (scheduled batch)
           // showVoiceProgress defaults to false for scheduled
         });
@@ -961,6 +979,9 @@ interface DeliveryOptions {
 
   // Platform routing (for batch)
   platform?: DeliveryPlatform;
+
+  // Date header for voice-only delivery (sent before voice message when text is disabled)
+  dateHeader?: string;
 }
 
 /**
@@ -980,7 +1001,8 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     progressMessageId,
     showVoiceProgress = true,
     modelId,
-    platform
+    platform,
+    dateHeader
   } = options;
 
   const msgService = getMessagingService();
@@ -1012,8 +1034,19 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     await msgService.deleteMessage(userId, progressMessageId);
   }
 
-  // Handle voice delivery (async, non-blocking)
+  // Handle voice delivery
   if (sendVoice) {
+    // If text is disabled, send date header before voice
+    if (!sendText && dateHeader) {
+      if (progressMessageId) {
+        // Update progress message with date header (user-invoked)
+        await msgService.updateMessage(userId, progressMessageId, dateHeader, { format: MessageFormat.HTML });
+      } else {
+        // Send new message with date header (scheduled batch)
+        await routeTextMessage(userId, dateHeader, user, platform);
+      }
+    }
+
     // For scheduled (no progressMessageId), don't show voice progress
     const shouldShowVoiceProgress = progressMessageId ? showVoiceProgress : false;
     await sendVoiceMessage(userId, summary, modelId, user.language, msgService, shouldShowVoiceProgress);

@@ -63,7 +63,8 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
         messagingPlatform: user.messagingPlatform,
         culture: user.culture || 'default',
         textSummaryEnabled: user.textSummaryEnabled,
-        voiceSummaryEnabled: user.voiceSummaryEnabled
+        voiceSummaryEnabled: user.voiceSummaryEnabled,
+        weatherEnabled: user.weatherEnabled
       }}
     />
   );

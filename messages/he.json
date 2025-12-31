@@ -112,6 +112,8 @@
     "textSummaryDescription": "קבל סיכום יומי כהודעת טקסט",
     "voiceSummary": "סיכום קולי",
     "voiceSummaryDescription": "קבל סיכום יומי כהודעה קולית",
+    "weatherSummary": "תחזית מזג אוויר",
+    "weatherSummaryDescription": "כלול תחזית מזג אוויר בסיכום",
     "globalRulesLabel": "כללים מותאמים",
     "globalRulesHelp": "הוסף כללים שחלים על כל היומנים (לדוגמה, יציאה מוקדמת בימים מסוימים)",
     "globalRulesPlaceholder": "כלל {number}",

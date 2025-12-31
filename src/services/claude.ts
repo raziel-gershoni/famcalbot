@@ -1,4 +1,4 @@
-import { HDate, Locale } from '@hebcal/core';
+import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
 import { CalendarEvent, CalendarAssignment } from '../types';
 import { TIMEZONE } from '../config/constants';
@@ -23,6 +23,44 @@ function getLocalizedGreeting(hour: number, language: string = 'en'): string {
   if (hour < 12) return greetings.morning;
   if (hour < 18) return greetings.afternoon;
   return greetings.evening;
+}
+
+/**
+ * Format date header for voice-only delivery
+ * Supports locale (he/en/ru) and culture (jewish/default)
+ * Uses gematriya for Hebrew locale
+ */
+export function formatDateHeader(
+  date: Date,
+  language: string = 'en',
+  culture?: string,
+  timezone: string = TIMEZONE
+): string {
+  const currentHour = parseInt(new Date().toLocaleString('en-US', { timeZone: timezone, hour: '2-digit', hour12: false }));
+  const greeting = getLocalizedGreeting(currentHour, language);
+
+  // Format gregorian date based on locale
+  const intlLocale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
+  const gregorianDate = date.toLocaleDateString(intlLocale, {
+    timeZone: timezone,
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  });
+
+  let dateHeader = `<b>${greeting}</b>\n\n<b>${gregorianDate}</b>`;
+
+  // Add Hebrew date for Jewish culture
+  if (culture === 'jewish') {
+    const localDate = new Date(date.toLocaleString('en-US', { timeZone: timezone }));
+    const hdate = new HDate(localDate);
+    const hebDay = language === 'he' ? gematriya(hdate.getDate()) : hdate.getDate();
+    const hebMonth = Locale.lookupTranslation(hdate.getMonthName(), language) || hdate.getMonthName();
+    const hebrewDate = `${hebDay} ${hebMonth}`;
+    dateHeader = `<b>${greeting}</b>\n\n<b>${gregorianDate} • ${hebrewDate}</b>`;
+  }
+
+  return dateHeader;
 }
 
 /**
@@ -184,13 +222,14 @@ export async function generateSummary(
   modelId?: string,
   location?: string,
   language?: string,
-  userContext?: SummaryUserContext
+  userContext?: SummaryUserContext,
+  weatherEnabled: boolean = true
 ): Promise<string> {
   // Get timezone from location (or use default)
   let timezone = TIMEZONE;
   let weatherSummary: string | undefined;
 
-  if (location) {
+  if (location && weatherEnabled) {
     try {
       const { getTimezone } = await import('./weather/geocoding');
       const { fetchWeather, getWeatherDescription } = await import('./weather/open-meteo');
@@ -255,13 +294,14 @@ export async function generateSummaryWithMetrics(
   modelId?: string,
   location?: string,
   language?: string,
-  userContext?: SummaryUserContext
+  userContext?: SummaryUserContext,
+  weatherEnabled: boolean = true
 ) {
   // Get timezone from location (or use default)
   let timezone = TIMEZONE;
   let weatherSummary: string | undefined;
 
-  if (location) {
+  if (location && weatherEnabled) {
     try {
       const { getTimezone } = await import('./weather/geocoding');
       const { fetchWeather, getWeatherDescription } = await import('./weather/open-meteo');

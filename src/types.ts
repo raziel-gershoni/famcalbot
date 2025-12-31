@@ -31,6 +31,7 @@ export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'gend
   globalRules?: string[];
   textSummaryEnabled?: boolean;
   voiceSummaryEnabled?: boolean;
+  weatherEnabled?: boolean;
 };
 
 // Helper to convert Prisma User to UserConfig (with decryption)
@@ -50,6 +51,7 @@ export function convertPrismaUserToConfig(user: PrismaUser): UserConfig {
     globalRules: user.globalRules,
     textSummaryEnabled: user.textSummaryEnabled,
     voiceSummaryEnabled: user.voiceSummaryEnabled,
+    weatherEnabled: user.weatherEnabled,
   };
 }
 
