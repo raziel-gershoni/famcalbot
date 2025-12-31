@@ -29,10 +29,10 @@ export interface WeekLookahead {
 const recurrenceCache = new Map<string, string[] | null>();
 
 /**
- * Get the next week boundary based on user settings
+ * Get the week boundary based on user settings
  * - If lookaheadAlways7Days: always 7 days from now
- * - Jewish culture: next Sunday (week starts Sunday)
- * - Default culture: next Monday (week starts Monday)
+ * - Jewish culture: through Saturday (week ends Saturday, Sunday is next week)
+ * - Default culture: through Sunday (week ends Sunday, Monday is next week)
  */
 function getNextWeekBoundary(culture?: string, always7Days?: boolean): Date {
   const now = new Date();
@@ -48,11 +48,11 @@ function getNextWeekBoundary(culture?: string, always7Days?: boolean): Date {
     const dayOfWeek = israelTime.getDay(); // 0=Sun, 1=Mon, ...
 
     if (culture === 'jewish') {
-      // Next Sunday (week ends Friday, so scan until Sunday = start of next week)
-      daysUntilBoundary = (7 - dayOfWeek) % 7 || 7;
+      // Through Saturday (dayOfWeek 6) - Sunday is already next week
+      daysUntilBoundary = (6 - dayOfWeek + 7) % 7;
     } else {
-      // Next Monday
-      daysUntilBoundary = ((8 - dayOfWeek) % 7) || 7;
+      // Through Sunday (dayOfWeek 0) - Monday is next week
+      daysUntilBoundary = (7 - dayOfWeek) % 7;
     }
   }
 

@@ -78,10 +78,6 @@ export function buildWeekLookaheadPrompt(data: WeekLookaheadPromptData): string 
   const globalRules = buildGlobalRules(data);
   const eventsSection = buildEventsSection(data);
 
-  const hebrewRange = data.culture === 'jewish' && data.todayHebrew && data.weekEndHebrew
-    ? `\nעברי: ${data.todayHebrew} - ${data.weekEndHebrew}`
-    : '';
-
   const genderForm = data.userGender === 'female' ? 'לך' : 'לך';
 
   return `# תצוגה מקדימה לשבוע עבור ${data.userName}
@@ -89,8 +85,7 @@ export function buildWeekLookaheadPrompt(data: WeekLookaheadPromptData): string 
 צור תצוגה מקדימה תמציתית לשבוע בעברית.
 
 ## טווח השבוע
-מ: ${data.todayGregorian}
-עד: ${data.weekEndGregorian}${hebrewRange}
+מ: ${data.todayGregorian} עד סוף השבוע
 סה"כ: ${data.totalEvents} אירועים ב-${data.totalDays} ימים
 
 ## בעלות על יומנים
@@ -101,8 +96,8 @@ ${hebrewDateContext}${globalRules}
 צור תצוגה מקדימה ידידותית ושיחתית. מבנה:
 
 <b>מבט לשבוע הקרוב</b>
-<b>${data.todayGregorian} - ${data.weekEndGregorian}</b>${data.culture === 'jewish' ? `
-<i>${data.todayHebrew} - ${data.weekEndHebrew}</i>` : ''}
+<b>${data.todayGregorian} - סוף השבוע</b>${data.culture === 'jewish' ? `
+<i>${data.todayHebrew} - סוף השבוע</i>` : ''}
 
 [לכל יום עם אירועים, צור סיכום קצר שמציין:]
 - יום ותאריך (עם התייחסות יחסית כמו "מחר" או "בעוד 3 ימים")

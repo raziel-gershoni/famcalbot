@@ -78,17 +78,12 @@ export function buildWeekLookaheadPrompt(data: WeekLookaheadPromptData): string 
   const globalRules = buildGlobalRules(data);
   const eventsSection = buildEventsSection(data);
 
-  const hebrewRange = data.culture === 'jewish' && data.todayHebrew && data.weekEndHebrew
-    ? `\nHebrew: ${data.todayHebrew} - ${data.weekEndHebrew}`
-    : '';
-
   return `# Week Ahead Preview for ${data.userName}
 
 Generate a concise week-ahead preview in English.
 
 ## Week Range
-From: ${data.todayGregorian}
-Until: ${data.weekEndGregorian}${hebrewRange}
+From: ${data.todayGregorian} until end of week
 Total: ${data.totalEvents} events across ${data.totalDays} days
 
 ## Calendar Ownership
@@ -99,8 +94,8 @@ ${hebrewDateContext}${globalRules}
 Generate a friendly, conversational preview. Structure:
 
 <b>Week Ahead</b>
-<b>${data.todayGregorian} - ${data.weekEndGregorian}</b>${data.culture === 'jewish' ? `
-<i>${data.todayHebrew} - ${data.weekEndHebrew}</i>` : ''}
+<b>${data.todayGregorian} - End of Week</b>${data.culture === 'jewish' ? `
+<i>${data.todayHebrew} - סוף השבוע</i>` : ''}
 
 [For each day with events, create a brief summary mentioning:]
 - Day and date (with relative reference like "Tomorrow" or "In 3 days")

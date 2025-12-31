@@ -78,17 +78,12 @@ export function buildWeekLookaheadPrompt(data: WeekLookaheadPromptData): string 
   const globalRules = buildGlobalRules(data);
   const eventsSection = buildEventsSection(data);
 
-  const hebrewRange = data.culture === 'jewish' && data.todayHebrew && data.weekEndHebrew
-    ? `\nЕврейский: ${data.todayHebrew} - ${data.weekEndHebrew}`
-    : '';
-
   return `# Обзор недели для ${data.userName}
 
 Создай краткий обзор предстоящей недели на русском языке.
 
 ## Период недели
-С: ${data.todayGregorian}
-До: ${data.weekEndGregorian}${hebrewRange}
+С: ${data.todayGregorian} до конца недели
 Всего: ${data.totalEvents} событий за ${data.totalDays} дней
 
 ## Принадлежность календарей
@@ -99,8 +94,8 @@ ${hebrewDateContext}${globalRules}
 Создай дружелюбный, разговорный обзор. Структура:
 
 <b>Неделя вперёд</b>
-<b>${data.todayGregorian} - ${data.weekEndGregorian}</b>${data.culture === 'jewish' ? `
-<i>${data.todayHebrew} - ${data.weekEndHebrew}</i>` : ''}
+<b>${data.todayGregorian} - Конец недели</b>${data.culture === 'jewish' ? `
+<i>${data.todayHebrew} - סוף השבוע</i>` : ''}
 
 [Для каждого дня с событиями создай краткую сводку с:]
 - Днём и датой (с относительной ссылкой типа "Завтра" или "Через 3 дня")
