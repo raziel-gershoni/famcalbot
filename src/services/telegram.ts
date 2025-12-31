@@ -1029,8 +1029,8 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
       // Send new message (scheduled batch)
       await routeTextMessage(userId, summary, user, platform);
     }
-  } else if (progressMessageId) {
-    // Text disabled but we have a progress message - delete it
+  } else if (progressMessageId && !(sendVoice && dateHeader)) {
+    // Text disabled, no voice date header needed - delete progress message
     await msgService.deleteMessage(userId, progressMessageId);
   }
 
@@ -1045,6 +1045,9 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
         // Send new message with date header (scheduled batch)
         await routeTextMessage(userId, dateHeader, user, platform);
       }
+    } else if (!sendText && progressMessageId) {
+      // Voice enabled, no date header, but have progress message - delete it
+      await msgService.deleteMessage(userId, progressMessageId);
     }
 
     // For scheduled (no progressMessageId), don't show voice progress
