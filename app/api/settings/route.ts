@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { language, location, messagingPlatform, culture, globalRules, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, initData } = body;
+    const { language, location, messagingPlatform, culture, globalRules, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, remindersEnabled, defaultReminderMinutes, initData } = body;
 
     // Authentication: Verify Telegram initData
     if (!verifyUserAccess(initData, parseInt(userId))) {
@@ -47,7 +47,9 @@ export async function POST(request: NextRequest) {
       voiceSummaryEnabled: typeof voiceSummaryEnabled === 'boolean' ? voiceSummaryEnabled : undefined,
       weatherEnabled: typeof weatherEnabled === 'boolean' ? weatherEnabled : undefined,
       includeLookaheadInTomorrow: typeof includeLookaheadInTomorrow === 'boolean' ? includeLookaheadInTomorrow : undefined,
-      lookaheadAlways7Days: typeof lookaheadAlways7Days === 'boolean' ? lookaheadAlways7Days : undefined
+      lookaheadAlways7Days: typeof lookaheadAlways7Days === 'boolean' ? lookaheadAlways7Days : undefined,
+      remindersEnabled: typeof remindersEnabled === 'boolean' ? remindersEnabled : undefined,
+      defaultReminderMinutes: typeof defaultReminderMinutes === 'number' ? defaultReminderMinutes : undefined
     });
 
     return NextResponse.json({ success: true });

@@ -66,7 +66,9 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
         voiceSummaryEnabled: user.voiceSummaryEnabled,
         weatherEnabled: user.weatherEnabled,
         includeLookaheadInTomorrow: user.includeLookaheadInTomorrow,
-        lookaheadAlways7Days: user.lookaheadAlways7Days
+        lookaheadAlways7Days: user.lookaheadAlways7Days,
+        remindersEnabled: user.remindersEnabled,
+        defaultReminderMinutes: user.defaultReminderMinutes ?? null
       }}
     />
   );

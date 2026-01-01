@@ -109,6 +109,14 @@ async function fetchEvents(
           calendarId: calendarId,
           eventType: event.eventType || undefined,
           recurringEventId: event.recurringEventId || undefined,
+          eventId: event.id || undefined,
+          reminders: event.reminders ? {
+            useDefault: event.reminders.useDefault || false,
+            overrides: event.reminders.overrides?.map(o => ({
+              method: o.method || 'popup',
+              minutes: o.minutes || 0,
+            })),
+          } : undefined,
         });
       }
     } catch (error) {

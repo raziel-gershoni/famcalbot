@@ -19,7 +19,7 @@ export interface CalendarAssignment {
 }
 
 // Prisma User type with BigInt converted to number for compatibility
-export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'gender' | 'calendarAssignments'> & {
+export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'gender' | 'calendarAssignments' | 'defaultReminderMinutes'> & {
   telegramId: number;  // Convert BigInt to number
   whatsappPhone?: string | null;  // Make optional and allow null
   messagingPlatform?: 'telegram' | 'whatsapp' | 'all';
@@ -35,6 +35,8 @@ export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'gend
   includeWeeklyInLookahead?: boolean;
   includeLookaheadInTomorrow?: boolean;
   lookaheadAlways7Days?: boolean;
+  remindersEnabled?: boolean;
+  defaultReminderMinutes?: number;
 };
 
 // Helper to convert Prisma User to UserConfig (with decryption)
@@ -58,6 +60,8 @@ export function convertPrismaUserToConfig(user: PrismaUser): UserConfig {
     includeWeeklyInLookahead: user.includeWeeklyInLookahead,
     includeLookaheadInTomorrow: user.includeLookaheadInTomorrow,
     lookaheadAlways7Days: user.lookaheadAlways7Days,
+    remindersEnabled: user.remindersEnabled,
+    defaultReminderMinutes: user.defaultReminderMinutes !== null ? user.defaultReminderMinutes : undefined,
   };
 }
 
@@ -72,6 +76,12 @@ export interface CalendarEvent {
   // For recurrence detection
   eventType?: string;         // 'default' | 'birthday' | etc
   recurringEventId?: string;  // ID of master event if this is a recurring instance
+  // For reminders
+  eventId?: string;           // Unique event ID for tracking reminders
+  reminders?: {
+    useDefault: boolean;
+    overrides?: Array<{ method: string; minutes: number }>;
+  };
 }
 
 export interface Coordinates {

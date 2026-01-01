@@ -18,6 +18,8 @@ interface SettingsClientProps {
     weatherEnabled: boolean;
     includeLookaheadInTomorrow: boolean;
     lookaheadAlways7Days: boolean;
+    remindersEnabled: boolean;
+    defaultReminderMinutes: number | null;
   };
 }
 
@@ -36,6 +38,8 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
   const [weatherEnabled, setWeatherEnabled] = useState(currentSettings.weatherEnabled);
   const [includeLookaheadInTomorrow, setIncludeLookaheadInTomorrow] = useState(currentSettings.includeLookaheadInTomorrow);
   const [lookaheadAlways7Days, setLookaheadAlways7Days] = useState(currentSettings.lookaheadAlways7Days);
+  const [remindersEnabled, setRemindersEnabled] = useState(currentSettings.remindersEnabled);
+  const [defaultReminderMinutes, setDefaultReminderMinutes] = useState(currentSettings.defaultReminderMinutes ?? 15);
   const [locationLoading, setLocationLoading] = useState(false);
   const [detectedLocation, setDetectedLocation] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -212,6 +216,8 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
           weatherEnabled,
           includeLookaheadInTomorrow,
           lookaheadAlways7Days,
+          remindersEnabled,
+          defaultReminderMinutes: remindersEnabled ? defaultReminderMinutes : null,
           initData
         })
       });
@@ -803,6 +809,50 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
                 <div className="toggle-slider" />
               </div>
             </div>
+
+            <h3 className="section-title">{t('remindersSection')}</h3>
+
+            <div className="toggle-row">
+              <div className="toggle-info">
+                <p className="toggle-label">{t('remindersEnabled')}</p>
+                <p className="toggle-description">{t('remindersEnabledDescription')}</p>
+              </div>
+              <div
+                className={`toggle-switch ${remindersEnabled ? 'checked' : ''} ${formState !== 'idle' ? 'disabled' : ''}`}
+                onClick={() => formState === 'idle' && setRemindersEnabled(!remindersEnabled)}
+                role="switch"
+                aria-checked={remindersEnabled}
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    formState === 'idle' && setRemindersEnabled(!remindersEnabled);
+                  }
+                }}
+              >
+                <div className="toggle-slider" />
+              </div>
+            </div>
+
+            {remindersEnabled && (
+              <div className="form-group" style={{ marginTop: '16px' }}>
+                <label htmlFor="defaultReminderMinutes">{t('defaultReminderMinutes')}</label>
+                <select
+                  name="defaultReminderMinutes"
+                  id="defaultReminderMinutes"
+                  value={defaultReminderMinutes}
+                  onChange={(e) => setDefaultReminderMinutes(parseInt(e.target.value))}
+                  disabled={formState !== 'idle'}
+                >
+                  <option value="5">5 {t('minutes')}</option>
+                  <option value="10">10 {t('minutes')}</option>
+                  <option value="15">15 {t('minutes')}</option>
+                  <option value="30">30 {t('minutes')}</option>
+                  <option value="60">60 {t('minutes')}</option>
+                </select>
+                <p className="help-text">{t('defaultReminderMinutesHelp')}</p>
+              </div>
+            )}
 
             <button
               type="submit"
