@@ -374,6 +374,29 @@ Week boundaries are culture-aware:
 - **Jewish culture**: Sunday through Saturday (Sunday starts next week)
 - **Default culture**: Monday through Sunday (Monday starts next week)
 
+### User Settings
+
+The Settings page (accessible from dashboard) provides these options:
+
+**General:**
+- **Language** - Language for summaries and messages (Hebrew, English, Russian)
+- **Location** - Your location for weather forecasts (with auto-detect option)
+- **Messaging Platform** - Where to receive messages (Telegram, WhatsApp, or both)
+- **Culture** - Default or Jewish (includes Hebrew dates and holiday context)
+
+**Summary Preferences:**
+- **Text Summary** - Receive daily summary as text message
+- **Voice Summary** - Receive daily summary as voice message
+- **Weather Forecast** - Include weather forecast in your summary
+- **Week Lookahead** - Include upcoming week events in tomorrow's summary
+- **Always 7 Days** - Show next 7 days instead of until end of week (for week lookahead)
+
+**Event Reminders:**
+- **Enable Reminders** - Receive Telegram notifications before events start
+- **Default Reminder Time** - Time before event to send reminder (5/10/15/30/60 min)
+  - Used when event has no reminder set in Google Calendar
+  - Kids' events get both start AND pickup reminders
+
 ### Admin Commands
 - `/testmodels [filter]` - Test multiple AI models side-by-side
 - `/testai` - Test AI models with interactive buttons
