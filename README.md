@@ -19,6 +19,10 @@ A private messaging bot that sends intelligent, personalized daily calendar summ
 - **Intelligent formatting**: Grouped start/pickup times, chronologically sorted, with conflict warnings
 - **Week lookahead**: AI-rendered "Week Ahead" summary showing remaining events until end of week (culture-aware boundaries)
 - **Next week preview**: AI-rendered "Next Week" summary for planning the following week
+- **Event reminders**: Telegram notifications before events based on Google Calendar reminder settings
+  - Respects event-specific reminders or falls back to user's default
+  - Kids' events get both start AND pickup (end time) reminders
+  - Redis-based tracking prevents duplicate notifications
 - **Automated scheduling**: Daily morning summaries (7 AM) and optional evening summaries for tomorrow
 - **Proactive monitoring**: Daily health checks with admin alerts for token issues
 - **Admin notifications**: Comprehensive error notification system for all critical failures
@@ -66,6 +70,7 @@ famcalbot/
 │   │   ├── calendar.ts        # Google Calendar integration
 │   │   ├── claude.ts          # Summary generation with metrics
 │   │   ├── model-tester.ts    # Multi-model testing service
+│   │   ├── reminders.ts       # Event reminder notifications
 │   │   ├── telegram.ts        # Telegram bot handlers
 │   │   ├── voice-generator.ts # Google Cloud TTS voice generation
 │   │   └── week-lookahead.ts  # Week ahead/next week event aggregation
@@ -88,6 +93,7 @@ famcalbot/
 ├── api/
 │   ├── daily-summary.ts       # Vercel cron: morning summaries
 │   ├── tomorrow-summary.ts    # Vercel cron: evening summaries
+│   ├── reminders.ts           # Vercel cron: event reminders
 │   ├── health-check.ts        # Vercel cron: token validation
 │   └── webhook.ts             # Telegram webhook endpoint
 ├── scripts/
@@ -340,6 +346,13 @@ npm run setup-webhook delete
    - Schedule: Set your preferred evening time (e.g., `0 20 * * *` for 8:00 PM)
    - Timezone: Asia/Jerusalem
 
+**Event Reminders (Optional):**
+   - URL: `https://your-project.vercel.app/api/reminders?secret=YOUR_CRON_SECRET`
+   - Schedule: `*/5 * * * *` (every 5 minutes) or `*/2 * * * *` (every 2 minutes)
+   - Timezone: Asia/Jerusalem
+   - For custom intervals, add `&window=N` where N matches your cron interval in minutes
+   - Users must enable reminders in Settings to receive notifications
+
 ## Commands
 
 ### User Commands
@@ -471,6 +484,31 @@ Triggers tomorrow's summary for all users (tomorrow's events).
 Example:
 ```bash
 curl "https://your-project.vercel.app/api/tomorrow-summary?secret=YOUR_SECRET"
+```
+
+### `GET /api/reminders`
+
+Processes event reminders for all users with reminders enabled. Sends Telegram notifications for events starting within the configured time window.
+
+**Authentication:** Requires `secret` query parameter or `x-cron-secret` header matching `CRON_SECRET`.
+
+**Query Parameters:**
+- `secret` (required): Your CRON_SECRET
+- `window` (optional): Time window in minutes (default: 5). Should match your cron interval.
+
+**Features:**
+- Respects event-specific reminders from Google Calendar
+- Falls back to user's `defaultReminderMinutes` setting if no reminder set
+- Kids' events get both start AND pickup (end time) reminders
+- Redis-based tracking prevents duplicate notifications
+
+Example:
+```bash
+# Default 5-minute window
+curl "https://your-project.vercel.app/api/reminders?secret=YOUR_SECRET"
+
+# Custom 2-minute window (for 2-minute cron)
+curl "https://your-project.vercel.app/api/reminders?secret=YOUR_SECRET&window=2"
 ```
 
 ### `POST /api/webhook`
