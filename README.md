@@ -17,6 +17,8 @@ A private messaging bot that sends intelligent, personalized daily calendar summ
 - **Hebrew date support**: Displays Hebrew dates with Gematria (Hebrew numerals) for Hebrew, standard for other languages
 - **Rosh Chodesh awareness**: Automatically adjusts dismissal times for Rosh Chodesh
 - **Intelligent formatting**: Grouped start/pickup times, chronologically sorted, with conflict warnings
+- **Week lookahead**: AI-rendered "Week Ahead" summary showing remaining events until end of week (culture-aware boundaries)
+- **Next week preview**: AI-rendered "Next Week" summary for planning the following week
 - **Automated scheduling**: Daily morning summaries (7 AM) and optional evening summaries for tomorrow
 - **Proactive monitoring**: Daily health checks with admin alerts for token issues
 - **Admin notifications**: Comprehensive error notification system for all critical failures
@@ -65,13 +67,22 @@ famcalbot/
 │   │   ├── claude.ts          # Summary generation with metrics
 │   │   ├── model-tester.ts    # Multi-model testing service
 │   │   ├── telegram.ts        # Telegram bot handlers
-│   │   └── voice-generator.ts # OpenAI TTS voice generation
+│   │   ├── voice-generator.ts # Google Cloud TTS voice generation
+│   │   └── week-lookahead.ts  # Week ahead/next week event aggregation
 │   ├── utils/
 │   │   ├── error-notifier.ts  # Admin error notifications
 │   │   ├── event-formatter.ts # Event formatting for prompts
 │   │   └── redis-lock.ts      # Upstash Redis distributed locks
 │   ├── prompts/
-│   │   └── calendar-summary.ts # Prompt template
+│   │   ├── calendar-summary/   # Calendar summary prompts (per language)
+│   │   ├── week-lookahead/     # Week lookahead prompts (per language)
+│   │   └── voice-condenser/    # Voice condenser prompts
+│   │       ├── en.ts           # English daily voice
+│   │       ├── he.ts           # Hebrew daily voice
+│   │       ├── ru.ts           # Russian daily voice
+│   │       ├── week-en.ts      # English weekly voice
+│   │       ├── week-he.ts      # Hebrew weekly voice
+│   │       └── week-ru.ts      # Russian weekly voice
 │   ├── types.ts               # TypeScript types
 │   └── index.ts               # Local dev entry point (polling mode)
 ├── api/
@@ -338,6 +349,18 @@ npm run setup-webhook delete
 - `/weather` - Get weather forecast (shows buttons for Standard/Detailed)
 - `/help` - Show available commands
 
+### Dashboard Buttons
+The web dashboard provides quick access to summaries:
+- **Today** - Today's calendar summary
+- **Tomorrow** - Tomorrow's calendar summary
+- **Week Ahead** - AI-rendered summary of remaining events until end of current week
+- **Next Week** - AI-rendered summary of the entire next week
+- **Weather** - Current weather forecast
+
+Week boundaries are culture-aware:
+- **Jewish culture**: Sunday through Saturday (Sunday starts next week)
+- **Default culture**: Monday through Sunday (Monday starts next week)
+
 ### Admin Commands
 - `/testmodels [filter]` - Test multiple AI models side-by-side
 - `/testai` - Test AI models with interactive buttons
@@ -370,15 +393,16 @@ Example output:
 
 ## Voice Messages
 
-**Current status**: Admin-only feature for `/summary` command
+**Current status**: Admin-only feature for `/summary` and weekly summaries
 
 The bot generates natural, fluent voice versions of calendar summaries using **Google Cloud Text-to-Speech** with multi-language support.
 
 **Features:**
-- **Multi-language support**: Hebrew, English, Spanish, French, German
+- **Multi-language support**: Hebrew, English, Russian (and extensible)
 - **Natural, conversational speech**: AI condenses summaries into brief, fluent spoken language
 - **Language-specific voices**: Automatically uses appropriate voice for user's language
-- **Intelligent condensing**: 30-45 second summaries with natural flow
+- **Daily summaries**: 30-45 second voice versions of today/tomorrow events
+- **Weekly summaries**: Voice versions of Week Ahead and Next Week (groups by day, highlights key events)
 - **Weather integration**: Includes weather in natural, flowing sentences
 - **Opus format**: Optimized for Telegram
 - **Automatic cleanup**: Temporary files cleaned up after sending
@@ -388,6 +412,7 @@ The bot generates natural, fluent voice versions of calendar summaries using **G
 **Supported TTS Voices:**
 - Hebrew: he-IL-Wavenet-D (male, natural)
 - English: en-US-Wavenet-D (male, neutral)
+- Russian: ru-RU-Wavenet-D (male, natural)
 - Spanish: es-ES-Wavenet-B (male, neutral)
 - French: fr-FR-Wavenet-B (male, neutral)
 - German: de-DE-Wavenet-B (male, neutral)

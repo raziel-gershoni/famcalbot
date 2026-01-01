@@ -400,11 +400,13 @@ export async function handleLookaheadCommand(
     stopAnimation();
     await messagingService.updateMessage(chatId, messageId, formattedLookahead, { format: MessageFormat.HTML });
 
-    // Send voice message if enabled (non-blocking)
+    // Send voice message if enabled
     if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
-      sendWeeklyVoiceMessage(Number(userId), formattedLookahead, user, messagingService).catch(err => {
+      try {
+        await sendWeeklyVoiceMessage(Number(userId), formattedLookahead, user, messagingService);
+      } catch (err) {
         console.error(`Weekly voice failed for user ${userId}:`, err);
-      });
+      }
     }
   } catch (error) {
     stopAnimation();
@@ -499,11 +501,13 @@ export async function handleNextWeekCommand(
     stopAnimation();
     await messagingService.updateMessage(chatId, messageId, formattedSummary, { format: MessageFormat.HTML });
 
-    // Send voice message if enabled (non-blocking)
+    // Send voice message if enabled
     if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
-      sendWeeklyVoiceMessage(Number(userId), formattedSummary, user, messagingService).catch(err => {
+      try {
+        await sendWeeklyVoiceMessage(Number(userId), formattedSummary, user, messagingService);
+      } catch (err) {
         console.error(`Next week voice failed for user ${userId}:`, err);
-      });
+      }
     }
   } catch (error) {
     stopAnimation();
