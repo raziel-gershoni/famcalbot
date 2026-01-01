@@ -29,7 +29,8 @@
       "title": "סיכום לוח שנה",
       "today": "היום",
       "tomorrow": "מחר",
-      "weekLookahead": "השבוע הקרוב"
+      "weekLookahead": "השבוע הקרוב",
+      "nextWeek": "השבוע הבא"
     },
     "weather": {
       "title": "תחזית מזג אוויר",

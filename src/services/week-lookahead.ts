@@ -268,6 +268,112 @@ export async function getWeekLookahead(
 }
 
 /**
+ * Get next week's boundaries based on culture
+ * - Jewish: Sunday to Saturday
+ * - Default: Monday to Sunday
+ */
+function getNextWeekBoundaries(culture?: string): { start: Date; end: Date } {
+  const now = new Date();
+  const israelTime = new Date(now.toLocaleString('en-US', { timeZone: TIMEZONE }));
+  const dayOfWeek = israelTime.getDay(); // 0=Sun, 1=Mon, ...
+
+  let daysUntilNextWeekStart: number;
+  let weekLength: number = 7;
+
+  if (culture === 'jewish') {
+    // Next Sunday (start of next week for Jewish)
+    daysUntilNextWeekStart = (7 - dayOfWeek) % 7 || 7;
+  } else {
+    // Next Monday (start of next week for default)
+    daysUntilNextWeekStart = ((8 - dayOfWeek) % 7) || 7;
+  }
+
+  const start = new Date(israelTime);
+  start.setDate(start.getDate() + daysUntilNextWeekStart);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(start);
+  end.setDate(end.getDate() + weekLength - 1);
+  end.setHours(23, 59, 59, 999);
+
+  return { start, end };
+}
+
+/**
+ * Get next week lookahead with notable events
+ */
+export async function getNextWeekLookahead(
+  user: UserConfig,
+  calendars: CalendarAssignment[]
+): Promise<WeekLookahead> {
+  const { start, end } = getNextWeekBoundaries(user.culture);
+
+  // Get calendar IDs (exclude birthdays calendars from the scan)
+  const calendarIds = calendars
+    .filter(c => !c.labels.includes('birthdays'))
+    .map(c => c.calendarId);
+
+  if (calendarIds.length === 0 || !user.googleRefreshToken) {
+    return { events: [], dateRange: { start, end } };
+  }
+
+  // Fetch all events in range
+  const events = await fetchEventsInRange(
+    user.googleRefreshToken,
+    calendarIds,
+    start,
+    end
+  );
+
+  // Process events and filter
+  const lookaheadEvents: LookaheadEvent[] = [];
+
+  for (const event of events) {
+    // Skip birthday events (using eventType from Google Calendar API)
+    if (event.eventType === 'birthday') continue;
+
+    // Determine recurrence type
+    let recurrenceType: RecurrenceType = 'single';
+
+    if (event.recurringEventId) {
+      // Fetch master event to get recurrence rules
+      const rrule = await getMasterEventRecurrence(
+        user.googleRefreshToken,
+        event.calendarId,
+        event.recurringEventId
+      );
+      recurrenceType = parseRecurrence(rrule || undefined);
+    }
+
+    // Filter by recurrence rules
+    if (recurrenceType === 'daily') continue;
+    if (recurrenceType === 'weekly' && !user.includeWeeklyInLookahead) continue;
+
+    const startDate = new Date(event.start);
+    const endDateEvent = new Date(event.end);
+
+    lookaheadEvents.push({
+      summary: event.summary,
+      start: startDate,
+      end: endDateEvent,
+      calendarName: event.calendarName,
+      calendarId: event.calendarId,
+      calendarLabel: getCalendarLabel(event.calendarId, calendars),
+      recurrenceType,
+      daysFromNow: getDaysFromNow(startDate),
+    });
+  }
+
+  // Sort by start time
+  lookaheadEvents.sort((a, b) => a.start.getTime() - b.start.getTime());
+
+  return {
+    events: lookaheadEvents,
+    dateRange: { start, end },
+  };
+}
+
+/**
  * Clear recurrence cache (useful for testing or memory management)
  */
 export function clearRecurrenceCache(): void {

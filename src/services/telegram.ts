@@ -419,6 +419,98 @@ export async function handleLookaheadCommand(
 }
 
 /**
+ * Handle /nextweek command - shows next week's events
+ */
+export async function handleNextWeekCommand(
+  chatId: number | string,
+  userId: number | string,
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
+  existingProgressMessageId?: number
+): Promise<void> {
+  if (!(await isUserAuthorized(userId))) {
+    const service = platform === MessagingPlatform.TELEGRAM
+      ? getMessagingService()
+      : getMessagingServiceByPlatform(platform);
+    await service.sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    return;
+  }
+
+  const user = await getUserByIdentifier(userId);
+  if (!user) {
+    console.error(`User with ID ${userId} not found`);
+    return;
+  }
+
+  const messagingService = platform === MessagingPlatform.TELEGRAM
+    ? getMessagingService()
+    : getMessagingServiceByPlatform(platform);
+
+  // Check if user has invalid/legacy language setting
+  if (!user.language || !VALID_LOCALES.includes(user.language as any)) {
+    const settingsUrl = buildUrl(`/en/settings?user_id=${user.telegramId}`);
+    await messagingService.sendMessage(
+      chatId,
+      `⚠️ Please update your language preference in Settings to continue.`,
+      {
+        replyMarkup: {
+          inline_keyboard: [[
+            { text: '⚙️ Open Settings', web_app: { url: settingsUrl } }
+          ]]
+        }
+      }
+    );
+    return;
+  }
+
+  // Use existing progress message or create new one
+  const userLanguage = user.language || 'en';
+  let messageId: number | string;
+  let stopAnimation: () => void;
+
+  if (existingProgressMessageId) {
+    // Progress message already sent by API route, just start animation
+    messageId = existingProgressMessageId;
+    const { startProgressAnimation, getProgressText } = await import('./progress-message');
+    stopAnimation = startProgressAnimation(chatId, messageId, getProgressText('nextweek', userLanguage), messagingService);
+  } else {
+    // Send new progress message
+    const result = await sendProgressWithAnimation(chatId, 'nextweek', userLanguage, messagingService);
+    messageId = result.messageId;
+    stopAnimation = result.stopAnimation;
+  }
+
+  try {
+    // Get next week lookahead data
+    const { getNextWeekLookahead } = await import('./week-lookahead');
+    const lookahead = await getNextWeekLookahead(user, user.calendarAssignments || []);
+
+    // Generate AI-rendered next week summary
+    const { generateNextWeekSummary } = await import('./claude');
+    const formattedSummary = await generateNextWeekSummary(lookahead, user, userLanguage);
+
+    // Stop animation and update with summary
+    stopAnimation();
+    await messagingService.updateMessage(chatId, messageId, formattedSummary, { format: MessageFormat.HTML });
+  } catch (error) {
+    stopAnimation();
+    console.error(`Error fetching next week for user ${userId}:`, error);
+    await messagingService.updateMessage(
+      chatId,
+      messageId,
+      '❌ Sorry, there was an error fetching next week events. Please try again later.'
+    );
+
+    // Notify admin of next week failures
+    const { notifyAdminError } = await import('../utils/error-notifier');
+    await notifyAdminError(
+      'Next Week Command',
+      error,
+      `User: ${userId}`
+    );
+  }
+}
+
+/**
  * Handle /testmodels command (admin only)
  */
 export async function handleTestModelsCommand(chatId: number, userId: number, updateId: number, args?: string): Promise<void> {

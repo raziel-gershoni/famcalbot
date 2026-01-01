@@ -29,7 +29,8 @@
       "title": "Сводка календаря",
       "today": "Сегодня",
       "tomorrow": "Завтра",
-      "weekLookahead": "Неделя вперёд"
+      "weekLookahead": "Неделя вперёд",
+      "nextWeek": "Следующая неделя"
     },
     "weather": {
       "title": "Прогноз погоды",

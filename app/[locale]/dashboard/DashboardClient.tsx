@@ -401,18 +401,30 @@ export default function DashboardClient({
                     )}
                   </button>
                 </div>
-                <button
-                  className="action-button summary-button lookahead-button"
-                  onClick={() => executeCommand('lookahead')}
-                  disabled={loadingCommand !== null}
-                  style={{ marginTop: '12px', width: '100%' }}
-                >
-                  {isLoading('lookahead') ? (
-                    <Loader2 size={24} className="spinner" />
-                  ) : (
-                    <span className="summary-label">{t('summary.weekLookahead')}</span>
-                  )}
-                </button>
+                <div className="button-group" style={{ marginTop: '12px' }}>
+                  <button
+                    className="action-button summary-button"
+                    onClick={() => executeCommand('lookahead')}
+                    disabled={loadingCommand !== null}
+                  >
+                    {isLoading('lookahead') ? (
+                      <Loader2 size={24} className="spinner" />
+                    ) : (
+                      <span className="summary-label">{t('summary.weekLookahead')}</span>
+                    )}
+                  </button>
+                  <button
+                    className="action-button summary-button"
+                    onClick={() => executeCommand('nextweek')}
+                    disabled={loadingCommand !== null}
+                  >
+                    {isLoading('nextweek') ? (
+                      <Loader2 size={24} className="spinner" />
+                    ) : (
+                      <span className="summary-label">{t('summary.nextWeek')}</span>
+                    )}
+                  </button>
+                </div>
               </Section>
 
               {/* Weather Section */}

@@ -6,7 +6,7 @@
 
 import { IMessagingService } from './messaging/types';
 
-export type ProgressType = 'summary' | 'summaryTomorrow' | 'weather' | 'voice' | 'lookahead';
+export type ProgressType = 'summary' | 'summaryTomorrow' | 'weather' | 'voice' | 'lookahead' | 'nextweek';
 
 /**
  * Progress text translations
@@ -18,6 +18,7 @@ const PROGRESS_TEXTS: Record<string, Record<ProgressType, string>> = {
     weather: 'Fetching weather forecast',
     voice: 'Generating voice message',
     lookahead: 'Scanning upcoming events',
+    nextweek: 'Scanning next week',
   },
   he: {
     summary: 'מכין את הסיכום שלך',
@@ -25,6 +26,7 @@ const PROGRESS_TEXTS: Record<string, Record<ProgressType, string>> = {
     weather: 'מביא את תחזית מזג האוויר',
     voice: 'מכין הודעה קולית',
     lookahead: 'סורק אירועים קרובים',
+    nextweek: 'סורק את השבוע הבא',
   },
   ru: {
     summary: 'Создаю сводку',
@@ -32,6 +34,7 @@ const PROGRESS_TEXTS: Record<string, Record<ProgressType, string>> = {
     weather: 'Получаю прогноз погоды',
     voice: 'Создаю голосовое сообщение',
     lookahead: 'Сканирую предстоящие события',
+    nextweek: 'Сканирую следующую неделю',
   },
 };
 

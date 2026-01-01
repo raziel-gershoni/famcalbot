@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 // Map command to progress type
-function getProgressType(command: string, args?: string): 'summary' | 'summaryTomorrow' | 'weather' | 'lookahead' | null {
+function getProgressType(command: string, args?: string): 'summary' | 'summaryTomorrow' | 'weather' | 'lookahead' | 'nextweek' | null {
   if (command === 'summary') {
     return args?.toLowerCase().trim() === 'tmrw' ? 'summaryTomorrow' : 'summary';
   }
@@ -20,6 +20,9 @@ function getProgressType(command: string, args?: string): 'summary' | 'summaryTo
   }
   if (command === 'lookahead') {
     return 'lookahead';
+  }
+  if (command === 'nextweek') {
+    return 'nextweek';
   }
   return null;
 }
@@ -102,7 +105,8 @@ export async function POST(request: NextRequest) {
       handleTestAICommand,
       handleSummaryCommand,
       handleWeatherCommand,
-      handleLookaheadCommand
+      handleLookaheadCommand,
+      handleNextWeekCommand
     } = await import('@/src/services/telegram');
 
     // Schedule command to run after response is sent (keeps function alive)
@@ -139,6 +143,14 @@ export async function POST(request: NextRequest) {
               progressMessageId
             );
             break;
+          case 'nextweek':
+            await handleNextWeekCommand(
+              user_id,
+              user_id,
+              MessagingPlatform.TELEGRAM,
+              progressMessageId
+            );
+            break;
         }
       } catch (err) {
         captureError(err, 'execute-command', {
@@ -167,7 +179,7 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    if (command !== 'testai' && command !== 'summary' && command !== 'weather' && command !== 'lookahead') {
+    if (command !== 'testai' && command !== 'summary' && command !== 'weather' && command !== 'lookahead' && command !== 'nextweek') {
       return NextResponse.json({
         success: false,
         error: `Unknown command: ${command}`

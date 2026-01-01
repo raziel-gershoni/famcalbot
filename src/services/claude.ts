@@ -533,3 +533,175 @@ export async function generateWeekLookahead(
   const result = await generateAICompletion(prompt, modelId);
   return result.text;
 }
+
+/**
+ * Build prompt data for next week summary
+ */
+function buildNextWeekPromptData(
+  lookahead: WeekLookahead,
+  user: UserConfig,
+  language: string,
+  timezone: string = TIMEZONE
+): WeekLookaheadPromptData {
+  const { events, dateRange } = lookahead;
+
+  // Format week start and end dates (next week has explicit start/end)
+  const weekStartForDisplay = new Date(dateRange.start);
+  weekStartForDisplay.setUTCHours(12, 0, 0, 0);
+  const weekStartGregorian = formatLookaheadDate(weekStartForDisplay, language, timezone);
+
+  const weekEndForDisplay = new Date(dateRange.end);
+  weekEndForDisplay.setUTCHours(12, 0, 0, 0);
+  const weekEndGregorian = formatLookaheadDate(weekEndForDisplay, language, timezone);
+
+  // Hebrew dates if Jewish culture
+  const weekStartHebrew = user.culture === 'jewish' ? getHebrewDateString(weekStartForDisplay, language, timezone) : undefined;
+  const weekEndHebrew = user.culture === 'jewish' ? getHebrewDateString(weekEndForDisplay, language, timezone) : undefined;
+
+  // Check for spouse and kids calendars
+  const hasSpouseCalendar = user.calendarAssignments?.some(c => c.labels.includes('spouse')) ?? false;
+  const hasKidsCalendars = user.calendarAssignments?.some(c => c.labels.includes('kids')) ?? false;
+
+  // Get spouse name from calendar assignment
+  const spouseCalendar = user.calendarAssignments?.find(c => c.labels.includes('spouse'));
+  const spouseName = spouseCalendar?.personName;
+
+  // Group events by day
+  const eventsByDayMap = new Map<string, LookaheadEvent[]>();
+  for (const event of events) {
+    const dayKey = event.start.toDateString();
+    if (!eventsByDayMap.has(dayKey)) {
+      eventsByDayMap.set(dayKey, []);
+    }
+    eventsByDayMap.get(dayKey)!.push(event);
+  }
+
+  // Format events by day
+  const intlLocale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
+  const allDayLabel = language === 'he' ? 'כל היום' : language === 'ru' ? 'Весь день' : 'All day';
+
+  const eventsByDay: LookaheadDayData[] = [];
+  for (const [dayKey, dayEvents] of eventsByDayMap) {
+    const date = new Date(dayKey);
+    const daysFromNow = dayEvents[0].daysFromNow;
+
+    const dayLabel = formatLookaheadDate(date, language, timezone);
+    const hebrewDate = user.culture === 'jewish' ? getHebrewDateString(date, language, timezone) : undefined;
+    const relativeLabel = getRelativeLabel(daysFromNow, language);
+
+    const formattedEvents: LookaheadEventData[] = dayEvents.map(event => {
+      // Format time
+      const time = event.start.toLocaleTimeString(intlLocale, {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: timezone,
+      });
+      const isAllDay = time === '00:00';
+
+      return {
+        time: isAllDay ? allDayLabel : time,
+        summary: event.summary,
+        calendarName: event.calendarName,
+        calendarLabel: event.calendarLabel as 'yours' | 'spouse' | 'kids',
+        isRecurring: event.recurrenceType !== 'single',
+        recurrenceType: event.recurrenceType !== 'single' ? event.recurrenceType as 'weekly' | 'monthly' | 'yearly' : undefined,
+      };
+    });
+
+    eventsByDay.push({
+      dayLabel,
+      hebrewDate,
+      daysFromNow,
+      relativeLabel,
+      events: formattedEvents,
+    });
+  }
+
+  // Count unique days with events
+  const totalDays = eventsByDay.length;
+
+  return {
+    userName: user.name,
+    userEnglishName: user.englishName,
+    userGender: user.gender as 'male' | 'female' | undefined,
+    hasSpouseCalendar,
+    spouseName,
+    culture: user.culture,
+    language,
+    todayGregorian: weekStartGregorian, // Use week start instead of today
+    todayHebrew: weekStartHebrew,
+    weekEndGregorian,
+    weekEndHebrew,
+    eventsByDay,
+    globalRules: user.globalRules,
+    hasKidsCalendars,
+    totalEvents: events.length,
+    totalDays,
+  };
+}
+
+/**
+ * Generate AI-rendered next week summary
+ */
+export async function generateNextWeekSummary(
+  lookahead: WeekLookahead,
+  user: UserConfig,
+  language: string,
+  modelId?: string
+): Promise<string> {
+  // Build prompt data
+  const promptData = buildNextWeekPromptData(lookahead, user, language);
+
+  // Handle empty lookahead
+  if (lookahead.events.length === 0) {
+    const noEventsMsg = {
+      en: `<b>Next Week</b>\n<b>${promptData.todayGregorian} - ${promptData.weekEndGregorian}</b>${promptData.culture === 'jewish' ? `\n<i>${promptData.todayHebrew} - ${promptData.weekEndHebrew}</i>` : ''}\n\nNo notable events for next week. Enjoy the clear schedule!`,
+      he: `<b>השבוע הבא</b>\n<b>${promptData.todayGregorian} - ${promptData.weekEndGregorian}</b>${promptData.culture === 'jewish' ? `\n<i>${promptData.todayHebrew} - ${promptData.weekEndHebrew}</i>` : ''}\n\nאין אירועים מיוחדים לשבוע הבא. תהנה מהשבוע הפנוי!`,
+      ru: `<b>Следующая неделя</b>\n<b>${promptData.todayGregorian} - ${promptData.weekEndGregorian}</b>${promptData.culture === 'jewish' ? `\n<i>${promptData.todayHebrew} - ${promptData.weekEndHebrew}</i>` : ''}\n\nНет примечательных событий на следующую неделю. Наслаждайтесь свободным расписанием!`,
+    };
+    return noEventsMsg[language as keyof typeof noEventsMsg] || noEventsMsg.en;
+  }
+
+  // Build the prompt with "Next Week" context
+  const prompt = buildNextWeekPrompt(promptData, language);
+
+  // Call AI provider
+  const result = await generateAICompletion(prompt, modelId);
+  return result.text;
+}
+
+/**
+ * Build prompt for next week summary (modifies the standard prompt)
+ */
+function buildNextWeekPrompt(data: WeekLookaheadPromptData, language: string): string {
+  // Get the base prompt
+  const basePrompt = buildWeekLookaheadPrompt(data);
+
+  // Replace "Week Ahead" / "end of week" with "Next Week" terminology
+  const replacements: Record<string, { from: RegExp; to: string }[]> = {
+    en: [
+      { from: /Week Ahead/g, to: 'Next Week' },
+      { from: /until end of week/g, to: `(${data.todayGregorian} - ${data.weekEndGregorian})` },
+      { from: /End of Week/g, to: data.weekEndGregorian || 'End of Week' },
+    ],
+    he: [
+      { from: /מבט לשבוע הקרוב/g, to: 'השבוע הבא' },
+      { from: /עד סוף השבוע/g, to: `(${data.todayGregorian} - ${data.weekEndGregorian})` },
+      { from: /סוף השבוע/g, to: data.weekEndGregorian || 'סוף השבוע' },
+    ],
+    ru: [
+      { from: /Неделя вперёд/g, to: 'Следующая неделя' },
+      { from: /до конца недели/g, to: `(${data.todayGregorian} - ${data.weekEndGregorian})` },
+      { from: /Конец недели/g, to: data.weekEndGregorian || 'Конец недели' },
+    ],
+  };
+
+  let prompt = basePrompt;
+  const langReplacements = replacements[language] || replacements.en;
+  for (const { from, to } of langReplacements) {
+    prompt = prompt.replace(from, to);
+  }
+
+  return prompt;
+}

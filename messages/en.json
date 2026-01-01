@@ -29,7 +29,8 @@
       "title": "Calendar Summary",
       "today": "Today",
       "tomorrow": "Tomorrow",
-      "weekLookahead": "Week Ahead"
+      "weekLookahead": "Week Ahead",
+      "nextWeek": "Next Week"
     },
     "weather": {
       "title": "Weather Forecast",
