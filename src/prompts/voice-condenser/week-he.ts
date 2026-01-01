@@ -6,7 +6,9 @@
 import { VoiceCondenserContext } from './types';
 
 export function buildWeeklyVoiceCondenserPrompt(context: VoiceCondenserContext): string {
-  const { summary, userName, spouseName, hasKidsCalendars, culture, globalRules } = context;
+  const { summary, userName, spouseName, hasKidsCalendars, culture, globalRules, isNextWeek } = context;
+
+  const weekRef = isNextWeek ? 'לשבוע הבא' : 'השבוע';
 
   // Build context section in Hebrew
   let familyContext = `שם המשתמש: ${userName}.`;
@@ -35,7 +37,7 @@ ${rulesSection}
 **קריטי: זה להאזנה קולית - זה חייב להישמע טבעי וזורם כמו דיבור אנושי, לא רובוטי. קצר אבל שיחתי.**
 
 **כללים:**
-1. התחל עם סקירת השבוע (לדוגמה: "הנה מה שמחכה לך השבוע" או "מבט לשבוע הבא")
+1. התחל עם סקירת השבוע (לדוגמה: "הנה מה שמחכה לך ${weekRef}")
 2. ${dateNote}
 3. קבץ לפי יום, אבל שמור על שיחתיות - אל תפרט שעות בצורה רובוטית
 4. הדגש את האירועים הכי חשובים - לא כל פרט

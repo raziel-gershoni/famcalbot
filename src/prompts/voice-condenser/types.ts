@@ -26,4 +26,7 @@ export interface VoiceCondenserContext {
 
   /** User's global rules for voice prioritization */
   globalRules?: string[];
+
+  /** Whether this is for next week (vs current week) */
+  isNextWeek?: boolean;
 }

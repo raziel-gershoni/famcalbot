@@ -403,7 +403,7 @@ export async function handleLookaheadCommand(
     // Send voice message if enabled
     if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
       try {
-        await sendWeeklyVoiceMessage(Number(userId), formattedLookahead, user, messagingService);
+        await sendWeeklyVoiceMessage(Number(userId), formattedLookahead, user, false, messagingService);
       } catch (err) {
         console.error(`Weekly voice failed for user ${userId}:`, err);
       }
@@ -504,7 +504,7 @@ export async function handleNextWeekCommand(
     // Send voice message if enabled
     if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
       try {
-        await sendWeeklyVoiceMessage(Number(userId), formattedSummary, user, messagingService);
+        await sendWeeklyVoiceMessage(Number(userId), formattedSummary, user, true, messagingService);
       } catch (err) {
         console.error(`Next week voice failed for user ${userId}:`, err);
       }
@@ -1165,6 +1165,7 @@ async function sendWeeklyVoiceMessage(
   userId: number,
   summary: string,
   user: UserConfig,
+  isNextWeek: boolean = false,
   service?: IMessagingService
 ): Promise<void> {
   let voiceFilePath: string | null = null;
@@ -1207,6 +1208,7 @@ async function sendWeeklyVoiceMessage(
       hasKidsCalendars,
       culture: user.culture,
       globalRules: user.globalRules,
+      isNextWeek,
     };
 
     // Step 1: Condense summary for voice (ultra-brief, 30-45 seconds)

@@ -6,7 +6,9 @@
 import { VoiceCondenserContext } from './types';
 
 export function buildWeeklyVoiceCondenserPrompt(context: VoiceCondenserContext): string {
-  const { summary, userName, spouseName, hasKidsCalendars, globalRules } = context;
+  const { summary, userName, spouseName, hasKidsCalendars, globalRules, isNextWeek } = context;
+
+  const weekRef = isNextWeek ? 'next week' : 'this week';
 
   // Build context section
   let familyContext = `The user's name is ${userName}.`;
@@ -30,7 +32,7 @@ ${rulesSection}
 **CRITICAL: This is for VOICE listening - make it sound NATURAL and FLUENT like human speech, not robotic. Be brief but conversational.**
 
 **RULES:**
-1. Start with the week overview (e.g., "Here's what's coming up this week" or "Looking ahead to next week")
+1. Start with the week overview (e.g., "Here's what's coming up ${weekRef}" or "Looking ahead to ${weekRef}")
 2. Group by day, but keep it conversational - don't just list times robotically
 3. Highlight the MOST important events - not every detail
    - Focus on appointments, meetings, deadlines, special events

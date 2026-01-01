@@ -6,7 +6,9 @@
 import { VoiceCondenserContext } from './types';
 
 export function buildWeeklyVoiceCondenserPrompt(context: VoiceCondenserContext): string {
-  const { summary, userName, spouseName, hasKidsCalendars, globalRules } = context;
+  const { summary, userName, spouseName, hasKidsCalendars, globalRules, isNextWeek } = context;
+
+  const weekRef = isNextWeek ? 'на следующей неделе' : 'на этой неделе';
 
   // Build context section in Russian
   let familyContext = `Имя пользователя: ${userName}.`;
@@ -30,7 +32,7 @@ ${rulesSection}
 **КРИТИЧНО: Это для ГОЛОСОВОГО прослушивания - должно звучать ЕСТЕСТВЕННО и ПЛАВНО как человеческая речь, не роботизированно. Кратко, но разговорно.**
 
 **ПРАВИЛА:**
-1. Начни с обзора недели (например, "Вот что ждёт тебя на этой неделе" или "Смотрим на следующую неделю")
+1. Начни с обзора недели (например, "Вот что ждёт тебя ${weekRef}")
 2. Группируй по дням, но сохраняй разговорность - не перечисляй время роботизированно
 3. Выделяй САМЫЕ важные события - не каждую деталь
    - Фокусируйся на встречах, дедлайнах, особых событиях
