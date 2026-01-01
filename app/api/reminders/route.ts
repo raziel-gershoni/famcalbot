@@ -12,10 +12,11 @@ export const runtime = 'nodejs';
 export const maxDuration = 60; // 60 seconds max for reminder processing
 
 export async function GET(request: NextRequest) {
-  // Verify the secret token
+  // Verify the secret token and get optional window parameter
   const { searchParams } = new URL(request.url);
   const providedSecret = searchParams.get('secret') || request.headers.get('x-cron-secret');
   const expectedSecret = process.env.CRON_SECRET;
+  const windowMinutes = parseInt(searchParams.get('window') || '5', 10);
 
   if (!expectedSecret) {
     console.error('[Reminders API] CRON_SECRET is not configured');
@@ -64,7 +65,7 @@ export async function GET(request: NextRequest) {
     for (const prismaUser of users) {
       try {
         const user = convertPrismaUserToConfig(prismaUser);
-        const sentCount = await processUserReminders(user);
+        const sentCount = await processUserReminders(user, windowMinutes);
         totalRemindersSent += sentCount;
         usersProcessed++;
       } catch (error) {
@@ -74,13 +75,14 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    console.log(`[Reminders API] Processed ${usersProcessed} users, sent ${totalRemindersSent} reminders`);
+    console.log(`[Reminders API] Processed ${usersProcessed} users, sent ${totalRemindersSent} reminders (window: ${windowMinutes}min)`);
 
     return NextResponse.json({
       success: true,
       message: 'Reminders processed',
       usersProcessed,
       remindersSent: totalRemindersSent,
+      windowMinutes,
       errors: errors.length > 0 ? errors : undefined,
       timestamp: new Date().toISOString(),
     });

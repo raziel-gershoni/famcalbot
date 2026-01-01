@@ -236,9 +236,11 @@ export async function sendReminder(
 
 /**
  * Process reminders for a single user
+ * @param user - User configuration
+ * @param windowMinutes - Time window in minutes (should match cron interval)
  */
-export async function processUserReminders(user: UserConfig): Promise<number> {
-  const dueReminders = await getDueReminders(user);
+export async function processUserReminders(user: UserConfig, windowMinutes: number = 5): Promise<number> {
+  const dueReminders = await getDueReminders(user, windowMinutes);
   let sentCount = 0;
 
   for (const reminder of dueReminders) {
