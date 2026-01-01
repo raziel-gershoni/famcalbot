@@ -113,7 +113,8 @@ function buildPromptData(
   timezone: string = TIMEZONE,
   weatherSummary?: string,
   language?: string,
-  userContext?: SummaryUserContext
+  userContext?: SummaryUserContext,
+  weekLookahead?: string
 ): SummaryPromptData {
   // Get current date (today) for comparison
   const currentDate = new Date();
@@ -173,6 +174,7 @@ function buildPromptData(
     spouseEventsText,
     otherEventsText,
     weatherSummary,
+    weekLookahead,
     language,
     // New fields
     culture: userContext?.culture,
@@ -225,7 +227,8 @@ export async function generateSummary(
   location?: string,
   language?: string,
   userContext?: SummaryUserContext,
-  weatherEnabled: boolean = true
+  weatherEnabled: boolean = true,
+  weekLookahead?: string
 ): Promise<string> {
   // Get timezone from location (or use default)
   let timezone = TIMEZONE;
@@ -267,7 +270,8 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
     timezone,
     weatherSummary,
     language,
-    userContext
+    userContext,
+    weekLookahead
   );
 
   // Build the prompt

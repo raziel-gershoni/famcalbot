@@ -1,6 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { getUserByTelegramId, getUserByIdentifier, getWhitelistedIds, getAllUsers, getOrCreateUser, TelegramUserInfo } from './user-service';
-import { fetchTodayEvents, fetchTomorrowEvents } from './calendar';
+import { fetchTodayEvents, fetchTomorrowEvents, TIMEZONE } from './calendar';
 import { generateSummary, SummaryUserContext, formatDateHeader } from './claude';
 import { CalendarEvent, UserConfig } from '../types';
 import { USER_MESSAGES } from '../config/messages';
@@ -767,6 +767,30 @@ async function sendSummaryToUser(
       calendarAssignments: user.calendarAssignments,
     };
 
+    // Fetch week lookahead if enabled for tomorrow summary
+    let weekLookaheadText: string | undefined;
+    if (summaryDate && user.includeLookaheadInTomorrow) {
+      try {
+        const { getWeekLookahead } = await import('./week-lookahead');
+        const lookahead = await getWeekLookahead(user, user.calendarAssignments || []);
+
+        // Format lookahead events as text for the prompt
+        if (lookahead.events.length > 0) {
+          weekLookaheadText = lookahead.events
+            .filter(e => e.daysFromNow > 1) // Exclude tomorrow (it's the main summary)
+            .map(e => {
+              const dayName = e.start.toLocaleDateString('en-US', { weekday: 'long', timeZone: TIMEZONE });
+              const time = e.start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
+              return `${dayName}: ${e.summary} at ${time} (${e.calendarName})`;
+            })
+            .join('\n');
+        }
+      } catch (error) {
+        console.error('Failed to fetch week lookahead for tomorrow summary:', error);
+        // Continue without lookahead if it fails
+      }
+    }
+
     // Generate summary with AI (personalized for this user)
     // Include model info footer only for admin user
     const summary = await generateSummary(
@@ -786,7 +810,8 @@ async function sendSummaryToUser(
       user.location,
       user.language,
       userContext,
-      user.weatherEnabled
+      user.weatherEnabled,
+      weekLookaheadText
     );
 
     // Generate date header for voice-only delivery

@@ -19,6 +19,7 @@ export interface SummaryPromptData {
   spouseEventsText: string;
   otherEventsText: string;
   weatherSummary?: string;  // AI-generated weather summary with tips
+  weekLookahead?: string;   // Pre-formatted week lookahead text (for tomorrow summaries)
   language?: string;  // Target language code (e.g., "he", "en", "ru")
   // Fields for public release
   culture?: string;  // 'jewish' | 'default'
