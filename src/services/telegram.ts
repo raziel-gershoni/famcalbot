@@ -1167,16 +1167,6 @@ async function sendWeeklyVoiceMessage(
   const msgService = service || getMessagingService();
   const userLanguage = user.language || 'en';
 
-  // Start voice progress animation
-  const progress = await sendProgressWithAnimation(
-    userId,
-    'voice',
-    userLanguage,
-    msgService
-  );
-  const messageId = progress.messageId;
-  const stopAnimation = progress.stopAnimation;
-
   try {
     const { generateVoiceMessage, cleanupVoiceFile } = await import('./voice-generator');
     const { buildWeeklyVoiceCondenserPrompt } = await import('../prompts/voice-condenser');
@@ -1216,11 +1206,7 @@ async function sendWeeklyVoiceMessage(
     // Step 2: Generate voice file from condensed summary
     voiceFilePath = await generateVoiceMessage(condensedSummary, userLanguage);
 
-    // Stop animation and delete progress message
-    stopAnimation();
-    await msgService.deleteMessage(userId, messageId);
-
-    // Send as voice message to Telegram
+    // Send as voice message to Telegram (no progress - voice arrives silently after text)
     const botInstance = getBot();
     await botInstance.sendVoice(userId, voiceFilePath, {}, {
       contentType: 'audio/ogg'
@@ -1228,11 +1214,6 @@ async function sendWeeklyVoiceMessage(
 
     console.log(`Weekly voice message sent successfully to user ${userId}`);
   } catch (error) {
-    // Stop animation on error
-    stopAnimation();
-    // Delete progress message on error too
-    await msgService.deleteMessage(userId, messageId);
-
     console.error(`Weekly voice generation failed for user ${userId}:`, error);
 
     // Notify admin but don't interrupt user experience
