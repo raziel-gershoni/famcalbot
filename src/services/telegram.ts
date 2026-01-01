@@ -399,6 +399,13 @@ export async function handleLookaheadCommand(
     // Stop animation and update with lookahead
     stopAnimation();
     await messagingService.updateMessage(chatId, messageId, formattedLookahead, { format: MessageFormat.HTML });
+
+    // Send voice message if enabled (non-blocking)
+    if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
+      sendWeeklyVoiceMessage(Number(userId), formattedLookahead, user, messagingService).catch(err => {
+        console.error(`Weekly voice failed for user ${userId}:`, err);
+      });
+    }
   } catch (error) {
     stopAnimation();
     console.error(`Error fetching lookahead for user ${userId}:`, error);
@@ -491,6 +498,13 @@ export async function handleNextWeekCommand(
     // Stop animation and update with summary
     stopAnimation();
     await messagingService.updateMessage(chatId, messageId, formattedSummary, { format: MessageFormat.HTML });
+
+    // Send voice message if enabled (non-blocking)
+    if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
+      sendWeeklyVoiceMessage(Number(userId), formattedSummary, user, messagingService).catch(err => {
+        console.error(`Next week voice failed for user ${userId}:`, err);
+      });
+    }
   } catch (error) {
     stopAnimation();
     console.error(`Error fetching next week for user ${userId}:`, error);
@@ -1123,6 +1137,109 @@ async function sendVoiceMessage(
     await notifyAdminWarning(
       'Voice Generation',
       `Failed to generate voice message:\n${error instanceof Error ? error.message : 'Unknown error'}\n\nText summary was delivered successfully.`
+    );
+  } finally {
+    // Always attempt cleanup
+    if (voiceFilePath) {
+      const { cleanupVoiceFile } = await import('./voice-generator');
+      await cleanupVoiceFile(voiceFilePath).catch(err =>
+        console.warn('Voice file cleanup failed:', err)
+      );
+    }
+  }
+}
+
+/**
+ * Send a voice message for weekly summary (lookahead/next week)
+ * Uses weekly-specific voice condensing prompts
+ * @param userId - Telegram user ID
+ * @param summary - Weekly summary text to convert to voice
+ * @param user - User config with context for voice condensing
+ * @param service - Messaging service instance
+ */
+async function sendWeeklyVoiceMessage(
+  userId: number,
+  summary: string,
+  user: UserConfig,
+  service?: IMessagingService
+): Promise<void> {
+  let voiceFilePath: string | null = null;
+  const msgService = service || getMessagingService();
+  const userLanguage = user.language || 'en';
+
+  // Start voice progress animation
+  const progress = await sendProgressWithAnimation(
+    userId,
+    'voice',
+    userLanguage,
+    msgService
+  );
+  const messageId = progress.messageId;
+  const stopAnimation = progress.stopAnimation;
+
+  try {
+    const { generateVoiceMessage, cleanupVoiceFile } = await import('./voice-generator');
+    const { buildWeeklyVoiceCondenserPrompt } = await import('../prompts/voice-condenser');
+    const { generateAICompletion } = await import('./ai-provider');
+
+    console.log(`Generating weekly voice message for user ${userId}...`);
+
+    // Extract spouse name from calendar assignments
+    const spouseCalendar = user.calendarAssignments?.find(cal =>
+      cal.labels.includes('spouse')
+    );
+    const spouseName = spouseCalendar?.personName;
+
+    // Check if user has kids calendars
+    const hasKidsCalendars = user.calendarAssignments?.some(cal =>
+      cal.labels.includes('kids')
+    ) ?? false;
+
+    // Build voice condenser context
+    const condenserContext: VoiceCondenserContext = {
+      summary,
+      locale: userLanguage,
+      userName: user.name,
+      spouseName,
+      hasKidsCalendars,
+      culture: user.culture,
+      globalRules: user.globalRules,
+    };
+
+    // Step 1: Condense summary for voice (ultra-brief, 30-45 seconds)
+    const condenserPrompt = buildWeeklyVoiceCondenserPrompt(condenserContext);
+    const condensedResult = await generateAICompletion(condenserPrompt);
+    const condensedSummary = condensedResult.text;
+
+    console.log(`Weekly voice summary condensed: ${summary.length} → ${condensedSummary.length} chars`);
+
+    // Step 2: Generate voice file from condensed summary
+    voiceFilePath = await generateVoiceMessage(condensedSummary, userLanguage);
+
+    // Stop animation and delete progress message
+    stopAnimation();
+    await msgService.deleteMessage(userId, messageId);
+
+    // Send as voice message to Telegram
+    const botInstance = getBot();
+    await botInstance.sendVoice(userId, voiceFilePath, {}, {
+      contentType: 'audio/ogg'
+    });
+
+    console.log(`Weekly voice message sent successfully to user ${userId}`);
+  } catch (error) {
+    // Stop animation on error
+    stopAnimation();
+    // Delete progress message on error too
+    await msgService.deleteMessage(userId, messageId);
+
+    console.error(`Weekly voice generation failed for user ${userId}:`, error);
+
+    // Notify admin but don't interrupt user experience
+    const { notifyAdminWarning } = await import('../utils/error-notifier');
+    await notifyAdminWarning(
+      'Weekly Voice Generation',
+      `Failed to generate weekly voice message:\n${error instanceof Error ? error.message : 'Unknown error'}\n\nText summary was delivered successfully.`
     );
   } finally {
     // Always attempt cleanup
