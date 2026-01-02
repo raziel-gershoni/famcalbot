@@ -83,16 +83,17 @@ export async function setUserMenuButton(userId: number, locale: string): Promise
 
   try {
     const menuButton = {
-      type: 'web_app',
+      type: 'web_app' as const,
       text: buttonText[locale] || buttonText.en,
       web_app: { url: buildUrl(`/${locale}/dashboard?user_id=${userId}`) }
     };
     console.log(`[MenuButton] Setting for user ${userId} (${locale}):`, JSON.stringify(menuButton));
 
+    // Cast to any because library types expect object but API may need string
     const result = await bot.setChatMenuButton({
       chat_id: userId,
-      menu_button: JSON.stringify(menuButton)  // Must be JSON-serialized per Telegram API
-    });
+      menu_button: menuButton
+    } as any);
     console.log(`✅ Menu button set for user ${userId} (${locale}), result:`, result);
   } catch (error) {
     console.error(`❌ Failed to set menu button for user ${userId}:`, error);
