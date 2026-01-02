@@ -330,11 +330,11 @@ npm run setup-webhook delete
 1. Go to [cron-job.org](https://cron-job.org)
 2. Create cron jobs for automated summaries:
 
-**Health Check (Token monitoring):**
-   - URL: `https://your-project.vercel.app/api/health?secret=YOUR_CRON_SECRET`
-   - Schedule: `0 6 * * *` (daily at 6:00 AM, before morning summary)
-   - Timezone: Asia/Jerusalem
-   - Alerts admin via Telegram if Google token is invalid
+**Health Check (Optional):**
+   - URL: `https://your-project.vercel.app/api/health`
+   - Schedule: `*/5 * * * *` (every 5 minutes) or as needed
+   - No authentication required
+   - Checks database connection and environment variables
 
 **Morning Summary (Today's events):**
    - URL: `https://your-project.vercel.app/api/daily-summary?secret=YOUR_CRON_SECRET`
@@ -476,15 +476,26 @@ VOICE_SPEED=1.0                                        # 0.25 to 4.0 (1.0 = norm
 
 ### `GET /api/health`
 
-Tests Google Calendar token validity and alerts admin if broken.
+Basic health check endpoint for monitoring.
 
-**Authentication:** Requires `secret` query parameter or `x-cron-secret` header matching `CRON_SECRET`.
+**Authentication:** None required.
 
-**Purpose:** Run daily (e.g., 6 AM) to proactively detect token issues before users notice.
+**Checks:**
+- Database connection (runs `SELECT 1`)
+- Required environment variables exist
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "checks": { "database": "ok", "environment": "ok" },
+  "timestamp": "2024-01-01T12:00:00.000Z"
+}
+```
 
 Example:
 ```bash
-curl "https://your-project.vercel.app/api/health?secret=YOUR_SECRET"
+curl "https://your-project.vercel.app/api/health"
 ```
 
 ### `GET /api/daily-summary`
