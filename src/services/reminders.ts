@@ -138,9 +138,11 @@ export async function getDueReminders(
     const endTime = new Date(event.end);
     const { minutes: reminderMinutes, isAuto } = getReminderMinutes(event, user.defaultReminderMinutes ?? undefined);
 
-    // Debug logging
-    console.log(`[Reminders] Event: ${event.summary}, reminders:`, JSON.stringify(event.reminders),
-      `userDefault: ${user.defaultReminderMinutes}, using: ${reminderMinutes}min, isAuto: ${isAuto}`);
+    // Debug logging with actual times
+    const startTimeStr = startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
+    const endTimeStr = endTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
+    const nowStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
+    console.log(`[Reminders] Event: ${event.summary}, start: ${startTimeStr}, end: ${endTimeStr}, now: ${nowStr}, reminderMin: ${reminderMinutes}, isAuto: ${isAuto}`);
 
     // Check START reminder
     const startReminderTime = new Date(startTime.getTime() - reminderMinutes * 60 * 1000);
@@ -162,6 +164,8 @@ export async function getDueReminders(
     // Check PICKUP reminder (only for kids' events)
     if (isKidsEvent(event, user.calendarAssignments)) {
       const pickupReminderTime = new Date(endTime.getTime() - reminderMinutes * 60 * 1000);
+      const pickupReminderTimeStr = pickupReminderTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
+      console.log(`[Reminders] Pickup check: ${event.summary}, pickupAt: ${endTimeStr}, reminderTime: ${pickupReminderTimeStr}, inWindow: ${pickupReminderTime >= now && pickupReminderTime < windowEnd}`);
       if (pickupReminderTime >= now && pickupReminderTime < windowEnd) {
         // Check if already sent
         const alreadySent = await isReminderSent(user.telegramId, event.eventId, 'pickup', dateStr);
