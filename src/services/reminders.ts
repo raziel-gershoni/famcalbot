@@ -126,7 +126,10 @@ export async function getDueReminders(
     return [];
   }
 
+  // Truncate to minute boundary to avoid millisecond edge cases
+  // e.g., now = 12:35:06 → 12:35:00, so window is [12:35:00, 12:40:00)
   const now = new Date();
+  now.setSeconds(0, 0); // Truncate seconds and milliseconds
   const windowEnd = new Date(now.getTime() + windowMinutes * 60 * 1000);
   const dateStr = format(now, 'yyyy-MM-dd');
   const dueReminders: DueReminder[] = [];
@@ -142,7 +145,8 @@ export async function getDueReminders(
     const startTimeStr = startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
     const endTimeStr = endTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
     const nowStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
-    console.log(`[Reminders] Event: ${event.summary}, start: ${startTimeStr}, end: ${endTimeStr}, now: ${nowStr}, reminderMin: ${reminderMinutes}, isAuto: ${isAuto}`);
+    const windowEndStr = windowEnd.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
+    console.log(`[Reminders] Event: ${event.summary}, start: ${startTimeStr}, end: ${endTimeStr}, window: [${nowStr}-${windowEndStr}), reminderMin: ${reminderMinutes}`);
 
     // Check START reminder
     const startReminderTime = new Date(startTime.getTime() - reminderMinutes * 60 * 1000);
