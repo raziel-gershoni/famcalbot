@@ -94,7 +94,7 @@ famcalbot/
 │   ├── daily-summary.ts       # Vercel cron: morning summaries
 │   ├── tomorrow-summary.ts    # Vercel cron: evening summaries
 │   ├── reminders.ts           # Vercel cron: event reminders
-│   ├── health-check.ts        # Vercel cron: token validation
+│   ├── health.ts              # Vercel cron: token validation
 │   └── webhook.ts             # Telegram webhook endpoint
 ├── scripts/
 │   ├── get-google-token.ts    # OAuth token generation
@@ -331,7 +331,7 @@ npm run setup-webhook delete
 2. Create cron jobs for automated summaries:
 
 **Health Check (Token monitoring):**
-   - URL: `https://your-project.vercel.app/api/health-check?secret=YOUR_CRON_SECRET`
+   - URL: `https://your-project.vercel.app/api/health?secret=YOUR_CRON_SECRET`
    - Schedule: `0 6 * * *` (daily at 6:00 AM, before morning summary)
    - Timezone: Asia/Jerusalem
    - Alerts admin via Telegram if Google token is invalid
@@ -474,7 +474,7 @@ VOICE_SPEED=1.0                                        # 0.25 to 4.0 (1.0 = norm
 
 ## API Endpoints
 
-### `GET /api/health-check`
+### `GET /api/health`
 
 Tests Google Calendar token validity and alerts admin if broken.
 
@@ -484,7 +484,7 @@ Tests Google Calendar token validity and alerts admin if broken.
 
 Example:
 ```bash
-curl "https://your-project.vercel.app/api/health-check?secret=YOUR_SECRET"
+curl "https://your-project.vercel.app/api/health?secret=YOUR_SECRET"
 ```
 
 ### `GET /api/daily-summary`
@@ -642,7 +642,7 @@ npm run get-google-token
 ### Bot not responding
 - Check Vercel deployment logs
 - Verify webhook is set correctly
-- Test health-check endpoint
+- Test health endpoint
 - Confirm environment variables are set
 
 ## Development Scripts
