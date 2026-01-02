@@ -29,23 +29,28 @@ export interface DueReminder {
   reminderTime: Date;
   eventTime: Date;
   calendarAssignment?: CalendarAssignment;
+  isAutoReminder: boolean;  // true if using user's default, false if event has its own reminder
 }
 
 /**
  * Get the reminder minutes for an event
  * Priority: event reminders > user default > 0 (at event time)
+ * Returns both the minutes and whether it's an auto-reminder (using default)
  */
-function getReminderMinutes(event: CalendarEvent, userDefault?: number): number {
+function getReminderMinutes(event: CalendarEvent, userDefault?: number): { minutes: number; isAuto: boolean } {
   // Check event-specific reminders
   if (event.reminders?.overrides?.length) {
     // Use the first popup/email reminder (prefer popup)
     const popup = event.reminders.overrides.find(r => r.method === 'popup');
     const any = event.reminders.overrides[0];
-    return popup?.minutes ?? any?.minutes ?? userDefault ?? 0;
+    const minutes = popup?.minutes ?? any?.minutes;
+    if (minutes !== undefined) {
+      return { minutes, isAuto: false };
+    }
   }
 
   // Fall back to user default
-  return userDefault ?? 0;
+  return { minutes: userDefault ?? 0, isAuto: true };
 }
 
 /**
@@ -131,7 +136,7 @@ export async function getDueReminders(
 
     const startTime = new Date(event.start);
     const endTime = new Date(event.end);
-    const reminderMinutes = getReminderMinutes(event, user.defaultReminderMinutes ?? undefined);
+    const { minutes: reminderMinutes, isAuto } = getReminderMinutes(event, user.defaultReminderMinutes ?? undefined);
 
     // Check START reminder
     const startReminderTime = new Date(startTime.getTime() - reminderMinutes * 60 * 1000);
@@ -145,6 +150,7 @@ export async function getDueReminders(
           reminderTime: startReminderTime,
           eventTime: startTime,
           calendarAssignment: getCalendarAssignment(event, user.calendarAssignments),
+          isAutoReminder: isAuto,
         });
       }
     }
@@ -162,6 +168,7 @@ export async function getDueReminders(
             reminderTime: pickupReminderTime,
             eventTime: endTime,
             calendarAssignment: getCalendarAssignment(event, user.calendarAssignments),
+            isAutoReminder: isAuto,
           });
         }
       }
@@ -172,36 +179,54 @@ export async function getDueReminders(
 }
 
 /**
- * Format reminder message based on type and language
+ * Format reminder message based on type, language, and source (event vs auto)
  */
 function formatReminderMessage(
   reminder: DueReminder,
   language: string = 'en'
 ): string {
-  const { event, type, eventTime } = reminder;
+  const { event, type, eventTime, isAutoReminder } = reminder;
   const timeStr = format(eventTime, 'HH:mm');
   const location = event.location ? `\n📍 ${event.location}` : '';
 
   // Get child name from calendar name for kids events
   const childName = reminder.calendarAssignment?.name || event.calendarName;
 
-  const messages: Record<string, Record<ReminderType, string>> = {
+  const messages: Record<string, Record<ReminderType, { event: string; auto: string }>> = {
     en: {
-      start: `🔔 <b>Reminder: ${event.summary}</b>\n⏰ Starting at ${timeStr}${location}`,
-      pickup: `🚗 <b>Pickup Reminder: ${childName}</b>\n⏰ Pickup at ${timeStr}${location}`,
+      start: {
+        event: `🔔 <b>Reminder: ${event.summary}</b>\n⏰ Starting at ${timeStr}${location}`,
+        auto: `🤖 <b>Auto-Reminder: ${event.summary}</b>\n⏰ Starting at ${timeStr}${location}`,
+      },
+      pickup: {
+        event: `🚗 <b>Pickup Reminder: ${childName}</b>\n⏰ Pickup at ${timeStr}${location}`,
+        auto: `🤖🚗 <b>Auto-Pickup Reminder: ${childName}</b>\n⏰ Pickup at ${timeStr}${location}`,
+      },
     },
     he: {
-      start: `🔔 <b>תזכורת: ${event.summary}</b>\n⏰ מתחיל ב-${timeStr}${location}`,
-      pickup: `🚗 <b>תזכורת איסוף: ${childName}</b>\n⏰ איסוף ב-${timeStr}${location}`,
+      start: {
+        event: `🔔 <b>תזכורת: ${event.summary}</b>\n⏰ מתחיל ב-${timeStr}${location}`,
+        auto: `🤖 <b>תזכורת אוטומטית: ${event.summary}</b>\n⏰ מתחיל ב-${timeStr}${location}`,
+      },
+      pickup: {
+        event: `🚗 <b>תזכורת איסוף: ${childName}</b>\n⏰ איסוף ב-${timeStr}${location}`,
+        auto: `🤖🚗 <b>תזכורת איסוף אוטומטית: ${childName}</b>\n⏰ איסוף ב-${timeStr}${location}`,
+      },
     },
     ru: {
-      start: `🔔 <b>Напоминание: ${event.summary}</b>\n⏰ Начало в ${timeStr}${location}`,
-      pickup: `🚗 <b>Напоминание о заборе: ${childName}</b>\n⏰ Забрать в ${timeStr}${location}`,
+      start: {
+        event: `🔔 <b>Напоминание: ${event.summary}</b>\n⏰ Начало в ${timeStr}${location}`,
+        auto: `🤖 <b>Авто-напоминание: ${event.summary}</b>\n⏰ Начало в ${timeStr}${location}`,
+      },
+      pickup: {
+        event: `🚗 <b>Напоминание о заборе: ${childName}</b>\n⏰ Забрать в ${timeStr}${location}`,
+        auto: `🤖🚗 <b>Авто-напоминание о заборе: ${childName}</b>\n⏰ Забрать в ${timeStr}${location}`,
+      },
     },
   };
 
   const lang = messages[language] ? language : 'en';
-  return messages[lang][type];
+  return isAutoReminder ? messages[lang][type].auto : messages[lang][type].event;
 }
 
 /**
