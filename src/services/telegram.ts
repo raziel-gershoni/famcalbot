@@ -92,14 +92,12 @@ export async function setUserMenuButton(userId: number, locale: string): Promise
       web_app: { url }
     });
 
-    console.log(`[MenuButton] Setting for user ${userId} (${locale}): ${menuButtonJson}`);
-
     // Use any to bypass TypeScript - the API actually needs a JSON string
-    const result = await (bot as any).setChatMenuButton({
+    await (bot as any).setChatMenuButton({
       chat_id: userId,
       menu_button: menuButtonJson
     });
-    console.log(`✅ Menu button set for user ${userId} (${locale}), result:`, result);
+    console.log(`✅ Menu button set for user ${userId} (${locale})`);
   } catch (error) {
     console.error(`❌ Failed to set menu button for user ${userId}:`, error);
   }
