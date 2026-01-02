@@ -3,6 +3,7 @@ import { updateUser } from '@/src/services/user-service';
 import { verifyUserAccess } from '@/src/lib/telegram-auth';
 import { checkRateLimit, settingsRateLimiter, getRateLimitHeaders } from '@/src/lib/rate-limit';
 import { captureError } from '@/src/lib/error-capture';
+import { setUserMenuButton } from '@/src/services/telegram';
 
 export async function POST(request: NextRequest) {
   try {
@@ -51,6 +52,11 @@ export async function POST(request: NextRequest) {
       remindersEnabled: typeof remindersEnabled === 'boolean' ? remindersEnabled : undefined,
       defaultReminderMinutes: typeof defaultReminderMinutes === 'number' ? defaultReminderMinutes : undefined
     });
+
+    // Update menu button when language changes
+    if (language) {
+      await setUserMenuButton(parseInt(userId), language);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

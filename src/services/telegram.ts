@@ -62,20 +62,38 @@ export function initBot(): TelegramBot {
     console.log('🤖 Telegram bot initialized in WEBHOOK mode (production)');
   }
 
-  // Set menu button for quick dashboard access
-  bot.setChatMenuButton({
-    menu_button: {
-      type: 'web_app',
-      text: 'Dashboard',
-      web_app: { url: buildUrl('/en/dashboard') }
-    }
-  }).then(() => {
-    console.log('✅ Menu button configured successfully');
-  }).catch((error) => {
-    console.error('❌ Failed to set menu button:', error);
-  });
+  // Note: Per-user menu button is set in handleStartCommand and when language changes in settings
+  // This ensures each user gets a localized button in their preferred language
 
   return bot;
+}
+
+/**
+ * Set per-user menu button with localized text
+ * Opens the dashboard webapp in the user's preferred language
+ */
+export async function setUserMenuButton(userId: number, locale: string): Promise<void> {
+  const bot = getBot();
+
+  const buttonText: Record<string, string> = {
+    en: 'Open',
+    he: 'פתח',
+    ru: 'Открыть'
+  };
+
+  try {
+    await bot.setChatMenuButton({
+      chat_id: userId,
+      menu_button: {
+        type: 'web_app',
+        text: buttonText[locale] || buttonText.en,
+        web_app: { url: buildUrl(`/${locale}/dashboard?user_id=${userId}`) }
+      }
+    });
+    console.log(`✅ Menu button set for user ${userId} (${locale})`);
+  } catch (error) {
+    console.error(`❌ Failed to set menu button for user ${userId}:`, error);
+  }
 }
 
 /**
@@ -133,6 +151,9 @@ export async function handleStartCommand(
   const name = user.name || 'there';
   const locale = user.language || 'en';
   const dashboardUrl = buildUrl(`/${locale}/dashboard?user_id=${user.telegramId}`);
+
+  // Set per-user menu button with localized text
+  await setUserMenuButton(user.telegramId, locale);
   const service = getMessagingService();
 
   // Check if user is admin
