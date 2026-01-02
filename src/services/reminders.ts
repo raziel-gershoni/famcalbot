@@ -138,6 +138,10 @@ export async function getDueReminders(
     const endTime = new Date(event.end);
     const { minutes: reminderMinutes, isAuto } = getReminderMinutes(event, user.defaultReminderMinutes ?? undefined);
 
+    // Debug logging
+    console.log(`[Reminders] Event: ${event.summary}, reminders:`, JSON.stringify(event.reminders),
+      `userDefault: ${user.defaultReminderMinutes}, using: ${reminderMinutes}min, isAuto: ${isAuto}`);
+
     // Check START reminder
     const startReminderTime = new Date(startTime.getTime() - reminderMinutes * 60 * 1000);
     if (startReminderTime >= now && startReminderTime < windowEnd) {
