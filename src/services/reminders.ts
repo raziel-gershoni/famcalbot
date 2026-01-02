@@ -186,7 +186,13 @@ function formatReminderMessage(
   language: string = 'en'
 ): string {
   const { event, type, eventTime, isAutoReminder } = reminder;
-  const timeStr = format(eventTime, 'HH:mm');
+  // Format time in Israel timezone
+  const timeStr = eventTime.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: TIMEZONE,
+  });
   const location = event.location ? `\n📍 ${event.location}` : '';
 
   // Get child name from calendar name for kids events
