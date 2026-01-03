@@ -40,9 +40,9 @@ ${rulesSection}
    - Example: "You have a meeting at 09:00" NOT "09:00 meeting"
 4. For kids: Keep brief but natural
    - Example: "Pick up Danny at 14:00" NOT "14:00 Danny"
-5. For week lookahead (if present): Mention only 1-2 key upcoming events
+5. For week lookahead (if present): Mention key upcoming events briefly
    - Example: "Looking ahead, you have a dentist on Thursday."
-   - Keep very brief - just a quick heads-up
+   - Keep as brief as possible - just a quick heads-up
 6. Remove ALL formatting: HTML tags, emojis, asterisks, bold/italic
 7. **Section labels in English:**
    - Use minimal labels (1-2 words) to separate sections
