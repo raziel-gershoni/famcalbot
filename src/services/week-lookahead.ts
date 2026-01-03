@@ -30,14 +30,17 @@ const recurrenceCache = new Map<string, string[] | null>();
 
 /**
  * Get the week boundary based on user settings
- * - If lookaheadAlways7Days: always 7 days from now
+ * - If lookaheadAlways7Days: always 7 days from reference date
  * - Jewish culture: through Saturday (week ends Saturday, Sunday is next week)
  * - Default culture: through Sunday (week ends Sunday, Monday is next week)
+ * @param culture - User's culture setting
+ * @param always7Days - Whether to always show 7 days
+ * @param referenceDate - The date to calculate from (defaults to now)
  */
-function getNextWeekBoundary(culture?: string, always7Days?: boolean): Date {
-  const now = new Date();
-  // Get current day in Israel timezone
-  const israelTime = new Date(now.toLocaleString('en-US', { timeZone: TIMEZONE }));
+function getNextWeekBoundary(culture?: string, always7Days?: boolean, referenceDate?: Date): Date {
+  const baseDate = referenceDate || new Date();
+  // Get day in Israel timezone
+  const israelTime = new Date(baseDate.toLocaleString('en-US', { timeZone: TIMEZONE }));
 
   let daysUntilBoundary: number;
 
@@ -129,17 +132,19 @@ function getCalendarLabel(
 }
 
 /**
- * Calculate days from now
+ * Calculate days from reference date
+ * @param eventStart - Event start date
+ * @param referenceDate - The date to calculate from (defaults to now)
  */
-function getDaysFromNow(eventStart: Date): number {
-  const now = new Date();
-  const today = new Date(now.toLocaleString('en-US', { timeZone: TIMEZONE }));
-  today.setHours(0, 0, 0, 0);
+function getDaysFromReference(eventStart: Date, referenceDate?: Date): number {
+  const baseDate = referenceDate || new Date();
+  const refDay = new Date(baseDate.toLocaleString('en-US', { timeZone: TIMEZONE }));
+  refDay.setHours(0, 0, 0, 0);
 
   const eventDay = new Date(eventStart);
   eventDay.setHours(0, 0, 0, 0);
 
-  const diffMs = eventDay.getTime() - today.getTime();
+  const diffMs = eventDay.getTime() - refDay.getTime();
   return Math.floor(diffMs / (1000 * 60 * 60 * 24));
 }
 
@@ -194,13 +199,17 @@ async function fetchEventsInRange(
 
 /**
  * Get week lookahead with notable events
+ * @param user - User configuration
+ * @param calendars - Calendar assignments
+ * @param referenceDate - The date to calculate lookahead from (defaults to now, use tomorrow for tomorrow's summary)
  */
 export async function getWeekLookahead(
   user: UserConfig,
-  calendars: CalendarAssignment[]
+  calendars: CalendarAssignment[],
+  referenceDate?: Date
 ): Promise<WeekLookahead> {
-  const now = new Date();
-  const endDate = getNextWeekBoundary(user.culture, user.lookaheadAlways7Days);
+  const startDate = referenceDate || new Date();
+  const endDate = getNextWeekBoundary(user.culture, user.lookaheadAlways7Days, startDate);
 
   // Get calendar IDs (exclude birthdays calendars from the scan)
   const calendarIds = calendars
@@ -208,14 +217,14 @@ export async function getWeekLookahead(
     .map(c => c.calendarId);
 
   if (calendarIds.length === 0 || !user.googleRefreshToken) {
-    return { events: [], dateRange: { start: now, end: endDate } };
+    return { events: [], dateRange: { start: startDate, end: endDate } };
   }
 
   // Fetch all events in range
   const events = await fetchEventsInRange(
     user.googleRefreshToken,
     calendarIds,
-    now,
+    startDate,
     endDate
   );
 
@@ -243,18 +252,18 @@ export async function getWeekLookahead(
     if (recurrenceType === 'daily') continue;
     if (recurrenceType === 'weekly' && !user.includeWeeklyInLookahead) continue;
 
-    const startDate = new Date(event.start);
-    const endDateEvent = new Date(event.end);
+    const eventStartDate = new Date(event.start);
+    const eventEndDate = new Date(event.end);
 
     lookaheadEvents.push({
       summary: event.summary,
-      start: startDate,
-      end: endDateEvent,
+      start: eventStartDate,
+      end: eventEndDate,
       calendarName: event.calendarName,
       calendarId: event.calendarId,
       calendarLabel: getCalendarLabel(event.calendarId, calendars),
       recurrenceType,
-      daysFromNow: getDaysFromNow(startDate),
+      daysFromNow: getDaysFromReference(eventStartDate, referenceDate),
     });
   }
 
@@ -263,7 +272,7 @@ export async function getWeekLookahead(
 
   return {
     events: lookaheadEvents,
-    dateRange: { start: now, end: endDate },
+    dateRange: { start: startDate, end: endDate },
   };
 }
 
@@ -271,10 +280,12 @@ export async function getWeekLookahead(
  * Get next week's boundaries based on culture
  * - Jewish: Sunday to Saturday
  * - Default: Monday to Sunday
+ * @param culture - User's culture setting
+ * @param referenceDate - The date to calculate from (defaults to now)
  */
-function getNextWeekBoundaries(culture?: string): { start: Date; end: Date } {
-  const now = new Date();
-  const israelTime = new Date(now.toLocaleString('en-US', { timeZone: TIMEZONE }));
+function getNextWeekBoundaries(culture?: string, referenceDate?: Date): { start: Date; end: Date } {
+  const baseDate = referenceDate || new Date();
+  const israelTime = new Date(baseDate.toLocaleString('en-US', { timeZone: TIMEZONE }));
   const dayOfWeek = israelTime.getDay(); // 0=Sun, 1=Mon, ...
 
   let daysUntilNextWeekStart: number;
@@ -301,12 +312,16 @@ function getNextWeekBoundaries(culture?: string): { start: Date; end: Date } {
 
 /**
  * Get next week lookahead with notable events
+ * @param user - User configuration
+ * @param calendars - Calendar assignments
+ * @param referenceDate - The date to calculate from (defaults to now)
  */
 export async function getNextWeekLookahead(
   user: UserConfig,
-  calendars: CalendarAssignment[]
+  calendars: CalendarAssignment[],
+  referenceDate?: Date
 ): Promise<WeekLookahead> {
-  const { start, end } = getNextWeekBoundaries(user.culture);
+  const { start, end } = getNextWeekBoundaries(user.culture, referenceDate);
 
   // Get calendar IDs (exclude birthdays calendars from the scan)
   const calendarIds = calendars
@@ -349,18 +364,18 @@ export async function getNextWeekLookahead(
     if (recurrenceType === 'daily') continue;
     if (recurrenceType === 'weekly' && !user.includeWeeklyInLookahead) continue;
 
-    const startDate = new Date(event.start);
-    const endDateEvent = new Date(event.end);
+    const eventStartDate = new Date(event.start);
+    const eventEndDate = new Date(event.end);
 
     lookaheadEvents.push({
       summary: event.summary,
-      start: startDate,
-      end: endDateEvent,
+      start: eventStartDate,
+      end: eventEndDate,
       calendarName: event.calendarName,
       calendarId: event.calendarId,
       calendarLabel: getCalendarLabel(event.calendarId, calendars),
       recurrenceType,
-      daysFromNow: getDaysFromNow(startDate),
+      daysFromNow: getDaysFromReference(eventStartDate, referenceDate),
     });
   }
 

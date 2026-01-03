@@ -812,7 +812,8 @@ async function sendSummaryToUser(
     if (summaryDate && user.includeLookaheadInTomorrow) {
       try {
         const { getWeekLookahead } = await import('./week-lookahead');
-        const lookahead = await getWeekLookahead(user, user.calendarAssignments || []);
+        // Pass summaryDate so lookahead is calculated from tomorrow's perspective
+        const lookahead = await getWeekLookahead(user, user.calendarAssignments || [], summaryDate);
 
         // Format lookahead events as text for the prompt
         if (lookahead.events.length > 0) {
