@@ -292,6 +292,23 @@
     "noEvents": {
       "today": "No events planned for today. Enjoy your free time!",
       "tomorrow": "No events planned for tomorrow. Enjoy your free time!"
+    },
+    "setupReminders": {
+      "oauth": {
+        "title": "📅 <b>Complete Your Setup</b>",
+        "body": "Connect your Google Calendar to start receiving daily summaries!",
+        "button": "🔗 Connect Calendar"
+      },
+      "calendars": {
+        "title": "📋 <b>One More Step</b>",
+        "body": "Select which calendars to include in your daily summaries.",
+        "button": "📆 Select Calendars"
+      },
+      "location": {
+        "title": "🌤️ <b>Enable Weather</b>",
+        "body": "Set your location to get weather info in your summaries.",
+        "button": "📍 Set Location"
+      }
     }
   }
 }
