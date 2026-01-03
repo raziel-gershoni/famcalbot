@@ -4,6 +4,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
+import * as Sentry from '@sentry/nextjs';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -86,9 +87,20 @@ export async function withDbRetry<T>(
     return await operation();
   } catch (error) {
     if (isConnectionError(error)) {
-      const ctx = context ? ` [${context}]` : '';
-      console.warn(`[DB Retry]${ctx} Connection error, retrying in 1s...`,
-        error instanceof Error ? error.message : error);
+      const ctx = context || 'unknown';
+      const errorMsg = error instanceof Error ? error.message : String(error);
+
+      // Log to console
+      console.warn(`[DB Retry] [${ctx}] Connection error, retrying in 1s...`, errorMsg);
+
+      // Track in Sentry as warning (not error) to monitor cold start frequency
+      Sentry.withScope(scope => {
+        scope.setTag('db_retry', 'true');
+        scope.setTag('db_context', ctx);
+        scope.setLevel('warning');
+        scope.setExtra('error_message', errorMsg);
+        Sentry.captureMessage(`Database connection retry: ${ctx}`);
+      });
 
       // Wait 1 second for Neon to wake up
       await new Promise(resolve => setTimeout(resolve, 1000));
