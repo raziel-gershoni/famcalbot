@@ -3,13 +3,13 @@ import { getUserByTelegramId, getUserByIdentifier, getWhitelistedIds, getAllUser
 import { fetchTodayEvents, fetchTomorrowEvents, TIMEZONE } from './calendar';
 import { generateSummary, SummaryUserContext, formatDateHeader } from './claude';
 import { CalendarEvent, UserConfig } from '../types';
-import { USER_MESSAGES } from '../config/messages';
 import { IMessagingService, getTelegramService, getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from './messaging';
 import { getCalendarsByLabel, getPrimaryCalendar, getSpouseInfo } from '../utils/calendar-helpers';
 import { sendProgressWithAnimation, ProgressType } from './progress-message';
 import { getBaseUrl, buildUrl } from '../config/urls';
 import { VALID_LOCALES } from '../utils/locale';
 import type { VoiceCondenserContext } from '../prompts/voice-condenser';
+import { getBotMessages, getBotMessage } from '../lib/bot-messages';
 
 /**
  * Categorize events by ownership for a specific user
@@ -75,14 +75,9 @@ export function initBot(): TelegramBot {
 export async function setUserMenuButton(userId: number, locale: string): Promise<void> {
   const bot = getBot();
 
-  const buttonText: Record<string, string> = {
-    en: 'Open',
-    he: 'פתח',
-    ru: 'Открыть'
-  };
-
   try {
-    const text = buttonText[locale] || buttonText.en;
+    const messages = await getBotMessages(locale);
+    const text = messages.menuButton.open;
     const url = buildUrl(`/${locale}/dashboard?user_id=${userId}`);
 
     // Telegram API requires menu_button to be JSON-serialized
@@ -159,35 +154,9 @@ export async function handleStartCommand(
   const locale = user.language || 'en';
   const dashboardUrl = buildUrl(`/${locale}/dashboard?user_id=${user.telegramId}`);
 
-  // Localized strings for /start command
-  const strings: Record<string, { welcome: string; tapButton: string; chooseBoard: string; dashboard: string; userDashboard: string; adminPanel: string }> = {
-    en: {
-      welcome: `👋 <b>Welcome ${name}!</b>`,
-      tapButton: 'Tap the button below to open your dashboard:',
-      chooseBoard: 'Choose your dashboard:',
-      dashboard: 'Open Dashboard',
-      userDashboard: '📱 User Dashboard',
-      adminPanel: '👑 Admin Panel'
-    },
-    he: {
-      welcome: `👋 <b>שלום ${name}!</b>`,
-      tapButton: 'לחץ על הכפתור למטה כדי לפתוח את לוח הבקרה:',
-      chooseBoard: 'בחר את לוח הבקרה שלך:',
-      dashboard: 'פתח לוח בקרה',
-      userDashboard: '📱 לוח בקרה',
-      adminPanel: '👑 פאנל ניהול'
-    },
-    ru: {
-      welcome: `👋 <b>Привет ${name}!</b>`,
-      tapButton: 'Нажмите кнопку ниже, чтобы открыть панель:',
-      chooseBoard: 'Выберите панель:',
-      dashboard: 'Открыть панель',
-      userDashboard: '📱 Панель пользователя',
-      adminPanel: '👑 Админ панель'
-    }
-  };
-
-  const t = strings[locale] || strings.en;
+  // Load localized strings from i18n
+  const t = await getBotMessages(locale);
+  const welcome = t.start.welcome.replace('{name}', name);
 
   // Set per-user menu button with localized text
   await setUserMenuButton(user.telegramId, locale);
@@ -196,14 +165,14 @@ export async function handleStartCommand(
   // Check if user is admin
   if (user.isAdmin) {
     const adminUrl = buildUrl(`/${locale}/admin-panel?user_id=${user.telegramId}`);
-    const message = `${t.welcome}\n\n${t.chooseBoard}`;
+    const message = `${welcome}\n\n${t.start.chooseBoard}`;
 
     await service.sendMessage(chatId, message, {
       format: MessageFormat.HTML,
       replyMarkup: {
         inline_keyboard: [
-          [{ text: t.userDashboard, web_app: { url: dashboardUrl } }],
-          [{ text: t.adminPanel, web_app: { url: adminUrl } }]
+          [{ text: t.start.userDashboard, web_app: { url: dashboardUrl } }],
+          [{ text: t.start.adminPanel, web_app: { url: adminUrl } }]
         ]
       }
     });
@@ -211,13 +180,13 @@ export async function handleStartCommand(
   }
 
   // Regular user - open dashboard webapp
-  const message = `${t.welcome}\n\n${t.tapButton}`;
+  const message = `${welcome}\n\n${t.start.tapButton}`;
 
   await service.sendMessage(chatId, message, {
     format: MessageFormat.HTML,
     replyMarkup: {
       inline_keyboard: [[
-        { text: t.dashboard, web_app: { url: dashboardUrl } }
+        { text: t.start.dashboard, web_app: { url: dashboardUrl } }
       ]]
     }
   });
@@ -239,7 +208,8 @@ export async function handleSummaryCommand(
     const service = platform === MessagingPlatform.TELEGRAM
       ? getMessagingService()
       : getMessagingServiceByPlatform(platform);
-    await service.sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    const t = await getBotMessages('en');
+    await service.sendMessage(chatId, t.errors.unauthorized);
     return;
   }
 
@@ -252,13 +222,14 @@ export async function handleSummaryCommand(
       ? getMessagingService()
       : getMessagingServiceByPlatform(platform);
     const settingsUrl = buildUrl(`/en/settings?user_id=${user.telegramId}`);
+    const t = await getBotMessages('en'); // Fallback to English for invalid language
     await service.sendMessage(
       chatId,
-      `⚠️ Please update your language preference in Settings to continue.`,
+      t.errors.updateLanguage,
       {
         replyMarkup: {
           inline_keyboard: [[
-            { text: '⚙️ Open Settings', web_app: { url: settingsUrl } }
+            { text: t.buttons.openSettings, web_app: { url: settingsUrl } }
           ]]
         }
       }
@@ -290,7 +261,8 @@ export async function handleWeatherCommand(
     const service = platform === MessagingPlatform.TELEGRAM
       ? getMessagingService()
       : getMessagingServiceByPlatform(platform);
-    await service.sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    const t = await getBotMessages('en');
+    await service.sendMessage(chatId, t.errors.unauthorized);
     return;
   }
 
@@ -307,13 +279,14 @@ export async function handleWeatherCommand(
   // Check if user has invalid/legacy language setting
   if (!user.language || !VALID_LOCALES.includes(user.language as any)) {
     const settingsUrl = buildUrl(`/en/settings?user_id=${user.telegramId}`);
+    const t = await getBotMessages('en'); // Fallback to English for invalid language
     await messagingService.sendMessage(
       chatId,
-      `⚠️ Please update your language preference in Settings to continue.`,
+      t.errors.updateLanguage,
       {
         replyMarkup: {
           inline_keyboard: [[
-            { text: '⚙️ Open Settings', web_app: { url: settingsUrl } }
+            { text: t.buttons.openSettings, web_app: { url: settingsUrl } }
           ]]
         }
       }
@@ -323,9 +296,10 @@ export async function handleWeatherCommand(
 
   // Args should be 'std' or 'dtl' from dashboard buttons
   if (!args) {
+    const t = await getBotMessages(user.language || 'en');
     await messagingService.sendMessage(
       chatId,
-      '🌤️ Please specify format: "std" for standard or "dtl" for detailed'
+      t.weather.specifyFormat
     );
     return;
   }
@@ -366,10 +340,11 @@ export async function handleWeatherCommand(
   } catch (error) {
     stopAnimation();
     console.error(`Error fetching weather for user ${userId}:`, error);
+    const t = await getBotMessages(userLanguage);
     await messagingService.updateMessage(
       chatId,
       messageId,
-      '❌ Sorry, there was an error fetching weather data. Please try again later.'
+      t.errors.weatherFetch
     );
 
     // Notify admin of weather failures
@@ -397,7 +372,8 @@ export async function handleLookaheadCommand(
     const service = platform === MessagingPlatform.TELEGRAM
       ? getMessagingService()
       : getMessagingServiceByPlatform(platform);
-    await service.sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    const t = await getBotMessages('en');
+    await service.sendMessage(chatId, t.errors.unauthorized);
     return;
   }
 
@@ -414,13 +390,14 @@ export async function handleLookaheadCommand(
   // Check if user has invalid/legacy language setting
   if (!user.language || !VALID_LOCALES.includes(user.language as any)) {
     const settingsUrl = buildUrl(`/en/settings?user_id=${user.telegramId}`);
+    const t = await getBotMessages('en'); // Fallback to English for invalid language
     await messagingService.sendMessage(
       chatId,
-      `⚠️ Please update your language preference in Settings to continue.`,
+      t.errors.updateLanguage,
       {
         replyMarkup: {
           inline_keyboard: [[
-            { text: '⚙️ Open Settings', web_app: { url: settingsUrl } }
+            { text: t.buttons.openSettings, web_app: { url: settingsUrl } }
           ]]
         }
       }
@@ -469,10 +446,11 @@ export async function handleLookaheadCommand(
   } catch (error) {
     stopAnimation();
     console.error(`Error fetching lookahead for user ${userId}:`, error);
+    const t = await getBotMessages(userLanguage);
     await messagingService.updateMessage(
       chatId,
       messageId,
-      '❌ Sorry, there was an error fetching upcoming events. Please try again later.'
+      t.errors.lookaheadFetch
     );
 
     // Notify admin of lookahead failures
@@ -498,7 +476,8 @@ export async function handleNextWeekCommand(
     const service = platform === MessagingPlatform.TELEGRAM
       ? getMessagingService()
       : getMessagingServiceByPlatform(platform);
-    await service.sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    const t = await getBotMessages('en');
+    await service.sendMessage(chatId, t.errors.unauthorized);
     return;
   }
 
@@ -515,13 +494,14 @@ export async function handleNextWeekCommand(
   // Check if user has invalid/legacy language setting
   if (!user.language || !VALID_LOCALES.includes(user.language as any)) {
     const settingsUrl = buildUrl(`/en/settings?user_id=${user.telegramId}`);
+    const t = await getBotMessages('en'); // Fallback to English for invalid language
     await messagingService.sendMessage(
       chatId,
-      `⚠️ Please update your language preference in Settings to continue.`,
+      t.errors.updateLanguage,
       {
         replyMarkup: {
           inline_keyboard: [[
-            { text: '⚙️ Open Settings', web_app: { url: settingsUrl } }
+            { text: t.buttons.openSettings, web_app: { url: settingsUrl } }
           ]]
         }
       }
@@ -570,10 +550,11 @@ export async function handleNextWeekCommand(
   } catch (error) {
     stopAnimation();
     console.error(`Error fetching next week for user ${userId}:`, error);
+    const t = await getBotMessages(userLanguage);
     await messagingService.updateMessage(
       chatId,
       messageId,
-      '❌ Sorry, there was an error fetching next week events. Please try again later.'
+      t.errors.nextWeekFetch
     );
 
     // Notify admin of next week failures
@@ -625,7 +606,8 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
 
   // Admin-only command (check DB field)
   if (!user.isAdmin) {
-    await getMessagingService().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    const t = await getBotMessages('en');
+    await getMessagingService().sendMessage(chatId, t.errors.unauthorized);
     await releaseTestModelsLock(userId);
     return;
   }
@@ -759,7 +741,7 @@ function setupHandlers(bot: TelegramBot) {
  * @param userId - Telegram user ID
  * @param fetchFunction - Function to fetch calendar events (today or tomorrow)
  * @param summaryDate - Date for the summary (undefined for today, tomorrow's date for tomorrow)
- * @param errorMessage - Message to show on error
+ * @param errorKey - i18n key for error message (e.g., 'calendarFetch' or 'tomorrowFetch')
  * @param modelId - Optional model ID to override default model
  * @param existingProgressMessageId - Optional message ID if progress was already sent
  */
@@ -767,7 +749,7 @@ async function sendSummaryToUser(
   userId: number,
   fetchFunction: (refreshToken: string, calendarIds: string[]) => Promise<CalendarEvent[]>,
   summaryDate: Date | undefined,
-  errorMessage: string,
+  errorKey: string,
   modelId?: string,
   existingProgressMessageId?: number
 ): Promise<void> {
@@ -922,6 +904,7 @@ async function sendSummaryToUser(
     }
 
     // Update progress message with error
+    const errorMessage = await getBotMessage(userLanguage, `errors.${errorKey}`);
     await messagingService.updateMessage(userId, messageId, errorMessage);
 
     // Notify admin of summary failures
@@ -1083,7 +1066,7 @@ export async function sendDailySummaryToUser(userId: number, existingProgressMes
     userId,
     fetchTodayEvents,
     undefined,
-    USER_MESSAGES.ERROR_GENERIC,
+    'calendarFetch',
     undefined,
     existingProgressMessageId
   );
@@ -1108,7 +1091,7 @@ export async function sendTomorrowSummaryToUser(userId: number, existingProgress
     userId,
     fetchTomorrowEvents,
     tomorrow,
-    USER_MESSAGES.ERROR_TOMORROW,
+    'tomorrowFetch',
     undefined,
     existingProgressMessageId
   );
@@ -1477,7 +1460,8 @@ export async function handleTestAICommand(chatId: number, userId: number, args?:
   // Check admin status from database
   const user = await getUserByTelegramId(userId);
   if (!user?.isAdmin) {
-    await getMessagingService().sendMessage(chatId, USER_MESSAGES.UNAUTHORIZED);
+    const errorMsg = await getBotMessage(user?.language || 'en', 'errors.unauthorized');
+    await getMessagingService().sendMessage(chatId, errorMsg);
     return;
   }
 

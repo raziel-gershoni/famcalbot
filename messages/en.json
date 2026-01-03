@@ -237,6 +237,61 @@
     "summary": "Generating your summary",
     "summaryTomorrow": "Generating tomorrow's summary",
     "weather": "Fetching weather forecast",
-    "voice": "Generating voice message"
+    "voice": "Generating voice message",
+    "lookahead": "Fetching upcoming events",
+    "nextweek": "Fetching next week events"
+  },
+  "bot": {
+    "start": {
+      "welcome": "👋 <b>Welcome {name}!</b>",
+      "tapButton": "Tap the button below to open your dashboard:",
+      "chooseBoard": "Choose your dashboard:",
+      "dashboard": "Open Dashboard",
+      "userDashboard": "📱 User Dashboard",
+      "adminPanel": "👑 Admin Panel"
+    },
+    "menuButton": {
+      "open": "Open"
+    },
+    "errors": {
+      "unauthorized": "Sorry, you are not authorized to use this bot.",
+      "generic": "Sorry, there was an error. Please try again later.",
+      "calendarFetch": "Sorry, there was an error fetching your calendar. Please try again later.",
+      "tomorrowFetch": "Sorry, there was an error fetching tomorrow's calendar. Please try again later.",
+      "weatherFetch": "❌ Sorry, there was an error fetching weather data. Please try again later.",
+      "lookaheadFetch": "❌ Sorry, there was an error fetching upcoming events. Please try again later.",
+      "nextWeekFetch": "❌ Sorry, there was an error fetching next week events. Please try again later.",
+      "updateLanguage": "⚠️ Please update your language preference in Settings to continue.",
+      "modelTest": "Sorry, there was an error running the model tests.",
+      "showingModels": "Sorry, there was an error showing model options.",
+      "generatingSummary": "Sorry, there was an error generating the summary."
+    },
+    "buttons": {
+      "openSettings": "⚙️ Open Settings",
+      "refreshGoogle": "🔄 Refresh Google Calendar"
+    },
+    "tokenExpired": {
+      "title": "🔑 <b>Google Calendar Token Expired</b>",
+      "message": "Your Google Calendar access has expired. Please refresh your token to continue receiving summaries.",
+      "tapToRefresh": "Tap below to refresh:"
+    },
+    "weather": {
+      "specifyFormat": "🌤️ Please specify format: \"std\" for standard or \"dtl\" for detailed"
+    },
+    "testAI": {
+      "title": "🤖 <b>Test AI Models</b>",
+      "selectModel": "Select a model to generate <b>{timeLabel}'s</b> summary with voice:",
+      "eachModel": "<i>Each model will generate both text and voice summary.</i>",
+      "generating": "Generating {timeLabel}'s summary with {modelName}...",
+      "unauthorized": "Unauthorized",
+      "invalidModel": "Invalid model"
+    },
+    "testModels": {
+      "disabled": "⚠️ <b>testmodels is currently disabled</b>\n\nContact admin to re-enable."
+    },
+    "noEvents": {
+      "today": "No events planned for today. Enjoy your free time!",
+      "tomorrow": "No events planned for tomorrow. Enjoy your free time!"
+    }
   }
 }
