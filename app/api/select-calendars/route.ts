@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { validateCalendarAssignments } from '@/src/utils/calendar-helpers';
 import { CalendarAssignment } from '@/src/types';
-import { prisma } from '@/src/utils/prisma';
+import { prisma, withDbRetry } from '@/src/utils/prisma';
 import { encrypt } from '@/src/utils/encryption';
 import { verifyUserAccess } from '@/src/lib/telegram-auth';
 import { checkRateLimit, settingsRateLimiter, getRateLimitHeaders } from '@/src/lib/rate-limit';
@@ -105,14 +105,17 @@ export async function POST(request: NextRequest) {
     }
 
     // Update user with new calendarAssignments and globalRules
-    await prisma.user.update({
-      where: { telegramId: BigInt(userId) },
-      data: {
-        calendarAssignments: syncedAssignments as any,
-        ...(globalRules !== undefined && { globalRules }),
-        googleRefreshToken: encrypt(currentUser.googleRefreshToken) // Re-encrypt
-      }
-    });
+    await withDbRetry(
+      () => prisma.user.update({
+        where: { telegramId: BigInt(userId) },
+        data: {
+          calendarAssignments: syncedAssignments as any,
+          ...(globalRules !== undefined && { globalRules }),
+          googleRefreshToken: encrypt(currentUser.googleRefreshToken) // Re-encrypt
+        }
+      }),
+      'select-calendars.update'
+    );
 
     return NextResponse.json({
       success: true,

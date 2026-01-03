@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import crypto from 'crypto';
-import { prisma } from '@/src/utils/prisma';
+import { prisma, withDbRetry } from '@/src/utils/prisma';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { XCircle } from 'lucide-react';
 import RefreshTokenClient from './RefreshTokenClient';
@@ -67,13 +67,16 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
   const stateToken = crypto.randomBytes(32).toString('hex');
 
   // Store state in database with 10-minute expiration
-  await prisma.oAuthState.create({
-    data: {
-      userId: parseInt(user_id),
-      token: stateToken,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
-    }
-  });
+  await withDbRetry(
+    () => prisma.oAuthState.create({
+      data: {
+        userId: parseInt(user_id),
+        token: stateToken,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+      }
+    }),
+    'refresh-token.createState'
+  );
 
   // Generate OAuth URL
   const baseUrl = 'https://accounts.google.com/o/oauth2/v2/auth';

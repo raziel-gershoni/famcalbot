@@ -1,6 +1,6 @@
 import { User as PrismaUser } from '@prisma/client';
 import { UserConfig, convertPrismaUserToConfig } from '../types';
-import { prisma } from '../utils/prisma';
+import { prisma, withDbRetry } from '../utils/prisma';
 import { encrypt, safeDecrypt } from '../utils/encryption';
 
 /**
@@ -8,9 +8,12 @@ import { encrypt, safeDecrypt } from '../utils/encryption';
  * Drop-in replacement for getUserByTelegramId() in config/users.ts
  */
 export async function getUserByTelegramId(telegramId: number): Promise<UserConfig | null> {
-  const user = await prisma.user.findUnique({
-    where: { telegramId: BigInt(telegramId) }
-  });
+  const user = await withDbRetry(
+    () => prisma.user.findUnique({
+      where: { telegramId: BigInt(telegramId) }
+    }),
+    'getUserByTelegramId'
+  );
 
   return user ? convertPrismaUserToConfig(user) : null;
 }
@@ -20,9 +23,12 @@ export async function getUserByTelegramId(telegramId: number): Promise<UserConfi
  * Drop-in replacement for getUserByWhatsAppPhone() in config/users.ts
  */
 export async function getUserByWhatsAppPhone(phone: string): Promise<UserConfig | null> {
-  const user = await prisma.user.findUnique({
-    where: { whatsappPhone: phone }
-  });
+  const user = await withDbRetry(
+    () => prisma.user.findUnique({
+      where: { whatsappPhone: phone }
+    }),
+    'getUserByWhatsAppPhone'
+  );
 
   return user ? convertPrismaUserToConfig(user) : null;
 }
@@ -44,7 +50,10 @@ export async function getUserByIdentifier(id: number | string): Promise<UserConf
  * Replacement for allUsers array and users export in config/users.ts
  */
 export async function getAllUsers(): Promise<UserConfig[]> {
-  const users = await prisma.user.findMany();
+  const users = await withDbRetry(
+    () => prisma.user.findMany(),
+    'getAllUsers'
+  );
   return users.map(convertPrismaUserToConfig);
 }
 
@@ -53,9 +62,12 @@ export async function getAllUsers(): Promise<UserConfig[]> {
  * Replacement for getWhitelistedIds() in config/users.ts
  */
 export async function getWhitelistedIds(): Promise<number[]> {
-  const users = await prisma.user.findMany({
-    select: { telegramId: true }
-  });
+  const users = await withDbRetry(
+    () => prisma.user.findMany({
+      select: { telegramId: true }
+    }),
+    'getWhitelistedIds'
+  );
 
   return users
     .filter(u => u.telegramId !== null)
@@ -75,10 +87,13 @@ export async function updateUser(telegramId: number, data: Partial<PrismaUser>):
   // Remove immutable fields that shouldn't be in update
   const { id, createdAt, updatedAt, ...updateData } = encryptedData;
 
-  const updatedUser = await prisma.user.update({
-    where: { telegramId: BigInt(telegramId) },
-    data: updateData as any // Type assertion needed for JSON fields
-  });
+  const updatedUser = await withDbRetry(
+    () => prisma.user.update({
+      where: { telegramId: BigInt(telegramId) },
+      data: updateData as any // Type assertion needed for JSON fields
+    }),
+    'updateUser'
+  );
 
   return convertPrismaUserToConfig(updatedUser);
 }
@@ -90,13 +105,16 @@ export async function updateGoogleRefreshToken(
   telegramId: number,
   refreshToken: string
 ): Promise<UserConfig> {
-  const updatedUser = await prisma.user.update({
-    where: { telegramId: BigInt(telegramId) },
-    data: {
-      googleRefreshToken: encrypt(refreshToken),
-      updatedAt: new Date()
-    }
-  });
+  const updatedUser = await withDbRetry(
+    () => prisma.user.update({
+      where: { telegramId: BigInt(telegramId) },
+      data: {
+        googleRefreshToken: encrypt(refreshToken),
+        updatedAt: new Date()
+      }
+    }),
+    'updateGoogleRefreshToken'
+  );
 
   return convertPrismaUserToConfig(updatedUser);
 }
@@ -129,9 +147,12 @@ export async function getOrCreateUser(
   telegramUser?: TelegramUserInfo
 ): Promise<UserConfig> {
   // Try to find existing user
-  const existingUser = await prisma.user.findUnique({
-    where: { telegramId: BigInt(telegramId) }
-  });
+  const existingUser = await withDbRetry(
+    () => prisma.user.findUnique({
+      where: { telegramId: BigInt(telegramId) }
+    }),
+    'getOrCreateUser.find'
+  );
 
   if (existingUser) {
     return convertPrismaUserToConfig(existingUser);
@@ -145,19 +166,22 @@ export async function getOrCreateUser(
     .filter(Boolean).join(' ') || 'User';
 
   // Create new user with defaults
-  const newUser = await prisma.user.create({
-    data: {
-      telegramId: BigInt(telegramId),
-      name,
-      englishName: '',
-      gender: 'male',  // Default, user can change in settings
-      language,
-      location: '',
-      culture: 'default',
-      messagingPlatform: 'telegram',
-      googleRefreshToken: '',  // Empty until OAuth
-    }
-  });
+  const newUser = await withDbRetry(
+    () => prisma.user.create({
+      data: {
+        telegramId: BigInt(telegramId),
+        name,
+        englishName: '',
+        gender: 'male',  // Default, user can change in settings
+        language,
+        location: '',
+        culture: 'default',
+        messagingPlatform: 'telegram',
+        googleRefreshToken: '',  // Empty until OAuth
+      }
+    }),
+    'getOrCreateUser.create'
+  );
 
   console.log(`[User] Created new user: ${name} (Telegram ID: ${telegramId})`);
   return convertPrismaUserToConfig(newUser);

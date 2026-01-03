@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/src/utils/prisma';
+import { prisma, withDbRetry } from '@/src/utils/prisma';
 import { captureError } from '@/src/lib/error-capture';
 
 export async function GET(request: NextRequest) {
@@ -12,10 +12,13 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const user = await prisma.user.findFirst({
-      where: { telegramId: BigInt(userId) },
-      select: { updatedAt: true, googleRefreshToken: true }
-    });
+    const user = await withDbRetry(
+      () => prisma.user.findFirst({
+        where: { telegramId: BigInt(userId) },
+        select: { updatedAt: true, googleRefreshToken: true }
+      }),
+      'check-token-refresh'
+    );
 
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });

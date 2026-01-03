@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/src/utils/prisma';
+import { prisma, withDbRetry } from '@/src/utils/prisma';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -35,13 +35,16 @@ export async function GET(request: NextRequest) {
 
     // Clean up expired OAuth state tokens
     try {
-      const deleted = await prisma.oAuthState.deleteMany({
-        where: {
-          expiresAt: {
-            lt: new Date()
+      const deleted = await withDbRetry(
+        () => prisma.oAuthState.deleteMany({
+          where: {
+            expiresAt: {
+              lt: new Date()
+            }
           }
-        }
-      });
+        }),
+        'daily-summary.cleanupOAuth'
+      );
       console.log(`Cleaned up ${deleted.count} expired OAuth state tokens`);
     } catch (cleanupError) {
       console.error('Failed to clean up OAuth state tokens:', cleanupError);

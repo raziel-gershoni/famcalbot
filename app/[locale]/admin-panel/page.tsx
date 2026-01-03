@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { normalizeLocale } from '@/src/utils/locale';
-import { prisma } from '@/src/utils/prisma';
+import { prisma, withDbRetry } from '@/src/utils/prisma';
 import { Prisma } from '@prisma/client';
 import { AlertTriangle, Lock } from 'lucide-react';
 import AdminPanelClient from './AdminPanelClient';
@@ -83,36 +83,35 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
     );
   }
 
-  // Get statistics
-  const totalUsers = await prisma.user.count();
-  const usersWithOAuth = await prisma.user.count({
-    where: {
-      NOT: {
-        googleRefreshToken: ''
-      }
-    }
-  });
-  const usersWithCalendars = await prisma.user.count({
-    where: {
-      calendarAssignments: {
-        not: Prisma.JsonNull
-      }
-    }
-  });
-
-  // Get recent users
-  const recentUsers = await prisma.user.findMany({
-    orderBy: {
-      createdAt: 'desc'
-    },
-    take: 5,
-    select: {
-      name: true,
-      createdAt: true,
-      language: true,
-      messagingPlatform: true
-    }
-  });
+  // Get statistics (with retry for Neon cold start)
+  const [totalUsers, usersWithOAuth, usersWithCalendars, recentUsers] = await Promise.all([
+    withDbRetry(() => prisma.user.count(), 'admin.totalUsers'),
+    withDbRetry(
+      () => prisma.user.count({
+        where: { NOT: { googleRefreshToken: '' } }
+      }),
+      'admin.usersWithOAuth'
+    ),
+    withDbRetry(
+      () => prisma.user.count({
+        where: { calendarAssignments: { not: Prisma.JsonNull } }
+      }),
+      'admin.usersWithCalendars'
+    ),
+    withDbRetry(
+      () => prisma.user.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: {
+          name: true,
+          createdAt: true,
+          language: true,
+          messagingPlatform: true
+        }
+      }),
+      'admin.recentUsers'
+    )
+  ]);
 
   return (
     <AdminPanelClient

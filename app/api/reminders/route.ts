@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/src/utils/prisma';
+import { prisma, withDbRetry } from '@/src/utils/prisma';
 import { convertPrismaUserToConfig } from '@/src/types';
 
 export const dynamic = 'force-dynamic';
@@ -36,13 +36,16 @@ export async function GET(request: NextRequest) {
 
   try {
     // Get all users with reminders enabled
-    const users = await prisma.user.findMany({
-      where: {
-        remindersEnabled: true,
-        googleRefreshToken: { not: '' },
-        telegramId: { not: null },
-      },
-    });
+    const users = await withDbRetry(
+      () => prisma.user.findMany({
+        where: {
+          remindersEnabled: true,
+          googleRefreshToken: { not: '' },
+          telegramId: { not: null },
+        },
+      }),
+      'reminders.getUsers'
+    );
 
     if (users.length === 0) {
       return NextResponse.json({
