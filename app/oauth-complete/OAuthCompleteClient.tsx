@@ -18,14 +18,23 @@ interface OAuthCompleteClientProps {
 
 export default function OAuthCompleteClient({ locale, botUsername, translations: t }: OAuthCompleteClientProps) {
   const [countdown, setCountdown] = useState(3);
+  const [hasRedirected, setHasRedirected] = useState(false);
   const isRTL = locale === 'he';
 
   useEffect(() => {
+    // Check if already redirected in this session (prevents re-redirect on tab reactivation)
+    if (sessionStorage.getItem('oauth_redirected') === 'true') {
+      setHasRedirected(true);
+      return;
+    }
+
     // Countdown timer
     const timer = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
+          // Mark as redirected before navigating
+          sessionStorage.setItem('oauth_redirected', 'true');
           // Auto-redirect to Telegram
           redirectToTelegram();
           return 0;
@@ -165,7 +174,7 @@ export default function OAuthCompleteClient({ locale, botUsername, translations:
           <h1>{t.title}</h1>
           <p className="subtitle">{t.subtitle}</p>
 
-          {countdown > 0 && (
+          {countdown > 0 && !hasRedirected && (
             <div className="countdown">
               <div className="countdown-text">{t.countdown}</div>
               <div className="countdown-number">{countdown}</div>
