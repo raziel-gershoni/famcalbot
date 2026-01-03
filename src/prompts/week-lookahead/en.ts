@@ -22,10 +22,12 @@ function buildKidsContext(data: WeekLookaheadPromptData): string {
 function buildHebrewDateContext(data: WeekLookaheadPromptData): string {
   if (data.culture !== 'jewish') return '';
 
+  // Use weekStartHebrew for next week summaries, todayHebrew for regular lookahead
+  const startHebrew = data.weekStartHebrew || data.todayHebrew;
   return `
 ## Hebrew Calendar
 - Include Hebrew dates alongside Gregorian dates
-- Today: ${data.todayHebrew}
+- Week starts: ${startHebrew}
 - Week ends: ${data.weekEndHebrew}`;
 }
 
@@ -78,12 +80,19 @@ export function buildWeekLookaheadPrompt(data: WeekLookaheadPromptData): string 
   const globalRules = buildGlobalRules(data);
   const eventsSection = buildEventsSection(data);
 
-  return `# Week Ahead Preview for ${data.userName}
+  // Use weekStartGregorian for next week summaries, todayGregorian for regular lookahead
+  const rangeStart = data.weekStartGregorian || data.todayGregorian;
+  const rangeStartHebrew = data.weekStartHebrew || data.todayHebrew;
+  const isNextWeek = !!data.weekStartGregorian;
+  const title = isNextWeek ? 'Next Week Preview' : 'Week Ahead Preview';
+  const headerTitle = isNextWeek ? 'Next Week' : 'Week Ahead';
 
-Generate a concise week-ahead preview in English.
+  return `# ${title} for ${data.userName}
 
+Generate a concise ${isNextWeek ? 'next week' : 'week-ahead'} preview in English.
+${isNextWeek ? `\n**IMPORTANT**: This is NEXT WEEK's schedule (${rangeStart} - ${data.weekEndGregorian}), NOT today's week. Today is ${data.todayGregorian}.\n` : ''}
 ## Week Range
-From: ${data.todayGregorian} until end of week
+From: ${rangeStart} to ${data.weekEndGregorian}
 Total: ${data.totalEvents} events across ${data.totalDays} days
 
 ## Calendar Ownership
@@ -93,12 +102,12 @@ ${hebrewDateContext}${globalRules}
 ## Output Format
 Generate a friendly, conversational preview. Structure:
 
-<b>Week Ahead</b>
-<b>${data.todayGregorian} - End of Week</b>${data.culture === 'jewish' ? `
-<i>${data.todayHebrew} - סוף השבוע</i>` : ''}
+<b>${headerTitle}</b>
+<b>${rangeStart} - ${data.weekEndGregorian}</b>${data.culture === 'jewish' ? `
+<i>${rangeStartHebrew} - ${data.weekEndHebrew}</i>` : ''}
 
 [For each day with events, create a brief summary mentioning:]
-- Day and date (with relative reference like "Tomorrow" or "In 3 days")
+- Day and date
 - Key events with times in HH:MM format
 - Calendar source for each event
 - Note recurring patterns (monthly checkups, yearly renewals)
@@ -108,11 +117,11 @@ Generate a friendly, conversational preview. Structure:
 ## Guidelines
 - **Be conversational but concise** - this is a quick heads-up, not a detailed summary
 - **Calendar attribution** - For your events, mention source (e.g., "from your work calendar"). For spouse/kids, the name already implies source - don't repeat.
-- **Use relative day references** - "Tomorrow", "In 3 days" alongside actual dates
 - **Highlight recurring events** - if something is monthly/yearly, note it (e.g., "monthly checkup")
 - **Time format**: Always use HH:MM (24-hour) - e.g., 08:00, 14:30
 - **Format**: Use Telegram HTML tags: <b>bold</b>, <i>italic</i>
 - **If no events**: Keep it brief - just note that the week looks clear
+${isNextWeek ? '- **Do NOT say "today"** - refer to days by their actual names (Monday, Tuesday, etc.)' : '- **Use relative day references** - "Tomorrow", "In 3 days" alongside actual dates'}
 
 ---
 

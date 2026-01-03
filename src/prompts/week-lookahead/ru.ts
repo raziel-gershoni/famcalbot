@@ -22,10 +22,12 @@ function buildKidsContext(data: WeekLookaheadPromptData): string {
 function buildHebrewDateContext(data: WeekLookaheadPromptData): string {
   if (data.culture !== 'jewish') return '';
 
+  // Use weekStartHebrew for next week summaries, todayHebrew for regular lookahead
+  const startHebrew = data.weekStartHebrew || data.todayHebrew;
   return `
 ## Еврейский календарь
 - Включайте еврейские даты рядом с григорианскими
-- Сегодня: ${data.todayHebrew}
+- Начало недели: ${startHebrew}
 - Конец недели: ${data.weekEndHebrew}`;
 }
 
@@ -78,12 +80,19 @@ export function buildWeekLookaheadPrompt(data: WeekLookaheadPromptData): string 
   const globalRules = buildGlobalRules(data);
   const eventsSection = buildEventsSection(data);
 
-  return `# Обзор недели для ${data.userName}
+  // Use weekStartGregorian for next week summaries, todayGregorian for regular lookahead
+  const rangeStart = data.weekStartGregorian || data.todayGregorian;
+  const rangeStartHebrew = data.weekStartHebrew || data.todayHebrew;
+  const isNextWeek = !!data.weekStartGregorian;
+  const title = isNextWeek ? 'Обзор следующей недели' : 'Обзор недели';
+  const headerTitle = isNextWeek ? 'Следующая неделя' : 'Неделя вперёд';
 
-Создай краткий обзор предстоящей недели на русском языке.
+  return `# ${title} для ${data.userName}
 
+Создай краткий обзор ${isNextWeek ? 'следующей недели' : 'предстоящей недели'} на русском языке.
+${isNextWeek ? `\n**ВАЖНО**: Это расписание на СЛЕДУЮЩУЮ неделю (${rangeStart} - ${data.weekEndGregorian}), НЕ текущую неделю. Сегодня ${data.todayGregorian}.\n` : ''}
 ## Период недели
-С: ${data.todayGregorian} до конца недели
+С: ${rangeStart} до ${data.weekEndGregorian}
 Всего: ${data.totalEvents} событий за ${data.totalDays} дней
 
 ## Принадлежность календарей
@@ -93,12 +102,12 @@ ${hebrewDateContext}${globalRules}
 ## Формат вывода
 Создай дружелюбный, разговорный обзор. Структура:
 
-<b>Неделя вперёд</b>
-<b>${data.todayGregorian} - Конец недели</b>${data.culture === 'jewish' ? `
-<i>${data.todayHebrew} - סוף השבוע</i>` : ''}
+<b>${headerTitle}</b>
+<b>${rangeStart} - ${data.weekEndGregorian}</b>${data.culture === 'jewish' ? `
+<i>${rangeStartHebrew} - ${data.weekEndHebrew}</i>` : ''}
 
 [Для каждого дня с событиями создай краткую сводку с:]
-- Днём и датой (с относительной ссылкой типа "Завтра" или "Через 3 дня")
+- Днём и датой
 - Ключевыми событиями со временем в формате HH:MM
 - Источником календаря для каждого события
 - Отметкой повторяющихся событий (ежемесячные проверки, ежегодные продления)
@@ -108,11 +117,11 @@ ${hebrewDateContext}${globalRules}
 ## Рекомендации
 - **Будь разговорным, но кратким** - это быстрый обзор, не детальная сводка
 - **Атрибуция календаря** - Для твоих событий указывай источник (например, "из твоего рабочего календаря"). Для супруга/детей имя уже подразумевает источник - не повторяй.
-- **Используй относительные ссылки** - "Завтра", "Через 3 дня" наряду с датами
 - **Выделяй повторяющиеся события** - если что-то ежемесячное/ежегодное, отметь это
 - **Формат времени**: Всегда используй HH:MM (24-часовой) - например, 08:00, 14:30
 - **Форматирование**: Используй HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
 - **Если нет событий**: Будь краток - просто отметь, что неделя свободна
+${isNextWeek ? '- **НЕ говори "сегодня"** - называй дни по их названиям (понедельник, вторник и т.д.)' : '- **Используй относительные ссылки** - "Завтра", "Через 3 дня" наряду с датами'}
 
 ---
 

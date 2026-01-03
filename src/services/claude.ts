@@ -549,6 +549,13 @@ function buildNextWeekPromptData(
 ): WeekLookaheadPromptData {
   const { events, dateRange } = lookahead;
 
+  // Format actual today's date (so AI knows when "now" is)
+  const today = new Date();
+  const todayForDisplay = new Date(today);
+  todayForDisplay.setUTCHours(12, 0, 0, 0);
+  const todayGregorian = formatLookaheadDate(todayForDisplay, language, timezone);
+  const todayHebrew = user.culture === 'jewish' ? getHebrewDateString(todayForDisplay, language, timezone) : undefined;
+
   // Format week start and end dates (next week has explicit start/end)
   const weekStartForDisplay = new Date(dateRange.start);
   weekStartForDisplay.setUTCHours(12, 0, 0, 0);
@@ -633,8 +640,10 @@ function buildNextWeekPromptData(
     spouseName,
     culture: user.culture,
     language,
-    todayGregorian: weekStartGregorian, // Use week start instead of today
-    todayHebrew: weekStartHebrew,
+    todayGregorian,           // Actual today's date
+    todayHebrew,              // Actual today's Hebrew date
+    weekStartGregorian,       // Next week's start date
+    weekStartHebrew,          // Next week's start Hebrew date
     weekEndGregorian,
     weekEndHebrew,
     eventsByDay,

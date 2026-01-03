@@ -29,8 +29,10 @@ export interface WeekLookaheadPromptData {
   language: string;  // 'en' | 'he' | 'ru'
 
   // Date context
-  todayGregorian: string;     // "Wednesday, January 1, 2026"
-  todayHebrew?: string;       // "כ״ח בכסלו תשפ״ה"
+  todayGregorian: string;     // "Wednesday, January 1, 2026" (actual today)
+  todayHebrew?: string;       // "כ״ח בכסלו תשפ״ה" (actual today)
+  weekStartGregorian?: string; // For next week: "Sunday, January 5, 2026"
+  weekStartHebrew?: string;    // For next week: Hebrew date
   weekEndGregorian: string;   // "Sunday, January 5, 2026"
   weekEndHebrew?: string;
 
