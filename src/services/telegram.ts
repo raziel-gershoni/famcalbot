@@ -159,6 +159,36 @@ export async function handleStartCommand(
   const locale = user.language || 'en';
   const dashboardUrl = buildUrl(`/${locale}/dashboard?user_id=${user.telegramId}`);
 
+  // Localized strings for /start command
+  const strings: Record<string, { welcome: string; tapButton: string; chooseBoard: string; dashboard: string; userDashboard: string; adminPanel: string }> = {
+    en: {
+      welcome: `👋 <b>Welcome ${name}!</b>`,
+      tapButton: 'Tap the button below to open your dashboard:',
+      chooseBoard: 'Choose your dashboard:',
+      dashboard: 'Open Dashboard',
+      userDashboard: '📱 User Dashboard',
+      adminPanel: '👑 Admin Panel'
+    },
+    he: {
+      welcome: `👋 <b>שלום ${name}!</b>`,
+      tapButton: 'לחץ על הכפתור למטה כדי לפתוח את לוח הבקרה:',
+      chooseBoard: 'בחר את לוח הבקרה שלך:',
+      dashboard: 'פתח לוח בקרה',
+      userDashboard: '📱 לוח בקרה',
+      adminPanel: '👑 פאנל ניהול'
+    },
+    ru: {
+      welcome: `👋 <b>Привет ${name}!</b>`,
+      tapButton: 'Нажмите кнопку ниже, чтобы открыть панель:',
+      chooseBoard: 'Выберите панель:',
+      dashboard: 'Открыть панель',
+      userDashboard: '📱 Панель пользователя',
+      adminPanel: '👑 Админ панель'
+    }
+  };
+
+  const t = strings[locale] || strings.en;
+
   // Set per-user menu button with localized text
   await setUserMenuButton(user.telegramId, locale);
   const service = getMessagingService();
@@ -166,14 +196,14 @@ export async function handleStartCommand(
   // Check if user is admin
   if (user.isAdmin) {
     const adminUrl = buildUrl(`/${locale}/admin-panel?user_id=${user.telegramId}`);
-    const message = `👋 <b>Welcome ${name}!</b>\n\nChoose your dashboard:`;
+    const message = `${t.welcome}\n\n${t.chooseBoard}`;
 
     await service.sendMessage(chatId, message, {
       format: MessageFormat.HTML,
       replyMarkup: {
         inline_keyboard: [
-          [{ text: '📱 User Dashboard', web_app: { url: dashboardUrl } }],
-          [{ text: '👑 Admin Panel', web_app: { url: adminUrl } }]
+          [{ text: t.userDashboard, web_app: { url: dashboardUrl } }],
+          [{ text: t.adminPanel, web_app: { url: adminUrl } }]
         ]
       }
     });
@@ -181,13 +211,13 @@ export async function handleStartCommand(
   }
 
   // Regular user - open dashboard webapp
-  const message = `👋 <b>Welcome ${name}!</b>\n\nTap the button below to open your dashboard:`;
+  const message = `${t.welcome}\n\n${t.tapButton}`;
 
   await service.sendMessage(chatId, message, {
     format: MessageFormat.HTML,
     replyMarkup: {
       inline_keyboard: [[
-        { text: 'Open Dashboard', web_app: { url: dashboardUrl } }
+        { text: t.dashboard, web_app: { url: dashboardUrl } }
       ]]
     }
   });
