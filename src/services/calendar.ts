@@ -28,6 +28,22 @@ export function getCalendarClient(refreshToken: string): calendar_v3.Calendar {
 }
 
 /**
+ * Get user's timezone from Google Calendar settings
+ * @param refreshToken - Google OAuth refresh token
+ * @returns IANA timezone string (e.g., "Asia/Jerusalem") or null if failed
+ */
+export async function getUserCalendarTimezone(refreshToken: string): Promise<string | null> {
+  try {
+    const calendar = getCalendarClient(refreshToken);
+    const response = await calendar.settings.get({ setting: 'timezone' });
+    return response.data.value || null;
+  } catch (error) {
+    console.warn('[Calendar] Failed to fetch timezone:', error);
+    return null;
+  }
+}
+
+/**
  * Get start and end of day in Israel timezone as ISO strings
  * Handles DST automatically using date-fns-tz
  */

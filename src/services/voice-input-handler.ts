@@ -10,6 +10,7 @@ import { transcribeVoice } from './transcription';
 import { parseEventFromText, ParsedEvent, parseVoiceIntent, EventReference, EditRequest, VoiceIntentResult } from './event-parser';
 import { createEvent, CreateEventResult, fetchEventsInRange, CalendarEvent, updateEvent, UpdateEventData, UpdateEventResult, deleteEvent, DeleteEventResult } from './calendar';
 import { TIMEZONE } from '../config/constants';
+import { resolveUserTimezone } from '../lib/timezone';
 import { buildUrl } from '../config/urls';
 import { UserConfig } from '../types';
 import { getBotMessages } from '../lib/bot-messages';
@@ -1027,7 +1028,8 @@ export async function handleEventCallback(
  */
 function convertEditRequestToUpdates(
   editRequest: EditRequest | undefined,
-  originalEvent: CalendarEvent
+  originalEvent: CalendarEvent,
+  timezone: string
 ): UpdateEventData {
   const updates: UpdateEventData = {};
 
@@ -1043,25 +1045,25 @@ function convertEditRequestToUpdates(
     const originalEnd = new Date(originalEvent.end);
     const duration = originalEnd.getTime() - originalStart.getTime();
 
-    // Build new start time - AI returns times in user's timezone (Israel)
-    // Use original event's date in Israel timezone if not specified
-    const originalStartLocal = originalStart.toLocaleString('sv-SE', { timeZone: TIMEZONE });
+    // Build new start time - AI returns times in user's timezone
+    // Use original event's date in user's timezone if not specified
+    const originalStartLocal = originalStart.toLocaleString('sv-SE', { timeZone: timezone });
     const [originalDatePart, originalTimePart] = originalStartLocal.split(' ');
 
     const newStartDate = editRequest.newStartDate || originalDatePart;
     const newStartTime = editRequest.newStartTime || originalTimePart.substring(0, 5);
 
-    // Convert Israel time to UTC using fromZonedTime
-    updates.startTime = fromZonedTime(`${newStartDate}T${newStartTime}:00`, TIMEZONE);
+    // Convert user's local time to UTC using fromZonedTime
+    updates.startTime = fromZonedTime(`${newStartDate}T${newStartTime}:00`, timezone);
 
     // If end time also provided, use it; otherwise preserve duration
     if (editRequest.newEndDate || editRequest.newEndTime) {
-      const originalEndLocal = originalEnd.toLocaleString('sv-SE', { timeZone: TIMEZONE });
+      const originalEndLocal = originalEnd.toLocaleString('sv-SE', { timeZone: timezone });
       const [originalEndDatePart, originalEndTimePart] = originalEndLocal.split(' ');
 
       const newEndDate = editRequest.newEndDate || originalEndDatePart;
       const newEndTime = editRequest.newEndTime || originalEndTimePart.substring(0, 5);
-      updates.endTime = fromZonedTime(`${newEndDate}T${newEndTime}:00`, TIMEZONE);
+      updates.endTime = fromZonedTime(`${newEndDate}T${newEndTime}:00`, timezone);
     } else {
       updates.endTime = new Date(updates.startTime.getTime() + duration);
     }
@@ -1169,8 +1171,11 @@ async function handleEditIntent(
     return;
   }
 
+  // Resolve user's timezone dynamically
+  const timezone = await resolveUserTimezone(user);
+
   // Convert edit request to update data
-  const updates = convertEditRequestToUpdates(intentResult.editRequest, targetEvent);
+  const updates = convertEditRequestToUpdates(intentResult.editRequest, targetEvent, timezone);
 
   // Show edit confirmation
   await showEditConfirmation(chatId, messageId, targetEvent, targetCalendarId, updates, transcription, user);
