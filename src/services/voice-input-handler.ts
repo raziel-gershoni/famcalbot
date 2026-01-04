@@ -12,6 +12,7 @@ import { createEvent, CreateEventResult } from './calendar';
 import { TIMEZONE } from '../config/constants';
 import { buildUrl } from '../config/urls';
 import { UserConfig } from '../types';
+import { getBotMessages } from '../lib/bot-messages';
 
 interface TelegramVoice {
   file_id: string;
@@ -65,7 +66,7 @@ const pendingEvents: Map<string, { event: ParsedEvent; user: UserConfig; transcr
 /**
  * Format event date/time for display
  */
-function formatEventDateTime(event: ParsedEvent, language: string): string {
+function formatEventDateTime(event: ParsedEvent, language: string, allDayText: string): string {
   const locale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
 
   const dateOptions: Intl.DateTimeFormatOptions = {
@@ -87,7 +88,7 @@ function formatEventDateTime(event: ParsedEvent, language: string): string {
   const endTimeStr = event.endTime.toLocaleTimeString(locale, timeOptions);
 
   if (event.allDay) {
-    return `📆 ${dateStr} (All day)`;
+    return `📆 ${dateStr} (${allDayText})`;
   }
 
   return `📆 ${dateStr}\n🕐 ${startTimeStr} - ${endTimeStr}`;
@@ -103,8 +104,8 @@ async function showEventConfirmation(
   transcription: string,
   user: UserConfig
 ): Promise<void> {
-  const messagingService = getMessagingService();
   const bot = getBot();
+  const t = await getBotMessages(user.language || 'en');
 
   // Generate unique ID for this pending event
   const pendingId = `${chatId}:${Date.now()}`;
@@ -121,15 +122,15 @@ async function showEventConfirmation(
     }
   }
 
-  const dateTimeStr = formatEventDateTime(event, user.language || 'en');
+  const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay);
   const locationStr = event.location ? `\n📍 ${event.location}` : '';
   const calendarStr = event.calendarName ? `\n📁 ${event.calendarName}` : '';
 
   const confirmationMessage =
-    `📅 <b>Create this event?</b>\n\n` +
+    `${t.voice.confirmTitle}\n\n` +
     `<b>${event.title}</b>\n` +
     `${dateTimeStr}${locationStr}${calendarStr}\n\n` +
-    `<i>From: "${transcription}"</i>`;
+    `<i>${t.voice.from} "${transcription}"</i>`;
 
   // Update message with confirmation buttons
   await bot.editMessageText(confirmationMessage, {
@@ -138,8 +139,8 @@ async function showEventConfirmation(
     parse_mode: 'HTML',
     reply_markup: {
       inline_keyboard: [[
-        { text: '✅ Create', callback_data: `event_create:${pendingId}` },
-        { text: '❌ Cancel', callback_data: `event_cancel:${pendingId}` }
+        { text: t.voice.createButton, callback_data: `event_create:${pendingId}` },
+        { text: t.voice.cancelButton, callback_data: `event_cancel:${pendingId}` }
       ]]
     }
   });
@@ -156,14 +157,15 @@ export async function handleEventCallback(
   pendingId: string
 ): Promise<void> {
   const bot = getBot();
-  const messagingService = getMessagingService();
 
   // Get pending event
   const pending = pendingEvents.get(pendingId);
 
   if (!pending) {
-    await bot.answerCallbackQuery(queryId, { text: 'This event has expired. Please try again.' });
-    await bot.editMessageText('❌ This event confirmation has expired. Please send a new voice message.', {
+    // Use English as fallback when we don't know user language
+    const t = await getBotMessages('en');
+    await bot.answerCallbackQuery(queryId, { text: t.voice.expired });
+    await bot.editMessageText(t.voice.expiredMessage, {
       chat_id: chatId,
       message_id: messageId,
       parse_mode: 'HTML'
@@ -171,12 +173,15 @@ export async function handleEventCallback(
     return;
   }
 
+  const { event, user } = pending;
+  const t = await getBotMessages(user.language || 'en');
+
   // Remove from pending
   pendingEvents.delete(pendingId);
 
   if (action === 'cancel') {
-    await bot.answerCallbackQuery(queryId, { text: 'Event cancelled' });
-    await bot.editMessageText('❌ Event creation cancelled.', {
+    await bot.answerCallbackQuery(queryId, { text: t.voice.cancelled });
+    await bot.editMessageText(t.voice.cancelledMessage, {
       chat_id: chatId,
       message_id: messageId,
       parse_mode: 'HTML'
@@ -186,22 +191,19 @@ export async function handleEventCallback(
 
   // Create the event
   if (action === 'create') {
-    await bot.answerCallbackQuery(queryId, { text: 'Creating event...' });
+    await bot.answerCallbackQuery(queryId, { text: t.voice.creating });
 
     // Update message to show progress
-    await bot.editMessageText('⏳ Creating event in Google Calendar...', {
+    await bot.editMessageText(t.voice.creatingInCalendar, {
       chat_id: chatId,
       message_id: messageId,
       parse_mode: 'HTML'
     });
 
-    const { event, user } = pending;
-
     // Check if user has refresh token
     if (!user.googleRefreshToken) {
       await bot.editMessageText(
-        '❌ Your Google Calendar is not connected.\n\n' +
-        'Please connect your calendar first.',
+        `${t.voice.notConnected}\n\n${t.voice.connectFirst}`,
         {
           chat_id: chatId,
           message_id: messageId,
@@ -226,13 +228,13 @@ export async function handleEventCallback(
     );
 
     if (result.success) {
-      const dateTimeStr = formatEventDateTime(event, user.language || 'en');
+      const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay);
       const linkButton = result.eventLink
-        ? `\n\n<a href="${result.eventLink}">Open in Google Calendar</a>`
+        ? `\n\n<a href="${result.eventLink}">${t.voice.openInCalendar}</a>`
         : '';
 
       await bot.editMessageText(
-        `✅ <b>Event created!</b>\n\n` +
+        `${t.voice.created}\n\n` +
         `<b>${event.title}</b>\n` +
         `${dateTimeStr}${linkButton}`,
         {
@@ -247,16 +249,14 @@ export async function handleEventCallback(
       const upgradeUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
 
       await bot.editMessageText(
-        '🔐 <b>Permission Required</b>\n\n' +
-        'To create events, I need permission to write to your calendar.\n\n' +
-        'Please tap the button below to grant access:',
+        `${t.voice.permissionRequired}\n\n${t.voice.permissionMessage}`,
         {
           chat_id: chatId,
           message_id: messageId,
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [[
-              { text: '🔑 Grant Calendar Access', web_app: { url: upgradeUrl } }
+              { text: t.voice.grantAccess, web_app: { url: upgradeUrl } }
             ]]
           }
         }
@@ -266,24 +266,21 @@ export async function handleEventCallback(
       const refreshUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
 
       await bot.editMessageText(
-        '🔑 <b>Calendar Access Expired</b>\n\n' +
-        'Your Google Calendar access has expired.\n\n' +
-        'Please tap the button below to re-authorize:',
+        `${t.voice.accessExpired}\n\n${t.voice.accessExpiredMessage}`,
         {
           chat_id: chatId,
           message_id: messageId,
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [[
-              { text: '🔄 Re-authorize Calendar', web_app: { url: refreshUrl } }
+              { text: t.voice.reauthorize, web_app: { url: refreshUrl } }
             ]]
           }
         }
       );
     } else {
       await bot.editMessageText(
-        `❌ <b>Failed to create event</b>\n\n` +
-        `${result.errorMessage || 'Unknown error occurred.'}`,
+        `${t.voice.failedToCreate}\n\n${result.errorMessage || t.voice.unknownError}`,
         {
           chat_id: chatId,
           message_id: messageId,
@@ -317,22 +314,18 @@ export async function handleVoiceMessage(
 
     if (!user) {
       console.log(`[Voice] User ${userId} not found in database`);
-      await messagingService.sendMessage(chatId,
-        '❌ Please use /start to register first before creating events.',
-        { format: MessageFormat.PLAIN }
-      );
+      const t = await getBotMessages('en');
+      await messagingService.sendMessage(chatId, t.voice.notRegistered, { format: MessageFormat.PLAIN });
       return;
     }
 
+    const t = await getBotMessages(user.language || 'en');
     console.log(`[Voice] User ${userId} found: ${user.name}, hasToken: ${!!user.googleRefreshToken}`);
 
     // Check if user has Google token
     if (!user.googleRefreshToken) {
       console.log(`[Voice] User ${userId} has no Google refresh token`);
-      await messagingService.sendMessage(chatId,
-        '❌ Please connect your Google Calendar first to create events.',
-        { format: MessageFormat.PLAIN }
-      );
+      await messagingService.sendMessage(chatId, t.voice.noCalendar, { format: MessageFormat.PLAIN });
       return;
     }
 
@@ -340,10 +333,7 @@ export async function handleVoiceMessage(
     console.log(`[Voice] Sending processing message to chat ${chatId}`);
     let processingMsg: number | string;
     try {
-      processingMsg = await messagingService.sendMessage(chatId,
-        '🎤 Processing your voice message...',
-        { format: MessageFormat.PLAIN }
-      );
+      processingMsg = await messagingService.sendMessage(chatId, t.voice.processing, { format: MessageFormat.PLAIN });
       console.log(`[Voice] Processing message sent, id: ${processingMsg}`);
     } catch (sendError) {
       console.error(`[Voice] Failed to send processing message:`, sendError);
@@ -357,27 +347,18 @@ export async function handleVoiceMessage(
     console.log(`[Voice] Downloaded ${audioBuffer.length} bytes`);
 
     // Update progress
-    await messagingService.updateMessage(chatId, processingMsgId,
-      '🎤 Transcribing your voice...',
-      { format: MessageFormat.PLAIN }
-    );
+    await messagingService.updateMessage(chatId, processingMsgId, t.voice.transcribing, { format: MessageFormat.PLAIN });
 
     // Transcribe the voice message
     const transcription = await transcribeVoice(audioBuffer, user.language || 'en');
 
     if (!transcription.text || transcription.text.trim() === '') {
-      await messagingService.updateMessage(chatId, processingMsgId,
-        '❌ I couldn\'t understand the voice message. Please try again or speak more clearly.',
-        { format: MessageFormat.PLAIN }
-      );
+      await messagingService.updateMessage(chatId, processingMsgId, t.voice.transcriptionFailed, { format: MessageFormat.PLAIN });
       return;
     }
 
     // Update progress
-    await messagingService.updateMessage(chatId, processingMsgId,
-      '📅 Understanding your event...',
-      { format: MessageFormat.PLAIN }
-    );
+    await messagingService.updateMessage(chatId, processingMsgId, t.voice.understanding, { format: MessageFormat.PLAIN });
 
     // Parse the transcription into event details
     const parseResult = await parseEventFromText(
@@ -390,18 +371,18 @@ export async function handleVoiceMessage(
       // Check if we need clarification
       if (parseResult.needsClarification && parseResult.clarificationQuestion) {
         await messagingService.updateMessage(chatId, processingMsgId,
-          `🎤 I heard: "<i>${transcription.text}</i>"\n\n` +
+          `${t.voice.iHeard} "<i>${transcription.text}</i>"\n\n` +
           `❓ ${parseResult.clarificationQuestion}`,
           { format: MessageFormat.HTML }
         );
       } else {
         await messagingService.updateMessage(chatId, processingMsgId,
-          `❌ I couldn't understand that as a calendar event.\n\n` +
-          `I heard: "<i>${transcription.text}</i>"\n\n` +
-          `Please try saying something like:\n` +
-          `• "Meeting with David tomorrow at 3pm"\n` +
-          `• "Dentist appointment on Friday at 10am"\n` +
-          `• "Lunch with Sarah next Tuesday at noon"`,
+          `${t.voice.notUnderstood}\n\n` +
+          `${t.voice.iHeard} "<i>${transcription.text}</i>"\n\n` +
+          `${t.voice.tryExamples}\n` +
+          `• "${t.voice.example1}"\n` +
+          `• "${t.voice.example2}"\n` +
+          `• "${t.voice.example3}"`,
           { format: MessageFormat.HTML }
         );
       }
@@ -414,9 +395,7 @@ export async function handleVoiceMessage(
   } catch (error) {
     console.error('[Voice] Error handling voice message:', error);
 
-    await messagingService.sendMessage(chatId,
-      '❌ Sorry, I had trouble processing your voice message. Please try again.',
-      { format: MessageFormat.PLAIN }
-    );
+    const t = await getBotMessages('en');
+    await messagingService.sendMessage(chatId, t.voice.genericError, { format: MessageFormat.PLAIN });
   }
 }
