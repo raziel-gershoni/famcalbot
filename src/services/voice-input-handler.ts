@@ -1044,34 +1044,36 @@ function convertEditRequestToUpdates(
     updates.title = editRequest.newTitle;
   }
 
-  // Handle time changes - need to preserve duration if only start time changes
+  // Handle time changes
+  const originalStart = new Date(originalEvent.start);
+  const originalEnd = new Date(originalEvent.end);
+  const duration = originalEnd.getTime() - originalStart.getTime();
+
+  // Get original times in user's timezone
+  const originalStartLocal = originalStart.toLocaleString('sv-SE', { timeZone: timezone });
+  const [originalDatePart, originalTimePart] = originalStartLocal.split(' ');
+  const originalEndLocal = originalEnd.toLocaleString('sv-SE', { timeZone: timezone });
+  const [originalEndDatePart, originalEndTimePart] = originalEndLocal.split(' ');
+
   if (editRequest.newStartDate || editRequest.newStartTime) {
-    const originalStart = new Date(originalEvent.start);
-    const originalEnd = new Date(originalEvent.end);
-    const duration = originalEnd.getTime() - originalStart.getTime();
-
-    // Build new start time - AI returns times in user's timezone
-    // Use original event's date in user's timezone if not specified
-    const originalStartLocal = originalStart.toLocaleString('sv-SE', { timeZone: timezone });
-    const [originalDatePart, originalTimePart] = originalStartLocal.split(' ');
-
+    // Start time is changing
     const newStartDate = editRequest.newStartDate || originalDatePart;
     const newStartTime = editRequest.newStartTime || originalTimePart.substring(0, 5);
-
-    // Convert user's local time to UTC using fromZonedTime
     updates.startTime = fromZonedTime(`${newStartDate}T${newStartTime}:00`, timezone);
 
     // If end time also provided, use it; otherwise preserve duration
     if (editRequest.newEndDate || editRequest.newEndTime) {
-      const originalEndLocal = originalEnd.toLocaleString('sv-SE', { timeZone: timezone });
-      const [originalEndDatePart, originalEndTimePart] = originalEndLocal.split(' ');
-
       const newEndDate = editRequest.newEndDate || originalEndDatePart;
       const newEndTime = editRequest.newEndTime || originalEndTimePart.substring(0, 5);
       updates.endTime = fromZonedTime(`${newEndDate}T${newEndTime}:00`, timezone);
     } else {
       updates.endTime = new Date(updates.startTime.getTime() + duration);
     }
+  } else if (editRequest.newEndDate || editRequest.newEndTime) {
+    // Only end time is changing (e.g., "extend until 17:00")
+    const newEndDate = editRequest.newEndDate || originalEndDatePart;
+    const newEndTime = editRequest.newEndTime || originalEndTimePart.substring(0, 5);
+    updates.endTime = fromZonedTime(`${newEndDate}T${newEndTime}:00`, timezone);
   }
 
   if (editRequest.newLocation) {

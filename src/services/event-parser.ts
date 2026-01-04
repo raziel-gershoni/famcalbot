@@ -357,6 +357,15 @@ Output: {"intent": "delete", "confidence": "high", "eventReference": {"type": "l
 Input: "Change the 14:00 meeting to 3pm on Thursday"
 Output: {"intent": "edit", "confidence": "high", "eventReference": {"type": "by_description", "description": "meeting", "originalTime": "14:00"}, "editRequest": {"newStartDate": "2024-01-11", "newStartTime": "15:00", "newEndTime": "16:00"}}
 
+Input: "Change the meeting to 20:00 to 23:00"
+Output: {"intent": "edit", "confidence": "high", "eventReference": {"type": "by_description", "description": "meeting"}, "editRequest": {"newStartTime": "20:00", "newEndTime": "23:00"}}
+
+Input: "Make the lesson from 18 to 19 into 20 to 22"
+Output: {"intent": "edit", "confidence": "high", "eventReference": {"type": "by_description", "description": "lesson", "originalTime": "18:00"}, "editRequest": {"newStartTime": "20:00", "newEndTime": "22:00"}}
+
+Input: "Extend the dentist until 17:00"
+Output: {"intent": "edit", "confidence": "high", "eventReference": {"type": "by_description", "description": "dentist"}, "editRequest": {"newEndTime": "17:00"}}
+
 Input: "Meeting with David tomorrow at 3pm"
 Output: {"intent": "create", "confidence": "high", "event": {"title": "Meeting with David", "startDate": "2024-01-06", "startTime": "15:00", "endDate": "2024-01-06", "endTime": "16:00", "allDay": false, "calendarId": "primary", "calendarName": "Primary"}}`;
 }
