@@ -4,23 +4,18 @@
  */
 
 import { VoiceCondenserContext } from './types';
+import { buildFamilyContext, buildRulesSection } from './template';
 
 export function buildVoiceCondenserPrompt(context: VoiceCondenserContext): string {
   const { summary, userName, spouseName, hasKidsCalendars, globalRules } = context;
 
-  // Build context section
-  let familyContext = `The user's name is ${userName}.`;
-  if (spouseName) {
-    familyContext += ` Their spouse is ${spouseName}.`;
-  }
-  if (hasKidsCalendars) {
-    familyContext += ` They have kids' calendars.`;
-  }
+  const familyContext = buildFamilyContext(userName, spouseName, hasKidsCalendars, {
+    userName: "The user's name is",
+    spouseLabel: "Their spouse is",
+    kidsLabel: "They have kids' calendars."
+  });
 
-  // Build rules section if applicable
-  const rulesSection = globalRules?.length
-    ? `\n**User's Custom Rules (apply these):**\n${globalRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n`
-    : '';
+  const rulesSection = buildRulesSection(globalRules, "User's Custom Rules (apply these):");
 
   return `You are condensing a calendar summary for voice message listening (target: 30-45 seconds) in English.
 

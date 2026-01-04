@@ -4,23 +4,18 @@
  */
 
 import { VoiceCondenserContext } from './types';
+import { buildFamilyContext, buildRulesSection } from './template';
 
 export function buildVoiceCondenserPrompt(context: VoiceCondenserContext): string {
   const { summary, userName, spouseName, hasKidsCalendars, globalRules } = context;
 
-  // Build context section in Russian
-  let familyContext = `Имя пользователя: ${userName}.`;
-  if (spouseName) {
-    familyContext += ` Имя супруга/супруги: ${spouseName}.`;
-  }
-  if (hasKidsCalendars) {
-    familyContext += ` Есть календари детей.`;
-  }
+  const familyContext = buildFamilyContext(userName, spouseName, hasKidsCalendars, {
+    userName: "Имя пользователя:",
+    spouseLabel: "Имя супруга/супруги:",
+    kidsLabel: "Есть календари детей."
+  });
 
-  // Build rules section if applicable
-  const rulesSection = globalRules?.length
-    ? `\n**Пользовательские правила (применить):**\n${globalRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n`
-    : '';
+  const rulesSection = buildRulesSection(globalRules, "Пользовательские правила (применить):");
 
   return `Ты сокращаешь сводку календаря для голосового прослушивания (цель: 30-45 секунд) на русском языке.
 

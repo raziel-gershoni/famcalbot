@@ -4,23 +4,18 @@
  */
 
 import { VoiceCondenserContext } from './types';
+import { buildFamilyContext, buildRulesSection } from './template';
 
 export function buildVoiceCondenserPrompt(context: VoiceCondenserContext): string {
   const { summary, userName, spouseName, hasKidsCalendars, culture, globalRules } = context;
 
-  // Build context section in Hebrew
-  let familyContext = `שם המשתמש: ${userName}.`;
-  if (spouseName) {
-    familyContext += ` שם בן/בת הזוג: ${spouseName}.`;
-  }
-  if (hasKidsCalendars) {
-    familyContext += ` יש יומנים של ילדים.`;
-  }
+  const familyContext = buildFamilyContext(userName, spouseName, hasKidsCalendars, {
+    userName: "שם המשתמש:",
+    spouseLabel: "שם בן/בת הזוג:",
+    kidsLabel: "יש יומנים של ילדים."
+  });
 
-  // Build rules section if applicable
-  const rulesSection = globalRules?.length
-    ? `\n**כללים מותאמים אישית (יש ליישם):**\n${globalRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n`
-    : '';
+  const rulesSection = buildRulesSection(globalRules, "כללים מותאמים אישית (יש ליישם):");
 
   // Date format based on culture
   const dateRule = culture === 'jewish'
