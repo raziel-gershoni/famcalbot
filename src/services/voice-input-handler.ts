@@ -318,14 +318,16 @@ export async function handleVoiceMessage(
     }
 
     // Send processing message
+    console.log(`[Voice] Sending processing message to chat ${chatId}`);
     const processingMsg = await messagingService.sendMessage(chatId,
       '🎤 Processing your voice message...',
       { format: MessageFormat.PLAIN }
     );
+    console.log(`[Voice] Processing message sent, id: ${processingMsg}`);
     const processingMsgId = typeof processingMsg === 'number' ? processingMsg : parseInt(processingMsg);
 
     // Download the voice file
-    console.log(`[Voice] Downloading voice file for user ${userId}, duration: ${voice.duration}s`);
+    console.log(`[Voice] Downloading voice file for user ${userId}, file_id: ${voice.file_id}, duration: ${voice.duration}s`);
     const audioBuffer = await downloadVoiceFile(voice.file_id);
     console.log(`[Voice] Downloaded ${audioBuffer.length} bytes`);
 
