@@ -194,14 +194,14 @@ STRUCTURE:
 3. Actionable recommendations based on schedule timing
 
 **Be specific about timing and temperatures. Cross-reference weather timing with schedule events. Make it useful for planning the day.**
-
-<b>Looking Ahead:</b> [ONLY if week lookahead data is provided below]
+${data.weekLookahead ? `
+<b>Looking Ahead:</b>
 **Add a brief 2-3 sentence overview of key events coming up later in the week:**
 - Highlight only the MOST important upcoming events (appointments, deadlines, special events)
 - Use relative day references (e.g., "On Wednesday...", "Thursday you have...")
 - Keep it brief - this is just a preview, not a full week summary
 - Skip routine recurring events unless notable
-
+` : ''}
 ## Guidelines
 - **CRITICAL: EVERYTHING must be in English**
 - **CRITICAL: Always use HH:MM format (24-hour, no AM/PM) - e.g., 08:00, 13:45, 20:15**
