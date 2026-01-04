@@ -20,6 +20,8 @@ export interface EventReference {
   type: 'last_created' | 'by_description';
   description?: string;  // "dentist appointment", "meeting with David"
   timeHint?: string;     // "tomorrow", "next week" - raw text for date range
+  originalTime?: string; // "15:00" - the start time of the event being referenced (for disambiguation)
+  originalDate?: string; // "YYYY-MM-DD" - explicit date if mentioned (more specific than timeHint)
 }
 
 /**
@@ -325,7 +327,9 @@ RESPOND IN JSON FORMAT ONLY:
   "eventReference": {
     "type": "last_created" | "by_description",
     "description": "dentist", "meeting with David" - keywords to match event,
-    "timeHint": "tomorrow", "next week" - when the event is
+    "timeHint": "tomorrow", "next week" - relative date hint,
+    "originalTime": "HH:MM" or null - the START TIME of the event being referenced (NOT the new time),
+    "originalDate": "YYYY-MM-DD" or null - explicit date of the event (if mentioned)
   },
 
   "error": "Error message" or null,
@@ -336,7 +340,13 @@ RESPOND IN JSON FORMAT ONLY:
 EXAMPLES:
 
 Input: "Move my dentist to 4pm"
-Output: {"intent": "edit", "confidence": "high", "eventReference": {"type": "by_description", "description": "dentist", "timeHint": null}, "editRequest": {"newStartTime": "16:00", "newEndTime": "17:00"}}
+Output: {"intent": "edit", "confidence": "high", "eventReference": {"type": "by_description", "description": "dentist"}, "editRequest": {"newStartTime": "16:00", "newEndTime": "17:00"}}
+
+Input: "Move the lesson from tomorrow 15:00 to today 20:00"
+Output: {"intent": "edit", "confidence": "high", "eventReference": {"type": "by_description", "description": "lesson", "timeHint": "tomorrow", "originalTime": "15:00"}, "editRequest": {"newStartDate": "2024-01-05", "newStartTime": "20:00", "newEndTime": "21:00"}}
+
+Input: "Cancel the 10am dentist"
+Output: {"intent": "delete", "confidence": "high", "eventReference": {"type": "by_description", "description": "dentist", "originalTime": "10:00"}}
 
 Input: "Cancel the meeting tomorrow"
 Output: {"intent": "delete", "confidence": "high", "eventReference": {"type": "by_description", "description": "meeting", "timeHint": "tomorrow"}}
@@ -344,8 +354,8 @@ Output: {"intent": "delete", "confidence": "high", "eventReference": {"type": "b
 Input: "תבטל את זה" (Hebrew: Cancel that)
 Output: {"intent": "delete", "confidence": "high", "eventReference": {"type": "last_created"}}
 
-Input: "Change the meeting to 3pm on Thursday"
-Output: {"intent": "edit", "confidence": "high", "eventReference": {"type": "by_description", "description": "meeting"}, "editRequest": {"newStartDate": "2024-01-11", "newStartTime": "15:00", "newEndTime": "16:00"}}
+Input: "Change the 14:00 meeting to 3pm on Thursday"
+Output: {"intent": "edit", "confidence": "high", "eventReference": {"type": "by_description", "description": "meeting", "originalTime": "14:00"}, "editRequest": {"newStartDate": "2024-01-11", "newStartTime": "15:00", "newEndTime": "16:00"}}
 
 Input: "Meeting with David tomorrow at 3pm"
 Output: {"intent": "create", "confidence": "high", "event": {"title": "Meeting with David", "startDate": "2024-01-06", "startTime": "15:00", "endDate": "2024-01-06", "endTime": "16:00", "allDay": false, "calendarId": "primary", "calendarName": "Primary"}}`;

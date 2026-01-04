@@ -183,24 +183,29 @@ export async function findMatchingEvent(
   // Use AI to find the best matching event
   const eventList = events.map((e, i) => {
     const startDate = new Date(e.start);
-    return `${i + 1}. "${e.summary}" on ${startDate.toLocaleDateString()} at ${startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (calendar: ${e.calendarId})`;
+    const timeStr = startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    return `${i + 1}. "${e.summary}" on ${startDate.toLocaleDateString()} at ${timeStr} (calendar: ${e.calendarId})`;
   }).join('\n');
 
   const prompt = `Find the event that best matches the user's description.
 
 User's description: "${reference.description}"
-${reference.timeHint ? `Time hint: "${reference.timeHint}"` : ''}
+${reference.timeHint ? `Date hint: "${reference.timeHint}"` : ''}
+${reference.originalTime ? `Original event time: "${reference.originalTime}" (IMPORTANT: strongly prefer events starting at this exact time)` : ''}
 User language: ${language}
 
 Available events:
 ${eventList}
 
-INSTRUCTIONS:
-1. Find the event that best matches the user's description
-2. Consider partial matches (e.g., "dentist" matches "Dentist appointment")
-3. If timeHint is provided, prioritize events on that date
-4. If multiple events match equally, return "multiple"
-5. If no event matches, return "none"
+MATCHING CRITERIA (in priority order):
+1. Title must contain the user's description keywords (partial match OK, e.g., "dentist" matches "Dentist appointment")
+2. If originalTime is provided (e.g., "15:00"):
+   - STRONG MATCH: Event starts at exactly that time
+   - WEAK MATCH: Event starts within ±1 hour
+   - If multiple title matches exist, the time match MUST be used to disambiguate
+3. If timeHint is provided (e.g., "tomorrow"), prefer events on that date
+4. If multiple events match ALL criteria equally, return "multiple"
+5. If no event matches the description, return "none"
 
 RESPOND IN JSON:
 {
