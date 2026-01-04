@@ -8,7 +8,7 @@ import { getUserByTelegramId } from './user-service';
 import { MessageFormat } from './messaging/types';
 import { transcribeVoice } from './transcription';
 import { parseEventFromText, ParsedEvent, parseVoiceIntent, EventReference, EditRequest, VoiceIntentResult } from './event-parser';
-import { createEvent, CreateEventResult, fetchEventsInRange, CalendarEvent, updateEvent, UpdateEventData, UpdateEventResult } from './calendar';
+import { createEvent, CreateEventResult, fetchEventsInRange, CalendarEvent, updateEvent, UpdateEventData, UpdateEventResult, deleteEvent, DeleteEventResult } from './calendar';
 import { TIMEZONE } from '../config/constants';
 import { buildUrl } from '../config/urls';
 import { UserConfig } from '../types';
@@ -558,6 +558,226 @@ export async function handleEditCallback(
     } else {
       await bot.editMessageText(
         `${t.voice?.failedToUpdate || '❌ Failed to update event'}\n\n${result.errorMessage || t.voice?.unknownError || 'Unknown error'}`,
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'HTML'
+        }
+      );
+    }
+  }
+}
+
+/**
+ * Pending delete operation data
+ */
+interface PendingDelete {
+  event: CalendarEvent;
+  calendarId: string;
+  user: UserConfig;
+  transcription: string;
+}
+
+// Store pending delete operations
+const pendingDeletes: Map<string, PendingDelete> = new Map();
+
+/**
+ * Show delete confirmation with inline keyboard
+ */
+export async function showDeleteConfirmation(
+  chatId: number,
+  messageId: number,
+  event: CalendarEvent,
+  calendarId: string,
+  transcription: string,
+  user: UserConfig
+): Promise<void> {
+  const bot = getBot();
+  const t = await getBotMessages(user.language || 'en');
+
+  // Generate unique ID for this pending delete
+  const pendingId = `${chatId}:${Date.now()}`;
+
+  // Store pending delete
+  pendingDeletes.set(pendingId, { event, calendarId, user, transcription });
+
+  // Clean up old pending deletes (older than 10 minutes)
+  const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
+  for (const [key] of pendingDeletes.entries()) {
+    const timestamp = parseInt(key.split(':')[1]);
+    if (timestamp < tenMinutesAgo) {
+      pendingDeletes.delete(key);
+    }
+  }
+
+  const eventInfo = formatCalendarEventDateTime(event, user.language || 'en', t.voice?.allDay || 'All day');
+
+  // Use localized messages with fallbacks
+  const deleteTitle = t.voice?.deleteConfirmTitle || '🗑️ <b>Delete this event?</b>';
+  const deleteBtn = t.voice?.deleteButton || '🗑️ Delete';
+  const keepBtn = t.voice?.keepButton || '❌ Keep';
+  const fromLabel = t.voice?.from || 'From:';
+
+  const confirmationMessage =
+    `${deleteTitle}\n\n` +
+    `📅 <b>${event.summary}</b>\n` +
+    `${eventInfo}\n\n` +
+    `<i>${fromLabel} "${transcription}"</i>`;
+
+  // Update message with confirmation buttons
+  await bot.editMessageText(confirmationMessage, {
+    chat_id: chatId,
+    message_id: messageId,
+    parse_mode: 'HTML',
+    reply_markup: {
+      inline_keyboard: [[
+        { text: deleteBtn, callback_data: `delete_confirm:${pendingId}` },
+        { text: keepBtn, callback_data: `delete_cancel:${pendingId}` }
+      ]]
+    }
+  });
+}
+
+/**
+ * Handle delete callback (when user clicks Delete or Keep)
+ */
+export async function handleDeleteCallback(
+  chatId: number,
+  messageId: number,
+  queryId: string,
+  action: string,
+  pendingId: string
+): Promise<void> {
+  const bot = getBot();
+
+  // Get pending delete
+  const pending = pendingDeletes.get(pendingId);
+
+  if (!pending) {
+    const t = await getBotMessages('en');
+    await bot.answerCallbackQuery(queryId, { text: t.voice?.expired || 'Request expired' });
+    await bot.editMessageText(t.voice?.expiredMessage || '⏰ This request has expired.', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML'
+    });
+    return;
+  }
+
+  const { event, calendarId, user } = pending;
+  const t = await getBotMessages(user.language || 'en');
+
+  // Remove from pending
+  pendingDeletes.delete(pendingId);
+
+  if (action === 'cancel') {
+    await bot.answerCallbackQuery(queryId, { text: t.voice?.kept || 'Kept' });
+    await bot.editMessageText(t.voice?.keptMessage || '✅ Event kept.', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML'
+    });
+    return;
+  }
+
+  // Delete the event
+  if (action === 'confirm') {
+    await bot.answerCallbackQuery(queryId, { text: t.voice?.deleting || 'Deleting...' });
+
+    // Update message to show progress
+    await bot.editMessageText(t.voice?.deletingEvent || '⏳ Deleting event...', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML'
+    });
+
+    // Check if user has refresh token
+    if (!user.googleRefreshToken) {
+      await bot.editMessageText(
+        `${t.voice?.notConnected || '❌ Not connected'}\n\n${t.voice?.connectFirst || 'Please connect your calendar first.'}`,
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'HTML'
+        }
+      );
+      return;
+    }
+
+    // Get event ID
+    const eventId = event.eventId;
+    if (!eventId) {
+      await bot.editMessageText(
+        t.voice?.eventNotFound || '❌ Could not find the event to delete.',
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'HTML'
+        }
+      );
+      return;
+    }
+
+    // Delete the event
+    const result: DeleteEventResult = await deleteEvent(
+      user.googleRefreshToken,
+      calendarId,
+      eventId
+    );
+
+    if (result.success) {
+      const deletedMsg = t.voice?.deleted || '✅ <b>Event deleted!</b>';
+      await bot.editMessageText(
+        `${deletedMsg}\n\n` +
+        `📅 <s>${event.summary}</s>`,
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'HTML'
+        }
+      );
+    } else if (result.error === 'PERMISSION_DENIED') {
+      const upgradeUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
+      await bot.editMessageText(
+        `${t.voice?.permissionRequired || '🔐 Permission required'}\n\n${t.voice?.permissionMessage || 'Please grant calendar write access.'}`,
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: t.voice?.grantAccess || 'Grant Access', web_app: { url: upgradeUrl } }
+            ]]
+          }
+        }
+      );
+    } else if (result.error === 'TOKEN_EXPIRED') {
+      const refreshUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
+      await bot.editMessageText(
+        `${t.voice?.accessExpired || '🔑 Access expired'}\n\n${t.voice?.accessExpiredMessage || 'Please re-authorize.'}`,
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: t.voice?.reauthorize || 'Re-authorize', web_app: { url: refreshUrl } }
+            ]]
+          }
+        }
+      );
+    } else if (result.error === 'NOT_FOUND') {
+      await bot.editMessageText(
+        t.voice?.eventNotFound || '❌ Event not found. It may have already been deleted.',
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'HTML'
+        }
+      );
+    } else {
+      await bot.editMessageText(
+        `${t.voice?.failedToDelete || '❌ Failed to delete event'}\n\n${result.errorMessage || t.voice?.unknownError || 'Unknown error'}`,
         {
           chat_id: chatId,
           message_id: messageId,
