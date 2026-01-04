@@ -218,6 +218,29 @@ export async function GET(request: NextRequest) {
 
     console.log(`[Setup Reminders] Sent ${successCount} reminders (${failCount} failed)`);
 
+    // Notify admin about sent reminders
+    if (successCount > 0) {
+      try {
+        const { notifyAdminWarning } = await import('@/src/utils/error-notifier');
+        const oauthCount = results.filter(r => r.type === 'oauth' && r.success).length;
+        const calendarsCount = results.filter(r => r.type === 'calendars' && r.success).length;
+        const locationCount = results.filter(r => r.type === 'location' && r.success).length;
+
+        const details = [
+          oauthCount > 0 ? `OAuth: ${oauthCount}` : null,
+          calendarsCount > 0 ? `Calendars: ${calendarsCount}` : null,
+          locationCount > 0 ? `Location: ${locationCount}` : null,
+        ].filter(Boolean).join(', ');
+
+        await notifyAdminWarning(
+          'Setup Reminders Sent',
+          `Sent ${successCount} setup reminder(s) to incomplete users.\n\n${details}`
+        );
+      } catch (notifyError) {
+        console.error('[Setup Reminders] Failed to notify admin:', notifyError);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       remindersSent: successCount,

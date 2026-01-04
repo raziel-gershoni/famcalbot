@@ -320,7 +320,13 @@ export async function handleVoiceMessage(
     }
 
     const t = await getBotMessages(user.language || 'en');
-    console.log(`[Voice] User ${userId} found: ${user.name}, hasToken: ${!!user.googleRefreshToken}`);
+    console.log(`[Voice] User ${userId} found: ${user.name}, hasToken: ${!!user.googleRefreshToken}, voiceInputEnabled: ${user.voiceInputEnabled}`);
+
+    // Check if voice input is enabled for this user
+    if (!user.voiceInputEnabled) {
+      console.log(`[Voice] Voice input disabled for user ${userId}, ignoring`);
+      return; // Silently ignore voice messages if feature is disabled
+    }
 
     // Check if user has Google token
     if (!user.googleRefreshToken) {
