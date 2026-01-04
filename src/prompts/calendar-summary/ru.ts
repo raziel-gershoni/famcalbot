@@ -4,6 +4,23 @@
  */
 
 import { SummaryPromptData } from './types';
+import {
+  buildGlobalRulesSection,
+  buildCalendarRulesSection,
+  buildDateInfoSection,
+  DateInfoLabels
+} from '../shared-builders';
+
+// Russian labels for date info section
+const DATE_INFO_LABELS: DateInfoLabels = {
+  header: 'ИНФОРМАЦИЯ О ДАТАХ:',
+  currentDate: 'Текущая дата (сегодня)',
+  summaryDate: 'Дата сводки',
+  hebrewDate: 'Еврейская дата (сводка)',
+  roshChodesh: 'Рош Ходеш',
+  yes: 'ДА',
+  no: 'НЕТ'
+};
 
 function buildSpouseContext(data: SummaryPromptData): string {
   if (!data.hasSpouseCalendar) return '';
@@ -45,59 +62,20 @@ function buildHebrewDateContext(data: SummaryPromptData): string {
 `;
 }
 
-function buildGlobalRules(data: SummaryPromptData): string {
-  if (!data.globalRules || data.globalRules.length === 0) return '';
-
-  const rules = data.globalRules
-    .filter(r => r.trim())
-    .map((rule, i) => `${i + 1}. ${rule}`)
-    .join('\n');
-
-  if (!rules) return '';
-
-  return `
-## Пользовательские правила (ВСЕГДА применяйте)
-${rules}
-`;
-}
-
-function buildCalendarRules(data: SummaryPromptData): string {
-  if (!data.calendarRules || data.calendarRules.length === 0) return '';
-
-  const rules = data.calendarRules
-    .filter(r => r.rule?.trim())
-    .map(r => `- **${r.calendarName}**: ${r.rule}`)
-    .join('\n');
-
-  if (!rules) return '';
-
-  return `
-## Правила для конкретных календарей
-${rules}
-`;
-}
-
-function buildDateInfo(data: SummaryPromptData): string {
-  let dateInfo = `**ИНФОРМАЦИЯ О ДАТАХ:**
-- Текущая дата (сегодня): ${data.currentGregorianDate}
-- Дата сводки: ${data.summaryGregorianDate}`;
-
-  if (data.culture === 'jewish') {
-    dateInfo += `
-- Еврейская дата (сводка): ${data.summaryHebrewDate}
-- Рош Ходеш: ${data.isRoshChodesh ? 'ДА' : 'НЕТ'}`;
-  }
-
-  return dateInfo;
-}
-
 export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
   const spouseContext = buildSpouseContext(data);
   const kidsContext = buildKidsContext(data);
   const hebrewDateContext = buildHebrewDateContext(data);
-  const globalRules = buildGlobalRules(data);
-  const calendarRules = buildCalendarRules(data);
-  const dateInfo = buildDateInfo(data);
+  const globalRules = buildGlobalRulesSection(data.globalRules, '## Пользовательские правила (ВСЕГДА применяйте)');
+  const calendarRules = buildCalendarRulesSection(data.calendarRules, '## Правила для конкретных календарей');
+  const dateInfo = buildDateInfoSection(
+    data.currentGregorianDate,
+    data.summaryGregorianDate,
+    data.culture,
+    data.summaryHebrewDate,
+    data.isRoshChodesh,
+    DATE_INFO_LABELS
+  );
 
   const genderRu = data.userGender === 'male' ? 'мужской род' : 'женский род';
   const spouseGenderRu = data.spouseGender ? (data.spouseGender === 'male' ? 'мужской род' : 'женский род') : null;

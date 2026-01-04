@@ -3,6 +3,23 @@
  */
 
 import { SummaryPromptData } from './types';
+import {
+  buildGlobalRulesSection,
+  buildCalendarRulesSection,
+  buildDateInfoSection,
+  DateInfoLabels
+} from '../shared-builders';
+
+// English labels for date info section
+const DATE_INFO_LABELS: DateInfoLabels = {
+  header: 'DATE INFORMATION:',
+  currentDate: 'Current Date (Today)',
+  summaryDate: 'Summary Date',
+  hebrewDate: 'Hebrew Date (Summary)',
+  roshChodesh: 'Rosh Chodesh',
+  yes: 'YES',
+  no: 'NO'
+};
 
 function buildSpouseContext(data: SummaryPromptData): string {
   if (!data.hasSpouseCalendar) return '';
@@ -44,59 +61,20 @@ function buildHebrewDateContext(data: SummaryPromptData): string {
 `;
 }
 
-function buildGlobalRules(data: SummaryPromptData): string {
-  if (!data.globalRules || data.globalRules.length === 0) return '';
-
-  const rules = data.globalRules
-    .filter(r => r.trim())
-    .map((rule, i) => `${i + 1}. ${rule}`)
-    .join('\n');
-
-  if (!rules) return '';
-
-  return `
-## User's Custom Rules (ALWAYS apply these)
-${rules}
-`;
-}
-
-function buildCalendarRules(data: SummaryPromptData): string {
-  if (!data.calendarRules || data.calendarRules.length === 0) return '';
-
-  const rules = data.calendarRules
-    .filter(r => r.rule?.trim())
-    .map(r => `- **${r.calendarName}**: ${r.rule}`)
-    .join('\n');
-
-  if (!rules) return '';
-
-  return `
-## Calendar-Specific Rules
-${rules}
-`;
-}
-
-function buildDateInfo(data: SummaryPromptData): string {
-  let dateInfo = `**DATE INFORMATION:**
-- Current Date (Today): ${data.currentGregorianDate}
-- Summary Date: ${data.summaryGregorianDate}`;
-
-  if (data.culture === 'jewish') {
-    dateInfo += `
-- Hebrew Date (Summary): ${data.summaryHebrewDate}
-- Rosh Chodesh: ${data.isRoshChodesh ? 'YES' : 'NO'}`;
-  }
-
-  return dateInfo;
-}
-
 export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
   const spouseContext = buildSpouseContext(data);
   const kidsContext = buildKidsContext(data);
   const hebrewDateContext = buildHebrewDateContext(data);
-  const globalRules = buildGlobalRules(data);
-  const calendarRules = buildCalendarRules(data);
-  const dateInfo = buildDateInfo(data);
+  const globalRules = buildGlobalRulesSection(data.globalRules, '## User\'s Custom Rules (ALWAYS apply these)');
+  const calendarRules = buildCalendarRulesSection(data.calendarRules, '## Calendar-Specific Rules');
+  const dateInfo = buildDateInfoSection(
+    data.currentGregorianDate,
+    data.summaryGregorianDate,
+    data.culture,
+    data.summaryHebrewDate,
+    data.isRoshChodesh,
+    DATE_INFO_LABELS
+  );
 
   const spouseLabel = data.spouseName || 'Spouse';
   const spouseNameLine = data.hasSpouseCalendar

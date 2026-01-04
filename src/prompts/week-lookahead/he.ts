@@ -3,6 +3,7 @@
  */
 
 import { WeekLookaheadPromptData, LookaheadDayData } from './types';
+import { buildGlobalRulesSection } from '../shared-builders';
 
 function buildSpouseContext(data: WeekLookaheadPromptData): string {
   if (!data.hasSpouseCalendar) return '';
@@ -29,21 +30,6 @@ function buildHebrewDateContext(data: WeekLookaheadPromptData): string {
 - כלול תאריכים עבריים לצד התאריכים הלועזיים
 - תחילת השבוע: ${startHebrew}
 - סוף השבוע: ${data.weekEndHebrew}`;
-}
-
-function buildGlobalRules(data: WeekLookaheadPromptData): string {
-  if (!data.globalRules || data.globalRules.length === 0) return '';
-
-  const rules = data.globalRules
-    .filter(r => r.trim())
-    .map((rule, i) => `${i + 1}. ${rule}`)
-    .join('\n');
-
-  if (!rules) return '';
-
-  return `
-## כללים מותאמים של המשתמש (החל כשרלוונטי)
-${rules}`;
 }
 
 function formatEventsForDay(day: LookaheadDayData): string {
@@ -77,7 +63,7 @@ export function buildWeekLookaheadPrompt(data: WeekLookaheadPromptData): string 
   const spouseContext = buildSpouseContext(data);
   const kidsContext = buildKidsContext(data);
   const hebrewDateContext = buildHebrewDateContext(data);
-  const globalRules = buildGlobalRules(data);
+  const globalRules = buildGlobalRulesSection(data.globalRules, '## כללים מותאמים של המשתמש (החל כשרלוונטי)');
   const eventsSection = buildEventsSection(data);
 
   const genderForm = data.userGender === 'female' ? 'לך' : 'לך';
