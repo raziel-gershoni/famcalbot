@@ -736,6 +736,102 @@ function setupHandlers(bot: TelegramBot) {
 }
 
 /**
+ * Shared summary preparation logic - used by both user-invoked and scheduled flows
+ * @returns The generated summary text and date header
+ */
+interface PreparedSummary {
+  summary: string;
+  dateHeader: string;
+}
+
+async function prepareSummaryForUser(
+  user: UserConfig,
+  fetchFunction: (refreshToken: string, calendarIds: string[]) => Promise<CalendarEvent[]>,
+  summaryDate: Date | undefined,
+  modelId?: string
+): Promise<PreparedSummary> {
+  // Extract all calendar IDs from assignments
+  const allCalendarIds = user.calendarAssignments?.map(a => a.calendarId) || [];
+
+  // Fetch calendar events
+  const events = await fetchFunction(user.googleRefreshToken, allCalendarIds);
+
+  // Categorize events by ownership
+  const categorized = categorizeEvents(events, user);
+
+  // Extract primary calendar ID
+  const primaryCalendar = user.calendarAssignments
+    ? getPrimaryCalendar(user.calendarAssignments) || ''
+    : '';
+
+  // Get spouse info from calendar assignment or legacy fields
+  const spouseInfo = getSpouseInfo(user);
+
+  // Build user context for summary generation
+  const userContext: SummaryUserContext = {
+    culture: user.culture,
+    globalRules: user.globalRules,
+    calendarAssignments: user.calendarAssignments,
+  };
+
+  // Fetch week lookahead if enabled for tomorrow summary
+  let weekLookaheadText: string | undefined;
+  if (summaryDate && user.includeLookaheadInTomorrow) {
+    try {
+      const { getWeekLookahead } = await import('./week-lookahead');
+      // Pass summaryDate so lookahead is calculated from tomorrow's perspective
+      const lookahead = await getWeekLookahead(user, user.calendarAssignments || [], summaryDate);
+
+      // Format lookahead events as text for the prompt
+      if (lookahead.events.length > 0) {
+        weekLookaheadText = lookahead.events
+          .filter(e => e.daysFromNow > 1) // Exclude tomorrow (it's the main summary)
+          .map(e => {
+            const dayName = e.start.toLocaleDateString('en-US', { weekday: 'long', timeZone: TIMEZONE });
+            const time = e.start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
+            return `${dayName}: ${e.summary} at ${time} (${e.calendarName})`;
+          })
+          .join('\n');
+      }
+    } catch (error) {
+      console.error('Failed to fetch week lookahead:', error);
+      // Continue without lookahead if it fails
+    }
+  }
+
+  // Generate summary with AI (personalized for this user)
+  const summary = await generateSummary(
+    categorized.userEvents,
+    categorized.spouseEvents,
+    categorized.otherEvents,
+    user.name,
+    user.englishName,
+    user.gender,
+    spouseInfo?.name,
+    spouseInfo?.englishName,
+    spouseInfo?.gender,
+    primaryCalendar,
+    summaryDate,
+    user.isAdmin,
+    modelId,
+    user.location,
+    user.language,
+    userContext,
+    user.weatherEnabled,
+    weekLookaheadText
+  );
+
+  // Generate date header for voice-only delivery
+  const dateHeader = formatDateHeader(
+    summaryDate || new Date(),
+    user.language,
+    user.culture
+  );
+
+  return { summary, dateHeader };
+}
+
+/**
  * Generic function to send summary to a specific user
  * Uses animated progress messages that get edited with the final result
  * @param userId - Telegram user ID
@@ -783,84 +879,8 @@ async function sendSummaryToUser(
   }
 
   try {
-    // Extract all calendar IDs from assignments
-    const allCalendarIds = user.calendarAssignments?.map(a => a.calendarId) || [];
-
-    // Fetch calendar events
-    const events = await fetchFunction(user.googleRefreshToken, allCalendarIds);
-
-    // Categorize events by ownership
-    const categorized = categorizeEvents(events, user);
-
-    // Extract primary calendar ID
-    const primaryCalendar = user.calendarAssignments
-      ? getPrimaryCalendar(user.calendarAssignments) || ''
-      : '';
-
-    // Get spouse info from calendar assignment or legacy fields
-    const spouseInfo = getSpouseInfo(user);
-
-    // Build user context for summary generation
-    const userContext: SummaryUserContext = {
-      culture: user.culture,
-      globalRules: user.globalRules,
-      calendarAssignments: user.calendarAssignments,
-    };
-
-    // Fetch week lookahead if enabled for tomorrow summary
-    let weekLookaheadText: string | undefined;
-    if (summaryDate && user.includeLookaheadInTomorrow) {
-      try {
-        const { getWeekLookahead } = await import('./week-lookahead');
-        // Pass summaryDate so lookahead is calculated from tomorrow's perspective
-        const lookahead = await getWeekLookahead(user, user.calendarAssignments || [], summaryDate);
-
-        // Format lookahead events as text for the prompt
-        if (lookahead.events.length > 0) {
-          weekLookaheadText = lookahead.events
-            .filter(e => e.daysFromNow > 1) // Exclude tomorrow (it's the main summary)
-            .map(e => {
-              const dayName = e.start.toLocaleDateString('en-US', { weekday: 'long', timeZone: TIMEZONE });
-              const time = e.start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
-              return `${dayName}: ${e.summary} at ${time} (${e.calendarName})`;
-            })
-            .join('\n');
-        }
-      } catch (error) {
-        console.error('Failed to fetch week lookahead for tomorrow summary:', error);
-        // Continue without lookahead if it fails
-      }
-    }
-
-    // Generate summary with AI (personalized for this user)
-    // Include model info footer only for admin user
-    const summary = await generateSummary(
-      categorized.userEvents,
-      categorized.spouseEvents,
-      categorized.otherEvents,
-      user.name,
-      user.englishName,
-      user.gender,
-      spouseInfo?.name,
-      spouseInfo?.englishName,
-      spouseInfo?.gender,
-      primaryCalendar,
-      summaryDate,
-      user.isAdmin,
-      modelId,
-      user.location,
-      user.language,
-      userContext,
-      user.weatherEnabled,
-      weekLookaheadText
-    );
-
-    // Generate date header for voice-only delivery
-    const dateHeader = formatDateHeader(
-      summaryDate || new Date(),
-      user.language,
-      user.culture
-    );
+    // Use shared preparation logic
+    const { summary, dateHeader } = await prepareSummaryForUser(user, fetchFunction, summaryDate, modelId);
 
     // Stop animation and deliver via unified pipeline
     stopAnimation();
@@ -978,84 +998,8 @@ async function sendSummaryToAll(
       }
 
       try {
-        // Extract calendar IDs for this specific user
-        const allCalendarIds = user.calendarAssignments?.map(a => a.calendarId) || [];
-
-        // Fetch calendar events for this user's selected calendars
-        const events = await fetchFunction(user.googleRefreshToken, allCalendarIds);
-
-        // Categorize events by ownership for this user
-        const categorized = categorizeEvents(events, user);
-
-        // Extract primary calendar ID for this user
-        const primaryCalendar = user.calendarAssignments
-          ? getPrimaryCalendar(user.calendarAssignments) || ''
-          : '';
-
-        // Get spouse info from calendar assignment or legacy fields
-        const spouseInfo = getSpouseInfo(user);
-
-        // Build user context for summary generation
-        const userContext: SummaryUserContext = {
-          culture: user.culture,
-          globalRules: user.globalRules,
-          calendarAssignments: user.calendarAssignments,
-        };
-
-        // Fetch week lookahead if enabled for tomorrow summary
-        let weekLookaheadText: string | undefined;
-        if (summaryDate && user.includeLookaheadInTomorrow) {
-          try {
-            const { getWeekLookahead } = await import('./week-lookahead');
-            // Pass summaryDate so lookahead is calculated from tomorrow's perspective
-            const lookahead = await getWeekLookahead(user, user.calendarAssignments || [], summaryDate);
-
-            // Format lookahead events as text for the prompt
-            if (lookahead.events.length > 0) {
-              weekLookaheadText = lookahead.events
-                .filter(e => e.daysFromNow > 1) // Exclude tomorrow (it's the main summary)
-                .map(e => {
-                  const dayName = e.start.toLocaleDateString('en-US', { weekday: 'long', timeZone: TIMEZONE });
-                  const time = e.start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
-                  return `${dayName}: ${e.summary} at ${time} (${e.calendarName})`;
-                })
-                .join('\n');
-            }
-          } catch (error) {
-            console.error('Failed to fetch week lookahead for scheduled tomorrow summary:', error);
-            // Continue without lookahead if it fails
-          }
-        }
-
-        // Generate personalized summary for this specific user
-        // Include model info footer only for admin user
-        const summary = await generateSummary(
-          categorized.userEvents,
-          categorized.spouseEvents,
-          categorized.otherEvents,
-          user.name,
-          user.englishName,
-          user.gender,
-          spouseInfo?.name,
-          spouseInfo?.englishName,
-          spouseInfo?.gender,
-          primaryCalendar,
-          summaryDate,
-          user.isAdmin,
-          undefined,
-          user.location,
-          user.language,
-          userContext,
-          user.weatherEnabled,
-          weekLookaheadText
-        );
-
-        // Generate date header for voice-only delivery
-        const dateHeader = formatDateHeader(
-          summaryDate || new Date(),
-          user.language,
-          user.culture
-        );
+        // Use shared preparation logic
+        const { summary, dateHeader } = await prepareSummaryForUser(user, fetchFunction, summaryDate);
 
         // Deliver via unified pipeline (handles text/voice preferences and platform routing)
         await deliverSummary({
