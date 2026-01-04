@@ -14,6 +14,7 @@ import { buildUrl } from '../config/urls';
 import { UserConfig } from '../types';
 import { getBotMessages } from '../lib/bot-messages';
 import { generateAICompletion } from './ai-provider';
+import { fromZonedTime } from 'date-fns-tz';
 
 interface TelegramVoice {
   file_id: string;
@@ -1042,16 +1043,25 @@ function convertEditRequestToUpdates(
     const originalEnd = new Date(originalEvent.end);
     const duration = originalEnd.getTime() - originalStart.getTime();
 
-    // Build new start time
-    const newStartDate = editRequest.newStartDate || originalStart.toISOString().split('T')[0];
-    const newStartTime = editRequest.newStartTime || originalStart.toISOString().split('T')[1].substring(0, 5);
-    updates.startTime = new Date(`${newStartDate}T${newStartTime}:00`);
+    // Build new start time - AI returns times in user's timezone (Israel)
+    // Use original event's date in Israel timezone if not specified
+    const originalStartLocal = originalStart.toLocaleString('sv-SE', { timeZone: TIMEZONE });
+    const [originalDatePart, originalTimePart] = originalStartLocal.split(' ');
+
+    const newStartDate = editRequest.newStartDate || originalDatePart;
+    const newStartTime = editRequest.newStartTime || originalTimePart.substring(0, 5);
+
+    // Convert Israel time to UTC using fromZonedTime
+    updates.startTime = fromZonedTime(`${newStartDate}T${newStartTime}:00`, TIMEZONE);
 
     // If end time also provided, use it; otherwise preserve duration
     if (editRequest.newEndDate || editRequest.newEndTime) {
-      const newEndDate = editRequest.newEndDate || originalEnd.toISOString().split('T')[0];
-      const newEndTime = editRequest.newEndTime || originalEnd.toISOString().split('T')[1].substring(0, 5);
-      updates.endTime = new Date(`${newEndDate}T${newEndTime}:00`);
+      const originalEndLocal = originalEnd.toLocaleString('sv-SE', { timeZone: TIMEZONE });
+      const [originalEndDatePart, originalEndTimePart] = originalEndLocal.split(' ');
+
+      const newEndDate = editRequest.newEndDate || originalEndDatePart;
+      const newEndTime = editRequest.newEndTime || originalEndTimePart.substring(0, 5);
+      updates.endTime = fromZonedTime(`${newEndDate}T${newEndTime}:00`, TIMEZONE);
     } else {
       updates.endTime = new Date(updates.startTime.getTime() + duration);
     }
