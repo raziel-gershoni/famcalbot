@@ -318,3 +318,288 @@ export async function createEvent(
     };
   }
 }
+
+/**
+ * Fetch events from multiple calendars within a date range
+ * @param refreshToken - Google OAuth refresh token
+ * @param calendarIds - Array of calendar IDs to fetch from
+ * @param startDate - Start of the range
+ * @param endDate - End of the range
+ * @returns Array of calendar events sorted by start time
+ */
+export async function fetchEventsInRange(
+  refreshToken: string,
+  calendarIds: string[],
+  startDate: Date,
+  endDate: Date
+): Promise<CalendarEvent[]> {
+  const calendar = getCalendarClient(refreshToken);
+
+  const allEvents: CalendarEvent[] = [];
+
+  for (const calendarId of calendarIds) {
+    try {
+      // Fetch calendar metadata to get the display name
+      const calendarInfo = await calendar.calendars.get({
+        calendarId: calendarId,
+      });
+      const calendarName = calendarInfo.data.summary || calendarId;
+
+      const response = await calendar.events.list({
+        calendarId: calendarId,
+        timeMin: startDate.toISOString(),
+        timeMax: endDate.toISOString(),
+        singleEvents: true,
+        orderBy: 'startTime',
+        timeZone: TIMEZONE,
+      });
+
+      const events = response.data.items || [];
+
+      for (const event of events) {
+        allEvents.push({
+          summary: event.summary || 'No title',
+          start: event.start?.dateTime || event.start?.date || '',
+          end: event.end?.dateTime || event.end?.date || '',
+          description: event.description || undefined,
+          location: event.location || undefined,
+          calendarName: calendarName,
+          calendarId: calendarId,
+          eventType: event.eventType || undefined,
+          recurringEventId: event.recurringEventId || undefined,
+          eventId: event.id || undefined,
+          reminders: event.reminders ? {
+            useDefault: event.reminders.useDefault || false,
+            overrides: event.reminders.overrides?.map(o => ({
+              method: o.method || 'popup',
+              minutes: o.minutes || 0,
+            })),
+          } : undefined,
+        });
+      }
+    } catch (error) {
+      console.error(`Error fetching calendar ${calendarId}:`, error);
+
+      if (isTokenError(error)) {
+        throw new Error('GOOGLE_TOKEN_EXPIRED');
+      }
+      // Continue with other calendars if it's a different error
+    }
+  }
+
+  // Sort all events by start time
+  allEvents.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+
+  return allEvents;
+}
+
+/**
+ * Event data for updating an existing calendar event
+ */
+export interface UpdateEventData {
+  title?: string;
+  startTime?: Date;
+  endTime?: Date;
+  description?: string;
+  location?: string;
+  allDay?: boolean;
+}
+
+/**
+ * Result of updating a calendar event
+ */
+export interface UpdateEventResult {
+  success: boolean;
+  eventId?: string;
+  eventLink?: string;
+  error?: 'PERMISSION_DENIED' | 'TOKEN_EXPIRED' | 'NOT_FOUND' | 'UNKNOWN_ERROR';
+  errorMessage?: string;
+}
+
+/**
+ * Update an existing event in Google Calendar
+ * Uses PATCH for partial updates (only specified fields are changed)
+ * @param refreshToken - Google OAuth refresh token
+ * @param calendarId - Calendar ID containing the event
+ * @param eventId - ID of the event to update
+ * @param updates - Fields to update (only specified fields will change)
+ * @returns Result with event ID and link, or error information
+ */
+export async function updateEvent(
+  refreshToken: string,
+  calendarId: string,
+  eventId: string,
+  updates: UpdateEventData
+): Promise<UpdateEventResult> {
+  const calendar = getCalendarClient(refreshToken);
+
+  try {
+    // Build update request body with only specified fields
+    const updateBody: calendar_v3.Schema$Event = {};
+
+    if (updates.title !== undefined) {
+      updateBody.summary = updates.title;
+    }
+    if (updates.description !== undefined) {
+      updateBody.description = updates.description;
+    }
+    if (updates.location !== undefined) {
+      updateBody.location = updates.location;
+    }
+
+    // Handle time updates
+    if (updates.startTime !== undefined || updates.endTime !== undefined || updates.allDay !== undefined) {
+      // First fetch the current event to get existing times if needed
+      const currentEvent = await calendar.events.get({
+        calendarId: calendarId,
+        eventId: eventId,
+      });
+
+      const existingStart = currentEvent.data.start;
+      const existingEnd = currentEvent.data.end;
+      const isCurrentlyAllDay = !existingStart?.dateTime;
+
+      const newAllDay = updates.allDay ?? isCurrentlyAllDay;
+      const startTime = updates.startTime ?? (existingStart?.dateTime ? new Date(existingStart.dateTime) : new Date(existingStart?.date || ''));
+      const endTime = updates.endTime ?? (existingEnd?.dateTime ? new Date(existingEnd.dateTime) : new Date(existingEnd?.date || ''));
+
+      if (newAllDay) {
+        updateBody.start = {
+          date: format(startTime, 'yyyy-MM-dd'),
+          timeZone: TIMEZONE,
+        };
+        updateBody.end = {
+          date: format(endTime, 'yyyy-MM-dd'),
+          timeZone: TIMEZONE,
+        };
+      } else {
+        updateBody.start = {
+          dateTime: startTime.toISOString(),
+          timeZone: TIMEZONE,
+        };
+        updateBody.end = {
+          dateTime: endTime.toISOString(),
+          timeZone: TIMEZONE,
+        };
+      }
+    }
+
+    const response = await calendar.events.patch({
+      calendarId: calendarId,
+      eventId: eventId,
+      requestBody: updateBody,
+    });
+
+    return {
+      success: true,
+      eventId: response.data.id || undefined,
+      eventLink: response.data.htmlLink || undefined,
+    };
+  } catch (error) {
+    console.error('Error updating calendar event:', error);
+
+    if (isTokenError(error)) {
+      return {
+        success: false,
+        error: 'TOKEN_EXPIRED',
+        errorMessage: 'Google Calendar access has expired. Please re-authorize.',
+      };
+    }
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    // Check for not found error
+    if (errorMessage.includes('notFound') || errorMessage.includes('404')) {
+      return {
+        success: false,
+        error: 'NOT_FOUND',
+        errorMessage: 'Event not found. It may have been deleted.',
+      };
+    }
+
+    if (errorMessage.includes('insufficientPermissions') ||
+        errorMessage.includes('forbidden') ||
+        errorMessage.includes('403')) {
+      return {
+        success: false,
+        error: 'PERMISSION_DENIED',
+        errorMessage: 'You do not have permission to edit this event.',
+      };
+    }
+
+    return {
+      success: false,
+      error: 'UNKNOWN_ERROR',
+      errorMessage: errorMessage,
+    };
+  }
+}
+
+/**
+ * Result of deleting a calendar event
+ */
+export interface DeleteEventResult {
+  success: boolean;
+  error?: 'PERMISSION_DENIED' | 'TOKEN_EXPIRED' | 'NOT_FOUND' | 'UNKNOWN_ERROR';
+  errorMessage?: string;
+}
+
+/**
+ * Delete an event from Google Calendar
+ * @param refreshToken - Google OAuth refresh token
+ * @param calendarId - Calendar ID containing the event
+ * @param eventId - ID of the event to delete
+ * @returns Result indicating success or error information
+ */
+export async function deleteEvent(
+  refreshToken: string,
+  calendarId: string,
+  eventId: string
+): Promise<DeleteEventResult> {
+  const calendar = getCalendarClient(refreshToken);
+
+  try {
+    await calendar.events.delete({
+      calendarId: calendarId,
+      eventId: eventId,
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting calendar event:', error);
+
+    if (isTokenError(error)) {
+      return {
+        success: false,
+        error: 'TOKEN_EXPIRED',
+        errorMessage: 'Google Calendar access has expired. Please re-authorize.',
+      };
+    }
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    if (errorMessage.includes('notFound') || errorMessage.includes('404')) {
+      return {
+        success: false,
+        error: 'NOT_FOUND',
+        errorMessage: 'Event not found. It may have already been deleted.',
+      };
+    }
+
+    if (errorMessage.includes('insufficientPermissions') ||
+        errorMessage.includes('forbidden') ||
+        errorMessage.includes('403')) {
+      return {
+        success: false,
+        error: 'PERMISSION_DENIED',
+        errorMessage: 'You do not have permission to delete this event.',
+      };
+    }
+
+    return {
+      success: false,
+      error: 'UNKNOWN_ERROR',
+      errorMessage: errorMessage,
+    };
+  }
+}
