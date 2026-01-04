@@ -66,8 +66,7 @@ export async function transcribeVoice(
     // Convert buffer to base64 for API
     const audioContent = audioBuffer.toString('base64');
 
-    // Use Chirp 2 model for best multilingual accuracy
-    // Chirp 2 is available in Speech-to-Text V2 API
+    // Use default model which supports all languages including Hebrew
     const [response] = await client.recognize({
       config: {
         // OGG_OPUS is the format Telegram uses for voice messages
@@ -77,10 +76,6 @@ export async function transcribeVoice(
         languageCode: languageCode,
         // Enable automatic punctuation for better readability
         enableAutomaticPunctuation: true,
-        // Use enhanced model for better accuracy
-        model: 'latest_long',
-        // Alternative languages for auto-detection
-        alternativeLanguageCodes: Object.values(LANGUAGE_CODES).filter(code => code !== languageCode),
       },
       audio: {
         content: audioContent,
