@@ -384,24 +384,15 @@ export async function handleVoiceMessage(
     );
 
     if (!parseResult.success || !parseResult.event) {
-      // Check if we need clarification
-      if (parseResult.needsClarification && parseResult.clarificationQuestion) {
-        await messagingService.updateMessage(chatId, processingMsgId,
-          `${t.voice.iHeard} "<i>${transcription.text}</i>"\n\n` +
-          `❓ ${parseResult.clarificationQuestion}`,
-          { format: MessageFormat.HTML }
-        );
-      } else {
-        await messagingService.updateMessage(chatId, processingMsgId,
-          `${t.voice.notUnderstood}\n\n` +
-          `${t.voice.iHeard} "<i>${transcription.text}</i>"\n\n` +
-          `${t.voice.tryExamples}\n` +
-          `• "${t.voice.example1}"\n` +
-          `• "${t.voice.example2}"\n` +
-          `• "${t.voice.example3}"`,
-          { format: MessageFormat.HTML }
-        );
-      }
+      await messagingService.updateMessage(chatId, processingMsgId,
+        `${t.voice.notUnderstood}\n\n` +
+        `${t.voice.iHeard} "<i>${transcription.text}</i>"\n\n` +
+        `${t.voice.tryExamples}\n` +
+        `• "${t.voice.example1}"\n` +
+        `• "${t.voice.example2}"\n` +
+        `• "${t.voice.example3}"`,
+        { format: MessageFormat.HTML }
+      );
       return;
     }
 
