@@ -324,8 +324,18 @@ export async function handleVoiceMessage(
 
     // Check if voice input is enabled for this user
     if (!user.voiceInputEnabled) {
-      console.log(`[Voice] Voice input disabled for user ${userId}, ignoring`);
-      return; // Silently ignore voice messages if feature is disabled
+      console.log(`[Voice] Voice input disabled for user ${userId}, sending settings prompt`);
+      const bot = getBot();
+      const settingsUrl = buildUrl(`/${user.language || 'en'}/settings?user_id=${userId}`);
+      await bot.sendMessage(chatId, t.voice.featureDisabled, {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: t.voice.enableInSettings, web_app: { url: settingsUrl } }
+          ]]
+        }
+      });
+      return;
     }
 
     // Check if user has Google token
