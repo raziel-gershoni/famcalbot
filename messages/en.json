@@ -360,7 +360,28 @@
       "accessExpiredMessage": "Your Google Calendar access has expired.\n\nPlease tap the button below to re-authorize:",
       "reauthorize": "🔄 Re-authorize Calendar",
       "failedToCreate": "❌ <b>Failed to create event</b>",
-      "unknownError": "Unknown error occurred."
+      "unknownError": "Unknown error occurred.",
+      "editConfirmTitle": "📝 <b>Edit this event?</b>",
+      "currentEvent": "Current:",
+      "changes": "Changes:",
+      "confirmEditButton": "✅ Confirm Edit",
+      "edited": "✅ <b>Event updated!</b>",
+      "updating": "Updating...",
+      "updatingEvent": "⏳ Updating event...",
+      "failedToUpdate": "❌ <b>Failed to update event</b>",
+      "deleteConfirmTitle": "🗑️ <b>Delete this event?</b>",
+      "deleteButton": "🗑️ Delete",
+      "keepButton": "❌ Keep",
+      "deleted": "✅ <b>Event deleted!</b>",
+      "deleting": "Deleting...",
+      "deletingEvent": "⏳ Deleting event...",
+      "failedToDelete": "❌ <b>Failed to delete event</b>",
+      "kept": "Kept",
+      "keptMessage": "✅ Event kept.",
+      "noLastEvent": "❌ No recent event found. Try specifying which event to edit.",
+      "noEventsFound": "❌ No events found in that time range.",
+      "ambiguousEvent": "🤔 Found multiple matching events. Please be more specific.",
+      "eventNotFound": "❌ Couldn't find that event."
     }
   }
 }

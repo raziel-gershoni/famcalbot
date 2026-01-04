@@ -360,7 +360,28 @@
       "accessExpiredMessage": "הגישה ליומן Google שלך פגה.\n\nאנא לחץ על הכפתור למטה לאימות מחדש:",
       "reauthorize": "🔄 אמת מחדש",
       "failedToCreate": "❌ <b>יצירת האירוע נכשלה</b>",
-      "unknownError": "אירעה שגיאה לא ידועה."
+      "unknownError": "אירעה שגיאה לא ידועה.",
+      "editConfirmTitle": "📝 <b>לערוך אירוע זה?</b>",
+      "currentEvent": "נוכחי:",
+      "changes": "שינויים:",
+      "confirmEditButton": "✅ אשר עריכה",
+      "edited": "✅ <b>האירוע עודכן!</b>",
+      "updating": "מעדכן...",
+      "updatingEvent": "⏳ מעדכן אירוע...",
+      "failedToUpdate": "❌ <b>עדכון האירוע נכשל</b>",
+      "deleteConfirmTitle": "🗑️ <b>למחוק אירוע זה?</b>",
+      "deleteButton": "🗑️ מחק",
+      "keepButton": "❌ השאר",
+      "deleted": "✅ <b>האירוע נמחק!</b>",
+      "deleting": "מוחק...",
+      "deletingEvent": "⏳ מוחק אירוע...",
+      "failedToDelete": "❌ <b>מחיקת האירוע נכשלה</b>",
+      "kept": "נשמר",
+      "keptMessage": "✅ האירוע נשמר.",
+      "noLastEvent": "❌ לא נמצא אירוע אחרון. נסה לציין איזה אירוע לערוך.",
+      "noEventsFound": "❌ לא נמצאו אירועים בטווח הזמן הזה.",
+      "ambiguousEvent": "🤔 נמצאו מספר אירועים תואמים. אנא היה יותר ספציפי.",
+      "eventNotFound": "❌ לא הצלחתי למצוא את האירוע."
     }
   }
 }
