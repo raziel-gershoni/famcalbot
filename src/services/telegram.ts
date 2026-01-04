@@ -1002,6 +1002,31 @@ async function sendSummaryToAll(
           calendarAssignments: user.calendarAssignments,
         };
 
+        // Fetch week lookahead if enabled for tomorrow summary
+        let weekLookaheadText: string | undefined;
+        if (summaryDate && user.includeLookaheadInTomorrow) {
+          try {
+            const { getWeekLookahead } = await import('./week-lookahead');
+            // Pass summaryDate so lookahead is calculated from tomorrow's perspective
+            const lookahead = await getWeekLookahead(user, user.calendarAssignments || [], summaryDate);
+
+            // Format lookahead events as text for the prompt
+            if (lookahead.events.length > 0) {
+              weekLookaheadText = lookahead.events
+                .filter(e => e.daysFromNow > 1) // Exclude tomorrow (it's the main summary)
+                .map(e => {
+                  const dayName = e.start.toLocaleDateString('en-US', { weekday: 'long', timeZone: TIMEZONE });
+                  const time = e.start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
+                  return `${dayName}: ${e.summary} at ${time} (${e.calendarName})`;
+                })
+                .join('\n');
+            }
+          } catch (error) {
+            console.error('Failed to fetch week lookahead for scheduled tomorrow summary:', error);
+            // Continue without lookahead if it fails
+          }
+        }
+
         // Generate personalized summary for this specific user
         // Include model info footer only for admin user
         const summary = await generateSummary(
@@ -1021,7 +1046,8 @@ async function sendSummaryToAll(
           user.location,
           user.language,
           userContext,
-          user.weatherEnabled
+          user.weatherEnabled,
+          weekLookaheadText
         );
 
         // Generate date header for voice-only delivery
