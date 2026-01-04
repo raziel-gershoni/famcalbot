@@ -14,12 +14,17 @@ interface PageProps {
     code?: string;
     state?: string;
     user_id?: string;
+    scope?: 'read' | 'write'; // 'write' for calendar event creation
   }>;
 }
 
+// OAuth scopes
+const CALENDAR_SCOPE_READ = 'https://www.googleapis.com/auth/calendar.readonly';
+const CALENDAR_SCOPE_WRITE = 'https://www.googleapis.com/auth/calendar.events';
+
 export default async function RefreshTokenPage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const { code, state, user_id } = params;
+  const { code, state, user_id, scope: requestedScope } = params;
 
   // If OAuth callback → redirect to dedicated handler
   if (code && state) {
@@ -78,6 +83,12 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
     'refresh-token.createState'
   );
 
+  // Determine OAuth scope based on request
+  // 'write' scope includes both read and write permissions for calendar events
+  const oauthScope = requestedScope === 'write'
+    ? `${CALENDAR_SCOPE_READ} ${CALENDAR_SCOPE_WRITE}`
+    : CALENDAR_SCOPE_READ;
+
   // Generate OAuth URL
   const baseUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
   const redirectUri = buildUrl('/api/refresh-token');
@@ -85,7 +96,7 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
     client_id: process.env.GOOGLE_CLIENT_ID || '',
     redirect_uri: redirectUri,
     response_type: 'code',
-    scope: 'https://www.googleapis.com/auth/calendar.readonly',
+    scope: oauthScope,
     access_type: 'offline',
     prompt: 'consent', // Force consent to get refresh token
     state: stateToken // Secure random token

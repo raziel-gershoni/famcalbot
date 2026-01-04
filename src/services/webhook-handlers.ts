@@ -14,6 +14,7 @@ import {
 } from './telegram';
 import { getUserByWhatsAppPhone } from './user-service';
 import { MessagingPlatform } from './messaging';
+import { handleVoiceMessage, handleEventCallback } from './voice-input-handler';
 
 /**
  * Handle Telegram webhook updates
@@ -38,8 +39,35 @@ export async function handleTelegramWebhook(
         const modelId = parts[0];
         const timeframe = parts[1] || 'today'; // Default to 'today' if not specified
         await handleTestAICallback(chatId, userId, modelId, queryId, timeframe);
+      } else if (data.startsWith('event_create:') || data.startsWith('event_cancel:')) {
+        // Handle event creation callbacks
+        const [action, pendingId] = data.split(':').slice(0, 2);
+        const actionType = action.replace('event_', '');
+        const fullPendingId = data.substring(action.length + 1); // Get everything after "event_create:" or "event_cancel:"
+        const messageId = callbackQuery.message?.message_id;
+        if (messageId) {
+          await handleEventCallback(chatId, messageId, queryId, actionType, fullPendingId);
+        }
       }
     }
+
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  // Handle voice messages for event creation
+  if (update.message?.voice) {
+    const chatId = update.message.chat.id;
+    const userId = update.message.from.id;
+    const voice = update.message.voice;
+    const from = update.message.from;
+
+    console.log(`[Webhook] Voice message received from user ${userId}, duration: ${voice.duration}s`);
+
+    // Process voice message asynchronously (don't block webhook response)
+    handleVoiceMessage(chatId, userId, voice, from).catch(error => {
+      console.error('[Webhook] Error in voice handler:', error);
+    });
 
     res.status(200).json({ ok: true });
     return;

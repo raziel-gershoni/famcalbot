@@ -200,3 +200,121 @@ export async function listUserCalendars(refreshToken: string): Promise<CalendarI
     backgroundColor: cal.backgroundColor || '#039BE5'
   }));
 }
+
+/**
+ * Event data for creating a new calendar event
+ */
+export interface CreateEventData {
+  title: string;
+  startTime: Date;
+  endTime: Date;
+  description?: string;
+  location?: string;
+  allDay?: boolean;
+}
+
+/**
+ * Result of creating a calendar event
+ */
+export interface CreateEventResult {
+  success: boolean;
+  eventId?: string;
+  eventLink?: string;
+  error?: 'PERMISSION_DENIED' | 'TOKEN_EXPIRED' | 'UNKNOWN_ERROR';
+  errorMessage?: string;
+}
+
+/**
+ * Create a new event in Google Calendar
+ * @param refreshToken - Google OAuth refresh token
+ * @param calendarId - Calendar ID to create event in (use 'primary' for user's main calendar)
+ * @param eventData - Event details
+ * @returns Result with event ID and link, or error information
+ */
+export async function createEvent(
+  refreshToken: string,
+  calendarId: string,
+  eventData: CreateEventData
+): Promise<CreateEventResult> {
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET
+  );
+
+  oauth2Client.setCredentials({
+    refresh_token: refreshToken,
+  });
+
+  const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+
+  try {
+    // Build event request body
+    const eventBody: calendar_v3.Schema$Event = {
+      summary: eventData.title,
+      description: eventData.description,
+      location: eventData.location,
+    };
+
+    if (eventData.allDay) {
+      // All-day event uses date format (YYYY-MM-DD)
+      eventBody.start = {
+        date: format(eventData.startTime, 'yyyy-MM-dd'),
+        timeZone: TIMEZONE,
+      };
+      eventBody.end = {
+        date: format(eventData.endTime, 'yyyy-MM-dd'),
+        timeZone: TIMEZONE,
+      };
+    } else {
+      // Timed event uses dateTime format (ISO 8601)
+      eventBody.start = {
+        dateTime: eventData.startTime.toISOString(),
+        timeZone: TIMEZONE,
+      };
+      eventBody.end = {
+        dateTime: eventData.endTime.toISOString(),
+        timeZone: TIMEZONE,
+      };
+    }
+
+    const response = await calendar.events.insert({
+      calendarId: calendarId,
+      requestBody: eventBody,
+    });
+
+    return {
+      success: true,
+      eventId: response.data.id || undefined,
+      eventLink: response.data.htmlLink || undefined,
+    };
+  } catch (error) {
+    console.error('Error creating calendar event:', error);
+
+    // Check for specific error types
+    if (isTokenError(error)) {
+      return {
+        success: false,
+        error: 'TOKEN_EXPIRED',
+        errorMessage: 'Google Calendar access has expired. Please re-authorize.',
+      };
+    }
+
+    // Check for permission denied (scope not granted)
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('insufficientPermissions') ||
+        errorMessage.includes('forbidden') ||
+        errorMessage.includes('403')) {
+      return {
+        success: false,
+        error: 'PERMISSION_DENIED',
+        errorMessage: 'Calendar write permission not granted. Please authorize event creation.',
+      };
+    }
+
+    return {
+      success: false,
+      error: 'UNKNOWN_ERROR',
+      errorMessage: errorMessage,
+    };
+  }
+}
