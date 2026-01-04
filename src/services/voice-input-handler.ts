@@ -288,13 +288,16 @@ export async function handleVoiceMessage(
   voice: TelegramVoice,
   from: TelegramUser
 ): Promise<void> {
+  console.log(`[Voice] Starting voice handler for user ${userId}`);
   const messagingService = getMessagingService();
 
   try {
     // Get user from database
+    console.log(`[Voice] Looking up user ${userId} in database`);
     const user = await getUserByTelegramId(userId);
 
     if (!user) {
+      console.log(`[Voice] User ${userId} not found in database`);
       await messagingService.sendMessage(chatId,
         '❌ Please use /start to register first before creating events.',
         { format: MessageFormat.PLAIN }
@@ -302,8 +305,11 @@ export async function handleVoiceMessage(
       return;
     }
 
+    console.log(`[Voice] User ${userId} found: ${user.name}, hasToken: ${!!user.googleRefreshToken}`);
+
     // Check if user has Google token
     if (!user.googleRefreshToken) {
+      console.log(`[Voice] User ${userId} has no Google refresh token`);
       await messagingService.sendMessage(chatId,
         '❌ Please connect your Google Calendar first to create events.',
         { format: MessageFormat.PLAIN }
