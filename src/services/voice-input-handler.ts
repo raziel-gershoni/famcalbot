@@ -8,7 +8,7 @@ import { getUserByTelegramId } from './user-service';
 import { MessageFormat } from './messaging/types';
 import { transcribeVoice } from './transcription';
 import { parseEventFromText, ParsedEvent, parseVoiceIntent, EventReference, EditRequest, VoiceIntentResult } from './event-parser';
-import { createEvent, CreateEventResult, fetchEventsInRange, CalendarEvent } from './calendar';
+import { createEvent, CreateEventResult, fetchEventsInRange, CalendarEvent, updateEvent, UpdateEventData, UpdateEventResult } from './calendar';
 import { TIMEZONE } from '../config/constants';
 import { buildUrl } from '../config/urls';
 import { UserConfig } from '../types';
@@ -238,6 +238,333 @@ RESPOND IN JSON:
   } catch (error) {
     console.error('[Voice] Error matching event:', error);
     return { error: 'ai_error' };
+  }
+}
+
+/**
+ * Pending edit operation data
+ */
+interface PendingEdit {
+  originalEvent: CalendarEvent;
+  calendarId: string;
+  updates: UpdateEventData;
+  user: UserConfig;
+  transcription: string;
+}
+
+// Store pending edit operations
+const pendingEdits: Map<string, PendingEdit> = new Map();
+
+/**
+ * Format CalendarEvent date/time for display (uses string dates)
+ */
+function formatCalendarEventDateTime(event: CalendarEvent, language: string, allDayText: string): string {
+  const locale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
+  const startDate = new Date(event.start);
+  const endDate = new Date(event.end);
+
+  const dateOptions: Intl.DateTimeFormatOptions = {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    timeZone: TIMEZONE
+  };
+
+  const timeOptions: Intl.DateTimeFormatOptions = {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: TIMEZONE
+  };
+
+  const dateStr = startDate.toLocaleDateString(locale, dateOptions);
+  const startTimeStr = startDate.toLocaleTimeString(locale, timeOptions);
+  const endTimeStr = endDate.toLocaleTimeString(locale, timeOptions);
+
+  // Check if all-day event (no time component)
+  const isAllDay = event.start.length <= 10;  // YYYY-MM-DD format
+
+  if (isAllDay) {
+    return `📆 ${dateStr} (${allDayText})`;
+  }
+
+  return `📆 ${dateStr}\n🕐 ${startTimeStr} - ${endTimeStr}`;
+}
+
+/**
+ * Format the changes being made to an event
+ */
+function formatEditChanges(
+  originalEvent: CalendarEvent,
+  updates: UpdateEventData,
+  language: string
+): string {
+  const locale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
+  const changes: string[] = [];
+
+  const timeOptions: Intl.DateTimeFormatOptions = {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: TIMEZONE
+  };
+
+  const dateOptions: Intl.DateTimeFormatOptions = {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    timeZone: TIMEZONE
+  };
+
+  if (updates.title && updates.title !== originalEvent.summary) {
+    changes.push(`📝 ${originalEvent.summary} → ${updates.title}`);
+  }
+
+  if (updates.startTime) {
+    const originalStart = new Date(originalEvent.start);
+    const newStart = updates.startTime;
+
+    // Check if date changed
+    const originalDateStr = originalStart.toLocaleDateString(locale, dateOptions);
+    const newDateStr = newStart.toLocaleDateString(locale, dateOptions);
+    if (originalDateStr !== newDateStr) {
+      changes.push(`📆 ${originalDateStr} → ${newDateStr}`);
+    }
+
+    // Check if time changed
+    const originalTimeStr = originalStart.toLocaleTimeString(locale, timeOptions);
+    const newTimeStr = newStart.toLocaleTimeString(locale, timeOptions);
+    if (originalTimeStr !== newTimeStr) {
+      changes.push(`🕐 ${originalTimeStr} → ${newTimeStr}`);
+    }
+  }
+
+  if (updates.location) {
+    const originalLoc = originalEvent.location || '(none)';
+    changes.push(`📍 ${originalLoc} → ${updates.location}`);
+  }
+
+  return changes.length > 0 ? changes.join('\n') : '(no changes detected)';
+}
+
+/**
+ * Show edit confirmation with inline keyboard
+ */
+export async function showEditConfirmation(
+  chatId: number,
+  messageId: number,
+  originalEvent: CalendarEvent,
+  calendarId: string,
+  updates: UpdateEventData,
+  transcription: string,
+  user: UserConfig
+): Promise<void> {
+  const bot = getBot();
+  const t = await getBotMessages(user.language || 'en');
+
+  // Generate unique ID for this pending edit
+  const pendingId = `${chatId}:${Date.now()}`;
+
+  // Store pending edit
+  pendingEdits.set(pendingId, { originalEvent, calendarId, updates, user, transcription });
+
+  // Clean up old pending edits (older than 10 minutes)
+  const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
+  for (const [key] of pendingEdits.entries()) {
+    const timestamp = parseInt(key.split(':')[1]);
+    if (timestamp < tenMinutesAgo) {
+      pendingEdits.delete(key);
+    }
+  }
+
+  const currentInfo = formatCalendarEventDateTime(originalEvent, user.language || 'en', t.voice?.allDay || 'All day');
+  const changesInfo = formatEditChanges(originalEvent, updates, user.language || 'en');
+
+  // Use localized messages with fallbacks
+  const editTitle = t.voice?.editConfirmTitle || '📝 <b>Edit this event?</b>';
+  const currentLabel = t.voice?.currentEvent || 'Current:';
+  const changesLabel = t.voice?.changes || 'Changes:';
+  const confirmBtn = t.voice?.confirmEditButton || '✅ Confirm Edit';
+  const cancelBtn = t.voice?.cancelButton || '❌ Cancel';
+  const fromLabel = t.voice?.from || 'From:';
+
+  const confirmationMessage =
+    `${editTitle}\n\n` +
+    `<b>${currentLabel}</b>\n` +
+    `📅 ${originalEvent.summary}\n` +
+    `${currentInfo}\n\n` +
+    `<b>${changesLabel}</b>\n` +
+    `${changesInfo}\n\n` +
+    `<i>${fromLabel} "${transcription}"</i>`;
+
+  // Update message with confirmation buttons
+  await bot.editMessageText(confirmationMessage, {
+    chat_id: chatId,
+    message_id: messageId,
+    parse_mode: 'HTML',
+    reply_markup: {
+      inline_keyboard: [[
+        { text: confirmBtn, callback_data: `edit_confirm:${pendingId}` },
+        { text: cancelBtn, callback_data: `edit_cancel:${pendingId}` }
+      ]]
+    }
+  });
+}
+
+/**
+ * Handle edit callback (when user clicks Confirm Edit or Cancel)
+ */
+export async function handleEditCallback(
+  chatId: number,
+  messageId: number,
+  queryId: string,
+  action: string,
+  pendingId: string
+): Promise<void> {
+  const bot = getBot();
+
+  // Get pending edit
+  const pending = pendingEdits.get(pendingId);
+
+  if (!pending) {
+    const t = await getBotMessages('en');
+    await bot.answerCallbackQuery(queryId, { text: t.voice?.expired || 'Request expired' });
+    await bot.editMessageText(t.voice?.expiredMessage || '⏰ This request has expired.', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML'
+    });
+    return;
+  }
+
+  const { originalEvent, calendarId, updates, user } = pending;
+  const t = await getBotMessages(user.language || 'en');
+
+  // Remove from pending
+  pendingEdits.delete(pendingId);
+
+  if (action === 'cancel') {
+    await bot.answerCallbackQuery(queryId, { text: t.voice?.cancelled || 'Cancelled' });
+    await bot.editMessageText(t.voice?.cancelledMessage || '❌ Edit cancelled.', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML'
+    });
+    return;
+  }
+
+  // Update the event
+  if (action === 'confirm') {
+    await bot.answerCallbackQuery(queryId, { text: t.voice?.updating || 'Updating...' });
+
+    // Update message to show progress
+    await bot.editMessageText(t.voice?.updatingEvent || '⏳ Updating event...', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML'
+    });
+
+    // Check if user has refresh token
+    if (!user.googleRefreshToken) {
+      await bot.editMessageText(
+        `${t.voice?.notConnected || '❌ Not connected'}\n\n${t.voice?.connectFirst || 'Please connect your calendar first.'}`,
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'HTML'
+        }
+      );
+      return;
+    }
+
+    // Get event ID
+    const eventId = originalEvent.eventId;
+    if (!eventId) {
+      await bot.editMessageText(
+        t.voice?.eventNotFound || '❌ Could not find the event to update.',
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'HTML'
+        }
+      );
+      return;
+    }
+
+    // Update the event
+    const result: UpdateEventResult = await updateEvent(
+      user.googleRefreshToken,
+      calendarId,
+      eventId,
+      updates
+    );
+
+    if (result.success) {
+      const linkButton = result.eventLink
+        ? `\n\n<a href="${result.eventLink}">${t.voice?.openInCalendar || 'Open in Calendar'}</a>`
+        : '';
+
+      const editedMsg = t.voice?.edited || '✅ <b>Event updated!</b>';
+
+      await bot.editMessageText(
+        `${editedMsg}\n\n` +
+        `📅 ${updates.title || originalEvent.summary}${linkButton}`,
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'HTML',
+          disable_web_page_preview: true
+        }
+      );
+    } else if (result.error === 'PERMISSION_DENIED') {
+      const upgradeUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
+      await bot.editMessageText(
+        `${t.voice?.permissionRequired || '🔐 Permission required'}\n\n${t.voice?.permissionMessage || 'Please grant calendar write access.'}`,
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: t.voice?.grantAccess || 'Grant Access', web_app: { url: upgradeUrl } }
+            ]]
+          }
+        }
+      );
+    } else if (result.error === 'TOKEN_EXPIRED') {
+      const refreshUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
+      await bot.editMessageText(
+        `${t.voice?.accessExpired || '🔑 Access expired'}\n\n${t.voice?.accessExpiredMessage || 'Please re-authorize.'}`,
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: t.voice?.reauthorize || 'Re-authorize', web_app: { url: refreshUrl } }
+            ]]
+          }
+        }
+      );
+    } else if (result.error === 'NOT_FOUND') {
+      await bot.editMessageText(
+        t.voice?.eventNotFound || '❌ Event not found. It may have been deleted.',
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'HTML'
+        }
+      );
+    } else {
+      await bot.editMessageText(
+        `${t.voice?.failedToUpdate || '❌ Failed to update event'}\n\n${result.errorMessage || t.voice?.unknownError || 'Unknown error'}`,
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'HTML'
+        }
+      );
+    }
   }
 }
 
