@@ -6,6 +6,7 @@
 import { generateAICompletion } from './ai-provider';
 import { CalendarAssignment } from '../types';
 import { TIMEZONE } from '../config/constants';
+import { fromZonedTime } from 'date-fns-tz';
 
 /**
  * Parsed event data from natural language
@@ -154,10 +155,11 @@ export async function parseEventFromText(
       };
     }
 
-    // Convert parsed dates to Date objects
+    // Convert parsed dates to Date objects (times are in user's timezone)
     const eventData = parsed.event;
-    const startDateTime = new Date(`${eventData.startDate}T${eventData.startTime}:00`);
-    const endDateTime = new Date(`${eventData.endDate}T${eventData.endTime}:00`);
+    // Parse as local Israel time, then convert to UTC for proper Date handling
+    const startDateTime = fromZonedTime(`${eventData.startDate}T${eventData.startTime}:00`, TIMEZONE);
+    const endDateTime = fromZonedTime(`${eventData.endDate}T${eventData.endTime}:00`, TIMEZONE);
 
     // Validate dates
     if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
