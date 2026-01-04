@@ -205,6 +205,13 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   // Save new refresh token
   try {
     await updateGoogleRefreshToken(telegramId, tokens.refresh_token);
+
+    // Notify admin of successful token refresh
+    const { notifyAdminWarning } = await import('@/src/utils/error-notifier');
+    await notifyAdminWarning(
+      'Token Refreshed',
+      `User ${telegramId} (${user.name || 'Unknown'}) successfully refreshed their Google Calendar token`
+    ).catch(err => console.error('Failed to notify admin:', err));
   } catch (error) {
     console.error('Error saving refresh token:', error);
     return (
