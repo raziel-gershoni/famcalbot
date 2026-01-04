@@ -7,12 +7,13 @@ import { getBot, getMessagingService } from './telegram';
 import { getUserByTelegramId } from './user-service';
 import { MessageFormat } from './messaging/types';
 import { transcribeVoice } from './transcription';
-import { parseEventFromText, ParsedEvent } from './event-parser';
-import { createEvent, CreateEventResult } from './calendar';
+import { parseEventFromText, ParsedEvent, parseVoiceIntent, EventReference, EditRequest, VoiceIntentResult } from './event-parser';
+import { createEvent, CreateEventResult, fetchEventsInRange, CalendarEvent } from './calendar';
 import { TIMEZONE } from '../config/constants';
 import { buildUrl } from '../config/urls';
 import { UserConfig } from '../types';
 import { getBotMessages } from '../lib/bot-messages';
+import { generateAICompletion } from './ai-provider';
 
 interface TelegramVoice {
   file_id: string;
@@ -62,6 +63,183 @@ async function downloadVoiceFile(fileId: string): Promise<Buffer> {
 // Store pending events for confirmation (in-memory, short-lived)
 // In production, this could use Redis or database
 const pendingEvents: Map<string, { event: ParsedEvent; user: UserConfig; transcription: string }> = new Map();
+
+/**
+ * Track last created event per user for "edit that" / "cancel that" references
+ */
+interface CreatedEventTracker {
+  eventId: string;
+  calendarId: string;
+  title: string;
+  startTime: Date;
+  endTime: Date;
+  location?: string;
+  createdAt: Date;
+}
+
+// Store last created event per user (expires after 30 minutes)
+const lastCreatedEvents: Map<number, CreatedEventTracker> = new Map();
+
+/**
+ * Store a created event for "last created" reference
+ */
+export function trackCreatedEvent(
+  userId: number,
+  eventId: string,
+  calendarId: string,
+  event: ParsedEvent
+): void {
+  lastCreatedEvents.set(userId, {
+    eventId,
+    calendarId,
+    title: event.title,
+    startTime: event.startTime,
+    endTime: event.endTime,
+    location: event.location,
+    createdAt: new Date()
+  });
+
+  // Clean up old entries (older than 30 minutes)
+  const thirtyMinutesAgo = Date.now() - 30 * 60 * 1000;
+  for (const [key, value] of lastCreatedEvents.entries()) {
+    if (value.createdAt.getTime() < thirtyMinutesAgo) {
+      lastCreatedEvents.delete(key);
+    }
+  }
+}
+
+/**
+ * Get the last created event for a user
+ */
+export function getLastCreatedEvent(userId: number): CreatedEventTracker | undefined {
+  const event = lastCreatedEvents.get(userId);
+  if (!event) return undefined;
+
+  // Check if expired (30 minutes)
+  const thirtyMinutesAgo = Date.now() - 30 * 60 * 1000;
+  if (event.createdAt.getTime() < thirtyMinutesAgo) {
+    lastCreatedEvents.delete(userId);
+    return undefined;
+  }
+
+  return event;
+}
+
+/**
+ * Find a matching event based on description and time hint
+ * Uses AI to match event titles and returns the best match
+ */
+export async function findMatchingEvent(
+  refreshToken: string,
+  calendarIds: string[],
+  reference: EventReference,
+  language: string
+): Promise<{ event: CalendarEvent; calendarId: string } | { error: string; multiple?: CalendarEvent[] }> {
+  // Determine date range based on timeHint
+  const now = new Date();
+  let startDate = new Date(now);
+  let endDate = new Date(now);
+
+  // Default: search 2 weeks ahead and 1 week back
+  startDate.setDate(startDate.getDate() - 7);
+  endDate.setDate(endDate.getDate() + 14);
+
+  // If timeHint is provided, narrow the search
+  if (reference.timeHint) {
+    const hint = reference.timeHint.toLowerCase();
+    const today = new Date(now);
+    today.setHours(0, 0, 0, 0);
+
+    if (hint.includes('today') || hint.includes('היום') || hint.includes('сегодня')) {
+      startDate = today;
+      endDate = new Date(today);
+      endDate.setDate(endDate.getDate() + 1);
+    } else if (hint.includes('tomorrow') || hint.includes('מחר') || hint.includes('завтра')) {
+      startDate = new Date(today);
+      startDate.setDate(startDate.getDate() + 1);
+      endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + 1);
+    } else if (hint.includes('next week') || hint.includes('שבוע הבא') || hint.includes('следующ')) {
+      startDate = new Date(today);
+      endDate = new Date(today);
+      endDate.setDate(endDate.getDate() + 14);
+    }
+  }
+
+  // Fetch events from all calendars
+  const events = await fetchEventsInRange(refreshToken, calendarIds, startDate, endDate);
+
+  if (events.length === 0) {
+    return { error: 'no_events_found' };
+  }
+
+  // If no description, can't match
+  if (!reference.description) {
+    return { error: 'no_description' };
+  }
+
+  // Use AI to find the best matching event
+  const eventList = events.map((e, i) => {
+    const startDate = new Date(e.start);
+    return `${i + 1}. "${e.summary}" on ${startDate.toLocaleDateString()} at ${startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (calendar: ${e.calendarId})`;
+  }).join('\n');
+
+  const prompt = `Find the event that best matches the user's description.
+
+User's description: "${reference.description}"
+${reference.timeHint ? `Time hint: "${reference.timeHint}"` : ''}
+User language: ${language}
+
+Available events:
+${eventList}
+
+INSTRUCTIONS:
+1. Find the event that best matches the user's description
+2. Consider partial matches (e.g., "dentist" matches "Dentist appointment")
+3. If timeHint is provided, prioritize events on that date
+4. If multiple events match equally, return "multiple"
+5. If no event matches, return "none"
+
+RESPOND IN JSON:
+{
+  "match": "single" | "multiple" | "none",
+  "eventIndex": <1-based index if single match>,
+  "matchedIndexes": [<indexes if multiple>],
+  "confidence": "high" | "medium" | "low"
+}`;
+
+  try {
+    const result = await generateAICompletion(prompt);
+    const jsonMatch = result.text.match(/\{[\s\S]*\}/);
+
+    if (!jsonMatch) {
+      return { error: 'ai_parse_error' };
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+
+    if (parsed.match === 'none') {
+      return { error: 'no_match' };
+    }
+
+    if (parsed.match === 'multiple') {
+      const matchedEvents = (parsed.matchedIndexes || []).map((i: number) => events[i - 1]).filter(Boolean);
+      return { error: 'multiple_matches', multiple: matchedEvents };
+    }
+
+    if (parsed.match === 'single' && parsed.eventIndex) {
+      const matchedEvent = events[parsed.eventIndex - 1];
+      if (matchedEvent) {
+        return { event: matchedEvent, calendarId: matchedEvent.calendarId };
+      }
+    }
+
+    return { error: 'no_match' };
+  } catch (error) {
+    console.error('[Voice] Error matching event:', error);
+    return { error: 'ai_error' };
+  }
+}
 
 /**
  * Format event date/time for display
@@ -228,6 +406,11 @@ export async function handleEventCallback(
     );
 
     if (result.success) {
+      // Track created event for "edit that" / "delete that" references
+      if (result.eventId) {
+        trackCreatedEvent(user.telegramId, result.eventId, event.calendarId || 'primary', event);
+      }
+
       const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay);
       const linkButton = result.eventLink
         ? `\n\n<a href="${result.eventLink}">${t.voice.openInCalendar}</a>`

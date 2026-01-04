@@ -7,8 +7,9 @@ import { TIMEZONE } from '../config/constants';
 import { ALERT_MESSAGES } from '../config/messages';
 import { isTokenError } from '../utils/errors';
 
-// Re-export TIMEZONE for convenience
+// Re-export TIMEZONE and CalendarEvent for convenience
 export { TIMEZONE };
+export type { CalendarEvent };
 
 /**
  * Create a Google Calendar API client with OAuth credentials
