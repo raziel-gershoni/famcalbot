@@ -293,6 +293,16 @@
       "today": "No events planned for today. Enjoy your free time!",
       "tomorrow": "No events planned for tomorrow. Enjoy your free time!"
     },
+    "weatherOnly": {
+      "title": "Weather",
+      "current": "Current",
+      "feelsLike": "feels like",
+      "today": "Today",
+      "tomorrow": "Tomorrow",
+      "high": "High",
+      "low": "Low",
+      "rain": "rain"
+    },
     "setupReminders": {
       "oauth": {
         "title": "📅 <b>Complete Your Setup</b>",

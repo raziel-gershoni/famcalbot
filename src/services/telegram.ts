@@ -881,16 +881,17 @@ async function sendSummaryToUser(
 
     // Check if it's a token expiration error
     if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
+      const t = await getBotMessages(userLanguage);
       const refreshUrl = buildUrl(`/refresh-token?user_id=${userId}`);
-      const expiredMessage = `🔑 <b>Google Calendar Token Expired</b>\n\nYour Google Calendar access has expired. Please refresh your token to continue receiving summaries.\n\nTap the button below to refresh:`;
+      const expiredMessage = `${t.tokenExpired.title}\n\n${t.tokenExpired.message}`;
       await messagingService.updateMessage(userId, messageId, expiredMessage, {
         format: MessageFormat.HTML
       });
       // Send refresh button as new message (can't add inline keyboard when editing)
-      await messagingService.sendMessage(userId, 'Tap below to refresh:', {
+      await messagingService.sendMessage(userId, t.tokenExpired.tapToRefresh, {
         replyMarkup: {
           inline_keyboard: [[
-            { text: '🔄 Refresh Google Calendar', url: refreshUrl }
+            { text: t.buttons.refreshGoogle, web_app: { url: refreshUrl } }
           ]]
         }
       });
@@ -942,6 +943,39 @@ async function sendSummaryToAll(
     for (const user of users) {
       // Route message based on user's messaging platform preference
       const platform = user.messagingPlatform || 'telegram'; // Default to telegram
+
+      // Profile completeness check - skip users who can't receive meaningful content
+      const hasToken = !!user.googleRefreshToken;
+      const hasCalendars = user.calendarAssignments && user.calendarAssignments.length > 0;
+      const hasLocation = !!user.location;
+
+      // Skip if no token (can't access calendar)
+      if (!hasToken) {
+        console.log(`[Summary] Skipping user ${user.telegramId}: No Google token`);
+        continue;
+      }
+
+      // Skip if no calendars AND no location (nothing to send)
+      if (!hasCalendars && !hasLocation) {
+        console.log(`[Summary] Skipping user ${user.telegramId}: No calendars or location`);
+        continue;
+      }
+
+      // If only location (no calendars), send weather-only
+      if (!hasCalendars && hasLocation && user.weatherEnabled) {
+        try {
+          await sendWeatherOnlyToUser(user, summaryDate, platform);
+        } catch (error) {
+          console.error(`[Summary] Failed to send weather-only to user ${user.telegramId}:`, error);
+        }
+        continue;
+      }
+
+      // If no calendars and weather disabled, skip
+      if (!hasCalendars) {
+        console.log(`[Summary] Skipping user ${user.telegramId}: No calendars, weather disabled`);
+        continue;
+      }
 
       try {
         // Extract calendar IDs for this specific user
@@ -1012,8 +1046,9 @@ async function sendSummaryToAll(
 
         // Check if it's a token expiration error
         if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
+          const t = await getBotMessages(user.language || 'en');
           const refreshUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}`);
-          const expiredMessage = `🔑 <b>Google Calendar Token Expired</b>\n\nYour Google Calendar access has expired. Please refresh your token to continue receiving summaries.\n\nTap the button below to refresh:`;
+          const expiredMessage = `${t.tokenExpired.title}\n\n${t.tokenExpired.message}`;
 
           // Send token expired message to the user
           try {
@@ -1022,7 +1057,7 @@ async function sendSummaryToAll(
                 format: MessageFormat.HTML,
                 replyMarkup: {
                   inline_keyboard: [[
-                    { text: '🔄 Refresh Google Calendar', url: refreshUrl }
+                    { text: t.buttons.refreshGoogle, web_app: { url: refreshUrl } }
                   ]]
                 }
               });
@@ -1071,6 +1106,54 @@ export async function sendDailySummaryToUser(userId: number, existingProgressMes
     undefined,
     existingProgressMessageId
   );
+}
+
+/**
+ * Send weather-only message to a user
+ * Used when user has location set but no calendars configured
+ */
+async function sendWeatherOnlyToUser(
+  user: UserConfig,
+  summaryDate: Date | undefined,
+  platform: string
+): Promise<void> {
+  const messagingService = getMessagingService();
+  const targetDate = summaryDate || new Date();
+
+  // Fetch weather data
+  const { getTimezone } = await import('./weather/geocoding');
+  const { fetchWeather, getWeatherDescription } = await import('./weather/open-meteo');
+
+  const timezone = await getTimezone(user.location);
+  const weatherData = await fetchWeather(user.location, timezone);
+
+  // Get localized messages
+  const t = await getBotMessages(user.language || 'en');
+
+  // Format date
+  const dateStr = targetDate.toLocaleDateString(user.language === 'he' ? 'he-IL' : user.language === 'ru' ? 'ru-RU' : 'en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    timeZone: timezone
+  });
+
+  // Build weather message
+  const weatherMessage = `🌤️ <b>${t.weatherOnly?.title || 'Weather'} - ${dateStr}</b>
+
+<b>${t.weatherOnly?.current || 'Current'}:</b> ${weatherData.current.temperature}°C (${t.weatherOnly?.feelsLike || 'feels like'} ${weatherData.current.feelsLike}°C), ${getWeatherDescription(weatherData.current.weatherCode)}
+
+<b>${t.weatherOnly?.today || 'Today'}:</b> ${t.weatherOnly?.high || 'High'} ${weatherData.today.tempMax}°C, ${t.weatherOnly?.low || 'Low'} ${weatherData.today.tempMin}°C, ${weatherData.today.precipitationProbability}% ${t.weatherOnly?.rain || 'rain'}
+${weatherData.tomorrow ? `<b>${t.weatherOnly?.tomorrow || 'Tomorrow'}:</b> ${t.weatherOnly?.high || 'High'} ${weatherData.tomorrow.tempMax}°C, ${t.weatherOnly?.low || 'Low'} ${weatherData.tomorrow.tempMin}°C, ${weatherData.tomorrow.precipitationProbability}% ${t.weatherOnly?.rain || 'rain'}` : ''}`;
+
+  // Send to user based on platform
+  if (platform === 'telegram' || platform === 'all') {
+    await messagingService.sendMessage(user.telegramId, weatherMessage, {
+      format: MessageFormat.HTML
+    });
+  }
+
+  console.log(`[Summary] Sent weather-only to user ${user.telegramId}`);
 }
 
 /**
