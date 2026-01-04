@@ -1022,6 +1022,241 @@ export async function handleEventCallback(
 }
 
 /**
+ * Helper to convert EditRequest to UpdateEventData
+ */
+function convertEditRequestToUpdates(
+  editRequest: EditRequest | undefined,
+  originalEvent: CalendarEvent
+): UpdateEventData {
+  const updates: UpdateEventData = {};
+
+  if (!editRequest) return updates;
+
+  if (editRequest.newTitle) {
+    updates.title = editRequest.newTitle;
+  }
+
+  // Handle time changes - need to preserve duration if only start time changes
+  if (editRequest.newStartDate || editRequest.newStartTime) {
+    const originalStart = new Date(originalEvent.start);
+    const originalEnd = new Date(originalEvent.end);
+    const duration = originalEnd.getTime() - originalStart.getTime();
+
+    // Build new start time
+    const newStartDate = editRequest.newStartDate || originalStart.toISOString().split('T')[0];
+    const newStartTime = editRequest.newStartTime || originalStart.toISOString().split('T')[1].substring(0, 5);
+    updates.startTime = new Date(`${newStartDate}T${newStartTime}:00`);
+
+    // If end time also provided, use it; otherwise preserve duration
+    if (editRequest.newEndDate || editRequest.newEndTime) {
+      const newEndDate = editRequest.newEndDate || originalEnd.toISOString().split('T')[0];
+      const newEndTime = editRequest.newEndTime || originalEnd.toISOString().split('T')[1].substring(0, 5);
+      updates.endTime = new Date(`${newEndDate}T${newEndTime}:00`);
+    } else {
+      updates.endTime = new Date(updates.startTime.getTime() + duration);
+    }
+  }
+
+  if (editRequest.newLocation) {
+    updates.location = editRequest.newLocation;
+  }
+
+  if (editRequest.newAllDay !== undefined) {
+    updates.allDay = editRequest.newAllDay;
+  }
+
+  return updates;
+}
+
+/**
+ * Handle EDIT intent - find event and show edit confirmation
+ */
+async function handleEditIntent(
+  chatId: number,
+  messageId: number,
+  intentResult: VoiceIntentResult,
+  transcription: string,
+  user: UserConfig,
+  t: any
+): Promise<void> {
+  const messagingService = getMessagingService();
+
+  if (!user.googleRefreshToken) {
+    await messagingService.updateMessage(chatId, messageId, t.voice?.noCalendar || 'Calendar not connected.', { format: MessageFormat.PLAIN });
+    return;
+  }
+
+  // Find the event to edit
+  let targetEvent: CalendarEvent | undefined;
+  let targetCalendarId: string | undefined;
+
+  if (intentResult.eventReference?.type === 'last_created') {
+    // Use last created event
+    const lastEvent = getLastCreatedEvent(user.telegramId);
+    if (!lastEvent) {
+      await messagingService.updateMessage(chatId, messageId,
+        t.voice?.noLastEvent || "❌ No recent event found. Try specifying which event to edit.",
+        { format: MessageFormat.HTML }
+      );
+      return;
+    }
+
+    // Fetch the event to get full details
+    const calendarIds = (user.calendarAssignments || []).map(c => c.calendarId);
+    if (!calendarIds.includes(lastEvent.calendarId)) {
+      calendarIds.push(lastEvent.calendarId);
+    }
+
+    const events = await fetchEventsInRange(
+      user.googleRefreshToken,
+      [lastEvent.calendarId],
+      new Date(lastEvent.startTime.getTime() - 60000),
+      new Date(lastEvent.endTime.getTime() + 60000)
+    );
+
+    targetEvent = events.find(e => e.eventId === lastEvent.eventId);
+    targetCalendarId = lastEvent.calendarId;
+
+  } else if (intentResult.eventReference?.type === 'by_description') {
+    // Search for matching event
+    const calendarIds = (user.calendarAssignments || []).map(c => c.calendarId);
+    const matchResult = await findMatchingEvent(
+      user.googleRefreshToken,
+      calendarIds,
+      intentResult.eventReference,
+      user.language || 'en'
+    );
+
+    if ('error' in matchResult) {
+      if (matchResult.error === 'no_events_found') {
+        await messagingService.updateMessage(chatId, messageId,
+          t.voice?.noEventsFound || "❌ No events found in that time range.",
+          { format: MessageFormat.HTML }
+        );
+      } else if (matchResult.error === 'multiple_matches') {
+        await messagingService.updateMessage(chatId, messageId,
+          t.voice?.ambiguousEvent || "🤔 Found multiple matching events. Please be more specific.",
+          { format: MessageFormat.HTML }
+        );
+      } else {
+        await messagingService.updateMessage(chatId, messageId,
+          t.voice?.eventNotFound || "❌ Couldn't find that event.",
+          { format: MessageFormat.HTML }
+        );
+      }
+      return;
+    }
+
+    targetEvent = matchResult.event;
+    targetCalendarId = matchResult.calendarId;
+  }
+
+  if (!targetEvent || !targetCalendarId) {
+    await messagingService.updateMessage(chatId, messageId,
+      t.voice?.eventNotFound || "❌ Couldn't find the event to edit.",
+      { format: MessageFormat.HTML }
+    );
+    return;
+  }
+
+  // Convert edit request to update data
+  const updates = convertEditRequestToUpdates(intentResult.editRequest, targetEvent);
+
+  // Show edit confirmation
+  await showEditConfirmation(chatId, messageId, targetEvent, targetCalendarId, updates, transcription, user);
+}
+
+/**
+ * Handle DELETE intent - find event and show delete confirmation
+ */
+async function handleDeleteIntent(
+  chatId: number,
+  messageId: number,
+  intentResult: VoiceIntentResult,
+  transcription: string,
+  user: UserConfig,
+  t: any
+): Promise<void> {
+  const messagingService = getMessagingService();
+
+  if (!user.googleRefreshToken) {
+    await messagingService.updateMessage(chatId, messageId, t.voice?.noCalendar || 'Calendar not connected.', { format: MessageFormat.PLAIN });
+    return;
+  }
+
+  // Find the event to delete
+  let targetEvent: CalendarEvent | undefined;
+  let targetCalendarId: string | undefined;
+
+  if (intentResult.eventReference?.type === 'last_created') {
+    // Use last created event
+    const lastEvent = getLastCreatedEvent(user.telegramId);
+    if (!lastEvent) {
+      await messagingService.updateMessage(chatId, messageId,
+        t.voice?.noLastEvent || "❌ No recent event found. Try specifying which event to cancel.",
+        { format: MessageFormat.HTML }
+      );
+      return;
+    }
+
+    // Fetch the event to get full details
+    const events = await fetchEventsInRange(
+      user.googleRefreshToken,
+      [lastEvent.calendarId],
+      new Date(lastEvent.startTime.getTime() - 60000),
+      new Date(lastEvent.endTime.getTime() + 60000)
+    );
+
+    targetEvent = events.find(e => e.eventId === lastEvent.eventId);
+    targetCalendarId = lastEvent.calendarId;
+
+  } else if (intentResult.eventReference?.type === 'by_description') {
+    // Search for matching event
+    const calendarIds = (user.calendarAssignments || []).map(c => c.calendarId);
+    const matchResult = await findMatchingEvent(
+      user.googleRefreshToken,
+      calendarIds,
+      intentResult.eventReference,
+      user.language || 'en'
+    );
+
+    if ('error' in matchResult) {
+      if (matchResult.error === 'no_events_found') {
+        await messagingService.updateMessage(chatId, messageId,
+          t.voice?.noEventsFound || "❌ No events found in that time range.",
+          { format: MessageFormat.HTML }
+        );
+      } else if (matchResult.error === 'multiple_matches') {
+        await messagingService.updateMessage(chatId, messageId,
+          t.voice?.ambiguousEvent || "🤔 Found multiple matching events. Please be more specific.",
+          { format: MessageFormat.HTML }
+        );
+      } else {
+        await messagingService.updateMessage(chatId, messageId,
+          t.voice?.eventNotFound || "❌ Couldn't find that event.",
+          { format: MessageFormat.HTML }
+        );
+      }
+      return;
+    }
+
+    targetEvent = matchResult.event;
+    targetCalendarId = matchResult.calendarId;
+  }
+
+  if (!targetEvent || !targetCalendarId) {
+    await messagingService.updateMessage(chatId, messageId,
+      t.voice?.eventNotFound || "❌ Couldn't find the event to delete.",
+      { format: MessageFormat.HTML }
+    );
+    return;
+  }
+
+  // Show delete confirmation
+  await showDeleteConfirmation(chatId, messageId, targetEvent, targetCalendarId, transcription, user);
+}
+
+/**
  * Handle incoming voice message for event creation
  * @param chatId - Telegram chat ID
  * @param userId - Telegram user ID
@@ -1106,28 +1341,40 @@ export async function handleVoiceMessage(
     // Update progress
     await messagingService.updateMessage(chatId, processingMsgId, t.voice.understanding, { format: MessageFormat.PLAIN });
 
-    // Parse the transcription into event details
-    const parseResult = await parseEventFromText(
+    // Parse the transcription to detect intent (create/edit/delete)
+    const intentResult = await parseVoiceIntent(
       transcription.text,
       user.language || 'en',
       user.calendarAssignments || []
     );
 
-    if (!parseResult.success || !parseResult.event) {
-      await messagingService.updateMessage(chatId, processingMsgId,
-        `${t.voice.notUnderstood}\n\n` +
-        `${t.voice.iHeard} "<i>${transcription.text}</i>"\n\n` +
-        `${t.voice.tryExamples}\n` +
-        `• "${t.voice.example1}"\n` +
-        `• "${t.voice.example2}"\n` +
-        `• "${t.voice.example3}"`,
-        { format: MessageFormat.HTML }
-      );
-      return;
-    }
+    console.log(`[Voice] Intent detected: ${intentResult.intent}, confidence: ${intentResult.confidence}`);
 
-    // Show confirmation with inline keyboard
-    await showEventConfirmation(chatId, processingMsgId, parseResult.event, transcription.text, user);
+    // Handle based on intent
+    if (intentResult.intent === 'create') {
+      // CREATE: Show event creation confirmation
+      if (!intentResult.event) {
+        await messagingService.updateMessage(chatId, processingMsgId,
+          `${t.voice.notUnderstood}\n\n` +
+          `${t.voice.iHeard} "<i>${transcription.text}</i>"\n\n` +
+          `${t.voice.tryExamples}\n` +
+          `• "${t.voice.example1}"\n` +
+          `• "${t.voice.example2}"\n` +
+          `• "${t.voice.example3}"`,
+          { format: MessageFormat.HTML }
+        );
+        return;
+      }
+      await showEventConfirmation(chatId, processingMsgId, intentResult.event, transcription.text, user);
+
+    } else if (intentResult.intent === 'edit') {
+      // EDIT: Find the event and show edit confirmation
+      await handleEditIntent(chatId, processingMsgId, intentResult, transcription.text, user, t);
+
+    } else if (intentResult.intent === 'delete') {
+      // DELETE: Find the event and show delete confirmation
+      await handleDeleteIntent(chatId, processingMsgId, intentResult, transcription.text, user, t);
+    }
 
   } catch (error) {
     console.error('[Voice] Error handling voice message:', error);

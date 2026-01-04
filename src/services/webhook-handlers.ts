@@ -14,7 +14,7 @@ import {
 } from './telegram';
 import { getUserByWhatsAppPhone } from './user-service';
 import { MessagingPlatform } from './messaging';
-import { handleVoiceMessage, handleEventCallback } from './voice-input-handler';
+import { handleVoiceMessage, handleEventCallback, handleEditCallback, handleDeleteCallback } from './voice-input-handler';
 
 /**
  * Handle Telegram webhook updates
@@ -47,6 +47,24 @@ export async function handleTelegramWebhook(
         const messageId = callbackQuery.message?.message_id;
         if (messageId) {
           await handleEventCallback(chatId, messageId, queryId, actionType, fullPendingId);
+        }
+      } else if (data.startsWith('edit_confirm:') || data.startsWith('edit_cancel:')) {
+        // Handle event edit callbacks
+        const [action] = data.split(':').slice(0, 1);
+        const actionType = action.replace('edit_', '');
+        const fullPendingId = data.substring(action.length + 1);
+        const messageId = callbackQuery.message?.message_id;
+        if (messageId) {
+          await handleEditCallback(chatId, messageId, queryId, actionType, fullPendingId);
+        }
+      } else if (data.startsWith('delete_confirm:') || data.startsWith('delete_cancel:')) {
+        // Handle event delete callbacks
+        const [action] = data.split(':').slice(0, 1);
+        const actionType = action.replace('delete_', '');
+        const fullPendingId = data.substring(action.length + 1);
+        const messageId = callbackQuery.message?.message_id;
+        if (messageId) {
+          await handleDeleteCallback(chatId, messageId, queryId, actionType, fullPendingId);
         }
       }
     }
