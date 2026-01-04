@@ -261,6 +261,25 @@ export async function handleEventCallback(
           }
         }
       );
+    } else if (result.error === 'TOKEN_EXPIRED') {
+      // Token expired - need to re-authorize
+      const refreshUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
+
+      await bot.editMessageText(
+        '🔑 <b>Calendar Access Expired</b>\n\n' +
+        'Your Google Calendar access has expired.\n\n' +
+        'Please tap the button below to re-authorize:',
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '🔄 Re-authorize Calendar', web_app: { url: refreshUrl } }
+            ]]
+          }
+        }
+      );
     } else {
       await bot.editMessageText(
         `❌ <b>Failed to create event</b>\n\n` +
