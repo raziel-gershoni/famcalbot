@@ -120,6 +120,8 @@
     "weekLookaheadDescription": "כלול אירועים קרובים בסיכום המחר",
     "lookaheadAlways7Days": "תמיד 7 ימים",
     "lookaheadAlways7DaysDescription": "הצג 7 ימים הבאים במקום עד סוף השבוע",
+    "voiceInput": "יצירת אירועים בקול",
+    "voiceInputDescription": "צור אירועים על ידי שליחת הודעות קוליות לבוט",
     "remindersSection": "תזכורות לאירועים",
     "remindersEnabled": "הפעל תזכורות",
     "remindersEnabledDescription": "קבל תזכורות בטלגרם לפני תחילת האירועים",

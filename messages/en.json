@@ -120,6 +120,8 @@
     "weekLookaheadDescription": "Include upcoming events in tomorrow's summary",
     "lookaheadAlways7Days": "Always 7 Days",
     "lookaheadAlways7DaysDescription": "Show next 7 days instead of until end of week",
+    "voiceInput": "Voice Event Creation",
+    "voiceInputDescription": "Create events by sending voice messages to the bot",
     "remindersSection": "Event Reminders",
     "remindersEnabled": "Enable Reminders",
     "remindersEnabledDescription": "Receive Telegram reminders before events start",

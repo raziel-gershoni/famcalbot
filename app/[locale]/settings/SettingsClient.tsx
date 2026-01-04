@@ -20,6 +20,7 @@ interface SettingsClientProps {
     lookaheadAlways7Days: boolean;
     remindersEnabled: boolean;
     defaultReminderMinutes: number | null;
+    voiceInputEnabled: boolean;
   };
 }
 
@@ -40,6 +41,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
   const [lookaheadAlways7Days, setLookaheadAlways7Days] = useState(currentSettings.lookaheadAlways7Days);
   const [remindersEnabled, setRemindersEnabled] = useState(currentSettings.remindersEnabled);
   const [defaultReminderMinutes, setDefaultReminderMinutes] = useState(currentSettings.defaultReminderMinutes ?? 15);
+  const [voiceInputEnabled, setVoiceInputEnabled] = useState(currentSettings.voiceInputEnabled);
   const [locationLoading, setLocationLoading] = useState(false);
   const [detectedLocation, setDetectedLocation] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -218,6 +220,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
           lookaheadAlways7Days,
           remindersEnabled,
           defaultReminderMinutes: remindersEnabled ? defaultReminderMinutes : null,
+          voiceInputEnabled,
           initData
         })
       });
@@ -803,6 +806,28 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
                     formState === 'idle' && setLookaheadAlways7Days(!lookaheadAlways7Days);
+                  }
+                }}
+              >
+                <div className="toggle-slider" />
+              </div>
+            </div>
+
+            <div className="toggle-row">
+              <div className="toggle-info">
+                <p className="toggle-label">{t('voiceInput')}</p>
+                <p className="toggle-description">{t('voiceInputDescription')}</p>
+              </div>
+              <div
+                className={`toggle-switch ${voiceInputEnabled ? 'checked' : ''} ${formState !== 'idle' ? 'disabled' : ''}`}
+                onClick={() => formState === 'idle' && setVoiceInputEnabled(!voiceInputEnabled)}
+                role="switch"
+                aria-checked={voiceInputEnabled}
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    formState === 'idle' && setVoiceInputEnabled(!voiceInputEnabled);
                   }
                 }}
               >

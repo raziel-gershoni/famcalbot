@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { language, location, messagingPlatform, culture, globalRules, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, remindersEnabled, defaultReminderMinutes, initData } = body;
+    const { language, location, messagingPlatform, culture, globalRules, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, remindersEnabled, defaultReminderMinutes, voiceInputEnabled, initData } = body;
 
     // Authentication: Verify Telegram initData
     if (!verifyUserAccess(initData, parseInt(userId))) {
@@ -50,7 +50,8 @@ export async function POST(request: NextRequest) {
       includeLookaheadInTomorrow: typeof includeLookaheadInTomorrow === 'boolean' ? includeLookaheadInTomorrow : undefined,
       lookaheadAlways7Days: typeof lookaheadAlways7Days === 'boolean' ? lookaheadAlways7Days : undefined,
       remindersEnabled: typeof remindersEnabled === 'boolean' ? remindersEnabled : undefined,
-      defaultReminderMinutes: typeof defaultReminderMinutes === 'number' ? defaultReminderMinutes : undefined
+      defaultReminderMinutes: typeof defaultReminderMinutes === 'number' ? defaultReminderMinutes : undefined,
+      voiceInputEnabled: typeof voiceInputEnabled === 'boolean' ? voiceInputEnabled : undefined
     });
 
     // Update menu button when language changes

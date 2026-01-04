@@ -68,7 +68,8 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
         includeLookaheadInTomorrow: user.includeLookaheadInTomorrow,
         lookaheadAlways7Days: user.lookaheadAlways7Days,
         remindersEnabled: user.remindersEnabled,
-        defaultReminderMinutes: user.defaultReminderMinutes ?? null
+        defaultReminderMinutes: user.defaultReminderMinutes ?? null,
+        voiceInputEnabled: user.voiceInputEnabled
       }}
     />
   );

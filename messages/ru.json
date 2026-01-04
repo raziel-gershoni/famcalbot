@@ -120,6 +120,8 @@
     "weekLookaheadDescription": "Включить предстоящие события в сводку на завтра",
     "lookaheadAlways7Days": "Всегда 7 дней",
     "lookaheadAlways7DaysDescription": "Показывать следующие 7 дней вместо до конца недели",
+    "voiceInput": "Голосовое создание событий",
+    "voiceInputDescription": "Создавайте события, отправляя голосовые сообщения боту",
     "remindersSection": "Напоминания о событиях",
     "remindersEnabled": "Включить напоминания",
     "remindersEnabledDescription": "Получать напоминания в Telegram перед началом событий",
