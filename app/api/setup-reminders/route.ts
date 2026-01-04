@@ -8,7 +8,8 @@
  * - Day 8: Location reminder (if has calendars but no location for weather)
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import { withCronHandler } from '@/src/lib/cron-handler';
 import { prisma, withDbRetry } from '@/src/utils/prisma';
 import { Prisma } from '@prisma/client';
 import { buildUrl } from '@/src/config/urls';
@@ -51,221 +52,195 @@ function getDateRangeForDay(daysAgo: number): { start: Date; end: Date } {
 }
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const providedSecret = searchParams.get('secret') || request.headers.get('x-cron-secret');
-  const expectedSecret = process.env.CRON_SECRET;
+  return withCronHandler(request, {
+    jobName: 'Setup Reminders',
+    handler: async () => {
+      const results: ReminderResult[] = [];
 
-  if (!expectedSecret) {
-    console.error('[Setup Reminders] CRON_SECRET is not configured');
-    return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
-  }
+      const { getMessagingService } = await import('@/src/services/telegram');
+      const { MessageFormat } = await import('@/src/services/messaging/types');
+      const messagingService = getMessagingService();
 
-  if (providedSecret !== expectedSecret) {
-    console.error('[Setup Reminders] Invalid secret token');
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+      // 1. OAuth reminders - accounts created exactly OAUTH_REMINDER_DAY days ago, still need OAuth
+      const oauthWindow = getDateRangeForDay(OAUTH_REMINDER_DAY);
+      const needsOAuthUsers = await withDbRetry(
+        () => prisma.user.findMany({
+          where: {
+            createdAt: { gte: oauthWindow.start, lte: oauthWindow.end },
+            googleRefreshToken: '',
+            telegramId: { not: null },
+          },
+          select: { id: true, telegramId: true, language: true },
+        }),
+        'setupReminders.needsOAuth'
+      );
 
-  const results: ReminderResult[] = [];
+      for (const user of needsOAuthUsers) {
+        try {
+          const t = await getBotMessages(user.language || 'en');
+          const dashboardUrl = buildUrl(`/${user.language || 'en'}/dashboard?user_id=${user.telegramId}`);
 
-  try {
-    const { getMessagingService } = await import('@/src/services/telegram');
-    const { MessageFormat } = await import('@/src/services/messaging/types');
-    const messagingService = getMessagingService();
-
-    // 1. OAuth reminders - accounts created exactly OAUTH_REMINDER_DAY days ago, still need OAuth
-    const oauthWindow = getDateRangeForDay(OAUTH_REMINDER_DAY);
-    const needsOAuthUsers = await withDbRetry(
-      () => prisma.user.findMany({
-        where: {
-          createdAt: { gte: oauthWindow.start, lte: oauthWindow.end },
-          googleRefreshToken: '',
-          telegramId: { not: null },
-        },
-        select: { id: true, telegramId: true, language: true },
-      }),
-      'setupReminders.needsOAuth'
-    );
-
-    for (const user of needsOAuthUsers) {
-      try {
-        const t = await getBotMessages(user.language || 'en');
-        const dashboardUrl = buildUrl(`/${user.language || 'en'}/dashboard?user_id=${user.telegramId}`);
-
-        await messagingService.sendMessage(Number(user.telegramId),
-          `${t.oauth.title}\n\n${t.oauth.body}`,
-          {
-            format: MessageFormat.HTML,
-            replyMarkup: {
-              inline_keyboard: [[
-                { text: t.oauth.button, web_app: { url: dashboardUrl } }
-              ]]
+          await messagingService.sendMessage(Number(user.telegramId),
+            `${t.oauth.title}\n\n${t.oauth.body}`,
+            {
+              format: MessageFormat.HTML,
+              replyMarkup: {
+                inline_keyboard: [[
+                  { text: t.oauth.button, web_app: { url: dashboardUrl } }
+                ]]
+              }
             }
-          }
-        );
+          );
 
-        results.push({ type: 'oauth', userId: user.id, telegramId: user.telegramId!, success: true });
-      } catch (error) {
-        results.push({
-          type: 'oauth',
-          userId: user.id,
-          telegramId: user.telegramId!,
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
+          results.push({ type: 'oauth', userId: user.id, telegramId: user.telegramId!, success: true });
+        } catch (error) {
+          results.push({
+            type: 'oauth',
+            userId: user.id,
+            telegramId: user.telegramId!,
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
       }
-    }
 
-    // 2. Calendars reminders - accounts created exactly CALENDARS_REMINDER_DAY days ago, have OAuth but no calendars
-    const calendarsWindow = getDateRangeForDay(CALENDARS_REMINDER_DAY);
-    const needsCalendarsUsers = await withDbRetry(
-      () => prisma.user.findMany({
-        where: {
-          createdAt: { gte: calendarsWindow.start, lte: calendarsWindow.end },
-          googleRefreshToken: { not: '' },
-          OR: [
-            { calendarAssignments: { equals: Prisma.JsonNull } },
-            { calendarAssignments: { equals: Prisma.DbNull } },
-            { calendarAssignments: { equals: [] } },
-          ],
-          telegramId: { not: null },
-        },
-        select: { id: true, telegramId: true, language: true },
-      }),
-      'setupReminders.needsCalendars'
-    );
+      // 2. Calendars reminders - accounts created exactly CALENDARS_REMINDER_DAY days ago, have OAuth but no calendars
+      const calendarsWindow = getDateRangeForDay(CALENDARS_REMINDER_DAY);
+      const needsCalendarsUsers = await withDbRetry(
+        () => prisma.user.findMany({
+          where: {
+            createdAt: { gte: calendarsWindow.start, lte: calendarsWindow.end },
+            googleRefreshToken: { not: '' },
+            OR: [
+              { calendarAssignments: { equals: Prisma.JsonNull } },
+              { calendarAssignments: { equals: Prisma.DbNull } },
+              { calendarAssignments: { equals: [] } },
+            ],
+            telegramId: { not: null },
+          },
+          select: { id: true, telegramId: true, language: true },
+        }),
+        'setupReminders.needsCalendars'
+      );
 
-    for (const user of needsCalendarsUsers) {
-      try {
-        const t = await getBotMessages(user.language || 'en');
-        const calendarsUrl = buildUrl(`/${user.language || 'en'}/select-calendars?user_id=${user.telegramId}`);
+      for (const user of needsCalendarsUsers) {
+        try {
+          const t = await getBotMessages(user.language || 'en');
+          const calendarsUrl = buildUrl(`/${user.language || 'en'}/select-calendars?user_id=${user.telegramId}`);
 
-        await messagingService.sendMessage(Number(user.telegramId),
-          `${t.calendars.title}\n\n${t.calendars.body}`,
-          {
-            format: MessageFormat.HTML,
-            replyMarkup: {
-              inline_keyboard: [[
-                { text: t.calendars.button, web_app: { url: calendarsUrl } }
-              ]]
+          await messagingService.sendMessage(Number(user.telegramId),
+            `${t.calendars.title}\n\n${t.calendars.body}`,
+            {
+              format: MessageFormat.HTML,
+              replyMarkup: {
+                inline_keyboard: [[
+                  { text: t.calendars.button, web_app: { url: calendarsUrl } }
+                ]]
+              }
             }
-          }
-        );
+          );
 
-        results.push({ type: 'calendars', userId: user.id, telegramId: user.telegramId!, success: true });
-      } catch (error) {
-        results.push({
-          type: 'calendars',
-          userId: user.id,
-          telegramId: user.telegramId!,
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
+          results.push({ type: 'calendars', userId: user.id, telegramId: user.telegramId!, success: true });
+        } catch (error) {
+          results.push({
+            type: 'calendars',
+            userId: user.id,
+            telegramId: user.telegramId!,
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
       }
-    }
 
-    // 3. Location reminders - accounts created exactly LOCATION_REMINDER_DAY days ago, have calendars but no location
-    const locationWindow = getDateRangeForDay(LOCATION_REMINDER_DAY);
-    const needsLocationUsers = await withDbRetry(
-      () => prisma.user.findMany({
-        where: {
-          createdAt: { gte: locationWindow.start, lte: locationWindow.end },
-          googleRefreshToken: { not: '' },
-          location: '',
-          telegramId: { not: null },
-        },
-        select: { id: true, telegramId: true, language: true, calendarAssignments: true },
-      }),
-      'setupReminders.needsLocation'
-    );
+      // 3. Location reminders - accounts created exactly LOCATION_REMINDER_DAY days ago, have calendars but no location
+      const locationWindow = getDateRangeForDay(LOCATION_REMINDER_DAY);
+      const needsLocationUsers = await withDbRetry(
+        () => prisma.user.findMany({
+          where: {
+            createdAt: { gte: locationWindow.start, lte: locationWindow.end },
+            googleRefreshToken: { not: '' },
+            location: '',
+            telegramId: { not: null },
+          },
+          select: { id: true, telegramId: true, language: true, calendarAssignments: true },
+        }),
+        'setupReminders.needsLocation'
+      );
 
-    // Filter to users who have non-empty calendar assignments (checking in code since Prisma JSON queries are tricky)
-    const locationUsersFiltered = needsLocationUsers.filter(u => {
-      const assignments = u.calendarAssignments as unknown[];
-      return Array.isArray(assignments) && assignments.length > 0;
-    });
+      // Filter to users who have non-empty calendar assignments (checking in code since Prisma JSON queries are tricky)
+      const locationUsersFiltered = needsLocationUsers.filter(u => {
+        const assignments = u.calendarAssignments as unknown[];
+        return Array.isArray(assignments) && assignments.length > 0;
+      });
 
-    for (const user of locationUsersFiltered) {
-      try {
-        const t = await getBotMessages(user.language || 'en');
-        const settingsUrl = buildUrl(`/${user.language || 'en'}/settings?user_id=${user.telegramId}`);
+      for (const user of locationUsersFiltered) {
+        try {
+          const t = await getBotMessages(user.language || 'en');
+          const settingsUrl = buildUrl(`/${user.language || 'en'}/settings?user_id=${user.telegramId}`);
 
-        await messagingService.sendMessage(Number(user.telegramId),
-          `${t.location.title}\n\n${t.location.body}`,
-          {
-            format: MessageFormat.HTML,
-            replyMarkup: {
-              inline_keyboard: [[
-                { text: t.location.button, web_app: { url: settingsUrl } }
-              ]]
+          await messagingService.sendMessage(Number(user.telegramId),
+            `${t.location.title}\n\n${t.location.body}`,
+            {
+              format: MessageFormat.HTML,
+              replyMarkup: {
+                inline_keyboard: [[
+                  { text: t.location.button, web_app: { url: settingsUrl } }
+                ]]
+              }
             }
-          }
-        );
+          );
 
-        results.push({ type: 'location', userId: user.id, telegramId: user.telegramId!, success: true });
-      } catch (error) {
-        results.push({
-          type: 'location',
-          userId: user.id,
-          telegramId: user.telegramId!,
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
+          results.push({ type: 'location', userId: user.id, telegramId: user.telegramId!, success: true });
+        } catch (error) {
+          results.push({
+            type: 'location',
+            userId: user.id,
+            telegramId: user.telegramId!,
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
       }
-    }
 
-    const successCount = results.filter(r => r.success).length;
-    const failCount = results.filter(r => !r.success).length;
+      const successCount = results.filter(r => r.success).length;
+      const failCount = results.filter(r => !r.success).length;
 
-    console.log(`[Setup Reminders] Sent ${successCount} reminders (${failCount} failed)`);
+      console.log(`[Setup Reminders] Sent ${successCount} reminders (${failCount} failed)`);
 
-    // Notify admin about sent reminders
-    if (successCount > 0) {
-      try {
-        const { notifyAdminWarning } = await import('@/src/utils/error-notifier');
-        const oauthCount = results.filter(r => r.type === 'oauth' && r.success).length;
-        const calendarsCount = results.filter(r => r.type === 'calendars' && r.success).length;
-        const locationCount = results.filter(r => r.type === 'location' && r.success).length;
+      // Notify admin about sent reminders
+      if (successCount > 0) {
+        try {
+          const { notifyAdminWarning } = await import('@/src/utils/error-notifier');
+          const oauthCount = results.filter(r => r.type === 'oauth' && r.success).length;
+          const calendarsCount = results.filter(r => r.type === 'calendars' && r.success).length;
+          const locationCount = results.filter(r => r.type === 'location' && r.success).length;
 
-        const details = [
-          oauthCount > 0 ? `OAuth: ${oauthCount}` : null,
-          calendarsCount > 0 ? `Calendars: ${calendarsCount}` : null,
-          locationCount > 0 ? `Location: ${locationCount}` : null,
-        ].filter(Boolean).join(', ');
+          const details = [
+            oauthCount > 0 ? `OAuth: ${oauthCount}` : null,
+            calendarsCount > 0 ? `Calendars: ${calendarsCount}` : null,
+            locationCount > 0 ? `Location: ${locationCount}` : null,
+          ].filter(Boolean).join(', ');
 
-        await notifyAdminWarning(
-          'Setup Reminders Sent',
-          `Sent ${successCount} setup reminder(s) to incomplete users.\n\n${details}`
-        );
-      } catch (notifyError) {
-        console.error('[Setup Reminders] Failed to notify admin:', notifyError);
+          await notifyAdminWarning(
+            'Setup Reminders Sent',
+            `Sent ${successCount} setup reminder(s) to incomplete users.\n\n${details}`
+          );
+        } catch (notifyError) {
+          console.error('[Setup Reminders] Failed to notify admin:', notifyError);
+        }
       }
+
+      return {
+        success: true,
+        message: `Sent ${successCount} setup reminders`,
+        remindersSent: successCount,
+        remindersFailed: failCount,
+        details: {
+          oauth: results.filter(r => r.type === 'oauth').length,
+          calendars: results.filter(r => r.type === 'calendars').length,
+          location: results.filter(r => r.type === 'location').length,
+        },
+      };
     }
-
-    return NextResponse.json({
-      success: true,
-      remindersSent: successCount,
-      remindersFailed: failCount,
-      details: {
-        oauth: results.filter(r => r.type === 'oauth').length,
-        calendars: results.filter(r => r.type === 'calendars').length,
-        location: results.filter(r => r.type === 'location').length,
-      },
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error('[Setup Reminders] Error:', error);
-
-    try {
-      const { notifyAdminError } = await import('@/src/utils/error-notifier');
-      await notifyAdminError('Setup Reminders Cron', error, 'Job: Send setup reminders');
-    } catch (notifyError) {
-      console.error('[Setup Reminders] Failed to notify admin:', notifyError);
-    }
-
-    return NextResponse.json({
-      success: false,
-      error: 'Failed to send setup reminders',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    }, { status: 500 });
-  }
+  });
 }
