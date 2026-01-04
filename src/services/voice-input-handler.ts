@@ -319,11 +319,17 @@ export async function handleVoiceMessage(
 
     // Send processing message
     console.log(`[Voice] Sending processing message to chat ${chatId}`);
-    const processingMsg = await messagingService.sendMessage(chatId,
-      '🎤 Processing your voice message...',
-      { format: MessageFormat.PLAIN }
-    );
-    console.log(`[Voice] Processing message sent, id: ${processingMsg}`);
+    let processingMsg: number | string;
+    try {
+      processingMsg = await messagingService.sendMessage(chatId,
+        '🎤 Processing your voice message...',
+        { format: MessageFormat.PLAIN }
+      );
+      console.log(`[Voice] Processing message sent, id: ${processingMsg}`);
+    } catch (sendError) {
+      console.error(`[Voice] Failed to send processing message:`, sendError);
+      throw sendError;
+    }
     const processingMsgId = typeof processingMsg === 'number' ? processingMsg : parseInt(processingMsg);
 
     // Download the voice file

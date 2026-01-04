@@ -64,10 +64,12 @@ export async function handleTelegramWebhook(
 
     console.log(`[Webhook] Voice message received from user ${userId}, duration: ${voice.duration}s`);
 
-    // Process voice message asynchronously (don't block webhook response)
-    handleVoiceMessage(chatId, userId, voice, from).catch(error => {
+    // Process voice message (await to prevent Vercel from killing the function)
+    try {
+      await handleVoiceMessage(chatId, userId, voice, from);
+    } catch (error) {
       console.error('[Webhook] Error in voice handler:', error);
-    });
+    }
 
     res.status(200).json({ ok: true });
     return;
