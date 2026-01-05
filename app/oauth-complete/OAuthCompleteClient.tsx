@@ -22,8 +22,8 @@ export default function OAuthCompleteClient({ locale, botUsername, translations:
   const isRTL = locale === 'he';
 
   useEffect(() => {
-    // Check if already redirected in this session (prevents re-redirect on tab reactivation)
-    if (sessionStorage.getItem('oauth_redirected') === 'true') {
+    // Check if already redirected (prevents re-redirect on tab reactivation)
+    if (localStorage.getItem('oauth_redirected') === 'true') {
       setHasRedirected(true);
       return;
     }
@@ -34,7 +34,7 @@ export default function OAuthCompleteClient({ locale, botUsername, translations:
         if (prev <= 1) {
           clearInterval(timer);
           // Mark as redirected before navigating
-          sessionStorage.setItem('oauth_redirected', 'true');
+          localStorage.setItem('oauth_redirected', 'true');
           // Auto-redirect to Telegram
           redirectToTelegram();
           return 0;
