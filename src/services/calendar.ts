@@ -465,6 +465,11 @@ export async function fetchEventsInRange(
 }
 
 /**
+ * Scope for recurring event modifications
+ */
+export type RecurrenceScope = 'single' | 'all' | 'following';
+
+/**
  * Event data for updating an existing calendar event
  */
 export interface UpdateEventData {
@@ -474,6 +479,8 @@ export interface UpdateEventData {
   description?: string;
   location?: string;
   allDay?: boolean;
+  scope?: RecurrenceScope;        // For recurring events: single instance, all, or this+following
+  recurringEventId?: string;      // Parent event ID for recurring event modifications
 }
 
 /**
@@ -492,7 +499,7 @@ export interface UpdateEventResult {
  * Uses PATCH for partial updates (only specified fields are changed)
  * @param refreshToken - Google OAuth refresh token
  * @param calendarId - Calendar ID containing the event
- * @param eventId - ID of the event to update
+ * @param eventId - ID of the event to update (instance ID for recurring events)
  * @param updates - Fields to update (only specified fields will change)
  * @returns Result with event ID and link, or error information
  */
@@ -503,6 +510,19 @@ export async function updateEvent(
   updates: UpdateEventData
 ): Promise<UpdateEventResult> {
   const calendar = getCalendarClient(refreshToken);
+  const scope = updates.scope || 'single';
+
+  // For 'following' scope, use the special handler
+  if (scope === 'following' && updates.recurringEventId) {
+    return updateThisAndFollowing(refreshToken, calendarId, eventId, updates);
+  }
+
+  // Determine which eventId to use based on scope
+  // 'all' scope: use parent recurringEventId to affect entire series
+  // 'single' scope: use instance eventId (default behavior)
+  const targetEventId = scope === 'all' && updates.recurringEventId
+    ? updates.recurringEventId
+    : eventId;
 
   try {
     // Build update request body with only specified fields
@@ -523,7 +543,7 @@ export async function updateEvent(
       // First fetch the current event to get existing times if needed
       const currentEvent = await calendar.events.get({
         calendarId: calendarId,
-        eventId: eventId,
+        eventId: targetEventId,
       });
 
       const existingStart = currentEvent.data.start;
@@ -557,7 +577,7 @@ export async function updateEvent(
 
     const response = await calendar.events.patch({
       calendarId: calendarId,
-      eventId: eventId,
+      eventId: targetEventId,
       requestBody: updateBody,
     });
 
@@ -607,6 +627,134 @@ export async function updateEvent(
 }
 
 /**
+ * Update this instance and all following instances of a recurring event
+ * This is a two-step process:
+ * 1. Truncate the original series by adding UNTIL clause (day before this instance)
+ * 2. Create a new recurring event starting from this instance with updates applied
+ */
+async function updateThisAndFollowing(
+  refreshToken: string,
+  calendarId: string,
+  instanceEventId: string,
+  updates: UpdateEventData
+): Promise<UpdateEventResult> {
+  const calendar = getCalendarClient(refreshToken);
+
+  try {
+    // Step 1: Get the parent recurring event
+    const parentEvent = await calendar.events.get({
+      calendarId: calendarId,
+      eventId: updates.recurringEventId!,
+    });
+
+    // Step 2: Get the instance to find its start date
+    const instanceEvent = await calendar.events.get({
+      calendarId: calendarId,
+      eventId: instanceEventId,
+    });
+
+    const instanceStartStr = instanceEvent.data.start?.dateTime || instanceEvent.data.start?.date;
+    if (!instanceStartStr) {
+      return {
+        success: false,
+        error: 'NOT_FOUND',
+        errorMessage: 'Could not determine instance start date.',
+      };
+    }
+
+    const instanceDate = new Date(instanceStartStr);
+
+    // Step 3: Update original event to end BEFORE this instance
+    const endBeforeInstance = new Date(instanceDate);
+    endBeforeInstance.setDate(endBeforeInstance.getDate() - 1);
+    const untilDate = format(endBeforeInstance, 'yyyyMMdd');
+
+    const originalRecurrence = parentEvent.data.recurrence || [];
+    const modifiedRecurrence = originalRecurrence.map(rule => {
+      if (rule.startsWith('RRULE:')) {
+        // Remove existing UNTIL/COUNT and add new UNTIL
+        const parts = rule.split(';').filter(part =>
+          !part.startsWith('UNTIL=') && !part.startsWith('COUNT=')
+        );
+        return `${parts.join(';')};UNTIL=${untilDate}`;
+      }
+      return rule;
+    });
+
+    await calendar.events.patch({
+      calendarId: calendarId,
+      eventId: updates.recurringEventId!,
+      requestBody: {
+        recurrence: modifiedRecurrence,
+      },
+    });
+
+    // Step 4: Create new recurring event from this instance with updates
+    const existingStart = instanceEvent.data.start;
+    const existingEnd = instanceEvent.data.end;
+    const isAllDay = !existingStart?.dateTime;
+
+    const newStartTime = updates.startTime ?? new Date(existingStart?.dateTime || existingStart?.date || '');
+    const newEndTime = updates.endTime ?? new Date(existingEnd?.dateTime || existingEnd?.date || '');
+
+    const newEventBody: calendar_v3.Schema$Event = {
+      summary: updates.title ?? parentEvent.data.summary,
+      description: updates.description ?? parentEvent.data.description,
+      location: updates.location ?? parentEvent.data.location,
+      recurrence: parentEvent.data.recurrence, // Copy original recurrence (without the UNTIL we just added)
+    };
+
+    if (isAllDay || updates.allDay) {
+      newEventBody.start = {
+        date: format(newStartTime, 'yyyy-MM-dd'),
+        timeZone: TIMEZONE,
+      };
+      newEventBody.end = {
+        date: format(newEndTime, 'yyyy-MM-dd'),
+        timeZone: TIMEZONE,
+      };
+    } else {
+      newEventBody.start = {
+        dateTime: newStartTime.toISOString(),
+        timeZone: TIMEZONE,
+      };
+      newEventBody.end = {
+        dateTime: newEndTime.toISOString(),
+        timeZone: TIMEZONE,
+      };
+    }
+
+    const response = await calendar.events.insert({
+      calendarId: calendarId,
+      requestBody: newEventBody,
+    });
+
+    return {
+      success: true,
+      eventId: response.data.id || undefined,
+      eventLink: response.data.htmlLink || undefined,
+    };
+  } catch (error) {
+    console.error('Error updating this and following events:', error);
+
+    if (isTokenError(error)) {
+      return {
+        success: false,
+        error: 'TOKEN_EXPIRED',
+        errorMessage: 'Google Calendar access has expired. Please re-authorize.',
+      };
+    }
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return {
+      success: false,
+      error: 'UNKNOWN_ERROR',
+      errorMessage: errorMessage,
+    };
+  }
+}
+
+/**
  * Result of deleting a calendar event
  */
 export interface DeleteEventResult {
@@ -616,23 +764,46 @@ export interface DeleteEventResult {
 }
 
 /**
+ * Options for deleting recurring events
+ */
+export interface DeleteEventOptions {
+  scope?: RecurrenceScope;       // For recurring events: single instance, all, or this+following
+  recurringEventId?: string;     // Parent event ID for recurring event modifications
+}
+
+/**
  * Delete an event from Google Calendar
  * @param refreshToken - Google OAuth refresh token
  * @param calendarId - Calendar ID containing the event
- * @param eventId - ID of the event to delete
+ * @param eventId - ID of the event to delete (instance ID for recurring events)
+ * @param options - Optional settings for recurring event deletion
  * @returns Result indicating success or error information
  */
 export async function deleteEvent(
   refreshToken: string,
   calendarId: string,
-  eventId: string
+  eventId: string,
+  options?: DeleteEventOptions
 ): Promise<DeleteEventResult> {
   const calendar = getCalendarClient(refreshToken);
+  const scope = options?.scope || 'single';
+
+  // For 'following' scope, truncate the series instead of deleting
+  if (scope === 'following' && options?.recurringEventId) {
+    return deleteThisAndFollowing(refreshToken, calendarId, eventId, options.recurringEventId);
+  }
+
+  // Determine which eventId to use based on scope
+  // 'all' scope: use parent recurringEventId to delete entire series
+  // 'single' scope: use instance eventId (default behavior)
+  const targetEventId = scope === 'all' && options?.recurringEventId
+    ? options.recurringEventId
+    : eventId;
 
   try {
     await calendar.events.delete({
       calendarId: calendarId,
-      eventId: eventId,
+      eventId: targetEventId,
     });
 
     return { success: true };
@@ -667,6 +838,88 @@ export async function deleteEvent(
       };
     }
 
+    return {
+      success: false,
+      error: 'UNKNOWN_ERROR',
+      errorMessage: errorMessage,
+    };
+  }
+}
+
+/**
+ * Delete this instance and all following instances of a recurring event
+ * This truncates the series by adding UNTIL clause (day before this instance)
+ */
+async function deleteThisAndFollowing(
+  refreshToken: string,
+  calendarId: string,
+  instanceEventId: string,
+  recurringEventId: string
+): Promise<DeleteEventResult> {
+  const calendar = getCalendarClient(refreshToken);
+
+  try {
+    // Step 1: Get the instance to find its start date
+    const instanceEvent = await calendar.events.get({
+      calendarId: calendarId,
+      eventId: instanceEventId,
+    });
+
+    const instanceStartStr = instanceEvent.data.start?.dateTime || instanceEvent.data.start?.date;
+    if (!instanceStartStr) {
+      return {
+        success: false,
+        error: 'NOT_FOUND',
+        errorMessage: 'Could not determine instance start date.',
+      };
+    }
+
+    const instanceDate = new Date(instanceStartStr);
+
+    // Step 2: Get the parent recurring event
+    const parentEvent = await calendar.events.get({
+      calendarId: calendarId,
+      eventId: recurringEventId,
+    });
+
+    // Step 3: Update original event to end BEFORE this instance
+    const endBeforeInstance = new Date(instanceDate);
+    endBeforeInstance.setDate(endBeforeInstance.getDate() - 1);
+    const untilDate = format(endBeforeInstance, 'yyyyMMdd');
+
+    const originalRecurrence = parentEvent.data.recurrence || [];
+    const modifiedRecurrence = originalRecurrence.map(rule => {
+      if (rule.startsWith('RRULE:')) {
+        // Remove existing UNTIL/COUNT and add new UNTIL
+        const parts = rule.split(';').filter(part =>
+          !part.startsWith('UNTIL=') && !part.startsWith('COUNT=')
+        );
+        return `${parts.join(';')};UNTIL=${untilDate}`;
+      }
+      return rule;
+    });
+
+    await calendar.events.patch({
+      calendarId: calendarId,
+      eventId: recurringEventId,
+      requestBody: {
+        recurrence: modifiedRecurrence,
+      },
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting this and following events:', error);
+
+    if (isTokenError(error)) {
+      return {
+        success: false,
+        error: 'TOKEN_EXPIRED',
+        errorMessage: 'Google Calendar access has expired. Please re-authorize.',
+      };
+    }
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
     return {
       success: false,
       error: 'UNKNOWN_ERROR',

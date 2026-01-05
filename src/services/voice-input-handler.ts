@@ -7,8 +7,8 @@ import { getBot, getMessagingService } from './telegram';
 import { getUserByTelegramId } from './user-service';
 import { MessageFormat } from './messaging/types';
 import { transcribeVoice } from './transcription';
-import { parseEventFromText, ParsedEvent, parseVoiceIntent, EventReference, EditRequest, VoiceIntentResult } from './event-parser';
-import { createEvent, CreateEventResult, fetchEventsInRange, CalendarEvent, updateEvent, UpdateEventData, UpdateEventResult, deleteEvent, DeleteEventResult, buildRecurrenceRule } from './calendar';
+import { parseEventFromText, ParsedEvent, parseVoiceIntent, EventReference, EditRequest, VoiceIntentResult, RecurrenceScope } from './event-parser';
+import { createEvent, CreateEventResult, fetchEventsInRange, CalendarEvent, updateEvent, UpdateEventData, UpdateEventResult, deleteEvent, DeleteEventResult, buildRecurrenceRule, DeleteEventOptions } from './calendar';
 import { TIMEZONE } from '../config/constants';
 import { resolveUserTimezone } from '../lib/timezone';
 import { buildUrl } from '../config/urls';
@@ -257,6 +257,7 @@ interface PendingEdit {
   updates: UpdateEventData;
   user: UserConfig;
   transcription: string;
+  scope?: RecurrenceScope;
 }
 
 // Store pending edit operations
@@ -364,7 +365,8 @@ export async function showEditConfirmation(
   calendarId: string,
   updates: UpdateEventData,
   transcription: string,
-  user: UserConfig
+  user: UserConfig,
+  scope?: RecurrenceScope
 ): Promise<void> {
   const bot = getBot();
   const t = await getBotMessages(user.language || 'en');
@@ -372,8 +374,8 @@ export async function showEditConfirmation(
   // Generate unique ID for this pending edit
   const pendingId = `${chatId}:${Date.now()}`;
 
-  // Store pending edit
-  pendingEdits.set(pendingId, { originalEvent, calendarId, updates, user, transcription });
+  // Store pending edit with scope
+  pendingEdits.set(pendingId, { originalEvent, calendarId, updates, user, transcription, scope });
 
   // Clean up old pending edits (older than 10 minutes)
   const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
@@ -395,11 +397,29 @@ export async function showEditConfirmation(
   const cancelBtn = t.voice?.cancelButton || '❌ Cancel';
   const fromLabel = t.voice?.from || 'From:';
 
+  // Show scope info for recurring events
+  let scopeInfo = '';
+  if (scope === 'all' && originalEvent.recurringEventId) {
+    const scopeLabels: Record<string, string> = {
+      en: '🔄 Applies to: ALL events in series',
+      he: '🔄 חל על: כל האירועים בסדרה',
+      ru: '🔄 Применяется к: ВСЕМ событиям серии'
+    };
+    scopeInfo = `\n${scopeLabels[user.language || 'en'] || scopeLabels.en}\n`;
+  } else if (scope === 'following' && originalEvent.recurringEventId) {
+    const scopeLabels: Record<string, string> = {
+      en: '🔄 Applies to: This and all FUTURE events',
+      he: '🔄 חל על: אירוע זה וכל העתידיים',
+      ru: '🔄 Применяется к: Этому и ВСЕМ будущим событиям'
+    };
+    scopeInfo = `\n${scopeLabels[user.language || 'en'] || scopeLabels.en}\n`;
+  }
+
   const confirmationMessage =
     `${editTitle}\n\n` +
     `<b>${currentLabel}</b>\n` +
     `📅 ${originalEvent.summary}\n` +
-    `${currentInfo}\n\n` +
+    `${currentInfo}${scopeInfo}\n\n` +
     `<b>${changesLabel}</b>\n` +
     `${changesInfo}\n\n` +
     `<i>${fromLabel} "${transcription}"</i>`;
@@ -444,7 +464,7 @@ export async function handleEditCallback(
     return;
   }
 
-  const { originalEvent, calendarId, updates, user } = pending;
+  const { originalEvent, calendarId, updates, user, scope } = pending;
   const t = await getBotMessages(user.language || 'en');
 
   // Remove from pending
@@ -498,12 +518,16 @@ export async function handleEditCallback(
       return;
     }
 
-    // Update the event
+    // Update the event with scope for recurring events
     const result: UpdateEventResult = await updateEvent(
       user.googleRefreshToken,
       calendarId,
       eventId,
-      updates
+      {
+        ...updates,
+        scope: scope,
+        recurringEventId: originalEvent.recurringEventId,
+      }
     );
 
     if (result.success) {
@@ -583,6 +607,7 @@ interface PendingDelete {
   calendarId: string;
   user: UserConfig;
   transcription: string;
+  scope?: RecurrenceScope;
 }
 
 // Store pending delete operations
@@ -597,7 +622,8 @@ export async function showDeleteConfirmation(
   event: CalendarEvent,
   calendarId: string,
   transcription: string,
-  user: UserConfig
+  user: UserConfig,
+  scope?: RecurrenceScope
 ): Promise<void> {
   const bot = getBot();
   const t = await getBotMessages(user.language || 'en');
@@ -605,8 +631,8 @@ export async function showDeleteConfirmation(
   // Generate unique ID for this pending delete
   const pendingId = `${chatId}:${Date.now()}`;
 
-  // Store pending delete
-  pendingDeletes.set(pendingId, { event, calendarId, user, transcription });
+  // Store pending delete with scope
+  pendingDeletes.set(pendingId, { event, calendarId, user, transcription, scope });
 
   // Clean up old pending deletes (older than 10 minutes)
   const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
@@ -625,10 +651,28 @@ export async function showDeleteConfirmation(
   const keepBtn = t.voice?.keepButton || '❌ Keep';
   const fromLabel = t.voice?.from || 'From:';
 
+  // Show scope info for recurring events
+  let scopeInfo = '';
+  if (scope === 'all' && event.recurringEventId) {
+    const scopeLabels: Record<string, string> = {
+      en: '🔄 Will delete: ALL events in series',
+      he: '🔄 ימחק: כל האירועים בסדרה',
+      ru: '🔄 Будет удалено: ВСЕ события серии'
+    };
+    scopeInfo = `\n${scopeLabels[user.language || 'en'] || scopeLabels.en}\n`;
+  } else if (scope === 'following' && event.recurringEventId) {
+    const scopeLabels: Record<string, string> = {
+      en: '🔄 Will delete: This and all FUTURE events',
+      he: '🔄 ימחק: אירוע זה וכל העתידיים',
+      ru: '🔄 Будет удалено: Это и ВСЕ будущие события'
+    };
+    scopeInfo = `\n${scopeLabels[user.language || 'en'] || scopeLabels.en}\n`;
+  }
+
   const confirmationMessage =
     `${deleteTitle}\n\n` +
     `📅 <b>${event.summary}</b>\n` +
-    `${eventInfo}\n\n` +
+    `${eventInfo}${scopeInfo}\n\n` +
     `<i>${fromLabel} "${transcription}"</i>`;
 
   // Update message with confirmation buttons
@@ -671,7 +715,7 @@ export async function handleDeleteCallback(
     return;
   }
 
-  const { event, calendarId, user } = pending;
+  const { event, calendarId, user, scope } = pending;
   const t = await getBotMessages(user.language || 'en');
 
   // Remove from pending
@@ -725,11 +769,12 @@ export async function handleDeleteCallback(
       return;
     }
 
-    // Delete the event
+    // Delete the event with scope for recurring events
     const result: DeleteEventResult = await deleteEvent(
       user.googleRefreshToken,
       calendarId,
-      eventId
+      eventId,
+      { scope: scope, recurringEventId: event.recurringEventId }
     );
 
     if (result.success) {
@@ -1226,8 +1271,8 @@ async function handleEditIntent(
   // Convert edit request to update data
   const updates = convertEditRequestToUpdates(intentResult.editRequest, targetEvent, timezone);
 
-  // Show edit confirmation
-  await showEditConfirmation(chatId, messageId, targetEvent, targetCalendarId, updates, transcription, user);
+  // Show edit confirmation with scope for recurring events
+  await showEditConfirmation(chatId, messageId, targetEvent, targetCalendarId, updates, transcription, user, intentResult.scope);
 }
 
 /**
@@ -1316,8 +1361,8 @@ async function handleDeleteIntent(
     return;
   }
 
-  // Show delete confirmation
-  await showDeleteConfirmation(chatId, messageId, targetEvent, targetCalendarId, transcription, user);
+  // Show delete confirmation with scope for recurring events
+  await showDeleteConfirmation(chatId, messageId, targetEvent, targetCalendarId, transcription, user, intentResult.scope);
 }
 
 /**

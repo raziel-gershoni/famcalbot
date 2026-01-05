@@ -38,6 +38,11 @@ export interface EditRequest {
 }
 
 /**
+ * Scope for recurring event modifications
+ */
+export type RecurrenceScope = 'single' | 'all' | 'following';
+
+/**
  * Result of parsing voice intent
  */
 export interface VoiceIntentResult {
@@ -45,6 +50,7 @@ export interface VoiceIntentResult {
   event?: ParsedEvent;           // For CREATE intent
   editRequest?: EditRequest;     // For EDIT intent
   eventReference?: EventReference;  // For EDIT/DELETE intent
+  scope?: RecurrenceScope;       // For EDIT/DELETE: single instance, all, or this+following
   confidence: 'high' | 'medium' | 'low';
   error?: string;
   needsClarification?: boolean;
@@ -336,10 +342,22 @@ INTENT DETECTION RULES:
 
 4. "that", "את זה", "это" or similar references to "last event" mean the most recently created event
 
+5. SCOPE DETECTION (for EDIT/DELETE of recurring events):
+   - Default: "single" (only the matched instance)
+   - scope: "all" keywords:
+     * English: "all events", "all [name] events", "entire series", "the whole series"
+     * Hebrew: "כל האירועים", "את כל ה", "כל הסדרה"
+     * Russian: "все события", "всю серию"
+   - scope: "following" keywords:
+     * English: "all future", "all following", "from now on", "going forward", "this and all future"
+     * Hebrew: "מעכשיו והלאה", "כל העתידיים", "מכאן והלאה"
+     * Russian: "все будущие", "с этого момента", "начиная отсюда"
+
 RESPOND IN JSON FORMAT ONLY:
 {
   "intent": "create" | "edit" | "delete",
   "confidence": "high" | "medium" | "low",
+  "scope": "single" | "all" | "following" (default: "single", only for edit/delete),
 
   // For CREATE intent - full event details:
   "event": {
@@ -417,7 +435,19 @@ Input: "Team meeting every Tuesday at 2pm"
 Output: {"intent": "create", "confidence": "high", "event": {"title": "Team meeting", "startDate": "2024-01-09", "startTime": "14:00", "endDate": "2024-01-09", "endTime": "15:00", "allDay": false, "calendarId": "primary", "calendarName": "Primary", "recurrence": {"frequency": "weekly", "daysOfWeek": ["TU"]}}}
 
 Input: "Daily standup at 9am"
-Output: {"intent": "create", "confidence": "high", "event": {"title": "Daily standup", "startDate": "2024-01-06", "startTime": "09:00", "endDate": "2024-01-06", "endTime": "09:30", "allDay": false, "calendarId": "primary", "calendarName": "Primary", "recurrence": {"frequency": "daily"}}}`;
+Output: {"intent": "create", "confidence": "high", "event": {"title": "Daily standup", "startDate": "2024-01-06", "startTime": "09:00", "endDate": "2024-01-06", "endTime": "09:30", "allDay": false, "calendarId": "primary", "calendarName": "Primary", "recurrence": {"frequency": "daily"}}}
+
+Input: "Delete ALL gym events"
+Output: {"intent": "delete", "confidence": "high", "scope": "all", "eventReference": {"type": "by_description", "description": "gym"}}
+
+Input: "Cancel all future dentist appointments"
+Output: {"intent": "delete", "confidence": "high", "scope": "following", "eventReference": {"type": "by_description", "description": "dentist"}}
+
+Input: "Move all team meetings to 4pm"
+Output: {"intent": "edit", "confidence": "high", "scope": "all", "eventReference": {"type": "by_description", "description": "team meeting"}, "editRequest": {"newStartTime": "16:00", "newEndTime": "17:00"}}
+
+Input: "Move all future standup meetings to 10am"
+Output: {"intent": "edit", "confidence": "high", "scope": "following", "eventReference": {"type": "by_description", "description": "standup"}, "editRequest": {"newStartTime": "10:00", "newEndTime": "10:30"}}`;
 }
 
 /**
@@ -491,6 +521,7 @@ export async function parseVoiceIntent(
         confidence: parsed.confidence || 'medium',
         editRequest: parsed.editRequest || undefined,
         eventReference: parsed.eventReference || undefined,
+        scope: parsed.scope || 'single',
         error: parsed.error,
         needsClarification: parsed.needsClarification,
         clarificationQuestion: parsed.clarificationQuestion,
@@ -503,6 +534,7 @@ export async function parseVoiceIntent(
         intent: 'delete',
         confidence: parsed.confidence || 'medium',
         eventReference: parsed.eventReference || undefined,
+        scope: parsed.scope || 'single',
         error: parsed.error,
         needsClarification: parsed.needsClarification,
         clarificationQuestion: parsed.clarificationQuestion,
