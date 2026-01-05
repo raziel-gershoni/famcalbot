@@ -228,6 +228,7 @@ export interface CreateEventData {
   description?: string;
   location?: string;
   allDay?: boolean;
+  recurrence?: string[];  // RRULE strings for Google Calendar API
 }
 
 /**
@@ -239,6 +240,54 @@ export interface CreateEventResult {
   eventLink?: string;
   error?: 'PERMISSION_DENIED' | 'TOKEN_EXPIRED' | 'UNKNOWN_ERROR';
   errorMessage?: string;
+}
+
+/**
+ * Build RRULE string from recurrence pattern for Google Calendar API
+ * @param recurrence - Array of RRULE strings
+ * @returns Formatted RRULE array or undefined
+ */
+function formatRecurrenceForAPI(recurrence?: string[]): string[] | undefined {
+  if (!recurrence || recurrence.length === 0) return undefined;
+
+  // Ensure each rule starts with RRULE: prefix
+  return recurrence.map(rule =>
+    rule.startsWith('RRULE:') ? rule : `RRULE:${rule}`
+  );
+}
+
+/**
+ * Build RRULE string from parsed recurrence pattern
+ * @param recurrence - Parsed recurrence pattern from voice input
+ * @returns Array with single RRULE string
+ */
+export function buildRecurrenceRule(recurrence?: {
+  frequency: string;
+  daysOfWeek?: string[];
+  interval?: number;
+  until?: string;
+  count?: number;
+}): string[] {
+  if (!recurrence?.frequency) return [];
+
+  let rule = `RRULE:FREQ=${recurrence.frequency.toUpperCase()}`;
+
+  if (recurrence.interval && recurrence.interval > 1) {
+    rule += `;INTERVAL=${recurrence.interval}`;
+  }
+
+  if (recurrence.daysOfWeek && recurrence.daysOfWeek.length > 0) {
+    rule += `;BYDAY=${recurrence.daysOfWeek.join(',')}`;
+  }
+
+  if (recurrence.until) {
+    // Format: YYYYMMDD
+    rule += `;UNTIL=${recurrence.until.replace(/-/g, '')}`;
+  } else if (recurrence.count) {
+    rule += `;COUNT=${recurrence.count}`;
+  }
+
+  return [rule];
 }
 
 /**
@@ -292,6 +341,11 @@ export async function createEvent(
         dateTime: eventData.endTime.toISOString(),
         timeZone: TIMEZONE,
       };
+    }
+
+    // Add recurrence rules if provided
+    if (eventData.recurrence && eventData.recurrence.length > 0) {
+      eventBody.recurrence = formatRecurrenceForAPI(eventData.recurrence);
     }
 
     const response = await calendar.events.insert({

@@ -8,7 +8,7 @@ import { getUserByTelegramId } from './user-service';
 import { MessageFormat } from './messaging/types';
 import { transcribeVoice } from './transcription';
 import { parseEventFromText, ParsedEvent, parseVoiceIntent, EventReference, EditRequest, VoiceIntentResult } from './event-parser';
-import { createEvent, CreateEventResult, fetchEventsInRange, CalendarEvent, updateEvent, UpdateEventData, UpdateEventResult, deleteEvent, DeleteEventResult } from './calendar';
+import { createEvent, CreateEventResult, fetchEventsInRange, CalendarEvent, updateEvent, UpdateEventData, UpdateEventResult, deleteEvent, DeleteEventResult, buildRecurrenceRule } from './calendar';
 import { TIMEZONE } from '../config/constants';
 import { resolveUserTimezone } from '../lib/timezone';
 import { buildUrl } from '../config/urls';
@@ -798,6 +798,41 @@ export async function handleDeleteCallback(
 /**
  * Format event date/time for display
  */
+/**
+ * Format recurrence pattern for display
+ */
+function formatRecurrence(recurrence: ParsedEvent['recurrence'], language: string): string | null {
+  if (!recurrence?.frequency) return null;
+
+  const dayNames: Record<string, Record<string, string>> = {
+    en: { MO: 'Mon', TU: 'Tue', WE: 'Wed', TH: 'Thu', FR: 'Fri', SA: 'Sat', SU: 'Sun' },
+    he: { MO: 'שני', TU: 'שלישי', WE: 'רביעי', TH: 'חמישי', FR: 'שישי', SA: 'שבת', SU: 'ראשון' },
+    ru: { MO: 'Пн', TU: 'Вт', WE: 'Ср', TH: 'Чт', FR: 'Пт', SA: 'Сб', SU: 'Вс' },
+  };
+
+  const freqLabels: Record<string, Record<string, string>> = {
+    en: { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', yearly: 'Yearly' },
+    he: { daily: 'יומי', weekly: 'שבועי', monthly: 'חודשי', yearly: 'שנתי' },
+    ru: { daily: 'Ежедневно', weekly: 'Еженедельно', monthly: 'Ежемесячно', yearly: 'Ежегодно' },
+  };
+
+  const lang = language in dayNames ? language : 'en';
+  const freq = freqLabels[lang][recurrence.frequency] || recurrence.frequency;
+
+  let result = `🔄 ${freq}`;
+
+  if (recurrence.daysOfWeek && recurrence.daysOfWeek.length > 0) {
+    const days = recurrence.daysOfWeek.map(d => dayNames[lang][d] || d).join(', ');
+    result += ` (${days})`;
+  }
+
+  if (recurrence.interval && recurrence.interval > 1) {
+    result += ` x${recurrence.interval}`;
+  }
+
+  return result;
+}
+
 function formatEventDateTime(event: ParsedEvent, language: string, allDayText: string): string {
   const locale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
 
@@ -819,11 +854,17 @@ function formatEventDateTime(event: ParsedEvent, language: string, allDayText: s
   const startTimeStr = event.startTime.toLocaleTimeString(locale, timeOptions);
   const endTimeStr = event.endTime.toLocaleTimeString(locale, timeOptions);
 
+  // Format recurrence if present
+  const recurrenceStr = formatRecurrence(event.recurrence, language);
+
   if (event.allDay) {
-    return `📆 ${dateStr} (${allDayText})`;
+    return recurrenceStr
+      ? `📆 ${dateStr} (${allDayText})\n${recurrenceStr}`
+      : `📆 ${dateStr} (${allDayText})`;
   }
 
-  return `📆 ${dateStr}\n🕐 ${startTimeStr} - ${endTimeStr}`;
+  const base = `📆 ${dateStr}\n🕐 ${startTimeStr} - ${endTimeStr}`;
+  return recurrenceStr ? `${base}\n${recurrenceStr}` : base;
 }
 
 /**
@@ -955,7 +996,8 @@ export async function handleEventCallback(
         endTime: event.endTime,
         location: event.location,
         description: event.description,
-        allDay: event.allDay
+        allDay: event.allDay,
+        recurrence: buildRecurrenceRule(event.recurrence)
       }
     );
 

@@ -52,6 +52,17 @@ export interface VoiceIntentResult {
 }
 
 /**
+ * Recurrence pattern for repeating events
+ */
+export interface RecurrencePattern {
+  frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  daysOfWeek?: string[];  // ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']
+  interval?: number;       // every N weeks/months (default 1)
+  until?: string;          // YYYY-MM-DD end date
+  count?: number;          // number of occurrences
+}
+
+/**
  * Parsed event data from natural language
  */
 export interface ParsedEvent {
@@ -65,6 +76,7 @@ export interface ParsedEvent {
   calendarName?: string;
   confidence: 'high' | 'medium' | 'low';
   ambiguities?: string[];
+  recurrence?: RecurrencePattern;
 }
 
 /**
@@ -123,6 +135,15 @@ INSTRUCTIONS:
 3. If no end time is specified, default to 1 hour duration
 4. If the date is relative (tomorrow, next week, etc.), calculate the absolute date
 5. If time is ambiguous (e.g., "at 3" could be 3 AM or 3 PM), assume PM for typical events
+6. RECURRENCE DETECTION - Look for repeating patterns:
+   - "every day/daily" (כל יום, каждый день) → frequency: "daily"
+   - "every week/weekly" (כל שבוע, каждую неделю) → frequency: "weekly"
+   - "every month/monthly" (כל חודש, каждый месяц) → frequency: "monthly"
+   - "every year/yearly" (כל שנה, каждый год) → frequency: "yearly"
+   - "every Tuesday" (כל יום שלישי, каждый вторник) → frequency: "weekly", daysOfWeek: ["TU"]
+   - "every Monday and Wednesday" → frequency: "weekly", daysOfWeek: ["MO", "WE"]
+   - "every 2 weeks" → frequency: "weekly", interval: 2
+   - Day codes: MO, TU, WE, TH, FR, SA, SU
 
 RESPOND IN JSON FORMAT ONLY:
 {
@@ -138,7 +159,12 @@ RESPOND IN JSON FORMAT ONLY:
     "description": "Description if mentioned" or null,
     "calendarId": "matched calendar ID" or "primary",
     "calendarName": "matched calendar name" or "Primary",
-    "confidence": "high"/"medium"/"low"
+    "confidence": "high"/"medium"/"low",
+    "recurrence": {
+      "frequency": "daily"/"weekly"/"monthly"/"yearly" or null,
+      "daysOfWeek": ["MO", "TU", ...] or null,
+      "interval": number or null
+    } or null
   },
   "ambiguities": ["List of unclear aspects"] or null,
   "error": "Error message if parsing failed" or null,
@@ -148,10 +174,19 @@ RESPOND IN JSON FORMAT ONLY:
 
 EXAMPLES:
 Input: "Meeting with David tomorrow at 3pm"
-Output: {"success": true, "event": {"title": "Meeting with David", "startDate": "2024-01-06", "startTime": "15:00", "endDate": "2024-01-06", "endTime": "16:00", "allDay": false, "location": null, "description": null, "calendarId": "primary", "calendarName": "Primary", "confidence": "high"}, "ambiguities": null}
+Output: {"success": true, "event": {"title": "Meeting with David", "startDate": "2024-01-06", "startTime": "15:00", "endDate": "2024-01-06", "endTime": "16:00", "allDay": false, "location": null, "description": null, "calendarId": "primary", "calendarName": "Primary", "confidence": "high", "recurrence": null}, "ambiguities": null}
+
+Input: "Team meeting every Tuesday at 2pm"
+Output: {"success": true, "event": {"title": "Team meeting", "startDate": "2024-01-09", "startTime": "14:00", "endDate": "2024-01-09", "endTime": "15:00", "allDay": false, "location": null, "description": null, "calendarId": "primary", "calendarName": "Primary", "confidence": "high", "recurrence": {"frequency": "weekly", "daysOfWeek": ["TU"], "interval": null}}, "ambiguities": null}
+
+Input: "Gym Monday Wednesday Friday at 7am"
+Output: {"success": true, "event": {"title": "Gym", "startDate": "2024-01-08", "startTime": "07:00", "endDate": "2024-01-08", "endTime": "08:00", "allDay": false, "location": null, "description": null, "calendarId": "primary", "calendarName": "Primary", "confidence": "high", "recurrence": {"frequency": "weekly", "daysOfWeek": ["MO", "WE", "FR"], "interval": null}}, "ambiguities": null}
+
+Input: "Daily standup at 9am"
+Output: {"success": true, "event": {"title": "Daily standup", "startDate": "2024-01-06", "startTime": "09:00", "endDate": "2024-01-06", "endTime": "09:30", "allDay": false, "location": null, "description": null, "calendarId": "primary", "calendarName": "Primary", "confidence": "high", "recurrence": {"frequency": "daily", "daysOfWeek": null, "interval": null}}, "ambiguities": null}
 
 Input: "פגישה עם יוסי ביום שלישי בשעה 10" (Hebrew: Meeting with Yossi on Tuesday at 10)
-Output: {"success": true, "event": {"title": "פגישה עם יוסי", "startDate": "2024-01-09", "startTime": "10:00", "endDate": "2024-01-09", "endTime": "11:00", "allDay": false, "location": null, "description": null, "calendarId": "primary", "calendarName": "Primary", "confidence": "high"}, "ambiguities": null}
+Output: {"success": true, "event": {"title": "פגישה עם יוסי", "startDate": "2024-01-09", "startTime": "10:00", "endDate": "2024-01-09", "endTime": "11:00", "allDay": false, "location": null, "description": null, "calendarId": "primary", "calendarName": "Primary", "confidence": "high", "recurrence": null}, "ambiguities": null}
 
 Input: "Dentist"
 Output: {"success": false, "needsClarification": true, "clarificationQuestion": "When would you like to schedule the dentist appointment?"}`;
@@ -223,6 +258,7 @@ export async function parseEventFromText(
       calendarName: eventData.calendarName || 'Primary',
       confidence: eventData.confidence || 'medium',
       ambiguities: parsed.ambiguities || undefined,
+      recurrence: eventData.recurrence?.frequency ? eventData.recurrence : undefined,
     };
 
     return {
@@ -290,6 +326,13 @@ INTENT DETECTION RULES:
 
 3. CREATE intent - User wants to add a new event (default if no edit/delete keywords)
    - Creating something new, adding to calendar
+   - RECURRENCE DETECTION for recurring events:
+     * "every day/daily" (כל יום, каждый день) → frequency: "daily"
+     * "every week/weekly" (כל שבוע, каждую неделю) → frequency: "weekly"
+     * "every month/monthly" (כל חודש, каждый месяц) → frequency: "monthly"
+     * "every Tuesday" (כל יום שלישי, каждый вторник) → frequency: "weekly", daysOfWeek: ["TU"]
+     * "every Monday and Wednesday" → frequency: "weekly", daysOfWeek: ["MO", "WE"]
+     * Day codes: MO, TU, WE, TH, FR, SA, SU
 
 4. "that", "את זה", "это" or similar references to "last event" mean the most recently created event
 
@@ -309,7 +352,8 @@ RESPOND IN JSON FORMAT ONLY:
     "location": "Location if mentioned" or null,
     "description": "Description if mentioned" or null,
     "calendarId": "matched calendar ID" or "primary",
-    "calendarName": "matched calendar name" or "Primary"
+    "calendarName": "matched calendar name" or "Primary",
+    "recurrence": {"frequency": "daily"/"weekly"/"monthly"/"yearly", "daysOfWeek": ["MO",...], "interval": number} or null
   },
 
   // For EDIT intent - what to change:
@@ -367,7 +411,13 @@ Input: "Extend the dentist until 17:00"
 Output: {"intent": "edit", "confidence": "high", "eventReference": {"type": "by_description", "description": "dentist"}, "editRequest": {"newEndTime": "17:00"}}
 
 Input: "Meeting with David tomorrow at 3pm"
-Output: {"intent": "create", "confidence": "high", "event": {"title": "Meeting with David", "startDate": "2024-01-06", "startTime": "15:00", "endDate": "2024-01-06", "endTime": "16:00", "allDay": false, "calendarId": "primary", "calendarName": "Primary"}}`;
+Output: {"intent": "create", "confidence": "high", "event": {"title": "Meeting with David", "startDate": "2024-01-06", "startTime": "15:00", "endDate": "2024-01-06", "endTime": "16:00", "allDay": false, "calendarId": "primary", "calendarName": "Primary", "recurrence": null}}
+
+Input: "Team meeting every Tuesday at 2pm"
+Output: {"intent": "create", "confidence": "high", "event": {"title": "Team meeting", "startDate": "2024-01-09", "startTime": "14:00", "endDate": "2024-01-09", "endTime": "15:00", "allDay": false, "calendarId": "primary", "calendarName": "Primary", "recurrence": {"frequency": "weekly", "daysOfWeek": ["TU"]}}}
+
+Input: "Daily standup at 9am"
+Output: {"intent": "create", "confidence": "high", "event": {"title": "Daily standup", "startDate": "2024-01-06", "startTime": "09:00", "endDate": "2024-01-06", "endTime": "09:30", "allDay": false, "calendarId": "primary", "calendarName": "Primary", "recurrence": {"frequency": "daily"}}}`;
 }
 
 /**
@@ -426,6 +476,7 @@ export async function parseVoiceIntent(
           calendarId: eventData.calendarId || 'primary',
           calendarName: eventData.calendarName || 'Primary',
           confidence: parsed.confidence || 'medium',
+          recurrence: eventData.recurrence?.frequency ? eventData.recurrence : undefined,
         },
         error: parsed.error,
         needsClarification: parsed.needsClarification,
