@@ -16,6 +16,23 @@ export async function GET(request: NextRequest) {
   return withCronHandler(request, {
     jobName: 'Event Reminders',
     handler: async (_request, searchParams) => {
+      // Check global toggle first - skip all DB queries if disabled
+      const adminSettings = await withDbRetry(
+        () => prisma.adminSettings.findUnique({
+          where: { id: 'global' }
+        }),
+        'reminders.checkGlobalToggle'
+      );
+
+      if (!adminSettings?.remindersEnabled) {
+        return {
+          success: true,
+          message: 'Reminders globally disabled',
+          usersProcessed: 0,
+          remindersSent: 0,
+        };
+      }
+
       const windowMinutes = parseInt(searchParams.get('window') || '5', 10);
 
       // Get all users with reminders enabled

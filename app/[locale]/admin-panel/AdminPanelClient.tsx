@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
-import { Activity, Crown, Bot, Users, LayoutDashboard } from 'lucide-react';
+import { Activity, Crown, Bot, Users, LayoutDashboard, Bell } from 'lucide-react';
 import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
 
@@ -21,14 +21,17 @@ interface AdminPanelClientProps {
     language: string;
     messagingPlatform: string;
   }>;
+  remindersEnabled: boolean;
 }
 
 type ButtonState = 'idle' | 'loading' | 'success' | 'error';
 
-export default function AdminPanelClient({ userId, locale, stats, recentUsers }: AdminPanelClientProps) {
+export default function AdminPanelClient({ userId, locale, stats, recentUsers, remindersEnabled: initialRemindersEnabled }: AdminPanelClientProps) {
   const t = useTranslations('admin');
   const [todayState, setTodayState] = useState<ButtonState>('idle');
   const [tomorrowState, setTomorrowState] = useState<ButtonState>('idle');
+  const [remindersEnabled, setRemindersEnabled] = useState(initialRemindersEnabled);
+  const [remindersSaving, setRemindersSaving] = useState(false);
 
   // Map app locale to Intl locale
   const intlLocale = { he: 'he-IL', ru: 'ru-RU', en: 'en-US' }[locale] ?? 'en-US';
@@ -118,6 +121,23 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
 
   const openUserDashboard = () => {
     window.location.href = `/dashboard?user_id=${userId}`;
+  };
+
+  const toggleReminders = async () => {
+    setRemindersSaving(true);
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ remindersEnabled: !remindersEnabled, initData })
+      });
+      if (response.ok) {
+        setRemindersEnabled(!remindersEnabled);
+      }
+    } finally {
+      setRemindersSaving(false);
+    }
   };
 
   const getButtonContent = (state: ButtonState, label: { gregorian: string; hebrew: string }) => {
@@ -371,6 +391,70 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
           margin-bottom: 8px;
         }
 
+        .toggle-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 16px;
+          background: white;
+          border: 2px solid #e5e7eb;
+          border-radius: 12px;
+        }
+
+        .toggle-info {
+          flex: 1;
+        }
+
+        .toggle-label {
+          font-weight: 600;
+          color: #374151;
+          font-size: 14px;
+          margin: 0 0 4px 0;
+        }
+
+        .toggle-description {
+          font-size: 13px;
+          color: #6b7280;
+          margin: 0;
+        }
+
+        .toggle-switch {
+          position: relative;
+          width: 50px;
+          height: 26px;
+          background: #d1d5db;
+          border-radius: 13px;
+          cursor: pointer;
+          transition: background 0.2s;
+          flex-shrink: 0;
+          margin-left: 16px;
+        }
+
+        .toggle-switch.checked {
+          background: #667eea;
+        }
+
+        .toggle-switch.disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .toggle-slider {
+          position: absolute;
+          top: 3px;
+          left: 3px;
+          width: 20px;
+          height: 20px;
+          background: white;
+          border-radius: 50%;
+          transition: transform 0.2s;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+
+        .toggle-switch.checked .toggle-slider {
+          transform: translateX(24px);
+        }
+
         @media (max-width: 400px) {
           .stats-grid,
           .button-group {
@@ -417,6 +501,35 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers }:
               >
                 {getButtonContent(tomorrowState, tomorrowLabel)}
               </button>
+            </div>
+          </div>
+
+          {/* Feature Toggles Section */}
+          <div className="section">
+            <div className="section-header">
+              <span className="section-icon"><Bell size={20} /></span>
+              <h2 className="section-title">{t('features.title')}</h2>
+            </div>
+            <div className="toggle-row">
+              <div className="toggle-info">
+                <p className="toggle-label">{t('features.reminders')}</p>
+                <p className="toggle-description">{t('features.remindersDescription')}</p>
+              </div>
+              <div
+                className={`toggle-switch ${remindersEnabled ? 'checked' : ''} ${remindersSaving ? 'disabled' : ''}`}
+                onClick={() => !remindersSaving && toggleReminders()}
+                role="switch"
+                aria-checked={remindersEnabled}
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if ((e.key === 'Enter' || e.key === ' ') && !remindersSaving) {
+                    e.preventDefault();
+                    toggleReminders();
+                  }
+                }}
+              >
+                <div className="toggle-slider" />
+              </div>
             </div>
           </div>
 

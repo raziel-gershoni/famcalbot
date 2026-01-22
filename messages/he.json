@@ -68,6 +68,11 @@
       "totalUsers": "סה\"כ משתמשים",
       "setupCompletion": "השלמת הגדרה"
     },
+    "features": {
+      "title": "מתגי תכונות",
+      "reminders": "תזכורות לאירועים",
+      "remindersDescription": "הפעל/השבת תזכורות באופן גלובלי לכל המשתמשים"
+    },
     "openDashboard": "פתח לוח בקרה למשתמש"
   },
   "settings": {
@@ -125,6 +130,7 @@
     "remindersSection": "תזכורות לאירועים",
     "remindersEnabled": "הפעל תזכורות",
     "remindersEnabledDescription": "קבל תזכורות בטלגרם לפני תחילת האירועים",
+    "remindersBetaDescription": "תזכורות נמצאות כרגע בבטא (בקרוב)",
     "defaultReminderMinutes": "זמן תזכורת ברירת מחדל",
     "defaultReminderMinutesHelp": "זמן לפני אירוע לשליחת תזכורת (בשימוש כשאין תזכורת מוגדרת לאירוע)",
     "minutes": "דק'",

@@ -68,6 +68,11 @@
       "totalUsers": "Total Users",
       "setupCompletion": "Setup Completion"
     },
+    "features": {
+      "title": "Feature Toggles",
+      "reminders": "Event Reminders",
+      "remindersDescription": "Enable/disable reminders feature globally for all users"
+    },
     "openDashboard": "Open User Dashboard"
   },
   "settings": {
@@ -125,6 +130,7 @@
     "remindersSection": "Event Reminders",
     "remindersEnabled": "Enable Reminders",
     "remindersEnabledDescription": "Receive Telegram reminders before events start",
+    "remindersBetaDescription": "Reminders are currently in beta (coming soon)",
     "defaultReminderMinutes": "Default Reminder Time",
     "defaultReminderMinutesHelp": "Time before event to send reminder (used when event has no reminder set)",
     "minutes": "min",

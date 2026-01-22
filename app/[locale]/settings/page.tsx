@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { normalizeLocale } from '@/src/utils/locale';
+import { prisma, withDbRetry } from '@/src/utils/prisma';
 import { AlertTriangle } from 'lucide-react';
 import SettingsClient from './SettingsClient';
 
@@ -54,6 +55,14 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
     redirect(`/${userLocale}/settings?user_id=${userId}`);
   }
 
+  // Fetch admin settings to check if reminders are globally enabled
+  const adminSettings = await withDbRetry(
+    () => prisma.adminSettings.findUnique({
+      where: { id: 'global' }
+    }),
+    'settings.adminSettings'
+  );
+
   return (
     <SettingsClient
       userId={userId}
@@ -71,6 +80,7 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
         defaultReminderMinutes: user.defaultReminderMinutes ?? null,
         voiceInputEnabled: user.voiceInputEnabled
       }}
+      remindersGloballyEnabled={adminSettings?.remindersEnabled ?? false}
     />
   );
 }

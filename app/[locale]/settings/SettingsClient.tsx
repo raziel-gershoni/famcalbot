@@ -22,11 +22,12 @@ interface SettingsClientProps {
     defaultReminderMinutes: number | null;
     voiceInputEnabled: boolean;
   };
+  remindersGloballyEnabled: boolean;
 }
 
 type FormState = 'idle' | 'saving' | 'success' | 'error';
 
-export default function SettingsClient({ userId, currentSettings }: SettingsClientProps) {
+export default function SettingsClient({ userId, currentSettings, remindersGloballyEnabled }: SettingsClientProps) {
   const t = useTranslations('settings');
   const router = useRouter();
   const [formState, setFormState] = useState<FormState>('idle');
@@ -840,16 +841,21 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
             <div className="toggle-row">
               <div className="toggle-info">
                 <p className="toggle-label">{t('remindersEnabled')}</p>
-                <p className="toggle-description">{t('remindersEnabledDescription')}</p>
+                <p className="toggle-description">
+                  {remindersGloballyEnabled
+                    ? t('remindersEnabledDescription')
+                    : t('remindersBetaDescription')
+                  }
+                </p>
               </div>
               <div
-                className={`toggle-switch ${remindersEnabled ? 'checked' : ''} ${formState !== 'idle' ? 'disabled' : ''}`}
-                onClick={() => formState === 'idle' && setRemindersEnabled(!remindersEnabled)}
+                className={`toggle-switch ${remindersEnabled && remindersGloballyEnabled ? 'checked' : ''} ${formState !== 'idle' || !remindersGloballyEnabled ? 'disabled' : ''}`}
+                onClick={() => formState === 'idle' && remindersGloballyEnabled && setRemindersEnabled(!remindersEnabled)}
                 role="switch"
-                aria-checked={remindersEnabled}
-                tabIndex={0}
+                aria-checked={remindersEnabled && remindersGloballyEnabled}
+                tabIndex={remindersGloballyEnabled ? 0 : -1}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
+                  if ((e.key === 'Enter' || e.key === ' ') && remindersGloballyEnabled) {
                     e.preventDefault();
                     formState === 'idle' && setRemindersEnabled(!remindersEnabled);
                   }
@@ -859,7 +865,7 @@ export default function SettingsClient({ userId, currentSettings }: SettingsClie
               </div>
             </div>
 
-            {remindersEnabled && (
+            {remindersEnabled && remindersGloballyEnabled && (
               <div className="form-group" style={{ marginTop: '16px' }}>
                 <label htmlFor="defaultReminderMinutes">{t('defaultReminderMinutes')}</label>
                 <select

@@ -470,8 +470,6 @@ VOICE_SPEED=1.0                                        # 0.25 to 4.0 (1.0 = norm
 - After free tier: ~$0.016 per 1K characters
 - Estimated: ~$0.30-0.60/month for daily summaries (well within free tier!)
 
-**Future plans**: See `.claude/VOICE_MESSAGES_FEATURE.md` for full roadmap including per-user preferences.
-
 ## API Endpoints
 
 ### `GET /api/health`

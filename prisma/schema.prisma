@@ -63,3 +63,9 @@ model OAuthState {
   @@index([token])
   @@index([userId])
 }
+
+model AdminSettings {
+  id                    String   @id @default("global")
+  remindersEnabled      Boolean  @default(false)
+  updatedAt             DateTime @updatedAt
+}

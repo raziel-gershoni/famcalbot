@@ -68,6 +68,11 @@
       "totalUsers": "Всего пользователей",
       "setupCompletion": "Завершение настройки"
     },
+    "features": {
+      "title": "Переключатели функций",
+      "reminders": "Напоминания о событиях",
+      "remindersDescription": "Включить/отключить напоминания глобально для всех пользователей"
+    },
     "openDashboard": "Открыть панель пользователя"
   },
   "settings": {
@@ -125,6 +130,7 @@
     "remindersSection": "Напоминания о событиях",
     "remindersEnabled": "Включить напоминания",
     "remindersEnabledDescription": "Получать напоминания в Telegram перед началом событий",
+    "remindersBetaDescription": "Напоминания находятся в бета-тестировании (скоро)",
     "defaultReminderMinutes": "Время напоминания по умолчанию",
     "defaultReminderMinutesHelp": "Время до события для отправки напоминания (используется, если у события нет напоминания)",
     "minutes": "мин",
