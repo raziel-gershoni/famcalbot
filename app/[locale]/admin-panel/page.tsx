@@ -116,7 +116,7 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
         where: { id: 'global' }
       }),
       'admin.adminSettings'
-    )
+    ).catch(() => null) // Handle missing table gracefully
   ]);
 
   return (

@@ -20,7 +20,7 @@ export async function GET() {
         where: { id: 'global' }
       }),
       'admin-settings.get'
-    );
+    ).catch(() => null); // Handle missing table gracefully
 
     return NextResponse.json({
       success: true,
@@ -28,10 +28,10 @@ export async function GET() {
     });
   } catch (error) {
     captureError(error, 'admin-settings-get', { api_route: '/api/admin/settings' });
-    return NextResponse.json(
-      { error: 'Failed to fetch admin settings' },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      success: true,
+      remindersEnabled: false // Default to disabled on error
+    });
   }
 }
 
@@ -90,18 +90,27 @@ export async function POST(request: NextRequest) {
     }
 
     // Upsert admin settings
-    await withDbRetry(
-      () => prisma.adminSettings.upsert({
-        where: { id: 'global' },
-        update: { remindersEnabled },
-        create: { id: 'global', remindersEnabled }
-      }),
-      'admin-settings.update'
-    );
+    try {
+      await withDbRetry(
+        () => prisma.adminSettings.upsert({
+          where: { id: 'global' },
+          update: { remindersEnabled },
+          create: { id: 'global', remindersEnabled }
+        }),
+        'admin-settings.update'
+      );
 
-    console.log(`[admin-settings] Admin ${userId} set remindersEnabled to ${remindersEnabled}`);
+      console.log(`[admin-settings] Admin ${userId} set remindersEnabled to ${remindersEnabled}`);
 
-    return NextResponse.json({ success: true, remindersEnabled });
+      return NextResponse.json({ success: true, remindersEnabled });
+    } catch (dbError) {
+      // Table might not exist yet
+      console.error('[admin-settings] Database error (table may not exist):', dbError);
+      return NextResponse.json(
+        { error: 'Feature not available yet - database migration pending' },
+        { status: 503 }
+      );
+    }
   } catch (error) {
     captureError(error, 'admin-settings-post', { api_route: '/api/admin/settings' });
     return NextResponse.json(

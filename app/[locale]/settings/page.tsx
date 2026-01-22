@@ -56,12 +56,13 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
   }
 
   // Fetch admin settings to check if reminders are globally enabled
+  // Catch errors in case table doesn't exist yet
   const adminSettings = await withDbRetry(
     () => prisma.adminSettings.findUnique({
       where: { id: 'global' }
     }),
     'settings.adminSettings'
-  );
+  ).catch(() => null);
 
   return (
     <SettingsClient

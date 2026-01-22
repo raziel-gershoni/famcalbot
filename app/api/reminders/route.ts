@@ -17,14 +17,22 @@ export async function GET(request: NextRequest) {
     jobName: 'Event Reminders',
     handler: async (_request, searchParams) => {
       // Check global toggle first - skip all DB queries if disabled
-      const adminSettings = await withDbRetry(
-        () => prisma.adminSettings.findUnique({
-          where: { id: 'global' }
-        }),
-        'reminders.checkGlobalToggle'
-      );
+      // Wrap in try-catch to handle case where AdminSettings table doesn't exist yet
+      let remindersEnabled = false;
+      try {
+        const adminSettings = await withDbRetry(
+          () => prisma.adminSettings.findUnique({
+            where: { id: 'global' }
+          }),
+          'reminders.checkGlobalToggle'
+        );
+        remindersEnabled = adminSettings?.remindersEnabled ?? false;
+      } catch {
+        // Table doesn't exist yet - treat as disabled
+        console.log('[Event Reminders] AdminSettings table not found, treating as disabled');
+      }
 
-      if (!adminSettings?.remindersEnabled) {
+      if (!remindersEnabled) {
         return {
           success: true,
           message: 'Reminders globally disabled',
