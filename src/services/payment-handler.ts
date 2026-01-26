@@ -107,20 +107,23 @@ export async function handleSuccessfulPayment(
     // Parse payload
     const payload: PaymentPayload = JSON.parse(payment.invoice_payload);
 
-    // Get user for language
+    // Get user for language (userId param is Telegram ID from webhook)
     const user = await getUserByTelegramId(userId);
-    const language = user?.language || 'en';
+    if (!user) {
+      throw new Error(`User not found for Telegram ID: ${userId}`);
+    }
+    const language = user.language || 'en';
     const t = await getBotMessages(language);
 
-    // Activate subscription
+    // Activate subscription (use internal DB user.id, not Telegram userId)
     if (payload.action === 'renew') {
-      await renewSubscription(userId, payment.telegram_payment_charge_id);
+      await renewSubscription(user.id, payment.telegram_payment_charge_id);
     } else {
-      await upgradeSubscription(userId, payload.plan, payment.telegram_payment_charge_id);
+      await upgradeSubscription(user.id, payload.plan, payment.telegram_payment_charge_id);
     }
 
-    // Track payment
-    await trackActivity(userId, 'subscription_upgraded', {
+    // Track payment (use internal DB user.id)
+    await trackActivity(user.id, 'subscription_upgraded', {
       plan: payload.plan,
       to_plan: payload.plan,
     });
