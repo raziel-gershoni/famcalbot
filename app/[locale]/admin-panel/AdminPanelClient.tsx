@@ -26,13 +26,27 @@ interface AdminPanelClientProps {
 
 type ButtonState = 'idle' | 'loading' | 'success' | 'error';
 
-interface UserSearchResult {
+interface UserListItem {
   id: number;
   telegramId: number | null;
   name: string;
-  subscription: { plan: string; status: string } | null;
+  subscription: {
+    plan: string;
+    status: string;
+    trialEndsAt: string | null;
+    trialDaysRemaining: number | null;
+    currentPeriodEnd: string | null;
+  } | null;
+  usage: {
+    textSummariesUsed: number;
+    voiceSummariesUsed: number;
+    voiceEventsCreated: number;
+  } | null;
+  calendarsCount: number;
   hasOverride: boolean;
 }
+
+type FilterType = 'all' | 'trial' | 'paid' | 'free' | 'override';
 
 interface UserOverrideDetails {
   id: number;
@@ -42,8 +56,20 @@ interface UserOverrideDetails {
     plan: string;
     status: string;
     trialEndsAt: string | null;
+    trialDaysRemaining: number | null;
     currentPeriodEnd: string | null;
   } | null;
+  usage: {
+    textSummariesUsed: number;
+    voiceSummariesUsed: number;
+    voiceEventsCreated: number;
+  };
+  limits: {
+    textSummaries: number;
+    voiceSummaries: number;
+    calendars: number;
+  };
+  calendarsCount: number;
   override: {
     unlimitedSummaries: boolean | null;
     remindersEnabled: boolean | null;
@@ -86,9 +112,10 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
   const [remindersSaving, setRemindersSaving] = useState(false);
 
   // User overrides state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  const [userList, setUserList] = useState<UserListItem[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<FilterType>('all');
+  const [nameFilter, setNameFilter] = useState('');
   const [selectedUser, setSelectedUser] = useState<UserOverrideDetails | null>(null);
   const [isLoadingUser, setIsLoadingUser] = useState(false);
   const [overrideList, setOverrideList] = useState<OverrideListItem[]>([]);
@@ -209,6 +236,23 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
     }
   };
 
+  // Fetch all users
+  const fetchUserList = useCallback(async () => {
+    setIsLoadingUsers(true);
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = await fetch(`/api/admin/user-overrides?initData=${encodeURIComponent(initData || '')}&list=all`);
+      const data = await response.json();
+      if (data.success) {
+        setUserList(data.users || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch users:', error);
+    } finally {
+      setIsLoadingUsers(false);
+    }
+  }, []);
+
   // Fetch all users with overrides
   const fetchOverrideList = useCallback(async () => {
     setIsLoadingOverrides(true);
@@ -226,41 +270,38 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
     }
   }, []);
 
-  // Load override list on mount
+  // Load user list and override list on mount
   useEffect(() => {
+    fetchUserList();
     fetchOverrideList();
-  }, [fetchOverrideList]);
+  }, [fetchUserList, fetchOverrideList]);
 
-  // Search users
-  const searchUsers = useCallback(async (query: string) => {
-    if (!query.trim()) {
-      setSearchResults([]);
-      return;
-    }
-    setIsSearching(true);
-    try {
-      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
-      const response = await fetch(
-        `/api/admin/user-overrides?initData=${encodeURIComponent(initData || '')}&search=${encodeURIComponent(query)}`
-      );
-      const data = await response.json();
-      if (data.success) {
-        setSearchResults(data.users || []);
+  // Filter users based on active filter and name filter
+  const filteredUsers = useMemo(() => {
+    return userList.filter(user => {
+      // Apply name filter first
+      if (nameFilter.trim()) {
+        const search = nameFilter.toLowerCase();
+        const matchesName = user.name?.toLowerCase().includes(search);
+        const matchesId = user.telegramId?.toString().includes(search);
+        if (!matchesName && !matchesId) return false;
       }
-    } catch (error) {
-      console.error('Search failed:', error);
-    } finally {
-      setIsSearching(false);
-    }
-  }, []);
 
-  // Debounced search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      searchUsers(searchQuery);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery, searchUsers]);
+      // Apply category filter
+      switch (activeFilter) {
+        case 'trial':
+          return user.subscription?.status === 'TRIALING';
+        case 'paid':
+          return user.subscription?.status === 'ACTIVE' && user.subscription?.plan !== 'FREE';
+        case 'free':
+          return !user.subscription || user.subscription.plan === 'FREE' && user.subscription.status !== 'TRIALING';
+        case 'override':
+          return user.hasOverride;
+        default:
+          return true;
+      }
+    });
+  }, [userList, activeFilter, nameFilter]);
 
   // Load user details
   const loadUserDetails = async (userId: number) => {
@@ -311,9 +352,10 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
       });
       const data = await response.json();
       if (data.success) {
-        // Refresh the user and override list
+        // Refresh the user, override list, and user list
         await loadUserDetails(selectedUser.id);
         await fetchOverrideList();
+        await fetchUserList();
       }
     } catch (error) {
       console.error('Failed to save override:', error);
@@ -333,6 +375,7 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
       const data = await response.json();
       if (data.success) {
         await fetchOverrideList();
+        await fetchUserList();
         if (selectedUser?.id === userId) {
           await loadUserDetails(userId);
         }
@@ -344,8 +387,6 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
 
   const clearSelectedUser = () => {
     setSelectedUser(null);
-    setSearchQuery('');
-    setSearchResults([]);
   };
 
   const getButtonContent = (state: ButtonState, label: { gregorian: string; hebrew: string }) => {
@@ -975,6 +1016,167 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
           transform: translateX(20px);
         }
 
+        .filter-chips {
+          display: flex;
+          gap: 8px;
+          margin-bottom: 12px;
+          flex-wrap: wrap;
+        }
+
+        .filter-chip {
+          padding: 6px 12px;
+          border-radius: 16px;
+          font-size: 13px;
+          font-weight: 500;
+          cursor: pointer;
+          border: none;
+          transition: all 0.2s;
+          background: #f3f4f6;
+          color: #6b7280;
+        }
+
+        .filter-chip:hover {
+          background: #e5e7eb;
+        }
+
+        .filter-chip.active {
+          background: #667eea;
+          color: white;
+        }
+
+        .user-list-scroll {
+          max-height: 300px;
+          overflow-y: auto;
+          background: white;
+          border: 2px solid #e5e7eb;
+          border-radius: 12px;
+        }
+
+        .user-list-item {
+          padding: 12px 16px;
+          border-bottom: 1px solid #e5e7eb;
+          cursor: pointer;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          transition: background 0.2s;
+        }
+
+        .user-list-item:hover {
+          background: #f9fafb;
+        }
+
+        .user-list-item:last-child {
+          border-bottom: none;
+        }
+
+        .user-list-item.selected {
+          background: #f0f4ff;
+        }
+
+        .user-list-name {
+          font-weight: 600;
+          font-size: 14px;
+          color: #111827;
+        }
+
+        .user-list-right {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .status-badge {
+          font-size: 11px;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-weight: 600;
+        }
+
+        .status-badge.trial {
+          background: #d1fae5;
+          color: #047857;
+        }
+
+        .status-badge.active {
+          background: #dbeafe;
+          color: #1d4ed8;
+        }
+
+        .status-badge.expired {
+          background: #fee2e2;
+          color: #dc2626;
+        }
+
+        .status-badge.free {
+          background: #f3f4f6;
+          color: #6b7280;
+        }
+
+        .status-badge.override {
+          background: #fef3c7;
+          color: #b45309;
+        }
+
+        .user-card-section {
+          padding: 12px 0;
+          border-bottom: 1px solid #e5e7eb;
+        }
+
+        .user-card-section:last-child {
+          border-bottom: none;
+        }
+
+        .user-card-section-title {
+          font-size: 11px;
+          font-weight: 700;
+          color: #9ca3af;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          margin-bottom: 8px;
+        }
+
+        .subscription-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+        }
+
+        .subscription-item {
+          font-size: 13px;
+        }
+
+        .subscription-label {
+          color: #6b7280;
+        }
+
+        .subscription-value {
+          font-weight: 600;
+          color: #111827;
+        }
+
+        .usage-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+        }
+
+        .usage-item {
+          font-size: 13px;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .usage-label {
+          color: #6b7280;
+          font-size: 12px;
+        }
+
+        .usage-value {
+          font-weight: 600;
+          color: #111827;
+        }
+
         @media (max-width: 400px) {
           .stats-grid,
           .button-group {
@@ -1060,36 +1262,99 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
               <h2 className="section-title">{t('overrides.title')}</h2>
             </div>
 
-            {/* User Search */}
+            {/* Filter Chips */}
+            <div className="filter-chips">
+              <button
+                className={`filter-chip ${activeFilter === 'all' ? 'active' : ''}`}
+                onClick={() => setActiveFilter('all')}
+              >
+                {t('overrides.filterAll')}
+              </button>
+              <button
+                className={`filter-chip ${activeFilter === 'trial' ? 'active' : ''}`}
+                onClick={() => setActiveFilter('trial')}
+              >
+                {t('overrides.filterTrial')}
+              </button>
+              <button
+                className={`filter-chip ${activeFilter === 'paid' ? 'active' : ''}`}
+                onClick={() => setActiveFilter('paid')}
+              >
+                {t('overrides.filterPaid')}
+              </button>
+              <button
+                className={`filter-chip ${activeFilter === 'free' ? 'active' : ''}`}
+                onClick={() => setActiveFilter('free')}
+              >
+                {t('overrides.filterFree')}
+              </button>
+              <button
+                className={`filter-chip ${activeFilter === 'override' ? 'active' : ''}`}
+                onClick={() => setActiveFilter('override')}
+              >
+                {t('overrides.filterOverride')}
+              </button>
+            </div>
+
+            {/* Name Filter */}
             <div className="search-container">
               <input
                 type="text"
                 className="search-input"
-                placeholder={t('overrides.searchPlaceholder')}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={t('overrides.filterByName')}
+                value={nameFilter}
+                onChange={(e) => setNameFilter(e.target.value)}
               />
               <span className="search-icon">
-                {isSearching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+                <Search size={18} />
               </span>
             </div>
 
-            {/* Search Results */}
-            {searchResults.length > 0 && !selectedUser && (
-              <div className="search-results">
-                {searchResults.map((user) => (
-                  <div
-                    key={user.id}
-                    className="search-result-item"
-                    onClick={() => loadUserDetails(user.id)}
-                  >
-                    <div className="search-result-name">{user.name}</div>
-                    <div className="search-result-meta">
-                      ID: {user.telegramId || user.id} • {user.subscription?.plan || 'FREE'}
-                      {user.hasOverride && ' • Has Override'}
-                    </div>
+            {/* User List */}
+            {!selectedUser && (
+              <div className="user-list-scroll">
+                {isLoadingUsers ? (
+                  <div className="empty-state">
+                    <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto' }} />
                   </div>
-                ))}
+                ) : filteredUsers.length === 0 ? (
+                  <div className="empty-state">{t('overrides.noUsers')}</div>
+                ) : (
+                  filteredUsers.map((user) => (
+                    <div
+                      key={user.id}
+                      className="user-list-item"
+                      onClick={() => loadUserDetails(user.id)}
+                    >
+                      <span className="user-list-name">{user.name}</span>
+                      <div className="user-list-right">
+                        <span className={`plan-badge ${user.subscription?.plan?.toLowerCase() || 'free'}`}>
+                          {user.subscription?.plan || 'FREE'}
+                        </span>
+                        {user.subscription?.status === 'TRIALING' && user.subscription?.trialDaysRemaining && (
+                          <span className="status-badge trial">
+                            {user.subscription.trialDaysRemaining}d
+                          </span>
+                        )}
+                        {user.subscription?.status === 'ACTIVE' && (
+                          <span className="status-badge active">
+                            {t('overrides.statusActive')}
+                          </span>
+                        )}
+                        {user.subscription?.status === 'EXPIRED' && (
+                          <span className="status-badge expired">
+                            {t('overrides.statusExpired')}
+                          </span>
+                        )}
+                        {user.hasOverride && (
+                          <span className="status-badge override">
+                            {t('overrides.statusOverride')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             )}
 
@@ -1109,17 +1374,81 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
                   <div className="user-card-info">
                     <h3>{selectedUser.name}</h3>
                     <p>Telegram ID: {selectedUser.telegramId || 'N/A'}</p>
-                    <p style={{ marginTop: 4 }}>
-                      <span className={`plan-badge ${selectedUser.subscription?.plan?.toLowerCase() || 'free'} ${selectedUser.subscription?.status === 'TRIALING' ? 'trialing' : ''}`}>
-                        {selectedUser.subscription?.plan || 'FREE'}
-                        {selectedUser.subscription?.status === 'TRIALING' && ' (Trial)'}
-                      </span>
-                    </p>
                   </div>
                   <button className="close-btn" onClick={clearSelectedUser}>
                     <X size={20} />
                   </button>
                 </div>
+
+                {/* Subscription Section */}
+                <div className="user-card-section">
+                  <div className="user-card-section-title">{t('overrides.subscriptionTitle')}</div>
+                  <div className="subscription-grid">
+                    <div className="subscription-item">
+                      <span className="subscription-label">{t('overrides.plan')}: </span>
+                      <span className={`plan-badge ${selectedUser.subscription?.plan?.toLowerCase() || 'free'}`}>
+                        {selectedUser.subscription?.plan || 'FREE'}
+                      </span>
+                    </div>
+                    <div className="subscription-item">
+                      <span className="subscription-label">{t('overrides.status')}: </span>
+                      <span className="subscription-value">
+                        {selectedUser.subscription?.status === 'TRIALING' ? t('overrides.statusTrialing') :
+                         selectedUser.subscription?.status === 'ACTIVE' ? t('overrides.statusActive') :
+                         selectedUser.subscription?.status === 'EXPIRED' ? t('overrides.statusExpired') :
+                         selectedUser.subscription?.status === 'CANCELED' ? t('overrides.statusCanceled') :
+                         t('overrides.statusFree')}
+                      </span>
+                    </div>
+                    {selectedUser.subscription?.status === 'TRIALING' && selectedUser.subscription?.trialDaysRemaining && (
+                      <div className="subscription-item">
+                        <span className="subscription-label">{t('overrides.trialRemaining')}: </span>
+                        <span className="subscription-value">{selectedUser.subscription.trialDaysRemaining} {t('overrides.days')}</span>
+                      </div>
+                    )}
+                    {selectedUser.subscription?.status === 'ACTIVE' && selectedUser.subscription?.currentPeriodEnd && (
+                      <div className="subscription-item">
+                        <span className="subscription-label">{t('overrides.periodEnd')}: </span>
+                        <span className="subscription-value">
+                          {new Date(selectedUser.subscription.currentPeriodEnd).toLocaleDateString(intlLocale, { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Usage Section */}
+                <div className="user-card-section">
+                  <div className="user-card-section-title">{t('overrides.usageTitle')}</div>
+                  <div className="usage-grid">
+                    <div className="usage-item">
+                      <span className="usage-label">{t('overrides.textSummaries')}</span>
+                      <span className="usage-value">
+                        {selectedUser.usage.textSummariesUsed} / {selectedUser.limits.textSummaries === Infinity ? '∞' : selectedUser.limits.textSummaries}
+                      </span>
+                    </div>
+                    <div className="usage-item">
+                      <span className="usage-label">{t('overrides.voiceSummaries')}</span>
+                      <span className="usage-value">
+                        {selectedUser.usage.voiceSummariesUsed} / {selectedUser.limits.voiceSummaries === Infinity ? '∞' : selectedUser.limits.voiceSummaries}
+                      </span>
+                    </div>
+                    <div className="usage-item">
+                      <span className="usage-label">{t('overrides.voiceEventsUsage')}</span>
+                      <span className="usage-value">{selectedUser.usage.voiceEventsCreated}</span>
+                    </div>
+                    <div className="usage-item">
+                      <span className="usage-label">{t('overrides.calendarsUsage')}</span>
+                      <span className="usage-value">
+                        {selectedUser.calendarsCount} / {selectedUser.limits.calendars === Infinity ? '∞' : selectedUser.limits.calendars}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Feature Overrides Section */}
+                <div className="user-card-section">
+                  <div className="user-card-section-title">{t('overrides.featureOverridesTitle')}</div>
 
                 {/* Override Toggles */}
                 <div className="override-toggles">
@@ -1243,6 +1572,7 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
                     </>
                   )}
                 </button>
+                </div>
               </div>
             )}
 

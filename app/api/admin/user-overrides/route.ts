@@ -127,13 +127,14 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      // Get user info
+      // Get user info with usage
       const user = await withDbRetry(
         () => prisma.user.findUnique({
           where: { id: userId },
           include: {
             subscription: true,
             featureOverride: true,
+            usageCounter: true,
           },
         }),
         'user-overrides.get-user'
@@ -149,6 +150,25 @@ export async function GET(request: NextRequest) {
       // Get paid features (protected from being disabled)
       const paidFeatures = await getPaidFeatures(userId);
 
+      // Calculate trial days remaining
+      let trialDaysRemaining: number | null = null;
+      if (user.subscription?.status === 'TRIALING' && user.subscription?.trialEndsAt) {
+        const now = new Date();
+        if (now < user.subscription.trialEndsAt) {
+          trialDaysRemaining = Math.ceil(
+            (user.subscription.trialEndsAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)
+          );
+        }
+      }
+
+      // Get plan limits for usage display
+      const effectivePlan = user.subscription?.status === 'TRIALING' && trialDaysRemaining ? 'PRO' : (user.subscription?.plan || 'FREE');
+      const limits = getPlanLimits(effectivePlan as 'FREE' | 'BASIC' | 'PRO');
+
+      // Count calendars from calendarAssignments JSON
+      const calendarAssignments = user.calendarAssignments as Array<{ calendarId: string }> | null;
+      const calendarsCount = calendarAssignments?.length ?? 0;
+
       return NextResponse.json({
         success: true,
         user: {
@@ -159,11 +179,83 @@ export async function GET(request: NextRequest) {
             plan: user.subscription.plan,
             status: user.subscription.status,
             trialEndsAt: user.subscription.trialEndsAt,
+            trialDaysRemaining,
             currentPeriodEnd: user.subscription.currentPeriodEnd,
           } : null,
+          usage: user.usageCounter ? {
+            textSummariesUsed: user.usageCounter.textSummariesUsed,
+            voiceSummariesUsed: user.usageCounter.voiceSummariesUsed,
+            voiceEventsCreated: user.usageCounter.voiceEventsCreated,
+          } : {
+            textSummariesUsed: 0,
+            voiceSummariesUsed: 0,
+            voiceEventsCreated: 0,
+          },
+          limits: {
+            textSummaries: limits.textSummaries,
+            voiceSummaries: limits.voiceSummaries,
+            calendars: limits.calendars,
+          },
+          calendarsCount,
           override: user.featureOverride,
           paidFeatures,
         },
+      });
+    }
+
+    // List all users (for admin user list view)
+    const listAll = searchParams.get('list');
+    if (listAll === 'all') {
+      const users = await withDbRetry(
+        () => prisma.user.findMany({
+          include: {
+            subscription: true,
+            featureOverride: true,
+            usageCounter: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        }),
+        'user-overrides.list-all'
+      );
+
+      return NextResponse.json({
+        success: true,
+        users: users.map(user => {
+          // Calculate trial days remaining if applicable
+          let trialDaysRemaining: number | null = null;
+          if (user.subscription?.status === 'TRIALING' && user.subscription?.trialEndsAt) {
+            const now = new Date();
+            if (now < user.subscription.trialEndsAt) {
+              trialDaysRemaining = Math.ceil(
+                (user.subscription.trialEndsAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)
+              );
+            }
+          }
+
+          // Count calendars from calendarAssignments JSON
+          const calendarAssignments = user.calendarAssignments as Array<{ calendarId: string }> | null;
+          const calendarsCount = calendarAssignments?.length ?? 0;
+
+          return {
+            id: user.id,
+            telegramId: user.telegramId ? Number(user.telegramId) : null,
+            name: user.name,
+            subscription: user.subscription ? {
+              plan: user.subscription.plan,
+              status: user.subscription.status,
+              trialEndsAt: user.subscription.trialEndsAt,
+              trialDaysRemaining,
+              currentPeriodEnd: user.subscription.currentPeriodEnd,
+            } : null,
+            usage: user.usageCounter ? {
+              textSummariesUsed: user.usageCounter.textSummariesUsed,
+              voiceSummariesUsed: user.usageCounter.voiceSummariesUsed,
+              voiceEventsCreated: user.usageCounter.voiceEventsCreated,
+            } : null,
+            calendarsCount,
+            hasOverride: !!user.featureOverride,
+          };
+        }),
       });
     }
 
