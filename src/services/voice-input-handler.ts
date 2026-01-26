@@ -1390,11 +1390,12 @@ export async function handleVoiceMessage(
 ): Promise<void> {
   console.log(`[Voice] Starting voice handler for user ${userId}`);
   const messagingService = getMessagingService();
+  let user: Awaited<ReturnType<typeof getUserByTelegramId>> | null = null;
 
   try {
     // Get user from database
     console.log(`[Voice] Looking up user ${userId} in database`);
-    const user = await getUserByTelegramId(userId);
+    user = await getUserByTelegramId(userId);
 
     if (!user) {
       console.log(`[Voice] User ${userId} not found in database`);
@@ -1422,8 +1423,8 @@ export async function handleVoiceMessage(
       return;
     }
 
-    // Check subscription feature access for voice events (Pro feature)
-    const voiceEventAccess = await checkFeatureAccess(userId, 'voice_events');
+    // Check subscription feature access for voice events (Pro feature) - use internal DB user.id
+    const voiceEventAccess = await checkFeatureAccess(user.id, 'voice_events');
     if (!voiceEventAccess.allowed) {
       console.log(`[Voice] Voice events not available for user ${userId}, reason: ${voiceEventAccess.reason}`);
       const bot = getBot();
@@ -1442,8 +1443,8 @@ export async function handleVoiceMessage(
       return;
     }
 
-    // Track voice event started
-    trackActivityAsync(userId, 'voice_event_started', {
+    // Track voice event started (use internal DB user.id)
+    trackActivityAsync(user.id, 'voice_event_started', {
       language: user.language,
     });
 
@@ -1523,10 +1524,12 @@ export async function handleVoiceMessage(
   } catch (error) {
     console.error('[Voice] Error handling voice message:', error);
 
-    // Track voice event failure
-    trackActivityAsync(userId, 'voice_event_failed', {
-      error_type: error instanceof Error ? error.message : 'unknown',
-    });
+    // Track voice event failure (use internal DB user.id if available)
+    if (user) {
+      trackActivityAsync(user.id, 'voice_event_failed', {
+        error_type: error instanceof Error ? error.message : 'unknown',
+      });
+    }
 
     const t = await getBotMessages('en');
     await messagingService.sendMessage(chatId, t.voice.genericError, { format: MessageFormat.PLAIN });

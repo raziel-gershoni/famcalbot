@@ -150,8 +150,8 @@ export async function handleStartCommand(
   const userIdNum = typeof userId === 'number' ? userId : parseInt(String(userId));
   const user = await getOrCreateUser(userIdNum, telegramUser);
 
-  // Track bot start activity
-  trackActivityAsync(userIdNum, 'bot_start', {
+  // Track bot start activity (use internal DB user.id)
+  trackActivityAsync(user.id, 'bot_start', {
     language: user.language,
     platform: platform,
   });
@@ -868,15 +868,15 @@ async function sendSummaryToUser(
   const progressType: ProgressType = summaryDate ? 'summaryTomorrow' : 'summary';
   const userLanguage = user.language || 'en';
 
-  // Track summary request
-  trackActivityAsync(userId, 'text_summary_requested', {
+  // Track summary request (use internal DB user.id, not Telegram userId)
+  trackActivityAsync(user.id, 'text_summary_requested', {
     summary_type: summaryDate ? 'tomorrow' : 'today',
     language: userLanguage,
     calendar_count: user.calendarAssignments?.length || 0,
   });
 
-  // Check feature access for text summaries
-  const textAccess = await checkFeatureAccess(userId, 'text_summary');
+  // Check feature access for text summaries (use internal DB user.id)
+  const textAccess = await checkFeatureAccess(user.id, 'text_summary');
   if (!textAccess.allowed) {
     const t = await getBotMessages(userLanguage);
     const upgradeUrl = buildUrl(`/${userLanguage}/subscription?user_id=${userId}`);
@@ -1279,11 +1279,11 @@ async function sendVoiceMessage(
       contentType: 'audio/ogg'
     });
 
-    // Track voice summary generated and increment usage
-    trackActivityAsync(userId, 'voice_summary_generated', {
+    // Track voice summary generated and increment usage (use internal DB user.id)
+    trackActivityAsync(user.id, 'voice_summary_generated', {
       duration_seconds: Math.ceil(condensedSummary.length / 15), // Rough estimate
     });
-    incrementUsage(userId, 'voiceSummaries').catch(err =>
+    incrementUsage(user.id, 'voiceSummaries').catch(err =>
       console.error('[Subscription] Failed to increment voice usage:', err)
     );
 
@@ -1520,11 +1520,11 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
       await routeTextMessage(userId, summary, user, platform);
     }
 
-    // Track text summary generated and increment usage
-    trackActivityAsync(userId, 'text_summary_generated', {
+    // Track text summary generated and increment usage (use internal DB user.id)
+    trackActivityAsync(user.id, 'text_summary_generated', {
       word_count: summary.split(/\s+/).length,
     });
-    incrementUsage(userId, 'textSummaries').catch(err =>
+    incrementUsage(user.id, 'textSummaries').catch(err =>
       console.error('[Subscription] Failed to increment text usage:', err)
     );
   } else if (progressMessageId && !(sendVoice && dateHeader)) {
@@ -1534,15 +1534,15 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
 
   // Handle voice delivery
   if (sendVoice) {
-    // Check voice summary feature access
-    const voiceAccess = await checkFeatureAccess(userId, 'voice_summary');
+    // Check voice summary feature access (use internal DB user.id)
+    const voiceAccess = await checkFeatureAccess(user.id, 'voice_summary');
     if (!voiceAccess.allowed) {
       // Skip voice, user is at limit or doesn't have feature
       return;
     }
 
-    // Track voice summary request
-    trackActivityAsync(userId, 'voice_summary_requested', {
+    // Track voice summary request (use internal DB user.id)
+    trackActivityAsync(user.id, 'voice_summary_requested', {
       language: user.language,
     });
 
