@@ -31,9 +31,9 @@ export default async function SubscriptionPage({ params, searchParams }: PagePro
     redirect(`/${userLocale}/subscription?user_id=${userId}`);
   }
 
-  // Get subscription data
-  const subWithUsage = await getSubscriptionWithUsage(userId);
-  const trialStatus = await getTrialStatus(userId);
+  // Get subscription data (use internal DB user.id, not Telegram userId)
+  const subWithUsage = await getSubscriptionWithUsage(user.id);
+  const trialStatus = await getTrialStatus(user.id);
 
   if (!subWithUsage) {
     notFound();
