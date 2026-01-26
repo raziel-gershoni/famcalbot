@@ -73,6 +73,30 @@
       "reminders": "Напоминания о событиях",
       "remindersDescription": "Включить/отключить напоминания глобально для всех пользователей"
     },
+    "overrides": {
+      "title": "Переопределения функций",
+      "searchPlaceholder": "Поиск по Telegram ID или имени...",
+      "unlimitedSummaries": "Безлимитные сводки",
+      "unlimitedSummariesDesc": "Обход лимитов текстовых/голосовых сводок",
+      "unlimitedSummariesShort": "Сводки",
+      "reminders": "Напоминания",
+      "remindersDesc": "Предоставить доступ к напоминаниям",
+      "remindersShort": "Напоминания",
+      "voiceEvents": "Голосовые события",
+      "voiceEventsDesc": "Предоставить создание голосовых событий",
+      "voiceEventsShort": "Голос. события",
+      "unlimitedCalendars": "Безлимитные календари",
+      "unlimitedCalendarsDesc": "Обход лимита календарей",
+      "unlimitedCalendarsShort": "Календари",
+      "paidBadge": "Оплачено",
+      "reasonPlaceholder": "Причина переопределения (необязательно)",
+      "save": "Сохранить",
+      "saving": "Сохранение...",
+      "activeOverrides": "Активные переопределения",
+      "noOverrides": "Нет активных переопределений",
+      "edit": "Редактировать",
+      "remove": "Удалить"
+    },
     "openDashboard": "Открыть панель пользователя"
   },
   "settings": {

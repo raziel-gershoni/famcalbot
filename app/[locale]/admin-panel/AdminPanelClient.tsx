@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
-import { Activity, Crown, Bot, Users, LayoutDashboard, Bell } from 'lucide-react';
+import { Activity, Crown, Bot, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2 } from 'lucide-react';
 import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
 
@@ -26,12 +26,81 @@ interface AdminPanelClientProps {
 
 type ButtonState = 'idle' | 'loading' | 'success' | 'error';
 
+interface UserSearchResult {
+  id: number;
+  telegramId: number | null;
+  name: string;
+  subscription: { plan: string; status: string } | null;
+  hasOverride: boolean;
+}
+
+interface UserOverrideDetails {
+  id: number;
+  telegramId: number | null;
+  name: string;
+  subscription: {
+    plan: string;
+    status: string;
+    trialEndsAt: string | null;
+    currentPeriodEnd: string | null;
+  } | null;
+  override: {
+    unlimitedSummaries: boolean | null;
+    remindersEnabled: boolean | null;
+    voiceEventsEnabled: boolean | null;
+    unlimitedCalendars: boolean | null;
+    reason: string | null;
+    grantedAt: string | null;
+    grantedBy: number | null;
+  } | null;
+  paidFeatures: {
+    unlimitedSummaries: boolean;
+    remindersEnabled: boolean;
+    voiceEventsEnabled: boolean;
+    unlimitedCalendars: boolean;
+  };
+}
+
+interface OverrideListItem {
+  id: string;
+  userId: number;
+  user: {
+    id: number;
+    telegramId: number | null;
+    name: string;
+    subscription: { plan: string; status: string } | null;
+  };
+  unlimitedSummaries: boolean | null;
+  remindersEnabled: boolean | null;
+  voiceEventsEnabled: boolean | null;
+  unlimitedCalendars: boolean | null;
+  reason: string | null;
+  grantedAt: string | null;
+}
+
 export default function AdminPanelClient({ userId, locale, stats, recentUsers, remindersEnabled: initialRemindersEnabled }: AdminPanelClientProps) {
   const t = useTranslations('admin');
   const [todayState, setTodayState] = useState<ButtonState>('idle');
   const [tomorrowState, setTomorrowState] = useState<ButtonState>('idle');
   const [remindersEnabled, setRemindersEnabled] = useState(initialRemindersEnabled);
   const [remindersSaving, setRemindersSaving] = useState(false);
+
+  // User overrides state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<UserOverrideDetails | null>(null);
+  const [isLoadingUser, setIsLoadingUser] = useState(false);
+  const [overrideList, setOverrideList] = useState<OverrideListItem[]>([]);
+  const [isLoadingOverrides, setIsLoadingOverrides] = useState(false);
+  const [isSavingOverride, setIsSavingOverride] = useState(false);
+  const [overrideReason, setOverrideReason] = useState('');
+  const [pendingOverrides, setPendingOverrides] = useState({
+    unlimitedSummaries: false,
+    remindersEnabled: false,
+    voiceEventsEnabled: false,
+    unlimitedCalendars: false,
+  });
 
   // Map app locale to Intl locale
   const intlLocale = { he: 'he-IL', ru: 'ru-RU', en: 'en-US' }[locale] ?? 'en-US';
@@ -138,6 +207,145 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
     } finally {
       setRemindersSaving(false);
     }
+  };
+
+  // Fetch all users with overrides
+  const fetchOverrideList = useCallback(async () => {
+    setIsLoadingOverrides(true);
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = await fetch(`/api/admin/user-overrides?initData=${encodeURIComponent(initData || '')}`);
+      const data = await response.json();
+      if (data.success) {
+        setOverrideList(data.overrides || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch overrides:', error);
+    } finally {
+      setIsLoadingOverrides(false);
+    }
+  }, []);
+
+  // Load override list on mount
+  useEffect(() => {
+    fetchOverrideList();
+  }, [fetchOverrideList]);
+
+  // Search users
+  const searchUsers = useCallback(async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    setIsSearching(true);
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = await fetch(
+        `/api/admin/user-overrides?initData=${encodeURIComponent(initData || '')}&search=${encodeURIComponent(query)}`
+      );
+      const data = await response.json();
+      if (data.success) {
+        setSearchResults(data.users || []);
+      }
+    } catch (error) {
+      console.error('Search failed:', error);
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      searchUsers(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, searchUsers]);
+
+  // Load user details
+  const loadUserDetails = async (userId: number) => {
+    setIsLoadingUser(true);
+    setSelectedUser(null);
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = await fetch(
+        `/api/admin/user-overrides?initData=${encodeURIComponent(initData || '')}&user_id=${userId}`
+      );
+      const data = await response.json();
+      if (data.success && data.user) {
+        setSelectedUser(data.user);
+        // Initialize pending overrides with current values
+        setPendingOverrides({
+          unlimitedSummaries: data.user.override?.unlimitedSummaries === true,
+          remindersEnabled: data.user.override?.remindersEnabled === true,
+          voiceEventsEnabled: data.user.override?.voiceEventsEnabled === true,
+          unlimitedCalendars: data.user.override?.unlimitedCalendars === true,
+        });
+        setOverrideReason(data.user.override?.reason || '');
+      }
+    } catch (error) {
+      console.error('Failed to load user:', error);
+    } finally {
+      setIsLoadingUser(false);
+    }
+  };
+
+  // Save override
+  const saveOverride = async () => {
+    if (!selectedUser) return;
+    setIsSavingOverride(true);
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = await fetch('/api/admin/user-overrides', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          initData,
+          user_id: selectedUser.id,
+          unlimitedSummaries: pendingOverrides.unlimitedSummaries || null,
+          remindersEnabled: pendingOverrides.remindersEnabled || null,
+          voiceEventsEnabled: pendingOverrides.voiceEventsEnabled || null,
+          unlimitedCalendars: pendingOverrides.unlimitedCalendars || null,
+          reason: overrideReason || null,
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        // Refresh the user and override list
+        await loadUserDetails(selectedUser.id);
+        await fetchOverrideList();
+      }
+    } catch (error) {
+      console.error('Failed to save override:', error);
+    } finally {
+      setIsSavingOverride(false);
+    }
+  };
+
+  // Remove override
+  const removeOverride = async (userId: number) => {
+    const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+    try {
+      const response = await fetch(
+        `/api/admin/user-overrides?initData=${encodeURIComponent(initData || '')}&user_id=${userId}`,
+        { method: 'DELETE' }
+      );
+      const data = await response.json();
+      if (data.success) {
+        await fetchOverrideList();
+        if (selectedUser?.id === userId) {
+          await loadUserDetails(userId);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to remove override:', error);
+    }
+  };
+
+  const clearSelectedUser = () => {
+    setSelectedUser(null);
+    setSearchQuery('');
+    setSearchResults([]);
   };
 
   const getButtonContent = (state: ButtonState, label: { gregorian: string; hebrew: string }) => {
@@ -455,6 +663,318 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
           transform: translateX(24px);
         }
 
+        .search-container {
+          position: relative;
+          margin-bottom: 16px;
+        }
+
+        .search-input {
+          width: 100%;
+          padding: 12px 40px 12px 16px;
+          border: 2px solid #e5e7eb;
+          border-radius: 12px;
+          font-size: 14px;
+          outline: none;
+          transition: border-color 0.2s;
+        }
+
+        .search-input:focus {
+          border-color: #667eea;
+        }
+
+        .search-icon {
+          position: absolute;
+          right: 12px;
+          top: 50%;
+          transform: translateY(-50%);
+          color: #9ca3af;
+        }
+
+        .search-results {
+          background: white;
+          border: 2px solid #e5e7eb;
+          border-radius: 12px;
+          margin-top: 8px;
+          overflow: hidden;
+        }
+
+        .search-result-item {
+          padding: 12px 16px;
+          border-bottom: 1px solid #e5e7eb;
+          cursor: pointer;
+          transition: background 0.2s;
+        }
+
+        .search-result-item:hover {
+          background: #f9fafb;
+        }
+
+        .search-result-item:last-child {
+          border-bottom: none;
+        }
+
+        .search-result-name {
+          font-weight: 600;
+          color: #111827;
+          font-size: 14px;
+        }
+
+        .search-result-meta {
+          font-size: 12px;
+          color: #6b7280;
+          margin-top: 2px;
+        }
+
+        .user-card {
+          background: white;
+          border: 2px solid #e5e7eb;
+          border-radius: 12px;
+          padding: 16px;
+          margin-bottom: 16px;
+        }
+
+        .user-card-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          margin-bottom: 16px;
+        }
+
+        .user-card-info h3 {
+          font-size: 16px;
+          font-weight: 600;
+          color: #111827;
+          margin: 0 0 4px 0;
+        }
+
+        .user-card-info p {
+          font-size: 13px;
+          color: #6b7280;
+          margin: 0;
+        }
+
+        .close-btn {
+          background: none;
+          border: none;
+          color: #9ca3af;
+          cursor: pointer;
+          padding: 4px;
+        }
+
+        .close-btn:hover {
+          color: #6b7280;
+        }
+
+        .plan-badge {
+          display: inline-block;
+          padding: 4px 8px;
+          border-radius: 6px;
+          font-size: 11px;
+          font-weight: 600;
+          text-transform: uppercase;
+        }
+
+        .plan-badge.free {
+          background: #f3f4f6;
+          color: #6b7280;
+        }
+
+        .plan-badge.basic {
+          background: #dbeafe;
+          color: #1d4ed8;
+        }
+
+        .plan-badge.pro {
+          background: #fef3c7;
+          color: #b45309;
+        }
+
+        .plan-badge.trialing {
+          background: #d1fae5;
+          color: #047857;
+        }
+
+        .override-toggles {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          margin-bottom: 16px;
+        }
+
+        .override-toggle-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 12px;
+          background: #f9fafb;
+          border-radius: 8px;
+        }
+
+        .override-toggle-row.paid {
+          background: #f0fdf4;
+        }
+
+        .override-toggle-info {
+          flex: 1;
+        }
+
+        .override-toggle-label {
+          font-weight: 500;
+          color: #374151;
+          font-size: 14px;
+          margin: 0;
+        }
+
+        .override-toggle-desc {
+          font-size: 12px;
+          color: #6b7280;
+          margin: 0;
+        }
+
+        .paid-badge {
+          font-size: 11px;
+          color: #059669;
+          background: #d1fae5;
+          padding: 2px 6px;
+          border-radius: 4px;
+          margin-left: 8px;
+        }
+
+        .reason-input {
+          width: 100%;
+          padding: 10px 12px;
+          border: 2px solid #e5e7eb;
+          border-radius: 8px;
+          font-size: 14px;
+          margin-bottom: 16px;
+          outline: none;
+        }
+
+        .reason-input:focus {
+          border-color: #667eea;
+        }
+
+        .save-override-btn {
+          width: 100%;
+          padding: 12px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          border: none;
+          border-radius: 12px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: opacity 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+        }
+
+        .save-override-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .override-list-item {
+          padding: 12px 16px;
+          border-bottom: 1px solid #e5e7eb;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .override-list-item:last-child {
+          border-bottom: none;
+        }
+
+        .override-list-info {
+          flex: 1;
+        }
+
+        .override-list-name {
+          font-weight: 600;
+          font-size: 14px;
+          color: #111827;
+        }
+
+        .override-list-features {
+          font-size: 12px;
+          color: #6b7280;
+          margin-top: 2px;
+        }
+
+        .override-list-actions {
+          display: flex;
+          gap: 8px;
+        }
+
+        .override-action-btn {
+          padding: 6px 12px;
+          border-radius: 6px;
+          font-size: 12px;
+          font-weight: 500;
+          cursor: pointer;
+          border: none;
+        }
+
+        .override-action-btn.edit {
+          background: #f3f4f6;
+          color: #374151;
+        }
+
+        .override-action-btn.remove {
+          background: #fef2f2;
+          color: #dc2626;
+        }
+
+        .override-action-btn:hover {
+          opacity: 0.8;
+        }
+
+        .empty-state {
+          text-align: center;
+          padding: 24px;
+          color: #6b7280;
+          font-size: 14px;
+        }
+
+        .mini-toggle {
+          position: relative;
+          width: 44px;
+          height: 24px;
+          background: #d1d5db;
+          border-radius: 12px;
+          cursor: pointer;
+          transition: background 0.2s;
+          flex-shrink: 0;
+        }
+
+        .mini-toggle.checked {
+          background: #667eea;
+        }
+
+        .mini-toggle.disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .mini-toggle-slider {
+          position: absolute;
+          top: 2px;
+          left: 2px;
+          width: 20px;
+          height: 20px;
+          background: white;
+          border-radius: 50%;
+          transition: transform 0.2s;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+
+        .mini-toggle.checked .mini-toggle-slider {
+          transform: translateX(20px);
+        }
+
         @media (max-width: 400px) {
           .stats-grid,
           .button-group {
@@ -530,6 +1050,246 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
               >
                 <div className="toggle-slider" />
               </div>
+            </div>
+          </div>
+
+          {/* User Feature Overrides Section */}
+          <div className="section">
+            <div className="section-header">
+              <span className="section-icon"><UserCog size={20} /></span>
+              <h2 className="section-title">{t('overrides.title')}</h2>
+            </div>
+
+            {/* User Search */}
+            <div className="search-container">
+              <input
+                type="text"
+                className="search-input"
+                placeholder={t('overrides.searchPlaceholder')}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              <span className="search-icon">
+                {isSearching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+              </span>
+            </div>
+
+            {/* Search Results */}
+            {searchResults.length > 0 && !selectedUser && (
+              <div className="search-results">
+                {searchResults.map((user) => (
+                  <div
+                    key={user.id}
+                    className="search-result-item"
+                    onClick={() => loadUserDetails(user.id)}
+                  >
+                    <div className="search-result-name">{user.name}</div>
+                    <div className="search-result-meta">
+                      ID: {user.telegramId || user.id} • {user.subscription?.plan || 'FREE'}
+                      {user.hasOverride && ' • Has Override'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Loading User */}
+            {isLoadingUser && (
+              <div className="user-card">
+                <div className="empty-state">
+                  <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto' }} />
+                </div>
+              </div>
+            )}
+
+            {/* Selected User Card */}
+            {selectedUser && !isLoadingUser && (
+              <div className="user-card">
+                <div className="user-card-header">
+                  <div className="user-card-info">
+                    <h3>{selectedUser.name}</h3>
+                    <p>Telegram ID: {selectedUser.telegramId || 'N/A'}</p>
+                    <p style={{ marginTop: 4 }}>
+                      <span className={`plan-badge ${selectedUser.subscription?.plan?.toLowerCase() || 'free'} ${selectedUser.subscription?.status === 'TRIALING' ? 'trialing' : ''}`}>
+                        {selectedUser.subscription?.plan || 'FREE'}
+                        {selectedUser.subscription?.status === 'TRIALING' && ' (Trial)'}
+                      </span>
+                    </p>
+                  </div>
+                  <button className="close-btn" onClick={clearSelectedUser}>
+                    <X size={20} />
+                  </button>
+                </div>
+
+                {/* Override Toggles */}
+                <div className="override-toggles">
+                  {/* Unlimited Summaries */}
+                  <div className={`override-toggle-row ${selectedUser.paidFeatures.unlimitedSummaries ? 'paid' : ''}`}>
+                    <div className="override-toggle-info">
+                      <p className="override-toggle-label">
+                        {t('overrides.unlimitedSummaries')}
+                        {selectedUser.paidFeatures.unlimitedSummaries && (
+                          <span className="paid-badge">{t('overrides.paidBadge')}</span>
+                        )}
+                      </p>
+                      <p className="override-toggle-desc">{t('overrides.unlimitedSummariesDesc')}</p>
+                    </div>
+                    <div
+                      className={`mini-toggle ${pendingOverrides.unlimitedSummaries || selectedUser.paidFeatures.unlimitedSummaries ? 'checked' : ''} ${selectedUser.paidFeatures.unlimitedSummaries ? 'disabled' : ''}`}
+                      onClick={() => {
+                        if (!selectedUser.paidFeatures.unlimitedSummaries) {
+                          setPendingOverrides(prev => ({ ...prev, unlimitedSummaries: !prev.unlimitedSummaries }));
+                        }
+                      }}
+                    >
+                      <div className="mini-toggle-slider" />
+                    </div>
+                  </div>
+
+                  {/* Reminders */}
+                  <div className={`override-toggle-row ${selectedUser.paidFeatures.remindersEnabled ? 'paid' : ''}`}>
+                    <div className="override-toggle-info">
+                      <p className="override-toggle-label">
+                        {t('overrides.reminders')}
+                        {selectedUser.paidFeatures.remindersEnabled && (
+                          <span className="paid-badge">{t('overrides.paidBadge')}</span>
+                        )}
+                      </p>
+                      <p className="override-toggle-desc">{t('overrides.remindersDesc')}</p>
+                    </div>
+                    <div
+                      className={`mini-toggle ${pendingOverrides.remindersEnabled || selectedUser.paidFeatures.remindersEnabled ? 'checked' : ''} ${selectedUser.paidFeatures.remindersEnabled ? 'disabled' : ''}`}
+                      onClick={() => {
+                        if (!selectedUser.paidFeatures.remindersEnabled) {
+                          setPendingOverrides(prev => ({ ...prev, remindersEnabled: !prev.remindersEnabled }));
+                        }
+                      }}
+                    >
+                      <div className="mini-toggle-slider" />
+                    </div>
+                  </div>
+
+                  {/* Voice Events */}
+                  <div className={`override-toggle-row ${selectedUser.paidFeatures.voiceEventsEnabled ? 'paid' : ''}`}>
+                    <div className="override-toggle-info">
+                      <p className="override-toggle-label">
+                        {t('overrides.voiceEvents')}
+                        {selectedUser.paidFeatures.voiceEventsEnabled && (
+                          <span className="paid-badge">{t('overrides.paidBadge')}</span>
+                        )}
+                      </p>
+                      <p className="override-toggle-desc">{t('overrides.voiceEventsDesc')}</p>
+                    </div>
+                    <div
+                      className={`mini-toggle ${pendingOverrides.voiceEventsEnabled || selectedUser.paidFeatures.voiceEventsEnabled ? 'checked' : ''} ${selectedUser.paidFeatures.voiceEventsEnabled ? 'disabled' : ''}`}
+                      onClick={() => {
+                        if (!selectedUser.paidFeatures.voiceEventsEnabled) {
+                          setPendingOverrides(prev => ({ ...prev, voiceEventsEnabled: !prev.voiceEventsEnabled }));
+                        }
+                      }}
+                    >
+                      <div className="mini-toggle-slider" />
+                    </div>
+                  </div>
+
+                  {/* Unlimited Calendars */}
+                  <div className={`override-toggle-row ${selectedUser.paidFeatures.unlimitedCalendars ? 'paid' : ''}`}>
+                    <div className="override-toggle-info">
+                      <p className="override-toggle-label">
+                        {t('overrides.unlimitedCalendars')}
+                        {selectedUser.paidFeatures.unlimitedCalendars && (
+                          <span className="paid-badge">{t('overrides.paidBadge')}</span>
+                        )}
+                      </p>
+                      <p className="override-toggle-desc">{t('overrides.unlimitedCalendarsDesc')}</p>
+                    </div>
+                    <div
+                      className={`mini-toggle ${pendingOverrides.unlimitedCalendars || selectedUser.paidFeatures.unlimitedCalendars ? 'checked' : ''} ${selectedUser.paidFeatures.unlimitedCalendars ? 'disabled' : ''}`}
+                      onClick={() => {
+                        if (!selectedUser.paidFeatures.unlimitedCalendars) {
+                          setPendingOverrides(prev => ({ ...prev, unlimitedCalendars: !prev.unlimitedCalendars }));
+                        }
+                      }}
+                    >
+                      <div className="mini-toggle-slider" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Reason Input */}
+                <input
+                  type="text"
+                  className="reason-input"
+                  placeholder={t('overrides.reasonPlaceholder')}
+                  value={overrideReason}
+                  onChange={(e) => setOverrideReason(e.target.value)}
+                />
+
+                {/* Save Button */}
+                <button
+                  className="save-override-btn"
+                  onClick={saveOverride}
+                  disabled={isSavingOverride}
+                >
+                  {isSavingOverride ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      {t('overrides.saving')}
+                    </>
+                  ) : (
+                    <>
+                      <Check size={16} />
+                      {t('overrides.save')}
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {/* Override List */}
+            <h3 className="subsection-title">{t('overrides.activeOverrides')}</h3>
+            <div className="user-list">
+              {isLoadingOverrides ? (
+                <div className="empty-state">
+                  <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto' }} />
+                </div>
+              ) : overrideList.length === 0 ? (
+                <div className="empty-state">{t('overrides.noOverrides')}</div>
+              ) : (
+                overrideList.map((override) => {
+                  const features = [];
+                  if (override.unlimitedSummaries) features.push(t('overrides.unlimitedSummariesShort'));
+                  if (override.remindersEnabled) features.push(t('overrides.remindersShort'));
+                  if (override.voiceEventsEnabled) features.push(t('overrides.voiceEventsShort'));
+                  if (override.unlimitedCalendars) features.push(t('overrides.unlimitedCalendarsShort'));
+
+                  return (
+                    <div key={override.id} className="override-list-item">
+                      <div className="override-list-info">
+                        <div className="override-list-name">{override.user.name}</div>
+                        <div className="override-list-features">
+                          {features.join(', ')}
+                          {override.reason && ` - ${override.reason}`}
+                        </div>
+                      </div>
+                      <div className="override-list-actions">
+                        <button
+                          className="override-action-btn edit"
+                          onClick={() => loadUserDetails(override.userId)}
+                        >
+                          {t('overrides.edit')}
+                        </button>
+                        <button
+                          className="override-action-btn remove"
+                          onClick={() => removeOverride(override.userId)}
+                        >
+                          {t('overrides.remove')}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
 

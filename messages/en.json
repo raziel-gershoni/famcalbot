@@ -73,6 +73,30 @@
       "reminders": "Event Reminders",
       "remindersDescription": "Enable/disable reminders feature globally for all users"
     },
+    "overrides": {
+      "title": "User Feature Overrides",
+      "searchPlaceholder": "Search by Telegram ID or name...",
+      "unlimitedSummaries": "Unlimited Summaries",
+      "unlimitedSummariesDesc": "Bypass text/voice summary limits",
+      "unlimitedSummariesShort": "Summaries",
+      "reminders": "Reminders",
+      "remindersDesc": "Grant reminders access",
+      "remindersShort": "Reminders",
+      "voiceEvents": "Voice Events",
+      "voiceEventsDesc": "Grant voice event creation",
+      "voiceEventsShort": "Voice Events",
+      "unlimitedCalendars": "Unlimited Calendars",
+      "unlimitedCalendarsDesc": "Bypass calendar limit",
+      "unlimitedCalendarsShort": "Calendars",
+      "paidBadge": "Paid",
+      "reasonPlaceholder": "Reason for override (optional)",
+      "save": "Save Override",
+      "saving": "Saving...",
+      "activeOverrides": "Active Overrides",
+      "noOverrides": "No active overrides",
+      "edit": "Edit",
+      "remove": "Remove"
+    },
     "openDashboard": "Open User Dashboard"
   },
   "settings": {

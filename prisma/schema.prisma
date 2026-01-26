@@ -53,6 +53,7 @@ model User {
   subscription    Subscription?
   usageCounter    UsageCounter?
   activities      UserActivity[]
+  featureOverride UserFeatureOverride?
 
   @@index([telegramId])
   @@index([whatsappPhone])
@@ -149,4 +150,27 @@ model UserActivity {
   @@index([userId])
   @@index([action])
   @@index([createdAt])
+}
+
+// Admin-granted feature overrides for individual users
+model UserFeatureOverride {
+  id              String   @id @default(cuid())
+  userId          Int      @unique
+  user            User     @relation(fields: [userId], references: [id])
+
+  // Admin-granted features (null = no override, use subscription)
+  unlimitedSummaries    Boolean?  // Bypass text/voice summary limits
+  remindersEnabled      Boolean?  // Grant reminders access
+  voiceEventsEnabled    Boolean?  // Grant voice event creation
+  unlimitedCalendars    Boolean?  // Bypass calendar limit
+
+  // Metadata
+  grantedBy       Int?              // Admin user ID who granted
+  grantedAt       DateTime?
+  reason          String?           // Why override was granted
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
 }

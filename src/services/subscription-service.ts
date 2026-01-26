@@ -3,7 +3,7 @@
  * Manages user subscriptions, trials, and feature access
  */
 
-import { Subscription, SubscriptionPlan, SubscriptionStatus, UsageCounter } from '@prisma/client';
+import { Subscription, SubscriptionPlan, SubscriptionStatus, UsageCounter, UserFeatureOverride } from '@prisma/client';
 import { prisma, withDbRetry } from '../utils/prisma';
 import { PlanId, getPlanLimits, TRIAL_DURATION_DAYS, PLAN_CONFIGS } from '../config/plans';
 import { trackActivity } from './analytics-service';
@@ -344,16 +344,63 @@ export async function incrementUsage(
 }
 
 // ============================================
+// FEATURE OVERRIDE CHECKS
+// ============================================
+
+/**
+ * Get feature override for a user (admin-granted access)
+ */
+export async function getFeatureOverride(userId: number): Promise<UserFeatureOverride | null> {
+  return withDbRetry(
+    () => prisma.userFeatureOverride.findUnique({
+      where: { userId },
+    }),
+    'getFeatureOverride'
+  );
+}
+
+/**
+ * Check if an override grants access to a specific feature
+ * Returns true if override grants access, false if no override or not granted
+ */
+function checkOverrideGrant(override: UserFeatureOverride, feature: FeatureType): boolean {
+  switch (feature) {
+    case 'text_summary':
+    case 'voice_summary':
+      return override.unlimitedSummaries === true;
+    case 'reminders':
+      return override.remindersEnabled === true;
+    case 'voice_events':
+      return override.voiceEventsEnabled === true;
+    case 'calendars':
+      return override.unlimitedCalendars === true;
+    default:
+      return false;
+  }
+}
+
+// ============================================
 // FEATURE ACCESS CHECKS
 // ============================================
 
 /**
  * Check if a user has access to a specific feature
+ * Checks admin overrides FIRST (highest priority), then subscription
  */
 export async function checkFeatureAccess(
   userId: number,
   feature: FeatureType
 ): Promise<FeatureAccessResult> {
+  // 1. Check admin override FIRST (can only GRANT access, never deny)
+  const override = await getFeatureOverride(userId);
+  if (override) {
+    const granted = checkOverrideGrant(override, feature);
+    if (granted) {
+      return { allowed: true }; // Admin granted access
+    }
+  }
+
+  // 2. Check subscription (existing logic)
   const subWithUsage = await getSubscriptionWithUsage(userId);
   if (!subWithUsage) {
     return { allowed: false, reason: 'upgrade_required' };
@@ -454,11 +501,19 @@ export async function checkFeatureAccess(
 
 /**
  * Check if user can add more calendars
+ * Checks admin overrides FIRST (highest priority), then subscription
  */
 export async function checkCalendarLimit(
   userId: number,
   currentCalendarCount: number
 ): Promise<FeatureAccessResult> {
+  // 1. Check admin override FIRST
+  const override = await getFeatureOverride(userId);
+  if (override?.unlimitedCalendars === true) {
+    return { allowed: true }; // Admin granted unlimited calendars
+  }
+
+  // 2. Check subscription
   const subWithUsage = await getSubscriptionWithUsage(userId);
   if (!subWithUsage) {
     return { allowed: false, reason: 'upgrade_required' };

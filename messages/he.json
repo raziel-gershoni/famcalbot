@@ -73,6 +73,30 @@
       "reminders": "תזכורות לאירועים",
       "remindersDescription": "הפעל/השבת תזכורות באופן גלובלי לכל המשתמשים"
     },
+    "overrides": {
+      "title": "דריסות תכונות למשתמשים",
+      "searchPlaceholder": "חפש לפי מזהה טלגרם או שם...",
+      "unlimitedSummaries": "סיכומים ללא הגבלה",
+      "unlimitedSummariesDesc": "עקוף מגבלות סיכום טקסט/קולי",
+      "unlimitedSummariesShort": "סיכומים",
+      "reminders": "תזכורות",
+      "remindersDesc": "הענק גישה לתזכורות",
+      "remindersShort": "תזכורות",
+      "voiceEvents": "אירועים קוליים",
+      "voiceEventsDesc": "הענק יצירת אירועים קולית",
+      "voiceEventsShort": "אירועים קוליים",
+      "unlimitedCalendars": "יומנים ללא הגבלה",
+      "unlimitedCalendarsDesc": "עקוף מגבלת יומנים",
+      "unlimitedCalendarsShort": "יומנים",
+      "paidBadge": "בתשלום",
+      "reasonPlaceholder": "סיבה לדריסה (אופציונלי)",
+      "save": "שמור דריסה",
+      "saving": "שומר...",
+      "activeOverrides": "דריסות פעילות",
+      "noOverrides": "אין דריסות פעילות",
+      "edit": "ערוך",
+      "remove": "הסר"
+    },
     "openDashboard": "פתח לוח בקרה למשתמש"
   },
   "settings": {
