@@ -41,6 +41,9 @@
       "title": "הגדרות לוח שנה",
       "calendars": "{count} יומנים מסונכרנים",
       "renewToken": "חדש אסימון Google"
+    },
+    "subscription": {
+      "daysRemaining": "ימים נותרו בתקופת הניסיון"
     }
   },
   "admin": {
@@ -494,7 +497,8 @@
       "currentPlanBadge": "נוכחי",
       "trialBadge": "ניסיון פעיל",
       "upgradeNow": "שדרג עכשיו",
-      "contactSupport": "צור קשר עם תמיכה"
+      "contactSupport": "צור קשר עם תמיכה",
+      "invoiceSent": "חשבונית נשלחה! בדוק את הצ'אט בטלגרם להשלמת התשלום."
     }
   }
 }

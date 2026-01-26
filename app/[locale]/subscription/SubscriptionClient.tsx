@@ -54,12 +54,52 @@ export default function SubscriptionClient({
   const handleUpgrade = async (planId: PlanId) => {
     setUpgrading(planId);
     try {
-      // For now, just show an alert - the payment will be triggered via Telegram bot
-      // In a full implementation, this would call an API to send an invoice via the bot
+      // Get Telegram Web App initData for authentication
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+
+      // Parse user_id from URL (passed as telegramId)
+      const urlParams = new URLSearchParams(window.location.search);
+      const telegramUserId = urlParams.get('user_id');
+
+      if (!telegramUserId) {
+        if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+          window.Telegram.WebApp.showAlert('Unable to identify user. Please try again from Telegram.');
+        }
+        return;
+      }
+
+      // Call API to send invoice
+      const response = await fetch('/api/subscription/upgrade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: parseInt(telegramUserId),
+          plan: planId,
+          initData,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        // Close the web app - user will see the invoice in Telegram
+        if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+          window.Telegram.WebApp.showAlert(
+            t('page.invoiceSent') || 'Invoice sent! Check your Telegram chat to complete payment.',
+            () => {
+              window.Telegram?.WebApp?.close();
+            }
+          );
+        }
+      } else {
+        if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+          window.Telegram.WebApp.showAlert(data.error || 'Failed to send invoice. Please try again.');
+        }
+      }
+    } catch (error) {
+      console.error('Upgrade error:', error);
       if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-        window.Telegram.WebApp.showAlert(
-          `To upgrade to ${PLAN_CONFIGS[planId].name}, send /upgrade ${planId.toLowerCase()} to the bot.`
-        );
+        window.Telegram.WebApp.showAlert('An error occurred. Please try again.');
       }
     } finally {
       setUpgrading(null);

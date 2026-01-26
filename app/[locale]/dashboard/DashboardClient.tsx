@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
-import { KeyRound, Calendar, Zap, TrendingUp, CloudSun, RefreshCw, PencilLine, ClipboardList, Loader2 } from 'lucide-react';
+import { KeyRound, Calendar, Zap, TrendingUp, CloudSun, RefreshCw, PencilLine, ClipboardList, Loader2, Crown, Sparkles } from 'lucide-react';
 import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
 
@@ -20,12 +20,26 @@ interface User {
   isAdmin: boolean;
 }
 
+interface SubscriptionInfo {
+  plan: string;
+  status: string;
+  effectivePlan: string;
+}
+
+interface TrialInfo {
+  isTrialing: boolean;
+  daysRemaining: number;
+  trialEndsAt: Date | null;
+}
+
 interface DashboardClientProps {
   user: User;
   calendarAssignments: CalendarAssignment[];
   locale: string;
   needsOAuth: boolean;
   needsCalendars: boolean;
+  subscription: SubscriptionInfo | null;
+  trial: TrialInfo;
 }
 
 export default function DashboardClient({
@@ -34,8 +48,11 @@ export default function DashboardClient({
   locale,
   needsOAuth,
   needsCalendars,
+  subscription,
+  trial,
 }: DashboardClientProps) {
   const t = useTranslations('dashboard');
+  const tSub = useTranslations('subscription');
   const router = useRouter();
 
   // Map app locale to Intl locale
@@ -122,6 +139,10 @@ export default function DashboardClient({
 
   const handleSelectCalendars = () => {
     router.push(`/${locale}/select-calendars?user_id=${user.id}`);
+  };
+
+  const handleOpenSubscription = () => {
+    router.push(`/${locale}/subscription?user_id=${user.id}`);
   };
 
   return (
@@ -337,6 +358,87 @@ export default function DashboardClient({
             to { transform: rotate(360deg); }
           }
 
+          .subscription-card {
+            background: white;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+          }
+
+          .subscription-card:hover {
+            border-color: #667eea;
+            background: #f9fafb;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          }
+
+          .subscription-card.trial {
+            background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
+            border-color: #667eea;
+          }
+
+          .subscription-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          }
+
+          .subscription-plan {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+          }
+
+          .subscription-plan-name {
+            font-weight: 600;
+            font-size: 16px;
+            color: #111827;
+          }
+
+          .subscription-badge {
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+          }
+
+          .subscription-badge.trial {
+            background: #667eea;
+            color: white;
+          }
+
+          .subscription-badge.active {
+            background: #10b981;
+            color: white;
+          }
+
+          .subscription-badge.free {
+            background: #f3f4f6;
+            color: #6b7280;
+          }
+
+          .subscription-action {
+            font-size: 13px;
+            color: #667eea;
+            font-weight: 500;
+          }
+
+          .trial-info {
+            margin-top: 8px;
+            font-size: 13px;
+            color: #6b7280;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+          }
+
+          .trial-days {
+            font-weight: 600;
+            color: #667eea;
+          }
+
           @media (max-width: 400px) {
             .button-group {
               grid-template-columns: 1fr;
@@ -510,6 +612,43 @@ export default function DashboardClient({
                   >
                     <RefreshCw size={16} className="inline-icon" /> {t('settings.renewToken')}
                   </button>
+                </div>
+              </Section>
+
+              {/* Subscription Card */}
+              <Section title={tSub('title')} icon={<Crown size={20} />}>
+                <div
+                  className={`subscription-card ${trial.isTrialing ? 'trial' : ''}`}
+                  onClick={handleOpenSubscription}
+                >
+                  <div className="subscription-header">
+                    <div className="subscription-plan">
+                      {trial.isTrialing ? (
+                        <Sparkles size={20} color="#667eea" />
+                      ) : (
+                        <Crown size={20} color={subscription?.plan === 'PRO' ? '#f59e0b' : subscription?.plan === 'BASIC' ? '#3b82f6' : '#6b7280'} />
+                      )}
+                      <span className="subscription-plan-name">
+                        {subscription?.effectivePlan || 'FREE'}
+                      </span>
+                      {trial.isTrialing ? (
+                        <span className="subscription-badge trial">{tSub('page.trialBadge')}</span>
+                      ) : subscription?.status === 'ACTIVE' && subscription?.plan !== 'FREE' ? (
+                        <span className="subscription-badge active">{tSub('page.currentPlanBadge')}</span>
+                      ) : (
+                        <span className="subscription-badge free">Free</span>
+                      )}
+                    </div>
+                    <span className="subscription-action">
+                      {trial.isTrialing || subscription?.plan === 'FREE' || !subscription ? tSub('upgradeButton') : tSub('managePlan')} →
+                    </span>
+                  </div>
+                  {trial.isTrialing && trial.daysRemaining > 0 && (
+                    <div className="trial-info">
+                      <Sparkles size={14} />
+                      <span className="trial-days">{trial.daysRemaining}</span> {t('subscription.daysRemaining') || 'days remaining in trial'}
+                    </div>
+                  )}
                 </div>
               </Section>
             </>

@@ -41,6 +41,9 @@
       "title": "Calendar Settings",
       "calendars": "{count} calendars synced",
       "renewToken": "Renew Google Token"
+    },
+    "subscription": {
+      "daysRemaining": "days remaining in trial"
     }
   },
   "admin": {
@@ -494,7 +497,8 @@
       "currentPlanBadge": "Current",
       "trialBadge": "Trial Active",
       "upgradeNow": "Upgrade Now",
-      "contactSupport": "Contact Support"
+      "contactSupport": "Contact Support",
+      "invoiceSent": "Invoice sent! Check your Telegram chat to complete payment."
     }
   }
 }

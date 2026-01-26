@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { getUserByTelegramId } from '@/src/services/user-service';
+import { getSubscriptionWithUsage, getTrialStatus } from '@/src/services/subscription-service';
 import { normalizeLocale } from '@/src/utils/locale';
 import DashboardClient from './DashboardClient';
 import TelegramDashboardRedirect from './TelegramDashboardRedirect';
@@ -39,6 +40,18 @@ export default async function DashboardPage({ params, searchParams }: PageProps)
   const needsOAuth = !user.googleRefreshToken;
   const needsCalendars = !user.calendarAssignments || user.calendarAssignments.length === 0;
 
+  // Fetch subscription data
+  const [subWithUsage, trialStatus] = await Promise.all([
+    getSubscriptionWithUsage(user.id),
+    getTrialStatus(user.id),
+  ]);
+
+  const subscription = subWithUsage ? {
+    plan: subWithUsage.subscription.plan,
+    status: subWithUsage.subscription.status,
+    effectivePlan: subWithUsage.effectivePlan,
+  } : null;
+
   return (
     <DashboardClient
       user={{
@@ -52,6 +65,8 @@ export default async function DashboardPage({ params, searchParams }: PageProps)
       locale={locale}
       needsOAuth={needsOAuth}
       needsCalendars={needsCalendars}
+      subscription={subscription}
+      trial={trialStatus}
     />
   );
 }

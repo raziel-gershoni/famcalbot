@@ -41,6 +41,9 @@
       "title": "Настройки календаря",
       "calendars": "{count} календарей синхронизировано",
       "renewToken": "Обновить токен Google"
+    },
+    "subscription": {
+      "daysRemaining": "дней осталось в пробном периоде"
     }
   },
   "admin": {
@@ -494,7 +497,8 @@
       "currentPlanBadge": "Текущий",
       "trialBadge": "Пробный период",
       "upgradeNow": "Улучшить сейчас",
-      "contactSupport": "Связаться с поддержкой"
+      "contactSupport": "Связаться с поддержкой",
+      "invoiceSent": "Счёт отправлен! Проверьте чат в Telegram для завершения оплаты."
     }
   }
 }
