@@ -247,6 +247,7 @@ export default function SubscriptionClient({
             padding: 20px;
             position: relative;
             transition: all 0.2s;
+            background: white;
           }
 
           .plan-card.current {
@@ -257,13 +258,19 @@ export default function SubscriptionClient({
           .plan-card-header {
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 12px;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #e5e7eb;
+          }
+
+          [dir="rtl"] .plan-card-header {
+            flex-direction: row-reverse;
           }
 
           .plan-name {
-            font-size: 18px;
-            font-weight: 600;
+            font-size: 20px;
+            font-weight: 700;
             color: #1a1a1a;
           }
 
@@ -271,9 +278,16 @@ export default function SubscriptionClient({
             display: flex;
             align-items: center;
             gap: 4px;
-            font-size: 16px;
-            font-weight: 600;
+            font-size: 18px;
+            font-weight: 700;
             color: #667eea;
+            background: #f0f0ff;
+            padding: 6px 12px;
+            border-radius: 8px;
+          }
+
+          [dir="rtl"] .plan-price {
+            flex-direction: row-reverse;
           }
 
           .plan-features {
@@ -286,14 +300,25 @@ export default function SubscriptionClient({
             display: flex;
             align-items: center;
             gap: 8px;
-            padding: 6px 0;
+            padding: 8px 0;
             font-size: 14px;
             color: #4b5563;
+            border-bottom: 1px solid #f3f4f6;
+          }
+
+          .plan-features li:last-child {
+            border-bottom: none;
+          }
+
+          [dir="rtl"] .plan-features li {
+            flex-direction: row-reverse;
+            text-align: right;
           }
 
           .feature-icon {
-            width: 16px;
-            height: 16px;
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
           }
 
           .feature-icon.included {
@@ -336,6 +361,12 @@ export default function SubscriptionClient({
             padding: 4px 12px;
             border-radius: 0 10px 0 8px;
             font-weight: 500;
+          }
+
+          [dir="rtl"] .current-badge {
+            right: auto;
+            left: -1px;
+            border-radius: 10px 0 8px 0;
           }
         `}</style>
 
@@ -505,28 +536,28 @@ function PlanCard({
         <FeatureItem
           included={true}
           text={limits.textSummaries === Infinity
-            ? `${t('unlimited')} ${t('features.textSummaries').toLowerCase()}`
-            : `${limits.textSummaries} ${t('features.textSummaries').toLowerCase()}/mo`}
+            ? t('planFeatures.textSummariesUnlimited')
+            : t('planFeatures.textSummariesLimit', { count: limits.textSummaries })}
         />
         <FeatureItem
           included={true}
           text={limits.voiceSummaries === Infinity
-            ? `${t('unlimited')} ${t('features.voiceSummaries').toLowerCase()}`
-            : `${limits.voiceSummaries} ${t('features.voiceSummaries').toLowerCase()}/mo`}
+            ? t('planFeatures.voiceSummariesUnlimited')
+            : t('planFeatures.voiceSummariesLimit', { count: limits.voiceSummaries })}
         />
         <FeatureItem
           included={true}
           text={limits.calendars === Infinity
-            ? `${t('unlimited')} ${t('features.calendars').toLowerCase()}`
-            : `${limits.calendars} ${t('features.calendars').toLowerCase()}`}
+            ? t('planFeatures.calendarsUnlimited')
+            : t('planFeatures.calendarsLimit', { count: limits.calendars })}
         />
         <FeatureItem
           included={limits.reminders}
-          text={t('features.reminders')}
+          text={limits.reminders ? t('planFeatures.remindersIncluded') : t('planFeatures.remindersExcluded')}
         />
         <FeatureItem
           included={limits.voiceEvents}
-          text={t('features.voiceEvents')}
+          text={limits.voiceEvents ? t('planFeatures.voiceEventsIncluded') : t('planFeatures.voiceEventsExcluded')}
         />
       </ul>
 

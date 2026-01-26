@@ -490,6 +490,19 @@
       "reminders": "תזכורות אירועים",
       "voiceEvents": "יצירת אירועים בקול"
     },
+    "planFeatures": {
+      "textSummariesLimit": "{count} סיכומי טקסט לחודש",
+      "textSummariesUnlimited": "סיכומי טקסט ללא הגבלה",
+      "voiceSummariesLimit": "{count} סיכומים קוליים לחודש",
+      "voiceSummariesUnlimited": "סיכומים קוליים ללא הגבלה",
+      "calendarsLimit": "{count} יומנים",
+      "calendarsUnlimited": "יומנים ללא הגבלה",
+      "remindersIncluded": "תזכורות אירועים",
+      "remindersExcluded": "תזכורות אירועים",
+      "voiceEventsIncluded": "יצירת אירועים בקול",
+      "voiceEventsExcluded": "יצירת אירועים בקול",
+      "perMonth": "לחודש"
+    },
     "page": {
       "title": "המנוי שלך",
       "subtitle": "נהל את התוכנית שלך וצפה בשימוש",

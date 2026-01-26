@@ -490,6 +490,19 @@
       "reminders": "Напоминания о событиях",
       "voiceEvents": "Создание событий голосом"
     },
+    "planFeatures": {
+      "textSummariesLimit": "{count} текстовых сводок/мес",
+      "textSummariesUnlimited": "Безлимитные текстовые сводки",
+      "voiceSummariesLimit": "{count} голосовых сводок/мес",
+      "voiceSummariesUnlimited": "Безлимитные голосовые сводки",
+      "calendarsLimit": "{count} календарей",
+      "calendarsUnlimited": "Безлимитные календари",
+      "remindersIncluded": "Напоминания о событиях",
+      "remindersExcluded": "Напоминания о событиях",
+      "voiceEventsIncluded": "Создание событий голосом",
+      "voiceEventsExcluded": "Создание событий голосом",
+      "perMonth": "/мес"
+    },
     "page": {
       "title": "Ваша подписка",
       "subtitle": "Управляйте планом и просматривайте использование",

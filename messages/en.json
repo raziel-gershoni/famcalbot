@@ -490,6 +490,19 @@
       "reminders": "Event Reminders",
       "voiceEvents": "Voice Event Creation"
     },
+    "planFeatures": {
+      "textSummariesLimit": "{count} text summaries/mo",
+      "textSummariesUnlimited": "Unlimited text summaries",
+      "voiceSummariesLimit": "{count} voice summaries/mo",
+      "voiceSummariesUnlimited": "Unlimited voice summaries",
+      "calendarsLimit": "{count} calendars",
+      "calendarsUnlimited": "Unlimited calendars",
+      "remindersIncluded": "Event reminders",
+      "remindersExcluded": "Event reminders",
+      "voiceEventsIncluded": "Voice event creation",
+      "voiceEventsExcluded": "Voice event creation",
+      "perMonth": "/mo"
+    },
     "page": {
       "title": "Your Subscription",
       "subtitle": "Manage your plan and view usage",
