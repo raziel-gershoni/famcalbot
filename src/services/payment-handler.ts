@@ -6,6 +6,7 @@
 import { getBot, getMessagingService } from './telegram';
 import { getUserByTelegramId } from './user-service';
 import { upgradeSubscription, renewSubscription, getSubscription } from './subscription-service';
+import { prisma } from '../utils/prisma';
 import { trackActivity } from './analytics-service';
 import { MessageFormat } from './messaging/types';
 import { getBotMessages } from '../lib/bot-messages';
@@ -168,11 +169,12 @@ export async function handleSuccessfulPayment(
  */
 export async function sendSubscriptionInvoice(
   chatId: number,
-  userId: number,
+  userId: number,  // Internal DB user ID
   plan: PlanId
 ): Promise<void> {
   const bot = getBot();
-  const user = await getUserByTelegramId(userId);
+  // Get user by internal DB ID (not Telegram ID)
+  const user = await prisma.user.findUnique({ where: { id: userId } });
   const language = user?.language || 'en';
   const t = await getBotMessages(language);
 
