@@ -12,6 +12,7 @@ import type { VoiceCondenserContext } from '../prompts/voice-condenser';
 import { getBotMessages, getBotMessage } from '../lib/bot-messages';
 import { trackActivityAsync } from './analytics-service';
 import { checkFeatureAccess, incrementUsage, getTrialStatus } from './subscription-service';
+import { captureError } from '../lib/error-capture';
 
 /**
  * Categorize events by ownership for a specific user
@@ -1430,6 +1431,16 @@ async function routeTextMessage(
   user: UserConfig,
   platform?: DeliveryPlatform
 ): Promise<void> {
+  // Skip if text is empty
+  if (!text || text.trim() === '') {
+    captureError(
+      new Error('Attempted to send empty message'),
+      'telegram-delivery',
+      { user_id: userId, service: 'routeTextMessage' }
+    );
+    return;
+  }
+
   const targetPlatform = platform || user.messagingPlatform || 'telegram';
   const msgService = getMessagingService();
 
@@ -1437,7 +1448,7 @@ async function routeTextMessage(
     try {
       await msgService.sendMessage(userId, text, { format: MessageFormat.HTML });
     } catch (e) {
-      console.error(`Telegram text delivery failed for ${userId}:`, e);
+      captureError(e, 'telegram-delivery', { user_id: userId, service: 'sendMessage' });
     }
   }
 
@@ -1446,7 +1457,7 @@ async function routeTextMessage(
       const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
       await whatsappService.sendMessage(user.whatsappPhone, text, { format: MessageFormat.HTML });
     } catch (e) {
-      console.error(`WhatsApp text delivery failed for ${user.whatsappPhone}:`, e);
+      captureError(e, 'whatsapp-delivery', { user_id: userId, service: 'sendMessage' });
     }
   }
 }
@@ -1496,6 +1507,23 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
   } = options;
 
   const msgService = getMessagingService();
+
+  // Check for empty summary (AI returned nothing)
+  if (!summary || summary.trim() === '') {
+    captureError(
+      new Error('AI returned empty summary'),
+      'summary-generation',
+      { user_id: userId, service: 'deliverSummary' }
+    );
+    // Delete progress message if exists
+    if (progressMessageId) {
+      await msgService.deleteMessage(userId, progressMessageId);
+    }
+    // Notify user about the issue
+    const t = await getBotMessages(user.language || 'en');
+    await msgService.sendMessage(userId, t.errors?.summaryGenerationFailed || 'Sorry, could not generate summary. Please try again.', { format: MessageFormat.HTML });
+    return;
+  }
 
   // Determine what to send based on user settings
   const sendText = user.textSummaryEnabled !== false;

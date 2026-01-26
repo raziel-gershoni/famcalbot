@@ -324,6 +324,7 @@
       "updateLanguage": "⚠️ Please update your language preference in Settings to continue.",
       "modelTest": "Sorry, there was an error running the model tests.",
       "showingModels": "Sorry, there was an error showing model options.",
+      "summaryGenerationFailed": "❌ Sorry, could not generate summary. Please try again.",
       "generatingSummary": "Sorry, there was an error generating the summary."
     },
     "buttons": {
