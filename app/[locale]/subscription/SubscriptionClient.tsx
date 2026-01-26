@@ -110,7 +110,7 @@ export default function SubscriptionClient({
   return (
     <TelegramLayout>
       <div className={`subscription-page ${isRtl ? 'rtl' : ''}`}>
-        <style jsx>{`
+        <style jsx global>{`
           .subscription-page {
             max-width: 600px;
             margin: 0 auto;
