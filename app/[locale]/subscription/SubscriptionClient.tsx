@@ -50,6 +50,7 @@ export default function SubscriptionClient({
   const currentPlan = subscription.effectivePlan;
   const planConfig = PLAN_CONFIGS[currentPlan];
   const limits = planConfig.limits;
+  const isRtl = locale === 'he';
 
   const handleUpgrade = async (planId: PlanId) => {
     setUpgrading(planId);
@@ -108,7 +109,7 @@ export default function SubscriptionClient({
 
   return (
     <TelegramLayout>
-      <div className="subscription-page">
+      <div className={`subscription-page ${isRtl ? 'rtl' : ''}`}>
         <style jsx>{`
           .subscription-page {
             max-width: 600px;
@@ -264,7 +265,7 @@ export default function SubscriptionClient({
             border-bottom: 1px solid #e5e7eb;
           }
 
-          [dir="rtl"] .plan-card-header {
+          .rtl .plan-card-header {
             flex-direction: row-reverse;
           }
 
@@ -286,7 +287,7 @@ export default function SubscriptionClient({
             border-radius: 8px;
           }
 
-          [dir="rtl"] .plan-price {
+          .rtl .plan-price {
             flex-direction: row-reverse;
           }
 
@@ -310,7 +311,7 @@ export default function SubscriptionClient({
             border-bottom: none;
           }
 
-          [dir="rtl"] .plan-features li {
+          .rtl .plan-features li {
             flex-direction: row-reverse;
             text-align: right;
           }
@@ -363,7 +364,7 @@ export default function SubscriptionClient({
             font-weight: 500;
           }
 
-          [dir="rtl"] .current-badge {
+          .rtl .current-badge {
             right: auto;
             left: -1px;
             border-radius: 10px 0 8px 0;
