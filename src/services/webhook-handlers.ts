@@ -15,6 +15,7 @@ import {
 import { getUserByWhatsAppPhone } from './user-service';
 import { MessagingPlatform } from './messaging';
 import { handleVoiceMessage, handleEventCallback, handleEditCallback, handleDeleteCallback } from './voice-input-handler';
+import { handlePreCheckoutQuery, handleSuccessfulPayment } from './payment-handler';
 
 /**
  * Handle Telegram webhook updates
@@ -24,6 +25,22 @@ export async function handleTelegramWebhook(
   res: VercelResponse
 ): Promise<void> {
   const update = req.body;
+
+  // Handle pre-checkout query (Telegram Stars payment validation)
+  if (update.pre_checkout_query) {
+    await handlePreCheckoutQuery(update.pre_checkout_query);
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  // Handle successful payment (Telegram Stars)
+  if (update.message?.successful_payment) {
+    const chatId = update.message.chat.id;
+    const userId = update.message.from.id;
+    await handleSuccessfulPayment(chatId, userId, update.message.successful_payment);
+    res.status(200).json({ ok: true });
+    return;
+  }
 
   // Handle callback queries (inline keyboard button clicks)
   if (update.callback_query) {

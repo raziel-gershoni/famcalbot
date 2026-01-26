@@ -49,6 +49,11 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Relations
+  subscription    Subscription?
+  usageCounter    UsageCounter?
+  activities      UserActivity[]
+
   @@index([telegramId])
   @@index([whatsappPhone])
 }
@@ -68,4 +73,80 @@ model AdminSettings {
   id                    String   @id @default("global")
   remindersEnabled      Boolean  @default(false)
   updatedAt             DateTime @updatedAt
+}
+
+// ============================================
+// SUBSCRIPTION & USAGE TRACKING
+// ============================================
+
+enum SubscriptionStatus {
+  TRIALING      // 14-day trial active
+  ACTIVE        // Paid and active
+  CANCELED      // Will expire at period end
+  EXPIRED       // Trial/subscription ended
+}
+
+enum SubscriptionPlan {
+  FREE
+  BASIC
+  PRO
+}
+
+model Subscription {
+  id                      String             @id @default(cuid())
+  userId                  Int                @unique
+  user                    User               @relation(fields: [userId], references: [id])
+
+  plan                    SubscriptionPlan   @default(FREE)
+  status                  SubscriptionStatus @default(TRIALING)
+
+  // Telegram Stars subscription
+  telegramPaymentChargeId String?            // From successful_payment
+
+  // Trial tracking
+  trialStartedAt          DateTime           @default(now())
+  trialEndsAt             DateTime           // trialStartedAt + 14 days
+
+  // Paid subscription tracking
+  currentPeriodStart      DateTime?
+  currentPeriodEnd        DateTime?
+  cancelAtPeriodEnd       Boolean            @default(false)
+
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model UsageCounter {
+  id                      String   @id @default(cuid())
+  userId                  Int      @unique
+  user                    User     @relation(fields: [userId], references: [id])
+
+  textSummariesUsed       Int      @default(0)
+  voiceSummariesUsed      Int      @default(0)
+  voiceEventsCreated      Int      @default(0)
+  remindersTriggered      Int      @default(0)
+
+  cycleStartDate          DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// User activity logging for analytics
+model UserActivity {
+  id          String   @id @default(cuid())
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+
+  action      String   // 'text_summary', 'voice_summary', 'reminder_sent', etc.
+  metadata    Json?    // Additional context (calendar count, language, etc.)
+
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
 }

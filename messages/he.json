@@ -389,5 +389,63 @@
       "ambiguousEvent": "🤔 נמצאו מספר אירועים תואמים. אנא היה יותר ספציפי.",
       "eventNotFound": "❌ לא הצלחתי למצוא את האירוע."
     }
+  },
+  "subscription": {
+    "title": "מנוי",
+    "currentPlan": "התוכנית הנוכחית",
+    "usage": "שימוש החודש",
+    "textSummaries": "סיכומי טקסט",
+    "voiceSummaries": "סיכומים קוליים",
+    "voiceEvents": "אירועים קוליים",
+    "reminders": "תזכורות",
+    "calendars": "יומנים",
+    "unlimited": "ללא הגבלה",
+    "of": "מתוך",
+    "trialBanner": "🎉 ניסיון: {days} ימים נותרו",
+    "trialEndsIn": "תקופת הניסיון מסתיימת בעוד {days} ימים",
+    "upgradeButton": "⭐ שדרג תוכנית",
+    "managePlan": "נהל מנוי",
+    "cancelPlan": "בטל מנוי",
+    "paymentSuccess": "✅ <b>התשלום הצליח!</b>\n\nאתה עכשיו בתוכנית <b>{plan}</b>.\n\n<b>תכונות שנפתחו:</b>\n• {features}",
+    "paymentError": "❌ אירעה שגיאה בהפעלת המנוי שלך. אנא פנה לתמיכה.",
+    "viewSubscription": "צפה במנוי",
+    "invoiceTitle": "FamCalBot {plan}",
+    "invoiceDescription": "מנוי חודשי: {features}",
+    "textLimitReached": "📊 <b>הגעת למגבלה החודשית</b>\n\nהשתמשת בכל {limit} סיכומי הטקסט החודש.\n\nשדרג לקבלת סיכומים ללא הגבלה!",
+    "voiceLimitReached": "🎤 <b>הגעת למגבלה החודשית</b>\n\nהשתמשת בכל {limit} הסיכומים הקוליים החודש.\n\nשדרג לקבלת קול ללא הגבלה!",
+    "voiceEventsRequired": "⭐ <b>יצירת אירועים בקול היא תכונת Pro</b>\n\nשדרג ל-Pro כדי ליצור אירועי יומן באמצעות הודעות קוליות!",
+    "remindersRequired": "⭐ <b>תזכורות אירועים היא תכונת Pro</b>\n\nשדרג ל-Pro כדי לקבל תזכורות לאירועים!",
+    "plans": {
+      "free": {
+        "name": "חינם",
+        "description": "תכונות בסיסיות להתחלה"
+      },
+      "basic": {
+        "name": "בסיסי",
+        "description": "סיכומים ללא הגבלה למשתמשים רגילים",
+        "price": "150 ⭐/חודש (~$3)"
+      },
+      "pro": {
+        "name": "Pro",
+        "description": "כל התכונות למשתמשים מתקדמים",
+        "price": "300 ⭐/חודש (~$6)"
+      }
+    },
+    "features": {
+      "textSummaries": "סיכומי טקסט",
+      "voiceSummaries": "סיכומים קוליים",
+      "calendars": "יומנים",
+      "reminders": "תזכורות אירועים",
+      "voiceEvents": "יצירת אירועים בקול"
+    },
+    "page": {
+      "title": "המנוי שלך",
+      "subtitle": "נהל את התוכנית שלך וצפה בשימוש",
+      "comparePlans": "השווה תוכניות",
+      "currentPlanBadge": "נוכחי",
+      "trialBadge": "ניסיון פעיל",
+      "upgradeNow": "שדרג עכשיו",
+      "contactSupport": "צור קשר עם תמיכה"
+    }
   }
 }

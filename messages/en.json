@@ -389,5 +389,63 @@
       "ambiguousEvent": "🤔 Found multiple matching events. Please be more specific.",
       "eventNotFound": "❌ Couldn't find that event."
     }
+  },
+  "subscription": {
+    "title": "Subscription",
+    "currentPlan": "Current Plan",
+    "usage": "Usage This Month",
+    "textSummaries": "Text Summaries",
+    "voiceSummaries": "Voice Summaries",
+    "voiceEvents": "Voice Events",
+    "reminders": "Reminders",
+    "calendars": "Calendars",
+    "unlimited": "Unlimited",
+    "of": "of",
+    "trialBanner": "🎉 Trial: {days} days remaining",
+    "trialEndsIn": "Your trial ends in {days} days",
+    "upgradeButton": "⭐ Upgrade Plan",
+    "managePlan": "Manage Subscription",
+    "cancelPlan": "Cancel Subscription",
+    "paymentSuccess": "✅ <b>Payment successful!</b>\n\nYou're now on the <b>{plan}</b> plan.\n\n<b>Features unlocked:</b>\n• {features}",
+    "paymentError": "❌ There was an error activating your subscription. Please contact support.",
+    "viewSubscription": "View Subscription",
+    "invoiceTitle": "FamCalBot {plan}",
+    "invoiceDescription": "Monthly subscription: {features}",
+    "textLimitReached": "📊 <b>Monthly limit reached</b>\n\nYou've used all {limit} text summaries this month.\n\nUpgrade to get unlimited summaries!",
+    "voiceLimitReached": "🎤 <b>Monthly limit reached</b>\n\nYou've used all {limit} voice summaries this month.\n\nUpgrade to get unlimited voice!",
+    "voiceEventsRequired": "⭐ <b>Voice event creation is a Pro feature</b>\n\nUpgrade to Pro to create calendar events using voice messages!",
+    "remindersRequired": "⭐ <b>Event reminders is a Pro feature</b>\n\nUpgrade to Pro to receive event reminders!",
+    "plans": {
+      "free": {
+        "name": "Free",
+        "description": "Basic features to get started"
+      },
+      "basic": {
+        "name": "Basic",
+        "description": "Unlimited summaries for regular users",
+        "price": "150 ⭐/month (~$3)"
+      },
+      "pro": {
+        "name": "Pro",
+        "description": "All features for power users",
+        "price": "300 ⭐/month (~$6)"
+      }
+    },
+    "features": {
+      "textSummaries": "Text Summaries",
+      "voiceSummaries": "Voice Summaries",
+      "calendars": "Calendars",
+      "reminders": "Event Reminders",
+      "voiceEvents": "Voice Event Creation"
+    },
+    "page": {
+      "title": "Your Subscription",
+      "subtitle": "Manage your plan and view usage",
+      "comparePlans": "Compare Plans",
+      "currentPlanBadge": "Current",
+      "trialBadge": "Trial Active",
+      "upgradeNow": "Upgrade Now",
+      "contactSupport": "Contact Support"
+    }
   }
 }

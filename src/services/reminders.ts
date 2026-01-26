@@ -11,6 +11,8 @@ import { getBot } from './telegram';
 import { getTelegramService } from './messaging/factory';
 import { MessageFormat } from './messaging/types';
 import { format } from 'date-fns';
+import { trackActivityAsync } from './analytics-service';
+import { checkFeatureAccess, incrementUsage } from './subscription-service';
 
 // Initialize Redis client
 const redis = new Redis({
@@ -269,6 +271,15 @@ export async function sendReminder(
       await markReminderSent(user.telegramId, reminder.event.eventId, reminder.type, dateStr);
     }
 
+    // Track reminder sent and increment usage
+    trackActivityAsync(user.telegramId, 'reminder_sent', {
+      reminder_type: reminder.type,
+      minutes_before: getReminderMinutes(reminder.event, user.defaultReminderMinutes ?? undefined).minutes,
+    });
+    incrementUsage(user.telegramId, 'reminders').catch(err =>
+      console.error('[Subscription] Failed to increment reminders:', err)
+    );
+
     console.log(`[Reminders] Sent ${reminder.type} reminder to user ${user.telegramId} for event: ${reminder.event.summary}`);
     return true;
   } catch (error) {
@@ -283,6 +294,13 @@ export async function sendReminder(
  * @param windowMinutes - Time window in minutes (should match cron interval)
  */
 export async function processUserReminders(user: UserConfig, windowMinutes: number = 5): Promise<number> {
+  // Check subscription feature access for reminders (Pro feature)
+  const reminderAccess = await checkFeatureAccess(user.telegramId, 'reminders');
+  if (!reminderAccess.allowed) {
+    // User doesn't have reminder access, skip silently
+    return 0;
+  }
+
   const dueReminders = await getDueReminders(user, windowMinutes);
   let sentCount = 0;
 

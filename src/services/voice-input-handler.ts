@@ -16,6 +16,8 @@ import { UserConfig } from '../types';
 import { getBotMessages } from '../lib/bot-messages';
 import { generateAICompletion } from './ai-provider';
 import { fromZonedTime } from 'date-fns-tz';
+import { trackActivityAsync } from './analytics-service';
+import { checkFeatureAccess, incrementUsage } from './subscription-service';
 
 interface TelegramVoice {
   file_id: string;
@@ -1052,6 +1054,14 @@ export async function handleEventCallback(
         trackCreatedEvent(user.telegramId, result.eventId, event.calendarId || 'primary', event);
       }
 
+      // Track voice event created and increment usage
+      trackActivityAsync(user.telegramId, 'voice_event_created', {
+        calendar_id: event.calendarId || 'primary',
+      });
+      incrementUsage(user.telegramId, 'voiceEvents').catch(err =>
+        console.error('[Subscription] Failed to increment voice events:', err)
+      );
+
       const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay);
       const linkButton = result.eventLink
         ? `\n\n<a href="${result.eventLink}">${t.voice.openInCalendar}</a>`
@@ -1412,6 +1422,31 @@ export async function handleVoiceMessage(
       return;
     }
 
+    // Check subscription feature access for voice events (Pro feature)
+    const voiceEventAccess = await checkFeatureAccess(userId, 'voice_events');
+    if (!voiceEventAccess.allowed) {
+      console.log(`[Voice] Voice events not available for user ${userId}, reason: ${voiceEventAccess.reason}`);
+      const bot = getBot();
+      const upgradeUrl = buildUrl(`/${user.language || 'en'}/subscription?user_id=${userId}`);
+      const upgradeMessage = t.subscription?.voiceEventsRequired
+        || '⭐ <b>Voice event creation is a Pro feature</b>\n\nUpgrade to Pro to create calendar events using voice messages!';
+
+      await bot.sendMessage(chatId, upgradeMessage, {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: t.subscription?.upgradeButton || '⭐ Upgrade to Pro', web_app: { url: upgradeUrl } }
+          ]]
+        }
+      });
+      return;
+    }
+
+    // Track voice event started
+    trackActivityAsync(userId, 'voice_event_started', {
+      language: user.language,
+    });
+
     // Check if user has Google token
     if (!user.googleRefreshToken) {
       console.log(`[Voice] User ${userId} has no Google refresh token`);
@@ -1487,6 +1522,11 @@ export async function handleVoiceMessage(
 
   } catch (error) {
     console.error('[Voice] Error handling voice message:', error);
+
+    // Track voice event failure
+    trackActivityAsync(userId, 'voice_event_failed', {
+      error_type: error instanceof Error ? error.message : 'unknown',
+    });
 
     const t = await getBotMessages('en');
     await messagingService.sendMessage(chatId, t.voice.genericError, { format: MessageFormat.PLAIN });

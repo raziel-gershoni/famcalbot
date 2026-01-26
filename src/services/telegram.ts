@@ -10,6 +10,8 @@ import { getBaseUrl, buildUrl } from '../config/urls';
 import { VALID_LOCALES } from '../utils/locale';
 import type { VoiceCondenserContext } from '../prompts/voice-condenser';
 import { getBotMessages, getBotMessage } from '../lib/bot-messages';
+import { trackActivityAsync } from './analytics-service';
+import { checkFeatureAccess, incrementUsage, getTrialStatus } from './subscription-service';
 
 /**
  * Categorize events by ownership for a specific user
@@ -145,10 +147,14 @@ export async function handleStartCommand(
   telegramUser?: TelegramUserInfo
 ): Promise<void> {
   // Auto-register user if new (no authorization check for /start)
-  const user = await getOrCreateUser(
-    typeof userId === 'number' ? userId : parseInt(String(userId)),
-    telegramUser
-  );
+  const userIdNum = typeof userId === 'number' ? userId : parseInt(String(userId));
+  const user = await getOrCreateUser(userIdNum, telegramUser);
+
+  // Track bot start activity
+  trackActivityAsync(userIdNum, 'bot_start', {
+    language: user.language,
+    platform: platform,
+  });
 
   const name = user.name || 'there';
   const locale = user.language || 'en';
@@ -862,6 +868,32 @@ async function sendSummaryToUser(
   const progressType: ProgressType = summaryDate ? 'summaryTomorrow' : 'summary';
   const userLanguage = user.language || 'en';
 
+  // Track summary request
+  trackActivityAsync(userId, 'text_summary_requested', {
+    summary_type: summaryDate ? 'tomorrow' : 'today',
+    language: userLanguage,
+    calendar_count: user.calendarAssignments?.length || 0,
+  });
+
+  // Check feature access for text summaries
+  const textAccess = await checkFeatureAccess(userId, 'text_summary');
+  if (!textAccess.allowed) {
+    const t = await getBotMessages(userLanguage);
+    const upgradeUrl = buildUrl(`/${userLanguage}/subscription?user_id=${userId}`);
+    const limitMessage = t.subscription?.textLimitReached
+      || '📊 You\'ve reached your monthly text summary limit. Upgrade to continue!';
+
+    await messagingService.sendMessage(userId, limitMessage, {
+      format: MessageFormat.HTML,
+      replyMarkup: {
+        inline_keyboard: [[
+          { text: t.subscription?.upgradeButton || '⭐ Upgrade Plan', web_app: { url: upgradeUrl } },
+        ]],
+      },
+    });
+    return;
+  }
+
   // Use existing progress message or create new one
   let messageId: number | string;
   let stopAnimation: () => void;
@@ -1247,6 +1279,14 @@ async function sendVoiceMessage(
       contentType: 'audio/ogg'
     });
 
+    // Track voice summary generated and increment usage
+    trackActivityAsync(userId, 'voice_summary_generated', {
+      duration_seconds: Math.ceil(condensedSummary.length / 15), // Rough estimate
+    });
+    incrementUsage(userId, 'voiceSummaries').catch(err =>
+      console.error('[Subscription] Failed to increment voice usage:', err)
+    );
+
     console.log(`Voice message sent successfully to user ${userId}`);
   } catch (error) {
     // Stop animation on error (if shown)
@@ -1479,6 +1519,14 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
       // Send new message (scheduled batch)
       await routeTextMessage(userId, summary, user, platform);
     }
+
+    // Track text summary generated and increment usage
+    trackActivityAsync(userId, 'text_summary_generated', {
+      word_count: summary.split(/\s+/).length,
+    });
+    incrementUsage(userId, 'textSummaries').catch(err =>
+      console.error('[Subscription] Failed to increment text usage:', err)
+    );
   } else if (progressMessageId && !(sendVoice && dateHeader)) {
     // Text disabled, no voice date header needed - delete progress message
     await msgService.deleteMessage(userId, progressMessageId);
@@ -1486,6 +1534,18 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
 
   // Handle voice delivery
   if (sendVoice) {
+    // Check voice summary feature access
+    const voiceAccess = await checkFeatureAccess(userId, 'voice_summary');
+    if (!voiceAccess.allowed) {
+      // Skip voice, user is at limit or doesn't have feature
+      return;
+    }
+
+    // Track voice summary request
+    trackActivityAsync(userId, 'voice_summary_requested', {
+      language: user.language,
+    });
+
     // If text is disabled, send date header before voice
     if (!sendText && dateHeader) {
       if (progressMessageId) {
