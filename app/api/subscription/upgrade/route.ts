@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { user_id, plan, initData } = body;
+    const { user_id, plan, initData, recurring = false } = body;
 
     // Validate required fields
     if (!user_id || !plan) {
@@ -62,11 +62,12 @@ export async function POST(request: NextRequest) {
     // Send invoice to user via Telegram
     // The chatId is the same as the telegramId for private chats
     const chatId = Number(user.telegramId);
-    await sendSubscriptionInvoice(chatId, user.id, plan as PlanId);
+    await sendSubscriptionInvoice(chatId, user.id, plan as PlanId, recurring);
 
     return NextResponse.json({
       success: true,
       message: `Invoice sent for ${planConfig.name} plan`,
+      recurring,
     });
   } catch (error) {
     captureError(error, 'subscription-upgrade-api', { api_route: '/api/subscription/upgrade' });

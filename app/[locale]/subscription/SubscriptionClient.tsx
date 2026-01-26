@@ -53,6 +53,33 @@ export default function SubscriptionClient({
   const isRtl = locale === 'he';
 
   const handleUpgrade = async (planId: PlanId) => {
+    const config = PLAN_CONFIGS[planId];
+
+    // Show payment type selection popup
+    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+      const message = t('page.selectPaymentType', {
+        plan: config.name,
+        price: config.priceStars
+      }) || `${config.name} - ⭐${config.priceStars}/month\n\nChoose payment type:`;
+
+      window.Telegram.WebApp.showPopup({
+        title: config.name,
+        message: message,
+        buttons: [
+          { id: 'onetime', type: 'default', text: t('page.oneTimePayment') || 'One-time (1 month)' },
+          { id: 'recurring', type: 'default', text: t('page.recurringPayment') || 'Auto-renew monthly' },
+          { id: 'cancel', type: 'cancel' },
+        ],
+      }, async (buttonId) => {
+        if (buttonId === 'cancel' || !buttonId) return;
+        await processUpgrade(planId, buttonId === 'recurring');
+      });
+    } else {
+      await processUpgrade(planId, false);
+    }
+  };
+
+  const processUpgrade = async (planId: PlanId, recurring: boolean) => {
     setUpgrading(planId);
     try {
       // Get Telegram Web App initData for authentication
@@ -77,6 +104,7 @@ export default function SubscriptionClient({
           user_id: parseInt(telegramUserId),
           plan: planId,
           initData,
+          recurring,
         }),
       });
 

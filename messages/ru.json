@@ -511,7 +511,11 @@
       "trialBadge": "Пробный период",
       "upgradeNow": "Улучшить сейчас",
       "contactSupport": "Связаться с поддержкой",
-      "invoiceSent": "Счёт отправлен! Проверьте чат в Telegram для завершения оплаты."
+      "invoiceSent": "Счёт отправлен! Проверьте чат в Telegram для завершения оплаты.",
+      "confirmUpgrade": "Перейти на {plan} за ⭐{price}/месяц?",
+      "selectPaymentType": "⭐{price}/месяц\n\nВыберите тип оплаты:",
+      "oneTimePayment": "Разовый (1 месяц)",
+      "recurringPayment": "Автопродление"
     }
   }
 }
