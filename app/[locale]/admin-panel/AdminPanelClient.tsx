@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { Activity, Crown, Bot, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock, RefreshCw, ChevronDown } from 'lucide-react';
 import { HDate, Locale, gematriya } from '@hebcal/core';
@@ -144,6 +144,9 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   const toggleSection = (sectionId: string) => {
     setCollapsedSections(prev => ({ ...prev, [sectionId]: !prev[sectionId] }));
   };
+
+  // Infinite scroll for activity list
+  const activitySentinelRef = useRef<HTMLDivElement>(null);
 
   // Map app locale to Intl locale
   const intlLocale = { he: 'he-IL', ru: 'ru-RU', en: 'en-US' }[locale] ?? 'en-US';
@@ -319,6 +322,24 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   useEffect(() => {
     fetchActivity(true);
   }, [activityFilter]);
+
+  // Infinite scroll for activity list
+  useEffect(() => {
+    const sentinel = activitySentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && activityHasMore && !isLoadingActivity) {
+          fetchActivity(false);
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [activityHasMore, isLoadingActivity, fetchActivity]);
 
   // Format relative time
   const formatRelativeTime = (dateStr: string) => {
@@ -1402,6 +1423,13 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
           cursor: not-allowed;
         }
 
+        .activity-sentinel {
+          padding: 16px;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+        }
+
         .registration-status-grid {
           display: flex;
           flex-direction: column;
@@ -1960,10 +1988,18 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
 
           {/* User Activity Section */}
           <div className="section">
-            <div className="section-header section-header-clickable" onClick={() => toggleSection('activity')}>
-              <span className="section-icon"><Clock size={20} /></span>
-              <h2 className="section-title">{t('activity.title')}</h2>
-              <span className={`section-chevron ${collapsedSections['activity'] ? 'collapsed' : ''}`}>
+            <div className="section-header">
+              <span className="section-icon section-header-clickable" onClick={() => toggleSection('activity')}><Clock size={20} /></span>
+              <h2 className="section-title section-header-clickable" onClick={() => toggleSection('activity')}>{t('activity.title')}</h2>
+              <button
+                className="refresh-btn"
+                onClick={() => fetchActivity(true)}
+                disabled={isLoadingActivity}
+                aria-label="Refresh activity"
+              >
+                <RefreshCw size={18} className={isLoadingActivity ? 'animate-spin' : ''} />
+              </button>
+              <span className={`section-chevron section-header-clickable ${collapsedSections['activity'] ? 'collapsed' : ''}`} onClick={() => toggleSection('activity')}>
                 <ChevronDown size={20} />
               </span>
             </div>
@@ -2017,18 +2053,13 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
               )}
             </div>
 
-            {/* Load More Button */}
+            {/* Infinite scroll sentinel */}
             {activityHasMore && (
-              <button
-                className="load-more-btn"
-                onClick={() => fetchActivity(false)}
-                disabled={isLoadingActivity}
-              >
-                {isLoadingActivity ? (
-                  <Loader2 size={16} className="animate-spin" style={{ display: 'inline', marginRight: '8px' }} />
-                ) : null}
-                {t('activity.loadMore')}
-              </button>
+              <div ref={activitySentinelRef} className="activity-sentinel">
+                {isLoadingActivity && (
+                  <Loader2 size={20} className="animate-spin" style={{ margin: '0 auto' }} />
+                )}
+              </div>
             )}
             </div>
           </div>
