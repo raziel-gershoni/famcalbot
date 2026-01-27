@@ -16,6 +16,7 @@ import { getUserByWhatsAppPhone } from './user-service';
 import { MessagingPlatform } from './messaging';
 import { handleVoiceMessage, handleEventCallback, handleEditCallback, handleDeleteCallback } from './voice-input-handler';
 import { handlePreCheckoutQuery, handleSuccessfulPayment } from './payment-handler';
+import { setUserContext, addBreadcrumb } from './analytics-service';
 
 /**
  * Handle Telegram webhook updates
@@ -25,6 +26,32 @@ export async function handleTelegramWebhook(
   res: VercelResponse
 ): Promise<void> {
   const update = req.body;
+
+  // Extract user ID from various update types and set Sentry context
+  const userId = update.message?.from?.id
+    || update.callback_query?.from?.id
+    || update.pre_checkout_query?.from?.id;
+  const userName = update.message?.from?.first_name
+    || update.callback_query?.from?.first_name
+    || update.pre_checkout_query?.from?.first_name;
+
+  if (userId) {
+    setUserContext(userId, userName);
+  }
+
+  // Add breadcrumb for webhook type
+  const webhookType = update.pre_checkout_query ? 'pre_checkout'
+    : update.message?.successful_payment ? 'successful_payment'
+    : update.callback_query ? 'callback_query'
+    : update.message?.voice ? 'voice_message'
+    : update.message?.text ? 'text_message'
+    : 'unknown';
+
+  addBreadcrumb('webhook_received', {
+    type: webhookType,
+    update_id: update.update_id,
+    user_id: userId,
+  }, 'webhook');
 
   // Handle pre-checkout query (Telegram Stars payment validation)
   if (update.pre_checkout_query) {
@@ -46,16 +73,22 @@ export async function handleTelegramWebhook(
   if (update.callback_query) {
     const callbackQuery = update.callback_query;
     const chatId = callbackQuery.message?.chat.id;
-    const userId = callbackQuery.from.id;
+    const callbackUserId = callbackQuery.from.id;
     const data = callbackQuery.data;
     const queryId = callbackQuery.id;
+
+    // Add breadcrumb for callback action
+    addBreadcrumb('callback_received', {
+      callback_data: data,
+      user_id: callbackUserId,
+    }, 'user_action');
 
     if (chatId && data) {
       if (data.startsWith('testai:')) {
         const parts = data.replace('testai:', '').split(':');
         const modelId = parts[0];
         const timeframe = parts[1] || 'today'; // Default to 'today' if not specified
-        await handleTestAICallback(chatId, userId, modelId, queryId, timeframe);
+        await handleTestAICallback(chatId, callbackUserId, modelId, queryId, timeframe);
       } else if (data.startsWith('event_create:') || data.startsWith('event_cancel:')) {
         // Handle event creation callbacks
         const [action, pendingId] = data.split(':').slice(0, 2);
@@ -93,15 +126,22 @@ export async function handleTelegramWebhook(
   // Handle voice messages for event creation
   if (update.message?.voice) {
     const chatId = update.message.chat.id;
-    const userId = update.message.from.id;
+    const voiceUserId = update.message.from.id;
     const voice = update.message.voice;
     const from = update.message.from;
 
-    console.log(`[Webhook] Voice message received from user ${userId}, duration: ${voice.duration}s`);
+    // Add breadcrumb for voice message
+    addBreadcrumb('voice_message_received', {
+      user_id: voiceUserId,
+      duration: voice.duration,
+      file_size: voice.file_size,
+    }, 'user_action');
+
+    console.log(`[Webhook] Voice message received from user ${voiceUserId}, duration: ${voice.duration}s`);
 
     // Process voice message (await to prevent Vercel from killing the function)
     try {
-      await handleVoiceMessage(chatId, userId, voice, from);
+      await handleVoiceMessage(chatId, voiceUserId, voice, from);
     } catch (error) {
       console.error('[Webhook] Error in voice handler:', error);
     }
@@ -117,8 +157,15 @@ export async function handleTelegramWebhook(
   }
 
   const chatId = update.message.chat.id;
-  const userId = update.message.from.id;
+  const textUserId = update.message.from.id;
   const text = update.message.text;
+
+  // Add breadcrumb for text command
+  addBreadcrumb('text_message_received', {
+    user_id: textUserId,
+    command: text.startsWith('/') ? text.split(' ')[0] : undefined,
+    is_command: text.startsWith('/'),
+  }, 'user_action');
 
   // For /testmodels, process THEN respond (Redis lock prevents duplicates from retries)
   if (text.startsWith('/testmodels')) {
@@ -126,7 +173,7 @@ export async function handleTelegramWebhook(
     const updateId = update.update_id;
 
     const { handleTestModelsCommand } = await import('./telegram');
-    await handleTestModelsCommand(chatId, userId, updateId, args || undefined);
+    await handleTestModelsCommand(chatId, textUserId, updateId, args || undefined);
 
     res.status(200).json({ ok: true });
     return;
@@ -135,16 +182,16 @@ export async function handleTelegramWebhook(
   // Route to appropriate command handler
   if (text === '/start') {
     // Pass Telegram user info for auto-registration
-    await handleStartCommand(chatId, userId, MessagingPlatform.TELEGRAM, update.message.from);
+    await handleStartCommand(chatId, textUserId, MessagingPlatform.TELEGRAM, update.message.from);
   } else if (text.startsWith('/summary')) {
     const args = text.replace('/summary', '').trim();
-    await handleSummaryCommand(chatId, userId, MessagingPlatform.TELEGRAM, args || undefined);
+    await handleSummaryCommand(chatId, textUserId, MessagingPlatform.TELEGRAM, args || undefined);
   } else if (text.startsWith('/testai')) {
     const args = text.replace('/testai', '').trim();
-    await handleTestAICommand(chatId, userId, args || undefined);
+    await handleTestAICommand(chatId, textUserId, args || undefined);
   } else if (text.startsWith('/weather')) {
     const args = text.replace('/weather', '').trim();
-    await handleWeatherCommand(chatId, userId, MessagingPlatform.TELEGRAM, args || undefined);
+    await handleWeatherCommand(chatId, textUserId, MessagingPlatform.TELEGRAM, args || undefined);
   }
 
   res.status(200).json({ ok: true });

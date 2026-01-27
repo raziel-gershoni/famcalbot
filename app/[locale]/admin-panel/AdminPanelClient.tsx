@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
-import { Activity, Crown, Bot, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2 } from 'lucide-react';
+import { Activity, Crown, Bot, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock } from 'lucide-react';
 import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
 
@@ -104,6 +104,21 @@ interface OverrideListItem {
   grantedAt: string | null;
 }
 
+interface ActivityItem {
+  id: string;
+  userId: number;
+  userName: string;
+  userTelegramId: number | null;
+  action: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+interface ActivityStats {
+  action: string;
+  count: number;
+}
+
 export default function AdminPanelClient({ userId, locale, stats, recentUsers, remindersEnabled: initialRemindersEnabled }: AdminPanelClientProps) {
   const t = useTranslations('admin');
   const [todayState, setTodayState] = useState<ButtonState>('idle');
@@ -128,6 +143,15 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
     voiceEventsEnabled: false,
     unlimitedCalendars: false,
   });
+
+  // User activity state
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [activityStats, setActivityStats] = useState<ActivityStats[]>([]);
+  const [isLoadingActivity, setIsLoadingActivity] = useState(false);
+  const [activityFilter, setActivityFilter] = useState<string>('');
+  const [activityUserFilter, setActivityUserFilter] = useState<string>('');
+  const [activityHasMore, setActivityHasMore] = useState(false);
+  const [activityOffset, setActivityOffset] = useState(0);
 
   // Map app locale to Intl locale
   const intlLocale = { he: 'he-IL', ru: 'ru-RU', en: 'en-US' }[locale] ?? 'en-US';
@@ -253,6 +277,40 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
     }
   }, []);
 
+  // Fetch user activity
+  const fetchActivity = useCallback(async (reset: boolean = false) => {
+    setIsLoadingActivity(true);
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const newOffset = reset ? 0 : activityOffset;
+      const params = new URLSearchParams({
+        initData: initData || '',
+        limit: '20',
+        offset: String(newOffset),
+      });
+      if (activityFilter) params.append('action', activityFilter);
+      if (activityUserFilter) params.append('user_id', activityUserFilter);
+
+      const response = await fetch(`/api/admin/user-activity?${params}`);
+      const data = await response.json();
+      if (data.success) {
+        if (reset) {
+          setActivities(data.activities || []);
+          setActivityOffset(20);
+        } else {
+          setActivities(prev => [...prev, ...(data.activities || [])]);
+          setActivityOffset(newOffset + 20);
+        }
+        setActivityStats(data.actionStats || []);
+        setActivityHasMore(data.pagination?.hasMore || false);
+      }
+    } catch (error) {
+      console.error('Failed to fetch activity:', error);
+    } finally {
+      setIsLoadingActivity(false);
+    }
+  }, [activityFilter, activityUserFilter, activityOffset]);
+
   // Fetch all users with overrides
   const fetchOverrideList = useCallback(async () => {
     setIsLoadingOverrides(true);
@@ -270,11 +328,32 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
     }
   }, []);
 
-  // Load user list and override list on mount
+  // Load user list, override list, and activity on mount
   useEffect(() => {
     fetchUserList();
     fetchOverrideList();
+    fetchActivity(true);
   }, [fetchUserList, fetchOverrideList]);
+
+  // Reload activity when filter changes
+  useEffect(() => {
+    fetchActivity(true);
+  }, [activityFilter]);
+
+  // Format relative time
+  const formatRelativeTime = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return t('activity.justNow');
+    if (diffMins < 60) return `${diffMins}${t('activity.minutes')} ${t('activity.ago')}`;
+    if (diffHours < 24) return `${diffHours}${t('activity.hours')} ${t('activity.ago')}`;
+    return `${diffDays}${t('activity.days')} ${t('activity.ago')}`;
+  };
 
   // Filter users based on active filter and name filter
   const filteredUsers = useMemo(() => {
@@ -1177,6 +1256,105 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
           color: #111827;
         }
 
+        .activity-list {
+          background: white;
+          border: 2px solid #e5e7eb;
+          border-radius: 12px;
+          overflow: hidden;
+          max-height: 400px;
+          overflow-y: auto;
+        }
+
+        .activity-item {
+          padding: 12px 16px;
+          border-bottom: 1px solid #e5e7eb;
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+        }
+
+        .activity-item:last-child {
+          border-bottom: none;
+        }
+
+        .activity-info {
+          flex: 1;
+        }
+
+        .activity-user {
+          font-weight: 600;
+          font-size: 14px;
+          color: #111827;
+        }
+
+        .activity-action {
+          font-size: 13px;
+          color: #6b7280;
+          margin-top: 2px;
+        }
+
+        .activity-action-badge {
+          display: inline-block;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-size: 11px;
+          font-weight: 500;
+          background: #f3f4f6;
+          color: #374151;
+          margin-right: 4px;
+        }
+
+        .activity-time {
+          font-size: 12px;
+          color: #9ca3af;
+          white-space: nowrap;
+        }
+
+        .activity-filter-row {
+          display: flex;
+          gap: 8px;
+          margin-bottom: 12px;
+          flex-wrap: wrap;
+        }
+
+        .activity-filter-select {
+          flex: 1;
+          min-width: 150px;
+          padding: 10px 12px;
+          border: 2px solid #e5e7eb;
+          border-radius: 8px;
+          font-size: 14px;
+          background: white;
+          cursor: pointer;
+        }
+
+        .activity-filter-select:focus {
+          outline: none;
+          border-color: #667eea;
+        }
+
+        .load-more-btn {
+          width: 100%;
+          padding: 12px;
+          background: #f3f4f6;
+          border: none;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 500;
+          color: #374151;
+          cursor: pointer;
+          margin-top: 12px;
+        }
+
+        .load-more-btn:hover {
+          background: #e5e7eb;
+        }
+
+        .load-more-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
         @media (max-width: 400px) {
           .stats-grid,
           .button-group {
@@ -1621,6 +1799,76 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
                 })
               )}
             </div>
+          </div>
+
+          {/* User Activity Section */}
+          <div className="section">
+            <div className="section-header">
+              <span className="section-icon"><Clock size={20} /></span>
+              <h2 className="section-title">{t('activity.title')}</h2>
+            </div>
+
+            {/* Activity Filter */}
+            <div className="activity-filter-row">
+              <select
+                className="activity-filter-select"
+                value={activityFilter}
+                onChange={(e) => setActivityFilter(e.target.value)}
+              >
+                <option value="">{t('activity.allActions')}</option>
+                {activityStats.map(stat => (
+                  <option key={stat.action} value={stat.action}>
+                    {stat.action} ({stat.count})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Activity List */}
+            <div className="activity-list">
+              {isLoadingActivity && activities.length === 0 ? (
+                <div className="empty-state">
+                  <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto' }} />
+                  <p>{t('activity.loading')}</p>
+                </div>
+              ) : activities.length === 0 ? (
+                <div className="empty-state">{t('activity.noActivity')}</div>
+              ) : (
+                activities.map((activity) => (
+                  <div key={activity.id} className="activity-item">
+                    <div className="activity-info">
+                      <div className="activity-user">{activity.userName}</div>
+                      <div className="activity-action">
+                        <span className="activity-action-badge">{activity.action}</span>
+                        {activity.metadata && Object.keys(activity.metadata).length > 0 && (
+                          <span style={{ fontSize: '11px', color: '#9ca3af' }}>
+                            {JSON.stringify(activity.metadata).substring(0, 50)}
+                            {JSON.stringify(activity.metadata).length > 50 && '...'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="activity-time">
+                      {formatRelativeTime(activity.createdAt)}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Load More Button */}
+            {activityHasMore && (
+              <button
+                className="load-more-btn"
+                onClick={() => fetchActivity(false)}
+                disabled={isLoadingActivity}
+              >
+                {isLoadingActivity ? (
+                  <Loader2 size={16} className="animate-spin" style={{ display: 'inline', marginRight: '8px' }} />
+                ) : null}
+                {t('activity.loadMore')}
+              </button>
+            )}
           </div>
 
           {/* User Statistics Section */}

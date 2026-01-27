@@ -16,7 +16,7 @@ import { UserConfig } from '../types';
 import { getBotMessages } from '../lib/bot-messages';
 import { generateAICompletion } from './ai-provider';
 import { fromZonedTime } from 'date-fns-tz';
-import { trackActivityAsync } from './analytics-service';
+import { trackActivityAsync, addBreadcrumb, setUserContext } from './analytics-service';
 import { checkFeatureAccess, incrementUsage } from './subscription-service';
 
 interface TelegramVoice {
@@ -1392,6 +1392,16 @@ export async function handleVoiceMessage(
   const messagingService = getMessagingService();
   let user: Awaited<ReturnType<typeof getUserByTelegramId>> | null = null;
 
+  // Set user context for Sentry
+  setUserContext(userId, from.first_name);
+
+  // Add breadcrumb for voice processing start
+  addBreadcrumb('voice_processing_started', {
+    user_id: userId,
+    duration: voice.duration,
+    file_size: voice.file_size,
+  }, 'voice');
+
   try {
     // Get user from database
     console.log(`[Voice] Looking up user ${userId} in database`);
@@ -1472,11 +1482,22 @@ export async function handleVoiceMessage(
     const audioBuffer = await downloadVoiceFile(voice.file_id);
     console.log(`[Voice] Downloaded ${audioBuffer.length} bytes`);
 
+    // Add breadcrumb for download complete
+    addBreadcrumb('voice_downloaded', {
+      file_size: audioBuffer.length,
+    }, 'voice');
+
     // Update progress
     await messagingService.updateMessage(chatId, processingMsgId, t.voice.transcribing, { format: MessageFormat.PLAIN });
 
     // Transcribe the voice message
     const transcription = await transcribeVoice(audioBuffer, user.language || 'en');
+
+    // Add breadcrumb for transcription complete
+    addBreadcrumb('voice_transcribed', {
+      text_length: transcription.text?.length || 0,
+      has_text: !!transcription.text,
+    }, 'voice');
 
     if (!transcription.text || transcription.text.trim() === '') {
       await messagingService.updateMessage(chatId, processingMsgId, t.voice.transcriptionFailed, { format: MessageFormat.PLAIN });
@@ -1494,6 +1515,13 @@ export async function handleVoiceMessage(
     );
 
     console.log(`[Voice] Intent detected: ${intentResult.intent}, confidence: ${intentResult.confidence}`);
+
+    // Add breadcrumb for intent detected
+    addBreadcrumb('voice_intent_detected', {
+      intent: intentResult.intent,
+      confidence: intentResult.confidence,
+      has_event: !!intentResult.event,
+    }, 'voice');
 
     // Handle based on intent
     if (intentResult.intent === 'create') {

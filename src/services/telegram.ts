@@ -10,7 +10,7 @@ import { getBaseUrl, buildUrl } from '../config/urls';
 import { VALID_LOCALES } from '../utils/locale';
 import type { VoiceCondenserContext } from '../prompts/voice-condenser';
 import { getBotMessages, getBotMessage } from '../lib/bot-messages';
-import { trackActivityAsync } from './analytics-service';
+import { trackActivityAsync, addBreadcrumb } from './analytics-service';
 import { checkFeatureAccess, incrementUsage, getTrialStatus } from './subscription-service';
 import { captureError } from '../lib/error-capture';
 
@@ -147,6 +147,13 @@ export async function handleStartCommand(
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
   telegramUser?: TelegramUserInfo
 ): Promise<void> {
+  // Add breadcrumb for command start
+  addBreadcrumb('command_started', {
+    command: '/start',
+    user_id: userId,
+    platform,
+  }, 'command');
+
   // Auto-register user if new (no authorization check for /start)
   const userIdNum = typeof userId === 'number' ? userId : parseInt(String(userId));
   const user = await getOrCreateUser(userIdNum, telegramUser);
@@ -211,6 +218,14 @@ export async function handleSummaryCommand(
   args?: string,
   existingProgressMessageId?: number
 ): Promise<void> {
+  // Add breadcrumb for command start
+  addBreadcrumb('command_started', {
+    command: '/summary',
+    user_id: userId,
+    platform,
+    args,
+  }, 'command');
+
   if (!(await isUserAuthorized(userId))) {
     const service = platform === MessagingPlatform.TELEGRAM
       ? getMessagingService()
@@ -264,6 +279,14 @@ export async function handleWeatherCommand(
   args?: string,
   existingProgressMessageId?: number
 ): Promise<void> {
+  // Add breadcrumb for command start
+  addBreadcrumb('command_started', {
+    command: '/weather',
+    user_id: userId,
+    platform,
+    args,
+  }, 'command');
+
   if (!(await isUserAuthorized(userId))) {
     const service = platform === MessagingPlatform.TELEGRAM
       ? getMessagingService()
@@ -375,6 +398,13 @@ export async function handleLookaheadCommand(
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
   existingProgressMessageId?: number
 ): Promise<void> {
+  // Add breadcrumb for command start
+  addBreadcrumb('command_started', {
+    command: '/lookahead',
+    user_id: userId,
+    platform,
+  }, 'command');
+
   if (!(await isUserAuthorized(userId))) {
     const service = platform === MessagingPlatform.TELEGRAM
       ? getMessagingService()
@@ -479,6 +509,13 @@ export async function handleNextWeekCommand(
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
   existingProgressMessageId?: number
 ): Promise<void> {
+  // Add breadcrumb for command start
+  addBreadcrumb('command_started', {
+    command: '/nextweek',
+    user_id: userId,
+    platform,
+  }, 'command');
+
   if (!(await isUserAuthorized(userId))) {
     const service = platform === MessagingPlatform.TELEGRAM
       ? getMessagingService()

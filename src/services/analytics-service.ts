@@ -10,6 +10,11 @@ import * as Sentry from '@sentry/nextjs';
 export type ActivityAction =
   // Bot lifecycle
   | 'bot_start'
+  // Message lifecycle (NEW)
+  | 'message_received'
+  | 'command_started'
+  | 'command_completed'
+  | 'callback_received'
   // Summary actions
   | 'text_summary_requested'
   | 'text_summary_generated'
@@ -24,6 +29,13 @@ export type ActivityAction =
   // Settings & config
   | 'settings_changed'
   | 'calendar_connected'
+  // App interactions (NEW)
+  | 'webapp_opened'
+  | 'settings_viewed'
+  | 'subscription_page_viewed'
+  // Calendar operations (NEW)
+  | 'calendar_sync_started'
+  | 'calendar_sync_completed'
   // Subscription actions
   | 'subscription_started'
   | 'subscription_upgraded'
@@ -33,6 +45,8 @@ export type ActivityAction =
   | 'subscription_expired'
   // Feature gating
   | 'feature_blocked'
+  // Error tracking (NEW)
+  | 'user_error_shown'
   // Other
   | 'weather_requested'
   | 'lookahead_requested';
@@ -73,6 +87,39 @@ export interface ActivityMetadata {
 
   // Generic
   [key: string]: unknown;
+}
+
+// ============================================
+// SENTRY HELPERS (FREE - no quota)
+// ============================================
+
+/**
+ * Set user context for all Sentry events in this request
+ * This associates all errors and breadcrumbs with a specific user
+ */
+export function setUserContext(userId: number, name?: string): void {
+  Sentry.setUser({
+    id: String(userId),
+    username: name,
+  });
+}
+
+/**
+ * Add a Sentry breadcrumb (FREE - no quota impact)
+ * Breadcrumbs are only visible when viewing an error in Sentry
+ * Use this liberally to track user actions for debugging
+ */
+export function addBreadcrumb(
+  action: string,
+  data?: Record<string, unknown>,
+  category: string = 'user_action'
+): void {
+  Sentry.addBreadcrumb({
+    category,
+    message: action,
+    data,
+    level: 'info',
+  });
 }
 
 /**

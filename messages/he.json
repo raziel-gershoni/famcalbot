@@ -125,7 +125,21 @@
       "edit": "ערוך",
       "remove": "הסר"
     },
-    "openDashboard": "פתח לוח בקרה למשתמש"
+    "openDashboard": "פתח לוח בקרה למשתמש",
+    "activity": {
+      "title": "פעילות משתמשים",
+      "filterByAction": "סנן לפי פעולה",
+      "allActions": "כל הפעולות",
+      "noActivity": "לא נמצאה פעילות",
+      "loading": "טוען פעילות...",
+      "loadMore": "טען עוד",
+      "filterByUser": "סנן לפי משתמש...",
+      "ago": "לפני",
+      "justNow": "עכשיו",
+      "minutes": "ד'",
+      "hours": "ש'",
+      "days": "ימ'"
+    }
   },
   "settings": {
     "title": "הגדרות",

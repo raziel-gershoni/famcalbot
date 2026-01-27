@@ -1,6 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
+import { useRouter } from 'next/navigation';
 import { TelegramLayout, Header } from '@/components/Layout';
 import { Section } from '@/components/UI';
 import { useState } from 'react';
@@ -45,7 +46,12 @@ export default function SubscriptionClient({
   trial,
 }: SubscriptionClientProps) {
   const t = useTranslations('subscription');
+  const router = useRouter();
   const [upgrading, setUpgrading] = useState<PlanId | null>(null);
+
+  const handleBack = () => {
+    router.push(`/${locale}/dashboard?user_id=${userId}`);
+  };
 
   const currentPlan = subscription.effectivePlan;
   const planConfig = PLAN_CONFIGS[currentPlan];
@@ -399,7 +405,7 @@ export default function SubscriptionClient({
           }
         `}</style>
 
-        <Header title={t('page.title')} />
+        <Header title={t('page.title')} onBackClick={handleBack} />
 
         <div className="subscription-content">
           {/* Trial Banner */}

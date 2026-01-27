@@ -7,7 +7,7 @@ import { getBot, getMessagingService } from './telegram';
 import { getUserByTelegramId } from './user-service';
 import { upgradeSubscription, renewSubscription, getSubscription } from './subscription-service';
 import { prisma } from '../utils/prisma';
-import { trackActivity } from './analytics-service';
+import { trackActivity, addBreadcrumb, setUserContext } from './analytics-service';
 import { MessageFormat } from './messaging/types';
 import { getBotMessages } from '../lib/bot-messages';
 import { PlanId, PLAN_CONFIGS } from '../config/plans';
@@ -42,6 +42,14 @@ interface PaymentPayload {
  */
 export async function handlePreCheckoutQuery(query: PreCheckoutQuery): Promise<void> {
   const bot = getBot();
+
+  // Set user context and add breadcrumb
+  setUserContext(query.from.id);
+  addBreadcrumb('pre_checkout_received', {
+    query_id: query.id,
+    currency: query.currency,
+    amount: query.total_amount,
+  }, 'payment');
 
   try {
     // Parse payload
@@ -83,6 +91,14 @@ export async function handlePreCheckoutQuery(query: PreCheckoutQuery): Promise<v
 
     // Approve the checkout
     await bot.answerPreCheckoutQuery(query.id, true);
+
+    // Add breadcrumb for approval
+    addBreadcrumb('pre_checkout_approved', {
+      user_id: payload.userId,
+      plan: payload.plan,
+      action: payload.action,
+    }, 'payment');
+
     console.log(`[Payment] Pre-checkout approved for user ${payload.userId}, plan: ${payload.plan}`);
   } catch (error) {
     captureError(error, 'payment-pre-checkout', { query_id: query.id });
@@ -103,6 +119,15 @@ export async function handleSuccessfulPayment(
 ): Promise<void> {
   const messagingService = getMessagingService();
 
+  // Set user context and add breadcrumb
+  setUserContext(userId);
+  addBreadcrumb('payment_received', {
+    user_id: userId,
+    currency: payment.currency,
+    amount: payment.total_amount,
+    charge_id: payment.telegram_payment_charge_id,
+  }, 'payment');
+
   try {
     // Parse payload
     const payload: PaymentPayload = JSON.parse(payment.invoice_payload);
@@ -121,6 +146,13 @@ export async function handleSuccessfulPayment(
     } else {
       await upgradeSubscription(user.id, payload.plan, payment.telegram_payment_charge_id);
     }
+
+    // Add breadcrumb for subscription activation
+    addBreadcrumb('subscription_activated', {
+      user_id: user.id,
+      plan: payload.plan,
+      action: payload.action,
+    }, 'payment');
 
     // Track payment (use internal DB user.id)
     await trackActivity(user.id, 'subscription_upgraded', {
@@ -206,6 +238,15 @@ export async function sendSubscriptionInvoice(
     ? t.subscription.invoiceDescription.replace('{features}', planConfig.features.join(', '))
     : `${planConfig.features.join(', ')}`;
 
+  // Add breadcrumb for invoice sent
+  addBreadcrumb('invoice_sending', {
+    user_id: userId,
+    plan,
+    action,
+    recurring,
+    amount: planConfig.priceStars,
+  }, 'payment');
+
   if (recurring) {
     // Recurring subscription (requires subscription export URL in BotFather)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -214,12 +255,14 @@ export async function sendSubscriptionInvoice(
     ], {
       subscription_period: 2592000, // 30 days in seconds
     });
+    addBreadcrumb('invoice_sent', { recurring: true }, 'payment');
     console.log(`[Payment] Recurring invoice sent to user ${userId} for plan ${plan}`);
   } else {
     // One-time payment
     await bot.sendInvoice(chatId, title, description, JSON.stringify(payload), '', 'XTR', [
       { label: `${planConfig.name} Plan (1 Month)`, amount: planConfig.priceStars },
     ]);
+    addBreadcrumb('invoice_sent', { recurring: false }, 'payment');
     console.log(`[Payment] One-time invoice sent to user ${userId} for plan ${plan}`);
   }
 }

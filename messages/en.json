@@ -125,7 +125,21 @@
       "edit": "Edit",
       "remove": "Remove"
     },
-    "openDashboard": "Open User Dashboard"
+    "openDashboard": "Open User Dashboard",
+    "activity": {
+      "title": "User Activity",
+      "filterByAction": "Filter by action",
+      "allActions": "All Actions",
+      "noActivity": "No activity found",
+      "loading": "Loading activity...",
+      "loadMore": "Load More",
+      "filterByUser": "Filter by user...",
+      "ago": "ago",
+      "justNow": "just now",
+      "minutes": "min",
+      "hours": "hr",
+      "days": "d"
+    }
   },
   "settings": {
     "title": "Settings",
