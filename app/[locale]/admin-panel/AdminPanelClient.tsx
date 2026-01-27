@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
-import { Activity, Crown, Bot, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock, RefreshCw } from 'lucide-react';
+import { Activity, Crown, Bot, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock, RefreshCw, ChevronDown } from 'lucide-react';
 import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
 
@@ -137,6 +137,13 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   const [activityUserFilter, setActivityUserFilter] = useState<string>('');
   const [activityHasMore, setActivityHasMore] = useState(false);
   const [activityOffset, setActivityOffset] = useState(0);
+
+  // Collapsible sections state
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+
+  const toggleSection = (sectionId: string) => {
+    setCollapsedSections(prev => ({ ...prev, [sectionId]: !prev[sectionId] }));
+  };
 
   // Map app locale to Intl locale
   const intlLocale = { he: 'he-IL', ru: 'ru-RU', en: 'en-US' }[locale] ?? 'en-US';
@@ -295,6 +302,12 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
       setIsLoadingActivity(false);
     }
   }, [activityFilter, activityUserFilter, activityOffset]);
+
+  // Refresh all data
+  const refreshAll = useCallback(() => {
+    fetchUserList();
+    fetchActivity(true);
+  }, [fetchUserList, fetchActivity]);
 
   // Load user list and activity on mount
   useEffect(() => {
@@ -597,6 +610,39 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
         .refresh-btn:disabled {
           opacity: 0.5;
           cursor: not-allowed;
+        }
+
+        .section-header-clickable {
+          cursor: pointer;
+          user-select: none;
+        }
+
+        .section-header-clickable:hover .section-title {
+          color: #667eea;
+        }
+
+        .section-chevron {
+          margin-left: auto;
+          color: #9ca3af;
+          transition: transform 0.2s ease;
+          display: flex;
+          align-items: center;
+        }
+
+        .section-chevron.collapsed {
+          transform: rotate(-90deg);
+        }
+
+        .section-content {
+          overflow: hidden;
+          transition: max-height 0.3s ease, opacity 0.2s ease;
+          max-height: 2000px;
+          opacity: 1;
+        }
+
+        .section-content.collapsed {
+          max-height: 0;
+          opacity: 0;
         }
 
         .stats-grid {
@@ -1464,10 +1510,14 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
         <div className="admin-content">
           {/* AI Model Testing Section */}
           <div className="section">
-            <div className="section-header">
+            <div className="section-header section-header-clickable" onClick={() => toggleSection('testing')}>
               <span className="section-icon"><Bot size={20} /></span>
               <h2 className="section-title">{t('testing.title')}</h2>
+              <span className={`section-chevron ${collapsedSections['testing'] ? 'collapsed' : ''}`}>
+                <ChevronDown size={20} />
+              </span>
             </div>
+            <div className={`section-content ${collapsedSections['testing'] ? 'collapsed' : ''}`}>
             <div className="button-group">
               <button
                 className="action-button"
@@ -1486,14 +1536,19 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                 {getButtonContent(tomorrowState, tomorrowLabel)}
               </button>
             </div>
+            </div>
           </div>
 
           {/* Feature Toggles Section */}
           <div className="section">
-            <div className="section-header">
+            <div className="section-header section-header-clickable" onClick={() => toggleSection('features')}>
               <span className="section-icon"><Bell size={20} /></span>
               <h2 className="section-title">{t('features.title')}</h2>
+              <span className={`section-chevron ${collapsedSections['features'] ? 'collapsed' : ''}`}>
+                <ChevronDown size={20} />
+              </span>
             </div>
+            <div className={`section-content ${collapsedSections['features'] ? 'collapsed' : ''}`}>
             <div className="toggle-row">
               <div className="toggle-info">
                 <p className="toggle-label">{t('features.reminders')}</p>
@@ -1515,22 +1570,27 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                 <div className="toggle-slider" />
               </div>
             </div>
+            </div>
           </div>
 
           {/* User Feature Overrides Section */}
           <div className="section">
             <div className="section-header">
-              <span className="section-icon"><UserCog size={20} /></span>
-              <h2 className="section-title">{t('overrides.title')}</h2>
+              <span className="section-icon section-header-clickable" onClick={() => toggleSection('overrides')}><UserCog size={20} /></span>
+              <h2 className="section-title section-header-clickable" onClick={() => toggleSection('overrides')}>{t('overrides.title')}</h2>
               <button
                 className="refresh-btn"
-                onClick={fetchUserList}
-                disabled={isLoadingUsers}
-                aria-label="Refresh users"
+                onClick={refreshAll}
+                disabled={isLoadingUsers || isLoadingActivity}
+                aria-label="Refresh data"
               >
-                <RefreshCw size={18} className={isLoadingUsers ? 'animate-spin' : ''} />
+                <RefreshCw size={18} className={isLoadingUsers || isLoadingActivity ? 'animate-spin' : ''} />
               </button>
+              <span className={`section-chevron section-header-clickable ${collapsedSections['overrides'] ? 'collapsed' : ''}`} onClick={() => toggleSection('overrides')}>
+                <ChevronDown size={20} />
+              </span>
             </div>
+            <div className={`section-content ${collapsedSections['overrides'] ? 'collapsed' : ''}`}>
 
             {/* Filter Chips */}
             <div className="filter-chips">
@@ -1895,14 +1955,19 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
               </div>
             )}
 
+            </div>
           </div>
 
           {/* User Activity Section */}
           <div className="section">
-            <div className="section-header">
+            <div className="section-header section-header-clickable" onClick={() => toggleSection('activity')}>
               <span className="section-icon"><Clock size={20} /></span>
               <h2 className="section-title">{t('activity.title')}</h2>
+              <span className={`section-chevron ${collapsedSections['activity'] ? 'collapsed' : ''}`}>
+                <ChevronDown size={20} />
+              </span>
             </div>
+            <div className={`section-content ${collapsedSections['activity'] ? 'collapsed' : ''}`}>
 
             {/* Activity Filter */}
             <div className="activity-filter-row">
@@ -1965,14 +2030,19 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                 {t('activity.loadMore')}
               </button>
             )}
+            </div>
           </div>
 
           {/* User Statistics Section */}
           <div className="section">
-            <div className="section-header">
+            <div className="section-header section-header-clickable" onClick={() => toggleSection('statistics')}>
               <span className="section-icon"><Users size={20} /></span>
               <h2 className="section-title">{t('statistics.title')}</h2>
+              <span className={`section-chevron ${collapsedSections['statistics'] ? 'collapsed' : ''}`}>
+                <ChevronDown size={20} />
+              </span>
             </div>
+            <div className={`section-content ${collapsedSections['statistics'] ? 'collapsed' : ''}`}>
             <div className="stats-grid">
               <div className="stat-card">
                 <div className="stat-value">{stats.totalUsers}</div>
@@ -1991,14 +2061,19 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                 <div className="stat-label">{t('statistics.needSetup')}</div>
               </div>
             </div>
+            </div>
           </div>
 
           {/* System Health Section */}
           <div className="section">
-            <div className="section-header">
+            <div className="section-header section-header-clickable" onClick={() => toggleSection('health')}>
               <span className="section-icon"><Activity size={20} /></span>
               <h2 className="section-title">{t('health.title')}</h2>
+              <span className={`section-chevron ${collapsedSections['health'] ? 'collapsed' : ''}`}>
+                <ChevronDown size={20} />
+              </span>
             </div>
+            <div className={`section-content ${collapsedSections['health'] ? 'collapsed' : ''}`}>
             <div className="health-list">
               <div className="health-item">
                 <span className="health-label">{t('health.database')}</span>
@@ -2014,6 +2089,7 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                   {Math.round((stats.usersWithCalendars / stats.totalUsers) * 100)}%
                 </span>
               </div>
+            </div>
             </div>
           </div>
         </div>
