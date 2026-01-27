@@ -84,7 +84,7 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
   }
 
   // Get statistics (with retry for Neon cold start)
-  const [totalUsers, usersWithOAuth, usersWithCalendars, recentUsers, adminSettings] = await Promise.all([
+  const [totalUsers, usersWithOAuth, usersWithCalendars, adminSettings] = await Promise.all([
     withDbRetry(() => prisma.user.count(), 'admin.totalUsers'),
     withDbRetry(
       () => prisma.user.count({
@@ -97,19 +97,6 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
         where: { calendarAssignments: { not: Prisma.JsonNull } }
       }),
       'admin.usersWithCalendars'
-    ),
-    withDbRetry(
-      () => prisma.user.findMany({
-        orderBy: { createdAt: 'desc' },
-        take: 5,
-        select: {
-          name: true,
-          createdAt: true,
-          language: true,
-          messagingPlatform: true
-        }
-      }),
-      'admin.recentUsers'
     ),
     withDbRetry(
       () => prisma.adminSettings.findUnique({
@@ -129,12 +116,6 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
         usersWithCalendars,
         needSetup: totalUsers - usersWithOAuth
       }}
-      recentUsers={recentUsers.map(u => ({
-        name: u.name,
-        createdAt: u.createdAt.toISOString(),
-        language: u.language,
-        messagingPlatform: u.messagingPlatform
-      }))}
       remindersEnabled={adminSettings?.remindersEnabled ?? false}
     />
   );

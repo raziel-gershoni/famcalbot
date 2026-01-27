@@ -123,7 +123,18 @@
       "activeOverrides": "דריסות פעילות",
       "noOverrides": "אין דריסות פעילות",
       "edit": "ערוך",
-      "remove": "הסר"
+      "remove": "הסר",
+      "registrationTitle": "סטטוס הרשמה",
+      "hasOAuth": "Google מחובר",
+      "hasCalendars": "יומנים נבחרו",
+      "hasLocation": "מיקום הוגדר",
+      "sendReminder_oauth": "שלח תזכורת OAuth",
+      "sendReminder_calendars": "שלח תזכורת יומנים",
+      "sendReminder_location": "שלח תזכורת מיקום",
+      "sendingReminder": "שולח...",
+      "reminderSent": "התזכורת נשלחה בהצלחה",
+      "reminderFailed": "שליחת התזכורת נכשלה",
+      "fullyRegistered": "המשתמש רשום במלואו"
     },
     "openDashboard": "פתח לוח בקרה למשתמש",
     "activity": {

@@ -123,7 +123,18 @@
       "activeOverrides": "Active Overrides",
       "noOverrides": "No active overrides",
       "edit": "Edit",
-      "remove": "Remove"
+      "remove": "Remove",
+      "registrationTitle": "Registration Status",
+      "hasOAuth": "Google Connected",
+      "hasCalendars": "Calendars Selected",
+      "hasLocation": "Location Set",
+      "sendReminder_oauth": "Send OAuth Reminder",
+      "sendReminder_calendars": "Send Calendars Reminder",
+      "sendReminder_location": "Send Location Reminder",
+      "sendingReminder": "Sending...",
+      "reminderSent": "Reminder sent successfully",
+      "reminderFailed": "Failed to send reminder",
+      "fullyRegistered": "User fully registered"
     },
     "openDashboard": "Open User Dashboard",
     "activity": {

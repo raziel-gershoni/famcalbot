@@ -169,6 +169,21 @@ export async function GET(request: NextRequest) {
       const calendarAssignments = user.calendarAssignments as Array<{ calendarId: string }> | null;
       const calendarsCount = calendarAssignments?.length ?? 0;
 
+      // Calculate registration status
+      const hasOAuth = user.googleRefreshToken !== '';
+      const hasCalendars = calendarsCount > 0;
+      const hasLocation = user.location !== '';
+
+      // Determine applicable reminder (first incomplete step in registration flow)
+      let applicableReminder: 'oauth' | 'calendars' | 'location' | null = null;
+      if (!hasOAuth) {
+        applicableReminder = 'oauth';
+      } else if (!hasCalendars) {
+        applicableReminder = 'calendars';
+      } else if (!hasLocation) {
+        applicableReminder = 'location';
+      }
+
       return NextResponse.json({
         success: true,
         user: {
@@ -199,6 +214,12 @@ export async function GET(request: NextRequest) {
           calendarsCount,
           override: user.featureOverride,
           paidFeatures,
+          registrationStatus: {
+            hasOAuth,
+            hasCalendars,
+            hasLocation,
+            applicableReminder,
+          },
         },
       });
     }

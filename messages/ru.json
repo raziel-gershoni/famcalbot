@@ -123,7 +123,18 @@
       "activeOverrides": "Активные переопределения",
       "noOverrides": "Нет активных переопределений",
       "edit": "Редактировать",
-      "remove": "Удалить"
+      "remove": "Удалить",
+      "registrationTitle": "Статус регистрации",
+      "hasOAuth": "Google подключён",
+      "hasCalendars": "Календари выбраны",
+      "hasLocation": "Местоположение указано",
+      "sendReminder_oauth": "Отправить напоминание OAuth",
+      "sendReminder_calendars": "Напоминание о календарях",
+      "sendReminder_location": "Напоминание о местоположении",
+      "sendingReminder": "Отправка...",
+      "reminderSent": "Напоминание отправлено",
+      "reminderFailed": "Не удалось отправить",
+      "fullyRegistered": "Пользователь зарегистрирован"
     },
     "openDashboard": "Открыть панель пользователя",
     "activity": {

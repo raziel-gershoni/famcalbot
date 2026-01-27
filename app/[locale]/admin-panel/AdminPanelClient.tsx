@@ -15,12 +15,6 @@ interface AdminPanelClientProps {
     usersWithCalendars: number;
     needSetup: number;
   };
-  recentUsers: Array<{
-    name: string;
-    createdAt: string;
-    language: string;
-    messagingPlatform: string;
-  }>;
   remindersEnabled: boolean;
 }
 
@@ -85,23 +79,12 @@ interface UserOverrideDetails {
     voiceEventsEnabled: boolean;
     unlimitedCalendars: boolean;
   };
-}
-
-interface OverrideListItem {
-  id: string;
-  userId: number;
-  user: {
-    id: number;
-    telegramId: number | null;
-    name: string;
-    subscription: { plan: string; status: string } | null;
+  registrationStatus: {
+    hasOAuth: boolean;
+    hasCalendars: boolean;
+    hasLocation: boolean;
+    applicableReminder: 'oauth' | 'calendars' | 'location' | null;
   };
-  unlimitedSummaries: boolean | null;
-  remindersEnabled: boolean | null;
-  voiceEventsEnabled: boolean | null;
-  unlimitedCalendars: boolean | null;
-  reason: string | null;
-  grantedAt: string | null;
 }
 
 interface ActivityItem {
@@ -119,7 +102,7 @@ interface ActivityStats {
   count: number;
 }
 
-export default function AdminPanelClient({ userId, locale, stats, recentUsers, remindersEnabled: initialRemindersEnabled }: AdminPanelClientProps) {
+export default function AdminPanelClient({ userId, locale, stats, remindersEnabled: initialRemindersEnabled }: AdminPanelClientProps) {
   const t = useTranslations('admin');
   const [todayState, setTodayState] = useState<ButtonState>('idle');
   const [tomorrowState, setTomorrowState] = useState<ButtonState>('idle');
@@ -133,8 +116,6 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
   const [nameFilter, setNameFilter] = useState('');
   const [selectedUser, setSelectedUser] = useState<UserOverrideDetails | null>(null);
   const [isLoadingUser, setIsLoadingUser] = useState(false);
-  const [overrideList, setOverrideList] = useState<OverrideListItem[]>([]);
-  const [isLoadingOverrides, setIsLoadingOverrides] = useState(false);
   const [isSavingOverride, setIsSavingOverride] = useState(false);
   const [overrideReason, setOverrideReason] = useState('');
   const [pendingOverrides, setPendingOverrides] = useState({
@@ -143,6 +124,10 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
     voiceEventsEnabled: false,
     unlimitedCalendars: false,
   });
+
+  // Reminder sending state
+  const [isSendingReminder, setIsSendingReminder] = useState(false);
+  const [reminderFeedback, setReminderFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // User activity state
   const [activities, setActivities] = useState<ActivityItem[]>([]);
@@ -311,29 +296,11 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
     }
   }, [activityFilter, activityUserFilter, activityOffset]);
 
-  // Fetch all users with overrides
-  const fetchOverrideList = useCallback(async () => {
-    setIsLoadingOverrides(true);
-    try {
-      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
-      const response = await fetch(`/api/admin/user-overrides?initData=${encodeURIComponent(initData || '')}`);
-      const data = await response.json();
-      if (data.success) {
-        setOverrideList(data.overrides || []);
-      }
-    } catch (error) {
-      console.error('Failed to fetch overrides:', error);
-    } finally {
-      setIsLoadingOverrides(false);
-    }
-  }, []);
-
-  // Load user list, override list, and activity on mount
+  // Load user list and activity on mount
   useEffect(() => {
     fetchUserList();
-    fetchOverrideList();
     fetchActivity(true);
-  }, [fetchUserList, fetchOverrideList]);
+  }, [fetchUserList]);
 
   // Reload activity when filter changes
   useEffect(() => {
@@ -431,9 +398,8 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
       });
       const data = await response.json();
       if (data.success) {
-        // Refresh the user, override list, and user list
+        // Refresh the user and user list
         await loadUserDetails(selectedUser.id);
-        await fetchOverrideList();
         await fetchUserList();
       }
     } catch (error) {
@@ -443,29 +409,42 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
     }
   };
 
-  // Remove override
-  const removeOverride = async (userId: number) => {
-    const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
-    try {
-      const response = await fetch(
-        `/api/admin/user-overrides?initData=${encodeURIComponent(initData || '')}&user_id=${userId}`,
-        { method: 'DELETE' }
-      );
-      const data = await response.json();
-      if (data.success) {
-        await fetchOverrideList();
-        await fetchUserList();
-        if (selectedUser?.id === userId) {
-          await loadUserDetails(userId);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to remove override:', error);
-    }
-  };
-
   const clearSelectedUser = () => {
     setSelectedUser(null);
+    setReminderFeedback(null);
+  };
+
+  // Send registration reminder
+  const sendReminder = async (reminderType: 'oauth' | 'calendars' | 'location') => {
+    if (!selectedUser) return;
+    setIsSendingReminder(true);
+    setReminderFeedback(null);
+
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = await fetch('/api/admin/send-reminder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          initData,
+          user_id: selectedUser.id,
+          reminder_type: reminderType,
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setReminderFeedback({ type: 'success', message: t('overrides.reminderSent') });
+        // Auto-dismiss after 3s
+        setTimeout(() => setReminderFeedback(null), 3000);
+      } else {
+        setReminderFeedback({ type: 'error', message: data.error || t('overrides.reminderFailed') });
+      }
+    } catch (error) {
+      console.error('Failed to send reminder:', error);
+      setReminderFeedback({ type: 'error', message: t('overrides.reminderFailed') });
+    } finally {
+      setIsSendingReminder(false);
+    }
   };
 
   const getButtonContent = (state: ButtonState, label: { gregorian: string; hebrew: string }) => {
@@ -1355,6 +1334,89 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
           cursor: not-allowed;
         }
 
+        .registration-status-grid {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+
+        .registration-status-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 14px;
+          padding: 8px 12px;
+          border-radius: 8px;
+        }
+
+        .registration-status-item.complete {
+          background: #d1fae5;
+          color: #047857;
+        }
+
+        .registration-status-item.incomplete {
+          background: #fee2e2;
+          color: #dc2626;
+        }
+
+        .send-reminder-btn {
+          width: 100%;
+          padding: 10px 16px;
+          background: #667eea;
+          color: white;
+          border: none;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          transition: background 0.2s;
+        }
+
+        .send-reminder-btn:hover:not(:disabled) {
+          background: #5a6fd6;
+        }
+
+        .send-reminder-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .fully-registered-message {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          padding: 10px 16px;
+          background: #d1fae5;
+          color: #047857;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 500;
+        }
+
+        .reminder-feedback {
+          margin-top: 8px;
+          padding: 8px 12px;
+          border-radius: 6px;
+          font-size: 13px;
+          text-align: center;
+        }
+
+        .reminder-feedback.success {
+          background: #d1fae5;
+          color: #047857;
+        }
+
+        .reminder-feedback.error {
+          background: #fee2e2;
+          color: #dc2626;
+        }
+
         @media (max-width: 400px) {
           .stats-grid,
           .button-group {
@@ -1624,6 +1686,55 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
                   </div>
                 </div>
 
+                {/* Registration Status Section */}
+                <div className="user-card-section">
+                  <div className="user-card-section-title">{t('overrides.registrationTitle')}</div>
+                  <div className="registration-status-grid">
+                    <div className={`registration-status-item ${selectedUser.registrationStatus.hasOAuth ? 'complete' : 'incomplete'}`}>
+                      {selectedUser.registrationStatus.hasOAuth ? <Check size={16} /> : <X size={16} />}
+                      <span>{t('overrides.hasOAuth')}</span>
+                    </div>
+                    <div className={`registration-status-item ${selectedUser.registrationStatus.hasCalendars ? 'complete' : 'incomplete'}`}>
+                      {selectedUser.registrationStatus.hasCalendars ? <Check size={16} /> : <X size={16} />}
+                      <span>{t('overrides.hasCalendars')}</span>
+                    </div>
+                    <div className={`registration-status-item ${selectedUser.registrationStatus.hasLocation ? 'complete' : 'incomplete'}`}>
+                      {selectedUser.registrationStatus.hasLocation ? <Check size={16} /> : <X size={16} />}
+                      <span>{t('overrides.hasLocation')}</span>
+                    </div>
+                  </div>
+
+                  {/* Reminder Button or Fully Registered Message */}
+                  {selectedUser.registrationStatus.applicableReminder ? (
+                    <button
+                      className="send-reminder-btn"
+                      onClick={() => sendReminder(selectedUser.registrationStatus.applicableReminder!)}
+                      disabled={isSendingReminder}
+                    >
+                      {isSendingReminder ? (
+                        <>
+                          <Loader2 size={16} className="animate-spin" />
+                          {t('overrides.sendingReminder')}
+                        </>
+                      ) : (
+                        t(`overrides.sendReminder_${selectedUser.registrationStatus.applicableReminder}`)
+                      )}
+                    </button>
+                  ) : (
+                    <div className="fully-registered-message">
+                      <Check size={16} />
+                      {t('overrides.fullyRegistered')}
+                    </div>
+                  )}
+
+                  {/* Reminder Feedback */}
+                  {reminderFeedback && (
+                    <div className={`reminder-feedback ${reminderFeedback.type}`}>
+                      {reminderFeedback.message}
+                    </div>
+                  )}
+                </div>
+
                 {/* Feature Overrides Section */}
                 <div className="user-card-section">
                   <div className="user-card-section-title">{t('overrides.featureOverridesTitle')}</div>
@@ -1754,51 +1865,6 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
               </div>
             )}
 
-            {/* Override List */}
-            <h3 className="subsection-title">{t('overrides.activeOverrides')}</h3>
-            <div className="user-list">
-              {isLoadingOverrides ? (
-                <div className="empty-state">
-                  <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto' }} />
-                </div>
-              ) : overrideList.length === 0 ? (
-                <div className="empty-state">{t('overrides.noOverrides')}</div>
-              ) : (
-                overrideList.map((override) => {
-                  const features = [];
-                  if (override.unlimitedSummaries) features.push(t('overrides.unlimitedSummariesShort'));
-                  if (override.remindersEnabled) features.push(t('overrides.remindersShort'));
-                  if (override.voiceEventsEnabled) features.push(t('overrides.voiceEventsShort'));
-                  if (override.unlimitedCalendars) features.push(t('overrides.unlimitedCalendarsShort'));
-
-                  return (
-                    <div key={override.id} className="override-list-item">
-                      <div className="override-list-info">
-                        <div className="override-list-name">{override.user.name}</div>
-                        <div className="override-list-features">
-                          {features.join(', ')}
-                          {override.reason && ` - ${override.reason}`}
-                        </div>
-                      </div>
-                      <div className="override-list-actions">
-                        <button
-                          className="override-action-btn edit"
-                          onClick={() => loadUserDetails(override.userId)}
-                        >
-                          {t('overrides.edit')}
-                        </button>
-                        <button
-                          className="override-action-btn remove"
-                          onClick={() => removeOverride(override.userId)}
-                        >
-                          {t('overrides.remove')}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
           </div>
 
           {/* User Activity Section */}
@@ -1894,20 +1960,6 @@ export default function AdminPanelClient({ userId, locale, stats, recentUsers, r
                 <div className="stat-value">{stats.needSetup}</div>
                 <div className="stat-label">{t('statistics.needSetup')}</div>
               </div>
-            </div>
-
-            <h3 className="subsection-title">{t('statistics.recentUsers')}</h3>
-            <div className="user-list">
-              {recentUsers.map((user, index) => (
-                <div key={index} className="user-item">
-                  <div className="user-name">{user.name}</div>
-                  <div className="user-meta">
-                    {new Date(user.createdAt).toLocaleDateString(intlLocale)} •{' '}
-                    {user.language} •{' '}
-                    {user.messagingPlatform}
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
 
