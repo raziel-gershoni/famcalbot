@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
-import { Activity, Crown, Bot, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock } from 'lucide-react';
+import { Activity, Crown, Bot, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock, RefreshCw } from 'lucide-react';
 import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
 
@@ -575,6 +575,28 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
           display: flex;
           align-items: center;
           justify-content: center;
+        }
+
+        .refresh-btn {
+          margin-left: auto;
+          background: none;
+          border: none;
+          color: #6b7280;
+          cursor: pointer;
+          padding: 4px;
+          border-radius: 4px;
+          display: flex;
+          align-items: center;
+        }
+
+        .refresh-btn:hover:not(:disabled) {
+          color: #667eea;
+          background: #f3f4f6;
+        }
+
+        .refresh-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
 
         .stats-grid {
@@ -1500,6 +1522,14 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
             <div className="section-header">
               <span className="section-icon"><UserCog size={20} /></span>
               <h2 className="section-title">{t('overrides.title')}</h2>
+              <button
+                className="refresh-btn"
+                onClick={fetchUserList}
+                disabled={isLoadingUsers}
+                aria-label="Refresh users"
+              >
+                <RefreshCw size={18} className={isLoadingUsers ? 'animate-spin' : ''} />
+              </button>
             </div>
 
             {/* Filter Chips */}
