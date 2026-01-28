@@ -54,6 +54,7 @@ model User {
   usageCounter    UsageCounter?
   activities      UserActivity[]
   featureOverride UserFeatureOverride?
+  feedbacks       UserFeedback[]
 
   @@index([telegramId])
   @@index([whatsappPhone])
@@ -173,4 +174,17 @@ model UserFeatureOverride {
   updatedAt       DateTime @updatedAt
 
   @@index([userId])
+}
+
+// User feedback submissions
+model UserFeedback {
+  id        String   @id @default(cuid())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  text      String   @db.Text
+  source    String   @default("telegram") // "telegram" or "dashboard"
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
 }

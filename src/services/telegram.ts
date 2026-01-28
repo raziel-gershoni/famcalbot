@@ -13,6 +13,7 @@ import { getBotMessages, getBotMessage } from '../lib/bot-messages';
 import { trackActivityAsync, addBreadcrumb } from './analytics-service';
 import { checkFeatureAccess, incrementUsage, getTrialStatus } from './subscription-service';
 import { captureError } from '../lib/error-capture';
+import { prisma, withDbRetry } from '../utils/prisma';
 
 /**
  * Categorize events by ownership for a specific user
@@ -1761,5 +1762,105 @@ export async function handleTestAICallback(
 
     const { notifyAdminError } = await import('../utils/error-notifier');
     await notifyAdminError('TestAI Callback', error);
+  }
+}
+
+/**
+ * Handle /feedback command
+ * Allows users to submit feedback via Telegram
+ * Usage: /feedback <text> (10-1000 characters)
+ * Rate limited to 3 submissions per 24 hours
+ */
+export async function handleFeedbackCommand(
+  chatId: number,
+  userId: number,
+  feedbackText: string | undefined
+): Promise<void> {
+  const user = await getUserByTelegramId(userId);
+  if (!user) {
+    console.error(`[Feedback] User with Telegram ID ${userId} not found`);
+    return;
+  }
+
+  const messagingService = getMessagingService();
+  const userLanguage = user.language || 'en';
+  const t = await getBotMessages(userLanguage);
+
+  // Validate feedback text
+  if (!feedbackText || feedbackText.trim().length === 0) {
+    const usageMessage = t.feedback?.usage || 'Please provide your feedback after the command.\n\nUsage: /feedback <your message>\n\nExample: /feedback I love this bot!';
+    await messagingService.sendMessage(chatId, usageMessage, { format: MessageFormat.HTML });
+    return;
+  }
+
+  const trimmedText = feedbackText.trim();
+
+  // Check length constraints
+  if (trimmedText.length < 10) {
+    const tooShortMessage = t.feedback?.tooShort || 'Feedback must be at least 10 characters.';
+    await messagingService.sendMessage(chatId, tooShortMessage);
+    return;
+  }
+
+  if (trimmedText.length > 1000) {
+    const tooLongMessage = t.feedback?.tooLong || 'Feedback must be less than 1000 characters.';
+    await messagingService.sendMessage(chatId, tooLongMessage);
+    return;
+  }
+
+  try {
+    // Check rate limit - max 3 feedback submissions per 24 hours
+    const oneDayAgo = new Date();
+    oneDayAgo.setHours(oneDayAgo.getHours() - 24);
+
+    const recentFeedbackCount = await withDbRetry(
+      () => prisma.userFeedback.count({
+        where: {
+          userId: user.id,
+          createdAt: { gte: oneDayAgo }
+        }
+      }),
+      'feedback.rate-limit-check'
+    );
+
+    if (recentFeedbackCount >= 3) {
+      const rateLimitMessage = t.feedback?.rateLimit || "You've reached the daily feedback limit. Please try again tomorrow.";
+      await messagingService.sendMessage(chatId, rateLimitMessage);
+      return;
+    }
+
+    // Store feedback in database
+    await withDbRetry(
+      () => prisma.userFeedback.create({
+        data: {
+          userId: user.id,
+          text: trimmedText,
+          source: 'telegram'
+        }
+      }),
+      'feedback.create'
+    );
+
+    // Notify admin
+    const { notifyAdminFeedback } = await import('../utils/error-notifier');
+    await notifyAdminFeedback(user.name, user.telegramId, trimmedText, 'telegram');
+
+    // Track activity
+    trackActivityAsync(user.id, 'feedback_submitted', {
+      source: 'telegram',
+      text_length: trimmedText.length
+    });
+
+    // Confirm to user
+    const successMessage = t.feedback?.success || 'Thank you for your feedback!';
+    await messagingService.sendMessage(chatId, successMessage);
+
+    console.log(`[Feedback] User ${userId} submitted feedback (${trimmedText.length} chars)`);
+  } catch (error) {
+    console.error('[Feedback] Error handling feedback command:', error);
+    captureError(error, 'feedback-command', { user_id: userId });
+
+    const errorMessage = t.feedback?.error || 'Failed to send feedback. Please try again.';
+    await messagingService.sendMessage(chatId, errorMessage);
   }
 }

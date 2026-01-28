@@ -10,6 +10,7 @@ import {
   handleTestAICommand,
   handleTestAICallback,
   handleWeatherCommand,
+  handleFeedbackCommand,
   getBot
 } from './telegram';
 import { getUserByWhatsAppPhone } from './user-service';
@@ -192,6 +193,9 @@ export async function handleTelegramWebhook(
   } else if (text.startsWith('/weather')) {
     const args = text.replace('/weather', '').trim();
     await handleWeatherCommand(chatId, textUserId, MessagingPlatform.TELEGRAM, args || undefined);
+  } else if (text.startsWith('/feedback')) {
+    const args = text.replace('/feedback', '').trim();
+    await handleFeedbackCommand(chatId, textUserId, args || undefined);
   }
 
   res.status(200).json({ ok: true });

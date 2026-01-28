@@ -47,6 +47,8 @@ export type ActivityAction =
   | 'feature_blocked'
   // Error tracking (NEW)
   | 'user_error_shown'
+  // Feedback
+  | 'feedback_submitted'
   // Other
   | 'weather_requested'
   | 'lookahead_requested';
@@ -84,6 +86,10 @@ export interface ActivityMetadata {
   feature?: string;
   current_usage?: number;
   limit?: number;
+
+  // Feedback
+  source?: 'telegram' | 'dashboard';
+  text_length?: number;
 
   // Generic
   [key: string]: unknown;

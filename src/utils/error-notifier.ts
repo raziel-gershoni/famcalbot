@@ -10,7 +10,7 @@ import { prisma, withDbRetry } from './prisma';
 /**
  * Get all admin user Telegram IDs
  */
-async function getAdminUserIds(): Promise<number[]> {
+export async function getAdminUserIds(): Promise<number[]> {
   try {
     const admins = await withDbRetry(
       () => prisma.user.findMany({
@@ -102,6 +102,41 @@ export async function notifyAdminWarning(context: string, message: string): Prom
     console.error('Failed to send warning notification:', error);
     Sentry.captureException(error, {
       tags: { context: 'admin_warning_notification_failed' }
+    });
+  }
+}
+
+/**
+ * Notify admin of new user feedback via Telegram
+ * @param userName - Name of the user who submitted feedback
+ * @param telegramId - Telegram ID of the user (null for dashboard submissions without it)
+ * @param feedbackText - The feedback text
+ * @param source - Where the feedback was submitted from ('telegram' or 'dashboard')
+ */
+export async function notifyAdminFeedback(
+  userName: string,
+  telegramId: bigint | number | null,
+  feedbackText: string,
+  source: 'telegram' | 'dashboard'
+): Promise<void> {
+  try {
+    const bot = getBot();
+    const adminIds = await getAdminUserIds();
+
+    const message = `📨 <b>New Feedback</b>
+From: ${userName}
+ID: ${telegramId || 'N/A'}
+Source: ${source}
+───────────
+${feedbackText}`;
+
+    await Promise.all(adminIds.map(id =>
+      bot.sendMessage(id, message, { parse_mode: 'HTML' })
+    ));
+  } catch (error) {
+    console.error('Failed to send feedback notification to admin:', error);
+    Sentry.captureException(error, {
+      tags: { context: 'admin_feedback_notification_failed' }
     });
   }
 }

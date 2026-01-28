@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useTranslations } from 'next-intl';
-import { Activity, Crown, Bot, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock, RefreshCw, ChevronDown } from 'lucide-react';
+import { Activity, Crown, Bot, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock, RefreshCw, ChevronDown, MessageSquare } from 'lucide-react';
 import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
 
@@ -102,6 +102,16 @@ interface ActivityStats {
   count: number;
 }
 
+interface FeedbackItem {
+  id: string;
+  userId: number;
+  userName: string;
+  userTelegramId: number | null;
+  text: string;
+  source: 'telegram' | 'dashboard';
+  createdAt: string;
+}
+
 export default function AdminPanelClient({ userId, locale, stats, remindersEnabled: initialRemindersEnabled }: AdminPanelClientProps) {
   const t = useTranslations('admin');
   const [todayState, setTodayState] = useState<ButtonState>('idle');
@@ -140,6 +150,11 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
 
   // Collapsible sections state
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+
+  // Feedback state
+  const [feedbacks, setFeedbacks] = useState<FeedbackItem[]>([]);
+  const [isLoadingFeedback, setIsLoadingFeedback] = useState(false);
+  const [expandedFeedback, setExpandedFeedback] = useState<string | null>(null);
 
   const toggleSection = (sectionId: string) => {
     setCollapsedSections(prev => ({ ...prev, [sectionId]: !prev[sectionId] }));
@@ -306,17 +321,36 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
     }
   }, [activityFilter, activityUserFilter, activityOffset]);
 
+  // Fetch user feedback
+  const fetchFeedback = useCallback(async () => {
+    setIsLoadingFeedback(true);
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = await fetch(`/api/admin/feedback?initData=${encodeURIComponent(initData || '')}&limit=50`);
+      const data = await response.json();
+      if (data.success) {
+        setFeedbacks(data.feedbacks || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch feedback:', error);
+    } finally {
+      setIsLoadingFeedback(false);
+    }
+  }, []);
+
   // Refresh all data
   const refreshAll = useCallback(() => {
     fetchUserList();
     fetchActivity(true);
-  }, [fetchUserList, fetchActivity]);
+    fetchFeedback();
+  }, [fetchUserList, fetchActivity, fetchFeedback]);
 
-  // Load user list and activity on mount
+  // Load user list, activity, and feedback on mount
   useEffect(() => {
     fetchUserList();
     fetchActivity(true);
-  }, [fetchUserList]);
+    fetchFeedback();
+  }, [fetchUserList, fetchFeedback]);
 
   // Reload activity when filter changes
   useEffect(() => {
@@ -1513,10 +1547,107 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
           color: #dc2626;
         }
 
+        .feedback-list {
+          background: white;
+          border: 2px solid #e5e7eb;
+          border-radius: 12px;
+          overflow: hidden;
+          max-height: 400px;
+          overflow-y: auto;
+        }
+
+        .feedback-item {
+          padding: 12px 16px;
+          border-bottom: 1px solid #e5e7eb;
+          cursor: pointer;
+          transition: background 0.2s;
+        }
+
+        .feedback-item:hover {
+          background: #f9fafb;
+        }
+
+        .feedback-item:last-child {
+          border-bottom: none;
+        }
+
+        .feedback-item.expanded {
+          background: #f0f4ff;
+        }
+
+        .feedback-row {
+          display: flex;
+          align-items: flex-start;
+          gap: 12px;
+        }
+
+        .feedback-user {
+          font-weight: 600;
+          font-size: 14px;
+          color: #111827;
+          min-width: 80px;
+          flex-shrink: 0;
+        }
+
+        .feedback-preview {
+          flex: 1;
+          font-size: 13px;
+          color: #6b7280;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .feedback-item.expanded .feedback-preview {
+          white-space: pre-wrap;
+          overflow: visible;
+        }
+
+        .feedback-source {
+          font-size: 11px;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-weight: 500;
+          background: #f3f4f6;
+          color: #6b7280;
+          flex-shrink: 0;
+        }
+
+        .feedback-source.telegram {
+          background: #dbeafe;
+          color: #1d4ed8;
+        }
+
+        .feedback-source.dashboard {
+          background: #d1fae5;
+          color: #047857;
+        }
+
+        .feedback-time {
+          font-size: 12px;
+          color: #9ca3af;
+          white-space: nowrap;
+          flex-shrink: 0;
+        }
+
         @media (max-width: 400px) {
           .stats-grid,
           .button-group {
             grid-template-columns: 1fr;
+          }
+
+          .feedback-row {
+            flex-wrap: wrap;
+          }
+
+          .feedback-user {
+            width: 100%;
+          }
+
+          .feedback-preview {
+            width: 100%;
+            order: 3;
+            margin-top: 8px;
           }
         }
       `}</style>
@@ -2061,6 +2192,62 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                 )}
               </div>
             )}
+            </div>
+          </div>
+
+          {/* User Feedback Section */}
+          <div className="section">
+            <div className="section-header">
+              <span className="section-icon section-header-clickable" onClick={() => toggleSection('feedback')}><MessageSquare size={20} /></span>
+              <h2 className="section-title section-header-clickable" onClick={() => toggleSection('feedback')}>{t('feedback.title')}</h2>
+              <button
+                className="refresh-btn"
+                onClick={fetchFeedback}
+                disabled={isLoadingFeedback}
+                aria-label="Refresh feedback"
+              >
+                <RefreshCw size={18} className={isLoadingFeedback ? 'animate-spin' : ''} />
+              </button>
+              <span className={`section-chevron section-header-clickable ${collapsedSections['feedback'] ? 'collapsed' : ''}`} onClick={() => toggleSection('feedback')}>
+                <ChevronDown size={20} />
+              </span>
+            </div>
+            <div className={`section-content ${collapsedSections['feedback'] ? 'collapsed' : ''}`}>
+              <div className="feedback-list">
+                {isLoadingFeedback && feedbacks.length === 0 ? (
+                  <div className="empty-state">
+                    <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto' }} />
+                    <p>{t('feedback.loading')}</p>
+                  </div>
+                ) : feedbacks.length === 0 ? (
+                  <div className="empty-state">{t('feedback.noFeedback')}</div>
+                ) : (
+                  feedbacks.map((feedback) => (
+                    <div
+                      key={feedback.id}
+                      className={`feedback-item ${expandedFeedback === feedback.id ? 'expanded' : ''}`}
+                      onClick={() => setExpandedFeedback(expandedFeedback === feedback.id ? null : feedback.id)}
+                    >
+                      <div className="feedback-row">
+                        <span className="feedback-user">{feedback.userName}</span>
+                        <span className="feedback-preview">
+                          {expandedFeedback === feedback.id
+                            ? feedback.text
+                            : feedback.text.length > 50
+                              ? feedback.text.slice(0, 50) + '...'
+                              : feedback.text}
+                        </span>
+                        <span className={`feedback-source ${feedback.source}`}>
+                          {t(`feedback.${feedback.source}`)}
+                        </span>
+                        <span className="feedback-time">
+                          {formatRelativeTime(feedback.createdAt)}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
 

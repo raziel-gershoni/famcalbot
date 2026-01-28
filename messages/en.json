@@ -44,6 +44,17 @@
     },
     "subscription": {
       "daysRemaining": "days remaining in trial"
+    },
+    "feedback": {
+      "title": "Feedback",
+      "placeholder": "Share your thoughts, suggestions, or report issues...",
+      "submit": "Send Feedback",
+      "sending": "Sending...",
+      "success": "Thank you for your feedback!",
+      "error": "Failed to send feedback. Please try again.",
+      "rateLimit": "You've reached the daily feedback limit. Please try again tomorrow.",
+      "tooShort": "Feedback must be at least 10 characters.",
+      "tooLong": "Feedback must be less than 1000 characters."
     }
   },
   "admin": {
@@ -150,6 +161,17 @@
       "minutes": "min",
       "hours": "hr",
       "days": "d"
+    },
+    "feedback": {
+      "title": "User Feedback",
+      "noFeedback": "No feedback yet",
+      "loading": "Loading feedback...",
+      "user": "User",
+      "preview": "Preview",
+      "source": "Source",
+      "time": "Time",
+      "telegram": "Telegram",
+      "dashboard": "Dashboard"
     }
   },
   "settings": {
@@ -466,6 +488,14 @@
       "noEventsFound": "❌ No events found in that time range.",
       "ambiguousEvent": "🤔 Found multiple matching events. Please be more specific.",
       "eventNotFound": "❌ Couldn't find that event."
+    },
+    "feedback": {
+      "usage": "📝 <b>Send Feedback</b>\n\nShare your thoughts, suggestions, or report issues.\n\nUsage: /feedback <your message>\n\nExample: /feedback I love this bot!",
+      "success": "✅ Thank you for your feedback!",
+      "error": "❌ Failed to send feedback. Please try again.",
+      "rateLimit": "⏳ You've reached the daily feedback limit. Please try again tomorrow.",
+      "tooShort": "❌ Feedback must be at least 10 characters.",
+      "tooLong": "❌ Feedback must be less than 1000 characters."
     }
   },
   "subscription": {
