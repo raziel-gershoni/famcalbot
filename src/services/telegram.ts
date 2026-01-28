@@ -146,13 +146,15 @@ export async function handleStartCommand(
   chatId: number | string,
   userId: number | string,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
-  telegramUser?: TelegramUserInfo
+  telegramUser?: TelegramUserInfo,
+  args?: string
 ): Promise<void> {
   // Add breadcrumb for command start
   addBreadcrumb('command_started', {
     command: '/start',
     user_id: userId,
     platform,
+    args,
   }, 'command');
 
   // Auto-register user if new (no authorization check for /start)
@@ -167,15 +169,31 @@ export async function handleStartCommand(
 
   const name = user.name || 'there';
   const locale = user.language || 'en';
-  const dashboardUrl = buildUrl(`/${locale}/dashboard?user_id=${user.telegramId}`);
+  const service = getMessagingService();
 
   // Load localized strings from i18n
   const t = await getBotMessages(locale);
-  const welcome = t.start.welcome.replace('{name}', name);
 
   // Set per-user menu button with localized text
   await setUserMenuButton(user.telegramId, locale);
-  const service = getMessagingService();
+
+  // Handle deep link parameters (e.g., t.me/BotName?start=feedback)
+  if (args === 'feedback') {
+    const feedbackUrl = buildUrl(`/${locale}/feedback?user_id=${user.telegramId}`);
+    const openFormMessage = t.feedback?.openForm || 'Click below to send feedback:';
+    await service.sendMessage(chatId, openFormMessage, {
+      format: MessageFormat.HTML,
+      replyMarkup: {
+        inline_keyboard: [[
+          { text: t.feedback?.openButton || 'Send Feedback', web_app: { url: feedbackUrl } }
+        ]]
+      }
+    });
+    return;
+  }
+
+  const dashboardUrl = buildUrl(`/${locale}/dashboard?user_id=${user.telegramId}`);
+  const welcome = t.start.welcome.replace('{name}', name);
 
   // Check if user is admin
   if (user.isAdmin) {
@@ -730,12 +748,14 @@ export async function handleTestModelsCommand(chatId: number, userId: number, up
  */
 function setupHandlers(bot: TelegramBot) {
   // /start command - auto-registers new users
-  bot.onText(/\/start/, async (msg) => {
+  // Supports deep links: /start feedback from t.me/BotName?start=feedback
+  bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from?.id;
+    const args = match?.[1]?.trim();
     if (userId) {
       // Pass Telegram user info for auto-registration
-      await handleStartCommand(chatId, userId, MessagingPlatform.TELEGRAM, msg.from);
+      await handleStartCommand(chatId, userId, MessagingPlatform.TELEGRAM, msg.from, args);
     }
   });
 

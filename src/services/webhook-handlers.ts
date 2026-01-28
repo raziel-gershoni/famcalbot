@@ -181,9 +181,11 @@ export async function handleTelegramWebhook(
   }
 
   // Route to appropriate command handler
-  if (text === '/start') {
+  if (text.startsWith('/start')) {
     // Pass Telegram user info for auto-registration
-    await handleStartCommand(chatId, textUserId, MessagingPlatform.TELEGRAM, update.message.from);
+    // Extract args for deep links (e.g., /start feedback from t.me/BotName?start=feedback)
+    const args = text.replace('/start', '').trim();
+    await handleStartCommand(chatId, textUserId, MessagingPlatform.TELEGRAM, update.message.from, args || undefined);
   } else if (text.startsWith('/summary')) {
     const args = text.replace('/summary', '').trim();
     await handleSummaryCommand(chatId, textUserId, MessagingPlatform.TELEGRAM, args || undefined);
