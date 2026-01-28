@@ -47,10 +47,14 @@
     },
     "feedback": {
       "title": "Feedback",
+      "pageTitle": "Send Feedback",
+      "cardText": "Share your feedback with us",
       "placeholder": "Share your thoughts, suggestions, or report issues...",
       "submit": "Send Feedback",
       "sending": "Sending...",
       "success": "Thank you for your feedback!",
+      "successDesc": "Your feedback helps us improve!",
+      "backToDashboard": "Back to Dashboard",
       "error": "Failed to send feedback. Please try again.",
       "rateLimit": "You've reached the daily feedback limit. Please try again tomorrow.",
       "tooShort": "Feedback must be at least 10 characters.",
@@ -491,6 +495,8 @@
     },
     "feedback": {
       "usage": "📝 <b>Send Feedback</b>\n\nShare your thoughts, suggestions, or report issues.\n\nUsage: /feedback <your message>\n\nExample: /feedback I love this bot!",
+      "openForm": "📝 Click below to send feedback:",
+      "openButton": "Send Feedback",
       "success": "✅ Thank you for your feedback!",
       "error": "❌ Failed to send feedback. Please try again.",
       "rateLimit": "⏳ You've reached the daily feedback limit. Please try again tomorrow.",

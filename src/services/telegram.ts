@@ -1786,10 +1786,18 @@ export async function handleFeedbackCommand(
   const userLanguage = user.language || 'en';
   const t = await getBotMessages(userLanguage);
 
-  // Validate feedback text
+  // If no text provided, show button to open feedback page
   if (!feedbackText || feedbackText.trim().length === 0) {
-    const usageMessage = t.feedback?.usage || 'Please provide your feedback after the command.\n\nUsage: /feedback <your message>\n\nExample: /feedback I love this bot!';
-    await messagingService.sendMessage(chatId, usageMessage, { format: MessageFormat.HTML });
+    const feedbackUrl = buildUrl(`/${userLanguage}/feedback?user_id=${user.telegramId}`);
+    const openFormMessage = t.feedback?.openForm || 'Click below to send feedback:';
+    await messagingService.sendMessage(chatId, openFormMessage, {
+      format: MessageFormat.HTML,
+      replyMarkup: {
+        inline_keyboard: [[
+          { text: t.feedback?.openButton || 'Send Feedback', web_app: { url: feedbackUrl } }
+        ]]
+      }
+    });
     return;
   }
 

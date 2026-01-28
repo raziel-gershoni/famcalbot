@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
-import { KeyRound, Calendar, Zap, TrendingUp, CloudSun, RefreshCw, PencilLine, ClipboardList, Loader2, Crown, Sparkles, MessageSquare } from 'lucide-react';
+import { KeyRound, Calendar, Zap, TrendingUp, CloudSun, RefreshCw, PencilLine, ClipboardList, Loader2, Crown, Sparkles, MessageSquare, ChevronRight } from 'lucide-react';
 import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
 
@@ -89,11 +89,6 @@ export default function DashboardClient({
   // Track which button is loading
   const [loadingCommand, setLoadingCommand] = useState<string | null>(null);
 
-  // Feedback state
-  const [feedbackText, setFeedbackText] = useState('');
-  const [feedbackStatus, setFeedbackStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
-  const [feedbackError, setFeedbackError] = useState<string | null>(null);
-
   const executeCommand = async (command: string, args?: string) => {
     // Show loading spinner in button
     const commandKey = args ? `${command}-${args}` : command;
@@ -150,61 +145,8 @@ export default function DashboardClient({
     router.push(`/${locale}/subscription?user_id=${user.id}`);
   };
 
-  const submitFeedback = async () => {
-    if (!feedbackText.trim() || feedbackStatus === 'submitting') return;
-
-    const trimmedText = feedbackText.trim();
-
-    // Client-side validation
-    if (trimmedText.length < 10) {
-      setFeedbackError(t('feedback.tooShort'));
-      return;
-    }
-    if (trimmedText.length > 1000) {
-      setFeedbackError(t('feedback.tooLong'));
-      return;
-    }
-
-    setFeedbackStatus('submitting');
-    setFeedbackError(null);
-
-    try {
-      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
-
-      const response = await fetch('/api/feedback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: trimmedText,
-          initData,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        setFeedbackStatus('success');
-        setFeedbackText('');
-        // Reset after 3 seconds
-        setTimeout(() => setFeedbackStatus('idle'), 3000);
-      } else {
-        setFeedbackStatus('error');
-        // Map error codes to translation keys
-        if (data.error === 'rateLimit') {
-          setFeedbackError(t('feedback.rateLimit'));
-        } else if (data.error === 'tooShort') {
-          setFeedbackError(t('feedback.tooShort'));
-        } else if (data.error === 'tooLong') {
-          setFeedbackError(t('feedback.tooLong'));
-        } else {
-          setFeedbackError(t('feedback.error'));
-        }
-      }
-    } catch (error) {
-      console.error('Feedback submission error:', error);
-      setFeedbackStatus('error');
-      setFeedbackError(t('feedback.error'));
-    }
+  const handleOpenFeedback = () => {
+    router.push(`/${locale}/feedback?user_id=${user.id}`);
   };
 
   return (
@@ -507,85 +449,39 @@ export default function DashboardClient({
             }
           }
 
-          .feedback-container {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-          }
-
-          .feedback-textarea {
-            width: 100%;
-            min-height: 100px;
-            padding: 12px;
-            border: 2px solid #e5e7eb;
-            border-radius: 8px;
-            font-size: 14px;
-            font-family: inherit;
-            resize: vertical;
-            transition: border-color 0.2s;
-          }
-
-          .feedback-textarea:focus {
-            outline: none;
-            border-color: #667eea;
-          }
-
-          .feedback-textarea:disabled {
-            background: #f9fafb;
-            cursor: not-allowed;
-          }
-
-          .feedback-footer {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-          }
-
-          .feedback-char-count {
-            font-size: 12px;
-            color: #9ca3af;
-          }
-
-          .feedback-submit-btn {
-            padding: 10px 20px;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 500;
+          .feedback-card {
+            background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
+            border: 2px solid #667eea;
+            border-radius: 12px;
+            padding: 16px 20px;
             cursor: pointer;
             transition: all 0.2s;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 12px;
+            margin-bottom: 20px;
           }
 
-          .feedback-submit-btn:hover:not(:disabled) {
-            background: #5a6fd6;
-            transform: translateY(-1px);
+          .feedback-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.25);
           }
 
-          .feedback-submit-btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
+          .feedback-card-icon {
+            color: #667eea;
+            flex-shrink: 0;
           }
 
-          .feedback-message {
-            padding: 10px 12px;
-            border-radius: 8px;
-            font-size: 13px;
-            text-align: center;
+          .feedback-card-text {
+            flex: 1;
+            font-size: 15px;
+            font-weight: 500;
+            color: #374151;
           }
 
-          .feedback-message.success {
-            background: #d1fae5;
-            color: #065f46;
-          }
-
-          .feedback-message.error {
-            background: #fee2e2;
-            color: #991b1b;
+          .feedback-card-arrow {
+            color: #667eea;
+            flex-shrink: 0;
           }
         `}</style>
 
@@ -610,6 +506,13 @@ export default function DashboardClient({
             </div>
           ) : (
             <>
+              {/* Feedback Card */}
+              <div className="feedback-card" onClick={handleOpenFeedback}>
+                <MessageSquare size={20} className="feedback-card-icon" />
+                <span className="feedback-card-text">{t('feedback.cardText') || t('feedback.title')}</span>
+                <ChevronRight size={18} className="feedback-card-arrow" />
+              </div>
+
               {/* Summary Section */}
               <Section title={t('summary.title')} icon={<Calendar size={20} />}>
                 <div className="button-group">
@@ -795,54 +698,6 @@ export default function DashboardClient({
                 </div>
               </Section>
 
-              {/* Feedback Section */}
-              <Section title={t('feedback.title')} icon={<MessageSquare size={20} />}>
-                <div className="feedback-container">
-                  {feedbackStatus === 'success' ? (
-                    <div className="feedback-message success">
-                      {t('feedback.success')}
-                    </div>
-                  ) : (
-                    <>
-                      <textarea
-                        className="feedback-textarea"
-                        placeholder={t('feedback.placeholder')}
-                        value={feedbackText}
-                        onChange={(e) => {
-                          setFeedbackText(e.target.value);
-                          setFeedbackError(null);
-                        }}
-                        maxLength={1000}
-                        disabled={feedbackStatus === 'submitting'}
-                      />
-                      {feedbackError && (
-                        <div className="feedback-message error">
-                          {feedbackError}
-                        </div>
-                      )}
-                      <div className="feedback-footer">
-                        <span className="feedback-char-count">
-                          {feedbackText.length}/1000
-                        </span>
-                        <button
-                          className="feedback-submit-btn"
-                          onClick={submitFeedback}
-                          disabled={feedbackStatus === 'submitting' || !feedbackText.trim()}
-                        >
-                          {feedbackStatus === 'submitting' ? (
-                            <>
-                              <Loader2 size={16} className="spinner" />
-                              {t('feedback.sending')}
-                            </>
-                          ) : (
-                            t('feedback.submit')
-                          )}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </Section>
             </>
           )}
         </div>
