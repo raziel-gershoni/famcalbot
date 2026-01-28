@@ -315,7 +315,7 @@ export default function FeedbackClient({ userId, locale }: FeedbackClientProps) 
 
           <textarea
             className={`feedback-textarea ${errorMessage ? 'error' : ''}`}
-            placeholder={t('feedback.inputPlaceholder') || t('feedback.placeholder')}
+            placeholder={t('feedback.placeholder')}
             value={feedbackText}
             onChange={(e) => {
               setFeedbackText(e.target.value);
