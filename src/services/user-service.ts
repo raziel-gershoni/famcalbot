@@ -7,7 +7,7 @@ import { encrypt, safeDecrypt } from '../utils/encryption';
  * Get user by Telegram ID
  * Drop-in replacement for getUserByTelegramId() in config/users.ts
  */
-export async function getUserByTelegramId(telegramId: number): Promise<UserConfig | null> {
+export async function getUserByTelegramId(telegramId: number | bigint): Promise<UserConfig | null> {
   const user = await withDbRetry(
     () => prisma.user.findUnique({
       where: { telegramId: BigInt(telegramId) }
@@ -37,8 +37,8 @@ export async function getUserByWhatsAppPhone(phone: string): Promise<UserConfig 
  * Get user by identifier (Telegram ID or WhatsApp phone)
  * Drop-in replacement for getUserByIdentifier() in config/users.ts
  */
-export async function getUserByIdentifier(id: number | string): Promise<UserConfig | null> {
-  if (typeof id === 'number') {
+export async function getUserByIdentifier(id: number | bigint | string): Promise<UserConfig | null> {
+  if (typeof id === 'number' || typeof id === 'bigint') {
     return await getUserByTelegramId(id);
   } else {
     return await getUserByWhatsAppPhone(id);
@@ -77,7 +77,7 @@ export async function getWhitelistedIds(): Promise<number[]> {
 /**
  * Update user settings
  */
-export async function updateUser(telegramId: number, data: Partial<PrismaUser>): Promise<UserConfig> {
+export async function updateUser(telegramId: number | bigint, data: Partial<PrismaUser>): Promise<UserConfig> {
   // Encrypt Google refresh token if provided
   const encryptedData = { ...data };
   if (data.googleRefreshToken) {
@@ -102,7 +102,7 @@ export async function updateUser(telegramId: number, data: Partial<PrismaUser>):
  * Update Google refresh token for a user
  */
 export async function updateGoogleRefreshToken(
-  telegramId: number,
+  telegramId: number | bigint,
   refreshToken: string
 ): Promise<UserConfig> {
   const updatedUser = await withDbRetry(
