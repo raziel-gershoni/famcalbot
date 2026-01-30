@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "OAuthState" ALTER COLUMN "userId" SET DATA TYPE BIGINT;

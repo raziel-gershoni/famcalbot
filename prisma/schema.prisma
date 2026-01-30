@@ -62,7 +62,7 @@ model User {
 
 model OAuthState {
   id        String   @id @default(cuid())
-  userId    Int
+  userId    BigInt
   token     String   @unique
   createdAt DateTime @default(now())
   expiresAt DateTime
