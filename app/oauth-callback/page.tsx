@@ -13,7 +13,7 @@ interface PageProps {
 }
 
 // Error page component
-function ErrorPage({ message, telegramId }: { message: string; telegramId?: number }) {
+function ErrorPage({ message, telegramId }: { message: string; telegramId?: bigint }) {
   return (
     <html>
       <head>
@@ -69,7 +69,7 @@ function ErrorPage({ message, telegramId }: { message: string; telegramId?: numb
 }
 
 // No refresh token error page
-function NoRefreshTokenPage({ telegramId }: { telegramId: number }) {
+function NoRefreshTokenPage({ telegramId }: { telegramId: bigint }) {
   return (
     <html>
       <head>
