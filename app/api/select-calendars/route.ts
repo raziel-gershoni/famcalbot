@@ -7,6 +7,7 @@ import { encrypt } from '@/src/utils/encryption';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { captureError } from '@/src/lib/error-capture';
+import { updateUserInCache } from '@/src/services/reminder-cache';
 
 /**
  * Sync spouse metadata across all spouse calendars
@@ -85,7 +86,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Update user with new calendarAssignments and globalRules
-    await withDbRetry(
+    const updatedUser = await withDbRetry(
       () => prisma.user.update({
         where: { telegramId: BigInt(auth.userId) },
         data: {
@@ -96,6 +97,19 @@ export async function POST(request: NextRequest) {
       }),
       'select-calendars.update'
     );
+
+    // Update reminder cache if user has reminders enabled (no extra DB query)
+    if (currentUser.remindersEnabled && currentUser.googleRefreshToken) {
+      await updateUserInCache({
+        id: updatedUser.id,
+        telegramId: updatedUser.telegramId?.toString() ?? '',
+        googleRefreshToken: currentUser.googleRefreshToken, // Use existing decrypted token
+        calendarAssignments: syncedAssignments,
+        defaultReminderMinutes: currentUser.defaultReminderMinutes ?? null,
+        language: currentUser.language,
+        name: currentUser.name,
+      });
+    }
 
     return NextResponse.json({
       success: true,

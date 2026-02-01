@@ -4,6 +4,7 @@ import { getUserByTelegramId, updateGoogleRefreshToken } from '@/src/services/us
 import { normalizeLocale } from '@/src/utils/locale';
 import { XCircle, AlertTriangle } from 'lucide-react';
 import { buildUrl } from '@/src/config/urls';
+import { updateUserInCache } from '@/src/services/reminder-cache';
 
 interface PageProps {
   searchParams: Promise<{
@@ -205,6 +206,19 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   // Save new refresh token
   try {
     await updateGoogleRefreshToken(telegramId, tokens.refresh_token);
+
+    // Update reminder cache if user has reminders enabled
+    if (user.remindersEnabled) {
+      await updateUserInCache({
+        id: user.id,
+        telegramId: user.telegramId?.toString() ?? '',
+        googleRefreshToken: tokens.refresh_token, // Fresh token (not encrypted)
+        calendarAssignments: user.calendarAssignments,
+        defaultReminderMinutes: user.defaultReminderMinutes ?? null,
+        language: user.language,
+        name: user.name,
+      });
+    }
 
     // Notify admin of successful token refresh
     const { notifyAdminWarning } = await import('@/src/utils/error-notifier');

@@ -9,6 +9,7 @@ import { prisma, withDbRetry } from '@/src/utils/prisma';
 import { verifyUserAccess } from '@/src/lib/telegram-auth';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { captureError } from '@/src/lib/error-capture';
+import { setGlobalRemindersEnabled } from '@/src/services/reminder-cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -99,6 +100,9 @@ export async function POST(request: NextRequest) {
         }),
         'admin-settings.update'
       );
+
+      // Sync to Redis cache (no extra DB query)
+      await setGlobalRemindersEnabled(remindersEnabled);
 
       console.log(`[admin-settings] Admin ${userId} set remindersEnabled to ${remindersEnabled}`);
 

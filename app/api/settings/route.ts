@@ -4,6 +4,7 @@ import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { setUserMenuButton } from '@/src/services/telegram';
+import { updateUserInCache, removeUserFromCache } from '@/src/services/reminder-cache';
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
       return auth.response;
     }
 
-    await updateUser(auth.userId, {
+    const updatedUser = await updateUser(auth.userId, {
       language: language || undefined,  // Locale code: 'he', 'en', 'ru'
       location: location || undefined,
       messagingPlatform: messagingPlatform || undefined,
@@ -33,6 +34,21 @@ export async function POST(request: NextRequest) {
       defaultReminderMinutes: typeof defaultReminderMinutes === 'number' ? defaultReminderMinutes : undefined,
       voiceInputEnabled: typeof voiceInputEnabled === 'boolean' ? voiceInputEnabled : undefined
     });
+
+    // Update reminder cache (no extra DB query - uses data from updateUser)
+    if (updatedUser.remindersEnabled && updatedUser.googleRefreshToken) {
+      await updateUserInCache({
+        id: updatedUser.id,
+        telegramId: updatedUser.telegramId?.toString() ?? '',
+        googleRefreshToken: updatedUser.googleRefreshToken, // Already decrypted by convertPrismaUserToConfig
+        calendarAssignments: updatedUser.calendarAssignments,
+        defaultReminderMinutes: updatedUser.defaultReminderMinutes ?? null,
+        language: updatedUser.language,
+        name: updatedUser.name,
+      });
+    } else {
+      await removeUserFromCache(updatedUser.id);
+    }
 
     // Update menu button when language changes
     if (language) {
