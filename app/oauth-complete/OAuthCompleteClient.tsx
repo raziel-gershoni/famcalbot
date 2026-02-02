@@ -1,12 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { CheckCircle2, ArrowRight } from 'lucide-react';
 
 interface Translations {
   title: string;
   subtitle: string;
-  countdown: string;
   button: string;
 }
 
@@ -17,34 +15,7 @@ interface OAuthCompleteClientProps {
 }
 
 export default function OAuthCompleteClient({ locale, botUsername, translations: t }: OAuthCompleteClientProps) {
-  const [countdown, setCountdown] = useState(3);
-  const [hasRedirected, setHasRedirected] = useState(false);
   const isRTL = locale === 'he';
-
-  useEffect(() => {
-    // Check if already redirected (prevents re-redirect on tab reactivation)
-    if (localStorage.getItem('oauth_redirected') === 'true') {
-      setHasRedirected(true);
-      return;
-    }
-
-    // Countdown timer
-    const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          // Mark as redirected before navigating
-          localStorage.setItem('oauth_redirected', 'true');
-          // Auto-redirect to Telegram
-          redirectToTelegram();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, []);
 
   const redirectToTelegram = () => {
     // Deep link to open Telegram bot
@@ -121,23 +92,6 @@ export default function OAuthCompleteClient({ locale, botUsername, translations:
             margin-bottom: 30px;
             line-height: 1.6;
           }
-          .countdown {
-            background: #f3f4f6;
-            padding: 20px;
-            border-radius: 12px;
-            margin-bottom: 25px;
-          }
-          .countdown-text {
-            color: #4b5563;
-            font-size: 14px;
-            margin-bottom: 8px;
-          }
-          .countdown-number {
-            font-size: 36px;
-            font-weight: 700;
-            color: #667eea;
-            font-feature-settings: 'tnum';
-          }
           .btn {
             display: inline-flex;
             align-items: center;
@@ -173,13 +127,6 @@ export default function OAuthCompleteClient({ locale, botUsername, translations:
 
           <h1>{t.title}</h1>
           <p className="subtitle">{t.subtitle}</p>
-
-          {countdown > 0 && !hasRedirected && (
-            <div className="countdown">
-              <div className="countdown-text">{t.countdown}</div>
-              <div className="countdown-number">{countdown}</div>
-            </div>
-          )}
 
           <button onClick={redirectToTelegram} className="btn">
             {t.button}

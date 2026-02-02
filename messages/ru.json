@@ -335,7 +335,6 @@
   "oauthComplete": {
     "title": "Успешно подключено!",
     "subtitle": "Ваш Google Календарь теперь подключён к FamCalBot.",
-    "countdown": "Возврат в Telegram через",
     "button": "Вернуться в Telegram"
   },
   "errors": {

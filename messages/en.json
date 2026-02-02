@@ -335,7 +335,6 @@
   "oauthComplete": {
     "title": "Successfully Connected!",
     "subtitle": "Your Google Calendar is now connected to FamCalBot.",
-    "countdown": "Returning to Telegram in",
     "button": "Return to Telegram"
   },
   "errors": {

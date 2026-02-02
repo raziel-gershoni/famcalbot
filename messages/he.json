@@ -335,7 +335,6 @@
   "oauthComplete": {
     "title": "התחברות הצליחה!",
     "subtitle": "יומן Google שלך מחובר כעת ל-FamCalBot.",
-    "countdown": "חוזר לטלגרם בעוד",
     "button": "חזור לטלגרם"
   },
   "errors": {
