@@ -320,7 +320,18 @@
     "authorize": "אשר יומן Google",
     "success": "התחברות הצליחה!",
     "error": "ההרשאה נכשלה",
-    "redirecting": "מעביר..."
+    "redirecting": "מעביר...",
+    "insufficientScopes": {
+      "title": "נדרשות הרשאות",
+      "description": "FamCal צריך את <strong>שתי</strong> ההרשאות כדי לעבוד כראוי.",
+      "checkAll": "אנא סמן את כל התיבות במסך של Google:",
+      "viewCalendar": "צפייה ביומן",
+      "viewCalendarDesc": "לסיכומים יומיים",
+      "editEvents": "עריכת אירועים",
+      "editEventsDesc": "לפקודות קוליות",
+      "footnote": "ללא שתי ההרשאות, FamCal לא יוכל לספק סיכומים או ליצור אירועים.",
+      "tryAgain": "נסה שוב"
+    }
   },
   "refreshToken": {
     "title": "רענון גישה ליומן",

@@ -5,6 +5,7 @@ import { normalizeLocale } from '@/src/utils/locale';
 import { XCircle, AlertTriangle } from 'lucide-react';
 import { buildUrl } from '@/src/config/urls';
 import { updateUserInCache } from '@/src/services/reminder-cache';
+import { getTranslations } from 'next-intl/server';
 
 interface PageProps {
   searchParams: Promise<{
@@ -127,6 +128,100 @@ function NoRefreshTokenPage({ telegramId }: { telegramId: bigint }) {
   );
 }
 
+// Insufficient scopes error page - shown when user deselects permissions on Google consent screen
+async function InsufficientScopesPage({ telegramId, missingScopes, locale }: { telegramId: bigint; missingScopes: string[]; locale: string }) {
+  const t = await getTranslations({ locale, namespace: 'oauth.insufficientScopes' });
+  const missingRead = missingScopes.some(s => s.includes('readonly'));
+  const missingWrite = missingScopes.some(s => s.includes('events'));
+  const isRtl = locale === 'he';
+
+  return (
+    <html dir={isRtl ? 'rtl' : 'ltr'}>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <script src="https://telegram.org/js/telegram-web-app.js"></script>
+        <style>{`
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            padding: 20px;
+          }
+          .container {
+            background: white;
+            padding: 40px;
+            border-radius: 15px;
+            max-width: 420px;
+            text-align: center;
+          }
+          h2 { margin: 0 0 15px 0; color: #333; }
+          p { color: #666; line-height: 1.6; margin-bottom: 15px; }
+          .highlight {
+            background: #fef3c7;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: ${isRtl ? 'right' : 'left'};
+          }
+          .highlight strong { color: #92400e; }
+          .permission {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 6px;
+          }
+          .permission.granted { background: #d1fae5; }
+          .permission.missing { background: #fee2e2; }
+          .checkbox { font-size: 20px; }
+          .btn {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 15px 30px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+          }
+        `}</style>
+      </head>
+      <body>
+        <div className="container">
+          <div style={{ fontSize: '48px', marginBottom: '15px' }}>&#9888;&#65039;</div>
+          <h2>{t('title')}</h2>
+          <p dangerouslySetInnerHTML={{ __html: t('description') }} />
+
+          <div className="highlight">
+            <strong>{t('checkAll')}</strong>
+            <div className={`permission ${missingRead ? 'missing' : 'granted'}`}>
+              <span className="checkbox">{missingRead ? '☐' : '☑️'}</span>
+              <span><strong>{t('viewCalendar')}</strong> — {t('viewCalendarDesc')}</span>
+            </div>
+            <div className={`permission ${missingWrite ? 'missing' : 'granted'}`}>
+              <span className="checkbox">{missingWrite ? '☐' : '☑️'}</span>
+              <span><strong>{t('editEvents')}</strong> — {t('editEventsDesc')}</span>
+            </div>
+          </div>
+
+          <p style={{ fontSize: '14px', color: '#888' }}>
+            {t('footnote')}
+          </p>
+
+          <a href={`/refresh-token?user_id=${telegramId}`} className="btn">
+            {t('tryAgain')}
+          </a>
+        </div>
+      </body>
+    </html>
+  );
+}
+
 export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const { code, state } = params;
@@ -192,18 +287,33 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
 
   const tokens = await tokenResponse.json();
 
-  if (!tokens.refresh_token) {
-    // No refresh token - need to revoke and retry
-    return <NoRefreshTokenPage telegramId={telegramId} />;
-  }
-
-  // Get user to verify
+  // Get user to verify and get locale for i18n
   const user = await getUserByTelegramId(telegramId);
   if (!user) {
     return <ErrorPage message="User not found" telegramId={telegramId} />;
   }
 
-  // Save new refresh token
+  const userLocale = normalizeLocale(user.language);
+
+  // Check if all required scopes were granted
+  const REQUIRED_SCOPES = [
+    'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/calendar.events'
+  ];
+
+  const grantedScopes = (tokens.scope || '').split(' ');
+  const missingScopes = REQUIRED_SCOPES.filter(s => !grantedScopes.includes(s));
+
+  if (missingScopes.length > 0) {
+    return <InsufficientScopesPage telegramId={telegramId} missingScopes={missingScopes} locale={userLocale} />;
+  }
+
+  if (!tokens.refresh_token) {
+    // No refresh token - need to revoke and retry
+    return <NoRefreshTokenPage telegramId={telegramId} />;
+  }
+
+  // Save new refresh token (user already verified above)
   try {
     await updateGoogleRefreshToken(telegramId, tokens.refresh_token);
 
@@ -237,7 +347,5 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   }
 
   // Redirect to success page which will guide user back to Telegram
-  // normalizeLocale handles legacy values like 'Hebrew' -> 'he'
-  const userLocale = normalizeLocale(user.language);
   redirect(`/oauth-complete?user_id=${telegramId}&locale=${userLocale}`);
 }

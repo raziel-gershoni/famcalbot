@@ -320,7 +320,18 @@
     "authorize": "Authorize Google Calendar",
     "success": "Successfully connected!",
     "error": "Authorization failed",
-    "redirecting": "Redirecting..."
+    "redirecting": "Redirecting...",
+    "insufficientScopes": {
+      "title": "Permissions Required",
+      "description": "FamCal needs <strong>both</strong> permissions to work properly.",
+      "checkAll": "Please check ALL boxes on Google's screen:",
+      "viewCalendar": "View calendar",
+      "viewCalendarDesc": "for daily summaries",
+      "editEvents": "Edit events",
+      "editEventsDesc": "for voice commands",
+      "footnote": "Without both permissions, FamCal cannot provide summaries or create events.",
+      "tryAgain": "Try Again"
+    }
   },
   "refreshToken": {
     "title": "Refresh Calendar Access",
