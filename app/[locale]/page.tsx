@@ -100,8 +100,24 @@ export default async function LandingPage({ params }: Props) {
           right: 0;
           padding: 1rem 2rem;
           display: flex;
-          justify-content: flex-end;
+          justify-content: space-between;
+          align-items: center;
           z-index: 100;
+        }
+
+        .logo {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          text-decoration: none;
+          color: var(--text-primary);
+          font-weight: 600;
+          font-size: 1.2rem;
+        }
+
+        .logo img {
+          width: 32px;
+          height: 32px;
         }
 
         .lang-switcher {
@@ -442,8 +458,12 @@ export default async function LandingPage({ params }: Props) {
         }
       `}</style>
 
-      {/* Header with language switcher */}
+      {/* Header with logo and language switcher */}
       <header className="header">
+        <a href="/" className="logo">
+          <img src="/icon.png" alt="FamCal" />
+          <span>FamCal</span>
+        </a>
         <nav className="lang-switcher">
           <Link href="/en" className={locale === 'en' ? 'active' : ''}>
             EN
