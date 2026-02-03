@@ -578,5 +578,115 @@
       "oneTimePayment": "One-time (1 month)",
       "recurringPayment": "Auto-renew monthly"
     }
+  },
+  "landing": {
+    "hero": {
+      "badge": "Telegram Bot",
+      "subtitle": "AI-powered summaries delivered to Telegram. Listen as voice messages, create events by talking. Your family calendar finally works for you.",
+      "cta": "Start Free Trial",
+      "ctaSecondary": "No credit card required \u2022 14-day free trial"
+    },
+    "headlines": [
+      "Stop asking \"who's picking up the kids?\" in the family chat.",
+      "Because nobody checks the shared Google Calendar.",
+      "Daily family schedule, delivered to Telegram. Automatically.",
+      "One message every morning. Everyone knows the plan.",
+      "Built by a dad of 5 who was tired of the scheduling chaos.",
+      "The family calendar that reads itself out loud.",
+      "Telegram bot. Family schedule. Zero chaos."
+    ],
+    "features": {
+      "voiceSummaries": {
+        "title": "Voice Summaries",
+        "description": "Listen to your daily schedule as a 30-45 second audio clip. Perfect while getting ready or driving."
+      },
+      "voiceCommands": {
+        "title": "Voice Commands",
+        "description": "Create, edit, or delete events by sending voice messages. No typing needed."
+      },
+      "aiSummaries": {
+        "title": "AI-Powered Summaries",
+        "description": "Not just event lists - natural, personalized briefings that tell you what matters today."
+      },
+      "multiCalendar": {
+        "title": "Multi-Calendar Sync",
+        "description": "Connect yours, your spouse's, kids' calendars - all in one summary with automatic attribution."
+      },
+      "conflictDetection": {
+        "title": "Conflict Detection",
+        "description": "Warns you when events overlap or when someone is double-booked."
+      },
+      "weather": {
+        "title": "Weather Integration",
+        "description": "Location-based forecast woven into your morning summary. Dress the kids accordingly."
+      },
+      "reminders": {
+        "title": "Smart Reminders",
+        "description": "Customizable alerts. For kids' events, get reminded for both start AND pickup times."
+      },
+      "hebrewCalendar": {
+        "title": "Hebrew Calendar",
+        "description": "Hebrew dates with Gematria, Shabbat times, holidays, Rosh Chodesh - all built in."
+      },
+      "multiLanguage": {
+        "title": "Multi-Language",
+        "description": "Hebrew, English, Russian, Spanish, French, German. Summaries in your preferred language."
+      }
+    },
+    "howItWorks": {
+      "title": "How it works",
+      "step1": {
+        "title": "Start the bot",
+        "description": "Open Telegram, search for @family_calendar_telegram_bot, and hit Start."
+      },
+      "step2": {
+        "title": "Connect your calendar",
+        "description": "One-click Google Calendar authorization. Your data stays yours."
+      },
+      "step3": {
+        "title": "Wake up informed",
+        "description": "Every morning, your family gets the day's schedule. Read it or listen to it. Automatically."
+      }
+    },
+    "pricing": {
+      "title": "Simple pricing",
+      "subtitle": "Start free, upgrade when you need more.",
+      "note": "14-day free trial with full Pro access. No credit card required.",
+      "free": {
+        "name": "Free",
+        "price": "$0",
+        "features": ["10 text summaries/month", "3 voice summaries/month", "Up to 3 calendars"],
+        "cta": "Get Started"
+      },
+      "basic": {
+        "name": "Basic",
+        "badge": "Most Popular",
+        "price": "$3",
+        "period": "/month",
+        "features": ["Unlimited text summaries", "Unlimited voice summaries", "Up to 5 calendars"],
+        "cta": "Start Free Trial"
+      },
+      "pro": {
+        "name": "Pro",
+        "price": "$6",
+        "period": "/month",
+        "features": ["Everything in Basic", "Unlimited calendars", "Smart reminders", "Create events by voice"],
+        "cta": "Start Free Trial"
+      }
+    },
+    "personalNote": {
+      "text": "Built by a dad of 5 who was tired of the \"wait, who's picking up who today?\" chaos. I built this for my own family first. Now I'm sharing it with yours.",
+      "feedback": "Questions or feedback? {link} - I read everything.",
+      "feedbackLink": "Message me"
+    },
+    "footer": {
+      "copyright": "FamCal \u00a9 2026"
+    },
+    "meta": {
+      "title": "FamCal - AI Family Calendar Bot for Telegram",
+      "description": "AI-powered family calendar bot for Telegram. Voice summaries, voice commands, multi-calendar sync, Hebrew calendar support. Stop asking 'who's picking up the kids?' in the group chat.",
+      "ogTitle": "FamCal - AI Family Calendar Bot for Telegram",
+      "ogDescription": "Voice summaries, voice commands, multi-calendar sync. The family calendar that reads itself out loud."
+    }
   }
 }
