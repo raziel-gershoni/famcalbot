@@ -48,7 +48,6 @@ export default async function LandingPage({ params }: Props) {
   const t = await getTranslations({ locale, namespace: 'landing' });
 
   const headlines = t.raw('headlines') as string[];
-  const isRTL = locale === 'he';
 
   const features = [
     { key: 'voiceSummaries', icon: '🎙️' },
@@ -84,9 +83,14 @@ export default async function LandingPage({ params }: Props) {
         }
 
         body {
-          font-family: ${isRTL ? "'Heebo'" : "'Inter'"}, -apple-system, BlinkMacSystemFont, sans-serif;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
           color: var(--text-primary);
-          line-height: ${isRTL ? '1.7' : '1.6'};
+          line-height: 1.6;
+        }
+
+        [dir="rtl"] body {
+          font-family: 'Heebo', -apple-system, BlinkMacSystemFont, sans-serif;
+          line-height: 1.7;
         }
 
         .header {
@@ -96,8 +100,12 @@ export default async function LandingPage({ params }: Props) {
           right: 0;
           padding: 1rem 2rem;
           display: flex;
-          justify-content: ${isRTL ? 'flex-start' : 'flex-end'};
+          justify-content: flex-end;
           z-index: 100;
+        }
+
+        [dir="rtl"] .header {
+          justify-content: flex-start;
         }
 
         .lang-switcher {
@@ -146,7 +154,7 @@ export default async function LandingPage({ params }: Props) {
         }
 
         .hero h1 {
-          font-size: clamp(${isRTL ? '1.8rem' : '2rem'}, 5vw, ${isRTL ? '3rem' : '3.5rem'});
+          font-size: clamp(2rem, 5vw, 3.5rem);
           font-weight: 700;
           margin-bottom: 1rem;
           max-width: 700px;
@@ -156,11 +164,20 @@ export default async function LandingPage({ params }: Props) {
           justify-content: center;
         }
 
+        [dir="rtl"] .hero h1 {
+          font-size: clamp(1.8rem, 5vw, 3rem);
+        }
+
         .hero .subtitle {
-          font-size: ${isRTL ? '1.2rem' : '1.25rem'};
+          font-size: 1.25rem;
           color: var(--text-secondary);
-          max-width: ${isRTL ? '550px' : '500px'};
+          max-width: 500px;
           margin-bottom: 2rem;
+        }
+
+        [dir="rtl"] .hero .subtitle {
+          font-size: 1.2rem;
+          max-width: 550px;
         }
 
         .cta-group {
@@ -212,6 +229,7 @@ export default async function LandingPage({ params }: Props) {
           padding: 2rem;
           border-radius: 12px;
           box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+          text-align: start;
         }
 
         .feature-icon {
@@ -252,7 +270,7 @@ export default async function LandingPage({ params }: Props) {
           display: flex;
           align-items: flex-start;
           gap: 1.5rem;
-          text-align: ${isRTL ? 'right' : 'left'};
+          text-align: start;
         }
 
         .step-number {
@@ -344,7 +362,7 @@ export default async function LandingPage({ params }: Props) {
         .pricing-features {
           list-style: none;
           margin: 2rem 0;
-          text-align: ${isRTL ? 'right' : 'left'};
+          text-align: start;
         }
 
         .pricing-features li {
