@@ -84,9 +84,6 @@ export const PLAN_CONFIGS: Record<PlanId, PlanConfig> = {
 // Trial duration in days
 export const TRIAL_DURATION_DAYS = 14;
 
-// Subscription period in seconds (30 days for Telegram Stars)
-export const SUBSCRIPTION_PERIOD_SECONDS = 2592000;
-
 /**
  * Get plan configuration by ID
  */

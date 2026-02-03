@@ -43,6 +43,7 @@ export type ActivityAction =
   | 'subscription_canceled'
   | 'subscription_renewed'
   | 'subscription_expired'
+  | 'subscription_reminder_sent'
   // Feature gating
   | 'feature_blocked'
   // Error tracking (NEW)

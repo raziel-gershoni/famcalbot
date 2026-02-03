@@ -577,6 +577,32 @@
       "selectPaymentType": "⭐{price}/month\n\nChoose payment type:",
       "oneTimePayment": "One-time (1 month)",
       "recurringPayment": "Auto-renew monthly"
+    },
+    "reminders": {
+      "expiringSoon": {
+        "title": "🌟 Heads up! Your FamCal {plan} renews in {days} days",
+        "usage": "Your family has used:",
+        "textUsage": "{count} text summaries",
+        "voiceUsage": "{count} voice messages",
+        "eventUsage": "{count} voice-created events",
+        "cta": "Keep the magic going for just ⭐{price}/month",
+        "button": "💫 Renew Subscription"
+      },
+      "lastDay": {
+        "title": "⏰ Last day to renew your FamCal subscription!",
+        "warning": "Tomorrow you'll switch to the Free plan:",
+        "limitedText": "{limit} text summaries (was unlimited)",
+        "limitedVoice": "{limit} voice messages (was unlimited)",
+        "noVoiceEvents": "No voice event creation",
+        "cta": "Stay organized - renew now:",
+        "button": "💫 Renew for ⭐{price}"
+      },
+      "expired": {
+        "title": "📅 Your FamCal subscription has ended",
+        "body": "You're now on the Free plan. No worries - your calendars and settings are safe!",
+        "cta": "Miss the unlimited features? Resubscribe anytime:",
+        "button": "💫 Get {plan} - ⭐{price}/month"
+      }
     }
   },
   "landing": {

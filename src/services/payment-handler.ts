@@ -201,13 +201,12 @@ export async function handleSuccessfulPayment(
 /**
  * Send subscription invoice to user
  * Called when user clicks upgrade button
- * @param recurring - If true, uses Telegram's subscription feature (requires BotFather config)
+ * Uses manual renewal model - subscriptions run until end of month
  */
 export async function sendSubscriptionInvoice(
   chatId: number,
   userId: number,  // Internal DB user ID
-  plan: PlanId,
-  recurring: boolean = false
+  plan: PlanId
 ): Promise<void> {
   const bot = getBot();
   // Get user by internal DB ID (not Telegram ID)
@@ -243,26 +242,13 @@ export async function sendSubscriptionInvoice(
     user_id: userId,
     plan,
     action,
-    recurring,
     amount: planConfig.priceStars,
   }, 'payment');
 
-  if (recurring) {
-    // Recurring subscription (requires subscription export URL in BotFather)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (bot as any).sendInvoice(chatId, title, description, JSON.stringify(payload), '', 'XTR', [
-      { label: `${planConfig.name} Plan (Monthly)`, amount: planConfig.priceStars },
-    ], {
-      subscription_period: 2592000, // 30 days in seconds
-    });
-    addBreadcrumb('invoice_sent', { recurring: true }, 'payment');
-    console.log(`[Payment] Recurring invoice sent to user ${userId} for plan ${plan}`);
-  } else {
-    // One-time payment
-    await bot.sendInvoice(chatId, title, description, JSON.stringify(payload), '', 'XTR', [
-      { label: `${planConfig.name} Plan (1 Month)`, amount: planConfig.priceStars },
-    ]);
-    addBreadcrumb('invoice_sent', { recurring: false }, 'payment');
-    console.log(`[Payment] One-time invoice sent to user ${userId} for plan ${plan}`);
-  }
+  // One-time payment (manual renewal model - no recurring subscriptions)
+  await bot.sendInvoice(chatId, title, description, JSON.stringify(payload), '', 'XTR', [
+    { label: `${planConfig.name} Plan (1 Month)`, amount: planConfig.priceStars },
+  ]);
+  addBreadcrumb('invoice_sent', { recurring: false }, 'payment');
+  console.log(`[Payment] Invoice sent to user ${userId} for plan ${plan}`);
 }

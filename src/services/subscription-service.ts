@@ -29,6 +29,26 @@ export interface SubscriptionWithUsage {
 }
 
 // ============================================
+// BILLING HELPERS
+// ============================================
+
+/**
+ * Calculate subscription end date (1st of next month)
+ * If subscribing after the 25th, extend to the month after next
+ */
+export function getSubscriptionEndDate(fromDate: Date = new Date()): Date {
+  const day = fromDate.getDate();
+
+  if (day > 25) {
+    // Late in month - extend to month after next
+    return new Date(fromDate.getFullYear(), fromDate.getMonth() + 2, 1);
+  }
+
+  // Normal - extend to 1st of next month
+  return new Date(fromDate.getFullYear(), fromDate.getMonth() + 1, 1);
+}
+
+// ============================================
 // SUBSCRIPTION MANAGEMENT
 // ============================================
 
@@ -121,6 +141,7 @@ export async function getSubscriptionWithUsage(userId: number): Promise<Subscrip
 
 /**
  * Upgrade subscription to a new plan
+ * Subscription runs until the 1st of next month (or month after if late in month)
  */
 export async function upgradeSubscription(
   userId: number,
@@ -131,7 +152,7 @@ export async function upgradeSubscription(
   const fromPlan = existing.plan;
 
   const now = new Date();
-  const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
+  const periodEnd = getSubscriptionEndDate(now);
 
   const updated = await withDbRetry(
     () => prisma.subscription.update({
@@ -154,7 +175,7 @@ export async function upgradeSubscription(
     to_plan: newPlan,
   });
 
-  console.log(`[Subscription] User ${userId} upgraded from ${fromPlan} to ${newPlan}`);
+  console.log(`[Subscription] User ${userId} upgraded from ${fromPlan} to ${newPlan}, valid until ${periodEnd.toISOString()}`);
 
   return updated;
 }
@@ -221,7 +242,8 @@ async function expireTrialSubscription(userId: number): Promise<Subscription> {
 }
 
 /**
- * Renew subscription (called on successful recurring payment)
+ * Renew subscription (called on successful manual payment)
+ * Subscription runs until the 1st of next month
  */
 export async function renewSubscription(
   userId: number,
@@ -233,7 +255,7 @@ export async function renewSubscription(
   }
 
   const now = new Date();
-  const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const periodEnd = getSubscriptionEndDate(now);
 
   const updated = await withDbRetry(
     () => prisma.subscription.update({
@@ -253,7 +275,7 @@ export async function renewSubscription(
     plan: existing.plan,
   });
 
-  console.log(`[Subscription] Subscription renewed for user ${userId}`);
+  console.log(`[Subscription] Subscription renewed for user ${userId}, valid until ${periodEnd.toISOString()}`);
 
   return updated;
 }

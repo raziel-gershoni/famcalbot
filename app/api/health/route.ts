@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/src/utils/prisma';
+import { processSubscriptionReminders } from '@/src/services/subscription-reminders';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,11 @@ export async function GET() {
   } else {
     checks.environment = 'ok';
   }
+
+  // Process subscription reminders (fire and forget, don't block health check)
+  processSubscriptionReminders().catch(err =>
+    console.error('[Health] Subscription reminder error:', err)
+  );
 
   return NextResponse.json(
     {
