@@ -71,8 +71,17 @@ async function getWebhookInfo() {
  */
 async function setWebhook(url: string) {
   try {
-    await telegramRequest('/setWebhook', { url });
+    const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    await telegramRequest('/setWebhook', {
+      url,
+      ...(secret && { secret_token: secret }),
+    });
     console.log(`\n✅ Webhook set successfully to: ${url}`);
+    if (secret) {
+      console.log('🔐 Secret token configured for webhook validation');
+    } else {
+      console.log('⚠️  No TELEGRAM_WEBHOOK_SECRET set - webhook will accept requests without validation');
+    }
     console.log('\n📝 Now test by sending /start, /help, or /summary to your bot');
   } catch (error) {
     console.error('\n❌ Error setting webhook:', error);
