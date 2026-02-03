@@ -431,7 +431,7 @@ export default async function LandingPage({ params }: Props) {
       {/* Header with language switcher */}
       <header className="header">
         <nav className="lang-switcher">
-          <Link href="/" className={locale === 'en' ? 'active' : ''}>
+          <Link href="/en" className={locale === 'en' ? 'active' : ''}>
             EN
           </Link>
           <Link href="/he" className={locale === 'he' ? 'active' : ''}>
