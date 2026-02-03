@@ -16,11 +16,42 @@ export class DatabaseConnectionError extends Error {
   }
 }
 
+export class InsufficientScopesError extends Error {
+  constructor(public userId: number, message = 'Google Calendar token has insufficient scopes') {
+    super(message);
+    this.name = 'InsufficientScopesError';
+  }
+}
+
+/**
+ * Check if error is specifically an insufficient scopes error
+ * This happens when user deselected permissions on Google consent screen
+ */
+export function isInsufficientScopesError(error: any): boolean {
+  if (!error) return false;
+
+  const message = error.message?.toLowerCase() || '';
+  const code = error.code;
+
+  // Google API returns 403 with specific scope-related messages
+  return (
+    code === 403 &&
+    (message.includes('insufficient') ||
+     message.includes('scope') ||
+     message.includes('insufficientpermissions'))
+  );
+}
+
 export function isTokenError(error: any): boolean {
   if (!error) return false;
 
   const message = error.message?.toLowerCase() || '';
   const code = error.code;
+
+  // Don't treat scope errors as token errors - they need different handling
+  if (isInsufficientScopesError(error)) {
+    return false;
+  }
 
   return (
     code === 401 ||

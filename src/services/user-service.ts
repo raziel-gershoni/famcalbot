@@ -120,6 +120,25 @@ export async function updateGoogleRefreshToken(
 }
 
 /**
+ * Clear Google refresh token for a user (used when token has insufficient scopes)
+ * Sets to empty string since the field is required in the schema
+ */
+export async function clearGoogleRefreshToken(
+  telegramId: number | bigint
+): Promise<void> {
+  await withDbRetry(
+    () => prisma.user.update({
+      where: { telegramId: BigInt(telegramId) },
+      data: {
+        googleRefreshToken: '',
+        updatedAt: new Date()
+      }
+    }),
+    'clearGoogleRefreshToken'
+  );
+}
+
+/**
  * Map Telegram language code to our supported locales
  */
 function mapTelegramLanguage(code?: string): string {

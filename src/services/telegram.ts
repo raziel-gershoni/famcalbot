@@ -990,6 +990,36 @@ async function sendSummaryToUser(
 
     console.error(`Error sending summary to user ${userId}:`, error);
 
+    // Check if it's an insufficient scopes error (user deselected permissions)
+    if (error instanceof Error && error.message === 'GOOGLE_INSUFFICIENT_SCOPES') {
+      const t = await getBotMessages(userLanguage);
+      const refreshUrl = buildUrl(`/refresh-token?user_id=${userId}`);
+      const scopesMessage = `${t.insufficientScopes.title}\n\n${t.insufficientScopes.message}`;
+      await messagingService.updateMessage(userId, messageId, scopesMessage, {
+        format: MessageFormat.HTML
+      });
+      // Send refresh button as new message (can't add inline keyboard when editing)
+      await messagingService.sendMessage(userId, t.insufficientScopes.tapToRefresh, {
+        replyMarkup: {
+          inline_keyboard: [[
+            { text: t.buttons.refreshGoogle, web_app: { url: refreshUrl } }
+          ]]
+        }
+      });
+
+      // Clear the token so user must re-authorize
+      const { clearGoogleRefreshToken } = await import('./user-service');
+      await clearGoogleRefreshToken(BigInt(userId));
+
+      // Notify admin
+      const { notifyAdminWarning } = await import('../utils/error-notifier');
+      await notifyAdminWarning(
+        'Insufficient Scopes',
+        `User ${userId} has a token with insufficient scopes. Token cleared, awaiting re-authorization.`
+      );
+      return;
+    }
+
     // Check if it's a token expiration error
     if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
       const t = await getBotMessages(userLanguage);

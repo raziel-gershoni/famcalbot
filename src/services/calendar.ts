@@ -5,7 +5,7 @@ import { fromZonedTime } from 'date-fns-tz';
 import { addDays, format } from 'date-fns';
 import { TIMEZONE } from '../config/constants';
 import { ALERT_MESSAGES } from '../config/messages';
-import { isTokenError } from '../utils/errors';
+import { isTokenError, isInsufficientScopesError } from '../utils/errors';
 
 // Re-export TIMEZONE and CalendarEvent for convenience
 export { TIMEZONE };
@@ -139,6 +139,11 @@ async function fetchEvents(
     } catch (error) {
       console.error(`Error fetching calendar ${calendarId}:`, error);
 
+      // If it's an insufficient scopes error, re-throw so calling code can handle it
+      if (isInsufficientScopesError(error)) {
+        throw new Error('GOOGLE_INSUFFICIENT_SCOPES');
+      }
+
       // If it's a token error, re-throw so calling code can handle it
       if (isTokenError(error)) {
         throw new Error('GOOGLE_TOKEN_EXPIRED');
@@ -203,19 +208,36 @@ export async function listUserCalendars(refreshToken: string): Promise<CalendarI
 
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
-  const response = await calendar.calendarList.list({
-    showHidden: true,  // Include hidden calendars like birthdays
-  });
-  const calendars = response.data.items || [];
+  try {
+    const response = await calendar.calendarList.list({
+      showHidden: true,  // Include hidden calendars like birthdays
+    });
+    const calendars = response.data.items || [];
 
-  return calendars.map(cal => ({
-    id: cal.id || '',
-    name: cal.summary || 'Unnamed Calendar',
-    description: cal.description || '',
-    primary: cal.primary || false,
-    accessRole: cal.accessRole || 'reader',
-    backgroundColor: cal.backgroundColor || '#039BE5'
-  }));
+    return calendars.map(cal => ({
+      id: cal.id || '',
+      name: cal.summary || 'Unnamed Calendar',
+      description: cal.description || '',
+      primary: cal.primary || false,
+      accessRole: cal.accessRole || 'reader',
+      backgroundColor: cal.backgroundColor || '#039BE5'
+    }));
+  } catch (error) {
+    console.error('Error listing user calendars:', error);
+
+    // If it's an insufficient scopes error, re-throw with specific message
+    if (isInsufficientScopesError(error)) {
+      throw new Error('GOOGLE_INSUFFICIENT_SCOPES');
+    }
+
+    // If it's a token error, re-throw with specific message
+    if (isTokenError(error)) {
+      throw new Error('GOOGLE_TOKEN_EXPIRED');
+    }
+
+    // Re-throw other errors
+    throw error;
+  }
 }
 
 /**

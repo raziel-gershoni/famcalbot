@@ -397,6 +397,11 @@
       "message": "Your Google Calendar access has expired. Please refresh your token to continue receiving summaries.",
       "tapToRefresh": "Tap below to refresh:"
     },
+    "insufficientScopes": {
+      "title": "⚠️ <b>Missing Permissions</b>",
+      "message": "FamCal needs both \"View calendar\" and \"Edit events\" permissions to work properly. Please reconnect and make sure to check ALL permission boxes on Google's screen.",
+      "tapToRefresh": "Tap below to reconnect:"
+    },
     "weather": {
       "specifyFormat": "🌤️ Please specify format: \"std\" for standard or \"dtl\" for detailed"
     },
