@@ -272,7 +272,7 @@ export async function sendReminder(
     }
 
     // Track reminder sent and increment usage
-    trackActivityAsync(user.telegramId, 'reminder_sent', {
+    trackActivityAsync(user.id, 'reminder_sent', {
       reminder_type: reminder.type,
       minutes_before: getReminderMinutes(reminder.event, user.defaultReminderMinutes ?? undefined).minutes,
     });

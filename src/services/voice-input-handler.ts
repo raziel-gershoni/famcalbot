@@ -1055,10 +1055,10 @@ export async function handleEventCallback(
       }
 
       // Track voice event created and increment usage
-      trackActivityAsync(user.telegramId, 'voice_event_created', {
+      trackActivityAsync(user.id, 'voice_event_created', {
         calendar_id: event.calendarId || 'primary',
       });
-      incrementUsage(user.telegramId, 'voiceEvents').catch(err =>
+      incrementUsage(user.id, 'voiceEvents').catch(err =>
         console.error('[Subscription] Failed to increment voice events:', err)
       );
 

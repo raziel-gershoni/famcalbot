@@ -74,7 +74,7 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
   await withDbRetry(
     () => prisma.oAuthState.create({
       data: {
-        userId: parseInt(user_id),
+        userId: BigInt(user_id),
         token: stateToken,
         expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
       }
