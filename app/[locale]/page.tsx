@@ -567,10 +567,7 @@ export default async function LandingPage({ params }: Props) {
             {t('personalNote.text').split('.').slice(1).join('.')}
           </p>
           <p style={{ marginTop: '1rem' }}>
-            {t('personalNote.feedback').replace(
-              '{link}',
-              ''
-            )}
+            {t('personalNote.feedback').split('{link}')[0]}
             <a href={feedbackUrl}>{t('personalNote.feedbackLink')}</a>
             {t('personalNote.feedback').split('{link}')[1]}
           </p>
