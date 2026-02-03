@@ -276,7 +276,7 @@ export async function sendReminder(
       reminder_type: reminder.type,
       minutes_before: getReminderMinutes(reminder.event, user.defaultReminderMinutes ?? undefined).minutes,
     });
-    incrementUsage(user.telegramId, 'reminders').catch(err =>
+    incrementUsage(user.id, 'reminders').catch(err =>
       console.error('[Subscription] Failed to increment reminders:', err)
     );
 
@@ -295,7 +295,7 @@ export async function sendReminder(
  */
 export async function processUserReminders(user: UserConfig, windowMinutes: number = 5): Promise<number> {
   // Check subscription feature access for reminders (Pro feature)
-  const reminderAccess = await checkFeatureAccess(user.telegramId, 'reminders');
+  const reminderAccess = await checkFeatureAccess(user.id, 'reminders');
   if (!reminderAccess.allowed) {
     // User doesn't have reminder access, skip silently
     return 0;
