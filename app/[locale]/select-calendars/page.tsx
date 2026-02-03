@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { getUserByTelegramId } from '@/src/services/user-service';
+import { getUserByTelegramId, clearGoogleRefreshToken } from '@/src/services/user-service';
 import { normalizeLocale } from '@/src/utils/locale';
 import { listUserCalendars } from '@/src/services/calendar';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
@@ -147,6 +147,15 @@ export default async function SelectCalendarsPage({ params, searchParams }: Page
     );
   } catch (error) {
     console.error('Error listing calendars:', error);
+
+    // Handle insufficient scopes - clear token and redirect to re-authorize
+    if (error instanceof Error && error.message === 'GOOGLE_INSUFFICIENT_SCOPES') {
+      await clearGoogleRefreshToken(user.telegramId);
+      const { redirect } = await import('next/navigation');
+      redirect(`/${userLocale}/refresh-token?user_id=${userId}`);
+    }
+
+    // Generic error fallback
     return (
       <div style={{
         display: 'flex',
