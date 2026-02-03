@@ -440,6 +440,22 @@ export default async function LandingPage({ params }: Props) {
           color: #88c8e8;
         }
 
+        .footer-links {
+          display: flex;
+          justify-content: center;
+          gap: 1.5rem;
+          margin-bottom: 1rem;
+        }
+
+        .footer-links a {
+          color: #88c8e8;
+          text-decoration: none;
+        }
+
+        .footer-links a:hover {
+          text-decoration: underline;
+        }
+
         @media (max-width: 600px) {
           .hero {
             min-height: auto;
@@ -596,6 +612,14 @@ export default async function LandingPage({ params }: Props) {
 
       {/* Footer */}
       <footer>
+        <div className="footer-links">
+          <Link href={`/${locale}/privacy`}>
+            {locale === 'he' ? 'מדיניות פרטיות' : locale === 'ru' ? 'Конфиденциальность' : 'Privacy Policy'}
+          </Link>
+          <Link href={`/${locale}/terms`}>
+            {locale === 'he' ? 'תנאי שימוש' : locale === 'ru' ? 'Условия' : 'Terms of Service'}
+          </Link>
+        </div>
         <p>{t('footer.copyright')}</p>
       </footer>
     </>
