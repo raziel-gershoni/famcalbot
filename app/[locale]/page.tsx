@@ -452,7 +452,7 @@ export default async function LandingPage({ params }: Props) {
             עב
           </Link>
           <Link href="/ru" className={locale === 'ru' ? 'active' : ''}>
-            RU
+            РУ
           </Link>
         </nav>
       </header>
