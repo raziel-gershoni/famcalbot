@@ -104,10 +104,6 @@ export default async function LandingPage({ params }: Props) {
           z-index: 100;
         }
 
-        [dir="rtl"] .header {
-          justify-content: flex-start;
-        }
-
         .lang-switcher {
           display: flex;
           gap: 0.5rem;
