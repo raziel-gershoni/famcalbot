@@ -19,7 +19,7 @@ const redis = new Redis({
 });
 
 const FEATURE_ACCESS_CACHE_PREFIX = 'feature:access:';
-const FEATURE_ACCESS_CACHE_TTL = 300; // 5 minutes
+const FEATURE_ACCESS_CACHE_TTL = 86400; // 24 hours (invalidated on subscription change)
 
 // ============================================
 // TYPES
