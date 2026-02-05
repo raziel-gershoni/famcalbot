@@ -38,6 +38,7 @@ export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'gend
   lookaheadAlways7Days?: boolean;
   remindersEnabled?: boolean;
   defaultReminderMinutes?: number;
+  pickupRemindersEnabled?: boolean;
 };
 
 // Helper to convert Prisma User to UserConfig (with decryption)
@@ -64,6 +65,7 @@ export function convertPrismaUserToConfig(user: PrismaUser): UserConfig {
     lookaheadAlways7Days: user.lookaheadAlways7Days,
     remindersEnabled: user.remindersEnabled,
     defaultReminderMinutes: user.defaultReminderMinutes !== null ? user.defaultReminderMinutes : undefined,
+    pickupRemindersEnabled: user.pickupRemindersEnabled,
   };
 }
 

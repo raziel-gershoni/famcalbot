@@ -236,6 +236,8 @@
     "remindersBetaDescription": "תזכורות נמצאות כרגע בבטא (בקרוב)",
     "defaultReminderMinutes": "זמן תזכורת ברירת מחדל",
     "defaultReminderMinutesHelp": "זמן לפני אירוע לשליחת תזכורת (בשימוש כשאין תזכורת מוגדרת לאירוע)",
+    "pickupRemindersEnabled": "תזכורות איסוף",
+    "pickupRemindersDescription": "ליומנים של ילדים, קבל גם תזכורות בזמן סיום האירוע (איסוף)",
     "minutes": "דק'",
     "globalRulesLabel": "כללים מותאמים",
     "globalRulesHelp": "הוסף כללים שחלים על כל היומנים (לדוגמה, יציאה מוקדמת בימים מסוימים)",

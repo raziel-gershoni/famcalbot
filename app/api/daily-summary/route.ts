@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
               googleRefreshToken: true,
               calendarAssignments: true,
               defaultReminderMinutes: true,
+              pickupRemindersEnabled: true,
               language: true,
               name: true,
             }
@@ -46,6 +47,7 @@ export async function GET(request: NextRequest) {
           defaultReminderMinutes: u.defaultReminderMinutes,
           language: u.language,
           name: u.name,
+          pickupRemindersEnabled: u.pickupRemindersEnabled ?? true,
         }));
 
         await syncReminderCache(reminderUsers);

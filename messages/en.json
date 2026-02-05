@@ -236,6 +236,8 @@
     "remindersBetaDescription": "Reminders are currently in beta (coming soon)",
     "defaultReminderMinutes": "Default Reminder Time",
     "defaultReminderMinutesHelp": "Time before event to send reminder (used when event has no reminder set)",
+    "pickupRemindersEnabled": "Pickup Reminders",
+    "pickupRemindersDescription": "For kids' calendars, also receive reminders at event end time (pickup)",
     "minutes": "min",
     "globalRulesLabel": "Custom Rules",
     "globalRulesHelp": "Add rules that apply to all calendars (e.g., early dismissal on certain days)",

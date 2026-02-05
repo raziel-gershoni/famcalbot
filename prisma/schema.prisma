@@ -40,6 +40,7 @@ model User {
   lookaheadAlways7Days Boolean @default(false) // true = always 7 days, false = until end of week
   remindersEnabled Boolean @default(false)          // Enable event reminders via Telegram
   defaultReminderMinutes Int?                       // Default reminder time (minutes before event)
+  pickupRemindersEnabled Boolean @default(true)     // Enable pickup reminders for kids' events
 
   // Calendar integration (shared token for now)
   googleRefreshToken  String   @db.Text

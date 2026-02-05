@@ -108,6 +108,7 @@ export async function POST(request: NextRequest) {
         defaultReminderMinutes: currentUser.defaultReminderMinutes ?? null,
         language: currentUser.language,
         name: currentUser.name,
+        pickupRemindersEnabled: currentUser.pickupRemindersEnabled ?? true,
       });
     }
 

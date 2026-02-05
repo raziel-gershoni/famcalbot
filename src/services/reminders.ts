@@ -167,8 +167,8 @@ export async function getDueReminders(
       }
     }
 
-    // Check PICKUP reminder (only for kids' events)
-    if (isKidsEvent(event, user.calendarAssignments)) {
+    // Check PICKUP reminder (only for kids' events, when pickup reminders are enabled)
+    if (isKidsEvent(event, user.calendarAssignments) && user.pickupRemindersEnabled !== false) {
       const pickupReminderTime = new Date(endTime.getTime() - reminderMinutes * 60 * 1000);
       const pickupReminderTimeStr = pickupReminderTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
       console.log(`[Reminders] Pickup check: ${event.summary}, pickupAt: ${endTimeStr}, reminderTime: ${pickupReminderTimeStr}, inWindow: ${pickupReminderTime >= now && pickupReminderTime < windowEnd}`);
@@ -209,14 +209,16 @@ function formatReminderMessage(
   });
   const location = event.location ? `\n📍 ${event.location}` : '';
 
-  // Get child name from calendar name for kids events
-  const childName = reminder.calendarAssignment?.name || event.calendarName;
+  // Get calendar name for start reminders
+  const calendarName = reminder.calendarAssignment?.name || event.calendarName;
+  // Get child name from calendar name for kids events (pickup reminders)
+  const childName = calendarName;
 
   const messages: Record<string, Record<ReminderType, { event: string; auto: string }>> = {
     en: {
       start: {
-        event: `🔔 <b>Reminder: ${event.summary}</b>\n⏰ Starting at ${timeStr}${location}`,
-        auto: `🤖 <b>Auto-Reminder: ${event.summary}</b>\n⏰ Starting at ${timeStr}${location}`,
+        event: `🔔 <b>Reminder: ${event.summary}</b>\n📅 ${calendarName}\n⏰ Starting at ${timeStr}${location}`,
+        auto: `🤖 <b>Auto-Reminder: ${event.summary}</b>\n📅 ${calendarName}\n⏰ Starting at ${timeStr}${location}`,
       },
       pickup: {
         event: `🚗 <b>Pickup Reminder: ${childName}</b>\n⏰ Pickup at ${timeStr}${location}`,
@@ -225,8 +227,8 @@ function formatReminderMessage(
     },
     he: {
       start: {
-        event: `🔔 <b>תזכורת: ${event.summary}</b>\n⏰ מתחיל ב-${timeStr}${location}`,
-        auto: `🤖 <b>תזכורת אוטומטית: ${event.summary}</b>\n⏰ מתחיל ב-${timeStr}${location}`,
+        event: `🔔 <b>תזכורת: ${event.summary}</b>\n📅 ${calendarName}\n⏰ מתחיל ב-${timeStr}${location}`,
+        auto: `🤖 <b>תזכורת אוטומטית: ${event.summary}</b>\n📅 ${calendarName}\n⏰ מתחיל ב-${timeStr}${location}`,
       },
       pickup: {
         event: `🚗 <b>תזכורת איסוף: ${childName}</b>\n⏰ איסוף ב-${timeStr}${location}`,
@@ -235,8 +237,8 @@ function formatReminderMessage(
     },
     ru: {
       start: {
-        event: `🔔 <b>Напоминание: ${event.summary}</b>\n⏰ Начало в ${timeStr}${location}`,
-        auto: `🤖 <b>Авто-напоминание: ${event.summary}</b>\n⏰ Начало в ${timeStr}${location}`,
+        event: `🔔 <b>Напоминание: ${event.summary}</b>\n📅 ${calendarName}\n⏰ Начало в ${timeStr}${location}`,
+        auto: `🤖 <b>Авто-напоминание: ${event.summary}</b>\n📅 ${calendarName}\n⏰ Начало в ${timeStr}${location}`,
       },
       pickup: {
         event: `🚗 <b>Напоминание о заборе: ${childName}</b>\n⏰ Забрать в ${timeStr}${location}`,

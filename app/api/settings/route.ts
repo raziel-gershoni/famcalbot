@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
     const body = await request.json();
-    const { language, location, messagingPlatform, culture, globalRules, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, remindersEnabled, defaultReminderMinutes, voiceInputEnabled, initData } = body;
+    const { language, location, messagingPlatform, culture, globalRules, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, remindersEnabled, defaultReminderMinutes, pickupRemindersEnabled, voiceInputEnabled, initData } = body;
 
     // Authentication and rate limiting
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'settings');
@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
       lookaheadAlways7Days: typeof lookaheadAlways7Days === 'boolean' ? lookaheadAlways7Days : undefined,
       remindersEnabled: typeof remindersEnabled === 'boolean' ? remindersEnabled : undefined,
       defaultReminderMinutes: typeof defaultReminderMinutes === 'number' ? defaultReminderMinutes : undefined,
+      pickupRemindersEnabled: typeof pickupRemindersEnabled === 'boolean' ? pickupRemindersEnabled : undefined,
       voiceInputEnabled: typeof voiceInputEnabled === 'boolean' ? voiceInputEnabled : undefined
     });
 
@@ -45,6 +46,7 @@ export async function POST(request: NextRequest) {
         defaultReminderMinutes: updatedUser.defaultReminderMinutes ?? null,
         language: updatedUser.language,
         name: updatedUser.name,
+        pickupRemindersEnabled: updatedUser.pickupRemindersEnabled ?? true,
       });
     } else {
       await removeUserFromCache(updatedUser.id);

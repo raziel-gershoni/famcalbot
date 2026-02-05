@@ -79,6 +79,7 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
         lookaheadAlways7Days: user.lookaheadAlways7Days,
         remindersEnabled: user.remindersEnabled,
         defaultReminderMinutes: user.defaultReminderMinutes ?? null,
+        pickupRemindersEnabled: user.pickupRemindersEnabled ?? true,
         voiceInputEnabled: user.voiceInputEnabled
       }}
       remindersGloballyEnabled={adminSettings?.remindersEnabled ?? false}

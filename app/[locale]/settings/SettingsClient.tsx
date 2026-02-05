@@ -20,6 +20,7 @@ interface SettingsClientProps {
     lookaheadAlways7Days: boolean;
     remindersEnabled: boolean;
     defaultReminderMinutes: number | null;
+    pickupRemindersEnabled: boolean;
     voiceInputEnabled: boolean;
   };
   remindersGloballyEnabled: boolean;
@@ -42,6 +43,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
   const [lookaheadAlways7Days, setLookaheadAlways7Days] = useState(currentSettings.lookaheadAlways7Days);
   const [remindersEnabled, setRemindersEnabled] = useState(currentSettings.remindersEnabled);
   const [defaultReminderMinutes, setDefaultReminderMinutes] = useState(currentSettings.defaultReminderMinutes ?? 15);
+  const [pickupRemindersEnabled, setPickupRemindersEnabled] = useState(currentSettings.pickupRemindersEnabled);
   const [voiceInputEnabled, setVoiceInputEnabled] = useState(currentSettings.voiceInputEnabled);
   const [locationLoading, setLocationLoading] = useState(false);
   const [detectedLocation, setDetectedLocation] = useState<string | null>(null);
@@ -221,6 +223,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
           lookaheadAlways7Days,
           remindersEnabled,
           defaultReminderMinutes: remindersEnabled ? defaultReminderMinutes : null,
+          pickupRemindersEnabled,
           voiceInputEnabled,
           initData
         })
@@ -866,23 +869,47 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
             </div>
 
             {remindersEnabled && remindersGloballyEnabled && (
-              <div className="form-group" style={{ marginTop: '16px' }}>
-                <label htmlFor="defaultReminderMinutes">{t('defaultReminderMinutes')}</label>
-                <select
-                  name="defaultReminderMinutes"
-                  id="defaultReminderMinutes"
-                  value={defaultReminderMinutes}
-                  onChange={(e) => setDefaultReminderMinutes(parseInt(e.target.value))}
-                  disabled={formState !== 'idle'}
-                >
-                  <option value="5">5 {t('minutes')}</option>
-                  <option value="10">10 {t('minutes')}</option>
-                  <option value="15">15 {t('minutes')}</option>
-                  <option value="30">30 {t('minutes')}</option>
-                  <option value="60">60 {t('minutes')}</option>
-                </select>
-                <p className="help-text">{t('defaultReminderMinutesHelp')}</p>
-              </div>
+              <>
+                <div className="form-group" style={{ marginTop: '16px' }}>
+                  <label htmlFor="defaultReminderMinutes">{t('defaultReminderMinutes')}</label>
+                  <select
+                    name="defaultReminderMinutes"
+                    id="defaultReminderMinutes"
+                    value={defaultReminderMinutes}
+                    onChange={(e) => setDefaultReminderMinutes(parseInt(e.target.value))}
+                    disabled={formState !== 'idle'}
+                  >
+                    <option value="5">5 {t('minutes')}</option>
+                    <option value="10">10 {t('minutes')}</option>
+                    <option value="15">15 {t('minutes')}</option>
+                    <option value="30">30 {t('minutes')}</option>
+                    <option value="60">60 {t('minutes')}</option>
+                  </select>
+                  <p className="help-text">{t('defaultReminderMinutesHelp')}</p>
+                </div>
+
+                <div className="toggle-row">
+                  <div className="toggle-info">
+                    <p className="toggle-label">{t('pickupRemindersEnabled')}</p>
+                    <p className="toggle-description">{t('pickupRemindersDescription')}</p>
+                  </div>
+                  <div
+                    className={`toggle-switch ${pickupRemindersEnabled ? 'checked' : ''} ${formState !== 'idle' ? 'disabled' : ''}`}
+                    onClick={() => formState === 'idle' && setPickupRemindersEnabled(!pickupRemindersEnabled)}
+                    role="switch"
+                    aria-checked={pickupRemindersEnabled}
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        formState === 'idle' && setPickupRemindersEnabled(!pickupRemindersEnabled);
+                      }
+                    }}
+                  >
+                    <div className="toggle-slider" />
+                  </div>
+                </div>
+              </>
             )}
 
             <button

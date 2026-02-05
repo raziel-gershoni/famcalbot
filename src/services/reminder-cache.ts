@@ -22,6 +22,7 @@ export interface CachedReminderUser {
   defaultReminderMinutes: number | null;
   language: string;
   name: string;
+  pickupRemindersEnabled: boolean;
 }
 
 /**

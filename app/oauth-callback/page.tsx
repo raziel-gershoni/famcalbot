@@ -327,6 +327,7 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
         defaultReminderMinutes: user.defaultReminderMinutes ?? null,
         language: user.language,
         name: user.name,
+        pickupRemindersEnabled: user.pickupRemindersEnabled ?? true,
       });
     }
 
