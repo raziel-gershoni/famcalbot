@@ -4,9 +4,22 @@
  */
 
 import { Subscription, SubscriptionPlan, SubscriptionStatus, UsageCounter, UserFeatureOverride } from '@prisma/client';
+import { Redis } from '@upstash/redis';
 import { prisma, withDbRetry } from '../utils/prisma';
 import { PlanId, getPlanLimits, TRIAL_DURATION_DAYS, PLAN_CONFIGS } from '../config/plans';
 import { trackActivity } from './analytics-service';
+
+// ============================================
+// REDIS CACHE FOR FEATURE ACCESS
+// ============================================
+
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+});
+
+const FEATURE_ACCESS_CACHE_PREFIX = 'feature:access:';
+const FEATURE_ACCESS_CACHE_TTL = 300; // 5 minutes
 
 // ============================================
 // TYPES
@@ -175,6 +188,9 @@ export async function upgradeSubscription(
     to_plan: newPlan,
   });
 
+  // Invalidate feature access cache so new limits take effect immediately
+  await invalidateFeatureAccessCache(userId);
+
   console.log(`[Subscription] User ${userId} upgraded from ${fromPlan} to ${newPlan}, valid until ${periodEnd.toISOString()}`);
 
   return updated;
@@ -211,6 +227,9 @@ export async function cancelSubscription(userId: number): Promise<Subscription> 
     days_active: daysActive,
   });
 
+  // Invalidate feature access cache
+  await invalidateFeatureAccessCache(userId);
+
   console.log(`[Subscription] User ${userId} canceled subscription, expires at period end`);
 
   return updated;
@@ -235,6 +254,9 @@ async function expireTrialSubscription(userId: number): Promise<Subscription> {
     plan: 'FREE',
     is_trial: true,
   });
+
+  // Invalidate feature access cache
+  await invalidateFeatureAccessCache(userId);
 
   console.log(`[Subscription] Trial expired for user ${userId}`);
 
@@ -274,6 +296,9 @@ export async function renewSubscription(
   await trackActivity(userId, 'subscription_renewed', {
     plan: existing.plan,
   });
+
+  // Invalidate feature access cache
+  await invalidateFeatureAccessCache(userId);
 
   console.log(`[Subscription] Subscription renewed for user ${userId}, valid until ${periodEnd.toISOString()}`);
 
@@ -402,14 +427,67 @@ function checkOverrideGrant(override: UserFeatureOverride, feature: FeatureType)
 }
 
 // ============================================
+// FEATURE ACCESS CACHE
+// ============================================
+
+/**
+ * Invalidate feature access cache for a user
+ * Call this when subscription status changes
+ */
+export async function invalidateFeatureAccessCache(userId: number): Promise<void> {
+  const features: FeatureType[] = ['text_summary', 'voice_summary', 'reminders', 'voice_events', 'calendars'];
+  try {
+    await Promise.all(
+      features.map(f => redis.del(`${FEATURE_ACCESS_CACHE_PREFIX}${userId}:${f}`))
+    );
+    console.log(`[Feature Access] Cache invalidated for user ${userId}`);
+  } catch (error) {
+    console.error('[Feature Access] Cache invalidation error:', error);
+  }
+}
+
+// ============================================
 // FEATURE ACCESS CHECKS
 // ============================================
 
 /**
  * Check if a user has access to a specific feature
+ * Uses Redis cache to avoid repeated DB queries
  * Checks admin overrides FIRST (highest priority), then subscription
  */
 export async function checkFeatureAccess(
+  userId: number,
+  feature: FeatureType
+): Promise<FeatureAccessResult> {
+  const cacheKey = `${FEATURE_ACCESS_CACHE_PREFIX}${userId}:${feature}`;
+
+  // 1. Check Redis cache first
+  try {
+    const cached = await redis.get<FeatureAccessResult>(cacheKey);
+    if (cached !== null) {
+      return cached;
+    }
+  } catch (error) {
+    // Cache miss or error - continue to compute
+    console.error('[Feature Access] Cache read error:', error);
+  }
+
+  // 2. Compute feature access (existing logic)
+  const result = await computeFeatureAccess(userId, feature);
+
+  // 3. Cache the result (fire and forget)
+  redis.set(cacheKey, result, { ex: FEATURE_ACCESS_CACHE_TTL }).catch(error => {
+    console.error('[Feature Access] Cache write error:', error);
+  });
+
+  return result;
+}
+
+/**
+ * Internal function to compute feature access without caching
+ * Checks admin overrides FIRST (highest priority), then subscription
+ */
+async function computeFeatureAccess(
   userId: number,
   feature: FeatureType
 ): Promise<FeatureAccessResult> {
