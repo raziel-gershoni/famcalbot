@@ -130,6 +130,7 @@ export async function handleTelegramWebhook(
     const voiceUserId = update.message.from.id;
     const voice = update.message.voice;
     const from = update.message.from;
+    const fileUniqueId = voice.file_unique_id;
 
     // Add breadcrumb for voice message
     addBreadcrumb('voice_message_received', {
@@ -138,13 +139,25 @@ export async function handleTelegramWebhook(
       file_size: voice.file_size,
     }, 'user_action');
 
-    console.log(`[Webhook] Voice message received from user ${voiceUserId}, duration: ${voice.duration}s`);
+    console.log(`[Webhook] Voice message received from user ${voiceUserId}, file_unique_id: ${fileUniqueId}, duration: ${voice.duration}s`);
+
+    // Use Redis lock to prevent duplicate processing on webhook retries
+    const { acquireVoiceLock, releaseVoiceLock } = await import('../utils/redis-lock');
+    const lockAcquired = await acquireVoiceLock(fileUniqueId);
+
+    if (!lockAcquired) {
+      console.log(`[Webhook] Voice message ${fileUniqueId} already being processed - skipping duplicate`);
+      res.status(200).json({ ok: true });
+      return;
+    }
 
     // Process voice message (await to prevent Vercel from killing the function)
     try {
       await handleVoiceMessage(chatId, voiceUserId, voice, from);
     } catch (error) {
       console.error('[Webhook] Error in voice handler:', error);
+    } finally {
+      await releaseVoiceLock(fileUniqueId);
     }
 
     res.status(200).json({ ok: true });
