@@ -27,6 +27,7 @@ interface ReminderResult {
   type: 'oauth' | 'calendars' | 'location';
   userId: number;
   telegramId: bigint;
+  name: string;
   success: boolean;
   error?: string;
 }
@@ -70,7 +71,7 @@ export async function GET(request: NextRequest) {
             googleRefreshToken: '',
             telegramId: { not: null },
           },
-          select: { id: true, telegramId: true, language: true },
+          select: { id: true, telegramId: true, language: true, name: true },
         }),
         'setupReminders.needsOAuth'
       );
@@ -92,12 +93,13 @@ export async function GET(request: NextRequest) {
             }
           );
 
-          results.push({ type: 'oauth', userId: user.id, telegramId: user.telegramId!, success: true });
+          results.push({ type: 'oauth', userId: user.id, telegramId: user.telegramId!, name: user.name, success: true });
         } catch (error) {
           results.push({
             type: 'oauth',
             userId: user.id,
             telegramId: user.telegramId!,
+            name: user.name,
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'
           });
@@ -118,7 +120,7 @@ export async function GET(request: NextRequest) {
             ],
             telegramId: { not: null },
           },
-          select: { id: true, telegramId: true, language: true },
+          select: { id: true, telegramId: true, language: true, name: true },
         }),
         'setupReminders.needsCalendars'
       );
@@ -140,12 +142,13 @@ export async function GET(request: NextRequest) {
             }
           );
 
-          results.push({ type: 'calendars', userId: user.id, telegramId: user.telegramId!, success: true });
+          results.push({ type: 'calendars', userId: user.id, telegramId: user.telegramId!, name: user.name, success: true });
         } catch (error) {
           results.push({
             type: 'calendars',
             userId: user.id,
             telegramId: user.telegramId!,
+            name: user.name,
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'
           });
@@ -162,7 +165,7 @@ export async function GET(request: NextRequest) {
             location: '',
             telegramId: { not: null },
           },
-          select: { id: true, telegramId: true, language: true, calendarAssignments: true },
+          select: { id: true, telegramId: true, language: true, name: true, calendarAssignments: true },
         }),
         'setupReminders.needsLocation'
       );
@@ -190,12 +193,13 @@ export async function GET(request: NextRequest) {
             }
           );
 
-          results.push({ type: 'location', userId: user.id, telegramId: user.telegramId!, success: true });
+          results.push({ type: 'location', userId: user.id, telegramId: user.telegramId!, name: user.name, success: true });
         } catch (error) {
           results.push({
             type: 'location',
             userId: user.id,
             telegramId: user.telegramId!,
+            name: user.name,
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'
           });
@@ -211,15 +215,19 @@ export async function GET(request: NextRequest) {
       if (successCount > 0) {
         try {
           const { notifyAdminWarning } = await import('@/src/utils/error-notifier');
-          const oauthCount = results.filter(r => r.type === 'oauth' && r.success).length;
-          const calendarsCount = results.filter(r => r.type === 'calendars' && r.success).length;
-          const locationCount = results.filter(r => r.type === 'location' && r.success).length;
+
+          const formatUserList = (type: ReminderResult['type']) => {
+            const users = results.filter(r => r.type === type && r.success);
+            if (users.length === 0) return null;
+            const userNames = users.map(r => `• ${r.name}`).join('\n');
+            return `${type.charAt(0).toUpperCase() + type.slice(1)} (${users.length}):\n${userNames}`;
+          };
 
           const details = [
-            oauthCount > 0 ? `OAuth: ${oauthCount}` : null,
-            calendarsCount > 0 ? `Calendars: ${calendarsCount}` : null,
-            locationCount > 0 ? `Location: ${locationCount}` : null,
-          ].filter(Boolean).join(', ');
+            formatUserList('oauth'),
+            formatUserList('calendars'),
+            formatUserList('location'),
+          ].filter(Boolean).join('\n\n');
 
           await notifyAdminWarning(
             'Setup Reminders Sent',
