@@ -9,6 +9,7 @@ type ValidLocale = (typeof VALID_LOCALES)[number];
 
 // Cache for loaded messages to avoid repeated imports
 const messageCache: Record<string, any> = {};
+const subscriptionMessageCache: Record<string, any> = {};
 
 /**
  * Get bot messages for a specific locale
@@ -25,6 +26,23 @@ export async function getBotMessages(locale: string) {
   }
 
   return messageCache[normalizedLocale];
+}
+
+/**
+ * Get subscription messages for a specific locale
+ * Falls back to English if locale is not supported
+ */
+export async function getSubscriptionMessages(locale: string) {
+  const normalizedLocale: ValidLocale = VALID_LOCALES.includes(locale as ValidLocale)
+    ? (locale as ValidLocale)
+    : 'en';
+
+  if (!subscriptionMessageCache[normalizedLocale]) {
+    const messages = await import(`../../messages/${normalizedLocale}.json`);
+    subscriptionMessageCache[normalizedLocale] = messages.default.subscription;
+  }
+
+  return subscriptionMessageCache[normalizedLocale];
 }
 
 /**

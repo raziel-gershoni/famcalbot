@@ -542,6 +542,7 @@
     "viewSubscription": "View Subscription",
     "invoiceTitle": "FamCalBot {plan}",
     "invoiceDescription": "Monthly subscription: {features}",
+    "invoiceLabel": "{plan} (1 month)",
     "textLimitReached": "📊 <b>Monthly limit reached</b>\n\nYou've used all {limit} text summaries this month.\n\nUpgrade to get unlimited summaries!",
     "voiceLimitReached": "🎤 <b>Monthly limit reached</b>\n\nYou've used all {limit} voice summaries this month.\n\nUpgrade to get unlimited voice!",
     "voiceEventsRequired": "⭐ <b>Voice event creation is a Pro feature</b>\n\nUpgrade to Pro to create calendar events using voice messages!",

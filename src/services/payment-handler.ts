@@ -9,7 +9,7 @@ import { upgradeSubscription, renewSubscription, getSubscription } from './subsc
 import { prisma } from '../utils/prisma';
 import { trackActivity, addBreadcrumb, setUserContext } from './analytics-service';
 import { MessageFormat } from './messaging/types';
-import { getBotMessages } from '../lib/bot-messages';
+import { getSubscriptionMessages } from '../lib/bot-messages';
 import { PlanId, PLAN_CONFIGS } from '../config/plans';
 import { buildUrl } from '../config/urls';
 import { captureError } from '../lib/error-capture';
@@ -138,7 +138,7 @@ export async function handleSuccessfulPayment(
       throw new Error(`User not found for Telegram ID: ${userId}`);
     }
     const language = user.language || 'en';
-    const t = await getBotMessages(language);
+    const t = await getSubscriptionMessages(language);
 
     // Activate subscription (use internal DB user.id, not Telegram userId)
     if (payload.action === 'renew') {
@@ -160,24 +160,28 @@ export async function handleSuccessfulPayment(
       to_plan: payload.plan,
     });
 
-    // Get plan config for message
-    const planConfig = PLAN_CONFIGS[payload.plan];
+    // Get localized plan name and features
+    const planKey = payload.plan.toLowerCase();
+    const localizedPlanName = t.plans?.[planKey]?.name || payload.plan;
+    const featuresList = t.features
+      ? Object.values(t.features).join('\n• ')
+      : '';
 
     // Send confirmation message
     const dashboardUrl = buildUrl(`/${language}/subscription?user_id=${userId}`);
 
-    const successMessage = t.subscription?.paymentSuccess
-      ? t.subscription.paymentSuccess
-          .replace('{plan}', planConfig.name)
-          .replace('{features}', planConfig.features.join('\n• '))
-      : `✅ <b>Payment successful!</b>\n\nYou're now on the <b>${planConfig.name}</b> plan.\n\n<b>Features unlocked:</b>\n• ${planConfig.features.join('\n• ')}`;
+    const successMessage = t.paymentSuccess
+      ? t.paymentSuccess
+          .replace('{plan}', localizedPlanName)
+          .replace('{features}', featuresList)
+      : `✅ <b>Payment successful!</b>\n\nYou're now on the <b>${localizedPlanName}</b> plan.\n\n<b>Features unlocked:</b>\n• ${featuresList}`;
 
     await messagingService.sendMessage(chatId, successMessage, {
       format: MessageFormat.HTML,
       replyMarkup: {
         inline_keyboard: [[
           {
-            text: t.subscription?.viewSubscription || 'View Subscription',
+            text: t.viewSubscription || 'View Subscription',
             web_app: { url: dashboardUrl },
           },
         ]],
@@ -189,10 +193,10 @@ export async function handleSuccessfulPayment(
     captureError(error, 'payment-successful', { user_id: userId });
 
     // Notify user of error
-    const t = await getBotMessages('en');
+    const errorT = await getSubscriptionMessages('en');
     await messagingService.sendMessage(
       chatId,
-      t.subscription?.paymentError || '❌ There was an error activating your subscription. Please contact support.',
+      errorT.paymentError || '❌ There was an error activating your subscription. Please contact support.',
       { format: MessageFormat.HTML }
     );
   }
@@ -212,7 +216,7 @@ export async function sendSubscriptionInvoice(
   // Get user by internal DB ID (not Telegram ID)
   const user = await prisma.user.findUnique({ where: { id: userId } });
   const language = user?.language || 'en';
-  const t = await getBotMessages(language);
+  const t = await getSubscriptionMessages(language);
 
   const planConfig = PLAN_CONFIGS[plan];
   if (!planConfig || planConfig.priceStars === 0) {
@@ -231,11 +235,22 @@ export async function sendSubscriptionInvoice(
     action,
   };
 
-  const title = t.subscription?.invoiceTitle?.replace('{plan}', planConfig.name)
-    || `FamCalBot ${planConfig.name}`;
-  const description = t.subscription?.invoiceDescription
-    ? t.subscription.invoiceDescription.replace('{features}', planConfig.features.join(', '))
-    : `${planConfig.features.join(', ')}`;
+  // Use localized plan name and features
+  const planKey = plan.toLowerCase();
+  const localizedPlanName = t.plans?.[planKey]?.name || planConfig.name;
+  const localizedFeatures = t.features
+    ? Object.values(t.features).join(', ')
+    : planConfig.features.join(', ');
+
+  const title = t.invoiceTitle
+    ? t.invoiceTitle.replace('{plan}', localizedPlanName)
+    : `FamCalBot ${localizedPlanName}`;
+  const description = t.invoiceDescription
+    ? t.invoiceDescription.replace('{features}', localizedFeatures)
+    : localizedFeatures;
+  const priceLabel = t.invoiceLabel
+    ? t.invoiceLabel.replace('{plan}', localizedPlanName)
+    : `${localizedPlanName} (1 month)`;
 
   // Add breadcrumb for invoice sent
   addBreadcrumb('invoice_sending', {
@@ -247,7 +262,7 @@ export async function sendSubscriptionInvoice(
 
   // One-time payment (manual renewal model - no recurring subscriptions)
   await bot.sendInvoice(chatId, title, description, JSON.stringify(payload), '', 'XTR', [
-    { label: `${planConfig.name} Plan (1 Month)`, amount: planConfig.priceStars },
+    { label: priceLabel, amount: planConfig.priceStars },
   ]);
   addBreadcrumb('invoice_sent', { recurring: false }, 'payment');
   console.log(`[Payment] Invoice sent to user ${userId} for plan ${plan}`);

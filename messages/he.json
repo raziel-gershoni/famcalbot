@@ -542,6 +542,7 @@
     "viewSubscription": "צפה במנוי",
     "invoiceTitle": "FamCalBot {plan}",
     "invoiceDescription": "מנוי חודשי: {features}",
+    "invoiceLabel": "{plan} (חודש 1)",
     "textLimitReached": "📊 <b>הגעת למגבלה החודשית</b>\n\nהשתמשת בכל {limit} סיכומי הטקסט החודש.\n\nשדרג לקבלת סיכומים ללא הגבלה!",
     "voiceLimitReached": "🎤 <b>הגעת למגבלה החודשית</b>\n\nהשתמשת בכל {limit} הסיכומים הקוליים החודש.\n\nשדרג לקבלת קול ללא הגבלה!",
     "voiceEventsRequired": "⭐ <b>יצירת אירועים בקול היא תכונת Pro</b>\n\nשדרג ל-Pro כדי ליצור אירועי יומן באמצעות הודעות קוליות!",
