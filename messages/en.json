@@ -591,10 +591,7 @@
       "upgradeNow": "Upgrade Now",
       "contactSupport": "Contact Support",
       "invoiceSent": "Invoice sent! Check your Telegram chat to complete payment.",
-      "confirmUpgrade": "Upgrade to {plan} for ⭐{price}/month?",
-      "selectPaymentType": "⭐{price}/month\n\nChoose payment type:",
-      "oneTimePayment": "One-time (1 month)",
-      "recurringPayment": "Auto-renew monthly"
+      "confirmUpgrade": "Upgrade to {plan} for ⭐{price}/month?"
     },
     "reminders": {
       "expiringSoon": {
