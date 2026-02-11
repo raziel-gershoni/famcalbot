@@ -299,7 +299,21 @@ export async function processUserReminders(user: UserConfig, windowMinutes: numb
   // Check subscription feature access for reminders (Pro feature)
   const reminderAccess = await checkFeatureAccess(user.id, 'reminders');
   if (!reminderAccess.allowed) {
-    // User doesn't have reminder access, skip silently
+    // If user had reminders enabled, send one-time downgrade notification
+    if (user.remindersEnabled) {
+      const redisKey = `reminder:downgrade_notified:${user.id}`;
+      try {
+        const alreadyNotified = await redis.get(redisKey);
+        if (!alreadyNotified) {
+          const { sendReminderDowngradeNotification } = await import('./telegram');
+          await sendReminderDowngradeNotification(user.telegramId, user.language || 'en');
+          await redis.set(redisKey, '1', { ex: 30 * 24 * 60 * 60 }); // 30-day TTL
+          console.log(`[Reminders] Sent downgrade notification to user ${user.telegramId}`);
+        }
+      } catch (error) {
+        console.error(`[Reminders] Failed to send downgrade notification for user ${user.telegramId}:`, error);
+      }
+    }
     return 0;
   }
 

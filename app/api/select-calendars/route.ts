@@ -8,6 +8,7 @@ import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { updateUserInCache } from '@/src/services/reminder-cache';
+import { checkCalendarLimit } from '@/src/services/subscription-service';
 
 /**
  * Sync spouse metadata across all spouse calendars
@@ -82,6 +83,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'User not found' },
         { status: 404 }
+      );
+    }
+
+    // Check calendar limit based on subscription
+    const calendarLimitResult = await checkCalendarLimit(currentUser.id, calendarAssignments.length);
+    if (!calendarLimitResult.allowed) {
+      return NextResponse.json(
+        {
+          error: 'calendar_limit_reached',
+          limit: calendarLimitResult.limit,
+          current: calendarAssignments.length,
+        },
+        { status: 403 }
       );
     }
 

@@ -1626,14 +1626,32 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     return;
   }
 
+  // Check near-limit warning for text summaries (append to summary if close to limit)
+  let summaryWithWarning = summary;
+  try {
+    const textAccess = await checkFeatureAccess(user.id, 'text_summary');
+    if (textAccess.limit && textAccess.limit !== Infinity && textAccess.currentUsage !== undefined) {
+      const usageRatio = textAccess.currentUsage / textAccess.limit;
+      if (usageRatio >= 0.7 && textAccess.remaining !== undefined && textAccess.remaining > 0) {
+        const t = await getBotMessages(user.language || 'en');
+        const warningText = (t.subscription?.nearLimit?.text || '({remaining} of {limit} summaries remaining this month)')
+          .replace('{remaining}', String(textAccess.remaining))
+          .replace('{limit}', String(textAccess.limit));
+        summaryWithWarning = `${summary}\n\n<i>${warningText}</i>`;
+      }
+    }
+  } catch {
+    // Non-critical, continue without warning
+  }
+
   // Handle text delivery
   if (sendText) {
     if (progressMessageId) {
       // Update existing progress message (user-invoked)
-      await msgService.updateMessage(userId, progressMessageId, summary, { format: MessageFormat.HTML });
+      await msgService.updateMessage(userId, progressMessageId, summaryWithWarning, { format: MessageFormat.HTML });
     } else {
       // Send new message (scheduled batch)
-      await routeTextMessage(userId, summary, user, platform);
+      await routeTextMessage(userId, summaryWithWarning, user, platform);
     }
 
     // Track text summary generated and increment usage (use internal DB user.id)
@@ -1813,6 +1831,50 @@ export async function handleTestAICallback(
     const { notifyAdminError } = await import('../utils/error-notifier');
     await notifyAdminError('TestAI Callback', error);
   }
+}
+
+/**
+ * Send trial expired notification to user via bot message
+ * Called once when trial expires (in expireTrialSubscription)
+ */
+export async function sendTrialExpiredNotification(telegramId: number, locale: string): Promise<void> {
+  const service = getMessagingService();
+  const t = await getBotMessages(locale);
+  const upgradeUrl = buildUrl(`/${locale}/subscription?user_id=${telegramId}`);
+
+  const message = t.subscription?.trialExpired?.message
+    || '📋 Your Pro trial has ended. You\'re now on the Free plan.';
+
+  await service.sendMessage(telegramId, message, {
+    format: MessageFormat.HTML,
+    replyMarkup: {
+      inline_keyboard: [[
+        { text: t.subscription?.upgradeButton || '⭐ Upgrade Plan', web_app: { url: upgradeUrl } },
+      ]],
+    },
+  });
+}
+
+/**
+ * Send reminder downgrade notification to user via bot message
+ * Called once when user with reminders enabled loses Pro access
+ */
+export async function sendReminderDowngradeNotification(telegramId: number, locale: string): Promise<void> {
+  const service = getMessagingService();
+  const t = await getBotMessages(locale);
+  const upgradeUrl = buildUrl(`/${locale}/subscription?user_id=${telegramId}`);
+
+  const message = t.subscription?.remindersLost?.message
+    || '🔔 Your event reminders are paused because your Pro trial ended. Upgrade to re-enable!';
+
+  await service.sendMessage(telegramId, message, {
+    format: MessageFormat.HTML,
+    replyMarkup: {
+      inline_keyboard: [[
+        { text: t.subscription?.upgradeButton || '⭐ Upgrade Plan', web_app: { url: upgradeUrl } },
+      ]],
+    },
+  });
 }
 
 /**

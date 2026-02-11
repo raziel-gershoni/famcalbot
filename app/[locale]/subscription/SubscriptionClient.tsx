@@ -503,7 +503,7 @@ function UsageItem({
         </div>
       )}
       <span className="usage-value">
-        {isUnlimited ? unlimited : `${used}/${limit}`}
+        {isUnlimited ? unlimited : <span dir="ltr">{used} / {limit}</span>}
       </span>
     </div>
   );

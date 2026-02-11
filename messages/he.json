@@ -244,6 +244,9 @@
     "globalRulesPlaceholder": "כלל {number}",
     "successMessage": "ההעדפות שלך עודכנו בהצלחה",
     "cancelButton": "ביטול",
+    "usageCounterSuffix": "בשימוש החודש",
+    "remindersProRequired": "תזכורות דורשות תוכנית Pro.",
+    "upgradeLink": "שדרג",
     "actions": {
       "save": "שמור הגדרות",
       "saving": "שומר...",
@@ -273,8 +276,10 @@
       "noneSelected": "אנא בחר לפחות יומן אחד",
       "primary": "אנא בחר יומן ראשי",
       "yours": "לפחות יומן אחד חייב להיות מסומן כ'שלך'",
-      "primaryMustBeYours": "היומן הראשי חייב להיות בקטגוריה 'שלך'"
+      "primaryMustBeYours": "היומן הראשי חייב להיות בקטגוריה 'שלך'",
+      "calendarLimitReached": "הגעת למגבלה של {limit} יומנים. שדרג כדי להוסיף עוד."
     },
+    "calendarLimitInfoSuffix": "יומנים נבחרו",
     "successMessage": "הגדרות היומן שלך עודכנו בהצלחה",
     "spouseInfo": {
       "title": "פרטי בן/בת זוג",
@@ -510,6 +515,18 @@
       "ambiguousEvent": "🤔 נמצאו מספר אירועים תואמים. אנא היה יותר ספציפי.",
       "eventNotFound": "❌ לא הצלחתי למצוא את האירוע."
     },
+    "subscription": {
+      "upgradeButton": "⭐ שדרג תוכנית",
+      "trialExpired": {
+        "message": "📋 <b>תקופת הניסיון של Pro הסתיימה</b>\n\nאתה עכשיו בתוכנית החינמית:\n• 10 סיכומי טקסט בחודש\n• 3 סיכומים קוליים בחודש\n• עד 3 יומנים\n• ללא תזכורות לאירועים\n• ללא יצירת אירועים בקול\n\nהיומנים וההגדרות שלך שמורים! שדרג בכל עת לפתיחת תכונות ללא הגבלה."
+      },
+      "remindersLost": {
+        "message": "🔔 <b>תזכורות האירועים שלך מושהות</b>\n\nתקופת הניסיון של Pro הסתיימה, ותזכורות הן תכונת Pro.\n\nשדרג כדי להפעיל מחדש תזכורות לאירועים!"
+      },
+      "nearLimit": {
+        "text": "(נותרו {remaining} מתוך {limit} סיכומים החודש)"
+      }
+    },
     "feedback": {
       "usage": "📝 <b>שלח משוב</b>\n\nשתף את המחשבות, ההצעות או דווח על בעיות.\n\nשימוש: /feedback <ההודעה שלך>\n\nדוגמה: /feedback אני אוהב את הבוט הזה!",
       "openForm": "📝 לחץ למטה לשליחת משוב:",
@@ -570,6 +587,7 @@
       "reminders": "תזכורות אירועים",
       "voiceEvents": "יצירת אירועים בקול"
     },
+    "usageDisplay": "{used} / {limit}",
     "planFeatures": {
       "textSummariesLimit": "{count} סיכומי טקסט לחודש",
       "textSummariesUnlimited": "סיכומי טקסט ללא הגבלה",

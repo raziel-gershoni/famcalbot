@@ -4,6 +4,8 @@ import { normalizeLocale } from '@/src/utils/locale';
 import { prisma, withDbRetry } from '@/src/utils/prisma';
 import { AlertTriangle } from 'lucide-react';
 import SettingsClient from './SettingsClient';
+import { getSubscriptionWithUsage } from '@/src/services/subscription-service';
+import { getPlanLimits } from '@/src/config/plans';
 
 interface PageProps {
   params: Promise<{ locale: string }>;
@@ -55,14 +57,32 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
     redirect(`/${userLocale}/settings?user_id=${userId}`);
   }
 
-  // Fetch admin settings to check if reminders are globally enabled
-  // Catch errors in case table doesn't exist yet
-  const adminSettings = await withDbRetry(
-    () => prisma.adminSettings.findUnique({
-      where: { id: 'global' }
-    }),
-    'settings.adminSettings'
-  ).catch(() => null);
+  // Fetch admin settings and subscription data in parallel
+  const [adminSettings, subWithUsage] = await Promise.all([
+    withDbRetry(
+      () => prisma.adminSettings.findUnique({
+        where: { id: 'global' }
+      }),
+      'settings.adminSettings'
+    ).catch(() => null),
+    getSubscriptionWithUsage(user.id).catch(() => null),
+  ]);
+
+  // Build subscription info for the client
+  const effectivePlan = subWithUsage?.effectivePlan || 'FREE';
+  const limits = getPlanLimits(effectivePlan);
+  const isTrialing = subWithUsage?.subscription.status === 'TRIALING'
+    && new Date() < subWithUsage.subscription.trialEndsAt;
+
+  const subscriptionInfo = {
+    effectivePlan,
+    textSummariesUsed: subWithUsage?.usage.textSummariesUsed ?? 0,
+    textSummariesLimit: limits.textSummaries === Infinity ? -1 : limits.textSummaries,
+    voiceSummariesUsed: subWithUsage?.usage.voiceSummariesUsed ?? 0,
+    voiceSummariesLimit: limits.voiceSummaries === Infinity ? -1 : limits.voiceSummaries,
+    remindersAllowed: limits.reminders,
+    isTrialing,
+  };
 
   return (
     <SettingsClient
@@ -83,6 +103,7 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
         voiceInputEnabled: user.voiceInputEnabled
       }}
       remindersGloballyEnabled={adminSettings?.remindersEnabled ?? false}
+      subscriptionInfo={subscriptionInfo}
     />
   );
 }

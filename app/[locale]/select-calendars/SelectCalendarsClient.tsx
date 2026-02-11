@@ -40,6 +40,7 @@ interface SelectCalendarsClientProps {
     globalRules: string[];
   };
   locale: string;
+  calendarLimit: number; // -1 means unlimited
 }
 
 interface FeedbackMessage {
@@ -53,7 +54,8 @@ export default function SelectCalendarsClient({
   userName,
   availableCalendars,
   currentSelections,
-  locale
+  locale,
+  calendarLimit
 }: SelectCalendarsClientProps) {
   const t = useTranslations('calendars');
   const router = useRouter();
@@ -203,6 +205,13 @@ export default function SelectCalendarsClient({
 
       if (!response.ok) {
         const data = await response.json();
+        if (data.error === 'calendar_limit_reached') {
+          showFeedback(
+            t('validation.calendarLimitReached', { limit: String(data.limit) }),
+            'error'
+          );
+          return false;
+        }
         throw new Error(data.error || 'Failed to save');
       }
 
@@ -224,10 +233,22 @@ export default function SelectCalendarsClient({
     return t(`categories.${label}`);
   };
 
+  // Check if calendar limit is reached
+  const isAtCalendarLimit = calendarLimit > 0 && selectedCalendars.size >= calendarLimit;
+
   // Toggle calendar checkbox
   const handleCalendarToggle = async (calendarId: string) => {
     const isCurrentlySelected = selectedCalendars.has(calendarId);
     const calendarName = getCalendarName(calendarId);
+
+    // Block adding new calendars if at limit
+    if (!isCurrentlySelected && isAtCalendarLimit) {
+      showFeedback(
+        t('validation.calendarLimitReached', { limit: String(calendarLimit) }),
+        'error'
+      );
+      return;
+    }
 
     let newSelectedCalendars: Set<string>;
     let newCalendarLabels: Map<string, Set<CalendarLabel>>;
@@ -734,6 +755,13 @@ export default function SelectCalendarsClient({
         <div className="container">
           <h1><Calendar size={24} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 8 }} />{t('title')}</h1>
           <p className="subtitle">{t('subtitle')}</p>
+
+          {calendarLimit > 0 && (
+            <p style={{ fontSize: '13px', color: isAtCalendarLimit ? '#ef4444' : '#6b7280', marginBottom: '12px' }}>
+              <span dir="ltr">{selectedCalendars.size} / {calendarLimit}</span>{' '}
+              {t('calendarLimitInfoSuffix')}
+            </p>
+          )}
 
           <div className="help-text">
             {t('categoryHelp')}

@@ -244,6 +244,9 @@
     "globalRulesPlaceholder": "Rule {number}",
     "successMessage": "Your preferences have been updated successfully",
     "cancelButton": "Cancel",
+    "usageCounterSuffix": "used this month",
+    "remindersProRequired": "Reminders require a Pro plan.",
+    "upgradeLink": "Upgrade",
     "actions": {
       "save": "Save Settings",
       "saving": "Saving...",
@@ -273,8 +276,10 @@
       "noneSelected": "Please select at least one calendar",
       "primary": "Please select a primary calendar",
       "yours": "At least one calendar must be marked as 'yours'",
-      "primaryMustBeYours": "Primary calendar must be in 'yours' category"
+      "primaryMustBeYours": "Primary calendar must be in 'yours' category",
+      "calendarLimitReached": "You've reached the limit of {limit} calendars. Upgrade to add more."
     },
+    "calendarLimitInfoSuffix": "calendars selected",
     "successMessage": "Your calendar settings have been updated successfully",
     "spouseInfo": {
       "title": "Spouse Information",
@@ -510,6 +515,18 @@
       "ambiguousEvent": "🤔 Found multiple matching events. Please be more specific.",
       "eventNotFound": "❌ Couldn't find that event."
     },
+    "subscription": {
+      "upgradeButton": "⭐ Upgrade Plan",
+      "trialExpired": {
+        "message": "📋 <b>Your Pro trial has ended</b>\n\nYou're now on the Free plan:\n• 10 text summaries/month\n• 3 voice summaries/month\n• Up to 3 calendars\n• No event reminders\n• No voice event creation\n\nYour calendars and settings are safe! Upgrade anytime to unlock unlimited features."
+      },
+      "remindersLost": {
+        "message": "🔔 <b>Your event reminders are paused</b>\n\nYour Pro trial has ended, and reminders are a Pro feature.\n\nUpgrade to re-enable event reminders!"
+      },
+      "nearLimit": {
+        "text": "({remaining} of {limit} summaries remaining this month)"
+      }
+    },
     "feedback": {
       "usage": "📝 <b>Send Feedback</b>\n\nShare your thoughts, suggestions, or report issues.\n\nUsage: /feedback <your message>\n\nExample: /feedback I love this bot!",
       "openForm": "📝 Click below to send feedback:",
@@ -570,6 +587,7 @@
       "reminders": "Event Reminders",
       "voiceEvents": "Voice Event Creation"
     },
+    "usageDisplay": "{used} / {limit}",
     "planFeatures": {
       "textSummariesLimit": "{count} text summaries/mo",
       "textSummariesUnlimited": "Unlimited text summaries",

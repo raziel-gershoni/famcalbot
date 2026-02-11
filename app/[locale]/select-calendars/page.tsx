@@ -5,6 +5,8 @@ import { listUserCalendars } from '@/src/services/calendar';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
 import { AlertTriangle, XCircle } from 'lucide-react';
 import SelectCalendarsClient from './SelectCalendarsClient';
+import { getSubscriptionWithUsage } from '@/src/services/subscription-service';
+import { getPlanLimits } from '@/src/config/plans';
 
 interface PageProps {
   params: Promise<{ locale: string }>;
@@ -129,7 +131,14 @@ export default async function SelectCalendarsPage({ params, searchParams }: Page
   }
 
   try {
-    const availableCalendars = await listUserCalendars(user.googleRefreshToken);
+    const [availableCalendars, subWithUsage] = await Promise.all([
+      listUserCalendars(user.googleRefreshToken),
+      getSubscriptionWithUsage(user.id).catch(() => null),
+    ]);
+
+    const effectivePlan = subWithUsage?.effectivePlan || 'FREE';
+    const limits = getPlanLimits(effectivePlan);
+    const calendarLimit = limits.calendars === Infinity ? -1 : limits.calendars;
 
     // Convert user's current selections to new state format
     const currentSelections = user.calendarAssignments && user.calendarAssignments.length > 0
@@ -143,6 +152,7 @@ export default async function SelectCalendarsPage({ params, searchParams }: Page
         availableCalendars={availableCalendars}
         currentSelections={currentSelections}
         locale={userLocale}
+        calendarLimit={calendarLimit}
       />
     );
   } catch (error) {

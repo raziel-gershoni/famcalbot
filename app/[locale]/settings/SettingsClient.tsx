@@ -6,6 +6,16 @@ import { useRouter } from 'next/navigation';
 import { TelegramLayout } from '@/components/Layout';
 import { CheckCircle2, Settings, MapPin, Loader2 } from 'lucide-react';
 
+interface SubscriptionInfo {
+  effectivePlan: string;
+  textSummariesUsed: number;
+  textSummariesLimit: number; // -1 means unlimited
+  voiceSummariesUsed: number;
+  voiceSummariesLimit: number; // -1 means unlimited
+  remindersAllowed: boolean;
+  isTrialing: boolean;
+}
+
 interface SettingsClientProps {
   userId: number;
   currentSettings: {
@@ -24,11 +34,12 @@ interface SettingsClientProps {
     voiceInputEnabled: boolean;
   };
   remindersGloballyEnabled: boolean;
+  subscriptionInfo: SubscriptionInfo;
 }
 
 type FormState = 'idle' | 'saving' | 'success' | 'error';
 
-export default function SettingsClient({ userId, currentSettings, remindersGloballyEnabled }: SettingsClientProps) {
+export default function SettingsClient({ userId, currentSettings, remindersGloballyEnabled, subscriptionInfo }: SettingsClientProps) {
   const t = useTranslations('settings');
   const router = useRouter();
   const [formState, setFormState] = useState<FormState>('idle');
@@ -563,6 +574,35 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
           margin: 0;
         }
 
+        .usage-badge {
+          display: inline-block;
+          font-size: 12px;
+          color: #6b7280;
+          background: #f3f4f6;
+          padding: 2px 8px;
+          border-radius: 10px;
+          margin-top: 4px;
+        }
+
+        .usage-badge span[dir="ltr"] {
+          unicode-bidi: embed;
+        }
+
+        .pro-badge {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 12px;
+          color: #9333ea;
+          margin-top: 4px;
+        }
+
+        .pro-badge a {
+          color: #667eea;
+          text-decoration: underline;
+          cursor: pointer;
+        }
+
         .toggle-switch {
           position: relative;
           width: 50px;
@@ -711,6 +751,12 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
               <div className="toggle-info">
                 <p className="toggle-label">{t('textSummary')}</p>
                 <p className="toggle-description">{t('textSummaryDescription')}</p>
+                {subscriptionInfo.textSummariesLimit > 0 && (
+                  <div className="usage-badge">
+                    <span dir="ltr">{subscriptionInfo.textSummariesUsed} / {subscriptionInfo.textSummariesLimit}</span>{' '}
+                    {t('usageCounterSuffix')}
+                  </div>
+                )}
               </div>
               <div
                 className={`toggle-switch ${textSummaryEnabled ? 'checked' : ''} ${formState !== 'idle' ? 'disabled' : ''}`}
@@ -733,6 +779,12 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
               <div className="toggle-info">
                 <p className="toggle-label">{t('voiceSummary')}</p>
                 <p className="toggle-description">{t('voiceSummaryDescription')}</p>
+                {subscriptionInfo.voiceSummariesLimit > 0 && (
+                  <div className="usage-badge">
+                    <span dir="ltr">{subscriptionInfo.voiceSummariesUsed} / {subscriptionInfo.voiceSummariesLimit}</span>{' '}
+                    {t('usageCounterSuffix')}
+                  </div>
+                )}
               </div>
               <div
                 className={`toggle-switch ${voiceSummaryEnabled ? 'checked' : ''} ${formState !== 'idle' ? 'disabled' : ''}`}
@@ -845,20 +897,28 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
               <div className="toggle-info">
                 <p className="toggle-label">{t('remindersEnabled')}</p>
                 <p className="toggle-description">
-                  {remindersGloballyEnabled
-                    ? t('remindersEnabledDescription')
-                    : t('remindersBetaDescription')
+                  {!remindersGloballyEnabled
+                    ? t('remindersBetaDescription')
+                    : !subscriptionInfo.remindersAllowed
+                      ? t('remindersEnabledDescription')
+                      : t('remindersEnabledDescription')
                   }
                 </p>
+                {remindersGloballyEnabled && !subscriptionInfo.remindersAllowed && (
+                  <div className="pro-badge">
+                    <span>{t('remindersProRequired')}</span>
+                    <a href={`/${currentSettings.language}/subscription?user_id=${userId}`}>{t('upgradeLink')}</a>
+                  </div>
+                )}
               </div>
               <div
-                className={`toggle-switch ${remindersEnabled && remindersGloballyEnabled ? 'checked' : ''} ${formState !== 'idle' || !remindersGloballyEnabled ? 'disabled' : ''}`}
-                onClick={() => formState === 'idle' && remindersGloballyEnabled && setRemindersEnabled(!remindersEnabled)}
+                className={`toggle-switch ${remindersEnabled && remindersGloballyEnabled && subscriptionInfo.remindersAllowed ? 'checked' : ''} ${formState !== 'idle' || !remindersGloballyEnabled || !subscriptionInfo.remindersAllowed ? 'disabled' : ''}`}
+                onClick={() => formState === 'idle' && remindersGloballyEnabled && subscriptionInfo.remindersAllowed && setRemindersEnabled(!remindersEnabled)}
                 role="switch"
-                aria-checked={remindersEnabled && remindersGloballyEnabled}
-                tabIndex={remindersGloballyEnabled ? 0 : -1}
+                aria-checked={remindersEnabled && remindersGloballyEnabled && subscriptionInfo.remindersAllowed}
+                tabIndex={remindersGloballyEnabled && subscriptionInfo.remindersAllowed ? 0 : -1}
                 onKeyDown={(e) => {
-                  if ((e.key === 'Enter' || e.key === ' ') && remindersGloballyEnabled) {
+                  if ((e.key === 'Enter' || e.key === ' ') && remindersGloballyEnabled && subscriptionInfo.remindersAllowed) {
                     e.preventDefault();
                     formState === 'idle' && setRemindersEnabled(!remindersEnabled);
                   }
@@ -868,7 +928,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
               </div>
             </div>
 
-            {remindersEnabled && remindersGloballyEnabled && (
+            {remindersEnabled && remindersGloballyEnabled && subscriptionInfo.remindersAllowed && (
               <>
                 <div className="form-group" style={{ marginTop: '16px' }}>
                   <label htmlFor="defaultReminderMinutes">{t('defaultReminderMinutes')}</label>

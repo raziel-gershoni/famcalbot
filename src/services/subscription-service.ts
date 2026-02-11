@@ -258,6 +258,23 @@ async function expireTrialSubscription(userId: number): Promise<Subscription> {
   // Invalidate feature access cache
   await invalidateFeatureAccessCache(userId);
 
+  // Send trial expired notification to user (non-blocking)
+  try {
+    const user = await withDbRetry(
+      () => prisma.user.findUnique({
+        where: { id: userId },
+        select: { telegramId: true, language: true },
+      }),
+      'expireTrialSubscription.getUser'
+    );
+    if (user) {
+      const { sendTrialExpiredNotification } = await import('./telegram');
+      await sendTrialExpiredNotification(Number(user.telegramId), user.language || 'en');
+    }
+  } catch (error) {
+    console.error(`[Subscription] Failed to send trial expired notification for user ${userId}:`, error);
+  }
+
   console.log(`[Subscription] Trial expired for user ${userId}`);
 
   return updated;
@@ -437,9 +454,10 @@ function checkOverrideGrant(override: UserFeatureOverride, feature: FeatureType)
 export async function invalidateFeatureAccessCache(userId: number): Promise<void> {
   const features: FeatureType[] = ['text_summary', 'voice_summary', 'reminders', 'voice_events', 'calendars'];
   try {
-    await Promise.all(
-      features.map(f => redis.del(`${FEATURE_ACCESS_CACHE_PREFIX}${userId}:${f}`))
-    );
+    await Promise.all([
+      ...features.map(f => redis.del(`${FEATURE_ACCESS_CACHE_PREFIX}${userId}:${f}`)),
+      redis.del(`reminder:downgrade_notified:${userId}`),
+    ]);
     console.log(`[Feature Access] Cache invalidated for user ${userId}`);
   } catch (error) {
     console.error('[Feature Access] Cache invalidation error:', error);
