@@ -81,7 +81,7 @@ export async function handlePreCheckoutQuery(query: PreCheckoutQuery): Promise<v
     }
 
     // Validate user
-    const user = await getUserByTelegramId(payload.userId);
+    const user = await getUserByTelegramId(query.from.id);
     if (!user) {
       await bot.answerPreCheckoutQuery(query.id, false, {
         error_message: 'User not found',
