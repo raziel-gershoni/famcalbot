@@ -46,19 +46,18 @@ export interface SubscriptionWithUsage {
 // ============================================
 
 /**
- * Calculate subscription end date (1st of next month)
- * If subscribing after the 25th, extend to the month after next
+ * Calculate subscription end date (same day next month)
+ * Handles month-length differences: Jan 31 → Feb 28, etc.
+ * JS Date constructor handles year rollover (month 12 → Jan next year)
  */
 export function getSubscriptionEndDate(fromDate: Date = new Date()): Date {
   const day = fromDate.getDate();
-
-  if (day > 25) {
-    // Late in month - extend to month after next
-    return new Date(fromDate.getFullYear(), fromDate.getMonth() + 2, 1);
-  }
-
-  // Normal - extend to 1st of next month
-  return new Date(fromDate.getFullYear(), fromDate.getMonth() + 1, 1);
+  const targetMonth = fromDate.getMonth() + 1;
+  const targetYear = fromDate.getFullYear();
+  // Last day of target month (handles Feb, 30-day months, year rollover)
+  const lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+  const resultDay = Math.min(day, lastDayOfTargetMonth);
+  return new Date(targetYear, targetMonth, resultDay);
 }
 
 // ============================================
@@ -154,7 +153,7 @@ export async function getSubscriptionWithUsage(userId: number): Promise<Subscrip
 
 /**
  * Upgrade subscription to a new plan
- * Subscription runs until the 1st of next month (or month after if late in month)
+ * Subscription runs until the same day next month
  */
 export async function upgradeSubscription(
   userId: number,
@@ -180,6 +179,25 @@ export async function upgradeSubscription(
       },
     }),
     'upgradeSubscription'
+  );
+
+  // Reset usage counters for the new billing period
+  await withDbRetry(
+    () => prisma.usageCounter.upsert({
+      where: { userId },
+      update: {
+        textSummariesUsed: 0,
+        voiceSummariesUsed: 0,
+        voiceEventsCreated: 0,
+        remindersTriggered: 0,
+        cycleStartDate: now,
+      },
+      create: {
+        userId,
+        cycleStartDate: now,
+      },
+    }),
+    'resetUsageOnUpgrade'
   );
 
   // Track upgrade
@@ -282,7 +300,7 @@ async function expireTrialSubscription(userId: number): Promise<Subscription> {
 
 /**
  * Renew subscription (called on successful manual payment)
- * Subscription runs until the 1st of next month
+ * Subscription runs until the same day next month
  */
 export async function renewSubscription(
   userId: number,
@@ -308,6 +326,25 @@ export async function renewSubscription(
       },
     }),
     'renewSubscription'
+  );
+
+  // Reset usage counters for the new billing period
+  await withDbRetry(
+    () => prisma.usageCounter.upsert({
+      where: { userId },
+      update: {
+        textSummariesUsed: 0,
+        voiceSummariesUsed: 0,
+        voiceEventsCreated: 0,
+        remindersTriggered: 0,
+        cycleStartDate: now,
+      },
+      create: {
+        userId,
+        cycleStartDate: now,
+      },
+    }),
+    'resetUsageOnRenewal'
   );
 
   await trackActivity(userId, 'subscription_renewed', {
@@ -338,15 +375,17 @@ export async function getOrCreateUsageCounter(userId: number): Promise<UsageCoun
   );
 
   if (existing) {
-    // Check if we need to reset the cycle (monthly)
     const cycleStart = existing.cycleStartDate;
     const now = new Date();
-    const monthsSinceCycleStart =
-      (now.getFullYear() - cycleStart.getFullYear()) * 12 +
-      (now.getMonth() - cycleStart.getMonth());
+    const cycleEnd = getSubscriptionEndDate(cycleStart);
 
-    if (monthsSinceCycleStart >= 1) {
-      // Reset usage for new month
+    if (now >= cycleEnd) {
+      // Walk forward to find the latest valid cycle start
+      let newCycleStart = cycleEnd;
+      while (getSubscriptionEndDate(newCycleStart) <= now) {
+        newCycleStart = getSubscriptionEndDate(newCycleStart);
+      }
+
       return withDbRetry(
         () => prisma.usageCounter.update({
           where: { userId },
@@ -355,7 +394,7 @@ export async function getOrCreateUsageCounter(userId: number): Promise<UsageCoun
             voiceSummariesUsed: 0,
             voiceEventsCreated: 0,
             remindersTriggered: 0,
-            cycleStartDate: new Date(now.getFullYear(), now.getMonth(), 1),
+            cycleStartDate: newCycleStart,
           },
         }),
         'getOrCreateUsageCounter.reset'

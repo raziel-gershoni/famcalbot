@@ -610,7 +610,8 @@
       "upgradeNow": "שדרג עכשיו",
       "contactSupport": "צור קשר עם תמיכה",
       "invoiceSent": "חשבונית נשלחה! בדוק את הצ'אט בטלגרם להשלמת התשלום.",
-      "confirmUpgrade": "לשדרג ל-{plan} תמורת ⭐{price} לחודש?"
+      "confirmUpgrade": "לשדרג ל-{plan} תמורת ⭐{price} לחודש?",
+      "validUntil": "בתוקף עד {date}"
     },
     "reminders": {
       "expiringSoon": {

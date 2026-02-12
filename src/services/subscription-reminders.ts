@@ -24,27 +24,19 @@ const REMINDER_TTL_SECONDS = 35 * 24 * 60 * 60; // 35 days
 type ReminderType = '3day' | 'lastday' | 'expired';
 
 /**
- * Get year-month string for current month (e.g., "2026-02")
- */
-function getYearMonth(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  return `${year}-${month}`;
-}
-
-/**
  * Generate Redis key for subscription reminder tracking
+ * Uses the subscription period end date for dedup (each billing period gets its own set of reminders)
  */
-function getReminderKey(telegramId: bigint | string, type: ReminderType): string {
-  return `subscription_reminder:${telegramId}:${getYearMonth()}:${type}`;
+function getReminderKey(telegramId: bigint | string, periodEnd: Date, type: ReminderType): string {
+  const dateStr = periodEnd.toISOString().split('T')[0];
+  return `subscription_reminder:${telegramId}:${dateStr}:${type}`;
 }
 
 /**
- * Check if a reminder has already been sent this month
+ * Check if a reminder has already been sent for this billing period
  */
-async function hasReminderBeenSent(telegramId: bigint | string, type: ReminderType): Promise<boolean> {
-  const key = getReminderKey(telegramId, type);
+async function hasReminderBeenSent(telegramId: bigint | string, periodEnd: Date, type: ReminderType): Promise<boolean> {
+  const key = getReminderKey(telegramId, periodEnd, type);
   try {
     const exists = await redis.exists(key);
     return exists === 1;
@@ -55,10 +47,10 @@ async function hasReminderBeenSent(telegramId: bigint | string, type: ReminderTy
 }
 
 /**
- * Mark a reminder as sent
+ * Mark a reminder as sent for this billing period
  */
-async function markReminderSent(telegramId: bigint | string, type: ReminderType): Promise<void> {
-  const key = getReminderKey(telegramId, type);
+async function markReminderSent(telegramId: bigint | string, periodEnd: Date, type: ReminderType): Promise<void> {
+  const key = getReminderKey(telegramId, periodEnd, type);
   try {
     await redis.set(key, '1', { ex: REMINDER_TTL_SECONDS });
   } catch (error) {
@@ -82,18 +74,19 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
   const reminderType: ReminderType = daysLeft === 0 ? 'lastday' : '3day';
   console.log(`[Subscription Reminders] Sending ${reminderType} reminders...`);
 
-  // Find active/canceled subscriptions expiring at end of month
   const now = new Date();
-  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const windowEnd = new Date(now);
+  windowEnd.setDate(windowEnd.getDate() + daysLeft + 1);
 
+  // Find subscriptions expiring within the window
   const subscriptions = await withDbRetry(
     () => prisma.subscription.findMany({
       where: {
         status: { in: ['ACTIVE', 'CANCELED'] },
         plan: { not: 'FREE' },
         currentPeriodEnd: {
-          gte: now,
-          lt: endOfMonth,
+          gt: now,
+          lte: windowEnd,
         },
       },
       include: {
@@ -109,7 +102,7 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
     'subscription-reminders.findExpiring'
   );
 
-  console.log(`[Subscription Reminders] Found ${subscriptions.length} subscriptions expiring this month`);
+  console.log(`[Subscription Reminders] Found ${subscriptions.length} subscriptions expiring within ${daysLeft + 1} days`);
 
   // Get usage stats for all users at once
   const userIds = subscriptions.map(s => s.userId);
@@ -134,8 +127,8 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
       continue;
     }
 
-    // Skip if already sent this month
-    if (await hasReminderBeenSent(telegramId, reminderType)) {
+    // Skip if already sent for this billing period
+    if (await hasReminderBeenSent(telegramId, sub.currentPeriodEnd!, reminderType)) {
       continue;
     }
 
@@ -144,6 +137,11 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
     const planConfig = PLAN_CONFIGS[sub.plan as PlanId];
     const usage = usageMap.get(sub.userId);
     const subscriptionUrl = buildUrl(`/${locale}/subscription?user_id=${telegramId}`);
+
+    // Compute per-user days left
+    const userDaysLeft = Math.max(0, Math.ceil(
+      (sub.currentPeriodEnd!.getTime() - now.getTime()) / 86400000
+    ));
 
     let message: string;
 
@@ -158,7 +156,7 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
       message = [
         (t.reminders?.expiringSoon?.title || '\uD83C\uDF1F Heads up! Your FamCal {plan} renews in {days} days')
           .replace('{plan}', planConfig.name)
-          .replace('{days}', String(daysLeft)),
+          .replace('{days}', String(userDaysLeft)),
         '',
         t.reminders?.expiringSoon?.usage || 'Your family has used:',
         usageStats,
@@ -196,11 +194,11 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
         },
       });
 
-      await markReminderSent(telegramId, reminderType);
+      await markReminderSent(telegramId, sub.currentPeriodEnd!, reminderType);
       await trackActivity(sub.userId, 'subscription_reminder_sent', {
         type: reminderType,
         plan: sub.plan,
-        days_left: daysLeft,
+        days_left: userDaysLeft,
       });
 
       console.log(`[Subscription Reminders] Sent ${reminderType} reminder to user ${chatId}`);
@@ -215,7 +213,7 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
 }
 
 /**
- * Expire subscriptions on the 1st of the month
+ * Expire subscriptions past their period end date
  * Downgrade to FREE and send notification
  */
 async function expireSubscriptions(): Promise<void> {
@@ -261,8 +259,8 @@ async function expireSubscriptions(): Promise<void> {
       continue;
     }
 
-    // Skip if already sent this month
-    if (await hasReminderBeenSent(telegramId, 'expired')) {
+    // Skip if already sent for this billing period
+    if (await hasReminderBeenSent(telegramId, sub.currentPeriodEnd!, 'expired')) {
       continue;
     }
 
@@ -307,7 +305,7 @@ async function expireSubscriptions(): Promise<void> {
         },
       });
 
-      await markReminderSent(telegramId, 'expired');
+      await markReminderSent(telegramId, sub.currentPeriodEnd!, 'expired');
       await trackActivity(sub.userId, 'subscription_expired', {
         plan: previousPlan,
       });
@@ -323,30 +321,16 @@ async function expireSubscriptions(): Promise<void> {
 }
 
 /**
- * Main entry point - process subscription reminders based on day of month
+ * Main entry point - process subscription reminders daily
  * Called daily by the health check endpoint
+ * Runs all checks every day since subscriptions can expire on any date
  */
 export async function processSubscriptionReminders(): Promise<void> {
-  const now = new Date();
-  const dayOfMonth = now.getDate();
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  console.log('[Subscription Reminders] Processing daily subscription checks...');
 
-  console.log(`[Subscription Reminders] Processing for day ${dayOfMonth} of ${daysInMonth}`);
-
-  // 3 days before end of month
-  if (dayOfMonth === daysInMonth - 2) {
-    await sendExpiringReminders(3);
-  }
-
-  // Last day of month
-  if (dayOfMonth === daysInMonth) {
-    await sendExpiringReminders(0);
-  }
-
-  // 1st of month - expire subscriptions
-  if (dayOfMonth === 1) {
-    await expireSubscriptions();
-  }
+  await sendExpiringReminders(3);   // 3-day warnings
+  await sendExpiringReminders(0);   // last-day warnings
+  await expireSubscriptions();       // expire past-due
 
   console.log('[Subscription Reminders] Processing complete');
 }

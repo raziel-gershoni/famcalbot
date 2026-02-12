@@ -198,6 +198,15 @@ export default function SubscriptionClient({
             background: #667eea;
           }
 
+          .period-info {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: #6b7280;
+            margin-bottom: 12px;
+          }
+
           .usage-section {
             margin-top: 16px;
           }
@@ -410,6 +419,21 @@ export default function SubscriptionClient({
                   {trial.isTrialing ? t('page.trialBadge') : t('page.currentPlanBadge')}
                 </span>
               </div>
+
+              {/* Subscription Period */}
+              {!trial.isTrialing && subscription.currentPeriodEnd && subscription.plan !== 'FREE' && (
+                <div className="period-info">
+                  <Clock size={14} />
+                  <span>
+                    {t('page.validUntil', {
+                      date: new Date(subscription.currentPeriodEnd).toLocaleDateString(
+                        locale === 'he' ? 'he-IL' : locale === 'ru' ? 'ru-RU' : 'en-US',
+                        { month: 'short', day: 'numeric', year: 'numeric' }
+                      ),
+                    })}
+                  </span>
+                </div>
+              )}
 
               {/* Usage Stats */}
               <div className="usage-section">

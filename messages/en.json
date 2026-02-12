@@ -610,7 +610,8 @@
       "upgradeNow": "Upgrade Now",
       "contactSupport": "Contact Support",
       "invoiceSent": "Invoice sent! Check your Telegram chat to complete payment.",
-      "confirmUpgrade": "Upgrade to {plan} for ⭐{price}/month?"
+      "confirmUpgrade": "Upgrade to {plan} for ⭐{price}/month?",
+      "validUntil": "Valid until {date}"
     },
     "reminders": {
       "expiringSoon": {

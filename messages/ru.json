@@ -610,7 +610,8 @@
       "upgradeNow": "Улучшить сейчас",
       "contactSupport": "Связаться с поддержкой",
       "invoiceSent": "Счёт отправлен! Проверьте чат в Telegram для завершения оплаты.",
-      "confirmUpgrade": "Перейти на {plan} за ⭐{price}/месяц?"
+      "confirmUpgrade": "Перейти на {plan} за ⭐{price}/месяц?",
+      "validUntil": "Действует до {date}"
     },
     "reminders": {
       "expiringSoon": {
