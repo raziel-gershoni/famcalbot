@@ -365,18 +365,28 @@ export async function handleWeatherCommand(
     const { fetchWeather } = await import('./weather/open-meteo');
     const weatherData = await fetchWeather(user.location);
 
+    // Resolve timezone from user location
+    const { TIMEZONE } = await import('../config/constants');
+    let timezone = TIMEZONE;
+    try {
+      const { getTimezone } = await import('./weather/geocoding');
+      timezone = await getTimezone(user.location);
+    } catch {
+      // Fall back to default timezone
+    }
+
     // Generate AI-powered weather forecast
     const { formatWeatherAI } = await import('./weather/formatter');
-    const formattedWeather = await formatWeatherAI(weatherData, user.language);
+    const { brief, detailed } = await formatWeatherAI(weatherData, user.language, user.name, timezone);
 
-    // Stop animation and update with weather
+    // Stop animation and update with brief weather text
     stopAnimation();
-    await messagingService.updateMessage(chatId, messageId, formattedWeather, { format: MessageFormat.MARKDOWN });
+    await messagingService.updateMessage(chatId, messageId, brief, { format: MessageFormat.MARKDOWN });
 
-    // Send voice message if enabled
+    // Send voice message with detailed version if enabled
     if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
       try {
-        await sendVoiceMessage(Number(userId), formattedWeather, user, undefined, messagingService);
+        await sendVoiceMessage(Number(userId), detailed, user, undefined, messagingService);
       } catch (err) {
         console.error(`Weather voice failed for user ${userId}:`, err);
       }

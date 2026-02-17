@@ -175,28 +175,66 @@ const SECTION_HEADERS: Record<string, { todayTomorrow: string; thisWeek: string;
   ru: { todayTomorrow: 'Сегодня и завтра', thisWeek: 'На этой неделе', extended: 'Расширенный прогноз' },
 };
 
+export interface WeatherFormatResult {
+  brief: string;    // ~500-800 chars for text display
+  detailed: string; // ~1500-2000 chars for voice narration
+}
+
 /**
  * Format weather data using AI for a natural, conversational summary
+ * Returns brief (text) and detailed (voice) versions
  * Falls back to formatWeatherDetailed on AI failure
  */
-export async function formatWeatherAI(weather: WeatherData, language: string): Promise<string> {
+export async function formatWeatherAI(
+  weather: WeatherData,
+  language: string,
+  userName: string,
+  timezone: string,
+): Promise<WeatherFormatResult> {
   const payload = buildWeatherAIPayload(weather);
   const langName = LANGUAGE_NAMES[language] || 'English';
   const headers = SECTION_HEADERS[language] || SECTION_HEADERS.en;
 
+  const now = new Date();
+  const dateStr = now.toLocaleDateString(
+    language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US',
+    {
+      timeZone: timezone,
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    },
+  );
+
   const prompt = `You are a friendly weatherperson giving a natural, conversational forecast briefing on someone's phone via Telegram.
 
-**Rules:**
+**Output two versions separated by the exact delimiter ===FULL=== on its own line.**
+
+FIRST: A BRIEF version (~500-800 characters) — a compact mobile-friendly summary.
+THEN: The exact line: ===FULL===
+THEN: A FULL version (~1500-2000 characters) — detailed prose for voice narration.
+
+**Rules (apply to BOTH versions):**
 - Respond ENTIRELY in ${langName}
+- Start with a short, warm greeting using the person's name: ${userName}
+- Include the current date (${dateStr}) right after the greeting
 - Use Telegram Markdown: *bold* for the 3 section headers only
 - Use weather emojis naturally throughout
-- Keep it concise — designed for mobile reading (~2000 characters max)
 - Mention UV warnings when UV index ≥ 6
 - Mention wind only when > 20 km/h
 - Mention rain timing when relevant (use rainHours data if available)
 - Write in flowing paragraphs, NOT bullet lists or one-line-per-day format
 - Group days with similar weather together (e.g. "Wednesday through Friday stays warm and dry around 22–24°C") rather than listing each day separately
 - Transition naturally between sections — no numbered lists
+
+**BRIEF version rules:**
+- Same 3 bold section headers, but only 1-2 sentences per section
+- Focus on highlights: current temp, today's high/low, rain yes/no, week trend
+- No extended outlook — skip the third section entirely
+
+**FULL version rules:**
+- All 3 sections with full flowing paragraphs
 
 **Use these 3 bold section headers, each followed by natural flowing paragraphs:**
 
@@ -215,10 +253,22 @@ ${JSON.stringify(payload, null, 2)}`;
   try {
     const { generateAICompletion } = await import('../ai-provider');
     const result = await generateAICompletion(prompt);
-    return result.text.trim();
+    const text = result.text.trim();
+
+    const delimiter = '===FULL===';
+    const delimiterIndex = text.indexOf(delimiter);
+    if (delimiterIndex !== -1) {
+      return {
+        brief: text.substring(0, delimiterIndex).trim(),
+        detailed: text.substring(delimiterIndex + delimiter.length).trim(),
+      };
+    }
+    // If no delimiter found, use full text for both
+    return { brief: text, detailed: text };
   } catch (error) {
     console.error('Failed to generate AI weather forecast:', error);
-    return formatWeatherDetailed(weather);
+    const fallback = await formatWeatherDetailed(weather);
+    return { brief: fallback, detailed: fallback };
   }
 }
 
