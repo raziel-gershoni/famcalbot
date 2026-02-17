@@ -43,7 +43,7 @@ interface OpenMeteoResponse {
  *
  * @param location - Human-readable location (e.g., "Harish, Israel")
  * @param timezone - Timezone for the forecast (default: "Asia/Jerusalem")
- * @returns Weather data with current, today, tomorrow, hourly, and 7-day forecasts
+ * @returns Weather data with current, today, tomorrow, hourly, and 16-day forecasts
  */
 export async function fetchWeather(
   location: string,
@@ -62,7 +62,7 @@ export async function fetchWeather(
     hourly: 'temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m',
     daily: 'temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code,wind_speed_10m_max,sunrise,sunset,uv_index_max',
     timezone: timezone,
-    forecast_days: '7'
+    forecast_days: '16'
   });
 
   const url = `https://api.open-meteo.com/v1/forecast?${params.toString()}`;

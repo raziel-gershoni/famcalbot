@@ -34,8 +34,7 @@
     },
     "weather": {
       "title": "Weather Forecast",
-      "standard": "Standard",
-      "detailed": "Detailed"
+      "forecast": "Forecast"
     },
     "settings": {
       "title": "Calendar Settings",
@@ -415,9 +414,7 @@
       "message": "FamCal needs both \"View calendar\" and \"Edit events\" permissions to work properly. Please reconnect and make sure to check ALL permission boxes on Google's screen.",
       "tapToRefresh": "Tap below to reconnect:"
     },
-    "weather": {
-      "specifyFormat": "🌤️ Please specify format: \"std\" for standard or \"dtl\" for detailed"
-    },
+    "weather": {},
     "testAI": {
       "title": "🤖 <b>Test AI Models</b>",
       "selectModel": "Select a model to generate <b>{timeLabel}'s</b> summary with voice:",

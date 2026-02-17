@@ -114,7 +114,7 @@ export class WhatsAppAdapter implements IMessagingService {
     // Map of WhatsApp command patterns to commands
     const commandPatterns: Array<{ pattern: RegExp; command: string }> = [
       { pattern: /^summary\s*(tmrw)?/, command: 'summary' },
-      { pattern: /^weather\s*(std|dtl)?/, command: 'weather' },
+      { pattern: /^weather/, command: 'weather' },
       { pattern: /^help/, command: 'help' },
       { pattern: /^start/, command: 'start' },
     ];

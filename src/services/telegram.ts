@@ -288,8 +288,8 @@ export async function handleSummaryCommand(
 
 /**
  * Handle /weather command
- * Supports: /weather std, /weather dtl
- * Called via dashboard deep links and WhatsApp commands
+ * Generates AI-powered weather forecast
+ * Called via dashboard and Telegram commands
  */
 export async function handleWeatherCommand(
   chatId: number | string,
@@ -343,16 +343,6 @@ export async function handleWeatherCommand(
     return;
   }
 
-  // Args should be 'std' or 'dtl' from dashboard buttons
-  if (!args) {
-    const t = await getBotMessages(user.language || 'en');
-    await messagingService.sendMessage(
-      chatId,
-      t.weather.specifyFormat
-    );
-    return;
-  }
-
   // Use existing progress message or create new one
   const userLanguage = user.language || 'en';
   let messageId: number | string;
@@ -371,17 +361,13 @@ export async function handleWeatherCommand(
   }
 
   try {
-    const format = args.toLowerCase() === 'dtl' ? 'dtl' : 'std';
-
     // Fetch weather data
     const { fetchWeather } = await import('./weather/open-meteo');
     const weatherData = await fetchWeather(user.location);
 
-    // Format weather based on requested format
-    const { formatWeatherStandard, formatWeatherDetailed } = await import('./weather/formatter');
-    const formattedWeather = format === 'dtl'
-      ? await formatWeatherDetailed(weatherData, user.language)
-      : await formatWeatherStandard(weatherData, user.language);
+    // Generate AI-powered weather forecast
+    const { formatWeatherAI } = await import('./weather/formatter');
+    const formattedWeather = await formatWeatherAI(weatherData, user.language);
 
     // Stop animation and update with weather
     stopAnimation();

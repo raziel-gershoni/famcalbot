@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
-import { KeyRound, Calendar, Zap, TrendingUp, CloudSun, RefreshCw, PencilLine, ClipboardList, Loader2, Crown, Sparkles, MessageSquare, ChevronRight } from 'lucide-react';
+import { KeyRound, Calendar, CloudSun, RefreshCw, PencilLine, ClipboardList, Loader2, Crown, Sparkles, MessageSquare, ChevronRight } from 'lucide-react';
 import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
 
@@ -596,29 +596,15 @@ export default function DashboardClient({
                 <div className="button-group">
                   <button
                     className="action-button"
-                    onClick={() => executeCommand('weather', 'std')}
+                    onClick={() => executeCommand('weather')}
                     disabled={loadingCommand !== null}
                   >
-                    {isLoading('weather', 'std') ? (
+                    {isLoading('weather') ? (
                       <Loader2 size={28} className="spinner" />
                     ) : (
                       <>
-                        <span className="icon"><Zap size={32} /></span>
-                        <span>{t('weather.standard')}</span>
-                      </>
-                    )}
-                  </button>
-                  <button
-                    className="action-button"
-                    onClick={() => executeCommand('weather', 'dtl')}
-                    disabled={loadingCommand !== null}
-                  >
-                    {isLoading('weather', 'dtl') ? (
-                      <Loader2 size={28} className="spinner" />
-                    ) : (
-                      <>
-                        <span className="icon"><TrendingUp size={32} /></span>
-                        <span>{t('weather.detailed')}</span>
+                        <span className="icon"><CloudSun size={32} /></span>
+                        <span>{t('weather.forecast')}</span>
                       </>
                     )}
                   </button>

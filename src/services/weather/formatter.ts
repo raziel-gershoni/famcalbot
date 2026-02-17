@@ -1,33 +1,10 @@
 /**
  * Weather Formatter
- * Formats weather data for standard and detailed display
+ * AI-powered weather forecast formatting with rule-based fallback
  */
 
 import { WeatherData } from '../../types';
 import { getWeatherDescription, getWeatherEmoji } from './open-meteo';
-
-/**
- * Translate weather report to user's language using AI
- */
-async function translateWeatherReport(englishReport: string, targetLanguage: string = 'Hebrew'): Promise<string> {
-  const { generateAICompletion } = await import('../ai-provider');
-
-  const prompt = `Translate this weather report to ${targetLanguage}. Keep all formatting (emojis, markdown, numbers, symbols) exactly as is. Only translate the text.
-
-Weather Report:
-${englishReport}
-
-Translated Report:`;
-
-  try {
-    const result = await generateAICompletion(prompt);
-    return result.text.trim();
-  } catch (error) {
-    console.error('Failed to translate weather report:', error);
-    // Return original English report if translation fails
-    return englishReport;
-  }
-}
 
 interface RainHours {
   startTime: string;
@@ -128,72 +105,6 @@ function getUVDescription(uvIndex: number): string {
 }
 
 /**
- * Generate pattern-based weekly summary (rule-based, no AI)
- */
-function generateWeeklySummary(daily: WeatherData['daily']): string {
-  if (!daily || daily.length < 3) return '';
-
-  // Analyze days 2-6 (skip today and tomorrow)
-  const weekDays = daily.slice(2, Math.min(7, daily.length));
-  if (weekDays.length === 0) return '';
-
-  const summary: string[] = [];
-
-  // Temperature trend analysis
-  const firstTemp = (weekDays[0].tempMin + weekDays[0].tempMax) / 2;
-  const lastTemp = (weekDays[weekDays.length - 1].tempMin + weekDays[weekDays.length - 1].tempMax) / 2;
-  const tempDiff = lastTemp - firstTemp;
-
-  const minTemp = Math.min(...weekDays.map(d => d.tempMin));
-  const maxTemp = Math.max(...weekDays.map(d => d.tempMax));
-
-  // Build temperature trend description
-  let tempDesc = '';
-  if (Math.abs(tempDiff) > 5) {
-    // Significant trend
-    if (tempDiff > 0) {
-      tempDesc = `Warming trend, ${Math.round(firstTemp)}°C → ${Math.round(lastTemp)}°C`;
-    } else {
-      tempDesc = `Cooling trend, ${Math.round(firstTemp)}°C → ${Math.round(lastTemp)}°C`;
-    }
-  } else {
-    // Stable temps
-    tempDesc = `Stable temps around ${Math.round((minTemp + maxTemp) / 2)}°C (${minTemp}-${maxTemp}°C range)`;
-  }
-
-  summary.push(tempDesc);
-
-  // Rain analysis
-  const rainyDays = weekDays.filter(d => d.precipitationProbability >= 40);
-  if (rainyDays.length > 0) {
-    const rainDayNames = rainyDays.map(d => {
-      const date = new Date(d.date);
-      return date.toLocaleDateString('en-US', { weekday: 'short' });
-    }).join(', ');
-
-    if (rainyDays.length === 1) {
-      summary.push(`rain ${rainDayNames}`);
-    } else {
-      summary.push(`rain likely ${rainDayNames}`);
-    }
-  } else {
-    summary.push('mostly dry');
-  }
-
-  // Weather pattern (clear vs cloudy)
-  const clearDays = weekDays.filter(d => d.weatherCode <= 1).length;
-  const totalDays = weekDays.length;
-
-  if (clearDays >= totalDays * 0.7) {
-    summary.push('clear skies');
-  } else if (clearDays <= totalDays * 0.3) {
-    summary.push('mostly overcast');
-  }
-
-  return summary.join(', ');
-}
-
-/**
  * Format time from ISO string to HH:MM
  */
 function formatTime(isoString: string): string {
@@ -204,124 +115,115 @@ function formatTime(isoString: string): string {
 }
 
 /**
- * Generate ASCII temperature graph for the week
+ * Build a compact, token-efficient payload for AI weather generation
  */
-function generateTemperatureGraph(daily: WeatherData['daily']): string {
-  if (!daily || daily.length < 2) return '';
+export function buildWeatherAIPayload(weather: WeatherData): object {
+  const todayDate = weather.daily?.[0]?.date || new Date().toISOString().split('T')[0];
+  const tomorrowDate = weather.daily?.[1]?.date || '';
 
-  const data = daily.slice(0, 7);
-  const temps = data.flatMap(d => [d.tempMin, d.tempMax]);
-  const minTemp = Math.min(...temps);
-  const maxTemp = Math.max(...temps);
-  const range = maxTemp - minTemp;
+  const todayRainHours = weather.hourly
+    ? formatRainHours(extractRainHours(weather.hourly, todayDate))
+    : '';
+  const tomorrowRainHours = weather.hourly && tomorrowDate
+    ? formatRainHours(extractRainHours(weather.hourly, tomorrowDate))
+    : '';
 
-  // Graph height (in characters)
-  const height = 8;
-  const graphLines: string[] = [];
+  const buildDaySummary = (day: NonNullable<WeatherData['daily']>[number], rainHoursStr?: string) => {
+    const result: Record<string, unknown> = {
+      day: new Date(day.date).toLocaleDateString('en-US', { weekday: 'long' }),
+      date: day.date,
+      high: day.tempMax,
+      low: day.tempMin,
+      rainPct: day.precipitationProbability,
+      condition: getWeatherDescription(day.weatherCode),
+      sunrise: formatTime(day.sunrise),
+      sunset: formatTime(day.sunset),
+      uvMax: day.uvIndexMax,
+    };
+    if (rainHoursStr) result.rainHours = rainHoursStr;
+    return result;
+  };
 
-  // Build graph from top to bottom
-  for (let row = height; row >= 0; row--) {
-    const temp = minTemp + (range * row / height);
-    let line = `${Math.round(temp).toString().padStart(3)}°│`;
+  const daily = weather.daily || [];
 
-    for (const day of data) {
-      const maxPos = Math.round(((day.tempMax - minTemp) / range) * height);
-      const minPos = Math.round(((day.tempMin - minTemp) / range) * height);
+  return {
+    location: weather.location,
+    current: {
+      temp: weather.current.temperature,
+      feelsLike: weather.current.feelsLike,
+      humidity: weather.current.humidity,
+      wind: weather.current.windSpeed,
+      uvIndex: weather.current.uvIndex,
+      condition: getWeatherDescription(weather.current.weatherCode),
+    },
+    today: daily[0] ? buildDaySummary(daily[0], todayRainHours) : null,
+    tomorrow: daily[1] ? buildDaySummary(daily[1], tomorrowRainHours) : null,
+    thisWeek: daily.slice(2, 7).map(d => buildDaySummary(d)),
+    extended: daily.slice(7, 16).map(d => buildDaySummary(d)),
+  };
+}
 
-      if (row === maxPos) {
-        line += '▄';
-      } else if (row === minPos) {
-        line += '▀';
-      } else if (row > minPos && row < maxPos) {
-        line += '█';
-      } else {
-        line += ' ';
-      }
-    }
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English',
+  he: 'Hebrew',
+  ru: 'Russian',
+};
 
-    graphLines.push(line);
+const SECTION_HEADERS: Record<string, { todayTomorrow: string; thisWeek: string; extended: string }> = {
+  en: { todayTomorrow: 'Today & Tomorrow', thisWeek: 'This Week', extended: 'Extended Outlook' },
+  he: { todayTomorrow: 'היום ומחר', thisWeek: 'השבוע', extended: 'תחזית מורחבת' },
+  ru: { todayTomorrow: 'Сегодня и завтра', thisWeek: 'На этой неделе', extended: 'Расширенный прогноз' },
+};
+
+/**
+ * Format weather data using AI for a natural, conversational summary
+ * Falls back to formatWeatherDetailed on AI failure
+ */
+export async function formatWeatherAI(weather: WeatherData, language: string): Promise<string> {
+  const payload = buildWeatherAIPayload(weather);
+  const langName = LANGUAGE_NAMES[language] || 'English';
+  const headers = SECTION_HEADERS[language] || SECTION_HEADERS.en;
+
+  const prompt = `You are a weather forecaster writing a concise mobile-friendly forecast for Telegram.
+
+**Rules:**
+- Respond ENTIRELY in ${langName}
+- Use Telegram Markdown: *bold* for section headers
+- Use weather emojis liberally
+- Keep it concise — designed for mobile reading
+- Mention UV warnings when UV index ≥ 6
+- Mention wind only when > 20 km/h
+- Mention rain timing when relevant (use rainHours data if available)
+- Maximum ~2000 characters total
+
+**Structure your response in exactly 3 sections:**
+
+1. *${headers.todayTomorrow}*
+   Detailed: current conditions, today's and tomorrow's forecast with temperatures, precipitation, notable conditions.
+
+2. *${headers.thisWeek}*
+   Brief daily summary for each day (days 3-7). One line per day with day name, temp range, key condition.
+
+3. *${headers.extended}*
+   2-3 sentences summarizing the general trend for days 8-16. IMPORTANT: These are rough estimates only — use hedging language ("likely", "expected to", "may"), note that accuracy drops beyond a week, and focus on general trends (warming/cooling, wet/dry pattern) rather than specific daily temperatures.
+
+**Weather Data:**
+${JSON.stringify(payload, null, 2)}`;
+
+  try {
+    const { generateAICompletion } = await import('../ai-provider');
+    const result = await generateAICompletion(prompt);
+    return result.text.trim();
+  } catch (error) {
+    console.error('Failed to generate AI weather forecast:', error);
+    return formatWeatherDetailed(weather);
   }
-
-  // Add day labels
-  const dayLabels = '    └' + data.map(d => {
-    const date = new Date(d.date);
-    return date.toLocaleDateString('en-US', { weekday: 'narrow' });
-  }).join('');
-
-  graphLines.push(dayLabels);
-
-  return '```\n' + graphLines.join('\n') + '\n```';
 }
 
 /**
- * Format weather data in standard format
- * Simple, concise view with current conditions and forecast
+ * Format weather data in detailed format (fallback when AI is unavailable)
  */
-export async function formatWeatherStandard(weather: WeatherData, language?: string): Promise<string> {
-  let output = `🌤️ *Weather for ${weather.location}*\n\n`;
-
-  // Current conditions
-  output += `*Now:* ${weather.current.temperature}°C (feels like ${weather.current.feelsLike}°C)\n`;
-  output += `${getWeatherEmoji(weather.current.weatherCode)} ${getWeatherDescription(weather.current.weatherCode)}\n`;
-  output += `💨 Wind: ${weather.current.windSpeed} km/h | 💧 Humidity: ${weather.current.humidity}%\n\n`;
-
-  // Today
-  output += `*Today:* ${weather.today.tempMin}-${weather.today.tempMax}°C`;
-  if (weather.today.precipitationProbability > 0) {
-    output += ` | ${weather.today.precipitationProbability}% rain`;
-  }
-  output += `\n`;
-
-  // Check for rain hours today
-  if (weather.today.precipitationProbability >= 40 && weather.hourly) {
-    const todayDate = weather.daily?.[0]?.date || new Date().toISOString().split('T')[0];
-    const rainHours = extractRainHours(weather.hourly, todayDate);
-    if (rainHours.length > 0) {
-      output += `   ⏰ Rain expected: ${formatRainHours(rainHours)}\n`;
-    }
-  }
-
-  // Tomorrow
-  if (weather.tomorrow) {
-    output += `*Tomorrow:* ${weather.tomorrow.tempMin}-${weather.tomorrow.tempMax}°C`;
-    if (weather.tomorrow.precipitationProbability > 0) {
-      output += ` | ${weather.tomorrow.precipitationProbability}% rain`;
-    }
-    output += `\n`;
-
-    // Check for rain hours tomorrow
-    if (weather.tomorrow.precipitationProbability >= 40 && weather.hourly) {
-      const tomorrowDate = weather.daily?.[1]?.date || '';
-      if (tomorrowDate) {
-        const rainHours = extractRainHours(weather.hourly, tomorrowDate);
-        if (rainHours.length > 0) {
-          output += `   ⏰ Rain expected: ${formatRainHours(rainHours)}\n`;
-        }
-      }
-    }
-  }
-
-  // Weekly pattern summary
-  if (weather.daily && weather.daily.length > 2) {
-    const weeklySummary = generateWeeklySummary(weather.daily);
-    if (weeklySummary) {
-      output += `\n*This Week:*\n${weeklySummary}`;
-    }
-  }
-
-  // Translate to user's language if specified
-  if (language) {
-    return await translateWeatherReport(output, language);
-  }
-
-  return output;
-}
-
-/**
- * Format weather data in detailed format
- * Comprehensive view with hourly breakdown, UV, sunrise/sunset, and temperature graph
- */
-export async function formatWeatherDetailed(weather: WeatherData, language?: string): Promise<string> {
+async function formatWeatherDetailed(weather: WeatherData): Promise<string> {
   let output = `🌤️ *Weather for ${weather.location}*\n\n`;
 
   // ========== CURRENT CONDITIONS ==========
@@ -425,16 +327,9 @@ export async function formatWeatherDetailed(weather: WeatherData, language?: str
     }
   }
 
-  // ========== TEMPERATURE GRAPH ==========
-  if (weather.daily && weather.daily.length >= 2) {
-    output += `\n*━━━ Weekly Temperature Trend ━━━*\n`;
-    output += generateTemperatureGraph(weather.daily);
-    output += `\n`;
-  }
-
   // ========== 7-DAY FORECAST ==========
   if (weather.daily && weather.daily.length > 2) {
-    output += `*━━━ 7-Day Forecast ━━━*\n`;
+    output += `\n*━━━ 7-Day Forecast ━━━*\n`;
     for (let i = 2; i < Math.min(7, weather.daily.length); i++) {
       const day = weather.daily[i];
       const date = new Date(day.date);
@@ -452,11 +347,6 @@ export async function formatWeatherDetailed(weather: WeatherData, language?: str
 
       output += `\n`;
     }
-  }
-
-  // Translate to user's language if specified
-  if (language) {
-    return await translateWeatherReport(output, language);
   }
 
   return output;
