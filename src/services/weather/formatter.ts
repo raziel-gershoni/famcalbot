@@ -193,6 +193,7 @@ export async function formatWeatherAI(
   userName: string,
   timezone: string,
   culture?: string,
+  isAdmin?: boolean,
 ): Promise<WeatherFormatResult> {
   const payload = buildWeatherAIPayload(weather);
   const langName = LANGUAGE_NAMES[language] || 'English';
@@ -277,16 +278,21 @@ ${JSON.stringify(payload, null, 2)}`;
     const result = await generateAICompletion(prompt);
     const text = result.text.trim();
 
+    // Model info footer for admin
+    const modelFooter = isAdmin
+      ? `\n\n<i>📊 ${result.model} | ${result.usage.inputTokens}→${result.usage.outputTokens} tokens</i>`
+      : '';
+
     const delimiter = '===FULL===';
     const delimiterIndex = text.indexOf(delimiter);
     if (delimiterIndex !== -1) {
       return {
-        brief: text.substring(0, delimiterIndex).trim(),
+        brief: text.substring(0, delimiterIndex).trim() + modelFooter,
         detailed: text.substring(delimiterIndex + delimiter.length).trim(),
       };
     }
     // If no delimiter found, use full text for both
-    return { brief: text, detailed: text };
+    return { brief: text + modelFooter, detailed: text };
   } catch (error) {
     console.error('Failed to generate AI weather forecast:', error);
     const fallback = await formatWeatherDetailed(weather);
