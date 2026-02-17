@@ -12,6 +12,7 @@ import { PLAN_CONFIGS, PlanId } from '../config/plans';
 import { trackActivity } from './analytics-service';
 import { buildUrl } from '../config/urls';
 import { captureError } from '../lib/error-capture';
+import { getEarlyAdoptionMode } from './reminder-cache';
 
 // Initialize Redis client
 const redis = new Redis({
@@ -326,6 +327,12 @@ async function expireSubscriptions(): Promise<void> {
  * Runs all checks every day since subscriptions can expire on any date
  */
 export async function processSubscriptionReminders(): Promise<void> {
+  const earlyMode = await getEarlyAdoptionMode();
+  if (earlyMode) {
+    console.log('[Subscription Reminders] Skipped - early adoption mode is ON');
+    return;
+  }
+
   console.log('[Subscription Reminders] Processing daily subscription checks...');
 
   await sendExpiringReminders(3);   // 3-day warnings

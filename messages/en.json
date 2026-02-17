@@ -43,7 +43,8 @@
       "renewToken": "Renew Google Token"
     },
     "subscription": {
-      "daysRemaining": "days remaining in trial"
+      "daysRemaining": "days remaining in trial",
+      "earlyAdopter": "Early Adopter"
     },
     "feedback": {
       "title": "Feedback",
@@ -89,7 +90,9 @@
     "features": {
       "title": "Feature Toggles",
       "reminders": "Event Reminders",
-      "remindersDescription": "Enable/disable reminders feature globally for all users"
+      "remindersDescription": "Enable/disable reminders feature globally for all users",
+      "earlyAdoption": "Early Adoption Mode",
+      "earlyAdoptionDescription": "Give all users PRO access. Hides payment UI."
     },
     "overrides": {
       "title": "User Feature Overrides",
@@ -131,6 +134,9 @@
       "unlimitedCalendars": "Unlimited Calendars",
       "unlimitedCalendarsDesc": "Bypass calendar limit",
       "unlimitedCalendarsShort": "Calendars",
+      "earlyAdopter": "Early Adopter",
+      "earlyAdopterDesc": "Keep PRO access after global mode ends",
+      "earlyAdopterShort": "EA",
       "paidBadge": "Paid",
       "reasonPlaceholder": "Reason for override (optional)",
       "save": "Save Override",
@@ -551,6 +557,8 @@
     "of": "of",
     "trialBanner": "🎉 Trial: {days} days remaining",
     "trialEndsIn": "Your trial ends in {days} days",
+    "earlyAdopterBanner": "Early Adopter - Full Access",
+    "earlyAdopterDescription": "You have full access to all features as an early adopter!",
     "upgradeButton": "⭐ Upgrade Plan",
     "managePlan": "Manage Subscription",
     "cancelPlan": "Cancel Subscription",

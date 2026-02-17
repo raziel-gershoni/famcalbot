@@ -117,6 +117,7 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
         needSetup: totalUsers - usersWithOAuth
       }}
       remindersEnabled={adminSettings?.remindersEnabled ?? false}
+      earlyAdoptionMode={adminSettings?.earlyAdoptionMode ?? false}
     />
   );
 }

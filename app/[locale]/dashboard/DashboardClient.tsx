@@ -40,6 +40,7 @@ interface DashboardClientProps {
   needsCalendars: boolean;
   subscription: SubscriptionInfo | null;
   trial: TrialInfo;
+  isEarlyAdopter: boolean;
 }
 
 export default function DashboardClient({
@@ -50,6 +51,7 @@ export default function DashboardClient({
   needsCalendars,
   subscription,
   trial,
+  isEarlyAdopter,
 }: DashboardClientProps) {
   const t = useTranslations('dashboard');
   const tSub = useTranslations('subscription');
@@ -423,6 +425,16 @@ export default function DashboardClient({
             color: #6b7280;
           }
 
+          .subscription-badge.early-adopter {
+            background: #10b981;
+            color: white;
+          }
+
+          .subscription-card.early-adopter {
+            background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+            border-color: #10b981;
+          }
+
           .subscription-action {
             font-size: 13px;
             color: #667eea;
@@ -664,12 +676,14 @@ export default function DashboardClient({
               {/* Subscription Card */}
               <Section title={tSub('title')} icon={<Crown size={20} />}>
                 <div
-                  className={`subscription-card ${trial.isTrialing ? 'trial' : ''}`}
+                  className={`subscription-card ${isEarlyAdopter ? 'early-adopter' : trial.isTrialing ? 'trial' : ''}`}
                   onClick={handleOpenSubscription}
                 >
                   <div className="subscription-header">
                     <div className="subscription-plan">
-                      {trial.isTrialing ? (
+                      {isEarlyAdopter ? (
+                        <Crown size={20} color="#10b981" />
+                      ) : trial.isTrialing ? (
                         <Sparkles size={20} color="#667eea" />
                       ) : (
                         <Crown size={20} color={subscription?.plan === 'PRO' ? '#f59e0b' : subscription?.plan === 'BASIC' ? '#3b82f6' : '#6b7280'} />
@@ -677,7 +691,9 @@ export default function DashboardClient({
                       <span className="subscription-plan-name">
                         {subscription?.effectivePlan || 'FREE'}
                       </span>
-                      {trial.isTrialing ? (
+                      {isEarlyAdopter ? (
+                        <span className="subscription-badge early-adopter">{t('subscription.earlyAdopter')}</span>
+                      ) : trial.isTrialing ? (
                         <span className="subscription-badge trial">{tSub('page.trialBadge')}</span>
                       ) : subscription?.status === 'ACTIVE' && subscription?.plan !== 'FREE' ? (
                         <span className="subscription-badge active">{tSub('page.currentPlanBadge')}</span>
@@ -685,11 +701,13 @@ export default function DashboardClient({
                         <span className="subscription-badge free">Free</span>
                       )}
                     </div>
-                    <span className="subscription-action">
-                      {trial.isTrialing || subscription?.plan === 'FREE' || !subscription ? tSub('upgradeButton') : tSub('managePlan')} →
-                    </span>
+                    {!isEarlyAdopter && (
+                      <span className="subscription-action">
+                        {trial.isTrialing || subscription?.plan === 'FREE' || !subscription ? tSub('upgradeButton') : tSub('managePlan')} →
+                      </span>
+                    )}
                   </div>
-                  {trial.isTrialing && trial.daysRemaining > 0 && (
+                  {!isEarlyAdopter && trial.isTrialing && trial.daysRemaining > 0 && (
                     <div className="trial-info">
                       <Sparkles size={14} />
                       <span className="trial-days">{trial.daysRemaining}</span> {t('subscription.daysRemaining') || 'days remaining in trial'}

@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { getUserByTelegramId } from '@/src/services/user-service';
-import { getSubscriptionWithUsage, getTrialStatus } from '@/src/services/subscription-service';
+import { getSubscriptionWithUsage, getTrialStatus, checkEarlyAdopterAccess } from '@/src/services/subscription-service';
 import { normalizeLocale } from '@/src/utils/locale';
 import SubscriptionClient from './SubscriptionClient';
 
@@ -32,8 +32,11 @@ export default async function SubscriptionPage({ params, searchParams }: PagePro
   }
 
   // Get subscription data (use internal DB user.id, not Telegram userId)
-  const subWithUsage = await getSubscriptionWithUsage(user.id);
-  const trialStatus = await getTrialStatus(user.id);
+  const [subWithUsage, trialStatus, isEarlyAdopter] = await Promise.all([
+    getSubscriptionWithUsage(user.id),
+    getTrialStatus(user.id),
+    checkEarlyAdopterAccess(user.id),
+  ]);
 
   if (!subWithUsage) {
     notFound();
@@ -62,6 +65,7 @@ export default async function SubscriptionPage({ params, searchParams }: PagePro
         daysRemaining: trialStatus.daysRemaining,
         trialEndsAt: trialStatus.trialEndsAt?.toISOString() || null,
       }}
+      isEarlyAdopter={isEarlyAdopter}
     />
   );
 }

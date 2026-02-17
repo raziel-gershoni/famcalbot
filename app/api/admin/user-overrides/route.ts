@@ -10,7 +10,7 @@ import { prisma, withDbRetry } from '@/src/utils/prisma';
 import { verifyUserAccess } from '@/src/lib/telegram-auth';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { captureError } from '@/src/lib/error-capture';
-import { getSubscriptionWithUsage } from '@/src/services/subscription-service';
+import { getSubscriptionWithUsage, invalidateFeatureAccessCache } from '@/src/services/subscription-service';
 import { getPlanLimits } from '@/src/config/plans';
 
 export const dynamic = 'force-dynamic';
@@ -275,6 +275,7 @@ export async function GET(request: NextRequest) {
             } : null,
             calendarsCount,
             hasOverride: !!user.featureOverride,
+            earlyAdopter: user.featureOverride?.earlyAdopter === true,
           };
         }),
       });
@@ -380,6 +381,7 @@ export async function POST(request: NextRequest) {
       remindersEnabled,
       voiceEventsEnabled,
       unlimitedCalendars,
+      earlyAdopter,
       reason,
     } = body;
 
@@ -420,7 +422,8 @@ export async function POST(request: NextRequest) {
       unlimitedSummaries === true ||
       remindersEnabled === true ||
       voiceEventsEnabled === true ||
-      unlimitedCalendars === true;
+      unlimitedCalendars === true ||
+      earlyAdopter === true;
 
     if (!hasAnyOverride) {
       // If no overrides, delete existing override instead
@@ -449,6 +452,7 @@ export async function POST(request: NextRequest) {
           remindersEnabled: remindersEnabled ?? null,
           voiceEventsEnabled: voiceEventsEnabled ?? null,
           unlimitedCalendars: unlimitedCalendars ?? null,
+          earlyAdopter: earlyAdopter === true,
           reason: reason ?? null,
           grantedBy: auth.adminId,
           grantedAt: new Date(),
@@ -459,6 +463,7 @@ export async function POST(request: NextRequest) {
           remindersEnabled: remindersEnabled ?? null,
           voiceEventsEnabled: voiceEventsEnabled ?? null,
           unlimitedCalendars: unlimitedCalendars ?? null,
+          earlyAdopter: earlyAdopter === true,
           reason: reason ?? null,
           grantedBy: auth.adminId,
           grantedAt: new Date(),
@@ -467,11 +472,15 @@ export async function POST(request: NextRequest) {
       'user-overrides.upsert'
     );
 
+    // Invalidate feature access cache for the user
+    await invalidateFeatureAccessCache(user_id);
+
     console.log(`[user-overrides] Admin ${auth.adminId} updated override for user ${user_id}:`, {
       unlimitedSummaries,
       remindersEnabled,
       voiceEventsEnabled,
       unlimitedCalendars,
+      earlyAdopter,
       reason,
     });
 

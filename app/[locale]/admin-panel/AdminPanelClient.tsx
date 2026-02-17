@@ -16,6 +16,7 @@ interface AdminPanelClientProps {
     needSetup: number;
   };
   remindersEnabled: boolean;
+  earlyAdoptionMode: boolean;
 }
 
 type ButtonState = 'idle' | 'loading' | 'success' | 'error';
@@ -38,6 +39,7 @@ interface UserListItem {
   } | null;
   calendarsCount: number;
   hasOverride: boolean;
+  earlyAdopter?: boolean;
 }
 
 type FilterType = 'all' | 'trial' | 'paid' | 'free' | 'override';
@@ -69,6 +71,7 @@ interface UserOverrideDetails {
     remindersEnabled: boolean | null;
     voiceEventsEnabled: boolean | null;
     unlimitedCalendars: boolean | null;
+    earlyAdopter: boolean;
     reason: string | null;
     grantedAt: string | null;
     grantedBy: number | null;
@@ -112,12 +115,14 @@ interface FeedbackItem {
   createdAt: string;
 }
 
-export default function AdminPanelClient({ userId, locale, stats, remindersEnabled: initialRemindersEnabled }: AdminPanelClientProps) {
+export default function AdminPanelClient({ userId, locale, stats, remindersEnabled: initialRemindersEnabled, earlyAdoptionMode: initialEarlyAdoptionMode }: AdminPanelClientProps) {
   const t = useTranslations('admin');
   const [todayState, setTodayState] = useState<ButtonState>('idle');
   const [tomorrowState, setTomorrowState] = useState<ButtonState>('idle');
   const [remindersEnabled, setRemindersEnabled] = useState(initialRemindersEnabled);
   const [remindersSaving, setRemindersSaving] = useState(false);
+  const [earlyAdoptionMode, setEarlyAdoptionMode] = useState(initialEarlyAdoptionMode);
+  const [earlyAdoptionSaving, setEarlyAdoptionSaving] = useState(false);
 
   // User overrides state
   const [userList, setUserList] = useState<UserListItem[]>([]);
@@ -133,6 +138,7 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
     remindersEnabled: false,
     voiceEventsEnabled: false,
     unlimitedCalendars: false,
+    earlyAdopter: false,
   });
 
   // Reminder sending state
@@ -267,6 +273,23 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
       }
     } finally {
       setRemindersSaving(false);
+    }
+  };
+
+  const toggleEarlyAdoption = async () => {
+    setEarlyAdoptionSaving(true);
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ earlyAdoptionMode: !earlyAdoptionMode, initData })
+      });
+      if (response.ok) {
+        setEarlyAdoptionMode(!earlyAdoptionMode);
+      }
+    } finally {
+      setEarlyAdoptionSaving(false);
     }
   };
 
@@ -435,6 +458,7 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
           remindersEnabled: data.user.override?.remindersEnabled === true,
           voiceEventsEnabled: data.user.override?.voiceEventsEnabled === true,
           unlimitedCalendars: data.user.override?.unlimitedCalendars === true,
+          earlyAdopter: data.user.override?.earlyAdopter === true,
         });
         setOverrideReason(data.user.override?.reason || '');
       }
@@ -461,6 +485,7 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
           remindersEnabled: pendingOverrides.remindersEnabled || null,
           voiceEventsEnabled: pendingOverrides.voiceEventsEnabled || null,
           unlimitedCalendars: pendingOverrides.unlimitedCalendars || null,
+          earlyAdopter: pendingOverrides.earlyAdopter || false,
           reason: overrideReason || null,
         }),
       });
@@ -1729,6 +1754,27 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                 <div className="toggle-slider" />
               </div>
             </div>
+            <div className="toggle-row" style={{ marginTop: '12px' }}>
+              <div className="toggle-info">
+                <p className="toggle-label">{t('features.earlyAdoption')}</p>
+                <p className="toggle-description">{t('features.earlyAdoptionDescription')}</p>
+              </div>
+              <div
+                className={`toggle-switch ${earlyAdoptionMode ? 'checked' : ''} ${earlyAdoptionSaving ? 'disabled' : ''}`}
+                onClick={() => !earlyAdoptionSaving && toggleEarlyAdoption()}
+                role="switch"
+                aria-checked={earlyAdoptionMode}
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if ((e.key === 'Enter' || e.key === ' ') && !earlyAdoptionSaving) {
+                    e.preventDefault();
+                    toggleEarlyAdoption();
+                  }
+                }}
+              >
+                <div className="toggle-slider" />
+              </div>
+            </div>
             </div>
           </div>
 
@@ -1838,6 +1884,11 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                         {user.hasOverride && (
                           <span className="status-badge override">
                             {t('overrides.statusOverride')}
+                          </span>
+                        )}
+                        {user.earlyAdopter && (
+                          <span className="status-badge" style={{ background: '#d1fae5', color: '#047857' }}>
+                            {t('overrides.earlyAdopterShort')}
                           </span>
                         )}
                       </div>
@@ -2076,6 +2127,22 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                         if (!selectedUser.paidFeatures.unlimitedCalendars) {
                           setPendingOverrides(prev => ({ ...prev, unlimitedCalendars: !prev.unlimitedCalendars }));
                         }
+                      }}
+                    >
+                      <div className="mini-toggle-slider" />
+                    </div>
+                  </div>
+
+                  {/* Early Adopter */}
+                  <div className="override-toggle-row">
+                    <div className="override-toggle-info">
+                      <p className="override-toggle-label">{t('overrides.earlyAdopter')}</p>
+                      <p className="override-toggle-desc">{t('overrides.earlyAdopterDesc')}</p>
+                    </div>
+                    <div
+                      className={`mini-toggle ${pendingOverrides.earlyAdopter ? 'checked' : ''}`}
+                      onClick={() => {
+                        setPendingOverrides(prev => ({ ...prev, earlyAdopter: !prev.earlyAdopter }));
                       }}
                     >
                       <div className="mini-toggle-slider" />

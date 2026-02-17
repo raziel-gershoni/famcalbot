@@ -13,6 +13,7 @@ const redis = new Redis({
 
 const CACHE_KEY = 'reminders:users';
 const GLOBAL_KEY = 'reminders:global_enabled';
+const EARLY_ADOPTION_KEY = 'early_adoption:global_enabled';
 
 export interface CachedReminderUser {
   id: number;
@@ -106,5 +107,29 @@ export async function setGlobalRemindersEnabled(enabled: boolean): Promise<void>
     console.log(`[Reminder Cache] Set global reminders enabled to ${enabled}`);
   } catch (error) {
     console.error('[Reminder Cache] Redis write global toggle error:', error);
+  }
+}
+
+/**
+ * Get early adoption mode toggle from Redis
+ */
+export async function getEarlyAdoptionMode(): Promise<boolean> {
+  try {
+    return await redis.get<boolean>(EARLY_ADOPTION_KEY) ?? false;
+  } catch (error) {
+    console.error('[Reminder Cache] Redis read early adoption toggle error:', error);
+    return false;
+  }
+}
+
+/**
+ * Set early adoption mode toggle in Redis
+ */
+export async function setEarlyAdoptionMode(enabled: boolean): Promise<void> {
+  try {
+    await redis.set(EARLY_ADOPTION_KEY, enabled);
+    console.log(`[Reminder Cache] Set early adoption mode to ${enabled}`);
+  } catch (error) {
+    console.error('[Reminder Cache] Redis write early adoption toggle error:', error);
   }
 }

@@ -43,7 +43,8 @@
       "renewToken": "חדש אסימון Google"
     },
     "subscription": {
-      "daysRemaining": "ימים נותרו בתקופת הניסיון"
+      "daysRemaining": "ימים נותרו בתקופת הניסיון",
+      "earlyAdopter": "מאמץ מוקדם"
     },
     "feedback": {
       "title": "משוב",
@@ -89,7 +90,9 @@
     "features": {
       "title": "מתגי תכונות",
       "reminders": "תזכורות לאירועים",
-      "remindersDescription": "הפעל/השבת תזכורות באופן גלובלי לכל המשתמשים"
+      "remindersDescription": "הפעל/השבת תזכורות באופן גלובלי לכל המשתמשים",
+      "earlyAdoption": "מצב אימוץ מוקדם",
+      "earlyAdoptionDescription": "תן לכל המשתמשים גישת PRO. מסתיר ממשק תשלום."
     },
     "overrides": {
       "title": "דריסות תכונות למשתמשים",
@@ -131,6 +134,9 @@
       "unlimitedCalendars": "יומנים ללא הגבלה",
       "unlimitedCalendarsDesc": "עקוף מגבלת יומנים",
       "unlimitedCalendarsShort": "יומנים",
+      "earlyAdopter": "מאמץ מוקדם",
+      "earlyAdopterDesc": "שמור גישת PRO אחרי שהמצב הגלובלי נכבה",
+      "earlyAdopterShort": "EA",
       "paidBadge": "בתשלום",
       "reasonPlaceholder": "סיבה לדריסה (אופציונלי)",
       "save": "שמור דריסה",
@@ -551,6 +557,8 @@
     "of": "מתוך",
     "trialBanner": "🎉 ניסיון: {days} ימים נותרו",
     "trialEndsIn": "תקופת הניסיון מסתיימת בעוד {days} ימים",
+    "earlyAdopterBanner": "מאמץ מוקדם - גישה מלאה",
+    "earlyAdopterDescription": "יש לך גישה מלאה לכל התכונות כמאמץ מוקדם!",
     "upgradeButton": "⭐ שדרג תוכנית",
     "managePlan": "נהל מנוי",
     "cancelPlan": "בטל מנוי",

@@ -9,7 +9,8 @@ import { prisma, withDbRetry } from '@/src/utils/prisma';
 import { verifyUserAccess } from '@/src/lib/telegram-auth';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { captureError } from '@/src/lib/error-capture';
-import { setGlobalRemindersEnabled } from '@/src/services/reminder-cache';
+import { setGlobalRemindersEnabled, setEarlyAdoptionMode } from '@/src/services/reminder-cache';
+import { invalidateAllFeatureAccessCaches } from '@/src/services/subscription-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +26,8 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      remindersEnabled: adminSettings?.remindersEnabled ?? false
+      remindersEnabled: adminSettings?.remindersEnabled ?? false,
+      earlyAdoptionMode: adminSettings?.earlyAdoptionMode ?? false,
     });
   } catch (error) {
     captureError(error, 'admin-settings-get', { api_route: '/api/admin/settings' });
@@ -40,7 +42,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { remindersEnabled, initData } = body;
+    const { remindersEnabled, earlyAdoptionMode, initData } = body;
 
     // Extract user_id from initData
     if (!initData) {
@@ -82,31 +84,54 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate input
-    if (typeof remindersEnabled !== 'boolean') {
+    // Validate input - at least one field must be provided
+    const hasReminders = typeof remindersEnabled === 'boolean';
+    const hasEarlyAdoption = typeof earlyAdoptionMode === 'boolean';
+    if (!hasReminders && !hasEarlyAdoption) {
       return NextResponse.json(
-        { error: 'remindersEnabled must be a boolean' },
+        { error: 'At least one setting field must be a boolean' },
         { status: 400 }
       );
     }
 
     // Upsert admin settings
     try {
-      await withDbRetry(
+      const updateData: Record<string, boolean> = {};
+      const createData: Record<string, boolean | string> = { id: 'global' };
+      if (hasReminders) {
+        updateData.remindersEnabled = remindersEnabled;
+        createData.remindersEnabled = remindersEnabled;
+      }
+      if (hasEarlyAdoption) {
+        updateData.earlyAdoptionMode = earlyAdoptionMode;
+        createData.earlyAdoptionMode = earlyAdoptionMode;
+      }
+
+      const settings = await withDbRetry(
         () => prisma.adminSettings.upsert({
           where: { id: 'global' },
-          update: { remindersEnabled },
-          create: { id: 'global', remindersEnabled }
+          update: updateData,
+          create: createData as { id: string; remindersEnabled?: boolean; earlyAdoptionMode?: boolean },
         }),
         'admin-settings.update'
       );
 
-      // Sync to Redis cache (no extra DB query)
-      await setGlobalRemindersEnabled(remindersEnabled);
+      // Sync to Redis cache
+      if (hasReminders) {
+        await setGlobalRemindersEnabled(remindersEnabled);
+      }
+      if (hasEarlyAdoption) {
+        await setEarlyAdoptionMode(earlyAdoptionMode);
+        await invalidateAllFeatureAccessCaches();
+      }
 
-      console.log(`[admin-settings] Admin ${userId} set remindersEnabled to ${remindersEnabled}`);
+      console.log(`[admin-settings] Admin ${userId} updated settings:`, { remindersEnabled, earlyAdoptionMode });
 
-      return NextResponse.json({ success: true, remindersEnabled });
+      return NextResponse.json({
+        success: true,
+        remindersEnabled: settings.remindersEnabled,
+        earlyAdoptionMode: settings.earlyAdoptionMode,
+      });
     } catch (dbError) {
       // Table might not exist yet
       console.error('[admin-settings] Database error (table may not exist):', dbError);

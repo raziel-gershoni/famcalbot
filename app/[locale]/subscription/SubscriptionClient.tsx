@@ -36,6 +36,7 @@ interface SubscriptionClientProps {
   subscription: SubscriptionProps;
   usage: UsageProps;
   trial: TrialProps;
+  isEarlyAdopter: boolean;
 }
 
 export default function SubscriptionClient({
@@ -44,6 +45,7 @@ export default function SubscriptionClient({
   subscription,
   usage,
   trial,
+  isEarlyAdopter,
 }: SubscriptionClientProps) {
   const t = useTranslations('subscription');
   const router = useRouter();
@@ -389,13 +391,55 @@ export default function SubscriptionClient({
             left: -1px;
             border-radius: 10px 0 8px 0;
           }
+
+          .early-adopter-banner {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 16px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+          }
+
+          .early-adopter-banner-icon {
+            background: rgba(255,255,255,0.2);
+            padding: 8px;
+            border-radius: 50%;
+          }
+
+          .early-adopter-banner-text h3 {
+            margin: 0 0 4px 0;
+            font-size: 16px;
+            font-weight: 600;
+          }
+
+          .early-adopter-banner-text p {
+            margin: 0;
+            font-size: 14px;
+            opacity: 0.9;
+          }
         `}</style>
 
         <Header title={t('page.title')} onBackClick={handleBack} />
 
         <div className="subscription-content">
+          {/* Early Adopter Banner */}
+          {isEarlyAdopter && (
+            <div className="early-adopter-banner">
+              <div className="early-adopter-banner-icon">
+                <Sparkles size={24} />
+              </div>
+              <div className="early-adopter-banner-text">
+                <h3>{t('earlyAdopterBanner')}</h3>
+                <p>{t('earlyAdopterDescription')}</p>
+              </div>
+            </div>
+          )}
+
           {/* Trial Banner */}
-          {trial.isTrialing && (
+          {!isEarlyAdopter && trial.isTrialing && (
             <div className="trial-banner">
               <div className="trial-banner-icon">
                 <Sparkles size={24} />
@@ -415,13 +459,13 @@ export default function SubscriptionClient({
                   <Crown size={24} />
                   {planConfig.name}
                 </div>
-                <span className={`current-plan-badge ${trial.isTrialing ? 'trial-badge' : ''}`}>
-                  {trial.isTrialing ? t('page.trialBadge') : t('page.currentPlanBadge')}
+                <span className={`current-plan-badge ${isEarlyAdopter ? '' : trial.isTrialing ? 'trial-badge' : ''}`} style={isEarlyAdopter ? { background: '#10b981' } : undefined}>
+                  {isEarlyAdopter ? t('earlyAdopterBanner') : trial.isTrialing ? t('page.trialBadge') : t('page.currentPlanBadge')}
                 </span>
               </div>
 
-              {/* Subscription Period */}
-              {!trial.isTrialing && subscription.currentPeriodEnd && subscription.plan !== 'FREE' && (
+              {/* Subscription Period - hide for early adopters */}
+              {!isEarlyAdopter && !trial.isTrialing && subscription.currentPeriodEnd && subscription.plan !== 'FREE' && (
                 <div className="period-info">
                   <Clock size={14} />
                   <span>
@@ -469,31 +513,33 @@ export default function SubscriptionClient({
             </div>
           </Section>
 
-          {/* Plan Comparison */}
-          <Section title={t('page.comparePlans')}>
-            <div className="plans-grid">
-              {(['FREE', 'BASIC', 'PRO'] as PlanId[]).map((planId) => {
-                const plan = PLAN_CONFIGS[planId];
-                const isCurrent = planId === subscription.plan ||
-                  (trial.isTrialing && planId === 'FREE');
-                const canUpgrade = !isCurrent &&
-                  ['FREE', 'BASIC'].indexOf(subscription.plan) < ['FREE', 'BASIC', 'PRO'].indexOf(planId);
+          {/* Plan Comparison - hide for early adopters */}
+          {!isEarlyAdopter && (
+            <Section title={t('page.comparePlans')}>
+              <div className="plans-grid">
+                {(['FREE', 'BASIC', 'PRO'] as PlanId[]).map((planId) => {
+                  const plan = PLAN_CONFIGS[planId];
+                  const isCurrent = planId === subscription.plan ||
+                    (trial.isTrialing && planId === 'FREE');
+                  const canUpgrade = !isCurrent &&
+                    ['FREE', 'BASIC'].indexOf(subscription.plan) < ['FREE', 'BASIC', 'PRO'].indexOf(planId);
 
-                return (
-                  <PlanCard
-                    key={planId}
-                    plan={plan}
-                    isCurrent={isCurrent}
-                    canUpgrade={canUpgrade}
-                    isTrialing={trial.isTrialing}
-                    upgrading={upgrading === planId}
-                    onUpgrade={() => handleUpgrade(planId)}
-                    t={t}
-                  />
-                );
-              })}
-            </div>
-          </Section>
+                  return (
+                    <PlanCard
+                      key={planId}
+                      plan={plan}
+                      isCurrent={isCurrent}
+                      canUpgrade={canUpgrade}
+                      isTrialing={trial.isTrialing}
+                      upgrading={upgrading === planId}
+                      onUpgrade={() => handleUpgrade(planId)}
+                      t={t}
+                    />
+                  );
+                })}
+              </div>
+            </Section>
+          )}
         </div>
       </div>
     </TelegramLayout>

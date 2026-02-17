@@ -75,6 +75,7 @@ model OAuthState {
 model AdminSettings {
   id                    String   @id @default("global")
   remindersEnabled      Boolean  @default(false)
+  earlyAdoptionMode     Boolean  @default(true)
   updatedAt             DateTime @updatedAt
 }
 
@@ -165,6 +166,7 @@ model UserFeatureOverride {
   remindersEnabled      Boolean?  // Grant reminders access
   voiceEventsEnabled    Boolean?  // Grant voice event creation
   unlimitedCalendars    Boolean?  // Bypass calendar limit
+  earlyAdopter          Boolean  @default(false)
 
   // Metadata
   grantedBy       Int?              // Admin user ID who granted

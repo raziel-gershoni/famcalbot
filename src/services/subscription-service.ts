@@ -8,6 +8,7 @@ import { Redis } from '@upstash/redis';
 import { prisma, withDbRetry } from '../utils/prisma';
 import { PlanId, getPlanLimits, TRIAL_DURATION_DAYS, PLAN_CONFIGS } from '../config/plans';
 import { trackActivity } from './analytics-service';
+import { getEarlyAdoptionMode } from './reminder-cache';
 
 // ============================================
 // REDIS CACHE FOR FEATURE ACCESS
@@ -144,6 +145,11 @@ export async function getSubscriptionWithUsage(userId: number): Promise<Subscrip
     effectivePlan = 'FREE';
   }
 
+  // Early adopters get PRO access
+  if (await checkEarlyAdopterAccess(userId)) {
+    effectivePlan = 'PRO';
+  }
+
   return {
     subscription,
     usage,
@@ -276,21 +282,23 @@ async function expireTrialSubscription(userId: number): Promise<Subscription> {
   // Invalidate feature access cache
   await invalidateFeatureAccessCache(userId);
 
-  // Send trial expired notification to user (non-blocking)
-  try {
-    const user = await withDbRetry(
-      () => prisma.user.findUnique({
-        where: { id: userId },
-        select: { telegramId: true, language: true },
-      }),
-      'expireTrialSubscription.getUser'
-    );
-    if (user) {
-      const { sendTrialExpiredNotification } = await import('./telegram');
-      await sendTrialExpiredNotification(Number(user.telegramId), user.language || 'en');
+  // Send trial expired notification to user (non-blocking, skip for early adopters)
+  if (!await checkEarlyAdopterAccess(userId)) {
+    try {
+      const user = await withDbRetry(
+        () => prisma.user.findUnique({
+          where: { id: userId },
+          select: { telegramId: true, language: true },
+        }),
+        'expireTrialSubscription.getUser'
+      );
+      if (user) {
+        const { sendTrialExpiredNotification } = await import('./telegram');
+        await sendTrialExpiredNotification(Number(user.telegramId), user.language || 'en');
+      }
+    } catch (error) {
+      console.error(`[Subscription] Failed to send trial expired notification for user ${userId}:`, error);
     }
-  } catch (error) {
-    console.error(`[Subscription] Failed to send trial expired notification for user ${userId}:`, error);
   }
 
   console.log(`[Subscription] Trial expired for user ${userId}`);
@@ -503,6 +511,39 @@ export async function invalidateFeatureAccessCache(userId: number): Promise<void
   }
 }
 
+/**
+ * Invalidate all feature access caches (for global toggle changes)
+ * Uses Redis SCAN to find and delete all feature:access:* and reminder:downgrade_notified:* keys
+ */
+export async function invalidateAllFeatureAccessCaches(): Promise<void> {
+  try {
+    const patterns = [`${FEATURE_ACCESS_CACHE_PREFIX}*`, 'reminder:downgrade_notified:*'];
+    for (const pattern of patterns) {
+      let cursor = 0;
+      do {
+        const [nextCursor, keys] = await redis.scan(cursor, { match: pattern, count: 100 });
+        cursor = typeof nextCursor === 'string' ? parseInt(nextCursor, 10) : nextCursor;
+        if (keys.length > 0) {
+          await Promise.all(keys.map(key => redis.del(key as string)));
+        }
+      } while (cursor !== 0);
+    }
+    console.log('[Feature Access] All caches invalidated');
+  } catch (error) {
+    console.error('[Feature Access] Bulk cache invalidation error:', error);
+  }
+}
+
+/**
+ * Check if user has early adopter access (global mode or per-user flag)
+ */
+export async function checkEarlyAdopterAccess(userId: number): Promise<boolean> {
+  const globalMode = await getEarlyAdoptionMode();
+  if (globalMode) return true;
+  const override = await getFeatureOverride(userId);
+  return override?.earlyAdopter === true;
+}
+
 // ============================================
 // FEATURE ACCESS CHECKS
 // ============================================
@@ -548,6 +589,9 @@ async function computeFeatureAccess(
   userId: number,
   feature: FeatureType
 ): Promise<FeatureAccessResult> {
+  // 0. Check early adopter access (global mode or per-user flag)
+  if (await checkEarlyAdopterAccess(userId)) return { allowed: true };
+
   // 1. Check admin override FIRST (can only GRANT access, never deny)
   const override = await getFeatureOverride(userId);
   if (override) {
@@ -664,6 +708,9 @@ export async function checkCalendarLimit(
   userId: number,
   currentCalendarCount: number
 ): Promise<FeatureAccessResult> {
+  // 0. Check early adopter access (global mode or per-user flag)
+  if (await checkEarlyAdopterAccess(userId)) return { allowed: true };
+
   // 1. Check admin override FIRST
   const override = await getFeatureOverride(userId);
   if (override?.unlimitedCalendars === true) {

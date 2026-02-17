@@ -43,7 +43,8 @@
       "renewToken": "Обновить токен Google"
     },
     "subscription": {
-      "daysRemaining": "дней осталось в пробном периоде"
+      "daysRemaining": "дней осталось в пробном периоде",
+      "earlyAdopter": "Ранний пользователь"
     },
     "feedback": {
       "title": "Обратная связь",
@@ -89,7 +90,9 @@
     "features": {
       "title": "Переключатели функций",
       "reminders": "Напоминания о событиях",
-      "remindersDescription": "Включить/отключить напоминания глобально для всех пользователей"
+      "remindersDescription": "Включить/отключить напоминания глобально для всех пользователей",
+      "earlyAdoption": "Режим раннего доступа",
+      "earlyAdoptionDescription": "Дать всем пользователям PRO-доступ. Скрывает интерфейс оплаты."
     },
     "overrides": {
       "title": "Переопределения функций",
@@ -131,6 +134,9 @@
       "unlimitedCalendars": "Безлимитные календари",
       "unlimitedCalendarsDesc": "Обход лимита календарей",
       "unlimitedCalendarsShort": "Календари",
+      "earlyAdopter": "Ранний пользователь",
+      "earlyAdopterDesc": "Сохранить PRO-доступ после отключения глобального режима",
+      "earlyAdopterShort": "EA",
       "paidBadge": "Оплачено",
       "reasonPlaceholder": "Причина переопределения (необязательно)",
       "save": "Сохранить",
@@ -551,6 +557,8 @@
     "of": "из",
     "trialBanner": "🎉 Пробный период: осталось {days} дней",
     "trialEndsIn": "Пробный период заканчивается через {days} дней",
+    "earlyAdopterBanner": "Ранний доступ - Полный доступ",
+    "earlyAdopterDescription": "У вас полный доступ ко всем функциям как у раннего пользователя!",
     "upgradeButton": "⭐ Улучшить план",
     "managePlan": "Управление подпиской",
     "cancelPlan": "Отменить подписку",
