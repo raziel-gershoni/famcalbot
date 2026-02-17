@@ -343,8 +343,26 @@ export async function handleWeatherCommand(
     return;
   }
 
-  // Use existing progress message or create new one
+  // Check feature access for text summaries (weather shares quota with calendar summaries)
   const userLanguage = user.language || 'en';
+  const weatherAccess = await checkFeatureAccess(user.id, 'text_summary');
+  if (!weatherAccess.allowed) {
+    const t = await getBotMessages(userLanguage);
+    const upgradeUrl = buildUrl(`/${userLanguage}/subscription?user_id=${user.telegramId}`);
+    const limitMessage = t.subscription?.textLimitReached
+      || '📊 You\'ve reached your monthly text summary limit. Upgrade to continue!';
+    await messagingService.sendMessage(chatId, limitMessage, {
+      format: MessageFormat.HTML,
+      replyMarkup: {
+        inline_keyboard: [[
+          { text: t.subscription?.upgradeButton || '⭐ Upgrade Plan', web_app: { url: upgradeUrl } },
+        ]],
+      },
+    });
+    return;
+  }
+
+  // Use existing progress message or create new one
   let messageId: number | string;
   let stopAnimation: () => void;
 
@@ -381,7 +399,7 @@ export async function handleWeatherCommand(
 
     // Stop animation and update with brief weather text
     stopAnimation();
-    await messagingService.updateMessage(chatId, messageId, brief, { format: MessageFormat.MARKDOWN });
+    await messagingService.updateMessage(chatId, messageId, brief, { format: MessageFormat.HTML });
 
     // Send voice message with detailed version if enabled
     if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
@@ -391,6 +409,11 @@ export async function handleWeatherCommand(
         console.error(`Weather voice failed for user ${userId}:`, err);
       }
     }
+
+    // Increment shared text summary usage counter
+    incrementUsage(user.id, 'textSummaries').catch(err =>
+      console.error('[Subscription] Failed to increment weather usage:', err)
+    );
   } catch (error) {
     stopAnimation();
     console.error(`Error fetching weather for user ${userId}:`, error);

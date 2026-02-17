@@ -242,7 +242,7 @@ THEN: A FULL version (~1500-2000 characters) — detailed prose for voice narrat
 - Include the current date (${dateStr}${hebrewDateStr}) right after the greeting
 ${culture === 'jewish' ? (language === 'he' ? '- השתמש בגימטריה לתאריך העברי (כ"ח כסלו תשפ"ה)' : language === 'ru' ? '- Отображайте еврейскую дату стандартными цифрами (например: "28 Кислев 5785")' : '- Display Hebrew date using standard numerals (e.g., "28 Kislev 5785")') : ''}
 - The current local time is ${localTimeStr}. For today's section, focus on current conditions and what's ahead — don't describe weather from earlier in the day. Weave the current state naturally (e.g. "still sunny", "already cooling down to 15°C").
-- Use Telegram Markdown: *bold* for the 3 section headers only
+- Use Telegram HTML: <b>bold</b> for the 3 section headers only
 - Use weather emojis naturally throughout
 - Mention UV warnings when UV index ≥ 6
 - Mention wind only when > 20 km/h
@@ -261,13 +261,13 @@ ${culture === 'jewish' ? (language === 'he' ? '- השתמש בגימטריה ל�
 
 **Use these 3 bold section headers, each followed by natural flowing paragraphs:**
 
-*${headers.todayTomorrow}*
+<b>${headers.todayTomorrow}</b>
 Current conditions, today's and tomorrow's forecast with temperatures, precipitation, notable conditions.
 
-*${headers.thisWeek}*
+<b>${headers.thisWeek}</b>
 Days 3-7 in flowing prose. Group similar days, highlight changes and notable conditions.
 
-*${headers.extended}*
+<b>${headers.extended}</b>
 2-3 sentences on the general trend for days 8-16. These are rough estimates — use hedging language ("likely", "expected to", "may") and focus on general trends (warming/cooling, wet/dry pattern) rather than specific daily numbers.
 
 **Weather Data:**
