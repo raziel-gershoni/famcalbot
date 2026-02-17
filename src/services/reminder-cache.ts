@@ -87,11 +87,22 @@ export async function removeUserFromCache(userId: number): Promise<void> {
 }
 
 /**
- * Get global reminders enabled toggle from Redis
+ * Get global reminders enabled toggle from Redis (read-through cache from DB)
  */
 export async function getGlobalRemindersEnabled(): Promise<boolean> {
   try {
-    return await redis.get<boolean>(GLOBAL_KEY) ?? false;
+    const cached = await redis.get<boolean>(GLOBAL_KEY);
+    if (cached !== null) return cached;
+
+    // Redis key not set — read from DB and cache
+    const { prisma } = await import('@/src/utils/prisma');
+    const settings = await prisma.adminSettings.findUnique({
+      where: { id: 'global' },
+      select: { remindersEnabled: true },
+    });
+    const value = settings?.remindersEnabled ?? false;
+    await redis.set(GLOBAL_KEY, value);
+    return value;
   } catch (error) {
     console.error('[Reminder Cache] Redis read global toggle error:', error);
     return false;
@@ -111,11 +122,22 @@ export async function setGlobalRemindersEnabled(enabled: boolean): Promise<void>
 }
 
 /**
- * Get early adoption mode toggle from Redis
+ * Get early adoption mode toggle from Redis (read-through cache from DB)
  */
 export async function getEarlyAdoptionMode(): Promise<boolean> {
   try {
-    return await redis.get<boolean>(EARLY_ADOPTION_KEY) ?? false;
+    const cached = await redis.get<boolean>(EARLY_ADOPTION_KEY);
+    if (cached !== null) return cached;
+
+    // Redis key not set — read from DB and cache
+    const { prisma } = await import('@/src/utils/prisma');
+    const settings = await prisma.adminSettings.findUnique({
+      where: { id: 'global' },
+      select: { earlyAdoptionMode: true },
+    });
+    const value = settings?.earlyAdoptionMode ?? false;
+    await redis.set(EARLY_ADOPTION_KEY, value);
+    return value;
   } catch (error) {
     console.error('[Reminder Cache] Redis read early adoption toggle error:', error);
     return false;
