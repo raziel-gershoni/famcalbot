@@ -3,7 +3,7 @@
  * AI-powered weather forecast formatting with rule-based fallback
  */
 
-import { HDate, Locale } from '@hebcal/core';
+import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
 import { WeatherData } from '../../types';
 import { getWeatherDescription, getWeatherEmoji } from './open-meteo';
@@ -215,10 +215,10 @@ export async function formatWeatherAI(
   if (culture === 'jewish') {
     const localDate = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
     const hdate = new HDate(localDate);
-    const day = hdate.getDate();
-    const monthName = Locale.lookupTranslation(hdate.getMonthName(), 'he') || hdate.getMonthName();
+    const hebDay = language === 'he' ? gematriya(hdate.getDate()) : hdate.getDate();
+    const monthName = Locale.lookupTranslation(hdate.getMonthName(), language) || hdate.getMonthName();
     const year = hdate.getFullYear();
-    hebrewDateStr = ` | ${day} ב${monthName} ${year}`;
+    hebrewDateStr = ` | ${hebDay} ב${monthName} ${year}`;
   }
 
   // Compute local time for time-aware today section
