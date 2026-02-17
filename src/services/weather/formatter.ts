@@ -3,6 +3,8 @@
  * AI-powered weather forecast formatting with rule-based fallback
  */
 
+import { HDate, Locale } from '@hebcal/core';
+import '@hebcal/locales';
 import { WeatherData } from '../../types';
 import { getWeatherDescription, getWeatherEmoji } from './open-meteo';
 
@@ -190,6 +192,7 @@ export async function formatWeatherAI(
   language: string,
   userName: string,
   timezone: string,
+  culture?: string,
 ): Promise<WeatherFormatResult> {
   const payload = buildWeatherAIPayload(weather);
   const langName = LANGUAGE_NAMES[language] || 'English';
@@ -207,6 +210,23 @@ export async function formatWeatherAI(
     },
   );
 
+  // Hebrew date for Jewish culture users
+  let hebrewDateStr = '';
+  if (culture === 'jewish') {
+    const localDate = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
+    const hdate = new HDate(localDate);
+    const day = hdate.getDate();
+    const monthName = Locale.lookupTranslation(hdate.getMonthName(), 'he') || hdate.getMonthName();
+    const year = hdate.getFullYear();
+    hebrewDateStr = ` | ${day} ב${monthName} ${year}`;
+  }
+
+  // Compute local time for time-aware today section
+  const localTimeStr = now.toLocaleTimeString(
+    language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US',
+    { timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false }
+  );
+
   const prompt = `You are a friendly weatherperson giving a natural, conversational forecast briefing on someone's phone via Telegram.
 
 **Output two versions separated by the exact delimiter ===FULL=== on its own line.**
@@ -218,7 +238,8 @@ THEN: A FULL version (~1500-2000 characters) — detailed prose for voice narrat
 **Rules (apply to BOTH versions):**
 - Respond ENTIRELY in ${langName}
 - Start with a short, warm greeting using the person's name: ${userName}
-- Include the current date (${dateStr}) right after the greeting
+- Include the current date (${dateStr}${hebrewDateStr}) right after the greeting
+- The current local time is ${localTimeStr}. For today's section, focus on current conditions and what's ahead — don't describe weather from earlier in the day. Weave the current state naturally (e.g. "still sunny", "already cooling down to 15°C").
 - Use Telegram Markdown: *bold* for the 3 section headers only
 - Use weather emojis naturally throughout
 - Mention UV warnings when UV index ≥ 6

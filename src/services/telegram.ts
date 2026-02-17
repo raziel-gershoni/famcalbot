@@ -377,7 +377,7 @@ export async function handleWeatherCommand(
 
     // Generate AI-powered weather forecast
     const { formatWeatherAI } = await import('./weather/formatter');
-    const { brief, detailed } = await formatWeatherAI(weatherData, user.language, user.name, timezone);
+    const { brief, detailed } = await formatWeatherAI(weatherData, user.language, user.name, timezone, user.culture);
 
     // Stop animation and update with brief weather text
     stopAnimation();
