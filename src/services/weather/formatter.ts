@@ -184,28 +184,30 @@ export async function formatWeatherAI(weather: WeatherData, language: string): P
   const langName = LANGUAGE_NAMES[language] || 'English';
   const headers = SECTION_HEADERS[language] || SECTION_HEADERS.en;
 
-  const prompt = `You are a weather forecaster writing a concise mobile-friendly forecast for Telegram.
+  const prompt = `You are a friendly weatherperson giving a natural, conversational forecast briefing on someone's phone via Telegram.
 
 **Rules:**
 - Respond ENTIRELY in ${langName}
-- Use Telegram Markdown: *bold* for section headers
-- Use weather emojis liberally
-- Keep it concise — designed for mobile reading
+- Use Telegram Markdown: *bold* for the 3 section headers only
+- Use weather emojis naturally throughout
+- Keep it concise — designed for mobile reading (~2000 characters max)
 - Mention UV warnings when UV index ≥ 6
 - Mention wind only when > 20 km/h
 - Mention rain timing when relevant (use rainHours data if available)
-- Maximum ~2000 characters total
+- Write in flowing paragraphs, NOT bullet lists or one-line-per-day format
+- Group days with similar weather together (e.g. "Wednesday through Friday stays warm and dry around 22–24°C") rather than listing each day separately
+- Transition naturally between sections — no numbered lists
 
-**Structure your response in exactly 3 sections:**
+**Use these 3 bold section headers, each followed by natural flowing paragraphs:**
 
-1. *${headers.todayTomorrow}*
-   Detailed: current conditions, today's and tomorrow's forecast with temperatures, precipitation, notable conditions.
+*${headers.todayTomorrow}*
+Current conditions, today's and tomorrow's forecast with temperatures, precipitation, notable conditions.
 
-2. *${headers.thisWeek}*
-   Brief daily summary for each day (days 3-7). One line per day with day name, temp range, key condition.
+*${headers.thisWeek}*
+Days 3-7 in flowing prose. Group similar days, highlight changes and notable conditions.
 
-3. *${headers.extended}*
-   2-3 sentences summarizing the general trend for days 8-16. IMPORTANT: These are rough estimates only — use hedging language ("likely", "expected to", "may"), note that accuracy drops beyond a week, and focus on general trends (warming/cooling, wet/dry pattern) rather than specific daily temperatures.
+*${headers.extended}*
+2-3 sentences on the general trend for days 8-16. These are rough estimates — use hedging language ("likely", "expected to", "may") and focus on general trends (warming/cooling, wet/dry pattern) rather than specific daily numbers.
 
 **Weather Data:**
 ${JSON.stringify(payload, null, 2)}`;

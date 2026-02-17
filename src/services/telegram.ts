@@ -372,6 +372,15 @@ export async function handleWeatherCommand(
     // Stop animation and update with weather
     stopAnimation();
     await messagingService.updateMessage(chatId, messageId, formattedWeather, { format: MessageFormat.MARKDOWN });
+
+    // Send voice message if enabled
+    if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
+      try {
+        await sendVoiceMessage(Number(userId), formattedWeather, user, undefined, messagingService);
+      } catch (err) {
+        console.error(`Weather voice failed for user ${userId}:`, err);
+      }
+    }
   } catch (error) {
     stopAnimation();
     console.error(`Error fetching weather for user ${userId}:`, error);
