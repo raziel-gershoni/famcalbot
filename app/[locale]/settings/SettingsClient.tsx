@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { TelegramLayout } from '@/components/Layout';
-import { CheckCircle2, Settings, MapPin, Loader2 } from 'lucide-react';
+import { CheckCircle2, Settings, MapPin, Loader2, ArrowLeft, Check } from 'lucide-react';
 
 interface SubscriptionInfo {
   effectivePlan: string;
@@ -60,6 +60,22 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
   const [detectedLocation, setDetectedLocation] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locationValidating, setLocationValidating] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  const isDirty =
+    language !== currentSettings.language ||
+    location !== currentSettings.location ||
+    messagingPlatform !== currentSettings.messagingPlatform ||
+    culture !== currentSettings.culture ||
+    textSummaryEnabled !== currentSettings.textSummaryEnabled ||
+    voiceSummaryEnabled !== currentSettings.voiceSummaryEnabled ||
+    weatherEnabled !== currentSettings.weatherEnabled ||
+    includeLookaheadInTomorrow !== currentSettings.includeLookaheadInTomorrow ||
+    lookaheadAlways7Days !== currentSettings.lookaheadAlways7Days ||
+    remindersEnabled !== currentSettings.remindersEnabled ||
+    defaultReminderMinutes !== (currentSettings.defaultReminderMinutes ?? 15) ||
+    pickupRemindersEnabled !== currentSettings.pickupRemindersEnabled ||
+    voiceInputEnabled !== currentSettings.voiceInputEnabled;
 
   // Valid location types for weather (cities, towns, regions, etc.)
   const VALID_LOCATION_TYPES = [
@@ -314,15 +330,55 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
           min-height: 100vh;
         }
 
-        header {
-          background: #667eea;
+        .settings-header {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           color: white;
-          padding: 20px;
+          padding: 16px 20px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
         }
 
-        header h1 {
-          font-size: 24px;
+        .settings-header h1 {
+          font-size: 20px;
           font-weight: 600;
+          margin: 0;
+        }
+
+        .header-action-btn {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          border: none;
+          background: rgba(255, 255, 255, 0.2);
+          color: white;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: background 0.2s;
+        }
+
+        .header-action-btn:hover:not(:disabled) {
+          background: rgba(255, 255, 255, 0.3);
+        }
+
+        .header-action-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .header-action-btn.dirty {
+          background: white;
+          color: #764ba2;
+        }
+
+        .header-action-btn.dirty:hover:not(:disabled) {
+          background: rgba(255, 255, 255, 0.9);
+        }
+
+        .header-action-btn.muted {
+          opacity: 0.5;
         }
 
         .content {
@@ -385,41 +441,6 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
           border-color: #ef4444 !important;
         }
 
-        .btn {
-          width: 100%;
-          padding: 15px;
-          background: #667eea;
-          color: white;
-          border: none;
-          border-radius: 8px;
-          font-size: 16px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: background 0.2s;
-          margin-top: 8px;
-        }
-
-        .btn:hover:not(:disabled) {
-          background: #5a67d8;
-        }
-
-        .btn:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-
-        .btn-secondary {
-          background: #f3f4f6;
-          color: #374151;
-        }
-
-        .btn-secondary:hover:not(:disabled) {
-          background: #e5e7eb;
-        }
-
-        .btn-error {
-          background: #ef4444;
-        }
 
         .location-row {
           display: flex;
@@ -651,12 +672,28 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
       `}</style>
 
       <div className="container">
-        <header>
-          <h1><Settings size={24} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 8 }} />{t('title')}</h1>
-        </header>
+        <div className="settings-header">
+          <button
+            type="button"
+            className={`header-action-btn${isDirty ? ' muted' : ''}`}
+            onClick={handleCancel}
+            disabled={formState === 'saving'}
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <h1>{t('title')}</h1>
+          <button
+            type="button"
+            className={`header-action-btn${isDirty ? ' dirty' : ''}`}
+            onClick={() => formRef.current?.requestSubmit()}
+            disabled={formState !== 'idle' || locationValidating || !!locationError}
+          >
+            {formState === 'saving' ? <Loader2 size={20} className="spinning" /> : <Check size={20} />}
+          </button>
+        </div>
 
         <div className="content">
-          <form onSubmit={handleSubmit}>
+          <form ref={formRef} onSubmit={handleSubmit}>
             <div className="form-group">
               <label htmlFor="language">{t('preferences.language')}</label>
               <select
@@ -972,23 +1009,6 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
               </>
             )}
 
-            <button
-              type="submit"
-              className={`btn ${formState === 'error' ? 'btn-error' : ''}`}
-              disabled={formState !== 'idle' || locationValidating || !!locationError}
-            >
-              {formState === 'saving' && t('actions.saving')}
-              {formState === 'error' && t('actions.error')}
-              {formState === 'idle' && t('actions.save')}
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={handleCancel}
-              disabled={formState !== 'idle'}
-            >
-              {t('cancelButton')}
-            </button>
           </form>
         </div>
       </div>

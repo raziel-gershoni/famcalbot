@@ -1886,7 +1886,7 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                             {t('overrides.statusOverride')}
                           </span>
                         )}
-                        {user.earlyAdopter && (
+                        {(user.earlyAdopter || earlyAdoptionMode) && (
                           <span className="status-badge" style={{ background: '#d1fae5', color: '#047857' }}>
                             {t('overrides.earlyAdopterShort')}
                           </span>
