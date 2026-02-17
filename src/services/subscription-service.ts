@@ -9,6 +9,7 @@ import { prisma, withDbRetry } from '../utils/prisma';
 import { PlanId, getPlanLimits, TRIAL_DURATION_DAYS, PLAN_CONFIGS } from '../config/plans';
 import { trackActivity } from './analytics-service';
 import { getEarlyAdoptionMode } from './reminder-cache';
+import { REDIS_KEYS } from '../config/redis-keys';
 
 // ============================================
 // REDIS CACHE FOR FEATURE ACCESS
@@ -19,7 +20,6 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN!,
 });
 
-const FEATURE_ACCESS_CACHE_PREFIX = 'feature:access:';
 const FEATURE_ACCESS_CACHE_TTL = 86400; // 24 hours (invalidated on subscription change)
 
 // ============================================
@@ -502,8 +502,8 @@ export async function invalidateFeatureAccessCache(userId: number): Promise<void
   const features: FeatureType[] = ['text_summary', 'voice_summary', 'reminders', 'voice_events', 'calendars'];
   try {
     await Promise.all([
-      ...features.map(f => redis.del(`${FEATURE_ACCESS_CACHE_PREFIX}${userId}:${f}`)),
-      redis.del(`reminder:downgrade_notified:${userId}`),
+      ...features.map(f => redis.del(REDIS_KEYS.featureAccess(userId, f))),
+      redis.del(REDIS_KEYS.reminderDowngradeNotified(userId)),
     ]);
     console.log(`[Feature Access] Cache invalidated for user ${userId}`);
   } catch (error) {
@@ -517,7 +517,7 @@ export async function invalidateFeatureAccessCache(userId: number): Promise<void
  */
 export async function invalidateAllFeatureAccessCaches(): Promise<void> {
   try {
-    const patterns = [`${FEATURE_ACCESS_CACHE_PREFIX}*`, 'reminder:downgrade_notified:*'];
+    const patterns = [`${REDIS_KEYS.FEATURE_ACCESS_PREFIX}*`, `${REDIS_KEYS.REMINDER_PREFIX}downgrade_notified:*`];
     for (const pattern of patterns) {
       let cursor = 0;
       do {
@@ -557,7 +557,7 @@ export async function checkFeatureAccess(
   userId: number,
   feature: FeatureType
 ): Promise<FeatureAccessResult> {
-  const cacheKey = `${FEATURE_ACCESS_CACHE_PREFIX}${userId}:${feature}`;
+  const cacheKey = REDIS_KEYS.featureAccess(userId, feature);
 
   // 1. Check Redis cache first
   try {

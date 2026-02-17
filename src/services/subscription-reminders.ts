@@ -13,6 +13,7 @@ import { trackActivity } from './analytics-service';
 import { buildUrl } from '../config/urls';
 import { captureError } from '../lib/error-capture';
 import { getEarlyAdoptionMode } from './reminder-cache';
+import { REDIS_KEYS } from '../config/redis-keys';
 
 // Initialize Redis client
 const redis = new Redis({
@@ -30,7 +31,7 @@ type ReminderType = '3day' | 'lastday' | 'expired';
  */
 function getReminderKey(telegramId: bigint | string, periodEnd: Date, type: ReminderType): string {
   const dateStr = periodEnd.toISOString().split('T')[0];
-  return `subscription_reminder:${telegramId}:${dateStr}:${type}`;
+  return REDIS_KEYS.subscriptionReminder(telegramId, dateStr, type);
 }
 
 /**

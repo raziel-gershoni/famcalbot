@@ -1,0 +1,34 @@
+/**
+ * Centralized Redis key generators
+ * All Redis keys used across the application are defined here
+ */
+
+// Reminder tracking
+export const REDIS_KEYS = {
+  // Event reminders: tracks which reminders have been sent
+  reminder: (userId: number, eventId: string, type: string, date: string) =>
+    `reminder:${userId}:${eventId}:${type}:${date}`,
+  REMINDER_PREFIX: 'reminder:',
+
+  // Downgrade notification flag
+  reminderDowngradeNotified: (userId: number) =>
+    `reminder:downgrade_notified:${userId}`,
+
+  // Subscription reminders (trial expiry, renewal)
+  subscriptionReminder: (telegramId: number | string | bigint, dateStr: string, type: string) =>
+    `subscription_reminder:${telegramId}:${dateStr}:${type}`,
+
+  // Reminder cache
+  REMINDER_USERS: 'reminders:users',
+  REMINDERS_GLOBAL_ENABLED: 'reminders:global_enabled',
+  EARLY_ADOPTION_GLOBAL: 'early_adoption:global_enabled',
+
+  // Feature access cache
+  featureAccess: (userId: number, featureType: string) =>
+    `feature:access:${userId}:${featureType}`,
+  FEATURE_ACCESS_PREFIX: 'feature:access:',
+
+  // Locks
+  testModelsLock: (userId: number) => `testmodels:lock:${userId}`,
+  voiceLock: (fileUniqueId: string) => `voice:lock:${fileUniqueId}`,
+} as const;

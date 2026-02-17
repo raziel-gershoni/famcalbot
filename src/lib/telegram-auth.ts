@@ -20,7 +20,7 @@ export interface TelegramInitData {
   auth_date: number;
   hash: string;
   query_id?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 /**

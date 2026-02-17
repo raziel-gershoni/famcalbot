@@ -145,8 +145,7 @@ export async function trackActivity(
         data: {
           userId,
           action,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          metadata: metadata ? (metadata as any) : undefined,
+          metadata: metadata as import('@prisma/client').Prisma.InputJsonValue | undefined,
         },
       }),
       'trackActivity'

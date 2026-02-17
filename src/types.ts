@@ -51,7 +51,7 @@ export function convertPrismaUserToConfig(user: PrismaUser): UserConfig {
     gender: user.gender as 'male' | 'female',
     googleRefreshToken: safeDecrypt(user.googleRefreshToken), // Decrypt OAuth token
     calendarAssignments: user.calendarAssignments
-      ? (user.calendarAssignments as any as CalendarAssignment[])
+      ? (user.calendarAssignments as unknown as CalendarAssignment[])
       : undefined,
     culture: user.culture,
     locationForced: user.locationForced,

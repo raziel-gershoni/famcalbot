@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { detectPlatform, MessagingPlatform } from '@/src/services/messaging';
 import { captureError } from '@/src/lib/error-capture';
 
@@ -22,7 +23,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     // Detect platform from webhook structure
-    const platform = detectPlatform({ body } as any);
+    const platform = detectPlatform({ body } as Pick<VercelRequest, 'body'>);
 
     // Verify Telegram webhook secret token (if configured)
     if (platform !== MessagingPlatform.WHATSAPP) {
@@ -37,11 +38,11 @@ export async function POST(request: NextRequest) {
     }
     console.log(`[Webhook] Detected platform: ${platform}, Body object field: ${body?.object}`);
 
-    // Create mock VercelRequest/Response objects for compatibility
-    const mockReq = { body } as any;
+    // Create minimal VercelRequest/Response objects for webhook handlers
+    const mockReq = { body } as Pick<VercelRequest, 'body'> as VercelRequest;
     const mockRes = {
       status: () => ({ json: () => {} })
-    } as any;
+    } as unknown as VercelResponse;
 
     // Route to platform-specific handler
     if (platform === MessagingPlatform.WHATSAPP) {

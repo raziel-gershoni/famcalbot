@@ -3,21 +3,22 @@
  * Loads localized bot messages from the shared messages/*.json files
  */
 
-// Valid locales for the bot
-const VALID_LOCALES = ['en', 'he', 'ru'] as const;
-type ValidLocale = (typeof VALID_LOCALES)[number];
+import { VALID_LOCALES, Locale } from '../utils/locale';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MessageTree = Record<string, any>;
 
 // Cache for loaded messages to avoid repeated imports
-const messageCache: Record<string, any> = {};
-const subscriptionMessageCache: Record<string, any> = {};
+const messageCache: Record<string, MessageTree> = {};
+const subscriptionMessageCache: Record<string, MessageTree> = {};
 
 /**
  * Get bot messages for a specific locale
  * Falls back to English if locale is not supported
  */
 export async function getBotMessages(locale: string) {
-  const normalizedLocale: ValidLocale = VALID_LOCALES.includes(locale as ValidLocale)
-    ? (locale as ValidLocale)
+  const normalizedLocale: Locale = VALID_LOCALES.includes(locale as Locale)
+    ? (locale as Locale)
     : 'en';
 
   if (!messageCache[normalizedLocale]) {
@@ -33,8 +34,8 @@ export async function getBotMessages(locale: string) {
  * Falls back to English if locale is not supported
  */
 export async function getSubscriptionMessages(locale: string) {
-  const normalizedLocale: ValidLocale = VALID_LOCALES.includes(locale as ValidLocale)
-    ? (locale as ValidLocale)
+  const normalizedLocale: Locale = VALID_LOCALES.includes(locale as Locale)
+    ? (locale as Locale)
     : 'en';
 
   if (!subscriptionMessageCache[normalizedLocale]) {
@@ -60,6 +61,7 @@ export async function getBotMessage(
 
   // Navigate to the message using dot notation
   const keys = keyPath.split('.');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let current: any = messages;
 
   for (const key of keys) {

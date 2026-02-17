@@ -15,7 +15,7 @@ import {
 } from './telegram';
 import { getUserByWhatsAppPhone } from './user-service';
 import { MessagingPlatform } from './messaging';
-import { handleVoiceMessage, handleEventCallback, handleEditCallback, handleDeleteCallback } from './voice-input-handler';
+import { handleVoiceMessage, handleEventCallback, handleEditCallback, handleDeleteCallback } from './voice';
 import { handlePreCheckoutQuery, handleSuccessfulPayment } from './payment-handler';
 import { setUserContext, addBreadcrumb } from './analytics-service';
 

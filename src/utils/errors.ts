@@ -27,11 +27,12 @@ export class InsufficientScopesError extends Error {
  * Check if error is specifically an insufficient scopes error
  * This happens when user deselected permissions on Google consent screen
  */
-export function isInsufficientScopesError(error: any): boolean {
+export function isInsufficientScopesError(error: unknown): boolean {
   if (!error) return false;
 
-  const message = error.message?.toLowerCase() || '';
-  const code = error.code;
+  const err = error as { message?: string; code?: number };
+  const message = err.message?.toLowerCase() || '';
+  const code = err.code;
 
   // Google API returns 403 with specific scope-related messages
   return (
@@ -42,11 +43,12 @@ export function isInsufficientScopesError(error: any): boolean {
   );
 }
 
-export function isTokenError(error: any): boolean {
+export function isTokenError(error: unknown): boolean {
   if (!error) return false;
 
-  const message = error.message?.toLowerCase() || '';
-  const code = error.code;
+  const err = error as { message?: string; code?: number };
+  const message = err.message?.toLowerCase() || '';
+  const code = err.code;
 
   // Don't treat scope errors as token errors - they need different handling
   if (isInsufficientScopesError(error)) {

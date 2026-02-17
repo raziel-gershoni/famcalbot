@@ -4,6 +4,7 @@
  */
 
 import { Redis } from '@upstash/redis';
+import { REDIS_KEYS } from '../config/redis-keys';
 
 // Initialize Redis client
 const redis = new Redis({
@@ -11,15 +12,15 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN!,
 });
 
-const CACHE_KEY = 'reminders:users';
-const GLOBAL_KEY = 'reminders:global_enabled';
-const EARLY_ADOPTION_KEY = 'early_adoption:global_enabled';
+const CACHE_KEY = REDIS_KEYS.REMINDER_USERS;
+const GLOBAL_KEY = REDIS_KEYS.REMINDERS_GLOBAL_ENABLED;
+const EARLY_ADOPTION_KEY = REDIS_KEYS.EARLY_ADOPTION_GLOBAL;
 
 export interface CachedReminderUser {
   id: number;
   telegramId: string;
   googleRefreshToken: string; // Already decrypted
-  calendarAssignments: any;
+  calendarAssignments: unknown;
   defaultReminderMinutes: number | null;
   language: string;
   name: string;

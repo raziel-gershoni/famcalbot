@@ -6,8 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma, withDbRetry } from '@/src/utils/prisma';
-import { verifyUserAccess } from '@/src/lib/telegram-auth';
-import { getUserByTelegramId } from '@/src/services/user-service';
+import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { setGlobalRemindersEnabled, setEarlyAdoptionMode } from '@/src/services/reminder-cache';
 import { invalidateAllFeatureAccessCaches } from '@/src/services/subscription-service';
@@ -44,43 +43,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { remindersEnabled, earlyAdoptionMode, initData } = body;
 
-    // Extract user_id from initData
-    if (!initData) {
+    // Verify admin access
+    const auth = await verifyAdminAccess(initData);
+    if (!auth.authorized) {
       return NextResponse.json(
-        { error: 'Missing initData' },
-        { status: 401 }
-      );
-    }
-
-    // Parse initData to get user_id
-    const params = new URLSearchParams(initData);
-    const userJson = params.get('user');
-    if (!userJson) {
-      return NextResponse.json(
-        { error: 'Invalid initData' },
-        { status: 401 }
-      );
-    }
-
-    const userData = JSON.parse(userJson);
-    const userId = userData.id;
-
-    // Verify Telegram authentication
-    if (!verifyUserAccess(initData, userId)) {
-      console.warn(`[admin-settings] Unauthorized access attempt for user ${userId}`);
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    // Check if user is admin
-    const user = await getUserByTelegramId(userId);
-    if (!user?.isAdmin) {
-      console.warn(`[admin-settings] Non-admin user ${userId} attempted to update settings`);
-      return NextResponse.json(
-        { error: 'Admin access required' },
-        { status: 403 }
+        { error: auth.error },
+        { status: auth.error === 'Admin access required' ? 403 : 401 }
       );
     }
 
@@ -125,7 +93,7 @@ export async function POST(request: NextRequest) {
         await invalidateAllFeatureAccessCaches();
       }
 
-      console.log(`[admin-settings] Admin ${userId} updated settings:`, { remindersEnabled, earlyAdoptionMode });
+      console.log(`[admin-settings] Admin ${auth.adminId} updated settings:`, { remindersEnabled, earlyAdoptionMode });
 
       return NextResponse.json({
         success: true,

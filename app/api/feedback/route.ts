@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma, withDbRetry } from '@/src/utils/prisma';
-import { verifyUserAccess } from '@/src/lib/telegram-auth';
+import { verifyUserAccess, extractUserId } from '@/src/lib/telegram-auth';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { notifyAdminFeedback } from '@/src/utils/error-notifier';
 import { trackActivityAsync } from '@/src/services/analytics-service';
@@ -13,12 +13,19 @@ import { captureError } from '@/src/lib/error-capture';
 
 export const dynamic = 'force-dynamic';
 
+const FEEDBACK_CONFIG = {
+  minLength: 10,
+  maxLength: 1000,
+  rateLimitCount: 3,
+  rateLimitHours: 24,
+} as const;
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { text, initData } = body;
 
-    // Validate initData presence
+    // Validate initData and extract user ID
     if (!initData) {
       return NextResponse.json(
         { success: false, error: 'Missing initData' },
@@ -26,18 +33,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Parse initData to get user_id
-    const params = new URLSearchParams(initData);
-    const userJson = params.get('user');
-    if (!userJson) {
+    const telegramUserId = extractUserId(initData);
+    if (telegramUserId === null) {
       return NextResponse.json(
         { success: false, error: 'Invalid initData' },
         { status: 401 }
       );
     }
-
-    const userData = JSON.parse(userJson);
-    const telegramUserId = userData.id;
 
     // Verify Telegram authentication
     if (!verifyUserAccess(initData, telegramUserId)) {
@@ -68,23 +70,23 @@ export async function POST(request: NextRequest) {
     const trimmedText = text.trim();
 
     // Check length constraints
-    if (trimmedText.length < 10) {
+    if (trimmedText.length < FEEDBACK_CONFIG.minLength) {
       return NextResponse.json(
         { success: false, error: 'tooShort' },
         { status: 400 }
       );
     }
 
-    if (trimmedText.length > 1000) {
+    if (trimmedText.length > FEEDBACK_CONFIG.maxLength) {
       return NextResponse.json(
         { success: false, error: 'tooLong' },
         { status: 400 }
       );
     }
 
-    // Check rate limit - max 3 feedback submissions per 24 hours
+    // Check rate limit
     const oneDayAgo = new Date();
-    oneDayAgo.setHours(oneDayAgo.getHours() - 24);
+    oneDayAgo.setHours(oneDayAgo.getHours() - FEEDBACK_CONFIG.rateLimitHours);
 
     const recentFeedbackCount = await withDbRetry(
       () => prisma.userFeedback.count({
@@ -96,7 +98,7 @@ export async function POST(request: NextRequest) {
       'feedback.rate-limit-check'
     );
 
-    if (recentFeedbackCount >= 3) {
+    if (recentFeedbackCount >= FEEDBACK_CONFIG.rateLimitCount) {
       return NextResponse.json(
         { success: false, error: 'rateLimit' },
         { status: 429 }

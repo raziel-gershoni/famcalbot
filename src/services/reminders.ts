@@ -13,6 +13,7 @@ import { MessageFormat } from './messaging/types';
 import { format } from 'date-fns';
 import { trackActivityAsync } from './analytics-service';
 import { checkFeatureAccess, incrementUsage } from './subscription-service';
+import { REDIS_KEYS } from '../config/redis-keys';
 
 // Initialize Redis client
 const redis = new Redis({
@@ -20,7 +21,6 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN!,
 });
 
-const REMINDER_KEY_PREFIX = 'reminder:';
 const REMINDER_TTL_SECONDS = 86400; // 24 hours
 
 export type ReminderType = 'start' | 'pickup';
@@ -59,7 +59,7 @@ function getReminderMinutes(event: CalendarEvent, userDefault?: number): { minut
  * Generate a unique key for a reminder to track if it's been sent
  */
 function getReminderKey(userId: number, eventId: string, type: ReminderType, date: string): string {
-  return `${REMINDER_KEY_PREFIX}${userId}:${eventId}:${type}:${date}`;
+  return REDIS_KEYS.reminder(userId, eventId, type, date);
 }
 
 /**
@@ -301,7 +301,7 @@ export async function processUserReminders(user: UserConfig, windowMinutes: numb
   if (!reminderAccess.allowed) {
     // If user had reminders enabled, send one-time downgrade notification
     if (user.remindersEnabled) {
-      const redisKey = `reminder:downgrade_notified:${user.id}`;
+      const redisKey = REDIS_KEYS.reminderDowngradeNotified(user.id);
       try {
         const alreadyNotified = await redis.get(redisKey);
         if (!alreadyNotified) {

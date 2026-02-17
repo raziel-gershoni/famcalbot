@@ -66,7 +66,8 @@ export function getMessagingService(
 /**
  * Detect platform from webhook request
  */
-export function detectPlatform(req: any): MessagingPlatform {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function detectPlatform(req: { body: Record<string, any> }): MessagingPlatform {
   const body = req.body;
 
   // Telegram: has 'message' or 'callback_query' at root, or update_id

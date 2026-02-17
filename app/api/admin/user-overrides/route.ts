@@ -7,47 +7,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma, withDbRetry } from '@/src/utils/prisma';
-import { verifyUserAccess } from '@/src/lib/telegram-auth';
-import { getUserByTelegramId } from '@/src/services/user-service';
+import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { getSubscriptionWithUsage, invalidateFeatureAccessCache } from '@/src/services/subscription-service';
 import { getPlanLimits } from '@/src/config/plans';
 
 export const dynamic = 'force-dynamic';
-
-/**
- * Helper to verify admin access from initData
- */
-async function verifyAdminAccess(initData: string | undefined): Promise<{ authorized: boolean; adminId?: number; error?: string }> {
-  if (!initData) {
-    return { authorized: false, error: 'Missing initData' };
-  }
-
-  // Parse initData to get user_id
-  const params = new URLSearchParams(initData);
-  const userJson = params.get('user');
-  if (!userJson) {
-    return { authorized: false, error: 'Invalid initData' };
-  }
-
-  const userData = JSON.parse(userJson);
-  const userId = userData.id;
-
-  // Verify Telegram authentication
-  if (!verifyUserAccess(initData, userId)) {
-    console.warn(`[user-overrides] Unauthorized access attempt for user ${userId}`);
-    return { authorized: false, error: 'Unauthorized' };
-  }
-
-  // Check if user is admin
-  const user = await getUserByTelegramId(userId);
-  if (!user?.isAdmin) {
-    console.warn(`[user-overrides] Non-admin user ${userId} attempted to access overrides`);
-    return { authorized: false, error: 'Admin access required' };
-  }
-
-  return { authorized: true, adminId: user.id };
-}
 
 /**
  * Check which features are legitimately paid (cannot be disabled by admin)
@@ -97,6 +62,55 @@ async function getPaidFeatures(userId: number): Promise<{
     remindersEnabled: limits.reminders,
     voiceEventsEnabled: limits.voiceEvents,
     unlimitedCalendars: limits.calendars === Infinity,
+  };
+}
+
+/**
+ * Calculate remaining trial days from a trial end date
+ */
+function calculateTrialDaysRemaining(trialEndsAt: Date): number | null {
+  const now = new Date();
+  if (now >= trialEndsAt) return null;
+  return Math.ceil((trialEndsAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+/**
+ * Map a user record (with subscription, override, usage) to a response object
+ */
+function mapUserToResponse(user: {
+  id: number;
+  telegramId: bigint | null;
+  name: string;
+  subscription: { plan: string; status: string; trialEndsAt: Date | null; currentPeriodEnd: Date | null } | null;
+  featureOverride: { earlyAdopter: boolean } | null;
+  usageCounter: { textSummariesUsed: number; voiceSummariesUsed: number; voiceEventsCreated: number } | null;
+  calendarAssignments: unknown;
+}) {
+  const trialDaysRemaining = user.subscription?.status === 'TRIALING' && user.subscription?.trialEndsAt
+    ? calculateTrialDaysRemaining(user.subscription.trialEndsAt)
+    : null;
+  const calendarAssignments = user.calendarAssignments as Array<{ calendarId: string }> | null;
+  const calendarsCount = calendarAssignments?.length ?? 0;
+
+  return {
+    id: user.id,
+    telegramId: user.telegramId ? Number(user.telegramId) : null,
+    name: user.name,
+    subscription: user.subscription ? {
+      plan: user.subscription.plan,
+      status: user.subscription.status,
+      trialEndsAt: user.subscription.trialEndsAt,
+      trialDaysRemaining,
+      currentPeriodEnd: user.subscription.currentPeriodEnd,
+    } : null,
+    usage: user.usageCounter ? {
+      textSummariesUsed: user.usageCounter.textSummariesUsed,
+      voiceSummariesUsed: user.usageCounter.voiceSummariesUsed,
+      voiceEventsCreated: user.usageCounter.voiceEventsCreated,
+    } : null,
+    calendarsCount,
+    hasOverride: !!user.featureOverride,
+    earlyAdopter: user.featureOverride?.earlyAdopter === true,
   };
 }
 
@@ -151,15 +165,9 @@ export async function GET(request: NextRequest) {
       const paidFeatures = await getPaidFeatures(userId);
 
       // Calculate trial days remaining
-      let trialDaysRemaining: number | null = null;
-      if (user.subscription?.status === 'TRIALING' && user.subscription?.trialEndsAt) {
-        const now = new Date();
-        if (now < user.subscription.trialEndsAt) {
-          trialDaysRemaining = Math.ceil(
-            (user.subscription.trialEndsAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)
-          );
-        }
-      }
+      const trialDaysRemaining = user.subscription?.status === 'TRIALING' && user.subscription?.trialEndsAt
+        ? calculateTrialDaysRemaining(user.subscription.trialEndsAt)
+        : null;
 
       // Get plan limits for usage display
       const effectivePlan = user.subscription?.status === 'TRIALING' && trialDaysRemaining ? 'PRO' : (user.subscription?.plan || 'FREE');
@@ -241,43 +249,7 @@ export async function GET(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        users: users.map(user => {
-          // Calculate trial days remaining if applicable
-          let trialDaysRemaining: number | null = null;
-          if (user.subscription?.status === 'TRIALING' && user.subscription?.trialEndsAt) {
-            const now = new Date();
-            if (now < user.subscription.trialEndsAt) {
-              trialDaysRemaining = Math.ceil(
-                (user.subscription.trialEndsAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)
-              );
-            }
-          }
-
-          // Count calendars from calendarAssignments JSON
-          const calendarAssignments = user.calendarAssignments as Array<{ calendarId: string }> | null;
-          const calendarsCount = calendarAssignments?.length ?? 0;
-
-          return {
-            id: user.id,
-            telegramId: user.telegramId ? Number(user.telegramId) : null,
-            name: user.name,
-            subscription: user.subscription ? {
-              plan: user.subscription.plan,
-              status: user.subscription.status,
-              trialEndsAt: user.subscription.trialEndsAt,
-              trialDaysRemaining,
-              currentPeriodEnd: user.subscription.currentPeriodEnd,
-            } : null,
-            usage: user.usageCounter ? {
-              textSummariesUsed: user.usageCounter.textSummariesUsed,
-              voiceSummariesUsed: user.usageCounter.voiceSummariesUsed,
-              voiceEventsCreated: user.usageCounter.voiceEventsCreated,
-            } : null,
-            calendarsCount,
-            hasOverride: !!user.featureOverride,
-            earlyAdopter: user.featureOverride?.earlyAdopter === true,
-          };
-        }),
+        users: users.map(mapUserToResponse),
       });
     }
 

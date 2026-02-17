@@ -5,8 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma, withDbRetry } from '@/src/utils/prisma';
-import { verifyUserAccess } from '@/src/lib/telegram-auth';
-import { getUserByTelegramId } from '@/src/services/user-service';
+import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { getMessagingService } from '@/src/services/telegram';
 import { getBotMessages } from '@/src/lib/bot-messages';
@@ -16,40 +15,6 @@ import { buildUrl } from '@/src/config/urls';
 export const dynamic = 'force-dynamic';
 
 type ReminderType = 'oauth' | 'calendars' | 'location';
-
-/**
- * Helper to verify admin access from initData
- */
-async function verifyAdminAccess(initData: string | undefined): Promise<{ authorized: boolean; adminId?: number; error?: string }> {
-  if (!initData) {
-    return { authorized: false, error: 'Missing initData' };
-  }
-
-  // Parse initData to get user_id
-  const params = new URLSearchParams(initData);
-  const userJson = params.get('user');
-  if (!userJson) {
-    return { authorized: false, error: 'Invalid initData' };
-  }
-
-  const userData = JSON.parse(userJson);
-  const userId = userData.id;
-
-  // Verify Telegram authentication
-  if (!verifyUserAccess(initData, userId)) {
-    console.warn(`[send-reminder] Unauthorized access attempt for user ${userId}`);
-    return { authorized: false, error: 'Unauthorized' };
-  }
-
-  // Check if user is admin
-  const user = await getUserByTelegramId(userId);
-  if (!user?.isAdmin) {
-    console.warn(`[send-reminder] Non-admin user ${userId} attempted to send reminder`);
-    return { authorized: false, error: 'Admin access required' };
-  }
-
-  return { authorized: true, adminId: user.id };
-}
 
 /**
  * Get the reminder message content based on type
