@@ -380,15 +380,24 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
     fetchActivity(true);
   }, [activityFilter]);
 
-  // Infinite scroll for activity list
+  // Refs to avoid re-creating the observer on every state change
+  const activityHasMoreRef = useRef(activityHasMore);
+  const isLoadingActivityRef = useRef(isLoadingActivity);
+  const fetchActivityRef = useRef(fetchActivity);
+
+  useEffect(() => { activityHasMoreRef.current = activityHasMore; }, [activityHasMore]);
+  useEffect(() => { isLoadingActivityRef.current = isLoadingActivity; }, [isLoadingActivity]);
+  useEffect(() => { fetchActivityRef.current = fetchActivity; }, [fetchActivity]);
+
+  // Stable IntersectionObserver — created once, reads current values from refs
   useEffect(() => {
     const sentinel = activitySentinelRef.current;
     if (!sentinel) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && activityHasMore && !isLoadingActivity) {
-          fetchActivity(false);
+        if (entries[0].isIntersecting && activityHasMoreRef.current && !isLoadingActivityRef.current) {
+          fetchActivityRef.current(false);
         }
       },
       { threshold: 0.1 }
@@ -396,7 +405,8 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [activityHasMore, isLoadingActivity, fetchActivity]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Format relative time
   const formatRelativeTime = (dateStr: string) => {
@@ -2249,16 +2259,13 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                   </div>
                 ))
               )}
-            </div>
-
-            {/* Infinite scroll sentinel */}
-            {activityHasMore && (
+              {/* Infinite scroll sentinel — inside scrollable container */}
               <div ref={activitySentinelRef} className="activity-sentinel">
-                {isLoadingActivity && (
+                {activityHasMore && isLoadingActivity && (
                   <Loader2 size={20} className="animate-spin" style={{ margin: '0 auto' }} />
                 )}
               </div>
-            )}
+            </div>
             </div>
           </div>
 
