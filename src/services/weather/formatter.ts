@@ -3,7 +3,7 @@
  * AI-powered weather forecast formatting with rule-based fallback
  */
 
-import { HDate, Locale, gematriya } from '@hebcal/core';
+import { HDate, Locale } from '@hebcal/core';
 import '@hebcal/locales';
 import { WeatherData } from '../../types';
 import { getWeatherDescription, getWeatherEmoji } from './open-meteo';
@@ -215,10 +215,10 @@ export async function formatWeatherAI(
   if (culture === 'jewish') {
     const localDate = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
     const hdate = new HDate(localDate);
-    const hebDay = language === 'he' ? gematriya(hdate.getDate()) : hdate.getDate();
-    const monthName = Locale.lookupTranslation(hdate.getMonthName(), language) || hdate.getMonthName();
+    const day = hdate.getDate();
+    const monthName = Locale.lookupTranslation(hdate.getMonthName(), 'he') || hdate.getMonthName();
     const year = hdate.getFullYear();
-    hebrewDateStr = ` | ${hebDay} ב${monthName} ${year}`;
+    hebrewDateStr = ` | ${day} ב${monthName} ${year}`;
   }
 
   // Compute local time for time-aware today section
@@ -239,6 +239,7 @@ THEN: A FULL version (~1500-2000 characters) — detailed prose for voice narrat
 - Respond ENTIRELY in ${langName}
 - Start with a short, warm greeting using the person's name: ${userName}
 - Include the current date (${dateStr}${hebrewDateStr}) right after the greeting
+${culture === 'jewish' ? (language === 'he' ? '- השתמש בגימטריה לתאריך העברי (כ"ח כסלו תשפ"ה)' : language === 'ru' ? '- Отображайте еврейскую дату стандартными цифрами (например: "28 Кислев 5785")' : '- Display Hebrew date using standard numerals (e.g., "28 Kislev 5785")') : ''}
 - The current local time is ${localTimeStr}. For today's section, focus on current conditions and what's ahead — don't describe weather from earlier in the day. Weave the current state naturally (e.g. "still sunny", "already cooling down to 15°C").
 - Use Telegram Markdown: *bold* for the 3 section headers only
 - Use weather emojis naturally throughout
