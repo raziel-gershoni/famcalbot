@@ -125,7 +125,7 @@ export async function getSubscription(userId: number): Promise<Subscription | nu
 /**
  * Get subscription with usage data
  */
-export async function getSubscriptionWithUsage(userId: number): Promise<SubscriptionWithUsage | null> {
+export async function getSubscriptionWithUsage(userId: number, isEarlyAdopter?: boolean): Promise<SubscriptionWithUsage | null> {
   const [subscription, usage] = await Promise.all([
     getOrCreateSubscription(userId),
     getOrCreateUsageCounter(userId),
@@ -145,8 +145,9 @@ export async function getSubscriptionWithUsage(userId: number): Promise<Subscrip
     effectivePlan = 'FREE';
   }
 
-  // Early adopters get PRO access
-  if (await checkEarlyAdopterAccess(userId)) {
+  // Early adopters get PRO access (use pre-computed value if available)
+  const earlyAdopter = isEarlyAdopter ?? await checkEarlyAdopterAccess(userId);
+  if (earlyAdopter) {
     effectivePlan = 'PRO';
   }
 
@@ -590,7 +591,8 @@ async function computeFeatureAccess(
   feature: FeatureType
 ): Promise<FeatureAccessResult> {
   // 0. Check early adopter access (global mode or per-user flag)
-  if (await checkEarlyAdopterAccess(userId)) return { allowed: true };
+  const isEarlyAdopter = await checkEarlyAdopterAccess(userId);
+  if (isEarlyAdopter) return { allowed: true };
 
   // 1. Check admin override FIRST (can only GRANT access, never deny)
   const override = await getFeatureOverride(userId);
@@ -601,8 +603,8 @@ async function computeFeatureAccess(
     }
   }
 
-  // 2. Check subscription (existing logic)
-  const subWithUsage = await getSubscriptionWithUsage(userId);
+  // 2. Check subscription (pass pre-computed early-adopter to avoid redundant lookup)
+  const subWithUsage = await getSubscriptionWithUsage(userId, isEarlyAdopter);
   if (!subWithUsage) {
     return { allowed: false, reason: 'upgrade_required' };
   }

@@ -88,7 +88,10 @@ export function validateInitData(initData: string): TelegramUser | null {
       .update(checkString)
       .digest('hex');
 
-    if (calculatedHash !== hash) {
+    // Use timing-safe comparison to prevent timing attacks
+    const hashBuffer = Buffer.from(hash, 'hex');
+    const calculatedBuffer = Buffer.from(calculatedHash, 'hex');
+    if (hashBuffer.length !== calculatedBuffer.length || !crypto.timingSafeEqual(hashBuffer, calculatedBuffer)) {
       console.warn('[TelegramAuth] Hash mismatch');
       return null;
     }

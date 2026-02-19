@@ -47,18 +47,18 @@ export async function getUserCalendarTimezone(refreshToken: string): Promise<str
  * Get start and end of day in Israel timezone as ISO strings
  * Handles DST automatically using date-fns-tz
  */
-function getDayBoundaries(daysOffset: number = 0): { start: string; end: string } {
-  // Get current date in Israel timezone
-  const nowInIsrael = new Date(new Date().toLocaleString('en-US', { timeZone: TIMEZONE }));
+function getDayBoundaries(daysOffset: number = 0, tz: string = TIMEZONE): { start: string; end: string } {
+  // Get current date in user's timezone
+  const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
 
   // Add offset for tomorrow, day after, etc.
-  const targetDate = addDays(nowInIsrael, daysOffset);
+  const targetDate = addDays(nowLocal, daysOffset);
   const dateStr = format(targetDate, 'yyyy-MM-dd');
 
-  // Convert Israel timezone midnight to UTC (handles DST automatically)
+  // Convert timezone midnight to UTC (handles DST automatically)
   // fromZonedTime converts a date in a specific timezone to UTC
-  const start = fromZonedTime(`${dateStr} 00:00:00`, TIMEZONE);
-  const end = fromZonedTime(`${dateStr} 23:59:59`, TIMEZONE);
+  const start = fromZonedTime(`${dateStr} 00:00:00`, tz);
+  const end = fromZonedTime(`${dateStr} 23:59:59`, tz);
 
   return {
     start: start.toISOString(),
@@ -76,7 +76,8 @@ function getDayBoundaries(daysOffset: number = 0): { start: string; end: string 
 async function fetchEvents(
   refreshToken: string,
   calendarIds: string[],
-  daysOffset: number
+  daysOffset: number,
+  timezone: string = TIMEZONE
 ): Promise<CalendarEvent[]> {
   // Create OAuth2 client
   const oauth2Client = new google.auth.OAuth2(
@@ -90,66 +91,66 @@ async function fetchEvents(
 
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
-  // Get day boundaries in Israel timezone
-  const { start, end } = getDayBoundaries(daysOffset);
+  // Get day boundaries in user's timezone
+  const { start, end } = getDayBoundaries(daysOffset, timezone);
 
-  const allEvents: CalendarEvent[] = [];
+  // Fetch events from all calendars in parallel
+  const results = await Promise.allSettled(
+    calendarIds.map(async (calendarId) => {
+      // Fetch calendar metadata and events in parallel
+      const [calendarInfo, response] = await Promise.all([
+        calendar.calendars.get({ calendarId }),
+        calendar.events.list({
+          calendarId,
+          timeMin: start,
+          timeMax: end,
+          singleEvents: true,
+          orderBy: 'startTime',
+          timeZone: timezone,
+        }),
+      ]);
 
-  // Fetch events from each calendar
-  for (const calendarId of calendarIds) {
-    try {
-      // Fetch calendar metadata to get the display name
-      const calendarInfo = await calendar.calendars.get({
-        calendarId: calendarId,
-      });
       const calendarName = calendarInfo.data.summary || calendarId;
-
-      const response = await calendar.events.list({
-        calendarId: calendarId,
-        timeMin: start,
-        timeMax: end,
-        singleEvents: true,
-        orderBy: 'startTime',
-        timeZone: TIMEZONE,
-      });
-
       const events = response.data.items || [];
 
-      for (const event of events) {
-        allEvents.push({
-          summary: event.summary || 'No title',
-          start: event.start?.dateTime || event.start?.date || '',
-          end: event.end?.dateTime || event.end?.date || '',
-          description: event.description || undefined,
-          location: event.location || undefined,
-          calendarName: calendarName,
-          calendarId: calendarId,
-          eventType: event.eventType || undefined,
-          recurringEventId: event.recurringEventId || undefined,
-          eventId: event.id || undefined,
-          reminders: event.reminders ? {
-            useDefault: event.reminders.useDefault || false,
-            overrides: event.reminders.overrides?.map(o => ({
-              method: o.method || 'popup',
-              minutes: o.minutes || 0,
-            })),
-          } : undefined,
-        });
-      }
-    } catch (error) {
-      console.error(`Error fetching calendar ${calendarId}:`, error);
+      return events.map((event): CalendarEvent => ({
+        summary: event.summary || 'No title',
+        start: event.start?.dateTime || event.start?.date || '',
+        end: event.end?.dateTime || event.end?.date || '',
+        description: event.description || undefined,
+        location: event.location || undefined,
+        calendarName,
+        calendarId,
+        eventType: event.eventType || undefined,
+        recurringEventId: event.recurringEventId || undefined,
+        eventId: event.id || undefined,
+        reminders: event.reminders ? {
+          useDefault: event.reminders.useDefault || false,
+          overrides: event.reminders.overrides?.map(o => ({
+            method: o.method || 'popup',
+            minutes: o.minutes || 0,
+          })),
+        } : undefined,
+      }));
+    })
+  );
 
-      // If it's an insufficient scopes error, re-throw so calling code can handle it
+  // Collect events from successful fetches, re-throw critical errors
+  const allEvents: CalendarEvent[] = [];
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      allEvents.push(...result.value);
+    } else {
+      const error = result.reason;
+      console.error(`Error fetching calendar:`, error);
+
       if (isInsufficientScopesError(error)) {
         throw new Error('GOOGLE_INSUFFICIENT_SCOPES');
       }
-
-      // If it's a token error, re-throw so calling code can handle it
       if (isTokenError(error)) {
         throw new Error('GOOGLE_TOKEN_EXPIRED');
       }
-
-      // Continue with other calendars if it's a different error (calendar-specific issue)
+      // Continue with other calendars for non-critical errors
     }
   }
 
@@ -164,9 +165,10 @@ async function fetchEvents(
  */
 export async function fetchTodayEvents(
   refreshToken: string,
-  calendarIds: string[]
+  calendarIds: string[],
+  timezone?: string
 ): Promise<CalendarEvent[]> {
-  return fetchEvents(refreshToken, calendarIds, 0);
+  return fetchEvents(refreshToken, calendarIds, 0, timezone);
 }
 
 /**
@@ -174,9 +176,10 @@ export async function fetchTodayEvents(
  */
 export async function fetchTomorrowEvents(
   refreshToken: string,
-  calendarIds: string[]
+  calendarIds: string[],
+  timezone?: string
 ): Promise<CalendarEvent[]> {
-  return fetchEvents(refreshToken, calendarIds, 1);
+  return fetchEvents(refreshToken, calendarIds, 1, timezone);
 }
 
 /**

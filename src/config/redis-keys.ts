@@ -31,4 +31,10 @@ export const REDIS_KEYS = {
   // Locks
   testModelsLock: (userId: number) => `testmodels:lock:${userId}`,
   voiceLock: (fileUniqueId: string) => `voice:lock:${fileUniqueId}`,
+
+  // Voice pending operations (serverless-safe, replaces in-memory Maps)
+  pendingEvent: (pendingId: string) => `voice:pending:event:${pendingId}`,
+  pendingEdit: (pendingId: string) => `voice:pending:edit:${pendingId}`,
+  pendingDelete: (pendingId: string) => `voice:pending:delete:${pendingId}`,
+  lastCreatedEvent: (userId: number) => `voice:last_created:${userId}`,
 } as const;

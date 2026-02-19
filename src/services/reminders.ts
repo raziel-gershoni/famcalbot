@@ -6,7 +6,7 @@
 
 import { Redis } from '@upstash/redis';
 import { CalendarEvent, CalendarAssignment, UserConfig } from '../types';
-import { fetchTodayEvents, TIMEZONE } from './calendar';
+import { fetchTodayEvents } from './calendar';
 import { getBot } from './telegram';
 import { getTelegramService } from './messaging/factory';
 import { MessageFormat } from './messaging/types';
@@ -14,6 +14,7 @@ import { format } from 'date-fns';
 import { trackActivityAsync } from './analytics-service';
 import { checkFeatureAccess, incrementUsage } from './subscription-service';
 import { REDIS_KEYS } from '../config/redis-keys';
+import { resolveUserTimezone } from '../lib/timezone';
 
 // Initialize Redis client
 const redis = new Redis({
@@ -112,7 +113,8 @@ function getCalendarAssignment(event: CalendarEvent, assignments?: CalendarAssig
  */
 export async function getDueReminders(
   user: UserConfig,
-  windowMinutes: number = 5
+  windowMinutes: number = 5,
+  timezone?: string
 ): Promise<DueReminder[]> {
   const calendarIds = user.calendarAssignments?.map(a => a.calendarId) || [];
   if (!calendarIds.length || !user.googleRefreshToken) {
@@ -144,10 +146,11 @@ export async function getDueReminders(
     const { minutes: reminderMinutes, isAuto } = getReminderMinutes(event, user.defaultReminderMinutes ?? undefined);
 
     // Debug logging with actual times
-    const startTimeStr = startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
-    const endTimeStr = endTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
-    const nowStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
-    const windowEndStr = windowEnd.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
+    const tz = timezone || 'UTC';
+    const startTimeStr = startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
+    const endTimeStr = endTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
+    const nowStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
+    const windowEndStr = windowEnd.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
     console.log(`[Reminders] Event: ${event.summary}, start: ${startTimeStr}, end: ${endTimeStr}, window: [${nowStr}-${windowEndStr}), reminderMin: ${reminderMinutes}`);
 
     // Check START reminder
@@ -170,7 +173,7 @@ export async function getDueReminders(
     // Check PICKUP reminder (only for kids' events, when pickup reminders are enabled)
     if (isKidsEvent(event, user.calendarAssignments) && user.pickupRemindersEnabled !== false) {
       const pickupReminderTime = new Date(endTime.getTime() - reminderMinutes * 60 * 1000);
-      const pickupReminderTimeStr = pickupReminderTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
+      const pickupReminderTimeStr = pickupReminderTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
       console.log(`[Reminders] Pickup check: ${event.summary}, pickupAt: ${endTimeStr}, reminderTime: ${pickupReminderTimeStr}, inWindow: ${pickupReminderTime >= now && pickupReminderTime < windowEnd}`);
       if (pickupReminderTime >= now && pickupReminderTime < windowEnd) {
         // Check if already sent
@@ -197,15 +200,15 @@ export async function getDueReminders(
  */
 function formatReminderMessage(
   reminder: DueReminder,
-  language: string = 'en'
+  language: string = 'en',
+  timezone?: string
 ): string {
   const { event, type, eventTime, isAutoReminder } = reminder;
-  // Format time in Israel timezone
   const timeStr = eventTime.toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-    timeZone: TIMEZONE,
+    timeZone: timezone || 'UTC',
   });
   const location = event.location ? `\n📍 ${event.location}` : '';
 
@@ -256,12 +259,13 @@ function formatReminderMessage(
  */
 export async function sendReminder(
   user: UserConfig,
-  reminder: DueReminder
+  reminder: DueReminder,
+  timezone?: string
 ): Promise<boolean> {
   try {
     const bot = getBot();
     const service = getTelegramService(bot);
-    const message = formatReminderMessage(reminder, user.language);
+    const message = formatReminderMessage(reminder, user.language, timezone);
 
     await service.sendMessage(user.telegramId, message, {
       format: MessageFormat.HTML,
@@ -317,11 +321,12 @@ export async function processUserReminders(user: UserConfig, windowMinutes: numb
     return 0;
   }
 
-  const dueReminders = await getDueReminders(user, windowMinutes);
+  const timezone = await resolveUserTimezone(user);
+  const dueReminders = await getDueReminders(user, windowMinutes, timezone);
   let sentCount = 0;
 
   for (const reminder of dueReminders) {
-    const success = await sendReminder(user, reminder);
+    const success = await sendReminder(user, reminder, timezone);
     if (success) sentCount++;
   }
 

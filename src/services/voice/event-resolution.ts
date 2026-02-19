@@ -3,11 +3,18 @@
  * Handles finding/matching events and tracking created events
  */
 
+import { Redis } from '@upstash/redis';
 import { getBot } from '../telegram';
 import { ParsedEvent, EventReference, EditRequest } from '../event-parser';
 import { fetchEventsInRange, CalendarEvent, UpdateEventData } from '../calendar';
 import { generateAICompletion } from '../ai-provider';
 import { fromZonedTime } from 'date-fns-tz';
+import { REDIS_KEYS } from '../../config/redis-keys';
+
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+});
 
 /**
  * Download voice file from Telegram CDN
@@ -47,52 +54,52 @@ export interface CreatedEventTracker {
   createdAt: Date;
 }
 
-// Store last created event per user (expires after 30 minutes)
-const lastCreatedEvents: Map<number, CreatedEventTracker> = new Map();
+const LAST_CREATED_TTL_SECONDS = 1800; // 30 minutes
 
 /**
  * Store a created event for "last created" reference
  */
-export function trackCreatedEvent(
+export async function trackCreatedEvent(
   userId: number,
   eventId: string,
   calendarId: string,
   event: ParsedEvent
-): void {
-  lastCreatedEvents.set(userId, {
-    eventId,
-    calendarId,
-    title: event.title,
-    startTime: event.startTime,
-    endTime: event.endTime,
-    location: event.location,
-    createdAt: new Date()
-  });
-
-  // Clean up old entries (older than 30 minutes)
-  const thirtyMinutesAgo = Date.now() - 30 * 60 * 1000;
-  for (const [key, value] of lastCreatedEvents.entries()) {
-    if (value.createdAt.getTime() < thirtyMinutesAgo) {
-      lastCreatedEvents.delete(key);
-    }
+): Promise<void> {
+  try {
+    await redis.set(
+      REDIS_KEYS.lastCreatedEvent(userId),
+      {
+        eventId,
+        calendarId,
+        title: event.title,
+        startTime: event.startTime,
+        endTime: event.endTime,
+        location: event.location,
+        createdAt: new Date(),
+      },
+      { ex: LAST_CREATED_TTL_SECONDS }
+    );
+  } catch (error) {
+    console.error('[Voice] Error tracking created event in Redis:', error);
   }
 }
 
 /**
  * Get the last created event for a user
  */
-export function getLastCreatedEvent(userId: number): CreatedEventTracker | undefined {
-  const event = lastCreatedEvents.get(userId);
-  if (!event) return undefined;
-
-  // Check if expired (30 minutes)
-  const thirtyMinutesAgo = Date.now() - 30 * 60 * 1000;
-  if (event.createdAt.getTime() < thirtyMinutesAgo) {
-    lastCreatedEvents.delete(userId);
+export async function getLastCreatedEvent(userId: number): Promise<CreatedEventTracker | undefined> {
+  try {
+    const data = await redis.get<CreatedEventTracker>(REDIS_KEYS.lastCreatedEvent(userId));
+    if (!data) return undefined;
+    // Reconstruct Date objects from JSON strings
+    data.startTime = new Date(data.startTime);
+    data.endTime = new Date(data.endTime);
+    data.createdAt = new Date(data.createdAt);
+    return data;
+  } catch (error) {
+    console.error('[Voice] Error getting last created event from Redis:', error);
     return undefined;
   }
-
-  return event;
 }
 
 /**

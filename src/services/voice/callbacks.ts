@@ -33,7 +33,7 @@ export async function handleEventCallback(
 ): Promise<void> {
   const bot = getBot();
 
-  const pending = getPendingEvent(pendingId);
+  const pending = await getPendingEvent(pendingId);
 
   if (!pending) {
     const t = await getBotMessages('en');
@@ -49,7 +49,7 @@ export async function handleEventCallback(
   const { event, user } = pending;
   const t = await getBotMessages(user.language || 'en');
 
-  removePendingEvent(pendingId);
+  await removePendingEvent(pendingId);
 
   if (action === 'cancel') {
     await bot.answerCallbackQuery(queryId, { text: t.voice.cancelled });
@@ -98,7 +98,8 @@ export async function handleEventCallback(
 
     if (result.success) {
       if (result.eventId) {
-        trackCreatedEvent(user.telegramId, result.eventId, event.calendarId || 'primary', event);
+        trackCreatedEvent(user.telegramId, result.eventId, event.calendarId || 'primary', event)
+          .catch(err => console.error('[Voice] Failed to track created event:', err));
       }
 
       trackActivityAsync(user.id, 'voice_event_created', {
@@ -182,7 +183,7 @@ export async function handleEditCallback(
 ): Promise<void> {
   const bot = getBot();
 
-  const pending = getPendingEdit(pendingId);
+  const pending = await getPendingEdit(pendingId);
 
   if (!pending) {
     const t = await getBotMessages('en');
@@ -198,7 +199,7 @@ export async function handleEditCallback(
   const { originalEvent, calendarId, updates, user, scope } = pending;
   const t = await getBotMessages(user.language || 'en');
 
-  removePendingEdit(pendingId);
+  await removePendingEdit(pendingId);
 
   if (action === 'cancel') {
     await bot.answerCallbackQuery(queryId, { text: t.voice?.cancelled || 'Cancelled' });
@@ -336,7 +337,7 @@ export async function handleDeleteCallback(
 ): Promise<void> {
   const bot = getBot();
 
-  const pending = getPendingDelete(pendingId);
+  const pending = await getPendingDelete(pendingId);
 
   if (!pending) {
     const t = await getBotMessages('en');
@@ -352,7 +353,7 @@ export async function handleDeleteCallback(
   const { event, calendarId, user, scope } = pending;
   const t = await getBotMessages(user.language || 'en');
 
-  removePendingDelete(pendingId);
+  await removePendingDelete(pendingId);
 
   if (action === 'cancel') {
     await bot.answerCallbackQuery(queryId, { text: t.voice?.kept || 'Kept' });

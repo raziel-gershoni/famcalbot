@@ -1,34 +1,70 @@
 /**
  * Voice confirmation UI
  * Shows confirmation messages for event creation, editing, and deletion
+ * Pending operations stored in Redis for serverless compatibility
  */
 
+import { Redis } from '@upstash/redis';
 import { getBot } from '../telegram';
 import { ParsedEvent, RecurrenceScope } from '../event-parser';
 import { CalendarEvent, UpdateEventData } from '../calendar';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { UserConfig } from '../../types';
 import { getBotMessages } from '../../lib/bot-messages';
+import { REDIS_KEYS } from '../../config/redis-keys';
+
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+});
+
+const PENDING_TTL_SECONDS = 600; // 10 minutes
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Store pending events for confirmation (in-memory, short-lived)
-const pendingEvents: Map<string, { event: ParsedEvent; user: UserConfig; transcription: string }> = new Map();
+/**
+ * Reconstruct Date objects from JSON-parsed data
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function reviveDates<T>(obj: any, dateFields: string[]): T {
+  if (!obj) return obj;
+  for (const field of dateFields) {
+    if (obj[field] && typeof obj[field] === 'string') {
+      obj[field] = new Date(obj[field]);
+    }
+  }
+  return obj as T;
+}
 
 /**
  * Get a pending event by ID (used by callbacks)
  */
-export function getPendingEvent(pendingId: string) {
-  return pendingEvents.get(pendingId);
+export async function getPendingEvent(pendingId: string) {
+  try {
+    const data = await redis.get<{ event: ParsedEvent; user: UserConfig; transcription: string }>(
+      REDIS_KEYS.pendingEvent(pendingId)
+    );
+    if (!data) return undefined;
+    // Reconstruct Date objects that were serialized as strings
+    reviveDates(data.event, ['startTime', 'endTime']);
+    return data;
+  } catch (error) {
+    console.error('[Voice] Error getting pending event from Redis:', error);
+    return undefined;
+  }
 }
 
 /**
  * Remove a pending event by ID
  */
-export function removePendingEvent(pendingId: string) {
-  pendingEvents.delete(pendingId);
+export async function removePendingEvent(pendingId: string) {
+  try {
+    await redis.del(REDIS_KEYS.pendingEvent(pendingId));
+  } catch (error) {
+    console.error('[Voice] Error removing pending event from Redis:', error);
+  }
 }
 
 /**
@@ -43,21 +79,30 @@ export interface PendingEdit {
   scope?: RecurrenceScope;
 }
 
-// Store pending edit operations
-const pendingEdits: Map<string, PendingEdit> = new Map();
-
 /**
  * Get a pending edit by ID (used by callbacks)
  */
-export function getPendingEdit(pendingId: string) {
-  return pendingEdits.get(pendingId);
+export async function getPendingEdit(pendingId: string) {
+  try {
+    const data = await redis.get<PendingEdit>(REDIS_KEYS.pendingEdit(pendingId));
+    if (!data) return undefined;
+    reviveDates(data.updates, ['startTime', 'endTime']);
+    return data;
+  } catch (error) {
+    console.error('[Voice] Error getting pending edit from Redis:', error);
+    return undefined;
+  }
 }
 
 /**
  * Remove a pending edit by ID
  */
-export function removePendingEdit(pendingId: string) {
-  pendingEdits.delete(pendingId);
+export async function removePendingEdit(pendingId: string) {
+  try {
+    await redis.del(REDIS_KEYS.pendingEdit(pendingId));
+  } catch (error) {
+    console.error('[Voice] Error removing pending edit from Redis:', error);
+  }
 }
 
 /**
@@ -71,21 +116,29 @@ export interface PendingDelete {
   scope?: RecurrenceScope;
 }
 
-// Store pending delete operations
-const pendingDeletes: Map<string, PendingDelete> = new Map();
-
 /**
  * Get a pending delete by ID (used by callbacks)
  */
-export function getPendingDelete(pendingId: string) {
-  return pendingDeletes.get(pendingId);
+export async function getPendingDelete(pendingId: string) {
+  try {
+    const data = await redis.get<PendingDelete>(REDIS_KEYS.pendingDelete(pendingId));
+    if (!data) return undefined;
+    return data;
+  } catch (error) {
+    console.error('[Voice] Error getting pending delete from Redis:', error);
+    return undefined;
+  }
 }
 
 /**
  * Remove a pending delete by ID
  */
-export function removePendingDelete(pendingId: string) {
-  pendingDeletes.delete(pendingId);
+export async function removePendingDelete(pendingId: string) {
+  try {
+    await redis.del(REDIS_KEYS.pendingDelete(pendingId));
+  } catch (error) {
+    console.error('[Voice] Error removing pending delete from Redis:', error);
+  }
 }
 
 /**
@@ -266,16 +319,8 @@ export async function showEventConfirmation(
 
   const pendingId = `${chatId}:${Date.now()}`;
 
-  pendingEvents.set(pendingId, { event, user, transcription });
-
-  // Clean up old pending events (older than 10 minutes)
-  const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
-  for (const [key] of pendingEvents.entries()) {
-    const timestamp = parseInt(key.split(':')[1]);
-    if (timestamp < tenMinutesAgo) {
-      pendingEvents.delete(key);
-    }
-  }
+  // Store in Redis with TTL (survives serverless cold starts)
+  await redis.set(REDIS_KEYS.pendingEvent(pendingId), { event, user, transcription }, { ex: PENDING_TTL_SECONDS });
 
   const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay, timezone);
   const locationStr = event.location ? `\n📍 ${event.location}` : '';
@@ -319,16 +364,7 @@ export async function showEditConfirmation(
 
   const pendingId = `${chatId}:${Date.now()}`;
 
-  pendingEdits.set(pendingId, { originalEvent, calendarId, updates, user, transcription, scope });
-
-  // Clean up old pending edits (older than 10 minutes)
-  const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
-  for (const [key] of pendingEdits.entries()) {
-    const timestamp = parseInt(key.split(':')[1]);
-    if (timestamp < tenMinutesAgo) {
-      pendingEdits.delete(key);
-    }
-  }
+  await redis.set(REDIS_KEYS.pendingEdit(pendingId), { originalEvent, calendarId, updates, user, transcription, scope }, { ex: PENDING_TTL_SECONDS });
 
   const currentInfo = formatCalendarEventDateTime(originalEvent, user.language || 'en', t.voice?.allDay || 'All day', timezone);
   const changesInfo = formatEditChanges(originalEvent, updates, user.language || 'en', timezone);
@@ -398,16 +434,7 @@ export async function showDeleteConfirmation(
 
   const pendingId = `${chatId}:${Date.now()}`;
 
-  pendingDeletes.set(pendingId, { event, calendarId, user, transcription, scope });
-
-  // Clean up old pending deletes (older than 10 minutes)
-  const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
-  for (const [key] of pendingDeletes.entries()) {
-    const timestamp = parseInt(key.split(':')[1]);
-    if (timestamp < tenMinutesAgo) {
-      pendingDeletes.delete(key);
-    }
-  }
+  await redis.set(REDIS_KEYS.pendingDelete(pendingId), { event, calendarId, user, transcription, scope }, { ex: PENDING_TTL_SECONDS });
 
   const eventInfo = formatCalendarEventDateTime(event, user.language || 'en', t.voice?.allDay || 'All day', timezone);
 

@@ -130,7 +130,22 @@ export async function handleSuccessfulPayment(
 
   try {
     // Parse payload
-    const payload: PaymentPayload = JSON.parse(payment.invoice_payload);
+    let payload: PaymentPayload;
+    try {
+      payload = JSON.parse(payment.invoice_payload);
+    } catch {
+      captureError(new Error('Invalid payment payload JSON'), 'payment-successful', {
+        user_id: userId,
+        charge_id: payment.telegram_payment_charge_id,
+      });
+      const errorT = await getSubscriptionMessages('en');
+      await messagingService.sendMessage(
+        chatId,
+        errorT.paymentError || '❌ There was an error activating your subscription. Please contact support.',
+        { format: MessageFormat.HTML }
+      );
+      return;
+    }
 
     // Get user for language (userId param is Telegram ID from webhook)
     const user = await getUserByTelegramId(userId);
