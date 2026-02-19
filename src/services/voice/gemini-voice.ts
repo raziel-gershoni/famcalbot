@@ -247,17 +247,22 @@ export async function processVoiceWithGemini(
         const eventData = parsed.event;
 
         // Validate calendarId against user's actual calendars
-        const validCalendarIds = new Set(calendars.map(c => c.calendarId));
-        const hasValidCalendarId = eventData.calendarId && validCalendarIds.has(eventData.calendarId);
-        if (!hasValidCalendarId) {
-          console.warn(`[Voice Gemini] Invalid calendarId from Gemini: "${eventData.calendarId}", falling back to "${calendars[0]?.calendarId || 'primary'}"`);
+        const geminiCalId = eventData.calendarId || '';
+        let matchedCalendar = calendars.find(c => c.calendarId === geminiCalId);
+        // Partial match: Gemini may strip the @group.calendar.google.com suffix
+        if (!matchedCalendar && geminiCalId) {
+          matchedCalendar = calendars.find(c => c.calendarId.startsWith(geminiCalId) || geminiCalId.startsWith(c.calendarId));
         }
-        const resolvedCalendarId = hasValidCalendarId
-          ? eventData.calendarId
-          : (calendars[0]?.calendarId || 'primary');
-        const resolvedCalendarName = hasValidCalendarId
-          ? (eventData.calendarName || calendars.find(c => c.calendarId === eventData.calendarId)?.name || 'Primary')
-          : (calendars[0]?.name || 'Primary');
+        // Name match: try matching by calendar name (case-insensitive)
+        if (!matchedCalendar && (geminiCalId || eventData.calendarName)) {
+          const nameToMatch = (eventData.calendarName || geminiCalId).toLowerCase();
+          matchedCalendar = calendars.find(c => c.name?.toLowerCase() === nameToMatch);
+        }
+        if (!matchedCalendar) {
+          console.warn(`[Voice Gemini] Could not match calendarId "${geminiCalId}" / name "${eventData.calendarName}" to user calendars, falling back to "${calendars[0]?.calendarId || 'primary'}"`);
+        }
+        const resolvedCalendarId = matchedCalendar?.calendarId || calendars[0]?.calendarId || 'primary';
+        const resolvedCalendarName = matchedCalendar?.name || calendars[0]?.name || 'Primary';
 
         const startDateTime = fromZonedTime(`${eventData.startDate}T${eventData.startTime}:00`, timezone);
         const endDateTime = fromZonedTime(`${eventData.endDate}T${eventData.endTime}:00`, timezone);
