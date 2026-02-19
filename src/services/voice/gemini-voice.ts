@@ -216,13 +216,24 @@ export async function processVoiceWithGemini(
 
       console.log(`[Voice Gemini] Response in ${duration}ms, model: ${GEMINI_VOICE_MODEL}, tokens: ${inputTokens}in/${outputTokens}out, attempt: ${attempt + 1}`);
 
-      const responseText = response.text;
+      // response.text getter can throw if no candidates are present
+      let responseText: string;
+      try {
+        responseText = response.text ?? '';
+      } catch {
+        throw new Error('Gemini returned empty response');
+      }
       if (!responseText) {
         throw new Error('Gemini returned empty response');
       }
 
       // Extract JSON from response (may be wrapped in markdown code blocks)
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      let jsonSource = responseText;
+      const codeBlockMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (codeBlockMatch) {
+        jsonSource = codeBlockMatch[1];
+      }
+      const jsonMatch = jsonSource.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         throw new Error('Failed to extract JSON from Gemini response');
       }
@@ -251,7 +262,7 @@ export async function processVoiceWithGemini(
         let matchedCalendar = calendars.find(c => c.calendarId === geminiCalId);
         // Partial match: Gemini may strip the @group.calendar.google.com suffix
         if (!matchedCalendar && geminiCalId) {
-          matchedCalendar = calendars.find(c => c.calendarId.startsWith(geminiCalId) || geminiCalId.startsWith(c.calendarId));
+          matchedCalendar = calendars.find(c => c.calendarId.startsWith(geminiCalId));
         }
         // Name match: try matching by calendar name (case-insensitive)
         if (!matchedCalendar && (geminiCalId || eventData.calendarName)) {
@@ -264,37 +275,50 @@ export async function processVoiceWithGemini(
         const resolvedCalendarId = matchedCalendar?.calendarId || calendars[0]?.calendarId || 'primary';
         const resolvedCalendarName = matchedCalendar?.name || calendars[0]?.name || 'Primary';
 
-        const startDateTime = fromZonedTime(`${eventData.startDate}T${eventData.startTime}:00`, timezone);
-        const endDateTime = fromZonedTime(`${eventData.endDate}T${eventData.endTime}:00`, timezone);
+        // All-day events may not have startTime/endTime from Gemini
+        const startTimeStr = eventData.allDay ? (eventData.startTime || '00:00') : eventData.startTime;
+        const endTimeStr = eventData.allDay ? (eventData.endTime || '23:59') : eventData.endTime;
+        const endDateStr = eventData.endDate || eventData.startDate;
 
-        if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
+        if (!eventData.startDate || (!eventData.allDay && (!startTimeStr || !endTimeStr))) {
           intentResult = {
             intent: 'create',
             confidence: 'low',
-            error: 'Invalid date/time parsed from audio',
+            error: 'Missing date/time fields from audio',
           };
         } else {
-          const event: ParsedEvent = {
-            title: eventData.title,
-            startTime: startDateTime,
-            endTime: endDateTime,
-            location: eventData.location || undefined,
-            description: eventData.description || undefined,
-            allDay: eventData.allDay || false,
-            calendarId: resolvedCalendarId,
-            calendarName: resolvedCalendarName,
-            confidence,
-            recurrence: eventData.recurrence?.frequency ? eventData.recurrence : undefined,
-          };
+          const startDateTime = fromZonedTime(`${eventData.startDate}T${startTimeStr}:00`, timezone);
+          const endDateTime = fromZonedTime(`${endDateStr}T${endTimeStr}:00`, timezone);
 
-          intentResult = {
-            intent: 'create',
-            confidence,
-            event,
-            error: parsed.error,
-            needsClarification: parsed.needsClarification,
-            clarificationQuestion: parsed.clarificationQuestion,
-          };
+          if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
+            intentResult = {
+              intent: 'create',
+              confidence: 'low',
+              error: 'Invalid date/time parsed from audio',
+            };
+          } else {
+            const event: ParsedEvent = {
+              title: eventData.title,
+              startTime: startDateTime,
+              endTime: endDateTime,
+              location: eventData.location || undefined,
+              description: eventData.description || undefined,
+              allDay: eventData.allDay || false,
+              calendarId: resolvedCalendarId,
+              calendarName: resolvedCalendarName,
+              confidence,
+              recurrence: eventData.recurrence?.frequency ? eventData.recurrence : undefined,
+            };
+
+            intentResult = {
+              intent: 'create',
+              confidence,
+              event,
+              error: parsed.error,
+              needsClarification: parsed.needsClarification,
+              clarificationQuestion: parsed.clarificationQuestion,
+            };
+          }
         }
       } else if (intent === 'edit') {
         intentResult = {

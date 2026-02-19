@@ -10,6 +10,7 @@ import { getBotMessages } from '../../lib/bot-messages';
 import { trackActivityAsync } from '../analytics-service';
 import { incrementUsage } from '../subscription-service';
 import { trackCreatedEvent } from './event-resolution';
+import { resolveUserTimezone } from '../../lib/timezone';
 import {
   getPendingEvent,
   removePendingEvent,
@@ -107,7 +108,8 @@ export async function handleEventCallback(
         console.error('[Subscription] Failed to increment voice events:', err)
       );
 
-      const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay);
+      const timezone = await resolveUserTimezone(user);
+      const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay, timezone);
       const linkButton = result.eventLink
         ? `\n\n<a href="${result.eventLink}">${t.voice.openInCalendar}</a>`
         : '';

@@ -6,7 +6,7 @@
 import { getBot } from '../telegram';
 import { ParsedEvent, RecurrenceScope } from '../event-parser';
 import { CalendarEvent, UpdateEventData } from '../calendar';
-import { TIMEZONE } from '../../config/constants';
+import { resolveUserTimezone } from '../../lib/timezone';
 import { UserConfig } from '../../types';
 import { getBotMessages } from '../../lib/bot-messages';
 
@@ -91,7 +91,7 @@ export function removePendingDelete(pendingId: string) {
 /**
  * Format CalendarEvent date/time for display (uses string dates)
  */
-function formatCalendarEventDateTime(event: CalendarEvent, language: string, allDayText: string): string {
+function formatCalendarEventDateTime(event: CalendarEvent, language: string, allDayText: string, timezone: string): string {
   const locale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
   const startDate = new Date(event.start);
   const endDate = new Date(event.end);
@@ -100,14 +100,14 @@ function formatCalendarEventDateTime(event: CalendarEvent, language: string, all
     weekday: 'long',
     month: 'long',
     day: 'numeric',
-    timeZone: TIMEZONE
+    timeZone: timezone
   };
 
   const timeOptions: Intl.DateTimeFormatOptions = {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-    timeZone: TIMEZONE
+    timeZone: timezone
   };
 
   const dateStr = startDate.toLocaleDateString(locale, dateOptions);
@@ -130,7 +130,8 @@ function formatCalendarEventDateTime(event: CalendarEvent, language: string, all
 function formatEditChanges(
   originalEvent: CalendarEvent,
   updates: UpdateEventData,
-  language: string
+  language: string,
+  timezone: string
 ): string {
   const locale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
   const changes: string[] = [];
@@ -139,14 +140,14 @@ function formatEditChanges(
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-    timeZone: TIMEZONE
+    timeZone: timezone
   };
 
   const dateOptions: Intl.DateTimeFormatOptions = {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
-    timeZone: TIMEZONE
+    timeZone: timezone
   };
 
   if (updates.title && updates.title !== originalEvent.summary) {
@@ -216,21 +217,21 @@ function formatRecurrence(recurrence: ParsedEvent['recurrence'], language: strin
 /**
  * Format ParsedEvent date/time for display
  */
-export function formatEventDateTime(event: ParsedEvent, language: string, allDayText: string): string {
+export function formatEventDateTime(event: ParsedEvent, language: string, allDayText: string, timezone: string): string {
   const locale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
 
   const dateOptions: Intl.DateTimeFormatOptions = {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
-    timeZone: TIMEZONE
+    timeZone: timezone
   };
 
   const timeOptions: Intl.DateTimeFormatOptions = {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-    timeZone: TIMEZONE
+    timeZone: timezone
   };
 
   const dateStr = event.startTime.toLocaleDateString(locale, dateOptions);
@@ -261,6 +262,7 @@ export async function showEventConfirmation(
 ): Promise<void> {
   const bot = getBot();
   const t = await getBotMessages(user.language || 'en');
+  const timezone = await resolveUserTimezone(user);
 
   const pendingId = `${chatId}:${Date.now()}`;
 
@@ -275,7 +277,7 @@ export async function showEventConfirmation(
     }
   }
 
-  const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay);
+  const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay, timezone);
   const locationStr = event.location ? `\n📍 ${event.location}` : '';
   const calendarStr = event.calendarName ? `\n📁 ${event.calendarName}` : '';
 
@@ -313,6 +315,7 @@ export async function showEditConfirmation(
 ): Promise<void> {
   const bot = getBot();
   const t = await getBotMessages(user.language || 'en');
+  const timezone = await resolveUserTimezone(user);
 
   const pendingId = `${chatId}:${Date.now()}`;
 
@@ -327,8 +330,8 @@ export async function showEditConfirmation(
     }
   }
 
-  const currentInfo = formatCalendarEventDateTime(originalEvent, user.language || 'en', t.voice?.allDay || 'All day');
-  const changesInfo = formatEditChanges(originalEvent, updates, user.language || 'en');
+  const currentInfo = formatCalendarEventDateTime(originalEvent, user.language || 'en', t.voice?.allDay || 'All day', timezone);
+  const changesInfo = formatEditChanges(originalEvent, updates, user.language || 'en', timezone);
 
   const editTitle = t.voice?.editConfirmTitle || '📝 <b>Edit this event?</b>';
   const currentLabel = t.voice?.currentEvent || 'Current:';
@@ -391,6 +394,7 @@ export async function showDeleteConfirmation(
 ): Promise<void> {
   const bot = getBot();
   const t = await getBotMessages(user.language || 'en');
+  const timezone = await resolveUserTimezone(user);
 
   const pendingId = `${chatId}:${Date.now()}`;
 
@@ -405,7 +409,7 @@ export async function showDeleteConfirmation(
     }
   }
 
-  const eventInfo = formatCalendarEventDateTime(event, user.language || 'en', t.voice?.allDay || 'All day');
+  const eventInfo = formatCalendarEventDateTime(event, user.language || 'en', t.voice?.allDay || 'All day', timezone);
 
   const deleteTitle = t.voice?.deleteConfirmTitle || '🗑️ <b>Delete this event?</b>';
   const deleteBtn = t.voice?.deleteButton || '🗑️ Delete';
