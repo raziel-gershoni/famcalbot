@@ -245,6 +245,20 @@ export async function processVoiceWithGemini(
 
       if (intent === 'create' && parsed.event) {
         const eventData = parsed.event;
+
+        // Validate calendarId against user's actual calendars
+        const validCalendarIds = new Set(calendars.map(c => c.calendarId));
+        const hasValidCalendarId = eventData.calendarId && validCalendarIds.has(eventData.calendarId);
+        if (!hasValidCalendarId) {
+          console.warn(`[Voice Gemini] Invalid calendarId from Gemini: "${eventData.calendarId}", falling back to "${calendars[0]?.calendarId || 'primary'}"`);
+        }
+        const resolvedCalendarId = hasValidCalendarId
+          ? eventData.calendarId
+          : (calendars[0]?.calendarId || 'primary');
+        const resolvedCalendarName = hasValidCalendarId
+          ? (eventData.calendarName || calendars.find(c => c.calendarId === eventData.calendarId)?.name || 'Primary')
+          : (calendars[0]?.name || 'Primary');
+
         const startDateTime = fromZonedTime(`${eventData.startDate}T${eventData.startTime}:00`, timezone);
         const endDateTime = fromZonedTime(`${eventData.endDate}T${eventData.endTime}:00`, timezone);
 
@@ -262,8 +276,8 @@ export async function processVoiceWithGemini(
             location: eventData.location || undefined,
             description: eventData.description || undefined,
             allDay: eventData.allDay || false,
-            calendarId: eventData.calendarId || 'primary',
-            calendarName: eventData.calendarName || 'Primary',
+            calendarId: resolvedCalendarId,
+            calendarName: resolvedCalendarName,
             confidence,
             recurrence: eventData.recurrence?.frequency ? eventData.recurrence : undefined,
           };
