@@ -26,17 +26,7 @@ export async function handleTelegramWebhook(
   req: VercelRequest,
   res: VercelResponse
 ): Promise<void> {
-  // Verify webhook secret token if configured
-  const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (webhookSecret) {
-    const headerSecret = req.headers['x-telegram-bot-api-secret-token'];
-    if (headerSecret !== webhookSecret) {
-      console.warn('[Webhook] Invalid or missing secret token');
-      res.status(403).json({ error: 'Forbidden' });
-      return;
-    }
-  }
-
+  // Note: Webhook secret verification is handled at the API route level (app/api/webhook/route.ts)
   const update = req.body;
 
   // Extract user ID from various update types and set Sentry context
