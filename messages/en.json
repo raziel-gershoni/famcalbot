@@ -516,7 +516,9 @@
       "noLastEvent": "❌ No recent event found. Try specifying which event to edit.",
       "noEventsFound": "❌ No events found in that time range.",
       "ambiguousEvent": "🤔 Found multiple matching events. Please be more specific.",
-      "eventNotFound": "❌ Couldn't find that event."
+      "eventNotFound": "❌ Couldn't find that event.",
+      "tooLong": "That was a bit long! Please keep your voice message under 30 seconds.",
+      "geminiError": "❌ Couldn't process your voice message right now. Try again in a moment, or type your event instead."
     },
     "subscription": {
       "upgradeButton": "⭐ Upgrade Plan",

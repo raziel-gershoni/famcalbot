@@ -10,6 +10,10 @@ import { TIMEZONE } from '../../config/constants';
 import { UserConfig } from '../../types';
 import { getBotMessages } from '../../lib/bot-messages';
 
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 // Store pending events for confirmation (in-memory, short-lived)
 const pendingEvents: Map<string, { event: ParsedEvent; user: UserConfig; transcription: string }> = new Map();
 
@@ -279,7 +283,7 @@ export async function showEventConfirmation(
     `${t.voice.confirmTitle}\n\n` +
     `<b>${event.title}</b>\n` +
     `${dateTimeStr}${locationStr}${calendarStr}\n\n` +
-    `<i>${t.voice.from} "${transcription}"</i>`;
+    `<i>${t.voice.from} "${escapeHtml(transcription)}"</i>`;
 
   await bot.editMessageText(confirmationMessage, {
     chat_id: chatId,
@@ -358,7 +362,7 @@ export async function showEditConfirmation(
     `${currentInfo}${scopeInfo}\n\n` +
     `<b>${changesLabel}</b>\n` +
     `${changesInfo}\n\n` +
-    `<i>${fromLabel} "${transcription}"</i>`;
+    `<i>${fromLabel} "${escapeHtml(transcription)}"</i>`;
 
   await bot.editMessageText(confirmationMessage, {
     chat_id: chatId,
@@ -430,7 +434,7 @@ export async function showDeleteConfirmation(
     `${deleteTitle}\n\n` +
     `📅 <b>${event.summary}</b>\n` +
     `${eventInfo}${scopeInfo}\n\n` +
-    `<i>${fromLabel} "${transcription}"</i>`;
+    `<i>${fromLabel} "${escapeHtml(transcription)}"</i>`;
 
   await bot.editMessageText(confirmationMessage, {
     chat_id: chatId,

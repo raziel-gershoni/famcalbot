@@ -5,14 +5,14 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import { getAIConfig, AI_RETRY_CONFIG } from '../config/constants';
 import { notifyAdminWarning } from '../utils/error-notifier';
 
 // Lazy initialization of API clients to avoid build-time errors
 let anthropic: Anthropic | null = null;
 let openai: OpenAI | null = null;
-let gemini: GoogleGenerativeAI | null = null;
+let gemini: GoogleGenAI | null = null;
 
 const getAnthropic = () => {
   if (!anthropic) {
@@ -32,9 +32,9 @@ const getOpenAI = () => {
   return openai;
 };
 
-const getGemini = () => {
+export const getGemini = () => {
   if (!gemini) {
-    gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+    gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
   }
   return gemini;
 };
@@ -193,11 +193,11 @@ async function callOpenAI(prompt: string, modelId?: string): Promise<AICompletio
 async function callGemini(prompt: string, modelId?: string): Promise<AICompletionResult> {
   const config = getAIConfig(modelId);
 
-  const model = getGemini().getGenerativeModel({ model: config.MODEL_CONFIG.modelId });
-
-  const result = await model.generateContent(prompt);
-  const response = result.response;
-  const text = response.text();
+  const response = await getGemini().models.generateContent({
+    model: config.MODEL_CONFIG.modelId,
+    contents: prompt,
+  });
+  const text = response.text ?? '';
 
   // Check if response was truncated
   const finishReason = response.candidates?.[0]?.finishReason || 'STOP';

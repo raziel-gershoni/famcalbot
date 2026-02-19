@@ -1,13 +1,13 @@
 /**
  * Voice message handler - main entry point
- * Orchestrates voice message processing: auth → feature check → download → transcribe → intent → route
+ * Orchestrates voice message processing: auth → feature check → download → gemini direct audio → route
  */
 
 import { getBot, getMessagingService } from '../telegram';
 import { getUserByTelegramId } from '../user-service';
 import { MessageFormat } from '../messaging/types';
-import { transcribeVoice } from '../transcription';
-import { parseVoiceIntent, VoiceIntentResult } from '../event-parser';
+import { VoiceIntentResult } from '../event-parser';
+import { processVoiceWithGemini } from './gemini-voice';
 import { fetchEventsInRange, CalendarEvent } from '../calendar';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { buildUrl } from '../../config/urls';
@@ -292,6 +292,11 @@ export async function handleVoiceMessage(
       return;
     }
 
+    if (voice.duration >= 30) {
+      await messagingService.sendMessage(chatId, t.voice.tooLong, { format: MessageFormat.PLAIN });
+      return;
+    }
+
     console.log(`[Voice] Sending processing message to chat ${chatId}`);
     let processingMsg: number | string;
     try {
@@ -311,27 +316,18 @@ export async function handleVoiceMessage(
       file_size: audioBuffer.length,
     }, 'voice');
 
-    await messagingService.updateMessage(chatId, processingMsgId, t.voice.transcribing, { format: MessageFormat.PLAIN });
-
-    const transcription = await transcribeVoice(audioBuffer, user.language || 'en');
+    const timezone = await resolveUserTimezone(user);
+    const { intentResult, transcription } = await processVoiceWithGemini(
+      audioBuffer,
+      user.language || 'en',
+      user.calendarAssignments || [],
+      timezone
+    );
 
     addBreadcrumb('voice_transcribed', {
-      text_length: transcription.text?.length || 0,
-      has_text: !!transcription.text,
+      text_length: transcription?.length || 0,
+      has_text: !!transcription,
     }, 'voice');
-
-    if (!transcription.text || transcription.text.trim() === '') {
-      await messagingService.updateMessage(chatId, processingMsgId, t.voice.transcriptionFailed, { format: MessageFormat.PLAIN });
-      return;
-    }
-
-    await messagingService.updateMessage(chatId, processingMsgId, t.voice.understanding, { format: MessageFormat.PLAIN });
-
-    const intentResult = await parseVoiceIntent(
-      transcription.text,
-      user.language || 'en',
-      user.calendarAssignments || []
-    );
 
     console.log(`[Voice] Intent detected: ${intentResult.intent}, confidence: ${intentResult.confidence}`);
 
@@ -343,9 +339,10 @@ export async function handleVoiceMessage(
 
     if (intentResult.intent === 'create') {
       if (!intentResult.event) {
+        const safeTranscription = transcription.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         await messagingService.updateMessage(chatId, processingMsgId,
           `${t.voice.notUnderstood}\n\n` +
-          `${t.voice.iHeard} "<i>${transcription.text}</i>"\n\n` +
+          `${t.voice.iHeard} "<i>${safeTranscription}</i>"\n\n` +
           `${t.voice.tryExamples}\n` +
           `• "${t.voice.example1}"\n` +
           `• "${t.voice.example2}"\n` +
@@ -354,13 +351,13 @@ export async function handleVoiceMessage(
         );
         return;
       }
-      await showEventConfirmation(chatId, processingMsgId, intentResult.event, transcription.text, user);
+      await showEventConfirmation(chatId, processingMsgId, intentResult.event, transcription, user);
 
     } else if (intentResult.intent === 'edit') {
-      await handleEditIntent(chatId, processingMsgId, intentResult, transcription.text, user, t);
+      await handleEditIntent(chatId, processingMsgId, intentResult, transcription, user, t);
 
     } else if (intentResult.intent === 'delete') {
-      await handleDeleteIntent(chatId, processingMsgId, intentResult, transcription.text, user, t);
+      await handleDeleteIntent(chatId, processingMsgId, intentResult, transcription, user, t);
     }
 
   } catch (error) {
@@ -372,7 +369,7 @@ export async function handleVoiceMessage(
       });
     }
 
-    const t = await getBotMessages('en');
-    await messagingService.sendMessage(chatId, t.voice.genericError, { format: MessageFormat.PLAIN });
+    const errorMessages = await getBotMessages(user?.language || 'en');
+    await messagingService.sendMessage(chatId, errorMessages.voice.geminiError, { format: MessageFormat.PLAIN });
   }
 }
