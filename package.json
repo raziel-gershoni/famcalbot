@@ -27,7 +27,6 @@
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
-    "@google-cloud/text-to-speech": "^6.4.0",
     "@google/genai": "^1.42.0",
     "@hebcal/core": "^6.0.6",
     "@hebcal/locales": "^6.3.0",
@@ -44,6 +43,7 @@
     "next-intl": "^4.6.1",
     "node-telegram-bot-api": "^0.66.0",
     "openai": "^6.9.1",
+    "opusscript": "^0.1.1",
     "prisma": "^5.22.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"

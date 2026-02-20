@@ -286,7 +286,7 @@ export async function handleWeatherCommand(
     // Send voice message with detailed version if enabled
     if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
       try {
-        await sendVoiceMessage(Number(userId), detailed, user, undefined, messagingService);
+        await sendVoiceMessage(Number(userId), detailed, user, messagingService);
       } catch (err) {
         console.error(`Weather voice failed for user ${userId}:`, err);
       }

@@ -1,6 +1,6 @@
 /**
  * English Voice Condenser Prompt
- * Condenses calendar summary for voice message listening
+ * Speech instructions for Gemini TTS voice summary generation
  */
 
 import { VoiceCondenserContext } from './types';
@@ -17,20 +17,20 @@ export function buildVoiceCondenserPrompt(context: VoiceCondenserContext): strin
 
   const rulesSection = buildRulesSection(globalRules, "User's Custom Rules (apply these):");
 
-  return `You are condensing a calendar summary for voice message listening (target: 30-45 seconds) in English.
+  return `Read aloud this calendar summary in a natural, conversational tone. Condense it to 30-45 seconds of speech in English.
 
 **CONTEXT:**
 ${familyContext}
 ${rulesSection}
-**CRITICAL: This is for VOICE listening - make it sound NATURAL and FLUENT like human speech, not robotic. Be brief but conversational.**
+**CRITICAL: Sound NATURAL and FLUENT like human speech, not robotic. Be brief but conversational.**
 
 **RULES:**
 1. Keep ONLY date with weekday
 2. **IMPORTANT: Weather comes IMMEDIATELY after date, BEFORE schedule**
-   - Write as natural, flowing sentences (smooth and conversational, NOT choppy)
+   - Speak as natural, flowing sentences (smooth and conversational, NOT choppy)
    - Include conditions, timing, and practical tip naturally
    - Example: "It'll rain in the afternoon, so bring an umbrella" NOT "Rain afternoon, bring umbrella"
-3. For schedule items: Write as brief but natural sentences
+3. For schedule items: Speak as brief but natural sentences
    - Use natural connectors and flow
    - Example: "You have a meeting at 09:00" NOT "09:00 meeting"
 4. For kids: Keep brief but natural
@@ -38,12 +38,11 @@ ${rulesSection}
 5. For week lookahead (if present): Mention key upcoming events briefly
    - Example: "Looking ahead, you have a dentist on Thursday."
    - Keep as brief as possible - just a quick heads-up
-6. Remove ALL formatting: HTML tags, emojis, asterisks, bold/italic
-7. **Section labels in English:**
+6. **Section labels in English:**
    - Use minimal labels (1-2 words) to separate sections
    - Keep everything natural and conversational
-8. Write as if you're speaking to someone - natural, brief, fluent English
-9. **Keep full names** - don't shorten (e.g., "Daniel" not "Dan")
+7. Speak as if talking to someone - natural, brief, fluent English
+8. **Keep full names** - don't shorten (e.g., "Daniel" not "Dan")
 
 **Example of WRONG output (robotic and choppy):**
 Monday, December 28
@@ -61,5 +60,5 @@ Looking ahead, you have a dentist on Thursday.
 **Original Summary:**
 ${summary}
 
-**Output the ultra-brief voice version (plain text, direct, in English):**`;
+Now speak the condensed version of this summary:`;
 }

@@ -1,193 +1,152 @@
 /**
  * Voice Generation Service
- * Converts text summaries to speech using Google Cloud Text-to-Speech
+ * Generates speech from text using Gemini 2.5 Flash TTS
+ * Replaces the previous Google Cloud TTS implementation
  */
 
-import textToSpeech from '@google-cloud/text-to-speech';
 import fs from 'fs/promises';
 import path from 'path';
 import { randomBytes } from 'crypto';
+import { getGemini } from './ai-provider';
+import { encodePcmToOggOpus } from '../utils/pcm-to-ogg-opus';
 
-// Initialize Google Cloud TTS client
-const getCredentials = () => {
-  if (!process.env.GOOGLE_TTS_CREDENTIALS) {
-    return undefined;
-  }
+// Model ID configurable via env var (prevents production outage on preview→GA rename)
+const GEMINI_TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts';
 
-  const creds = JSON.parse(process.env.GOOGLE_TTS_CREDENTIALS);
-
-  // Fix escaped newlines in private key (Vercel may store \\n instead of \n)
-  if (creds.private_key) {
-    creds.private_key = creds.private_key.replace(/\\n/g, '\n');
-  }
-
-  return creds;
+// Voice config per language (with env var overrides)
+// All male voices, matching previous Google TTS Wavenet-D male voices
+const VOICE_CONFIG: Record<string, string> = {
+  he: process.env.GEMINI_TTS_VOICE_HE || 'Algieba',   // Smooth male — Hebrew
+  en: process.env.GEMINI_TTS_VOICE_EN || 'Achird',     // Friendly male — English
+  ru: process.env.GEMINI_TTS_VOICE_RU || 'Schedar',    // Even male — Russian
 };
 
-const client = new textToSpeech.TextToSpeechClient({
-  credentials: getCredentials(),
-});
-
-export interface VoiceOptions {
-  voice?: string;  // Google TTS voice name (e.g., 'he-IL-Wavenet-D', 'en-US-Wavenet-D', 'es-ES-Wavenet-B')
-  speed?: number; // 0.25 to 4.0
-}
-
-const DEFAULT_OPTIONS: VoiceOptions = {
-  voice: (process.env.VOICE_DEFAULT as any) || 'he-IL-Wavenet-D', // Male voice, natural
-  speed: parseFloat(process.env.VOICE_SPEED || '1.0'),
-};
+// Retry configuration
+const TTS_MAX_RETRIES = 1;
+const TTS_BASE_DELAY_MS = 500;
+const TTS_TIMEOUT_MS = 30000; // 30 second timeout
 
 /**
- * Map locale codes to Google TTS language codes and default voices
+ * Retry wrapper with timeout using Promise.race
  */
-function getLanguageConfig(language: string = 'en'): { code: string; voice: string } {
-  const configs: Record<string, { code: string; voice: string }> = {
-    'he': { code: 'he-IL', voice: 'he-IL-Wavenet-D' },  // Male, natural
-    'en': { code: 'en-US', voice: 'en-US-Wavenet-D' },  // Male, neutral
-    'ru': { code: 'ru-RU', voice: 'ru-RU-Wavenet-D' },  // Male, neutral
-    'es': { code: 'es-ES', voice: 'es-ES-Wavenet-B' },  // Male, neutral
-    'fr': { code: 'fr-FR', voice: 'fr-FR-Wavenet-B' },  // Male, neutral
-    'de': { code: 'de-DE', voice: 'de-DE-Wavenet-B' },  // Male, neutral
-  };
-
-  return configs[language] || configs['en']; // Default to English if language not found
+async function callWithRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries: number,
+  baseDelay: number
+): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('TTS_TIMEOUT')), TTS_TIMEOUT_MS);
+      });
+      const result = await Promise.race([fn(), timeoutPromise]);
+      clearTimeout(timer);
+      return result;
+    } catch (error: unknown) {
+      clearTimeout(timer);
+      const err = error as { message?: string; status?: number };
+      const isRetryable = err.message === 'TTS_TIMEOUT'
+        || err.status === 503 || err.status === 429;
+      if (attempt === maxRetries || !isRetryable) throw error;
+      await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, attempt)));
+    }
+  }
+  throw new Error('Unreachable');
 }
 
 /**
- * Generate voice message from text
- * @param text - Text summary (HTML tags will be stripped)
- * @param language - Target language (e.g., "Hebrew", "English", "Spanish")
- * @param options - Voice generation options (voice name, speed)
- * @returns Path to generated audio file in /tmp
+ * Generate voice message from TTS prompt using Gemini
+ * @param ttsPrompt - Full prompt with condensing instructions + summary text
+ * @param language - Language code (e.g., 'he', 'en', 'ru')
+ * @returns Path to generated OGG OPUS audio file in /tmp
  */
 export async function generateVoiceMessage(
-  text: string,
+  ttsPrompt: string,
   language: string = 'en',
-  options: VoiceOptions = {}
 ): Promise<string> {
   const startTime = Date.now();
+  const voiceName = VOICE_CONFIG[language] || VOICE_CONFIG['en'] || 'Achird';
 
-  // Strip HTML tags only - let Google TTS handle text natively
-  const cleanText = stripHtmlTagsOnly(text);
-
-  // Get language-specific configuration
-  const langConfig = getLanguageConfig(language);
-
-  // Merge with defaults, prioritizing options, then language defaults
-  const config = {
-    ...DEFAULT_OPTIONS,
-    voice: options.voice || langConfig.voice,
-    speed: options.speed !== undefined ? options.speed : DEFAULT_OPTIONS.speed,
-  };
-
-  console.log('Generating voice message (Google TTS):', {
-    textLength: cleanText.length,
+  console.log('[TTS] Generating voice message (Gemini TTS):', {
+    promptLength: ttsPrompt.length,
     language,
-    languageCode: langConfig.code,
-    voice: config.voice,
-    speed: config.speed,
+    voice: voiceName,
+    model: GEMINI_TTS_MODEL,
   });
 
-  try {
-    // Call Google Cloud TTS API
-    const [response] = await client.synthesizeSpeech({
-      input: { text: cleanText },
-      voice: {
-        languageCode: langConfig.code,
-        name: config.voice,
-      },
-      audioConfig: {
-        audioEncoding: 'OGG_OPUS', // Best for Telegram
-        speakingRate: config.speed,
-        pitch: 0,
-      },
+  // Call Gemini TTS with retry and timeout
+  const result = await callWithRetry(async () => {
+    return await getGemini().models.generateContent({
+      model: GEMINI_TTS_MODEL,
+      contents: [{ parts: [{ text: ttsPrompt }] }],
+      config: {
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName }
+          }
+        }
+      }
     });
+  }, TTS_MAX_RETRIES, TTS_BASE_DELAY_MS);
 
-    // Generate unique filename
-    const randomId = randomBytes(6).toString('hex');
-    const timestamp = Date.now();
-    const filename = `voice-${timestamp}-${randomId}.opus`;
-    const filePath = path.join('/tmp', filename);
-
-    // Write to temp file
-    const audioContent = response.audioContent as Buffer;
-    await fs.writeFile(filePath, audioContent);
-
-    const elapsed = Date.now() - startTime;
-    console.log('Voice generated successfully:', {
-      filePath,
-      sizeKB: (audioContent.length / 1024).toFixed(2),
-      durationMs: elapsed,
-    });
-
-    return filePath;
-  } catch (error) {
-    console.error('Voice generation failed:', error);
-    throw new Error(`TTS failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  // Validate response
+  const inlineData = result.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+  if (!inlineData?.data) {
+    throw new Error('[TTS] No audio data in Gemini TTS response');
   }
+
+  // Validate MIME type — Gemini TTS should return raw PCM
+  const mimeType = inlineData.mimeType || '';
+  if (mimeType && !mimeType.includes('audio/L16') && !mimeType.includes('audio/pcm') && mimeType !== '') {
+    if (mimeType.includes('audio/wav') || mimeType.includes('audio/x-wav')) {
+      console.log(`[TTS] Received WAV MIME type (${mimeType}), will strip 44-byte header`);
+    } else if (!mimeType.startsWith('audio/')) {
+      throw new Error(`[TTS] Unexpected MIME type from Gemini TTS: ${mimeType}`);
+    }
+  }
+
+  // Decode base64 to raw PCM buffer
+  let pcmBuffer = Buffer.from(inlineData.data, 'base64');
+
+  // Strip WAV header if present (44 bytes)
+  if (mimeType.includes('audio/wav') || mimeType.includes('audio/x-wav')) {
+    if (pcmBuffer.length > 44) {
+      pcmBuffer = pcmBuffer.subarray(44);
+    }
+  }
+
+  console.log(`[TTS] Received ${pcmBuffer.length} bytes of PCM audio (MIME: ${mimeType || 'unspecified'})`);
+
+  // Convert PCM to OGG OPUS — encoder handles frame truncation internally
+  const oggBuffer = encodePcmToOggOpus(pcmBuffer);
+
+  // Write to temp file
+  const randomId = randomBytes(4).toString('hex');
+  const filename = `voice-${Date.now()}-${randomId}.opus`;
+  const filePath = path.join('/tmp', filename);
+  await fs.writeFile(filePath, oggBuffer);
+
+  const elapsed = Date.now() - startTime;
+  console.log('[TTS] Voice generated successfully:', {
+    filePath,
+    pcmKB: (pcmBuffer.length / 1024).toFixed(2),
+    oggKB: (oggBuffer.length / 1024).toFixed(2),
+    durationMs: elapsed,
+  });
+
+  return filePath;
 }
 
 /**
  * Clean up temporary voice file
- * @param filePath - Path to audio file
  */
 export async function cleanupVoiceFile(filePath: string): Promise<void> {
   try {
     await fs.unlink(filePath);
-    console.log('Voice file cleaned up:', filePath);
+    console.log('[TTS] Voice file cleaned up:', filePath);
   } catch (error) {
-    // Non-critical error, file will be cleaned on cold start
-    console.warn('Failed to cleanup voice file:', filePath, error);
+    console.warn('[TTS] Failed to cleanup voice file:', filePath, error);
   }
 }
-
-/**
- * Strip HTML tags and apply minimal normalization
- * Let Google TTS handle Hebrew, Gematria, dates natively
- * Only fix: pauses and time range dashes
- */
-function stripHtmlTagsOnly(html: string): string {
-  let text = html
-    .replace(/<[^>]*>/g, '') // Remove HTML tags
-    .replace(/&lt;/g, '<')   // Decode HTML entities
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\*+/g, '')     // Remove asterisks (markdown formatting)
-    .replace(/\n\n+/g, '\n\n') // Normalize multiple newlines
-    .trim();
-
-  // Fix 1: Transliterate problematic English words to Hebrew phonetics
-  // Only words that Google TTS mispronounces badly
-  const transliterations: Record<string, string> = {
-    'Zoom': 'זום',
-    'zoom': 'זום',
-    'Teams': 'טימס',
-    'teams': 'טימס',
-    'Skype': 'סקייפ',
-    'skype': 'סקייפ',
-    'Google': 'גוגל',
-    'google': 'גוגל',
-  };
-
-  for (const [english, hebrew] of Object.entries(transliterations)) {
-    const regex = new RegExp(`\\b${english}\\b`, 'g');
-    text = text.replace(regex, hebrew);
-  }
-
-  // Fix 2: Convert time range dashes to Hebrew "עד" (until)
-  // 8:00-16:00 → 8:00 עד 16:00
-  text = text.replace(/(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})/g, '$1 עד $2');
-
-  // Fix 3: Add pauses before newlines
-  // Single newline → short pause (,)
-  text = text.replace(/\n/g, ', ');
-
-  // Double newline → medium pause (...)
-  text = text.replace(/,\s*,/g, '... ');
-
-  return text;
-}
-

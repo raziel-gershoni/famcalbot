@@ -1,6 +1,6 @@
 /**
  * English Weekly Voice Condenser Prompt
- * Condenses week lookahead for voice message listening
+ * Speech instructions for Gemini TTS weekly voice summary generation
  */
 
 import { VoiceCondenserContext } from './types';
@@ -24,12 +24,12 @@ export function buildWeeklyVoiceCondenserPrompt(context: VoiceCondenserContext):
     ? `\n**User's Custom Rules (apply these):**\n${globalRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n`
     : '';
 
-  return `You are condensing a WEEKLY calendar preview for voice message listening (target: 30-45 seconds) in English.
+  return `Read aloud this weekly calendar preview in a natural, conversational tone. Condense it to 30-45 seconds of speech in English.
 
 **CONTEXT:**
 ${familyContext}
 ${rulesSection}
-**CRITICAL: This is for VOICE listening - make it sound NATURAL and FLUENT like human speech, not robotic. Be brief but conversational.**
+**CRITICAL: Sound NATURAL and FLUENT like human speech, not robotic. Be brief but conversational.**
 
 **RULES:**
 1. Start with the week overview (e.g., "Here's what's coming up ${weekRef}" or "Looking ahead to ${weekRef}")
@@ -40,10 +40,9 @@ ${rulesSection}
 4. Use relative day references naturally (e.g., "On Tuesday", "This Thursday", "Sunday")
 5. For family events: mention whose it is naturally
    - "${spouseName || 'Your spouse'} has..." or "The kids have..."
-6. Remove ALL formatting: HTML tags, emojis, asterisks, bold/italic
-7. Write as if briefing someone verbally - natural, flowing English
-8. **Keep full names** - don't shorten (e.g., "Daniel" not "Dan")
-9. If multiple events on same day, combine naturally
+6. Speak as if briefing someone verbally - natural, flowing English
+7. **Keep full names** - don't shorten (e.g., "Daniel" not "Dan")
+8. If multiple events on same day, combine naturally
 
 **Example of WRONG output (robotic and choppy):**
 Week overview
@@ -58,5 +57,5 @@ Looking ahead at your week. Monday you have a meeting in the morning and a denti
 **Original Weekly Summary:**
 ${summary}
 
-**Output the condensed voice version (plain text, natural speech, in English):**`;
+Now speak the condensed version of this weekly summary:`;
 }

@@ -1,6 +1,6 @@
 /**
  * Telegram voice message functions
- * Generates and sends voice versions of summaries
+ * Generates and sends voice versions of summaries using Gemini TTS
  */
 
 import { UserConfig } from '../../types';
@@ -13,6 +13,9 @@ import type { VoiceCondenserContext } from '../../prompts/voice-condenser';
 
 /**
  * Generate and send voice version of summary
+ * Uses a single Gemini TTS call that receives the full prompt (condensing instructions + summary)
+ * and speaks the condensed version directly.
+ *
  * Shows animated progress that gets deleted when voice arrives (optional)
  * Non-blocking - errors logged but don't affect text summary delivery
  */
@@ -20,7 +23,6 @@ export async function sendVoiceMessage(
   userId: number,
   summary: string,
   user: UserConfig,
-  modelId?: string,
   service?: IMessagingService,
   showProgress: boolean = true
 ): Promise<void> {
@@ -46,9 +48,8 @@ export async function sendVoiceMessage(
   try {
     const { generateVoiceMessage, cleanupVoiceFile } = await import('../voice-generator');
     const { buildVoiceCondenserPrompt } = await import('../../prompts/voice-condenser');
-    const { generateAICompletion } = await import('../ai-provider');
 
-    console.log(`Generating voice message for user ${userId}...`);
+    console.log(`[Voice] Generating voice message for user ${userId}...`);
 
     // Extract spouse name from calendar assignments
     const spouseCalendar = user.calendarAssignments?.find(cal =>
@@ -61,7 +62,7 @@ export async function sendVoiceMessage(
       cal.labels.includes('kids')
     ) ?? false;
 
-    // Build voice condenser context
+    // Build TTS prompt (condensing instructions + summary in one)
     const condenserContext: VoiceCondenserContext = {
       summary,
       locale: userLanguage,
@@ -71,16 +72,12 @@ export async function sendVoiceMessage(
       culture: user.culture,
       globalRules: user.globalRules,
     };
+    const ttsPrompt = buildVoiceCondenserPrompt(condenserContext);
 
-    // Step 1: Condense summary for voice (ultra-brief, 30-45 seconds)
-    const condenserPrompt = buildVoiceCondenserPrompt(condenserContext);
-    const condensedResult = await generateAICompletion(condenserPrompt, modelId);
-    const condensedSummary = condensedResult.text;
+    console.log(`[Voice] TTS prompt built: ${ttsPrompt.length} chars for ${userLanguage}`);
 
-    console.log(`Voice summary condensed: ${summary.length} → ${condensedSummary.length} chars`);
-
-    // Step 2: Generate voice file from condensed summary
-    voiceFilePath = await generateVoiceMessage(condensedSummary, userLanguage);
+    // Single Gemini TTS call — condenses and speaks in one step
+    voiceFilePath = await generateVoiceMessage(ttsPrompt, userLanguage);
 
     // Stop animation and delete progress message (if shown)
     if (stopAnimation) stopAnimation();
@@ -94,20 +91,20 @@ export async function sendVoiceMessage(
 
     // Track voice summary generated and increment usage (use internal DB user.id)
     trackActivityAsync(user.id, 'voice_summary_generated', {
-      duration_seconds: Math.ceil(condensedSummary.length / 15), // Rough estimate
+      duration_seconds: Math.ceil(summary.length / 50), // Rough estimate; divisor adjusted for removal of condensing step
     });
     incrementUsage(user.id, 'voiceSummaries').catch(err =>
       console.error('[Subscription] Failed to increment voice usage:', err)
     );
 
-    console.log(`Voice message sent successfully to user ${userId}`);
+    console.log(`[Voice] Voice message sent successfully to user ${userId}`);
   } catch (error) {
     // Stop animation on error (if shown)
     if (stopAnimation) stopAnimation();
     // Delete progress message on error too (if shown)
     if (messageId) await msgService.deleteMessage(userId, messageId);
 
-    console.error(`Voice generation failed for user ${userId}:`, error);
+    console.error(`[Voice] Voice generation failed for user ${userId}:`, error);
 
     // Notify admin but don't interrupt user experience
     const { notifyAdminWarning } = await import('../../utils/error-notifier');
@@ -120,7 +117,7 @@ export async function sendVoiceMessage(
     if (voiceFilePath) {
       const { cleanupVoiceFile } = await import('../voice-generator');
       await cleanupVoiceFile(voiceFilePath).catch(err =>
-        console.warn('Voice file cleanup failed:', err)
+        console.warn('[Voice] Voice file cleanup failed:', err)
       );
     }
   }
@@ -128,7 +125,7 @@ export async function sendVoiceMessage(
 
 /**
  * Send a voice message for weekly summary (lookahead/next week)
- * Uses weekly-specific voice condensing prompts
+ * Uses weekly-specific TTS prompts via single Gemini call
  */
 export async function sendWeeklyVoiceMessage(
   userId: number,
@@ -153,9 +150,8 @@ export async function sendWeeklyVoiceMessage(
   try {
     const { generateVoiceMessage, cleanupVoiceFile } = await import('../voice-generator');
     const { buildWeeklyVoiceCondenserPrompt } = await import('../../prompts/voice-condenser');
-    const { generateAICompletion } = await import('../ai-provider');
 
-    console.log(`Generating weekly voice message for user ${userId}...`);
+    console.log(`[Voice] Generating weekly voice message for user ${userId}...`);
 
     // Extract spouse name from calendar assignments
     const spouseCalendar = user.calendarAssignments?.find(cal =>
@@ -168,7 +164,7 @@ export async function sendWeeklyVoiceMessage(
       cal.labels.includes('kids')
     ) ?? false;
 
-    // Build voice condenser context
+    // Build weekly TTS prompt (condensing instructions + summary in one)
     const condenserContext: VoiceCondenserContext = {
       summary,
       locale: userLanguage,
@@ -179,16 +175,12 @@ export async function sendWeeklyVoiceMessage(
       globalRules: user.globalRules,
       isNextWeek,
     };
+    const ttsPrompt = buildWeeklyVoiceCondenserPrompt(condenserContext);
 
-    // Step 1: Condense summary for voice (ultra-brief, 30-45 seconds)
-    const condenserPrompt = buildWeeklyVoiceCondenserPrompt(condenserContext);
-    const condensedResult = await generateAICompletion(condenserPrompt);
-    const condensedSummary = condensedResult.text;
+    console.log(`[Voice] Weekly TTS prompt built: ${ttsPrompt.length} chars for ${userLanguage}`);
 
-    console.log(`Weekly voice summary condensed: ${summary.length} → ${condensedSummary.length} chars`);
-
-    // Step 2: Generate voice file from condensed summary
-    voiceFilePath = await generateVoiceMessage(condensedSummary, userLanguage);
+    // Single Gemini TTS call — condenses and speaks in one step
+    voiceFilePath = await generateVoiceMessage(ttsPrompt, userLanguage);
 
     // Stop animation and delete progress message before sending voice
     stopAnimation();
@@ -200,14 +192,14 @@ export async function sendWeeklyVoiceMessage(
       contentType: 'audio/ogg'
     });
 
-    console.log(`Weekly voice message sent successfully to user ${userId}`);
+    console.log(`[Voice] Weekly voice message sent successfully to user ${userId}`);
   } catch (error) {
     // Stop animation on error
     stopAnimation();
     // Delete progress message on error too
     await msgService.deleteMessage(userId, messageId);
 
-    console.error(`Weekly voice generation failed for user ${userId}:`, error);
+    console.error(`[Voice] Weekly voice generation failed for user ${userId}:`, error);
 
     // Notify admin but don't interrupt user experience
     const { notifyAdminWarning } = await import('../../utils/error-notifier');
@@ -220,7 +212,7 @@ export async function sendWeeklyVoiceMessage(
     if (voiceFilePath) {
       const { cleanupVoiceFile } = await import('../voice-generator');
       await cleanupVoiceFile(voiceFilePath).catch(err =>
-        console.warn('Voice file cleanup failed:', err)
+        console.warn('[Voice] Voice file cleanup failed:', err)
       );
     }
   }

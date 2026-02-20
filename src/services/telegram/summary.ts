@@ -202,7 +202,6 @@ export async function sendSummaryToUser(
       user,
       progressMessageId: messageId,
       showVoiceProgress: true,
-      modelId,
       dateHeader
     });
   } catch (error) {
@@ -520,7 +519,6 @@ interface DeliveryOptions {
   user: UserConfig;
   progressMessageId?: number | string;
   showVoiceProgress?: boolean;
-  modelId?: string;
   platform?: DeliveryPlatform;
   dateHeader?: string;
 }
@@ -537,7 +535,6 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     user,
     progressMessageId,
     showVoiceProgress = true,
-    modelId,
     platform,
     dateHeader
   } = options;
@@ -627,6 +624,6 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     }
 
     const shouldShowVoiceProgress = progressMessageId ? showVoiceProgress : false;
-    await sendVoiceMessage(userId, summary, user, modelId, msgService, shouldShowVoiceProgress);
+    await sendVoiceMessage(userId, summary, user, msgService, shouldShowVoiceProgress);
   }
 }
