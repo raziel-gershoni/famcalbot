@@ -3,6 +3,10 @@ const withNextIntl = require('next-intl/plugin')();
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Exclude opusscript from bundling — it loads a .wasm binary from disk at runtime
+  // Without this, Vercel bundles the JS but not the WASM file, causing ENOENT at runtime
+  serverExternalPackages: ['opusscript'],
+
   // Enable experimental features for App Router
   experimental: {
     serverActions: {
