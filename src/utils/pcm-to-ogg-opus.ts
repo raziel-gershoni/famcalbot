@@ -23,23 +23,25 @@ const GRANULE_PER_FRAME = 960; // 20ms × 48000 / 1000
 // Opus pre-skip: codec delay in 48kHz units (standard for Opus encoder)
 const PRE_SKIP = 3840; // 80ms × 48000 / 1000
 
-// ─── CRC32 (OGG uses reflected polynomial 0xEDB88320, LSB-first) ───
+// ─── CRC32 (OGG uses DIRECT/non-reflected CRC32, polynomial 0x04C11DB7) ───
+// Per Xiph OGG framing spec: direct algorithm, initial value 0, no final XOR
+// This is NOT the same as zlib CRC32 (which is reflected with 0xEDB88320)
 
 const CRC32_TABLE = new Uint32Array(256);
 for (let i = 0; i < 256; i++) {
-  let crc = i;
+  let crc = (i << 24) >>> 0;
   for (let j = 0; j < 8; j++) {
-    crc = (crc & 1) ? ((crc >>> 1) ^ 0xEDB88320) : (crc >>> 1);
+    crc = (crc & 0x80000000) ? (((crc << 1) ^ 0x04C11DB7) >>> 0) : ((crc << 1) >>> 0);
   }
   CRC32_TABLE[i] = crc >>> 0;
 }
 
 function oggCrc32(data: Buffer): number {
-  let crc = 0xFFFFFFFF;
+  let crc = 0;
   for (let i = 0; i < data.length; i++) {
-    crc = (crc >>> 8) ^ CRC32_TABLE[(crc ^ data[i]) & 0xFF];
+    crc = (((crc << 8) >>> 0) ^ CRC32_TABLE[((crc >>> 24) ^ data[i]) & 0xFF]) >>> 0;
   }
-  return (crc ^ 0xFFFFFFFF) >>> 0;
+  return crc >>> 0;
 }
 
 // ─── OGG Page Builder ───
