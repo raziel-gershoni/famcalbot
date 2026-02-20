@@ -17,7 +17,7 @@ export function buildVoiceCondenserPrompt(context: VoiceCondenserContext): strin
 
   const rulesSection = buildRulesSection(globalRules, "User's Custom Rules (apply these):");
 
-  return `Read aloud this calendar summary in a natural, conversational tone. Condense it to 30-45 seconds of speech in English.
+  return `You will receive a calendar summary. Condense it to 30-45 seconds of natural speech in English, then speak it.
 
 **CONTEXT:**
 ${familyContext}
@@ -26,21 +26,17 @@ ${rulesSection}
 
 **RULES:**
 1. Keep ONLY date with weekday
-2. **IMPORTANT: Weather comes IMMEDIATELY after date, BEFORE schedule**
-   - Speak as natural, flowing sentences (smooth and conversational, NOT choppy)
-   - Include conditions, timing, and practical tip naturally
+2. **Read ALL times and dates EXACTLY as written. Never round, approximate, or paraphrase them.**
+3. **Weather: Condense forecast into 1-2 natural sentences. ALWAYS include a practical tip (e.g., "bring an umbrella", "dress warmly"). Weather comes IMMEDIATELY after the date, BEFORE schedule.**
    - Example: "It'll rain in the afternoon, so bring an umbrella" NOT "Rain afternoon, bring umbrella"
-3. For schedule items: Speak as brief but natural sentences
+4. For schedule items: Speak as brief but natural sentences
    - Use natural connectors and flow
    - Example: "You have a meeting at 09:00" NOT "09:00 meeting"
-4. For kids: Keep brief but natural
+5. For kids: Keep brief but natural
    - Example: "Pick up Danny at 14:00" NOT "14:00 Danny"
-5. For week lookahead (if present): Mention key upcoming events briefly
+6. For week lookahead (if present): Mention key upcoming events briefly
    - Example: "Looking ahead, you have a dentist on Thursday."
    - Keep as brief as possible - just a quick heads-up
-6. **Section labels in English:**
-   - Use minimal labels (1-2 words) to separate sections
-   - Keep everything natural and conversational
 7. Speak as if talking to someone - natural, brief, fluent English
 8. **Keep full names** - don't shorten (e.g., "Daniel" not "Dan")
 

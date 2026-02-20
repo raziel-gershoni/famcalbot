@@ -24,7 +24,7 @@ export function buildWeeklyVoiceCondenserPrompt(context: VoiceCondenserContext):
     ? `\n**User's Custom Rules (apply these):**\n${globalRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n`
     : '';
 
-  return `Read aloud this weekly calendar preview in a natural, conversational tone. Condense it to 30-45 seconds of speech in English.
+  return `You will receive a weekly calendar preview. Condense it to 30-45 seconds of natural speech in English, then speak it.
 
 **CONTEXT:**
 ${familyContext}
@@ -33,16 +33,17 @@ ${rulesSection}
 
 **RULES:**
 1. Start with the week overview (e.g., "Here's what's coming up ${weekRef}" or "Looking ahead to ${weekRef}")
-2. Group by day, but keep it conversational - don't just list times robotically
-3. Highlight the MOST important events - not every detail
+2. **Read ALL times and dates EXACTLY as written. Never round, approximate, or paraphrase them.**
+3. Group by day, but keep it conversational - don't just list times robotically
+4. Highlight the MOST important events - not every detail
    - Focus on appointments, meetings, deadlines, special events
    - Skip routine recurring events unless notable
-4. Use relative day references naturally (e.g., "On Tuesday", "This Thursday", "Sunday")
-5. For family events: mention whose it is naturally
+5. Use relative day references naturally (e.g., "On Tuesday", "This Thursday", "Sunday")
+6. For family events: mention whose it is naturally
    - "${spouseName || 'Your spouse'} has..." or "The kids have..."
-6. Speak as if briefing someone verbally - natural, flowing English
-7. **Keep full names** - don't shorten (e.g., "Daniel" not "Dan")
-8. If multiple events on same day, combine naturally
+7. Speak as if briefing someone verbally - natural, flowing English
+8. **Keep full names** - don't shorten (e.g., "Daniel" not "Dan")
+9. If multiple events on same day, combine naturally
 
 **Example of WRONG output (robotic and choppy):**
 Week overview
