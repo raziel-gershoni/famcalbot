@@ -1,6 +1,6 @@
 /**
  * Telegram voice message functions
- * Generates and sends voice versions of summaries using Gemini TTS
+ * 2-step pipeline: LLM condenses summary text, then Gemini TTS speaks it
  */
 
 import { UserConfig } from '../../types';
@@ -13,8 +13,8 @@ import type { VoiceCondenserContext } from '../../prompts/voice-condenser';
 
 /**
  * Generate and send voice version of summary
- * Uses a single Gemini TTS call that receives the full prompt (condensing instructions + summary)
- * and speaks the condensed version directly.
+ * Step 1: LLM condenses the summary via generateAICompletion
+ * Step 2: Gemini TTS speaks the condensed plain text
  *
  * Shows animated progress that gets deleted when voice arrives (optional)
  * Non-blocking - errors logged but don't affect text summary delivery
@@ -48,6 +48,7 @@ export async function sendVoiceMessage(
   try {
     const { generateVoiceMessage, cleanupVoiceFile } = await import('../voice-generator');
     const { buildVoiceCondenserPrompt } = await import('../../prompts/voice-condenser');
+    const { generateAICompletion } = await import('../ai-provider');
 
     console.log(`[Voice] Generating voice message for user ${userId}...`);
 
@@ -62,7 +63,7 @@ export async function sendVoiceMessage(
       cal.labels.includes('kids')
     ) ?? false;
 
-    // Build TTS prompt (condensing instructions + summary in one)
+    // Step 1: Condense summary via LLM
     const condenserContext: VoiceCondenserContext = {
       summary,
       locale: userLanguage,
@@ -72,12 +73,14 @@ export async function sendVoiceMessage(
       culture: user.culture,
       globalRules: user.globalRules,
     };
-    const ttsPrompt = buildVoiceCondenserPrompt(condenserContext);
+    const condenserPrompt = buildVoiceCondenserPrompt(condenserContext);
+    const condensedResult = await generateAICompletion(condenserPrompt);
+    const condensedText = condensedResult.text;
 
-    console.log(`[Voice] TTS prompt built: ${ttsPrompt.length} chars for ${userLanguage}`);
+    console.log(`[Voice] Summary condensed: ${summary.length} → ${condensedText.length} chars`);
 
-    // Single Gemini TTS call — condenses and speaks in one step
-    voiceFilePath = await generateVoiceMessage(ttsPrompt, userLanguage);
+    // Step 2: Generate voice from condensed text
+    voiceFilePath = await generateVoiceMessage(condensedText, userLanguage);
 
     // Stop animation and delete progress message (if shown)
     if (stopAnimation) stopAnimation();
@@ -91,7 +94,7 @@ export async function sendVoiceMessage(
 
     // Track voice summary generated and increment usage (use internal DB user.id)
     trackActivityAsync(user.id, 'voice_summary_generated', {
-      duration_seconds: Math.ceil(summary.length / 50), // Rough estimate; divisor adjusted for removal of condensing step
+      duration_seconds: Math.ceil(condensedText.length / 15), // ~15 chars/sec speech rate
     });
     incrementUsage(user.id, 'voiceSummaries').catch(err =>
       console.error('[Subscription] Failed to increment voice usage:', err)
@@ -150,6 +153,7 @@ export async function sendWeeklyVoiceMessage(
   try {
     const { generateVoiceMessage, cleanupVoiceFile } = await import('../voice-generator');
     const { buildWeeklyVoiceCondenserPrompt } = await import('../../prompts/voice-condenser');
+    const { generateAICompletion } = await import('../ai-provider');
 
     console.log(`[Voice] Generating weekly voice message for user ${userId}...`);
 
@@ -164,7 +168,7 @@ export async function sendWeeklyVoiceMessage(
       cal.labels.includes('kids')
     ) ?? false;
 
-    // Build weekly TTS prompt (condensing instructions + summary in one)
+    // Step 1: Condense summary via LLM
     const condenserContext: VoiceCondenserContext = {
       summary,
       locale: userLanguage,
@@ -175,12 +179,14 @@ export async function sendWeeklyVoiceMessage(
       globalRules: user.globalRules,
       isNextWeek,
     };
-    const ttsPrompt = buildWeeklyVoiceCondenserPrompt(condenserContext);
+    const condenserPrompt = buildWeeklyVoiceCondenserPrompt(condenserContext);
+    const condensedResult = await generateAICompletion(condenserPrompt);
+    const condensedText = condensedResult.text;
 
-    console.log(`[Voice] Weekly TTS prompt built: ${ttsPrompt.length} chars for ${userLanguage}`);
+    console.log(`[Voice] Weekly summary condensed: ${summary.length} → ${condensedText.length} chars`);
 
-    // Single Gemini TTS call — condenses and speaks in one step
-    voiceFilePath = await generateVoiceMessage(ttsPrompt, userLanguage);
+    // Step 2: Generate voice from condensed text
+    voiceFilePath = await generateVoiceMessage(condensedText, userLanguage);
 
     // Stop animation and delete progress message before sending voice
     stopAnimation();

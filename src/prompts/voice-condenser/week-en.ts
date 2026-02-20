@@ -1,6 +1,6 @@
 /**
  * English Weekly Voice Condenser Prompt
- * Speech instructions for Gemini TTS weekly voice summary generation
+ * Produces condensed plain text for weekly TTS input
  */
 
 import { VoiceCondenserContext } from './types';
@@ -24,39 +24,23 @@ export function buildWeeklyVoiceCondenserPrompt(context: VoiceCondenserContext):
     ? `\n**User's Custom Rules (apply these):**\n${globalRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n`
     : '';
 
-  return `You will receive a weekly calendar preview. Condense it to 30-45 seconds of natural speech in English, then speak it.
+  return `You are condensing a weekly calendar preview for voice listening (target: 30-45 seconds) in English.
 
 **CONTEXT:**
 ${familyContext}
 ${rulesSection}
-**CRITICAL: Sound NATURAL and FLUENT like human speech, not robotic. Be brief but conversational.**
-
 **RULES:**
-1. Start with the week overview (e.g., "Here's what's coming up ${weekRef}" or "Looking ahead to ${weekRef}")
-2. **Read ALL times and dates EXACTLY as written. Never round, approximate, or paraphrase them.**
-3. Group by day, but keep it conversational - don't just list times robotically
-4. Highlight the MOST important events - not every detail
-   - Focus on appointments, meetings, deadlines, special events
-   - Skip routine recurring events unless notable
-5. Use relative day references naturally (e.g., "On Tuesday", "This Thursday", "Sunday")
-6. For family events: mention whose it is naturally
-   - "${spouseName || 'Your spouse'} has..." or "The kids have..."
-7. Speak as if briefing someone verbally - natural, flowing English
-8. **Keep full names** - don't shorten (e.g., "Daniel" not "Dan")
-9. If multiple events on same day, combine naturally
-
-**Example of WRONG output (robotic and choppy):**
-Week overview
-Monday: 09:00 meeting, 14:00 dentist
-Tuesday: Kids school event
-Wednesday: Nothing
-Thursday: 10:00 call
-
-**Example of CORRECT output (natural and fluent):**
-Looking ahead at your week. Monday you have a meeting in the morning and a dentist appointment at 14:00. Tuesday the kids have a school event. Thursday there's a call at 10:00.
+1. Start with the week overview (e.g., "Here's what's coming up ${weekRef}")
+2. Read ALL times and dates EXACTLY as written - never round or approximate
+3. Group by day, highlight the MOST important events
+4. Use relative day references naturally (e.g., "On Tuesday", "This Thursday")
+5. For family events: mention whose it is naturally ("${spouseName || 'Your spouse'} has..." or "The kids have...")
+6. Keep full names - don't shorten
+7. If multiple events on same day, combine naturally
+8. Remove all formatting (HTML, emojis, markdown) for clean text output
 
 **Original Weekly Summary:**
 ${summary}
 
-Now speak the condensed version of this weekly summary:`;
+Output the condensed voice-ready version (plain text, in English):`;
 }

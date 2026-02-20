@@ -55,21 +55,32 @@ async function callWithRetry<T>(
   throw new Error('Unreachable');
 }
 
+// Language names for TTS prompt
+const LANGUAGE_NAMES: Record<string, string> = {
+  he: 'Hebrew',
+  en: 'English',
+  ru: 'Russian',
+};
+
 /**
- * Generate voice message from TTS prompt using Gemini
- * @param ttsPrompt - Full prompt with condensing instructions + summary text
+ * Generate voice message from condensed text using Gemini TTS
+ * @param condensedText - Plain text already condensed by LLM
  * @param language - Language code (e.g., 'he', 'en', 'ru')
  * @returns Path to generated OGG OPUS audio file in /tmp
  */
 export async function generateVoiceMessage(
-  ttsPrompt: string,
+  condensedText: string,
   language: string = 'en',
 ): Promise<string> {
   const startTime = Date.now();
   const voiceName = VOICE_CONFIG[language] || VOICE_CONFIG['en'] || 'Achird';
+  const langName = LANGUAGE_NAMES[language] || 'English';
+
+  // Build minimal TTS-only prompt — no reasoning, just speak
+  const ttsPrompt = `Read the following text aloud naturally in ${langName}:\n\n${condensedText}`;
 
   console.log('[TTS] Generating voice message (Gemini TTS):', {
-    promptLength: ttsPrompt.length,
+    textLength: condensedText.length,
     language,
     voice: voiceName,
     model: GEMINI_TTS_MODEL,
