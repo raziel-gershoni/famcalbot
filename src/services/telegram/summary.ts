@@ -3,7 +3,7 @@
  */
 
 import { getUserByTelegramId, getAllUsers } from '../user-service';
-import { fetchTodayEvents, fetchTomorrowEvents, TIMEZONE } from '../calendar';
+import { fetchTodayEvents, fetchTomorrowEvents } from '../calendar';
 import { generateSummary, SummaryUserContext, formatDateHeader } from '../claude';
 import { CalendarEvent, UserConfig } from '../../types';
 import { IMessagingService, getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from '../messaging';
@@ -47,15 +47,19 @@ interface PreparedSummary {
 
 async function prepareSummaryForUser(
   user: UserConfig,
-  fetchFunction: (refreshToken: string, calendarIds: string[]) => Promise<CalendarEvent[]>,
+  fetchFunction: (refreshToken: string, calendarIds: string[], timezone?: string) => Promise<CalendarEvent[]>,
   summaryDate: Date | undefined,
   modelId?: string
 ): Promise<PreparedSummary> {
+  // Resolve user's timezone early for consistent use throughout
+  const { resolveUserTimezone } = await import('../../lib/timezone');
+  const userTimezone = await resolveUserTimezone(user);
+
   // Extract all calendar IDs from assignments
   const allCalendarIds = user.calendarAssignments?.map(a => a.calendarId) || [];
 
-  // Fetch calendar events
-  const events = await fetchFunction(user.googleRefreshToken, allCalendarIds);
+  // Fetch calendar events with user's timezone
+  const events = await fetchFunction(user.googleRefreshToken, allCalendarIds, userTimezone);
 
   // Categorize events by ownership
   const categorized = categorizeEvents(events, user);
@@ -86,8 +90,8 @@ async function prepareSummaryForUser(
         weekLookaheadText = lookahead.events
           .filter(e => e.daysFromNow > 1)
           .map(e => {
-            const dayName = e.start.toLocaleDateString('en-US', { weekday: 'long', timeZone: TIMEZONE });
-            const time = e.start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TIMEZONE });
+            const dayName = e.start.toLocaleDateString('en-US', { weekday: 'long', timeZone: userTimezone });
+            const time = e.start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: userTimezone });
             return `${dayName}: ${e.summary} at ${time} (${e.calendarName})`;
           })
           .join('\n');
@@ -116,14 +120,16 @@ async function prepareSummaryForUser(
     user.language,
     userContext,
     user.weatherEnabled,
-    weekLookaheadText
+    weekLookaheadText,
+    userTimezone
   );
 
   // Generate date header for voice-only delivery
   const dateHeader = formatDateHeader(
     summaryDate || new Date(),
     user.language,
-    user.culture
+    user.culture,
+    userTimezone
   );
 
   return { summary, dateHeader };
@@ -134,7 +140,7 @@ async function prepareSummaryForUser(
  */
 export async function sendSummaryToUser(
   userId: number,
-  fetchFunction: (refreshToken: string, calendarIds: string[]) => Promise<CalendarEvent[]>,
+  fetchFunction: (refreshToken: string, calendarIds: string[], timezone?: string) => Promise<CalendarEvent[]>,
   summaryDate: Date | undefined,
   errorKey: string,
   modelId?: string,
@@ -277,7 +283,7 @@ export async function sendSummaryToUser(
  * Generic function to send summary to all users
  */
 async function sendSummaryToAll(
-  fetchFunction: (refreshToken: string, calendarIds: string[]) => Promise<CalendarEvent[]>,
+  fetchFunction: (refreshToken: string, calendarIds: string[], timezone?: string) => Promise<CalendarEvent[]>,
   summaryDate: Date | undefined
 ): Promise<void> {
   const messagingService = getMessagingService();

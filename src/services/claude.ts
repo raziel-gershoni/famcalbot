@@ -145,9 +145,9 @@ function buildPromptData(
   });
 
   // Format event lists
-  const userEventsText = formatEventList(userEvents);
-  const spouseEventsText = formatEventList(spouseEvents);
-  const otherEventsText = formatEventList(otherEvents);
+  const userEventsText = formatEventList(userEvents, timezone);
+  const spouseEventsText = formatEventList(spouseEvents, timezone);
+  const otherEventsText = formatEventList(otherEvents, timezone);
 
   // Extract calendar rules from assignments
   const calendarRules = userContext?.calendarAssignments
@@ -228,10 +228,11 @@ export async function generateSummary(
   language?: string,
   userContext?: SummaryUserContext,
   weatherEnabled: boolean = true,
-  weekLookahead?: string
+  weekLookahead?: string,
+  userTimezone?: string
 ): Promise<string> {
-  // Get timezone from location (or use default)
-  let timezone = TIMEZONE;
+  // Get timezone from location for weather (or use default)
+  let weatherTimezone = TIMEZONE;
   let weatherSummary: string | undefined;
 
   if (location && weatherEnabled) {
@@ -239,11 +240,11 @@ export async function generateSummary(
       const { getTimezone } = await import('./weather/geocoding');
       const { fetchWeather, getWeatherDescription } = await import('./weather/open-meteo');
 
-      // Get timezone for the location
-      timezone = await getTimezone(location);
+      // Get timezone for the location (used for weather data)
+      weatherTimezone = await getTimezone(location);
 
       // Fetch weather data
-      const weatherData = await fetchWeather(location, timezone);
+      const weatherData = await fetchWeather(location, weatherTimezone);
 
       // Build weather summary for prompt
       weatherSummary = `Current: ${weatherData.current.temperature}°C (feels like ${weatherData.current.feelsLike}°C), ${getWeatherDescription(weatherData.current.weatherCode)}
@@ -254,6 +255,9 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
       // Continue with defaults if it fails
     }
   }
+
+  // Use explicit user timezone for event formatting, fall back to weather/geocoding timezone
+  const timezone = userTimezone || weatherTimezone;
 
   // Build prompt data
   const promptData = buildPromptData(

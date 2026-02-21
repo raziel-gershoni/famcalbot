@@ -24,10 +24,10 @@ ${familyContext}
 ${rulesSection}
 **RULES:**
 1. Keep date with weekday
-2. **Write times as digits only (e.g., 12:45, 09:00). NEVER convert to verbal form like "quarter to" or "half past".**
+2. **Write ALL times as spoken words, NEVER as digits. Use 12-hour with AM/PM. Examples: "nine in the morning", "twelve forty-five in the afternoon", "four thirty PM".**
 3. **Weather comes IMMEDIATELY after date, BEFORE schedule.** Condense to 1-2 natural sentences with a practical tip.
-4. Schedule items: Brief but natural sentences (e.g., "You have a meeting at 09:00")
-5. Kids: Keep brief but natural (e.g., "Pick up Danny at 14:00")
+4. Schedule items: Brief but natural sentences (e.g., "You have a meeting at nine in the morning")
+5. Kids: Keep brief but natural (e.g., "Pick up Danny at two in the afternoon")
 6. Week lookahead (if present): Mention key upcoming events briefly
 7. Keep full names - don't shorten
 8. Remove all formatting (HTML, emojis, markdown) for clean text output

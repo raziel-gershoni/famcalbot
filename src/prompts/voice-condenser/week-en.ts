@@ -31,7 +31,7 @@ ${familyContext}
 ${rulesSection}
 **RULES:**
 1. Start with the week overview (e.g., "Here's what's coming up ${weekRef}")
-2. **Write times as digits only (e.g., 12:45, 09:00). NEVER convert to verbal form like "quarter to" or "half past".**
+2. **Write ALL times as spoken words, NEVER as digits. Use 12-hour with AM/PM. Examples: "nine in the morning", "twelve forty-five in the afternoon", "four thirty PM".**
 3. Group by day, highlight the MOST important events
 4. Use relative day references naturally (e.g., "On Tuesday", "This Thursday")
 5. For family events: mention whose it is naturally ("${spouseName || 'Your spouse'} has..." or "The kids have...")
