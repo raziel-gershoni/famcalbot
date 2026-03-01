@@ -437,6 +437,16 @@ function buildWeekLookaheadPromptData(
   const spouseCalendar = user.calendarAssignments?.find(c => c.labels.includes('spouse'));
   const spouseName = spouseCalendar?.personName;
 
+  // Build kids calendar ID → personName map for Child: prefix annotation
+  const kidsCalendarIdMap = new Map<string, string>();
+  if (user.calendarAssignments) {
+    for (const ca of user.calendarAssignments) {
+      if (ca.labels.includes('kids') && ca.personName) {
+        kidsCalendarIdMap.set(ca.calendarId, ca.personName);
+      }
+    }
+  }
+
   // Group events by day
   const eventsByDayMap = new Map<string, LookaheadEvent[]>();
   for (const event of events) {
@@ -470,10 +480,11 @@ function buildWeekLookaheadPromptData(
       });
       const isAllDay = time === '00:00';
 
+      const kidName = kidsCalendarIdMap.get(event.calendarId);
       return {
         time: isAllDay ? allDayLabel : time,
         summary: event.summary,
-        calendarName: event.calendarName,
+        calendarName: kidName ? `Child: ${kidName}` : event.calendarName,
         calendarLabel: event.calendarLabel as 'yours' | 'spouse' | 'kids',
         isRecurring: event.recurrenceType !== 'single',
         recurrenceType: event.recurrenceType !== 'single' ? event.recurrenceType as 'weekly' | 'monthly' | 'yearly' : undefined,
@@ -581,6 +592,16 @@ function buildNextWeekPromptData(
   const spouseCalendar = user.calendarAssignments?.find(c => c.labels.includes('spouse'));
   const spouseName = spouseCalendar?.personName;
 
+  // Build kids calendar ID → personName map for Child: prefix annotation
+  const kidsCalendarIdMap = new Map<string, string>();
+  if (user.calendarAssignments) {
+    for (const ca of user.calendarAssignments) {
+      if (ca.labels.includes('kids') && ca.personName) {
+        kidsCalendarIdMap.set(ca.calendarId, ca.personName);
+      }
+    }
+  }
+
   // Group events by day
   const eventsByDayMap = new Map<string, LookaheadEvent[]>();
   for (const event of events) {
@@ -614,10 +635,11 @@ function buildNextWeekPromptData(
       });
       const isAllDay = time === '00:00';
 
+      const kidName = kidsCalendarIdMap.get(event.calendarId);
       return {
         time: isAllDay ? allDayLabel : time,
         summary: event.summary,
-        calendarName: event.calendarName,
+        calendarName: kidName ? `Child: ${kidName}` : event.calendarName,
         calendarLabel: event.calendarLabel as 'yours' | 'spouse' | 'kids',
         isRecurring: event.recurrenceType !== 'single',
         recurrenceType: event.recurrenceType !== 'single' ? event.recurrenceType as 'weekly' | 'monthly' | 'yearly' : undefined,

@@ -17,7 +17,8 @@ function buildKidsContext(data: WeekLookaheadPromptData): string {
   if (!data.hasKidsCalendars) return '';
 
   return `
-- **Kids' events**: Identify children by calendar name or event content - mention as "[Child]'s [event]"`;
+- **Kids' events**: Events with calendar name starting with "Child:" belong to that child
+- **CRITICAL: The event title is the FULL institution/event name — use it as-is.** e.g., "Tala Gan Gilad Mid-Year" → "mid-year event at Tala Gan Gilad" (NOT "mid-year meeting at Gan")`;
 }
 
 function buildHebrewDateContext(data: WeekLookaheadPromptData): string {

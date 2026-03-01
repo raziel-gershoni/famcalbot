@@ -17,7 +17,8 @@ function buildKidsContext(data: WeekLookaheadPromptData): string {
   if (!data.hasKidsCalendars) return '';
 
   return `
-- **אירועי ילדים**: זהה ילדים לפי שם היומן או תוכן האירוע - ציין כ"ל[שם הילד] יש..."`;
+- **אירועי ילדים**: אירועים עם שם יומן שמתחיל ב-"Child:" שייכים לאותו ילד
+- **קריטי: כותרת האירוע היא שם המוסד/האירוע המלא — השתמש בה כמות שהיא.** לדוגמה: "תלא גן גלעד אמצע שנה" → "אמצע שנה בתלא גן גלעד" (לא "מפגש אמצע שנה בגן")`;
 }
 
 function buildHebrewDateContext(data: WeekLookaheadPromptData): string {
