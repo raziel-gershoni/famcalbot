@@ -97,6 +97,8 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
         weatherEnabled: user.weatherEnabled,
         includeLookaheadInTomorrow: user.includeLookaheadInTomorrow,
         lookaheadAlways7Days: user.lookaheadAlways7Days,
+        preferredMorningHour: user.preferredMorningHour,
+        preferredEveningHour: user.preferredEveningHour,
         remindersEnabled: user.remindersEnabled,
         defaultReminderMinutes: user.defaultReminderMinutes ?? null,
         pickupRemindersEnabled: user.pickupRemindersEnabled ?? true,

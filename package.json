@@ -9,10 +9,11 @@
     "dev:bot": "tsx src/index.ts",
     "build": "next build",
     "start": "next start",
-    "vercel-build": "prisma generate && prisma migrate deploy && next build",
+    "vercel-build": "prisma generate && prisma migrate deploy && next build && tsx scripts/sync-qstash-schedules.ts",
     "type-check": "tsc --noEmit",
     "get-google-token": "tsx scripts/get-google-token.ts",
-    "setup-webhook": "tsx scripts/setup-webhook.ts"
+    "setup-webhook": "tsx scripts/setup-webhook.ts",
+    "sync-schedules": "tsx scripts/sync-qstash-schedules.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -32,6 +33,7 @@
     "@hebcal/locales": "^6.3.0",
     "@prisma/client": "^5.22.0",
     "@sentry/nextjs": "^10.32.1",
+    "@upstash/qstash": "^2.9.0",
     "@upstash/ratelimit": "^2.0.7",
     "@upstash/redis": "^1.35.6",
     "date-fns": "^4.1.0",

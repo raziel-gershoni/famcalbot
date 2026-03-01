@@ -23,6 +23,10 @@ export const REDIS_KEYS = {
   REMINDERS_GLOBAL_ENABLED: 'reminders:global_enabled',
   EARLY_ADOPTION_GLOBAL: 'early_adoption:global_enabled',
 
+  // Summary dedup (prevents double-delivery within same day)
+  summaryDedup: (userId: number, type: 'daily' | 'tomorrow', date: string) =>
+    `summary:dedup:${type}:${userId}:${date}`,
+
   // Feature access cache
   featureAccess: (userId: number, featureType: string) =>
     `feature:access:${userId}:${featureType}`,

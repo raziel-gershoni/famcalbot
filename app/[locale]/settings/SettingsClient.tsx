@@ -28,6 +28,8 @@ interface SettingsClientProps {
     weatherEnabled: boolean;
     includeLookaheadInTomorrow: boolean;
     lookaheadAlways7Days: boolean;
+    preferredMorningHour: number;
+    preferredEveningHour: number;
     remindersEnabled: boolean;
     defaultReminderMinutes: number | null;
     pickupRemindersEnabled: boolean;
@@ -52,6 +54,8 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
   const [weatherEnabled, setWeatherEnabled] = useState(currentSettings.weatherEnabled);
   const [includeLookaheadInTomorrow, setIncludeLookaheadInTomorrow] = useState(currentSettings.includeLookaheadInTomorrow);
   const [lookaheadAlways7Days, setLookaheadAlways7Days] = useState(currentSettings.lookaheadAlways7Days);
+  const [preferredMorningHour, setPreferredMorningHour] = useState(currentSettings.preferredMorningHour);
+  const [preferredEveningHour, setPreferredEveningHour] = useState(currentSettings.preferredEveningHour);
   const [remindersEnabled, setRemindersEnabled] = useState(currentSettings.remindersEnabled);
   const [defaultReminderMinutes, setDefaultReminderMinutes] = useState(currentSettings.defaultReminderMinutes ?? 15);
   const [pickupRemindersEnabled, setPickupRemindersEnabled] = useState(currentSettings.pickupRemindersEnabled);
@@ -72,6 +76,8 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
     weatherEnabled !== currentSettings.weatherEnabled ||
     includeLookaheadInTomorrow !== currentSettings.includeLookaheadInTomorrow ||
     lookaheadAlways7Days !== currentSettings.lookaheadAlways7Days ||
+    preferredMorningHour !== currentSettings.preferredMorningHour ||
+    preferredEveningHour !== currentSettings.preferredEveningHour ||
     remindersEnabled !== currentSettings.remindersEnabled ||
     defaultReminderMinutes !== (currentSettings.defaultReminderMinutes ?? 15) ||
     pickupRemindersEnabled !== currentSettings.pickupRemindersEnabled ||
@@ -248,6 +254,8 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
           weatherEnabled,
           includeLookaheadInTomorrow,
           lookaheadAlways7Days,
+          preferredMorningHour,
+          preferredEveningHour,
           remindersEnabled,
           defaultReminderMinutes: remindersEnabled ? defaultReminderMinutes : null,
           pickupRemindersEnabled,
@@ -926,6 +934,40 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
               >
                 <div className="toggle-slider" />
               </div>
+            </div>
+
+            <h3 className="section-title">{t('summaryDeliveryTime')}</h3>
+
+            <div className="form-group" style={{ marginTop: '16px' }}>
+              <label htmlFor="preferredMorningHour">{t('morningHour')}</label>
+              <select
+                name="preferredMorningHour"
+                id="preferredMorningHour"
+                value={preferredMorningHour}
+                onChange={(e) => setPreferredMorningHour(parseInt(e.target.value))}
+                disabled={formState !== 'idle'}
+              >
+                {Array.from({ length: 24 }, (_, i) => (
+                  <option key={i} value={i}>{String(i).padStart(2, '0')}{t('hourSuffix')}</option>
+                ))}
+              </select>
+              <p className="help-text">{t('morningHourDescription')}</p>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="preferredEveningHour">{t('eveningHour')}</label>
+              <select
+                name="preferredEveningHour"
+                id="preferredEveningHour"
+                value={preferredEveningHour}
+                onChange={(e) => setPreferredEveningHour(parseInt(e.target.value))}
+                disabled={formState !== 'idle'}
+              >
+                {Array.from({ length: 24 }, (_, i) => (
+                  <option key={i} value={i}>{String(i).padStart(2, '0')}{t('hourSuffix')}</option>
+                ))}
+              </select>
+              <p className="help-text">{t('eveningHourDescription')}</p>
             </div>
 
             <h3 className="section-title">{t('remindersSection')}</h3>

@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN "preferredMorningHour" INTEGER NOT NULL DEFAULT 7;
+ALTER TABLE "User" ADD COLUMN "preferredEveningHour" INTEGER NOT NULL DEFAULT 19;

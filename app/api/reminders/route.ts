@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 60; // 60 seconds max for reminder processing
 
-export async function GET(request: NextRequest) {
+export async function POST(request: NextRequest) {
   return withCronHandler(request, {
     jobName: 'Event Reminders',
     handler: async (_request, searchParams) => {

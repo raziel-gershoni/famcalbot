@@ -279,20 +279,42 @@ export async function sendSummaryToUser(
   }
 }
 
+/** Result counts from batch summary delivery */
+export interface SummaryBatchResult {
+  processed: number;
+  skippedHour: number;
+  skippedDedup: number;
+}
+
 /**
  * Generic function to send summary to all users
  */
 async function sendSummaryToAll(
   fetchFunction: (refreshToken: string, calendarIds: string[], timezone?: string) => Promise<CalendarEvent[]>,
-  summaryDate: Date | undefined
-): Promise<void> {
+  summaryDate: Date | undefined,
+  options?: { filterByHour?: boolean }
+): Promise<SummaryBatchResult> {
   const messagingService = getMessagingService();
+  const result: SummaryBatchResult = { processed: 0, skippedHour: 0, skippedDedup: 0 };
 
   try {
-    const users = await getAllUsers();
-    if (users.length === 0) {
+    const allUsers = await getAllUsers();
+    if (allUsers.length === 0) {
       console.error('No users configured');
-      return;
+      return result;
+    }
+
+    // Filter by preferred hour if requested (hourly cron mode)
+    let users = allUsers;
+    if (options?.filterByHour) {
+      const { filterUsersForSummary } = await import('../../lib/summary-scheduling');
+      const summaryType = summaryDate ? 'tomorrow' : 'daily';
+      const filtered = await filterUsersForSummary(allUsers, summaryType);
+      users = filtered.eligible;
+      result.skippedHour = filtered.skippedHour;
+      result.skippedDedup = filtered.skippedDedup;
+
+      console.log(`[Summary] Hourly filter: ${users.length} eligible, ${filtered.skippedHour} skipped (hour), ${filtered.skippedDedup} skipped (dedup)`);
     }
 
     for (const user of users) {
@@ -315,6 +337,13 @@ async function sendSummaryToAll(
       if (!hasCalendars && hasLocation && user.weatherEnabled) {
         try {
           await sendWeatherOnlyToUser(user, summaryDate, platform);
+          result.processed++;
+          if (options?.filterByHour) {
+            const { markSummarySent } = await import('../../lib/summary-scheduling');
+            const { resolveUserTimezone } = await import('../../lib/timezone');
+            const tz = await resolveUserTimezone(user);
+            await markSummarySent(user.id, summaryDate ? 'tomorrow' : 'daily', tz);
+          }
         } catch (error) {
           console.error(`[Summary] Failed to send weather-only to user ${user.telegramId}:`, error);
         }
@@ -336,6 +365,16 @@ async function sendSummaryToAll(
           platform,
           dateHeader
         });
+
+        result.processed++;
+
+        // Mark as sent for dedup
+        if (options?.filterByHour) {
+          const { markSummarySent } = await import('../../lib/summary-scheduling');
+          const { resolveUserTimezone } = await import('../../lib/timezone');
+          const tz = await resolveUserTimezone(user);
+          await markSummarySent(user.id, summaryDate ? 'tomorrow' : 'daily', tz);
+        }
       } catch (error) {
         console.error(`Failed to send summary to user ${user.telegramId}:`, error);
 
@@ -381,6 +420,8 @@ async function sendSummaryToAll(
       `Date: ${summaryDate ? summaryDate.toISOString() : 'today'}`
     );
   }
+
+  return result;
 }
 
 /**
@@ -443,8 +484,8 @@ ${weatherData.tomorrow ? `<b>${t.weatherOnly?.tomorrow || 'Tomorrow'}:</b> ${t.w
 /**
  * Send daily summary to all users
  */
-export async function sendDailySummaryToAll(): Promise<void> {
-  await sendSummaryToAll(fetchTodayEvents, undefined);
+export async function sendDailySummaryToAll(options?: { filterByHour?: boolean }): Promise<SummaryBatchResult> {
+  return sendSummaryToAll(fetchTodayEvents, undefined, options);
 }
 
 /**
@@ -467,11 +508,11 @@ export async function sendTomorrowSummaryToUser(userId: number, existingProgress
 /**
  * Send tomorrow's summary to all users
  */
-export async function sendTomorrowSummaryToAll(): Promise<void> {
+export async function sendTomorrowSummaryToAll(options?: { filterByHour?: boolean }): Promise<SummaryBatchResult> {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
 
-  await sendSummaryToAll(fetchTomorrowEvents, tomorrow);
+  return sendSummaryToAll(fetchTomorrowEvents, tomorrow, options);
 }
 
 /** Platform options for message delivery */

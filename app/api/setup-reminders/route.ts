@@ -52,7 +52,7 @@ function getDateRangeForDay(daysAgo: number): { start: Date; end: Date } {
   return { start, end };
 }
 
-export async function GET(request: NextRequest) {
+export async function POST(request: NextRequest) {
   return withCronHandler(request, {
     jobName: 'Setup Reminders',
     handler: async () => {

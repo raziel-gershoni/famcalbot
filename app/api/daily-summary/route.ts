@@ -7,14 +7,15 @@ import { safeDecrypt } from '@/src/utils/encryption';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function GET(request: NextRequest) {
+export async function POST(request: NextRequest) {
   return withCronHandler(request, {
     jobName: 'Daily Summary',
     handler: async () => {
       const { sendDailySummaryToAll } = await import('@/src/services/telegram');
-      await sendDailySummaryToAll();
+      const summaryResult = await sendDailySummaryToAll({ filterByHour: true });
 
       // Sync reminder cache from DB (piggyback on existing DB connection)
+      // Runs every hour — cheap, keeps cache fresh
       try {
         // Fetch users with reminders enabled
         const users = await withDbRetry(
@@ -66,25 +67,33 @@ export async function GET(request: NextRequest) {
         // Don't fail the cron job if cache sync fails
       }
 
-      // Clean up expired OAuth state tokens
-      try {
-        const deleted = await withDbRetry(
-          () => prisma.oAuthState.deleteMany({
-            where: {
-              expiresAt: {
-                lt: new Date()
+      // Clean up expired OAuth state tokens — only at UTC hour 4 to avoid running 24x daily
+      const utcHour = new Date().getUTCHours();
+      if (utcHour === 4) {
+        try {
+          const deleted = await withDbRetry(
+            () => prisma.oAuthState.deleteMany({
+              where: {
+                expiresAt: {
+                  lt: new Date()
+                }
               }
-            }
-          }),
-          'daily-summary.cleanupOAuth'
-        );
-        console.log(`[Daily Summary] Cleaned up ${deleted.count} expired OAuth state tokens`);
-      } catch (cleanupError) {
-        console.error('[Daily Summary] Failed to clean up OAuth state tokens:', cleanupError);
-        // Don't fail the cron job if cleanup fails
+            }),
+            'daily-summary.cleanupOAuth'
+          );
+          console.log(`[Daily Summary] Cleaned up ${deleted.count} expired OAuth state tokens`);
+        } catch (cleanupError) {
+          console.error('[Daily Summary] Failed to clean up OAuth state tokens:', cleanupError);
+        }
       }
 
-      return { success: true, message: 'Daily summaries sent successfully' };
+      return {
+        success: true,
+        message: 'Daily summaries sent successfully',
+        processed: summaryResult.processed,
+        skippedHour: summaryResult.skippedHour,
+        skippedDedup: summaryResult.skippedDedup,
+      };
     }
   });
 }

@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
     const body = await request.json();
-    const { language, location, messagingPlatform, culture, globalRules, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, remindersEnabled, defaultReminderMinutes, pickupRemindersEnabled, voiceInputEnabled, initData } = body;
+    const { language, location, messagingPlatform, culture, globalRules, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, preferredMorningHour, preferredEveningHour, remindersEnabled, defaultReminderMinutes, pickupRemindersEnabled, voiceInputEnabled, initData } = body;
 
     // Authentication and rate limiting
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'settings');
@@ -30,6 +30,8 @@ export async function POST(request: NextRequest) {
       weatherEnabled: typeof weatherEnabled === 'boolean' ? weatherEnabled : undefined,
       includeLookaheadInTomorrow: typeof includeLookaheadInTomorrow === 'boolean' ? includeLookaheadInTomorrow : undefined,
       lookaheadAlways7Days: typeof lookaheadAlways7Days === 'boolean' ? lookaheadAlways7Days : undefined,
+      preferredMorningHour: typeof preferredMorningHour === 'number' ? preferredMorningHour : undefined,
+      preferredEveningHour: typeof preferredEveningHour === 'number' ? preferredEveningHour : undefined,
       remindersEnabled: typeof remindersEnabled === 'boolean' ? remindersEnabled : undefined,
       defaultReminderMinutes: typeof defaultReminderMinutes === 'number' ? defaultReminderMinutes : undefined,
       pickupRemindersEnabled: typeof pickupRemindersEnabled === 'boolean' ? pickupRemindersEnabled : undefined,

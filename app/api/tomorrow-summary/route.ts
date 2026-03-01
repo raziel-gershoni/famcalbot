@@ -4,13 +4,19 @@ import { withCronHandler } from '@/src/lib/cron-handler';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function GET(request: NextRequest) {
+export async function POST(request: NextRequest) {
   return withCronHandler(request, {
     jobName: 'Tomorrow Summary',
     handler: async () => {
       const { sendTomorrowSummaryToAll } = await import('@/src/services/telegram');
-      await sendTomorrowSummaryToAll();
-      return { success: true, message: "Tomorrow's summaries sent successfully" };
+      const summaryResult = await sendTomorrowSummaryToAll({ filterByHour: true });
+      return {
+        success: true,
+        message: "Tomorrow's summaries sent successfully",
+        processed: summaryResult.processed,
+        skippedHour: summaryResult.skippedHour,
+        skippedDedup: summaryResult.skippedDedup,
+      };
     }
   });
 }

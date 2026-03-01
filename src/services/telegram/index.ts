@@ -28,6 +28,7 @@ export {
   sendDailySummaryToAll,
   sendTomorrowSummaryToUser,
   sendTomorrowSummaryToAll,
+  type SummaryBatchResult,
 } from './summary';
 
 // Voice message generation
