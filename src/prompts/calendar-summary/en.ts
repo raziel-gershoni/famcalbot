@@ -44,10 +44,11 @@ function buildKidsContext(data: SummaryPromptData): string {
     return `
 3. **Other Events** - Kids' events and shared family events
    - Events tagged [Calendar: Child: Name] belong to that child
-   - **CRITICAL: Do NOT extract child names from event titles.** The event title is the full event/institution name.
-   - Example: "Tala Gan Gilad Mid-Year [Calendar: Child: Gilad]" → Gilad has a mid-year event at Tala Gan Gilad
-     (NOT: "Gilad has a Tala meeting at Gan" — "Tala Gan Gilad" is the institution name)
-   - **In pickup order: use the child's name, followed by location in parentheses**
+   - **CRITICAL: The event title is the FULL institution/event name — use it as-is.**
+     "Tala Gan Gilad" is one institution name, not "Gan" + a child's name.
+   - Example: "Tala Gan Gilad Mid-Year" [Child: Gilad] → Gilad has a mid-year event at Tala Gan Gilad
+     (NOT: "mid-year meeting at Gan" — missing the full institution name)
+   - **In pickup order: use the child's name, followed by the full institution name in parentheses**
 `;
   }
 
@@ -106,11 +107,11 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
 
   const kidsScheduleSection = data.hasKidsCalendars
     ? `<b>Kids Start Times:</b>
-- HH:MM - [Name1] ([Location1]), [Name2] ([Location2])
+- HH:MM - [Name1] ([full institution name1]), [Name2] ([full institution name2])
 [Group children with same start time together on one line, sorted chronologically by time]
 
 <b>Special Events:</b> [Only if kids have special events during the day]
-- HH:MM-HH:MM - [Name] [Activity] ([Location])
+- HH:MM-HH:MM - [Name] [Description] ([full institution name])
 
 <b>Pickup Order:</b> [ONLY KIDS - do NOT include spouse]
 
@@ -123,8 +124,8 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
 4. Output in this sorted time order
 5. Do NOT skip any kids - ALL must be in this list
 
-- HH:MM - [Name] ([Location])
-- HH:MM - [Name1] ([Location1]), [Name2] ([Location2])
+- HH:MM - [Name] ([full institution name])
+- HH:MM - [Name1] ([full institution name1]), [Name2] ([full institution name2])
 
 `
     : '';
@@ -147,7 +148,10 @@ ${data.spouseEventsText}
     : '';
 
   const otherEventsHeader = data.hasKidsCalendars
-    ? '**OTHER EVENTS (Kids & Family):**'
+    ? data.kidsNames && data.kidsNames.length > 0
+      ? `**OTHER EVENTS (Kids & Family):**
+(Reminder: The event title is the FULL institution/event name. e.g. "Tala Gan Gilad" = one institution name. Don't break apart.)`
+      : '**OTHER EVENTS (Kids & Family):**'
     : '**OTHER EVENTS:**';
 
   return `# Calendar Summary for ${data.userName}
