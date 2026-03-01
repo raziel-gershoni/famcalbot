@@ -44,8 +44,10 @@ function buildKidsContext(data: SummaryPromptData): string {
   if (data.kidsNames && data.kidsNames.length > 0) {
     return `
 3. **אירועים אחרים** - אירועי ילדים ואירועים משפחתיים
-   - השתמש רק בשמות הילדים שמוגדרים למעלה בסעיף "שמות ודקדוק"
-   - השתמש בכלל ההבחנה בין שמות ילדים לשמות מוסדות (ראה למעלה) בכל האירועים, כולל אירועי בן/בת זוג
+   - אירועים עם תגית [Calendar: Child: שם] שייכים לאותו ילד
+   - **קריטי: אל תחלץ שמות ילדים מכותרות אירועים.** כותרת האירוע היא שם האירוע/המוסד המלא.
+   - דוגמה: "תלא גן גלעד אמצע שנה [Calendar: Child: גלעד]" → לגלעד יש אירוע אמצע שנה בתלא גן גלעד
+     (ולא: "לגלעד יש מפגש תלא בגן" — "תלא גן גלעד" הוא שם המוסד)
    - **בסדר האיסוף: השתמש בשם הילד, ואחריו המיקום בסוגריים**
 `;
   }
@@ -93,8 +95,7 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
     : '';
 
   const kidsNamesLine = data.kidsNames && data.kidsNames.length > 0
-    ? `- ילדים: ${data.kidsNames.map(k => k.name).join(', ')}
-- **הבחנה בין שמות ילדים לשמות מוסדות:** אם שם מופיע ברשימת הילדים למעלה, הוא מתייחס לילד (לדוגמה: "גן ${data.kidsNames[0].name}" = הגן של ${data.kidsNames[0].name}). אם שם לא מופיע ברשימה, הוא שם מוסד (לדוגמה: "גן גלעד" כששם זה לא ברשימה = מוסד בשם "גן גלעד")`
+    ? `- ילדים: ${data.kidsNames.map(k => k.name).join(', ')}`
     : '';
 
   const spouseScheduleHeader = data.hasSpouseCalendar

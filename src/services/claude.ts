@@ -147,7 +147,22 @@ function buildPromptData(
   // Format event lists
   const userEventsText = formatEventList(userEvents, timezone);
   const spouseEventsText = formatEventList(spouseEvents, timezone);
-  const otherEventsText = formatEventList(otherEvents, timezone);
+
+  // Build calendarId -> personName map for kids
+  const kidsCalendarIdMap = new Map<string, string>();
+  userContext?.calendarAssignments
+    ?.filter(a => a.labels.includes('kids') && a.personName)
+    .forEach(a => kidsCalendarIdMap.set(a.calendarId, a.personName!));
+
+  // Annotate other events: for kids calendars, replace calendarName so formatter produces [Calendar: Child: X]
+  const annotatedOtherEvents = kidsCalendarIdMap.size > 0
+    ? otherEvents.map(event => {
+        const kidName = kidsCalendarIdMap.get(event.calendarId);
+        return kidName ? { ...event, calendarName: `Child: ${kidName}` } : event;
+      })
+    : otherEvents;
+
+  const otherEventsText = formatEventList(annotatedOtherEvents, timezone);
 
   // Extract calendar rules from assignments
   const calendarRules = userContext?.calendarAssignments

@@ -43,8 +43,10 @@ function buildKidsContext(data: SummaryPromptData): string {
   if (data.kidsNames && data.kidsNames.length > 0) {
     return `
 3. **Other Events** - Kids' events and shared family events
-   - Only use the children's names defined above in the "Names and grammar" section
-   - Apply the kids vs. institution disambiguation rule (see above) across ALL events, including spouse's events
+   - Events tagged [Calendar: Child: Name] belong to that child
+   - **CRITICAL: Do NOT extract child names from event titles.** The event title is the full event/institution name.
+   - Example: "Tala Gan Gilad Mid-Year [Calendar: Child: Gilad]" → Gilad has a mid-year event at Tala Gan Gilad
+     (NOT: "Gilad has a Tala meeting at Gan" — "Tala Gan Gilad" is the institution name)
    - **In pickup order: use the child's name, followed by location in parentheses**
 `;
   }
@@ -91,8 +93,7 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
     : '';
 
   const kidsNamesLine = data.kidsNames && data.kidsNames.length > 0
-    ? `- Children: ${data.kidsNames.map(k => k.name).join(', ')}
-- **Disambiguating kids vs. institution names:** If a name appears in the children list above, it refers to the child (e.g., "${data.kidsNames[0].name}'s kindergarten"). If a name is NOT in the list, it is an institution name (e.g., "Gan Gilad" when that name is not listed = an institution called "Gan Gilad")`
+    ? `- Children: ${data.kidsNames.map(k => k.name).join(', ')}`
     : '';
 
   const spouseScheduleHeader = data.hasSpouseCalendar
