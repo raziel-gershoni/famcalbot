@@ -40,23 +40,11 @@ function buildKidsContext(data: SummaryPromptData): string {
 `;
   }
 
-  if (data.kidsNames && data.kidsNames.length > 0) {
-    return `
-3. **Other Events** - Kids' events and shared family events
-   - Events tagged [Calendar: Child: Name] belong to that child
-   - **CRITICAL: The event title is the FULL institution/event name — use it as-is.**
-     "Tala Gan Gilad" is one institution name, not "Gan" + a child's name.
-   - Example: "Tala Gan Gilad Mid-Year" [Child: Gilad] → Gilad has a mid-year event at Tala Gan Gilad
-     (NOT: "mid-year meeting at Gan" — missing the full institution name)
-   - **In pickup order: use the child's name, followed by the full institution name in parentheses**
-`;
-  }
-
   return `
 3. **Other Events** - Kids' events and shared family events
-   - **IMPORTANT: Do NOT confuse institution/location names with children's names**
-   - Names appearing inside event titles (e.g., "Gan Gilad", "Tala", "Ramon School") are institution names, NOT children's names
-   - **Identify children's names from calendar names only** (e.g., if calendar is named "Shira", the child is named Shira)
+   - **Identify children's names from calendar names or event content** (e.g., if calendar is named "Shira" or event is "Shira's dentist", the child is named Shira)
+   - **IMPORTANT: Do NOT confuse location names with people's names**
+   - Example: A location ending in "kindergarten" or "gan" is a LOCATION, not a person
    - **In pickup order: use the child's name, followed by location in parentheses**
 `;
 }
@@ -93,10 +81,6 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
     ? `- Spouse: ${spouseLabel}${data.spouseGender ? ` (${data.spouseGender} - use appropriate English grammar forms)` : ''}`
     : '';
 
-  const kidsNamesLine = data.kidsNames && data.kidsNames.length > 0
-    ? `- Children: ${data.kidsNames.map(k => k.name).join(', ')}`
-    : '';
-
   const spouseScheduleHeader = data.hasSpouseCalendar
     ? `<b>${data.spouseEnglishName || spouseLabel}'s Schedule:</b> [Only if ${spouseLabel} has events]
 - HH:MM-HH:MM - [Activity/Work] ([Location if available])
@@ -107,11 +91,11 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
 
   const kidsScheduleSection = data.hasKidsCalendars
     ? `<b>Kids Start Times:</b>
-- HH:MM - [Name1] ([full institution name1]), [Name2] ([full institution name2])
+- HH:MM - [Name1] ([Location1]), [Name2] ([Location2])
 [Group children with same start time together on one line, sorted chronologically by time]
 
 <b>Special Events:</b> [Only if kids have special events during the day]
-- HH:MM-HH:MM - [Name] [Description] ([full institution name])
+- HH:MM-HH:MM - [Name] [Activity] ([Location])
 
 <b>Pickup Order:</b> [ONLY KIDS - do NOT include spouse]
 
@@ -124,8 +108,8 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
 4. Output in this sorted time order
 5. Do NOT skip any kids - ALL must be in this list
 
-- HH:MM - [Name] ([full institution name])
-- HH:MM - [Name1] ([full institution name1]), [Name2] ([full institution name2])
+- HH:MM - [Name] ([Location])
+- HH:MM - [Name1] ([Location1]), [Name2] ([Location2])
 
 `
     : '';
@@ -148,10 +132,7 @@ ${data.spouseEventsText}
     : '';
 
   const otherEventsHeader = data.hasKidsCalendars
-    ? data.kidsNames && data.kidsNames.length > 0
-      ? `**OTHER EVENTS (Kids & Family):**
-(Reminder: The event title is the FULL institution/event name. e.g. "Tala Gan Gilad" = one institution name. Don't break apart.)`
-      : '**OTHER EVENTS (Kids & Family):**'
+    ? '**OTHER EVENTS (Kids & Family):**'
     : '**OTHER EVENTS:**';
 
   return `# Calendar Summary for ${data.userName}
@@ -160,7 +141,7 @@ Generate a personalized daily schedule summary in English.
 
 **IMPORTANT: Names and grammar:**
 - User: ${data.userName} (${data.userGender} - use appropriate English grammar forms)
-${spouseNameLine}${kidsNamesLine ? `\n${kidsNamesLine}` : ''}
+${spouseNameLine}
 
 ## Event Categories & Personalization
 Events have been pre-categorized into groups:

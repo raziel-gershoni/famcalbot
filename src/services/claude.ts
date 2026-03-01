@@ -147,22 +147,7 @@ function buildPromptData(
   // Format event lists
   const userEventsText = formatEventList(userEvents, timezone);
   const spouseEventsText = formatEventList(spouseEvents, timezone);
-
-  // Build calendarId -> personName map for kids
-  const kidsCalendarIdMap = new Map<string, string>();
-  userContext?.calendarAssignments
-    ?.filter(a => a.labels.includes('kids') && a.personName)
-    .forEach(a => kidsCalendarIdMap.set(a.calendarId, a.personName!));
-
-  // Annotate other events: for kids calendars, replace calendarName so formatter produces [Calendar: Child: X]
-  const annotatedOtherEvents = kidsCalendarIdMap.size > 0
-    ? otherEvents.map(event => {
-        const kidName = kidsCalendarIdMap.get(event.calendarId);
-        return kidName ? { ...event, calendarName: `Child: ${kidName}` } : event;
-      })
-    : otherEvents;
-
-  const otherEventsText = formatEventList(annotatedOtherEvents, timezone);
+  const otherEventsText = formatEventList(otherEvents, timezone);
 
   // Extract calendar rules from assignments
   const calendarRules = userContext?.calendarAssignments
@@ -171,11 +156,6 @@ function buildPromptData(
 
   // Check if user has kids calendars
   const hasKidsCalendars = userContext?.calendarAssignments?.some(a => a.labels.includes('kids')) ?? false;
-
-  // Extract explicit kids names from calendar assignments
-  const kidsNames = userContext?.calendarAssignments
-    ?.filter(a => a.labels.includes('kids') && a.personName)
-    .map(a => ({ name: a.personName!, calendarName: a.name })) || [];
 
   return {
     userName,
@@ -201,7 +181,6 @@ function buildPromptData(
     globalRules: userContext?.globalRules,
     calendarRules,
     hasKidsCalendars,
-    kidsNames: kidsNames.length > 0 ? kidsNames : undefined,
   };
 }
 
