@@ -157,6 +157,11 @@ function buildPromptData(
   // Check if user has kids calendars
   const hasKidsCalendars = userContext?.calendarAssignments?.some(a => a.labels.includes('kids')) ?? false;
 
+  // Extract explicit kids names from calendar assignments
+  const kidsNames = userContext?.calendarAssignments
+    ?.filter(a => a.labels.includes('kids') && a.personName)
+    .map(a => ({ name: a.personName!, calendarName: a.name })) || [];
+
   return {
     userName,
     userEnglishName,
@@ -181,6 +186,7 @@ function buildPromptData(
     globalRules: userContext?.globalRules,
     calendarRules,
     hasKidsCalendars,
+    kidsNames: kidsNames.length > 0 ? kidsNames : undefined,
   };
 }
 

@@ -40,11 +40,20 @@ function buildKidsContext(data: SummaryPromptData): string {
 `;
   }
 
+  if (data.kidsNames && data.kidsNames.length > 0) {
+    return `
+3. **Other Events** - Kids' events and shared family events
+   - Only use the children's names defined above in the "Names and grammar" section
+   - Apply the kids vs. institution disambiguation rule (see above) across ALL events, including spouse's events
+   - **In pickup order: use the child's name, followed by location in parentheses**
+`;
+  }
+
   return `
 3. **Other Events** - Kids' events and shared family events
-   - **Identify children's names from calendar names or event content** (e.g., if calendar is named "Shira" or event is "Shira's dentist", the child is named Shira)
-   - **IMPORTANT: Do NOT confuse location names with people's names**
-   - Example: A location ending in "kindergarten" or "gan" is a LOCATION, not a person
+   - **IMPORTANT: Do NOT confuse institution/location names with children's names**
+   - Names appearing inside event titles (e.g., "Gan Gilad", "Tala", "Ramon School") are institution names, NOT children's names
+   - **Identify children's names from calendar names only** (e.g., if calendar is named "Shira", the child is named Shira)
    - **In pickup order: use the child's name, followed by location in parentheses**
 `;
 }
@@ -79,6 +88,11 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
   const spouseLabel = data.spouseName || 'Spouse';
   const spouseNameLine = data.hasSpouseCalendar
     ? `- Spouse: ${spouseLabel}${data.spouseGender ? ` (${data.spouseGender} - use appropriate English grammar forms)` : ''}`
+    : '';
+
+  const kidsNamesLine = data.kidsNames && data.kidsNames.length > 0
+    ? `- Children: ${data.kidsNames.map(k => k.name).join(', ')}
+- **Disambiguating kids vs. institution names:** If a name appears in the children list above, it refers to the child (e.g., "${data.kidsNames[0].name}'s kindergarten"). If a name is NOT in the list, it is an institution name (e.g., "Gan Gilad" when that name is not listed = an institution called "Gan Gilad")`
     : '';
 
   const spouseScheduleHeader = data.hasSpouseCalendar
@@ -141,7 +155,7 @@ Generate a personalized daily schedule summary in English.
 
 **IMPORTANT: Names and grammar:**
 - User: ${data.userName} (${data.userGender} - use appropriate English grammar forms)
-${spouseNameLine}
+${spouseNameLine}${kidsNamesLine ? `\n${kidsNamesLine}` : ''}
 
 ## Event Categories & Personalization
 Events have been pre-categorized into groups:

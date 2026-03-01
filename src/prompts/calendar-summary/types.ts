@@ -26,4 +26,5 @@ export interface SummaryPromptData {
   globalRules?: string[];  // User's global rules (max 3)
   calendarRules?: { calendarName: string; rule: string }[];  // Per-calendar rules
   hasKidsCalendars?: boolean;  // Whether user has kids calendars configured
+  kidsNames?: { name: string; calendarName: string }[];  // Explicit kids names from calendar assignments
 }
