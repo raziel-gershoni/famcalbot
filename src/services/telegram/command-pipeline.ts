@@ -16,7 +16,7 @@ const DEFAULT_OPERATION_TIMEOUT_MS = 50_000;
  * To discover the ID: send an animated hourglass emoji in Telegram,
  * then use the /emojiid command to extract it.
  */
-const ANIMATED_HOURGLASS_EMOJI_ID = '';
+const ANIMATED_HOURGLASS_EMOJI_ID = '5451732530048802485';
 
 export interface CommandPipelineOptions<T> {
   chatId: number | string;
