@@ -3,7 +3,6 @@ import { withCronHandler } from '@/src/lib/cron-handler';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   return withCronHandler(request, {

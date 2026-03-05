@@ -6,7 +6,6 @@ import { safeDecrypt } from '@/src/utils/encryption';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   return withCronHandler(request, {
