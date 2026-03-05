@@ -317,7 +317,13 @@ async function sendSummaryToAll(
       console.log(`[Summary] Hourly filter: ${users.length} eligible, ${filtered.skippedHour} skipped (hour), ${filtered.skippedDedup} skipped (dedup)`);
     }
 
-    for (const user of users) {
+    for (let i = 0; i < users.length; i++) {
+      const user = users[i];
+
+      // Add delay between users to avoid Telegram rate limits
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
       const platform = user.messagingPlatform || 'telegram';
 
       const hasToken = !!user.googleRefreshToken;
