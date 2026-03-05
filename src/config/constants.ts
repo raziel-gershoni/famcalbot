@@ -11,7 +11,7 @@ export const DEFAULT_AI_MODEL = process.env.AI_MODEL || 'claude-sonnet-4.5';
 
 // Retry configuration (static)
 export const AI_RETRY_CONFIG = {
-  MAX_RETRIES: parseInt(process.env.AI_MAX_RETRIES || '1', 10),
+  MAX_RETRIES: parseInt(process.env.AI_MAX_RETRIES || '3', 10),
   INITIAL_RETRY_DELAY: 1000, // 1 second, will exponentially backoff
 } as const;
 

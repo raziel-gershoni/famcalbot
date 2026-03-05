@@ -18,7 +18,6 @@ const getAnthropic = () => {
   if (!anthropic) {
     anthropic = new Anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY,
-      timeout: 25_000,
     });
   }
   return anthropic;
@@ -28,7 +27,6 @@ const getOpenAI = () => {
   if (!openai) {
     openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
-      timeout: 25_000,
     });
   }
   return openai;
@@ -198,7 +196,6 @@ async function callGemini(prompt: string, modelId?: string): Promise<AICompletio
   const response = await getGemini().models.generateContent({
     model: config.MODEL_CONFIG.modelId,
     contents: prompt,
-    config: { abortSignal: AbortSignal.timeout(25_000) },
   });
   const text = response.text ?? '';
 

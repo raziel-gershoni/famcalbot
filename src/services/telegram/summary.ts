@@ -198,15 +198,8 @@ export async function sendSummaryToUser(
     stopAnimation = result.stopAnimation;
   }
 
-  const OPERATION_TIMEOUT_MS = 50_000;
-
   try {
-    const { summary, dateHeader } = await Promise.race([
-      prepareSummaryForUser(user, fetchFunction, summaryDate, modelId),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('OPERATION_TIMEOUT')), OPERATION_TIMEOUT_MS)
-      ),
-    ]);
+    const { summary, dateHeader } = await prepareSummaryForUser(user, fetchFunction, summaryDate, modelId);
 
     stopAnimation();
     await deliverSummary({
@@ -221,24 +214,6 @@ export async function sendSummaryToUser(
     stopAnimation();
 
     console.error(`Error sending summary to user ${userId}:`, error);
-
-    // Check if it's an operation timeout (safety net before Vercel kills us)
-    if (error instanceof Error && error.message === 'OPERATION_TIMEOUT') {
-      try {
-        const errorMessage = await getBotMessage(userLanguage, `errors.${errorKey}`);
-        await messagingService.updateMessage(userId, messageId, errorMessage);
-      } catch (updateError) {
-        console.error(`Failed to update progress message on timeout for user ${userId}:`, updateError);
-      }
-
-      const { notifyAdminError } = await import('../../utils/error-notifier');
-      await notifyAdminError(
-        'Summary Operation Timeout',
-        error,
-        `User: ${userId}, Date: ${summaryDate ? summaryDate.toISOString() : 'today'}, Timeout: ${OPERATION_TIMEOUT_MS}ms`
-      );
-      return;
-    }
 
     // Check if it's an insufficient scopes error
     if (error instanceof Error && error.message === 'GOOGLE_INSUFFICIENT_SCOPES') {
@@ -291,13 +266,9 @@ export async function sendSummaryToUser(
       return;
     }
 
-    // Update progress message with error - wrapped in try-catch to ensure message is always cleaned up
-    try {
-      const errorMessage = await getBotMessage(userLanguage, `errors.${errorKey}`);
-      await messagingService.updateMessage(userId, messageId, errorMessage);
-    } catch (updateError) {
-      console.error(`Failed to update progress message with error for user ${userId}:`, updateError);
-    }
+    // Update progress message with error
+    const errorMessage = await getBotMessage(userLanguage, `errors.${errorKey}`);
+    await messagingService.updateMessage(userId, messageId, errorMessage);
 
     const { notifyAdminError } = await import('../../utils/error-notifier');
     await notifyAdminError(
