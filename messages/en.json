@@ -404,7 +404,9 @@
       "modelTest": "Sorry, there was an error running the model tests.",
       "showingModels": "Sorry, there was an error showing model options.",
       "summaryGenerationFailed": "❌ Sorry, could not generate summary. Please try again.",
-      "generatingSummary": "Sorry, there was an error generating the summary."
+      "generatingSummary": "Sorry, there was an error generating the summary.",
+      "timeout": "Sorry, the request took too long. Please try again.",
+      "aiBusy": "The AI service is currently busy. Please try again in a few minutes."
     },
     "buttons": {
       "openSettings": "⚙️ Open Settings",

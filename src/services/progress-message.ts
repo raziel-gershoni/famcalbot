@@ -120,3 +120,19 @@ export async function sendProgressWithAnimation(
 
   return { messageId, stopAnimation };
 }
+
+/**
+ * Send a static animated-emoji progress message (no edit loop).
+ * Uses Telegram's custom emoji tag which animates client-side.
+ * Returns just the messageId — caller edits it once when done.
+ */
+export async function sendAnimatedProgress(
+  chatId: number | string,
+  type: ProgressType,
+  language: string,
+  service: IMessagingService
+): Promise<number | string> {
+  const baseText = getProgressText(type, language);
+  const message = `\u231B ${baseText}...`;
+  return service.sendMessage(chatId, message);
+}

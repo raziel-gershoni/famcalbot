@@ -31,6 +31,9 @@ export {
   type SummaryBatchResult,
 } from './summary';
 
+// Unified command pipeline
+export { executeCommand, isAIOverloadError } from './command-pipeline';
+
 // Voice message generation
 export { sendVoiceMessage, sendWeeklyVoiceMessage } from './voice';
 

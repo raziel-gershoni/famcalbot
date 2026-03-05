@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { after } from 'next/server';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { MessagingPlatform } from '@/src/services/messaging';
-import { getProgressText, formatProgressMessage } from '@/src/services/progress-message';
+import { getProgressText } from '@/src/services/progress-message';
 import { verifyUserAccess } from '@/src/lib/telegram-auth';
 import { checkRateLimit, commandRateLimiter, getRateLimitHeaders } from '@/src/lib/rate-limit';
 import { captureError } from '@/src/lib/error-capture';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 // Map command to progress type
 function getProgressType(command: string, args?: string): 'summary' | 'summaryTomorrow' | 'weather' | 'lookahead' | 'nextweek' | null {
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest) {
         const progressText = getProgressText(progressType, language);
         progressMessageId = await messagingService.sendMessage(
           user_id,
-          formatProgressMessage(progressText, 0)
+          `\u231B ${progressText}...`
         ) as number;
       } catch (err) {
         console.error('Failed to send initial progress:', err);

@@ -7,11 +7,13 @@ import { getModelConfig, ModelConfig } from './ai-models';
 export const TIMEZONE = 'Asia/Jerusalem';
 
 // Default AI model from environment
-export const DEFAULT_AI_MODEL = process.env.AI_MODEL || 'claude-sonnet-4.5';
+export const DEFAULT_AI_MODEL = process.env.AI_MODEL || 'gemini-3.1-flash-lite';
 
 // Retry configuration (static)
+// MAX_RETRIES=1 means 2 total attempts (initial + 1 retry).
+// SDK-level retries are disabled (maxRetries:0), so this is the only retry layer.
 export const AI_RETRY_CONFIG = {
-  MAX_RETRIES: parseInt(process.env.AI_MAX_RETRIES || '3', 10),
+  MAX_RETRIES: parseInt(process.env.AI_MAX_RETRIES || '1', 10),
   INITIAL_RETRY_DELAY: 1000, // 1 second, will exponentially backoff
 } as const;
 

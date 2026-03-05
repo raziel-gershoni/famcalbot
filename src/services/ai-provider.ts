@@ -18,6 +18,8 @@ const getAnthropic = () => {
   if (!anthropic) {
     anthropic = new Anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY,
+      timeout: 25_000,
+      maxRetries: 0,
     });
   }
   return anthropic;
@@ -27,6 +29,8 @@ const getOpenAI = () => {
   if (!openai) {
     openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
+      timeout: 25_000,
+      maxRetries: 0,
     });
   }
   return openai;
@@ -196,6 +200,9 @@ async function callGemini(prompt: string, modelId?: string): Promise<AICompletio
   const response = await getGemini().models.generateContent({
     model: config.MODEL_CONFIG.modelId,
     contents: prompt,
+    config: {
+      abortSignal: AbortSignal.timeout(25_000),
+    },
   });
   const text = response.text ?? '';
 
@@ -228,16 +235,30 @@ async function callGemini(prompt: string, modelId?: string): Promise<AICompletio
 }
 
 /**
+ * Check if an error should NOT be retried (overload, auth, forbidden).
+ * These resolve in minutes/never, not seconds — retrying wastes time.
+ */
+function isNonRetryableError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const e = error as Record<string, unknown>;
+  const status = e.status ?? e.statusCode;
+  if (status === 429 || status === 529 || status === 401 || status === 403) return true;
+  const name = e.name;
+  if (name === 'RateLimitError' || name === 'AuthenticationError') return true;
+  return false;
+}
+
+/**
  * Generate AI completion with retry logic and exponential backoff
  * Automatically routes to the configured provider (Claude, OpenAI, or Gemini)
  *
  * @param prompt - The prompt to send to the AI
  * @param modelId - Optional model ID to override default model
  * @returns AI completion result with text and usage statistics
- * @throws Error if all retries fail
+ * @throws Original error if all retries fail (preserves .status for downstream detection)
  */
 export async function generateAICompletion(prompt: string, modelId?: string): Promise<AICompletionResult> {
-  let lastError: Error | null = null;
+  let lastError: unknown = null;
   const maxRetries = AI_RETRY_CONFIG.MAX_RETRIES;
   const config = getAIConfig(modelId);
 
@@ -264,14 +285,20 @@ export async function generateAICompletion(prompt: string, modelId?: string): Pr
 
       return result;
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
+      lastError = error;
+
+      // Fail fast on non-retryable errors (429, 529, auth)
+      if (isNonRetryableError(error)) {
+        console.error(`AI API non-retryable error (${(error as Record<string, unknown>).status || (error as Record<string, unknown>).name}):`, error);
+        throw error;
+      }
 
       // Don't retry on last attempt
       if (attempt === maxRetries) {
         break;
       }
 
-      // Calculate exponential backoff delay: 1s, 2s, 4s, 8s, etc.
+      // Calculate exponential backoff delay: 1s, 2s, etc.
       const delay = AI_RETRY_CONFIG.INITIAL_RETRY_DELAY * Math.pow(2, attempt);
 
       console.warn(
@@ -284,7 +311,10 @@ export async function generateAICompletion(prompt: string, modelId?: string): Pr
     }
   }
 
-  // All retries failed
+  // All retries failed — re-throw original error to preserve .status
   console.error(`AI API failed after ${maxRetries + 1} attempts:`, lastError);
-  throw new Error(`AI API failed: ${lastError?.message || 'Unknown error'}`);
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+  throw new Error(`AI API failed: ${lastError}`);
 }

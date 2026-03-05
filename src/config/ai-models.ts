@@ -165,6 +165,16 @@ export const AI_MODELS: Record<string, ModelConfig> = {
     costPer1MTokens: { input: 0.10, output: 0.40 },
     description: 'Ultra-cheap, fastest flash model, perfect for summaries',
   },
+
+  'gemini-3.1-flash-lite': {
+    provider: 'gemini',
+    modelId: 'gemini-3.1-flash-lite-preview',
+    displayName: 'Gemini 3.1 Flash-Lite',
+    maxOutputTokens: 65536,
+    contextWindow: 1048576,
+    costPer1MTokens: { input: 0.25, output: 1.50 },
+    description: 'Latest Flash-Lite (Mar 2026), best cost-efficiency for high-volume tasks',
+  },
 };
 
 /**
@@ -202,6 +212,7 @@ export function getRecommendedModels(): string[] {
     'gpt-5.2',                  // Latest OpenAI (Dec 2025)
     'gemini-3-pro',             // Latest Gemini (Nov 2025)
     'gemini-3-flash',           // Latest Flash (Dec 2025), now default in Gemini app
+    'gemini-3.1-flash-lite',    // Latest Flash-Lite (Mar 2026), best cost-efficiency
     'gemini-2.5-flash',         // Best price-performance
     'gemini-2.5-flash-lite',    // Ultra-cheap, fastest
   ];

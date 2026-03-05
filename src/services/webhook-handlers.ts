@@ -194,6 +194,34 @@ export async function handleTelegramWebhook(
     return;
   }
 
+  // Temporary /emojiid command — admin-only, extracts custom emoji IDs from replied messages
+  // TODO: Remove after discovering the animated hourglass emoji ID
+  if (text.startsWith('/emojiid')) {
+    try {
+      const { getUserByTelegramId } = await import('./user-service');
+      const emojiUser = await getUserByTelegramId(textUserId);
+      if (emojiUser?.isAdmin) {
+        const bot = getBot();
+        const replyMsg = update.message.reply_to_message;
+        const entities = replyMsg?.entities || update.message.entities || [];
+        const customEmojiIds = entities
+          .filter((e: { type: string }) => e.type === 'custom_emoji')
+          .map((e: { custom_emoji_id?: string }) => e.custom_emoji_id)
+          .filter(Boolean);
+
+        if (customEmojiIds.length > 0) {
+          await bot.sendMessage(chatId, `Custom emoji IDs:\n${customEmojiIds.join('\n')}`, { parse_mode: 'HTML' });
+        } else {
+          await bot.sendMessage(chatId, 'No custom emoji found. Reply to a message containing an animated emoji.');
+        }
+      }
+    } catch (e) {
+      console.error('[emojiid] Error:', e);
+    }
+    res.status(200).json({ ok: true });
+    return;
+  }
+
   // Route to appropriate command handler
   if (text.startsWith('/start')) {
     // Pass Telegram user info for auto-registration

@@ -8,8 +8,8 @@ import { getUserByTelegramId, getUserByIdentifier, getOrCreateUser, TelegramUser
 import { fetchTodayEvents, fetchTomorrowEvents } from '../calendar';
 import { MessagingPlatform, MessageFormat } from '../messaging';
 import { getMessagingService as getMessagingServiceByPlatform } from '../messaging';
-import { sendProgressWithAnimation } from '../progress-message';
 import { buildUrl } from '../../config/urls';
+import { executeCommand } from './command-pipeline';
 import { VALID_LOCALES } from '../../utils/locale';
 import { getBotMessages, getBotMessage } from '../../lib/bot-messages';
 import { trackActivityAsync, addBreadcrumb } from '../analytics-service';
@@ -250,68 +250,48 @@ export async function handleWeatherCommand(
     return;
   }
 
-  // Use existing progress message or create new one
-  let messageId: number | string;
-  let stopAnimation: () => void;
+  await executeCommand({
+    chatId,
+    progressType: 'weather',
+    language: userLanguage,
+    existingProgressMessageId,
+    messagingService,
+    errorKey: 'weatherFetch',
+    commandName: 'Weather Command',
+    context: `User: ${userId}, Location: ${user.location}`,
+    operation: async () => {
+      const { fetchWeather } = await import('../weather/open-meteo');
+      const weatherData = await fetchWeather(user.location);
 
-  if (existingProgressMessageId) {
-    messageId = existingProgressMessageId;
-    const { startProgressAnimation, getProgressText } = await import('../progress-message');
-    stopAnimation = startProgressAnimation(chatId, messageId, getProgressText('weather', userLanguage), messagingService);
-  } else {
-    const result = await sendProgressWithAnimation(chatId, 'weather', userLanguage, messagingService);
-    messageId = result.messageId;
-    stopAnimation = result.stopAnimation;
-  }
-
-  try {
-    const { fetchWeather } = await import('../weather/open-meteo');
-    const weatherData = await fetchWeather(user.location);
-
-    const { TIMEZONE } = await import('../../config/constants');
-    let timezone = TIMEZONE;
-    try {
-      const { getTimezone } = await import('../weather/geocoding');
-      timezone = await getTimezone(user.location);
-    } catch {
-      // Fall back to default timezone
-    }
-
-    const { formatWeatherAI } = await import('../weather/formatter');
-    const { brief, detailed } = await formatWeatherAI(weatherData, user.language, user.name, timezone, user.culture, user.isAdmin);
-
-    stopAnimation();
-    await messagingService.updateMessage(chatId, messageId, brief, { format: MessageFormat.HTML });
-
-    // Send voice message with detailed version if enabled
-    if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
+      const { TIMEZONE } = await import('../../config/constants');
+      let timezone = TIMEZONE;
       try {
-        await sendVoiceMessage(Number(userId), detailed, user, messagingService);
-      } catch (err) {
-        console.error(`Weather voice failed for user ${userId}:`, err);
+        const { getTimezone } = await import('../weather/geocoding');
+        timezone = await getTimezone(user.location);
+      } catch {
+        // Fall back to default timezone
       }
-    }
 
-    incrementUsage(user.id, 'textSummaries').catch(err =>
-      console.error('[Subscription] Failed to increment weather usage:', err)
-    );
-  } catch (error) {
-    stopAnimation();
-    console.error(`Error fetching weather for user ${userId}:`, error);
-    const t = await getBotMessages(userLanguage);
-    await messagingService.updateMessage(
-      chatId,
-      messageId,
-      t.errors.weatherFetch
-    );
+      const { formatWeatherAI } = await import('../weather/formatter');
+      return formatWeatherAI(weatherData, user.language, user.name, timezone, user.culture, user.isAdmin);
+    },
+    onSuccess: async (result, messageId) => {
+      await messagingService.updateMessage(chatId, messageId, result.brief, { format: MessageFormat.HTML });
 
-    const { notifyAdminError } = await import('../../utils/error-notifier');
-    await notifyAdminError(
-      'Weather Command',
-      error,
-      `User: ${userId}, Location: ${user.location}`
-    );
-  }
+      // Send voice message with detailed version if enabled
+      if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
+        try {
+          await sendVoiceMessage(Number(userId), result.detailed, user, messagingService);
+        } catch (err) {
+          console.error(`Weather voice failed for user ${userId}:`, err);
+        }
+      }
+
+      incrementUsage(user.id, 'textSummaries').catch(err =>
+        console.error('[Subscription] Failed to increment weather usage:', err)
+      );
+    },
+  });
 }
 
 /**
@@ -369,54 +349,36 @@ export async function handleLookaheadCommand(
   }
 
   const userLanguage = user.language || 'en';
-  let messageId: number | string;
-  let stopAnimation: () => void;
 
-  if (existingProgressMessageId) {
-    messageId = existingProgressMessageId;
-    const { startProgressAnimation, getProgressText } = await import('../progress-message');
-    stopAnimation = startProgressAnimation(chatId, messageId, getProgressText('lookahead', userLanguage), messagingService);
-  } else {
-    const result = await sendProgressWithAnimation(chatId, 'lookahead', userLanguage, messagingService);
-    messageId = result.messageId;
-    stopAnimation = result.stopAnimation;
-  }
+  await executeCommand({
+    chatId,
+    progressType: 'lookahead',
+    language: userLanguage,
+    existingProgressMessageId,
+    messagingService,
+    errorKey: 'lookaheadFetch',
+    commandName: 'Lookahead Command',
+    context: `User: ${userId}`,
+    operation: async () => {
+      const { getWeekLookahead } = await import('../week-lookahead');
+      const lookahead = await getWeekLookahead(user, user.calendarAssignments || []);
 
-  try {
-    const { getWeekLookahead } = await import('../week-lookahead');
-    const lookahead = await getWeekLookahead(user, user.calendarAssignments || []);
+      const { generateWeekLookahead } = await import('../claude');
+      return generateWeekLookahead(lookahead, user, userLanguage);
+    },
+    onSuccess: async (formattedLookahead, messageId) => {
+      await messagingService.updateMessage(chatId, messageId, formattedLookahead, { format: MessageFormat.HTML });
 
-    const { generateWeekLookahead } = await import('../claude');
-    const formattedLookahead = await generateWeekLookahead(lookahead, user, userLanguage);
-
-    stopAnimation();
-    await messagingService.updateMessage(chatId, messageId, formattedLookahead, { format: MessageFormat.HTML });
-
-    // Send voice message if enabled
-    if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
-      try {
-        await sendWeeklyVoiceMessage(Number(userId), formattedLookahead, user, false, messagingService);
-      } catch (err) {
-        console.error(`Weekly voice failed for user ${userId}:`, err);
+      // Send voice message if enabled
+      if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
+        try {
+          await sendWeeklyVoiceMessage(Number(userId), formattedLookahead, user, false, messagingService);
+        } catch (err) {
+          console.error(`Weekly voice failed for user ${userId}:`, err);
+        }
       }
-    }
-  } catch (error) {
-    stopAnimation();
-    console.error(`Error fetching lookahead for user ${userId}:`, error);
-    const t = await getBotMessages(userLanguage);
-    await messagingService.updateMessage(
-      chatId,
-      messageId,
-      t.errors.lookaheadFetch
-    );
-
-    const { notifyAdminError } = await import('../../utils/error-notifier');
-    await notifyAdminError(
-      'Lookahead Command',
-      error,
-      `User: ${userId}`
-    );
-  }
+    },
+  });
 }
 
 /**
@@ -473,54 +435,36 @@ export async function handleNextWeekCommand(
   }
 
   const userLanguage = user.language || 'en';
-  let messageId: number | string;
-  let stopAnimation: () => void;
 
-  if (existingProgressMessageId) {
-    messageId = existingProgressMessageId;
-    const { startProgressAnimation, getProgressText } = await import('../progress-message');
-    stopAnimation = startProgressAnimation(chatId, messageId, getProgressText('nextweek', userLanguage), messagingService);
-  } else {
-    const result = await sendProgressWithAnimation(chatId, 'nextweek', userLanguage, messagingService);
-    messageId = result.messageId;
-    stopAnimation = result.stopAnimation;
-  }
+  await executeCommand({
+    chatId,
+    progressType: 'nextweek',
+    language: userLanguage,
+    existingProgressMessageId,
+    messagingService,
+    errorKey: 'nextWeekFetch',
+    commandName: 'Next Week Command',
+    context: `User: ${userId}`,
+    operation: async () => {
+      const { getNextWeekLookahead } = await import('../week-lookahead');
+      const lookahead = await getNextWeekLookahead(user, user.calendarAssignments || []);
 
-  try {
-    const { getNextWeekLookahead } = await import('../week-lookahead');
-    const lookahead = await getNextWeekLookahead(user, user.calendarAssignments || []);
+      const { generateNextWeekSummary } = await import('../claude');
+      return generateNextWeekSummary(lookahead, user, userLanguage);
+    },
+    onSuccess: async (formattedSummary, messageId) => {
+      await messagingService.updateMessage(chatId, messageId, formattedSummary, { format: MessageFormat.HTML });
 
-    const { generateNextWeekSummary } = await import('../claude');
-    const formattedSummary = await generateNextWeekSummary(lookahead, user, userLanguage);
-
-    stopAnimation();
-    await messagingService.updateMessage(chatId, messageId, formattedSummary, { format: MessageFormat.HTML });
-
-    // Send voice message if enabled
-    if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
-      try {
-        await sendWeeklyVoiceMessage(Number(userId), formattedSummary, user, true, messagingService);
-      } catch (err) {
-        console.error(`Next week voice failed for user ${userId}:`, err);
+      // Send voice message if enabled
+      if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
+        try {
+          await sendWeeklyVoiceMessage(Number(userId), formattedSummary, user, true, messagingService);
+        } catch (err) {
+          console.error(`Next week voice failed for user ${userId}:`, err);
+        }
       }
-    }
-  } catch (error) {
-    stopAnimation();
-    console.error(`Error fetching next week for user ${userId}:`, error);
-    const t = await getBotMessages(userLanguage);
-    await messagingService.updateMessage(
-      chatId,
-      messageId,
-      t.errors.nextWeekFetch
-    );
-
-    const { notifyAdminError } = await import('../../utils/error-notifier');
-    await notifyAdminError(
-      'Next Week Command',
-      error,
-      `User: ${userId}`
-    );
-  }
+    },
+  });
 }
 
 /**

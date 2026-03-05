@@ -8,8 +8,9 @@ import { generateSummary, SummaryUserContext, formatDateHeader } from '../claude
 import { CalendarEvent, UserConfig } from '../../types';
 import { IMessagingService, getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from '../messaging';
 import { getCalendarsByLabel, getPrimaryCalendar, getSpouseInfo } from '../../utils/calendar-helpers';
-import { sendProgressWithAnimation, ProgressType } from '../progress-message';
+import { ProgressType } from '../progress-message';
 import { buildUrl } from '../../config/urls';
+import { executeCommand } from './command-pipeline';
 import { getBotMessages, getBotMessage } from '../../lib/bot-messages';
 import { trackActivityAsync } from '../analytics-service';
 import { checkFeatureAccess, incrementUsage } from '../subscription-service';
@@ -184,99 +185,82 @@ export async function sendSummaryToUser(
     return;
   }
 
-  // Use existing progress message or create new one
-  let messageId: number | string;
-  let stopAnimation: () => void;
-
-  if (existingProgressMessageId) {
-    messageId = existingProgressMessageId;
-    const { startProgressAnimation, getProgressText } = await import('../progress-message');
-    stopAnimation = startProgressAnimation(userId, messageId, getProgressText(progressType, userLanguage), messagingService);
-  } else {
-    const result = await sendProgressWithAnimation(userId, progressType, userLanguage, messagingService);
-    messageId = result.messageId;
-    stopAnimation = result.stopAnimation;
-  }
-
-  try {
-    const { summary, dateHeader } = await prepareSummaryForUser(user, fetchFunction, summaryDate, modelId);
-
-    stopAnimation();
-    await deliverSummary({
-      userId,
-      summary,
-      user,
-      progressMessageId: messageId,
-      showVoiceProgress: true,
-      dateHeader
-    });
-  } catch (error) {
-    stopAnimation();
-
-    console.error(`Error sending summary to user ${userId}:`, error);
-
-    // Check if it's an insufficient scopes error
-    if (error instanceof Error && error.message === 'GOOGLE_INSUFFICIENT_SCOPES') {
-      const t = await getBotMessages(userLanguage);
-      const refreshUrl = buildUrl(`/refresh-token?user_id=${userId}`);
-      const scopesMessage = `${t.insufficientScopes.title}\n\n${t.insufficientScopes.message}`;
-      await messagingService.updateMessage(userId, messageId, scopesMessage, {
-        format: MessageFormat.HTML
+  await executeCommand({
+    chatId: userId,
+    progressType,
+    language: userLanguage,
+    existingProgressMessageId,
+    messagingService,
+    errorKey,
+    commandName: 'Summary Generation',
+    context: `User: ${userId}, Date: ${summaryDate ? summaryDate.toISOString() : 'today'}`,
+    operation: async () => {
+      return prepareSummaryForUser(user, fetchFunction, summaryDate, modelId);
+    },
+    onSuccess: async (result, messageId) => {
+      await deliverSummary({
+        userId,
+        summary: result.summary,
+        user,
+        progressMessageId: messageId,
+        showVoiceProgress: true,
+        dateHeader: result.dateHeader,
       });
-      await messagingService.sendMessage(userId, t.insufficientScopes.tapToRefresh, {
-        replyMarkup: {
-          inline_keyboard: [[
-            { text: t.buttons.refreshGoogle, web_app: { url: refreshUrl } }
-          ]]
-        }
-      });
+    },
+    onError: async (error, messageId) => {
+      // Handle Google-specific errors that need special UI treatment
+      if (error.message === 'GOOGLE_INSUFFICIENT_SCOPES') {
+        const t = await getBotMessages(userLanguage);
+        const refreshUrl = buildUrl(`/refresh-token?user_id=${userId}`);
+        const scopesMessage = `${t.insufficientScopes.title}\n\n${t.insufficientScopes.message}`;
+        await messagingService.updateMessage(userId, messageId, scopesMessage, {
+          format: MessageFormat.HTML
+        });
+        await messagingService.sendMessage(userId, t.insufficientScopes.tapToRefresh, {
+          replyMarkup: {
+            inline_keyboard: [[
+              { text: t.buttons.refreshGoogle, web_app: { url: refreshUrl } }
+            ]]
+          }
+        });
 
-      const { clearGoogleRefreshToken } = await import('../user-service');
-      await clearGoogleRefreshToken(BigInt(userId));
+        const { clearGoogleRefreshToken } = await import('../user-service');
+        await clearGoogleRefreshToken(BigInt(userId));
 
-      const { notifyAdminWarning } = await import('../../utils/error-notifier');
-      await notifyAdminWarning(
-        'Insufficient Scopes',
-        `User ${userId} has a token with insufficient scopes. Token cleared, awaiting re-authorization.`
-      );
-      return;
-    }
+        const { notifyAdminWarning } = await import('../../utils/error-notifier');
+        await notifyAdminWarning(
+          'Insufficient Scopes',
+          `User ${userId} has a token with insufficient scopes. Token cleared, awaiting re-authorization.`
+        );
+        return true; // handled
+      }
 
-    // Check if it's a token expiration error
-    if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
-      const t = await getBotMessages(userLanguage);
-      const refreshUrl = buildUrl(`/refresh-token?user_id=${userId}`);
-      const expiredMessage = `${t.tokenExpired.title}\n\n${t.tokenExpired.message}`;
-      await messagingService.updateMessage(userId, messageId, expiredMessage, {
-        format: MessageFormat.HTML
-      });
-      await messagingService.sendMessage(userId, t.tokenExpired.tapToRefresh, {
-        replyMarkup: {
-          inline_keyboard: [[
-            { text: t.buttons.refreshGoogle, web_app: { url: refreshUrl } }
-          ]]
-        }
-      });
+      if (error.message === 'GOOGLE_TOKEN_EXPIRED') {
+        const t = await getBotMessages(userLanguage);
+        const refreshUrl = buildUrl(`/refresh-token?user_id=${userId}`);
+        const expiredMessage = `${t.tokenExpired.title}\n\n${t.tokenExpired.message}`;
+        await messagingService.updateMessage(userId, messageId, expiredMessage, {
+          format: MessageFormat.HTML
+        });
+        await messagingService.sendMessage(userId, t.tokenExpired.tapToRefresh, {
+          replyMarkup: {
+            inline_keyboard: [[
+              { text: t.buttons.refreshGoogle, web_app: { url: refreshUrl } }
+            ]]
+          }
+        });
 
-      const { notifyAdminWarning } = await import('../../utils/error-notifier');
-      await notifyAdminWarning(
-        'Token Expired',
-        `User ${userId} needs to refresh their Google Calendar token`
-      );
-      return;
-    }
+        const { notifyAdminWarning } = await import('../../utils/error-notifier');
+        await notifyAdminWarning(
+          'Token Expired',
+          `User ${userId} needs to refresh their Google Calendar token`
+        );
+        return true; // handled
+      }
 
-    // Update progress message with error
-    const errorMessage = await getBotMessage(userLanguage, `errors.${errorKey}`);
-    await messagingService.updateMessage(userId, messageId, errorMessage);
-
-    const { notifyAdminError } = await import('../../utils/error-notifier');
-    await notifyAdminError(
-      'Summary Generation',
-      error,
-      `User: ${userId}, Date: ${summaryDate ? summaryDate.toISOString() : 'today'}`
-    );
-  }
+      return false; // not handled, let pipeline show default error
+    },
+  });
 }
 
 /** Result counts from batch summary delivery */
