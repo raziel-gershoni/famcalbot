@@ -242,6 +242,9 @@ export async function generateAICompletion(prompt: string, modelId?: string): Pr
   const config = getAIConfig(modelId);
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      console.log(`AI API retry attempt ${attempt + 1}/${maxRetries + 1}...`);
+    }
     try {
       // Route to the appropriate provider
       let result: AICompletionResult;

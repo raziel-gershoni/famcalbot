@@ -9,6 +9,7 @@ import { captureError } from '@/src/lib/error-capture';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 // Map command to progress type
 function getProgressType(command: string, args?: string): 'summary' | 'summaryTomorrow' | 'weather' | 'lookahead' | 'nextweek' | null {

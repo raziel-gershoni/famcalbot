@@ -3,6 +3,10 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { detectPlatform, MessagingPlatform } from '@/src/services/messaging';
 import { captureError } from '@/src/lib/error-capture';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+export const maxDuration = 60;
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const mode = searchParams.get('hub.mode');
