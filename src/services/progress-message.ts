@@ -75,7 +75,7 @@ export function startProgressAnimation(
   messageId: number | string,
   baseText: string,
   service: IMessagingService,
-  intervalMs: number = 3000
+  intervalMs: number = 300
 ): () => void {
   let frame = 1;
   let isRunning = true;
