@@ -26,3 +26,10 @@ npm-debug.log*
 # Vercel
 .vercel
 *.backup
+
+# BMAD
+_bmad/
+_bmad-output/
+
+# Claude Code
+.claude/
