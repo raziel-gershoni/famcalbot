@@ -5,11 +5,13 @@
 
 import { UserConfig } from '../../types';
 import { IMessagingService } from '../messaging';
-import { sendProgressWithAnimation } from '../progress-message';
+import { sendAnimatedProgress } from '../progress-message';
 import { getBot, getMessagingService } from './bot';
 import { trackActivityAsync } from '../analytics-service';
 import { incrementUsage } from '../subscription-service';
 import type { VoiceCondenserContext } from '../../prompts/voice-condenser';
+
+const VOICE_TIMEOUT_MS = 45_000;
 
 /**
  * Generate and send voice version of summary
@@ -30,65 +32,67 @@ export async function sendVoiceMessage(
   const msgService = service || getMessagingService();
   const userLanguage = user.language || 'en';
 
-  // Start voice progress animation (if enabled)
+  // Send animated hourglass progress (if enabled)
   let messageId: number | string | null = null;
-  let stopAnimation: (() => void) | null = null;
 
   if (showProgress) {
-    const progress = await sendProgressWithAnimation(
-      userId,
-      'voice',
-      userLanguage,
-      msgService
-    );
-    messageId = progress.messageId;
-    stopAnimation = progress.stopAnimation;
+    messageId = await sendAnimatedProgress(userId, 'voice', userLanguage, msgService);
   }
 
   try {
-    const { generateVoiceMessage, cleanupVoiceFile } = await import('../voice-generator');
-    const { buildVoiceCondenserPrompt } = await import('../../prompts/voice-condenser');
-    const { generateAICompletion } = await import('../ai-provider');
+    const voiceWork = async () => {
+      const { generateVoiceMessage } = await import('../voice-generator');
+      const { buildVoiceCondenserPrompt } = await import('../../prompts/voice-condenser');
+      const { generateAICompletion } = await import('../ai-provider');
 
-    console.log(`[Voice] Generating voice message for user ${userId}...`);
+      console.log(`[Voice] Generating voice message for user ${userId}...`);
 
-    // Extract spouse name from calendar assignments
-    const spouseCalendar = user.calendarAssignments?.find(cal =>
-      cal.labels.includes('spouse')
-    );
-    const spouseName = spouseCalendar?.personName;
+      // Extract spouse name from calendar assignments
+      const spouseCalendar = user.calendarAssignments?.find(cal =>
+        cal.labels.includes('spouse')
+      );
+      const spouseName = spouseCalendar?.personName;
 
-    // Check if user has kids calendars
-    const hasKidsCalendars = user.calendarAssignments?.some(cal =>
-      cal.labels.includes('kids')
-    ) ?? false;
+      // Check if user has kids calendars
+      const hasKidsCalendars = user.calendarAssignments?.some(cal =>
+        cal.labels.includes('kids')
+      ) ?? false;
 
-    // Step 1: Condense summary via LLM
-    const condenserContext: VoiceCondenserContext = {
-      summary,
-      locale: userLanguage,
-      userName: user.name,
-      spouseName,
-      hasKidsCalendars,
-      culture: user.culture,
-      globalRules: user.globalRules,
+      // Step 1: Condense summary via LLM
+      const condenserContext: VoiceCondenserContext = {
+        summary,
+        locale: userLanguage,
+        userName: user.name,
+        spouseName,
+        hasKidsCalendars,
+        culture: user.culture,
+        globalRules: user.globalRules,
+      };
+      const condenserPrompt = buildVoiceCondenserPrompt(condenserContext);
+      const condensedResult = await generateAICompletion(condenserPrompt);
+      const condensedText = condensedResult.text;
+
+      console.log(`[Voice] Summary condensed: ${summary.length} → ${condensedText.length} chars`);
+
+      // Step 2: Generate voice from condensed text
+      voiceFilePath = await generateVoiceMessage(condensedText, userLanguage);
+
+      return { condensedText };
     };
-    const condenserPrompt = buildVoiceCondenserPrompt(condenserContext);
-    const condensedResult = await generateAICompletion(condenserPrompt);
-    const condensedText = condensedResult.text;
 
-    console.log(`[Voice] Summary condensed: ${summary.length} → ${condensedText.length} chars`);
+    const { condensedText } = await Promise.race([
+      voiceWork(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Voice generation timed out')), VOICE_TIMEOUT_MS)
+      ),
+    ]);
 
-    // Step 2: Generate voice from condensed text
-    voiceFilePath = await generateVoiceMessage(condensedText, userLanguage);
-
-    // Stop animation and delete progress message (if shown)
-    if (stopAnimation) stopAnimation();
+    // Delete progress message
     if (messageId) await msgService.deleteMessage(userId, messageId);
 
     // Send as voice message to Telegram
     const botInstance = getBot();
-    await botInstance.sendVoice(userId, voiceFilePath, {}, {
+    await botInstance.sendVoice(userId, voiceFilePath!, {}, {
       contentType: 'audio/ogg'
     });
 
@@ -102,12 +106,19 @@ export async function sendVoiceMessage(
 
     console.log(`[Voice] Voice message sent successfully to user ${userId}`);
   } catch (error) {
-    // Stop animation on error (if shown)
-    if (stopAnimation) stopAnimation();
-    // Delete progress message on error too (if shown)
-    if (messageId) await msgService.deleteMessage(userId, messageId);
-
     console.error(`[Voice] Voice generation failed for user ${userId}:`, error);
+
+    // Replace progress message with friendly error instead of deleting
+    if (messageId) {
+      try {
+        const { getBotMessages } = await import('../../lib/bot-messages');
+        const t = await getBotMessages(userLanguage);
+        const errorText = t.errors?.voiceGenerationFailed || 'Voice message unavailable — your text summary is above.';
+        await msgService.updateMessage(userId, messageId, errorText);
+      } catch (updateErr) {
+        console.error('[Voice] Failed to update progress with error:', updateErr);
+      }
+    }
 
     // Notify admin but don't interrupt user experience
     const { notifyAdminWarning } = await import('../../utils/error-notifier');
@@ -141,71 +152,78 @@ export async function sendWeeklyVoiceMessage(
   const msgService = service || getMessagingService();
   const userLanguage = user.language || 'en';
 
-  // Start voice progress animation
-  const progress = await sendProgressWithAnimation(
-    userId,
-    'voice',
-    userLanguage,
-    msgService
-  );
-  const { messageId, stopAnimation } = progress;
+  // Send animated hourglass progress
+  const messageId = await sendAnimatedProgress(userId, 'voice', userLanguage, msgService);
 
   try {
-    const { generateVoiceMessage, cleanupVoiceFile } = await import('../voice-generator');
-    const { buildWeeklyVoiceCondenserPrompt } = await import('../../prompts/voice-condenser');
-    const { generateAICompletion } = await import('../ai-provider');
+    const voiceWork = async () => {
+      const { generateVoiceMessage } = await import('../voice-generator');
+      const { buildWeeklyVoiceCondenserPrompt } = await import('../../prompts/voice-condenser');
+      const { generateAICompletion } = await import('../ai-provider');
 
-    console.log(`[Voice] Generating weekly voice message for user ${userId}...`);
+      console.log(`[Voice] Generating weekly voice message for user ${userId}...`);
 
-    // Extract spouse name from calendar assignments
-    const spouseCalendar = user.calendarAssignments?.find(cal =>
-      cal.labels.includes('spouse')
-    );
-    const spouseName = spouseCalendar?.personName;
+      // Extract spouse name from calendar assignments
+      const spouseCalendar = user.calendarAssignments?.find(cal =>
+        cal.labels.includes('spouse')
+      );
+      const spouseName = spouseCalendar?.personName;
 
-    // Check if user has kids calendars
-    const hasKidsCalendars = user.calendarAssignments?.some(cal =>
-      cal.labels.includes('kids')
-    ) ?? false;
+      // Check if user has kids calendars
+      const hasKidsCalendars = user.calendarAssignments?.some(cal =>
+        cal.labels.includes('kids')
+      ) ?? false;
 
-    // Step 1: Condense summary via LLM
-    const condenserContext: VoiceCondenserContext = {
-      summary,
-      locale: userLanguage,
-      userName: user.name,
-      spouseName,
-      hasKidsCalendars,
-      culture: user.culture,
-      globalRules: user.globalRules,
-      isNextWeek,
+      // Step 1: Condense summary via LLM
+      const condenserContext: VoiceCondenserContext = {
+        summary,
+        locale: userLanguage,
+        userName: user.name,
+        spouseName,
+        hasKidsCalendars,
+        culture: user.culture,
+        globalRules: user.globalRules,
+        isNextWeek,
+      };
+      const condenserPrompt = buildWeeklyVoiceCondenserPrompt(condenserContext);
+      const condensedResult = await generateAICompletion(condenserPrompt);
+      const condensedText = condensedResult.text;
+
+      console.log(`[Voice] Weekly summary condensed: ${summary.length} → ${condensedText.length} chars`);
+
+      // Step 2: Generate voice from condensed text
+      voiceFilePath = await generateVoiceMessage(condensedText, userLanguage);
     };
-    const condenserPrompt = buildWeeklyVoiceCondenserPrompt(condenserContext);
-    const condensedResult = await generateAICompletion(condenserPrompt);
-    const condensedText = condensedResult.text;
 
-    console.log(`[Voice] Weekly summary condensed: ${summary.length} → ${condensedText.length} chars`);
+    await Promise.race([
+      voiceWork(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Weekly voice generation timed out')), VOICE_TIMEOUT_MS)
+      ),
+    ]);
 
-    // Step 2: Generate voice from condensed text
-    voiceFilePath = await generateVoiceMessage(condensedText, userLanguage);
-
-    // Stop animation and delete progress message before sending voice
-    stopAnimation();
+    // Delete progress message before sending voice
     await msgService.deleteMessage(userId, messageId);
 
     // Send as voice message to Telegram
     const botInstance = getBot();
-    await botInstance.sendVoice(userId, voiceFilePath, {}, {
+    await botInstance.sendVoice(userId, voiceFilePath!, {}, {
       contentType: 'audio/ogg'
     });
 
     console.log(`[Voice] Weekly voice message sent successfully to user ${userId}`);
   } catch (error) {
-    // Stop animation on error
-    stopAnimation();
-    // Delete progress message on error too
-    await msgService.deleteMessage(userId, messageId);
-
     console.error(`[Voice] Weekly voice generation failed for user ${userId}:`, error);
+
+    // Replace progress message with friendly error instead of deleting
+    try {
+      const { getBotMessages } = await import('../../lib/bot-messages');
+      const t = await getBotMessages(userLanguage);
+      const errorText = t.errors?.voiceGenerationFailed || 'Voice message unavailable — your text summary is above.';
+      await msgService.updateMessage(userId, messageId, errorText);
+    } catch (updateErr) {
+      console.error('[Voice] Failed to update progress with error:', updateErr);
+    }
 
     // Notify admin but don't interrupt user experience
     const { notifyAdminWarning } = await import('../../utils/error-notifier');

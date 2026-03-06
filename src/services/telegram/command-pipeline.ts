@@ -5,18 +5,10 @@
  */
 
 import { IMessagingService, MessageFormat } from '../messaging/types';
-import { ProgressType, getProgressText } from '../progress-message';
+import { ProgressType, getProgressText, buildProgressHtml } from '../progress-message';
 import { getBotMessages } from '../../lib/bot-messages';
 
 const DEFAULT_OPERATION_TIMEOUT_MS = 50_000;
-
-/**
- * Animated emoji ID for the progress spinner.
- * Set to empty string to fall back to static Unicode hourglass.
- * To discover the ID: send an animated hourglass emoji in Telegram,
- * then use the /emojiid command to extract it.
- */
-const ANIMATED_HOURGLASS_EMOJI_ID = '5451732530048802485';
 
 export interface CommandPipelineOptions<T> {
   chatId: number | string;
@@ -51,17 +43,6 @@ class OperationTimeoutError extends Error {
     super('Operation timed out');
     this.name = 'OperationTimeoutError';
   }
-}
-
-/**
- * Build the animated-emoji progress message.
- * Premium users see the animated custom emoji; others see a static hourglass.
- */
-function buildProgressHtml(text: string): string {
-  if (ANIMATED_HOURGLASS_EMOJI_ID) {
-    return `<tg-emoji emoji-id="${ANIMATED_HOURGLASS_EMOJI_ID}">\u231B</tg-emoji> ${text}...`;
-  }
-  return `\u231B ${text}...`;
 }
 
 /**

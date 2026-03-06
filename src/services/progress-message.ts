@@ -1,12 +1,20 @@
 /**
  * Progress Message Service
- * Provides animated "working" messages that cycle dots
- * Example: "⏳ Generating your summary." → "⏳ Generating your summary.." → "..."
+ * Sends a static animated-emoji progress message (no edit loop).
+ * Uses Telegram's custom emoji tag which animates client-side.
  */
 
-import { IMessagingService } from './messaging/types';
+import { IMessagingService, MessageFormat } from './messaging/types';
 
 export type ProgressType = 'summary' | 'summaryTomorrow' | 'weather' | 'voice' | 'lookahead' | 'nextweek';
+
+/**
+ * Animated emoji ID for the progress spinner.
+ * Set to empty string to fall back to static Unicode hourglass.
+ * To discover the ID: send an animated hourglass emoji in Telegram,
+ * then use the /emojiid command to extract it.
+ */
+export const ANIMATED_HOURGLASS_EMOJI_ID = '5451732530048802485';
 
 /**
  * Progress text translations
@@ -47,84 +55,20 @@ export function getProgressText(type: ProgressType, language: string = 'en'): st
 }
 
 /**
- * Braille spinner frames (10 frames) - smooth rotating effect
+ * Build the animated-emoji progress message HTML.
+ * Premium users see the animated custom emoji; others see a static hourglass.
  */
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
-/**
- * Format progress message with spinning braille and static dots
- */
-export function formatProgressMessage(baseText: string, frame: number = 0): string {
-  const spinner = SPINNER_FRAMES[frame % 10];
-  return `${spinner} ${baseText}...`;
-}
-
-/**
- * Start progress animation with spinning braille
- * Returns a cleanup function to stop the animation
- *
- * @param chatId - Chat to send progress to
- * @param messageId - Message ID to update
- * @param baseText - Base progress text (without dots)
- * @param service - Messaging service to use for updates
- * @param intervalMs - Interval between frame updates (default 300ms)
- * @returns Cleanup function to stop the animation
- */
-export function startProgressAnimation(
-  chatId: number | string,
-  messageId: number | string,
-  baseText: string,
-  service: IMessagingService,
-  intervalMs: number = 300
-): () => void {
-  let frame = 1;
-  let isRunning = true;
-
-  const interval = setInterval(async () => {
-    if (!isRunning) return;
-
-    frame++;
-    const progressText = formatProgressMessage(baseText, frame);
-
-    try {
-      await service.updateMessage(chatId, messageId, progressText);
-    } catch (error) {
-      // Stop animation if update fails
-      isRunning = false;
-      clearInterval(interval);
-    }
-  }, intervalMs);
-
-  // Return cleanup function
-  return () => {
-    isRunning = false;
-    clearInterval(interval);
-  };
-}
-
-/**
- * Send initial progress message and start animation
- * Returns messageId and cleanup function
- */
-export async function sendProgressWithAnimation(
-  chatId: number | string,
-  type: ProgressType,
-  language: string,
-  service: IMessagingService
-): Promise<{ messageId: number | string; stopAnimation: () => void }> {
-  const baseText = getProgressText(type, language);
-  const initialMessage = formatProgressMessage(baseText, 1);
-
-  const messageId = await service.sendMessage(chatId, initialMessage);
-  const stopAnimation = startProgressAnimation(chatId, messageId, baseText, service);
-
-  return { messageId, stopAnimation };
+export function buildProgressHtml(text: string): string {
+  if (ANIMATED_HOURGLASS_EMOJI_ID) {
+    return `<tg-emoji emoji-id="${ANIMATED_HOURGLASS_EMOJI_ID}">\u231B</tg-emoji> ${text}...`;
+  }
+  return `\u231B ${text}...`;
 }
 
 /**
  * Send a static animated-emoji progress message (no edit loop).
  * Uses Telegram's custom emoji tag which animates client-side.
- * Returns just the messageId — caller edits it once when done.
+ * Returns just the messageId — caller deletes or edits it when done.
  */
 export async function sendAnimatedProgress(
   chatId: number | string,
@@ -133,6 +77,6 @@ export async function sendAnimatedProgress(
   service: IMessagingService
 ): Promise<number | string> {
   const baseText = getProgressText(type, language);
-  const message = `\u231B ${baseText}...`;
-  return service.sendMessage(chatId, message);
+  const html = buildProgressHtml(baseText);
+  return service.sendMessage(chatId, html, { format: MessageFormat.HTML });
 }

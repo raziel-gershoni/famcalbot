@@ -408,7 +408,8 @@
       "summaryGenerationFailed": "❌ Sorry, could not generate summary. Please try again.",
       "generatingSummary": "Sorry, there was an error generating the summary.",
       "timeout": "Sorry, the request took too long. Please try again.",
-      "aiBusy": "The AI service is currently busy. Please try again in a few minutes."
+      "aiBusy": "The AI service is currently busy. Please try again in a few minutes.",
+      "voiceGenerationFailed": "Voice message unavailable — your text summary is above."
     },
     "buttons": {
       "openSettings": "⚙️ Open Settings",
