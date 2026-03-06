@@ -52,18 +52,26 @@ async function prepareSummaryForUser(
   summaryDate: Date | undefined,
   modelId?: string
 ): Promise<PreparedSummary> {
+  const t0 = Date.now();
+
   // Resolve user's timezone early for consistent use throughout
+  const tTimezone = Date.now();
   const { resolveUserTimezone } = await import('../../lib/timezone');
   const userTimezone = await resolveUserTimezone(user);
+  const timezoneMs = Date.now() - tTimezone;
 
   // Extract all calendar IDs from assignments
   const allCalendarIds = user.calendarAssignments?.map(a => a.calendarId) || [];
 
   // Fetch calendar events with user's timezone
+  const tCalendar = Date.now();
   const events = await fetchFunction(user.googleRefreshToken, allCalendarIds, userTimezone);
+  const calendarMs = Date.now() - tCalendar;
 
   // Categorize events by ownership
+  const tCategorize = Date.now();
   const categorized = categorizeEvents(events, user);
+  const categorizeMs = Date.now() - tCategorize;
 
   // Extract primary calendar ID
   const primaryCalendar = user.calendarAssignments
@@ -82,7 +90,9 @@ async function prepareSummaryForUser(
 
   // Fetch week lookahead if enabled for tomorrow summary
   let weekLookaheadText: string | undefined;
+  let lookaheadMs = 0;
   if (summaryDate && user.includeLookaheadInTomorrow) {
+    const tLookahead = Date.now();
     try {
       const { getWeekLookahead } = await import('../week-lookahead');
       const lookahead = await getWeekLookahead(user, user.calendarAssignments || [], summaryDate);
@@ -100,9 +110,11 @@ async function prepareSummaryForUser(
     } catch (error) {
       console.error('Failed to fetch week lookahead:', error);
     }
+    lookaheadMs = Date.now() - tLookahead;
   }
 
   // Generate summary with AI
+  const tAI = Date.now();
   const summary = await generateSummary(
     categorized.userEvents,
     categorized.spouseEvents,
@@ -124,6 +136,7 @@ async function prepareSummaryForUser(
     weekLookaheadText,
     userTimezone
   );
+  const aiMs = Date.now() - tAI;
 
   // Generate date header for voice-only delivery
   const dateHeader = formatDateHeader(
@@ -132,6 +145,9 @@ async function prepareSummaryForUser(
     user.culture,
     userTimezone
   );
+
+  const totalMs = Date.now() - t0;
+  console.log(`[Summary Timing] user=${user.telegramId} type=${summaryDate ? 'tomorrow' : 'today'} total=${totalMs}ms timezone=${timezoneMs}ms calendar=${calendarMs}ms categorize=${categorizeMs}ms lookahead=${lookaheadMs}ms ai=${aiMs}ms`);
 
   return { summary, dateHeader };
 }
@@ -339,6 +355,7 @@ async function sendSummaryToAll(
       }
 
       try {
+        const tUser = Date.now();
         const { summary, dateHeader } = await prepareSummaryForUser(user, fetchFunction, summaryDate);
 
         await deliverSummary({
@@ -349,6 +366,7 @@ async function sendSummaryToAll(
           dateHeader
         });
 
+        console.log(`[Batch Summary] user=${user.telegramId} total=${Date.now() - tUser}ms`);
         result.processed++;
 
         // Mark as sent for dedup
@@ -558,6 +576,7 @@ interface DeliveryOptions {
  * Respects user text/voice preferences
  */
 async function deliverSummary(options: DeliveryOptions): Promise<void> {
+  const t0 = Date.now();
   const {
     userId,
     summary,
@@ -595,6 +614,7 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
   }
 
   // Check near-limit warning for text summaries
+  const tFeatureCheck = Date.now();
   let summaryWithWarning = summary;
   try {
     const textAccess = await checkFeatureAccess(user.id, 'text_summary');
@@ -611,8 +631,10 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
   } catch {
     // Non-critical, continue without warning
   }
+  const featureCheckMs = Date.now() - tFeatureCheck;
 
   // Handle text delivery
+  const tTextDelivery = Date.now();
   if (sendText) {
     if (progressMessageId) {
       await msgService.updateMessage(userId, progressMessageId, summaryWithWarning, { format: MessageFormat.HTML });
@@ -629,11 +651,14 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
   } else if (progressMessageId && !(sendVoiceEnabled && dateHeader)) {
     await msgService.deleteMessage(userId, progressMessageId);
   }
+  const textDeliveryMs = Date.now() - tTextDelivery;
 
   // Handle voice delivery
+  let voiceDispatchMs = 0;
   if (sendVoiceEnabled) {
     const voiceAccess = await checkFeatureAccess(user.id, 'voice_summary');
     if (!voiceAccess.allowed) {
+      console.log(`[Delivery Timing] user=${userId} total=${Date.now() - t0}ms featureCheck=${featureCheckMs}ms textDelivery=${textDeliveryMs}ms voiceDispatch=0ms`);
       return;
     }
 
@@ -651,6 +676,10 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
       await msgService.deleteMessage(userId, progressMessageId);
     }
 
+    const tVoice = Date.now();
     await dispatchVoiceGeneration(userId, summary, 'daily');
+    voiceDispatchMs = Date.now() - tVoice;
   }
+
+  console.log(`[Delivery Timing] user=${userId} total=${Date.now() - t0}ms featureCheck=${featureCheckMs}ms textDelivery=${textDeliveryMs}ms voiceDispatch=${voiceDispatchMs}ms`);
 }

@@ -231,10 +231,13 @@ export async function generateSummary(
   weekLookahead?: string,
   userTimezone?: string
 ): Promise<string> {
+  const t0 = Date.now();
+
   // Get timezone from location for weather (or use default)
   let weatherTimezone = TIMEZONE;
   let weatherSummary: string | undefined;
 
+  const tWeather = Date.now();
   if (location && weatherEnabled) {
     try {
       const { getTimezone } = await import('./weather/geocoding');
@@ -255,11 +258,13 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
       // Continue with defaults if it fails
     }
   }
+  const weatherMs = Date.now() - tWeather;
 
   // Use explicit user timezone for event formatting, fall back to weather/geocoding timezone
   const timezone = userTimezone || weatherTimezone;
 
   // Build prompt data
+  const tPrompt = Date.now();
   const promptData = buildPromptData(
     userEvents,
     spouseEvents,
@@ -280,9 +285,16 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
 
   // Build the prompt
   const prompt = buildCalendarSummaryPrompt(promptData);
+  const promptMs = Date.now() - tPrompt;
 
   // Call AI provider with retry logic, including model info if requested
-  return await callAI(prompt, includeModelInfo, modelId);
+  const tAICall = Date.now();
+  const result = await callAI(prompt, includeModelInfo, modelId);
+  const aiCallMs = Date.now() - tAICall;
+
+  console.log(`[AI Summary Timing] total=${Date.now() - t0}ms weather=${weatherMs}ms prompt=${promptMs}ms aiCall=${aiCallMs}ms`);
+
+  return result;
 }
 
 /**
