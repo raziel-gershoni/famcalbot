@@ -37,5 +37,8 @@ export { executeCommand, isAIOverloadError } from './command-pipeline';
 // Voice message generation
 export { sendVoiceMessage, sendWeeklyVoiceMessage } from './voice';
 
+// Voice dispatch via QStash
+export { dispatchVoiceGeneration } from './voice-dispatch';
+
 // Subscription notifications
 export { sendTrialExpiredNotification, sendReminderDowngradeNotification } from './notifications';

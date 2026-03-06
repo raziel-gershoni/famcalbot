@@ -11,7 +11,7 @@ import { trackActivityAsync } from '../analytics-service';
 import { incrementUsage } from '../subscription-service';
 import type { VoiceCondenserContext } from '../../prompts/voice-condenser';
 
-const VOICE_TIMEOUT_MS = 45_000;
+const VOICE_TIMEOUT_MS = 40_000;
 
 /**
  * Generate and send voice version of summary

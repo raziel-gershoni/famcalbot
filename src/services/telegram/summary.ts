@@ -16,7 +16,7 @@ import { trackActivityAsync } from '../analytics-service';
 import { checkFeatureAccess, incrementUsage } from '../subscription-service';
 import { captureError } from '../../lib/error-capture';
 import { getBot, getMessagingService } from './bot';
-import { sendVoiceMessage } from './voice';
+import { dispatchVoiceGeneration } from './voice-dispatch';
 
 /**
  * Categorize events by ownership for a specific user
@@ -203,7 +203,6 @@ export async function sendSummaryToUser(
         summary: result.summary,
         user,
         progressMessageId: messageId,
-        showVoiceProgress: true,
         dateHeader: result.dateHeader,
       });
     },
@@ -549,7 +548,6 @@ interface DeliveryOptions {
   summary: string;
   user: UserConfig;
   progressMessageId?: number | string;
-  showVoiceProgress?: boolean;
   platform?: DeliveryPlatform;
   dateHeader?: string;
 }
@@ -565,7 +563,6 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     summary,
     user,
     progressMessageId,
-    showVoiceProgress = true,
     platform,
     dateHeader
   } = options;
@@ -654,7 +651,6 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
       await msgService.deleteMessage(userId, progressMessageId);
     }
 
-    const shouldShowVoiceProgress = progressMessageId ? showVoiceProgress : false;
-    await sendVoiceMessage(userId, summary, user, msgService, shouldShowVoiceProgress);
+    await dispatchVoiceGeneration(userId, summary, 'daily');
   }
 }

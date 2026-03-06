@@ -16,7 +16,7 @@ interface CronHandlerOptions {
   /** Name of the cron job for logging and error notifications */
   jobName: string;
   /** Handler function that executes the cron job logic */
-  handler: (request: NextRequest, searchParams: URLSearchParams) => Promise<CronResult>;
+  handler: (request: NextRequest, searchParams: URLSearchParams, body?: string) => Promise<CronResult>;
 }
 
 let receiver: Receiver | null = null;
@@ -78,8 +78,9 @@ export async function withCronHandler(
     );
   }
 
+  let body: string;
   try {
-    const body = await request.text();
+    body = await request.text();
     const url = request.url;
 
     await qstashReceiver.verify({
@@ -96,7 +97,7 @@ export async function withCronHandler(
   }
 
   try {
-    const result = await handler(request, searchParams);
+    const result = await handler(request, searchParams, body);
 
     return NextResponse.json({
       ...result,

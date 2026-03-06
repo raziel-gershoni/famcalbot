@@ -18,7 +18,7 @@ import { captureError } from '../../lib/error-capture';
 import { prisma, withDbRetry } from '../../utils/prisma';
 import { getPrimaryCalendar, getSpouseInfo } from '../../utils/calendar-helpers';
 import { getBot, getMessagingService } from './bot';
-import { sendVoiceMessage, sendWeeklyVoiceMessage } from './voice';
+import { dispatchVoiceGeneration } from './voice-dispatch';
 import {
   categorizeEvents,
   sendDailySummaryToUser,
@@ -278,13 +278,9 @@ export async function handleWeatherCommand(
     onSuccess: async (result, messageId) => {
       await messagingService.updateMessage(chatId, messageId, result.brief, { format: MessageFormat.HTML });
 
-      // Send voice message with detailed version if enabled
+      // Dispatch voice message with detailed version if enabled
       if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
-        try {
-          await sendVoiceMessage(Number(userId), result.detailed, user, messagingService);
-        } catch (err) {
-          console.error(`Weather voice failed for user ${userId}:`, err);
-        }
+        await dispatchVoiceGeneration(Number(userId), result.detailed, 'weather');
       }
 
       incrementUsage(user.id, 'textSummaries').catch(err =>
@@ -369,13 +365,9 @@ export async function handleLookaheadCommand(
     onSuccess: async (formattedLookahead, messageId) => {
       await messagingService.updateMessage(chatId, messageId, formattedLookahead, { format: MessageFormat.HTML });
 
-      // Send voice message if enabled
+      // Dispatch voice message if enabled
       if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
-        try {
-          await sendWeeklyVoiceMessage(Number(userId), formattedLookahead, user, false, messagingService);
-        } catch (err) {
-          console.error(`Weekly voice failed for user ${userId}:`, err);
-        }
+        await dispatchVoiceGeneration(Number(userId), formattedLookahead, 'weekly', false);
       }
     },
   });
@@ -455,13 +447,9 @@ export async function handleNextWeekCommand(
     onSuccess: async (formattedSummary, messageId) => {
       await messagingService.updateMessage(chatId, messageId, formattedSummary, { format: MessageFormat.HTML });
 
-      // Send voice message if enabled
+      // Dispatch voice message if enabled
       if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
-        try {
-          await sendWeeklyVoiceMessage(Number(userId), formattedSummary, user, true, messagingService);
-        } catch (err) {
-          console.error(`Next week voice failed for user ${userId}:`, err);
-        }
+        await dispatchVoiceGeneration(Number(userId), formattedSummary, 'weekly', true);
       }
     },
   });
