@@ -91,7 +91,9 @@
       "reminders": "Event Reminders",
       "remindersDescription": "Enable/disable reminders feature globally for all users",
       "earlyAdoption": "Early Adoption Mode",
-      "earlyAdoptionDescription": "Give all users PRO access. Hides payment UI."
+      "earlyAdoptionDescription": "Give all users PRO access. Hides payment UI.",
+      "aiModel": "Default AI Model",
+      "aiModelDescription": "Select the AI model used for summaries, weather, and voice"
     },
     "overrides": {
       "title": "User Feature Overrides",

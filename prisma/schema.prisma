@@ -78,6 +78,7 @@ model AdminSettings {
   id                    String   @id @default("global")
   remindersEnabled      Boolean  @default(false)
   earlyAdoptionMode     Boolean  @default(true)
+  defaultAiModel        String?
   updatedAt             DateTime @updatedAt
 }
 

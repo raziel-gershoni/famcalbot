@@ -8,8 +8,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma, withDbRetry } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { captureError } from '@/src/lib/error-capture';
-import { setGlobalRemindersEnabled, setEarlyAdoptionMode } from '@/src/services/reminder-cache';
+import { setGlobalRemindersEnabled, setEarlyAdoptionMode, setDefaultAiModelSetting } from '@/src/services/reminder-cache';
 import { invalidateAllFeatureAccessCaches } from '@/src/services/subscription-service';
+import { getModelConfig } from '@/src/config/ai-models';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,7 @@ export async function GET() {
       success: true,
       remindersEnabled: adminSettings?.remindersEnabled ?? false,
       earlyAdoptionMode: adminSettings?.earlyAdoptionMode ?? false,
+      defaultAiModel: adminSettings?.defaultAiModel ?? null,
     });
   } catch (error) {
     captureError(error, 'admin-settings-get', { api_route: '/api/admin/settings' });
@@ -41,7 +43,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { remindersEnabled, earlyAdoptionMode, initData } = body;
+    const { remindersEnabled, earlyAdoptionMode, defaultAiModel, initData } = body;
 
     // Verify admin access
     const auth = await verifyAdminAccess(initData);
@@ -55,17 +57,28 @@ export async function POST(request: NextRequest) {
     // Validate input - at least one field must be provided
     const hasReminders = typeof remindersEnabled === 'boolean';
     const hasEarlyAdoption = typeof earlyAdoptionMode === 'boolean';
-    if (!hasReminders && !hasEarlyAdoption) {
+    const hasAiModel = 'defaultAiModel' in body;
+    if (!hasReminders && !hasEarlyAdoption && !hasAiModel) {
       return NextResponse.json(
-        { error: 'At least one setting field must be a boolean' },
+        { error: 'At least one setting field must be provided' },
         { status: 400 }
       );
     }
 
+    // Validate AI model if provided
+    if (hasAiModel && defaultAiModel !== null) {
+      if (typeof defaultAiModel !== 'string' || !getModelConfig(defaultAiModel)) {
+        return NextResponse.json(
+          { error: `Invalid AI model: "${defaultAiModel}"` },
+          { status: 400 }
+        );
+      }
+    }
+
     // Upsert admin settings
     try {
-      const updateData: Record<string, boolean> = {};
-      const createData: Record<string, boolean | string> = { id: 'global' };
+      const updateData: Record<string, boolean | string | null> = {};
+      const createData: Record<string, boolean | string | null> = { id: 'global' };
       if (hasReminders) {
         updateData.remindersEnabled = remindersEnabled;
         createData.remindersEnabled = remindersEnabled;
@@ -74,12 +87,16 @@ export async function POST(request: NextRequest) {
         updateData.earlyAdoptionMode = earlyAdoptionMode;
         createData.earlyAdoptionMode = earlyAdoptionMode;
       }
+      if (hasAiModel) {
+        updateData.defaultAiModel = defaultAiModel ?? null;
+        createData.defaultAiModel = defaultAiModel ?? null;
+      }
 
       const settings = await withDbRetry(
         () => prisma.adminSettings.upsert({
           where: { id: 'global' },
           update: updateData,
-          create: createData as { id: string; remindersEnabled?: boolean; earlyAdoptionMode?: boolean },
+          create: createData as { id: string; remindersEnabled?: boolean; earlyAdoptionMode?: boolean; defaultAiModel?: string | null },
         }),
         'admin-settings.update'
       );
@@ -92,13 +109,17 @@ export async function POST(request: NextRequest) {
         await setEarlyAdoptionMode(earlyAdoptionMode);
         await invalidateAllFeatureAccessCaches();
       }
+      if (hasAiModel) {
+        await setDefaultAiModelSetting(defaultAiModel ?? null);
+      }
 
-      console.log(`[admin-settings] Admin ${auth.adminId} updated settings:`, { remindersEnabled, earlyAdoptionMode });
+      console.log(`[admin-settings] Admin ${auth.adminId} updated settings:`, { remindersEnabled, earlyAdoptionMode, defaultAiModel });
 
       return NextResponse.json({
         success: true,
         remindersEnabled: settings.remindersEnabled,
         earlyAdoptionMode: settings.earlyAdoptionMode,
+        defaultAiModel: settings.defaultAiModel ?? null,
       });
     } catch (dbError) {
       // Table might not exist yet

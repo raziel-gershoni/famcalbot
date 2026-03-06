@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Activity, Crown, Bot, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock, RefreshCw, ChevronDown, MessageSquare } from 'lucide-react';
 import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
+import { AI_MODELS } from '@/src/config/ai-models';
 
 interface AdminPanelClientProps {
   userId: number;
@@ -17,6 +18,7 @@ interface AdminPanelClientProps {
   };
   remindersEnabled: boolean;
   earlyAdoptionMode: boolean;
+  defaultAiModel: string | null;
 }
 
 type ButtonState = 'idle' | 'loading' | 'success' | 'error';
@@ -115,7 +117,7 @@ interface FeedbackItem {
   createdAt: string;
 }
 
-export default function AdminPanelClient({ userId, locale, stats, remindersEnabled: initialRemindersEnabled, earlyAdoptionMode: initialEarlyAdoptionMode }: AdminPanelClientProps) {
+export default function AdminPanelClient({ userId, locale, stats, remindersEnabled: initialRemindersEnabled, earlyAdoptionMode: initialEarlyAdoptionMode, defaultAiModel: initialDefaultAiModel }: AdminPanelClientProps) {
   const t = useTranslations('admin');
   const [todayState, setTodayState] = useState<ButtonState>('idle');
   const [tomorrowState, setTomorrowState] = useState<ButtonState>('idle');
@@ -123,6 +125,8 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   const [remindersSaving, setRemindersSaving] = useState(false);
   const [earlyAdoptionMode, setEarlyAdoptionMode] = useState(initialEarlyAdoptionMode);
   const [earlyAdoptionSaving, setEarlyAdoptionSaving] = useState(false);
+  const [defaultAiModel, setDefaultAiModel] = useState(initialDefaultAiModel ?? '');
+  const [aiModelSaving, setAiModelSaving] = useState(false);
 
   // User overrides state
   const [userList, setUserList] = useState<UserListItem[]>([]);
@@ -290,6 +294,23 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
       }
     } finally {
       setEarlyAdoptionSaving(false);
+    }
+  };
+
+  const changeAiModel = async (modelId: string) => {
+    setAiModelSaving(true);
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ defaultAiModel: modelId || null, initData })
+      });
+      if (response.ok) {
+        setDefaultAiModel(modelId);
+      }
+    } finally {
+      setAiModelSaving(false);
     }
   };
 
@@ -1784,6 +1805,35 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
               >
                 <div className="toggle-slider" />
               </div>
+            </div>
+            <div className="toggle-row" style={{ marginTop: '12px' }}>
+              <div className="toggle-info">
+                <p className="toggle-label">{t('features.aiModel')}</p>
+                <p className="toggle-description">{t('features.aiModelDescription')}</p>
+              </div>
+              <select
+                value={defaultAiModel}
+                onChange={(e) => changeAiModel(e.target.value)}
+                disabled={aiModelSaving}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color, #ddd)',
+                  background: 'var(--card-bg, #fff)',
+                  color: 'var(--text-primary, #333)',
+                  fontSize: '13px',
+                  minWidth: '160px',
+                  opacity: aiModelSaving ? 0.6 : 1,
+                  cursor: aiModelSaving ? 'not-allowed' : 'pointer',
+                }}
+              >
+                <option value="">Default (env)</option>
+                {Object.entries(AI_MODELS).map(([id, model]) => (
+                  <option key={id} value={id}>
+                    {model.displayName} ({model.provider})
+                  </option>
+                ))}
+              </select>
             </div>
             </div>
           </div>

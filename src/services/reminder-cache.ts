@@ -15,6 +15,7 @@ const redis = new Redis({
 const CACHE_KEY = REDIS_KEYS.REMINDER_USERS;
 const GLOBAL_KEY = REDIS_KEYS.REMINDERS_GLOBAL_ENABLED;
 const EARLY_ADOPTION_KEY = REDIS_KEYS.EARLY_ADOPTION_GLOBAL;
+const DEFAULT_AI_MODEL_KEY = REDIS_KEYS.DEFAULT_AI_MODEL;
 
 export interface CachedReminderUser {
   id: number;
@@ -154,5 +155,46 @@ export async function setEarlyAdoptionMode(enabled: boolean): Promise<void> {
     console.log(`[Reminder Cache] Set early adoption mode to ${enabled}`);
   } catch (error) {
     console.error('[Reminder Cache] Redis write early adoption toggle error:', error);
+  }
+}
+
+/**
+ * Get default AI model setting from Redis (read-through cache from DB)
+ */
+export async function getDefaultAiModelSetting(): Promise<string | null> {
+  try {
+    const cached = await redis.get<string>(DEFAULT_AI_MODEL_KEY);
+    if (cached !== null) return cached;
+
+    // Redis key not set — read from DB and cache
+    const { prisma } = await import('@/src/utils/prisma');
+    const settings = await prisma.adminSettings.findUnique({
+      where: { id: 'global' },
+      select: { defaultAiModel: true },
+    });
+    const value = settings?.defaultAiModel ?? null;
+    if (value) {
+      await redis.set(DEFAULT_AI_MODEL_KEY, value);
+    }
+    return value;
+  } catch (error) {
+    console.error('[Reminder Cache] Redis read default AI model error:', error);
+    return null;
+  }
+}
+
+/**
+ * Set default AI model setting in Redis (null clears the key)
+ */
+export async function setDefaultAiModelSetting(modelId: string | null): Promise<void> {
+  try {
+    if (modelId) {
+      await redis.set(DEFAULT_AI_MODEL_KEY, modelId);
+    } else {
+      await redis.del(DEFAULT_AI_MODEL_KEY);
+    }
+    console.log(`[Reminder Cache] Set default AI model to ${modelId ?? 'env default'}`);
+  } catch (error) {
+    console.error('[Reminder Cache] Redis write default AI model error:', error);
   }
 }

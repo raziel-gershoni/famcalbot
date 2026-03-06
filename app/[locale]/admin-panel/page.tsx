@@ -118,6 +118,7 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
       }}
       remindersEnabled={adminSettings?.remindersEnabled ?? false}
       earlyAdoptionMode={adminSettings?.earlyAdoptionMode ?? false}
+      defaultAiModel={adminSettings?.defaultAiModel ?? null}
     />
   );
 }

@@ -258,6 +258,12 @@ function isNonRetryableError(error: unknown): boolean {
  * @throws Original error if all retries fail (preserves .status for downstream detection)
  */
 export async function generateAICompletion(prompt: string, modelId?: string): Promise<AICompletionResult> {
+  if (!modelId) {
+    const { getDefaultAiModelSetting } = await import('./reminder-cache');
+    const adminDefault = await getDefaultAiModelSetting();
+    if (adminDefault) modelId = adminDefault;
+  }
+
   let lastError: unknown = null;
   const maxRetries = AI_RETRY_CONFIG.MAX_RETRIES;
   const config = getAIConfig(modelId);

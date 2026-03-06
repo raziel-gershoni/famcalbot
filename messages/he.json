@@ -91,7 +91,9 @@
       "reminders": "תזכורות לאירועים",
       "remindersDescription": "הפעל/השבת תזכורות באופן גלובלי לכל המשתמשים",
       "earlyAdoption": "מצב אימוץ מוקדם",
-      "earlyAdoptionDescription": "תן לכל המשתמשים גישת PRO. מסתיר ממשק תשלום."
+      "earlyAdoptionDescription": "תן לכל המשתמשים גישת PRO. מסתיר ממשק תשלום.",
+      "aiModel": "מודל AI ברירת מחדל",
+      "aiModelDescription": "בחר את מודל ה-AI לסיכומים, מזג אוויר וקול"
     },
     "overrides": {
       "title": "דריסות תכונות למשתמשים",
