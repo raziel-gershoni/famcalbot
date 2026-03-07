@@ -5,14 +5,14 @@
 Simply set the `AI_MODEL` environment variable to switch between models:
 
 ```bash
-# Use Claude Sonnet 4.5 (default, best balance)
-AI_MODEL=claude-sonnet-4.5
+# Use Claude Sonnet 4.6 (default, best balance)
+AI_MODEL=claude-sonnet-4.6
 
-# Use GPT-4.1 Mini (faster, cheaper)
-AI_MODEL=gpt-4.1-mini
+# Use Claude Opus 4.6 (most powerful)
+AI_MODEL=claude-opus-4.6
 
-# Use Claude Opus 4 (most powerful, best coding)
-AI_MODEL=claude-opus-4
+# Use Claude Haiku 4.5 (fastest, cheapest Claude)
+AI_MODEL=claude-haiku-4.5
 ```
 
 ## Available Models
@@ -21,9 +21,9 @@ AI_MODEL=claude-opus-4
 
 | Identifier | Model | Max Tokens | Context | Cost (per 1M tokens) | Best For |
 |------------|-------|------------|---------|---------------------|----------|
-| `claude-sonnet-4.5` | Claude Sonnet 4.5 | 64K | 1M | $3/$15 (in/out) | **Default choice** - excellent balance |
-| `claude-opus-4` | Claude Opus 4 | 64K | 1M | $15/$75 (in/out) | Complex reasoning, best coding |
-| `claude-sonnet-4` | Claude Sonnet 4 | 64K | 1M | $3/$15 (in/out) | Previous generation, still capable |
+| `claude-opus-4.6` | Claude Opus 4.6 | 128K | 200K | $5/$25 (in/out) | Most capable, complex reasoning |
+| `claude-sonnet-4.6` | Claude Sonnet 4.6 | 64K | 200K | $3/$15 (in/out) | **Default choice** - best balance |
+| `claude-haiku-4.5` | Claude Haiku 4.5 | 64K | 200K | $1/$5 (in/out) | Fastest, cheapest Claude |
 
 ### OpenAI Models (GPT)
 
@@ -39,7 +39,7 @@ AI_MODEL=claude-opus-4
 
 ```bash
 # Required: Choose your model
-AI_MODEL=claude-sonnet-4.5
+AI_MODEL=claude-sonnet-4.6
 
 # Required: Provide API key for your chosen provider
 ANTHROPIC_API_KEY=sk-ant-...    # For Claude models
@@ -72,7 +72,7 @@ All API calls log token usage to help you monitor costs:
 
 ```
 AI Completion Success: {
-  model: 'Claude Sonnet 4.5',
+  model: 'Claude Sonnet 4.6',
   inputTokens: 1407,
   outputTokens: 256,
   stopReason: 'end_turn'
@@ -98,18 +98,18 @@ OPENAI_API_KEY=sk-...
 
 1. **Start with the cheapest**: Try `gpt-4.1-nano` first ($0.04/$0.16 per 1M tokens)
 2. **Monitor usage**: Check Vercel logs for token counts
-3. **Upgrade if needed**: If quality isn't good enough, upgrade to `gpt-4.1-mini` or `claude-sonnet-4.5`
-4. **Use different models for different tasks**: Daily summaries might work with `gpt-4.1-nano`, while complex analysis might need `claude-opus-4`
+3. **Upgrade if needed**: If quality isn't good enough, upgrade to `gpt-4.1-mini` or `claude-sonnet-4.6`
+4. **Use different models for different tasks**: Daily summaries might work with `gpt-4.1-nano`, while complex analysis might need `claude-opus-4.6`
 
 ## Current Usage
 
 Based on your current logs (256 average output tokens):
-- **Claude Sonnet 4.5**: ~$0.004 per summary
+- **Claude Sonnet 4.6**: ~$0.004 per summary
 - **GPT-4.1 Mini**: ~$0.0002 per summary
 - **GPT-4.1 Nano**: ~$0.00004 per summary
 
 With 2 summaries/day × 2 users = 4 summaries/day:
-- **Claude Sonnet 4.5**: ~$5/month
+- **Claude Sonnet 4.6**: ~$5/month
 - **GPT-4.1 Mini**: ~$0.25/month
 - **GPT-4.1 Nano**: ~$0.05/month
 

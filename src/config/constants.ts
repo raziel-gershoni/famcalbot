@@ -19,7 +19,7 @@ export const AI_RETRY_CONFIG = {
 
 /**
  * Get AI configuration for a specific model
- * @param modelId - Model identifier (e.g., 'claude-sonnet-4.5')
+ * @param modelId - Model identifier (e.g., 'claude-sonnet-4.6')
  * @returns AI configuration object
  */
 export function getAIConfig(modelId?: string) {

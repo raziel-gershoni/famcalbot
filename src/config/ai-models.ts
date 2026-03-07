@@ -1,9 +1,9 @@
 /**
  * AI Model Catalog
- * Updated: 2025-12-20
+ * Updated: 2026-03-07
  *
  * Defines available AI models with their specifications.
- * Use simple identifiers (e.g., 'claude-sonnet-4.5') in environment variables.
+ * Use simple identifiers (e.g., 'claude-sonnet-4.6') in environment variables.
  */
 
 export interface ModelConfig {
@@ -27,24 +27,34 @@ export const AI_MODELS: Record<string, ModelConfig> = {
   // CLAUDE MODELS (Anthropic)
   // ============================================
 
-  'claude-sonnet-4.5': {
+  'claude-opus-4.6': {
     provider: 'claude',
-    modelId: 'claude-sonnet-4-5-20250929',
-    displayName: 'Claude Sonnet 4.5',
-    maxOutputTokens: 64000,
-    contextWindow: 1000000,
-    costPer1MTokens: { input: 3, output: 15 },
-    description: 'Latest Claude model (Sep 2025), best coding model in the world',
+    modelId: 'claude-opus-4-6',
+    displayName: 'Claude Opus 4.6',
+    maxOutputTokens: 128000,
+    contextWindow: 200000,
+    costPer1MTokens: { input: 5, output: 25 },
+    description: 'Most capable Claude model, 128K output, 200K context (1M beta)',
   },
 
-  'claude-sonnet-4': {
+  'claude-sonnet-4.6': {
     provider: 'claude',
-    modelId: 'claude-sonnet-4-20250514',
-    displayName: 'Claude Sonnet 4',
+    modelId: 'claude-sonnet-4-6',
+    displayName: 'Claude Sonnet 4.6',
     maxOutputTokens: 64000,
-    contextWindow: 1000000,
+    contextWindow: 200000,
     costPer1MTokens: { input: 3, output: 15 },
-    description: 'Previous Sonnet (May 2025), still very capable',
+    description: 'Best balance of speed and intelligence, 200K context (1M beta)',
+  },
+
+  'claude-haiku-4.5': {
+    provider: 'claude',
+    modelId: 'claude-haiku-4-5-20251001',
+    displayName: 'Claude Haiku 4.5',
+    maxOutputTokens: 64000,
+    contextWindow: 200000,
+    costPer1MTokens: { input: 1, output: 5 },
+    description: 'Fastest and most affordable Claude, great for summaries',
   },
 
   // ============================================
@@ -179,7 +189,7 @@ export const AI_MODELS: Record<string, ModelConfig> = {
 
 /**
  * Get model configuration by identifier
- * @param identifier - Simple model identifier (e.g., 'claude-sonnet-4.5')
+ * @param identifier - Simple model identifier (e.g., 'claude-sonnet-4.6')
  * @returns Model configuration or undefined if not found
  */
 export function getModelConfig(identifier: string): ModelConfig | undefined {
@@ -208,7 +218,7 @@ export function getModelsByProvider(provider: 'claude' | 'openai' | 'gemini'): R
  */
 export function getRecommendedModels(): string[] {
   return [
-    'claude-sonnet-4.5',        // Fast, reliable Claude baseline
+    'claude-sonnet-4.6',        // Latest Claude Sonnet, fast and capable
     'gpt-5.2',                  // Latest OpenAI (Dec 2025)
     'gemini-3.1-pro',           // Latest Gemini Pro (Mar 2026)
     'gemini-3-flash',           // Latest Flash (Dec 2025), now default in Gemini app

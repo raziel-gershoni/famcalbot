@@ -144,7 +144,7 @@ UPSTASH_REDIS_REST_TOKEN=<from Upstash Console>
 
 **Optional variables:**
 ```env
-AI_MODEL=claude-sonnet-4.5    # Default model
+AI_MODEL=claude-sonnet-4.6    # Default model
 AI_MAX_TOKENS=<number>        # Override model defaults
 DISABLE_TESTMODELS=false      # Emergency kill switch
 NODE_ENV=production           # development = test user only
