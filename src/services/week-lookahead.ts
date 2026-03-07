@@ -198,6 +198,61 @@ async function fetchEventsInRange(
 }
 
 /**
+ * Filter events by recurrence rules and build LookaheadEvent objects
+ */
+async function filterAndBuildLookaheadEvents(
+  events: CalendarEvent[],
+  user: UserConfig,
+  calendars: CalendarAssignment[],
+  referenceDate?: Date
+): Promise<LookaheadEvent[]> {
+  const lookaheadEvents: LookaheadEvent[] = [];
+
+  for (const event of events) {
+    // Skip birthday events (using eventType from Google Calendar API)
+    if (event.eventType === 'birthday') continue;
+
+    // Determine recurrence type
+    let recurrenceType: RecurrenceType = 'single';
+
+    if (event.recurringEventId) {
+      // Fetch master event to get recurrence rules
+      const rrule = await getMasterEventRecurrence(
+        user.googleRefreshToken,
+        event.calendarId,
+        event.recurringEventId
+      );
+      // If RRULE can't be fetched, assume daily (filter out) — a recurring event
+      // with unknown frequency should not leak through as 'single'
+      recurrenceType = rrule ? parseRecurrence(rrule) : 'daily';
+    }
+
+    // Filter by recurrence rules
+    if (recurrenceType === 'daily') continue;
+    if (recurrenceType === 'weekly' && !user.includeWeeklyInLookahead) continue;
+
+    const eventStartDate = new Date(event.start);
+    const eventEndDate = new Date(event.end);
+
+    lookaheadEvents.push({
+      summary: event.summary,
+      start: eventStartDate,
+      end: eventEndDate,
+      calendarName: event.calendarName,
+      calendarId: event.calendarId,
+      calendarLabel: getCalendarLabel(event.calendarId, calendars),
+      recurrenceType,
+      daysFromNow: getDaysFromReference(eventStartDate, referenceDate),
+    });
+  }
+
+  // Sort by start time
+  lookaheadEvents.sort((a, b) => a.start.getTime() - b.start.getTime());
+
+  return lookaheadEvents;
+}
+
+/**
  * Get week lookahead with notable events
  * @param user - User configuration
  * @param calendars - Calendar assignments
@@ -228,47 +283,7 @@ export async function getWeekLookahead(
     endDate
   );
 
-  // Process events and filter
-  const lookaheadEvents: LookaheadEvent[] = [];
-
-  for (const event of events) {
-    // Skip birthday events (using eventType from Google Calendar API)
-    if (event.eventType === 'birthday') continue;
-
-    // Determine recurrence type
-    let recurrenceType: RecurrenceType = 'single';
-
-    if (event.recurringEventId) {
-      // Fetch master event to get recurrence rules
-      const rrule = await getMasterEventRecurrence(
-        user.googleRefreshToken,
-        event.calendarId,
-        event.recurringEventId
-      );
-      recurrenceType = parseRecurrence(rrule || undefined);
-    }
-
-    // Filter by recurrence rules
-    if (recurrenceType === 'daily') continue;
-    if (recurrenceType === 'weekly' && !user.includeWeeklyInLookahead) continue;
-
-    const eventStartDate = new Date(event.start);
-    const eventEndDate = new Date(event.end);
-
-    lookaheadEvents.push({
-      summary: event.summary,
-      start: eventStartDate,
-      end: eventEndDate,
-      calendarName: event.calendarName,
-      calendarId: event.calendarId,
-      calendarLabel: getCalendarLabel(event.calendarId, calendars),
-      recurrenceType,
-      daysFromNow: getDaysFromReference(eventStartDate, referenceDate),
-    });
-  }
-
-  // Sort by start time
-  lookaheadEvents.sort((a, b) => a.start.getTime() - b.start.getTime());
+  const lookaheadEvents = await filterAndBuildLookaheadEvents(events, user, calendars, referenceDate);
 
   return {
     events: lookaheadEvents,
@@ -340,47 +355,7 @@ export async function getNextWeekLookahead(
     end
   );
 
-  // Process events and filter
-  const lookaheadEvents: LookaheadEvent[] = [];
-
-  for (const event of events) {
-    // Skip birthday events (using eventType from Google Calendar API)
-    if (event.eventType === 'birthday') continue;
-
-    // Determine recurrence type
-    let recurrenceType: RecurrenceType = 'single';
-
-    if (event.recurringEventId) {
-      // Fetch master event to get recurrence rules
-      const rrule = await getMasterEventRecurrence(
-        user.googleRefreshToken,
-        event.calendarId,
-        event.recurringEventId
-      );
-      recurrenceType = parseRecurrence(rrule || undefined);
-    }
-
-    // Filter by recurrence rules
-    if (recurrenceType === 'daily') continue;
-    if (recurrenceType === 'weekly' && !user.includeWeeklyInLookahead) continue;
-
-    const eventStartDate = new Date(event.start);
-    const eventEndDate = new Date(event.end);
-
-    lookaheadEvents.push({
-      summary: event.summary,
-      start: eventStartDate,
-      end: eventEndDate,
-      calendarName: event.calendarName,
-      calendarId: event.calendarId,
-      calendarLabel: getCalendarLabel(event.calendarId, calendars),
-      recurrenceType,
-      daysFromNow: getDaysFromReference(eventStartDate, referenceDate),
-    });
-  }
-
-  // Sort by start time
-  lookaheadEvents.sort((a, b) => a.start.getTime() - b.start.getTime());
+  const lookaheadEvents = await filterAndBuildLookaheadEvents(events, user, calendars, referenceDate);
 
   return {
     events: lookaheadEvents,
