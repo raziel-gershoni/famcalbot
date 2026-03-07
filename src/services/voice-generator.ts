@@ -24,10 +24,10 @@ const VOICE_CONFIG: Record<string, string> = {
 // Retry configuration
 const TTS_MAX_RETRIES = 1;
 const TTS_BASE_DELAY_MS = 500;
-const TTS_TIMEOUT_MS = 30000; // 30 second timeout
 
 /**
- * Retry wrapper with timeout using Promise.race
+ * Retry wrapper for transient TTS errors (503/429).
+ * No artificial timeout — relies on SDK-level timeouts and Vercel's maxDuration.
  */
 async function callWithRetry<T>(
   fn: () => Promise<T>,
@@ -35,19 +35,11 @@ async function callWithRetry<T>(
   baseDelay: number
 ): Promise<T> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error('TTS_TIMEOUT')), TTS_TIMEOUT_MS);
-      });
-      const result = await Promise.race([fn(), timeoutPromise]);
-      clearTimeout(timer);
-      return result;
+      return await fn();
     } catch (error: unknown) {
-      clearTimeout(timer);
-      const err = error as { message?: string; status?: number };
-      const isRetryable = err.message === 'TTS_TIMEOUT'
-        || err.status === 503 || err.status === 429;
+      const err = error as { status?: number };
+      const isRetryable = err.status === 503 || err.status === 429;
       if (attempt === maxRetries || !isRetryable) throw error;
       await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, attempt)));
     }

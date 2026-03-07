@@ -10,10 +10,9 @@ import { getBot, getMessagingService } from './bot';
 import { trackActivityAsync } from '../analytics-service';
 import { incrementUsage } from '../subscription-service';
 import { formatVoiceCaption } from '../../utils/ai-footer';
+import { scheduleProgressCleanup, markProgressCompleted } from './progress-cleanup';
 import type { AICompletionResult } from '../ai-provider';
 import type { VoiceCondenserContext } from '../../prompts/voice-condenser';
-
-const VOICE_TIMEOUT_MS = 40_000;
 
 /**
  * Generate and send voice version of summary
@@ -39,56 +38,52 @@ export async function sendVoiceMessage(
 
   if (showProgress) {
     messageId = await sendAnimatedProgress(userId, 'voice', userLanguage, msgService);
+    // Schedule dead-man's switch: if Vercel kills us, QStash cleans up the progress message
+    await scheduleProgressCleanup(userId, messageId, userLanguage);
   }
 
   try {
-    const voiceWork = async () => {
-      const { generateVoiceMessage } = await import('../voice-generator');
-      const { buildVoiceCondenserPrompt } = await import('../../prompts/voice-condenser');
-      const { generateAICompletion } = await import('../ai-provider');
+    const { generateVoiceMessage } = await import('../voice-generator');
+    const { buildVoiceCondenserPrompt } = await import('../../prompts/voice-condenser');
+    const { generateAICompletion } = await import('../ai-provider');
 
-      console.log(`[Voice] Generating voice message for user ${userId}...`);
+    console.log(`[Voice] Generating voice message for user ${userId}...`);
 
-      // Extract spouse name from calendar assignments
-      const spouseCalendar = user.calendarAssignments?.find(cal =>
-        cal.labels.includes('spouse')
-      );
-      const spouseName = spouseCalendar?.personName;
+    // Extract spouse name from calendar assignments
+    const spouseCalendar = user.calendarAssignments?.find(cal =>
+      cal.labels.includes('spouse')
+    );
+    const spouseName = spouseCalendar?.personName;
 
-      // Check if user has kids calendars
-      const hasKidsCalendars = user.calendarAssignments?.some(cal =>
-        cal.labels.includes('kids')
-      ) ?? false;
+    // Check if user has kids calendars
+    const hasKidsCalendars = user.calendarAssignments?.some(cal =>
+      cal.labels.includes('kids')
+    ) ?? false;
 
-      // Step 1: Condense summary via LLM
-      const condenserContext: VoiceCondenserContext = {
-        summary,
-        locale: userLanguage,
-        userName: user.name,
-        spouseName,
-        hasKidsCalendars,
-        culture: user.culture,
-        globalRules: user.globalRules,
-      };
-      const condenserPrompt = buildVoiceCondenserPrompt(condenserContext);
-      const condensedResult = await generateAICompletion(condenserPrompt);
-      const condensedText = condensedResult.text;
-
-      console.log(`[Voice] Summary condensed: ${summary.length} → ${condensedText.length} chars`);
-
-      // Step 2: Generate voice from condensed text
-      const ttsResult = await generateVoiceMessage(condensedText, userLanguage);
-      voiceFilePath = ttsResult.filePath;
-
-      return { condensedText, condensedResult, ttsMs: ttsResult.ttsMs, ttsModel: ttsResult.ttsModel };
+    // Step 1: Condense summary via LLM
+    const condenserContext: VoiceCondenserContext = {
+      summary,
+      locale: userLanguage,
+      userName: user.name,
+      spouseName,
+      hasKidsCalendars,
+      culture: user.culture,
+      globalRules: user.globalRules,
     };
+    const condenserPrompt = buildVoiceCondenserPrompt(condenserContext);
+    const condensedResult = await generateAICompletion(condenserPrompt);
+    const condensedText = condensedResult.text;
 
-    const { condensedText, condensedResult, ttsMs, ttsModel } = await Promise.race([
-      voiceWork(),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Voice generation timed out')), VOICE_TIMEOUT_MS)
-      ),
-    ]);
+    console.log(`[Voice] Summary condensed: ${summary.length} → ${condensedText.length} chars`);
+
+    // Step 2: Generate voice from condensed text
+    const ttsResult = await generateVoiceMessage(condensedText, userLanguage);
+    voiceFilePath = ttsResult.filePath;
+
+    const { ttsMs, ttsModel } = ttsResult;
+
+    // Mark completed so the dead-man's switch becomes a no-op
+    if (messageId) await markProgressCompleted(userId, messageId);
 
     // Delete progress message
     if (messageId) await msgService.deleteMessage(userId, messageId);
@@ -113,6 +108,9 @@ export async function sendVoiceMessage(
     console.log(`[Voice] Voice message sent successfully to user ${userId}`);
   } catch (error) {
     console.error(`[Voice] Voice generation failed for user ${userId}:`, error);
+
+    // Mark completed so the dead-man's switch becomes a no-op
+    if (messageId) await markProgressCompleted(userId, messageId);
 
     // Replace progress message with friendly error instead of deleting
     if (messageId) {
@@ -160,56 +158,52 @@ export async function sendWeeklyVoiceMessage(
 
   // Send animated hourglass progress
   const messageId = await sendAnimatedProgress(userId, 'voice', userLanguage, msgService);
+  // Schedule dead-man's switch
+  await scheduleProgressCleanup(userId, messageId, userLanguage);
 
   try {
-    const voiceWork = async () => {
-      const { generateVoiceMessage } = await import('../voice-generator');
-      const { buildWeeklyVoiceCondenserPrompt } = await import('../../prompts/voice-condenser');
-      const { generateAICompletion } = await import('../ai-provider');
+    const { generateVoiceMessage } = await import('../voice-generator');
+    const { buildWeeklyVoiceCondenserPrompt } = await import('../../prompts/voice-condenser');
+    const { generateAICompletion } = await import('../ai-provider');
 
-      console.log(`[Voice] Generating weekly voice message for user ${userId}...`);
+    console.log(`[Voice] Generating weekly voice message for user ${userId}...`);
 
-      // Extract spouse name from calendar assignments
-      const spouseCalendar = user.calendarAssignments?.find(cal =>
-        cal.labels.includes('spouse')
-      );
-      const spouseName = spouseCalendar?.personName;
+    // Extract spouse name from calendar assignments
+    const spouseCalendar = user.calendarAssignments?.find(cal =>
+      cal.labels.includes('spouse')
+    );
+    const spouseName = spouseCalendar?.personName;
 
-      // Check if user has kids calendars
-      const hasKidsCalendars = user.calendarAssignments?.some(cal =>
-        cal.labels.includes('kids')
-      ) ?? false;
+    // Check if user has kids calendars
+    const hasKidsCalendars = user.calendarAssignments?.some(cal =>
+      cal.labels.includes('kids')
+    ) ?? false;
 
-      // Step 1: Condense summary via LLM
-      const condenserContext: VoiceCondenserContext = {
-        summary,
-        locale: userLanguage,
-        userName: user.name,
-        spouseName,
-        hasKidsCalendars,
-        culture: user.culture,
-        globalRules: user.globalRules,
-        isNextWeek,
-      };
-      const condenserPrompt = buildWeeklyVoiceCondenserPrompt(condenserContext);
-      const condensedResult = await generateAICompletion(condenserPrompt);
-      const condensedText = condensedResult.text;
-
-      console.log(`[Voice] Weekly summary condensed: ${summary.length} → ${condensedText.length} chars`);
-
-      // Step 2: Generate voice from condensed text
-      const ttsResult = await generateVoiceMessage(condensedText, userLanguage);
-      voiceFilePath = ttsResult.filePath;
-
-      return { condensedResult, ttsMs: ttsResult.ttsMs, ttsModel: ttsResult.ttsModel };
+    // Step 1: Condense summary via LLM
+    const condenserContext: VoiceCondenserContext = {
+      summary,
+      locale: userLanguage,
+      userName: user.name,
+      spouseName,
+      hasKidsCalendars,
+      culture: user.culture,
+      globalRules: user.globalRules,
+      isNextWeek,
     };
+    const condenserPrompt = buildWeeklyVoiceCondenserPrompt(condenserContext);
+    const condensedResult = await generateAICompletion(condenserPrompt);
+    const condensedText = condensedResult.text;
 
-    const { condensedResult, ttsMs, ttsModel } = await Promise.race([
-      voiceWork(),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Weekly voice generation timed out')), VOICE_TIMEOUT_MS)
-      ),
-    ]);
+    console.log(`[Voice] Weekly summary condensed: ${summary.length} → ${condensedText.length} chars`);
+
+    // Step 2: Generate voice from condensed text
+    const ttsResult = await generateVoiceMessage(condensedText, userLanguage);
+    voiceFilePath = ttsResult.filePath;
+
+    const { ttsMs, ttsModel } = ttsResult;
+
+    // Mark completed so the dead-man's switch becomes a no-op
+    await markProgressCompleted(userId, messageId);
 
     // Delete progress message before sending voice
     await msgService.deleteMessage(userId, messageId);
@@ -226,6 +220,9 @@ export async function sendWeeklyVoiceMessage(
     console.log(`[Voice] Weekly voice message sent successfully to user ${userId}`);
   } catch (error) {
     console.error(`[Voice] Weekly voice generation failed for user ${userId}:`, error);
+
+    // Mark completed so the dead-man's switch becomes a no-op
+    await markProgressCompleted(userId, messageId);
 
     // Replace progress message with friendly error instead of deleting
     try {
