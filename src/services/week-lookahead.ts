@@ -72,7 +72,8 @@ function getNextWeekBoundary(culture?: string, always7Days?: boolean, referenceD
 function parseRecurrence(rrule?: string[]): RecurrenceType {
   if (!rrule?.length) return 'single';
 
-  const rule = rrule[0];
+  const rule = rrule.find(r => r.startsWith('RRULE:'));
+  if (!rule) return 'single';
   if (rule.includes('FREQ=DAILY')) return 'daily';
   if (rule.includes('FREQ=WEEKLY')) return 'weekly';
   if (rule.includes('FREQ=MONTHLY')) return 'monthly';
@@ -222,9 +223,15 @@ async function filterAndBuildLookaheadEvents(
         event.calendarId,
         event.recurringEventId
       );
-      // If RRULE can't be fetched, assume daily (filter out) — a recurring event
-      // with unknown frequency should not leak through as 'single'
-      recurrenceType = rrule ? parseRecurrence(rrule) : 'daily';
+      if (rrule && rrule.length > 0) {
+        recurrenceType = parseRecurrence(rrule);
+        // A known-recurring event should never be classified as single —
+        // if RRULE couldn't be parsed (e.g., EXDATE-only array), default to daily (filter out)
+        if (recurrenceType === 'single') recurrenceType = 'daily';
+      } else {
+        // If RRULE can't be fetched, assume daily (filter out)
+        recurrenceType = 'daily';
+      }
     }
 
     // Filter by recurrence rules
