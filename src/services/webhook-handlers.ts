@@ -7,8 +7,6 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
   handleStartCommand,
   handleSummaryCommand,
-  handleTestAICommand,
-  handleTestAICallback,
   handleWeatherCommand,
   handleFeedbackCommand,
   getBot
@@ -86,12 +84,7 @@ export async function handleTelegramWebhook(
     }, 'user_action');
 
     if (chatId && data) {
-      if (data.startsWith('testai:')) {
-        const parts = data.replace('testai:', '').split(':');
-        const modelId = parts[0];
-        const timeframe = parts[1] || 'today'; // Default to 'today' if not specified
-        await handleTestAICallback(chatId, callbackUserId, modelId, queryId, timeframe);
-      } else if (data.startsWith('event_create:') || data.startsWith('event_cancel:')) {
+      if (data.startsWith('event_create:') || data.startsWith('event_cancel:')) {
         // Handle event creation callbacks
         const [action, pendingId] = data.split(':').slice(0, 2);
         const actionType = action.replace('event_', '');
@@ -182,18 +175,6 @@ export async function handleTelegramWebhook(
     is_command: text.startsWith('/'),
   }, 'user_action');
 
-  // For /testmodels, process THEN respond (Redis lock prevents duplicates from retries)
-  if (text.startsWith('/testmodels')) {
-    const args = text.replace('/testmodels', '').trim();
-    const updateId = update.update_id;
-
-    const { handleTestModelsCommand } = await import('./telegram');
-    await handleTestModelsCommand(chatId, textUserId, updateId, args || undefined);
-
-    res.status(200).json({ ok: true });
-    return;
-  }
-
   // Route to appropriate command handler
   if (text.startsWith('/start')) {
     // Pass Telegram user info for auto-registration
@@ -203,9 +184,6 @@ export async function handleTelegramWebhook(
   } else if (text.startsWith('/summary')) {
     const args = text.replace('/summary', '').trim();
     await handleSummaryCommand(chatId, textUserId, MessagingPlatform.TELEGRAM, args || undefined);
-  } else if (text.startsWith('/testai')) {
-    const args = text.replace('/testai', '').trim();
-    await handleTestAICommand(chatId, textUserId, args || undefined);
   } else if (text.startsWith('/weather')) {
     const args = text.replace('/weather', '').trim();
     await handleWeatherCommand(chatId, textUserId, MessagingPlatform.TELEGRAM, args || undefined);

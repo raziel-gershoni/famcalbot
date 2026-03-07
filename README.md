@@ -8,7 +8,6 @@ A private messaging bot that sends intelligent, personalized daily calendar summ
 - **Multi-language support**: Summaries and voice messages in Hebrew, English, Spanish, French, German with AI translation
 - **Multi-calendar support**: Fetches events from multiple Google Calendars with shared authentication
 - **Multi-provider AI**: Supports both Claude (Anthropic) and OpenAI GPT models with easy switching
-- **AI model testing**: `/testmodels` command for side-by-side model comparison with performance metrics
 - **Voice messages**: Natural, fluent audio summaries using Google Cloud TTS in user's preferred language
 - **Weather integration**: AI-powered weather summaries integrated with daily schedule
 - **Smart event categorization**: Pre-categorizes events by ownership (user, spouse, kids) for accurate attribution
@@ -68,8 +67,7 @@ famcalbot/
 │   ├── services/
 │   │   ├── ai-provider.ts     # Unified Claude & OpenAI abstraction
 │   │   ├── calendar.ts        # Google Calendar integration
-│   │   ├── claude.ts          # Summary generation with metrics
-│   │   ├── model-tester.ts    # Multi-model testing service
+│   │   ├── claude.ts          # Summary generation
 │   │   ├── reminders.ts       # Event reminder notifications
 │   │   ├── telegram.ts        # Telegram bot handlers
 │   │   ├── voice-generator.ts # Google Cloud TTS voice generation
@@ -146,7 +144,6 @@ UPSTASH_REDIS_REST_TOKEN=<from Upstash Console>
 ```env
 AI_MODEL=claude-sonnet-4.6    # Default model
 AI_MAX_TOKENS=<number>        # Override model defaults
-DISABLE_TESTMODELS=false      # Emergency kill switch
 NODE_ENV=production           # development = test user only
 ```
 
@@ -155,7 +152,7 @@ NODE_ENV=production           # development = test user only
 1. Go to [Upstash Console](https://console.upstash.com/)
 2. Create a new Redis database (free tier: 500K commands/month)
 3. Copy REST URL and token to environment variables
-4. Used for: Preventing duplicate `/testmodels` executions from Telegram retries
+4. Used for: Distributed locking, caching, and deduplication
 
 ### 4. Configure Users
 
@@ -397,36 +394,6 @@ The Settings page (accessible from dashboard) provides these options:
   - Used when event has no reminder set in Google Calendar
   - Kids' events get both start AND pickup reminders
 
-### Admin Commands
-- `/testmodels [filter]` - Test multiple AI models side-by-side
-- `/testai` - Test AI models with interactive buttons
-
-**Test model filters:**
-```bash
-/testmodels              # Test recommended models (5 models)
-/testmodels all          # Test all 11 available models
-/testmodels claude       # Test all Claude models (2)
-/testmodels openai       # Test all OpenAI models (6)
-/testmodels gemini       # Test all Gemini models (3)
-/testmodels gpt-5.2      # Test single specific model
-```
-
-**Test output includes:**
-- Hebrew summary for today and tomorrow
-- Execution time (seconds)
-- Token usage (input → output)
-- Estimated cost
-- Stop reason (end_turn, length, etc.)
-
-Example output:
-```
-🧪 GPT-5 Mini - TODAY
-
-[Hebrew summary...]
-
-⏱️ 2.3s | 🔢 1407→256 tokens | 💰 $0.004 | end_turn
-```
-
 ## Voice Messages
 
 **Current status**: Admin-only feature for `/summary` and weekly summaries
@@ -555,9 +522,6 @@ Receives Telegram bot updates (commands from users).
 - `/summary` - Get today's calendar summary
 - `/summary tmrw` - Get tomorrow's calendar summary
 - `/weather` - Get weather forecast with interactive buttons
-- `/testmodels [filter]` - Test AI models (admin only)
-- `/testai` - Test AI models with interactive buttons (admin only)
-
 This endpoint is automatically called by Telegram when users interact with the bot in production.
 
 ## Admin Notifications
@@ -569,8 +533,6 @@ The bot automatically notifies the admin user via Telegram for:
 - **Token ceiling hit** - AI response truncated (suggests increasing max tokens)
 - **Webhook errors** - Telegram command processing failed
 - **Cron job failures** - Summary generation failed
-- **TestModels errors** - Model testing failed
-
 All notifications include error context, message, stack trace (first 3 lines), and timestamp.
 
 ## Error Handling
@@ -642,11 +604,6 @@ npm run get-google-token
 
 # Update in Vercel dashboard or .env
 ```
-
-### Test models not working
-- Check Redis credentials in environment variables
-- Verify DISABLE_TESTMODELS is not set to 'true'
-- Ensure user has `isAdmin: true` in the database
 
 ### Bot not responding
 - Check Vercel deployment logs

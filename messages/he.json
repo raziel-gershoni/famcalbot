@@ -428,17 +428,6 @@
       "tapToRefresh": "לחץ למטה להתחברות מחדש:"
     },
     "weather": {},
-    "testAI": {
-      "title": "🤖 <b>בדיקת מודלי AI</b>",
-      "selectModel": "בחר מודל ליצירת סיכום <b>{timeLabel}</b> עם קול:",
-      "eachModel": "<i>כל מודל ייצור סיכום טקסט וקול.</i>",
-      "generating": "מייצר סיכום {timeLabel} עם {modelName}...",
-      "unauthorized": "לא מורשה",
-      "invalidModel": "מודל לא תקין"
-    },
-    "testModels": {
-      "disabled": "⚠️ <b>testmodels מושבת כרגע</b>\n\nצור קשר עם מנהל להפעלה מחדש."
-    },
     "noEvents": {
       "today": "אין לך אירועים מתוכננים להיום. תהנה מיום פנוי!",
       "tomorrow": "אין לך אירועים מתוכננים למחר. תהנה מיום פנוי!"

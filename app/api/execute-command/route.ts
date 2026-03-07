@@ -92,17 +92,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check admin access for testai command
-    if (command === 'testai' && !user.isAdmin) {
-      return NextResponse.json({
-        success: false,
-        error: 'Admin access required for testai command'
-      }, { status: 403 });
-    }
-
     // Dynamically import to avoid build-time initialization
     const {
-      handleTestAICommand,
       handleSummaryCommand,
       handleWeatherCommand,
       handleLookaheadCommand,
@@ -114,9 +105,6 @@ export async function POST(request: NextRequest) {
     after(async () => {
       try {
         switch (command) {
-          case 'testai':
-            await handleTestAICommand(user_id, user_id, args);
-            break;
           case 'summary':
             await handleSummaryCommand(
               user_id,
@@ -179,7 +167,7 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    if (command !== 'testai' && command !== 'summary' && command !== 'weather' && command !== 'lookahead' && command !== 'nextweek') {
+    if (command !== 'summary' && command !== 'weather' && command !== 'lookahead' && command !== 'nextweek') {
       return NextResponse.json({
         success: false,
         error: `Unknown command: ${command}`

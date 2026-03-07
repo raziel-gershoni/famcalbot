@@ -35,7 +35,6 @@ export const REDIS_KEYS = {
   FEATURE_ACCESS_PREFIX: 'feature:access:',
 
   // Locks
-  testModelsLock: (userId: number) => `testmodels:lock:${userId}`,
   voiceLock: (fileUniqueId: string) => `voice:lock:${fileUniqueId}`,
 
   // Voice pending operations (serverless-safe, replaces in-memory Maps)

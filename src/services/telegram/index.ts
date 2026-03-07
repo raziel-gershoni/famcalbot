@@ -14,9 +14,6 @@ export {
   handleWeatherCommand,
   handleLookaheadCommand,
   handleNextWeekCommand,
-  handleTestModelsCommand,
-  handleTestAICommand,
-  handleTestAICallback,
   handleFeedbackCommand,
   setupHandlers,
 } from './commands';

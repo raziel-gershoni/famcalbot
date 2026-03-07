@@ -212,18 +212,3 @@ export function getModelsByProvider(provider: 'claude' | 'openai' | 'gemini'): R
   );
 }
 
-/**
- * Get recommended models for testing
- * Focus on latest models across providers
- */
-export function getRecommendedModels(): string[] {
-  return [
-    'claude-sonnet-4.6',        // Latest Claude Sonnet, fast and capable
-    'gpt-5.2',                  // Latest OpenAI (Dec 2025)
-    'gemini-3.1-pro',           // Latest Gemini Pro (Mar 2026)
-    'gemini-3-flash',           // Latest Flash (Dec 2025), now default in Gemini app
-    'gemini-3.1-flash-lite',    // Latest Flash-Lite (Mar 2026), best cost-efficiency
-    'gemini-2.5-flash',         // Best price-performance
-    'gemini-2.5-flash-lite',    // Ultra-cheap, fastest
-  ];
-}

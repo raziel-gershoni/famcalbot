@@ -2,9 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useTranslations } from 'next-intl';
-import { Activity, Crown, Bot, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock, RefreshCw, ChevronDown, MessageSquare } from 'lucide-react';
-import { HDate, Locale, gematriya } from '@hebcal/core';
-import '@hebcal/locales';
+import { Activity, Crown, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock, RefreshCw, ChevronDown, MessageSquare } from 'lucide-react';
 import { AI_MODELS } from '@/src/config/ai-models';
 
 interface AdminPanelClientProps {
@@ -22,7 +20,6 @@ interface AdminPanelClientProps {
   geminiThinkingLevel: string | null;
 }
 
-type ButtonState = 'idle' | 'loading' | 'success' | 'error';
 
 interface UserListItem {
   id: number;
@@ -120,8 +117,6 @@ interface FeedbackItem {
 
 export default function AdminPanelClient({ userId, locale, stats, remindersEnabled: initialRemindersEnabled, earlyAdoptionMode: initialEarlyAdoptionMode, defaultAiModel: initialDefaultAiModel, geminiThinkingLevel: initialGeminiThinkingLevel }: AdminPanelClientProps) {
   const t = useTranslations('admin');
-  const [todayState, setTodayState] = useState<ButtonState>('idle');
-  const [tomorrowState, setTomorrowState] = useState<ButtonState>('idle');
   const [remindersEnabled, setRemindersEnabled] = useState(initialRemindersEnabled);
   const [remindersSaving, setRemindersSaving] = useState(false);
   const [earlyAdoptionMode, setEarlyAdoptionMode] = useState(initialEarlyAdoptionMode);
@@ -180,33 +175,6 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   const intlLocale = { he: 'he-IL', ru: 'ru-RU', en: 'en-US' }[locale] ?? 'en-US';
 
   // Format dates for today and tomorrow buttons
-  const todayLabel = useMemo(() => {
-    const now = new Date();
-    const greg = now.toLocaleDateString(intlLocale, { month: 'short', day: 'numeric' });
-    const dayOfWeek = now.toLocaleDateString(intlLocale, { weekday: 'short' });
-    const hdate = new HDate(now);
-    const hebDay = locale === 'he' ? gematriya(hdate.getDate()) : hdate.getDate();
-    const hebMonth = Locale.lookupTranslation(hdate.getMonthName(), locale) || hdate.getMonthName();
-    return {
-      gregorian: `${dayOfWeek} ${greg}`,
-      hebrew: `${hebDay} ${hebMonth}`
-    };
-  }, [locale, intlLocale]);
-
-  const tomorrowLabel = useMemo(() => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const greg = tomorrow.toLocaleDateString(intlLocale, { month: 'short', day: 'numeric' });
-    const dayOfWeek = tomorrow.toLocaleDateString(intlLocale, { weekday: 'short' });
-    const hdate = new HDate(tomorrow);
-    const hebDay = locale === 'he' ? gematriya(hdate.getDate()) : hdate.getDate();
-    const hebMonth = Locale.lookupTranslation(hdate.getMonthName(), locale) || hdate.getMonthName();
-    return {
-      gregorian: `${dayOfWeek} ${greg}`,
-      hebrew: `${hebDay} ${hebMonth}`
-    };
-  }, [locale, intlLocale]);
-
   useEffect(() => {
     if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
       const tg = window.Telegram.WebApp;
@@ -216,51 +184,6 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
       tg.setBackgroundColor('#ffffff');
     }
   }, []);
-
-  const testModel = async (timeframe: 'today' | 'tmrw') => {
-    const setState = timeframe === 'today' ? setTodayState : setTomorrowState;
-    setState('loading');
-
-    try {
-      // Get Telegram Web App initData for authentication
-      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
-
-      const response = await fetch('/api/execute-command', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: userId,
-          command: 'testai',
-          args: timeframe === 'tmrw' ? 'tmrw' : undefined,
-          initData,
-        })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to execute command');
-      }
-
-      setState('success');
-
-      // Auto-close after 1 second
-      setTimeout(() => {
-        if (window.Telegram?.WebApp) {
-          window.Telegram.WebApp.close();
-        }
-      }, 1000);
-
-    } catch (error) {
-      setState('error');
-      console.error('Command failed:', error);
-
-      // Reset after 2 seconds
-      setTimeout(() => {
-        setState('idle');
-      }, 2000);
-    }
-  };
 
   const openUserDashboard = () => {
     window.location.href = `/dashboard?user_id=${userId}`;
@@ -588,38 +511,6 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
       setReminderFeedback({ type: 'error', message: t('overrides.reminderFailed') });
     } finally {
       setIsSendingReminder(false);
-    }
-  };
-
-  const getButtonContent = (state: ButtonState, label: { gregorian: string; hebrew: string }) => {
-    switch (state) {
-      case 'loading':
-        return t('testing.sending');
-      case 'success':
-        return t('testing.sent');
-      case 'error':
-        return t('testing.error');
-      default:
-        return (
-          <>
-            {label.gregorian}
-            <br />
-            {label.hebrew}
-          </>
-        );
-    }
-  };
-
-  const getButtonStyle = (state: ButtonState) => {
-    switch (state) {
-      case 'success':
-        return { background: '#22c55e' };
-      case 'error':
-        return { background: '#ef4444' };
-      case 'loading':
-        return { opacity: 0.6 };
-      default:
-        return {};
     }
   };
 
@@ -1743,37 +1634,6 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
         </header>
 
         <div className="admin-content">
-          {/* AI Model Testing Section */}
-          <div className="section">
-            <div className="section-header section-header-clickable" onClick={() => toggleSection('testing')}>
-              <span className="section-icon"><Bot size={20} /></span>
-              <h2 className="section-title">{t('testing.title')}</h2>
-              <span className={`section-chevron ${collapsedSections['testing'] ? 'collapsed' : ''}`}>
-                <ChevronDown size={20} />
-              </span>
-            </div>
-            <div className={`section-content ${collapsedSections['testing'] ? 'collapsed' : ''}`}>
-            <div className="button-group">
-              <button
-                className="action-button"
-                onClick={() => testModel('today')}
-                disabled={todayState !== 'idle'}
-                style={getButtonStyle(todayState)}
-              >
-                {getButtonContent(todayState, todayLabel)}
-              </button>
-              <button
-                className="action-button"
-                onClick={() => testModel('tmrw')}
-                disabled={tomorrowState !== 'idle'}
-                style={getButtonStyle(tomorrowState)}
-              >
-                {getButtonContent(tomorrowState, tomorrowLabel)}
-              </button>
-            </div>
-            </div>
-          </div>
-
           {/* Feature Toggles Section */}
           <div className="section">
             <div className="section-header section-header-clickable" onClick={() => toggleSection('features')}>

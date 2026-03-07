@@ -428,17 +428,6 @@
       "tapToRefresh": "Tap below to reconnect:"
     },
     "weather": {},
-    "testAI": {
-      "title": "🤖 <b>Test AI Models</b>",
-      "selectModel": "Select a model to generate <b>{timeLabel}'s</b> summary with voice:",
-      "eachModel": "<i>Each model will generate both text and voice summary.</i>",
-      "generating": "Generating {timeLabel}'s summary with {modelName}...",
-      "unauthorized": "Unauthorized",
-      "invalidModel": "Invalid model"
-    },
-    "testModels": {
-      "disabled": "⚠️ <b>testmodels is currently disabled</b>\n\nContact admin to re-enable."
-    },
     "noEvents": {
       "today": "No events planned for today. Enjoy your free time!",
       "tomorrow": "No events planned for tomorrow. Enjoy your free time!"
