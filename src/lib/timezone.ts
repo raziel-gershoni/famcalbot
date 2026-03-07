@@ -1,72 +1,59 @@
 /**
  * User Timezone Resolution
- * Dynamically resolves user's timezone from Google Calendar or location
+ * Resolves user's timezone via Redis cache → Geocoding → Google Calendar → UTC
  */
 
+import { Redis } from '@upstash/redis';
 import { TIMEZONE } from '../config/constants';
+import { REDIS_KEYS } from '../config/redis-keys';
 import { getUserCalendarTimezone } from '../services/calendar';
+import { geocodeLocation } from '../services/weather/geocoding';
 import { captureError } from './error-capture';
 
-/**
- * Location to timezone mapping for common locations
- * Covers most users without needing a geocoding API
- */
-const LOCATION_TIMEZONE_MAP: Record<string, string> = {
-  // Israel
-  'israel': 'Asia/Jerusalem',
-  'tel aviv': 'Asia/Jerusalem',
-  'jerusalem': 'Asia/Jerusalem',
-  'haifa': 'Asia/Jerusalem',
-  // Russia
-  'russia': 'Europe/Moscow',
-  'moscow': 'Europe/Moscow',
-  'санкт-петербург': 'Europe/Moscow',
-  'saint petersburg': 'Europe/Moscow',
-  // USA
-  'new york': 'America/New_York',
-  'los angeles': 'America/Los_Angeles',
-  'chicago': 'America/Chicago',
-  // Europe
-  'london': 'Europe/London',
-  'paris': 'Europe/Paris',
-  'berlin': 'Europe/Berlin',
-  'amsterdam': 'Europe/Amsterdam',
-};
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+});
 
-/**
- * Infer timezone from location string
- * @param location - User's location (e.g., "Haifa, Israel")
- * @returns IANA timezone or null if not found
- */
-export function inferTimezoneFromLocation(location: string): string | null {
-  const lower = location.toLowerCase();
-  for (const [key, tz] of Object.entries(LOCATION_TIMEZONE_MAP)) {
-    if (lower.includes(key)) return tz;
-  }
-  return null;
-}
+const TIMEZONE_CACHE_TTL = 24 * 60 * 60; // 24 hours in seconds
 
 /**
  * Resolve user's timezone dynamically
- * Priority: Google Calendar → Location → Fallback
- * Logs to Sentry if no timezone source available
+ * Priority: Redis cache → Geocoding → Google Calendar → UTC
+ * Caches successful result for 24h to avoid repeated API calls
  */
 export async function resolveUserTimezone(
   user: { location?: string; googleRefreshToken?: string; telegramId: number }
 ): Promise<string> {
-  // 1. Try Google Calendar settings (most authoritative)
+  const cacheKey = REDIS_KEYS.userTimezone(user.telegramId);
+
+  // 1. Check Redis cache
+  const cached = await redis.get<string>(cacheKey);
+  if (cached) return cached;
+
+  // 2. Try geocoding from location
+  if (user.location) {
+    try {
+      const geo = await geocodeLocation(user.location);
+      if (geo.timezone) {
+        await redis.set(cacheKey, geo.timezone, { ex: TIMEZONE_CACHE_TTL });
+        return geo.timezone;
+      }
+    } catch {
+      // Geocoding failed, continue to next source
+    }
+  }
+
+  // 3. Try Google Calendar settings
   if (user.googleRefreshToken) {
     const gcalTz = await getUserCalendarTimezone(user.googleRefreshToken);
-    if (gcalTz) return gcalTz;
+    if (gcalTz) {
+      await redis.set(cacheKey, gcalTz, { ex: TIMEZONE_CACHE_TTL });
+      return gcalTz;
+    }
   }
 
-  // 2. Try inferring from location
-  if (user.location) {
-    const locationTz = inferTimezoneFromLocation(user.location);
-    if (locationTz) return locationTz;
-  }
-
-  // 3. Log to Sentry - no timezone source available
+  // 4. Fallback to UTC — log Sentry warning once per 24h (cached)
   captureError(
     new Error('No timezone source available'),
     'timezone-resolution',
@@ -74,11 +61,11 @@ export async function resolveUserTimezone(
       user_id: user.telegramId,
       service: 'timezone',
       hasToken: !!user.googleRefreshToken,
-      location: user.location || '(none)'
+      location: user.location || '(none)',
     },
     'warning'
   );
 
-  // 4. Fallback to default
+  await redis.set(cacheKey, TIMEZONE, { ex: TIMEZONE_CACHE_TTL });
   return TIMEZONE;
 }

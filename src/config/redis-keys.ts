@@ -43,4 +43,7 @@ export const REDIS_KEYS = {
   pendingEdit: (pendingId: string) => `voice:pending:edit:${pendingId}`,
   pendingDelete: (pendingId: string) => `voice:pending:delete:${pendingId}`,
   lastCreatedEvent: (userId: number) => `voice:last_created:${userId}`,
+
+  // User timezone cache (resolved via geocoding or Google Calendar)
+  userTimezone: (telegramId: number) => `tz:user:${telegramId}`,
 } as const;
