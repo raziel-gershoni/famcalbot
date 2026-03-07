@@ -5,7 +5,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { getAIConfig, AI_RETRY_CONFIG } from '../config/constants';
 import { notifyAdminWarning } from '../utils/error-notifier';
 
@@ -197,11 +197,17 @@ async function callOpenAI(prompt: string, modelId?: string): Promise<AICompletio
 async function callGemini(prompt: string, modelId?: string): Promise<AICompletionResult> {
   const config = getAIConfig(modelId);
 
+  const { getGeminiThinkingLevel } = await import('./reminder-cache');
+  const thinkingLevel = await getGeminiThinkingLevel();
+
   const response = await getGemini().models.generateContent({
     model: config.MODEL_CONFIG.modelId,
     contents: prompt,
     config: {
       abortSignal: AbortSignal.timeout(25_000),
+      ...(thinkingLevel && {
+        thinkingConfig: { thinkingLevel: ThinkingLevel[thinkingLevel as keyof typeof ThinkingLevel] },
+      }),
     },
   });
   const text = response.text ?? '';

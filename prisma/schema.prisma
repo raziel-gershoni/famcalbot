@@ -79,6 +79,7 @@ model AdminSettings {
   remindersEnabled      Boolean  @default(false)
   earlyAdoptionMode     Boolean  @default(true)
   defaultAiModel        String?
+  geminiThinkingLevel   String?
   updatedAt             DateTime @updatedAt
 }
 

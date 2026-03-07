@@ -16,6 +16,7 @@ const CACHE_KEY = REDIS_KEYS.REMINDER_USERS;
 const GLOBAL_KEY = REDIS_KEYS.REMINDERS_GLOBAL_ENABLED;
 const EARLY_ADOPTION_KEY = REDIS_KEYS.EARLY_ADOPTION_GLOBAL;
 const DEFAULT_AI_MODEL_KEY = REDIS_KEYS.DEFAULT_AI_MODEL;
+const GEMINI_THINKING_LEVEL_KEY = REDIS_KEYS.GEMINI_THINKING_LEVEL;
 
 export interface CachedReminderUser {
   id: number;
@@ -196,5 +197,45 @@ export async function setDefaultAiModelSetting(modelId: string | null): Promise<
     console.log(`[Reminder Cache] Set default AI model to ${modelId ?? 'env default'}`);
   } catch (error) {
     console.error('[Reminder Cache] Redis write default AI model error:', error);
+  }
+}
+
+/**
+ * Get Gemini thinking level from Redis (read-through cache from DB)
+ */
+export async function getGeminiThinkingLevel(): Promise<string | null> {
+  try {
+    const cached = await redis.get<string>(GEMINI_THINKING_LEVEL_KEY);
+    if (cached !== null) return cached;
+
+    const { prisma } = await import('@/src/utils/prisma');
+    const settings = await prisma.adminSettings.findUnique({
+      where: { id: 'global' },
+      select: { geminiThinkingLevel: true },
+    });
+    const value = settings?.geminiThinkingLevel ?? null;
+    if (value) {
+      await redis.set(GEMINI_THINKING_LEVEL_KEY, value);
+    }
+    return value;
+  } catch (error) {
+    console.error('[Reminder Cache] Redis read Gemini thinking level error:', error);
+    return null;
+  }
+}
+
+/**
+ * Set Gemini thinking level in Redis (null clears the key)
+ */
+export async function setGeminiThinkingLevel(level: string | null): Promise<void> {
+  try {
+    if (level) {
+      await redis.set(GEMINI_THINKING_LEVEL_KEY, level);
+    } else {
+      await redis.del(GEMINI_THINKING_LEVEL_KEY);
+    }
+    console.log(`[Reminder Cache] Set Gemini thinking level to ${level ?? 'default (MEDIUM)'}`);
+  } catch (error) {
+    console.error('[Reminder Cache] Redis write Gemini thinking level error:', error);
   }
 }

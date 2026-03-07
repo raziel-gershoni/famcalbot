@@ -93,7 +93,9 @@
       "earlyAdoption": "Early Adoption Mode",
       "earlyAdoptionDescription": "Give all users PRO access. Hides payment UI.",
       "aiModel": "Default AI Model",
-      "aiModelDescription": "Select the AI model used for summaries, weather, and voice"
+      "aiModelDescription": "Select the AI model used for summaries, weather, and voice",
+      "geminiThinking": "Gemini Thinking Level",
+      "geminiThinkingDescription": "Control reasoning depth for Gemini models (lower = faster, cheaper)"
     },
     "overrides": {
       "title": "User Feature Overrides",

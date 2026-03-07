@@ -93,7 +93,9 @@
       "earlyAdoption": "מצב אימוץ מוקדם",
       "earlyAdoptionDescription": "תן לכל המשתמשים גישת PRO. מסתיר ממשק תשלום.",
       "aiModel": "מודל AI ברירת מחדל",
-      "aiModelDescription": "בחר את מודל ה-AI לסיכומים, מזג אוויר וקול"
+      "aiModelDescription": "בחר את מודל ה-AI לסיכומים, מזג אוויר וקול",
+      "geminiThinking": "רמת חשיבה Gemini",
+      "geminiThinkingDescription": "שליטה בעומק החשיבה למודלי Gemini (נמוך = מהיר וזול יותר)"
     },
     "overrides": {
       "title": "דריסות תכונות למשתמשים",

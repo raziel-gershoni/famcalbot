@@ -19,6 +19,7 @@ interface AdminPanelClientProps {
   remindersEnabled: boolean;
   earlyAdoptionMode: boolean;
   defaultAiModel: string | null;
+  geminiThinkingLevel: string | null;
 }
 
 type ButtonState = 'idle' | 'loading' | 'success' | 'error';
@@ -117,7 +118,7 @@ interface FeedbackItem {
   createdAt: string;
 }
 
-export default function AdminPanelClient({ userId, locale, stats, remindersEnabled: initialRemindersEnabled, earlyAdoptionMode: initialEarlyAdoptionMode, defaultAiModel: initialDefaultAiModel }: AdminPanelClientProps) {
+export default function AdminPanelClient({ userId, locale, stats, remindersEnabled: initialRemindersEnabled, earlyAdoptionMode: initialEarlyAdoptionMode, defaultAiModel: initialDefaultAiModel, geminiThinkingLevel: initialGeminiThinkingLevel }: AdminPanelClientProps) {
   const t = useTranslations('admin');
   const [todayState, setTodayState] = useState<ButtonState>('idle');
   const [tomorrowState, setTomorrowState] = useState<ButtonState>('idle');
@@ -127,6 +128,8 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   const [earlyAdoptionSaving, setEarlyAdoptionSaving] = useState(false);
   const [defaultAiModel, setDefaultAiModel] = useState(initialDefaultAiModel ?? '');
   const [aiModelSaving, setAiModelSaving] = useState(false);
+  const [geminiThinkingLevel, setGeminiThinkingLevel] = useState(initialGeminiThinkingLevel ?? '');
+  const [thinkingLevelSaving, setThinkingLevelSaving] = useState(false);
 
   // User overrides state
   const [userList, setUserList] = useState<UserListItem[]>([]);
@@ -311,6 +314,23 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
       }
     } finally {
       setAiModelSaving(false);
+    }
+  };
+
+  const changeThinkingLevel = async (level: string) => {
+    setThinkingLevelSaving(true);
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ geminiThinkingLevel: level || null, initData })
+      });
+      if (response.ok) {
+        setGeminiThinkingLevel(level);
+      }
+    } finally {
+      setThinkingLevelSaving(false);
     }
   };
 
@@ -1835,6 +1855,36 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                 ))}
               </select>
             </div>
+            {defaultAiModel && AI_MODELS[defaultAiModel]?.provider === 'gemini' && (
+            <div className="toggle-row" style={{ marginTop: '12px' }}>
+              <div className="toggle-info">
+                <p className="toggle-label">{t('features.geminiThinking')}</p>
+                <p className="toggle-description">{t('features.geminiThinkingDescription')}</p>
+              </div>
+              <select
+                value={geminiThinkingLevel}
+                onChange={(e) => changeThinkingLevel(e.target.value)}
+                disabled={thinkingLevelSaving}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color, #ddd)',
+                  background: 'var(--card-bg, #fff)',
+                  color: 'var(--text-primary, #333)',
+                  fontSize: '13px',
+                  minWidth: '160px',
+                  opacity: thinkingLevelSaving ? 0.6 : 1,
+                  cursor: thinkingLevelSaving ? 'not-allowed' : 'pointer',
+                }}
+              >
+                <option value="">Default (Medium)</option>
+                <option value="MINIMAL">Minimal - Lowest latency</option>
+                <option value="LOW">Low - Fast</option>
+                <option value="MEDIUM">Medium - General</option>
+                <option value="HIGH">High - Complex reasoning</option>
+              </select>
+            </div>
+            )}
             </div>
           </div>
 

@@ -93,7 +93,9 @@
       "earlyAdoption": "Режим раннего доступа",
       "earlyAdoptionDescription": "Дать всем пользователям PRO-доступ. Скрывает интерфейс оплаты.",
       "aiModel": "Модель ИИ по умолчанию",
-      "aiModelDescription": "Выберите модель ИИ для сводок, погоды и голоса"
+      "aiModelDescription": "Выберите модель ИИ для сводок, погоды и голоса",
+      "geminiThinking": "Уровень мышления Gemini",
+      "geminiThinkingDescription": "Глубина рассуждений для моделей Gemini (ниже = быстрее и дешевле)"
     },
     "overrides": {
       "title": "Переопределения функций",
