@@ -126,14 +126,14 @@ export const AI_MODELS: Record<string, ModelConfig> = {
   // GEMINI MODELS (Google AI)
   // ============================================
 
-  'gemini-3-pro': {
+  'gemini-3.1-pro': {
     provider: 'gemini',
-    modelId: 'gemini-3-pro-preview',
-    displayName: 'Gemini 3 Pro',
+    modelId: 'gemini-3.1-pro-preview',
+    displayName: 'Gemini 3.1 Pro',
     maxOutputTokens: 65536,
     contextWindow: 1048576,
-    costPer1MTokens: { input: 2.00, output: 12.00 }, // ≤200K context
-    description: 'Latest Gemini (Nov 2025), best multimodal reasoning, 1M context',
+    costPer1MTokens: { input: 2.00, output: 12.00 },
+    description: 'Latest Gemini Pro (Mar 2026), replaces 3 Pro Preview',
   },
 
   'gemini-3-flash': {
@@ -143,7 +143,7 @@ export const AI_MODELS: Record<string, ModelConfig> = {
     maxOutputTokens: 65536,
     contextWindow: 1048576,
     costPer1MTokens: { input: 0.50, output: 3.00 },
-    description: 'Latest Flash (Dec 2025), Pro-grade reasoning with Flash latency, 3x faster than 2.5 Pro',
+    description: 'Flash (Dec 2025), Pro-grade reasoning with Flash latency, 3x faster than 2.5 Pro',
   },
 
   'gemini-2.5-flash': {
@@ -210,7 +210,7 @@ export function getRecommendedModels(): string[] {
   return [
     'claude-sonnet-4.5',        // Fast, reliable Claude baseline
     'gpt-5.2',                  // Latest OpenAI (Dec 2025)
-    'gemini-3-pro',             // Latest Gemini (Nov 2025)
+    'gemini-3.1-pro',           // Latest Gemini Pro (Mar 2026)
     'gemini-3-flash',           // Latest Flash (Dec 2025), now default in Gemini app
     'gemini-3.1-flash-lite',    // Latest Flash-Lite (Mar 2026), best cost-efficiency
     'gemini-2.5-flash',         // Best price-performance
