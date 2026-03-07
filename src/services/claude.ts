@@ -6,6 +6,7 @@ import { buildCalendarSummaryPrompt, SummaryPromptData } from '../prompts/calend
 import { buildWeekLookaheadPrompt, WeekLookaheadPromptData, LookaheadDayData, LookaheadEventData } from '../prompts/week-lookahead';
 import { formatEventList } from '../utils/event-formatter';
 import { generateAICompletion } from './ai-provider';
+import { formatAdminFooter } from '../utils/ai-footer';
 import type { WeekLookahead, LookaheadEvent } from './week-lookahead';
 
 /**
@@ -193,14 +194,7 @@ function buildPromptData(
 async function callAI(prompt: string, includeModelInfo: boolean = false, modelId?: string): Promise<string> {
   try {
     const result = await generateAICompletion(prompt, modelId);
-
-    // Add model info footer only if requested (for admin user)
-    if (includeModelInfo) {
-      const modelFooter = `\n\n<i>📊 ${result.model} | ${result.usage.inputTokens}→${result.usage.outputTokens} tokens</i>`;
-      return result.text + modelFooter;
-    }
-
-    return result.text;
+    return result.text + formatAdminFooter(result, includeModelInfo);
   } catch (error) {
     console.error('Error generating summary with AI:', error);
     return 'Sorry, I could not generate a summary at this time.';
@@ -470,7 +464,8 @@ export async function generateWeekLookahead(
   lookahead: WeekLookahead,
   user: UserConfig,
   language: string,
-  modelId?: string
+  modelId?: string,
+  isAdmin: boolean = false
 ): Promise<string> {
   // Build prompt data
   const promptData = buildWeekLookaheadPromptData(lookahead, user, language);
@@ -490,7 +485,7 @@ export async function generateWeekLookahead(
 
   // Call AI provider
   const result = await generateAICompletion(prompt, modelId);
-  return result.text;
+  return result.text + formatAdminFooter(result, isAdmin);
 }
 
 /**
@@ -627,7 +622,8 @@ export async function generateNextWeekSummary(
   lookahead: WeekLookahead,
   user: UserConfig,
   language: string,
-  modelId?: string
+  modelId?: string,
+  isAdmin: boolean = false
 ): Promise<string> {
   // Build prompt data
   const promptData = buildNextWeekPromptData(lookahead, user, language);
@@ -647,7 +643,7 @@ export async function generateNextWeekSummary(
 
   // Call AI provider
   const result = await generateAICompletion(prompt, modelId);
-  return result.text;
+  return result.text + formatAdminFooter(result, isAdmin);
 }
 
 /**

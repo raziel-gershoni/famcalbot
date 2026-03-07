@@ -275,13 +275,11 @@ ${JSON.stringify(payload, null, 2)}`;
 
   try {
     const { generateAICompletion } = await import('../ai-provider');
+    const { formatAdminFooter } = await import('../../utils/ai-footer');
     const result = await generateAICompletion(prompt);
     const text = result.text.trim();
 
-    // Model info footer for admin
-    const modelFooter = isAdmin
-      ? `\n\n<i>📊 ${result.model} | ${result.usage.inputTokens}→${result.usage.outputTokens} tokens</i>`
-      : '';
+    const modelFooter = formatAdminFooter(result, isAdmin ?? false);
 
     const delimiter = '===FULL===';
     const delimiterIndex = text.indexOf(delimiter);

@@ -311,7 +311,8 @@ export async function showEventConfirmation(
   messageId: number,
   event: ParsedEvent,
   transcription: string,
-  user: UserConfig
+  user: UserConfig,
+  adminFooter?: string
 ): Promise<void> {
   const bot = getBot();
   const t = await getBotMessages(user.language || 'en');
@@ -330,7 +331,8 @@ export async function showEventConfirmation(
     `${t.voice.confirmTitle}\n\n` +
     `<b>${event.title}</b>\n` +
     `${dateTimeStr}${locationStr}${calendarStr}\n\n` +
-    `<i>${t.voice.from} "${escapeHtml(transcription)}"</i>`;
+    `<i>${t.voice.from} "${escapeHtml(transcription)}"</i>` +
+    (adminFooter || '');
 
   await bot.editMessageText(confirmationMessage, {
     chat_id: chatId,
@@ -356,7 +358,8 @@ export async function showEditConfirmation(
   updates: UpdateEventData,
   transcription: string,
   user: UserConfig,
-  scope?: RecurrenceScope
+  scope?: RecurrenceScope,
+  adminFooter?: string
 ): Promise<void> {
   const bot = getBot();
   const t = await getBotMessages(user.language || 'en');
@@ -401,7 +404,8 @@ export async function showEditConfirmation(
     `${currentInfo}${scopeInfo}\n\n` +
     `<b>${changesLabel}</b>\n` +
     `${changesInfo}\n\n` +
-    `<i>${fromLabel} "${escapeHtml(transcription)}"</i>`;
+    `<i>${fromLabel} "${escapeHtml(transcription)}"</i>` +
+    (adminFooter || '');
 
   await bot.editMessageText(confirmationMessage, {
     chat_id: chatId,
@@ -426,7 +430,8 @@ export async function showDeleteConfirmation(
   calendarId: string,
   transcription: string,
   user: UserConfig,
-  scope?: RecurrenceScope
+  scope?: RecurrenceScope,
+  adminFooter?: string
 ): Promise<void> {
   const bot = getBot();
   const t = await getBotMessages(user.language || 'en');
@@ -465,7 +470,8 @@ export async function showDeleteConfirmation(
     `${deleteTitle}\n\n` +
     `📅 <b>${event.summary}</b>\n` +
     `${eventInfo}${scopeInfo}\n\n` +
-    `<i>${fromLabel} "${escapeHtml(transcription)}"</i>`;
+    `<i>${fromLabel} "${escapeHtml(transcription)}"</i>` +
+    (adminFooter || '');
 
   await bot.editMessageText(confirmationMessage, {
     chat_id: chatId,

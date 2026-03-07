@@ -68,10 +68,16 @@ const LANGUAGE_NAMES: Record<string, string> = {
  * @param language - Language code (e.g., 'he', 'en', 'ru')
  * @returns Path to generated OGG OPUS audio file in /tmp
  */
+export interface VoiceGenerationResult {
+  filePath: string;
+  ttsMs: number;
+  ttsModel: string;
+}
+
 export async function generateVoiceMessage(
   condensedText: string,
   language: string = 'en',
-): Promise<string> {
+): Promise<VoiceGenerationResult> {
   const startTime = Date.now();
   const voiceName = VOICE_CONFIG[language] || VOICE_CONFIG['en'] || 'Achird';
   const langName = LANGUAGE_NAMES[language] || 'English';
@@ -147,7 +153,7 @@ export async function generateVoiceMessage(
     durationMs: elapsed,
   });
 
-  return filePath;
+  return { filePath, ttsMs: elapsed, ttsModel: GEMINI_TTS_MODEL };
 }
 
 /**

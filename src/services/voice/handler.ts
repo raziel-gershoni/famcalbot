@@ -43,7 +43,8 @@ async function handleEditIntent(
   transcription: string,
   user: UserConfig,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  t: any
+  t: any,
+  adminFooter?: string
 ): Promise<void> {
   const messagingService = getMessagingService();
 
@@ -124,7 +125,7 @@ async function handleEditIntent(
   const timezone = await resolveUserTimezone(user);
   const updates = convertEditRequestToUpdates(intentResult.editRequest, targetEvent, timezone);
 
-  await showEditConfirmation(chatId, messageId, targetEvent, targetCalendarId, updates, transcription, user, intentResult.scope);
+  await showEditConfirmation(chatId, messageId, targetEvent, targetCalendarId, updates, transcription, user, intentResult.scope, adminFooter);
 }
 
 /**
@@ -137,7 +138,8 @@ async function handleDeleteIntent(
   transcription: string,
   user: UserConfig,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  t: any
+  t: any,
+  adminFooter?: string
 ): Promise<void> {
   const messagingService = getMessagingService();
 
@@ -210,7 +212,7 @@ async function handleDeleteIntent(
     return;
   }
 
-  await showDeleteConfirmation(chatId, messageId, targetEvent, targetCalendarId, transcription, user, intentResult.scope);
+  await showDeleteConfirmation(chatId, messageId, targetEvent, targetCalendarId, transcription, user, intentResult.scope, adminFooter);
 }
 
 /**
@@ -317,12 +319,17 @@ export async function handleVoiceMessage(
     }, 'voice');
 
     const timezone = await resolveUserTimezone(user);
-    const { intentResult, transcription } = await processVoiceWithGemini(
+    const { intentResult, transcription, metrics } = await processVoiceWithGemini(
       audioBuffer,
       user.language || 'en',
       user.calendarAssignments || [],
       timezone
     );
+
+    // Build admin footer from voice processing metrics
+    const adminFooter = user.isAdmin
+      ? `\n\n<i>📊 ${metrics.model} | ${metrics.inputTokens}→${metrics.outputTokens} tok | ${(metrics.durationMs / 1000).toFixed(1)}s</i>`
+      : undefined;
 
     addBreadcrumb('voice_transcribed', {
       text_length: transcription?.length || 0,
@@ -351,13 +358,13 @@ export async function handleVoiceMessage(
         );
         return;
       }
-      await showEventConfirmation(chatId, processingMsgId, intentResult.event, transcription, user);
+      await showEventConfirmation(chatId, processingMsgId, intentResult.event, transcription, user, adminFooter);
 
     } else if (intentResult.intent === 'edit') {
-      await handleEditIntent(chatId, processingMsgId, intentResult, transcription, user, t);
+      await handleEditIntent(chatId, processingMsgId, intentResult, transcription, user, t, adminFooter);
 
     } else if (intentResult.intent === 'delete') {
-      await handleDeleteIntent(chatId, processingMsgId, intentResult, transcription, user, t);
+      await handleDeleteIntent(chatId, processingMsgId, intentResult, transcription, user, t, adminFooter);
     }
 
   } catch (error) {

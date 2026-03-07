@@ -184,12 +184,19 @@ function sleep(ms: number): Promise<void> {
  * Process voice audio directly with Gemini 3 Flash
  * Single API call: transcription + intent detection + event extraction
  */
+export interface VoiceProcessingMetrics {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  durationMs: number;
+}
+
 export async function processVoiceWithGemini(
   audioBuffer: Buffer,
   language: string,
   calendars: CalendarAssignment[],
   timezone: string
-): Promise<{ intentResult: VoiceIntentResult; transcription: string }> {
+): Promise<{ intentResult: VoiceIntentResult; transcription: string; metrics: VoiceProcessingMetrics }> {
   const startTime = Date.now();
   let lastError: Error | null = null;
 
@@ -351,7 +358,11 @@ export async function processVoiceWithGemini(
         };
       }
 
-      return { intentResult, transcription };
+      return {
+        intentResult,
+        transcription,
+        metrics: { model: GEMINI_VOICE_MODEL, inputTokens, outputTokens, durationMs: duration },
+      };
 
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));

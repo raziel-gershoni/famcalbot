@@ -51,9 +51,15 @@ export interface AICompletionResult {
   usage: {
     inputTokens: number;
     outputTokens: number;
+    cacheReadTokens?: number;
+    cacheCreationTokens?: number;
+    thinkingTokens?: number;
   };
   stopReason: string;
   model: string;
+  responseModel?: string;
+  durationMs: number;
+  thinkingLevel?: string;
 }
 
 /**
@@ -120,9 +126,13 @@ async function callClaude(prompt: string, modelId?: string): Promise<AICompletio
     usage: {
       inputTokens: message.usage.input_tokens,
       outputTokens: message.usage.output_tokens,
+      cacheReadTokens: (message.usage as unknown as Record<string, number>).cache_read_input_tokens || undefined,
+      cacheCreationTokens: (message.usage as unknown as Record<string, number>).cache_creation_input_tokens || undefined,
     },
     stopReason: message.stop_reason ?? 'unknown',
     model: config.MODEL_CONFIG.displayName,
+    responseModel: message.model,
+    durationMs: 0,
   };
 }
 
@@ -185,9 +195,13 @@ async function callOpenAI(prompt: string, modelId?: string): Promise<AICompletio
     usage: {
       inputTokens: completion.usage?.prompt_tokens || 0,
       outputTokens: completion.usage?.completion_tokens || 0,
+      thinkingTokens: (completion.usage?.completion_tokens_details as Record<string, number> | undefined)?.reasoning_tokens || undefined,
     },
     stopReason: choice?.finish_reason ?? 'unknown',
     model: config.MODEL_CONFIG.displayName,
+    responseModel: completion.model,
+    durationMs: 0,
+    thinkingLevel: config.MODEL_CONFIG.reasoningEffort,
   };
 }
 
@@ -234,9 +248,13 @@ async function callGemini(prompt: string, modelId?: string): Promise<AICompletio
     usage: {
       inputTokens: response.usageMetadata?.promptTokenCount || 0,
       outputTokens: response.usageMetadata?.candidatesTokenCount || 0,
+      thinkingTokens: (response.usageMetadata as Record<string, number> | undefined)?.thoughtsTokenCount || undefined,
     },
     stopReason: finishReasonStr,
     model: config.MODEL_CONFIG.displayName,
+    responseModel: (response as unknown as Record<string, unknown>).modelVersion as string | undefined,
+    durationMs: 0,
+    thinkingLevel: thinkingLevel || undefined,
   };
 }
 
@@ -276,7 +294,8 @@ export async function generateAICompletion(prompt: string, modelId?: string): Pr
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      // Route to the appropriate provider
+      // Route to the appropriate provider with timing
+      const startMs = Date.now();
       let result: AICompletionResult;
       if (config.MODEL_CONFIG.provider === 'claude') {
         result = await callClaude(prompt, modelId);
@@ -285,6 +304,7 @@ export async function generateAICompletion(prompt: string, modelId?: string): Pr
       } else {
         result = await callOpenAI(prompt, modelId);
       }
+      result.durationMs = Date.now() - startMs;
 
       // Log successful completion
       console.log('AI Completion Success:', {

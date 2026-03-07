@@ -356,7 +356,7 @@ export async function handleLookaheadCommand(
       const lookahead = await getWeekLookahead(user, user.calendarAssignments || []);
 
       const { generateWeekLookahead } = await import('../claude');
-      return generateWeekLookahead(lookahead, user, userLanguage);
+      return generateWeekLookahead(lookahead, user, userLanguage, undefined, user.isAdmin);
     },
     onSuccess: async (formattedLookahead, messageId) => {
       await messagingService.updateMessage(chatId, messageId, formattedLookahead, { format: MessageFormat.HTML });
@@ -438,7 +438,7 @@ export async function handleNextWeekCommand(
       const lookahead = await getNextWeekLookahead(user, user.calendarAssignments || []);
 
       const { generateNextWeekSummary } = await import('../claude');
-      return generateNextWeekSummary(lookahead, user, userLanguage);
+      return generateNextWeekSummary(lookahead, user, userLanguage, undefined, user.isAdmin);
     },
     onSuccess: async (formattedSummary, messageId) => {
       await messagingService.updateMessage(chatId, messageId, formattedSummary, { format: MessageFormat.HTML });

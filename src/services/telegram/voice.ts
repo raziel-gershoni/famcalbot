@@ -9,6 +9,8 @@ import { sendAnimatedProgress } from '../progress-message';
 import { getBot, getMessagingService } from './bot';
 import { trackActivityAsync } from '../analytics-service';
 import { incrementUsage } from '../subscription-service';
+import { formatVoiceCaption } from '../../utils/ai-footer';
+import type { AICompletionResult } from '../ai-provider';
 import type { VoiceCondenserContext } from '../../prompts/voice-condenser';
 
 const VOICE_TIMEOUT_MS = 40_000;
@@ -75,12 +77,13 @@ export async function sendVoiceMessage(
       console.log(`[Voice] Summary condensed: ${summary.length} → ${condensedText.length} chars`);
 
       // Step 2: Generate voice from condensed text
-      voiceFilePath = await generateVoiceMessage(condensedText, userLanguage);
+      const ttsResult = await generateVoiceMessage(condensedText, userLanguage);
+      voiceFilePath = ttsResult.filePath;
 
-      return { condensedText };
+      return { condensedText, condensedResult, ttsMs: ttsResult.ttsMs, ttsModel: ttsResult.ttsModel };
     };
 
-    const { condensedText } = await Promise.race([
+    const { condensedText, condensedResult, ttsMs, ttsModel } = await Promise.race([
       voiceWork(),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Voice generation timed out')), VOICE_TIMEOUT_MS)
@@ -90,9 +93,12 @@ export async function sendVoiceMessage(
     // Delete progress message
     if (messageId) await msgService.deleteMessage(userId, messageId);
 
-    // Send as voice message to Telegram
+    // Send as voice message to Telegram with optional admin caption
     const botInstance = getBot();
-    await botInstance.sendVoice(userId, voiceFilePath!, {}, {
+    const caption = formatVoiceCaption(condensedResult, ttsMs, ttsModel, user.isAdmin);
+    await botInstance.sendVoice(userId, voiceFilePath!, {
+      ...(caption && { caption, parse_mode: 'HTML' as const }),
+    }, {
       contentType: 'audio/ogg'
     });
 
@@ -192,10 +198,13 @@ export async function sendWeeklyVoiceMessage(
       console.log(`[Voice] Weekly summary condensed: ${summary.length} → ${condensedText.length} chars`);
 
       // Step 2: Generate voice from condensed text
-      voiceFilePath = await generateVoiceMessage(condensedText, userLanguage);
+      const ttsResult = await generateVoiceMessage(condensedText, userLanguage);
+      voiceFilePath = ttsResult.filePath;
+
+      return { condensedResult, ttsMs: ttsResult.ttsMs, ttsModel: ttsResult.ttsModel };
     };
 
-    await Promise.race([
+    const { condensedResult, ttsMs, ttsModel } = await Promise.race([
       voiceWork(),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Weekly voice generation timed out')), VOICE_TIMEOUT_MS)
@@ -205,9 +214,12 @@ export async function sendWeeklyVoiceMessage(
     // Delete progress message before sending voice
     await msgService.deleteMessage(userId, messageId);
 
-    // Send as voice message to Telegram
+    // Send as voice message to Telegram with optional admin caption
     const botInstance = getBot();
-    await botInstance.sendVoice(userId, voiceFilePath!, {}, {
+    const caption = formatVoiceCaption(condensedResult, ttsMs, ttsModel, user.isAdmin);
+    await botInstance.sendVoice(userId, voiceFilePath!, {
+      ...(caption && { caption, parse_mode: 'HTML' as const }),
+    }, {
       contentType: 'audio/ogg'
     });
 
