@@ -239,6 +239,8 @@
     "lookaheadAlways7DaysDescription": "Показывать следующие 7 дней вместо до конца недели",
     "voiceInput": "Голосовое создание событий",
     "voiceInputDescription": "Создавайте события, отправляя голосовые сообщения боту",
+    "voicePreference": "Голос озвучки",
+    "voicePreferenceDescription": "Выберите голос для аудио-сводок",
     "summaryDeliveryTime": "Время доставки сводки",
     "morningHour": "Утренняя сводка",
     "morningHourDescription": "Когда получать сводку на сегодня (ваше местное время)",

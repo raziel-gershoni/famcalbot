@@ -77,10 +77,10 @@ export async function sendVoiceMessage(
     console.log(`[Voice] Summary condensed: ${summary.length} → ${condensedText.length} chars`);
 
     // Step 2: Generate voice from condensed text
-    const ttsResult = await generateVoiceMessage(condensedText, userLanguage);
+    const ttsResult = await generateVoiceMessage(condensedText, userLanguage, user.voicePreference);
     voiceFilePath = ttsResult.filePath;
 
-    const { ttsMs, ttsModel } = ttsResult;
+    const { ttsMs, ttsModel, voiceName } = ttsResult;
 
     // Mark completed so the dead-man's switch becomes a no-op
     if (messageId) await markProgressCompleted(userId, messageId);
@@ -90,7 +90,7 @@ export async function sendVoiceMessage(
 
     // Send as voice message to Telegram with optional admin caption
     const botInstance = getBot();
-    const caption = formatVoiceCaption(condensedResult, ttsMs, ttsModel, user.isAdmin);
+    const caption = formatVoiceCaption(condensedResult, ttsMs, ttsModel, user.isAdmin, voiceName);
     await botInstance.sendVoice(userId, voiceFilePath!, {
       ...(caption && { caption, parse_mode: 'HTML' as const }),
     }, {
@@ -197,10 +197,10 @@ export async function sendWeeklyVoiceMessage(
     console.log(`[Voice] Weekly summary condensed: ${summary.length} → ${condensedText.length} chars`);
 
     // Step 2: Generate voice from condensed text
-    const ttsResult = await generateVoiceMessage(condensedText, userLanguage);
+    const ttsResult = await generateVoiceMessage(condensedText, userLanguage, user.voicePreference);
     voiceFilePath = ttsResult.filePath;
 
-    const { ttsMs, ttsModel } = ttsResult;
+    const { ttsMs, ttsModel, voiceName } = ttsResult;
 
     // Mark completed so the dead-man's switch becomes a no-op
     await markProgressCompleted(userId, messageId);
@@ -210,7 +210,7 @@ export async function sendWeeklyVoiceMessage(
 
     // Send as voice message to Telegram with optional admin caption
     const botInstance = getBot();
-    const caption = formatVoiceCaption(condensedResult, ttsMs, ttsModel, user.isAdmin);
+    const caption = formatVoiceCaption(condensedResult, ttsMs, ttsModel, user.isAdmin, voiceName);
     await botInstance.sendVoice(userId, voiceFilePath!, {
       ...(caption && { caption, parse_mode: 'HTML' as const }),
     }, {

@@ -9,11 +9,13 @@ export function formatVoiceCaption(
   condenserResult: AICompletionResult,
   ttsMs: number,
   ttsModel: string,
-  isAdmin: boolean
+  isAdmin: boolean,
+  voiceName?: string
 ): string | undefined {
   if (!isAdmin) return undefined;
   const condenser = `🎙 ${buildMetricsParts(condenserResult).join(' | ')}`;
-  const tts = `🔊 TTS ${ttsModel} | ${(ttsMs / 1000).toFixed(1)}s`;
+  const voicePart = voiceName ? ` | ${voiceName}` : '';
+  const tts = `🔊 TTS ${ttsModel}${voicePart} | ${(ttsMs / 1000).toFixed(1)}s`;
   return `${condenser}\n${tts}`;
 }
 

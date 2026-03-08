@@ -239,6 +239,8 @@
     "lookaheadAlways7DaysDescription": "Show next 7 days instead of until end of week",
     "voiceInput": "Voice Event Creation",
     "voiceInputDescription": "Create events by sending voice messages to the bot",
+    "voicePreference": "TTS Voice",
+    "voicePreferenceDescription": "Choose the voice used for audio summaries",
     "summaryDeliveryTime": "Summary Delivery Time",
     "morningHour": "Morning Summary",
     "morningHourDescription": "When to receive today's summary (your local time)",

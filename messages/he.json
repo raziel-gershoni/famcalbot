@@ -239,6 +239,8 @@
     "lookaheadAlways7DaysDescription": "הצג 7 ימים הבאים במקום עד סוף השבוע",
     "voiceInput": "יצירת אירועים בקול",
     "voiceInputDescription": "צור אירועים על ידי שליחת הודעות קוליות לבוט",
+    "voicePreference": "קול הקראה",
+    "voicePreferenceDescription": "בחר את הקול שישמש לסיכומים קוליים",
     "summaryDeliveryTime": "זמן שליחת סיכום",
     "morningHour": "סיכום בוקר",
     "morningHourDescription": "מתי לקבל את סיכום היום (שעון מקומי)",

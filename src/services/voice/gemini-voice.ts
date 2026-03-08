@@ -7,13 +7,15 @@ import { getGemini } from '../ai-provider';
 import { VoiceIntentResult, VoiceIntent, ParsedEvent } from '../event-parser';
 import { CalendarAssignment } from '../../types';
 import { fromZonedTime } from 'date-fns-tz';
+import { getDefaultAiModelSetting } from '../reminder-cache';
+import { getModelConfig } from '../../config/ai-models';
 
 const VOICE_RETRY_CONFIG = {
   maxRetries: 1,
   baseDelayMs: 500,
 } as const;
 
-const GEMINI_VOICE_MODEL = 'gemini-3-flash-preview';
+const VOICE_MODEL_FALLBACK = 'gemini-3-flash-preview';
 
 /**
  * Build the voice processing prompt
@@ -200,12 +202,23 @@ export async function processVoiceWithGemini(
   const startTime = Date.now();
   let lastError: Error | null = null;
 
+  // Resolve model: admin setting → env var → hardcoded fallback
+  const adminDefault = await getDefaultAiModelSetting();
+  let resolvedModelId = VOICE_MODEL_FALLBACK;
+  if (adminDefault) {
+    const cfg = getModelConfig(adminDefault);
+    if (cfg) resolvedModelId = cfg.modelId;
+  } else if (process.env.AI_MODEL) {
+    const cfg = getModelConfig(process.env.AI_MODEL);
+    if (cfg) resolvedModelId = cfg.modelId;
+  }
+
   for (let attempt = 0; attempt <= VOICE_RETRY_CONFIG.maxRetries; attempt++) {
     try {
       const promptText = buildVoicePrompt(language, calendars, timezone);
 
       const response = await getGemini().models.generateContent({
-        model: GEMINI_VOICE_MODEL,
+        model: resolvedModelId,
         contents: [
           {
             role: 'user',
@@ -221,7 +234,7 @@ export async function processVoiceWithGemini(
       const inputTokens = response.usageMetadata?.promptTokenCount || 0;
       const outputTokens = response.usageMetadata?.candidatesTokenCount || 0;
 
-      console.log(`[Voice Gemini] Response in ${duration}ms, model: ${GEMINI_VOICE_MODEL}, tokens: ${inputTokens}in/${outputTokens}out, attempt: ${attempt + 1}`);
+      console.log(`[Voice Gemini] Response in ${duration}ms, model: ${resolvedModelId}, tokens: ${inputTokens}in/${outputTokens}out, attempt: ${attempt + 1}`);
 
       // response.text getter can throw if no candidates are present
       let responseText: string;
@@ -361,7 +374,7 @@ export async function processVoiceWithGemini(
       return {
         intentResult,
         transcription,
-        metrics: { model: GEMINI_VOICE_MODEL, inputTokens, outputTokens, durationMs: duration },
+        metrics: { model: resolvedModelId, inputTokens, outputTokens, durationMs: duration },
       };
 
     } catch (error) {

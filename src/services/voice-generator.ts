@@ -9,6 +9,7 @@ import path from 'path';
 import { randomBytes } from 'crypto';
 import { getGemini } from './ai-provider';
 import { encodePcmToOggOpus } from '../utils/pcm-to-ogg-opus';
+import { getVoiceForUser } from '../config/voice-options';
 
 // Model ID configurable via env var (prevents production outage on preview→GA rename)
 const GEMINI_TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts';
@@ -64,14 +65,18 @@ export interface VoiceGenerationResult {
   filePath: string;
   ttsMs: number;
   ttsModel: string;
+  voiceName: string;
 }
 
 export async function generateVoiceMessage(
   condensedText: string,
   language: string = 'en',
+  voicePreference?: string,
 ): Promise<VoiceGenerationResult> {
   const startTime = Date.now();
-  const voiceName = VOICE_CONFIG[language] || VOICE_CONFIG['en'] || 'Achird';
+  const voiceName = voicePreference && voicePreference !== 'default'
+    ? getVoiceForUser(language, voicePreference)
+    : VOICE_CONFIG[language] || VOICE_CONFIG['en'] || 'Achird';
   const langName = LANGUAGE_NAMES[language] || 'English';
 
   // Build minimal TTS-only prompt — no reasoning, just speak
@@ -145,7 +150,7 @@ export async function generateVoiceMessage(
     durationMs: elapsed,
   });
 
-  return { filePath, ttsMs: elapsed, ttsModel: GEMINI_TTS_MODEL };
+  return { filePath, ttsMs: elapsed, ttsModel: GEMINI_TTS_MODEL, voiceName };
 }
 
 /**
