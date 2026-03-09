@@ -1,5 +1,8 @@
 {
   "functions": {
-    "api/tts.ts": { "maxDuration": 60 }
+    "api/tts.ts": {
+      "maxDuration": 60,
+      "includeFiles": "node_modules/opusscript/build/**"
+    }
   }
 }
