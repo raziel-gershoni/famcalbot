@@ -68,15 +68,90 @@ export interface VoiceGenerationResult {
   voiceName: string;
 }
 
+// Remote TTS timeout (30s — generous but below Vercel's 60s maxDuration)
+const REMOTE_TTS_TIMEOUT_MS = 30_000;
+
+/**
+ * Generate voice via remote serverless TTS function.
+ * Returns OGG OPUS binary written to /tmp.
+ */
+async function generateVoiceRemote(
+  text: string,
+  language: string,
+  voiceName: string,
+): Promise<VoiceGenerationResult> {
+  const startTime = Date.now();
+  const url = `${process.env.TTS_SERVICE_URL}/api/tts`;
+
+  console.log('[TTS] Calling remote TTS service:', {
+    url,
+    textLength: text.length,
+    language,
+    voice: voiceName,
+  });
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REMOTE_TTS_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.TTS_API_KEY}`,
+      },
+      body: JSON.stringify({ text, language, voiceName }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error(`Remote TTS returned ${response.status}: ${body}`);
+    }
+
+    const oggBuffer = Buffer.from(await response.arrayBuffer());
+    const remoteDurationMs = response.headers.get('X-TTS-Duration-Ms');
+
+    // Write to temp file
+    const randomId = randomBytes(4).toString('hex');
+    const filename = `voice-${Date.now()}-${randomId}.opus`;
+    const filePath = path.join('/tmp', filename);
+    await fs.writeFile(filePath, oggBuffer);
+
+    const elapsed = Date.now() - startTime;
+    console.log('[TTS] Remote TTS completed:', {
+      filePath,
+      oggKB: (oggBuffer.length / 1024).toFixed(2),
+      remoteDurationMs,
+      totalMs: elapsed,
+    });
+
+    return { filePath, ttsMs: elapsed, ttsModel: GEMINI_TTS_MODEL, voiceName };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function generateVoiceMessage(
   condensedText: string,
   language: string = 'en',
   voicePreference?: string,
 ): Promise<VoiceGenerationResult> {
-  const startTime = Date.now();
   const voiceName = voicePreference && voicePreference !== 'default'
     ? getVoiceForUser(language, voicePreference)
     : VOICE_CONFIG[language] || VOICE_CONFIG['en'] || 'Achird';
+
+  // If TTS_SERVICE_URL is set, offload to remote serverless function
+  if (process.env.TTS_SERVICE_URL) {
+    try {
+      return await generateVoiceRemote(condensedText, language, voiceName);
+    } catch (error) {
+      console.warn('[TTS] Remote TTS failed, falling back to local:', error);
+    }
+  }
+
+  // Local generation (existing code)
+  const startTime = Date.now();
   const langName = LANGUAGE_NAMES[language] || 'English';
 
   // Build minimal TTS-only prompt — no reasoning, just speak

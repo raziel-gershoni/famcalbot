@@ -31,5 +31,9 @@ npm-debug.log*
 _bmad/
 _bmad-output/
 
+# TTS service
+tts-service/node_modules/
+tts-service/.vercel
+
 # Claude Code
 .claude/
