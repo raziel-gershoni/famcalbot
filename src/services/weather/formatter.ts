@@ -251,7 +251,7 @@ THEN: A detailed image generation prompt (in English) for creating a weather inf
 - Header: location "${weather.location}", date "${dateStr}"${hebrewDateStr ? `, Hebrew date "${hebrewDateStr.replace(' | ', '')}"` : ''}, currently ${weather.current.temperature}°C
 - THE MAIN FOCUS is a vertical multi-day forecast chart taking most of the image, styled like the iOS Weather app:
   - Days stacked vertically (top = today, bottom = furthest day)
-  - Each row has EXACTLY these elements, each appearing ONCE and only once: day name | weather icon | rain % (if > 20%) | low temp ●───● high temp
+  - Each row has EXACTLY these elements, each appearing ONCE and only once: ${language === 'he' ? 'high temp ●───● low temp | rain % (if > 20%) | weather icon | day name (RTL order — day name on the right)' : 'day name | weather icon | rain % (if > 20%) | low temp ●───● high temp'}
   - The ●───● is a dumbbell chart: blue dot at low, orange dot at high, gradient line between
   - Align the dumbbell bars horizontally across all rows on a shared temperature axis
   - CRITICAL: Do NOT duplicate any element. Every piece of info (icon, rain %, temp) appears exactly ONCE per row
