@@ -230,20 +230,29 @@ export async function formatWeatherAI(
     { timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false }
   );
 
+  // Build 10-day forecast data for infographic (days 2-11)
+  const forecastDays = (weather.daily || []).slice(2, 12).map(d => {
+    const date = new Date(d.date);
+    const dayName = date.toLocaleDateString(
+      language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US',
+      { weekday: 'short' }
+    );
+    return `${dayName}: ${d.tempMin}–${d.tempMax}°C ${getWeatherDescription(d.weatherCode)}${d.precipitationProbability > 20 ? ` ${d.precipitationProbability}%☔` : ''}`;
+  }).join('\n');
+
   const infographicSection = generateInfographic ? `
 THEN: The exact line: ===INFOGRAPHIC===
 THEN: A detailed image generation prompt (in English) for creating a weather infographic image. This prompt will be sent to an AI image generator. Include:
 - A clean, modern VERTICAL (9:16 portrait) mobile-friendly weather infographic, 1080x1920 pixels resolution
 - Gradient background matching current weather (warm oranges/yellows for sunny, cool blues for rainy, grays for overcast)
-- Location name "${weather.location}" and date "${dateStr}" as a header
-- Large current temperature: ${weather.current.temperature}°C
-- Current condition: ${getWeatherDescription(weather.current.weatherCode)}
-- Today panel: High ${weather.today.tempMax}°C / Low ${weather.today.tempMin}°C, ${getWeatherDescription(weather.today.weatherCode)}${weather.today.precipitationProbability > 20 ? `, ${weather.today.precipitationProbability}% rain` : ''}
-- Tomorrow panel: High ${weather.daily?.[1]?.tempMax || ''}°C / Low ${weather.daily?.[1]?.tempMin || ''}°C, ${weather.daily?.[1] ? getWeatherDescription(weather.daily?.[1].weatherCode) : ''}
-- 5-day forecast strip with day names, temps, and weather icons for days 3-7
+- Location name "${weather.location}" and date "${dateStr}" as a compact header
+- COMPACT current section (small area at top): current temp ${weather.current.temperature}°C, condition ${getWeatherDescription(weather.current.weatherCode)}, today high/low ${weather.today.tempMax}/${weather.today.tempMin}°C, tomorrow high/low ${weather.daily?.[1]?.tempMax || ''}/${weather.daily?.[1]?.tempMin || ''}°C
+- THE MAIN FOCUS of the image should be a 10-day forecast grid/list taking up most of the vertical space. Each day as a row with: day name, weather icon, high/low temps${weather.daily?.some(d => d.precipitationProbability > 20) ? ', rain %' : ''}
+- 10-day forecast data:
+${forecastDays}
 - Weather-appropriate icons/symbols (sun, clouds, rain drops, etc.)
 - All text and numbers must be EXACTLY as specified above — do not approximate
-- ${language === 'he' ? 'Use Hebrew labels for days and sections. IMPORTANT: The entire layout must be RTL (right-to-left) — text aligned right, the 5-day forecast strip must flow right-to-left (rightmost day = earliest)' : language === 'ru' ? 'Use Russian labels for days and sections' : 'Use English labels'}
+- ${language === 'he' ? 'Use Hebrew labels for days and sections. IMPORTANT: The entire layout must be RTL (right-to-left) — text aligned right, day rows read right-to-left' : language === 'ru' ? 'Use Russian labels for days and sections' : 'Use English labels'}
 - Style: flat design, no watermarks, no 3D effects, high contrast text, suitable for mobile viewing
 - IMPORTANT: This is a data visualization — accuracy of all numbers is critical` : '';
 
