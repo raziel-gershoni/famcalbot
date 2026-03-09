@@ -10,6 +10,7 @@ import {
   MessageFormat,
   MessageOptions,
   VoiceOptions,
+  PhotoOptions,
   ParsedCommand,
 } from './types';
 
@@ -109,6 +110,30 @@ export class TelegramAdapter implements IMessagingService {
     }
 
     await this.bot.sendVoice(chatId, audioPath, telegramOptions);
+  }
+
+  async sendPhoto(
+    chatId: number | string,
+    photo: Buffer,
+    options?: PhotoOptions
+  ): Promise<number> {
+    const telegramOptions: any = {};
+
+    if (options?.caption) {
+      telegramOptions.caption = options.caption;
+    }
+
+    if (options?.format === MessageFormat.HTML) {
+      telegramOptions.parse_mode = 'HTML';
+    } else if (options?.format === MessageFormat.MARKDOWN) {
+      telegramOptions.parse_mode = 'Markdown';
+    }
+
+    const message = await this.bot.sendPhoto(chatId, photo, telegramOptions, {
+      filename: 'weather.png',
+      contentType: 'image/png',
+    });
+    return message.message_id;
   }
 
   parseCommand(text: string): ParsedCommand | null {

@@ -58,6 +58,14 @@ export interface VoiceOptions {
 }
 
 /**
+ * Photo message options
+ */
+export interface PhotoOptions {
+  caption?: string;
+  format?: MessageFormat;
+}
+
+/**
  * Callback query from inline buttons
  */
 export interface CallbackQuery {
@@ -109,6 +117,16 @@ export interface IMessagingService {
     audioPath: string,
     options?: VoiceOptions
   ): Promise<void>;
+
+  /**
+   * Send a photo message
+   * @returns Message ID
+   */
+  sendPhoto(
+    chatId: number | string,
+    photo: Buffer,
+    options?: PhotoOptions
+  ): Promise<number | string>;
 
   /**
    * Parse command from text message

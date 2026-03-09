@@ -178,8 +178,9 @@ const SECTION_HEADERS: Record<string, { todayTomorrow: string; thisWeek: string;
 };
 
 export interface WeatherFormatResult {
-  brief: string;    // ~500-800 chars for text display
-  detailed: string; // ~1500-2000 chars for voice narration
+  brief: string;              // ~500-800 chars for text display
+  detailed: string;           // ~1500-2000 chars for voice narration
+  infographicPrompt?: string; // structured prompt for image generation
 }
 
 /**
@@ -194,6 +195,7 @@ export async function formatWeatherAI(
   timezone: string,
   culture?: string,
   isAdmin?: boolean,
+  generateInfographic?: boolean,
 ): Promise<WeatherFormatResult> {
   const payload = buildWeatherAIPayload(weather);
   const langName = LANGUAGE_NAMES[language] || 'English';
@@ -228,15 +230,32 @@ export async function formatWeatherAI(
     { timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false }
   );
 
+  const infographicSection = generateInfographic ? `
+THEN: The exact line: ===INFOGRAPHIC===
+THEN: A detailed image generation prompt (in English) for creating a weather infographic image. This prompt will be sent to an AI image generator. Include:
+- A clean, modern VERTICAL (9:16 portrait) mobile-friendly weather infographic, 1080x1920 pixels resolution
+- Gradient background matching current weather (warm oranges/yellows for sunny, cool blues for rainy, grays for overcast)
+- Location name "${weather.location}" and date "${dateStr}" as a header
+- Large current temperature: ${weather.current.temperature}°C
+- Current condition: ${getWeatherDescription(weather.current.weatherCode)}
+- Today panel: High ${weather.today.tempMax}°C / Low ${weather.today.tempMin}°C, ${getWeatherDescription(weather.today.weatherCode)}${weather.today.precipitationProbability > 20 ? `, ${weather.today.precipitationProbability}% rain` : ''}
+- Tomorrow panel: High ${weather.daily?.[1]?.tempMax || ''}°C / Low ${weather.daily?.[1]?.tempMin || ''}°C, ${weather.daily?.[1] ? getWeatherDescription(weather.daily?.[1].weatherCode) : ''}
+- 5-day forecast strip with day names, temps, and weather icons for days 3-7
+- Weather-appropriate icons/symbols (sun, clouds, rain drops, etc.)
+- All text and numbers must be EXACTLY as specified above — do not approximate
+- ${language === 'he' ? 'Use Hebrew labels for days and sections, RTL layout' : language === 'ru' ? 'Use Russian labels for days and sections' : 'Use English labels'}
+- Style: flat design, no watermarks, no 3D effects, high contrast text, suitable for mobile viewing
+- IMPORTANT: This is a data visualization — accuracy of all numbers is critical` : '';
+
   const prompt = `You are a friendly weatherperson giving a natural, conversational forecast briefing on someone's phone via Telegram.
 
-**Output two versions separated by the exact delimiter ===FULL=== on its own line.**
+**Output ${generateInfographic ? 'three' : 'two'} versions separated by exact delimiters on their own lines.**
 
 FIRST: A BRIEF version (~500-800 characters) — a compact mobile-friendly summary.
 THEN: The exact line: ===FULL===
-THEN: A FULL version (~1500-2000 characters) — detailed prose for voice narration.
+THEN: A FULL version (~1500-2000 characters) — detailed prose for voice narration.${infographicSection}
 
-**Rules (apply to BOTH versions):**
+**Rules (apply to BOTH text versions):**
 - Respond ENTIRELY in ${langName}
 - Start with a short, warm greeting using the person's name: ${userName}
 - Include the current date (${dateStr}${hebrewDateStr}) right after the greeting
@@ -281,12 +300,28 @@ ${JSON.stringify(payload, null, 2)}`;
 
     const modelFooter = formatAdminFooter(result, isAdmin ?? false);
 
-    const delimiter = '===FULL===';
-    const delimiterIndex = text.indexOf(delimiter);
-    if (delimiterIndex !== -1) {
+    const fullDelimiter = '===FULL===';
+    const infographicDelimiter = '===INFOGRAPHIC===';
+
+    const fullIndex = text.indexOf(fullDelimiter);
+    if (fullIndex !== -1) {
+      const afterFull = text.substring(fullIndex + fullDelimiter.length);
+      const infographicIndex = afterFull.indexOf(infographicDelimiter);
+
+      let detailed: string;
+      let infographicPrompt: string | undefined;
+
+      if (infographicIndex !== -1) {
+        detailed = afterFull.substring(0, infographicIndex).trim();
+        infographicPrompt = afterFull.substring(infographicIndex + infographicDelimiter.length).trim();
+      } else {
+        detailed = afterFull.trim();
+      }
+
       return {
-        brief: text.substring(0, delimiterIndex).trim() + modelFooter,
-        detailed: text.substring(delimiterIndex + delimiter.length).trim(),
+        brief: text.substring(0, fullIndex).trim() + modelFooter,
+        detailed,
+        infographicPrompt,
       };
     }
     // If no delimiter found, use full text for both

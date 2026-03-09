@@ -12,6 +12,7 @@ import {
   MessageFormat,
   MessageOptions,
   VoiceOptions,
+  PhotoOptions,
   ParsedCommand,
 } from './types';
 
@@ -104,6 +105,15 @@ export class WhatsAppAdapter implements IMessagingService {
       console.error(`[WhatsApp] Failed to send voice to ${chatId}:`, error);
       throw error;
     }
+  }
+
+  async sendPhoto(
+    chatId: number | string,
+    photo: Buffer,
+    options?: PhotoOptions
+  ): Promise<string> {
+    console.warn('[WhatsApp] sendPhoto not implemented');
+    return '';
   }
 
   parseCommand(text: string): ParsedCommand | null {

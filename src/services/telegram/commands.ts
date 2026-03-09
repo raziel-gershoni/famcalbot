@@ -269,10 +269,33 @@ export async function handleWeatherCommand(
       }
 
       const { formatWeatherAI } = await import('../weather/formatter');
-      return formatWeatherAI(weatherData, user.language, user.name, timezone, user.culture, user.isAdmin);
+      return formatWeatherAI(weatherData, user.language, user.name, timezone, user.culture, user.isAdmin, true);
     },
     onSuccess: async (result, messageId) => {
-      await messagingService.updateMessage(chatId, messageId, result.brief, { format: MessageFormat.HTML });
+      // Try to generate and send infographic if prompt is available
+      let infographicSent = false;
+      if (result.infographicPrompt) {
+        try {
+          const { generateWeatherInfographic } = await import('../weather/infographic');
+          const imageBuffer = await generateWeatherInfographic(result.infographicPrompt);
+          if (imageBuffer) {
+            // Delete progress message and send photo instead
+            await messagingService.deleteMessage(chatId, messageId);
+            await messagingService.sendPhoto(chatId, imageBuffer, {
+              caption: result.brief,
+              format: MessageFormat.HTML,
+            });
+            infographicSent = true;
+          }
+        } catch (err) {
+          console.error(`[Weather] Infographic generation failed for user ${userId}:`, err);
+        }
+      }
+
+      // Fall back to text message if infographic wasn't sent
+      if (!infographicSent) {
+        await messagingService.updateMessage(chatId, messageId, result.brief, { format: MessageFormat.HTML });
+      }
 
       // Generate voice message with detailed version if enabled
       if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
