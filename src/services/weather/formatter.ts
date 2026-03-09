@@ -248,8 +248,7 @@ THEN: The exact line: ===INFOGRAPHIC===
 THEN: A detailed image generation prompt (in English) for creating a weather infographic image. This prompt will be sent to an AI image generator. Include:
 - A clean, modern VERTICAL (9:16 portrait) mobile-friendly weather infographic, 1080x1920 pixels resolution
 - Gradient background matching current weather (warm oranges/yellows for sunny, cool blues for rainy, grays for overcast)
-- Header: location "${weather.location}", date "${dateStr}"${hebrewDateStr ? `, Hebrew date "${hebrewDateStr.replace(' | ', '')}"` : ''}
-- Current weather strip (compact, small): ${weather.current.temperature}°C ${getWeatherDescription(weather.current.weatherCode)}
+- Header: location "${weather.location}", date "${dateStr}"${hebrewDateStr ? `, Hebrew date "${hebrewDateStr.replace(' | ', '')}"` : ''}, currently ${weather.current.temperature}°C
 - THE MAIN FOCUS of the image should be a multi-day forecast grid/list taking up most of the vertical space. Each day as a row with: day name, weather icon, high/low temps${weather.daily?.some(d => d.precipitationProbability > 20) ? ', rain %' : ''}
 - Forecast data:
 ${forecastDays}
