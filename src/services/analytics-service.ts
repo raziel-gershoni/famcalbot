@@ -3,7 +3,7 @@
  * Tracks user activity for usage analytics and business insights
  */
 
-import { prisma, withDbRetry } from '../utils/prisma';
+import { prisma } from '../utils/prisma';
 import * as Sentry from '@sentry/nextjs';
 
 // Action types for tracking
@@ -140,16 +140,13 @@ export async function trackActivity(
 ): Promise<void> {
   try {
     // 1. Log to database for detailed queries
-    await withDbRetry(
-      () => prisma.userActivity.create({
-        data: {
-          userId,
-          action,
-          metadata: metadata as import('@prisma/client').Prisma.InputJsonValue | undefined,
-        },
-      }),
-      'trackActivity'
-    );
+    await prisma.userActivity.create({
+      data: {
+        userId,
+        action,
+        metadata: metadata as import('@prisma/client').Prisma.InputJsonValue | undefined,
+      },
+    });
 
     // 2. Also add to Sentry breadcrumbs for real-time monitoring
     Sentry.addBreadcrumb({
@@ -209,15 +206,12 @@ export function trackActivityAsync(
 export async function getActivityStats(days: number = 30) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  return withDbRetry(
-    () => prisma.userActivity.groupBy({
-      by: ['action'],
-      where: { createdAt: { gte: since } },
-      _count: { action: true },
-      orderBy: { _count: { action: 'desc' } },
-    }),
-    'getActivityStats'
-  );
+  return prisma.userActivity.groupBy({
+    by: ['action'],
+    where: { createdAt: { gte: since } },
+    _count: { action: true },
+    orderBy: { _count: { action: 'desc' } },
+  });
 }
 
 /**
@@ -229,17 +223,14 @@ export async function getDailyActivityCounts(
 ) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  const activities = await withDbRetry(
-    () => prisma.userActivity.findMany({
-      where: {
-        action,
-        createdAt: { gte: since },
-      },
-      select: { createdAt: true },
-      orderBy: { createdAt: 'asc' },
-    }),
-    'getDailyActivityCounts'
-  );
+  const activities = await prisma.userActivity.findMany({
+    where: {
+      action,
+      createdAt: { gte: since },
+    },
+    select: { createdAt: true },
+    orderBy: { createdAt: 'asc' },
+  });
 
   // Group by date
   const countsByDate: Record<string, number> = {};
@@ -255,28 +246,22 @@ export async function getDailyActivityCounts(
  * Get user's activity journey
  */
 export async function getUserJourney(userId: number, limit: number = 100) {
-  return withDbRetry(
-    () => prisma.userActivity.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'asc' },
-      take: limit,
-    }),
-    'getUserJourney'
-  );
+  return prisma.userActivity.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'asc' },
+    take: limit,
+  });
 }
 
 /**
  * Get recent activities for a user
  */
 export async function getRecentUserActivities(userId: number, limit: number = 20) {
-  return withDbRetry(
-    () => prisma.userActivity.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    }),
-    'getRecentUserActivities'
-  );
+  return prisma.userActivity.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+  });
 }
 
 /**
@@ -285,14 +270,11 @@ export async function getRecentUserActivities(userId: number, limit: number = 20
 export async function getActiveUserCount(days: number = 30): Promise<number> {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  const result = await withDbRetry(
-    () => prisma.userActivity.findMany({
-      where: { createdAt: { gte: since } },
-      select: { userId: true },
-      distinct: ['userId'],
-    }),
-    'getActiveUserCount'
-  );
+  const result = await prisma.userActivity.findMany({
+    where: { createdAt: { gte: since } },
+    select: { userId: true },
+    distinct: ['userId'],
+  });
 
   return result.length;
 }
@@ -304,33 +286,24 @@ export async function getConversionFunnel(days: number = 90) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   const [starts, upgrades, cancellations] = await Promise.all([
-    withDbRetry(
-      () => prisma.userActivity.count({
-        where: {
-          action: 'subscription_started',
-          createdAt: { gte: since },
-        },
-      }),
-      'conversionFunnel.starts'
-    ),
-    withDbRetry(
-      () => prisma.userActivity.count({
-        where: {
-          action: 'subscription_upgraded',
-          createdAt: { gte: since },
-        },
-      }),
-      'conversionFunnel.upgrades'
-    ),
-    withDbRetry(
-      () => prisma.userActivity.count({
-        where: {
-          action: 'subscription_canceled',
-          createdAt: { gte: since },
-        },
-      }),
-      'conversionFunnel.cancellations'
-    ),
+    prisma.userActivity.count({
+      where: {
+        action: 'subscription_started',
+        createdAt: { gte: since },
+      },
+    }),
+    prisma.userActivity.count({
+      where: {
+        action: 'subscription_upgraded',
+        createdAt: { gte: since },
+      },
+    }),
+    prisma.userActivity.count({
+      where: {
+        action: 'subscription_canceled',
+        createdAt: { gte: since },
+      },
+    }),
   ]);
 
   return {
@@ -357,17 +330,14 @@ export async function getFeatureUsageBreakdown(days: number = 30) {
     'lookahead_requested',
   ];
 
-  const results = await withDbRetry(
-    () => prisma.userActivity.groupBy({
-      by: ['action'],
-      where: {
-        action: { in: featureActions },
-        createdAt: { gte: since },
-      },
-      _count: { action: true },
-    }),
-    'getFeatureUsageBreakdown'
-  );
+  const results = await prisma.userActivity.groupBy({
+    by: ['action'],
+    where: {
+      action: { in: featureActions },
+      createdAt: { gte: since },
+    },
+    _count: { action: true },
+  });
 
   return results.reduce((acc, r) => {
     acc[r.action] = r._count.action;

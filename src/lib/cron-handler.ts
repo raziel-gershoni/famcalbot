@@ -1,10 +1,10 @@
 /**
  * Cron Handler Wrapper
- * Provides QStash signature verification and error handling for all cron jobs
+ * Provides error handling for cron job API routes
+ * Routes can be triggered manually via HTTP for debugging
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Receiver } from '@upstash/qstash';
 
 interface CronResult {
   success: boolean;
@@ -19,37 +19,10 @@ interface CronHandlerOptions {
   handler: (request: NextRequest, searchParams: URLSearchParams, body?: string) => Promise<CronResult>;
 }
 
-let receiver: Receiver | null = null;
-
-function getReceiver(): Receiver | null {
-  if (receiver) return receiver;
-
-  const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY;
-  const nextSigningKey = process.env.QSTASH_NEXT_SIGNING_KEY;
-
-  if (!currentSigningKey || !nextSigningKey) {
-    return null;
-  }
-
-  receiver = new Receiver({ currentSigningKey, nextSigningKey });
-  return receiver;
-}
-
 /**
- * Wraps a cron job handler with QStash signature verification and error handling
- *
- * @example
- * ```typescript
- * export async function GET(request: NextRequest) {
- *   return withCronHandler(request, {
- *     jobName: 'Daily Summary',
- *     handler: async () => {
- *       await sendDailySummaryToAll();
- *       return { success: true, message: 'Daily summaries sent' };
- *     }
- *   });
- * }
- * ```
+ * Wraps a cron job handler with error handling
+ * No auth required — cron jobs are triggered by the in-process scheduler,
+ * HTTP routes exist only for manual debugging
  */
 export async function withCronHandler(
   request: NextRequest,
@@ -58,42 +31,11 @@ export async function withCronHandler(
   const { jobName, handler } = options;
   const { searchParams } = new URL(request.url);
 
-  // Verify QStash signature
-  const qstashReceiver = getReceiver();
-
-  if (!qstashReceiver) {
-    console.error(`[${jobName}] QStash signing keys not configured`);
-    return NextResponse.json(
-      { error: 'Server configuration error' },
-      { status: 500 }
-    );
-  }
-
-  const signature = request.headers.get('upstash-signature');
-  if (!signature) {
-    console.error(`[${jobName}] Missing upstash-signature header`);
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401 }
-    );
-  }
-
-  let body: string;
+  let body: string | undefined;
   try {
     body = await request.text();
-    const url = request.url;
-
-    await qstashReceiver.verify({
-      signature,
-      body,
-      url,
-    });
-  } catch (error) {
-    console.error(`[${jobName}] QStash signature verification failed:`, error);
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401 }
-    );
+  } catch {
+    // No body is fine for GET requests
   }
 
   try {

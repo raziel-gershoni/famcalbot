@@ -10,7 +10,6 @@ import { getBot, getMessagingService } from './bot';
 import { trackActivityAsync } from '../analytics-service';
 import { incrementUsage } from '../subscription-service';
 import { formatVoiceCaption } from '../../utils/ai-footer';
-import { scheduleProgressCleanup, markProgressCompleted } from './progress-cleanup';
 import type { AICompletionResult } from '../ai-provider';
 import type { VoiceCondenserContext } from '../../prompts/voice-condenser';
 
@@ -38,8 +37,6 @@ export async function sendVoiceMessage(
 
   if (showProgress) {
     messageId = await sendAnimatedProgress(userId, 'voice', userLanguage, msgService);
-    // Schedule dead-man's switch: if Vercel kills us, QStash cleans up the progress message
-    await scheduleProgressCleanup(userId, messageId, userLanguage);
   }
 
   try {
@@ -82,9 +79,6 @@ export async function sendVoiceMessage(
 
     const { ttsMs, ttsModel, voiceName } = ttsResult;
 
-    // Mark completed so the dead-man's switch becomes a no-op
-    if (messageId) await markProgressCompleted(userId, messageId);
-
     // Delete progress message
     if (messageId) await msgService.deleteMessage(userId, messageId);
 
@@ -108,9 +102,6 @@ export async function sendVoiceMessage(
     console.log(`[Voice] Voice message sent successfully to user ${userId}`);
   } catch (error) {
     console.error(`[Voice] Voice generation failed for user ${userId}:`, error);
-
-    // Mark completed so the dead-man's switch becomes a no-op
-    if (messageId) await markProgressCompleted(userId, messageId);
 
     // Replace progress message with friendly error instead of deleting
     if (messageId) {
@@ -158,8 +149,6 @@ export async function sendWeeklyVoiceMessage(
 
   // Send animated hourglass progress
   const messageId = await sendAnimatedProgress(userId, 'voice', userLanguage, msgService);
-  // Schedule dead-man's switch
-  await scheduleProgressCleanup(userId, messageId, userLanguage);
 
   try {
     const { generateVoiceMessage } = await import('../voice-generator');
@@ -202,9 +191,6 @@ export async function sendWeeklyVoiceMessage(
 
     const { ttsMs, ttsModel, voiceName } = ttsResult;
 
-    // Mark completed so the dead-man's switch becomes a no-op
-    await markProgressCompleted(userId, messageId);
-
     // Delete progress message before sending voice
     await msgService.deleteMessage(userId, messageId);
 
@@ -220,9 +206,6 @@ export async function sendWeeklyVoiceMessage(
     console.log(`[Voice] Weekly voice message sent successfully to user ${userId}`);
   } catch (error) {
     console.error(`[Voice] Weekly voice generation failed for user ${userId}:`, error);
-
-    // Mark completed so the dead-man's switch becomes a no-op
-    await markProgressCompleted(userId, messageId);
 
     // Replace progress message with friendly error instead of deleting
     try {

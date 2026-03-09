@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma, withDbRetry } from '@/src/utils/prisma';
+import { prisma } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { captureError } from '@/src/lib/error-capture';
 
@@ -32,27 +32,21 @@ export async function GET(request: NextRequest) {
 
     // Fetch feedback entries
     const [feedbacks, total] = await Promise.all([
-      withDbRetry(
-        () => prisma.userFeedback.findMany({
-          orderBy: { createdAt: 'desc' },
-          take: limit,
-          skip: offset,
-          include: {
-            user: {
-              select: {
-                id: true,
-                telegramId: true,
-                name: true,
-              },
+      prisma.userFeedback.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+        include: {
+          user: {
+            select: {
+              id: true,
+              telegramId: true,
+              name: true,
             },
           },
-        }),
-        'admin-feedback.list'
-      ),
-      withDbRetry(
-        () => prisma.userFeedback.count(),
-        'admin-feedback.count'
-      ),
+        },
+      }),
+      prisma.userFeedback.count(),
     ]);
 
     return NextResponse.json({

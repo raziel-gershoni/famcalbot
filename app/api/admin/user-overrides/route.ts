@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma, withDbRetry } from '@/src/utils/prisma';
+import { prisma } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { getSubscriptionWithUsage, invalidateFeatureAccessCache } from '@/src/services/subscription-service';
@@ -142,17 +142,14 @@ export async function GET(request: NextRequest) {
       }
 
       // Get user info with usage
-      const user = await withDbRetry(
-        () => prisma.user.findUnique({
-          where: { id: userId },
-          include: {
-            subscription: true,
-            featureOverride: true,
-            usageCounter: true,
-          },
-        }),
-        'user-overrides.get-user'
-      );
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          subscription: true,
+          featureOverride: true,
+          usageCounter: true,
+        },
+      });
 
       if (!user) {
         return NextResponse.json(
@@ -235,17 +232,14 @@ export async function GET(request: NextRequest) {
     // List all users (for admin user list view)
     const listAll = searchParams.get('list');
     if (listAll === 'all') {
-      const users = await withDbRetry(
-        () => prisma.user.findMany({
-          include: {
-            subscription: true,
-            featureOverride: true,
-            usageCounter: true,
-          },
-          orderBy: { createdAt: 'desc' },
-        }),
-        'user-overrides.list-all'
-      );
+      const users = await prisma.user.findMany({
+        include: {
+          subscription: true,
+          featureOverride: true,
+          usageCounter: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
 
       return NextResponse.json({
         success: true,
@@ -258,22 +252,19 @@ export async function GET(request: NextRequest) {
       const telegramId = parseInt(searchQuery, 10);
       const isNumber = !isNaN(telegramId);
 
-      const users = await withDbRetry(
-        () => prisma.user.findMany({
-          where: {
-            OR: [
-              ...(isNumber ? [{ telegramId: BigInt(telegramId) }] : []),
-              { name: { contains: searchQuery, mode: 'insensitive' as const } },
-            ],
-          },
-          include: {
-            subscription: true,
-            featureOverride: true,
-          },
-          take: 10,
-        }),
-        'user-overrides.search'
-      );
+      const users = await prisma.user.findMany({
+        where: {
+          OR: [
+            ...(isNumber ? [{ telegramId: BigInt(telegramId) }] : []),
+            { name: { contains: searchQuery, mode: 'insensitive' as const } },
+          ],
+        },
+        include: {
+          subscription: true,
+          featureOverride: true,
+        },
+        take: 10,
+      });
 
       return NextResponse.json({
         success: true,
@@ -291,27 +282,24 @@ export async function GET(request: NextRequest) {
     }
 
     // List all users with overrides
-    const overrides = await withDbRetry(
-      () => prisma.userFeatureOverride.findMany({
-        include: {
-          user: {
-            select: {
-              id: true,
-              telegramId: true,
-              name: true,
-              subscription: {
-                select: {
-                  plan: true,
-                  status: true,
-                },
+    const overrides = await prisma.userFeatureOverride.findMany({
+      include: {
+        user: {
+          select: {
+            id: true,
+            telegramId: true,
+            name: true,
+            subscription: {
+              select: {
+                plan: true,
+                status: true,
               },
             },
           },
         },
-        orderBy: { updatedAt: 'desc' },
-      }),
-      'user-overrides.list'
-    );
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
 
     return NextResponse.json({
       success: true,
@@ -375,12 +363,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user exists
-    const user = await withDbRetry(
-      () => prisma.user.findUnique({
-        where: { id: user_id },
-      }),
-      'user-overrides.check-user'
-    );
+    const user = await prisma.user.findUnique({
+      where: { id: user_id },
+    });
 
     if (!user) {
       return NextResponse.json(
@@ -399,12 +384,9 @@ export async function POST(request: NextRequest) {
 
     if (!hasAnyOverride) {
       // If no overrides, delete existing override instead
-      await withDbRetry(
-        () => prisma.userFeatureOverride.deleteMany({
-          where: { userId: user_id },
-        }),
-        'user-overrides.delete-empty'
-      );
+      await prisma.userFeatureOverride.deleteMany({
+        where: { userId: user_id },
+      });
 
       console.log(`[user-overrides] Admin ${auth.adminId} removed override for user ${user_id}`);
 
@@ -416,33 +398,30 @@ export async function POST(request: NextRequest) {
     }
 
     // Upsert the override
-    const override = await withDbRetry(
-      () => prisma.userFeatureOverride.upsert({
-        where: { userId: user_id },
-        update: {
-          unlimitedSummaries: unlimitedSummaries ?? null,
-          remindersEnabled: remindersEnabled ?? null,
-          voiceEventsEnabled: voiceEventsEnabled ?? null,
-          unlimitedCalendars: unlimitedCalendars ?? null,
-          earlyAdopter: earlyAdopter === true,
-          reason: reason ?? null,
-          grantedBy: auth.adminId,
-          grantedAt: new Date(),
-        },
-        create: {
-          userId: user_id,
-          unlimitedSummaries: unlimitedSummaries ?? null,
-          remindersEnabled: remindersEnabled ?? null,
-          voiceEventsEnabled: voiceEventsEnabled ?? null,
-          unlimitedCalendars: unlimitedCalendars ?? null,
-          earlyAdopter: earlyAdopter === true,
-          reason: reason ?? null,
-          grantedBy: auth.adminId,
-          grantedAt: new Date(),
-        },
-      }),
-      'user-overrides.upsert'
-    );
+    const override = await prisma.userFeatureOverride.upsert({
+      where: { userId: user_id },
+      update: {
+        unlimitedSummaries: unlimitedSummaries ?? null,
+        remindersEnabled: remindersEnabled ?? null,
+        voiceEventsEnabled: voiceEventsEnabled ?? null,
+        unlimitedCalendars: unlimitedCalendars ?? null,
+        earlyAdopter: earlyAdopter === true,
+        reason: reason ?? null,
+        grantedBy: auth.adminId,
+        grantedAt: new Date(),
+      },
+      create: {
+        userId: user_id,
+        unlimitedSummaries: unlimitedSummaries ?? null,
+        remindersEnabled: remindersEnabled ?? null,
+        voiceEventsEnabled: voiceEventsEnabled ?? null,
+        unlimitedCalendars: unlimitedCalendars ?? null,
+        earlyAdopter: earlyAdopter === true,
+        reason: reason ?? null,
+        grantedBy: auth.adminId,
+        grantedAt: new Date(),
+      },
+    });
 
     // Invalidate feature access cache for the user
     await invalidateFeatureAccessCache(user_id);
@@ -502,12 +481,9 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Delete the override
-    const result = await withDbRetry(
-      () => prisma.userFeatureOverride.deleteMany({
-        where: { userId },
-      }),
-      'user-overrides.delete'
-    );
+    const result = await prisma.userFeatureOverride.deleteMany({
+      where: { userId },
+    });
 
     if (result.count === 0) {
       return NextResponse.json(

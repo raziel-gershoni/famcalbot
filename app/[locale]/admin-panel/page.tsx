@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { normalizeLocale } from '@/src/utils/locale';
-import { prisma, withDbRetry } from '@/src/utils/prisma';
+import { prisma } from '@/src/utils/prisma';
 import { Prisma } from '@prisma/client';
 import { AlertTriangle, Lock } from 'lucide-react';
 import AdminPanelClient from './AdminPanelClient';
@@ -85,25 +85,16 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
 
   // Get statistics (with retry for Neon cold start)
   const [totalUsers, usersWithOAuth, usersWithCalendars, adminSettings] = await Promise.all([
-    withDbRetry(() => prisma.user.count(), 'admin.totalUsers'),
-    withDbRetry(
-      () => prisma.user.count({
-        where: { NOT: { googleRefreshToken: '' } }
-      }),
-      'admin.usersWithOAuth'
-    ),
-    withDbRetry(
-      () => prisma.user.count({
-        where: { calendarAssignments: { not: Prisma.JsonNull } }
-      }),
-      'admin.usersWithCalendars'
-    ),
-    withDbRetry(
-      () => prisma.adminSettings.findUnique({
-        where: { id: 'global' }
-      }),
-      'admin.adminSettings'
-    ).catch(() => null) // Handle missing table gracefully
+    prisma.user.count(),
+    prisma.user.count({
+      where: { NOT: { googleRefreshToken: '' } }
+    }),
+    prisma.user.count({
+      where: { calendarAssignments: { not: Prisma.JsonNull } }
+    }),
+    prisma.adminSettings.findUnique({
+      where: { id: 'global' }
+    }).catch(() => null) // Handle missing table gracefully
   ]);
 
   return (

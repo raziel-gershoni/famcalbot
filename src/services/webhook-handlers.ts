@@ -3,7 +3,10 @@
  * Handles incoming messages from Telegram and WhatsApp
  */
 
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+/** Minimal request/response types for webhook handlers */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+interface WebhookRequest { body: any }
+interface WebhookResponse { status(code: number): { json(data: unknown): void } }
 import {
   handleStartCommand,
   handleSummaryCommand,
@@ -21,8 +24,8 @@ import { setUserContext, addBreadcrumb } from './analytics-service';
  * Handle Telegram webhook updates
  */
 export async function handleTelegramWebhook(
-  req: VercelRequest,
-  res: VercelResponse
+  req: WebhookRequest,
+  res: WebhookResponse
 ): Promise<void> {
   // Note: Webhook secret verification is handled at the API route level (app/api/webhook/route.ts)
   const update = req.body;
@@ -199,8 +202,8 @@ export async function handleTelegramWebhook(
  * Handle WhatsApp webhook updates
  */
 export async function handleWhatsAppWebhook(
-  req: VercelRequest,
-  res: VercelResponse
+  req: WebhookRequest,
+  res: WebhookResponse
 ): Promise<void> {
   const body = req.body;
 

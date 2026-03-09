@@ -14,9 +14,9 @@ import { getBotMessages } from '../../lib/bot-messages';
 import { trackActivityAsync, addBreadcrumb } from '../analytics-service';
 import { checkFeatureAccess, incrementUsage } from '../subscription-service';
 import { captureError } from '../../lib/error-capture';
-import { prisma, withDbRetry } from '../../utils/prisma';
+import { prisma } from '../../utils/prisma';
 import { getMessagingService } from './bot';
-import { dispatchVoiceGeneration } from './voice-dispatch';
+import { sendVoiceMessage, sendWeeklyVoiceMessage } from './voice';
 import {
   sendDailySummaryToUser,
   sendTomorrowSummaryToUser,
@@ -274,9 +274,11 @@ export async function handleWeatherCommand(
     onSuccess: async (result, messageId) => {
       await messagingService.updateMessage(chatId, messageId, result.brief, { format: MessageFormat.HTML });
 
-      // Dispatch voice message with detailed version if enabled
+      // Generate voice message with detailed version if enabled
       if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
-        await dispatchVoiceGeneration(Number(userId), result.detailed, 'weather');
+        sendVoiceMessage(Number(userId), result.detailed, user).catch(err =>
+          console.error(`[Weather] Voice generation failed for user ${userId}:`, err)
+        );
       }
 
       incrementUsage(user.id, 'textSummaries').catch(err =>
@@ -361,9 +363,11 @@ export async function handleLookaheadCommand(
     onSuccess: async (formattedLookahead, messageId) => {
       await messagingService.updateMessage(chatId, messageId, formattedLookahead, { format: MessageFormat.HTML });
 
-      // Dispatch voice message if enabled
+      // Generate voice message if enabled
       if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
-        await dispatchVoiceGeneration(Number(userId), formattedLookahead, 'weekly', false);
+        sendWeeklyVoiceMessage(Number(userId), formattedLookahead, user, false).catch(err =>
+          console.error(`[Lookahead] Voice generation failed for user ${userId}:`, err)
+        );
       }
     },
   });
@@ -443,9 +447,11 @@ export async function handleNextWeekCommand(
     onSuccess: async (formattedSummary, messageId) => {
       await messagingService.updateMessage(chatId, messageId, formattedSummary, { format: MessageFormat.HTML });
 
-      // Dispatch voice message if enabled
+      // Generate voice message if enabled
       if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
-        await dispatchVoiceGeneration(Number(userId), formattedSummary, 'weekly', true);
+        sendWeeklyVoiceMessage(Number(userId), formattedSummary, user, true).catch(err =>
+          console.error(`[NextWeek] Voice generation failed for user ${userId}:`, err)
+        );
       }
     },
   });
@@ -504,15 +510,12 @@ export async function handleFeedbackCommand(
     const oneDayAgo = new Date();
     oneDayAgo.setHours(oneDayAgo.getHours() - 24);
 
-    const recentFeedbackCount = await withDbRetry(
-      () => prisma.userFeedback.count({
-        where: {
-          userId: user.id,
-          createdAt: { gte: oneDayAgo }
-        }
-      }),
-      'feedback.rate-limit-check'
-    );
+    const recentFeedbackCount = await prisma.userFeedback.count({
+      where: {
+        userId: user.id,
+        createdAt: { gte: oneDayAgo }
+      }
+    });
 
     if (recentFeedbackCount >= 3) {
       const rateLimitMessage = t.feedback?.rateLimit || "You've reached the daily feedback limit. Please try again tomorrow.";
@@ -520,16 +523,13 @@ export async function handleFeedbackCommand(
       return;
     }
 
-    await withDbRetry(
-      () => prisma.userFeedback.create({
-        data: {
-          userId: user.id,
-          text: trimmedText,
-          source: 'telegram'
-        }
-      }),
-      'feedback.create'
-    );
+    await prisma.userFeedback.create({
+      data: {
+        userId: user.id,
+        text: trimmedText,
+        source: 'telegram'
+      }
+    });
 
     const { notifyAdminFeedback } = await import('../../utils/error-notifier');
     await notifyAdminFeedback(user.name, user.telegramId, trimmedText, 'telegram');

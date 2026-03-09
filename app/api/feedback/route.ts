@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma, withDbRetry } from '@/src/utils/prisma';
+import { prisma } from '@/src/utils/prisma';
 import { verifyUserAccess, extractUserId } from '@/src/lib/telegram-auth';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { notifyAdminFeedback } from '@/src/utils/error-notifier';
@@ -88,15 +88,12 @@ export async function POST(request: NextRequest) {
     const oneDayAgo = new Date();
     oneDayAgo.setHours(oneDayAgo.getHours() - FEEDBACK_CONFIG.rateLimitHours);
 
-    const recentFeedbackCount = await withDbRetry(
-      () => prisma.userFeedback.count({
-        where: {
-          userId: user.id,
-          createdAt: { gte: oneDayAgo }
-        }
-      }),
-      'feedback.rate-limit-check'
-    );
+    const recentFeedbackCount = await prisma.userFeedback.count({
+      where: {
+        userId: user.id,
+        createdAt: { gte: oneDayAgo }
+      }
+    });
 
     if (recentFeedbackCount >= FEEDBACK_CONFIG.rateLimitCount) {
       return NextResponse.json(
@@ -106,16 +103,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Store feedback in database
-    await withDbRetry(
-      () => prisma.userFeedback.create({
-        data: {
-          userId: user.id,
-          text: trimmedText,
-          source: 'dashboard'
-        }
-      }),
-      'feedback.create'
-    );
+    await prisma.userFeedback.create({
+      data: {
+        userId: user.id,
+        text: trimmedText,
+        source: 'dashboard'
+      }
+    });
 
     // Notify admin via Telegram
     await notifyAdminFeedback(user.name, user.telegramId, trimmedText, 'dashboard');

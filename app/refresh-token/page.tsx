@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import crypto from 'crypto';
-import { prisma, withDbRetry } from '@/src/utils/prisma';
+import { prisma } from '@/src/utils/prisma';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { XCircle } from 'lucide-react';
 import RefreshTokenClient from './RefreshTokenClient';
@@ -71,16 +71,13 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
   const stateToken = crypto.randomBytes(32).toString('hex');
 
   // Store state in database with 10-minute expiration
-  await withDbRetry(
-    () => prisma.oAuthState.create({
-      data: {
-        userId: BigInt(user_id),
-        token: stateToken,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
-      }
-    }),
-    'refresh-token.createState'
-  );
+  await prisma.oAuthState.create({
+    data: {
+      userId: BigInt(user_id),
+      token: stateToken,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+    }
+  });
 
   // Always request both read and write scopes for full functionality
   const oauthScope = `${CALENDAR_SCOPE_READ} ${CALENDAR_SCOPE_WRITE}`;

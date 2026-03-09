@@ -4,7 +4,7 @@
  */
 
 import { Redis } from '@upstash/redis';
-import { prisma, withDbRetry } from '../utils/prisma';
+import { prisma } from '../utils/prisma';
 import { getBot } from './telegram';
 import { getTelegramService } from './messaging/factory';
 import { MessageFormat } from './messaging/types';
@@ -81,39 +81,33 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
   windowEnd.setDate(windowEnd.getDate() + daysLeft + 1);
 
   // Find subscriptions expiring within the window
-  const subscriptions = await withDbRetry(
-    () => prisma.subscription.findMany({
-      where: {
-        status: { in: ['ACTIVE', 'CANCELED'] },
-        plan: { not: 'FREE' },
-        currentPeriodEnd: {
-          gt: now,
-          lte: windowEnd,
+  const subscriptions = await prisma.subscription.findMany({
+    where: {
+      status: { in: ['ACTIVE', 'CANCELED'] },
+      plan: { not: 'FREE' },
+      currentPeriodEnd: {
+        gt: now,
+        lte: windowEnd,
+      },
+    },
+    include: {
+      user: {
+        select: {
+          telegramId: true,
+          language: true,
+          name: true,
         },
       },
-      include: {
-        user: {
-          select: {
-            telegramId: true,
-            language: true,
-            name: true,
-          },
-        },
-      },
-    }),
-    'subscription-reminders.findExpiring'
-  );
+    },
+  });
 
   console.log(`[Subscription Reminders] Found ${subscriptions.length} subscriptions expiring within ${daysLeft + 1} days`);
 
   // Get usage stats for all users at once
   const userIds = subscriptions.map(s => s.userId);
-  const usageCounters = await withDbRetry(
-    () => prisma.usageCounter.findMany({
-      where: { userId: { in: userIds } },
-    }),
-    'subscription-reminders.getUsage'
-  );
+  const usageCounters = await prisma.usageCounter.findMany({
+    where: { userId: { in: userIds } },
+  });
 
   const usageMap = new Map(usageCounters.map(u => [u.userId, u]));
 
@@ -224,27 +218,24 @@ async function expireSubscriptions(): Promise<void> {
   const now = new Date();
 
   // Find subscriptions that have expired (currentPeriodEnd is in the past)
-  const expiredSubscriptions = await withDbRetry(
-    () => prisma.subscription.findMany({
-      where: {
-        status: { in: ['ACTIVE', 'CANCELED'] },
-        plan: { not: 'FREE' },
-        currentPeriodEnd: {
-          lt: now,
+  const expiredSubscriptions = await prisma.subscription.findMany({
+    where: {
+      status: { in: ['ACTIVE', 'CANCELED'] },
+      plan: { not: 'FREE' },
+      currentPeriodEnd: {
+        lt: now,
+      },
+    },
+    include: {
+      user: {
+        select: {
+          telegramId: true,
+          language: true,
+          name: true,
         },
       },
-      include: {
-        user: {
-          select: {
-            telegramId: true,
-            language: true,
-            name: true,
-          },
-        },
-      },
-    }),
-    'subscription-reminders.findExpired'
-  );
+    },
+  });
 
   console.log(`[Subscription Reminders] Found ${expiredSubscriptions.length} expired subscriptions`);
 
@@ -267,16 +258,13 @@ async function expireSubscriptions(): Promise<void> {
     }
 
     // Downgrade to FREE
-    await withDbRetry(
-      () => prisma.subscription.update({
-        where: { userId: sub.userId },
-        data: {
-          status: 'EXPIRED',
-          plan: 'FREE',
-        },
-      }),
-      'subscription-reminders.expire'
-    );
+    await prisma.subscription.update({
+      where: { userId: sub.userId },
+      data: {
+        status: 'EXPIRED',
+        plan: 'FREE',
+      },
+    });
 
     // Send notification
     const locale = sub.user.language || 'en';

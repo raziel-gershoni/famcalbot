@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { normalizeLocale } from '@/src/utils/locale';
-import { prisma, withDbRetry } from '@/src/utils/prisma';
+import { prisma } from '@/src/utils/prisma';
 import { AlertTriangle } from 'lucide-react';
 import SettingsClient from './SettingsClient';
 import { getSubscriptionWithUsage } from '@/src/services/subscription-service';
@@ -59,12 +59,9 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
 
   // Fetch admin settings and subscription data in parallel
   const [adminSettings, subWithUsage] = await Promise.all([
-    withDbRetry(
-      () => prisma.adminSettings.findUnique({
-        where: { id: 'global' }
-      }),
-      'settings.adminSettings'
-    ).catch(() => null),
+    prisma.adminSettings.findUnique({
+      where: { id: 'global' }
+    }).catch(() => null),
     getSubscriptionWithUsage(user.id).catch(() => null),
   ]);
 

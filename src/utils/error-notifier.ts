@@ -5,20 +5,17 @@
 
 import * as Sentry from '@sentry/nextjs';
 import { getBot } from '../services/telegram';
-import { prisma, withDbRetry } from './prisma';
+import { prisma } from './prisma';
 
 /**
  * Get all admin user Telegram IDs
  */
 export async function getAdminUserIds(): Promise<number[]> {
   try {
-    const admins = await withDbRetry(
-      () => prisma.user.findMany({
-        where: { isAdmin: true },
-        select: { telegramId: true }
-      }),
-      'getAdminUserIds'
-    );
+    const admins = await prisma.user.findMany({
+      where: { isAdmin: true },
+      select: { telegramId: true }
+    });
     return admins.map(a => Number(a.telegramId));
   } catch (error) {
     console.error('Failed to fetch admin users:', error);

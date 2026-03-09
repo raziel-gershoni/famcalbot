@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { validateCalendarAssignments } from '@/src/utils/calendar-helpers';
 import { CalendarAssignment } from '@/src/types';
-import { prisma, withDbRetry } from '@/src/utils/prisma';
+import { prisma } from '@/src/utils/prisma';
 import { encrypt } from '@/src/utils/encryption';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { verifyUserAuth } from '@/src/lib/api-auth';
@@ -100,17 +100,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Update user with new calendarAssignments and globalRules
-    const updatedUser = await withDbRetry(
-      () => prisma.user.update({
-        where: { telegramId: BigInt(auth.userId) },
-        data: {
-          calendarAssignments: syncedAssignments as any,
-          ...(globalRules !== undefined && { globalRules }),
-          googleRefreshToken: encrypt(currentUser.googleRefreshToken) // Re-encrypt
-        }
-      }),
-      'select-calendars.update'
-    );
+    const updatedUser = await prisma.user.update({
+      where: { telegramId: BigInt(auth.userId) },
+      data: {
+        calendarAssignments: syncedAssignments as any,
+        ...(globalRules !== undefined && { globalRules }),
+        googleRefreshToken: encrypt(currentUser.googleRefreshToken) // Re-encrypt
+      }
+    });
 
     // Update reminder cache if user has reminders enabled (no extra DB query)
     if (currentUser.remindersEnabled && currentUser.googleRefreshToken) {

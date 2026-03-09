@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { prisma, withDbRetry } from '@/src/utils/prisma';
+import { prisma } from '@/src/utils/prisma';
 import { getUserByTelegramId, updateGoogleRefreshToken } from '@/src/services/user-service';
 import { normalizeLocale } from '@/src/utils/locale';
 import { XCircle, AlertTriangle } from 'lucide-react';
@@ -232,10 +232,7 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   }
 
   // Look up state token in database
-  const stateRecord = await withDbRetry(
-    () => prisma.oAuthState.findUnique({ where: { token: state } }),
-    'oauth-callback.findState'
-  );
+  const stateRecord = await prisma.oAuthState.findUnique({ where: { token: state } });
 
   // Validate state exists
   if (!stateRecord) {
@@ -244,20 +241,14 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
 
   // Validate state hasn't expired
   if (stateRecord.expiresAt < new Date()) {
-    await withDbRetry(
-      () => prisma.oAuthState.delete({ where: { id: stateRecord.id } }),
-      'oauth-callback.deleteExpired'
-    );
+    await prisma.oAuthState.delete({ where: { id: stateRecord.id } });
     return <ErrorPage message="State token expired. Please try again." />;
   }
 
   const telegramId = stateRecord.userId;
 
   // Delete used state token (one-time use only)
-  await withDbRetry(
-    () => prisma.oAuthState.delete({ where: { id: stateRecord.id } }),
-    'oauth-callback.deleteUsed'
-  );
+  await prisma.oAuthState.delete({ where: { id: stateRecord.id } });
 
   // Exchange code for tokens
   const redirectUri = buildUrl('/api/refresh-token');

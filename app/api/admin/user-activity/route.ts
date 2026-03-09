@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma, withDbRetry } from '@/src/utils/prisma';
+import { prisma } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { captureError } from '@/src/lib/error-capture';
 
@@ -53,39 +53,30 @@ export async function GET(request: NextRequest) {
 
     // Fetch activities
     const [activities, total] = await Promise.all([
-      withDbRetry(
-        () => prisma.userActivity.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          take: limit,
-          skip: offset,
-          include: {
-            user: {
-              select: {
-                id: true,
-                telegramId: true,
-                name: true,
-              },
+      prisma.userActivity.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+        include: {
+          user: {
+            select: {
+              id: true,
+              telegramId: true,
+              name: true,
             },
           },
-        }),
-        'user-activity.list'
-      ),
-      withDbRetry(
-        () => prisma.userActivity.count({ where }),
-        'user-activity.count'
-      ),
+        },
+      }),
+      prisma.userActivity.count({ where }),
     ]);
 
     // Get list of unique actions for filtering
-    const actionStats = await withDbRetry(
-      () => prisma.userActivity.groupBy({
-        by: ['action'],
-        _count: { action: true },
-        orderBy: { _count: { action: 'desc' } },
-      }),
-      'user-activity.action-stats'
-    );
+    const actionStats = await prisma.userActivity.groupBy({
+      by: ['action'],
+      _count: { action: true },
+      orderBy: { _count: { action: 'desc' } },
+    });
 
     return NextResponse.json({
       success: true,

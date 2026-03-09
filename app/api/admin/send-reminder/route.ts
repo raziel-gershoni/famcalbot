@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma, withDbRetry } from '@/src/utils/prisma';
+import { prisma } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { getMessagingService } from '@/src/services/telegram';
@@ -85,18 +85,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Get target user
-    const user = await withDbRetry(
-      () => prisma.user.findUnique({
-        where: { id: user_id },
-        select: {
-          id: true,
-          telegramId: true,
-          language: true,
-          name: true,
-        },
-      }),
-      'send-reminder.get-user'
-    );
+    const user = await prisma.user.findUnique({
+      where: { id: user_id },
+      select: {
+        id: true,
+        telegramId: true,
+        language: true,
+        name: true,
+      },
+    });
 
     if (!user) {
       return NextResponse.json(

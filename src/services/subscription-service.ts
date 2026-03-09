@@ -5,7 +5,7 @@
 
 import { Subscription, SubscriptionPlan, SubscriptionStatus, UsageCounter, UserFeatureOverride } from '@prisma/client';
 import { Redis } from '@upstash/redis';
-import { prisma, withDbRetry } from '../utils/prisma';
+import { prisma } from '../utils/prisma';
 import { PlanId, getPlanLimits, TRIAL_DURATION_DAYS, PLAN_CONFIGS } from '../config/plans';
 import { trackActivity } from './analytics-service';
 import { getEarlyAdoptionMode } from './reminder-cache';
@@ -71,12 +71,9 @@ export function getSubscriptionEndDate(fromDate: Date = new Date()): Date {
  */
 export async function getOrCreateSubscription(userId: number): Promise<Subscription> {
   // Try to find existing
-  const existing = await withDbRetry(
-    () => prisma.subscription.findUnique({
-      where: { userId },
-    }),
-    'getOrCreateSubscription.find'
-  );
+  const existing = await prisma.subscription.findUnique({
+    where: { userId },
+  });
 
   if (existing) {
     return existing;
@@ -86,18 +83,15 @@ export async function getOrCreateSubscription(userId: number): Promise<Subscript
   const now = new Date();
   const trialEndsAt = new Date(now.getTime() + TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000);
 
-  const subscription = await withDbRetry(
-    () => prisma.subscription.create({
-      data: {
-        userId,
-        plan: 'FREE',
-        status: 'TRIALING',
-        trialStartedAt: now,
-        trialEndsAt,
-      },
-    }),
-    'getOrCreateSubscription.create'
-  );
+  const subscription = await prisma.subscription.create({
+    data: {
+      userId,
+      plan: 'FREE',
+      status: 'TRIALING',
+      trialStartedAt: now,
+      trialEndsAt,
+    },
+  });
 
   // Track trial start
   await trackActivity(userId, 'subscription_started', {
@@ -114,12 +108,9 @@ export async function getOrCreateSubscription(userId: number): Promise<Subscript
  * Get subscription by user ID
  */
 export async function getSubscription(userId: number): Promise<Subscription | null> {
-  return withDbRetry(
-    () => prisma.subscription.findUnique({
-      where: { userId },
-    }),
-    'getSubscription'
-  );
+  return prisma.subscription.findUnique({
+    where: { userId },
+  });
 }
 
 /**
@@ -173,39 +164,33 @@ export async function upgradeSubscription(
   const now = new Date();
   const periodEnd = getSubscriptionEndDate(now);
 
-  const updated = await withDbRetry(
-    () => prisma.subscription.update({
-      where: { userId },
-      data: {
-        plan: newPlan,
-        status: 'ACTIVE',
-        telegramPaymentChargeId,
-        currentPeriodStart: now,
-        currentPeriodEnd: periodEnd,
-        cancelAtPeriodEnd: false,
-      },
-    }),
-    'upgradeSubscription'
-  );
+  const updated = await prisma.subscription.update({
+    where: { userId },
+    data: {
+      plan: newPlan,
+      status: 'ACTIVE',
+      telegramPaymentChargeId,
+      currentPeriodStart: now,
+      currentPeriodEnd: periodEnd,
+      cancelAtPeriodEnd: false,
+    },
+  });
 
   // Reset usage counters for the new billing period
-  await withDbRetry(
-    () => prisma.usageCounter.upsert({
-      where: { userId },
-      update: {
-        textSummariesUsed: 0,
-        voiceSummariesUsed: 0,
-        voiceEventsCreated: 0,
-        remindersTriggered: 0,
-        cycleStartDate: now,
-      },
-      create: {
-        userId,
-        cycleStartDate: now,
-      },
-    }),
-    'resetUsageOnUpgrade'
-  );
+  await prisma.usageCounter.upsert({
+    where: { userId },
+    update: {
+      textSummariesUsed: 0,
+      voiceSummariesUsed: 0,
+      voiceEventsCreated: 0,
+      remindersTriggered: 0,
+      cycleStartDate: now,
+    },
+    create: {
+      userId,
+      cycleStartDate: now,
+    },
+  });
 
   // Track upgrade
   await trackActivity(userId, 'subscription_upgraded', {
@@ -230,16 +215,13 @@ export async function cancelSubscription(userId: number): Promise<Subscription> 
     throw new Error('No subscription found');
   }
 
-  const updated = await withDbRetry(
-    () => prisma.subscription.update({
-      where: { userId },
-      data: {
-        status: 'CANCELED',
-        cancelAtPeriodEnd: true,
-      },
-    }),
-    'cancelSubscription'
-  );
+  const updated = await prisma.subscription.update({
+    where: { userId },
+    data: {
+      status: 'CANCELED',
+      cancelAtPeriodEnd: true,
+    },
+  });
 
   // Calculate days active
   const daysActive = Math.floor(
@@ -264,16 +246,13 @@ export async function cancelSubscription(userId: number): Promise<Subscription> 
  * Expire a trial subscription (called when trial ends)
  */
 async function expireTrialSubscription(userId: number): Promise<Subscription> {
-  const updated = await withDbRetry(
-    () => prisma.subscription.update({
-      where: { userId },
-      data: {
-        status: 'EXPIRED',
-        plan: 'FREE',
-      },
-    }),
-    'expireTrialSubscription'
-  );
+  const updated = await prisma.subscription.update({
+    where: { userId },
+    data: {
+      status: 'EXPIRED',
+      plan: 'FREE',
+    },
+  });
 
   await trackActivity(userId, 'subscription_expired', {
     plan: 'FREE',
@@ -286,13 +265,10 @@ async function expireTrialSubscription(userId: number): Promise<Subscription> {
   // Send trial expired notification to user (non-blocking, skip for early adopters)
   if (!await checkEarlyAdopterAccess(userId)) {
     try {
-      const user = await withDbRetry(
-        () => prisma.user.findUnique({
-          where: { id: userId },
-          select: { telegramId: true, language: true },
-        }),
-        'expireTrialSubscription.getUser'
-      );
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { telegramId: true, language: true },
+      });
       if (user) {
         const { sendTrialExpiredNotification } = await import('./telegram');
         await sendTrialExpiredNotification(Number(user.telegramId), user.language || 'en');
@@ -323,38 +299,32 @@ export async function renewSubscription(
   const now = new Date();
   const periodEnd = getSubscriptionEndDate(now);
 
-  const updated = await withDbRetry(
-    () => prisma.subscription.update({
-      where: { userId },
-      data: {
-        status: 'ACTIVE',
-        telegramPaymentChargeId,
-        currentPeriodStart: now,
-        currentPeriodEnd: periodEnd,
-        cancelAtPeriodEnd: false,
-      },
-    }),
-    'renewSubscription'
-  );
+  const updated = await prisma.subscription.update({
+    where: { userId },
+    data: {
+      status: 'ACTIVE',
+      telegramPaymentChargeId,
+      currentPeriodStart: now,
+      currentPeriodEnd: periodEnd,
+      cancelAtPeriodEnd: false,
+    },
+  });
 
   // Reset usage counters for the new billing period
-  await withDbRetry(
-    () => prisma.usageCounter.upsert({
-      where: { userId },
-      update: {
-        textSummariesUsed: 0,
-        voiceSummariesUsed: 0,
-        voiceEventsCreated: 0,
-        remindersTriggered: 0,
-        cycleStartDate: now,
-      },
-      create: {
-        userId,
-        cycleStartDate: now,
-      },
-    }),
-    'resetUsageOnRenewal'
-  );
+  await prisma.usageCounter.upsert({
+    where: { userId },
+    update: {
+      textSummariesUsed: 0,
+      voiceSummariesUsed: 0,
+      voiceEventsCreated: 0,
+      remindersTriggered: 0,
+      cycleStartDate: now,
+    },
+    create: {
+      userId,
+      cycleStartDate: now,
+    },
+  });
 
   await trackActivity(userId, 'subscription_renewed', {
     plan: existing.plan,
@@ -376,12 +346,9 @@ export async function renewSubscription(
  * Get or create usage counter for a user
  */
 export async function getOrCreateUsageCounter(userId: number): Promise<UsageCounter> {
-  const existing = await withDbRetry(
-    () => prisma.usageCounter.findUnique({
-      where: { userId },
-    }),
-    'getOrCreateUsageCounter.find'
-  );
+  const existing = await prisma.usageCounter.findUnique({
+    where: { userId },
+  });
 
   if (existing) {
     const cycleStart = existing.cycleStartDate;
@@ -395,34 +362,28 @@ export async function getOrCreateUsageCounter(userId: number): Promise<UsageCoun
         newCycleStart = getSubscriptionEndDate(newCycleStart);
       }
 
-      return withDbRetry(
-        () => prisma.usageCounter.update({
-          where: { userId },
-          data: {
-            textSummariesUsed: 0,
-            voiceSummariesUsed: 0,
-            voiceEventsCreated: 0,
-            remindersTriggered: 0,
-            cycleStartDate: newCycleStart,
-          },
-        }),
-        'getOrCreateUsageCounter.reset'
-      );
+      return prisma.usageCounter.update({
+        where: { userId },
+        data: {
+          textSummariesUsed: 0,
+          voiceSummariesUsed: 0,
+          voiceEventsCreated: 0,
+          remindersTriggered: 0,
+          cycleStartDate: newCycleStart,
+        },
+      });
     }
 
     return existing;
   }
 
   // Create new counter
-  return withDbRetry(
-    () => prisma.usageCounter.create({
-      data: {
-        userId,
-        cycleStartDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
-      },
-    }),
-    'getOrCreateUsageCounter.create'
-  );
+  return prisma.usageCounter.create({
+    data: {
+      userId,
+      cycleStartDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+    },
+  });
 }
 
 /**
@@ -444,15 +405,12 @@ export async function incrementUsage(
 
   const field = fieldMap[feature];
 
-  return withDbRetry(
-    () => prisma.usageCounter.update({
-      where: { userId },
-      data: {
-        [field]: { increment: 1 },
-      },
-    }),
-    'incrementUsage'
-  );
+  return prisma.usageCounter.update({
+    where: { userId },
+    data: {
+      [field]: { increment: 1 },
+    },
+  });
 }
 
 // ============================================
@@ -463,12 +421,9 @@ export async function incrementUsage(
  * Get feature override for a user (admin-granted access)
  */
 export async function getFeatureOverride(userId: number): Promise<UserFeatureOverride | null> {
-  return withDbRetry(
-    () => prisma.userFeatureOverride.findUnique({
-      where: { userId },
-    }),
-    'getFeatureOverride'
-  );
+  return prisma.userFeatureOverride.findUnique({
+    where: { userId },
+  });
 }
 
 /**

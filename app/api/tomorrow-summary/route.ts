@@ -8,15 +8,8 @@ export async function POST(request: NextRequest) {
   return withCronHandler(request, {
     jobName: 'Tomorrow Summary',
     handler: async () => {
-      const { sendTomorrowSummaryToAll } = await import('@/src/services/telegram');
-      const summaryResult = await sendTomorrowSummaryToAll({ filterByHour: true });
-      return {
-        success: true,
-        message: "Tomorrow's summaries sent successfully",
-        processed: summaryResult.processed,
-        skippedHour: summaryResult.skippedHour,
-        skippedDedup: summaryResult.skippedDedup,
-      };
+      const { handleTomorrowSummary } = await import('@/src/cron/handlers');
+      return handleTomorrowSummary();
     }
   });
 }

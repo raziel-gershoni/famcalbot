@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma, withDbRetry } from '@/src/utils/prisma';
+import { prisma } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { setGlobalRemindersEnabled, setEarlyAdoptionMode, setDefaultAiModelSetting, setGeminiThinkingLevel } from '@/src/services/reminder-cache';
@@ -17,12 +17,9 @@ export const dynamic = 'force-dynamic';
 // GET: Fetch admin settings
 export async function GET() {
   try {
-    const adminSettings = await withDbRetry(
-      () => prisma.adminSettings.findUnique({
-        where: { id: 'global' }
-      }),
-      'admin-settings.get'
-    ).catch(() => null); // Handle missing table gracefully
+    const adminSettings = await prisma.adminSettings.findUnique({
+      where: { id: 'global' }
+    }).catch(() => null); // Handle missing table gracefully
 
     return NextResponse.json({
       success: true,
@@ -109,14 +106,11 @@ export async function POST(request: NextRequest) {
         createData.geminiThinkingLevel = geminiThinkingLevel ?? null;
       }
 
-      const settings = await withDbRetry(
-        () => prisma.adminSettings.upsert({
-          where: { id: 'global' },
-          update: updateData,
-          create: createData as { id: string; remindersEnabled?: boolean; earlyAdoptionMode?: boolean; defaultAiModel?: string | null; geminiThinkingLevel?: string | null },
-        }),
-        'admin-settings.update'
-      );
+      const settings = await prisma.adminSettings.upsert({
+        where: { id: 'global' },
+        update: updateData,
+        create: createData as { id: string; remindersEnabled?: boolean; earlyAdoptionMode?: boolean; defaultAiModel?: string | null; geminiThinkingLevel?: string | null },
+      });
 
       // Sync to Redis cache
       if (hasReminders) {

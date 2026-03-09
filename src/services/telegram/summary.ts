@@ -16,7 +16,7 @@ import { trackActivityAsync } from '../analytics-service';
 import { checkFeatureAccess, incrementUsage } from '../subscription-service';
 import { captureError } from '../../lib/error-capture';
 import { getBot, getMessagingService } from './bot';
-import { dispatchVoiceGeneration } from './voice-dispatch';
+import { sendVoiceMessage } from './voice';
 
 /**
  * Categorize events by ownership for a specific user
@@ -677,7 +677,10 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     }
 
     const tVoice = Date.now();
-    await dispatchVoiceGeneration(userId, summary, 'daily');
+    // Call voice generation inline (no QStash dispatch)
+    sendVoiceMessage(userId, summary, user).catch(err =>
+      console.error(`[Delivery] Voice generation failed for user ${userId}:`, err)
+    );
     voiceDispatchMs = Date.now() - tVoice;
   }
 
