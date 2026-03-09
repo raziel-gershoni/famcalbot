@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { GoogleGenAI } from '@google/genai';
-import { encodePcmToOggOpus } from '../lib/pcm-to-ogg-opus';
+import { encodePcmToOggOpus } from '../lib/pcm-to-ogg-opus.js';
 
 const GEMINI_TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts';
 
