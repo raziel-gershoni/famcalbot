@@ -240,7 +240,7 @@ export async function formatWeatherAI(
     const label = i === 0 ? (language === 'he' ? 'היום' : language === 'ru' ? 'Сегодня' : 'Today')
                 : i === 1 ? (language === 'he' ? 'מחר' : language === 'ru' ? 'Завтра' : 'Tomorrow')
                 : dayName;
-    return `${label}: ${d.tempMin}–${d.tempMax}°C ${getWeatherDescription(d.weatherCode)}${d.precipitationProbability > 20 ? ` ${d.precipitationProbability}%☔` : ''}`;
+    return `${label}: ${d.tempMin}–${d.tempMax}°C [${getWeatherDescription(d.weatherCode)}]${d.precipitationProbability > 20 ? ` ${d.precipitationProbability}%` : ''}`;
   }).join('\n');
 
   const infographicSection = generateInfographic ? `
@@ -254,7 +254,8 @@ THEN: A detailed image generation prompt (in English) for creating a weather inf
   - Each row has EXACTLY these elements, each appearing ONCE and only once: ${language === 'he' ? 'high temp ●───● low temp | rain % (if > 20%) | weather icon | day name (RTL order — day name on the right)' : 'day name | weather icon | rain % (if > 20%) | low temp ●───● high temp'}
   - The ●───● is a dumbbell chart: blue dot at low, orange dot at high, gradient line between
   - Align the dumbbell bars horizontally across all rows on a shared temperature axis
-  - CRITICAL: Do NOT duplicate any element. Every piece of info (icon, rain %, temp) appears exactly ONCE per row
+  - The [condition] in brackets is the weather condition — render it as a SINGLE small icon per row. Do NOT show the condition as text
+  - CRITICAL: Do NOT duplicate any element. Each row must have exactly ONE icon, ONE rain %, ONE low temp, ONE high temp. Nothing appears twice
 - Forecast data:
 ${forecastDays}
 - All text and numbers must be EXACTLY as specified above — do not approximate
