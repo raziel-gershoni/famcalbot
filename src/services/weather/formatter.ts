@@ -243,7 +243,7 @@ THEN: A detailed image generation prompt (in English) for creating a weather inf
 - 5-day forecast strip with day names, temps, and weather icons for days 3-7
 - Weather-appropriate icons/symbols (sun, clouds, rain drops, etc.)
 - All text and numbers must be EXACTLY as specified above — do not approximate
-- ${language === 'he' ? 'Use Hebrew labels for days and sections, RTL layout' : language === 'ru' ? 'Use Russian labels for days and sections' : 'Use English labels'}
+- ${language === 'he' ? 'Use Hebrew labels for days and sections. IMPORTANT: The entire layout must be RTL (right-to-left) — text aligned right, the 5-day forecast strip must flow right-to-left (rightmost day = earliest)' : language === 'ru' ? 'Use Russian labels for days and sections' : 'Use English labels'}
 - Style: flat design, no watermarks, no 3D effects, high contrast text, suitable for mobile viewing
 - IMPORTANT: This is a data visualization — accuracy of all numbers is critical` : '';
 
