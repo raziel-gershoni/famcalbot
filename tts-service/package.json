@@ -1,6 +1,7 @@
 {
   "name": "famcalbot-tts",
   "private": true,
+  "type": "module",
   "dependencies": {
     "@google/genai": "^1.42.0",
     "opusscript": "^0.1.1"
