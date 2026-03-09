@@ -5,7 +5,7 @@
 
 import { getGemini } from '../ai-provider';
 
-const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
+const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image-preview';
 
 // Retry configuration (same pattern as TTS)
 const MAX_RETRIES = 1;
