@@ -251,9 +251,10 @@ THEN: A detailed image generation prompt (in English) for creating a weather inf
 - Header: location "${weather.location}", date "${dateStr}"${hebrewDateStr ? `, Hebrew date "${hebrewDateStr.replace(' | ', '')}"` : ''}, currently ${weather.current.temperature}°C
 - THE MAIN FOCUS is a vertical multi-day forecast chart taking most of the image, styled like the iOS Weather app:
   - Days stacked vertically (top = today, bottom = furthest day)
-  - Each row has EXACTLY these elements, each appearing ONCE and only once: ${language === 'he' ? 'high temp ●───● low temp | rain % (if > 20%) | weather icon | day name (RTL order — day name on the right)' : 'day name | weather icon | rain % (if > 20%) | low temp ●───● high temp'}
-  - The ●───● is a dumbbell chart: blue dot at low, orange dot at high, gradient line between
+  - Each row has EXACTLY these elements, each appearing ONCE and only once: ${language === 'he' ? 'low°–high° | ●───● | rain % (if > 20%) | weather icon | day name (RTL order — day name on the right)' : 'day name | weather icon | rain % (if > 20%) | ●───● | low°–high°'}
+  - The ●───● is a dumbbell chart: blue dot at low end, orange dot at high end, gradient line between. The dots represent temperature visually by position only — do NOT write any numbers on or near the dots/line
   - Align the dumbbell bars horizontally across all rows on a shared temperature axis
+  - Temperature numbers appear ONLY ONCE per row, as "low°–high°" text at the end of the row. Do NOT label the dots with numbers
   - The [condition] in brackets is the weather condition — render it as a SINGLE small icon per row. Do NOT show the condition as text
   - CRITICAL: Do NOT duplicate any element. Each row must have exactly ONE icon, ONE rain %, ONE low temp, ONE high temp. Nothing appears twice
 - Forecast data:
