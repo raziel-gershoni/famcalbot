@@ -249,10 +249,14 @@ THEN: A detailed image generation prompt (in English) for creating a weather inf
 - A clean, modern VERTICAL (9:16 portrait) mobile-friendly weather infographic, 1080x1920 pixels resolution
 - Gradient background matching current weather (warm oranges/yellows for sunny, cool blues for rainy, grays for overcast)
 - Header: location "${weather.location}", date "${dateStr}"${hebrewDateStr ? `, Hebrew date "${hebrewDateStr.replace(' | ', '')}"` : ''}, currently ${weather.current.temperature}°C
-- THE MAIN FOCUS of the image should be a multi-day forecast grid/list taking up most of the vertical space. Each day as a row with: day name, weather icon, high/low temps${weather.daily?.some(d => d.precipitationProbability > 20) ? ', rain %' : ''}
+- THE MAIN FOCUS is a vertical multi-day forecast chart taking most of the image, styled like the iOS Weather app:
+  - Days stacked vertically (top = today, bottom = furthest day)
+  - Each row: day name on the left, small weather icon, low temp number, a HORIZONTAL COLOR BAR showing the temperature range from low to high, high temp number on the right
+  - The bars should be horizontally aligned across all rows so temperatures are visually comparable (like a bar chart with a shared horizontal axis)
+  - Bar color: blue/cool for cold temps, orange/warm for hot temps, gradient within each bar from cool to warm
+  - ${weather.daily?.some(d => d.precipitationProbability > 20) ? 'Show rain % next to the weather icon when > 20%' : ''}
 - Forecast data:
 ${forecastDays}
-- Weather-appropriate icons/symbols (sun, clouds, rain drops, etc.)
 - All text and numbers must be EXACTLY as specified above — do not approximate
 - ${language === 'he' ? 'Use Hebrew labels for days and sections. IMPORTANT: The entire layout must be RTL (right-to-left) — text aligned right, day rows read right-to-left' : language === 'ru' ? 'Use Russian labels for days and sections' : 'Use English labels'}
 - Style: flat design, no watermarks, no 3D effects, high contrast text, suitable for mobile viewing
