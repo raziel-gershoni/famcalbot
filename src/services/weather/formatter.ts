@@ -251,9 +251,10 @@ THEN: A detailed image generation prompt (in English) for creating a weather inf
 - Header: location "${weather.location}", date "${dateStr}"${hebrewDateStr ? `, Hebrew date "${hebrewDateStr.replace(' | ', '')}"` : ''}, currently ${weather.current.temperature}°C
 - THE MAIN FOCUS is a vertical multi-day forecast chart taking most of the image, styled like the iOS Weather app:
   - Days stacked vertically (top = today, bottom = furthest day)
-  - Each row: day name on the left, small weather icon, low temp number, a HORIZONTAL COLOR BAR showing the temperature range from low to high, high temp number on the right
-  - The bars should be horizontally aligned across all rows so temperatures are visually comparable (like a bar chart with a shared horizontal axis)
-  - Bar color: blue/cool for cold temps, orange/warm for hot temps, gradient within each bar from cool to warm
+  - Each row: day name on the left, small weather icon, low temp number with a DOT, a horizontal LINE connecting to another DOT at the high temp number on the right
+  - Both dots connected by the line form a temperature range visualization (like a dumbbell chart)
+  - The lines/dots should be horizontally aligned across all rows on a shared temperature axis so ranges are visually comparable
+  - Color: blue dot for low temp, orange/red dot for high temp, gradient line connecting them
   - ${weather.daily?.some(d => d.precipitationProbability > 20) ? 'Show rain % next to the weather icon when > 20%' : ''}
 - Forecast data:
 ${forecastDays}
