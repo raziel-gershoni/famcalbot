@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Family Calendar Telegram Bot with Google Calendar and Claude AI",
   "main": "dist/index.js",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "tsx scripts/dev.ts",
     "dev:next": "next dev",
