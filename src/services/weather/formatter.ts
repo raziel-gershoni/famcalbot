@@ -260,7 +260,7 @@ export async function formatWeatherAI(
 LAYOUT: Vertical 9:16 portrait, 1080×1920px, dark gradient background matching weather conditions.
 
 HEADER (compact, top):
-${weather.location}
+${weather.location}${language !== 'en' ? ` (translate the location name to ${langName})` : ''}
 ${headerDate}
 
 FORECAST CHART (main content, fills most of the image):
