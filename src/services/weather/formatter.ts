@@ -230,48 +230,62 @@ export async function formatWeatherAI(
     { timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false }
   );
 
-  // Build forecast data for infographic — today + tomorrow + next 10 days (up to 12 rows)
-  const forecastDays = (weather.daily || []).slice(0, 12).map((d, i) => {
-    const date = new Date(d.date);
-    const dayName = date.toLocaleDateString(
-      language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US',
-      { weekday: 'short' }
-    );
-    const label = i === 0 ? (language === 'he' ? 'היום' : language === 'ru' ? 'Сегодня' : 'Today')
-                : i === 1 ? (language === 'he' ? 'מחר' : language === 'ru' ? 'Завтра' : 'Tomorrow')
-                : dayName;
-    return `${label}: ${d.tempMin}–${d.tempMax}°C [${getWeatherDescription(d.weatherCode)}]${d.precipitationProbability > 20 ? ` ${d.precipitationProbability}%` : ''}`;
-  }).join('\n');
+  // Build infographic prompt directly in code (not via text AI) to avoid duplication/typo issues
+  let directInfographicPrompt: string | undefined;
+  if (generateInfographic) {
+    const isRTL = language === 'he';
+    const rows = (weather.daily || []).slice(0, 12).map((d, i) => {
+      const date = new Date(d.date);
+      const dayName = date.toLocaleDateString(
+        language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US',
+        { weekday: 'short' }
+      );
+      const label = i === 0 ? (language === 'he' ? 'היום' : language === 'ru' ? 'Сегодня' : 'Today')
+                  : i === 1 ? (language === 'he' ? 'מחר' : language === 'ru' ? 'Завтра' : 'Tomorrow')
+                  : dayName;
+      const condition = getWeatherDescription(d.weatherCode);
+      const rain = d.precipitationProbability > 20 ? ` ${d.precipitationProbability}%` : '';
+      if (isRTL) {
+        return `${d.tempMin}°–${d.tempMax}°  ●───●  ${condition}${rain}  ${label}`;
+      }
+      return `${label}  ${condition}${rain}  ●───●  ${d.tempMin}°–${d.tempMax}°`;
+    }).join('\n');
 
-  const infographicSection = generateInfographic ? `
-THEN: The exact line: ===INFOGRAPHIC===
-THEN: A detailed image generation prompt (in English) for creating a weather infographic image. This prompt will be sent to an AI image generator. Include:
-- A clean, modern VERTICAL (9:16 portrait) mobile-friendly weather infographic, 1080x1920 pixels resolution
-- Gradient background matching current weather (warm oranges/yellows for sunny, cool blues for rainy, grays for overcast)
-- Header: location "${weather.location}", date "${dateStr}"${hebrewDateStr ? `, Hebrew date "${hebrewDateStr.replace(' | ', '')}"` : ''}, currently ${weather.current.temperature}°C
-- THE MAIN FOCUS is a vertical multi-day forecast chart taking most of the image, styled like the iOS Weather app:
-  - Days stacked vertically (top = today, bottom = furthest day)
-  - Each row has EXACTLY these elements, each appearing ONCE and only once: ${language === 'he' ? 'low°–high° | ●───● | weather icon | day name (RTL order — day name on the right)' : 'day name | weather icon | ●───● | low°–high°'}
-  - Rain % (if > 20%) appears ONLY next to the weather icon, nowhere else in the row
-  - The ●───● is a dumbbell chart: blue dot at low end, orange dot at high end, gradient line between. The dots represent temperature visually by position only — do NOT write any numbers on or near the dots/line
-  - Align the dumbbell bars horizontally across all rows on a shared temperature axis
-  - Temperature numbers appear ONLY ONCE per row, as "low°–high°" text at the end of the row. Do NOT label the dots with numbers
-  - The [condition] in brackets is the weather condition — render it as a SINGLE small icon per row. Do NOT show the condition as text
-  - CRITICAL: Do NOT duplicate any element. Each row must have exactly ONE icon, ONE rain %, ONE low temp, ONE high temp. Nothing appears twice
-- Forecast data:
-${forecastDays}
-- All text and numbers must be EXACTLY as specified above — do not approximate
-- ${language === 'he' ? 'Use Hebrew labels for days and sections. IMPORTANT: The entire layout must be RTL (right-to-left) — text aligned right, day rows read right-to-left' : language === 'ru' ? 'Use Russian labels for days and sections' : 'Use English labels'}
-- Style: flat design, no watermarks, no 3D effects, high contrast text, suitable for mobile viewing
-- IMPORTANT: This is a data visualization — accuracy of all numbers is critical` : '';
+    const headerDate = hebrewDateStr
+      ? `${dateStr}\n${hebrewDateStr.replace(' | ', '').trim()}`
+      : dateStr;
+
+    directInfographicPrompt = `Generate a clean, modern weather infographic image.
+
+LAYOUT: Vertical 9:16 portrait, 1080×1920px, dark gradient background matching weather conditions.
+
+HEADER (compact, top):
+${weather.location}
+${headerDate}
+
+FORECAST CHART (main content, fills most of the image):
+${isRTL ? 'RTL layout — day names on the RIGHT side, temperatures on the LEFT side.' : 'LTR layout — day names on the LEFT side, temperatures on the RIGHT side.'}
+Each row shows: day name, a small weather condition icon${isRTL ? '' : ','} a horizontal colored bar (blue dot ● on low end, orange dot ● on high end, gradient line connecting them), and temperature range.
+Temperature numbers appear ONCE per row as text — do NOT write numbers on the dots.
+Rain percentage shown small next to the condition icon only — nowhere else.
+The bars must be aligned on a shared horizontal temperature axis across all rows so the ranges are visually comparable.
+
+ROWS:
+${rows}
+
+STYLE:
+- Flat design, no watermarks, no 3D, high contrast white text on dark background
+- Weather condition rendered as a small icon only, not as text
+- Every data element appears exactly ONCE per row — no duplication of icons, percentages, or temperatures`;
+  }
 
   const prompt = `You are a friendly weatherperson giving a natural, conversational forecast briefing on someone's phone via Telegram.
 
-**Output ${generateInfographic ? 'three' : 'two'} versions separated by exact delimiters on their own lines.**
+**Output two versions separated by the exact delimiter ===FULL=== on its own line.**
 
 FIRST: A BRIEF version (~500-800 characters) — a compact mobile-friendly summary.
 THEN: The exact line: ===FULL===
-THEN: A FULL version (~1500-2000 characters) — detailed prose for voice narration.${infographicSection}
+THEN: A FULL version (~1500-2000 characters) — detailed prose for voice narration.
 
 **Rules (apply to BOTH text versions):**
 - Respond ENTIRELY in ${langName}
@@ -318,32 +332,17 @@ ${JSON.stringify(payload, null, 2)}`;
 
     const modelFooter = formatAdminFooter(result, isAdmin ?? false);
 
-    const fullDelimiter = '===FULL===';
-    const infographicDelimiter = '===INFOGRAPHIC===';
-
-    const fullIndex = text.indexOf(fullDelimiter);
-    if (fullIndex !== -1) {
-      const afterFull = text.substring(fullIndex + fullDelimiter.length);
-      const infographicIndex = afterFull.indexOf(infographicDelimiter);
-
-      let detailed: string;
-      let infographicPrompt: string | undefined;
-
-      if (infographicIndex !== -1) {
-        detailed = afterFull.substring(0, infographicIndex).trim();
-        infographicPrompt = afterFull.substring(infographicIndex + infographicDelimiter.length).trim();
-      } else {
-        detailed = afterFull.trim();
-      }
-
+    const delimiter = '===FULL===';
+    const delimiterIndex = text.indexOf(delimiter);
+    if (delimiterIndex !== -1) {
       return {
-        brief: text.substring(0, fullIndex).trim() + modelFooter,
-        detailed,
-        infographicPrompt,
+        brief: text.substring(0, delimiterIndex).trim() + modelFooter,
+        detailed: text.substring(delimiterIndex + delimiter.length).trim(),
+        infographicPrompt: directInfographicPrompt,
       };
     }
     // If no delimiter found, use full text for both
-    return { brief: text + modelFooter, detailed: text };
+    return { brief: text + modelFooter, detailed: text, infographicPrompt: directInfographicPrompt };
   } catch (error) {
     console.error('Failed to generate AI weather forecast:', error);
     const fallback = await formatWeatherDetailed(weather);
