@@ -4,6 +4,7 @@
  */
 
 import { HDate, Locale } from '@hebcal/core';
+import { gematriya } from '@hebcal/hdate';
 import '@hebcal/locales';
 import { WeatherData } from '../../types';
 import { getWeatherDescription, getWeatherEmoji } from './open-meteo';
@@ -251,8 +252,17 @@ export async function formatWeatherAI(
       return `${label}  ${condition}${rain}  ●───●  ${d.tempMin}°–${d.tempMax}°`;
     }).join('\n');
 
-    const headerDate = hebrewDateStr
-      ? `${dateStr}\n${hebrewDateStr.replace(' | ', '').trim()}`
+    let hebrewDateGematria = '';
+    if (culture === 'jewish') {
+      const localDate = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
+      const hdate = new HDate(localDate);
+      const dayGem = gematriya(hdate.getDate());
+      const monthName = Locale.lookupTranslation(hdate.getMonthName(), 'he') || hdate.getMonthName();
+      const yearGem = gematriya(hdate.getFullYear());
+      hebrewDateGematria = `${dayGem} ב${monthName} ${yearGem}`;
+    }
+    const headerDate = hebrewDateGematria
+      ? `${dateStr}\n${hebrewDateGematria}`
       : dateStr;
 
     directInfographicPrompt = `Generate a clean, modern weather infographic image.
