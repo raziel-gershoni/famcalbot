@@ -252,17 +252,20 @@ export async function formatWeatherAI(
       return `${label}  ${condition}${rain}  ●───●  ${d.tempMin}°–${d.tempMax}°`;
     }).join('\n');
 
-    let hebrewDateGematria = '';
+    let hebrewDateForInfographic = '';
     if (culture === 'jewish') {
       const localDate = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
       const hdate = new HDate(localDate);
-      const dayGem = gematriya(hdate.getDate());
-      const monthName = Locale.lookupTranslation(hdate.getMonthName(), 'he') || hdate.getMonthName();
-      const yearGem = gematriya(hdate.getFullYear());
-      hebrewDateGematria = `${dayGem} ב${monthName} ${yearGem}`;
+      if (language === 'he') {
+        // Gematria for Hebrew: כ״א באדר תשפ״ו
+        hebrewDateForInfographic = `${gematriya(hdate.getDate())} ב${Locale.lookupTranslation(hdate.getMonthName(), 'he') || hdate.getMonthName()} ${gematriya(hdate.getFullYear())}`;
+      } else {
+        // Numbers + English month name for other languages: 21 Adar 5786
+        hebrewDateForInfographic = `${hdate.getDate()} ${hdate.getMonthName()} ${hdate.getFullYear()}`;
+      }
     }
-    const headerDate = hebrewDateGematria
-      ? `${dateStr}\n${hebrewDateGematria}`
+    const headerDate = hebrewDateForInfographic
+      ? `${dateStr}\n${hebrewDateForInfographic}`
       : dateStr;
 
     directInfographicPrompt = `Generate a clean, modern weather infographic image.
