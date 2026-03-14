@@ -263,7 +263,7 @@ export async function formatWeatherAI(
                   : dayName;
       const condition = getWeatherDescription(d.weatherCode);
       const rain = d.precipitationProbability > 20 ? ` ${d.precipitationProbability}%` : '';
-      const wind = d.windSpeedMax > 15 ? ` ${getWindDirectionLabel(d.windDirection)} ${d.windSpeedMax}km/h` : '';
+      const wind = d.windSpeedMax > 25 ? ` 💨${getWindDirectionLabel(d.windDirection)} ${d.windSpeedMax}km/h` : '';
       if (isRTL) {
         return `${d.tempMin}°–${d.tempMax}°  ●───●${wind}  ${condition}${rain}  ${label}`;
       }
@@ -299,7 +299,7 @@ ${isRTL ? 'RTL layout — day names on the RIGHT side, temperatures on the LEFT 
 Each row shows: day name, a small weather condition icon${isRTL ? '' : ','} a horizontal colored bar (blue dot ● on low end, orange dot ● on high end, gradient line connecting them), and temperature range.
 Temperature numbers appear ONCE per row as text — do NOT write numbers on the dots.
 Rain percentage shown small next to the condition icon only — nowhere else.
-When wind data appears in a row (direction + speed), show it as a small label near the condition icon.
+When a 💨 wind label appears in a row, render it as small inline text on the SAME line as the condition icon — never on a separate line below the bar.
 The bars must be aligned on a shared horizontal temperature axis across all rows so the ranges are visually comparable.
 
 ROWS:
