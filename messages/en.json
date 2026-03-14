@@ -442,7 +442,12 @@
       "tomorrow": "Tomorrow",
       "high": "High",
       "low": "Low",
-      "rain": "rain"
+      "rain": "rain",
+      "windSpeed": "km/h",
+      "sharav": "Sharav",
+      "severityMild": "mild",
+      "severityModerate": "moderate",
+      "severitySevere": "severe"
     },
     "setupReminders": {
       "oauth": {

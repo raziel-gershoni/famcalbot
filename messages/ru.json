@@ -442,7 +442,12 @@
       "tomorrow": "Завтра",
       "high": "Макс",
       "low": "Мин",
-      "rain": "дождь"
+      "rain": "дождь",
+      "windSpeed": "км/ч",
+      "sharav": "Хамсин",
+      "severityMild": "слабый",
+      "severityModerate": "умеренный",
+      "severitySevere": "сильный"
     },
     "setupReminders": {
       "oauth": {

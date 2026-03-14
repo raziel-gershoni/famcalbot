@@ -469,7 +469,7 @@ async function sendWeatherOnlyToUser(
 
   // Wind line when significant
   const windLine = weatherData.current.windSpeed > 20
-    ? `\n💨 ${getWindDirectionLabel(weatherData.current.windDirection, user.language)} ${weatherData.current.windSpeed} ${user.language === 'he' ? 'קמ״ש' : user.language === 'ru' ? 'км/ч' : 'km/h'}`
+    ? `\n💨 ${getWindDirectionLabel(weatherData.current.windDirection, user.language)} ${weatherData.current.windSpeed} ${t.weatherOnly?.windSpeed || 'km/h'}`
     : '';
 
   // Sharav warning for today/tomorrow
@@ -477,20 +477,18 @@ async function sendWeatherOnlyToUser(
   const nearSharav = sharavDays.filter(s => s.dayIndex <= 1);
   let sharavLine = '';
   if (nearSharav.length > 0) {
-    const sharavLabel = user.language === 'he' ? 'שרב' : user.language === 'ru' ? 'Хамсин' : 'Sharav';
-    const severityLabels: Record<string, Record<string, string>> = {
-      en: { mild: 'mild', moderate: 'moderate', severe: 'severe' },
-      he: { mild: 'קל', moderate: 'בינוני', severe: 'חמור' },
-      ru: { mild: 'слабый', moderate: 'умеренный', severe: 'сильный' },
+    const severityKeys: Record<string, string> = {
+      mild: t.weatherOnly?.severityMild || 'mild',
+      moderate: t.weatherOnly?.severityModerate || 'moderate',
+      severe: t.weatherOnly?.severitySevere || 'severe',
     };
-    const labels = severityLabels[user.language || 'en'] || severityLabels.en;
     const warnings = nearSharav.map(s => {
       const dayLabel = s.dayIndex === 0
         ? (t.weatherOnly?.today || 'Today')
         : (t.weatherOnly?.tomorrow || 'Tomorrow');
-      return `${dayLabel}: ${labels[s.severity]} (${s.tempMax}°C)`;
+      return `${dayLabel}: ${severityKeys[s.severity]} (${s.tempMax}°C)`;
     }).join(', ');
-    sharavLine = `\n\n⚠️ <b>${sharavLabel}:</b> ${warnings}`;
+    sharavLine = `\n\n⚠️ <b>${t.weatherOnly?.sharav || 'Sharav'}:</b> ${warnings}`;
   }
 
   const weatherMessage = `🌤️ <b>${t.weatherOnly?.title || 'Weather'} - ${dateStr}</b>

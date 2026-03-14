@@ -442,7 +442,12 @@
       "tomorrow": "מחר",
       "high": "גבוה",
       "low": "נמוך",
-      "rain": "גשם"
+      "rain": "גשם",
+      "windSpeed": "קמ״ש",
+      "sharav": "שרב",
+      "severityMild": "קל",
+      "severityModerate": "בינוני",
+      "severitySevere": "חמור"
     },
     "setupReminders": {
       "oauth": {

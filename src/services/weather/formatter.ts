@@ -251,6 +251,8 @@ export async function formatWeatherAI(
   // Build infographic prompt directly in code (not via text AI) to avoid duplication/typo issues
   let directInfographicPrompt: string | undefined;
   if (generateInfographic) {
+    const { getBotMessages } = await import('../../lib/bot-messages');
+    const t = await getBotMessages(language);
     const isRTL = language === 'he';
     const rows = (weather.daily || []).slice(0, 12).map((d, i) => {
       const date = new Date(d.date);
@@ -263,8 +265,7 @@ export async function formatWeatherAI(
                   : dayName;
       const condition = getWeatherDescription(d.weatherCode);
       const rain = d.precipitationProbability > 20 ? ` ${d.precipitationProbability}%` : '';
-      const windUnit = language === 'he' ? 'קמ״ש' : language === 'ru' ? 'км/ч' : 'km/h';
-      const wind = d.windSpeedMax > 25 ? ` 💨${getWindDirectionLabel(d.windDirection, language)} ${d.windSpeedMax}${windUnit}` : '';
+      const wind = d.windSpeedMax > 25 ? ` 💨${getWindDirectionLabel(d.windDirection, language)} ${d.windSpeedMax}${t.weatherOnly?.windSpeed || 'km/h'}` : '';
       if (isRTL) {
         return `${d.tempMin}°–${d.tempMax}°  ●───●${wind}  ${condition}${rain}  ${label}`;
       }
