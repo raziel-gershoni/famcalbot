@@ -265,7 +265,8 @@ export async function formatWeatherAI(
                   : dayName;
       const condition = getWeatherDescription(d.weatherCode);
       const rain = d.precipitationProbability > 20 ? ` ${d.precipitationProbability}%` : '';
-      const wind = d.windSpeedMax > 25 ? ` 💨${getWindDirectionLabel(d.windDirection, language)} ${d.windSpeedMax}${t.weatherOnly?.windSpeed || 'km/h'}` : '';
+      const windArrow = ['↑','↗','→','↘','↓','↙','←','↖'][Math.round(d.windDirection / 45) % 8];
+      const wind = d.windSpeedMax > 25 ? ` 💨${windArrow}${d.windSpeedMax}` : '';
       if (isRTL) {
         return `${d.tempMin}°–${d.tempMax}°  ●───●  ${condition}${rain}${wind}  ${label}`;
       }
