@@ -264,13 +264,13 @@ export async function formatWeatherAI(
                   : i === 1 ? (language === 'he' ? 'מחר' : language === 'ru' ? 'Завтра' : 'Tomorrow')
                   : dayName;
       const condition = getWeatherDescription(d.weatherCode);
-      const rain = d.precipitationProbability > 20 ? ` ${d.precipitationProbability}%` : '';
-      const windArrow = ['↑','↗','→','↘','↓','↙','←','↖'][Math.round(d.windDirection / 45) % 8];
-      const wind = d.windSpeedMax > 25 ? ` 💨${windArrow}${d.windSpeedMax}` : '';
+      const rain = d.precipitationProbability > 20 ? `${d.precipitationProbability}%` : '';
+      const windArrow = d.windSpeedMax > 25 ? `${['↑','↗','→','↘','↓','↙','←','↖'][Math.round(d.windDirection / 45) % 8]}${d.windSpeedMax}` : '';
+      const details = rain || windArrow ? ` ${rain}${windArrow}` : '';
       if (isRTL) {
-        return `${d.tempMin}°–${d.tempMax}°  ●───●  ${condition}${rain}${wind}  ${label}`;
+        return `${d.tempMin}°–${d.tempMax}°  ●───●  ${condition}${details}  ${label}`;
       }
-      return `${label}  ${condition}${rain}${wind}  ●───●  ${d.tempMin}°–${d.tempMax}°`;
+      return `${label}  ${condition}${details}  ●───●  ${d.tempMin}°–${d.tempMax}°`;
     }).join('\n');
 
     let hebrewDateForInfographic = '';
@@ -302,7 +302,7 @@ ${isRTL ? 'RTL layout — day names on the RIGHT side, temperatures on the LEFT 
 Each row shows: day name, a small weather condition icon${isRTL ? '' : ','} a horizontal colored bar (blue dot ● on low end, orange dot ● on high end, gradient line connecting them), and temperature range.
 Temperature numbers appear ONCE per row as text — do NOT write numbers on the dots.
 Rain percentage shown small next to the condition icon only — nowhere else.
-When a 💨 wind label appears in a row, render it as small inline text on the SAME line as the condition icon — never on a separate line below the bar.
+Rain/wind details appear as compact text next to the condition icon — always on the same line, never wrapped.
 The bars must be aligned on a shared horizontal temperature axis across all rows so the ranges are visually comparable.
 
 ROWS:
