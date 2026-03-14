@@ -13,7 +13,14 @@ export interface SharavDay {
   tempMax: number;
   avgHumidity: number;
   windDirectionLabel: string;
+  anomaly: number;
 }
+
+/**
+ * Monthly average max temperatures for Israel (central/coastal), Jan–Dec.
+ * Used to compute temperature anomaly for sharav detection.
+ */
+const MONTHLY_AVG_MAX: readonly number[] = [17, 18, 20, 25, 28, 31, 33, 33, 32, 29, 24, 18];
 
 /**
  * Compute average daytime humidity (08:00–18:00) for a given day
@@ -57,12 +64,13 @@ function isSharavWeatherCode(code: number): boolean {
 /**
  * Detect sharav days from weather data.
  * Criteria per day:
- *  - tempMax >= 33°C
+ *  - tempMax >= 27°C (IMS absolute minimum)
+ *  - tempMax >= monthlyAvg + 5°C (anomaly criterion)
  *  - wind direction 90°–225° (E through SW)
- *  - average daytime humidity < 35%
+ *  - average daytime humidity < 40%
  *  - weather code: clear/cloudy/fog
  *
- * Severity: mild 33–36, moderate 37–40, severe >40
+ * Severity based on anomaly: mild 5–8°C, moderate 8–12°C, severe >12°C
  */
 export function detectSharav(weather: WeatherData): SharavDay[] {
   const daily = weather.daily;
@@ -74,15 +82,21 @@ export function detectSharav(weather: WeatherData): SharavDay[] {
   for (let i = 0; i < daily.length; i++) {
     const day = daily[i];
 
-    if (day.tempMax < 33) continue;
+    if (day.tempMax < 27) continue;
+
+    const month = parseInt(day.date.slice(5, 7), 10) - 1; // 0-based
+    const monthlyAvg = MONTHLY_AVG_MAX[month];
+    const anomaly = Math.round((day.tempMax - monthlyAvg) * 10) / 10;
+
+    if (anomaly < 5) continue;
     if (!isDesertWindDirection(day.windDirection)) continue;
     if (!isSharavWeatherCode(day.weatherCode)) continue;
 
     const avgHumidity = computeDaytimeHumidity(hourly, day.date);
-    if (avgHumidity >= 35) continue;
+    if (avgHumidity >= 40) continue;
 
     const severity: SharavDay['severity'] =
-      day.tempMax > 40 ? 'severe' : day.tempMax >= 37 ? 'moderate' : 'mild';
+      anomaly > 12 ? 'severe' : anomaly >= 8 ? 'moderate' : 'mild';
 
     results.push({
       dayIndex: i,
@@ -91,6 +105,7 @@ export function detectSharav(weather: WeatherData): SharavDay[] {
       tempMax: day.tempMax,
       avgHumidity,
       windDirectionLabel: getWindDirectionLabel(day.windDirection),
+      anomaly,
     });
   }
 
