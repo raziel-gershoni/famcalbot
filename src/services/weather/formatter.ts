@@ -265,12 +265,13 @@ export async function formatWeatherAI(
                   : dayName;
       const condition = getWeatherDescription(d.weatherCode);
       const rain = d.precipitationProbability > 20 ? `${d.precipitationProbability}%` : '';
-      const windArrow = d.windSpeedMax > 25 ? `${['↑','↗','→','↘','↓','↙','←','↖'][Math.round(d.windDirection / 45) % 8]}${d.windSpeedMax}` : '';
-      const details = rain || windArrow ? ` ${rain}${windArrow}` : '';
+      const windDir = d.windSpeedMax > 25 ? ['↑','↗','→','↘','↓','↙','←','↖'][Math.round(d.windDirection / 45) % 8] : '';
+      const windSpd = d.windSpeedMax > 25 ? `${d.windSpeedMax}` : '';
+      const grid = `[${condition} | ${rain} | ${windDir} | ${windSpd}]`;
       if (isRTL) {
-        return `${d.tempMin}°–${d.tempMax}°  ●───●  ${condition}${details}  ${label}`;
+        return `${d.tempMin}°–${d.tempMax}°  ●───●  ${grid}  ${label}`;
       }
-      return `${label}  ${condition}${details}  ●───●  ${d.tempMin}°–${d.tempMax}°`;
+      return `${label}  ${grid}  ●───●  ${d.tempMin}°–${d.tempMax}°`;
     }).join('\n');
 
     let hebrewDateForInfographic = '';
@@ -299,10 +300,9 @@ ${headerDate}
 
 FORECAST CHART (main content, fills most of the image):
 ${isRTL ? 'RTL layout — day names on the RIGHT side, temperatures on the LEFT side.' : 'LTR layout — day names on the LEFT side, temperatures on the RIGHT side.'}
-Each row shows: day name, a small weather condition icon${isRTL ? '' : ','} a horizontal colored bar (blue dot ● on low end, orange dot ● on high end, gradient line connecting them), and temperature range.
+Each row shows: day name, a 2×2 detail grid, a horizontal colored bar (blue dot ● on low end, orange dot ● on high end, gradient line connecting them), and temperature range.
+The detail grid is a fixed-size square block with 4 cells: top-left = small weather condition icon, top-right = rain chance (%), bottom-left = wind direction arrow, bottom-right = wind speed number. Empty cells stay blank.
 Temperature numbers appear ONCE per row as text — do NOT write numbers on the dots.
-Rain percentage shown small next to the condition icon only — nowhere else.
-Rain/wind details appear as compact text next to the condition icon — always on the same line, never wrapped.
 The bars must be aligned on a shared horizontal temperature axis across all rows so the ranges are visually comparable.
 
 ROWS:
@@ -319,8 +319,8 @@ Render an orange/red warning strip at the bottom of the image with a heat/wind w
 
 STYLE:
 - Flat design, no watermarks, no 3D, high contrast white text on dark background
-- Weather condition rendered as a small icon only, not as text
-- Every data element appears exactly ONCE per row — no duplication of icons, percentages, or temperatures`;
+- In the 2×2 grid: condition as a small icon (not text), rain/wind as small numbers
+- Every data element appears exactly ONCE per row — no duplication`;
   }
 
   const prompt = `You are a friendly weatherperson giving a natural, conversational forecast briefing on someone's phone via Telegram.
