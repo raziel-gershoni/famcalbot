@@ -469,7 +469,7 @@ async function sendWeatherOnlyToUser(
 
   // Wind line when significant
   const windLine = weatherData.current.windSpeed > 20
-    ? `\n💨 ${getWindDirectionLabel(weatherData.current.windDirection, user.language)} ${weatherData.current.windSpeed} km/h`
+    ? `\n💨 ${getWindDirectionLabel(weatherData.current.windDirection, user.language)} ${weatherData.current.windSpeed} ${user.language === 'he' ? 'קמ״ש' : user.language === 'ru' ? 'км/ч' : 'km/h'}`
     : '';
 
   // Sharav warning for today/tomorrow
