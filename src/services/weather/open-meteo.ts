@@ -188,8 +188,13 @@ export function getWeatherDescription(code: number): string {
 /**
  * Get 8-point compass label for wind direction in degrees
  */
-export function getWindDirectionLabel(degrees: number): string {
-  const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+export function getWindDirectionLabel(degrees: number, language?: string): string {
+  const directionsByLang: Record<string, string[]> = {
+    en: ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'],
+    he: ['צ׳', 'צמ״ז', 'מז׳', 'דמ״ז', 'ד׳', 'דמ״ע', 'מע׳', 'צמ״ע'],
+    ru: ['С', 'СВ', 'В', 'ЮВ', 'Ю', 'ЮЗ', 'З', 'СЗ'],
+  };
+  const directions = directionsByLang[language || 'en'] || directionsByLang.en;
   const index = Math.round(degrees / 45) % 8;
   return directions[index];
 }
