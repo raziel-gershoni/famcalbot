@@ -452,7 +452,8 @@ async function sendWeatherOnlyToUser(
   const targetDate = summaryDate || new Date();
 
   const { getTimezone } = await import('../weather/geocoding');
-  const { fetchWeather, getWeatherDescription } = await import('../weather/open-meteo');
+  const { fetchWeather, getWeatherDescription, getWindDirectionLabel } = await import('../weather/open-meteo');
+  const { detectSharav } = await import('../weather/sharav');
 
   const timezone = await getTimezone(user.location);
   const weatherData = await fetchWeather(user.location, timezone);
@@ -466,12 +467,38 @@ async function sendWeatherOnlyToUser(
     timeZone: timezone
   });
 
+  // Wind line when significant
+  const windLine = weatherData.current.windSpeed > 20
+    ? `\n💨 ${getWindDirectionLabel(weatherData.current.windDirection)} ${weatherData.current.windSpeed} km/h`
+    : '';
+
+  // Sharav warning for today/tomorrow
+  const sharavDays = detectSharav(weatherData);
+  const nearSharav = sharavDays.filter(s => s.dayIndex <= 1);
+  let sharavLine = '';
+  if (nearSharav.length > 0) {
+    const sharavLabel = user.language === 'he' ? 'שרב' : user.language === 'ru' ? 'Хамсин' : 'Sharav';
+    const severityLabels: Record<string, Record<string, string>> = {
+      en: { mild: 'mild', moderate: 'moderate', severe: 'severe' },
+      he: { mild: 'קל', moderate: 'בינוני', severe: 'חמור' },
+      ru: { mild: 'слабый', moderate: 'умеренный', severe: 'сильный' },
+    };
+    const labels = severityLabels[user.language || 'en'] || severityLabels.en;
+    const warnings = nearSharav.map(s => {
+      const dayLabel = s.dayIndex === 0
+        ? (t.weatherOnly?.today || 'Today')
+        : (t.weatherOnly?.tomorrow || 'Tomorrow');
+      return `${dayLabel}: ${labels[s.severity]} (${s.tempMax}°C)`;
+    }).join(', ');
+    sharavLine = `\n\n⚠️ <b>${sharavLabel}:</b> ${warnings}`;
+  }
+
   const weatherMessage = `🌤️ <b>${t.weatherOnly?.title || 'Weather'} - ${dateStr}</b>
 
-<b>${t.weatherOnly?.current || 'Current'}:</b> ${weatherData.current.temperature}°C (${t.weatherOnly?.feelsLike || 'feels like'} ${weatherData.current.feelsLike}°C), ${getWeatherDescription(weatherData.current.weatherCode)}
+<b>${t.weatherOnly?.current || 'Current'}:</b> ${weatherData.current.temperature}°C (${t.weatherOnly?.feelsLike || 'feels like'} ${weatherData.current.feelsLike}°C), ${getWeatherDescription(weatherData.current.weatherCode)}${windLine}
 
 <b>${t.weatherOnly?.today || 'Today'}:</b> ${t.weatherOnly?.high || 'High'} ${weatherData.today.tempMax}°C, ${t.weatherOnly?.low || 'Low'} ${weatherData.today.tempMin}°C, ${weatherData.today.precipitationProbability}% ${t.weatherOnly?.rain || 'rain'}
-${weatherData.tomorrow ? `<b>${t.weatherOnly?.tomorrow || 'Tomorrow'}:</b> ${t.weatherOnly?.high || 'High'} ${weatherData.tomorrow.tempMax}°C, ${t.weatherOnly?.low || 'Low'} ${weatherData.tomorrow.tempMin}°C, ${weatherData.tomorrow.precipitationProbability}% ${t.weatherOnly?.rain || 'rain'}` : ''}`;
+${weatherData.tomorrow ? `<b>${t.weatherOnly?.tomorrow || 'Tomorrow'}:</b> ${t.weatherOnly?.high || 'High'} ${weatherData.tomorrow.tempMax}°C, ${t.weatherOnly?.low || 'Low'} ${weatherData.tomorrow.tempMin}°C, ${weatherData.tomorrow.precipitationProbability}% ${t.weatherOnly?.rain || 'rain'}` : ''}${sharavLine}`;
 
   if (platform === 'telegram' || platform === 'all') {
     await messagingService.sendMessage(user.telegramId, weatherMessage, {

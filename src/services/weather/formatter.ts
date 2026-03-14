@@ -7,7 +7,8 @@ import { HDate, Locale } from '@hebcal/core';
 import { gematriya } from '@hebcal/hdate';
 import '@hebcal/locales';
 import { WeatherData } from '../../types';
-import { getWeatherDescription, getWeatherEmoji } from './open-meteo';
+import { getWeatherDescription, getWeatherEmoji, getWindDirectionLabel } from './open-meteo';
+import { detectSharav, SharavDay } from './sharav';
 
 interface RainHours {
   startTime: string;
@@ -142,20 +143,24 @@ export function buildWeatherAIPayload(weather: WeatherData): object {
       sunrise: formatTime(day.sunrise),
       sunset: formatTime(day.sunset),
       uvMax: day.uvIndexMax,
+      windMax: day.windSpeedMax,
+      windDir: getWindDirectionLabel(day.windDirection),
     };
     if (rainHoursStr) result.rainHours = rainHoursStr;
     return result;
   };
 
   const daily = weather.daily || [];
+  const sharavDays = detectSharav(weather);
 
-  return {
+  const payload: Record<string, unknown> = {
     location: weather.location,
     current: {
       temp: weather.current.temperature,
       feelsLike: weather.current.feelsLike,
       humidity: weather.current.humidity,
       wind: weather.current.windSpeed,
+      windDir: getWindDirectionLabel(weather.current.windDirection),
       uvIndex: weather.current.uvIndex,
       condition: getWeatherDescription(weather.current.weatherCode),
     },
@@ -164,6 +169,18 @@ export function buildWeatherAIPayload(weather: WeatherData): object {
     thisWeek: daily.slice(2, 7).map(d => buildDaySummary(d)),
     extended: daily.slice(7, 16).map(d => buildDaySummary(d)),
   };
+
+  if (sharavDays.length > 0) {
+    payload.sharav = sharavDays.map(s => ({
+      date: s.date,
+      severity: s.severity,
+      tempMax: s.tempMax,
+      avgHumidity: s.avgHumidity,
+      windDir: s.windDirectionLabel,
+    }));
+  }
+
+  return payload;
 }
 
 const LANGUAGE_NAMES: Record<string, string> = {
@@ -246,10 +263,11 @@ export async function formatWeatherAI(
                   : dayName;
       const condition = getWeatherDescription(d.weatherCode);
       const rain = d.precipitationProbability > 20 ? ` ${d.precipitationProbability}%` : '';
+      const wind = d.windSpeedMax > 15 ? ` ${getWindDirectionLabel(d.windDirection)} ${d.windSpeedMax}km/h` : '';
       if (isRTL) {
-        return `${d.tempMin}°–${d.tempMax}°  ●───●  ${condition}${rain}  ${label}`;
+        return `${d.tempMin}°–${d.tempMax}°  ●───●${wind}  ${condition}${rain}  ${label}`;
       }
-      return `${label}  ${condition}${rain}  ●───●  ${d.tempMin}°–${d.tempMax}°`;
+      return `${label}  ${condition}${rain}${wind}  ●───●  ${d.tempMin}°–${d.tempMax}°`;
     }).join('\n');
 
     let hebrewDateForInfographic = '';
@@ -281,10 +299,20 @@ ${isRTL ? 'RTL layout — day names on the RIGHT side, temperatures on the LEFT 
 Each row shows: day name, a small weather condition icon${isRTL ? '' : ','} a horizontal colored bar (blue dot ● on low end, orange dot ● on high end, gradient line connecting them), and temperature range.
 Temperature numbers appear ONCE per row as text — do NOT write numbers on the dots.
 Rain percentage shown small next to the condition icon only — nowhere else.
+When wind data appears in a row (direction + speed), show it as a small label near the condition icon.
 The bars must be aligned on a shared horizontal temperature axis across all rows so the ranges are visually comparable.
 
 ROWS:
 ${rows}
+${(() => {
+      const sharavDays = detectSharav(weather);
+      if (sharavDays.length === 0) return '';
+      const sharavLines = sharavDays.map(s => `${s.date}: ${s.severity} (${s.tempMax}°C, humidity ${s.avgHumidity}%, wind ${s.windDirectionLabel})`).join(', ');
+      return `
+WARNINGS:
+Sharav/heatwave detected: ${sharavLines}
+Render an orange/red warning strip at the bottom of the image with a heat/wind warning icon and the sharav dates.`;
+    })()}
 
 STYLE:
 - Flat design, no watermarks, no 3D, high contrast white text on dark background
@@ -309,8 +337,9 @@ ${culture === 'jewish' ? (language === 'he' ? '- השתמש בגימטריה ל�
 - Use Telegram HTML: <b>bold</b> for the 3 section headers only
 - Use weather emojis naturally throughout
 - Mention UV warnings when UV index ≥ 6
-- Mention wind only when > 20 km/h
+- Mention wind (direction + speed) only when > 20 km/h
 - Mention rain timing when relevant (use rainHours data if available)
+- When sharav data is present in the weather data, warn about it prominently with severity and practical advice (stay hydrated, avoid outdoor exertion, keep windows closed). Use "שרב" in Hebrew, "хамсин" in Russian, "sharav/heatwave" in English.
 - Write in flowing paragraphs, NOT bullet lists or one-line-per-day format
 - Group days with similar weather together (e.g. "Wednesday through Friday stays warm and dry around 22–24°C") rather than listing each day separately
 - Transition naturally between sections — no numbered lists

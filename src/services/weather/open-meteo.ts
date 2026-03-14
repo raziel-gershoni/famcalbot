@@ -15,6 +15,7 @@ interface OpenMeteoResponse {
     apparent_temperature: number;
     weather_code: number;
     wind_speed_10m: number;
+    wind_direction_10m: number;
     uv_index: number;
   };
   hourly: {
@@ -24,6 +25,8 @@ interface OpenMeteoResponse {
     precipitation: number[];
     weather_code: number[];
     wind_speed_10m: number[];
+    relative_humidity_2m: number[];
+    wind_direction_10m: number[];
   };
   daily: {
     time: string[];
@@ -32,6 +35,7 @@ interface OpenMeteoResponse {
     precipitation_probability_max: number[];
     weather_code: number[];
     wind_speed_10m_max: number[];
+    wind_direction_10m_dominant: number[];
     sunrise: string[];
     sunset: string[];
     uv_index_max: number[];
@@ -58,9 +62,9 @@ export async function fetchWeather(
   const params = new URLSearchParams({
     latitude: coords.latitude.toString(),
     longitude: coords.longitude.toString(),
-    current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,uv_index',
-    hourly: 'temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m',
-    daily: 'temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code,wind_speed_10m_max,sunrise,sunset,uv_index_max',
+    current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,uv_index',
+    hourly: 'temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m,relative_humidity_2m,wind_direction_10m',
+    daily: 'temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code,wind_speed_10m_max,wind_direction_10m_dominant,sunrise,sunset,uv_index_max',
     timezone: timezone,
     forecast_days: '16'
   });
@@ -87,6 +91,7 @@ export async function fetchWeather(
         humidity: data.current.relative_humidity_2m,
         weatherCode: data.current.weather_code,
         windSpeed: Math.round(data.current.wind_speed_10m),
+        windDirection: data.current.wind_direction_10m,
         uvIndex: Math.round(data.current.uv_index * 10) / 10  // One decimal place
       },
       today: {
@@ -113,7 +118,9 @@ export async function fetchWeather(
         precipitation_probability: data.hourly.precipitation_probability,
         precipitation: data.hourly.precipitation,
         weatherCode: data.hourly.weather_code,
-        windSpeed: data.hourly.wind_speed_10m
+        windSpeed: data.hourly.wind_speed_10m,
+        humidity: data.hourly.relative_humidity_2m,
+        windDirection: data.hourly.wind_direction_10m,
       },
       daily: data.daily.time.map((date, index) => ({
         date,
@@ -123,7 +130,9 @@ export async function fetchWeather(
         weatherCode: data.daily.weather_code[index],
         sunrise: data.daily.sunrise[index],
         sunset: data.daily.sunset[index],
-        uvIndexMax: Math.round(data.daily.uv_index_max[index] * 10) / 10
+        uvIndexMax: Math.round(data.daily.uv_index_max[index] * 10) / 10,
+        windSpeedMax: Math.round(data.daily.wind_speed_10m_max[index]),
+        windDirection: data.daily.wind_direction_10m_dominant[index],
       }))
     };
 
@@ -174,6 +183,15 @@ export function getWeatherDescription(code: number): string {
   };
 
   return descriptions[code] || 'Unknown';
+}
+
+/**
+ * Get 8-point compass label for wind direction in degrees
+ */
+export function getWindDirectionLabel(degrees: number): string {
+  const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const index = Math.round(degrees / 45) % 8;
+  return directions[index];
 }
 
 /**

@@ -235,7 +235,8 @@ export async function generateSummary(
   if (location && weatherEnabled) {
     try {
       const { getTimezone } = await import('./weather/geocoding');
-      const { fetchWeather, getWeatherDescription } = await import('./weather/open-meteo');
+      const { fetchWeather, getWeatherDescription, getWindDirectionLabel } = await import('./weather/open-meteo');
+      const { detectSharav } = await import('./weather/sharav');
 
       // Get timezone for the location (used for weather data)
       weatherTimezone = await getTimezone(location);
@@ -244,9 +245,23 @@ export async function generateSummary(
       const weatherData = await fetchWeather(location, weatherTimezone);
 
       // Build weather summary for prompt
-      weatherSummary = `Current: ${weatherData.current.temperature}°C (feels like ${weatherData.current.feelsLike}°C), ${getWeatherDescription(weatherData.current.weatherCode)}
+      const currentWind = weatherData.current.windSpeed > 20
+        ? `\nWind: ${getWindDirectionLabel(weatherData.current.windDirection)} ${weatherData.current.windSpeed} km/h`
+        : '';
+      weatherSummary = `Current: ${weatherData.current.temperature}°C (feels like ${weatherData.current.feelsLike}°C), ${getWeatherDescription(weatherData.current.weatherCode)}${currentWind}
 Today: High ${weatherData.today.tempMax}°C, Low ${weatherData.today.tempMin}°C, ${weatherData.today.precipitationProbability}% chance of rain
 ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low ${weatherData.tomorrow.tempMin}°C, ${weatherData.tomorrow.precipitationProbability}% chance of rain` : ''}`;
+
+      // Add sharav warning if detected for today or tomorrow
+      const sharavDays = detectSharav(weatherData);
+      const nearSharav = sharavDays.filter(s => s.dayIndex <= 1);
+      if (nearSharav.length > 0) {
+        const sharavWarnings = nearSharav.map(s => {
+          const dayLabel = s.dayIndex === 0 ? 'Today' : 'Tomorrow';
+          return `${dayLabel}: ${s.severity} sharav (${s.tempMax}°C, humidity ${s.avgHumidity}%, wind ${s.windDirectionLabel})`;
+        }).join('; ');
+        weatherSummary += `\n⚠️ Sharav warning: ${sharavWarnings}`;
+      }
     } catch (error) {
       console.error('Failed to fetch weather/timezone for summary:', error);
       // Continue with defaults if it fails

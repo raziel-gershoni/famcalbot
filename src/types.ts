@@ -103,6 +103,7 @@ export interface WeatherData {
     humidity: number;
     weatherCode: number;
     windSpeed: number;
+    windDirection: number;
     uvIndex: number;
   };
   today: {
@@ -130,6 +131,8 @@ export interface WeatherData {
     precipitation: number[];
     weatherCode: number[];
     windSpeed: number[];
+    humidity: number[];
+    windDirection: number[];
   };
   daily?: Array<{
     date: string;
@@ -140,6 +143,8 @@ export interface WeatherData {
     sunrise: string;
     sunset: string;
     uvIndexMax: number;
+    windSpeedMax: number;
+    windDirection: number;
   }>;
   summary?: string;  // AI-generated summary
 }
