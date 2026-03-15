@@ -267,6 +267,7 @@ export async function formatWeatherAI(
     }
 
     const sharavRows: { label: string; severity: string }[] = [];
+    const annotationOverlays: string[] = [];
     const rows = (weather.daily || []).slice(0, 12).map((d, i) => {
       const date = new Date(d.date);
       const dayName = date.toLocaleDateString(
@@ -284,14 +285,17 @@ export async function formatWeatherAI(
       if (sharav) {
         sharavRows.push({ label, severity: sharav.severity });
       }
-      // Build annotation fields separately
-      const rainField = rain ? `rain:${rain}` : '';
-      const windField = (windDir && windSpd) ? `wind:${windDir}${windSpd}` : '';
-      const annotationFields = [rainField, windField].filter(Boolean).join(' ');
-      if (isRTL) {
-        return `${d.tempMin}°–${d.tempMax}° | ${condition} | ${annotationFields} | ${label}`;
+      // Collect annotation overlays separately (not in row data)
+      const overlayParts: string[] = [];
+      if (rain) overlayParts.push(`rain chance ${rain}`);
+      if (windDir && windSpd) overlayParts.push(`wind ${windDir} ${windSpd} km/h`);
+      if (overlayParts.length > 0) {
+        annotationOverlays.push(`${label}: ${overlayParts.join(', ')}`);
       }
-      return `${label} | ${annotationFields} | ${condition} | ${d.tempMin}°–${d.tempMax}°`;
+      if (isRTL) {
+        return `${d.tempMin}°–${d.tempMax}° | ${condition} | ${label}`;
+      }
+      return `${label} | ${condition} | ${d.tempMin}°–${d.tempMax}°`;
     }).join('\n');
 
     let hebrewDateForInfographic = '';
@@ -322,13 +326,16 @@ FORECAST CHART (main content, fills most of the image):
 ${isRTL ? 'RTL layout — day names on the RIGHT side, temperatures on the LEFT side.' : 'LTR layout — day names on the LEFT side, temperatures on the RIGHT side.'}
 Each row has these columns separated by |:
 - Day name
-- Annotation values (rain:XX% and/or wind:↙XX) — render as tiny text labels, vertically stacked if both present
-- Condition name — render ONLY as a small weather icon (do NOT write the condition name as text)
+- Weather condition — render ONLY as a small weather icon (do NOT write the condition name as text)
 - Temperature range (min°–max°) — render as text numbers at the ends of a horizontal gradient bar (blue dot on low end, orange dot on high end)
 The bars must be aligned on a shared horizontal temperature axis across all rows so the ranges are visually comparable.
 
 ROWS:
 ${rows}
+${annotationOverlays.length > 0 ? `
+OVERLAYS (render as tiny visual indicators near each row's weather icon — use a small raindrop icon for rain and a small wind icon for wind, with the value next to it):
+${annotationOverlays.join('\n')}
+` : ''}
 ${sharavRows.length > 0 ? `
 SHARAV (heatwave) DAYS:
 ${sharavRows.map(s => `- "${s.label}": ${s.severity} sharav`).join('\n')}
@@ -337,7 +344,7 @@ For these rows: tint the row background with a warm orange-to-red gradient (more
 STYLE:
 - Flat design, no watermarks, no 3D, high contrast white text on dark background
 - The condition column is ONLY a small icon — never render the condition name as text anywhere
-- Rain and wind annotations as tiny aligned text (not inside parentheses)
+- Overlay indicators (rain/wind) are tiny icons with values, tucked next to the weather icon — do NOT render them as text labels or standalone text blocks
 - Every data element appears exactly ONCE per row — no duplication`;
   }
 
