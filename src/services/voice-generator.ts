@@ -170,7 +170,6 @@ export async function generateVoiceMessage(
       model: GEMINI_TTS_MODEL,
       contents: [{ parts: [{ text: ttsPrompt }] }],
       config: {
-        temperature: 0,
         responseModalities: ['AUDIO'],
         speechConfig: {
           voiceConfig: {
