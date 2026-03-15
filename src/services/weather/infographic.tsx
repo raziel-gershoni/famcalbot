@@ -223,7 +223,8 @@ function buildInfographicJsx(
           style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: 10,
+            flex: 1,
+            justifyContent: 'space-around',
           }}
         >
           {rows.map((row, i) => {
@@ -239,7 +240,7 @@ function buildInfographicJsx(
                   flexDirection: isRTL ? 'row-reverse' : 'row',
                   alignItems: 'center',
                   borderRadius: 16,
-                  padding: '8px 20px',
+                  padding: '4px 20px',
                   ...(sharavBg ? { background: sharavBg } : {}),
                 }}
               >
@@ -254,36 +255,35 @@ function buildInfographicJsx(
                     gap: 4,
                   }}
                 >
-                  {!isRTL && row.sharavSeverity && getWeatherIcon(-1, 24, '#ff6b35')}
+                  {!isRTL && row.sharavSeverity && getWeatherIcon(-1, 28, '#ff6b35')}
                   <div style={{ display: 'flex' }}>{isRTL ? toVisualOrder(row.label) : row.label}</div>
-                  {isRTL && row.sharavSeverity && getWeatherIcon(-1, 24, '#ff6b35')}
+                  {isRTL && row.sharavSeverity && getWeatherIcon(-1, 28, '#ff6b35')}
                 </div>
 
-                {/* 2x2 detail grid: icon+rain / windDir+windSpeed */}
+                {/* Detail columns: condition | precipitation || wind dir | wind speed */}
                 <div
                   style={{
                     display: 'flex',
-                    flexDirection: 'column',
-                    width: 130,
-                    gap: 2,
+                    flexDirection: isRTL ? 'row-reverse' : 'row',
+                    gap: 12,
                   }}
                 >
-                  {/* Top row: icon + rain */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div style={{ display: 'flex', width: 40, justifyContent: 'center' }}>
-                      {getWeatherIcon(row.weatherCode, 36)}
+                  {/* Condition column: icon + rain % */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 60, gap: 2 }}>
+                    <div style={{ display: 'flex' }}>
+                      {getWeatherIcon(row.weatherCode, 44)}
                     </div>
-                    <div style={{ display: 'flex', flex: 1, fontSize: 24, color: '#64b5f6', justifyContent: 'center' }}>
-                      {row.rain || ''}
+                    <div style={{ display: 'flex', fontSize: 26, color: '#64b5f6' }}>
+                      {row.rain || '\u00A0'}
                     </div>
                   </div>
-                  {/* Bottom row: wind arrow + speed */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div style={{ display: 'flex', width: 40, justifyContent: 'center', opacity: 0.8 }}>
-                      {row.windDeg !== null ? getWindArrowIcon(row.windDeg, 22, 'white') : ''}
+                  {/* Wind column: arrow + speed */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 60, gap: 2, opacity: 0.8 }}>
+                    <div style={{ display: 'flex', height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                      {row.windDeg !== null ? getWindArrowIcon(row.windDeg, 30, 'white') : ''}
                     </div>
-                    <div style={{ display: 'flex', flex: 1, fontSize: 24, justifyContent: 'center', opacity: 0.8 }}>
-                      {row.windSpeed || ''}
+                    <div style={{ display: 'flex', fontSize: 26 }}>
+                      {row.windSpeed || '\u00A0'}
                     </div>
                   </div>
                 </div>
@@ -317,8 +317,9 @@ function buildInfographicJsx(
                 <div
                   style={{
                     display: 'flex',
-                    width: 140,
-                    fontSize: 34,
+                    width: 150,
+                    fontSize: 36,
+                    fontWeight: 600,
                     justifyContent: isRTL ? 'flex-start' : 'flex-end',
                   }}
                 >
