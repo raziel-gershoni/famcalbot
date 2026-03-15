@@ -267,7 +267,6 @@ export async function formatWeatherAI(
     }
 
     const sharavRows: { label: string; severity: string }[] = [];
-    const iconDescriptions: string[] = [];
     const rows = (weather.daily || []).slice(0, 12).map((d, i) => {
       const date = new Date(d.date);
       const dayName = date.toLocaleDateString(
@@ -282,16 +281,14 @@ export async function formatWeatherAI(
       if (sharav) {
         sharavRows.push({ label, severity: sharav.severity });
       }
-      const rain = d.precipitationProbability > 20 ? `💧${d.precipitationProbability}%` : '';
+      const rain = d.precipitationProbability > 20 ? `${d.precipitationProbability}%` : '';
       const windDir = d.windSpeedMax > 25 ? ['↑','↗','→','↘','↓','↙','←','↖'][Math.round(d.windDirection / 45) % 8] : '';
-      const wind = d.windSpeedMax > 25 ? `💨${windDir}${d.windSpeedMax}` : '';
-      const annotations = [rain, wind].filter(Boolean).join(' ');
-      // Collect per-row weather icon descriptions (not in row data to avoid text rendering)
-      iconDescriptions.push(`${label}: ${condition.toLowerCase()} icon`);
+      const windSpd = d.windSpeedMax > 25 ? `${d.windSpeedMax}` : '';
+      const grid = `[${condition} | ${rain} | ${windDir} | ${windSpd}]`;
       if (isRTL) {
-        return `${d.tempMin}°–${d.tempMax}°${annotations ? ' ' + annotations : ''} | ${label}`;
+        return `${d.tempMin}°–${d.tempMax}°  ●───●  ${grid}  ${label}`;
       }
-      return `${label} | ${d.tempMin}°–${d.tempMax}°${annotations ? ' ' + annotations : ''}`;
+      return `${label}  ${grid}  ●───●  ${d.tempMin}°–${d.tempMax}°`;
     }).join('\n');
 
     let hebrewDateForInfographic = '';
@@ -320,15 +317,11 @@ ${headerDate}
 
 FORECAST CHART (main content, fills most of the image):
 ${isRTL ? 'RTL layout — day names on the RIGHT side, temperatures on the LEFT side.' : 'LTR layout — day names on the LEFT side, temperatures on the RIGHT side.'}
-Each row has exactly 2 text columns separated by |:
-- Day name (text)
-- Temperature range (min°–max°) with optional small weather annotations (💧rain%, 💨wind) — render temperatures as numbers at the ends of a horizontal gradient bar (blue dot on low end, orange dot on high end)
-Between the day name and the temperature bar, draw the weather icon for that row (see WEATHER ICONS section). The icon is a GRAPHIC ONLY — never write any condition name as text.
-All temperature bars must be aligned on a shared horizontal axis so ranges are visually comparable.
-Use a strict grid: day names in a fixed-width column, icons in a fixed-width column, temperature bars in a fixed-width column — aligned across all rows.
-
-WEATHER ICONS (draw ONLY as a small graphic icon in each row — absolutely NO text labels, do NOT write the condition name):
-${iconDescriptions.join('\n')}
+Each row: day name, a 2×2 detail grid, a horizontal temperature bar (●───●), and the temperature range (min°–max°).
+The 2×2 detail grid contains 4 cells: weather condition icon (top-left), rain % (top-right), wind direction arrow (bottom-left), wind speed (bottom-right).
+The grid has NO borders, NO grid lines, NO outlines — just the 4 values floating in a 2×2 arrangement with transparent background.
+Temperature bars are aligned on a shared horizontal axis so ranges are visually comparable across all rows.
+Weather condition must be rendered as a SMALL GRAPHIC ICON only — never as text.
 
 ROWS:
 ${rows}
@@ -339,8 +332,9 @@ For these rows: tint the row background with a subtle warm overlay — use a sem
 ` : ''}
 STYLE:
 - Flat design, no watermarks, no 3D, high contrast white text on dark background
-- CRITICAL: The ONLY text in each row is the day name and temperature numbers. Weather condition names must NEVER appear as text — only as graphic icons
-- Strict column alignment: all day names left/right-aligned, all icons centered in the same column, all temperature bars aligned on the same axis
+- The 2×2 detail grid has NO borders, NO grid lines, NO outlines, NO background — transparent, just 4 values in a 2×2 arrangement
+- Weather condition as small graphic icon only — NEVER as text
+- Strict column alignment: all day names aligned, all grids aligned, all temperature bars on same axis
 - Every data element appears exactly ONCE per row — no duplication`;
   }
 
