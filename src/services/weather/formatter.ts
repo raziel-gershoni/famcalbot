@@ -284,12 +284,14 @@ export async function formatWeatherAI(
       if (sharav) {
         sharavRows.push({ label, severity: sharav.severity });
       }
-      const annotations = [rain, windDir, windSpd].filter(Boolean).join(', ');
-      const details = annotations ? `${condition} (${annotations})` : condition;
+      // Build annotation fields separately
+      const rainField = rain ? `rain:${rain}` : '';
+      const windField = (windDir && windSpd) ? `wind:${windDir}${windSpd}` : '';
+      const annotationFields = [rainField, windField].filter(Boolean).join(' ');
       if (isRTL) {
-        return `${d.tempMin}°–${d.tempMax}°  ●───●  ${details}  ${label}`;
+        return `${d.tempMin}°–${d.tempMax}° | ${condition} | ${annotationFields} | ${label}`;
       }
-      return `${label}  ${details}  ●───●  ${d.tempMin}°–${d.tempMax}°`;
+      return `${label} | ${annotationFields} | ${condition} | ${d.tempMin}°–${d.tempMax}°`;
     }).join('\n');
 
     let hebrewDateForInfographic = '';
@@ -318,9 +320,11 @@ ${headerDate}
 
 FORECAST CHART (main content, fills most of the image):
 ${isRTL ? 'RTL layout — day names on the RIGHT side, temperatures on the LEFT side.' : 'LTR layout — day names on the LEFT side, temperatures on the RIGHT side.'}
-Each row shows: day name, a horizontal colored bar (blue dot ● on low end, orange dot ● on high end, gradient line connecting them), and temperature range.
-Each row's data includes a weather condition, and may include rain% and wind info — render these as a single compact group between the day name and the bar: small weather icon with any rain% and wind values as tiny text directly below the icon. Keep all annotations together in one place — do not spread them across the row.
-Temperature numbers appear ONCE per row as text — do NOT write numbers on the dots.
+Each row has these columns separated by |:
+- Day name
+- Annotation values (rain:XX% and/or wind:↙XX) — render as tiny text labels, vertically stacked if both present
+- Condition name — render ONLY as a small weather icon (do NOT write the condition name as text)
+- Temperature range (min°–max°) — render as text numbers at the ends of a horizontal gradient bar (blue dot on low end, orange dot on high end)
 The bars must be aligned on a shared horizontal temperature axis across all rows so the ranges are visually comparable.
 
 ROWS:
@@ -332,7 +336,8 @@ For these rows: tint the row background with a warm orange-to-red gradient (more
 ` : ''}
 STYLE:
 - Flat design, no watermarks, no 3D, high contrast white text on dark background
-- Condition shown as a small icon (not text), rain/wind as small numbers
+- The condition column is ONLY a small icon — never render the condition name as text anywhere
+- Rain and wind annotations as tiny aligned text (not inside parentheses)
 - Every data element appears exactly ONCE per row — no duplication`;
   }
 
