@@ -254,6 +254,9 @@ export async function formatWeatherAI(
     const { getBotMessages } = await import('../../lib/bot-messages');
     const t = await getBotMessages(language);
     const isRTL = language === 'he';
+    const sharavDays = detectSharav(weather);
+    const sharavByDate = new Map(sharavDays.map(s => [s.date, s]));
+
     const rows = (weather.daily || []).slice(0, 12).map((d, i) => {
       const date = new Date(d.date);
       const dayName = date.toLocaleDateString(
@@ -267,7 +270,9 @@ export async function formatWeatherAI(
       const rain = d.precipitationProbability > 20 ? `${d.precipitationProbability}%` : '';
       const windDir = d.windSpeedMax > 25 ? ['↑','↗','→','↘','↓','↙','←','↖'][Math.round(d.windDirection / 45) % 8] : '';
       const windSpd = d.windSpeedMax > 25 ? `${d.windSpeedMax}` : '';
-      const annotations = [rain, windDir, windSpd].filter(Boolean).join(', ');
+      const sharav = sharavByDate.get(d.date);
+      const sharavIcon = sharav ? `🔥${sharav.severity === 'severe' ? '🔥' : ''}` : '';
+      const annotations = [rain, windDir, windSpd, sharavIcon].filter(Boolean).join(', ');
       const details = annotations ? `${condition} (${annotations})` : condition;
       if (isRTL) {
         return `${d.tempMin}°–${d.tempMax}°  ●───●  ${details}  ${label}`;
@@ -303,20 +308,12 @@ FORECAST CHART (main content, fills most of the image):
 ${isRTL ? 'RTL layout — day names on the RIGHT side, temperatures on the LEFT side.' : 'LTR layout — day names on the LEFT side, temperatures on the RIGHT side.'}
 Each row shows: day name, a horizontal colored bar (blue dot ● on low end, orange dot ● on high end, gradient line connecting them), and temperature range.
 Each row's data includes a weather condition, and may include rain% and wind info — render these as a single compact group between the day name and the bar: small weather icon with any rain% and wind values as tiny text directly below the icon. Keep all annotations together in one place — do not spread them across the row.
+- Rows containing a 🔥 icon indicate sharav (heatwave). For these rows: (1) tint the row background orange/red, (2) render a small heat/fire warning icon directly next to the weather condition icon in the same annotation group between the day name and the temperature bar.
 Temperature numbers appear ONCE per row as text — do NOT write numbers on the dots.
 The bars must be aligned on a shared horizontal temperature axis across all rows so the ranges are visually comparable.
 
 ROWS:
 ${rows}
-${(() => {
-      const sharavDays = detectSharav(weather);
-      if (sharavDays.length === 0) return '';
-      const sharavLines = sharavDays.map(s => `${s.date}: ${s.severity} (${s.tempMax}°C, humidity ${s.avgHumidity}%, wind ${s.windDirectionLabel})`).join(', ');
-      return `
-WARNINGS:
-Sharav/heatwave detected: ${sharavLines}
-Render an orange/red warning strip at the bottom of the image with a heat/wind warning icon and the sharav dates.`;
-    })()}
 
 STYLE:
 - Flat design, no watermarks, no 3D, high contrast white text on dark background
