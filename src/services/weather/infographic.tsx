@@ -93,6 +93,15 @@ function getSharavBg(severity: string): string | undefined {
   return undefined;
 }
 
+/** UV index color by danger level (WHO scale) */
+function getUvColor(uv: number): string {
+  if (uv <= 2) return '#4caf50';   // Low — green
+  if (uv <= 5) return '#f0c040';   // Moderate — yellow
+  if (uv <= 7) return '#ff9800';   // High — orange
+  if (uv <= 10) return '#f44336';  // Very high — red
+  return '#9c27b0';                // Extreme — purple
+}
+
 /** Convert logical-order text to visual order for satori (which lacks bidi support) */
 function toVisualOrder(text: string): string {
   const embeddingLevels = bidi.getEmbeddingLevels(text, 'rtl');
@@ -268,6 +277,8 @@ function buildInfographicJsx(
                     display: 'flex',
                     flexDirection: isRTL ? 'row-reverse' : 'row',
                     gap: 8,
+                    marginLeft: isRTL ? 0 : 16,
+                    marginRight: isRTL ? 16 : 0,
                   }}
                 >
                   {/* Condition column: icon + rain % */}
@@ -291,50 +302,51 @@ function buildInfographicJsx(
                   {/* UV column: icon + index */}
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 56, gap: 2 }}>
                     <div style={{ display: 'flex', height: 44, alignItems: 'center', justifyContent: 'center' }}>
-                      {getUvIcon(30, '#f0c040')}
+                      {getUvIcon(30, getUvColor(parseFloat(row.uvIndex)))}
                     </div>
-                    <div style={{ display: 'flex', fontSize: 26, color: '#f0c040' }}>
+                    <div style={{ display: 'flex', fontSize: 26, color: getUvColor(parseFloat(row.uvIndex)) }}>
                       {row.uvIndex}
                     </div>
                   </div>
                 </div>
 
-                {/* Temperature bar */}
+                {/* Temperature bar with labels at edges */}
                 <div
                   style={{
                     display: 'flex',
                     flex: 1,
-                    height: 36,
-                    borderRadius: 18,
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    position: 'relative',
-                    margin: '0 14px',
+                    alignItems: 'center',
+                    margin: '0 10px',
                   }}
                 >
+                  <div style={{ display: 'flex', fontSize: 30, fontWeight: 600, width: 56, justifyContent: 'flex-end', marginRight: 8 }}>
+                    {row.tempMin}°
+                  </div>
                   <div
                     style={{
                       display: 'flex',
-                      position: 'absolute',
-                      left: `${barLeftPct}%`,
-                      width: `${barWidthPct}%`,
-                      height: '100%',
+                      flex: 1,
+                      height: 36,
                       borderRadius: 18,
-                      background: 'linear-gradient(90deg, #4fc3f7, #ff8a65)',
+                      background: 'rgba(255, 255, 255, 0.1)',
+                      position: 'relative',
                     }}
-                  />
-                </div>
-
-                {/* Temperature range */}
-                <div
-                  style={{
-                    display: 'flex',
-                    width: 150,
-                    fontSize: 36,
-                    fontWeight: 600,
-                    justifyContent: isRTL ? 'flex-start' : 'flex-end',
-                  }}
-                >
-                  {row.tempMin}°–{row.tempMax}°
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        position: 'absolute',
+                        left: `${barLeftPct}%`,
+                        width: `${barWidthPct}%`,
+                        height: '100%',
+                        borderRadius: 18,
+                        background: 'linear-gradient(90deg, #4fc3f7, #ff8a65)',
+                      }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', fontSize: 30, fontWeight: 600, width: 56, justifyContent: 'flex-start', marginLeft: 8 }}>
+                    {row.tempMax}°
+                  </div>
                 </div>
               </div>
             );
