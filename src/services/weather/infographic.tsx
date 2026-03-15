@@ -205,6 +205,7 @@ function buildInfographicJsx(
           flex: 1,
           padding: '40px 36px',
           position: 'relative',
+          direction: isRTL ? 'rtl' : 'ltr',
         }}
       >
         {/* Header */}
@@ -248,7 +249,6 @@ function buildInfographicJsx(
                 key={i}
                 style={{
                   display: 'flex',
-                  flexDirection: isRTL ? 'row-reverse' : 'row',
                   alignItems: 'center',
                   borderRadius: 16,
                   padding: '4px 20px',
@@ -266,19 +266,16 @@ function buildInfographicJsx(
                     gap: 4,
                   }}
                 >
-                  {!isRTL && row.sharavSeverity && getWeatherIcon(-1, 28, '#ff6b35')}
+                  {row.sharavSeverity && getWeatherIcon(-1, 28, '#ff6b35')}
                   <div style={{ display: 'flex' }}>{isRTL ? toVisualOrder(row.label) : row.label}</div>
-                  {isRTL && row.sharavSeverity && getWeatherIcon(-1, 28, '#ff6b35')}
                 </div>
 
                 {/* Detail columns: condition | wind | UV */}
                 <div
                   style={{
                     display: 'flex',
-                    flexDirection: isRTL ? 'row-reverse' : 'row',
                     gap: 8,
-                    marginLeft: isRTL ? 0 : 16,
-                    marginRight: isRTL ? 16 : 0,
+                    marginInlineStart: 16,
                   }}
                 >
                   {/* Condition column: icon + rain % */}
@@ -319,7 +316,7 @@ function buildInfographicJsx(
                     margin: '0 10px',
                   }}
                 >
-                  <div style={{ display: 'flex', fontSize: 30, fontWeight: 600, width: 56, justifyContent: 'flex-end', marginRight: 8 }}>
+                  <div style={{ display: 'flex', fontSize: 30, fontWeight: 600, width: 56, justifyContent: 'flex-end', marginInlineEnd: 8 }}>
                     {row.tempMin}°
                   </div>
                   <div
@@ -336,15 +333,19 @@ function buildInfographicJsx(
                       style={{
                         display: 'flex',
                         position: 'absolute',
-                        left: `${barLeftPct}%`,
+                        ...(isRTL
+                          ? { right: `${barLeftPct}%` }
+                          : { left: `${barLeftPct}%` }),
                         width: `${barWidthPct}%`,
                         height: '100%',
                         borderRadius: 18,
-                        background: 'linear-gradient(90deg, #4fc3f7, #ff8a65)',
+                        background: isRTL
+                          ? 'linear-gradient(270deg, #4fc3f7, #ff8a65)'
+                          : 'linear-gradient(90deg, #4fc3f7, #ff8a65)',
                       }}
                     />
                   </div>
-                  <div style={{ display: 'flex', fontSize: 30, fontWeight: 600, width: 56, justifyContent: 'flex-start', marginLeft: 8 }}>
+                  <div style={{ display: 'flex', fontSize: 30, fontWeight: 600, width: 56, justifyContent: 'flex-start', marginInlineStart: 8 }}>
                     {row.tempMax}°
                   </div>
                 </div>
