@@ -8,7 +8,8 @@ import { gematriya } from '@hebcal/hdate';
 import '@hebcal/locales';
 import { WeatherData } from '../../types';
 import { getWeatherDescription, getWeatherEmoji, getWindDirectionLabel } from './open-meteo';
-import { detectSharav, SharavDay } from './sharav';
+import { detectSharav } from './sharav';
+import type { InfographicConfig } from './infographic';
 
 interface RainHours {
   startTime: string;
@@ -198,7 +199,7 @@ const SECTION_HEADERS: Record<string, { todayTomorrow: string; thisWeek: string;
 export interface WeatherFormatResult {
   brief: string;              // ~500-800 chars for text display
   detailed: string;           // ~1500-2000 chars for voice narration
-  infographicPrompt?: string; // structured prompt for image generation
+  infographicConfig?: InfographicConfig; // config for satori rendering
 }
 
 /**
@@ -248,94 +249,19 @@ export async function formatWeatherAI(
     { timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false }
   );
 
-  // Build infographic prompt directly in code (not via text AI) to avoid duplication/typo issues
-  let directInfographicPrompt: string | undefined;
+  let infographicConfig: InfographicConfig | undefined;
   if (generateInfographic) {
-    const { getBotMessages } = await import('../../lib/bot-messages');
-    const t = await getBotMessages(language);
-    const isRTL = language === 'he';
-    const sharavDays = detectSharav(weather);
-    const sharavByDate = new Map(sharavDays.map(s => [s.date, s]));
-
-    // TEMP: Fake sharav for visual testing — REMOVE on next push
-    const dailySlice = (weather.daily || []).slice(0, 12);
-    if (dailySlice.length >= 2) {
-      const d10 = dailySlice[dailySlice.length - 2];
-      const d11 = dailySlice[dailySlice.length - 1];
-      if (d10) sharavByDate.set(d10.date, { dayIndex: dailySlice.length - 2, date: d10.date, severity: 'moderate' as const, tempMax: 38, avgHumidity: 15, windDirectionLabel: 'E', anomaly: 10 });
-      if (d11) sharavByDate.set(d11.date, { dayIndex: dailySlice.length - 1, date: d11.date, severity: 'severe' as const, tempMax: 42, avgHumidity: 10, windDirectionLabel: 'E', anomaly: 15 });
-    }
-
-    const sharavRows: { label: string; severity: string }[] = [];
-    const rows = (weather.daily || []).slice(0, 12).map((d, i) => {
-      const date = new Date(d.date);
-      const dayName = date.toLocaleDateString(
-        language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US',
-        { weekday: 'short' }
-      );
-      const label = i === 0 ? (language === 'he' ? 'היום' : language === 'ru' ? 'Сегодня' : 'Today')
-                  : i === 1 ? (language === 'he' ? 'מחר' : language === 'ru' ? 'Завтра' : 'Tomorrow')
-                  : dayName;
-      const condition = getWeatherDescription(d.weatherCode);
-      const sharav = sharavByDate.get(d.date);
-      if (sharav) {
-        sharavRows.push({ label, severity: sharav.severity });
-      }
-      const rain = d.precipitationProbability > 20 ? `${d.precipitationProbability}%` : '';
-      const windDir = d.windSpeedMax > 25 ? ['↑','↗','→','↘','↓','↙','←','↖'][Math.round(d.windDirection / 45) % 8] : '';
-      const windSpd = d.windSpeedMax > 25 ? `${d.windSpeedMax}` : '';
-      const grid = `[${condition} | ${rain} | ${windDir} | ${windSpd}]`;
-      if (isRTL) {
-        return `${d.tempMin}°–${d.tempMax}°  ●───●  ${grid}  ${label}`;
-      }
-      return `${label}  ${grid}  ●───●  ${d.tempMin}°–${d.tempMax}°`;
-    }).join('\n');
-
-    let hebrewDateForInfographic = '';
+    let hebrewDateForInfographic: string | undefined;
     if (culture === 'jewish') {
       const localDate = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
       const hdate = new HDate(localDate);
       if (language === 'he') {
-        // Gematria for Hebrew: כ״א באדר תשפ״ו
         hebrewDateForInfographic = `${gematriya(hdate.getDate())} ב${Locale.lookupTranslation(hdate.getMonthName(), 'he') || hdate.getMonthName()} ${gematriya(hdate.getFullYear())}`;
       } else {
-        // Numbers + English month name for other languages: 21 Adar 5786
         hebrewDateForInfographic = `${hdate.getDate()} ${hdate.getMonthName()} ${hdate.getFullYear()}`;
       }
     }
-    const headerDate = hebrewDateForInfographic
-      ? `${dateStr}\n${hebrewDateForInfographic}`
-      : dateStr;
-
-    directInfographicPrompt = `Generate a clean, modern weather infographic image.
-
-LAYOUT: Vertical 9:16 portrait, 1080×1920px, dark gradient background matching weather conditions.
-
-HEADER (compact, top):
-${weather.location}${language !== 'en' ? ` (translate the location name to ${langName})` : ''}
-${headerDate}
-
-FORECAST CHART (main content, fills most of the image):
-${isRTL ? 'RTL layout — day names on the RIGHT side, temperatures on the LEFT side.' : 'LTR layout — day names on the LEFT side, temperatures on the RIGHT side.'}
-Each row: day name, a 2×2 detail grid, a horizontal temperature bar (●───●), and the temperature range (min°–max°).
-The 2×2 detail grid contains 4 cells: weather condition icon (top-left), rain % (top-right), wind direction arrow (bottom-left), wind speed (bottom-right).
-The grid has NO borders, NO grid lines, NO outlines — just the 4 values floating in a 2×2 arrangement with transparent background.
-Temperature bars are aligned on a shared horizontal axis so ranges are visually comparable across all rows.
-Weather condition must be rendered as a SMALL GRAPHIC ICON only — never as text.
-
-ROWS:
-${rows}
-${sharavRows.length > 0 ? `
-SHARAV (heatwave) DAYS:
-${sharavRows.map(s => `- "${s.label}": ${s.severity} sharav`).join('\n')}
-For these rows: tint the row background with a subtle warm overlay — use a semi-transparent amber tone (like rgba(255,160,0,0.15)) for "moderate" and a semi-transparent orange-red tone (like rgba(255,80,0,0.25)) for "severe". Both should be subtle tints, NOT solid colored backgrounds. Add a tiny flame icon (🔥) next to the day name — purely decorative, do NOT add any text or numbers alongside it.
-` : ''}
-STYLE:
-- Flat design, no watermarks, no 3D, high contrast white text on dark background
-- The 2×2 detail grid has NO borders, NO grid lines, NO outlines, NO background — transparent, just 4 values in a 2×2 arrangement
-- Weather condition as small graphic icon only — NEVER as text
-- Strict column alignment: all day names aligned, all grids aligned, all temperature bars on same axis
-- Every data element appears exactly ONCE per row — no duplication`;
+    infographicConfig = { weather, language, dateStr, hebrewDateStr: hebrewDateForInfographic, timezone };
   }
 
   const prompt = `You are a friendly weatherperson giving a natural, conversational forecast briefing on someone's phone via Telegram.
@@ -398,11 +324,11 @@ ${JSON.stringify(payload, null, 2)}`;
       return {
         brief: text.substring(0, delimiterIndex).trim() + modelFooter,
         detailed: text.substring(delimiterIndex + delimiter.length).trim(),
-        infographicPrompt: directInfographicPrompt,
+        infographicConfig,
       };
     }
     // If no delimiter found, use full text for both
-    return { brief: text + modelFooter, detailed: text, infographicPrompt: directInfographicPrompt };
+    return { brief: text + modelFooter, detailed: text, infographicConfig };
   } catch (error) {
     console.error('Failed to generate AI weather forecast:', error);
     const fallback = await formatWeatherDetailed(weather);

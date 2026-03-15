@@ -34,6 +34,7 @@
     "@hebcal/core": "^6.0.6",
     "@hebcal/locales": "^6.3.0",
     "@prisma/client": "^5.22.0",
+    "@resvg/resvg-js": "^2.6.2",
     "@sentry/nextjs": "^10.32.1",
     "@upstash/ratelimit": "^2.0.7",
     "@upstash/redis": "^1.35.6",
@@ -50,7 +51,8 @@
     "opusscript": "^0.1.1",
     "prisma": "^5.22.0",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "satori": "^0.25.0"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",

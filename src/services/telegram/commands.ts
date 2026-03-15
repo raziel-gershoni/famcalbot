@@ -275,10 +275,10 @@ export async function handleWeatherCommand(
       // Try to generate and send infographic if prompt is available
       let infographicSent = false;
       let messageDeleted = false;
-      if (result.infographicPrompt) {
+      if (result.infographicConfig) {
         try {
           const { generateWeatherInfographic } = await import('../weather/infographic');
-          const imageBuffer = await generateWeatherInfographic(result.infographicPrompt);
+          const imageBuffer = await generateWeatherInfographic(result.infographicConfig);
           if (imageBuffer) {
             // Delete progress message and send photo instead
             await messagingService.deleteMessage(chatId, messageId);

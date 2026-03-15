@@ -6,7 +6,7 @@ const nextConfig = {
   output: 'standalone',
 
   // Exclude opusscript from bundling — it loads a .wasm binary from disk at runtime
-  serverExternalPackages: ['opusscript'],
+  serverExternalPackages: ['opusscript', '@resvg/resvg-js'],
 
   // Enable experimental features for App Router
   experimental: {
