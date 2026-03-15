@@ -301,7 +301,7 @@ ${headerDate}
 FORECAST CHART (main content, fills most of the image):
 ${isRTL ? 'RTL layout — day names on the RIGHT side, temperatures on the LEFT side.' : 'LTR layout — day names on the LEFT side, temperatures on the RIGHT side.'}
 Each row shows: day name, a 2×2 detail grid, a horizontal colored bar (blue dot ● on low end, orange dot ● on high end, gradient line connecting them), and temperature range.
-The detail grid is a fixed-size square block with 4 cells: top-left = small weather condition icon, top-right = rain chance (%), bottom-left = wind direction arrow, bottom-right = wind speed number. Empty cells stay blank.
+The detail grid is a fixed-size block with 4 equal cells and NO background (transparent — blends with the row background): top-left = small weather condition icon (must fit inside exactly 1 cell, not oversized), top-right = rain chance (%), bottom-left = wind direction arrow, bottom-right = wind speed number. Empty cells stay blank.
 Temperature numbers appear ONCE per row as text — do NOT write numbers on the dots.
 The bars must be aligned on a shared horizontal temperature axis across all rows so the ranges are visually comparable.
 
@@ -319,7 +319,8 @@ Render an orange/red warning strip at the bottom of the image with a heat/wind w
 
 STYLE:
 - Flat design, no watermarks, no 3D, high contrast white text on dark background
-- In the 2×2 grid: condition as a small icon (not text), rain/wind as small numbers
+- The 2×2 grid has NO background fill — fully transparent, no rounded rectangle behind it
+- In the grid: condition as a small icon fitting exactly 1 cell (not text), rain/wind as small numbers
 - Every data element appears exactly ONCE per row — no duplication`;
   }
 
