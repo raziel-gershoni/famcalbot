@@ -268,6 +268,7 @@ export async function formatWeatherAI(
 
     const sharavRows: { label: string; severity: string }[] = [];
     const annotationOverlays: string[] = [];
+    const iconDescriptions: string[] = [];
     const rows = (weather.daily || []).slice(0, 12).map((d, i) => {
       const date = new Date(d.date);
       const dayName = date.toLocaleDateString(
@@ -285,6 +286,8 @@ export async function formatWeatherAI(
       if (sharav) {
         sharavRows.push({ label, severity: sharav.severity });
       }
+      // Collect per-row weather icon descriptions (not in row data to avoid text rendering)
+      iconDescriptions.push(`${label}: ${condition.toLowerCase()} icon`);
       // Collect annotation overlays separately (not in row data)
       const overlayParts: string[] = [];
       if (rain) overlayParts.push(`rain chance ${rain}`);
@@ -293,9 +296,9 @@ export async function formatWeatherAI(
         annotationOverlays.push(`${label}: ${overlayParts.join(', ')}`);
       }
       if (isRTL) {
-        return `${d.tempMin}°–${d.tempMax}° | ${condition} | ${label}`;
+        return `${d.tempMin}°–${d.tempMax}° | ${label}`;
       }
-      return `${label} | ${condition} | ${d.tempMin}°–${d.tempMax}°`;
+      return `${label} | ${d.tempMin}°–${d.tempMax}°`;
     }).join('\n');
 
     let hebrewDateForInfographic = '';
@@ -324,11 +327,15 @@ ${headerDate}
 
 FORECAST CHART (main content, fills most of the image):
 ${isRTL ? 'RTL layout — day names on the RIGHT side, temperatures on the LEFT side.' : 'LTR layout — day names on the LEFT side, temperatures on the RIGHT side.'}
-Each row has these columns separated by |:
-- Day name
-- Weather condition — render ONLY as a small weather icon (do NOT write the condition name as text)
-- Temperature range (min°–max°) — render as text numbers at the ends of a horizontal gradient bar (blue dot on low end, orange dot on high end)
-The bars must be aligned on a shared horizontal temperature axis across all rows so the ranges are visually comparable.
+Each row has exactly 2 text columns separated by |:
+- Day name (text)
+- Temperature range (min°–max°) — render as numbers at the ends of a horizontal gradient bar (blue dot on low end, orange dot on high end)
+Between the day name and the temperature bar, draw the weather icon for that row (see WEATHER ICONS section). The icon is a GRAPHIC ONLY — never write any condition name as text.
+All temperature bars must be aligned on a shared horizontal axis so ranges are visually comparable.
+Use a strict grid: day names in a fixed-width column, icons in a fixed-width column, temperature bars in a fixed-width column — aligned across all rows.
+
+WEATHER ICONS (draw ONLY as a small graphic icon in each row — absolutely NO text labels, do NOT write the condition name):
+${iconDescriptions.join('\n')}
 
 ROWS:
 ${rows}
@@ -343,8 +350,9 @@ For these rows: tint the row background with a warm orange-to-red gradient (more
 ` : ''}
 STYLE:
 - Flat design, no watermarks, no 3D, high contrast white text on dark background
-- The condition column is ONLY a small icon — never render the condition name as text anywhere
-- Overlay indicators (rain/wind) are tiny icons with values, tucked next to the weather icon — do NOT render them as text labels or standalone text blocks
+- CRITICAL: The ONLY text in each row is the day name and temperature numbers. Weather condition names (like "Thunderstorm", "Overcast", etc.) must NEVER appear as text — only as graphic icons
+- Overlay indicators (rain/wind) are tiny icons with small numeric values, positioned consistently near the weather icon
+- Strict column alignment: all day names left/right-aligned, all icons centered in the same column, all temperature bars aligned on the same axis
 - Every data element appears exactly ONCE per row — no duplication`;
   }
 
