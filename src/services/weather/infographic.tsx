@@ -275,6 +275,7 @@ function buildInfographicJsx(
                 <div
                   style={{
                     display: 'flex',
+                    flexDirection: isRTL ? 'row-reverse' : 'row',
                     gap: 8,
                     margin: '0 8px',
                   }}
@@ -312,12 +313,13 @@ function buildInfographicJsx(
                 <div
                   style={{
                     display: 'flex',
+                    flexDirection: isRTL ? 'row-reverse' : 'row',
                     flex: 1,
                     alignItems: 'center',
-                    margin: '0 10px',
+                    gap: 8,
                   }}
                 >
-                  <div style={{ display: 'flex', fontSize: 30, fontWeight: 600, width: 56, justifyContent: 'flex-end', marginRight: 8 }}>
+                  <div style={{ display: 'flex', fontSize: 30, fontWeight: 600, width: 56, justifyContent: isRTL ? 'flex-start' : 'flex-end' }}>
                     {row.tempMin}°
                   </div>
                   <div
@@ -334,15 +336,17 @@ function buildInfographicJsx(
                       style={{
                         display: 'flex',
                         position: 'absolute',
-                        left: `${barLeftPct}%`,
+                        left: `${isRTL ? 100 - barLeftPct - barWidthPct : barLeftPct}%`,
                         width: `${barWidthPct}%`,
                         height: '100%',
                         borderRadius: 18,
-                        background: 'linear-gradient(90deg, #4fc3f7, #ff8a65)',
+                        background: isRTL
+                          ? 'linear-gradient(270deg, #4fc3f7, #ff8a65)'
+                          : 'linear-gradient(90deg, #4fc3f7, #ff8a65)',
                       }}
                     />
                   </div>
-                  <div style={{ display: 'flex', fontSize: 30, fontWeight: 600, width: 56, justifyContent: 'flex-start', marginLeft: 8 }}>
+                  <div style={{ display: 'flex', fontSize: 30, fontWeight: 600, width: 56, justifyContent: isRTL ? 'flex-end' : 'flex-start' }}>
                     {row.tempMax}°
                   </div>
                 </div>
