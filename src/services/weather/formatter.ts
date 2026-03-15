@@ -266,13 +266,7 @@ export async function formatWeatherAI(
 
   const prompt = `You are a friendly weatherperson giving a natural, conversational forecast briefing on someone's phone via Telegram.
 
-**Output two versions separated by the exact delimiter ===FULL=== on its own line.**
-
-FIRST: A BRIEF version (~500-800 characters) — a compact mobile-friendly summary.
-THEN: The exact line: ===FULL===
-THEN: A FULL version (~1500-2000 characters) — detailed prose for voice narration.
-
-**Rules (apply to BOTH text versions):**
+**Rules:**
 - Respond ENTIRELY in ${langName}
 - Start with a short, warm greeting using the person's name: ${userName}
 - Include the current date (${dateStr}${hebrewDateStr}) right after the greeting
@@ -287,14 +281,7 @@ ${culture === 'jewish' ? (language === 'he' ? '- השתמש בגימטריה ל�
 - Write in flowing paragraphs, NOT bullet lists or one-line-per-day format
 - Group days with similar weather together (e.g. "Wednesday through Friday stays warm and dry around 22–24°C") rather than listing each day separately
 - Transition naturally between sections — no numbered lists
-
-**BRIEF version rules:**
-- Same 3 bold section headers, but only 1-2 sentences per section
-- Focus on highlights: current temp, today's high/low, rain yes/no, week trend
-- No extended outlook — skip the third section entirely
-
-**FULL version rules:**
-- All 3 sections with full flowing paragraphs
+- Output ~1500-2000 characters — detailed prose suitable for voice narration
 
 **Use these 3 bold section headers, each followed by natural flowing paragraphs:**
 
@@ -318,16 +305,6 @@ ${JSON.stringify(payload, null, 2)}`;
 
     const modelFooter = formatAdminFooter(result, isAdmin ?? false);
 
-    const delimiter = '===FULL===';
-    const delimiterIndex = text.indexOf(delimiter);
-    if (delimiterIndex !== -1) {
-      return {
-        brief: text.substring(0, delimiterIndex).trim() + modelFooter,
-        detailed: text.substring(delimiterIndex + delimiter.length).trim(),
-        infographicConfig,
-      };
-    }
-    // If no delimiter found, use full text for both
     return { brief: text + modelFooter, detailed: text, infographicConfig };
   } catch (error) {
     console.error('Failed to generate AI weather forecast:', error);

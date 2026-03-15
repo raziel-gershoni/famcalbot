@@ -249,6 +249,7 @@ function buildInfographicJsx(
                 key={i}
                 style={{
                   display: 'flex',
+                  flexDirection: isRTL ? 'row-reverse' : 'row',
                   alignItems: 'center',
                   borderRadius: 16,
                   padding: '4px 20px',
@@ -275,7 +276,7 @@ function buildInfographicJsx(
                   style={{
                     display: 'flex',
                     gap: 8,
-                    marginInlineStart: 16,
+                    margin: '0 8px',
                   }}
                 >
                   {/* Condition column: icon + rain % */}
@@ -317,7 +318,7 @@ function buildInfographicJsx(
                   }}
                 >
                   <div style={{ display: 'flex', fontSize: 30, fontWeight: 600, width: 56, justifyContent: 'flex-end', marginRight: 8 }}>
-                    {isRTL ? row.tempMax : row.tempMin}°
+                    {row.tempMin}°
                   </div>
                   <div
                     style={{
@@ -333,18 +334,16 @@ function buildInfographicJsx(
                       style={{
                         display: 'flex',
                         position: 'absolute',
-                        left: `${isRTL ? 100 - barLeftPct - barWidthPct : barLeftPct}%`,
+                        left: `${barLeftPct}%`,
                         width: `${barWidthPct}%`,
                         height: '100%',
                         borderRadius: 18,
-                        background: isRTL
-                          ? 'linear-gradient(270deg, #4fc3f7, #ff8a65)'
-                          : 'linear-gradient(90deg, #4fc3f7, #ff8a65)',
+                        background: 'linear-gradient(90deg, #4fc3f7, #ff8a65)',
                       }}
                     />
                   </div>
                   <div style={{ display: 'flex', fontSize: 30, fontWeight: 600, width: 56, justifyContent: 'flex-start', marginLeft: 8 }}>
-                    {isRTL ? row.tempMin : row.tempMax}°
+                    {row.tempMax}°
                   </div>
                 </div>
               </div>

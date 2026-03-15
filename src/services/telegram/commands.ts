@@ -283,10 +283,7 @@ export async function handleWeatherCommand(
             // Delete progress message and send photo instead
             await messagingService.deleteMessage(chatId, messageId);
             messageDeleted = true;
-            await messagingService.sendPhoto(chatId, imageBuffer, {
-              caption: result.brief,
-              format: MessageFormat.HTML,
-            });
+            await messagingService.sendPhoto(chatId, imageBuffer, {});
             infographicSent = true;
           }
         } catch (err) {
