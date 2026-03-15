@@ -262,8 +262,8 @@ export async function formatWeatherAI(
     if (dailySlice.length >= 2) {
       const d10 = dailySlice[dailySlice.length - 2];
       const d11 = dailySlice[dailySlice.length - 1];
-      if (d10) sharavByDate.set(d10.date, { date: d10.date, severity: 'moderate' as const, tempMax: 38, avgHumidity: 15, windDirection: 90, windDirectionLabel: 'E' });
-      if (d11) sharavByDate.set(d11.date, { date: d11.date, severity: 'severe' as const, tempMax: 42, avgHumidity: 10, windDirection: 90, windDirectionLabel: 'E' });
+      if (d10) sharavByDate.set(d10.date, { dayIndex: dailySlice.length - 2, date: d10.date, severity: 'moderate' as const, tempMax: 38, avgHumidity: 15, windDirectionLabel: 'E', anomaly: 10 });
+      if (d11) sharavByDate.set(d11.date, { dayIndex: dailySlice.length - 1, date: d11.date, severity: 'severe' as const, tempMax: 42, avgHumidity: 10, windDirectionLabel: 'E', anomaly: 15 });
     }
 
     const rows = (weather.daily || []).slice(0, 12).map((d, i) => {
