@@ -319,7 +319,7 @@ Render an orange/red warning strip at the bottom of the image with a heat/wind w
 
 STYLE:
 - Flat design, no watermarks, no 3D, high contrast white text on dark background
-- The 2×2 grid has NO background fill — fully transparent, no rounded rectangle behind it
+- The 2×2 grid has NO background fill (transparent), NO border, and NO grid lines — just 4 values arranged in a 2×2 layout
 - In the grid: condition as a small icon fitting exactly 1 cell (not text), rain/wind as small numbers
 - Every data element appears exactly ONCE per row — no duplication`;
   }
