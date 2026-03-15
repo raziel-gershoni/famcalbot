@@ -302,7 +302,7 @@ ${headerDate}
 FORECAST CHART (main content, fills most of the image):
 ${isRTL ? 'RTL layout — day names on the RIGHT side, temperatures on the LEFT side.' : 'LTR layout — day names on the LEFT side, temperatures on the RIGHT side.'}
 Each row shows: day name, a horizontal colored bar (blue dot ● on low end, orange dot ● on high end, gradient line connecting them), and temperature range.
-Each row's data includes a weather condition, and may include rain% and wind info — render the condition as a small icon near the bar, with rain% and wind as small text annotations beside it.
+Each row's data includes a weather condition, and may include rain% and wind info — render these as a single compact group between the day name and the bar: small weather icon with any rain% and wind values as tiny text directly below the icon. Keep all annotations together in one place — do not spread them across the row.
 Temperature numbers appear ONCE per row as text — do NOT write numbers on the dots.
 The bars must be aligned on a shared horizontal temperature axis across all rows so the ranges are visually comparable.
 
