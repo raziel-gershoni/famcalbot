@@ -316,8 +316,8 @@ function buildInfographicJsx(
                     margin: '0 10px',
                   }}
                 >
-                  <div style={{ display: 'flex', fontSize: 30, fontWeight: 600, width: 56, justifyContent: 'flex-end', marginInlineEnd: 8 }}>
-                    {row.tempMin}°
+                  <div style={{ display: 'flex', fontSize: 30, fontWeight: 600, width: 56, justifyContent: 'flex-end', marginRight: 8 }}>
+                    {isRTL ? row.tempMax : row.tempMin}°
                   </div>
                   <div
                     style={{
@@ -333,9 +333,7 @@ function buildInfographicJsx(
                       style={{
                         display: 'flex',
                         position: 'absolute',
-                        ...(isRTL
-                          ? { right: `${barLeftPct}%` }
-                          : { left: `${barLeftPct}%` }),
+                        left: `${isRTL ? 100 - barLeftPct - barWidthPct : barLeftPct}%`,
                         width: `${barWidthPct}%`,
                         height: '100%',
                         borderRadius: 18,
@@ -345,8 +343,8 @@ function buildInfographicJsx(
                       }}
                     />
                   </div>
-                  <div style={{ display: 'flex', fontSize: 30, fontWeight: 600, width: 56, justifyContent: 'flex-start', marginInlineStart: 8 }}>
-                    {row.tempMax}°
+                  <div style={{ display: 'flex', fontSize: 30, fontWeight: 600, width: 56, justifyContent: 'flex-start', marginLeft: 8 }}>
+                    {isRTL ? row.tempMin : row.tempMax}°
                   </div>
                 </div>
               </div>
