@@ -267,7 +267,7 @@ export async function formatWeatherAI(
       const rain = d.precipitationProbability > 20 ? `${d.precipitationProbability}%` : '';
       const windDir = d.windSpeedMax > 25 ? ['↑','↗','→','↘','↓','↙','←','↖'][Math.round(d.windDirection / 45) % 8] : '';
       const windSpd = d.windSpeedMax > 25 ? `${d.windSpeedMax}` : '';
-      const details = `[${condition} | ${rain} | ${windDir} | ${windSpd}]`;
+      const details = [condition, rain, windDir, windSpd].filter(Boolean).join(', ');
       if (isRTL) {
         return `${d.tempMin}°–${d.tempMax}°  ●───●  ${details}  ${label}`;
       }
