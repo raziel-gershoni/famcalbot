@@ -267,7 +267,6 @@ export async function formatWeatherAI(
     }
 
     const sharavRows: { label: string; severity: string }[] = [];
-    const annotationOverlays: string[] = [];
     const iconDescriptions: string[] = [];
     const rows = (weather.daily || []).slice(0, 12).map((d, i) => {
       const date = new Date(d.date);
@@ -279,22 +278,12 @@ export async function formatWeatherAI(
                   : i === 1 ? (language === 'he' ? 'מחר' : language === 'ru' ? 'Завтра' : 'Tomorrow')
                   : dayName;
       const condition = getWeatherDescription(d.weatherCode);
-      const rain = d.precipitationProbability > 20 ? `${d.precipitationProbability}%` : '';
-      const windDir = d.windSpeedMax > 25 ? ['↑','↗','→','↘','↓','↙','←','↖'][Math.round(d.windDirection / 45) % 8] : '';
-      const windSpd = d.windSpeedMax > 25 ? `${d.windSpeedMax}` : '';
       const sharav = sharavByDate.get(d.date);
       if (sharav) {
         sharavRows.push({ label, severity: sharav.severity });
       }
       // Collect per-row weather icon descriptions (not in row data to avoid text rendering)
       iconDescriptions.push(`${label}: ${condition.toLowerCase()} icon`);
-      // Collect annotation overlays separately (not in row data)
-      const overlayParts: string[] = [];
-      if (rain) overlayParts.push(`rain chance ${rain}`);
-      if (windDir && windSpd) overlayParts.push(`wind ${windDir} ${windSpd} km/h`);
-      if (overlayParts.length > 0) {
-        annotationOverlays.push(`${label}: ${overlayParts.join(', ')}`);
-      }
       if (isRTL) {
         return `${d.tempMin}°–${d.tempMax}° | ${label}`;
       }
@@ -339,19 +328,14 @@ ${iconDescriptions.join('\n')}
 
 ROWS:
 ${rows}
-${annotationOverlays.length > 0 ? `
-OVERLAYS (render as tiny visual indicators near each row's weather icon — use a small raindrop icon for rain and a small wind icon for wind, with the value next to it):
-${annotationOverlays.join('\n')}
-` : ''}
 ${sharavRows.length > 0 ? `
 SHARAV (heatwave) DAYS:
 ${sharavRows.map(s => `- "${s.label}": ${s.severity} sharav`).join('\n')}
-For these rows: tint the row background with a warm orange-to-red gradient (more intense for "severe"). Add a very small heat hazard indicator (like a tiny thermometer or warning triangle) next to the day name — same text size, not a large decorative element.
+For these rows: tint the row background with a warm orange-to-red gradient (more intense for "severe"). Add a tiny flame icon (🔥) next to the day name — purely decorative, do NOT add any text or numbers alongside it.
 ` : ''}
 STYLE:
 - Flat design, no watermarks, no 3D, high contrast white text on dark background
-- CRITICAL: The ONLY text in each row is the day name and temperature numbers. Weather condition names (like "Thunderstorm", "Overcast", etc.) must NEVER appear as text — only as graphic icons
-- Overlay indicators (rain/wind) are tiny icons with small numeric values, positioned consistently near the weather icon
+- CRITICAL: The ONLY text in each row is the day name and temperature numbers. Weather condition names must NEVER appear as text — only as graphic icons
 - Strict column alignment: all day names left/right-aligned, all icons centered in the same column, all temperature bars aligned on the same axis
 - Every data element appears exactly ONCE per row — no duplication`;
   }
