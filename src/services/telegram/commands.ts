@@ -274,6 +274,7 @@ export async function handleWeatherCommand(
     onSuccess: async (result, messageId) => {
       // Try to generate and send infographic if prompt is available
       let infographicSent = false;
+      let messageDeleted = false;
       if (result.infographicPrompt) {
         try {
           const { generateWeatherInfographic } = await import('../weather/infographic');
@@ -281,6 +282,7 @@ export async function handleWeatherCommand(
           if (imageBuffer) {
             // Delete progress message and send photo instead
             await messagingService.deleteMessage(chatId, messageId);
+            messageDeleted = true;
             await messagingService.sendPhoto(chatId, imageBuffer, {
               caption: result.brief,
               format: MessageFormat.HTML,
@@ -294,7 +296,11 @@ export async function handleWeatherCommand(
 
       // Fall back to text message if infographic wasn't sent
       if (!infographicSent) {
-        await messagingService.updateMessage(chatId, messageId, result.brief, { format: MessageFormat.HTML });
+        if (messageDeleted) {
+          await messagingService.sendMessage(chatId, result.brief, { format: MessageFormat.HTML });
+        } else {
+          await messagingService.updateMessage(chatId, messageId, result.brief, { format: MessageFormat.HTML });
+        }
       }
 
       // Generate voice message with detailed version if enabled
