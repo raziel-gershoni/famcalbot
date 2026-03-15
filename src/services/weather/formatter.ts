@@ -257,6 +257,15 @@ export async function formatWeatherAI(
     const sharavDays = detectSharav(weather);
     const sharavByDate = new Map(sharavDays.map(s => [s.date, s]));
 
+    // TEMP: Fake sharav for visual testing — REMOVE on next push
+    const dailySlice = (weather.daily || []).slice(0, 12);
+    if (dailySlice.length >= 2) {
+      const d10 = dailySlice[dailySlice.length - 2];
+      const d11 = dailySlice[dailySlice.length - 1];
+      if (d10) sharavByDate.set(d10.date, { date: d10.date, severity: 'moderate' as const, tempMax: 38, avgHumidity: 15, windDirection: 90, windDirectionLabel: 'E' });
+      if (d11) sharavByDate.set(d11.date, { date: d11.date, severity: 'severe' as const, tempMax: 42, avgHumidity: 10, windDirection: 90, windDirectionLabel: 'E' });
+    }
+
     const rows = (weather.daily || []).slice(0, 12).map((d, i) => {
       const date = new Date(d.date);
       const dayName = date.toLocaleDateString(
@@ -271,13 +280,13 @@ export async function formatWeatherAI(
       const windDir = d.windSpeedMax > 25 ? ['↑','↗','→','↘','↓','↙','←','↖'][Math.round(d.windDirection / 45) % 8] : '';
       const windSpd = d.windSpeedMax > 25 ? `${d.windSpeedMax}` : '';
       const sharav = sharavByDate.get(d.date);
-      const sharavIcon = sharav ? `🔥${sharav.severity === 'severe' ? '🔥' : ''}` : '';
-      const annotations = [rain, windDir, windSpd, sharavIcon].filter(Boolean).join(', ');
+      const annotations = [rain, windDir, windSpd].filter(Boolean).join(', ');
+      const sharavPrefix = sharav ? `🔥${sharav.severity === 'severe' ? '🔥' : ''} ` : '';
       const details = annotations ? `${condition} (${annotations})` : condition;
       if (isRTL) {
-        return `${d.tempMin}°–${d.tempMax}°  ●───●  ${details}  ${label}`;
+        return `${d.tempMin}°–${d.tempMax}°  ●───●  ${details}  ${sharavPrefix}${label}`;
       }
-      return `${label}  ${details}  ●───●  ${d.tempMin}°–${d.tempMax}°`;
+      return `${sharavPrefix}${label}  ${details}  ●───●  ${d.tempMin}°–${d.tempMax}°`;
     }).join('\n');
 
     let hebrewDateForInfographic = '';
@@ -308,7 +317,7 @@ FORECAST CHART (main content, fills most of the image):
 ${isRTL ? 'RTL layout — day names on the RIGHT side, temperatures on the LEFT side.' : 'LTR layout — day names on the LEFT side, temperatures on the RIGHT side.'}
 Each row shows: day name, a horizontal colored bar (blue dot ● on low end, orange dot ● on high end, gradient line connecting them), and temperature range.
 Each row's data includes a weather condition, and may include rain% and wind info — render these as a single compact group between the day name and the bar: small weather icon with any rain% and wind values as tiny text directly below the icon. Keep all annotations together in one place — do not spread them across the row.
-- Rows containing a 🔥 icon indicate sharav (heatwave). For these rows: (1) tint the row background orange/red, (2) render a small heat/fire warning icon directly next to the weather condition icon in the same annotation group between the day name and the temperature bar.
+- Rows where the day name is preceded by a 🔥 icon indicate sharav (heatwave). For these rows: tint the entire row background orange/red and render a small heat/fire warning icon next to the day name.
 Temperature numbers appear ONCE per row as text — do NOT write numbers on the dots.
 The bars must be aligned on a shared horizontal temperature axis across all rows so the ranges are visually comparable.
 
