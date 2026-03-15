@@ -12,6 +12,7 @@ import { getGemini } from '../ai-provider';
 import { WeatherData } from '../../types';
 import { detectSharav } from './sharav';
 import { getWeatherDescription } from './open-meteo';
+import { getLocalizedLocationName } from './geocoding';
 import { getWeatherIcon } from './weather-icons';
 
 const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image-preview';
@@ -427,6 +428,14 @@ export async function generateWeatherInfographic(config: InfographicConfig): Pro
   try {
     const fonts = loadFonts();
     const { rows, globalMin, globalMax } = computeRows(config);
+
+    // Localize location name (cached, non-blocking fallback to English)
+    if (config.language !== 'en') {
+      try {
+        const localizedName = await getLocalizedLocationName(config.weather.location, config.language);
+        config = { ...config, weather: { ...config.weather, location: localizedName } };
+      } catch { /* keep English name */ }
+    }
 
     // Start Gemini background in parallel with gradient satori render
     const bgPromise = generateGeminiBackground(config.weather.current.weatherCode);
