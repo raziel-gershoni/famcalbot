@@ -69,6 +69,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         model: GEMINI_TTS_MODEL,
         contents: [{ parts: [{ text: ttsPrompt }] }],
         config: {
+          temperature: 0,
           responseModalities: ['AUDIO'],
           speechConfig: {
             voiceConfig: {
