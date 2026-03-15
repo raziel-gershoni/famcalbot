@@ -13,7 +13,10 @@ import { WeatherData } from '../../types';
 import { detectSharav } from './sharav';
 import { getWeatherDescription } from './open-meteo';
 import { getLocalizedLocationName } from './geocoding';
-import { getWeatherIcon } from './weather-icons';
+import { getWeatherIcon, getWindArrowIcon } from './weather-icons';
+import bidiFactory from 'bidi-js';
+
+const bidi = bidiFactory();
 
 const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image-preview';
 const WIDTH = 1080;
@@ -84,14 +87,16 @@ function getDayLabel(index: number, date: string, language: string): string {
   );
 }
 
-function getWindArrow(degrees: number): string {
-  return ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'][Math.round(degrees / 45) % 8];
-}
-
 function getSharavBg(severity: string): string | undefined {
   if (severity === 'moderate') return 'rgba(255, 140, 0, 0.18)';
   if (severity === 'severe') return 'rgba(255, 60, 0, 0.25)';
   return undefined;
+}
+
+/** Convert logical-order text to visual order for satori (which lacks bidi support) */
+function toVisualOrder(text: string): string {
+  const embeddingLevels = bidi.getEmbeddingLevels(text, 'rtl');
+  return bidi.getReorderedString(text, embeddingLevels);
 }
 
 /** Map language code to BCP 47 lang attribute for satori bidi support */
@@ -111,7 +116,7 @@ interface RowData {
   tempMin: number;
   tempMax: number;
   rain: string;
-  windArrow: string;
+  windDeg: number | null;
   windSpeed: string;
   sharavSeverity?: string;
 }
@@ -127,7 +132,7 @@ function computeRows(config: InfographicConfig): { rows: RowData[]; globalMin: n
     tempMin: d.tempMin,
     tempMax: d.tempMax,
     rain: d.precipitationProbability > 20 ? `${d.precipitationProbability}%` : '',
-    windArrow: d.windSpeedMax > 25 ? getWindArrow(d.windDirection) : '',
+    windDeg: d.windSpeedMax > 25 ? d.windDirection : null,
     windSpeed: d.windSpeedMax > 25 ? `${Math.round(d.windSpeedMax)}` : '',
     sharavSeverity: sharavByDate.get(d.date)?.severity,
   }));
@@ -187,7 +192,7 @@ function buildInfographicJsx(
           display: 'flex',
           flexDirection: 'column',
           flex: 1,
-          padding: '48px 36px',
+          padding: '40px 36px',
           position: 'relative',
         }}
       >
@@ -201,14 +206,14 @@ function buildInfographicJsx(
           }}
         >
           <div style={{ display: 'flex', fontSize: 48, fontWeight: 700, marginBottom: 10 }}>
-            {config.weather.location}
+            {isRTL ? toVisualOrder(config.weather.location) : config.weather.location}
           </div>
-          <div style={{ display: 'flex', fontSize: 34, opacity: 0.85 }}>
-            {config.dateStr}
+          <div style={{ display: 'flex', fontSize: 38, opacity: 0.85 }}>
+            {isRTL ? toVisualOrder(config.dateStr) : config.dateStr}
           </div>
           {config.hebrewDateStr && (
-            <div style={{ display: 'flex', fontSize: 30, opacity: 0.75, marginTop: 6 }}>
-              {config.hebrewDateStr}
+            <div style={{ display: 'flex', fontSize: 34, opacity: 0.75, marginTop: 6 }}>
+              {isRTL ? toVisualOrder(config.hebrewDateStr) : config.hebrewDateStr}
             </div>
           )}
         </div>
@@ -218,8 +223,7 @@ function buildInfographicJsx(
           style={{
             display: 'flex',
             flexDirection: 'column',
-            flex: 1,
-            justifyContent: 'space-between',
+            gap: 10,
           }}
         >
           {rows.map((row, i) => {
@@ -245,13 +249,13 @@ function buildInfographicJsx(
                     display: 'flex',
                     alignItems: 'center',
                     width: 150,
-                    fontSize: 34,
+                    fontSize: 38,
                     fontWeight: 700,
                     gap: 4,
                   }}
                 >
                   {!isRTL && row.sharavSeverity && getWeatherIcon(-1, 24, '#ff6b35')}
-                  <div style={{ display: 'flex' }}>{row.label}</div>
+                  <div style={{ display: 'flex' }}>{isRTL ? toVisualOrder(row.label) : row.label}</div>
                   {isRTL && row.sharavSeverity && getWeatherIcon(-1, 24, '#ff6b35')}
                 </div>
 
@@ -266,19 +270,19 @@ function buildInfographicJsx(
                 >
                   {/* Top row: icon + rain */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div style={{ display: 'flex', width: 36, justifyContent: 'center' }}>
-                      {getWeatherIcon(row.weatherCode, 32)}
+                    <div style={{ display: 'flex', width: 40, justifyContent: 'center' }}>
+                      {getWeatherIcon(row.weatherCode, 36)}
                     </div>
-                    <div style={{ display: 'flex', flex: 1, fontSize: 22, color: '#64b5f6', justifyContent: 'center' }}>
+                    <div style={{ display: 'flex', flex: 1, fontSize: 24, color: '#64b5f6', justifyContent: 'center' }}>
                       {row.rain || ''}
                     </div>
                   </div>
                   {/* Bottom row: wind arrow + speed */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div style={{ display: 'flex', width: 36, fontSize: 22, justifyContent: 'center', opacity: 0.8 }}>
-                      {row.windArrow || ''}
+                    <div style={{ display: 'flex', width: 40, justifyContent: 'center', opacity: 0.8 }}>
+                      {row.windDeg !== null ? getWindArrowIcon(row.windDeg, 22, 'white') : ''}
                     </div>
-                    <div style={{ display: 'flex', flex: 1, fontSize: 22, justifyContent: 'center', opacity: 0.8 }}>
+                    <div style={{ display: 'flex', flex: 1, fontSize: 24, justifyContent: 'center', opacity: 0.8 }}>
                       {row.windSpeed || ''}
                     </div>
                   </div>
@@ -289,8 +293,8 @@ function buildInfographicJsx(
                   style={{
                     display: 'flex',
                     flex: 1,
-                    height: 28,
-                    borderRadius: 14,
+                    height: 36,
+                    borderRadius: 18,
                     background: 'rgba(255, 255, 255, 0.1)',
                     position: 'relative',
                     margin: '0 14px',
@@ -303,7 +307,7 @@ function buildInfographicJsx(
                       left: `${barLeftPct}%`,
                       width: `${barWidthPct}%`,
                       height: '100%',
-                      borderRadius: 14,
+                      borderRadius: 18,
                       background: 'linear-gradient(90deg, #4fc3f7, #ff8a65)',
                     }}
                   />
@@ -314,7 +318,7 @@ function buildInfographicJsx(
                   style={{
                     display: 'flex',
                     width: 140,
-                    fontSize: 30,
+                    fontSize: 34,
                     justifyContent: isRTL ? 'flex-start' : 'flex-end',
                   }}
                 >
@@ -344,11 +348,11 @@ async function generateGeminiBackground(weatherCode: number): Promise<Buffer | n
         model: GEMINI_IMAGE_MODEL,
         contents: `Generate a dark, moody atmospheric background for a ${condition} weather day. Abstract, no text, no icons, no data. Subtle gradient, dark tones suitable for white text overlay. Portrait orientation.`,
         config: {
-          responseModalities: ['IMAGE'],
+          responseModalities: ['TEXT', 'IMAGE'],
           imageConfig: { aspectRatio: '9:16' },
         },
       }),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 12000)),
     ]);
 
     const candidate = result.candidates?.[0];

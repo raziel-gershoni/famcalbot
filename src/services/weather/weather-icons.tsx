@@ -81,6 +81,29 @@ const ICONS: Record<string, IconNode> = {
   ],
 };
 
+/**
+ * Get a satori-compatible SVG arrow icon for wind direction (in degrees).
+ * Arrow points in the direction the wind is blowing FROM (meteorological convention).
+ */
+export function getWindArrowIcon(degrees: number, size = 24, color = 'white'): React.ReactElement {
+  // Arrow pointing up = North (0°). Rotate by degrees to show wind-from direction.
+  return React.createElement('svg', {
+    xmlns: 'http://www.w3.org/2000/svg',
+    viewBox: '0 0 24 24',
+    width: size,
+    height: size,
+    fill: 'none',
+    stroke: color,
+    strokeWidth: 2,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    style: { transform: `rotate(${degrees}deg)` },
+  },
+    React.createElement('path', { d: 'M12 19V5' }),
+    React.createElement('path', { d: 'm5 12 7-7 7 7' }),
+  );
+}
+
 /** WMO weather code → lucide icon name. Code -1 = flame (sharav). */
 function getIconName(code: number): string {
   if (code === -1) return 'flame';
