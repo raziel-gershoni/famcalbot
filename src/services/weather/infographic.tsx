@@ -47,8 +47,8 @@ function loadFonts(): FontEntry[] {
     const hebrewRegular = readFileSync(join(dir, 'NotoSansHebrew-Regular.ttf'));
     const hebrewBold = readFileSync(join(dir, 'NotoSansHebrew-Bold.ttf'));
     cachedFonts.push(
-      { name: 'Noto Sans', data: hebrewRegular, weight: 400, style: 'normal', lang: 'he' },
-      { name: 'Noto Sans', data: hebrewBold, weight: 700, style: 'normal', lang: 'he' },
+      { name: 'Noto Sans', data: hebrewRegular, weight: 400, style: 'normal', lang: 'he-IL' },
+      { name: 'Noto Sans', data: hebrewBold, weight: 700, style: 'normal', lang: 'he-IL' },
     );
   } catch {
     console.warn('[Infographic] Hebrew font not found, Hebrew may not render correctly');
