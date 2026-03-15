@@ -209,7 +209,7 @@ function buildInfographicJsx(
             display: 'flex',
             flexDirection: 'column',
             flex: 1,
-            justifyContent: 'space-evenly',
+            justifyContent: 'space-around',
           }}
         >
           {rows.map((row, i) => {
