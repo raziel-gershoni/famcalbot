@@ -282,12 +282,16 @@ export async function formatWeatherAI(
       if (sharav) {
         sharavRows.push({ label, severity: sharav.severity });
       }
+      const rain = d.precipitationProbability > 20 ? `💧${d.precipitationProbability}%` : '';
+      const windDir = d.windSpeedMax > 25 ? ['↑','↗','→','↘','↓','↙','←','↖'][Math.round(d.windDirection / 45) % 8] : '';
+      const wind = d.windSpeedMax > 25 ? `💨${windDir}${d.windSpeedMax}` : '';
+      const annotations = [rain, wind].filter(Boolean).join(' ');
       // Collect per-row weather icon descriptions (not in row data to avoid text rendering)
       iconDescriptions.push(`${label}: ${condition.toLowerCase()} icon`);
       if (isRTL) {
-        return `${d.tempMin}°–${d.tempMax}° | ${label}`;
+        return `${d.tempMin}°–${d.tempMax}°${annotations ? ' ' + annotations : ''} | ${label}`;
       }
-      return `${label} | ${d.tempMin}°–${d.tempMax}°`;
+      return `${label} | ${d.tempMin}°–${d.tempMax}°${annotations ? ' ' + annotations : ''}`;
     }).join('\n');
 
     let hebrewDateForInfographic = '';
@@ -318,7 +322,7 @@ FORECAST CHART (main content, fills most of the image):
 ${isRTL ? 'RTL layout — day names on the RIGHT side, temperatures on the LEFT side.' : 'LTR layout — day names on the LEFT side, temperatures on the RIGHT side.'}
 Each row has exactly 2 text columns separated by |:
 - Day name (text)
-- Temperature range (min°–max°) — render as numbers at the ends of a horizontal gradient bar (blue dot on low end, orange dot on high end)
+- Temperature range (min°–max°) with optional small weather annotations (💧rain%, 💨wind) — render temperatures as numbers at the ends of a horizontal gradient bar (blue dot on low end, orange dot on high end)
 Between the day name and the temperature bar, draw the weather icon for that row (see WEATHER ICONS section). The icon is a GRAPHIC ONLY — never write any condition name as text.
 All temperature bars must be aligned on a shared horizontal axis so ranges are visually comparable.
 Use a strict grid: day names in a fixed-width column, icons in a fixed-width column, temperature bars in a fixed-width column — aligned across all rows.
@@ -331,7 +335,7 @@ ${rows}
 ${sharavRows.length > 0 ? `
 SHARAV (heatwave) DAYS:
 ${sharavRows.map(s => `- "${s.label}": ${s.severity} sharav`).join('\n')}
-For these rows: tint the row background with a warm orange-to-red gradient (more intense for "severe"). Add a tiny flame icon (🔥) next to the day name — purely decorative, do NOT add any text or numbers alongside it.
+For these rows: tint the row background with a subtle warm overlay — use a semi-transparent amber tone (like rgba(255,160,0,0.15)) for "moderate" and a semi-transparent orange-red tone (like rgba(255,80,0,0.25)) for "severe". Both should be subtle tints, NOT solid colored backgrounds. Add a tiny flame icon (🔥) next to the day name — purely decorative, do NOT add any text or numbers alongside it.
 ` : ''}
 STYLE:
 - Flat design, no watermarks, no 3D, high contrast white text on dark background
