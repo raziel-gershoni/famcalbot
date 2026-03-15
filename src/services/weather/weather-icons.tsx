@@ -104,6 +104,50 @@ export function getWindArrowIcon(degrees: number, size = 24, color = 'white'): R
   );
 }
 
+/** Get a calm/no-wind icon (small circle). */
+export function getWindCalmIcon(size = 24, color = 'white'): React.ReactElement {
+  return React.createElement('svg', {
+    xmlns: 'http://www.w3.org/2000/svg',
+    viewBox: '0 0 24 24',
+    width: size,
+    height: size,
+    fill: 'none',
+    stroke: color,
+    strokeWidth: 2,
+  },
+    React.createElement('circle', { cx: '12', cy: '12', r: '3' }),
+  );
+}
+
+/** Get a satori-compatible UV sun icon (lucide sun-dim). */
+export function getUvIcon(size = 24, color = '#f0c040'): React.ReactElement {
+  const nodes: IconNode = [
+    ['circle', { cx: '12', cy: '12', r: '4' }],
+    ['path', { d: 'M12 4V2' }],
+    ['path', { d: 'M12 22v-2' }],
+    ['path', { d: 'm4.93 4.93 1.41 1.41' }],
+    ['path', { d: 'm17.66 17.66 1.41 1.41' }],
+    ['path', { d: 'M2 12h2' }],
+    ['path', { d: 'M20 12h2' }],
+    ['path', { d: 'm6.34 17.66-1.41 1.41' }],
+    ['path', { d: 'm19.07 4.93-1.41 1.41' }],
+  ];
+  const children = nodes.map(([tag, attrs], i) =>
+    React.createElement(tag, { ...attrs, key: String(i) })
+  );
+  return React.createElement('svg', {
+    xmlns: 'http://www.w3.org/2000/svg',
+    viewBox: '0 0 24 24',
+    width: size,
+    height: size,
+    fill: 'none',
+    stroke: color,
+    strokeWidth: 2,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+  }, ...children);
+}
+
 /** WMO weather code → lucide icon name. Code -1 = flame (sharav). */
 function getIconName(code: number): string {
   if (code === -1) return 'flame';

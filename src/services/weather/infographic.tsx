@@ -13,7 +13,7 @@ import { WeatherData } from '../../types';
 import { detectSharav } from './sharav';
 import { getWeatherDescription } from './open-meteo';
 import { getLocalizedLocationName } from './geocoding';
-import { getWeatherIcon, getWindArrowIcon } from './weather-icons';
+import { getWeatherIcon, getWindArrowIcon, getWindCalmIcon, getUvIcon } from './weather-icons';
 import bidiFactory from 'bidi-js';
 
 const bidi = bidiFactory();
@@ -116,8 +116,9 @@ interface RowData {
   tempMin: number;
   tempMax: number;
   rain: string;
-  windDeg: number | null;
+  windDeg: number;
   windSpeed: string;
+  uvIndex: string;
   sharavSeverity?: string;
 }
 
@@ -132,8 +133,9 @@ function computeRows(config: InfographicConfig): { rows: RowData[]; globalMin: n
     tempMin: d.tempMin,
     tempMax: d.tempMax,
     rain: d.precipitationProbability > 20 ? `${d.precipitationProbability}%` : '',
-    windDeg: d.windSpeedMax > 25 ? d.windDirection : null,
-    windSpeed: d.windSpeedMax > 25 ? `${Math.round(d.windSpeedMax)}` : '',
+    windDeg: d.windDirection,
+    windSpeed: `${Math.round(d.windSpeedMax)}`,
+    uvIndex: `${d.uvIndexMax}`,
     sharavSeverity: sharavByDate.get(d.date)?.severity,
   }));
 
@@ -260,12 +262,12 @@ function buildInfographicJsx(
                   {isRTL && row.sharavSeverity && getWeatherIcon(-1, 28, '#ff6b35')}
                 </div>
 
-                {/* Detail columns: condition | precipitation || wind dir | wind speed */}
+                {/* Detail columns: condition | wind | UV */}
                 <div
                   style={{
                     display: 'flex',
                     flexDirection: isRTL ? 'row-reverse' : 'row',
-                    gap: 12,
+                    gap: 8,
                   }}
                 >
                   {/* Condition column: icon + rain % */}
@@ -278,12 +280,21 @@ function buildInfographicJsx(
                     </div>
                   </div>
                   {/* Wind column: arrow + speed */}
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 60, gap: 2, opacity: 0.8 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 56, gap: 2, opacity: 0.8 }}>
                     <div style={{ display: 'flex', height: 44, alignItems: 'center', justifyContent: 'center' }}>
-                      {row.windDeg !== null ? getWindArrowIcon(row.windDeg, 30, 'white') : ''}
+                      {row.windSpeed === '0' ? getWindCalmIcon(30, 'white') : getWindArrowIcon(row.windDeg, 30, 'white')}
                     </div>
                     <div style={{ display: 'flex', fontSize: 26 }}>
-                      {row.windSpeed || '\u00A0'}
+                      {row.windSpeed}
+                    </div>
+                  </div>
+                  {/* UV column: icon + index */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 56, gap: 2 }}>
+                    <div style={{ display: 'flex', height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                      {getUvIcon(30, '#f0c040')}
+                    </div>
+                    <div style={{ display: 'flex', fontSize: 26, color: '#f0c040' }}>
+                      {row.uvIndex}
                     </div>
                   </div>
                 </div>
@@ -344,17 +355,14 @@ async function generateGeminiBackground(weatherCode: number): Promise<Buffer | n
     const condition = getWeatherDescription(weatherCode);
     console.log('[Infographic] Gemini background: requesting', { model: GEMINI_IMAGE_MODEL, condition });
 
-    const result = await Promise.race([
-      getGemini().models.generateContent({
-        model: GEMINI_IMAGE_MODEL,
-        contents: `Generate a dark, moody atmospheric background for a ${condition} weather day. Abstract, no text, no icons, no data. Subtle gradient, dark tones suitable for white text overlay. Portrait orientation.`,
-        config: {
-          responseModalities: ['TEXT', 'IMAGE'],
-          imageConfig: { aspectRatio: '9:16' },
-        },
-      }),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 12000)),
-    ]);
+    const result = await getGemini().models.generateContent({
+      model: GEMINI_IMAGE_MODEL,
+      contents: `Generate a dark, moody atmospheric background for a ${condition} weather day. Abstract, no text, no icons, no data. Subtle gradient, dark tones suitable for white text overlay. Portrait orientation.`,
+      config: {
+        responseModalities: ['TEXT', 'IMAGE'],
+        imageConfig: { aspectRatio: '9:16' },
+      },
+    });
 
     const candidate = result.candidates?.[0];
     const parts = candidate?.content?.parts;
