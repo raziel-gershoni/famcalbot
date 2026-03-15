@@ -267,7 +267,8 @@ export async function formatWeatherAI(
       const rain = d.precipitationProbability > 20 ? `${d.precipitationProbability}%` : '';
       const windDir = d.windSpeedMax > 25 ? ['↑','↗','→','↘','↓','↙','←','↖'][Math.round(d.windDirection / 45) % 8] : '';
       const windSpd = d.windSpeedMax > 25 ? `${d.windSpeedMax}` : '';
-      const details = [condition, rain, windDir, windSpd].filter(Boolean).join(', ');
+      const annotations = [rain, windDir, windSpd].filter(Boolean).join(', ');
+      const details = annotations ? `${condition} (${annotations})` : condition;
       if (isRTL) {
         return `${d.tempMin}°–${d.tempMax}°  ●───●  ${details}  ${label}`;
       }
@@ -300,8 +301,8 @@ ${headerDate}
 
 FORECAST CHART (main content, fills most of the image):
 ${isRTL ? 'RTL layout — day names on the RIGHT side, temperatures on the LEFT side.' : 'LTR layout — day names on the LEFT side, temperatures on the RIGHT side.'}
-Each row shows: day name, a compact detail cluster, a horizontal colored bar (blue dot ● on low end, orange dot ● on high end, gradient line connecting them), and temperature range.
-The detail cluster has 4 elements arranged in two stacked rows: top row = small weather icon + rain %, bottom row = wind arrow + wind speed. Render these as plain floating text and icons — do NOT draw any box, border, grid lines, or background behind them. Empty slots stay blank.
+Each row shows: day name, a horizontal colored bar (blue dot ● on low end, orange dot ● on high end, gradient line connecting them), and temperature range.
+Each row's data includes a weather condition, and may include rain% and wind info — render the condition as a small icon near the bar, with rain% and wind as small text annotations beside it.
 Temperature numbers appear ONCE per row as text — do NOT write numbers on the dots.
 The bars must be aligned on a shared horizontal temperature axis across all rows so the ranges are visually comparable.
 
@@ -319,7 +320,6 @@ Render an orange/red warning strip at the bottom of the image with a heat/wind w
 
 STYLE:
 - Flat design, no watermarks, no 3D, high contrast white text on dark background
-- Detail cluster elements float freely — absolutely NO box, border, grid lines, or background around them
 - Condition shown as a small icon (not text), rain/wind as small numbers
 - Every data element appears exactly ONCE per row — no duplication`;
   }
