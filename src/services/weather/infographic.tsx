@@ -93,6 +93,13 @@ function getSharavBg(severity: string): string | undefined {
   return undefined;
 }
 
+/** Map language code to BCP 47 lang attribute for satori bidi support */
+function getLangAttr(language: string): string {
+  if (language === 'he') return 'he-IL';
+  if (language === 'ru') return 'ru-RU';
+  return 'en-US';
+}
+
 // ---------------------------------------------------------------------------
 // Compute render data
 // ---------------------------------------------------------------------------
@@ -143,9 +150,11 @@ function buildInfographicJsx(
   const [gradFrom, gradTo] = getBackgroundGradient(config.weather.current.weatherCode);
   const isRTL = config.language === 'he';
   const range = globalMax - globalMin;
+  const lang = getLangAttr(config.language);
 
   return (
     <div
+      lang={lang}
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -177,7 +186,7 @@ function buildInfographicJsx(
           display: 'flex',
           flexDirection: 'column',
           flex: 1,
-          padding: '60px 40px',
+          padding: '48px 36px',
           position: 'relative',
         }}
       >
@@ -187,17 +196,17 @@ function buildInfographicJsx(
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            marginBottom: 20,
+            marginBottom: 16,
           }}
         >
-          <div style={{ display: 'flex', fontSize: 42, fontWeight: 700, marginBottom: 12 }}>
+          <div style={{ display: 'flex', fontSize: 48, fontWeight: 700, marginBottom: 10 }}>
             {config.weather.location}
           </div>
-          <div style={{ display: 'flex', fontSize: 28, opacity: 0.85 }}>
+          <div style={{ display: 'flex', fontSize: 34, opacity: 0.85 }}>
             {config.dateStr}
           </div>
           {config.hebrewDateStr && (
-            <div style={{ display: 'flex', fontSize: 26, opacity: 0.75, marginTop: 8 }}>
+            <div style={{ display: 'flex', fontSize: 30, opacity: 0.75, marginTop: 6 }}>
               {config.hebrewDateStr}
             </div>
           )}
@@ -209,7 +218,7 @@ function buildInfographicJsx(
             display: 'flex',
             flexDirection: 'column',
             flex: 1,
-            justifyContent: 'space-around',
+            justifyContent: 'space-between',
           }}
         >
           {rows.map((row, i) => {
@@ -225,7 +234,7 @@ function buildInfographicJsx(
                   flexDirection: isRTL ? 'row-reverse' : 'row',
                   alignItems: 'center',
                   borderRadius: 16,
-                  padding: '12px 24px',
+                  padding: '8px 20px',
                   ...(sharavBg ? { background: sharavBg } : {}),
                 }}
               >
@@ -234,39 +243,44 @@ function buildInfographicJsx(
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    width: 160,
-                    fontSize: 28,
+                    width: 150,
+                    fontSize: 34,
                     fontWeight: 700,
                     gap: 4,
                   }}
                 >
-                  {!isRTL && row.sharavSeverity && getWeatherIcon(-1, 22, '#ff6b35')}
+                  {!isRTL && row.sharavSeverity && getWeatherIcon(-1, 24, '#ff6b35')}
                   <div style={{ display: 'flex' }}>{row.label}</div>
-                  {isRTL && row.sharavSeverity && getWeatherIcon(-1, 22, '#ff6b35')}
+                  {isRTL && row.sharavSeverity && getWeatherIcon(-1, 24, '#ff6b35')}
                 </div>
 
-                {/* Weather icon */}
-                <div style={{ display: 'flex', width: 56, justifyContent: 'center' }}>
-                  {getWeatherIcon(row.weatherCode, 40)}
-                </div>
-
-                {/* Annotations (rain %, wind) */}
+                {/* 2x2 detail grid: icon+rain / windDir+windSpeed */}
                 <div
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
-                    width: 90,
-                    fontSize: 20,
-                    opacity: 0.8,
-                    alignItems: 'center',
+                    width: 130,
+                    gap: 2,
                   }}
                 >
-                  {row.rain
-                    ? <div style={{ display: 'flex', color: '#64b5f6' }}>{row.rain}</div>
-                    : <div style={{ display: 'flex' }}>{' '}</div>}
-                  {row.windArrow
-                    ? <div style={{ display: 'flex' }}>{row.windArrow} {row.windSpeed}</div>
-                    : <div style={{ display: 'flex' }}>{' '}</div>}
+                  {/* Top row: icon + rain */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ display: 'flex', width: 36, justifyContent: 'center' }}>
+                      {getWeatherIcon(row.weatherCode, 32)}
+                    </div>
+                    <div style={{ display: 'flex', flex: 1, fontSize: 22, color: '#64b5f6', justifyContent: 'center' }}>
+                      {row.rain || ''}
+                    </div>
+                  </div>
+                  {/* Bottom row: wind arrow + speed */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ display: 'flex', width: 36, fontSize: 22, justifyContent: 'center', opacity: 0.8 }}>
+                      {row.windArrow || ''}
+                    </div>
+                    <div style={{ display: 'flex', flex: 1, fontSize: 22, justifyContent: 'center', opacity: 0.8 }}>
+                      {row.windSpeed || ''}
+                    </div>
+                  </div>
                 </div>
 
                 {/* Temperature bar */}
@@ -274,11 +288,11 @@ function buildInfographicJsx(
                   style={{
                     display: 'flex',
                     flex: 1,
-                    height: 24,
-                    borderRadius: 12,
+                    height: 28,
+                    borderRadius: 14,
                     background: 'rgba(255, 255, 255, 0.1)',
                     position: 'relative',
-                    margin: '0 16px',
+                    margin: '0 14px',
                   }}
                 >
                   <div
@@ -288,7 +302,7 @@ function buildInfographicJsx(
                       left: `${barLeftPct}%`,
                       width: `${barWidthPct}%`,
                       height: '100%',
-                      borderRadius: 12,
+                      borderRadius: 14,
                       background: 'linear-gradient(90deg, #4fc3f7, #ff8a65)',
                     }}
                   />
@@ -299,7 +313,7 @@ function buildInfographicJsx(
                   style={{
                     display: 'flex',
                     width: 140,
-                    fontSize: 26,
+                    fontSize: 30,
                     justifyContent: isRTL ? 'flex-start' : 'flex-end',
                   }}
                 >
@@ -319,8 +333,11 @@ function buildInfographicJsx(
 // ---------------------------------------------------------------------------
 
 async function generateGeminiBackground(weatherCode: number): Promise<Buffer | null> {
+  const bgStartMs = Date.now();
   try {
     const condition = getWeatherDescription(weatherCode);
+    console.log('[Infographic] Gemini background: requesting', { model: GEMINI_IMAGE_MODEL, condition });
+
     const result = await Promise.race([
       getGemini().models.generateContent({
         model: GEMINI_IMAGE_MODEL,
@@ -333,17 +350,52 @@ async function generateGeminiBackground(weatherCode: number): Promise<Buffer | n
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
     ]);
 
-    const parts = result.candidates?.[0]?.content?.parts;
-    if (!parts) return null;
+    const candidate = result.candidates?.[0];
+    const parts = candidate?.content?.parts;
+    const finishReason = candidate?.finishReason;
+
+    if (!parts || parts.length === 0) {
+      console.warn('[Infographic] Gemini background: no parts in response', {
+        finishReason,
+        hasCandidates: !!result.candidates?.length,
+        durationMs: Date.now() - bgStartMs,
+      });
+      return null;
+    }
 
     for (const part of parts) {
       if (part.inlineData?.data && part.inlineData.mimeType?.startsWith('image/')) {
-        return Buffer.from(part.inlineData.data, 'base64');
+        const buffer = Buffer.from(part.inlineData.data, 'base64');
+        console.log('[Infographic] Gemini background: success', {
+          sizeKB: (buffer.length / 1024).toFixed(1),
+          mimeType: part.inlineData.mimeType,
+          durationMs: Date.now() - bgStartMs,
+        });
+        return buffer;
+      }
+      if (part.text) {
+        console.warn('[Infographic] Gemini background: got text instead of image', {
+          textPreview: part.text.slice(0, 200),
+          finishReason,
+          durationMs: Date.now() - bgStartMs,
+        });
       }
     }
+
+    console.warn('[Infographic] Gemini background: no image data in parts', {
+      partTypes: parts.map(p => p.inlineData ? `image/${p.inlineData.mimeType}` : p.text ? 'text' : 'unknown'),
+      finishReason,
+      durationMs: Date.now() - bgStartMs,
+    });
     return null;
   } catch (err) {
-    console.log('[Infographic] Gemini background failed/timed out:', err instanceof Error ? err.message : 'unknown');
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const errStatus = (err as { status?: number }).status;
+    console.warn('[Infographic] Gemini background: failed', {
+      error: errMsg,
+      status: errStatus,
+      durationMs: Date.now() - bgStartMs,
+    });
     return null;
   }
 }
@@ -379,7 +431,9 @@ export async function generateWeatherInfographic(config: InfographicConfig): Pro
     // Start Gemini background in parallel with gradient satori render
     const bgPromise = generateGeminiBackground(config.weather.current.weatherCode);
     const gradientJsx = buildInfographicJsx(config, rows, globalMin, globalMax, false);
+    const satoriStartMs = Date.now();
     const gradientSvg = await satori(gradientJsx, { width: WIDTH, height: HEIGHT, fonts });
+    console.log('[Infographic] Satori render:', { durationMs: Date.now() - satoriStartMs });
 
     // Wait for Gemini result
     const bgBuffer = await bgPromise;
@@ -397,10 +451,12 @@ export async function generateWeatherInfographic(config: InfographicConfig): Pro
     }
 
     // Render SVG -> PNG
+    const resvgStartMs = Date.now();
     const resvg = new Resvg(finalSvg, {
       fitTo: { mode: 'width', value: WIDTH },
     });
     const pngBuffer = resvg.render().asPng();
+    console.log('[Infographic] Resvg render:', { durationMs: Date.now() - resvgStartMs });
 
     const elapsed = Date.now() - startMs;
     console.log('[Infographic] Generated successfully:', {
