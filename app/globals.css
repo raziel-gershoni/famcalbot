@@ -47,3 +47,81 @@
   --color-bg-light: var(--bg-light);
   --color-bg-section: var(--bg-section);
 }
+
+/* ─── Blog Prose Styles ─── */
+
+.prose-famcal {
+  color: var(--text-secondary);
+  font-size: 1.125rem;
+  line-height: 1.8;
+}
+
+.prose-famcal h2 {
+  color: var(--text-primary);
+  font-weight: 700;
+  font-size: 1.5rem;
+  margin-top: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+.prose-famcal h3 {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 1.25rem;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+.prose-famcal p {
+  margin-bottom: 1.25rem;
+}
+
+.prose-famcal a {
+  color: var(--brand-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.prose-famcal a:hover {
+  color: var(--brand-primary-dark);
+}
+
+.prose-famcal strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.prose-famcal blockquote {
+  border-inline-start: 4px solid var(--brand-primary);
+  background: var(--bg-light);
+  padding: 1rem 1.25rem;
+  margin: 1.5rem 0;
+  border-radius: 0 8px 8px 0;
+  font-style: italic;
+}
+
+[dir="rtl"] .prose-famcal blockquote {
+  border-radius: 8px 0 0 8px;
+}
+
+.prose-famcal ul,
+.prose-famcal ol {
+  padding-inline-start: 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.prose-famcal li {
+  margin-bottom: 0.5rem;
+}
+
+.prose-famcal img {
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  margin: 1.5rem 0;
+}
+
+.prose-famcal hr {
+  border: none;
+  border-top: 1px solid #e5e5e5;
+  margin: 2.5rem 0;
+}

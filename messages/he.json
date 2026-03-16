@@ -760,5 +760,13 @@
       "madeIn": "נבנה באהבה ❤️ בישראל",
       "copyright": "© 2025 FamCal"
     }
+  },
+  "blog": {
+    "pageTitle": "בלוג",
+    "pageDescription": "סיפורים, עדכונים וטיפים מצוות FamCal",
+    "readMore": "קרא עוד",
+    "backToBlog": "חזרה לבלוג →",
+    "tryFamcal": "נסו את FamCal בחינם",
+    "ctaText": "התחילו את הסיכום היומי המשפחתי שלכם בטלגרם"
   }
 }

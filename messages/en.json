@@ -760,5 +760,13 @@
       "madeIn": "Made with ❤️ in Israel",
       "copyright": "© 2025 FamCal"
     }
+  },
+  "blog": {
+    "pageTitle": "Blog",
+    "pageDescription": "Stories, updates, and tips from the FamCal team",
+    "readMore": "Read more",
+    "backToBlog": "← Back to blog",
+    "tryFamcal": "Try FamCal Free",
+    "ctaText": "Start your family’s daily briefing on Telegram"
   }
 }

@@ -1,0 +1,93 @@
+---
+title: "Why I Built FamCal: A Father of 5 vs. Calendar Chaos"
+description: "How juggling 5 kids' schedules, a spouse's calendar, and my own work led me to build an AI-powered family calendar assistant on Telegram."
+author: "Raziel"
+order: 1
+tags: ["story", "family", "telegram", "building"]
+---
+
+## 6:45 AM. The chaos begins.
+
+My wife walks into the kitchen, coffee in hand, and asks the question that starts every morning in our house:
+
+"Who finishes when today?"
+
+I'm standing there, half asleep, switching between **seven Google Calendars** on my phone. One kid needs to be at school by 8:15 — wait, is that the one who has a field trip today? Another has a dentist appointment at 3, but I think I have a client meeting then. And someone needs to be picked up at 1 PM from some activity I only vaguely remember adding to the calendar two weeks ago.
+
+With 5 kids, each with their own school schedule, extracurricular activities, and different pickup times — plus my wife's calendar and my work calendar — we were absolutely drowning.
+
+Google Calendar has all the data. Every event is there, color-coded, properly synced. But it doesn't **tell** you anything. It just sits there, waiting for you to open it, find the right calendar, mentally merge seven different schedules, figure out the pickup order, and somehow remember it all while making breakfast.
+
+## The realization
+
+One morning, after the third time I forgot a pickup and my wife had to scramble, it hit me:
+
+**I didn't need a better calendar. I needed someone to read my calendars and brief me every morning.**
+
+Like a personal assistant who looks at everyone's schedule, sorts it out, and tells me: "Here's your day. Here's your wife's day. The kids need to be picked up in this order. Oh, and it's going to rain at 4, so bring an umbrella for the school pickup."
+
+That assistant didn't exist. So I built it.
+
+## Why Telegram?
+
+Our family already lives on Telegram. Group chats with the school parents, messages from the kids' teachers, coordination with grandparents — it's all there. Adding another app wasn't going to work. Nobody installs new apps anymore, especially not for something that should just... arrive.
+
+A Telegram bot made perfect sense. It lives where the conversation already happens. No downloads, no accounts, no passwords. Just start the bot and connect your Google Calendar.
+
+## The first version was embarrassingly simple
+
+The very first version of FamCal did one thing: every morning at 7 AM, it sent a text message with everyone's events for the day. That's it. No AI, no voice, no weather. Just a formatted list of events pulled from Google Calendar.
+
+And honestly? It was already life-changing.
+
+For the first time, both my wife and I started the day knowing what was happening. No more "did you check the calendar?" conversations. No more missed pickups. The information came to us instead of us hunting for it.
+
+But then it grew. Because once you solve one problem, you see all the others.
+
+## Voice summaries: because mornings are hands-free
+
+I found myself reading the text summary while brushing my teeth, trying not to drop the phone. The obvious solution: **voice summaries**. A 30-second audio briefing I could listen to while getting ready.
+
+FamCal now generates a natural-sounding voice message — not a robotic reading of events, but a conversational summary. "Good morning! You have a team standup at 9, then a client meeting at 2. Sarah has a dentist appointment at 10:30. For pickups: Noah at 2 from gan, then Maya and Liam at 4:30 from school."
+
+Thirty seconds. That's all it takes to know your family's entire day.
+
+## Smart pickup order: the feature I didn't know I needed
+
+Here's something that seems obvious in hindsight but was a revelation: **sort the kids' events by end time**.
+
+Google Calendar shows you when events start. But as a parent, what you actually need to know is when they **end** — because that's when you need to be there. FamCal automatically builds a pickup order sorted by end time, so you always know who to get first.
+
+It even warns you about conflicts. "Maya finishes at 3:30 but you have a meeting until 4. Sarah is free — she could handle this pickup."
+
+## Weather that actually matters
+
+I don't need to know it's going to be 22 degrees. I need to know it's going to **rain at pickup time**. FamCal weaves weather into the schedule context. "Sunny until 4, then showers — bring jackets for the school pickup." That's useful weather.
+
+## Hebrew calendar: the Israel reality
+
+Living in Israel, you need both calendars. School events use Hebrew dates, holidays follow the Jewish calendar, and Shabbat changes when the week effectively ends for planning purposes. FamCal supports full Hebrew dates with gematriya, Rosh Chodesh awareness, and Shabbat-aware week boundaries. It's not an afterthought — it's core to how the app works.
+
+## Voice commands: because typing is so 2020
+
+The latest addition: send a voice note to create events. "Dentist Thursday at 10" — done. "Cancel Maya's piano lesson this week" — done. No opening Google Calendar, no navigating to the right date, no typing on a tiny keyboard. Just talk.
+
+It even handles recurring events. "Swimming every Tuesday at 4" creates the whole series.
+
+## Where FamCal is now
+
+FamCal is in early access. It's free — all features, all languages (Hebrew, English, Russian), no credit card. I'm using it every day with my own family, and a growing group of parents are testing it alongside us.
+
+It's not perfect yet. There are features I want to add, rough edges to smooth, and feedback I'm actively collecting. But it works. Every morning, my wife and I know what's happening. The "who has what today?" chaos is gone.
+
+## If this sounds like your morning
+
+If your day starts with someone asking "wait, who's picking up the kids?" or you've ever missed a pickup because you were staring at the wrong calendar — FamCal was built for exactly this.
+
+It takes 2 minutes to set up. Connect your Google Calendars, pick which ones to track, and wake up tomorrow with your family's day organized.
+
+[Start FamCal on Telegram →](https://t.me/family_calendar_telegram_bot)
+
+I read every piece of feedback. If something's broken, missing, or could be better — tell me. This is being built for families like yours, with input from families like yours.
+
+See you tomorrow morning. ☕

@@ -2,6 +2,8 @@ import { getTranslations } from 'next-intl/server';
 import { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
+import SiteHeader from '@/components/Layout/SiteHeader';
+import SiteFooter from '@/components/Layout/Footer';
 
 type Props = {
   params: Promise<{ locale: string }>;
@@ -105,39 +107,7 @@ export default async function LandingPage({ params }: Props) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLdOrg) }}
       />
 
-      {/* ─── STICKY HEADER ─── */}
-      <header className="sticky top-0 z-50 backdrop-blur-md bg-white/80 border-b border-gray-100">
-        <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
-          <Link href={`/${locale}`} className="flex items-center gap-2">
-            <Image src="/icon.png" alt="FamCal" width={32} height={32} />
-            <span className="text-lg font-semibold text-text-primary">FamCal</span>
-          </Link>
-          <div className="flex items-center gap-3 sm:gap-4">
-            <nav className="hidden sm:flex items-center gap-1 text-sm">
-              {(['en', 'he', 'ru'] as const).map((loc) => (
-                <Link
-                  key={loc}
-                  href={`/${loc}`}
-                  className={`rounded-md px-2.5 py-1 transition-colors ${
-                    locale === loc
-                      ? 'bg-brand-primary text-white'
-                      : 'text-text-secondary hover:bg-gray-100'
-                  }`}
-                >
-                  {loc === 'en' ? 'EN' : loc === 'he' ? 'עב' : 'РУ'}
-                </Link>
-              ))}
-            </nav>
-            <a
-              href={BOT_URL}
-              className="rounded-full px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-              style={{ background: 'var(--gradient-brand)' }}
-            >
-              {t('header.startFree')}
-            </a>
-          </div>
-        </div>
-      </header>
+      <SiteHeader locale={locale} ctaText={t('header.startFree')} />
 
       {/* ─── HERO ─── */}
       <section
@@ -341,53 +311,15 @@ export default async function LandingPage({ params }: Props) {
         </div>
       </section>
 
-      {/* ─── FOOTER ─── */}
-      <footer className="bg-text-primary px-6 py-12 text-white">
-        <div className="mx-auto max-w-4xl">
-          <div className="mb-8 flex flex-col items-center justify-between gap-8 sm:flex-row">
-            <div className="flex items-center gap-3">
-              <Image src="/icon.png" alt="FamCal" width={28} height={28} />
-              <div>
-                <span className="font-semibold">FamCal</span>
-                <p className="text-sm text-white/60">{t('footer.tagline')}</p>
-              </div>
-            </div>
-            <nav className="flex items-center gap-4 text-sm">
-              <Link href={`/${locale}/privacy`} className="text-white/60 transition-colors hover:text-white">
-                {t('footer.privacy')}
-              </Link>
-              <Link href={`/${locale}/terms`} className="text-white/60 transition-colors hover:text-white">
-                {t('footer.terms')}
-              </Link>
-              <a
-                href="https://t.me/family_calendar_telegram_bot?start=feedback"
-                className="text-white/60 transition-colors hover:text-white"
-              >
-                {t('footer.contact')}
-              </a>
-            </nav>
-          </div>
-          <div className="flex flex-col items-center justify-between gap-4 border-t border-white/10 pt-8 sm:flex-row">
-            <nav className="flex items-center gap-2 text-sm">
-              {(['en', 'he', 'ru'] as const).map((loc) => (
-                <Link
-                  key={loc}
-                  href={`/${loc}`}
-                  className={`rounded px-2 py-1 transition-colors ${
-                    locale === loc ? 'text-white' : 'text-white/40 hover:text-white/70'
-                  }`}
-                >
-                  {loc === 'en' ? 'English' : loc === 'he' ? 'עברית' : 'Русский'}
-                </Link>
-              ))}
-            </nav>
-            <div className="text-center text-sm text-white/40">
-              <p>{t('footer.madeIn')}</p>
-              <p>{t('footer.copyright')}</p>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter
+        locale={locale}
+        tagline={t('footer.tagline')}
+        privacy={t('footer.privacy')}
+        terms={t('footer.terms')}
+        contact={t('footer.contact')}
+        madeIn={t('footer.madeIn')}
+        copyright={t('footer.copyright')}
+      />
     </>
   );
 }

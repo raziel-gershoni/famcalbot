@@ -760,5 +760,13 @@
       "madeIn": "Сделано с ❤️ в Израиле",
       "copyright": "© 2025 FamCal"
     }
+  },
+  "blog": {
+    "pageTitle": "Блог",
+    "pageDescription": "Истории, обновления и советы от команды FamCal",
+    "readMore": "Читать далее",
+    "backToBlog": "← Назад к блогу",
+    "tryFamcal": "Попробуйте FamCal бесплатно",
+    "ctaText": "Начните ежедневную семейную сводку в Telegram"
   }
 }
