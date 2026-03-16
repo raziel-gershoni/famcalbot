@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+/* ─── Brand Design Tokens ─── */
+
+:root {
+  --brand-primary: #7C5CFC;
+  --brand-primary-dark: #6344E0;
+  --brand-primary-light: #9B82FD;
+  --brand-secondary: #5B8DEF;
+  --brand-secondary-light: #82AFFF;
+  --brand-accent-teal: #4ECDC4;
+  --brand-telegram: #0088cc;
+  --brand-telegram-dark: #006699;
+
+  --text-primary: #1a1a2e;
+  --text-secondary: #4a4a6a;
+  --text-muted: #8888a8;
+
+  --bg-white: #ffffff;
+  --bg-light: #f8f7ff;
+  --bg-section: #f0eeff;
+
+  --gradient-hero: linear-gradient(135deg, #f8f7ff 0%, #ede8ff 50%, #e8f0ff 100%);
+  --gradient-brand: linear-gradient(135deg, #7C5CFC 0%, #5B8DEF 100%);
+  --gradient-card: linear-gradient(135deg, rgba(124,92,252,0.05) 0%, rgba(91,141,239,0.05) 100%);
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+}
+
+/* ─── Tailwind v4 Theme Extension ─── */
+
+@theme {
+  --color-brand-primary: var(--brand-primary);
+  --color-brand-primary-dark: var(--brand-primary-dark);
+  --color-brand-primary-light: var(--brand-primary-light);
+  --color-brand-secondary: var(--brand-secondary);
+  --color-brand-secondary-light: var(--brand-secondary-light);
+  --color-brand-accent-teal: var(--brand-accent-teal);
+  --color-brand-telegram: var(--brand-telegram);
+  --color-brand-telegram-dark: var(--brand-telegram-dark);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-bg-light: var(--bg-light);
+  --color-bg-section: var(--bg-section);
+}

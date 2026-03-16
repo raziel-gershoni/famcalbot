@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import Script from 'next/script';
 import { locales } from '@/i18n';
 import type { Viewport } from 'next';
+import '../globals.css';
 
 // Disable zoom on mobile (especially important for Telegram WebApp)
 export const viewport: Viewport = {

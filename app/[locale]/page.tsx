@@ -1,16 +1,25 @@
 import { getTranslations } from 'next-intl/server';
 import { Metadata } from 'next';
 import Link from 'next/link';
-import { RotatingHeadline } from './LandingClient';
+import Image from 'next/image';
 
 type Props = {
   params: Promise<{ locale: string }>;
 };
 
+const BOT_URL = 'https://t.me/family_calendar_telegram_bot';
+
+function TelegramIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className ?? 'w-6 h-6'}>
+      <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.461-1.901-.903-1.056-.692-1.653-1.123-2.678-1.799-1.185-.781-.417-1.21.258-1.911.177-.184 3.247-2.977 3.307-3.23.007-.032.015-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.139-5.062 3.345-.479.329-.913.489-1.302.481-.428-.009-1.252-.242-1.865-.442-.752-.244-1.349-.374-1.297-.789.027-.216.324-.437.893-.663 3.498-1.524 5.831-2.529 6.998-3.015 3.333-1.386 4.025-1.627 4.477-1.635.099-.002.321.023.465.141.121.099.154.232.17.325.015.093.034.306.019.472z" />
+    </svg>
+  );
+}
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: 'landing' });
-
   const baseUrl = 'https://famcal.bot';
 
   return {
@@ -34,593 +43,303 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-// Telegram SVG icon component
-function TelegramIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 24, height: 24 }}>
-      <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.461-1.901-.903-1.056-.692-1.653-1.123-2.678-1.799-1.185-.781-.417-1.21.258-1.911.177-.184 3.247-2.977 3.307-3.23.007-.032.015-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.139-5.062 3.345-.479.329-.913.489-1.302.481-.428-.009-1.252-.242-1.865-.442-.752-.244-1.349-.374-1.297-.789.027-.216.324-.437.893-.663 3.498-1.524 5.831-2.529 6.998-3.015 3.333-1.386 4.025-1.627 4.477-1.635.099-.002.321.023.465.141.121.099.154.232.17.325.015.093.034.306.019.472z" />
-    </svg>
-  );
-}
-
 export default async function LandingPage({ params }: Props) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: 'landing' });
 
-  const headlines = t.raw('headlines') as string[];
-
   const features = [
-    { key: 'voiceSummaries', icon: '🎙️' },
-    { key: 'voiceCommands', icon: '🗣️' },
-    { key: 'aiSummaries', icon: '🤖' },
-    { key: 'multiCalendar', icon: '👨‍👩‍👧‍👦' },
-    { key: 'conflictDetection', icon: '⚠️' },
-    { key: 'weather', icon: '🌤️' },
-    { key: 'reminders', icon: '⏰' },
-    { key: 'hebrewCalendar', icon: '🕎' },
-    { key: 'multiLanguage', icon: '🌍' },
+    { key: 'voiceSummaries', icon: '🎧' },
+    { key: 'voiceCommands', icon: '🎤' },
+    { key: 'smartPickup', icon: '🚗' },
+    { key: 'weatherContext', icon: '🌤️' },
+    { key: 'hebrewCalendar', icon: '📅' },
+    { key: 'familyView', icon: '👨‍👩‍👧‍👦' },
   ] as const;
-
-  const botUrl = 'https://t.me/family_calendar_telegram_bot';
-  const feedbackUrl = 'https://t.me/family_calendar_telegram_bot?start=feedback';
 
   return (
     <>
-      <style>{`
-        * {
-          margin: 0;
-          padding: 0;
-          box-sizing: border-box;
-        }
-
-        :root {
-          --telegram-blue: #0088cc;
-          --telegram-blue-dark: #006699;
-          --text-primary: #1a1a1a;
-          --text-secondary: #666;
-          --bg-light: #f8f9fa;
-          --accent: #0088cc;
-        }
-
-        body {
-          font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-          color: var(--text-primary);
-          line-height: 1.6;
-        }
-
-        [dir="rtl"] body {
-          font-family: 'Heebo', -apple-system, BlinkMacSystemFont, sans-serif;
-          line-height: 1.7;
-        }
-
-        .header {
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          padding: 1rem 2rem;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          z-index: 100;
-        }
-
-        .logo {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          text-decoration: none;
-          color: var(--text-primary);
-          font-weight: 600;
-          font-size: 1.2rem;
-        }
-
-        .logo img {
-          width: 32px;
-          height: 32px;
-        }
-
-        .lang-switcher {
-          display: flex;
-          gap: 0.5rem;
-        }
-
-        .lang-switcher a {
-          color: var(--text-secondary);
-          text-decoration: none;
-          padding: 0.25rem 0.5rem;
-          border-radius: 4px;
-          font-size: 0.9rem;
-          transition: background 0.2s, color 0.2s;
-        }
-
-        .lang-switcher a:hover {
-          background: rgba(0,0,0,0.05);
-          color: var(--text-primary);
-        }
-
-        .lang-switcher a.active {
-          background: var(--telegram-blue);
-          color: white;
-        }
-
-        .hero {
-          min-height: 90vh;
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-          align-items: center;
-          text-align: center;
-          padding: 2rem;
-          background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
-        }
-
-        .hero-badge {
-          background: var(--telegram-blue);
-          color: white;
-          padding: 0.5rem 1rem;
-          border-radius: 50px;
-          font-size: 0.85rem;
-          font-weight: 500;
-          margin-bottom: 1.5rem;
-        }
-
-        .hero h1 {
-          font-size: clamp(2rem, 5vw, 3.5rem);
-          font-weight: 700;
-          margin-bottom: 1rem;
-          max-width: 700px;
-          min-height: 2.5em;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        [dir="rtl"] .hero h1 {
-          font-size: clamp(1.8rem, 5vw, 3rem);
-        }
-
-        .hero .subtitle {
-          font-size: 1.25rem;
-          color: var(--text-secondary);
-          max-width: 500px;
-          margin-bottom: 2rem;
-        }
-
-        [dir="rtl"] .hero .subtitle {
-          font-size: 1.2rem;
-          max-width: 550px;
-        }
-
-        .cta-group {
-          display: flex;
-          flex-direction: column;
-          gap: 1rem;
-          align-items: center;
-        }
-
-        .cta-button {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.5rem;
-          background: var(--telegram-blue);
-          color: white;
-          padding: 1rem 2rem;
-          border-radius: 8px;
-          text-decoration: none;
-          font-weight: 600;
-          font-size: 1.1rem;
-          transition: background 0.2s, transform 0.2s;
-        }
-
-        .cta-button:hover {
-          background: var(--telegram-blue-dark);
-          transform: translateY(-2px);
-        }
-
-        .cta-secondary {
-          color: var(--text-secondary);
-          font-size: 0.9rem;
-        }
-
-        .features {
-          padding: 5rem 2rem;
-          background: var(--bg-light);
-        }
-
-        .features-grid {
-          max-width: 1000px;
-          margin: 0 auto;
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-          gap: 2rem;
-        }
-
-        .feature-card {
-          background: white;
-          padding: 2rem;
-          border-radius: 12px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-          text-align: start;
-        }
-
-        .feature-icon {
-          font-size: 2rem;
-          margin-bottom: 1rem;
-        }
-
-        .feature-card h3 {
-          font-size: 1.2rem;
-          margin-bottom: 0.5rem;
-        }
-
-        .feature-card p {
-          color: var(--text-secondary);
-          font-size: 0.95rem;
-        }
-
-        .how-it-works {
-          padding: 5rem 2rem;
-          background: white;
-          text-align: center;
-        }
-
-        .how-it-works h2 {
-          font-size: 2rem;
-          margin-bottom: 3rem;
-        }
-
-        .steps {
-          max-width: 800px;
-          margin: 0 auto;
-          display: flex;
-          flex-direction: column;
-          gap: 2rem;
-        }
-
-        .step {
-          display: flex;
-          align-items: flex-start;
-          gap: 1.5rem;
-          text-align: start;
-        }
-
-        .step-number {
-          background: var(--telegram-blue);
-          color: white;
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-weight: 600;
-          flex-shrink: 0;
-        }
-
-        .step-content h3 {
-          font-size: 1.1rem;
-          margin-bottom: 0.25rem;
-        }
-
-        .step-content p {
-          color: var(--text-secondary);
-        }
-
-        .pricing {
-          padding: 5rem 2rem;
-          background: var(--bg-light);
-          text-align: center;
-        }
-
-        .pricing h2 {
-          font-size: 2rem;
-          margin-bottom: 1rem;
-        }
-
-        .pricing .subtitle {
-          color: var(--text-secondary);
-          margin-bottom: 3rem;
-        }
-
-        .pricing-grid {
-          max-width: 900px;
-          margin: 0 auto;
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-          gap: 1.5rem;
-          align-items: start;
-        }
-
-        .pricing-card {
-          background: white;
-          border-radius: 16px;
-          padding: 2rem 1.5rem;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-        }
-
-        .pricing-card.featured {
-          border: 2px solid var(--telegram-blue);
-          transform: scale(1.05);
-          position: relative;
-        }
-
-        .pricing-card h3 {
-          font-size: 1.3rem;
-          margin-bottom: 0.5rem;
-        }
-
-        .pricing-badge {
-          background: #ffeaa7;
-          color: #6c5c00;
-          padding: 0.25rem 0.75rem;
-          border-radius: 50px;
-          font-size: 0.8rem;
-          font-weight: 600;
-          display: inline-block;
-          margin-bottom: 1rem;
-        }
-
-        .price {
-          font-size: 2.5rem;
-          font-weight: 700;
-        }
-
-        .price-period {
-          color: var(--text-secondary);
-          font-size: 1rem;
-        }
-
-        .pricing-features {
-          list-style: none;
-          margin: 2rem 0;
-          text-align: start;
-        }
-
-        .pricing-features li {
-          padding: 0.5rem 0;
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-        }
-
-        .pricing-features li::before {
-          content: "✓";
-          color: #27ae60;
-          font-weight: bold;
-        }
-
-        .pricing-card .cta-button {
-          width: 100%;
-          justify-content: center;
-          margin-top: 1rem;
-        }
-
-        .cta-secondary-btn {
-          background: white;
-          color: var(--telegram-blue);
-          border: 2px solid var(--telegram-blue);
-        }
-
-        .cta-secondary-btn:hover {
-          background: var(--bg-light);
-        }
-
-        .pricing-note {
-          margin-top: 2rem;
-          color: var(--text-secondary);
-          font-size: 0.95rem;
-        }
-
-        .personal-note {
-          padding: 4rem 2rem;
-          background: white;
-          text-align: center;
-        }
-
-        .personal-note-content {
-          max-width: 600px;
-          margin: 0 auto;
-          font-size: 1.1rem;
-          color: var(--text-secondary);
-        }
-
-        .personal-note-content strong {
-          color: var(--text-primary);
-        }
-
-        footer {
-          padding: 2rem;
-          text-align: center;
-          background: var(--text-primary);
-          color: white;
-        }
-
-        footer a {
-          color: #88c8e8;
-        }
-
-        .footer-links {
-          display: flex;
-          justify-content: center;
-          gap: 1.5rem;
-          margin-bottom: 1rem;
-        }
-
-        .footer-links a {
-          color: #88c8e8;
-          text-decoration: none;
-        }
-
-        .footer-links a:hover {
-          text-decoration: underline;
-        }
-
-        @media (max-width: 600px) {
-          .hero {
-            min-height: auto;
-            padding: 4rem 1.5rem;
-          }
-
-          .step {
-            flex-direction: column;
-            text-align: center;
-            align-items: center;
-          }
-
-          .pricing-card.featured {
-            transform: none;
-          }
-        }
-      `}</style>
-
-      {/* Header with logo and language switcher */}
-      <header className="header">
-        <a href="/" className="logo">
-          <img src="/icon.png" alt="FamCal" />
-          <span>FamCal</span>
-        </a>
-        <nav className="lang-switcher">
-          <Link href="/en" className={locale === 'en' ? 'active' : ''}>
-            EN
+      {/* ─── STICKY HEADER ─── */}
+      <header className="sticky top-0 z-50 backdrop-blur-md bg-white/80 border-b border-gray-100">
+        <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
+          <Link href={`/${locale}`} className="flex items-center gap-2">
+            <Image src="/icon.png" alt="FamCal" width={32} height={32} />
+            <span className="text-lg font-semibold text-text-primary">FamCal</span>
           </Link>
-          <Link href="/he" className={locale === 'he' ? 'active' : ''}>
-            עב
-          </Link>
-          <Link href="/ru" className={locale === 'ru' ? 'active' : ''}>
-            РУ
-          </Link>
-        </nav>
+          <div className="flex items-center gap-3 sm:gap-4">
+            <nav className="hidden sm:flex items-center gap-1 text-sm">
+              {(['en', 'he', 'ru'] as const).map((loc) => (
+                <Link
+                  key={loc}
+                  href={`/${loc}`}
+                  className={`rounded-md px-2.5 py-1 transition-colors ${
+                    locale === loc
+                      ? 'bg-brand-primary text-white'
+                      : 'text-text-secondary hover:bg-gray-100'
+                  }`}
+                >
+                  {loc === 'en' ? 'EN' : loc === 'he' ? 'עב' : 'РУ'}
+                </Link>
+              ))}
+            </nav>
+            <a
+              href={BOT_URL}
+              className="rounded-full px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+              style={{ background: 'var(--gradient-brand)' }}
+            >
+              {t('header.startFree')}
+            </a>
+          </div>
+        </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="hero">
-        <div className="hero-badge">📱 {t('hero.badge')}</div>
-        <h1>
-          <RotatingHeadline headlines={headlines} />
-        </h1>
-        <p className="subtitle">{t('hero.subtitle')}</p>
-        <div className="cta-group">
-          <a href={botUrl} className="cta-button">
+      {/* ─── HERO ─── */}
+      <section
+        className="relative flex min-h-[85vh] flex-col items-center justify-center overflow-hidden px-6 py-24 text-center sm:py-32"
+        style={{ background: 'var(--gradient-hero)' }}
+      >
+        <div className="pointer-events-none absolute -end-32 -top-32 h-80 w-80 rounded-full bg-brand-primary/[0.07] blur-3xl sm:h-[500px] sm:w-[500px]" />
+        <div className="pointer-events-none absolute -bottom-32 -start-32 h-80 w-80 rounded-full bg-brand-secondary/[0.07] blur-3xl sm:h-[500px] sm:w-[500px]" />
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.03]">
+          <Image src="/icon.png" alt="" width={500} height={500} priority />
+        </div>
+        <div className="relative z-10 max-w-2xl">
+          <h1 className="mb-6 whitespace-pre-line text-4xl font-bold leading-tight text-text-primary sm:text-5xl lg:text-6xl">
+            {t('hero.headline')}
+          </h1>
+          <p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-text-secondary sm:text-xl">
+            {t('hero.subtitle')}
+          </p>
+          <a
+            href={BOT_URL}
+            className="inline-flex items-center gap-3 rounded-xl bg-brand-telegram px-8 py-4 text-lg font-semibold text-white shadow-lg shadow-brand-telegram/25 transition-all hover:scale-105 hover:shadow-xl"
+          >
             <TelegramIcon />
             {t('hero.cta')}
           </a>
-          <p className="cta-secondary">{t('hero.ctaSecondary')}</p>
+          <p className="mt-5 text-sm text-text-muted">{t('hero.ctaSecondary')}</p>
         </div>
       </section>
 
-      {/* Features Section */}
-      <section className="features">
-        <div className="features-grid">
-          {features.map(({ key, icon }) => (
-            <div key={key} className="feature-card">
-              <div className="feature-icon">{icon}</div>
-              <h3>{t(`features.${key}.title`)}</h3>
-              <p>{t(`features.${key}.description`)}</p>
-            </div>
-          ))}
+      {/* ─── PAIN POINTS ─── */}
+      <section className="bg-bg-section px-6 py-20">
+        <div className="mx-auto max-w-xl">
+          <h2 className="mb-12 text-center text-3xl font-bold text-text-primary">
+            {t('painPoints.title')}
+          </h2>
+          <div className="space-y-4">
+            {(['item1', 'item2', 'item3', 'item4'] as const).map((key, i) => (
+              <div
+                key={key}
+                className={`max-w-[88%] rounded-2xl border border-gray-100 bg-white px-5 py-3.5 shadow-sm ${
+                  i % 2 === 1 ? 'ms-auto' : ''
+                }`}
+              >
+                <p className="text-[15px] leading-relaxed italic text-text-primary">
+                  &ldquo;{t(`painPoints.${key}`)}&rdquo;
+                </p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-12 text-center text-xl font-semibold text-brand-primary sm:text-2xl">
+            {t('painPoints.resolution')}
+          </p>
         </div>
       </section>
 
-      {/* How it Works Section */}
-      <section className="how-it-works">
-        <h2>{t('howItWorks.title')}</h2>
-        <div className="steps">
-          {[1, 2, 3].map((num) => (
-            <div key={num} className="step">
-              <div className="step-number">{num}</div>
-              <div className="step-content">
-                <h3>{t(`howItWorks.step${num}.title`)}</h3>
-                <p>{t(`howItWorks.step${num}.description`)}</p>
+      {/* ─── CORE VALUE PROP ─── */}
+      <section className="bg-white px-6 py-20">
+        <div className="mx-auto max-w-5xl">
+          <h2 className="mb-14 text-center text-3xl font-bold text-text-primary">
+            {t('coreValue.title')}
+          </h2>
+          <div className="grid items-start gap-10 md:grid-cols-2">
+            {/* Mock Telegram message */}
+            <div
+              className="overflow-hidden rounded-2xl border border-gray-200 shadow-lg"
+              style={{ background: 'var(--gradient-card)' }}
+            >
+              <div className="flex items-center gap-2 bg-brand-telegram px-4 py-2.5">
+                <Image src="/icon.png" alt="" width={24} height={24} className="rounded-full" />
+                <span className="text-sm font-medium text-white">FamCal</span>
+              </div>
+              <div className="space-y-3 px-4 py-4 text-sm leading-relaxed text-text-primary">
+                <p className="font-medium">{t('coreValue.mockGreeting')}</p>
+                <div>
+                  <p className="font-semibold">{t('coreValue.mockDate')}</p>
+                  <p className="text-xs text-text-muted">{t('coreValue.mockHebrewDate')}</p>
+                </div>
+                <div>
+                  <p className="font-semibold text-brand-primary">{t('coreValue.mockYourSchedule')}</p>
+                  <p>{t('coreValue.mockEvent1')}</p>
+                  <p>{t('coreValue.mockEvent2')}</p>
+                </div>
+                <div>
+                  <p className="font-semibold text-brand-primary">{t('coreValue.mockSpouseSchedule')}</p>
+                  <p>{t('coreValue.mockSpouseEvent')}</p>
+                </div>
+                <div>
+                  <p className="font-semibold text-brand-primary">{t('coreValue.mockPickupTitle')}</p>
+                  <p>{t('coreValue.mockPickup1')}</p>
+                  <p>{t('coreValue.mockPickup2')}</p>
+                </div>
+                <p className="rounded-lg bg-brand-primary/5 px-3 py-2 text-[13px] text-text-secondary">
+                  💡 {t('coreValue.mockInsight')}
+                </p>
+                <p className="text-[13px] text-text-secondary">
+                  🌤️ {t('coreValue.mockWeather')}
+                </p>
               </div>
             </div>
-          ))}
-        </div>
-      </section>
 
-      {/* Pricing Section */}
-      <section className="pricing">
-        <h2>{t('pricing.title')}</h2>
-        <p className="subtitle">{t('pricing.subtitle')}</p>
-        <div className="pricing-grid">
-          {/* Free Plan */}
-          <div className="pricing-card">
-            <h3>{t('pricing.free.name')}</h3>
-            <div className="price">{t('pricing.free.price')}</div>
-            <ul className="pricing-features">
-              {(t.raw('pricing.free.features') as string[]).map((feature, i) => (
-                <li key={i}>{feature}</li>
+            {/* Bullet points */}
+            <div className="space-y-6 py-4">
+              {(['bullet1', 'bullet2', 'bullet3', 'bullet4', 'bullet5'] as const).map((key) => (
+                <div key={key} className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-accent-teal/20">
+                    <div className="h-2 w-2 rounded-full bg-brand-accent-teal" />
+                  </div>
+                  <p className="leading-relaxed text-text-secondary">{t(`coreValue.${key}`)}</p>
+                </div>
               ))}
-            </ul>
-            <a href={botUrl} className="cta-button cta-secondary-btn">
-              {t('pricing.free.cta')}
-            </a>
-          </div>
-
-          {/* Basic Plan (Featured) */}
-          <div className="pricing-card featured">
-            <div className="pricing-badge">{t('pricing.basic.badge')}</div>
-            <h3>{t('pricing.basic.name')}</h3>
-            <div className="price">
-              {t('pricing.basic.price')}
-              <span className="price-period">{t('pricing.basic.period')}</span>
             </div>
-            <ul className="pricing-features">
-              {(t.raw('pricing.basic.features') as string[]).map((feature, i) => (
-                <li key={i}>{feature}</li>
-              ))}
-            </ul>
-            <a href={botUrl} className="cta-button">
-              {t('pricing.basic.cta')}
-            </a>
           </div>
+        </div>
+      </section>
 
-          {/* Pro Plan */}
-          <div className="pricing-card">
-            <h3>{t('pricing.pro.name')}</h3>
-            <div className="price">
-              {t('pricing.pro.price')}
-              <span className="price-period">{t('pricing.pro.period')}</span>
+      {/* ─── FEATURES GRID ─── */}
+      <section className="bg-bg-light px-6 py-20">
+        <div className="mx-auto max-w-5xl">
+          <h2 className="mb-14 text-center text-3xl font-bold text-text-primary">
+            {t('features.title')}
+          </h2>
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {features.map(({ key, icon }) => (
+              <div
+                key={key}
+                className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm transition-all hover:-translate-y-1 hover:shadow-md"
+              >
+                <div className="mb-4 text-4xl">{icon}</div>
+                <h3 className="mb-2 text-lg font-semibold text-text-primary">
+                  {t(`features.${key}.title`)}
+                </h3>
+                <p className="text-sm leading-relaxed text-text-secondary">
+                  {t(`features.${key}.description`)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ─── HOW IT WORKS ─── */}
+      <section className="bg-white px-6 py-20">
+        <div className="mx-auto max-w-3xl">
+          <h2 className="mb-14 text-center text-3xl font-bold text-text-primary">
+            {t('howItWorks.title')}
+          </h2>
+          <div className="flex flex-col gap-10 sm:flex-row sm:gap-6">
+            {([1, 2, 3] as const).map((num) => (
+              <div key={num} className="flex flex-1 flex-col items-center text-center">
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-brand-primary text-lg font-bold text-white">
+                  {num}
+                </div>
+                <h3 className="mb-2 font-semibold text-text-primary">
+                  {t(`howItWorks.step${num}.title`)}
+                </h3>
+                <p className="text-sm leading-relaxed text-text-secondary">
+                  {t(`howItWorks.step${num}.description`)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ─── EARLY ACCESS BANNER ─── */}
+      <section
+        className="px-6 py-20 text-center text-white"
+        style={{ background: 'var(--gradient-brand)' }}
+      >
+        <div className="mx-auto max-w-2xl">
+          <h2 className="mb-4 text-3xl font-bold sm:text-4xl">{t('earlyAccess.title')}</h2>
+          <p className="mb-10 text-lg leading-relaxed text-white/90">
+            {t('earlyAccess.subtitle')}
+          </p>
+          <a
+            href={BOT_URL}
+            className="inline-flex items-center gap-3 rounded-xl bg-white px-8 py-4 text-lg font-semibold text-brand-primary shadow-lg transition-transform hover:scale-105"
+          >
+            <TelegramIcon />
+            {t('earlyAccess.cta')}
+          </a>
+        </div>
+      </section>
+
+      {/* ─── PERSONAL STORY ─── */}
+      <section className="bg-bg-light px-6 py-20">
+        <div className="mx-auto max-w-2xl text-center">
+          <Image src="/icon.png" alt="FamCal" width={48} height={48} className="mx-auto mb-6 rounded-xl" />
+          <blockquote className="mb-6 text-lg leading-relaxed italic text-text-secondary sm:text-xl">
+            &ldquo;{t('personalStory.quote', { childrenCount: '5' })}&rdquo;
+          </blockquote>
+          <p className="mb-4 font-semibold text-text-primary">
+            — {t('personalStory.author')}
+          </p>
+          <Link
+            href={`/${locale}/blog/why-i-built-famcal`}
+            className="font-medium text-brand-primary hover:underline"
+          >
+            {t('personalStory.readMore')}
+          </Link>
+        </div>
+      </section>
+
+      {/* ─── FOOTER ─── */}
+      <footer className="bg-text-primary px-6 py-12 text-white">
+        <div className="mx-auto max-w-4xl">
+          <div className="mb-8 flex flex-col items-center justify-between gap-8 sm:flex-row">
+            <div className="flex items-center gap-3">
+              <Image src="/icon.png" alt="FamCal" width={28} height={28} />
+              <div>
+                <span className="font-semibold">FamCal</span>
+                <p className="text-sm text-white/60">{t('footer.tagline')}</p>
+              </div>
             </div>
-            <ul className="pricing-features">
-              {(t.raw('pricing.pro.features') as string[]).map((feature, i) => (
-                <li key={i}>{feature}</li>
+            <nav className="flex items-center gap-4 text-sm">
+              <Link href={`/${locale}/privacy`} className="text-white/60 transition-colors hover:text-white">
+                {t('footer.privacy')}
+              </Link>
+              <Link href={`/${locale}/terms`} className="text-white/60 transition-colors hover:text-white">
+                {t('footer.terms')}
+              </Link>
+              <a
+                href="https://t.me/family_calendar_telegram_bot?start=feedback"
+                className="text-white/60 transition-colors hover:text-white"
+              >
+                {t('footer.contact')}
+              </a>
+            </nav>
+          </div>
+          <div className="flex flex-col items-center justify-between gap-4 border-t border-white/10 pt-8 sm:flex-row">
+            <nav className="flex items-center gap-2 text-sm">
+              {(['en', 'he', 'ru'] as const).map((loc) => (
+                <Link
+                  key={loc}
+                  href={`/${loc}`}
+                  className={`rounded px-2 py-1 transition-colors ${
+                    locale === loc ? 'text-white' : 'text-white/40 hover:text-white/70'
+                  }`}
+                >
+                  {loc === 'en' ? 'English' : loc === 'he' ? 'עברית' : 'Русский'}
+                </Link>
               ))}
-            </ul>
-            <a href={botUrl} className="cta-button cta-secondary-btn">
-              {t('pricing.pro.cta')}
-            </a>
+            </nav>
+            <div className="text-center text-sm text-white/40">
+              <p>{t('footer.madeIn')}</p>
+              <p>{t('footer.copyright')}</p>
+            </div>
           </div>
         </div>
-        <p className="pricing-note">{t('pricing.note')}</p>
-      </section>
-
-      {/* Personal Note Section */}
-      <section className="personal-note">
-        <div className="personal-note-content">
-          <p>
-            <strong>{t('personalNote.text').split('.')[0]}.</strong>
-            {t('personalNote.text').split('.').slice(1).join('.')}
-          </p>
-          <p style={{ marginTop: '1rem' }}>
-            {t('personalNote.feedback').split('{link}')[0]}
-            <a href={feedbackUrl}>{t('personalNote.feedbackLink')}</a>
-            {t('personalNote.feedback').split('{link}')[1]}
-          </p>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer>
-        <div className="footer-links">
-          <Link href={`/${locale}/privacy`}>
-            {locale === 'he' ? 'מדיניות פרטיות' : locale === 'ru' ? 'Конфиденциальность' : 'Privacy Policy'}
-          </Link>
-          <Link href={`/${locale}/terms`}>
-            {locale === 'he' ? 'תנאי שימוש' : locale === 'ru' ? 'Условия' : 'Terms of Service'}
-          </Link>
-        </div>
-        <p>{t('footer.copyright')}</p>
       </footer>
     </>
   );

@@ -559,7 +559,32 @@
     "textSummaries": "Text Summaries",
     "voiceSummaries": "Voice Summaries",
     "voiceEvents": "Voice Events",
-    "reminders": "Reminders",
+    "reminders": {
+      "expiringSoon": {
+        "title": "🌟 Heads up! Your FamCal {plan} renews in {days} days",
+        "usage": "Your family has used:",
+        "textUsage": "{count} text summaries",
+        "voiceUsage": "{count} voice messages",
+        "eventUsage": "{count} voice-created events",
+        "cta": "Keep the magic going for just ⭐{price}/month",
+        "button": "💫 Renew Subscription"
+      },
+      "lastDay": {
+        "title": "⏰ Last day to renew your FamCal subscription!",
+        "warning": "Tomorrow you'll switch to the Free plan:",
+        "limitedText": "{limit} text summaries (was unlimited)",
+        "limitedVoice": "{limit} voice messages (was unlimited)",
+        "noVoiceEvents": "No voice event creation",
+        "cta": "Stay organized - renew now:",
+        "button": "💫 Renew for ⭐{price}"
+      },
+      "expired": {
+        "title": "📅 Your FamCal subscription has ended",
+        "body": "You're now on the Free plan. No worries - your calendars and settings are safe!",
+        "cta": "Miss the unlimited features? Resubscribe anytime:",
+        "button": "💫 Get {plan} - ⭐{price}/month"
+      }
+    },
     "calendars": "Calendars",
     "unlimited": "Unlimited",
     "of": "of",
@@ -628,142 +653,112 @@
       "invoiceSent": "Invoice sent! Check your Telegram chat to complete payment.",
       "confirmUpgrade": "Upgrade to {plan} for ⭐{price}/month?",
       "validUntil": "Valid until {date}"
-    },
-    "reminders": {
-      "expiringSoon": {
-        "title": "🌟 Heads up! Your FamCal {plan} renews in {days} days",
-        "usage": "Your family has used:",
-        "textUsage": "{count} text summaries",
-        "voiceUsage": "{count} voice messages",
-        "eventUsage": "{count} voice-created events",
-        "cta": "Keep the magic going for just ⭐{price}/month",
-        "button": "💫 Renew Subscription"
-      },
-      "lastDay": {
-        "title": "⏰ Last day to renew your FamCal subscription!",
-        "warning": "Tomorrow you'll switch to the Free plan:",
-        "limitedText": "{limit} text summaries (was unlimited)",
-        "limitedVoice": "{limit} voice messages (was unlimited)",
-        "noVoiceEvents": "No voice event creation",
-        "cta": "Stay organized - renew now:",
-        "button": "💫 Renew for ⭐{price}"
-      },
-      "expired": {
-        "title": "📅 Your FamCal subscription has ended",
-        "body": "You're now on the Free plan. No worries - your calendars and settings are safe!",
-        "cta": "Miss the unlimited features? Resubscribe anytime:",
-        "button": "💫 Get {plan} - ⭐{price}/month"
-      }
     }
   },
   "landing": {
-    "hero": {
-      "badge": "Telegram Bot",
-      "subtitle": "AI-powered summaries delivered to Telegram. Listen as voice messages, create events by talking. Your family calendar finally works for you.",
-      "cta": "Start Free Trial",
-      "ctaSecondary": "No credit card required \u2022 14-day free trial"
+    "meta": {
+      "title": "FamCal — AI Family Calendar Bot for Telegram",
+      "description": "FamCal merges everyone’s Google Calendar into a single daily briefing — text and voice — delivered to your Telegram every morning.",
+      "ogTitle": "FamCal — Your family’s day. One voice message away.",
+      "ogDescription": "AI-powered daily family calendar briefings on Telegram. Voice summaries, smart pickup order, weather in context."
     },
-    "headlines": [
-      "Stop asking \"who's picking up the kids?\" in the family chat.",
-      "Because nobody checks the shared Google Calendar.",
-      "Daily family schedule, delivered to Telegram. Automatically.",
-      "One message every morning. Everyone knows the plan.",
-      "Built by a dad of 5 who was tired of the scheduling chaos.",
-      "The family calendar that reads itself out loud.",
-      "Telegram bot. Family schedule. Zero chaos."
-    ],
+    "header": {
+      "startFree": "Start Free"
+    },
+    "hero": {
+      "headline": "Your family’s day.\nOne voice message away.",
+      "subtitle": "FamCal merges everyone’s Google Calendar into a single daily briefing — delivered as text and voice to your Telegram, every morning.",
+      "cta": "Start Free on Telegram →",
+      "ctaSecondary": "Free during early access · No app to install · 2 minutes to set up"
+    },
+    "painPoints": {
+      "title": "Sound familiar?",
+      "item1": "Wait, what time does Maya finish today?",
+      "item2": "Did you see I have a meeting at 5? Who’s picking up the kids?",
+      "item3": "Check the calendar — no, the OTHER calendar",
+      "item4": "I sent you the schedule… you didn’t see it?",
+      "resolution": "FamCal makes this go away."
+    },
+    "coreValue": {
+      "title": "How your morning changes",
+      "mockGreeting": "Good morning! ☀️",
+      "mockDate": "Today — Sunday, March 15, 2026",
+      "mockHebrewDate": "י״ד אדר ה׳תשפ״ו",
+      "mockYourSchedule": "Your Schedule:",
+      "mockEvent1": "• 09:00–10:00 — Team standup (Zoom)",
+      "mockEvent2": "• 14:00–15:30 — Client meeting (Office)",
+      "mockSpouseSchedule": "Sarah’s Schedule:",
+      "mockSpouseEvent": "• 10:30–12:00 — Dentist",
+      "mockPickupTitle": "Kids Pickup Order:",
+      "mockPickup1": "• 14:00 — Noah (Gan HaShalom)",
+      "mockPickup2": "• 16:30 — Maya, Liam (School)",
+      "mockInsight": "Sarah finishes at 12 — she can handle Noah’s 14:00 pickup while you’re in the client meeting.",
+      "mockWeather": "22°C, sunny until 16:00. Light jacket for evening pickup.",
+      "bullet1": "Everyone’s schedule, merged and sorted",
+      "bullet2": "Kids’ pickup order by end time — no more mental math",
+      "bullet3": "AI spots conflicts before they become problems",
+      "bullet4": "Weather tied to YOUR schedule, not just the forecast",
+      "bullet5": "30-second voice version — listen while making coffee"
+    },
     "features": {
+      "title": "Everything your family calendar should do",
       "voiceSummaries": {
         "title": "Voice Summaries",
-        "description": "Listen to your daily schedule as a 30-45 second audio clip. Perfect while getting ready or driving."
+        "description": "Your family’s schedule as a 30-second audio briefing. Listen hands-free while getting ready. Hebrew, English, or Russian."
       },
       "voiceCommands": {
         "title": "Voice Commands",
-        "description": "Create, edit, or delete events by sending voice messages. No typing needed."
+        "description": "Send a voice note to create, edit, or delete events. Works with recurring events too. No typing needed."
       },
-      "aiSummaries": {
-        "title": "AI-Powered Summaries",
-        "description": "Not just event lists - natural, personalized briefings that tell you what matters today."
+      "smartPickup": {
+        "title": "Smart Pickup Order",
+        "description": "Kids’ events sorted by end time. Always know who to pick up first. Get reminders before each pickup."
       },
-      "multiCalendar": {
-        "title": "Multi-Calendar Sync",
-        "description": "Connect yours, your spouse's, kids' calendars - all in one summary with automatic attribution."
-      },
-      "conflictDetection": {
-        "title": "Conflict Detection",
-        "description": "Warns you when events overlap or when someone is double-booked."
-      },
-      "weather": {
-        "title": "Weather Integration",
-        "description": "Location-based forecast woven into your morning summary. Dress the kids accordingly."
-      },
-      "reminders": {
-        "title": "Smart Reminders",
-        "description": "Customizable alerts. For kids' events, get reminded for both start AND pickup times."
+      "weatherContext": {
+        "title": "Weather in Context",
+        "description": "Not just a forecast — weather tied to your schedule. “Rain expected at pickup time, bring umbrellas.”"
       },
       "hebrewCalendar": {
         "title": "Hebrew Calendar",
-        "description": "Hebrew dates with Gematria, Shabbat times, holidays, Rosh Chodesh - all built in."
+        "description": "Full Hebrew dates in gematriya, Rosh Chodesh awareness, Shabbat-aware week boundaries. Built for Israeli families."
       },
-      "multiLanguage": {
-        "title": "Multi-Language",
-        "description": "Hebrew, English, Russian, Spanish, French, German. Summaries in your preferred language."
+      "familyView": {
+        "title": "Family-Wide View",
+        "description": "Merge calendars for you, your spouse, and every kid. Label them, set rules per calendar, see it all in one place."
       }
     },
     "howItWorks": {
-      "title": "How it works",
+      "title": "Set up in 2 minutes",
       "step1": {
         "title": "Start the bot",
-        "description": "Open Telegram, search for @family_calendar_telegram_bot, and hit Start."
+        "description": "Open @family_calendar_telegram_bot on Telegram and hit Start"
       },
       "step2": {
-        "title": "Connect your calendar",
-        "description": "One-click Google Calendar authorization. Your data stays yours."
+        "title": "Connect Google Calendar",
+        "description": "Sign in with Google and pick which calendars to track"
       },
       "step3": {
-        "title": "Wake up informed",
-        "description": "Every morning, your family gets the day's schedule. Read it or listen to it. Automatically."
+        "title": "Get your first briefing",
+        "description": "Choose your summary times and wake up to your family’s day, organized"
       }
     },
-    "pricing": {
-      "title": "Simple pricing",
-      "subtitle": "Start free, upgrade when you need more.",
-      "note": "14-day free trial with full Pro access. No credit card required.",
-      "free": {
-        "name": "Free",
-        "price": "$0",
-        "features": ["10 text summaries/month", "3 voice summaries/month", "Up to 3 calendars"],
-        "cta": "Get Started"
-      },
-      "basic": {
-        "name": "Basic",
-        "badge": "Most Popular",
-        "price": "$3",
-        "period": "/month",
-        "features": ["Unlimited text summaries", "Unlimited voice summaries", "Up to 5 calendars"],
-        "cta": "Start Free Trial"
-      },
-      "pro": {
-        "name": "Pro",
-        "price": "$6",
-        "period": "/month",
-        "features": ["Everything in Basic", "Unlimited calendars", "Smart reminders", "Create events by voice"],
-        "cta": "Start Free Trial"
-      }
+    "earlyAccess": {
+      "title": "Free during early access",
+      "subtitle": "All features. All languages. No credit card. Join now and help shape FamCal.",
+      "cta": "Start Free on Telegram →"
     },
-    "personalNote": {
-      "text": "Built by a dad of 5 who was tired of the \"wait, who's picking up who today?\" chaos. I built this for my own family first. Now I'm sharing it with yours.",
-      "feedback": "Questions or feedback? {link} - I read everything.",
-      "feedbackLink": "Message me"
+    "personalStory": {
+      "quote": "I built FamCal because my wife and I have {childrenCount} kids and we were drowning in calendar chaos. Every morning was “wait, who has what today?” Now we just listen to a 30-second summary over coffee.",
+      "author": "Raziel, builder of FamCal",
+      "readMore": "Read the full story →"
     },
     "footer": {
-      "copyright": "FamCal \u00a9 2026"
-    },
-    "meta": {
-      "title": "FamCal - AI Family Calendar Bot for Telegram",
-      "description": "AI-powered family calendar bot for Telegram. Voice summaries, voice commands, multi-calendar sync, Hebrew calendar support. Stop asking 'who's picking up the kids?' in the group chat.",
-      "ogTitle": "FamCal - AI Family Calendar Bot for Telegram",
-      "ogDescription": "Voice summaries, voice commands, multi-calendar sync. The family calendar that reads itself out loud."
+      "tagline": "Your family’s AI calendar assistant on Telegram",
+      "privacy": "Privacy Policy",
+      "terms": "Terms of Service",
+      "contact": "Contact",
+      "madeIn": "Made with ❤️ in Israel",
+      "copyright": "© 2025 FamCal"
     }
   }
 }
