@@ -39,6 +39,7 @@ interface OpenMeteoResponse {
     sunrise: string[];
     sunset: string[];
     uv_index_max: number[];
+    relative_humidity_2m_mean: number[];
   };
 }
 
@@ -64,7 +65,7 @@ export async function fetchWeather(
     longitude: coords.longitude.toString(),
     current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,uv_index',
     hourly: 'temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m,relative_humidity_2m,wind_direction_10m',
-    daily: 'temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code,wind_speed_10m_max,wind_direction_10m_dominant,sunrise,sunset,uv_index_max',
+    daily: 'temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code,wind_speed_10m_max,wind_direction_10m_dominant,sunrise,sunset,uv_index_max,relative_humidity_2m_mean',
     timezone: timezone,
     forecast_days: '16'
   });
@@ -133,6 +134,7 @@ export async function fetchWeather(
         uvIndexMax: Math.round(data.daily.uv_index_max[index] * 10) / 10,
         windSpeedMax: Math.round(data.daily.wind_speed_10m_max[index]),
         windDirection: data.daily.wind_direction_10m_dominant[index],
+        humidity: data.daily.relative_humidity_2m_mean[index],
       }))
     };
 

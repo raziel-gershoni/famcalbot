@@ -170,6 +170,7 @@ interface RowData {
   windDeg: number;
   windSpeed: string;
   uvIndex: string;
+  humidity: string;
   sharavSeverity?: string;
 }
 
@@ -187,6 +188,7 @@ function computeRows(config: InfographicConfig): { rows: RowData[]; globalMin: n
     windDeg: d.windDirection,
     windSpeed: `${Math.round(d.windSpeedMax)}`,
     uvIndex: `${d.uvIndexMax}`,
+    humidity: `${Math.round(d.humidity)}%`,
     sharavSeverity: sharavByDate.get(d.date)?.severity,
   }));
 
@@ -420,6 +422,15 @@ function buildInfographicJsx(
                     </div>
                     <div style={{ display: 'flex', fontSize: 26 }}>
                       {row.windSpeed}
+                    </div>
+                  </div>
+                  {/* Humidity column: droplet + % */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 56, gap: 2 }}>
+                    <div style={{ display: 'flex', height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                      {getHumidityIcon(30, '#64b5f6')}
+                    </div>
+                    <div style={{ display: 'flex', fontSize: 26, color: '#64b5f6' }}>
+                      {row.humidity}
                     </div>
                   </div>
                   {/* UV column: icon + index */}

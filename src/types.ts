@@ -145,6 +145,7 @@ export interface WeatherData {
     uvIndexMax: number;
     windSpeedMax: number;
     windDirection: number;
+    humidity: number;
   }>;
   summary?: string;  // AI-generated summary
 }
