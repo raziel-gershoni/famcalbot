@@ -10,7 +10,8 @@ import { join } from 'path';
 import { WeatherData } from '../../types';
 import { detectSharav } from './sharav';
 import { getLocalizedLocationName } from './geocoding';
-import { getWeatherIcon, getWindArrowIcon, getWindCalmIcon, getUvIcon } from './weather-icons';
+import { getWeatherIcon, getWindArrowIcon, getWindCalmIcon, getUvIcon, getHumidityIcon } from './weather-icons';
+import { getWindDirectionLabel } from './open-meteo';
 import bidiFactory from 'bidi-js';
 
 const bidi = bidiFactory();
@@ -108,6 +109,52 @@ function getLangAttr(language: string): string {
   if (language === 'he') return 'he-IL';
   if (language === 'ru') return 'ru-RU';
   return 'en-US';
+}
+
+// ---------------------------------------------------------------------------
+// Current conditions i18n helpers
+// ---------------------------------------------------------------------------
+
+function getFeelsLikeLabel(language: string): string {
+  if (language === 'he') return 'מרגיש כמו';
+  if (language === 'ru') return 'Ощущается как';
+  return 'Feels like';
+}
+
+function getWindUnitLabel(language: string): string {
+  if (language === 'he') return 'קמ״ש';
+  if (language === 'ru') return 'км/ч';
+  return 'km/h';
+}
+
+function getLocalizedWeatherDescription(code: number, language: string): string {
+  const descriptions: Record<string, Record<number, string>> = {
+    en: {
+      0: 'Clear sky', 1: 'Partly cloudy', 45: 'Foggy', 51: 'Drizzle',
+      61: 'Rain', 71: 'Snow', 80: 'Showers', 85: 'Snow showers', 95: 'Thunderstorm',
+    },
+    he: {
+      0: 'שמיים בהירים', 1: 'מעונן חלקית', 45: 'ערפל', 51: 'טפטוף',
+      61: 'גשם', 71: 'שלג', 80: 'ממטרים', 85: 'ממטרי שלג', 95: 'סופת רעמים',
+    },
+    ru: {
+      0: 'Ясно', 1: 'Переменная облачность', 45: 'Туман', 51: 'Морось',
+      61: 'Дождь', 71: 'Снег', 80: 'Ливень', 85: 'Снегопад', 95: 'Гроза',
+    },
+  };
+  const lang = descriptions[language] || descriptions.en;
+  // Map WMO code to grouped key
+  let key: number;
+  if (code === 0) key = 0;
+  else if (code <= 3) key = 1;
+  else if (code <= 48) key = 45;
+  else if (code <= 57) key = 51;
+  else if (code <= 67) key = 61;
+  else if (code <= 77) key = 71;
+  else if (code <= 82) key = 80;
+  else if (code <= 86) key = 85;
+  else key = 95;
+  return lang[key] || descriptions.en[key] || 'Unknown';
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +268,91 @@ function buildInfographicJsx(
             </div>
           )}
         </div>
+
+        {/* Current conditions */}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            marginBottom: 8,
+          }}
+        >
+          {/* Hero: icon + temperature */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: isRTL ? 'row-reverse' : 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 16,
+            }}
+          >
+            {getWeatherIcon(config.weather.current.weatherCode, 80)}
+            <div style={{ display: 'flex', fontSize: 72, fontWeight: 700 }}>
+              {Math.round(config.weather.current.temperature)}°
+            </div>
+          </div>
+          {/* Condition text */}
+          <div style={{ display: 'flex', fontSize: 34, opacity: 0.85, marginTop: 4 }}>
+            {isRTL
+              ? toVisualOrder(getLocalizedWeatherDescription(config.weather.current.weatherCode, config.language))
+              : getLocalizedWeatherDescription(config.weather.current.weatherCode, config.language)}
+          </div>
+          {/* Feels like */}
+          <div style={{ display: 'flex', fontSize: 32, opacity: 0.7, marginTop: 4 }}>
+            {isRTL
+              ? toVisualOrder(`${getFeelsLikeLabel(config.language)} ${Math.round(config.weather.current.feelsLike)}°`)
+              : `${getFeelsLikeLabel(config.language)} ${Math.round(config.weather.current.feelsLike)}°`}
+          </div>
+          {/* Stats row: wind | humidity | UV */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: isRTL ? 'row-reverse' : 'row',
+              justifyContent: 'center',
+              gap: 48,
+              marginTop: 16,
+            }}
+          >
+            {/* Wind */}
+            <div style={{ display: 'flex', flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 6 }}>
+              <div style={{ display: 'flex' }}>
+                {config.weather.current.windSpeed === 0
+                  ? getWindCalmIcon(28, 'white')
+                  : getWindArrowIcon(config.weather.current.windDirection, 28, 'white')}
+              </div>
+              <div style={{ display: 'flex', fontSize: 30 }}>
+                {isRTL
+                  ? toVisualOrder(`${Math.round(config.weather.current.windSpeed)} ${getWindUnitLabel(config.language)} ${getWindDirectionLabel(config.weather.current.windDirection, config.language)}`)
+                  : `${Math.round(config.weather.current.windSpeed)} ${getWindUnitLabel(config.language)} ${getWindDirectionLabel(config.weather.current.windDirection, config.language)}`}
+              </div>
+            </div>
+            {/* Humidity */}
+            <div style={{ display: 'flex', flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 6 }}>
+              <div style={{ display: 'flex' }}>{getHumidityIcon(28)}</div>
+              <div style={{ display: 'flex', fontSize: 30 }}>{config.weather.current.humidity}%</div>
+            </div>
+            {/* UV */}
+            <div style={{ display: 'flex', flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 6 }}>
+              <div style={{ display: 'flex' }}>{getUvIcon(28, getUvColor(config.weather.current.uvIndex))}</div>
+              <div style={{ display: 'flex', fontSize: 30, color: getUvColor(config.weather.current.uvIndex) }}>
+                UV {config.weather.current.uvIndex}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div
+          style={{
+            display: 'flex',
+            width: '100%',
+            height: 1,
+            background: 'rgba(255, 255, 255, 0.15)',
+            marginBottom: 8,
+          }}
+        />
 
         {/* Forecast rows */}
         <div

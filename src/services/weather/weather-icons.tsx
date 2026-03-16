@@ -79,6 +79,9 @@ const ICONS: Record<string, IconNode> = {
   flame: [
     ['path', { d: 'M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z' }],
   ],
+  droplet: [
+    ['path', { d: 'M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z' }],
+  ],
 };
 
 /**
@@ -132,6 +135,25 @@ export function getUvIcon(size = 24, color = '#f0c040'): React.ReactElement {
     ['path', { d: 'm6.34 17.66-1.41 1.41' }],
     ['path', { d: 'm19.07 4.93-1.41 1.41' }],
   ];
+  const children = nodes.map(([tag, attrs], i) =>
+    React.createElement(tag, { ...attrs, key: String(i) })
+  );
+  return React.createElement('svg', {
+    xmlns: 'http://www.w3.org/2000/svg',
+    viewBox: '0 0 24 24',
+    width: size,
+    height: size,
+    fill: 'none',
+    stroke: color,
+    strokeWidth: 2,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+  }, ...children);
+}
+
+/** Get a satori-compatible humidity droplet icon. */
+export function getHumidityIcon(size = 24, color = '#64b5f6'): React.ReactElement {
+  const nodes = ICONS.droplet;
   const children = nodes.map(([tag, attrs], i) =>
     React.createElement(tag, { ...attrs, key: String(i) })
   );
