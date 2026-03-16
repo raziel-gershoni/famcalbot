@@ -1,6 +1,6 @@
 import { User as PrismaUser } from '@prisma/client';
 import { UserConfig, convertPrismaUserToConfig } from '../types';
-import { prisma } from '../utils/prisma';
+import { prisma, withRetry } from '../utils/prisma';
 import { encrypt, safeDecrypt } from '../utils/encryption';
 
 /**
@@ -44,7 +44,7 @@ export async function getUserByIdentifier(id: number | bigint | string): Promise
  * Replacement for allUsers array and users export in config/users.ts
  */
 export async function getAllUsers(): Promise<UserConfig[]> {
-  const users = await prisma.user.findMany();
+  const users = await withRetry(() => prisma.user.findMany());
   return users.map(convertPrismaUserToConfig);
 }
 
