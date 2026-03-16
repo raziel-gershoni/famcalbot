@@ -10,7 +10,7 @@ import { join } from 'path';
 import { WeatherData } from '../../types';
 import { detectSharav } from './sharav';
 import { getLocalizedLocationName } from './geocoding';
-import { getWeatherIcon, getWindArrowIcon, getWindCalmIcon, getUvIcon, getHumidityIcon } from './weather-icons';
+import { getWeatherIcon, getWindArrowIcon, getWindCalmIcon, getUvIcon, getHumidityIcon, getUmbrellaIcon } from './weather-icons';
 import { getWindDirectionLabel } from './open-meteo';
 import bidiFactory from 'bidi-js';
 
@@ -329,6 +329,11 @@ function buildInfographicJsx(
                   ? toVisualOrder(`${Math.round(config.weather.current.windSpeed)} ${getWindUnitLabel(config.language)} ${getWindDirectionLabel(config.weather.current.windDirection, config.language)}`)
                   : `${Math.round(config.weather.current.windSpeed)} ${getWindUnitLabel(config.language)} ${getWindDirectionLabel(config.weather.current.windDirection, config.language)}`}
               </div>
+            </div>
+            {/* Precipitation */}
+            <div style={{ display: 'flex', flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 6 }}>
+              <div style={{ display: 'flex' }}>{getUmbrellaIcon(28, '#64b5f6')}</div>
+              <div style={{ display: 'flex', fontSize: 30 }}>{config.weather.today.precipitationProbability}%</div>
             </div>
             {/* Humidity */}
             <div style={{ display: 'flex', flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 6 }}>

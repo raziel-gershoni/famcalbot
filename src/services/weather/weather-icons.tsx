@@ -82,6 +82,11 @@ const ICONS: Record<string, IconNode> = {
   droplet: [
     ['path', { d: 'M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z' }],
   ],
+  umbrella: [
+    ['path', { d: 'M22 12a10.06 10.06 0 0 0-20 0Z' }],
+    ['path', { d: 'M12 12v8a2 2 0 0 0 4 0' }],
+    ['path', { d: 'M12 2v1' }],
+  ],
 };
 
 /**
@@ -135,6 +140,25 @@ export function getUvIcon(size = 24, color = '#f0c040'): React.ReactElement {
     ['path', { d: 'm6.34 17.66-1.41 1.41' }],
     ['path', { d: 'm19.07 4.93-1.41 1.41' }],
   ];
+  const children = nodes.map(([tag, attrs], i) =>
+    React.createElement(tag, { ...attrs, key: String(i) })
+  );
+  return React.createElement('svg', {
+    xmlns: 'http://www.w3.org/2000/svg',
+    viewBox: '0 0 24 24',
+    width: size,
+    height: size,
+    fill: 'none',
+    stroke: color,
+    strokeWidth: 2,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+  }, ...children);
+}
+
+/** Get a satori-compatible umbrella icon for precipitation chance. */
+export function getUmbrellaIcon(size = 24, color = '#64b5f6'): React.ReactElement {
+  const nodes = ICONS.umbrella;
   const children = nodes.map(([tag, attrs], i) =>
     React.createElement(tag, { ...attrs, key: String(i) })
   );
