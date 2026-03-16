@@ -26,6 +26,12 @@ export default async function SharePage({ params }: Props) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: 'share' });
   const tLanding = await getTranslations({ locale, namespace: 'landing' });
+  const tNav = await getTranslations({ locale, namespace: 'nav' });
+
+  const navLinks = [
+    { href: `/${locale}/how-it-works`, label: tNav('howItWorks') },
+    { href: `/${locale}/blog`, label: tNav('blog') },
+  ];
 
   const messages = [
     { label: t('shortLabel'), text: t('msgShort') },
@@ -35,7 +41,7 @@ export default async function SharePage({ params }: Props) {
 
   return (
     <>
-      <SiteHeader locale={locale} ctaText={tLanding('header.startFree')} />
+      <SiteHeader locale={locale} ctaText={tLanding('header.startFree')} navLinks={navLinks} />
 
       <main className="mx-auto max-w-3xl px-6 py-16">
         <div className="mb-14 text-center">

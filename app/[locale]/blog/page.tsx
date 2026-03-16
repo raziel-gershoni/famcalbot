@@ -24,11 +24,17 @@ export default async function BlogIndexPage({ params }: Props) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: 'blog' });
   const tLanding = await getTranslations({ locale, namespace: 'landing' });
+  const tNav = await getTranslations({ locale, namespace: 'nav' });
   const posts = getAllPosts(locale);
+
+  const navLinks = [
+    { href: `/${locale}/how-it-works`, label: tNav('howItWorks') },
+    { href: `/${locale}/blog`, label: tNav('blog') },
+  ];
 
   return (
     <>
-      <SiteHeader locale={locale} ctaText={tLanding('header.startFree')} />
+      <SiteHeader locale={locale} ctaText={tLanding('header.startFree')} navLinks={navLinks} />
 
       <main className="mx-auto max-w-4xl px-6 py-16">
         <h1 className="mb-12 text-center text-4xl font-bold text-text-primary">

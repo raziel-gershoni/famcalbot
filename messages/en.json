@@ -787,5 +787,73 @@
     "msgShort": "Hey, check out FamCal — it’s a Telegram bot that reads your family’s Google Calendar every morning and sends you a voice + text summary. Who’s picking up which kid, what’s the schedule, weather warnings — all in 30 seconds. Free right now. famcal.bot",
     "msgMedium": "Anyone else drowning in family calendar chaos? 😅 I found this Telegram bot called FamCal — you connect your Google Calendars and every morning it sends you a summary of everyone’s schedule. Best part: kids’ pickup order sorted by time, and you can listen to it as a voice message while getting ready. It’s free during early access → famcal.bot",
     "msgParent": "For parents juggling multiple kids’ schedules — there’s a free Telegram bot that connects to your Google Calendar and sends you a daily briefing: who has what today, pickup order by time, weather at pickup time, and AI-detected conflicts. Works in Hebrew, English, and Russian. Check it out: famcal.bot"
+  },
+  "nav": {
+    "howItWorks": "How it works",
+    "blog": "Blog"
+  },
+  "howItWorksPage": {
+    "meta": {
+      "title": "How FamCal Works — Setup in 2 Minutes",
+      "description": "See how FamCal turns your family’s Google Calendars into a daily voice and text briefing on Telegram. Connect, label, and start getting organized."
+    },
+    "heroTitle": "How FamCal Works",
+    "heroSubtitle": "From zero to your first family briefing in under 2 minutes",
+    "setupTitle": "Setup",
+    "step1": {
+      "title": "Start the bot on Telegram",
+      "description": "Open @family_calendar_telegram_bot on Telegram and tap Start. That’s it — your account is created automatically. The bot detects your language and greets you in Hebrew, English, or Russian."
+    },
+    "step2": {
+      "title": "Connect your Google Calendar",
+      "description": "Tap ‘Open Dashboard’ and sign in with Google. FamCal gets read and write access to your calendars. Your tokens are stored encrypted — we never see your Google password.",
+      "note": "Takes about 30 seconds. Standard Google OAuth — same as any app you’ve connected before."
+    },
+    "step3": {
+      "title": "Label your calendars",
+      "description": "Pick which calendars to track and label them: mine, spouse, kids, work, holidays. Give your spouse’s calendar a name so summaries say ‘Maya has…’ instead of ‘Event on calendar 3.’ You can set custom AI rules per calendar too."
+    },
+    "dailyTitle": "Your new morning routine",
+    "daily": {
+      "summary": {
+        "icon": "☀️",
+        "title": "Morning summary arrives",
+        "description": "At the time you choose, FamCal sends your family’s complete daily schedule to Telegram. Text + voice."
+      },
+      "merged": {
+        "icon": "👨‍👩‍👧‍👦",
+        "title": "Everyone’s schedule, merged",
+        "description": "Your events, spouse’s events, each kid’s schedule — labeled and organized. No more switching between 7 calendars."
+      },
+      "pickup": {
+        "icon": "🚗",
+        "title": "Pickup order, sorted",
+        "description": "Kids’ events sorted by end time. You always know who finishes first and where to go."
+      },
+      "weather": {
+        "icon": "🌧️",
+        "title": "Weather that matters",
+        "description": "Not just a forecast — weather warnings tied to your actual schedule. ‘Rain at 15:00, bring umbrellas for pickup.’"
+      },
+      "voice": {
+        "icon": "🎙️",
+        "title": "Voice commands",
+        "description": "Need to add an event? Send a voice note. ‘Add dentist appointment for Thursday at 10.’ FamCal handles the rest — including recurring events."
+      },
+      "insights": {
+        "icon": "🔮",
+        "title": "AI insights",
+        "description": "FamCal spots conflicts, gaps, and logistics issues before they become problems. ‘You have back-to-back events at different locations at 14:00.’"
+      }
+    },
+    "noNeedTitle": "What you don’t need",
+    "noNeed": [
+      "No app to install — everything is in Telegram",
+      "No new calendar to maintain — FamCal reads your existing Google Calendar",
+      "No complex setup — 2 minutes and you’re done",
+      "No cost — free during early access"
+    ],
+    "ctaTitle": "Ready to try?",
+    "ctaSubtitle": "Free during early access · 2 minutes to set up"
   }
 }

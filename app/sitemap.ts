@@ -7,7 +7,8 @@ const baseUrl = 'https://famcal.bot';
 export default function sitemap(): MetadataRoute.Sitemap {
   const staticPages = [
     { path: '', changeFrequency: 'weekly' as const, priority: 1.0 },
-    { path: '/blog', changeFrequency: 'weekly' as const, priority: 0.8 },
+    { path: '/how-it-works', changeFrequency: 'monthly' as const, priority: 0.8 },
+    { path: '/blog', changeFrequency: 'weekly' as const, priority: 0.7 },
   ];
 
   const staticEntries = staticPages.flatMap((page) =>

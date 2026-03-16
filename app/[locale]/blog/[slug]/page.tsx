@@ -51,10 +51,16 @@ export default async function BlogPostPage({ params }: Props) {
 
   const t = await getTranslations({ locale, namespace: 'blog' });
   const tLanding = await getTranslations({ locale, namespace: 'landing' });
+  const tNav = await getTranslations({ locale, namespace: 'nav' });
+
+  const navLinks = [
+    { href: `/${locale}/how-it-works`, label: tNav('howItWorks') },
+    { href: `/${locale}/blog`, label: tNav('blog') },
+  ];
 
   return (
     <>
-      <SiteHeader locale={locale} ctaText={tLanding('header.startFree')} />
+      <SiteHeader locale={locale} ctaText={tLanding('header.startFree')} navLinks={navLinks} />
 
       <main className="mx-auto max-w-3xl px-6 py-16">
         {/* Back link */}

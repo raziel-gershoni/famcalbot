@@ -48,6 +48,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function LandingPage({ params }: Props) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: 'landing' });
+  const tNav = await getTranslations({ locale, namespace: 'nav' });
+
+  const navLinks = [
+    { href: `/${locale}/how-it-works`, label: tNav('howItWorks') },
+    { href: `/${locale}/blog`, label: tNav('blog') },
+  ];
 
   const features = [
     { key: 'voiceSummaries', icon: '🎧' },
@@ -107,7 +113,7 @@ export default async function LandingPage({ params }: Props) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLdOrg) }}
       />
 
-      <SiteHeader locale={locale} ctaText={t('header.startFree')} />
+      <SiteHeader locale={locale} ctaText={t('header.startFree')} navLinks={navLinks} />
 
       {/* ─── HERO ─── */}
       <section
