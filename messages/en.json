@@ -745,7 +745,8 @@
     "earlyAccess": {
       "title": "Free during early access",
       "subtitle": "All features. All languages. No credit card. Join now and help shape FamCal.",
-      "cta": "Start Free on Telegram →"
+      "cta": "Start Free on Telegram →",
+      "sharePrompt": "Know a busy parent? Share FamCal →"
     },
     "personalStory": {
       "quote": "I built FamCal because my wife and I have 5 kids and we were drowning in calendar chaos. Every morning was “wait, who has what today?” Now we just listen to a 30-second summary over coffee.",
@@ -758,7 +759,8 @@
       "terms": "Terms of Service",
       "contact": "Contact",
       "madeIn": "Made with ❤️ in Israel",
-      "copyright": "© 2025 FamCal"
+      "copyright": "© 2025 FamCal",
+      "share": "Share FamCal"
     }
   },
   "blog": {
@@ -768,5 +770,22 @@
     "backToBlog": "← Back to blog",
     "tryFamcal": "Try FamCal Free",
     "ctaText": "Start your family’s daily briefing on Telegram"
+  },
+  "share": {
+    "pageTitle": "Share FamCal",
+    "pageSubtitle": "Grab a ready-made message and share FamCal with parents who need it",
+    "messagesTitle": "Ready-made messages",
+    "shortLabel": "Quick share (1-on-1)",
+    "mediumLabel": "For parent groups",
+    "parentLabel": "For school groups",
+    "copied": "Copied!",
+    "qrTitle": "QR Code",
+    "qrSubtitle": "Print it, share it, stick it on the school bulletin board",
+    "downloadQr": "Download QR Code",
+    "botLinkTitle": "Bot Link",
+    "siteLinkTitle": "Website Link",
+    "msgShort": "Hey, check out FamCal — it’s a Telegram bot that reads your family’s Google Calendar every morning and sends you a voice + text summary. Who’s picking up which kid, what’s the schedule, weather warnings — all in 30 seconds. Free right now. famcal.bot",
+    "msgMedium": "Anyone else drowning in family calendar chaos? 😅 I found this Telegram bot called FamCal — you connect your Google Calendars and every morning it sends you a summary of everyone’s schedule. Best part: kids’ pickup order sorted by time, and you can listen to it as a voice message while getting ready. It’s free during early access → famcal.bot",
+    "msgParent": "For parents juggling multiple kids’ schedules — there’s a free Telegram bot that connects to your Google Calendar and sends you a daily briefing: who has what today, pickup order by time, weather at pickup time, and AI-detected conflicts. Works in Hebrew, English, and Russian. Check it out: famcal.bot"
   }
 }

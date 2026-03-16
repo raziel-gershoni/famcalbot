@@ -289,6 +289,11 @@ export default async function LandingPage({ params }: Props) {
             <TelegramIcon />
             {t('earlyAccess.cta')}
           </a>
+          <p className="mt-6">
+            <Link href={`/${locale}/share`} className="text-sm text-white/80 underline underline-offset-2 hover:text-white">
+              {t('earlyAccess.sharePrompt')}
+            </Link>
+          </p>
         </div>
       </section>
 
@@ -317,6 +322,7 @@ export default async function LandingPage({ params }: Props) {
         privacy={t('footer.privacy')}
         terms={t('footer.terms')}
         contact={t('footer.contact')}
+        share={t('footer.share')}
         madeIn={t('footer.madeIn')}
         copyright={t('footer.copyright')}
       />

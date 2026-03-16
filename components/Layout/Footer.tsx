@@ -7,6 +7,7 @@ interface FooterProps {
   privacy: string;
   terms: string;
   contact: string;
+  share?: string;
   madeIn: string;
   copyright: string;
 }
@@ -17,6 +18,7 @@ export default function Footer({
   privacy,
   terms,
   contact,
+  share,
   madeIn,
   copyright,
 }: FooterProps) {
@@ -44,6 +46,11 @@ export default function Footer({
             >
               {contact}
             </a>
+            {share && (
+              <Link href={`/${locale}/share`} className="text-white/60 transition-colors hover:text-white">
+                {share}
+              </Link>
+            )}
           </nav>
         </div>
         <div className="flex flex-col items-center justify-between gap-4 border-t border-white/10 pt-8 sm:flex-row">
