@@ -5,7 +5,7 @@
  */
 
 import { WeatherData } from '../../types';
-import { geocodeLocation } from './geocoding';
+import { fetchWithTimeout, geocodeLocation } from './geocoding';
 
 interface OpenMeteoResponse {
   current: {
@@ -74,7 +74,7 @@ export async function fetchWeather(
   console.log(`Fetching from Open-Meteo API...`);
 
   try {
-    const response = await fetch(url);
+    const response = await fetchWithTimeout(url);
 
     if (!response.ok) {
       throw new Error(`Open-Meteo API error: ${response.status}`);

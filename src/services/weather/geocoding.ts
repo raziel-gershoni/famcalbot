@@ -7,6 +7,21 @@
 
 import { Coordinates } from '../../types';
 
+/**
+ * Fetch with a timeout and one automatic retry on timeout.
+ * Default timeout: 5s (these APIs normally respond in 200-500ms).
+ */
+export async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 5000): Promise<Response> {
+  try {
+    return await fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'TimeoutError') {
+      return await fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
+    }
+    throw err;
+  }
+}
+
 export interface GeoLocation extends Coordinates {
   timezone: string;
 }
@@ -39,7 +54,7 @@ export async function geocodeLocation(location: string): Promise<GeoLocation> {
     const encodedLocation = encodeURIComponent(location);
     const url = `https://nominatim.openstreetmap.org/search?q=${encodedLocation}&format=json&limit=1`;
 
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       headers: {
         'User-Agent': 'FamilyCalendarBot/1.0'  // Required by Nominatim
       }
@@ -81,7 +96,7 @@ export async function geocodeLocation(location: string): Promise<GeoLocation> {
 async function getTimezoneFromCoords(latitude: number, longitude: number): Promise<string> {
   try {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m&timezone=auto`;
-    const response = await fetch(url);
+    const response = await fetchWithTimeout(url);
 
     if (!response.ok) {
       console.warn('Failed to get timezone from Open-Meteo, using default');
@@ -118,7 +133,7 @@ export async function getLocalizedLocationName(location: string, language: strin
   try {
     const encodedLocation = encodeURIComponent(location);
     const url = `https://nominatim.openstreetmap.org/search?q=${encodedLocation}&format=json&limit=1&addressdetails=1`;
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       headers: {
         'User-Agent': 'FamilyCalendarBot/1.0',
         'Accept-Language': language,
