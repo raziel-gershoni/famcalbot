@@ -1,24 +1,19 @@
 /**
  * Weather Infographic Generator
  * Uses satori (JSX -> SVG) + resvg (SVG -> PNG) for deterministic rendering.
- * Optional Gemini atmospheric background with gradient fallback.
  */
 
 import satori from 'satori';
 import { Resvg } from '@resvg/resvg-js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { getGemini } from '../ai-provider';
 import { WeatherData } from '../../types';
 import { detectSharav } from './sharav';
-import { getWeatherDescription } from './open-meteo';
 import { getLocalizedLocationName } from './geocoding';
 import { getWeatherIcon, getWindArrowIcon, getWindCalmIcon, getUvIcon } from './weather-icons';
 import bidiFactory from 'bidi-js';
 
 const bidi = bidiFactory();
-
-const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image-preview';
 const WIDTH = 1080;
 const HEIGHT = 1920;
 
@@ -162,7 +157,6 @@ function buildInfographicJsx(
   rows: RowData[],
   globalMin: number,
   globalMax: number,
-  hasGeminiBg: boolean,
 ): React.ReactElement {
   const [gradFrom, gradTo] = getBackgroundGradient(config.weather.current.weatherCode);
   const isRTL = config.language === 'he';
@@ -191,9 +185,7 @@ function buildInfographicJsx(
           left: 0,
           width: WIDTH,
           height: HEIGHT,
-          background: hasGeminiBg
-            ? 'rgba(0, 0, 0, 0.55)'
-            : `linear-gradient(180deg, ${gradFrom}, ${gradTo})`,
+          background: `linear-gradient(180deg, ${gradFrom}, ${gradTo})`,
         }}
       />
 
@@ -360,87 +352,6 @@ function buildInfographicJsx(
 }
 
 // ---------------------------------------------------------------------------
-// Gemini atmospheric background (optional, with timeout + fallback)
-// ---------------------------------------------------------------------------
-
-async function generateGeminiBackground(weatherCode: number): Promise<Buffer | null> {
-  const bgStartMs = Date.now();
-  try {
-    const condition = getWeatherDescription(weatherCode);
-    console.log('[Infographic] Gemini background: requesting', { model: GEMINI_IMAGE_MODEL, condition });
-
-    const result = await getGemini().models.generateContent({
-      model: GEMINI_IMAGE_MODEL,
-      contents: `Generate a dark, moody atmospheric background for a ${condition} weather day. Abstract, no text, no icons, no data. Subtle gradient, dark tones suitable for white text overlay. Portrait orientation.`,
-      config: {
-        responseModalities: ['TEXT', 'IMAGE'],
-        imageConfig: { aspectRatio: '9:16' },
-      },
-    });
-
-    const candidate = result.candidates?.[0];
-    const parts = candidate?.content?.parts;
-    const finishReason = candidate?.finishReason;
-
-    if (!parts || parts.length === 0) {
-      console.warn('[Infographic] Gemini background: no parts in response', {
-        finishReason,
-        hasCandidates: !!result.candidates?.length,
-        durationMs: Date.now() - bgStartMs,
-      });
-      return null;
-    }
-
-    for (const part of parts) {
-      if (part.inlineData?.data && part.inlineData.mimeType?.startsWith('image/')) {
-        const buffer = Buffer.from(part.inlineData.data, 'base64');
-        console.log('[Infographic] Gemini background: success', {
-          sizeKB: (buffer.length / 1024).toFixed(1),
-          mimeType: part.inlineData.mimeType,
-          durationMs: Date.now() - bgStartMs,
-        });
-        return buffer;
-      }
-      if (part.text) {
-        console.warn('[Infographic] Gemini background: got text instead of image', {
-          textPreview: part.text.slice(0, 200),
-          finishReason,
-          durationMs: Date.now() - bgStartMs,
-        });
-      }
-    }
-
-    console.warn('[Infographic] Gemini background: no image data in parts', {
-      partTypes: parts.map(p => p.inlineData ? `image/${p.inlineData.mimeType}` : p.text ? 'text' : 'unknown'),
-      finishReason,
-      durationMs: Date.now() - bgStartMs,
-    });
-    return null;
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    const errStatus = (err as { status?: number }).status;
-    console.warn('[Infographic] Gemini background: failed', {
-      error: errMsg,
-      status: errStatus,
-      durationMs: Date.now() - bgStartMs,
-    });
-    return null;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// SVG background injection
-// ---------------------------------------------------------------------------
-
-function injectBackground(svg: string, bgPng: Buffer): string {
-  const b64 = bgPng.toString('base64');
-  const imgTag = `<image href="data:image/png;base64,${b64}" width="${WIDTH}" height="${HEIGHT}" preserveAspectRatio="xMidYMid slice" />`;
-  // Insert after the first closing > of the <svg> tag
-  const firstClose = svg.indexOf('>');
-  return svg.slice(0, firstClose + 1) + imgTag + svg.slice(firstClose + 1);
-}
-
-// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
@@ -464,31 +375,14 @@ export async function generateWeatherInfographic(config: InfographicConfig): Pro
       } catch { /* keep English name */ }
     }
 
-    // Start Gemini background in parallel with gradient satori render
-    const bgPromise = generateGeminiBackground(config.weather.current.weatherCode);
-    const gradientJsx = buildInfographicJsx(config, rows, globalMin, globalMax, false);
+    const jsx = buildInfographicJsx(config, rows, globalMin, globalMax);
     const satoriStartMs = Date.now();
-    const gradientSvg = await satori(gradientJsx, { width: WIDTH, height: HEIGHT, fonts });
+    const svg = await satori(jsx, { width: WIDTH, height: HEIGHT, fonts });
     console.log('[Infographic] Satori render:', { durationMs: Date.now() - satoriStartMs });
-
-    // Wait for Gemini result
-    const bgBuffer = await bgPromise;
-
-    let finalSvg: string;
-    if (bgBuffer) {
-      // Re-render with transparent bg + dark overlay, then inject Gemini image
-      const overlayJsx = buildInfographicJsx(config, rows, globalMin, globalMax, true);
-      const overlaySvg = await satori(overlayJsx, { width: WIDTH, height: HEIGHT, fonts });
-      finalSvg = injectBackground(overlaySvg, bgBuffer);
-      console.log('[Infographic] Using Gemini background');
-    } else {
-      finalSvg = gradientSvg;
-      console.log('[Infographic] Using gradient fallback');
-    }
 
     // Render SVG -> PNG
     const resvgStartMs = Date.now();
-    const resvg = new Resvg(finalSvg, {
+    const resvg = new Resvg(svg, {
       fitTo: { mode: 'width', value: WIDTH },
     });
     const pngBuffer = resvg.render().asPng();
@@ -498,7 +392,6 @@ export async function generateWeatherInfographic(config: InfographicConfig): Pro
     console.log('[Infographic] Generated successfully:', {
       sizeKB: (pngBuffer.length / 1024).toFixed(1),
       durationMs: elapsed,
-      hasGeminiBg: !!bgBuffer,
     });
 
     return Buffer.from(pngBuffer);
