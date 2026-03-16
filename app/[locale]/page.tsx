@@ -56,8 +56,55 @@ export default async function LandingPage({ params }: Props) {
     { key: 'familyView', icon: '👨‍👩‍👧‍👦' },
   ] as const;
 
+  const jsonLdApp = {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: 'FamCal',
+    applicationCategory: 'LifestyleApplication',
+    operatingSystem: 'Telegram',
+    description:
+      'AI-powered family calendar assistant that merges Google Calendars into daily briefings on Telegram with voice summaries, smart pickup order, and Hebrew calendar support.',
+    url: 'https://famcal.bot',
+    author: { '@type': 'Person', name: 'Raziel' },
+    offers: {
+      '@type': 'Offer',
+      price: '0',
+      priceCurrency: 'USD',
+      description: 'Free during early access',
+    },
+    featureList: [
+      'Voice daily schedule summaries',
+      'Voice event creation and management',
+      'Smart kids pickup order',
+      'Context-aware weather integration',
+      'Hebrew calendar with gematriya',
+      'Multilingual support (Hebrew, English, Russian)',
+      'Google Calendar integration',
+      'AI conflict detection',
+    ],
+    inLanguage: ['he', 'en', 'ru'],
+  };
+
+  const jsonLdOrg = {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: 'FamCal',
+    url: 'https://famcal.bot',
+    logo: 'https://famcal.bot/icon.png',
+  };
+
   return (
     <>
+      {/* ─── JSON-LD STRUCTURED DATA ─── */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLdApp) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLdOrg) }}
+      />
+
       {/* ─── STICKY HEADER ─── */}
       <header className="sticky top-0 z-50 backdrop-blur-md bg-white/80 border-b border-gray-100">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
@@ -280,7 +327,7 @@ export default async function LandingPage({ params }: Props) {
         <div className="mx-auto max-w-2xl text-center">
           <Image src="/icon.png" alt="FamCal" width={48} height={48} className="mx-auto mb-6 rounded-xl" />
           <blockquote className="mb-6 text-lg leading-relaxed italic text-text-secondary sm:text-xl">
-            &ldquo;{t('personalStory.quote', { childrenCount: '5' })}&rdquo;
+            &ldquo;{t('personalStory.quote')}&rdquo;
           </blockquote>
           <p className="mb-4 font-semibold text-text-primary">
             — {t('personalStory.author')}
