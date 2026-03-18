@@ -55,14 +55,6 @@ function isDesertWindDirection(degrees: number): boolean {
 }
 
 /**
- * Weather codes compatible with sharav conditions:
- * 0–3 (clear/cloudy), 45/48 (fog — dust haze can appear as fog)
- */
-function isSharavWeatherCode(code: number): boolean {
-  return (code >= 0 && code <= 3) || code === 45 || code === 48;
-}
-
-/**
  * Detect the hour when sharav conditions ease (humidity rises above 40%).
  * Only meaningful for today (dayIndex 0) and tomorrow (dayIndex 1).
  */
@@ -91,7 +83,6 @@ function detectSharavBreakHour(
  *  - tempMax >= monthlyAvg + 5°C (anomaly criterion)
  *  - wind direction 90°–225° (E through SW)
  *  - average daytime humidity < 40%
- *  - weather code: clear/cloudy/fog
  *
  * Severity based on anomaly: mild 5–8°C, moderate 8–12°C, severe >12°C
  */
@@ -113,7 +104,6 @@ export function detectSharav(weather: WeatherData): SharavDay[] {
 
     if (anomaly < 5) continue;
     if (!isDesertWindDirection(day.windDirection)) continue;
-    if (!isSharavWeatherCode(day.weatherCode)) continue;
 
     const avgHumidity = computeDaytimeHumidity(hourly, day.date);
     if (avgHumidity >= 40) continue;
