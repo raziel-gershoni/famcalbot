@@ -95,9 +95,9 @@ function getSharavLabel(language: string, breakHour?: number): string {
   const label = labels[language] || labels.en;
   if (breakHour == null) return label;
   const time = `${breakHour}:00`;
-  if (language === 'he') return `${label} (עד ${time})`;
-  if (language === 'ru') return `${label} (до ${time})`;
-  return `${label} (until ${time})`;
+  if (language === 'he') return `${label} עד ${time}`;
+  if (language === 'ru') return `${label} до ${time}`;
+  return `${label} till ${time}`;
 }
 
 /** UV index color by danger level (WHO scale) */
