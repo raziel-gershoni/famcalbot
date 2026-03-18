@@ -14,6 +14,7 @@ export interface SharavDay {
   avgHumidity: number;
   windDirectionLabel: string;
   anomaly: number;
+  sharavBreakHour?: number;
 }
 
 /**
@@ -62,6 +63,28 @@ function isSharavWeatherCode(code: number): boolean {
 }
 
 /**
+ * Detect the hour when sharav conditions ease (humidity rises above 40%).
+ * Only meaningful for today (dayIndex 0) and tomorrow (dayIndex 1).
+ */
+function detectSharavBreakHour(
+  hourly: NonNullable<WeatherData['hourly']>,
+  dayDate: string
+): number | null {
+  for (let i = 0; i < hourly.time.length; i++) {
+    const timeStr = hourly.time[i];
+    if (!timeStr.startsWith(dayDate)) continue;
+
+    const hour = new Date(timeStr).getHours();
+    if (hour < 12) continue; // Only scan from noon onward
+
+    if (hourly.humidity[i] >= 40) {
+      return hour;
+    }
+  }
+  return null;
+}
+
+/**
  * Detect sharav days from weather data.
  * Criteria per day:
  *  - tempMax >= 27°C (IMS absolute minimum)
@@ -106,6 +129,7 @@ export function detectSharav(weather: WeatherData): SharavDay[] {
       avgHumidity,
       windDirectionLabel: getWindDirectionLabel(day.windDirection),
       anomaly,
+      sharavBreakHour: i <= 1 ? detectSharavBreakHour(hourly, day.date) ?? undefined : undefined,
     });
   }
 

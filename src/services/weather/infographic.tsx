@@ -89,6 +89,17 @@ function getSharavBg(severity: string): string | undefined {
   return undefined;
 }
 
+/** Get localized sharav label with optional break hour */
+function getSharavLabel(language: string, breakHour?: number): string {
+  const labels: Record<string, string> = { he: 'שרב', en: 'Sharav', ru: 'Шарав' };
+  const label = labels[language] || labels.en;
+  if (breakHour == null) return label;
+  const time = `${breakHour}:00`;
+  if (language === 'he') return `${label} (עד ${time})`;
+  if (language === 'ru') return `${label} (до ${time})`;
+  return `${label} (until ${time})`;
+}
+
 /** UV index color by danger level (WHO scale) */
 function getUvColor(uv: number): string {
   if (uv <= 2) return '#4caf50';   // Low — green
@@ -172,6 +183,7 @@ interface RowData {
   uvIndex: string;
   humidity: string;
   sharavSeverity?: string;
+  sharavBreakHour?: number;
 }
 
 function computeRows(config: InfographicConfig): { rows: RowData[]; globalMin: number; globalMax: number } {
@@ -190,6 +202,7 @@ function computeRows(config: InfographicConfig): { rows: RowData[]; globalMin: n
     uvIndex: `${d.uvIndexMax}`,
     humidity: `${Math.round(d.humidity)}%`,
     sharavSeverity: sharavByDate.get(d.date)?.severity,
+    sharavBreakHour: sharavByDate.get(d.date)?.sharavBreakHour,
   }));
 
   const globalMin = Math.min(...rows.map(r => r.tempMin)) - 2;
@@ -387,19 +400,31 @@ function buildInfographicJsx(
                   ...(sharavBg ? { background: sharavBg } : {}),
                 }}
               >
-                {/* Day label + optional sharav flame */}
+                {/* Day label + optional sharav badge below */}
                 <div
                   style={{
                     display: 'flex',
-                    alignItems: 'center',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
                     width: 150,
-                    fontSize: 38,
-                    fontWeight: 700,
-                    gap: 4,
                   }}
                 >
-                  {row.sharavSeverity && getWeatherIcon(-1, 28, '#ff6b35')}
-                  <div style={{ display: 'flex' }}>{isRTL ? toVisualOrder(row.label) : row.label}</div>
+                  <div style={{ display: 'flex', fontSize: 38, fontWeight: 700 }}>
+                    {isRTL ? toVisualOrder(row.label) : row.label}
+                  </div>
+                  {row.sharavSeverity && (
+                    <div style={{
+                      display: 'flex',
+                      fontSize: 20,
+                      fontWeight: 700,
+                      color: '#ff6b35',
+                      marginTop: -2,
+                    }}>
+                      {isRTL
+                        ? toVisualOrder(getSharavLabel(config.language, row.sharavBreakHour))
+                        : getSharavLabel(config.language, row.sharavBreakHour)}
+                    </div>
+                  )}
                 </div>
 
                 {/* Detail columns: condition | wind | UV */}

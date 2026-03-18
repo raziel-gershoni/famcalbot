@@ -67,7 +67,8 @@ export async function fetchWeather(
     hourly: 'temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m,relative_humidity_2m,wind_direction_10m',
     daily: 'temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code,wind_speed_10m_max,wind_direction_10m_dominant,sunrise,sunset,uv_index_max,relative_humidity_2m_mean',
     timezone: timezone,
-    forecast_days: '16'
+    forecast_days: '16',
+    past_hours: '24'
   });
 
   const url = `https://api.open-meteo.com/v1/forecast?${params.toString()}`;
