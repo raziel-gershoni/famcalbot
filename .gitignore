@@ -27,10 +27,6 @@ npm-debug.log*
 .vercel
 *.backup
 
-# BMAD
-_bmad/
-_bmad-output/
-
 # TTS service
 tts-service/node_modules/
 tts-service/.vercel
