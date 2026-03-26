@@ -4,7 +4,8 @@
  */
 
 import { UserConfig } from '../../types';
-import { IMessagingService } from '../messaging';
+import { IMessagingService, MessagingPlatform, MessageFormat } from '../messaging';
+import { getMessagingService as getMessagingServiceByPlatform } from '../messaging';
 import { sendAnimatedProgress } from '../progress-message';
 import { getBot, getMessagingService } from './bot';
 import { trackActivityAsync } from '../analytics-service';
@@ -22,21 +23,24 @@ import type { VoiceCondenserContext } from '../../prompts/voice-condenser';
  * Non-blocking - errors logged but don't affect text summary delivery
  */
 export async function sendVoiceMessage(
-  userId: number,
+  chatId: number | string,
   summary: string,
   user: UserConfig,
   service?: IMessagingService,
-  showProgress: boolean = true
+  showProgress: boolean = true,
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM
 ): Promise<void> {
   let voiceFilePath: string | null = null;
-  const msgService = service || getMessagingService();
+  const msgService = service || (platform === MessagingPlatform.WHATSAPP
+    ? getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP)
+    : getMessagingService());
   const userLanguage = user.language || 'en';
 
   // Send animated hourglass progress (if enabled)
   let messageId: number | string | null = null;
 
   if (showProgress) {
-    messageId = await sendAnimatedProgress(userId, 'voice', userLanguage, msgService);
+    messageId = await sendAnimatedProgress(chatId, 'voice', userLanguage, msgService);
   }
 
   try {
@@ -44,15 +48,13 @@ export async function sendVoiceMessage(
     const { buildVoiceCondenserPrompt } = await import('../../prompts/voice-condenser');
     const { generateAICompletion } = await import('../ai-provider');
 
-    console.log(`[Voice] Generating voice message for user ${userId}...`);
+    console.log(`[Voice] Generating voice message for user ${chatId}...`);
 
-    // Extract spouse name from calendar assignments
     const spouseCalendar = user.calendarAssignments?.find(cal =>
       cal.labels.includes('spouse')
     );
     const spouseName = spouseCalendar?.personName;
 
-    // Check if user has kids calendars
     const hasKidsCalendars = user.calendarAssignments?.some(cal =>
       cal.labels.includes('kids')
     ) ?? false;
@@ -80,49 +82,45 @@ export async function sendVoiceMessage(
     const { ttsMs, ttsModel, voiceName } = ttsResult;
 
     // Delete progress message
-    if (messageId) await msgService.deleteMessage(userId, messageId);
+    if (messageId) await msgService.deleteMessage(chatId, messageId);
 
-    // Send as voice message to Telegram with optional admin caption
-    const botInstance = getBot();
+    // Send voice via platform-agnostic service
+    await msgService.sendVoice(chatId, voiceFilePath!);
+
+    // Send admin caption as separate text (WhatsApp doesn't support captions on audio)
     const caption = formatVoiceCaption(condensedResult, ttsMs, ttsModel, user.isAdmin, voiceName);
-    await botInstance.sendVoice(userId, voiceFilePath!, {
-      ...(caption && { caption, parse_mode: 'HTML' as const }),
-    }, {
-      contentType: 'audio/ogg'
-    });
+    if (caption && user.isAdmin) {
+      await msgService.sendMessage(chatId, caption, { format: MessageFormat.HTML });
+    }
 
-    // Track voice summary generated and increment usage (use internal DB user.id)
     trackActivityAsync(user.id, 'voice_summary_generated', {
-      duration_seconds: Math.ceil(condensedText.length / 15), // ~15 chars/sec speech rate
+      duration_seconds: Math.ceil(condensedText.length / 15),
     });
     incrementUsage(user.id, 'voiceSummaries').catch(err =>
       console.error('[Subscription] Failed to increment voice usage:', err)
     );
 
-    console.log(`[Voice] Voice message sent successfully to user ${userId}`);
+    console.log(`[Voice] Voice message sent successfully to user ${chatId}`);
   } catch (error) {
-    console.error(`[Voice] Voice generation failed for user ${userId}:`, error);
+    console.error(`[Voice] Voice generation failed for user ${chatId}:`, error);
 
-    // Replace progress message with friendly error instead of deleting
     if (messageId) {
       try {
         const { getBotMessages } = await import('../../lib/bot-messages');
         const t = await getBotMessages(userLanguage);
         const errorText = t.errors?.voiceGenerationFailed || 'Voice message unavailable — your text summary is above.';
-        await msgService.updateMessage(userId, messageId, errorText);
+        await msgService.updateMessage(chatId, messageId, errorText);
       } catch (updateErr) {
         console.error('[Voice] Failed to update progress with error:', updateErr);
       }
     }
 
-    // Notify admin but don't interrupt user experience
     const { notifyAdminWarning } = await import('../../utils/error-notifier');
     await notifyAdminWarning(
       'Voice Generation',
       `Failed to generate voice message:\n${error instanceof Error ? error.message : 'Unknown error'}\n\nText summary was delivered successfully.`
     );
   } finally {
-    // Always attempt cleanup
     if (voiceFilePath) {
       const { cleanupVoiceFile } = await import('../voice-generator');
       await cleanupVoiceFile(voiceFilePath).catch(err =>
@@ -137,38 +135,37 @@ export async function sendVoiceMessage(
  * Uses weekly-specific TTS prompts via single Gemini call
  */
 export async function sendWeeklyVoiceMessage(
-  userId: number,
+  chatId: number | string,
   summary: string,
   user: UserConfig,
   isNextWeek: boolean = false,
-  service?: IMessagingService
+  service?: IMessagingService,
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM
 ): Promise<void> {
   let voiceFilePath: string | null = null;
-  const msgService = service || getMessagingService();
+  const msgService = service || (platform === MessagingPlatform.WHATSAPP
+    ? getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP)
+    : getMessagingService());
   const userLanguage = user.language || 'en';
 
-  // Send animated hourglass progress
-  const messageId = await sendAnimatedProgress(userId, 'voice', userLanguage, msgService);
+  const messageId = await sendAnimatedProgress(chatId, 'voice', userLanguage, msgService);
 
   try {
     const { generateVoiceMessage } = await import('../voice-generator');
     const { buildWeeklyVoiceCondenserPrompt } = await import('../../prompts/voice-condenser');
     const { generateAICompletion } = await import('../ai-provider');
 
-    console.log(`[Voice] Generating weekly voice message for user ${userId}...`);
+    console.log(`[Voice] Generating weekly voice message for user ${chatId}...`);
 
-    // Extract spouse name from calendar assignments
     const spouseCalendar = user.calendarAssignments?.find(cal =>
       cal.labels.includes('spouse')
     );
     const spouseName = spouseCalendar?.personName;
 
-    // Check if user has kids calendars
     const hasKidsCalendars = user.calendarAssignments?.some(cal =>
       cal.labels.includes('kids')
     ) ?? false;
 
-    // Step 1: Condense summary via LLM
     const condenserContext: VoiceCondenserContext = {
       summary,
       locale: userLanguage,
@@ -185,46 +182,41 @@ export async function sendWeeklyVoiceMessage(
 
     console.log(`[Voice] Weekly summary condensed: ${summary.length} → ${condensedText.length} chars`);
 
-    // Step 2: Generate voice from condensed text
     const ttsResult = await generateVoiceMessage(condensedText, userLanguage, user.voicePreference);
     voiceFilePath = ttsResult.filePath;
 
     const { ttsMs, ttsModel, voiceName } = ttsResult;
 
-    // Delete progress message before sending voice
-    await msgService.deleteMessage(userId, messageId);
+    await msgService.deleteMessage(chatId, messageId);
 
-    // Send as voice message to Telegram with optional admin caption
-    const botInstance = getBot();
+    // Send voice via platform-agnostic service
+    await msgService.sendVoice(chatId, voiceFilePath!);
+
+    // Send admin caption as separate text
     const caption = formatVoiceCaption(condensedResult, ttsMs, ttsModel, user.isAdmin, voiceName);
-    await botInstance.sendVoice(userId, voiceFilePath!, {
-      ...(caption && { caption, parse_mode: 'HTML' as const }),
-    }, {
-      contentType: 'audio/ogg'
-    });
+    if (caption && user.isAdmin) {
+      await msgService.sendMessage(chatId, caption, { format: MessageFormat.HTML });
+    }
 
-    console.log(`[Voice] Weekly voice message sent successfully to user ${userId}`);
+    console.log(`[Voice] Weekly voice message sent successfully to user ${chatId}`);
   } catch (error) {
-    console.error(`[Voice] Weekly voice generation failed for user ${userId}:`, error);
+    console.error(`[Voice] Weekly voice generation failed for user ${chatId}:`, error);
 
-    // Replace progress message with friendly error instead of deleting
     try {
       const { getBotMessages } = await import('../../lib/bot-messages');
       const t = await getBotMessages(userLanguage);
       const errorText = t.errors?.voiceGenerationFailed || 'Voice message unavailable — your text summary is above.';
-      await msgService.updateMessage(userId, messageId, errorText);
+      await msgService.updateMessage(chatId, messageId, errorText);
     } catch (updateErr) {
       console.error('[Voice] Failed to update progress with error:', updateErr);
     }
 
-    // Notify admin but don't interrupt user experience
     const { notifyAdminWarning } = await import('../../utils/error-notifier');
     await notifyAdminWarning(
       'Weekly Voice Generation',
       `Failed to generate weekly voice message:\n${error instanceof Error ? error.message : 'Unknown error'}\n\nText summary was delivered successfully.`
     );
   } finally {
-    // Always attempt cleanup
     if (voiceFilePath) {
       const { cleanupVoiceFile } = await import('../voice-generator');
       await cleanupVoiceFile(voiceFilePath).catch(err =>

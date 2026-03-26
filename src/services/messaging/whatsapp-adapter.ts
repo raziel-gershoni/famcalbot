@@ -37,12 +37,54 @@ export class WhatsAppAdapter implements IMessagingService {
       : text;
 
     const url = `${this.apiUrl}/messages`;
-    const body = {
-      messaging_product: 'whatsapp',
-      to: chatId.toString(),
-      type: 'text',
-      text: { body: formattedText },
-    };
+
+    // Build message body based on options
+    let body: Record<string, unknown>;
+
+    if (options?.whatsappButtons && options.whatsappButtons.length > 0) {
+      // Interactive reply buttons (max 3)
+      body = {
+        messaging_product: 'whatsapp',
+        to: chatId.toString(),
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: { text: formattedText },
+          action: {
+            buttons: options.whatsappButtons.slice(0, 3).map(btn => ({
+              type: 'reply',
+              reply: { id: btn.id, title: btn.title.slice(0, 20) },
+            })),
+          },
+        },
+      };
+    } else if (options?.whatsappUrlButton) {
+      // CTA URL button
+      body = {
+        messaging_product: 'whatsapp',
+        to: chatId.toString(),
+        type: 'interactive',
+        interactive: {
+          type: 'cta_url',
+          body: { text: formattedText },
+          action: {
+            name: 'cta_url',
+            parameters: {
+              display_text: options.whatsappUrlButton.text,
+              url: options.whatsappUrlButton.url,
+            },
+          },
+        },
+      };
+    } else {
+      // Plain text message
+      body = {
+        messaging_product: 'whatsapp',
+        to: chatId.toString(),
+        type: 'text',
+        text: { body: formattedText },
+      };
+    }
 
     try {
       const response = await this.makeRequest(url, body);

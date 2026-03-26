@@ -94,6 +94,8 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
       user: {
         select: {
           telegramId: true,
+          whatsappPhone: true,
+          messagingPlatform: true,
           language: true,
           name: true,
         },
@@ -116,15 +118,16 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
 
   for (const sub of subscriptions) {
     const telegramId = sub.user.telegramId;
+    const whatsappPhone = sub.user.whatsappPhone;
 
-    // Skip users without Telegram ID
-    if (!telegramId) {
-      console.log(`[Subscription Reminders] Skipping user ${sub.userId} - no Telegram ID`);
+    // Skip users without any messaging channel
+    if (!telegramId && !whatsappPhone) {
+      console.log(`[Subscription Reminders] Skipping user ${sub.userId} - no messaging channel`);
       continue;
     }
 
-    // Skip if already sent for this billing period
-    if (await hasReminderBeenSent(telegramId, sub.currentPeriodEnd!, reminderType)) {
+    // Skip if already sent for this billing period (use userId for dedup)
+    if (await hasReminderBeenSent(telegramId || String(sub.userId), sub.currentPeriodEnd!, reminderType)) {
       continue;
     }
 
@@ -132,7 +135,7 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
     const t = await getSubscriptionMessages(locale);
     const planConfig = PLAN_CONFIGS[sub.plan as PlanId];
     const usage = usageMap.get(sub.userId);
-    const subscriptionUrl = buildUrl(`/${locale}/subscription?user_id=${telegramId}`);
+    const subscriptionUrl = buildUrl(`/${locale}/subscription?user_id=${sub.userId}`);
 
     // Compute per-user days left
     const userDaysLeft = Math.max(0, Math.ceil(
@@ -180,24 +183,37 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
       : (t.reminders?.lastDay?.button || '\uD83D\uDCAB Renew for \u2B50{price}').replace('{price}', String(planConfig.priceStars));
 
     try {
-      const chatId = String(telegramId);
-      await service.sendMessage(chatId, message, {
-        format: MessageFormat.HTML,
-        replyMarkup: {
-          inline_keyboard: [[
-            { text: buttonText, web_app: { url: subscriptionUrl } },
-          ]],
-        },
-      });
+      // Send to Telegram if available
+      if (telegramId) {
+        const chatId = String(telegramId);
+        await service.sendMessage(chatId, message, {
+          format: MessageFormat.HTML,
+          replyMarkup: {
+            inline_keyboard: [[
+              { text: buttonText, web_app: { url: subscriptionUrl } },
+            ]],
+          },
+        });
+      }
 
-      await markReminderSent(telegramId, sub.currentPeriodEnd!, reminderType);
+      // Send to WhatsApp if available and user prefers it
+      if (whatsappPhone && (!telegramId || sub.user.messagingPlatform === 'whatsapp' || sub.user.messagingPlatform === 'all')) {
+        const { getWhatsAppService } = await import('./messaging/factory');
+        const waService = getWhatsAppService();
+        await waService.sendMessage(whatsappPhone, message, {
+          format: MessageFormat.HTML,
+          whatsappUrlButton: { text: buttonText, url: subscriptionUrl },
+        });
+      }
+
+      await markReminderSent(telegramId || String(sub.userId), sub.currentPeriodEnd!, reminderType);
       await trackActivity(sub.userId, 'subscription_reminder_sent', {
         type: reminderType,
         plan: sub.plan,
         days_left: userDaysLeft,
       });
 
-      console.log(`[Subscription Reminders] Sent ${reminderType} reminder to user ${chatId}`);
+      console.log(`[Subscription Reminders] Sent ${reminderType} reminder to user ${sub.userId}`);
     } catch (error) {
       captureError(error, 'subscription-reminder-send', {
         user_id: sub.userId,
@@ -230,6 +246,8 @@ async function expireSubscriptions(): Promise<void> {
       user: {
         select: {
           telegramId: true,
+          whatsappPhone: true,
+          messagingPlatform: true,
           language: true,
           name: true,
         },
@@ -270,7 +288,7 @@ async function expireSubscriptions(): Promise<void> {
     const locale = sub.user.language || 'en';
     const t = await getSubscriptionMessages(locale);
     const planConfig = PLAN_CONFIGS[previousPlan as PlanId];
-    const subscriptionUrl = buildUrl(`/${locale}/subscription?user_id=${telegramId}`);
+    const subscriptionUrl = buildUrl(`/${locale}/subscription?user_id=${sub.userId}`);
 
     const message = [
       t.reminders?.expired?.title || '\uD83D\uDCC5 Your FamCal subscription has ended',

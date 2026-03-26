@@ -253,7 +253,7 @@ export async function handleVoiceMessage(
     if (!user.voiceInputEnabled) {
       console.log(`[Voice] Voice input disabled for user ${userId}, sending settings prompt`);
       const bot = getBot();
-      const settingsUrl = buildUrl(`/${user.language || 'en'}/settings?user_id=${userId}`);
+      const settingsUrl = buildUrl(`/${user.language || 'en'}/settings?user_id=${user.id}`);
       await bot.sendMessage(chatId, t.voice.featureDisabled, {
         parse_mode: 'HTML',
         reply_markup: {
@@ -269,7 +269,7 @@ export async function handleVoiceMessage(
     if (!voiceEventAccess.allowed) {
       console.log(`[Voice] Voice events not available for user ${userId}, reason: ${voiceEventAccess.reason}`);
       const bot = getBot();
-      const upgradeUrl = buildUrl(`/${user.language || 'en'}/subscription?user_id=${userId}`);
+      const upgradeUrl = buildUrl(`/${user.language || 'en'}/subscription?user_id=${user.id}`);
       const upgradeMessage = t.subscription?.voiceEventsRequired
         || '⭐ <b>Voice event creation is a Pro feature</b>\n\nUpgrade to Pro to create calendar events using voice messages!';
 

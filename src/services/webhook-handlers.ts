@@ -224,7 +224,8 @@ export async function handleWhatsAppWebhook(
 
   const message = messages[0];
   const rawPhone = message.from;
-  const text = message.text?.body;
+  // Support both text messages and interactive button replies
+  const text = message.text?.body || message.interactive?.button_reply?.id;
 
   if (!rawPhone || !text) {
     res.status(200).json({ ok: true });
@@ -304,7 +305,9 @@ export async function handleWhatsAppWebhook(
     if (lowerText === 'settings' || lowerText === 'setup') {
       const { generateMagicLink } = await import('./magic-link');
       const link = await generateMagicLink(user.id, user.language || 'en');
-      await waService.sendMessage(from, `Open your settings:\n${link}\n\n_Link expires in 5 minutes_`);
+      await waService.sendMessage(from, 'Open your settings (link expires in 5 minutes):', {
+        whatsappUrlButton: { text: 'Open Settings', url: link },
+      });
       res.status(200).json({ ok: true });
       return;
     }
@@ -313,11 +316,15 @@ export async function handleWhatsAppWebhook(
     const commandUserId = from;
     const tgId = user.telegramId;
 
-    if (lowerText === 'start') {
-      // For existing users, just send available commands
-      if (!isNewUser) {
-        await waService.sendMessage(from, 'Available commands:\n• *summary* — Today\'s calendar\n• *summary tmrw* — Tomorrow\n• *weather* — Weather forecast\n• *settings* — Open settings');
-      }
+    if (lowerText === 'start' || lowerText === 'help') {
+      // Send available commands with reply buttons
+      await waService.sendMessage(from, 'What would you like?', {
+        whatsappButtons: [
+          { id: 'summary', title: '📅 Today' },
+          { id: 'summary tmrw', title: '📅 Tomorrow' },
+          { id: 'weather', title: '🌤 Weather' },
+        ],
+      });
       if (tgId) await notifyTelegramAboutWhatsApp(tgId, 'start');
     } else if (lowerText.startsWith('summary')) {
       const args = lowerText.replace('summary', '').trim();
@@ -327,8 +334,19 @@ export async function handleWhatsAppWebhook(
       const args = lowerText.replace('weather', '').trim();
       await handleWeatherCommand(from, commandUserId, MessagingPlatform.WHATSAPP, args || undefined);
       if (tgId) await notifyTelegramAboutWhatsApp(tgId, 'weather');
+    } else if (lowerText === 'lookahead' || lowerText === 'week') {
+      const { handleLookaheadCommand } = await import('./telegram');
+      await handleLookaheadCommand(from, commandUserId, MessagingPlatform.WHATSAPP);
+      if (tgId) await notifyTelegramAboutWhatsApp(tgId, 'lookahead');
+    } else if (lowerText === 'nextweek') {
+      const { handleNextWeekCommand } = await import('./telegram');
+      await handleNextWeekCommand(from, commandUserId, MessagingPlatform.WHATSAPP);
+      if (tgId) await notifyTelegramAboutWhatsApp(tgId, 'nextweek');
+    } else if (lowerText.startsWith('feedback ')) {
+      const feedbackText = text.replace(/^feedback\s+/i, '').trim();
+      await handleFeedbackCommand(from, commandUserId, feedbackText);
+      if (tgId) await notifyTelegramAboutWhatsApp(tgId, 'feedback');
     } else if (!isNewUser && !lowerText.startsWith('link ')) {
-      // Unknown command for existing users
       console.log(`[WhatsApp] Unknown command: ${text}`);
     }
   } catch (error) {

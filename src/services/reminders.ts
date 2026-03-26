@@ -8,7 +8,7 @@ import { Redis } from '@upstash/redis';
 import { CalendarEvent, CalendarAssignment, UserConfig } from '../types';
 import { fetchTodayEvents } from './calendar';
 import { getBot } from './telegram';
-import { getTelegramService } from './messaging/factory';
+import { getTelegramService, getWhatsAppService } from './messaging/factory';
 import { MessageFormat } from './messaging/types';
 import { format } from 'date-fns';
 import { trackActivityAsync } from './analytics-service';
@@ -262,20 +262,30 @@ export async function sendReminder(
   reminder: DueReminder,
   timezone?: string
 ): Promise<boolean> {
-  // Reminders currently only sent via Telegram
-  if (!user.telegramId) {
-    console.log(`[Reminders] Skipping reminder for WA-only user ${user.id} (no telegramId)`);
-    return false;
-  }
+  const platform = user.messagingPlatform || 'telegram';
+  const message = formatReminderMessage(reminder, user.language, timezone);
+  let sent = false;
 
   try {
-    const bot = getBot();
-    const service = getTelegramService(bot);
-    const message = formatReminderMessage(reminder, user.language, timezone);
+    // Send to Telegram if applicable
+    if ((platform === 'telegram' || platform === 'all') && user.telegramId) {
+      const bot = getBot();
+      const service = getTelegramService(bot);
+      await service.sendMessage(user.telegramId, message, { format: MessageFormat.HTML });
+      sent = true;
+    }
 
-    await service.sendMessage(user.telegramId, message, {
-      format: MessageFormat.HTML,
-    });
+    // Send to WhatsApp if applicable
+    if ((platform === 'whatsapp' || platform === 'all') && user.whatsappPhone) {
+      const waService = getWhatsAppService();
+      await waService.sendMessage(user.whatsappPhone, message, { format: MessageFormat.HTML });
+      sent = true;
+    }
+
+    if (!sent) {
+      console.log(`[Reminders] No delivery channel for user ${user.id}`);
+      return false;
+    }
 
     // Mark as sent
     const dateStr = format(new Date(), 'yyyy-MM-dd');
@@ -283,7 +293,6 @@ export async function sendReminder(
       await markReminderSent(user.id, reminder.event.eventId, reminder.type, dateStr);
     }
 
-    // Track reminder sent and increment usage
     trackActivityAsync(user.id, 'reminder_sent', {
       reminder_type: reminder.type,
       minutes_before: getReminderMinutes(reminder.event, user.defaultReminderMinutes ?? undefined).minutes,
@@ -292,10 +301,10 @@ export async function sendReminder(
       console.error('[Subscription] Failed to increment reminders:', err)
     );
 
-    console.log(`[Reminders] Sent ${reminder.type} reminder to user ${user.telegramId} for event: ${reminder.event.summary}`);
+    console.log(`[Reminders] Sent ${reminder.type} reminder to user ${user.id} for event: ${reminder.event.summary}`);
     return true;
   } catch (error) {
-    console.error(`[Reminders] Error sending reminder to user ${user.telegramId}:`, error);
+    console.error(`[Reminders] Error sending reminder to user ${user.id}:`, error);
     return false;
   }
 }

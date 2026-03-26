@@ -707,12 +707,10 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     }
 
     const tVoice = Date.now();
-    // Voice is Telegram-only for now
-    if (typeof userId === 'number') {
-      sendVoiceMessage(userId, summary, user).catch(err =>
-        console.error(`[Delivery] Voice generation failed for user ${userId}:`, err)
-      );
-    }
+    const voicePlatform = targetPlatform === 'whatsapp' ? MessagingPlatform.WHATSAPP : MessagingPlatform.TELEGRAM;
+    sendVoiceMessage(userId, summary, user, undefined, true, voicePlatform).catch(err =>
+      console.error(`[Delivery] Voice generation failed for user ${userId}:`, err)
+    );
     voiceDispatchMs = Date.now() - tVoice;
   }
 

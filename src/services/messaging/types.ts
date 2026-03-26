@@ -43,10 +43,31 @@ export interface UserContext {
 /**
  * Message options for sending messages
  */
+/**
+ * WhatsApp reply button (up to 3 per message)
+ */
+export interface WhatsAppReplyButton {
+  id: string;     // Returned as interactive.button_reply.id when tapped
+  title: string;  // Button label (max 20 chars)
+}
+
+/**
+ * WhatsApp CTA URL button
+ */
+export interface WhatsAppUrlButton {
+  text: string;   // Button label
+  url: string;    // URL to open
+}
+
+/**
+ * Message options for sending messages
+ */
 export interface MessageOptions {
   format?: MessageFormat;
   disablePreview?: boolean;
-  replyMarkup?: any;  // Platform-specific keyboard markup
+  replyMarkup?: any;  // Telegram-specific keyboard markup
+  whatsappButtons?: WhatsAppReplyButton[];  // WhatsApp reply buttons (max 3)
+  whatsappUrlButton?: WhatsAppUrlButton;    // WhatsApp CTA URL button
 }
 
 /**

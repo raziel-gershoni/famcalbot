@@ -93,12 +93,23 @@ export async function handleOnboardingMessage(phone: string, text: string): Prom
     const link = await generateMagicLink(state.userId, language);
 
     const completionMessages: Record<string, string> = {
-      en: `Language set to English ✓\n\nTo connect your Google Calendar and customize settings:\n${link}\n\n_Link expires in 5 minutes_`,
-      he: `השפה הוגדרה לעברית ✓\n\nלחיבור יומן Google והגדרות נוספות:\n${link}\n\n_הקישור תקף ל-5 דקות_`,
-      ru: `Язык установлен: Русский ✓\n\nДля подключения Google Календаря и настроек:\n${link}\n\n_Ссылка действительна 5 минут_`,
+      en: 'Language set to English ✓\n\nConnect your Google Calendar and customize settings:',
+      he: 'השפה הוגדרה לעברית ✓\n\nחבר את יומן Google שלך והתאם הגדרות:',
+      ru: 'Язык установлен: Русский ✓\n\nПодключите Google Календарь и настройте параметры:',
     };
 
-    await waService.sendMessage(phone, completionMessages[language] || completionMessages.en);
+    const buttonLabels: Record<string, string> = {
+      en: 'Open Settings',
+      he: 'פתח הגדרות',
+      ru: 'Открыть настройки',
+    };
+
+    await waService.sendMessage(phone, completionMessages[language] || completionMessages.en, {
+      whatsappUrlButton: {
+        text: buttonLabels[language] || buttonLabels.en,
+        url: link,
+      },
+    });
     return true;
   }
 

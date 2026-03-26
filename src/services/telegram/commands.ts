@@ -70,7 +70,7 @@ export async function handleStartCommand(
 
   // Handle deep link parameters (e.g., t.me/BotName?start=feedback)
   if (args === 'feedback') {
-    const feedbackUrl = buildUrl(`/${locale}/feedback?user_id=${user.telegramId}`);
+    const feedbackUrl = buildUrl(`/${locale}/feedback?user_id=${user.telegramId ?? user.id}`);
     const openFormMessage = t.feedback?.openForm || 'Click below to send feedback:';
     await service.sendMessage(chatId, openFormMessage, {
       format: MessageFormat.HTML,
@@ -83,11 +83,11 @@ export async function handleStartCommand(
     return;
   }
 
-  const dashboardUrl = buildUrl(`/${locale}/dashboard?user_id=${user.telegramId}`);
+  const dashboardUrl = buildUrl(`/${locale}/dashboard?user_id=${user.telegramId ?? user.id}`);
   const welcome = t.start.welcome.replace('{name}', name);
 
   if (user.isAdmin) {
-    const adminUrl = buildUrl(`/${locale}/admin-panel?user_id=${user.telegramId}`);
+    const adminUrl = buildUrl(`/${locale}/admin-panel?user_id=${user.telegramId ?? user.id}`);
     const message = `${welcome}\n\n${t.start.chooseBoard}`;
 
     await service.sendMessage(chatId, message, {
@@ -235,9 +235,9 @@ export async function handleWeatherCommand(
   const weatherAccess = await checkFeatureAccess(user.id, 'text_summary');
   if (!weatherAccess.allowed) {
     const t = await getBotMessages(userLanguage);
-    const upgradeUrl = buildUrl(`/${userLanguage}/subscription?user_id=${user.telegramId}`);
+    const upgradeUrl = buildUrl(`/${userLanguage}/subscription?user_id=${user.telegramId ?? user.id}`);
     const limitMessage = t.subscription?.textLimitReached
-      || '📊 You\'ve reached your monthly text summary limit. Upgrade to continue!';
+      || 'You\'ve reached your monthly text summary limit. Upgrade to continue!';
     await messagingService.sendMessage(chatId, limitMessage, {
       format: MessageFormat.HTML,
       replyMarkup: {
@@ -304,8 +304,8 @@ export async function handleWeatherCommand(
       }
 
       // Generate voice message with detailed version if enabled
-      if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
-        sendVoiceMessage(Number(userId), result.detailed, user).catch(err =>
+      if (user.voiceSummaryEnabled) {
+        sendVoiceMessage(chatId, result.detailed, user, undefined, true, platform).catch(err =>
           console.error(`[Weather] Voice generation failed for user ${userId}:`, err)
         );
       }
@@ -393,8 +393,8 @@ export async function handleLookaheadCommand(
       await messagingService.updateMessage(chatId, messageId, formattedLookahead, { format: MessageFormat.HTML });
 
       // Generate voice message if enabled
-      if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
-        sendWeeklyVoiceMessage(Number(userId), formattedLookahead, user, false).catch(err =>
+      if (user.voiceSummaryEnabled) {
+        sendWeeklyVoiceMessage(chatId, formattedLookahead, user, false, undefined, platform).catch(err =>
           console.error(`[Lookahead] Voice generation failed for user ${userId}:`, err)
         );
       }
@@ -477,8 +477,8 @@ export async function handleNextWeekCommand(
       await messagingService.updateMessage(chatId, messageId, formattedSummary, { format: MessageFormat.HTML });
 
       // Generate voice message if enabled
-      if (user.voiceSummaryEnabled && platform === MessagingPlatform.TELEGRAM) {
-        sendWeeklyVoiceMessage(Number(userId), formattedSummary, user, true).catch(err =>
+      if (user.voiceSummaryEnabled) {
+        sendWeeklyVoiceMessage(chatId, formattedSummary, user, true, undefined, platform).catch(err =>
           console.error(`[NextWeek] Voice generation failed for user ${userId}:`, err)
         );
       }
@@ -508,7 +508,7 @@ export async function handleFeedbackCommand(
   const t = await getBotMessages(userLanguage);
 
   if (!feedbackText || feedbackText.trim().length === 0) {
-    const feedbackUrl = buildUrl(`/${userLanguage}/feedback?user_id=${user.telegramId}`);
+    const feedbackUrl = buildUrl(`/${userLanguage}/feedback?user_id=${user.telegramId ?? user.id}`);
     const openFormMessage = t.feedback?.openForm || 'Click below to send feedback:';
     await messagingService.sendMessage(chatId, openFormMessage, {
       format: MessageFormat.HTML,

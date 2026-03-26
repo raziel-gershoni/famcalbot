@@ -223,7 +223,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
   for (const user of needsOAuthUsers) {
     try {
       const t = await getBotMessages(user.language || 'en');
-      const dashboardUrl = buildUrl(`/${user.language || 'en'}/dashboard?user_id=${user.telegramId}`);
+      const dashboardUrl = buildUrl(`/${user.language || 'en'}/dashboard?user_id=${user.id}`);
       await messagingService.sendMessage(Number(user.telegramId),
         `${t.oauth.title}\n\n${t.oauth.body}`,
         {
@@ -263,7 +263,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
   for (const user of needsCalendarsUsers) {
     try {
       const t = await getBotMessages(user.language || 'en');
-      const calendarsUrl = buildUrl(`/${user.language || 'en'}/select-calendars?user_id=${user.telegramId}`);
+      const calendarsUrl = buildUrl(`/${user.language || 'en'}/select-calendars?user_id=${user.id}`);
       await messagingService.sendMessage(Number(user.telegramId),
         `${t.calendars.title}\n\n${t.calendars.body}`,
         {
@@ -304,7 +304,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
   for (const user of locationUsersFiltered) {
     try {
       const t = await getBotMessages(user.language || 'en');
-      const settingsUrl = buildUrl(`/${user.language || 'en'}/settings?user_id=${user.telegramId}`);
+      const settingsUrl = buildUrl(`/${user.language || 'en'}/settings?user_id=${user.id}`);
       await messagingService.sendMessage(Number(user.telegramId),
         `${t.location.title}\n\n${t.location.body}`,
         {
