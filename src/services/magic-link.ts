@@ -34,7 +34,7 @@ export async function generateMagicLink(userId: number, locale: string): Promise
     { ex: MAGIC_LINK_TTL }
   );
 
-  return buildUrl(`/auth/magic?token=${token}`);
+  return buildUrl(`/api/auth/magic?token=${token}`);
 }
 
 /**
