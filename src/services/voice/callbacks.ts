@@ -98,7 +98,7 @@ export async function handleEventCallback(
 
     if (result.success) {
       if (result.eventId) {
-        trackCreatedEvent(user.telegramId, result.eventId, event.calendarId || 'primary', event)
+        trackCreatedEvent(user.telegramId!, result.eventId, event.calendarId || 'primary', event)
           .catch(err => console.error('[Voice] Failed to track created event:', err));
       }
 

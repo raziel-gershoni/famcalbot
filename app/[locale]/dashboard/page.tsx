@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { getUserByTelegramId } from '@/src/services/user-service';
+import { getUserByTelegramId, getUserById } from '@/src/services/user-service';
 import { getSubscriptionWithUsage, getTrialStatus, checkEarlyAdopterAccess } from '@/src/services/subscription-service';
 import { normalizeLocale } from '@/src/utils/locale';
 import DashboardClient from './DashboardClient';
@@ -21,7 +21,8 @@ export default async function DashboardPage({ params, searchParams }: PageProps)
     return <TelegramDashboardRedirect locale={locale} />;
   }
 
-  const user = await getUserByTelegramId(userId);
+  // Try Telegram ID first (existing path), fall back to DB primary key (magic link path)
+  const user = await getUserByTelegramId(userId) ?? await getUserById(userId);
 
   if (!user) {
     notFound();

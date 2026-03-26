@@ -62,9 +62,11 @@ export async function handleStartCommand(
 
   const t = await getBotMessages(locale);
 
-  // Set per-user menu button with localized text
-  const { setUserMenuButton } = await import('./bot');
-  await setUserMenuButton(user.telegramId, locale);
+  // Set per-user menu button with localized text (Telegram-only)
+  if (user.telegramId) {
+    const { setUserMenuButton } = await import('./bot');
+    await setUserMenuButton(user.telegramId, locale);
+  }
 
   // Handle deep link parameters (e.g., t.me/BotName?start=feedback)
   if (args === 'feedback') {
@@ -165,9 +167,9 @@ export async function handleSummaryCommand(
   }
 
   if (args?.toLowerCase().trim() === 'tmrw') {
-    await sendTomorrowSummaryToUser(user.telegramId, existingProgressMessageId);
+    await sendTomorrowSummaryToUser(user.telegramId!, existingProgressMessageId);
   } else {
-    await sendDailySummaryToUser(user.telegramId, existingProgressMessageId);
+    await sendDailySummaryToUser(user.telegramId!, existingProgressMessageId);
   }
 }
 
@@ -579,6 +581,43 @@ export async function handleFeedbackCommand(
 }
 
 /**
+ * Handle /connect command
+ * Generates a link code for connecting WhatsApp to this Telegram account
+ */
+export async function handleConnectCommand(
+  chatId: number,
+  userId: number,
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM
+): Promise<void> {
+  if (platform !== MessagingPlatform.TELEGRAM) {
+    return; // /connect only works from Telegram
+  }
+
+  const user = await getUserByTelegramId(userId);
+  if (!user) return;
+
+  const locale = user.language || 'en';
+  const t = await getBotMessages(locale);
+  const service = getMessagingService();
+
+  // Check if already linked
+  if (user.whatsappPhone) {
+    const msg = (t.connect?.alreadyLinked || 'Your account is already linked to WhatsApp ({phone}).')
+      .replace('{phone}', user.whatsappPhone);
+    await service.sendMessage(chatId, msg, { format: MessageFormat.HTML });
+    return;
+  }
+
+  const { generateLinkCode } = await import('../account-linking');
+  const code = await generateLinkCode(userId);
+
+  const msg = (t.connect?.code || 'Your link code: <b>{code}</b>\n\nSend this on WhatsApp:\n<code>link {code}</code>\n\nThis code expires in 5 minutes.')
+    .replace(/\{code\}/g, code);
+
+  await service.sendMessage(chatId, msg, { format: MessageFormat.HTML });
+}
+
+/**
  * Setup bot command handlers for polling mode
  */
 export function setupHandlers(bot: TelegramBot) {
@@ -589,6 +628,15 @@ export function setupHandlers(bot: TelegramBot) {
     const args = match?.[1]?.trim();
     if (userId) {
       await handleStartCommand(chatId, userId, MessagingPlatform.TELEGRAM, msg.from, args);
+    }
+  });
+
+  // /connect command - link WhatsApp account
+  bot.onText(/\/connect/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+    if (userId) {
+      await handleConnectCommand(chatId, userId, MessagingPlatform.TELEGRAM);
     }
   });
 

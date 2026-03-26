@@ -550,6 +550,10 @@
       "rateLimit": "⏳ You've reached the daily feedback limit. Please try again tomorrow.",
       "tooShort": "❌ Feedback must be at least 10 characters.",
       "tooLong": "❌ Feedback must be less than 1000 characters."
+    },
+    "connect": {
+      "code": "Your link code: <b>{code}</b>\n\nSend this on WhatsApp:\n<code>link {code}</code>\n\nThis code expires in 5 minutes.",
+      "alreadyLinked": "Your account is already linked to WhatsApp ({phone})."
     }
   },
   "subscription": {

@@ -57,7 +57,7 @@ async function handleEditIntent(
   let targetCalendarId: string | undefined;
 
   if (intentResult.eventReference?.type === 'last_created') {
-    const lastEvent = await getLastCreatedEvent(user.telegramId);
+    const lastEvent = await getLastCreatedEvent(user.telegramId!);
     if (!lastEvent) {
       await messagingService.updateMessage(chatId, messageId,
         t.voice?.noLastEvent || "❌ No recent event found. Try specifying which event to edit.",
@@ -152,7 +152,7 @@ async function handleDeleteIntent(
   let targetCalendarId: string | undefined;
 
   if (intentResult.eventReference?.type === 'last_created') {
-    const lastEvent = await getLastCreatedEvent(user.telegramId);
+    const lastEvent = await getLastCreatedEvent(user.telegramId!);
     if (!lastEvent) {
       await messagingService.updateMessage(chatId, messageId,
         t.voice?.noLastEvent || "❌ No recent event found. Try specifying which event to cancel.",

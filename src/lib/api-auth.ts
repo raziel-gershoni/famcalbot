@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Ratelimit } from '@upstash/ratelimit';
 import { verifyUserAccess } from './telegram-auth';
+import { validateSessionFromRequest } from './session-auth';
 import { checkRateLimit, getRateLimitHeaders } from './rate-limit';
 
 export type AuthResult =
@@ -14,11 +15,11 @@ export type AuthResult =
 
 /**
  * Verify user authentication and check rate limits
- * Common pattern for user-authenticated API routes
+ * Supports dual auth: Telegram initData (primary) + session cookie (WhatsApp magic link)
  *
  * @param request - The NextRequest
- * @param userId - User ID from query params
- * @param initData - Telegram initData for verification
+ * @param userId - User ID from query params (telegramId for TG, DB id for WA)
+ * @param initData - Telegram initData for verification (null for WA users)
  * @param rateLimiter - Rate limiter instance to use
  * @param endpointName - Name for logging (e.g., 'settings', 'select-calendars')
  * @returns AuthResult indicating success with userId or failure with error response
@@ -43,8 +44,17 @@ export async function verifyUserAuth(
 
   const userIdNum = parseInt(userId);
 
-  // Verify Telegram initData authentication
-  if (!verifyUserAccess(initData ?? null, userIdNum)) {
+  // Try Telegram initData first (existing flow, unchanged)
+  const telegramAuthed = verifyUserAccess(initData ?? null, userIdNum);
+
+  // Fall back to session cookie (WhatsApp magic link auth)
+  let sessionAuthed = false;
+  if (!telegramAuthed) {
+    const sessionUserId = validateSessionFromRequest(request);
+    sessionAuthed = sessionUserId !== null && sessionUserId === userIdNum;
+  }
+
+  if (!telegramAuthed && !sessionAuthed) {
     console.warn(`[${endpointName}] Unauthorized access attempt for user ${userId}`);
     return {
       success: false,

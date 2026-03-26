@@ -324,12 +324,12 @@ async function sendSummaryToAll(
       const hasLocation = !!user.location;
 
       if (!hasToken) {
-        console.log(`[Summary] Skipping user ${user.telegramId}: No Google token`);
+        console.log(`[Summary] Skipping user ${user.id}: No Google token`);
         continue;
       }
 
       if (!hasCalendars && !hasLocation) {
-        console.log(`[Summary] Skipping user ${user.telegramId}: No calendars or location`);
+        console.log(`[Summary] Skipping user ${user.id}: No calendars or location`);
         continue;
       }
 
@@ -350,7 +350,7 @@ async function sendSummaryToAll(
       }
 
       if (!hasCalendars) {
-        console.log(`[Summary] Skipping user ${user.telegramId}: No calendars, weather disabled`);
+        console.log(`[Summary] Skipping user ${user.id}: No calendars, weather disabled`);
         continue;
       }
 
@@ -358,15 +358,17 @@ async function sendSummaryToAll(
         const tUser = Date.now();
         const { summary, dateHeader } = await prepareSummaryForUser(user, fetchFunction, summaryDate);
 
+        // Use telegramId for TG delivery, whatsappPhone for WA, or user.id as fallback
+        const deliveryUserId = user.telegramId ?? user.whatsappPhone ?? user.id;
         await deliverSummary({
-          userId: user.telegramId,
+          userId: deliveryUserId,
           summary,
           user,
           platform,
           dateHeader
         });
 
-        console.log(`[Batch Summary] user=${user.telegramId} total=${Date.now() - tUser}ms`);
+        console.log(`[Batch Summary] user=${user.id} total=${Date.now() - tUser}ms`);
         result.processed++;
 
         // Mark as sent for dedup
@@ -377,15 +379,15 @@ async function sendSummaryToAll(
           await markSummarySent(user.id, summaryDate ? 'tomorrow' : 'daily', tz);
         }
       } catch (error) {
-        console.error(`Failed to send summary to user ${user.telegramId}:`, error);
+        console.error(`Failed to send summary to user ${user.id}:`, error);
 
         if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
           const t = await getBotMessages(user.language || 'en');
-          const refreshUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}`);
+          const refreshUrl = buildUrl(`/refresh-token?user_id=${user.telegramId ?? user.id}`);
           const expiredMessage = `${t.tokenExpired.title}\n\n${t.tokenExpired.message}`;
 
           try {
-            if (platform === 'telegram' || platform === 'all') {
+            if ((platform === 'telegram' || platform === 'all') && user.telegramId) {
               await messagingService.sendMessage(user.telegramId, expiredMessage, {
                 format: MessageFormat.HTML,
                 replyMarkup: {
@@ -400,13 +402,13 @@ async function sendSummaryToAll(
               await whatsappService.sendMessage(user.whatsappPhone, expiredMessage, { format: MessageFormat.HTML });
             }
           } catch (msgError) {
-            console.error(`Failed to send token expired message to user ${user.telegramId}:`, msgError);
+            console.error(`Failed to send token expired message to user ${user.id}:`, msgError);
           }
 
           const { notifyAdminWarning } = await import('../../utils/error-notifier');
           await notifyAdminWarning(
             'Token Expired',
-            `User ${user.telegramId} (${user.name}) needs to refresh their Google Calendar token`
+            `User ${user.id} (${user.name}) needs to refresh their Google Calendar token`
           );
         }
       }
@@ -498,13 +500,18 @@ async function sendWeatherOnlyToUser(
 <b>${t.weatherOnly?.today || 'Today'}:</b> ${t.weatherOnly?.high || 'High'} ${weatherData.today.tempMax}°C, ${t.weatherOnly?.low || 'Low'} ${weatherData.today.tempMin}°C, ${weatherData.today.precipitationProbability}% ${t.weatherOnly?.rain || 'rain'}
 ${weatherData.tomorrow ? `<b>${t.weatherOnly?.tomorrow || 'Tomorrow'}:</b> ${t.weatherOnly?.high || 'High'} ${weatherData.tomorrow.tempMax}°C, ${t.weatherOnly?.low || 'Low'} ${weatherData.tomorrow.tempMin}°C, ${weatherData.tomorrow.precipitationProbability}% ${t.weatherOnly?.rain || 'rain'}` : ''}${sharavLine}`;
 
-  if (platform === 'telegram' || platform === 'all') {
+  if ((platform === 'telegram' || platform === 'all') && user.telegramId) {
     await messagingService.sendMessage(user.telegramId, weatherMessage, {
       format: MessageFormat.HTML
     });
   }
 
-  console.log(`[Summary] Sent weather-only to user ${user.telegramId}`);
+  if ((platform === 'whatsapp' || platform === 'all') && user.whatsappPhone) {
+    const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
+    await whatsappService.sendMessage(user.whatsappPhone, weatherMessage, { format: MessageFormat.HTML });
+  }
+
+  console.log(`[Summary] Sent weather-only to user ${user.id}`);
 }
 
 /**
@@ -548,7 +555,7 @@ type DeliveryPlatform = 'telegram' | 'whatsapp' | 'all';
  * Route text message to appropriate platform(s)
  */
 async function routeTextMessage(
-  userId: number,
+  userId: number | string,
   text: string,
   user: UserConfig,
   platform?: DeliveryPlatform
@@ -565,9 +572,9 @@ async function routeTextMessage(
   const targetPlatform = platform || user.messagingPlatform || 'telegram';
   const msgService = getMessagingService();
 
-  if (targetPlatform === 'telegram' || targetPlatform === 'all') {
+  if ((targetPlatform === 'telegram' || targetPlatform === 'all') && user.telegramId) {
     try {
-      await msgService.sendMessage(userId, text, { format: MessageFormat.HTML });
+      await msgService.sendMessage(user.telegramId, text, { format: MessageFormat.HTML });
     } catch (e) {
       captureError(e, 'telegram-delivery', { user_id: userId, service: 'sendMessage' });
     }
@@ -587,7 +594,7 @@ async function routeTextMessage(
  * Delivery options for unified summary delivery
  */
 interface DeliveryOptions {
-  userId: number;
+  userId: number | string;
   summary: string;
   user: UserConfig;
   progressMessageId?: number | string;
@@ -702,10 +709,12 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     }
 
     const tVoice = Date.now();
-    // Call voice generation inline (no QStash dispatch)
-    sendVoiceMessage(userId, summary, user).catch(err =>
-      console.error(`[Delivery] Voice generation failed for user ${userId}:`, err)
-    );
+    // Voice is Telegram-only for now
+    if (typeof userId === 'number') {
+      sendVoiceMessage(userId, summary, user).catch(err =>
+        console.error(`[Delivery] Voice generation failed for user ${userId}:`, err)
+      );
+    }
     voiceDispatchMs = Date.now() - tVoice;
   }
 

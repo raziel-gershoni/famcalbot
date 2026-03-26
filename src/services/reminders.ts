@@ -157,7 +157,7 @@ export async function getDueReminders(
     const startReminderTime = new Date(startTime.getTime() - reminderMinutes * 60 * 1000);
     if (startReminderTime >= now && startReminderTime < windowEnd) {
       // Check if already sent
-      const alreadySent = await isReminderSent(user.telegramId, event.eventId, 'start', dateStr);
+      const alreadySent = await isReminderSent(user.id, event.eventId, 'start', dateStr);
       if (!alreadySent) {
         dueReminders.push({
           event,
@@ -177,7 +177,7 @@ export async function getDueReminders(
       console.log(`[Reminders] Pickup check: ${event.summary}, pickupAt: ${endTimeStr}, reminderTime: ${pickupReminderTimeStr}, inWindow: ${pickupReminderTime >= now && pickupReminderTime < windowEnd}`);
       if (pickupReminderTime >= now && pickupReminderTime < windowEnd) {
         // Check if already sent
-        const alreadySent = await isReminderSent(user.telegramId, event.eventId, 'pickup', dateStr);
+        const alreadySent = await isReminderSent(user.id, event.eventId, 'pickup', dateStr);
         if (!alreadySent) {
           dueReminders.push({
             event,
@@ -262,6 +262,12 @@ export async function sendReminder(
   reminder: DueReminder,
   timezone?: string
 ): Promise<boolean> {
+  // Reminders currently only sent via Telegram
+  if (!user.telegramId) {
+    console.log(`[Reminders] Skipping reminder for WA-only user ${user.id} (no telegramId)`);
+    return false;
+  }
+
   try {
     const bot = getBot();
     const service = getTelegramService(bot);
@@ -274,7 +280,7 @@ export async function sendReminder(
     // Mark as sent
     const dateStr = format(new Date(), 'yyyy-MM-dd');
     if (reminder.event.eventId) {
-      await markReminderSent(user.telegramId, reminder.event.eventId, reminder.type, dateStr);
+      await markReminderSent(user.id, reminder.event.eventId, reminder.type, dateStr);
     }
 
     // Track reminder sent and increment usage
@@ -304,7 +310,7 @@ export async function processUserReminders(user: UserConfig, windowMinutes: numb
   const reminderAccess = await checkFeatureAccess(user.id, 'reminders');
   if (!reminderAccess.allowed) {
     // If user had reminders enabled, send one-time downgrade notification
-    if (user.remindersEnabled) {
+    if (user.remindersEnabled && user.telegramId) {
       const redisKey = REDIS_KEYS.reminderDowngradeNotified(user.id);
       try {
         const alreadyNotified = await redis.get(redisKey);

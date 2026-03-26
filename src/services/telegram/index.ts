@@ -15,6 +15,7 @@ export {
   handleLookaheadCommand,
   handleNextWeekCommand,
   handleFeedbackCommand,
+  handleConnectCommand,
   setupHandlers,
 } from './commands';
 

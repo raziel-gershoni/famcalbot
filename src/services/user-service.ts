@@ -16,6 +16,18 @@ export async function getUserByTelegramId(telegramId: number | bigint): Promise<
 }
 
 /**
+ * Get user by DB primary key (platform-agnostic)
+ * Used by magic link auth for WhatsApp users
+ */
+export async function getUserById(id: number): Promise<UserConfig | null> {
+  const user = await prisma.user.findUnique({
+    where: { id }
+  });
+
+  return user ? convertPrismaUserToConfig(user) : null;
+}
+
+/**
  * Get user by WhatsApp phone
  * Drop-in replacement for getUserByWhatsAppPhone() in config/users.ts
  */
@@ -176,6 +188,62 @@ export async function getOrCreateUser(
   });
 
   console.log(`[User] Created new user: ${name} (Telegram ID: ${telegramId})`);
+  return convertPrismaUserToConfig(newUser);
+}
+
+/**
+ * Update user settings by DB primary key (platform-agnostic)
+ * Used for WhatsApp-only users who don't have a telegramId
+ */
+export async function updateUserById(id: number, data: Partial<PrismaUser>): Promise<UserConfig> {
+  const encryptedData = { ...data };
+  if (data.googleRefreshToken) {
+    encryptedData.googleRefreshToken = encrypt(data.googleRefreshToken);
+  }
+
+  const { id: _id, createdAt, updatedAt, ...updateData } = encryptedData;
+
+  const updatedUser = await prisma.user.update({
+    where: { id },
+    data: updateData as any
+  });
+
+  return convertPrismaUserToConfig(updatedUser);
+}
+
+/**
+ * Get or create user by WhatsApp phone
+ * Auto-registers new WhatsApp users with minimal defaults
+ */
+export async function getOrCreateUserByWhatsApp(
+  phone: string,
+  profileName?: string
+): Promise<UserConfig> {
+  const existingUser = await prisma.user.findUnique({
+    where: { whatsappPhone: phone }
+  });
+
+  if (existingUser) {
+    return convertPrismaUserToConfig(existingUser);
+  }
+
+  const name = profileName || 'User';
+
+  const newUser = await prisma.user.create({
+    data: {
+      whatsappPhone: phone,
+      name,
+      englishName: '',
+      gender: 'male',
+      language: 'en',  // Cannot infer from WhatsApp, default to English
+      location: '',
+      culture: 'default',
+      messagingPlatform: 'whatsapp',
+      googleRefreshToken: '',
+    }
+  });
+
+  console.log(`[User] Created new WhatsApp user: ${name} (Phone: ${phone})`);
   return convertPrismaUserToConfig(newUser);
 }
 

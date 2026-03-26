@@ -269,7 +269,7 @@ async function expireTrialSubscription(userId: number): Promise<Subscription> {
         where: { id: userId },
         select: { telegramId: true, language: true },
       });
-      if (user) {
+      if (user && user.telegramId) {
         const { sendTrialExpiredNotification } = await import('./telegram');
         await sendTrialExpiredNotification(Number(user.telegramId), user.language || 'en');
       }

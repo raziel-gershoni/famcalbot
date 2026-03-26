@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import crypto from 'crypto';
 import { prisma } from '@/src/utils/prisma';
-import { getUserByTelegramId } from '@/src/services/user-service';
+import { getUserByTelegramId, getUserById } from '@/src/services/user-service';
 import { XCircle } from 'lucide-react';
 import RefreshTokenClient from './RefreshTokenClient';
 import enMessages from '@/messages/en.json';
@@ -62,7 +62,7 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
   }
 
   // Get user's language preference (already normalized to 'he'/'ru'/'en')
-  const user = await getUserByTelegramId(parseInt(user_id));
+  const user = await getUserByTelegramId(parseInt(user_id)) ?? await getUserById(parseInt(user_id));
   const locale = user?.language || 'en';
   const messages = { en: enMessages, he: heMessages, ru: ruMessages }[locale] ?? enMessages;
   const t = messages.refreshToken;

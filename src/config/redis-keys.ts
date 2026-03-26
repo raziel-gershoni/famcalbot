@@ -44,5 +44,15 @@ export const REDIS_KEYS = {
   lastCreatedEvent: (userId: number) => `voice:last_created:${userId}`,
 
   // User timezone cache (resolved via geocoding or Google Calendar)
-  userTimezone: (telegramId: number) => `tz:user:${telegramId}`,
+  userTimezone: (userId: number) => `tz:user:${userId}`,
+
+  // Magic link tokens (WhatsApp web app auth)
+  magicLink: (token: string) => `magic:${token}`,
+
+  // Account linking (Telegram ↔ WhatsApp)
+  linkCode: (code: string) => `link:code:${code}`,
+  linkUser: (telegramId: number) => `link:user:${telegramId}`,
+
+  // WhatsApp onboarding state machine
+  waOnboard: (phone: string) => `wa:onboard:${phone}`,
 } as const;

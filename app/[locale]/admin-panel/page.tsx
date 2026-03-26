@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { getUserByTelegramId } from '@/src/services/user-service';
+import { getUserByTelegramId, getUserById } from '@/src/services/user-service';
 import { normalizeLocale } from '@/src/utils/locale';
 import { prisma } from '@/src/utils/prisma';
 import { Prisma } from '@prisma/client';
@@ -42,7 +42,7 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
     );
   }
 
-  const user = await getUserByTelegramId(userId);
+  const user = await getUserByTelegramId(userId) ?? await getUserById(userId);
 
   if (!user) {
     notFound();

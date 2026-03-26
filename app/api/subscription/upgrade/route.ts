@@ -61,6 +61,12 @@ export async function POST(request: NextRequest) {
 
     // Send invoice to user via Telegram (manual renewal model)
     // The chatId is the same as the telegramId for private chats
+    if (!user.telegramId) {
+      return NextResponse.json(
+        { error: 'Subscription upgrades via Telegram Stars require a linked Telegram account' },
+        { status: 400 }
+      );
+    }
     const chatId = Number(user.telegramId);
     await sendSubscriptionInvoice(chatId, user.id, plan as PlanId);
 

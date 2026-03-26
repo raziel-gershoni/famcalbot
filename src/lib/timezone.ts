@@ -23,9 +23,9 @@ const TIMEZONE_CACHE_TTL = 24 * 60 * 60; // 24 hours in seconds
  * Caches successful result for 24h to avoid repeated API calls
  */
 export async function resolveUserTimezone(
-  user: { location?: string; googleRefreshToken?: string; telegramId: number }
+  user: { id: number; location?: string; googleRefreshToken?: string; telegramId?: number | null }
 ): Promise<string> {
-  const cacheKey = REDIS_KEYS.userTimezone(user.telegramId);
+  const cacheKey = REDIS_KEYS.userTimezone(user.id);
 
   // 1. Check Redis cache
   const cached = await redis.get<string>(cacheKey);
@@ -58,7 +58,7 @@ export async function resolveUserTimezone(
     new Error('No timezone source available'),
     'timezone-resolution',
     {
-      user_id: user.telegramId,
+      user_id: user.id,
       service: 'timezone',
       hasToken: !!user.googleRefreshToken,
       location: user.location || '(none)',

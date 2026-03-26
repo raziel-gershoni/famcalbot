@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { getUserByTelegramId } from '@/src/services/user-service';
+import { getUserByTelegramId, getUserById } from '@/src/services/user-service';
 import { normalizeLocale } from '@/src/utils/locale';
 import { prisma } from '@/src/utils/prisma';
 import { AlertTriangle } from 'lucide-react';
@@ -43,7 +43,7 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
     );
   }
 
-  const user = await getUserByTelegramId(userId);
+  const user = await getUserByTelegramId(userId) ?? await getUserById(userId);
 
   if (!user) {
     notFound();

@@ -12,10 +12,11 @@ import {
   handleSummaryCommand,
   handleWeatherCommand,
   handleFeedbackCommand,
+  handleConnectCommand,
   getBot
 } from './telegram';
-import { getUserByWhatsAppPhone } from './user-service';
-import { MessagingPlatform } from './messaging';
+import { getUserByWhatsAppPhone, getOrCreateUserByWhatsApp } from './user-service';
+import { MessagingPlatform, getWhatsAppService } from './messaging';
 import { handleVoiceMessage, handleEventCallback, handleEditCallback, handleDeleteCallback } from './voice';
 import { handlePreCheckoutQuery, handleSuccessfulPayment } from './payment-handler';
 import { setUserContext, addBreadcrumb } from './analytics-service';
@@ -193,6 +194,8 @@ export async function handleTelegramWebhook(
   } else if (text.startsWith('/feedback')) {
     const args = text.replace('/feedback', '').trim();
     await handleFeedbackCommand(chatId, textUserId, args || undefined);
+  } else if (text.startsWith('/connect')) {
+    await handleConnectCommand(chatId, textUserId, MessagingPlatform.TELEGRAM);
   }
 
   res.status(200).json({ ok: true });
@@ -200,6 +203,7 @@ export async function handleTelegramWebhook(
 
 /**
  * Handle WhatsApp webhook updates
+ * Supports auto-registration, account linking, and command routing
  */
 export async function handleWhatsAppWebhook(
   req: WebhookRequest,
@@ -214,13 +218,12 @@ export async function handleWhatsAppWebhook(
   const messages = value?.messages;
 
   if (!messages || messages.length === 0) {
-    // No messages to process
     res.status(200).json({ ok: true });
     return;
   }
 
   const message = messages[0];
-  const rawPhone = message.from; // Phone number from WhatsApp (without + prefix)
+  const rawPhone = message.from;
   const text = message.text?.body;
 
   if (!rawPhone || !text) {
@@ -228,44 +231,108 @@ export async function handleWhatsAppWebhook(
     return;
   }
 
-  // Normalize phone number to E.164 format (add + prefix if missing)
+  // Normalize phone number to E.164 format
   const from = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
 
-  // Get user by WhatsApp phone number
-  const user = await getUserByWhatsAppPhone(from);
+  // Extract contact name from webhook payload
+  const contactName = value?.contacts?.[0]?.profile?.name;
+
+  // Auto-register: get existing user or create new one
+  let isNewUser = false;
+  let user = await getUserByWhatsAppPhone(from);
   if (!user) {
-    console.log(`[WhatsApp] Unauthorized user: ${from}`);
-    res.status(200).json({ ok: true });
-    return;
+    user = await getOrCreateUserByWhatsApp(from, contactName);
+    isNewUser = true;
   }
 
-  // Parse command (WhatsApp uses keywords, not slash commands)
   const lowerText = text.toLowerCase().trim();
-
-  console.log(`[WhatsApp] Processing command from ${from}: "${text}"`);
+  console.log(`[WhatsApp] Processing from ${from} (${isNewUser ? 'new' : 'existing'}): "${text}"`);
 
   try {
-    // Handle commands
+    const waService = getWhatsAppService();
+
+    // New user: send welcome + start onboarding
+    if (isNewUser) {
+      const welcomeMsg = `Welcome to FamCal, ${user.name}! 👋\n\n_Already use FamCal on Telegram? Send /connect there, then type:_ link CODE`;
+      await waService.sendMessage(from, welcomeMsg);
+
+      // Start conversational onboarding (language selection)
+      const { startOnboarding } = await import('./whatsapp-onboarding');
+      await startOnboarding(from, user);
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    // Check if user is in onboarding flow
+    const { isInOnboarding, handleOnboardingMessage } = await import('./whatsapp-onboarding');
+    if (await isInOnboarding(from)) {
+      const handled = await handleOnboardingMessage(from, text);
+      if (handled) {
+        res.status(200).json({ ok: true });
+        return;
+      }
+    }
+
+    // Handle link code: "link ABC123"
+    if (lowerText.startsWith('link ')) {
+      const code = text.replace(/^link\s+/i, '').trim().toUpperCase();
+      if (code.length >= 4) {
+        const { redeemLinkCode } = await import('./account-linking');
+        const result = await redeemLinkCode(code, from);
+
+        if (result.success) {
+          await waService.sendMessage(from, 'Accounts linked! Your Telegram and WhatsApp are now connected. 🎉');
+          // Notify on Telegram too
+          if (result.user?.telegramId) {
+            await notifyTelegramAboutWhatsApp(result.user.telegramId, 'accounts linked');
+          }
+        } else {
+          const errorMessages: Record<string, string> = {
+            invalid_or_expired: 'Invalid or expired link code. Generate a new one with /connect on Telegram.',
+            already_linked: 'This Telegram account is already linked to a WhatsApp number.',
+            telegram_user_not_found: 'Telegram user not found. Please try again.',
+            phone_in_use: 'This phone number is already linked to another account.',
+          };
+          await waService.sendMessage(from, errorMessages[result.error || 'unknown'] || 'Something went wrong. Please try again.');
+        }
+        res.status(200).json({ ok: true });
+        return;
+      }
+    }
+
+    // Handle settings/setup command — send magic link
+    if (lowerText === 'settings' || lowerText === 'setup') {
+      const { generateMagicLink } = await import('./magic-link');
+      const link = await generateMagicLink(user.id, user.language || 'en');
+      await waService.sendMessage(from, `Open your settings:\n${link}\n\n_Link expires in 5 minutes_`);
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    // Route to command handlers
+    const commandUserId = from;
+    const tgId = user.telegramId;
+
     if (lowerText === 'start') {
-      console.log(`[WhatsApp] Handling start command`);
-      await handleStartCommand(from, user.telegramId, MessagingPlatform.WHATSAPP);
-      await notifyTelegramAboutWhatsApp(user.telegramId, 'start');
+      // For existing users, just send available commands
+      if (!isNewUser) {
+        await waService.sendMessage(from, 'Available commands:\n• *summary* — Today\'s calendar\n• *summary tmrw* — Tomorrow\n• *weather* — Weather forecast\n• *settings* — Open settings');
+      }
+      if (tgId) await notifyTelegramAboutWhatsApp(tgId, 'start');
     } else if (lowerText.startsWith('summary')) {
-      console.log(`[WhatsApp] Handling summary command`);
       const args = lowerText.replace('summary', '').trim();
-      await handleSummaryCommand(from, user.telegramId, MessagingPlatform.WHATSAPP, args || undefined);
-      await notifyTelegramAboutWhatsApp(user.telegramId, 'summary');
+      await handleSummaryCommand(from, commandUserId, MessagingPlatform.WHATSAPP, args || undefined);
+      if (tgId) await notifyTelegramAboutWhatsApp(tgId, 'summary');
     } else if (lowerText.startsWith('weather')) {
-      console.log(`[WhatsApp] Handling weather command`);
       const args = lowerText.replace('weather', '').trim();
-      await handleWeatherCommand(from, user.telegramId, MessagingPlatform.WHATSAPP, args || undefined);
-      await notifyTelegramAboutWhatsApp(user.telegramId, 'weather');
-    } else {
+      await handleWeatherCommand(from, commandUserId, MessagingPlatform.WHATSAPP, args || undefined);
+      if (tgId) await notifyTelegramAboutWhatsApp(tgId, 'weather');
+    } else if (!isNewUser && !lowerText.startsWith('link ')) {
+      // Unknown command for existing users
       console.log(`[WhatsApp] Unknown command: ${text}`);
     }
   } catch (error) {
     console.error('[WhatsApp] Error handling command:', error);
-    // Still return 200 to WhatsApp to avoid retries
   }
 
   res.status(200).json({ ok: true });

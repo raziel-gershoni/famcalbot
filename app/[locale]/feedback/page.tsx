@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { getUserByTelegramId } from '@/src/services/user-service';
+import { getUserByTelegramId, getUserById } from '@/src/services/user-service';
 import { normalizeLocale } from '@/src/utils/locale';
 import { AlertTriangle } from 'lucide-react';
 import FeedbackClient from './FeedbackClient';
@@ -40,7 +40,7 @@ export default async function FeedbackPage({ params, searchParams }: PageProps) 
     );
   }
 
-  const user = await getUserByTelegramId(userId);
+  const user = await getUserByTelegramId(userId) ?? await getUserById(userId);
 
   if (!user) {
     notFound();

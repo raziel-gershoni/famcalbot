@@ -50,7 +50,7 @@ export default function TelegramDashboardRedirect({ locale }: TelegramDashboardR
           window.location.reload(); // Reload to re-run useEffect with SDK available
         } else if (attempts >= 10) {
           clearInterval(checkInterval);
-          setError('This app must be opened from Telegram');
+          setError('Please open this app from Telegram or use a magic link from WhatsApp');
         }
       }, 200);
 
@@ -80,7 +80,7 @@ export default function TelegramDashboardRedirect({ locale }: TelegramDashboardR
         }}>
           <div style={{ marginBottom: '20px' }}><AlertTriangle size={48} color="#f59e0b" /></div>
           <h2 style={{ color: '#333', marginBottom: '10px', fontSize: '20px' }}>{error}</h2>
-          <p style={{ color: '#666', fontSize: '14px' }}>Type /start in your Telegram chat to begin</p>
+          <p style={{ color: '#666', fontSize: '14px' }}>Type /start in Telegram or send &quot;settings&quot; on WhatsApp</p>
         </div>
       </div>
     );

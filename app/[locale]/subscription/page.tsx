@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { getUserByTelegramId } from '@/src/services/user-service';
+import { getUserByTelegramId, getUserById } from '@/src/services/user-service';
 import { getSubscriptionWithUsage, getTrialStatus, checkEarlyAdopterAccess } from '@/src/services/subscription-service';
 import { normalizeLocale } from '@/src/utils/locale';
 import SubscriptionClient from './SubscriptionClient';
@@ -18,7 +18,7 @@ export default async function SubscriptionPage({ params, searchParams }: PagePro
     notFound();
   }
 
-  const user = await getUserByTelegramId(userId);
+  const user = await getUserByTelegramId(userId) ?? await getUserById(userId);
 
   if (!user) {
     notFound();
