@@ -16,6 +16,7 @@ import {
   getBot
 } from './telegram';
 import { getUserByWhatsAppPhone, getOrCreateUserByWhatsApp } from './user-service';
+import { UserConfig } from '../types';
 import { MessagingPlatform, getWhatsAppService } from './messaging';
 import { handleVoiceMessage, handleEventCallback, handleEditCallback, handleDeleteCallback } from './voice';
 import { handlePreCheckoutQuery, handleSuccessfulPayment } from './payment-handler';
@@ -224,16 +225,37 @@ export async function handleWhatsAppWebhook(
 
   const message = messages[0];
   const rawPhone = message.from;
-  // Support both text messages and interactive button replies
-  const text = message.text?.body || message.interactive?.button_reply?.id;
 
-  if (!rawPhone || !text) {
+  if (!rawPhone) {
     res.status(200).json({ ok: true });
     return;
   }
 
   // Normalize phone number to E.164 format
-  const from = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
+  const fromPhone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
+
+  // Handle audio/voice messages (event creation via voice)
+  if (message.type === 'audio') {
+    const mediaId = message.audio?.id;
+    if (mediaId) {
+      const user = await getUserByWhatsAppPhone(fromPhone);
+      if (user) {
+        await handleWhatsAppVoice(fromPhone, user, mediaId);
+      }
+    }
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  // Support both text messages and interactive button replies
+  const text = message.text?.body || message.interactive?.button_reply?.id;
+
+  if (!text) {
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  const from = fromPhone;
 
   // Extract contact name from webhook payload
   const contactName = value?.contacts?.[0]?.profile?.name;
@@ -346,6 +368,11 @@ export async function handleWhatsAppWebhook(
       const feedbackText = text.replace(/^feedback\s+/i, '').trim();
       await handleFeedbackCommand(from, commandUserId, feedbackText);
       if (tgId) await notifyTelegramAboutWhatsApp(tgId, 'feedback');
+    } else if (lowerText.startsWith('event_create:') || lowerText.startsWith('event_cancel:') ||
+               lowerText.startsWith('edit_confirm:') || lowerText.startsWith('edit_cancel:') ||
+               lowerText.startsWith('delete_confirm:') || lowerText.startsWith('delete_cancel:')) {
+      // Voice event callbacks from WhatsApp reply buttons
+      await handleWhatsAppVoiceCallback(from, text);
     } else if (!isNewUser && !lowerText.startsWith('link ')) {
       console.log(`[WhatsApp] Unknown command: ${text}`);
     }
@@ -354,6 +381,202 @@ export async function handleWhatsAppWebhook(
   }
 
   res.status(200).json({ ok: true });
+}
+
+/**
+ * Handle WhatsApp voice message for event creation
+ */
+async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: string): Promise<void> {
+  const waService = getWhatsAppService();
+
+  try {
+    const { getBotMessages } = await import('../lib/bot-messages');
+    const t = await getBotMessages(user.language || 'en');
+
+    // Check voice input enabled
+    if (!user.voiceInputEnabled) {
+      const { generateMagicLink } = await import('./magic-link');
+      const link = await generateMagicLink(user.id, user.language || 'en');
+      await waService.sendMessage(phone, t.voice?.featureDisabled || 'Voice input is disabled. Enable it in settings.', {
+        whatsappUrlButton: { text: t.voice?.enableInSettings || 'Open Settings', url: link },
+      });
+      return;
+    }
+
+    // Check feature access
+    const { checkFeatureAccess } = await import('./subscription-service');
+    const voiceEventAccess = await checkFeatureAccess(user.id, 'voice_events');
+    if (!voiceEventAccess.allowed) {
+      await waService.sendMessage(phone, t.subscription?.voiceEventsRequired || 'Voice events require a Pro subscription.');
+      return;
+    }
+
+    if (!user.googleRefreshToken) {
+      await waService.sendMessage(phone, t.voice?.noCalendar || 'Please connect your Google Calendar first.');
+      return;
+    }
+
+    // Send processing message
+    await waService.sendMessage(phone, t.voice?.processing || 'Processing your voice message...');
+
+    // Download audio from WhatsApp
+    const { WhatsAppAdapter } = await import('./messaging/whatsapp-adapter');
+    const adapter = waService as InstanceType<typeof WhatsAppAdapter>;
+    const audioBuffer = await adapter.downloadMedia(mediaId);
+
+    console.log(`[WhatsApp Voice] Downloaded ${audioBuffer.length} bytes from media ${mediaId}`);
+
+    // Process with Gemini (same pipeline as Telegram)
+    const { resolveUserTimezone } = await import('../lib/timezone');
+    const timezone = await resolveUserTimezone(user);
+    const { processVoiceWithGemini } = await import('./voice/gemini-voice');
+    const { intentResult, transcription } = await processVoiceWithGemini(
+      audioBuffer,
+      user.language || 'en',
+      user.calendarAssignments || [],
+      timezone
+    );
+
+    console.log(`[WhatsApp Voice] Intent: ${intentResult.intent}, confidence: ${intentResult.confidence}`);
+
+    if (intentResult.intent === 'create' && intentResult.event) {
+      // Store pending event in Redis
+      const { REDIS_KEYS } = await import('../config/redis-keys');
+      const { Redis } = await import('@upstash/redis');
+      const redis = new Redis({
+        url: process.env.UPSTASH_REDIS_REST_URL!,
+        token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+      });
+
+      const pendingId = `wa:${phone}:${Date.now()}`;
+      await redis.set(REDIS_KEYS.pendingEvent(pendingId), { event: intentResult.event, user, transcription }, { ex: 600 });
+
+      const { formatEventDateTime } = await import('./voice/confirmations');
+      const dateTimeStr = formatEventDateTime(intentResult.event, user.language || 'en', 'All day', timezone);
+      const locationStr = intentResult.event.location ? `\n📍 ${intentResult.event.location}` : '';
+
+      await waService.sendMessage(phone,
+        `*Create event?*\n\n*${intentResult.event.title}*\n${dateTimeStr}${locationStr}\n\n_"${transcription}"_`,
+        {
+          whatsappButtons: [
+            { id: `event_create:${pendingId}`, title: '✅ Create' },
+            { id: `event_cancel:${pendingId}`, title: '❌ Cancel' },
+          ],
+        }
+      );
+    } else {
+      // Could not understand or unsupported intent
+      const safeTranscription = transcription || '';
+      await waService.sendMessage(phone,
+        `${t.voice?.notUnderstood || "I couldn't understand that."}\n\n_I heard: "${safeTranscription}"_\n\n${t.voice?.tryExamples || 'Try something like:'}\n• "${t.voice?.example1 || 'Meeting tomorrow at 3pm'}"\n• "${t.voice?.example2 || 'Dentist on Thursday at 10'}"`,
+      );
+    }
+
+    const { trackActivityAsync } = await import('./analytics-service');
+    trackActivityAsync(user.id, 'voice_event_started', { language: user.language, platform: 'whatsapp' });
+  } catch (error) {
+    console.error('[WhatsApp Voice] Error:', error);
+    await waService.sendMessage(phone, 'Sorry, could not process your voice message. Please try again.').catch(() => {});
+  }
+}
+
+/**
+ * Handle voice event callbacks from WhatsApp reply buttons
+ */
+async function handleWhatsAppVoiceCallback(phone: string, callbackData: string): Promise<void> {
+  const waService = getWhatsAppService();
+
+  try {
+    const [action, ...pendingIdParts] = callbackData.split(':');
+    const pendingId = pendingIdParts.join(':');
+
+    if (action === 'event_create') {
+      const { getPendingEvent, removePendingEvent } = await import('./voice/confirmations');
+      const pending = await getPendingEvent(pendingId);
+
+      if (!pending) {
+        await waService.sendMessage(phone, 'This event confirmation has expired. Please send a new voice message.');
+        return;
+      }
+
+      const { createEvent, buildRecurrenceRule } = await import('./calendar');
+      const result = await createEvent(
+        pending.user.googleRefreshToken,
+        pending.event.calendarId || 'primary',
+        {
+          title: pending.event.title,
+          startTime: new Date(pending.event.startTime),
+          endTime: new Date(pending.event.endTime),
+          location: pending.event.location,
+          allDay: pending.event.allDay,
+          recurrence: buildRecurrenceRule(pending.event.recurrence),
+        }
+      );
+
+      await removePendingEvent(pendingId);
+
+      if (result.success) {
+        const { getBotMessages } = await import('../lib/bot-messages');
+        const t = await getBotMessages(pending.user.language || 'en');
+        await waService.sendMessage(phone, `✅ ${t.voice?.created || 'Event created!'}\n\n*${pending.event.title}*`);
+
+        const { incrementUsage } = await import('./subscription-service');
+        const { trackActivityAsync } = await import('./analytics-service');
+        trackActivityAsync(pending.user.id, 'voice_event_created', { platform: 'whatsapp' });
+        incrementUsage(pending.user.id, 'voiceEvents').catch(() => {});
+      } else {
+        await waService.sendMessage(phone, `❌ Failed to create event: ${result.error || 'Unknown error'}`);
+      }
+    } else if (action === 'event_cancel') {
+      const { removePendingEvent } = await import('./voice/confirmations');
+      await removePendingEvent(pendingId);
+      await waService.sendMessage(phone, '❌ Event creation cancelled.');
+    } else if (action === 'edit_confirm') {
+      // Edit confirmation — simplified for WhatsApp
+      const { getPendingEdit, removePendingEdit } = await import('./voice/confirmations');
+      const pending = await getPendingEdit(pendingId);
+      if (!pending) {
+        await waService.sendMessage(phone, 'This edit confirmation has expired.');
+        return;
+      }
+      const { updateEvent } = await import('./calendar');
+      const result = await updateEvent(
+        pending.user.googleRefreshToken,
+        pending.calendarId,
+        pending.originalEvent.eventId!,
+        { ...pending.updates, scope: pending.scope }
+      );
+      await removePendingEdit(pendingId);
+      await waService.sendMessage(phone, result.success ? '✅ Event updated!' : `❌ Failed to update: ${result.error}`);
+    } else if (action === 'edit_cancel') {
+      const { removePendingEdit } = await import('./voice/confirmations');
+      await removePendingEdit(pendingId);
+      await waService.sendMessage(phone, '❌ Edit cancelled.');
+    } else if (action === 'delete_confirm') {
+      const { getPendingDelete, removePendingDelete } = await import('./voice/confirmations');
+      const pending = await getPendingDelete(pendingId);
+      if (!pending) {
+        await waService.sendMessage(phone, 'This delete confirmation has expired.');
+        return;
+      }
+      const { deleteEvent } = await import('./calendar');
+      const result = await deleteEvent(
+        pending.user.googleRefreshToken,
+        pending.calendarId,
+        pending.event.eventId!,
+        pending.scope ? { scope: pending.scope } : undefined
+      );
+      await removePendingDelete(pendingId);
+      await waService.sendMessage(phone, result.success ? '✅ Event deleted!' : `❌ Failed to delete: ${result.error}`);
+    } else if (action === 'delete_cancel') {
+      const { removePendingDelete } = await import('./voice/confirmations');
+      await removePendingDelete(pendingId);
+      await waService.sendMessage(phone, '❌ Delete cancelled.');
+    }
+  } catch (error) {
+    console.error('[WhatsApp Voice Callback] Error:', error);
+    await waService.sendMessage(phone, 'Something went wrong. Please try again.').catch(() => {});
+  }
 }
 
 /**

@@ -154,8 +154,48 @@ export class WhatsAppAdapter implements IMessagingService {
     photo: Buffer,
     options?: PhotoOptions
   ): Promise<string> {
-    console.warn('[WhatsApp] sendPhoto not implemented');
-    return '';
+    const fs = await import('fs');
+    const os = await import('os');
+    const path = await import('path');
+
+    // Write Buffer to temp file for upload
+    const tmpPath = path.join(os.tmpdir(), `wa-photo-${Date.now()}.png`);
+    try {
+      fs.writeFileSync(tmpPath, photo);
+
+      // Upload image
+      const mediaId = await this.uploadMedia(tmpPath, 'image/png');
+
+      // Send image message
+      const url = `${this.apiUrl}/messages`;
+      const caption = options?.caption
+        ? (options.format ? this.formatText(options.caption, options.format) : options.caption)
+        : undefined;
+
+      const body = {
+        messaging_product: 'whatsapp',
+        to: chatId.toString(),
+        type: 'image',
+        image: {
+          id: mediaId,
+          ...(caption && { caption }),
+        },
+      };
+
+      const response = await this.makeRequest(url, body);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(`WhatsApp API error: ${JSON.stringify(error)}`);
+      }
+      const data = await response.json() as { messages?: Array<{ id: string }> };
+      return data.messages?.[0]?.id || '';
+    } catch (error) {
+      console.error(`[WhatsApp] Failed to send photo to ${chatId}:`, error);
+      throw error;
+    } finally {
+      // Cleanup temp file
+      try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+    }
   }
 
   parseCommand(text: string): ParsedCommand | null {
@@ -258,7 +298,38 @@ export class WhatsAppAdapter implements IMessagingService {
   /**
    * Upload media file to WhatsApp and return media ID
    */
-  private async uploadMedia(filePath: string): Promise<string> {
+  /**
+   * Download media from WhatsApp by media ID
+   * 2-step: GET /media/{id} → get URL → download binary
+   */
+  async downloadMedia(mediaId: string): Promise<Buffer> {
+    // Step 1: Get media URL
+    const metaUrl = `https://graph.facebook.com/v18.0/${mediaId}`;
+    const metaResponse = await fetch(metaUrl, {
+      headers: { 'Authorization': `Bearer ${this.accessToken}` },
+    });
+
+    if (!metaResponse.ok) {
+      const error = await metaResponse.json();
+      throw new Error(`WhatsApp media metadata error: ${JSON.stringify(error)}`);
+    }
+
+    const meta = await metaResponse.json() as { url: string };
+
+    // Step 2: Download the actual file
+    const fileResponse = await fetch(meta.url, {
+      headers: { 'Authorization': `Bearer ${this.accessToken}` },
+    });
+
+    if (!fileResponse.ok) {
+      throw new Error(`WhatsApp media download failed: ${fileResponse.status}`);
+    }
+
+    const arrayBuffer = await fileResponse.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
+  private async uploadMedia(filePath: string, mimeType: string = 'audio/ogg'): Promise<string> {
     const fs = await import('fs');
     const path = await import('path');
     const FormData = (await import('form-data')).default;
@@ -270,7 +341,7 @@ export class WhatsAppAdapter implements IMessagingService {
     const formData = new FormData();
     formData.append('messaging_product', 'whatsapp');
     formData.append('file', fileStream, fileName);
-    formData.append('type', 'audio/ogg');
+    formData.append('type', mimeType);
 
     try {
       const response = await fetch(url, {

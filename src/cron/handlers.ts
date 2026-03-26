@@ -183,7 +183,6 @@ export async function handleSetupReminders(): Promise<CronResult> {
   interface ReminderResult {
     type: 'oauth' | 'calendars' | 'location';
     userId: number;
-    telegramId: bigint;
     name: string;
     success: boolean;
     error?: string;
@@ -206,8 +205,43 @@ export async function handleSetupReminders(): Promise<CronResult> {
 
   const results: ReminderResult[] = [];
   const { getMessagingService } = await import('../services/telegram');
+  const { getWhatsAppService } = await import('../services/messaging/factory');
   const { MessageFormat } = await import('../services/messaging/types');
-  const messagingService = getMessagingService();
+  const tgService = getMessagingService();
+
+  // Helper: send setup reminder to correct platform
+  async function sendSetupReminder(
+    user: { id: number; telegramId: bigint | null; whatsappPhone: string | null; language: string; name: string },
+    title: string, body: string, buttonText: string, url: string,
+    type: ReminderResult['type']
+  ): Promise<void> {
+    const message = `${title}\n\n${body}`;
+
+    // Send to Telegram
+    if (user.telegramId) {
+      await tgService.sendMessage(Number(user.telegramId), message, {
+        format: MessageFormat.HTML,
+        replyMarkup: { inline_keyboard: [[{ text: buttonText, web_app: { url } }]] },
+      });
+    }
+
+    // Send to WhatsApp (if WA-only or platform includes WA)
+    if (user.whatsappPhone && !user.telegramId) {
+      const { generateMagicLink } = await import('../services/magic-link');
+      const magicUrl = await generateMagicLink(user.id, user.language || 'en');
+      const waService = getWhatsAppService();
+      await waService.sendMessage(user.whatsappPhone, message, {
+        format: MessageFormat.HTML,
+        whatsappUrlButton: { text: buttonText, url: magicUrl },
+      });
+    }
+
+    results.push({ type, userId: user.id, name: user.name, success: true });
+  }
+
+  const userSelect = {
+    id: true, telegramId: true, whatsappPhone: true, language: true, name: true,
+  } as const;
 
   // 1. OAuth reminders
   const oauthWindow = getDateRangeForDay(OAUTH_REMINDER_DAY);
@@ -215,30 +249,19 @@ export async function handleSetupReminders(): Promise<CronResult> {
     where: {
       createdAt: { gte: oauthWindow.start, lte: oauthWindow.end },
       googleRefreshToken: '',
-      telegramId: { not: null },
+      OR: [{ telegramId: { not: null } }, { whatsappPhone: { not: null } }],
     },
-    select: { id: true, telegramId: true, language: true, name: true },
+    select: userSelect,
   });
 
   for (const user of needsOAuthUsers) {
     try {
       const t = await getBotMessages(user.language || 'en');
       const dashboardUrl = buildUrl(`/${user.language || 'en'}/dashboard?user_id=${user.id}`);
-      await messagingService.sendMessage(Number(user.telegramId),
-        `${t.oauth.title}\n\n${t.oauth.body}`,
-        {
-          format: MessageFormat.HTML,
-          replyMarkup: {
-            inline_keyboard: [[
-              { text: t.oauth.button, web_app: { url: dashboardUrl } }
-            ]]
-          }
-        }
-      );
-      results.push({ type: 'oauth', userId: user.id, telegramId: user.telegramId!, name: user.name, success: true });
+      await sendSetupReminder(user, t.oauth.title, t.oauth.body, t.oauth.button, dashboardUrl, 'oauth');
     } catch (error) {
       results.push({
-        type: 'oauth', userId: user.id, telegramId: user.telegramId!, name: user.name,
+        type: 'oauth', userId: user.id, name: user.name,
         success: false, error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
@@ -255,30 +278,21 @@ export async function handleSetupReminders(): Promise<CronResult> {
         { calendarAssignments: { equals: Prisma.DbNull } },
         { calendarAssignments: { equals: [] } },
       ],
-      telegramId: { not: null },
+      AND: {
+        OR: [{ telegramId: { not: null } }, { whatsappPhone: { not: null } }],
+      },
     },
-    select: { id: true, telegramId: true, language: true, name: true },
+    select: userSelect,
   });
 
   for (const user of needsCalendarsUsers) {
     try {
       const t = await getBotMessages(user.language || 'en');
       const calendarsUrl = buildUrl(`/${user.language || 'en'}/select-calendars?user_id=${user.id}`);
-      await messagingService.sendMessage(Number(user.telegramId),
-        `${t.calendars.title}\n\n${t.calendars.body}`,
-        {
-          format: MessageFormat.HTML,
-          replyMarkup: {
-            inline_keyboard: [[
-              { text: t.calendars.button, web_app: { url: calendarsUrl } }
-            ]]
-          }
-        }
-      );
-      results.push({ type: 'calendars', userId: user.id, telegramId: user.telegramId!, name: user.name, success: true });
+      await sendSetupReminder(user, t.calendars.title, t.calendars.body, t.calendars.button, calendarsUrl, 'calendars');
     } catch (error) {
       results.push({
-        type: 'calendars', userId: user.id, telegramId: user.telegramId!, name: user.name,
+        type: 'calendars', userId: user.id, name: user.name,
         success: false, error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
@@ -291,9 +305,9 @@ export async function handleSetupReminders(): Promise<CronResult> {
       createdAt: { gte: locationWindow.start, lte: locationWindow.end },
       googleRefreshToken: { not: '' },
       location: '',
-      telegramId: { not: null },
+      OR: [{ telegramId: { not: null } }, { whatsappPhone: { not: null } }],
     },
-    select: { id: true, telegramId: true, language: true, name: true, calendarAssignments: true },
+    select: { ...userSelect, calendarAssignments: true },
   });
 
   const locationUsersFiltered = needsLocationUsers.filter(u => {
@@ -305,21 +319,10 @@ export async function handleSetupReminders(): Promise<CronResult> {
     try {
       const t = await getBotMessages(user.language || 'en');
       const settingsUrl = buildUrl(`/${user.language || 'en'}/settings?user_id=${user.id}`);
-      await messagingService.sendMessage(Number(user.telegramId),
-        `${t.location.title}\n\n${t.location.body}`,
-        {
-          format: MessageFormat.HTML,
-          replyMarkup: {
-            inline_keyboard: [[
-              { text: t.location.button, web_app: { url: settingsUrl } }
-            ]]
-          }
-        }
-      );
-      results.push({ type: 'location', userId: user.id, telegramId: user.telegramId!, name: user.name, success: true });
+      await sendSetupReminder(user, t.location.title, t.location.body, t.location.button, settingsUrl, 'location');
     } catch (error) {
       results.push({
-        type: 'location', userId: user.id, telegramId: user.telegramId!, name: user.name,
+        type: 'location', userId: user.id, name: user.name,
         success: false, error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
