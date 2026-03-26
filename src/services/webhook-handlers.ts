@@ -247,8 +247,8 @@ export async function handleWhatsAppWebhook(
     return;
   }
 
-  // Support both text messages and interactive button replies
-  const text = message.text?.body || message.interactive?.button_reply?.id;
+  // Support text messages, button replies, and list selections
+  const text = message.text?.body || message.interactive?.button_reply?.id || message.interactive?.list_reply?.id;
 
   if (!text) {
     res.status(200).json({ ok: true });
@@ -338,14 +338,27 @@ export async function handleWhatsAppWebhook(
     const commandUserId = from;
     const tgId = user.telegramId;
 
-    if (lowerText === 'start' || lowerText === 'help') {
-      // Send available commands with reply buttons
+    if (lowerText === 'start' || lowerText === 'help' || lowerText === 'menu') {
+      // Send all commands as a list message
       await waService.sendMessage(from, 'What would you like?', {
-        whatsappButtons: [
-          { id: 'summary', title: '📅 Today' },
-          { id: 'summary tmrw', title: '📅 Tomorrow' },
-          { id: 'weather', title: '🌤 Weather' },
-        ],
+        whatsappList: {
+          buttonText: 'View Options',
+          sections: [{
+            title: 'Summaries',
+            rows: [
+              { id: 'summary', title: '📅 Today', description: "Today's calendar summary" },
+              { id: 'summary tmrw', title: '📅 Tomorrow', description: "Tomorrow's calendar" },
+              { id: 'lookahead', title: '📅 This Week', description: 'Week ahead overview' },
+              { id: 'nextweek', title: '📅 Next Week', description: 'Next week preview' },
+              { id: 'weather', title: '🌤 Weather', description: 'Weather forecast & infographic' },
+            ],
+          }, {
+            title: 'Settings',
+            rows: [
+              { id: 'settings', title: '⚙️ Settings', description: 'Open settings in browser' },
+            ],
+          }],
+        },
       });
       if (tgId) await notifyTelegramAboutWhatsApp(tgId, 'start');
     } else if (lowerText.startsWith('summary')) {

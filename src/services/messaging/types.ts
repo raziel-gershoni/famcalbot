@@ -60,6 +60,26 @@ export interface WhatsAppUrlButton {
 }
 
 /**
+ * WhatsApp list message row
+ */
+export interface WhatsAppListRow {
+  id: string;           // Returned as interactive.list_reply.id when selected
+  title: string;        // Row title (max 24 chars)
+  description?: string; // Optional description (max 72 chars)
+}
+
+/**
+ * WhatsApp list message (up to 10 items)
+ */
+export interface WhatsAppListMessage {
+  buttonText: string;   // Text on the button that opens the list (max 20 chars)
+  sections: Array<{
+    title?: string;     // Section header
+    rows: WhatsAppListRow[];
+  }>;
+}
+
+/**
  * Message options for sending messages
  */
 export interface MessageOptions {
@@ -68,6 +88,7 @@ export interface MessageOptions {
   replyMarkup?: any;  // Telegram-specific keyboard markup
   whatsappButtons?: WhatsAppReplyButton[];  // WhatsApp reply buttons (max 3)
   whatsappUrlButton?: WhatsAppUrlButton;    // WhatsApp CTA URL button
+  whatsappList?: WhatsAppListMessage;       // WhatsApp list message (up to 10 items)
 }
 
 /**

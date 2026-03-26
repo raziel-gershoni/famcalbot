@@ -58,6 +58,28 @@ export class WhatsAppAdapter implements IMessagingService {
           },
         },
       };
+    } else if (options?.whatsappList) {
+      // List message (up to 10 items)
+      body = {
+        messaging_product: 'whatsapp',
+        to: chatId.toString(),
+        type: 'interactive',
+        interactive: {
+          type: 'list',
+          body: { text: formattedText },
+          action: {
+            button: options.whatsappList.buttonText.slice(0, 20),
+            sections: options.whatsappList.sections.map(section => ({
+              ...(section.title && { title: section.title }),
+              rows: section.rows.map(row => ({
+                id: row.id,
+                title: row.title.slice(0, 24),
+                ...(row.description && { description: row.description.slice(0, 72) }),
+              })),
+            })),
+          },
+        },
+      };
     } else if (options?.whatsappUrlButton) {
       // CTA URL button
       body = {
