@@ -2,7 +2,7 @@
  * Telegram summary generation and delivery functions
  */
 
-import { getUserByTelegramId, getAllUsers } from '../user-service';
+import { getUserByTelegramId, getUserByIdentifier, getAllUsers } from '../user-service';
 import { fetchTodayEvents, fetchTomorrowEvents } from '../calendar';
 import { generateSummary, SummaryUserContext, formatDateHeader } from '../claude';
 import { CalendarEvent, UserConfig } from '../../types';
@@ -154,28 +154,32 @@ async function prepareSummaryForUser(
 
 /**
  * Generic function to send summary to a specific user
+ * Supports both Telegram (progress messages, inline keyboards) and WhatsApp (simple text)
  */
 export async function sendSummaryToUser(
-  userId: number,
+  chatId: number | string,
   fetchFunction: (refreshToken: string, calendarIds: string[], timezone?: string) => Promise<CalendarEvent[]>,
   summaryDate: Date | undefined,
   errorKey: string,
   modelId?: string,
-  existingProgressMessageId?: number
+  existingProgressMessageId?: number,
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM
 ): Promise<void> {
-  const user = await getUserByTelegramId(userId);
+  // Platform-agnostic user lookup
+  const user = await getUserByIdentifier(chatId);
   if (!user) {
-    console.error(`User with Telegram ID ${userId} not found`);
+    console.error(`User not found for ${chatId}`);
     return;
   }
 
-  const messagingService = getMessagingService();
+  // Get the correct messaging service for this platform
+  const messagingService = platform === MessagingPlatform.TELEGRAM
+    ? getMessagingService()
+    : getMessagingServiceByPlatform(platform);
 
-  // Determine progress type based on date
   const progressType: ProgressType = summaryDate ? 'summaryTomorrow' : 'summary';
   const userLanguage = user.language || 'en';
 
-  // Track summary request
   trackActivityAsync(user.id, 'text_summary_requested', {
     summary_type: summaryDate ? 'tomorrow' : 'today',
     language: userLanguage,
@@ -186,94 +190,74 @@ export async function sendSummaryToUser(
   const textAccess = await checkFeatureAccess(user.id, 'text_summary');
   if (!textAccess.allowed) {
     const t = await getBotMessages(userLanguage);
-    const upgradeUrl = buildUrl(`/${userLanguage}/subscription?user_id=${userId}`);
     const limitMessage = t.subscription?.textLimitReached
-      || '📊 You\'ve reached your monthly text summary limit. Upgrade to continue!';
+      || 'You\'ve reached your monthly text summary limit.';
 
-    await messagingService.sendMessage(userId, limitMessage, {
+    await messagingService.sendMessage(chatId, limitMessage, {
       format: MessageFormat.HTML,
-      replyMarkup: {
-        inline_keyboard: [[
-          { text: t.subscription?.upgradeButton || '⭐ Upgrade Plan', web_app: { url: upgradeUrl } },
-        ]],
-      },
     });
     return;
   }
 
   await executeCommand({
-    chatId: userId,
+    chatId,
     progressType,
     language: userLanguage,
     existingProgressMessageId,
     messagingService,
     errorKey,
     commandName: 'Summary Generation',
-    context: `User: ${userId}, Date: ${summaryDate ? summaryDate.toISOString() : 'today'}`,
+    context: `User: ${chatId}, Date: ${summaryDate ? summaryDate.toISOString() : 'today'}`,
     operation: async () => {
       return prepareSummaryForUser(user, fetchFunction, summaryDate, modelId);
     },
     onSuccess: async (result, messageId) => {
       await deliverSummary({
-        userId,
+        userId: chatId,
         summary: result.summary,
         user,
         progressMessageId: messageId,
+        platform: platform === MessagingPlatform.TELEGRAM ? 'telegram' : 'whatsapp',
         dateHeader: result.dateHeader,
       });
     },
     onError: async (error, messageId) => {
-      // Handle Google-specific errors that need special UI treatment
       if (error.message === 'GOOGLE_INSUFFICIENT_SCOPES') {
         const t = await getBotMessages(userLanguage);
-        const refreshUrl = buildUrl(`/refresh-token?user_id=${userId}`);
         const scopesMessage = `${t.insufficientScopes.title}\n\n${t.insufficientScopes.message}`;
-        await messagingService.updateMessage(userId, messageId, scopesMessage, {
+        await messagingService.updateMessage(chatId, messageId, scopesMessage, {
           format: MessageFormat.HTML
         });
-        await messagingService.sendMessage(userId, t.insufficientScopes.tapToRefresh, {
-          replyMarkup: {
-            inline_keyboard: [[
-              { text: t.buttons.refreshGoogle, web_app: { url: refreshUrl } }
-            ]]
-          }
-        });
 
-        const { clearGoogleRefreshToken } = await import('../user-service');
-        await clearGoogleRefreshToken(BigInt(userId));
+        if (user.telegramId) {
+          const { clearGoogleRefreshToken } = await import('../user-service');
+          await clearGoogleRefreshToken(BigInt(user.telegramId));
+        }
 
         const { notifyAdminWarning } = await import('../../utils/error-notifier');
         await notifyAdminWarning(
           'Insufficient Scopes',
-          `User ${userId} has a token with insufficient scopes. Token cleared, awaiting re-authorization.`
+          `User ${user.id} has a token with insufficient scopes. Token cleared, awaiting re-authorization.`
         );
-        return true; // handled
+        return true;
       }
 
       if (error.message === 'GOOGLE_TOKEN_EXPIRED') {
         const t = await getBotMessages(userLanguage);
-        const refreshUrl = buildUrl(`/refresh-token?user_id=${userId}`);
         const expiredMessage = `${t.tokenExpired.title}\n\n${t.tokenExpired.message}`;
-        await messagingService.updateMessage(userId, messageId, expiredMessage, {
+        await messagingService.updateMessage(chatId, messageId, expiredMessage, {
           format: MessageFormat.HTML
-        });
-        await messagingService.sendMessage(userId, t.tokenExpired.tapToRefresh, {
-          replyMarkup: {
-            inline_keyboard: [[
-              { text: t.buttons.refreshGoogle, web_app: { url: refreshUrl } }
-            ]]
-          }
         });
 
         const { notifyAdminWarning } = await import('../../utils/error-notifier');
         await notifyAdminWarning(
           'Token Expired',
-          `User ${userId} needs to refresh their Google Calendar token`
+          `User ${user.id} needs to refresh their Google Calendar token`
         );
-        return true; // handled
+        return true;
       }
 
-      return false; // not handled, let pipeline show default error
+      return false;
     },
   });
 }
@@ -430,14 +414,19 @@ async function sendSummaryToAll(
 /**
  * Send daily summary to a specific user
  */
-export async function sendDailySummaryToUser(userId: number, existingProgressMessageId?: number): Promise<void> {
+export async function sendDailySummaryToUser(
+  chatId: number | string,
+  existingProgressMessageId?: number,
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM
+): Promise<void> {
   await sendSummaryToUser(
-    userId,
+    chatId,
     fetchTodayEvents,
     undefined,
     'calendarFetch',
     undefined,
-    existingProgressMessageId
+    existingProgressMessageId,
+    platform
   );
 }
 
@@ -524,17 +513,22 @@ export async function sendDailySummaryToAll(options?: { filterByHour?: boolean }
 /**
  * Send tomorrow's summary to a specific user
  */
-export async function sendTomorrowSummaryToUser(userId: number, existingProgressMessageId?: number): Promise<void> {
+export async function sendTomorrowSummaryToUser(
+  chatId: number | string,
+  existingProgressMessageId?: number,
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM
+): Promise<void> {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
 
   await sendSummaryToUser(
-    userId,
+    chatId,
     fetchTomorrowEvents,
     tomorrow,
     'tomorrowFetch',
     undefined,
-    existingProgressMessageId
+    existingProgressMessageId,
+    platform
   );
 }
 
@@ -618,7 +612,11 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     dateHeader
   } = options;
 
-  const msgService = getMessagingService();
+  // Use correct messaging service based on delivery platform
+  const targetPlatform = platform || user.messagingPlatform || 'telegram';
+  const msgService = (targetPlatform === 'whatsapp' && user.whatsappPhone)
+    ? getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP)
+    : getMessagingService();
 
   // Check for empty summary
   if (!summary || summary.trim() === '') {

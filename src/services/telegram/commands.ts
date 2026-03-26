@@ -150,7 +150,7 @@ export async function handleSummaryCommand(
     const service = platform === MessagingPlatform.TELEGRAM
       ? getMessagingService()
       : getMessagingServiceByPlatform(platform);
-    const settingsUrl = buildUrl(`/en/settings?user_id=${user.telegramId}`);
+    const settingsUrl = buildUrl(`/en/settings?user_id=${user.telegramId ?? user.id}`);
     const t = await getBotMessages('en');
     await service.sendMessage(
       chatId,
@@ -166,10 +166,11 @@ export async function handleSummaryCommand(
     return;
   }
 
+  // Use the original chatId (telegramId for TG, phone string for WA)
   if (args?.toLowerCase().trim() === 'tmrw') {
-    await sendTomorrowSummaryToUser(user.telegramId!, existingProgressMessageId);
+    await sendTomorrowSummaryToUser(chatId, existingProgressMessageId, platform);
   } else {
-    await sendDailySummaryToUser(user.telegramId!, existingProgressMessageId);
+    await sendDailySummaryToUser(chatId, existingProgressMessageId, platform);
   }
 }
 
@@ -213,7 +214,7 @@ export async function handleWeatherCommand(
   // Check if user has invalid/legacy language setting
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   if (!user.language || !VALID_LOCALES.includes(user.language as any)) {
-    const settingsUrl = buildUrl(`/en/settings?user_id=${user.telegramId}`);
+    const settingsUrl = buildUrl(`/en/settings?user_id=${user.telegramId ?? user.id}`);
     const t = await getBotMessages('en');
     await messagingService.sendMessage(
       chatId,
@@ -354,7 +355,7 @@ export async function handleLookaheadCommand(
   // Check if user has invalid/legacy language setting
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   if (!user.language || !VALID_LOCALES.includes(user.language as any)) {
-    const settingsUrl = buildUrl(`/en/settings?user_id=${user.telegramId}`);
+    const settingsUrl = buildUrl(`/en/settings?user_id=${user.telegramId ?? user.id}`);
     const t = await getBotMessages('en');
     await messagingService.sendMessage(
       chatId,
@@ -438,7 +439,7 @@ export async function handleNextWeekCommand(
   // Check if user has invalid/legacy language setting
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   if (!user.language || !VALID_LOCALES.includes(user.language as any)) {
-    const settingsUrl = buildUrl(`/en/settings?user_id=${user.telegramId}`);
+    const settingsUrl = buildUrl(`/en/settings?user_id=${user.telegramId ?? user.id}`);
     const t = await getBotMessages('en');
     await messagingService.sendMessage(
       chatId,
