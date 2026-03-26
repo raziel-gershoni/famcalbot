@@ -332,15 +332,15 @@ export class WhatsAppAdapter implements IMessagingService {
   private async uploadMedia(filePath: string, mimeType: string = 'audio/ogg'): Promise<string> {
     const fs = await import('fs');
     const path = await import('path');
-    const FormData = (await import('form-data')).default;
 
     const url = `${this.apiUrl}/media`;
-    const fileStream = fs.createReadStream(filePath);
+    const fileBuffer = fs.readFileSync(filePath);
     const fileName = path.basename(filePath);
 
+    // Use native Web FormData + Blob (Node 18+) instead of form-data npm package
     const formData = new FormData();
     formData.append('messaging_product', 'whatsapp');
-    formData.append('file', fileStream, fileName);
+    formData.append('file', new Blob([fileBuffer], { type: mimeType }), fileName);
     formData.append('type', mimeType);
 
     try {
@@ -348,9 +348,8 @@ export class WhatsAppAdapter implements IMessagingService {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.accessToken}`,
-          ...formData.getHeaders(),
         },
-        body: formData as any,
+        body: formData,
       });
 
       if (!response.ok) {
