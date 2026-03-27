@@ -44,16 +44,12 @@ export async function generateMagicLink(userId: number, locale: string): Promise
 export async function validateMagicToken(token: string): Promise<MagicLinkData | null> {
   const key = REDIS_KEYS.magicLink(token);
 
-  // Get and delete atomically (one-time use)
-  const data = await redis.get<string>(key);
+  // Upstash auto-parses JSON, so this returns the object directly
+  const data = await redis.get<MagicLinkData>(key);
   if (!data) return null;
 
   // Delete the key to prevent reuse
   await redis.del(key);
 
-  try {
-    return JSON.parse(data) as MagicLinkData;
-  } catch {
-    return null;
-  }
+  return data;
 }
