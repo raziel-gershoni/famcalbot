@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { after } from 'next/server';
-import { getUserByTelegramId } from '@/src/services/user-service';
+import { getUserByTelegramId, getUserById } from '@/src/services/user-service';
 import { MessagingPlatform } from '@/src/services/messaging';
 import { getProgressText } from '@/src/services/progress-message';
 import { verifyUserAccess } from '@/src/lib/telegram-auth';
+import { validateSessionFromRequest } from '@/src/lib/session-auth';
 import { checkRateLimit, commandRateLimiter, getRateLimitHeaders } from '@/src/lib/rate-limit';
 import { captureError } from '@/src/lib/error-capture';
 
@@ -40,11 +41,13 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Authentication: Either server secret OR valid Telegram initData
+    // Authentication: server secret OR Telegram initData OR session cookie
     const hasServerSecret = secret && secret === process.env.CRON_SECRET;
     const hasTelegramAuth = initData && verifyUserAccess(initData, user_id);
+    const sessionUserId = validateSessionFromRequest(request);
+    const hasSessionAuth = sessionUserId !== null && sessionUserId === user_id;
 
-    if (!hasServerSecret && !hasTelegramAuth) {
+    if (!hasServerSecret && !hasTelegramAuth && !hasSessionAuth) {
       console.warn(`[execute-command] Unauthorized access attempt for user ${user_id}`);
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -69,7 +72,9 @@ export async function POST(request: NextRequest) {
     let progressMessageId: number | undefined;
     const progressType = getProgressType(command, args);
 
-    if (progressType && language) {
+    // Send progress message only for Telegram (progress is inline in the chat)
+    // WhatsApp users get the response directly (no progress messages from web app)
+    if (progressType && language && (hasTelegramAuth || hasServerSecret)) {
       try {
         const { getMessagingService } = await import('@/src/services/telegram');
         const messagingService = getMessagingService();
@@ -83,14 +88,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Now get user from database
-    const user = await getUserByTelegramId(user_id);
+    // Now get user from database — try Telegram ID first, fall back to DB ID
+    const user = await getUserByTelegramId(user_id) ?? await getUserById(user_id);
     if (!user) {
       return NextResponse.json(
         { success: false, error: 'User not found' },
         { status: 404 }
       );
     }
+
+    // Determine platform and chat ID based on auth method
+    const platform = hasTelegramAuth || hasServerSecret
+      ? MessagingPlatform.TELEGRAM
+      : (user.whatsappPhone ? MessagingPlatform.WHATSAPP : MessagingPlatform.TELEGRAM);
+    const chatId: number | string = platform === MessagingPlatform.WHATSAPP && user.whatsappPhone
+      ? user.whatsappPhone
+      : (user.telegramId ?? user_id);
 
     // Dynamically import to avoid build-time initialization
     const {
@@ -107,35 +120,35 @@ export async function POST(request: NextRequest) {
         switch (command) {
           case 'summary':
             await handleSummaryCommand(
-              user_id,
-              user_id,
-              MessagingPlatform.TELEGRAM,
+              chatId,
+              chatId,
+              platform,
               args,
               progressMessageId
             );
             break;
           case 'weather':
             await handleWeatherCommand(
-              user_id,
-              user_id,
-              MessagingPlatform.TELEGRAM,
+              chatId,
+              chatId,
+              platform,
               args,
               progressMessageId
             );
             break;
           case 'lookahead':
             await handleLookaheadCommand(
-              user_id,
-              user_id,
-              MessagingPlatform.TELEGRAM,
+              chatId,
+              chatId,
+              platform,
               progressMessageId
             );
             break;
           case 'nextweek':
             await handleNextWeekCommand(
-              user_id,
-              user_id,
-              MessagingPlatform.TELEGRAM,
+              chatId,
+              chatId,
+              platform,
               progressMessageId
             );
             break;

@@ -116,9 +116,12 @@ export default function DashboardClient({
       console.error('Command execution error:', error);
     }
 
-    // Close webapp after progress message is sent
+    // Close webapp after progress message is sent (Telegram only)
     if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
       window.Telegram.WebApp.close();
+    } else {
+      // Browser: show success feedback and reset loading state
+      setLoadingCommand(null);
     }
   };
 
