@@ -78,7 +78,7 @@ export async function handleOnboardingMessage(phone: string, text: string): Prom
 
     if (!language) {
       await waService.sendMessage(phone,
-        'Please reply with 1, 2, or 3:\n\n1️⃣ English\n2️⃣ עברית\n3️⃣ Русский'
+        'Reply 1, 2, or 3 / השיבו 1, 2 או 3 / Ответьте 1, 2 или 3:\n\n1️⃣ English\n2️⃣ עברית\n3️⃣ Русский'
       );
       return true;
     }

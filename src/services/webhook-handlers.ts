@@ -273,13 +273,16 @@ export async function handleWhatsAppWebhook(
 
   try {
     const waService = getWhatsAppService();
+    const { getBotMessages } = await import('../lib/bot-messages');
+    const locale = user.language || 'en';
+    const t = await getBotMessages(locale);
+    const wa = t.whatsapp || {};
 
     // New user: send welcome + start onboarding
     if (isNewUser) {
-      const welcomeMsg = `Welcome to FamCal, ${user.name}! 👋\n\n_Already use FamCal on Telegram? Send /connect there, then type:_ link CODE`;
+      const welcomeMsg = (wa.welcome || 'Welcome to FamCal, {name}! 👋').replace('{name}', user.name);
       await waService.sendMessage(from, welcomeMsg);
 
-      // Start conversational onboarding (language selection)
       const { startOnboarding } = await import('./whatsapp-onboarding');
       await startOnboarding(from, user);
       res.status(200).json({ ok: true });
@@ -304,19 +307,18 @@ export async function handleWhatsAppWebhook(
         const result = await redeemLinkCode(code, from);
 
         if (result.success) {
-          await waService.sendMessage(from, 'Accounts linked! Your Telegram and WhatsApp are now connected. 🎉');
-          // Notify on Telegram too
+          await waService.sendMessage(from, wa.linkSuccess || 'Accounts linked!');
           if (result.user?.telegramId) {
             await notifyTelegramAboutWhatsApp(result.user.telegramId, 'accounts linked');
           }
         } else {
           const errorMessages: Record<string, string> = {
-            invalid_or_expired: 'Invalid or expired link code. Generate a new one with /connect on Telegram.',
-            already_linked: 'This Telegram account is already linked to a WhatsApp number.',
-            telegram_user_not_found: 'Telegram user not found. Please try again.',
-            phone_in_use: 'This phone number is already linked to another account.',
+            invalid_or_expired: wa.linkInvalidCode || 'Invalid or expired link code.',
+            already_linked: wa.linkAlreadyLinked || 'Already linked.',
+            telegram_user_not_found: wa.linkTgNotFound || 'Telegram user not found.',
+            phone_in_use: wa.linkPhoneInUse || 'Phone already linked.',
           };
-          await waService.sendMessage(from, errorMessages[result.error || 'unknown'] || 'Something went wrong. Please try again.');
+          await waService.sendMessage(from, errorMessages[result.error || 'unknown'] || wa.linkError || 'Something went wrong.');
         }
         res.status(200).json({ ok: true });
         return;
@@ -326,9 +328,9 @@ export async function handleWhatsAppWebhook(
     // Handle settings/setup command — send magic link
     if (lowerText === 'settings' || lowerText === 'setup') {
       const { generateMagicLink } = await import('./magic-link');
-      const link = await generateMagicLink(user.id, user.language || 'en');
-      await waService.sendMessage(from, 'Open your settings (link expires in 5 minutes):', {
-        whatsappUrlButton: { text: 'Open Settings', url: link },
+      const link = await generateMagicLink(user.id, locale);
+      await waService.sendMessage(from, wa.settingsPrompt || 'Open your settings:', {
+        whatsappUrlButton: { text: wa.settingsButton || 'Open Settings', url: link },
       });
       res.status(200).json({ ok: true });
       return;
@@ -339,23 +341,22 @@ export async function handleWhatsAppWebhook(
     const tgId = user.telegramId;
 
     if (lowerText === 'start' || lowerText === 'help' || lowerText === 'menu') {
-      // Send all commands as a list message
-      await waService.sendMessage(from, 'What would you like?', {
+      await waService.sendMessage(from, wa.menuPrompt || 'What would you like?', {
         whatsappList: {
-          buttonText: 'View Options',
+          buttonText: wa.menuButton || 'View Options',
           sections: [{
-            title: 'Summaries',
+            title: wa.menuSummaries || 'Summaries',
             rows: [
-              { id: 'summary', title: '📅 Today', description: "Today's calendar summary" },
-              { id: 'summary tmrw', title: '📅 Tomorrow', description: "Tomorrow's calendar" },
-              { id: 'lookahead', title: '📅 This Week', description: 'Week ahead overview' },
-              { id: 'nextweek', title: '📅 Next Week', description: 'Next week preview' },
-              { id: 'weather', title: '🌤 Weather', description: 'Weather forecast & infographic' },
+              { id: 'summary', title: wa.menuToday || '📅 Today', description: wa.menuTodayDesc || "Today's calendar" },
+              { id: 'summary tmrw', title: wa.menuTomorrow || '📅 Tomorrow', description: wa.menuTomorrowDesc || "Tomorrow's calendar" },
+              { id: 'lookahead', title: wa.menuThisWeek || '📅 This Week', description: wa.menuThisWeekDesc || 'Week ahead' },
+              { id: 'nextweek', title: wa.menuNextWeek || '📅 Next Week', description: wa.menuNextWeekDesc || 'Next week' },
+              { id: 'weather', title: wa.menuWeather || '🌤 Weather', description: wa.menuWeatherDesc || 'Weather forecast' },
             ],
           }, {
-            title: 'Settings',
+            title: wa.menuSettings || 'Settings',
             rows: [
-              { id: 'settings', title: '⚙️ Settings', description: 'Open settings in browser' },
+              { id: 'settings', title: wa.menuSettingsItem || '⚙️ Settings', description: wa.menuSettingsDesc || 'Open settings' },
             ],
           }],
         },
@@ -401,10 +402,11 @@ export async function handleWhatsAppWebhook(
  */
 async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: string): Promise<void> {
   const waService = getWhatsAppService();
+  const { getBotMessages } = await import('../lib/bot-messages');
+  const t = await getBotMessages(user.language || 'en');
+  const wa = t.whatsapp || {};
 
   try {
-    const { getBotMessages } = await import('../lib/bot-messages');
-    const t = await getBotMessages(user.language || 'en');
 
     // Check voice input enabled
     if (!user.voiceInputEnabled) {
@@ -465,20 +467,19 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
       await redis.set(REDIS_KEYS.pendingEvent(pendingId), { event: intentResult.event, user, transcription }, { ex: 600 });
 
       const { formatEventDateTime } = await import('./voice/confirmations');
-      const dateTimeStr = formatEventDateTime(intentResult.event, user.language || 'en', 'All day', timezone);
+      const dateTimeStr = formatEventDateTime(intentResult.event, user.language || 'en', t.voice?.allDay || 'All day', timezone);
       const locationStr = intentResult.event.location ? `\n📍 ${intentResult.event.location}` : '';
 
       await waService.sendMessage(phone,
-        `*Create event?*\n\n*${intentResult.event.title}*\n${dateTimeStr}${locationStr}\n\n_"${transcription}"_`,
+        `*${wa.createEvent || 'Create event?'}*\n\n*${intentResult.event.title}*\n${dateTimeStr}${locationStr}\n\n_"${transcription}"_`,
         {
           whatsappButtons: [
-            { id: `event_create:${pendingId}`, title: '✅ Create' },
-            { id: `event_cancel:${pendingId}`, title: '❌ Cancel' },
+            { id: `event_create:${pendingId}`, title: wa.createButton || '✅ Create' },
+            { id: `event_cancel:${pendingId}`, title: wa.cancelButton || '❌ Cancel' },
           ],
         }
       );
     } else {
-      // Could not understand or unsupported intent
       const safeTranscription = transcription || '';
       await waService.sendMessage(phone,
         `${t.voice?.notUnderstood || "I couldn't understand that."}\n\n_I heard: "${safeTranscription}"_\n\n${t.voice?.tryExamples || 'Try something like:'}\n• "${t.voice?.example1 || 'Meeting tomorrow at 3pm'}"\n• "${t.voice?.example2 || 'Dentist on Thursday at 10'}"`,
@@ -489,7 +490,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     trackActivityAsync(user.id, 'voice_event_started', { language: user.language, platform: 'whatsapp' });
   } catch (error) {
     console.error('[WhatsApp Voice] Error:', error);
-    await waService.sendMessage(phone, 'Sorry, could not process your voice message. Please try again.').catch(() => {});
+    await waService.sendMessage(phone, wa.voiceError || 'Sorry, could not process your voice message.').catch(() => {});
   }
 }
 
@@ -498,6 +499,11 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
  */
 async function handleWhatsAppVoiceCallback(phone: string, callbackData: string): Promise<void> {
   const waService = getWhatsAppService();
+  // Try to get user language for i18n — default to English
+  const userRecord = await getUserByWhatsAppPhone(phone);
+  const { getBotMessages } = await import('../lib/bot-messages');
+  const t = await getBotMessages(userRecord?.language || 'en');
+  const wa = t.whatsapp || {};
 
   try {
     const [action, ...pendingIdParts] = callbackData.split(':');
@@ -508,7 +514,7 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
       const pending = await getPendingEvent(pendingId);
 
       if (!pending) {
-        await waService.sendMessage(phone, 'This event confirmation has expired. Please send a new voice message.');
+        await waService.sendMessage(phone, wa.eventExpired || 'This confirmation has expired.');
         return;
       }
 
@@ -529,8 +535,6 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
       await removePendingEvent(pendingId);
 
       if (result.success) {
-        const { getBotMessages } = await import('../lib/bot-messages');
-        const t = await getBotMessages(pending.user.language || 'en');
         await waService.sendMessage(phone, `✅ ${t.voice?.created || 'Event created!'}\n\n*${pending.event.title}*`);
 
         const { incrementUsage } = await import('./subscription-service');
@@ -538,18 +542,17 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
         trackActivityAsync(pending.user.id, 'voice_event_created', { platform: 'whatsapp' });
         incrementUsage(pending.user.id, 'voiceEvents').catch(() => {});
       } else {
-        await waService.sendMessage(phone, `❌ Failed to create event: ${result.error || 'Unknown error'}`);
+        await waService.sendMessage(phone, `❌ ${(wa.eventFailed || 'Failed to create event: {error}').replace('{error}', result.error || '')}`);
       }
     } else if (action === 'event_cancel') {
       const { removePendingEvent } = await import('./voice/confirmations');
       await removePendingEvent(pendingId);
-      await waService.sendMessage(phone, '❌ Event creation cancelled.');
+      await waService.sendMessage(phone, `❌ ${wa.eventCancelled || 'Event creation cancelled.'}`);
     } else if (action === 'edit_confirm') {
-      // Edit confirmation — simplified for WhatsApp
       const { getPendingEdit, removePendingEdit } = await import('./voice/confirmations');
       const pending = await getPendingEdit(pendingId);
       if (!pending) {
-        await waService.sendMessage(phone, 'This edit confirmation has expired.');
+        await waService.sendMessage(phone, wa.eventExpired || 'This confirmation has expired.');
         return;
       }
       const { updateEvent } = await import('./calendar');
@@ -560,16 +563,18 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
         { ...pending.updates, scope: pending.scope }
       );
       await removePendingEdit(pendingId);
-      await waService.sendMessage(phone, result.success ? '✅ Event updated!' : `❌ Failed to update: ${result.error}`);
+      await waService.sendMessage(phone, result.success
+        ? `✅ ${wa.eventUpdated || 'Event updated!'}`
+        : `❌ ${(wa.editFailed || 'Failed to update: {error}').replace('{error}', result.error || '')}`);
     } else if (action === 'edit_cancel') {
       const { removePendingEdit } = await import('./voice/confirmations');
       await removePendingEdit(pendingId);
-      await waService.sendMessage(phone, '❌ Edit cancelled.');
+      await waService.sendMessage(phone, `❌ ${wa.editCancelled || 'Edit cancelled.'}`);
     } else if (action === 'delete_confirm') {
       const { getPendingDelete, removePendingDelete } = await import('./voice/confirmations');
       const pending = await getPendingDelete(pendingId);
       if (!pending) {
-        await waService.sendMessage(phone, 'This delete confirmation has expired.');
+        await waService.sendMessage(phone, wa.eventExpired || 'This confirmation has expired.');
         return;
       }
       const { deleteEvent } = await import('./calendar');
@@ -580,15 +585,17 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
         pending.scope ? { scope: pending.scope } : undefined
       );
       await removePendingDelete(pendingId);
-      await waService.sendMessage(phone, result.success ? '✅ Event deleted!' : `❌ Failed to delete: ${result.error}`);
+      await waService.sendMessage(phone, result.success
+        ? `✅ ${wa.eventDeleted || 'Event deleted!'}`
+        : `❌ ${(wa.deleteFailed || 'Failed to delete: {error}').replace('{error}', result.error || '')}`);
     } else if (action === 'delete_cancel') {
       const { removePendingDelete } = await import('./voice/confirmations');
       await removePendingDelete(pendingId);
-      await waService.sendMessage(phone, '❌ Delete cancelled.');
+      await waService.sendMessage(phone, `❌ ${wa.deleteCancelled || 'Delete cancelled.'}`);
     }
   } catch (error) {
     console.error('[WhatsApp Voice Callback] Error:', error);
-    await waService.sendMessage(phone, 'Something went wrong. Please try again.').catch(() => {});
+    await waService.sendMessage(phone, wa.genericError || 'Something went wrong. Please try again.').catch(() => {});
   }
 }
 
