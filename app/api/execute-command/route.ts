@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
     const hasSessionAuth = sessionUserId !== null && sessionUserId === user_id;
 
     if (!hasServerSecret && !hasTelegramAuth && !hasSessionAuth) {
-      console.warn(`[execute-command] Unauthorized access attempt for user ${user_id}`);
+      console.warn(`[execute-command] Unauthorized: user_id=${user_id} (${typeof user_id}), sessionUserId=${sessionUserId} (${typeof sessionUserId}), hasCookie=${!!request.cookies.get('famcal_session')}`);
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }

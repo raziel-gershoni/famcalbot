@@ -103,6 +103,7 @@ export default function DashboardClient({
       // Wait for API to send progress message to Telegram
       await fetch('/api/execute-command', {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: user.id,
