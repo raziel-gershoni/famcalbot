@@ -55,4 +55,7 @@ export const REDIS_KEYS = {
 
   // WhatsApp onboarding state machine
   waOnboard: (phone: string) => `wa:onboard:${phone}`,
+
+  // WhatsApp message dedup (prevents webhook retry from re-processing)
+  waDedup: (messageId: string) => `wa:dedup:${messageId}`,
 } as const;

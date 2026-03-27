@@ -231,6 +231,23 @@ export async function handleWhatsAppWebhook(
     return;
   }
 
+  // Dedup: prevent WhatsApp webhook retries from re-processing the same message
+  const waMessageId = message.id;
+  if (waMessageId) {
+    const { Redis } = await import('@upstash/redis');
+    const { REDIS_KEYS } = await import('../config/redis-keys');
+    const redis = new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL!,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    });
+    const result = await redis.set(REDIS_KEYS.waDedup(waMessageId), '1', { nx: true, ex: 300 });
+    if (result !== 'OK') {
+      console.log(`[WhatsApp] Skipping duplicate message: ${waMessageId}`);
+      res.status(200).json({ ok: true });
+      return;
+    }
+  }
+
   // Normalize phone number to E.164 format
   const fromPhone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
 
@@ -340,6 +357,15 @@ export async function handleWhatsAppWebhook(
     const commandUserId = from;
     const tgId = user.telegramId;
 
+    // Helper: run command async (fire-and-forget) to avoid webhook timeout
+    const runAsync = (fn: () => Promise<void>, cmdName: string) => {
+      // Return 200 immediately, process command in background
+      res.status(200).json({ ok: true });
+      fn()
+        .then(() => { if (tgId) notifyTelegramAboutWhatsApp(tgId, cmdName).catch(() => {}); })
+        .catch(err => console.error(`[WhatsApp] ${cmdName} command error:`, err));
+    };
+
     if (lowerText === 'start' || lowerText === 'help' || lowerText === 'menu') {
       await waService.sendMessage(from, wa.menuPrompt || 'What would you like?', {
         whatsappList: {
@@ -364,24 +390,24 @@ export async function handleWhatsAppWebhook(
       if (tgId) await notifyTelegramAboutWhatsApp(tgId, 'start');
     } else if (lowerText.startsWith('summary')) {
       const args = lowerText.replace('summary', '').trim();
-      await handleSummaryCommand(from, commandUserId, MessagingPlatform.WHATSAPP, args || undefined);
-      if (tgId) await notifyTelegramAboutWhatsApp(tgId, 'summary');
+      runAsync(() => handleSummaryCommand(from, commandUserId, MessagingPlatform.WHATSAPP, args || undefined), 'summary');
+      return;
     } else if (lowerText.startsWith('weather')) {
       const args = lowerText.replace('weather', '').trim();
-      await handleWeatherCommand(from, commandUserId, MessagingPlatform.WHATSAPP, args || undefined);
-      if (tgId) await notifyTelegramAboutWhatsApp(tgId, 'weather');
+      runAsync(() => handleWeatherCommand(from, commandUserId, MessagingPlatform.WHATSAPP, args || undefined), 'weather');
+      return;
     } else if (lowerText === 'lookahead' || lowerText === 'week') {
       const { handleLookaheadCommand } = await import('./telegram');
-      await handleLookaheadCommand(from, commandUserId, MessagingPlatform.WHATSAPP);
-      if (tgId) await notifyTelegramAboutWhatsApp(tgId, 'lookahead');
+      runAsync(() => handleLookaheadCommand(from, commandUserId, MessagingPlatform.WHATSAPP), 'lookahead');
+      return;
     } else if (lowerText === 'nextweek') {
       const { handleNextWeekCommand } = await import('./telegram');
-      await handleNextWeekCommand(from, commandUserId, MessagingPlatform.WHATSAPP);
-      if (tgId) await notifyTelegramAboutWhatsApp(tgId, 'nextweek');
+      runAsync(() => handleNextWeekCommand(from, commandUserId, MessagingPlatform.WHATSAPP), 'nextweek');
+      return;
     } else if (lowerText.startsWith('feedback ')) {
       const feedbackText = text.replace(/^feedback\s+/i, '').trim();
-      await handleFeedbackCommand(from, commandUserId, feedbackText);
-      if (tgId) await notifyTelegramAboutWhatsApp(tgId, 'feedback');
+      runAsync(() => handleFeedbackCommand(from, commandUserId, feedbackText), 'feedback');
+      return;
     } else if (lowerText.startsWith('event_create:') || lowerText.startsWith('event_cancel:') ||
                lowerText.startsWith('edit_confirm:') || lowerText.startsWith('edit_cancel:') ||
                lowerText.startsWith('delete_confirm:') || lowerText.startsWith('delete_cancel:')) {
