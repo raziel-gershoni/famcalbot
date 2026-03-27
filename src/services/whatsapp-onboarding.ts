@@ -34,7 +34,13 @@ export async function startOnboarding(phone: string, user: UserConfig): Promise<
 
   const waService = getWhatsAppService();
   await waService.sendMessage(phone,
-    'Choose your language / בחר שפה / Выберите язык:\n\n1️⃣ English\n2️⃣ עברית\n3️⃣ Русский'
+    'Choose your language / בחר שפה / Выберите язык', {
+      whatsappButtons: [
+        { id: 'lang_en', title: 'English' },
+        { id: 'lang_he', title: 'עברית' },
+        { id: 'lang_ru', title: 'Русский' },
+      ],
+    }
   );
 }
 
@@ -68,17 +74,23 @@ export async function handleOnboardingMessage(phone: string, text: string): Prom
     const input = text.trim();
     let language: string | null = null;
 
-    if (input === '1' || input.toLowerCase() === 'english' || input.toLowerCase() === 'en') {
+    if (input === 'lang_en' || input === '1' || input.toLowerCase() === 'english' || input.toLowerCase() === 'en') {
       language = 'en';
-    } else if (input === '2' || input === 'עברית' || input.toLowerCase() === 'he' || input.toLowerCase() === 'hebrew') {
+    } else if (input === 'lang_he' || input === '2' || input === 'עברית' || input.toLowerCase() === 'he') {
       language = 'he';
-    } else if (input === '3' || input.toLowerCase() === 'русский' || input.toLowerCase() === 'ru' || input.toLowerCase() === 'russian') {
+    } else if (input === 'lang_ru' || input === '3' || input.toLowerCase() === 'русский' || input.toLowerCase() === 'ru') {
       language = 'ru';
     }
 
     if (!language) {
       await waService.sendMessage(phone,
-        'Reply 1, 2, or 3 / השיבו 1, 2 או 3 / Ответьте 1, 2 или 3:\n\n1️⃣ English\n2️⃣ עברית\n3️⃣ Русский'
+        'Choose your language / בחר שפה / Выберите язык', {
+          whatsappButtons: [
+            { id: 'lang_en', title: 'English' },
+            { id: 'lang_he', title: 'עברית' },
+            { id: 'lang_ru', title: 'Русский' },
+          ],
+        }
       );
       return true;
     }
