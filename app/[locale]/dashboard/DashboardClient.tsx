@@ -114,14 +114,13 @@ export default function DashboardClient({
       });
     } catch (error) {
       console.error('Command execution error:', error);
-    }
-
-    // Close webapp after progress message is sent (Telegram only)
-    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-      window.Telegram.WebApp.close();
-    } else {
-      // Browser: show success feedback and reset loading state
-      setLoadingCommand(null);
+    } finally {
+      // Close webapp (Telegram only) or reset spinner (browser)
+      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+        window.Telegram.WebApp.close();
+      } else {
+        setLoadingCommand(null);
+      }
     }
   };
 
