@@ -10,6 +10,9 @@ interface FooterProps {
   share?: string;
   madeIn: string;
   copyright: string;
+  startTelegram?: string;
+  startWhatsapp?: string;
+  waUrl?: string;
 }
 
 export default function Footer({
@@ -21,6 +24,9 @@ export default function Footer({
   share,
   madeIn,
   copyright,
+  startTelegram,
+  startWhatsapp,
+  waUrl,
 }: FooterProps) {
   return (
     <footer className="bg-text-primary px-6 py-12 text-white">
@@ -52,6 +58,20 @@ export default function Footer({
               </Link>
             )}
           </nav>
+          {(startTelegram || startWhatsapp) && (
+            <div className="flex items-center gap-3 text-sm">
+              {startTelegram && (
+                <a href="https://t.me/family_calendar_telegram_bot" className="text-white/60 transition-colors hover:text-white">
+                  {startTelegram}
+                </a>
+              )}
+              {startWhatsapp && waUrl && (
+                <a href={waUrl} className="text-white/60 transition-colors hover:text-white">
+                  {startWhatsapp}
+                </a>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex flex-col items-center justify-between gap-4 border-t border-white/10 pt-8 sm:flex-row">
           <nav className="flex items-center gap-2 text-sm">

@@ -10,6 +10,7 @@ type Props = {
 
 const BOT_URL = 'https://t.me/family_calendar_telegram_bot';
 const SITE_URL = 'https://famcal.bot';
+const WA_PHONE = '972548524687';
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { locale } = await params;
@@ -27,6 +28,9 @@ export default async function SharePage({ params }: Props) {
   const t = await getTranslations({ locale, namespace: 'share' });
   const tLanding = await getTranslations({ locale, namespace: 'landing' });
   const tNav = await getTranslations({ locale, namespace: 'nav' });
+  const tBot = await getTranslations({ locale, namespace: 'bot' });
+
+  const waUrl = `https://wa.me/${WA_PHONE}?text=${encodeURIComponent(tBot('whatsapp.greeting'))}`;
 
   const navLinks = [
     { href: `/${locale}/how-it-works`, label: tNav('howItWorks') },
@@ -41,7 +45,7 @@ export default async function SharePage({ params }: Props) {
 
   return (
     <>
-      <SiteHeader locale={locale} ctaText={tLanding('header.startFree')} navLinks={navLinks} />
+      <SiteHeader locale={locale} ctaText={tLanding('header.startFree')} navLinks={navLinks} waUrl={waUrl} />
 
       <main className="mx-auto max-w-3xl px-6 py-16">
         <div className="mb-14 text-center">
@@ -76,7 +80,15 @@ export default async function SharePage({ params }: Props) {
             {t('qrTitle')}
           </h2>
           <p className="mb-8 text-center text-sm text-text-muted">{t('qrSubtitle')}</p>
-          <QRSection botUrl={BOT_URL} downloadLabel={t('downloadQr')} />
+          <QRSection
+            botUrl={BOT_URL}
+            waUrl={waUrl}
+            siteUrl={SITE_URL}
+            downloadLabel={t('downloadQr')}
+            labelTelegram={t('qrTelegram')}
+            labelWhatsapp={t('qrWhatsapp')}
+            labelWebsite={t('qrWebsite')}
+          />
         </section>
 
         {/* ─── BOT LINK ─── */}
@@ -85,6 +97,15 @@ export default async function SharePage({ params }: Props) {
           <div className="flex items-center gap-3 rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
             <code className="min-w-0 flex-1 truncate text-sm text-brand-primary">{BOT_URL}</code>
             <CopyButton text={BOT_URL} copiedLabel={t('copied')} />
+          </div>
+        </section>
+
+        {/* ─── WHATSAPP BOT LINK ─── */}
+        <section className="mb-10">
+          <h2 className="mb-4 text-xl font-bold text-text-primary">{t('whatsappLinkTitle')}</h2>
+          <div className="flex items-center gap-3 rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+            <code className="min-w-0 flex-1 truncate text-sm text-brand-primary">{waUrl}</code>
+            <CopyButton text={waUrl} copiedLabel={t('copied')} />
           </div>
         </section>
 
@@ -106,6 +127,9 @@ export default async function SharePage({ params }: Props) {
         contact={tLanding('footer.contact')}
         madeIn={tLanding('footer.madeIn')}
         copyright={tLanding('footer.copyright')}
+        startTelegram={tLanding('footer.startTelegram')}
+        startWhatsapp={tLanding('footer.startWhatsapp')}
+        waUrl={waUrl}
       />
     </>
   );

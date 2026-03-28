@@ -11,6 +11,8 @@
   --brand-accent-teal: #4ECDC4;
   --brand-telegram: #0088cc;
   --brand-telegram-dark: #006699;
+  --brand-whatsapp: #25D366;
+  --brand-whatsapp-dark: #128C7E;
 
   --text-primary: #1a1a2e;
   --text-secondary: #4a4a6a;
@@ -41,6 +43,8 @@
   --color-brand-accent-teal: var(--brand-accent-teal);
   --color-brand-telegram: var(--brand-telegram);
   --color-brand-telegram-dark: var(--brand-telegram-dark);
+  --color-brand-whatsapp: var(--brand-whatsapp);
+  --color-brand-whatsapp-dark: var(--brand-whatsapp-dark);
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);

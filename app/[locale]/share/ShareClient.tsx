@@ -36,41 +36,64 @@ export function CopyButton({ text, copiedLabel }: { text: string; copiedLabel: s
 
 export function QRSection({
   botUrl,
+  waUrl,
+  siteUrl,
   downloadLabel,
+  labelTelegram,
+  labelWhatsapp,
+  labelWebsite,
 }: {
   botUrl: string;
+  waUrl: string;
+  siteUrl: string;
   downloadLabel: string;
+  labelTelegram: string;
+  labelWhatsapp: string;
+  labelWebsite: string;
 }) {
-  const canvasRef = useRef<HTMLDivElement>(null);
+  const telegramRef = useRef<HTMLDivElement>(null);
+  const whatsappRef = useRef<HTMLDivElement>(null);
+  const websiteRef = useRef<HTMLDivElement>(null);
 
-  const handleDownload = useCallback(() => {
-    const canvas = canvasRef.current?.querySelector('canvas');
+  const handleDownload = useCallback((ref: React.RefObject<HTMLDivElement | null>, filename: string) => {
+    const canvas = ref.current?.querySelector('canvas');
     if (!canvas) return;
     const url = canvas.toDataURL('image/png');
     const link = document.createElement('a');
-    link.download = 'famcal-qr-code.png';
+    link.download = filename;
     link.href = url;
     link.click();
   }, []);
 
+  const qrCodes = [
+    { label: labelTelegram, value: botUrl, ref: telegramRef, filename: 'famcal-qr-telegram.png' },
+    { label: labelWhatsapp, value: waUrl, ref: whatsappRef, filename: 'famcal-qr-whatsapp.png' },
+    { label: labelWebsite, value: siteUrl, ref: websiteRef, filename: 'famcal-qr-website.png' },
+  ];
+
   return (
-    <div className="flex flex-col items-center gap-6">
-      <div ref={canvasRef} className="rounded-2xl bg-white p-6 shadow-lg">
-        <QRCodeCanvas
-          value={botUrl}
-          size={220}
-          bgColor="#ffffff"
-          fgColor="#1a1a2e"
-          level="H"
-          marginSize={1}
-        />
-      </div>
-      <button
-        onClick={handleDownload}
-        className="rounded-lg bg-brand-primary px-6 py-3 text-sm font-semibold text-white transition-all hover:bg-brand-primary-dark active:scale-95"
-      >
-        {downloadLabel}
-      </button>
+    <div className="grid grid-cols-1 gap-8 sm:grid-cols-3">
+      {qrCodes.map(({ label, value, ref, filename }) => (
+        <div key={label} className="flex flex-col items-center gap-4">
+          <span className="text-sm font-semibold text-text-primary">{label}</span>
+          <div ref={ref} className="rounded-2xl bg-white p-4 shadow-lg">
+            <QRCodeCanvas
+              value={value}
+              size={160}
+              bgColor="#ffffff"
+              fgColor="#1a1a2e"
+              level="H"
+              marginSize={1}
+            />
+          </div>
+          <button
+            onClick={() => handleDownload(ref, filename)}
+            className="rounded-lg bg-brand-primary px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-brand-primary-dark active:scale-95"
+          >
+            {downloadLabel}
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
