@@ -414,7 +414,27 @@ export async function handleWhatsAppWebhook(
       // Voice event callbacks from WhatsApp reply buttons
       await handleWhatsAppVoiceCallback(from, text);
     } else if (!isNewUser && !lowerText.startsWith('link ')) {
-      console.log(`[WhatsApp] Unknown command: ${text}`);
+      // Unknown command — show menu
+      await waService.sendMessage(from, wa.menuPrompt || 'What would you like?', {
+        whatsappList: {
+          buttonText: wa.menuButton || 'View Options',
+          sections: [{
+            title: wa.menuSummaries || 'Summaries',
+            rows: [
+              { id: 'summary', title: wa.menuToday || '📅 Today', description: wa.menuTodayDesc || "Today's calendar" },
+              { id: 'summary tmrw', title: wa.menuTomorrow || '📅 Tomorrow', description: wa.menuTomorrowDesc || "Tomorrow's calendar" },
+              { id: 'lookahead', title: wa.menuThisWeek || '📅 This Week', description: wa.menuThisWeekDesc || 'Week ahead' },
+              { id: 'nextweek', title: wa.menuNextWeek || '📅 Next Week', description: wa.menuNextWeekDesc || 'Next week' },
+              { id: 'weather', title: wa.menuWeather || '🌤 Weather', description: wa.menuWeatherDesc || 'Weather forecast' },
+            ],
+          }, {
+            title: wa.menuSettings || 'Settings',
+            rows: [
+              { id: 'settings', title: wa.menuSettingsItem || '⚙️ Settings', description: wa.menuSettingsDesc || 'Open settings' },
+            ],
+          }],
+        },
+      });
     }
   } catch (error) {
     console.error('[WhatsApp] Error handling command:', error);
