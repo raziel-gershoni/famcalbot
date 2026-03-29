@@ -21,9 +21,9 @@
     "welcomeMessage": "This is a Telegram Web App. Open it through your Telegram bot.",
     "setup": {
       "connectGoogle": "Connect Google Calendar",
-      "connectGoogleDesc": "Link your Google account to get started with calendar summaries",
+      "connectGoogleDesc": "Unlock daily schedule summaries, voice briefings, and smart pickup order. Takes 60 seconds.",
       "selectCalendars": "Select Your Calendars",
-      "selectCalendarsDesc": "Choose which calendars to sync with your bot"
+      "selectCalendarsDesc": "Choose which calendars to merge — yours, spouse, kids. Unlocks the full family view."
     },
     "summary": {
       "title": "Calendar Summary",
@@ -388,7 +388,13 @@
   },
   "bot": {
     "start": {
-      "welcome": "👋 <b>Welcome {name}!</b>",
+      "welcome": "👋 <b>Welcome to FamCal, {name}!</b>",
+      "valueProp": "FamCal reads your family's Google Calendars and sends you a <b>daily briefing</b> every morning — as text and voice, right here in {platform}.",
+      "featureList": "Here's what you'll get:\n\n📅 <b>Merged family schedule</b> — yours, spouse, and kids in one view\n🎤 <b>30-second voice briefing</b> — listen while making coffee\n🚗 <b>Kids' pickup order</b> — sorted by end time\n🌤️ <b>Weather tied to your schedule</b> — \"Rain at pickup, bring umbrellas\"\n🗣️ <b>Voice commands</b> — create events by talking",
+      "sampleIntro": "Here's what your morning briefing looks like:",
+      "sampleSummary": "☀️ <b>Good morning!</b>\nToday — Sunday, Mar 15\n\n<b>Your Schedule:</b>\n• 09:00 – Team standup (Zoom)\n• 14:00 – Client meeting\n\n<b>Sarah's Schedule:</b>\n• 10:30 – Dentist\n\n<b>Kids Pickup:</b>\n1. 14:00 — Noah (School)\n2. 16:30 — Maya, Liam (Soccer)\n\n💡 Sarah finishes at 12 — she can handle Noah's pickup\n🌤️ 22°C, sunny. Light jacket for evening.",
+      "ctaSetup": "Ready? Connect your Google Calendar to see <b>your</b> schedule (60 seconds):",
+      "ctaButton": "🚀 Set Up FamCal",
       "tapButton": "Tap the button below to open your dashboard:",
       "chooseBoard": "Choose your dashboard:",
       "dashboard": "Open Dashboard",
@@ -451,20 +457,31 @@
     },
     "setupReminders": {
       "oauth": {
-        "title": "📅 <b>Complete Your Setup</b>",
-        "body": "Connect your Google Calendar to start receiving daily summaries!",
-        "button": "🔗 Connect Calendar"
+        "title": "📅 <b>Your daily briefing is waiting</b>",
+        "body": "Connect your Google Calendar to unlock:\n\n✅ Personalized daily schedule\n✅ 30-second voice briefing\n✅ Kids' pickup order\n✅ AI conflict detection\n\nTakes 60 seconds — first summary arrives immediately.",
+        "bodyReminder": "You're missing daily schedule summaries, voice briefings, and smart pickup order.\n\nConnect your Google Calendar — takes 60 seconds:",
+        "bodyFinal": "Last reminder: FamCal can't help organize your family's day until you connect Google Calendar.\n\n60 seconds to set up. Personalized summaries start immediately.",
+        "button": "🚀 Connect Calendar"
       },
       "calendars": {
-        "title": "📋 <b>One More Step</b>",
-        "body": "Select which calendars to include in your daily summaries.",
+        "title": "📋 <b>Almost there — pick your calendars</b>",
+        "body": "Your Google account is connected! Select which calendars to include:\n\n✅ Merged family view (yours + spouse + kids)\n✅ Smart pickup order\n✅ Per-calendar labels and rules",
+        "bodyReminder": "Your Google Calendar is connected but you haven't picked which calendars to include yet.\n\nSelect them to start getting family summaries:",
         "button": "📆 Select Calendars"
       },
       "location": {
-        "title": "🌤️ <b>Enable Weather</b>",
-        "body": "Set your location to get weather info in your summaries.",
+        "title": "🌤️ <b>Add weather to your briefings</b>",
+        "body": "Your summaries are working! Add your location to unlock:\n\n✅ Rain warnings at pickup time\n✅ Temperature in context\n✅ \"Bring umbrellas\" style alerts\n\nJust set your city — 10 seconds.",
         "button": "📍 Set Location"
       }
+    },
+    "setupNudge": {
+      "noOAuth": "📅 <b>Connect your calendar first</b>\n\nTo get your personalized summary, I need access to your Google Calendar.\n\nOnce connected, you'll get:\n✅ Today's schedule for your whole family\n✅ Kids' pickup order\n✅ 30-second voice briefing\n\nTap below to connect (60 seconds):",
+      "noOAuthButton": "🚀 Connect Calendar",
+      "noCalendars": "📋 <b>One more step — pick your calendars</b>\n\nYour Google account is connected! Now choose which calendars to include so I can build your family summary.\n\nTap below:",
+      "noCalendarsButton": "📆 Select Calendars",
+      "noLocation": "🌤️ <b>Add your location for weather</b>\n\nI can tie weather to your schedule — like \"Rain at 16:00 pickup, bring umbrellas.\"\n\nJust set your city:",
+      "noLocationButton": "📍 Set Location"
     },
     "voice": {
       "notRegistered": "❌ Please use /start to register first before creating events.",
@@ -556,7 +573,7 @@
       "alreadyLinked": "Your account is already linked to WhatsApp ({phone})."
     },
     "whatsapp": {
-      "welcome": "Welcome to FamCal, {name}! 👋\n\n_Already use FamCal on Telegram? Send /connect there, then type:_ link CODE",
+      "welcome": "Welcome to FamCal, {name}! 👋\n\nFamCal reads your family's Google Calendars and sends you a *daily briefing* every morning — merged schedules, kids' pickup order, weather, and a 30-second voice summary.\n\n_Already use FamCal on Telegram? Send /connect there, then type:_ link CODE",
       "linkSuccess": "Accounts linked! Your Telegram and WhatsApp are now connected. 🎉",
       "linkInvalidCode": "Invalid or expired link code. Generate a new one with /connect on Telegram.",
       "linkAlreadyLinked": "This Telegram account is already linked to a WhatsApp number.",

@@ -58,4 +58,8 @@ export const REDIS_KEYS = {
 
   // WhatsApp message dedup (prevents webhook retry from re-processing)
   waDedup: (messageId: string) => `wa:dedup:${messageId}`,
+
+  // Setup reminder tracking (multi-attempt, prevents duplicate sends)
+  setupReminder: (userId: number, type: string, attempt: number) =>
+    `setup:reminder:${userId}:${type}:${attempt}`,
 } as const;

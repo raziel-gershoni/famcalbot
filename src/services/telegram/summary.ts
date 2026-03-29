@@ -17,6 +17,7 @@ import { checkFeatureAccess, incrementUsage } from '../subscription-service';
 import { captureError } from '../../lib/error-capture';
 import { getBot, getMessagingService } from './bot';
 import { sendVoiceMessage } from './voice';
+import { sendSetupNudgeIfNeeded } from './commands';
 
 /**
  * Categorize events by ownership for a specific user
@@ -177,8 +178,12 @@ export async function sendSummaryToUser(
     ? getMessagingService()
     : getMessagingServiceByPlatform(platform);
 
-  const progressType: ProgressType = summaryDate ? 'summaryTomorrow' : 'summary';
   const userLanguage = user.language || 'en';
+
+  // Check if user has completed setup — nudge them if not
+  if (await sendSetupNudgeIfNeeded(user, chatId, messagingService, platform)) return;
+
+  const progressType: ProgressType = summaryDate ? 'summaryTomorrow' : 'summary';
 
   trackActivityAsync(user.id, 'text_summary_requested', {
     summary_type: summaryDate ? 'tomorrow' : 'today',

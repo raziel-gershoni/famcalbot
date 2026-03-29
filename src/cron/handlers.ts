@@ -175,32 +175,48 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
 export async function handleSetupReminders(): Promise<CronResult> {
   const { buildUrl } = await import('../config/urls');
   const { Prisma } = await import('@prisma/client');
+  const { Redis } = await import('@upstash/redis');
+  const { REDIS_KEYS } = await import('../config/redis-keys');
 
-  const OAUTH_REMINDER_DAY = 2;
-  const CALENDARS_REMINDER_DAY = 5;
-  const LOCATION_REMINDER_DAY = 8;
+  const redis = new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL!,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+  });
+
+  // Multi-attempt schedules: days after signup when each reminder is sent
+  const OAUTH_SCHEDULE = [1, 3, 7, 14];    // 4 attempts
+  const CALENDARS_SCHEDULE = [3, 6, 10];    // 3 attempts (only if OAuth done)
+  const LOCATION_SCHEDULE = [5, 10];        // 2 attempts (only if calendars done)
+  const MAX_DAYS = 14;                      // Stop looking after 14 days
+  const REMINDER_TTL = 30 * 24 * 3600;     // 30-day TTL for Redis keys
 
   interface ReminderResult {
     type: 'oauth' | 'calendars' | 'location';
     userId: number;
     name: string;
+    attempt: number;
     success: boolean;
     error?: string;
   }
 
-  async function getBotMessages(language: string) {
+  async function getSetupMessages(language: string) {
     const { default: messages } = await import(`@/messages/${language}.json`);
     return messages.bot.setupReminders;
   }
 
-  function getDateRangeForDay(daysAgo: number): { start: Date; end: Date } {
-    const now = new Date();
-    const start = new Date(now);
-    start.setDate(start.getDate() - daysAgo);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setHours(23, 59, 59, 999);
-    return { start, end };
+  // Pick the right message body based on attempt number
+  function pickBody(messages: { body: string; bodyReminder?: string; bodyFinal?: string }, attempt: number, maxAttempts: number): string {
+    if (attempt >= maxAttempts - 1 && messages.bodyFinal) return messages.bodyFinal;
+    if (attempt > 0 && messages.bodyReminder) return messages.bodyReminder;
+    return messages.body;
+  }
+
+  // Determine which attempt is due for a user given days since signup
+  function getDueAttempt(daysSinceSignup: number, schedule: number[]): number | null {
+    for (let i = schedule.length - 1; i >= 0; i--) {
+      if (daysSinceSignup >= schedule[i]) return i;
+    }
+    return null;
   }
 
   const results: ReminderResult[] = [];
@@ -213,7 +229,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
   async function sendSetupReminder(
     user: { id: number; telegramId: bigint | null; whatsappPhone: string | null; whatsappBsuid: string | null; language: string; name: string },
     title: string, body: string, buttonText: string, url: string,
-    type: ReminderResult['type']
+    type: ReminderResult['type'], attempt: number
   ): Promise<void> {
     const message = `${title}\n\n${body}`;
 
@@ -225,7 +241,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
       });
     }
 
-    // Send to WhatsApp (if WA-only or platform includes WA)
+    // Send to WhatsApp (if WA-only)
     const waChatId = user.whatsappPhone || user.whatsappBsuid;
     if (waChatId && !user.telegramId) {
       const { generateMagicLink } = await import('../services/magic-link');
@@ -237,78 +253,99 @@ export async function handleSetupReminders(): Promise<CronResult> {
       });
     }
 
-    results.push({ type, userId: user.id, name: user.name, success: true });
+    // Mark this attempt as sent in Redis
+    await redis.set(REDIS_KEYS.setupReminder(user.id, type, attempt), '1', { ex: REMINDER_TTL });
+    results.push({ type, userId: user.id, name: user.name, attempt, success: true });
   }
 
   const userSelect = {
     id: true, telegramId: true, whatsappPhone: true, whatsappBsuid: true, language: true, name: true,
   } as const;
 
-  // 1. OAuth reminders
-  const oauthWindow = getDateRangeForDay(OAUTH_REMINDER_DAY);
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - MAX_DAYS);
+
+  const hasMessagingPlatform = {
+    OR: [{ telegramId: { not: null } }, { whatsappPhone: { not: null } }, { whatsappBsuid: { not: null } }],
+  };
+
+  // 1. OAuth reminders — users who signed up in last 14 days without Google connected
   const needsOAuthUsers = await prisma.user.findMany({
     where: {
-      createdAt: { gte: oauthWindow.start, lte: oauthWindow.end },
+      createdAt: { gte: cutoffDate },
       googleRefreshToken: '',
-      OR: [{ telegramId: { not: null } }, { whatsappPhone: { not: null } }, { whatsappBsuid: { not: null } }],
+      ...hasMessagingPlatform,
     },
-    select: userSelect,
+    select: { ...userSelect, createdAt: true },
   });
 
   for (const user of needsOAuthUsers) {
     try {
-      const t = await getBotMessages(user.language || 'en');
+      const daysSinceSignup = Math.floor((Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24));
+      const dueAttempt = getDueAttempt(daysSinceSignup, OAUTH_SCHEDULE);
+      if (dueAttempt === null) continue;
+
+      // Check if this attempt was already sent
+      const alreadySent = await redis.get(REDIS_KEYS.setupReminder(user.id, 'oauth', dueAttempt));
+      if (alreadySent) continue;
+
+      const t = await getSetupMessages(user.language || 'en');
+      const body = pickBody(t.oauth, dueAttempt, OAUTH_SCHEDULE.length);
       const dashboardUrl = buildUrl(`/${user.language || 'en'}/dashboard?user_id=${user.id}`);
-      await sendSetupReminder(user, t.oauth.title, t.oauth.body, t.oauth.button, dashboardUrl, 'oauth');
+      await sendSetupReminder(user, t.oauth.title, body, t.oauth.button, dashboardUrl, 'oauth', dueAttempt);
     } catch (error) {
       results.push({
-        type: 'oauth', userId: user.id, name: user.name,
+        type: 'oauth', userId: user.id, name: user.name, attempt: -1,
         success: false, error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
   }
 
-  // 2. Calendars reminders
-  const calendarsWindow = getDateRangeForDay(CALENDARS_REMINDER_DAY);
+  // 2. Calendars reminders — users with OAuth but no calendars selected
   const needsCalendarsUsers = await prisma.user.findMany({
     where: {
-      createdAt: { gte: calendarsWindow.start, lte: calendarsWindow.end },
+      createdAt: { gte: cutoffDate },
       googleRefreshToken: { not: '' },
       OR: [
         { calendarAssignments: { equals: Prisma.JsonNull } },
         { calendarAssignments: { equals: Prisma.DbNull } },
         { calendarAssignments: { equals: [] } },
       ],
-      AND: {
-        OR: [{ telegramId: { not: null } }, { whatsappPhone: { not: null } }, { whatsappBsuid: { not: null } }],
-      },
+      AND: hasMessagingPlatform,
     },
-    select: userSelect,
+    select: { ...userSelect, createdAt: true },
   });
 
   for (const user of needsCalendarsUsers) {
     try {
-      const t = await getBotMessages(user.language || 'en');
+      const daysSinceSignup = Math.floor((Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24));
+      const dueAttempt = getDueAttempt(daysSinceSignup, CALENDARS_SCHEDULE);
+      if (dueAttempt === null) continue;
+
+      const alreadySent = await redis.get(REDIS_KEYS.setupReminder(user.id, 'calendars', dueAttempt));
+      if (alreadySent) continue;
+
+      const t = await getSetupMessages(user.language || 'en');
+      const body = pickBody(t.calendars, dueAttempt, CALENDARS_SCHEDULE.length);
       const calendarsUrl = buildUrl(`/${user.language || 'en'}/select-calendars?user_id=${user.id}`);
-      await sendSetupReminder(user, t.calendars.title, t.calendars.body, t.calendars.button, calendarsUrl, 'calendars');
+      await sendSetupReminder(user, t.calendars.title, body, t.calendars.button, calendarsUrl, 'calendars', dueAttempt);
     } catch (error) {
       results.push({
-        type: 'calendars', userId: user.id, name: user.name,
+        type: 'calendars', userId: user.id, name: user.name, attempt: -1,
         success: false, error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
   }
 
-  // 3. Location reminders
-  const locationWindow = getDateRangeForDay(LOCATION_REMINDER_DAY);
+  // 3. Location reminders — users with OAuth + calendars but no location
   const needsLocationUsers = await prisma.user.findMany({
     where: {
-      createdAt: { gte: locationWindow.start, lte: locationWindow.end },
+      createdAt: { gte: cutoffDate },
       googleRefreshToken: { not: '' },
       location: '',
-      OR: [{ telegramId: { not: null } }, { whatsappPhone: { not: null } }, { whatsappBsuid: { not: null } }],
+      ...hasMessagingPlatform,
     },
-    select: { ...userSelect, calendarAssignments: true },
+    select: { ...userSelect, createdAt: true, calendarAssignments: true },
   });
 
   const locationUsersFiltered = needsLocationUsers.filter(u => {
@@ -318,12 +355,19 @@ export async function handleSetupReminders(): Promise<CronResult> {
 
   for (const user of locationUsersFiltered) {
     try {
-      const t = await getBotMessages(user.language || 'en');
+      const daysSinceSignup = Math.floor((Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24));
+      const dueAttempt = getDueAttempt(daysSinceSignup, LOCATION_SCHEDULE);
+      if (dueAttempt === null) continue;
+
+      const alreadySent = await redis.get(REDIS_KEYS.setupReminder(user.id, 'location', dueAttempt));
+      if (alreadySent) continue;
+
+      const t = await getSetupMessages(user.language || 'en');
       const settingsUrl = buildUrl(`/${user.language || 'en'}/settings?user_id=${user.id}`);
-      await sendSetupReminder(user, t.location.title, t.location.body, t.location.button, settingsUrl, 'location');
+      await sendSetupReminder(user, t.location.title, t.location.body, t.location.button, settingsUrl, 'location', dueAttempt);
     } catch (error) {
       results.push({
-        type: 'location', userId: user.id, name: user.name,
+        type: 'location', userId: user.id, name: user.name, attempt: -1,
         success: false, error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
@@ -340,7 +384,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
       const formatUserList = (type: ReminderResult['type']) => {
         const users = results.filter(r => r.type === type && r.success);
         if (users.length === 0) return null;
-        const userNames = users.map(r => `• ${r.name}`).join('\n');
+        const userNames = users.map(r => `• ${r.name} (attempt ${r.attempt + 1})`).join('\n');
         return `${type.charAt(0).toUpperCase() + type.slice(1)} (${users.length}):\n${userNames}`;
       };
       const details = [
