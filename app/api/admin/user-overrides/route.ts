@@ -194,6 +194,8 @@ export async function GET(request: NextRequest) {
         user: {
           id: user.id,
           telegramId: user.telegramId ? Number(user.telegramId) : null,
+          whatsappPhone: user.whatsappPhone || null,
+          messagingPlatform: user.messagingPlatform || 'telegram',
           name: user.name,
           subscription: user.subscription ? {
             plan: user.subscription.plan,

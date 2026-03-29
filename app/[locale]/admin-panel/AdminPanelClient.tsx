@@ -47,6 +47,8 @@ type FilterType = 'all' | 'trial' | 'paid' | 'free' | 'override';
 interface UserOverrideDetails {
   id: number;
   telegramId: number | null;
+  whatsappPhone: string | null;
+  messagingPlatform: string;
   name: string;
   subscription: {
     plan: string;
@@ -146,6 +148,11 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   // Reminder sending state
   const [isSendingReminder, setIsSendingReminder] = useState(false);
   const [reminderFeedback, setReminderFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // Reset reminders state
+  const [isResettingReminders, setIsResettingReminders] = useState(false);
+  // Platform switch state
+  const [isSwitchingPlatform, setIsSwitchingPlatform] = useState(false);
+  const [whatsappPhoneInput, setWhatsappPhoneInput] = useState('');
 
   // User activity state
   const [activities, setActivities] = useState<ActivityItem[]>([]);
@@ -511,6 +518,69 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
       setReminderFeedback({ type: 'error', message: t('overrides.reminderFailed') });
     } finally {
       setIsSendingReminder(false);
+    }
+  };
+
+  // Reset setup reminders for a user
+  const resetReminders = async () => {
+    if (!selectedUser) return;
+    setIsResettingReminders(true);
+    setReminderFeedback(null);
+
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = await fetch('/api/admin/reset-reminders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData, user_id: selectedUser.id }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setReminderFeedback({ type: 'success', message: t('overrides.remindersReset') });
+        setTimeout(() => setReminderFeedback(null), 3000);
+      } else {
+        setReminderFeedback({ type: 'error', message: data.error || t('overrides.remindersResetFailed') });
+      }
+    } catch (error) {
+      console.error('Failed to reset reminders:', error);
+      setReminderFeedback({ type: 'error', message: t('overrides.remindersResetFailed') });
+    } finally {
+      setIsResettingReminders(false);
+    }
+  };
+
+  // Switch user to WhatsApp
+  const switchToWhatsApp = async () => {
+    if (!selectedUser || !whatsappPhoneInput.trim()) return;
+    setIsSwitchingPlatform(true);
+    setReminderFeedback(null);
+
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = await fetch('/api/admin/switch-platform', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          initData,
+          user_id: selectedUser.id,
+          whatsapp_phone: whatsappPhoneInput.trim(),
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setReminderFeedback({ type: 'success', message: t('overrides.platformSwitched') });
+        setWhatsappPhoneInput('');
+        // Refresh user details
+        await loadUserDetails(selectedUser.id);
+        setTimeout(() => setReminderFeedback(null), 3000);
+      } else {
+        setReminderFeedback({ type: 'error', message: data.error || t('overrides.platformSwitchFailed') });
+      }
+    } catch (error) {
+      console.error('Failed to switch platform:', error);
+      setReminderFeedback({ type: 'error', message: t('overrides.platformSwitchFailed') });
+    } finally {
+      setIsSwitchingPlatform(false);
     }
   };
 
@@ -1884,6 +1954,12 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                   <div className="user-card-info">
                     <h3>{selectedUser.name}</h3>
                     <p>Telegram ID: {selectedUser.telegramId || 'N/A'}</p>
+                    {selectedUser.whatsappPhone && <p>WhatsApp: {selectedUser.whatsappPhone}</p>}
+                    <p>{t('overrides.currentPlatform')}: {
+                      selectedUser.messagingPlatform === 'whatsapp' ? t('overrides.whatsappOnly') :
+                      selectedUser.messagingPlatform === 'all' ? t('overrides.bothPlatforms') :
+                      t('overrides.telegramOnly')
+                    }</p>
                   </div>
                   <button className="close-btn" onClick={clearSelectedUser}>
                     <X size={20} />
@@ -1997,12 +2073,65 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                     </div>
                   )}
 
+                  {/* Reset Reminders Button */}
+                  <button
+                    className="send-reminder-btn"
+                    style={{ marginTop: 8, background: '#6b7280' }}
+                    onClick={resetReminders}
+                    disabled={isResettingReminders}
+                  >
+                    {isResettingReminders ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        {t('overrides.resettingReminders')}
+                      </>
+                    ) : (
+                      t('overrides.resetReminders')
+                    )}
+                  </button>
+
                   {/* Reminder Feedback */}
                   {reminderFeedback && (
                     <div className={`reminder-feedback ${reminderFeedback.type}`}>
                       {reminderFeedback.message}
                     </div>
                   )}
+                </div>
+
+                {/* Messaging Platform Section */}
+                <div className="user-card-section">
+                  <div className="user-card-section-title">{t('overrides.platformTitle')}</div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      value={whatsappPhoneInput}
+                      onChange={(e) => setWhatsappPhoneInput(e.target.value)}
+                      placeholder={t('overrides.whatsappPhonePlaceholder')}
+                      style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: 8,
+                        fontSize: 14,
+                        direction: 'ltr',
+                      }}
+                    />
+                    <button
+                      className="send-reminder-btn"
+                      style={{ width: 'auto', whiteSpace: 'nowrap' }}
+                      onClick={switchToWhatsApp}
+                      disabled={isSwitchingPlatform || !whatsappPhoneInput.trim()}
+                    >
+                      {isSwitchingPlatform ? (
+                        <>
+                          <Loader2 size={16} className="animate-spin" />
+                          {t('overrides.switchingPlatform')}
+                        </>
+                      ) : (
+                        t('overrides.switchToWhatsApp')
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Feature Overrides Section */}
