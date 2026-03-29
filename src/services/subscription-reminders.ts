@@ -95,6 +95,7 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
         select: {
           telegramId: true,
           whatsappPhone: true,
+          whatsappBsuid: true,
           messagingPlatform: true,
           language: true,
           name: true,
@@ -197,10 +198,11 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
       }
 
       // Send to WhatsApp if available and user prefers it
-      if (whatsappPhone && (!telegramId || sub.user.messagingPlatform === 'whatsapp' || sub.user.messagingPlatform === 'all')) {
+      const waChatId = sub.user.whatsappBsuid || whatsappPhone;
+      if (waChatId && (!telegramId || sub.user.messagingPlatform === 'whatsapp' || sub.user.messagingPlatform === 'all')) {
         const { getWhatsAppService } = await import('./messaging/factory');
         const waService = getWhatsAppService();
-        await waService.sendMessage(whatsappPhone, message, {
+        await waService.sendMessage(waChatId, message, {
           format: MessageFormat.HTML,
           whatsappUrlButton: { text: buttonText, url: subscriptionUrl },
         });
@@ -247,6 +249,7 @@ async function expireSubscriptions(): Promise<void> {
         select: {
           telegramId: true,
           whatsappPhone: true,
+          whatsappBsuid: true,
           messagingPlatform: true,
           language: true,
           name: true,

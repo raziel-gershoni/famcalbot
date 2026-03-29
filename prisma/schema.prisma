@@ -16,7 +16,8 @@ model User {
 
   // Platform identifiers
   telegramId    BigInt? @unique
-  whatsappPhone String? @unique
+  whatsappPhone String? @unique      // E.164 phone number (may be absent for username-only users)
+  whatsappBsuid String? @unique      // Business-Scoped User ID (June 2026+, replaces phone for username users)
 
   // Personal info
   name              String                              // Name in user's natural language
@@ -62,6 +63,7 @@ model User {
 
   @@index([telegramId])
   @@index([whatsappPhone])
+  @@index([whatsappBsuid])
 }
 
 model OAuthState {

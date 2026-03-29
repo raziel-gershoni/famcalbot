@@ -2,7 +2,7 @@
  * Telegram summary generation and delivery functions
  */
 
-import { getUserByTelegramId, getUserByIdentifier, getAllUsers } from '../user-service';
+import { getUserByTelegramId, getUserByIdentifier, getAllUsers, getWhatsAppChatId } from '../user-service';
 import { fetchTodayEvents, fetchTomorrowEvents } from '../calendar';
 import { generateSummary, SummaryUserContext, formatDateHeader } from '../claude';
 import { CalendarEvent, UserConfig } from '../../types';
@@ -343,7 +343,7 @@ async function sendSummaryToAll(
         const { summary, dateHeader } = await prepareSummaryForUser(user, fetchFunction, summaryDate);
 
         // Use telegramId for TG delivery, whatsappPhone for WA, or user.id as fallback
-        const deliveryUserId = user.telegramId ?? user.whatsappPhone ?? user.id;
+        const deliveryUserId = user.telegramId ?? getWhatsAppChatId(user) ?? user.id;
         await deliverSummary({
           userId: deliveryUserId,
           summary,
@@ -381,9 +381,9 @@ async function sendSummaryToAll(
                 }
               });
             }
-            if ((platform === 'whatsapp' || platform === 'all') && user.whatsappPhone) {
+            if ((platform === 'whatsapp' || platform === 'all') && getWhatsAppChatId(user)) {
               const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
-              await whatsappService.sendMessage(user.whatsappPhone, expiredMessage, { format: MessageFormat.HTML });
+              await whatsappService.sendMessage(getWhatsAppChatId(user)!, expiredMessage, { format: MessageFormat.HTML });
             }
           } catch (msgError) {
             console.error(`Failed to send token expired message to user ${user.id}:`, msgError);
@@ -495,9 +495,9 @@ ${weatherData.tomorrow ? `<b>${t.weatherOnly?.tomorrow || 'Tomorrow'}:</b> ${t.w
     });
   }
 
-  if ((platform === 'whatsapp' || platform === 'all') && user.whatsappPhone) {
+  if ((platform === 'whatsapp' || platform === 'all') && getWhatsAppChatId(user)) {
     const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
-    await whatsappService.sendMessage(user.whatsappPhone, weatherMessage, { format: MessageFormat.HTML });
+    await whatsappService.sendMessage(getWhatsAppChatId(user)!, weatherMessage, { format: MessageFormat.HTML });
   }
 
   console.log(`[Summary] Sent weather-only to user ${user.id}`);
@@ -574,10 +574,10 @@ async function routeTextMessage(
     }
   }
 
-  if ((targetPlatform === 'whatsapp' || targetPlatform === 'all') && user.whatsappPhone) {
+  if ((targetPlatform === 'whatsapp' || targetPlatform === 'all') && getWhatsAppChatId(user)) {
     try {
       const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
-      await whatsappService.sendMessage(user.whatsappPhone, text, { format: MessageFormat.HTML });
+      await whatsappService.sendMessage(getWhatsAppChatId(user)!, text, { format: MessageFormat.HTML });
     } catch (e) {
       captureError(e, 'whatsapp-delivery', { user_id: userId, service: 'sendMessage' });
     }
@@ -614,7 +614,7 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
 
   // Use correct messaging service based on delivery platform
   const targetPlatform = platform || user.messagingPlatform || 'telegram';
-  const msgService = (targetPlatform === 'whatsapp' && user.whatsappPhone)
+  const msgService = (targetPlatform === 'whatsapp' && getWhatsAppChatId(user))
     ? getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP)
     : getMessagingService();
 
@@ -714,8 +714,8 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
       );
     }
     // Send voice to WhatsApp if applicable
-    if ((targetPlatform === 'whatsapp' || targetPlatform === 'all') && user.whatsappPhone) {
-      sendVoiceMessage(user.whatsappPhone, summary, user, undefined, false, MessagingPlatform.WHATSAPP).catch(err =>
+    if ((targetPlatform === 'whatsapp' || targetPlatform === 'all') && getWhatsAppChatId(user)) {
+      sendVoiceMessage(getWhatsAppChatId(user)!, summary, user, undefined, false, MessagingPlatform.WHATSAPP).catch(err =>
         console.error(`[Delivery] Voice generation failed for WA user ${user.id}:`, err)
       );
     }

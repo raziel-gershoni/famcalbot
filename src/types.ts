@@ -19,9 +19,10 @@ export interface CalendarAssignment {
 }
 
 // Prisma User type with BigInt converted to number for compatibility
-export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'gender' | 'calendarAssignments' | 'defaultReminderMinutes'> & {
+export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'whatsappBsuid' | 'gender' | 'calendarAssignments' | 'defaultReminderMinutes'> & {
   telegramId: number | null;  // Convert BigInt to number (null for WhatsApp-only users)
-  whatsappPhone?: string | null;  // Make optional and allow null
+  whatsappPhone?: string | null;
+  whatsappBsuid?: string | null;  // Make optional and allow null
   messagingPlatform?: 'telegram' | 'whatsapp' | 'all';
   language?: string;
   gender: 'male' | 'female';  // Narrow type for type safety
@@ -48,6 +49,7 @@ export function convertPrismaUserToConfig(user: PrismaUser): UserConfig {
     ...user,
     telegramId: user.telegramId !== null ? Number(user.telegramId) : null,
     whatsappPhone: user.whatsappPhone ?? undefined,
+    whatsappBsuid: user.whatsappBsuid ?? undefined,
     messagingPlatform: user.messagingPlatform as 'telegram' | 'whatsapp' | 'all',
     gender: user.gender as 'male' | 'female',
     googleRefreshToken: safeDecrypt(user.googleRefreshToken), // Decrypt OAuth token

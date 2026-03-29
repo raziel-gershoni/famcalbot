@@ -29,7 +29,6 @@ export async function getUserById(id: number): Promise<UserConfig | null> {
 
 /**
  * Get user by WhatsApp phone
- * Drop-in replacement for getUserByWhatsAppPhone() in config/users.ts
  */
 export async function getUserByWhatsAppPhone(phone: string): Promise<UserConfig | null> {
   const user = await prisma.user.findUnique({
@@ -40,14 +39,55 @@ export async function getUserByWhatsAppPhone(phone: string): Promise<UserConfig 
 }
 
 /**
- * Get user by identifier (Telegram ID or WhatsApp phone)
- * Drop-in replacement for getUserByIdentifier() in config/users.ts
+ * Get user by WhatsApp Business-Scoped User ID (BSUID)
+ */
+export async function getUserByWhatsAppBsuid(bsuid: string): Promise<UserConfig | null> {
+  const user = await prisma.user.findUnique({
+    where: { whatsappBsuid: bsuid }
+  });
+
+  return user ? convertPrismaUserToConfig(user) : null;
+}
+
+/**
+ * Get user by any WhatsApp identifier (BSUID first, then phone)
+ */
+export async function getUserByWhatsAppId(identifier: string): Promise<UserConfig | null> {
+  // Try BSUID first (starts with non-digit, e.g., "BR.xxx")
+  const isBsuid = !identifier.match(/^\+?\d+$/);
+  if (isBsuid) {
+    return await getUserByWhatsAppBsuid(identifier);
+  }
+  return await getUserByWhatsAppPhone(identifier);
+}
+
+/**
+ * Update a user's WhatsApp BSUID (backfill for existing phone-based users)
+ */
+export async function updateWhatsAppBsuid(userId: number, bsuid: string): Promise<void> {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { whatsappBsuid: bsuid }
+  });
+  console.log(`[User] Backfilled BSUID for user ${userId}: ${bsuid.substring(0, 10)}...`);
+}
+
+/**
+ * Get the correct WhatsApp chat ID for sending messages
+ * Prefers BSUID (future-proof), falls back to phone
+ */
+export function getWhatsAppChatId(user: UserConfig): string | null {
+  return user.whatsappBsuid || user.whatsappPhone || null;
+}
+
+/**
+ * Get user by identifier (Telegram ID or WhatsApp phone/BSUID)
  */
 export async function getUserByIdentifier(id: number | bigint | string): Promise<UserConfig | null> {
   if (typeof id === 'number' || typeof id === 'bigint') {
     return await getUserByTelegramId(id);
   } else {
-    return await getUserByWhatsAppPhone(id);
+    return await getUserByWhatsAppId(id);
   }
 }
 
@@ -212,30 +252,44 @@ export async function updateUserById(id: number, data: Partial<PrismaUser>): Pro
 }
 
 /**
- * Get or create user by WhatsApp phone
+ * Get or create user by WhatsApp identifier (phone or BSUID)
  * Auto-registers new WhatsApp users with minimal defaults
  */
 export async function getOrCreateUserByWhatsApp(
-  phone: string,
-  profileName?: string
+  identifier: string,
+  profileName?: string,
+  bsuid?: string,
+  phone?: string
 ): Promise<UserConfig> {
-  const existingUser = await prisma.user.findUnique({
-    where: { whatsappPhone: phone }
-  });
-
-  if (existingUser) {
-    return convertPrismaUserToConfig(existingUser);
+  // Try lookup by BSUID first, then phone
+  if (bsuid) {
+    const byBsuid = await prisma.user.findUnique({ where: { whatsappBsuid: bsuid } });
+    if (byBsuid) return convertPrismaUserToConfig(byBsuid);
+  }
+  if (phone) {
+    const byPhone = await prisma.user.findUnique({ where: { whatsappPhone: phone } });
+    if (byPhone) return convertPrismaUserToConfig(byPhone);
+  }
+  // Also try the raw identifier
+  const isBsuid = !identifier.match(/^\+?\d+$/);
+  if (!isBsuid) {
+    const byPhone = await prisma.user.findUnique({ where: { whatsappPhone: identifier } });
+    if (byPhone) return convertPrismaUserToConfig(byPhone);
+  } else if (!bsuid) {
+    const byBsuid = await prisma.user.findUnique({ where: { whatsappBsuid: identifier } });
+    if (byBsuid) return convertPrismaUserToConfig(byBsuid);
   }
 
   const name = profileName || 'User';
 
   const newUser = await prisma.user.create({
     data: {
-      whatsappPhone: phone,
+      whatsappPhone: phone || (isBsuid ? undefined : identifier),
+      whatsappBsuid: bsuid || (isBsuid ? identifier : undefined),
       name,
       englishName: '',
       gender: 'male',
-      language: 'en',  // Cannot infer from WhatsApp, default to English
+      language: 'en',
       location: '',
       culture: 'default',
       messagingPlatform: 'whatsapp',
@@ -243,7 +297,7 @@ export async function getOrCreateUserByWhatsApp(
     }
   });
 
-  console.log(`[User] Created new WhatsApp user: ${name} (Phone: ${phone})`);
+  console.log(`[User] Created new WhatsApp user: ${name} (ID: ${identifier})`);
   return convertPrismaUserToConfig(newUser);
 }
 

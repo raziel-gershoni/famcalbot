@@ -10,6 +10,7 @@ import { fetchTodayEvents } from './calendar';
 import { getBot } from './telegram';
 import { getTelegramService, getWhatsAppService } from './messaging/factory';
 import { MessageFormat } from './messaging/types';
+import { getWhatsAppChatId } from './user-service';
 import { format } from 'date-fns';
 import { trackActivityAsync } from './analytics-service';
 import { checkFeatureAccess, incrementUsage } from './subscription-service';
@@ -276,9 +277,10 @@ export async function sendReminder(
     }
 
     // Send to WhatsApp if applicable
-    if ((platform === 'whatsapp' || platform === 'all') && user.whatsappPhone) {
+    const waChatId = getWhatsAppChatId(user);
+    if ((platform === 'whatsapp' || platform === 'all') && waChatId) {
       const waService = getWhatsAppService();
-      await waService.sendMessage(user.whatsappPhone, message, { format: MessageFormat.HTML });
+      await waService.sendMessage(waChatId, message, { format: MessageFormat.HTML });
       sent = true;
     }
 

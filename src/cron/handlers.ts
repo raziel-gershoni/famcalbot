@@ -211,7 +211,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
 
   // Helper: send setup reminder to correct platform
   async function sendSetupReminder(
-    user: { id: number; telegramId: bigint | null; whatsappPhone: string | null; language: string; name: string },
+    user: { id: number; telegramId: bigint | null; whatsappPhone: string | null; whatsappBsuid: string | null; language: string; name: string },
     title: string, body: string, buttonText: string, url: string,
     type: ReminderResult['type']
   ): Promise<void> {
@@ -226,11 +226,12 @@ export async function handleSetupReminders(): Promise<CronResult> {
     }
 
     // Send to WhatsApp (if WA-only or platform includes WA)
-    if (user.whatsappPhone && !user.telegramId) {
+    const waChatId = user.whatsappPhone || user.whatsappBsuid;
+    if (waChatId && !user.telegramId) {
       const { generateMagicLink } = await import('../services/magic-link');
       const magicUrl = await generateMagicLink(user.id, user.language || 'en');
       const waService = getWhatsAppService();
-      await waService.sendMessage(user.whatsappPhone, message, {
+      await waService.sendMessage(waChatId, message, {
         format: MessageFormat.HTML,
         whatsappUrlButton: { text: buttonText, url: magicUrl },
       });
@@ -240,7 +241,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
   }
 
   const userSelect = {
-    id: true, telegramId: true, whatsappPhone: true, language: true, name: true,
+    id: true, telegramId: true, whatsappPhone: true, whatsappBsuid: true, language: true, name: true,
   } as const;
 
   // 1. OAuth reminders
@@ -249,7 +250,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
     where: {
       createdAt: { gte: oauthWindow.start, lte: oauthWindow.end },
       googleRefreshToken: '',
-      OR: [{ telegramId: { not: null } }, { whatsappPhone: { not: null } }],
+      OR: [{ telegramId: { not: null } }, { whatsappPhone: { not: null } }, { whatsappBsuid: { not: null } }],
     },
     select: userSelect,
   });
@@ -279,7 +280,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
         { calendarAssignments: { equals: [] } },
       ],
       AND: {
-        OR: [{ telegramId: { not: null } }, { whatsappPhone: { not: null } }],
+        OR: [{ telegramId: { not: null } }, { whatsappPhone: { not: null } }, { whatsappBsuid: { not: null } }],
       },
     },
     select: userSelect,
@@ -305,7 +306,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
       createdAt: { gte: locationWindow.start, lte: locationWindow.end },
       googleRefreshToken: { not: '' },
       location: '',
-      OR: [{ telegramId: { not: null } }, { whatsappPhone: { not: null } }],
+      OR: [{ telegramId: { not: null } }, { whatsappPhone: { not: null } }, { whatsappBsuid: { not: null } }],
     },
     select: { ...userSelect, calendarAssignments: true },
   });

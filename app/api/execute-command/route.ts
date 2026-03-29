@@ -101,8 +101,9 @@ export async function POST(request: NextRequest) {
     const platform = hasTelegramAuth || hasServerSecret
       ? MessagingPlatform.TELEGRAM
       : (user.whatsappPhone ? MessagingPlatform.WHATSAPP : MessagingPlatform.TELEGRAM);
-    const chatId: number | string = platform === MessagingPlatform.WHATSAPP && user.whatsappPhone
-      ? user.whatsappPhone
+    const { getWhatsAppChatId } = await import('@/src/services/user-service');
+    const chatId: number | string = platform === MessagingPlatform.WHATSAPP && getWhatsAppChatId(user)
+      ? getWhatsAppChatId(user)!
       : (user.telegramId ?? user_id);
 
     // Dynamically import to avoid build-time initialization

@@ -107,11 +107,12 @@ export async function redeemLinkCode(code: string, whatsappPhone: string): Promi
         prisma.userFeatureOverride.deleteMany({ where: { userId: waOnlyUser.id } }),
         // Delete WA-only user
         prisma.user.delete({ where: { id: waOnlyUser.id } }),
-        // Update TG user with WhatsApp phone
+        // Update TG user with WhatsApp identifiers
         prisma.user.update({
           where: { id: telegramUser.id },
           data: {
-            whatsappPhone: whatsappPhone,
+            whatsappPhone: waOnlyUser.whatsappPhone || whatsappPhone,
+            whatsappBsuid: waOnlyUser.whatsappBsuid || null,
             messagingPlatform: 'all',
           },
         }),
@@ -120,10 +121,11 @@ export async function redeemLinkCode(code: string, whatsappPhone: string): Promi
       console.log(`[AccountLink] Merged WA-only user ${waOnlyUser.id} into TG user ${telegramUser.id}`);
     } else if (!waOnlyUser) {
       // No WA-only user — just update TG user
+      const isBsuid = !whatsappPhone.match(/^\+?\d+$/);
       await prisma.user.update({
         where: { id: telegramUser.id },
         data: {
-          whatsappPhone: whatsappPhone,
+          ...(isBsuid ? { whatsappBsuid: whatsappPhone } : { whatsappPhone: whatsappPhone }),
           messagingPlatform: 'all',
         },
       });

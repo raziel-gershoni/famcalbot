@@ -248,16 +248,22 @@ export async function handleWhatsAppWebhook(
     }
   }
 
-  // Normalize phone number to E.164 format
-  const fromPhone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
+  // Detect BSUID vs phone number — don't blindly add + prefix
+  const isBsuid = !rawPhone.match(/^\+?\d+$/);
+  const fromId = isBsuid ? rawPhone : (rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`);
+
+  // Extract BSUID and phone from webhook metadata (ExternalUserId)
+  const externalUserId = value?.contacts?.[0]?.user_id as string | undefined;  // BSUID
+  const contactPhone = value?.contacts?.[0]?.wa_id as string | undefined;      // phone (may be absent)
 
   // Handle audio/voice messages (event creation via voice)
   if (message.type === 'audio') {
     const mediaId = message.audio?.id;
     if (mediaId) {
-      const user = await getUserByWhatsAppPhone(fromPhone);
+      const { getUserByWhatsAppId } = await import('./user-service');
+      const user = await getUserByWhatsAppId(fromId);
       if (user) {
-        await handleWhatsAppVoice(fromPhone, user, mediaId);
+        await handleWhatsAppVoice(fromId, user, mediaId);
       }
     }
     res.status(200).json({ ok: true });
@@ -272,17 +278,29 @@ export async function handleWhatsAppWebhook(
     return;
   }
 
-  const from = fromPhone;
+  const from = fromId;
 
   // Extract contact name from webhook payload
   const contactName = value?.contacts?.[0]?.profile?.name;
 
-  // Auto-register: get existing user or create new one
+  // Auto-register: get existing user or create new one (BSUID-aware)
+  const { getUserByWhatsAppId, updateWhatsAppBsuid } = await import('./user-service');
   let isNewUser = false;
-  let user = await getUserByWhatsAppPhone(from);
+  let user = await getUserByWhatsAppId(from);
+  if (!user && externalUserId) {
+    const { getUserByWhatsAppBsuid } = await import('./user-service');
+    user = await getUserByWhatsAppBsuid(externalUserId);
+  }
   if (!user) {
-    user = await getOrCreateUserByWhatsApp(from, contactName);
+    const normalizedPhone = contactPhone ? (contactPhone.startsWith('+') ? contactPhone : `+${contactPhone}`) : (isBsuid ? undefined : fromId);
+    user = await getOrCreateUserByWhatsApp(from, contactName, externalUserId, normalizedPhone);
     isNewUser = true;
+  }
+
+  // Backfill BSUID for existing phone-based users
+  if (user && externalUserId && !user.whatsappBsuid) {
+    await updateWhatsAppBsuid(user.id, externalUserId);
+    user.whatsappBsuid = externalUserId;
   }
 
   const lowerText = text.toLowerCase().trim();
