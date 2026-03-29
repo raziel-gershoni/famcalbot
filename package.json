@@ -10,7 +10,7 @@
     "dev": "tsx scripts/dev.ts",
     "dev:next": "next dev",
     "dev:bot": "tsx src/index.ts",
-    "build": "next build",
+    "build": "prisma generate && prisma migrate deploy && next build",
     "start": "next start",
     "vercel-build": "prisma generate && prisma migrate deploy && next build",
     "type-check": "tsc --noEmit",
