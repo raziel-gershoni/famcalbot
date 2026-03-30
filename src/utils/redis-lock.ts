@@ -4,6 +4,7 @@
  */
 
 import { Redis } from '@upstash/redis';
+import { captureError } from '../lib/error-capture';
 
 // Initialize Redis client
 const redis = new Redis({
@@ -34,6 +35,7 @@ export async function acquireVoiceLock(fileUniqueId: string): Promise<boolean> {
     return false;
   } catch (error) {
     console.error('[Voice Lock] Error acquiring lock:', error);
+    captureError(error, 'redis-lock', {}, 'warning');
     // On error, allow execution (better to have duplicates than no execution)
     return true;
   }
@@ -51,6 +53,7 @@ export async function releaseVoiceLock(fileUniqueId: string): Promise<void> {
     console.log(`[Voice Lock] Released for file ${fileUniqueId}`);
   } catch (error) {
     console.error('[Voice Lock] Error releasing lock:', error);
+    captureError(error, 'redis-lock', {}, 'warning');
     // Non-fatal - lock will auto-expire via TTL
   }
 }

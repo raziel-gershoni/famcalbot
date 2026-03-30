@@ -5,6 +5,7 @@
 
 import { Redis } from '@upstash/redis';
 import { REDIS_KEYS } from '../config/redis-keys';
+import { captureError } from '../lib/error-capture';
 
 // Initialize Redis client
 const redis = new Redis({
@@ -38,6 +39,7 @@ export async function getCachedReminderUsers(): Promise<CachedReminderUser[] | n
     return await redis.get<CachedReminderUser[]>(CACHE_KEY);
   } catch (error) {
     console.error('[Reminder Cache] Redis read error:', error);
+    captureError(error, 'reminder-cache', {}, 'warning');
     return null;
   }
 }
@@ -52,6 +54,7 @@ export async function syncReminderCache(users: CachedReminderUser[]): Promise<vo
     console.log(`[Reminder Cache] Synced ${users.length} users to cache`);
   } catch (error) {
     console.error('[Reminder Cache] Redis write error:', error);
+    captureError(error, 'reminder-cache', {}, 'warning');
   }
 }
 
@@ -72,6 +75,7 @@ export async function updateUserInCache(user: CachedReminderUser): Promise<void>
     console.log(`[Reminder Cache] Updated user ${user.id} in cache`);
   } catch (error) {
     console.error('[Reminder Cache] Redis update error:', error);
+    captureError(error, 'reminder-cache', {}, 'warning');
   }
 }
 
@@ -86,6 +90,7 @@ export async function removeUserFromCache(userId: number): Promise<void> {
     console.log(`[Reminder Cache] Removed user ${userId} from cache`);
   } catch (error) {
     console.error('[Reminder Cache] Redis remove error:', error);
+    captureError(error, 'reminder-cache', {}, 'warning');
   }
 }
 
@@ -108,6 +113,7 @@ export async function getGlobalRemindersEnabled(): Promise<boolean> {
     return value;
   } catch (error) {
     console.error('[Reminder Cache] Redis read global toggle error:', error);
+    captureError(error, 'reminder-cache', {}, 'warning');
     return false;
   }
 }
@@ -121,6 +127,7 @@ export async function setGlobalRemindersEnabled(enabled: boolean): Promise<void>
     console.log(`[Reminder Cache] Set global reminders enabled to ${enabled}`);
   } catch (error) {
     console.error('[Reminder Cache] Redis write global toggle error:', error);
+    captureError(error, 'reminder-cache', {}, 'warning');
   }
 }
 
@@ -143,6 +150,7 @@ export async function getEarlyAdoptionMode(): Promise<boolean> {
     return value;
   } catch (error) {
     console.error('[Reminder Cache] Redis read early adoption toggle error:', error);
+    captureError(error, 'reminder-cache', {}, 'warning');
     return false;
   }
 }
@@ -156,6 +164,7 @@ export async function setEarlyAdoptionMode(enabled: boolean): Promise<void> {
     console.log(`[Reminder Cache] Set early adoption mode to ${enabled}`);
   } catch (error) {
     console.error('[Reminder Cache] Redis write early adoption toggle error:', error);
+    captureError(error, 'reminder-cache', {}, 'warning');
   }
 }
 
@@ -180,6 +189,7 @@ export async function getDefaultAiModelSetting(): Promise<string | null> {
     return value;
   } catch (error) {
     console.error('[Reminder Cache] Redis read default AI model error:', error);
+    captureError(error, 'reminder-cache', {}, 'warning');
     return null;
   }
 }
@@ -197,6 +207,7 @@ export async function setDefaultAiModelSetting(modelId: string | null): Promise<
     console.log(`[Reminder Cache] Set default AI model to ${modelId ?? 'env default'}`);
   } catch (error) {
     console.error('[Reminder Cache] Redis write default AI model error:', error);
+    captureError(error, 'reminder-cache', {}, 'warning');
   }
 }
 
@@ -220,6 +231,7 @@ export async function getGeminiThinkingLevel(): Promise<string | null> {
     return value;
   } catch (error) {
     console.error('[Reminder Cache] Redis read Gemini thinking level error:', error);
+    captureError(error, 'reminder-cache', {}, 'warning');
     return null;
   }
 }
@@ -237,5 +249,6 @@ export async function setGeminiThinkingLevel(level: string | null): Promise<void
     console.log(`[Reminder Cache] Set Gemini thinking level to ${level ?? 'default (MEDIUM)'}`);
   } catch (error) {
     console.error('[Reminder Cache] Redis write Gemini thinking level error:', error);
+    captureError(error, 'reminder-cache', {}, 'warning');
   }
 }

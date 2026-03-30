@@ -6,6 +6,7 @@ import { buildCalendarSummaryPrompt, SummaryPromptData } from '../prompts/calend
 import { buildWeekLookaheadPrompt, WeekLookaheadPromptData, LookaheadDayData, LookaheadEventData } from '../prompts/week-lookahead';
 import { formatEventList } from '../utils/event-formatter';
 import { generateAICompletion } from './ai-provider';
+import { captureError } from '../lib/error-capture';
 import { formatAdminFooter } from '../utils/ai-footer';
 import type { WeekLookahead, LookaheadEvent } from './week-lookahead';
 
@@ -197,6 +198,7 @@ async function callAI(prompt: string, includeModelInfo: boolean = false, modelId
     return result.text + formatAdminFooter(result, includeModelInfo);
   } catch (error) {
     console.error('Error generating summary with AI:', error);
+    captureError(error, 'claude-ai-summary');
     return 'Sorry, I could not generate a summary at this time.';
   }
 }
@@ -264,6 +266,7 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
       }
     } catch (error) {
       console.error('Failed to fetch weather/timezone for summary:', error);
+      captureError(error, 'claude-weather-fetch', undefined, 'warning');
       // Continue with defaults if it fails
     }
   }

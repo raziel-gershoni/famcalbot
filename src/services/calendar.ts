@@ -6,6 +6,7 @@ import { addDays, format } from 'date-fns';
 import { TIMEZONE } from '../config/constants';
 import { ALERT_MESSAGES } from '../config/messages';
 import { isTokenError, isInsufficientScopesError } from '../utils/errors';
+import { captureError } from '../lib/error-capture';
 
 // Re-export TIMEZONE and CalendarEvent for convenience
 export { TIMEZONE };
@@ -143,6 +144,7 @@ async function fetchEvents(
     } else {
       const error = result.reason;
       console.error(`Error fetching calendar:`, error);
+      captureError(error, 'calendar-fetch-events', undefined, 'warning');
 
       if (isInsufficientScopesError(error)) {
         throw new Error('GOOGLE_INSUFFICIENT_SCOPES');
@@ -227,6 +229,7 @@ export async function listUserCalendars(refreshToken: string): Promise<CalendarI
     }));
   } catch (error) {
     console.error('Error listing user calendars:', error);
+    captureError(error, 'calendar-list-calendars');
 
     // If it's an insufficient scopes error, re-throw with specific message
     if (isInsufficientScopesError(error)) {
@@ -385,6 +388,7 @@ export async function createEvent(
     };
   } catch (error) {
     console.error('Error creating calendar event:', error);
+    captureError(error, 'calendar-create-event');
 
     // Check for specific error types
     if (isTokenError(error)) {
@@ -475,6 +479,7 @@ export async function fetchEventsInRange(
       }
     } catch (error) {
       console.error(`Error fetching calendar ${calendarId}:`, error);
+      captureError(error, 'calendar-fetch-range', { calendarId }, 'warning');
 
       if (isTokenError(error)) {
         throw new Error('GOOGLE_TOKEN_EXPIRED');
@@ -613,6 +618,7 @@ export async function updateEvent(
     };
   } catch (error) {
     console.error('Error updating calendar event:', error);
+    captureError(error, 'calendar-update-event');
 
     if (isTokenError(error)) {
       return {
@@ -761,6 +767,7 @@ async function updateThisAndFollowing(
     };
   } catch (error) {
     console.error('Error updating this and following events:', error);
+    captureError(error, 'calendar-update-following');
 
     if (isTokenError(error)) {
       return {
@@ -834,6 +841,7 @@ export async function deleteEvent(
     return { success: true };
   } catch (error) {
     console.error('Error deleting calendar event:', error);
+    captureError(error, 'calendar-delete-event');
 
     if (isTokenError(error)) {
       return {
@@ -935,6 +943,7 @@ async function deleteThisAndFollowing(
     return { success: true };
   } catch (error) {
     console.error('Error deleting this and following events:', error);
+    captureError(error, 'calendar-delete-following');
 
     if (isTokenError(error)) {
       return {

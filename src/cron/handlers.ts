@@ -4,6 +4,7 @@
  */
 
 import { prisma } from '../utils/prisma';
+import { captureError } from '../lib/error-capture';
 
 export interface CronResult {
   success: boolean;
@@ -62,6 +63,7 @@ export async function handleDailySummary(): Promise<CronResult> {
     await setGlobalRemindersEnabled(adminSettings?.remindersEnabled ?? false);
   } catch (syncError) {
     console.error('[Daily Summary] Failed to sync reminder cache:', syncError);
+    captureError(syncError, 'cron-daily-summary-cache-sync', undefined, 'warning');
   }
 
   // Clean up expired OAuth state tokens — only at UTC hour 4
@@ -74,6 +76,7 @@ export async function handleDailySummary(): Promise<CronResult> {
       console.log(`[Daily Summary] Cleaned up ${deleted.count} expired OAuth state tokens`);
     } catch (cleanupError) {
       console.error('[Daily Summary] Failed to clean up OAuth state tokens:', cleanupError);
+      captureError(cleanupError, 'cron-daily-summary-oauth-cleanup', undefined, 'warning');
     }
   }
 
@@ -152,6 +155,7 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
     } catch (error) {
       const errorMsg = `User ${cachedUser.telegramId}: ${error instanceof Error ? error.message : 'Unknown error'}`;
       console.error(`[Event Reminders] Error processing user:`, errorMsg);
+      captureError(error, 'cron-reminders-process-user', { telegramId: cachedUser.telegramId });
       errors.push(errorMsg);
     }
   }
@@ -398,6 +402,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
       );
     } catch (notifyError) {
       console.error('[Setup Reminders] Failed to notify admin:', notifyError);
+      captureError(notifyError, 'cron-setup-reminders-notify', undefined, 'warning');
     }
   }
 
@@ -447,9 +452,10 @@ export async function handleHealth(): Promise<CronResult> {
 
   // Process subscription reminders
   const { processSubscriptionReminders } = await import('../services/subscription-reminders');
-  processSubscriptionReminders().catch(err =>
-    console.error('[Health] Subscription reminder error:', err)
-  );
+  processSubscriptionReminders().catch(err => {
+    console.error('[Health] Subscription reminder error:', err);
+    captureError(err, 'cron-health-subscription-reminders', undefined, 'warning');
+  });
 
   return {
     success: healthy,

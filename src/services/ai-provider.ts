@@ -8,6 +8,7 @@ import OpenAI from 'openai';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { getAIConfig, AI_RETRY_CONFIG } from '../config/constants';
 import { notifyAdminWarning } from '../utils/error-notifier';
+import { captureError } from '../lib/error-capture';
 
 // Lazy initialization of API clients to avoid build-time errors
 let anthropic: Anthropic | null = null;
@@ -118,7 +119,7 @@ async function callClaude(prompt: string, modelId?: string): Promise<AICompletio
       config.MODEL_CONFIG.displayName,
       message.usage.output_tokens,
       maxTokens
-    ).catch(err => console.error('Alert failed:', err));
+    ).catch(err => captureError(err, 'ai-token-ceiling-alert', {}, 'warning'));
   }
 
   return {
@@ -187,7 +188,7 @@ async function callOpenAI(prompt: string, modelId?: string): Promise<AICompletio
       config.MODEL_CONFIG.displayName,
       outputTokens,
       config.MAX_TOKENS
-    ).catch(err => console.error('Alert failed:', err));
+    ).catch(err => captureError(err, 'ai-token-ceiling-alert', {}, 'warning'));
   }
 
   return {
@@ -240,7 +241,7 @@ async function callGemini(prompt: string, modelId?: string): Promise<AICompletio
       config.MODEL_CONFIG.displayName,
       outputTokens,
       config.MAX_TOKENS
-    ).catch(err => console.error('Alert failed:', err));
+    ).catch(err => captureError(err, 'ai-token-ceiling-alert', {}, 'warning'));
   }
 
   return {

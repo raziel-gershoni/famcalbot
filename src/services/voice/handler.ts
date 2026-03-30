@@ -17,6 +17,7 @@ import { trackActivityAsync, addBreadcrumb, setUserContext } from '../analytics-
 import { checkFeatureAccess } from '../subscription-service';
 import { downloadVoiceFile, getLastCreatedEvent, findMatchingEvent, convertEditRequestToUpdates } from './event-resolution';
 import { showEventConfirmation, showEditConfirmation, showDeleteConfirmation } from './confirmations';
+import { captureError } from '../../lib/error-capture';
 
 interface TelegramVoice {
   file_id: string;
@@ -369,6 +370,7 @@ export async function handleVoiceMessage(
 
   } catch (error) {
     console.error('[Voice] Error handling voice message:', error);
+    captureError(error, 'voice-handler');
 
     if (user) {
       trackActivityAsync(user.id, 'voice_event_failed', {

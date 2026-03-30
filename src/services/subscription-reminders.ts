@@ -44,6 +44,7 @@ async function hasReminderBeenSent(telegramId: bigint | string, periodEnd: Date,
     return exists === 1;
   } catch (error) {
     console.error('[Subscription Reminders] Error checking reminder status:', error);
+    captureError(error, 'subscription-reminder-check-status', { telegramId: String(telegramId) }, 'warning');
     return false; // On error, allow sending (better to duplicate than miss)
   }
 }
@@ -57,6 +58,7 @@ async function markReminderSent(telegramId: bigint | string, periodEnd: Date, ty
     await redis.set(key, '1', { ex: REMINDER_TTL_SECONDS });
   } catch (error) {
     console.error('[Subscription Reminders] Error marking reminder as sent:', error);
+    captureError(error, 'subscription-reminder-mark-sent', { telegramId: String(telegramId) }, 'warning');
   }
 }
 

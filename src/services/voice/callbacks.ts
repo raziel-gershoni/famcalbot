@@ -8,6 +8,7 @@ import { createEvent, CreateEventResult, updateEvent, UpdateEventResult, deleteE
 import { buildUrl } from '../../config/urls';
 import { getBotMessages } from '../../lib/bot-messages';
 import { trackActivityAsync } from '../analytics-service';
+import { captureError } from '../../lib/error-capture';
 import { incrementUsage } from '../subscription-service';
 import { trackCreatedEvent } from './event-resolution';
 import { resolveUserTimezone } from '../../lib/timezone';
@@ -99,7 +100,7 @@ export async function handleEventCallback(
     if (result.success) {
       if (result.eventId) {
         trackCreatedEvent(user.telegramId!, result.eventId, event.calendarId || 'primary', event)
-          .catch(err => console.error('[Voice] Failed to track created event:', err));
+          .catch(err => captureError(err, 'voice-track-event', { user_id: user.id }, 'warning'));
       }
 
       trackActivityAsync(user.id, 'voice_event_created', {

@@ -16,6 +16,7 @@ import { trackActivityAsync } from './analytics-service';
 import { checkFeatureAccess, incrementUsage } from './subscription-service';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { resolveUserTimezone } from '../lib/timezone';
+import { captureError } from '../lib/error-capture';
 
 // Initialize Redis client
 const redis = new Redis({
@@ -74,6 +75,7 @@ async function isReminderSent(userId: number, eventId: string, type: ReminderTyp
     return exists === 1;
   } catch (error) {
     console.error('[Reminders] Error checking reminder status:', error);
+    captureError(error, 'reminders-check-status', { userId, eventId }, 'warning');
     return false; // On error, allow sending (better to duplicate than miss)
   }
 }
@@ -87,6 +89,7 @@ async function markReminderSent(userId: number, eventId: string, type: ReminderT
     await redis.set(key, '1', { ex: REMINDER_TTL_SECONDS });
   } catch (error) {
     console.error('[Reminders] Error marking reminder as sent:', error);
+    captureError(error, 'reminders-mark-sent', { userId, eventId }, 'warning');
   }
 }
 
@@ -128,6 +131,7 @@ export async function getDueReminders(
     events = await fetchTodayEvents(user.googleRefreshToken, calendarIds);
   } catch (error) {
     console.error(`[Reminders] Error fetching events for user ${user.telegramId}:`, error);
+    captureError(error, 'reminders-fetch-events', { telegramId: user.telegramId }, 'warning');
     return [];
   }
 
@@ -299,14 +303,16 @@ export async function sendReminder(
       reminder_type: reminder.type,
       minutes_before: getReminderMinutes(reminder.event, user.defaultReminderMinutes ?? undefined).minutes,
     });
-    incrementUsage(user.id, 'reminders').catch(err =>
-      console.error('[Subscription] Failed to increment reminders:', err)
-    );
+    incrementUsage(user.id, 'reminders').catch(err => {
+      console.error('[Subscription] Failed to increment reminders:', err);
+      captureError(err, 'reminders-increment-usage', { user_id: user.id }, 'warning');
+    });
 
     console.log(`[Reminders] Sent ${reminder.type} reminder to user ${user.id} for event: ${reminder.event.summary}`);
     return true;
   } catch (error) {
     console.error(`[Reminders] Error sending reminder to user ${user.id}:`, error);
+    captureError(error, 'reminders-send', { user_id: user.id });
     return false;
   }
 }
@@ -333,6 +339,7 @@ export async function processUserReminders(user: UserConfig, windowMinutes: numb
         }
       } catch (error) {
         console.error(`[Reminders] Failed to send downgrade notification for user ${user.telegramId}:`, error);
+        captureError(error, 'reminders-downgrade-notify', { telegramId: user.telegramId }, 'warning');
       }
     }
     return 0;

@@ -6,6 +6,7 @@
  */
 
 import cron from 'node-cron';
+import { captureError } from '../lib/error-capture';
 
 export function startScheduler(): void {
   console.log('[Scheduler] Starting in-process cron scheduler...');
@@ -18,6 +19,7 @@ export function startScheduler(): void {
       console.log(`[Scheduler] Reminders: ${result.message} (${result.remindersSent} sent)`);
     } catch (error) {
       console.error('[Scheduler] Reminders failed:', error);
+      captureError(error, 'cron-reminders');
       notifyAdmin('Event Reminders', error);
     }
   });
@@ -30,6 +32,7 @@ export function startScheduler(): void {
       console.log(`[Scheduler] Daily summary: ${result.processed} processed, ${result.skippedHour} skipped (hour), ${result.skippedDedup} skipped (dedup)`);
     } catch (error) {
       console.error('[Scheduler] Daily summary failed:', error);
+      captureError(error, 'cron-daily-summary');
       notifyAdmin('Daily Summary', error);
     }
   });
@@ -42,6 +45,7 @@ export function startScheduler(): void {
       console.log(`[Scheduler] Tomorrow summary: ${result.processed} processed, ${result.skippedHour} skipped (hour), ${result.skippedDedup} skipped (dedup)`);
     } catch (error) {
       console.error('[Scheduler] Tomorrow summary failed:', error);
+      captureError(error, 'cron-tomorrow-summary');
       notifyAdmin('Tomorrow Summary', error);
     }
   });
@@ -54,6 +58,7 @@ export function startScheduler(): void {
       console.log(`[Scheduler] Setup reminders: ${result.message}`);
     } catch (error) {
       console.error('[Scheduler] Setup reminders failed:', error);
+      captureError(error, 'cron-setup-reminders');
       notifyAdmin('Setup Reminders', error);
     }
   });
@@ -66,6 +71,7 @@ export function startScheduler(): void {
       console.log(`[Scheduler] Health: ${result.status}`);
     } catch (error) {
       console.error('[Scheduler] Health check failed:', error);
+      captureError(error, 'cron-health-check');
       notifyAdmin('Health Check', error);
     }
   });
@@ -85,6 +91,6 @@ function notifyAdmin(jobName: string, error: unknown): void {
   import('../utils/error-notifier').then(({ notifyAdminError }) =>
     notifyAdminError('Cron Job', error, `Job: ${jobName}`)
   ).catch(notifyError =>
-    console.error(`[Scheduler] Failed to notify admin about ${jobName}:`, notifyError)
+    { console.error(`[Scheduler] Failed to notify admin about ${jobName}:`, notifyError); captureError(notifyError, 'cron-admin-notify', { job: jobName }, 'warning'); }
   );
 }

@@ -85,6 +85,7 @@ export async function POST(request: NextRequest) {
         ) as number;
       } catch (err) {
         console.error('Failed to send initial progress:', err);
+        captureError(err, 'execute-command-progress', { user_id, command }, 'warning');
       }
     }
 

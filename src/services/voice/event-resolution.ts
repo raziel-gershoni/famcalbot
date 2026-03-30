@@ -10,6 +10,7 @@ import { fetchEventsInRange, CalendarEvent, UpdateEventData } from '../calendar'
 import { generateAICompletion } from '../ai-provider';
 import { fromZonedTime } from 'date-fns-tz';
 import { REDIS_KEYS } from '../../config/redis-keys';
+import { captureError } from '../../lib/error-capture';
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -81,6 +82,7 @@ export async function trackCreatedEvent(
     );
   } catch (error) {
     console.error('[Voice] Error tracking created event in Redis:', error);
+    captureError(error, 'voice-event-resolution');
   }
 }
 
@@ -98,6 +100,7 @@ export async function getLastCreatedEvent(userId: number): Promise<CreatedEventT
     return data;
   } catch (error) {
     console.error('[Voice] Error getting last created event from Redis:', error);
+    captureError(error, 'voice-event-resolution');
     return undefined;
   }
 }
@@ -219,6 +222,7 @@ RESPOND IN JSON:
     return { error: 'no_match' };
   } catch (error) {
     console.error('[Voice] Error matching event:', error);
+    captureError(error, 'voice-event-resolution');
     return { error: 'ai_error' };
   }
 }

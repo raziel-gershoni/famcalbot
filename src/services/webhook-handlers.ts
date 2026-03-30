@@ -21,6 +21,7 @@ import { MessagingPlatform, getWhatsAppService } from './messaging';
 import { handleVoiceMessage, handleEventCallback, handleEditCallback, handleDeleteCallback } from './voice';
 import { handlePreCheckoutQuery, handleSuccessfulPayment } from './payment-handler';
 import { setUserContext, addBreadcrumb } from './analytics-service';
+import { captureError } from '../lib/error-capture';
 
 /**
  * Handle Telegram webhook updates
@@ -380,7 +381,7 @@ export async function handleWhatsAppWebhook(
       // Return 200 immediately, process command in background
       res.status(200).json({ ok: true });
       fn()
-        .then(() => { if (tgId) notifyTelegramAboutWhatsApp(tgId, cmdName).catch(() => {}); })
+        .then(() => { if (tgId) notifyTelegramAboutWhatsApp(tgId, cmdName).catch(e => captureError(e, 'wa-tg-notify', {}, 'warning')); })
         .catch(err => console.error(`[WhatsApp] ${cmdName} command error:`, err));
     };
 
@@ -554,7 +555,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     trackActivityAsync(user.id, 'voice_event_started', { language: user.language, platform: 'whatsapp' });
   } catch (error) {
     console.error('[WhatsApp Voice] Error:', error);
-    await waService.sendMessage(phone, wa.voiceError || 'Sorry, could not process your voice message.').catch(() => {});
+    await waService.sendMessage(phone, wa.voiceError || 'Sorry, could not process your voice message.').catch(e => captureError(e, 'wa-voice-error-send', { phone }, 'warning'));
   }
 }
 
@@ -604,7 +605,7 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
         const { incrementUsage } = await import('./subscription-service');
         const { trackActivityAsync } = await import('./analytics-service');
         trackActivityAsync(pending.user.id, 'voice_event_created', { platform: 'whatsapp' });
-        incrementUsage(pending.user.id, 'voiceEvents').catch(() => {});
+        incrementUsage(pending.user.id, 'voiceEvents').catch(e => captureError(e, 'usage-increment', { user_id: pending.user.id }, 'warning'));
       } else {
         await waService.sendMessage(phone, `❌ ${(wa.eventFailed || 'Failed to create event: {error}').replace('{error}', result.error || '')}`);
       }
@@ -659,7 +660,7 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
     }
   } catch (error) {
     console.error('[WhatsApp Voice Callback] Error:', error);
-    await waService.sendMessage(phone, wa.genericError || 'Something went wrong. Please try again.').catch(() => {});
+    await waService.sendMessage(phone, wa.genericError || 'Something went wrong. Please try again.').catch(e => captureError(e, 'wa-callback-error-send', { phone }, 'warning'));
   }
 }
 

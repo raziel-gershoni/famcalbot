@@ -15,6 +15,7 @@ import {
   PhotoOptions,
   ParsedCommand,
 } from './types';
+import { captureError } from '../../lib/error-capture';
 
 export class WhatsAppAdapter implements IMessagingService {
   private apiUrl: string;
@@ -118,6 +119,7 @@ export class WhatsAppAdapter implements IMessagingService {
       return data.messages?.[0]?.id || '';
     } catch (error) {
       console.error(`[WhatsApp] Failed to send message to ${chatId}:`, error);
+      captureError(error, 'whatsapp-adapter');
       throw error;
     }
   }
@@ -167,6 +169,7 @@ export class WhatsAppAdapter implements IMessagingService {
       }
     } catch (error) {
       console.error(`[WhatsApp] Failed to send voice to ${chatId}:`, error);
+      captureError(error, 'whatsapp-adapter');
       throw error;
     }
   }
@@ -213,6 +216,7 @@ export class WhatsAppAdapter implements IMessagingService {
       return data.messages?.[0]?.id || '';
     } catch (error) {
       console.error(`[WhatsApp] Failed to send photo to ${chatId}:`, error);
+      captureError(error, 'whatsapp-adapter');
       throw error;
     } finally {
       // Cleanup temp file
@@ -383,6 +387,7 @@ export class WhatsAppAdapter implements IMessagingService {
       return data.id;
     } catch (error) {
       console.error('[WhatsApp] Media upload failed:', error);
+      captureError(error, 'whatsapp-adapter');
       throw error;
     }
   }

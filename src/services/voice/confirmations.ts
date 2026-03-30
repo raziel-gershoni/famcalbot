@@ -12,6 +12,7 @@ import { resolveUserTimezone } from '../../lib/timezone';
 import { UserConfig } from '../../types';
 import { getBotMessages } from '../../lib/bot-messages';
 import { REDIS_KEYS } from '../../config/redis-keys';
+import { captureError } from '../../lib/error-capture';
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -52,6 +53,7 @@ export async function getPendingEvent(pendingId: string) {
     return data;
   } catch (error) {
     console.error('[Voice] Error getting pending event from Redis:', error);
+    captureError(error, 'voice-confirmations', {}, 'warning');
     return undefined;
   }
 }
@@ -64,6 +66,7 @@ export async function removePendingEvent(pendingId: string) {
     await redis.del(REDIS_KEYS.pendingEvent(pendingId));
   } catch (error) {
     console.error('[Voice] Error removing pending event from Redis:', error);
+    captureError(error, 'voice-confirmations', {}, 'warning');
   }
 }
 
@@ -90,6 +93,7 @@ export async function getPendingEdit(pendingId: string) {
     return data;
   } catch (error) {
     console.error('[Voice] Error getting pending edit from Redis:', error);
+    captureError(error, 'voice-confirmations', {}, 'warning');
     return undefined;
   }
 }
@@ -102,6 +106,7 @@ export async function removePendingEdit(pendingId: string) {
     await redis.del(REDIS_KEYS.pendingEdit(pendingId));
   } catch (error) {
     console.error('[Voice] Error removing pending edit from Redis:', error);
+    captureError(error, 'voice-confirmations', {}, 'warning');
   }
 }
 
@@ -126,6 +131,7 @@ export async function getPendingDelete(pendingId: string) {
     return data;
   } catch (error) {
     console.error('[Voice] Error getting pending delete from Redis:', error);
+    captureError(error, 'voice-confirmations', {}, 'warning');
     return undefined;
   }
 }
@@ -138,6 +144,7 @@ export async function removePendingDelete(pendingId: string) {
     await redis.del(REDIS_KEYS.pendingDelete(pendingId));
   } catch (error) {
     console.error('[Voice] Error removing pending delete from Redis:', error);
+    captureError(error, 'voice-confirmations', {}, 'warning');
   }
 }
 

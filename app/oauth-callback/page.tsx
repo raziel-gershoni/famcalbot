@@ -6,6 +6,7 @@ import { XCircle, AlertTriangle } from 'lucide-react';
 import { buildUrl } from '@/src/config/urls';
 import { updateUserInCache } from '@/src/services/reminder-cache';
 import { getTranslations } from 'next-intl/server';
+import { captureError } from '@/src/lib/error-capture';
 
 interface PageProps {
   searchParams: Promise<{
@@ -267,7 +268,7 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
       })
     });
   } catch (error) {
-    console.error('OAuth token exchange error:', error);
+    captureError(error, 'oauth-token-exchange');
     return (
       <ErrorPage
         message={`Error exchanging authorization code: ${error instanceof Error ? error.message : 'Unknown error'}`}
@@ -327,9 +328,9 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
     await notifyAdminWarning(
       'Token Refreshed',
       `User ${telegramId} (${user.name || 'Unknown'}) successfully refreshed their Google Calendar token`
-    ).catch(err => console.error('Failed to notify admin:', err));
+    ).catch(err => captureError(err, 'oauth-admin-notify', {}, 'warning'));
   } catch (error) {
-    console.error('Error saving refresh token:', error);
+    captureError(error, 'oauth-save-token');
     return (
       <ErrorPage
         message={`Error saving token: ${error instanceof Error ? error.message : 'Unknown error'}`}

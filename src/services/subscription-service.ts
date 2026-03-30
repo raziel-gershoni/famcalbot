@@ -10,6 +10,7 @@ import { PlanId, getPlanLimits, TRIAL_DURATION_DAYS, PLAN_CONFIGS } from '../con
 import { trackActivity } from './analytics-service';
 import { getEarlyAdoptionMode } from './reminder-cache';
 import { REDIS_KEYS } from '../config/redis-keys';
+import { captureError } from '../lib/error-capture';
 
 // ============================================
 // REDIS CACHE FOR FEATURE ACCESS
@@ -275,6 +276,7 @@ async function expireTrialSubscription(userId: number): Promise<Subscription> {
       }
     } catch (error) {
       console.error(`[Subscription] Failed to send trial expired notification for user ${userId}:`, error);
+      captureError(error, 'subscription-trial-expired-notify', { user_id: userId }, 'warning');
     }
   }
 
@@ -464,6 +466,7 @@ export async function invalidateFeatureAccessCache(userId: number): Promise<void
     console.log(`[Feature Access] Cache invalidated for user ${userId}`);
   } catch (error) {
     console.error('[Feature Access] Cache invalidation error:', error);
+    captureError(error, 'subscription-cache-invalidate', { user_id: userId }, 'warning');
   }
 }
 
@@ -487,6 +490,7 @@ export async function invalidateAllFeatureAccessCaches(): Promise<void> {
     console.log('[Feature Access] All caches invalidated');
   } catch (error) {
     console.error('[Feature Access] Bulk cache invalidation error:', error);
+    captureError(error, 'subscription-cache-invalidate-all', undefined, 'warning');
   }
 }
 
@@ -524,6 +528,7 @@ export async function checkFeatureAccess(
   } catch (error) {
     // Cache miss or error - continue to compute
     console.error('[Feature Access] Cache read error:', error);
+    captureError(error, 'subscription-cache-read', { user_id: userId, feature }, 'warning');
   }
 
   // 2. Compute feature access (existing logic)
@@ -532,6 +537,7 @@ export async function checkFeatureAccess(
   // 3. Cache the result (fire and forget)
   redis.set(cacheKey, result, { ex: FEATURE_ACCESS_CACHE_TTL }).catch(error => {
     console.error('[Feature Access] Cache write error:', error);
+    captureError(error, 'subscription-cache-write', { user_id: userId, feature }, 'warning');
   });
 
   return result;

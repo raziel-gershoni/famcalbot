@@ -10,6 +10,7 @@ import { updateUserById } from './user-service';
 import { generateMagicLink } from './magic-link';
 import { getWhatsAppService } from './messaging';
 import { UserConfig } from '../types';
+import { captureError } from '../lib/error-capture';
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -63,7 +64,8 @@ export async function handleOnboardingMessage(phone: string, text: string): Prom
   let state: OnboardState;
   try {
     state = JSON.parse(raw) as OnboardState;
-  } catch {
+  } catch (e) {
+    captureError(e, 'wa-onboarding', { phone }, 'warning');
     await redis.del(REDIS_KEYS.waOnboard(phone));
     return false;
   }

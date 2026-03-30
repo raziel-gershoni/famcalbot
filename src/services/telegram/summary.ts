@@ -110,6 +110,7 @@ async function prepareSummaryForUser(
       }
     } catch (error) {
       console.error('Failed to fetch week lookahead:', error);
+      captureError(error, 'summary-week-lookahead', { user_id: user.id }, 'warning');
     }
     lookaheadMs = Date.now() - tLookahead;
   }
@@ -334,6 +335,7 @@ async function sendSummaryToAll(
           }
         } catch (error) {
           console.error(`[Summary] Failed to send weather-only to user ${user.telegramId}:`, error);
+          captureError(error, 'summary-weather-only', { user_id: user.id }, 'warning');
         }
         continue;
       }
@@ -369,6 +371,7 @@ async function sendSummaryToAll(
         }
       } catch (error) {
         console.error(`Failed to send summary to user ${user.id}:`, error);
+        captureError(error, 'summary-batch-user', { user_id: user.id });
 
         if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
           const t = await getBotMessages(user.language || 'en');
@@ -392,6 +395,7 @@ async function sendSummaryToAll(
             }
           } catch (msgError) {
             console.error(`Failed to send token expired message to user ${user.id}:`, msgError);
+            captureError(msgError, 'summary-token-expired-notify', { user_id: user.id }, 'warning');
           }
 
           const { notifyAdminWarning } = await import('../../utils/error-notifier');
@@ -404,6 +408,7 @@ async function sendSummaryToAll(
     }
   } catch (error) {
     console.error('Failed to generate summary for all users:', error);
+    captureError(error, 'summary-batch-all');
 
     const { notifyAdminError } = await import('../../utils/error-notifier');
     await notifyAdminError(
@@ -684,9 +689,10 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     trackActivityAsync(user.id, 'text_summary_generated', {
       word_count: summary.split(/\s+/).length,
     });
-    incrementUsage(user.id, 'textSummaries').catch(err =>
-      console.error('[Subscription] Failed to increment text usage:', err)
-    );
+    incrementUsage(user.id, 'textSummaries').catch(err => {
+      console.error('[Subscription] Failed to increment text usage:', err);
+      captureError(err, 'summary-increment-text-usage', { user_id: user.id }, 'warning');
+    });
   } else if (progressMessageId && !(sendVoiceEnabled && dateHeader)) {
     await msgService.deleteMessage(userId, progressMessageId);
   }
@@ -718,15 +724,17 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     const tVoice = Date.now();
     // Send voice to Telegram if applicable
     if ((targetPlatform === 'telegram' || targetPlatform === 'all') && user.telegramId) {
-      sendVoiceMessage(user.telegramId, summary, user, undefined, true, MessagingPlatform.TELEGRAM).catch(err =>
-        console.error(`[Delivery] Voice generation failed for TG user ${user.id}:`, err)
-      );
+      sendVoiceMessage(user.telegramId, summary, user, undefined, true, MessagingPlatform.TELEGRAM).catch(err => {
+        console.error(`[Delivery] Voice generation failed for TG user ${user.id}:`, err);
+        captureError(err, 'summary-voice-telegram', { user_id: user.id }, 'warning');
+      });
     }
     // Send voice to WhatsApp if applicable
     if ((targetPlatform === 'whatsapp' || targetPlatform === 'all') && getWhatsAppChatId(user)) {
-      sendVoiceMessage(getWhatsAppChatId(user)!, summary, user, undefined, false, MessagingPlatform.WHATSAPP).catch(err =>
-        console.error(`[Delivery] Voice generation failed for WA user ${user.id}:`, err)
-      );
+      sendVoiceMessage(getWhatsAppChatId(user)!, summary, user, undefined, false, MessagingPlatform.WHATSAPP).catch(err => {
+        console.error(`[Delivery] Voice generation failed for WA user ${user.id}:`, err);
+        captureError(err, 'summary-voice-whatsapp', { user_id: user.id }, 'warning');
+      });
     }
     voiceDispatchMs = Date.now() - tVoice;
   }
