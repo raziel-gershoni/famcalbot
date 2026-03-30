@@ -357,7 +357,7 @@ async function sendSummaryToAll(
           dateHeader
         });
 
-        console.log(`[Batch Summary] user=${user.id} total=${Date.now() - tUser}ms`);
+        console.log(`[Batch Summary] user=${user.id} platform=${platform} total=${Date.now() - tUser}ms`);
         result.processed++;
 
         // Mark as sent for dedup
@@ -575,15 +575,19 @@ async function routeTextMessage(
     try {
       await msgService.sendMessage(user.telegramId, text, { format: MessageFormat.HTML });
     } catch (e) {
+      console.error(`[Delivery] TG text failed for user ${user.id}:`, e);
       captureError(e, 'telegram-delivery', { user_id: userId, service: 'sendMessage' });
     }
   }
 
   if ((targetPlatform === 'whatsapp' || targetPlatform === 'all') && getWhatsAppChatId(user)) {
     try {
+      const waChatId = getWhatsAppChatId(user)!;
+      console.log(`[Delivery] Sending WA text to user ${user.id} (${waChatId})`);
       const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
-      await whatsappService.sendMessage(getWhatsAppChatId(user)!, text, { format: MessageFormat.HTML });
+      await whatsappService.sendMessage(waChatId, text, { format: MessageFormat.HTML });
     } catch (e) {
+      console.error(`[Delivery] WA text failed for user ${user.id} (${getWhatsAppChatId(user)}):`, e);
       captureError(e, 'whatsapp-delivery', { user_id: userId, service: 'sendMessage' });
     }
   }
