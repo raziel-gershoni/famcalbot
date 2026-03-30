@@ -2059,39 +2059,42 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
 
                   {/* Setup Reminder Attempts */}
                   {selectedUser.setupReminders && (
-                    <div style={{ marginTop: 8, fontSize: 12, color: '#6b7280' }}>
+                    <div style={{ marginTop: 10, fontSize: 13, color: '#374151' }}>
                       <div style={{ marginBottom: 6 }}>
-                        <strong>Signup: {selectedUser.setupReminders.daysSinceSignup}d ago</strong>
+                        Signed up <strong>{selectedUser.setupReminders.daysSinceSignup}</strong> days ago
                       </div>
                       {[
-                        { label: 'OAuth', attempts: selectedUser.setupReminders.oauth, relevant: !selectedUser.registrationStatus.hasOAuth },
-                        { label: 'Calendars', attempts: selectedUser.setupReminders.calendars, relevant: selectedUser.registrationStatus.hasOAuth && !selectedUser.registrationStatus.hasCalendars },
-                        { label: 'Location', attempts: selectedUser.setupReminders.location, relevant: selectedUser.registrationStatus.hasOAuth && selectedUser.registrationStatus.hasCalendars && !selectedUser.registrationStatus.hasLocation },
-                      ].map(({ label, attempts, relevant }) => (
-                        <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4, opacity: relevant ? 1 : 0.4 }}>
-                          <span style={{ width: 65, flexShrink: 0 }}>{label}:</span>
-                          <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-                            {attempts.map((a, i) => (
-                              <span
-                                key={i}
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 2,
-                                  padding: '2px 6px',
-                                  borderRadius: 4,
-                                  fontSize: 11,
-                                  fontWeight: 500,
-                                  background: a.sent ? '#d1fae5' : a.due ? '#fef3c7' : '#f3f4f6',
-                                  color: a.sent ? '#047857' : a.due ? '#92400e' : '#9ca3af',
-                                }}
-                              >
-                                d{a.day} {a.sent ? '✓' : a.due ? '!' : '·'}
+                        { label: 'OAuth', attempts: selectedUser.setupReminders.oauth, done: selectedUser.registrationStatus.hasOAuth },
+                        { label: 'Calendars', attempts: selectedUser.setupReminders.calendars, done: selectedUser.registrationStatus.hasCalendars },
+                        { label: 'Location', attempts: selectedUser.setupReminders.location, done: selectedUser.registrationStatus.hasLocation },
+                      ].map(({ label, attempts, done }) => {
+                        const sent = attempts.filter(a => a.sent).length;
+                        const due = attempts.filter(a => a.due && !a.sent).length;
+                        const total = attempts.length;
+                        return (
+                          <div key={label} style={{ marginBottom: 6 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                              <span>{done ? '✅' : '⬜'} {label}</span>
+                              <span style={{ fontSize: 12, color: '#6b7280' }}>
+                                {sent}/{total} sent{due > 0 ? `, ${due} overdue` : ''}
                               </span>
-                            ))}
+                            </div>
+                            <div style={{ display: 'flex', gap: 2 }}>
+                              {attempts.map((a, i) => (
+                                <div
+                                  key={i}
+                                  style={{
+                                    flex: 1,
+                                    height: 6,
+                                    borderRadius: 3,
+                                    background: a.sent ? '#10b981' : a.due ? '#f59e0b' : '#e5e7eb',
+                                  }}
+                                />
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 
