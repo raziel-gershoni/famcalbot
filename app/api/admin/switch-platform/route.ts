@@ -69,16 +69,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Update user: set WhatsApp phone and switch platform to 'whatsapp'
+    // Update user: set WhatsApp phone, switch platform, reset reminder schedule
     await prisma.user.update({
       where: { id: user_id },
       data: {
         whatsappPhone: cleaned,
         messagingPlatform: 'whatsapp',
+        reminderStartAt: new Date(),
       },
     });
 
-    console.log(`[switch-platform] Admin ${auth.adminId} set WhatsApp ${cleaned} for user ${user_id} (${user.name}), switched platform to whatsapp`);
+    // Clear existing reminder tracking so cron sends fresh reminders via WhatsApp
+    const { redis } = await import('@/src/utils/redis');
+    const { REDIS_KEYS } = await import('@/src/config/redis-keys');
+    const types = ['oauth', 'calendars', 'location'];
+    for (const type of types) {
+      for (let i = 0; i < 4; i++) {
+        await redis.del(REDIS_KEYS.setupReminder(user_id, type, i));
+      }
+    }
+
+    console.log(`[switch-platform] Admin ${auth.adminId} set WhatsApp ${cleaned} for user ${user_id} (${user.name}), switched platform to whatsapp, reminders reset`);
 
     return NextResponse.json({
       success: true,
