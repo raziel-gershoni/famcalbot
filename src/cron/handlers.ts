@@ -179,13 +179,8 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
 export async function handleSetupReminders(): Promise<CronResult> {
   const { buildUrl } = await import('../config/urls');
   const { Prisma } = await import('@prisma/client');
-  const { Redis } = await import('@upstash/redis');
+  const { redis } = await import('../utils/redis');
   const { REDIS_KEYS } = await import('../config/redis-keys');
-
-  const redis = new Redis({
-    url: process.env.UPSTASH_REDIS_REST_URL!,
-    token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-  });
 
   // Multi-attempt schedules: days after signup when each reminder is sent
   const OAUTH_SCHEDULE = [1, 3, 7, 14];    // 4 attempts

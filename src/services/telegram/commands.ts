@@ -35,52 +35,50 @@ export async function isUserAuthorized(userId: number | string): Promise<boolean
  * Returns true if a nudge was sent (caller should return early), false if setup is complete.
  */
 export async function sendSetupNudgeIfNeeded(
-  user: { id: number; telegramId: number | bigint | null; googleRefreshToken: string; calendarAssignments?: unknown[] | null; language?: string },
+  user: { id: number; telegramId: number | bigint | null; googleRefreshToken: string; calendarAssignments?: unknown[] | null; location?: string; language?: string },
   chatId: number | string,
   messagingService: IMessagingService,
   platform: MessagingPlatform,
-  checks: ('oauth' | 'calendars')[] = ['oauth', 'calendars']
+  checks: ('oauth' | 'calendars' | 'location')[] = ['oauth', 'calendars']
 ): Promise<boolean> {
   const userLanguage = user.language || 'en';
+  const { generateMagicLink } = await import('../magic-link');
+
+  async function sendNudge(message: string, buttonText: string, route: string) {
+    const url = buildUrl(`/${userLanguage}/${route}?user_id=${user.telegramId ?? user.id}`);
+    const buttonUrl = platform === MessagingPlatform.WHATSAPP
+      ? await generateMagicLink(user.id, userLanguage)
+      : url;
+    await messagingService.sendMessage(chatId, message, {
+      format: MessageFormat.HTML,
+      ...(platform === MessagingPlatform.TELEGRAM
+        ? { replyMarkup: { inline_keyboard: [[{ text: buttonText, web_app: { url } }]] } }
+        : { whatsappUrlButton: { text: buttonText, url: buttonUrl } }),
+    });
+  }
 
   if (checks.includes('oauth') && !user.googleRefreshToken) {
     const t = await getBotMessages(userLanguage);
     const nudge = t.setupNudge || {};
-    const url = buildUrl(`/${userLanguage}/dashboard?user_id=${user.telegramId ?? user.id}`);
-    const buttonUrl = platform === MessagingPlatform.WHATSAPP
-      ? await getMagicLinkUrl(user.id, userLanguage)
-      : url;
-    await messagingService.sendMessage(chatId, nudge.noOAuth || 'Please connect your Google Calendar first.', {
-      format: MessageFormat.HTML,
-      ...(platform === MessagingPlatform.TELEGRAM
-        ? { replyMarkup: { inline_keyboard: [[{ text: nudge.noOAuthButton || '🚀 Connect Calendar', web_app: { url } }]] } }
-        : { whatsappUrlButton: { text: nudge.noOAuthButton || '🚀 Connect Calendar', url: buttonUrl } }),
-    });
+    await sendNudge(nudge.noOAuth || 'Please connect your Google Calendar first.', nudge.noOAuthButton || '🚀 Connect Calendar', 'dashboard');
     return true;
   }
 
   if (checks.includes('calendars') && (!user.calendarAssignments || user.calendarAssignments.length === 0)) {
     const t = await getBotMessages(userLanguage);
     const nudge = t.setupNudge || {};
-    const url = buildUrl(`/${userLanguage}/select-calendars?user_id=${user.telegramId ?? user.id}`);
-    const buttonUrl = platform === MessagingPlatform.WHATSAPP
-      ? await getMagicLinkUrl(user.id, userLanguage)
-      : url;
-    await messagingService.sendMessage(chatId, nudge.noCalendars || 'Please select your calendars first.', {
-      format: MessageFormat.HTML,
-      ...(platform === MessagingPlatform.TELEGRAM
-        ? { replyMarkup: { inline_keyboard: [[{ text: nudge.noCalendarsButton || '📆 Select Calendars', web_app: { url } }]] } }
-        : { whatsappUrlButton: { text: nudge.noCalendarsButton || '📆 Select Calendars', url: buttonUrl } }),
-    });
+    await sendNudge(nudge.noCalendars || 'Please select your calendars first.', nudge.noCalendarsButton || '📆 Select Calendars', 'select-calendars');
+    return true;
+  }
+
+  if (checks.includes('location') && !user.location) {
+    const t = await getBotMessages(userLanguage);
+    const nudge = t.setupNudge || {};
+    await sendNudge(nudge.noLocation || 'Please set your location first.', nudge.noLocationButton || '📍 Set Location', 'settings');
     return true;
   }
 
   return false;
-}
-
-async function getMagicLinkUrl(userId: number, language: string): Promise<string> {
-  const { generateMagicLink } = await import('../magic-link');
-  return generateMagicLink(userId, language);
 }
 
 /**
@@ -314,21 +312,7 @@ export async function handleWeatherCommand(
   const userLanguage = user.language || 'en';
 
   // Check if user has completed setup — nudge for missing location
-  if (!user.location) {
-    const t = await getBotMessages(userLanguage);
-    const nudge = t.setupNudge || {};
-    const settingsUrl = buildUrl(`/${userLanguage}/settings?user_id=${user.telegramId ?? user.id}`);
-    const buttonUrl = platform === MessagingPlatform.WHATSAPP
-      ? await getMagicLinkUrl(user.id, userLanguage)
-      : settingsUrl;
-    await messagingService.sendMessage(chatId, nudge.noLocation || 'Please set your location first.', {
-      format: MessageFormat.HTML,
-      ...(platform === MessagingPlatform.TELEGRAM
-        ? { replyMarkup: { inline_keyboard: [[{ text: nudge.noLocationButton || '📍 Set Location', web_app: { url: settingsUrl } }]] } }
-        : { whatsappUrlButton: { text: nudge.noLocationButton || '📍 Set Location', url: buttonUrl } }),
-    });
-    return;
-  }
+  if (await sendSetupNudgeIfNeeded(user, chatId, messagingService, platform, ['location'])) return;
 
   // Check feature access for text summaries (weather shares quota with calendar summaries)
   const weatherAccess = await checkFeatureAccess(user.id, 'text_summary');

@@ -6,15 +6,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { captureError } from '@/src/lib/error-capture';
-import { Redis } from '@upstash/redis';
+import { redis } from '@/src/utils/redis';
 import { REDIS_KEYS } from '@/src/config/redis-keys';
 
 export const dynamic = 'force-dynamic';
-
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
 
 export async function POST(request: NextRequest) {
   try {

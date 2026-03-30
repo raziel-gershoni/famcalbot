@@ -3,17 +3,12 @@
  * Resolves user's timezone via Redis cache → Geocoding → Google Calendar → UTC
  */
 
-import { Redis } from '@upstash/redis';
+import { redis } from '@/src/utils/redis';
 import { TIMEZONE } from '../config/constants';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { getUserCalendarTimezone } from '../services/calendar';
 import { geocodeLocation } from '../services/weather/geocoding';
 import { captureError } from './error-capture';
-
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
 
 const TIMEZONE_CACHE_TTL = 24 * 60 * 60; // 24 hours in seconds
 

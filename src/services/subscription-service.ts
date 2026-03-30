@@ -4,7 +4,7 @@
  */
 
 import { Subscription, SubscriptionPlan, SubscriptionStatus, UsageCounter, UserFeatureOverride } from '@prisma/client';
-import { Redis } from '@upstash/redis';
+import { redis } from '../utils/redis';
 import { prisma } from '../utils/prisma';
 import { PlanId, getPlanLimits, TRIAL_DURATION_DAYS, PLAN_CONFIGS } from '../config/plans';
 import { trackActivity } from './analytics-service';
@@ -15,11 +15,6 @@ import { captureError } from '../lib/error-capture';
 // ============================================
 // REDIS CACHE FOR FEATURE ACCESS
 // ============================================
-
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
 
 const FEATURE_ACCESS_CACHE_TTL = 86400; // 24 hours (invalidated on subscription change)
 

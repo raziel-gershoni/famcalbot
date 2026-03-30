@@ -3,15 +3,9 @@
  * Eliminates DB queries from 5-minute reminder cron to allow Neon auto-suspend
  */
 
-import { Redis } from '@upstash/redis';
+import { redis } from '../utils/redis';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { captureError } from '../lib/error-capture';
-
-// Initialize Redis client
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
 
 const CACHE_KEY = REDIS_KEYS.REMINDER_USERS;
 const GLOBAL_KEY = REDIS_KEYS.REMINDERS_GLOBAL_ENABLED;

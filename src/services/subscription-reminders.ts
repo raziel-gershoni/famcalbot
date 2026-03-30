@@ -3,7 +3,7 @@
  * Sends renewal reminders and handles subscription expiration at month end
  */
 
-import { Redis } from '@upstash/redis';
+import { redis } from '../utils/redis';
 import { prisma } from '../utils/prisma';
 import { getBot } from './telegram';
 import { getTelegramService } from './messaging/factory';
@@ -15,11 +15,6 @@ import { captureError } from '../lib/error-capture';
 import { getEarlyAdoptionMode } from './reminder-cache';
 import { REDIS_KEYS } from '../config/redis-keys';
 
-// Initialize Redis client
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
 
 const REMINDER_TTL_SECONDS = 35 * 24 * 60 * 60; // 35 days
 

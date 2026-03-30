@@ -3,14 +3,8 @@
  * Uses Upstash Redis for serverless-friendly persistent state
  */
 
-import { Redis } from '@upstash/redis';
+import { redis } from './redis';
 import { captureError } from '../lib/error-capture';
-
-// Initialize Redis client
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
 
 const VOICE_LOCK_KEY_PREFIX = 'voice:lock:';
 const VOICE_LOCK_TTL_SECONDS = 60; // Voice processing is fast (5-15s), with safety margin

@@ -4,7 +4,7 @@
  * Pending operations stored in Redis for serverless compatibility
  */
 
-import { Redis } from '@upstash/redis';
+import { redis } from '../../utils/redis';
 import { getBot } from '../telegram';
 import { ParsedEvent, RecurrenceScope } from '../event-parser';
 import { CalendarEvent, UpdateEventData } from '../calendar';
@@ -13,11 +13,6 @@ import { UserConfig } from '../../types';
 import { getBotMessages } from '../../lib/bot-messages';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { captureError } from '../../lib/error-capture';
-
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
 
 const PENDING_TTL_SECONDS = 600; // 10 minutes
 

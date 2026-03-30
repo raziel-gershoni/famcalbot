@@ -491,6 +491,13 @@
         "button": "📍 Set Location"
       }
     },
+    "onboarding": {
+      "langConfirm": "Language set to English ✓",
+      "valueProp": "Here's what you'll get:\n\n📅 *Merged family schedule* — yours, spouse, and kids in one view\n🎤 *30-second voice briefing* — listen while making coffee\n🚗 *Kids' pickup order* — sorted by end time\n🌤️ *Weather tied to your schedule*\n🗣️ *Voice commands* — create events by talking",
+      "sampleSummary": "Here's what your morning briefing looks like:\n\n━━━━━━━━━━━━━━━\n☀️ *Good morning!*\nToday — Sunday, Mar 15\n\n*Your Schedule:*\n• 09:00 – Team standup (Zoom)\n• 14:00 – Client meeting\n\n*Sarah's Schedule:*\n• 10:30 – Dentist\n\n*Kids Pickup:*\n1. 14:00 — Noah (School)\n2. 16:30 — Maya, Liam (Soccer)\n\n💡 Sarah finishes at 12 — she can handle Noah's pickup\n🌤️ 22°C, sunny. Light jacket for evening.\n━━━━━━━━━━━━━━━",
+      "ctaSetup": "Ready? Connect your Google Calendar to see *your* schedule (60 seconds):",
+      "ctaButton": "🚀 Set Up FamCal"
+    },
     "setupNudge": {
       "noOAuth": "📅 <b>Connect your calendar first</b>\n\nTo get your personalized summary, I need access to your Google Calendar.\n\nOnce connected, you'll get:\n✅ Today's schedule for your whole family\n✅ Kids' pickup order\n✅ 30-second voice briefing\n\nTap below to connect (60 seconds):",
       "noOAuthButton": "🚀 Connect Calendar",

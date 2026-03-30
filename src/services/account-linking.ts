@@ -7,17 +7,12 @@
  * 2. User sends "link CODE" on WhatsApp → redeemLinkCode() → accounts merged
  */
 
-import { Redis } from '@upstash/redis';
+import { redis } from '../utils/redis';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { prisma } from '../utils/prisma';
 import { getUserByTelegramId } from './user-service';
 import { convertPrismaUserToConfig, UserConfig } from '../types';
 import { invalidateFeatureAccessCache } from './subscription-service';
-
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
 
 const LINK_CODE_TTL = 300; // 5 minutes
 

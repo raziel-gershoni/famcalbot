@@ -3,7 +3,7 @@
  * Handles finding/matching events and tracking created events
  */
 
-import { Redis } from '@upstash/redis';
+import { redis } from '../../utils/redis';
 import { getBot } from '../telegram';
 import { ParsedEvent, EventReference, EditRequest } from '../event-parser';
 import { fetchEventsInRange, CalendarEvent, UpdateEventData } from '../calendar';
@@ -11,11 +11,6 @@ import { generateAICompletion } from '../ai-provider';
 import { fromZonedTime } from 'date-fns-tz';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { captureError } from '../../lib/error-capture';
-
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
 
 /**
  * Download voice file from Telegram CDN

@@ -235,12 +235,8 @@ export async function handleWhatsAppWebhook(
   // Dedup: prevent WhatsApp webhook retries from re-processing the same message
   const waMessageId = message.id;
   if (waMessageId) {
-    const { Redis } = await import('@upstash/redis');
+    const { redis } = await import('../utils/redis');
     const { REDIS_KEYS } = await import('../config/redis-keys');
-    const redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL!,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-    });
     const result = await redis.set(REDIS_KEYS.waDedup(waMessageId), '1', { nx: true, ex: 300 });
     if (result !== 'OK') {
       console.log(`[WhatsApp] Skipping duplicate message: ${waMessageId}`);
@@ -522,11 +518,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     if (intentResult.intent === 'create' && intentResult.event) {
       // Store pending event in Redis
       const { REDIS_KEYS } = await import('../config/redis-keys');
-      const { Redis } = await import('@upstash/redis');
-      const redis = new Redis({
-        url: process.env.UPSTASH_REDIS_REST_URL!,
-        token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-      });
+      const { redis } = await import('../utils/redis');
 
       const pendingId = `wa:${phone}:${Date.now()}`;
       await redis.set(REDIS_KEYS.pendingEvent(pendingId), { event: intentResult.event, user, transcription }, { ex: 600 });

@@ -5,14 +5,9 @@
  */
 
 import crypto from 'crypto';
-import { Redis } from '@upstash/redis';
+import { redis } from '../utils/redis';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { buildUrl } from '../config/urls';
-
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
 
 const MAGIC_LINK_TTL = 300; // 5 minutes
 

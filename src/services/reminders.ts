@@ -4,7 +4,7 @@
  * For kids' events, sends both start and end (pickup) reminders.
  */
 
-import { Redis } from '@upstash/redis';
+import { redis } from '../utils/redis';
 import { CalendarEvent, CalendarAssignment, UserConfig } from '../types';
 import { fetchTodayEvents } from './calendar';
 import { getBot } from './telegram';
@@ -18,11 +18,6 @@ import { REDIS_KEYS } from '../config/redis-keys';
 import { resolveUserTimezone } from '../lib/timezone';
 import { captureError } from '../lib/error-capture';
 
-// Initialize Redis client
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
 
 const REMINDER_TTL_SECONDS = 86400; // 24 hours
 

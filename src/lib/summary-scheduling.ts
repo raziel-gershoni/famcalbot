@@ -4,15 +4,10 @@
  */
 
 import { formatInTimeZone } from 'date-fns-tz';
-import { Redis } from '@upstash/redis';
+import { redis } from '@/src/utils/redis';
 import { UserConfig } from '../types';
 import { resolveUserTimezone } from './timezone';
 import { REDIS_KEYS } from '../config/redis-keys';
-
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
 
 type SummaryType = 'daily' | 'tomorrow';
 
