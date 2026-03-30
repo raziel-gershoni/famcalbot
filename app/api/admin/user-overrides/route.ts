@@ -11,8 +11,36 @@ import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { getSubscriptionWithUsage, invalidateFeatureAccessCache } from '@/src/services/subscription-service';
 import { getPlanLimits } from '@/src/config/plans';
+import { redis } from '@/src/utils/redis';
+import { REDIS_KEYS } from '@/src/config/redis-keys';
 
 export const dynamic = 'force-dynamic';
+
+const OAUTH_SCHEDULE = [1, 3, 7, 14];
+const CALENDARS_SCHEDULE = [3, 6, 10];
+const LOCATION_SCHEDULE = [5, 10];
+
+async function getSetupReminderStatus(userId: number, createdAt: Date) {
+  const daysSinceSignup = Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
+
+  async function getAttempts(type: string, schedule: number[]) {
+    const attempts = await Promise.all(
+      schedule.map(async (day, i) => ({
+        day,
+        sent: !!(await redis.get(REDIS_KEYS.setupReminder(userId, type, i))),
+        due: daysSinceSignup >= day,
+      }))
+    );
+    return attempts;
+  }
+
+  return {
+    daysSinceSignup,
+    oauth: await getAttempts('oauth', OAUTH_SCHEDULE),
+    calendars: await getAttempts('calendars', CALENDARS_SCHEDULE),
+    location: await getAttempts('location', LOCATION_SCHEDULE),
+  };
+}
 
 /**
  * Check which features are legitimately paid (cannot be disabled by admin)
@@ -189,6 +217,9 @@ export async function GET(request: NextRequest) {
         applicableReminder = 'location';
       }
 
+      // Get setup reminder status from Redis
+      const setupReminders = await getSetupReminderStatus(userId, user.createdAt);
+
       return NextResponse.json({
         success: true,
         user: {
@@ -227,6 +258,7 @@ export async function GET(request: NextRequest) {
             hasLocation,
             applicableReminder,
           },
+          setupReminders,
         },
       });
     }

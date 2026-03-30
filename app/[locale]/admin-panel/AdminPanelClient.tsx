@@ -90,6 +90,12 @@ interface UserOverrideDetails {
     hasLocation: boolean;
     applicableReminder: 'oauth' | 'calendars' | 'location' | null;
   };
+  setupReminders: {
+    daysSinceSignup: number;
+    oauth: Array<{ day: number; sent: boolean; due: boolean }>;
+    calendars: Array<{ day: number; sent: boolean; due: boolean }>;
+    location: Array<{ day: number; sent: boolean; due: boolean }>;
+  };
 }
 
 interface ActivityItem {
@@ -2049,6 +2055,49 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                       <span>{t('overrides.hasLocation')}</span>
                     </div>
                   </div>
+
+                  {/* Setup Reminder Attempts */}
+                  {selectedUser.setupReminders && (
+                    <div style={{ marginTop: 8, fontSize: 12, color: '#6b7280' }}>
+                      <div style={{ marginBottom: 4 }}>
+                        <strong>Signup: {selectedUser.setupReminders.daysSinceSignup}d ago</strong>
+                      </div>
+                      {[
+                        { label: 'OAuth', attempts: selectedUser.setupReminders.oauth, relevant: !selectedUser.registrationStatus.hasOAuth },
+                        { label: 'Calendars', attempts: selectedUser.setupReminders.calendars, relevant: selectedUser.registrationStatus.hasOAuth && !selectedUser.registrationStatus.hasCalendars },
+                        { label: 'Location', attempts: selectedUser.setupReminders.location, relevant: selectedUser.registrationStatus.hasOAuth && selectedUser.registrationStatus.hasCalendars && !selectedUser.registrationStatus.hasLocation },
+                      ].map(({ label, attempts, relevant }) => (
+                        <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2, opacity: relevant ? 1 : 0.4 }}>
+                          <span style={{ width: 65 }}>{label}:</span>
+                          {attempts.map((a, i) => (
+                            <span
+                              key={i}
+                              title={`Day ${a.day} — ${a.sent ? 'Sent' : a.due ? 'Due (not sent)' : 'Pending'}`}
+                              style={{
+                                display: 'inline-block',
+                                width: 18,
+                                height: 18,
+                                lineHeight: '18px',
+                                textAlign: 'center',
+                                borderRadius: 4,
+                                fontSize: 10,
+                                fontWeight: 600,
+                                background: a.sent ? '#d1fae5' : a.due ? '#fef3c7' : '#f3f4f6',
+                                color: a.sent ? '#047857' : a.due ? '#92400e' : '#9ca3af',
+                              }}
+                            >
+                              {a.day}
+                            </span>
+                          ))}
+                        </div>
+                      ))}
+                      <div style={{ marginTop: 4, fontSize: 11, display: 'flex', gap: 8 }}>
+                        <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: '#d1fae5', marginRight: 3 }}></span>Sent</span>
+                        <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: '#fef3c7', marginRight: 3 }}></span>Due</span>
+                        <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: '#f3f4f6', marginRight: 3 }}></span>Pending</span>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Reminder Button or Fully Registered Message */}
                   {selectedUser.registrationStatus.applicableReminder ? (
