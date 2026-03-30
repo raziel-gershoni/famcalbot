@@ -156,6 +156,8 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   const [reminderFeedback, setReminderFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   // Reset reminders state
   const [isResettingReminders, setIsResettingReminders] = useState(false);
+  const [isResettingAll, setIsResettingAll] = useState(false);
+  const [resetAllFeedback, setResetAllFeedback] = useState<string | null>(null);
   // Platform switch state
   const [isSwitchingPlatform, setIsSwitchingPlatform] = useState(false);
   const [whatsappPhoneInput, setWhatsappPhoneInput] = useState('');
@@ -553,6 +555,31 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
       setReminderFeedback({ type: 'error', message: t('overrides.remindersResetFailed') });
     } finally {
       setIsResettingReminders(false);
+    }
+  };
+
+  // Reset all incomplete users' reminders
+  const resetAllIncomplete = async () => {
+    setIsResettingAll(true);
+    setResetAllFeedback(null);
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = await fetch('/api/admin/reset-reminders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData, reset_all: true }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setResetAllFeedback(`Reset ${data.usersReset} users`);
+        setTimeout(() => setResetAllFeedback(null), 5000);
+      } else {
+        setResetAllFeedback(data.error || 'Failed');
+      }
+    } catch {
+      setResetAllFeedback('Failed');
+    } finally {
+      setIsResettingAll(false);
     }
   };
 
@@ -1892,7 +1919,26 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
               </span>
             </div>
 
-            {/* User List */}
+            {/* Reset All + User List */}
+            {!selectedUser && (
+              <div>
+                <button
+                  className="send-reminder-btn"
+                  style={{ marginBottom: 8, background: '#6b7280' }}
+                  onClick={resetAllIncomplete}
+                  disabled={isResettingAll}
+                >
+                  {isResettingAll ? (
+                    <><Loader2 size={16} className="animate-spin" /> Resetting...</>
+                  ) : (
+                    'Reset All Incomplete Users'
+                  )}
+                </button>
+                {resetAllFeedback && (
+                  <div style={{ fontSize: 12, color: '#047857', marginBottom: 8 }}>{resetAllFeedback}</div>
+                )}
+              </div>
+            )}
             {!selectedUser && (
               <div className="user-list-scroll">
                 {isLoadingUsers ? (

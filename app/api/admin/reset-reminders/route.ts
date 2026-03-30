@@ -4,6 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { redis } from '@/src/utils/redis';
@@ -11,10 +12,31 @@ import { REDIS_KEYS } from '@/src/config/redis-keys';
 
 export const dynamic = 'force-dynamic';
 
+const TYPES = ['oauth', 'calendars', 'location'];
+const MAX_ATTEMPTS = 4;
+
+async function clearReminderKeys(userId: number): Promise<number> {
+  let deleted = 0;
+  for (const type of TYPES) {
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      deleted += await redis.del(REDIS_KEYS.setupReminder(userId, type, attempt));
+    }
+  }
+  return deleted;
+}
+
+async function resetCreatedAt(userId: number): Promise<void> {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { createdAt: new Date() },
+  });
+}
+
+// POST: Reset reminders for one user or all incomplete users
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { initData, user_id } = body;
+    const { initData, user_id, reset_all } = body;
 
     const auth = await verifyAdminAccess(initData);
     if (!auth.authorized) {
@@ -24,6 +46,42 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Reset all incomplete users
+    if (reset_all) {
+      const { Prisma } = await import('@prisma/client');
+      const incompleteUsers = await prisma.user.findMany({
+        where: {
+          OR: [
+            { googleRefreshToken: '' },
+            { calendarAssignments: { equals: Prisma.JsonNull } },
+            { calendarAssignments: { equals: Prisma.DbNull } },
+            { calendarAssignments: { equals: [] } },
+            { location: '' },
+          ],
+          AND: {
+            OR: [{ telegramId: { not: null } }, { whatsappPhone: { not: null } }, { whatsappBsuid: { not: null } }],
+          },
+        },
+        select: { id: true, name: true },
+      });
+
+      let totalKeys = 0;
+      for (const user of incompleteUsers) {
+        totalKeys += await clearReminderKeys(user.id);
+        await resetCreatedAt(user.id);
+      }
+
+      console.log(`[reset-reminders] Admin ${auth.adminId} reset ALL incomplete users (${incompleteUsers.length} users, ${totalKeys} keys)`);
+
+      return NextResponse.json({
+        success: true,
+        message: `Reset ${incompleteUsers.length} incomplete users`,
+        usersReset: incompleteUsers.length,
+        keysCleared: totalKeys,
+      });
+    }
+
+    // Reset single user
     if (!user_id || typeof user_id !== 'number') {
       return NextResponse.json(
         { error: 'user_id is required and must be a number' },
@@ -31,28 +89,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Delete all setup reminder keys for this user (all types, all attempts)
-    const types = ['oauth', 'calendars', 'location'];
-    const maxAttempts = 4; // max across all schedules
-    const keysToDelete: string[] = [];
+    const deleted = await clearReminderKeys(user_id);
+    await resetCreatedAt(user_id);
 
-    for (const type of types) {
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        keysToDelete.push(REDIS_KEYS.setupReminder(user_id, type, attempt));
-      }
-    }
-
-    // Delete all keys (Redis DEL ignores non-existent keys)
-    let deleted = 0;
-    for (const key of keysToDelete) {
-      deleted += await redis.del(key);
-    }
-
-    console.log(`[reset-reminders] Admin ${auth.adminId} reset reminders for user ${user_id} (${deleted} keys cleared)`);
+    console.log(`[reset-reminders] Admin ${auth.adminId} reset reminders for user ${user_id} (${deleted} keys, createdAt reset)`);
 
     return NextResponse.json({
       success: true,
-      message: `Cleared ${deleted} reminder tracking keys`,
+      message: `Reset reminders and signup date for user ${user_id}`,
       keysCleared: deleted,
     });
   } catch (error) {
