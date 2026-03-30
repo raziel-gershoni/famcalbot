@@ -543,6 +543,7 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
       const data = await response.json();
       if (data.success) {
         setReminderFeedback({ type: 'success', message: t('overrides.remindersReset') });
+        await loadUserDetails(selectedUser.id);
         setTimeout(() => setReminderFeedback(null), 3000);
       } else {
         setReminderFeedback({ type: 'error', message: data.error || t('overrides.remindersResetFailed') });
