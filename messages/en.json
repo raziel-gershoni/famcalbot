@@ -174,7 +174,13 @@
       "currentPlatform": "Platform",
       "telegramOnly": "Telegram",
       "whatsappOnly": "WhatsApp",
-      "bothPlatforms": "Both"
+      "bothPlatforms": "Both",
+      "signedUpDaysAgo": "Signed up {days} days ago",
+      "remindersSent": "{sent}/{total} sent",
+      "remindersOverdue": ", {count} overdue",
+      "resetAllIncomplete": "Reset All Incomplete Users",
+      "resetAllResetting": "Resetting...",
+      "resetAllResult": "Reset {count} users"
     },
     "openDashboard": "Open User Dashboard",
     "activity": {

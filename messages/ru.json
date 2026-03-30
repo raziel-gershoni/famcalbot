@@ -174,7 +174,13 @@
       "currentPlatform": "Платформа",
       "telegramOnly": "Telegram",
       "whatsappOnly": "WhatsApp",
-      "bothPlatforms": "Оба"
+      "bothPlatforms": "Оба",
+      "signedUpDaysAgo": "Регистрация {days} дн. назад",
+      "remindersSent": "{sent}/{total} отправлено",
+      "remindersOverdue": ", {count} просрочено",
+      "resetAllIncomplete": "Сбросить всех незавершённых",
+      "resetAllResetting": "Сброс...",
+      "resetAllResult": "Сброшено {count} пользователей"
     },
     "openDashboard": "Открыть панель пользователя",
     "activity": {

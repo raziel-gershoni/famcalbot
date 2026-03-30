@@ -41,6 +41,7 @@ export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'what
   remindersEnabled?: boolean;
   defaultReminderMinutes?: number;
   pickupRemindersEnabled?: boolean;
+  reminderStartAt?: Date | null;
 };
 
 // Helper to convert Prisma User to UserConfig (with decryption)

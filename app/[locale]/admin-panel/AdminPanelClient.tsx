@@ -49,6 +49,7 @@ interface UserOverrideDetails {
   telegramId: number | null;
   whatsappPhone: string | null;
   messagingPlatform: string;
+  createdAt: string;
   name: string;
   subscription: {
     plan: string;
@@ -571,7 +572,7 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
       });
       const data = await response.json();
       if (data.success) {
-        setResetAllFeedback(`Reset ${data.usersReset} users`);
+        setResetAllFeedback(t('overrides.resetAllResult').replace('{count}', String(data.usersReset)));
         setTimeout(() => setResetAllFeedback(null), 5000);
       } else {
         setResetAllFeedback(data.error || 'Failed');
@@ -1929,9 +1930,9 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                   disabled={isResettingAll}
                 >
                   {isResettingAll ? (
-                    <><Loader2 size={16} className="animate-spin" /> Resetting...</>
+                    <><Loader2 size={16} className="animate-spin" /> {t('overrides.resetAllResetting')}</>
                   ) : (
-                    'Reset All Incomplete Users'
+                    t('overrides.resetAllIncomplete')
                   )}
                 </button>
                 {resetAllFeedback && (
@@ -2107,22 +2108,27 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                   {selectedUser.setupReminders && (
                     <div style={{ marginTop: 10, fontSize: 13, color: '#374151' }}>
                       <div style={{ marginBottom: 6 }}>
-                        Signed up <strong>{selectedUser.setupReminders.daysSinceSignup}</strong> days ago
+                        {t('overrides.signedUpDaysAgo').replace('{days}', String(selectedUser.setupReminders.daysSinceSignup))}
+                        <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 6 }}>
+                          ({new Date(selectedUser.createdAt).toLocaleDateString()})
+                        </span>
                       </div>
                       {[
-                        { label: 'OAuth', attempts: selectedUser.setupReminders.oauth, done: selectedUser.registrationStatus.hasOAuth },
-                        { label: 'Calendars', attempts: selectedUser.setupReminders.calendars, done: selectedUser.registrationStatus.hasCalendars },
-                        { label: 'Location', attempts: selectedUser.setupReminders.location, done: selectedUser.registrationStatus.hasLocation },
+                        { label: t('overrides.hasOAuth'), attempts: selectedUser.setupReminders.oauth, done: selectedUser.registrationStatus.hasOAuth },
+                        { label: t('overrides.hasCalendars'), attempts: selectedUser.setupReminders.calendars, done: selectedUser.registrationStatus.hasCalendars },
+                        { label: t('overrides.hasLocation'), attempts: selectedUser.setupReminders.location, done: selectedUser.registrationStatus.hasLocation },
                       ].map(({ label, attempts, done }) => {
                         const sent = attempts.filter(a => a.sent).length;
                         const due = attempts.filter(a => a.due && !a.sent).length;
                         const total = attempts.length;
+                        const sentText = t('overrides.remindersSent').replace('{sent}', String(sent)).replace('{total}', String(total));
+                        const overdueText = due > 0 ? t('overrides.remindersOverdue').replace('{count}', String(due)) : '';
                         return (
                           <div key={label} style={{ marginBottom: 6 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
                               <span>{done ? '✅' : '⬜'} {label}</span>
                               <span style={{ fontSize: 12, color: '#6b7280' }}>
-                                {sent}/{total} sent{due > 0 ? `, ${due} overdue` : ''}
+                                {sentText}{overdueText}
                               </span>
                             </div>
                             <div style={{ display: 'flex', gap: 2 }}>

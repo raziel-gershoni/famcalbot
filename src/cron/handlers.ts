@@ -260,6 +260,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
   const userSelect = {
     id: true, telegramId: true, whatsappPhone: true, whatsappBsuid: true, language: true, name: true,
   } as const;
+  const dateSelect = { ...userSelect, createdAt: true, reminderStartAt: true } as const;
 
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - MAX_DAYS);
@@ -268,19 +269,31 @@ export async function handleSetupReminders(): Promise<CronResult> {
     OR: [{ telegramId: { not: null } }, { whatsappPhone: { not: null } }, { whatsappBsuid: { not: null } }],
   };
 
-  // 1. OAuth reminders — users who signed up in last 14 days without Google connected
+  // Use reminderStartAt if set (admin reset), otherwise createdAt
+  const isWithinWindow = {
+    OR: [
+      { reminderStartAt: { gte: cutoffDate } },
+      { reminderStartAt: null, createdAt: { gte: cutoffDate } },
+    ],
+  };
+
+  function getReminderStart(user: { reminderStartAt: Date | null; createdAt: Date }): Date {
+    return user.reminderStartAt ?? user.createdAt;
+  }
+
+  // 1. OAuth reminders — users within reminder window without Google connected
   const needsOAuthUsers = await prisma.user.findMany({
     where: {
-      createdAt: { gte: cutoffDate },
+      ...isWithinWindow,
       googleRefreshToken: '',
       ...hasMessagingPlatform,
     },
-    select: { ...userSelect, createdAt: true },
+    select: dateSelect,
   });
 
   for (const user of needsOAuthUsers) {
     try {
-      const daysSinceSignup = Math.floor((Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24));
+      const daysSinceSignup = Math.floor((Date.now() - getReminderStart(user).getTime()) / (1000 * 60 * 60 * 24));
       const dueAttempt = getDueAttempt(daysSinceSignup, OAUTH_SCHEDULE);
       if (dueAttempt === null) continue;
 
@@ -303,7 +316,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
   // 2. Calendars reminders — users with OAuth but no calendars selected
   const needsCalendarsUsers = await prisma.user.findMany({
     where: {
-      createdAt: { gte: cutoffDate },
+      ...isWithinWindow,
       googleRefreshToken: { not: '' },
       OR: [
         { calendarAssignments: { equals: Prisma.JsonNull } },
@@ -312,12 +325,12 @@ export async function handleSetupReminders(): Promise<CronResult> {
       ],
       AND: hasMessagingPlatform,
     },
-    select: { ...userSelect, createdAt: true },
+    select: dateSelect,
   });
 
   for (const user of needsCalendarsUsers) {
     try {
-      const daysSinceSignup = Math.floor((Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24));
+      const daysSinceSignup = Math.floor((Date.now() - getReminderStart(user).getTime()) / (1000 * 60 * 60 * 24));
       const dueAttempt = getDueAttempt(daysSinceSignup, CALENDARS_SCHEDULE);
       if (dueAttempt === null) continue;
 
@@ -339,12 +352,12 @@ export async function handleSetupReminders(): Promise<CronResult> {
   // 3. Location reminders — users with OAuth + calendars but no location
   const needsLocationUsers = await prisma.user.findMany({
     where: {
-      createdAt: { gte: cutoffDate },
+      ...isWithinWindow,
       googleRefreshToken: { not: '' },
       location: '',
       ...hasMessagingPlatform,
     },
-    select: { ...userSelect, createdAt: true, calendarAssignments: true },
+    select: { ...dateSelect, calendarAssignments: true },
   });
 
   const locationUsersFiltered = needsLocationUsers.filter(u => {
@@ -354,7 +367,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
 
   for (const user of locationUsersFiltered) {
     try {
-      const daysSinceSignup = Math.floor((Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24));
+      const daysSinceSignup = Math.floor((Date.now() - getReminderStart(user).getTime()) / (1000 * 60 * 60 * 24));
       const dueAttempt = getDueAttempt(daysSinceSignup, LOCATION_SCHEDULE);
       if (dueAttempt === null) continue;
 

@@ -25,10 +25,10 @@ async function clearReminderKeys(userId: number): Promise<number> {
   return deleted;
 }
 
-async function resetCreatedAt(userId: number): Promise<void> {
+async function resetReminderStart(userId: number): Promise<void> {
   await prisma.user.update({
     where: { id: userId },
-    data: { createdAt: new Date() },
+    data: { reminderStartAt: new Date() },
   });
 }
 
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
       let totalKeys = 0;
       for (const user of incompleteUsers) {
         totalKeys += await clearReminderKeys(user.id);
-        await resetCreatedAt(user.id);
+        await resetReminderStart(user.id);
       }
 
       console.log(`[reset-reminders] Admin ${auth.adminId} reset ALL incomplete users (${incompleteUsers.length} users, ${totalKeys} keys)`);
@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
     }
 
     const deleted = await clearReminderKeys(user_id);
-    await resetCreatedAt(user_id);
+    await resetReminderStart(user_id);
 
     console.log(`[reset-reminders] Admin ${auth.adminId} reset reminders for user ${user_id} (${deleted} keys, createdAt reset)`);
 

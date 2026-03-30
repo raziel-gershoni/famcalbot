@@ -20,8 +20,9 @@ const OAUTH_SCHEDULE = [1, 3, 7, 14];
 const CALENDARS_SCHEDULE = [3, 6, 10];
 const LOCATION_SCHEDULE = [5, 10];
 
-async function getSetupReminderStatus(userId: number, createdAt: Date) {
-  const daysSinceSignup = Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
+async function getSetupReminderStatus(userId: number, createdAt: Date, reminderStartAt: Date | null) {
+  const startDate = reminderStartAt ?? createdAt;
+  const daysSinceSignup = Math.floor((Date.now() - startDate.getTime()) / (1000 * 60 * 60 * 24));
 
   async function getAttempts(type: string, schedule: number[]) {
     const attempts = await Promise.all(
@@ -218,7 +219,7 @@ export async function GET(request: NextRequest) {
       }
 
       // Get setup reminder status from Redis
-      const setupReminders = await getSetupReminderStatus(userId, user.createdAt);
+      const setupReminders = await getSetupReminderStatus(userId, user.createdAt, user.reminderStartAt);
 
       return NextResponse.json({
         success: true,
@@ -227,6 +228,7 @@ export async function GET(request: NextRequest) {
           telegramId: user.telegramId ? Number(user.telegramId) : null,
           whatsappPhone: user.whatsappPhone || null,
           messagingPlatform: user.messagingPlatform || 'telegram',
+          createdAt: user.createdAt.toISOString(),
           name: user.name,
           subscription: user.subscription ? {
             plan: user.subscription.plan,

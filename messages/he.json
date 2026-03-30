@@ -174,7 +174,13 @@
       "currentPlatform": "פלטפורמה",
       "telegramOnly": "טלגרם",
       "whatsappOnly": "וואטסאפ",
-      "bothPlatforms": "שניהם"
+      "bothPlatforms": "שניהם",
+      "signedUpDaysAgo": "נרשם לפני {days} ימים",
+      "remindersSent": "{sent}/{total} נשלחו",
+      "remindersOverdue": ", {count} באיחור",
+      "resetAllIncomplete": "אפס כל המשתמשים החסרים",
+      "resetAllResetting": "מאפס...",
+      "resetAllResult": "אופסו {count} משתמשים"
     },
     "openDashboard": "פתח לוח בקרה למשתמש",
     "activity": {
