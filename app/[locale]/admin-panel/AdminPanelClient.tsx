@@ -92,7 +92,9 @@ interface UserOverrideDetails {
     applicableReminder: 'oauth' | 'calendars' | 'location' | null;
   };
   setupReminders: {
-    daysSinceSignup: number;
+    daysSinceCreated: number;
+    daysSinceStart: number;
+    wasReset: boolean;
     oauth: Array<{ day: number; sent: boolean; due: boolean }>;
     calendars: Array<{ day: number; sent: boolean; due: boolean }>;
     location: Array<{ day: number; sent: boolean; due: boolean }>;
@@ -2107,11 +2109,18 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                   {/* Setup Reminder Attempts */}
                   {selectedUser.setupReminders && (
                     <div style={{ marginTop: 10, fontSize: 13, color: '#374151' }}>
-                      <div style={{ marginBottom: 6 }}>
-                        {t('overrides.signedUpDaysAgo').replace('{days}', String(selectedUser.setupReminders.daysSinceSignup))}
-                        <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 6 }}>
-                          ({new Date(selectedUser.createdAt).toLocaleDateString()})
-                        </span>
+                      <div style={{ marginBottom: 6, lineHeight: 1.6 }}>
+                        <div>
+                          {t('overrides.signedUpDaysAgo').replace('{days}', String(selectedUser.setupReminders.daysSinceCreated))}
+                          <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 6 }}>
+                            ({new Date(selectedUser.createdAt).toLocaleDateString()})
+                          </span>
+                        </div>
+                        {selectedUser.setupReminders.wasReset && (
+                          <div>
+                            {t('overrides.serviceStartedDaysAgo').replace('{days}', String(selectedUser.setupReminders.daysSinceStart))}
+                          </div>
+                        )}
                       </div>
                       {[
                         { label: t('overrides.hasOAuth'), attempts: selectedUser.setupReminders.oauth, done: selectedUser.registrationStatus.hasOAuth },

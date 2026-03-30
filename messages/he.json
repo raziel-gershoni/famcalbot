@@ -176,6 +176,7 @@
       "whatsappOnly": "וואטסאפ",
       "bothPlatforms": "שניהם",
       "signedUpDaysAgo": "נרשם לפני {days} ימים",
+      "serviceStartedDaysAgo": "שירות הופעל מחדש לפני {days} ימים",
       "remindersSent": "{sent}/{total} נשלחו",
       "remindersOverdue": ", {count} באיחור",
       "resetAllIncomplete": "אפס כל המשתמשים החסרים",

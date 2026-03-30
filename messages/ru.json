@@ -176,6 +176,7 @@
       "whatsappOnly": "WhatsApp",
       "bothPlatforms": "Оба",
       "signedUpDaysAgo": "Регистрация {days} дн. назад",
+      "serviceStartedDaysAgo": "Сервис перезапущен {days} дн. назад",
       "remindersSent": "{sent}/{total} отправлено",
       "remindersOverdue": ", {count} просрочено",
       "resetAllIncomplete": "Сбросить всех незавершённых",

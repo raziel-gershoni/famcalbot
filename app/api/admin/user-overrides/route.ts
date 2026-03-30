@@ -36,7 +36,9 @@ async function getSetupReminderStatus(userId: number, createdAt: Date, reminderS
   }
 
   return {
-    daysSinceSignup,
+    daysSinceCreated: Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24)),
+    daysSinceStart: daysSinceSignup,
+    wasReset: reminderStartAt !== null,
     oauth: await getAttempts('oauth', OAUTH_SCHEDULE),
     calendars: await getAttempts('calendars', CALENDARS_SCHEDULE),
     location: await getAttempts('location', LOCATION_SCHEDULE),
