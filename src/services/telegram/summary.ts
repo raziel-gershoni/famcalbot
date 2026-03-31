@@ -309,8 +309,9 @@ async function sendSummaryToAll(
     for (const user of users) {
       const platform = user.messagingPlatform || 'telegram';
 
-      if ((platform === 'whatsapp' || platform === 'all') && !getWhatsAppChatId(user)) {
-        console.warn(`[Summary] User ${user.id} has platform=${platform} but no WhatsApp phone/BSUID set`);
+      // Diagnostic: log WA delivery details for dual-platform users
+      if (platform === 'whatsapp' || platform === 'all') {
+        console.log(`[Summary] User ${user.id}: platform=${platform} waPhone=${user.whatsappPhone || 'null'} waBsuid=${user.whatsappBsuid || 'null'} waChatId=${getWhatsAppChatId(user) || 'null'}`);
       }
 
       const hasToken = !!user.googleRefreshToken;
