@@ -309,6 +309,10 @@ async function sendSummaryToAll(
     for (const user of users) {
       const platform = user.messagingPlatform || 'telegram';
 
+      if ((platform === 'whatsapp' || platform === 'all') && !getWhatsAppChatId(user)) {
+        console.warn(`[Summary] User ${user.id} has platform=${platform} but no WhatsApp phone/BSUID set`);
+      }
+
       const hasToken = !!user.googleRefreshToken;
       const hasCalendars = user.calendarAssignments && user.calendarAssignments.length > 0;
       const hasLocation = !!user.location;
@@ -505,6 +509,9 @@ ${weatherData.tomorrow ? `<b>${t.weatherOnly?.tomorrow || 'Tomorrow'}:</b> ${t.w
     });
   }
 
+  if ((platform === 'whatsapp' || platform === 'all') && !getWhatsAppChatId(user)) {
+    console.warn(`[Delivery] WA weather skipped for user ${user.id}: no WhatsApp phone/BSUID`);
+  }
   if ((platform === 'whatsapp' || platform === 'all') && getWhatsAppChatId(user)) {
     const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
     await whatsappService.sendMessage(getWhatsAppChatId(user)!, weatherMessage, { format: MessageFormat.HTML });
@@ -583,6 +590,10 @@ async function routeTextMessage(
       console.error(`[Delivery] TG text failed for user ${user.id}:`, e);
       captureError(e, 'telegram-delivery', { user_id: userId, service: 'sendMessage' });
     }
+  }
+
+  if ((targetPlatform === 'whatsapp' || targetPlatform === 'all') && !getWhatsAppChatId(user)) {
+    console.warn(`[Delivery] WA text skipped for user ${user.id}: no WhatsApp phone/BSUID (platform=${targetPlatform})`);
   }
 
   if ((targetPlatform === 'whatsapp' || targetPlatform === 'all') && getWhatsAppChatId(user)) {
@@ -730,6 +741,9 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
       });
     }
     // Send voice to WhatsApp if applicable
+    if ((targetPlatform === 'whatsapp' || targetPlatform === 'all') && !getWhatsAppChatId(user)) {
+      console.warn(`[Delivery] WA voice skipped for user ${user.id}: no WhatsApp phone/BSUID`);
+    }
     if ((targetPlatform === 'whatsapp' || targetPlatform === 'all') && getWhatsAppChatId(user)) {
       sendVoiceMessage(getWhatsAppChatId(user)!, summary, user, undefined, false, MessagingPlatform.WHATSAPP).catch(err => {
         console.error(`[Delivery] Voice generation failed for WA user ${user.id}:`, err);
