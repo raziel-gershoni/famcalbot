@@ -244,11 +244,13 @@ export async function handleSetupReminders(): Promise<CronResult> {
     const waChatId = user.whatsappPhone || user.whatsappBsuid;
     if (waChatId && !user.telegramId) {
       const { generateMagicLink } = await import('../services/magic-link');
-      const magicUrl = await generateMagicLink(user.id, user.language || 'en');
+      const { buildWhatsAppTemplate } = await import('../services/messaging/whatsapp-template');
+      const settingsUrl = await generateMagicLink(user.id, user.language || 'en');
+      const template = buildWhatsAppTemplate(message, user.language || 'en', settingsUrl);
       const waService = getWhatsAppService();
       await waService.sendMessage(waChatId, message, {
         format: MessageFormat.HTML,
-        whatsappUrlButton: { text: buttonText, url: magicUrl },
+        whatsappTemplate: template,
       });
     }
 

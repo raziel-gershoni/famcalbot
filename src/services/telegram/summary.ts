@@ -396,7 +396,11 @@ async function sendSummaryToAll(
             }
             if ((platform === 'whatsapp' || platform === 'all') && getWhatsAppChatId(user)) {
               const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
-              await whatsappService.sendMessage(getWhatsAppChatId(user)!, expiredMessage, { format: MessageFormat.HTML });
+              const { buildWhatsAppTemplate } = await import('../messaging/whatsapp-template');
+              const { generateMagicLink } = await import('../magic-link');
+              const settingsUrl = await generateMagicLink(user.id, user.language || 'en');
+              const template = buildWhatsAppTemplate(expiredMessage, user.language || 'en', settingsUrl);
+              await whatsappService.sendMessage(getWhatsAppChatId(user)!, expiredMessage, { format: MessageFormat.HTML, whatsappTemplate: template });
             }
           } catch (msgError) {
             console.error(`Failed to send token expired message to user ${user.id}:`, msgError);
@@ -514,8 +518,13 @@ ${weatherData.tomorrow ? `<b>${t.weatherOnly?.tomorrow || 'Tomorrow'}:</b> ${t.w
     console.warn(`[Delivery] WA weather skipped for user ${user.id}: no WhatsApp phone/BSUID`);
   }
   if ((platform === 'whatsapp' || platform === 'all') && getWhatsAppChatId(user)) {
+    const waChatId = getWhatsAppChatId(user)!;
     const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
-    await whatsappService.sendMessage(getWhatsAppChatId(user)!, weatherMessage, { format: MessageFormat.HTML });
+    const { buildWhatsAppTemplate } = await import('../messaging/whatsapp-template');
+    const { generateMagicLink } = await import('../magic-link');
+    const settingsUrl = await generateMagicLink(user.id, user.language || 'en');
+    const template = buildWhatsAppTemplate(weatherMessage, user.language || 'en', settingsUrl);
+    await whatsappService.sendMessage(waChatId, weatherMessage, { format: MessageFormat.HTML, whatsappTemplate: template });
   }
 
   console.log(`[Summary] Sent weather-only to user ${user.id}`);
@@ -570,7 +579,8 @@ async function routeTextMessage(
   userId: number | string,
   text: string,
   user: UserConfig,
-  platform?: DeliveryPlatform
+  platform?: DeliveryPlatform,
+  isProactive = false
 ): Promise<void> {
   if (!text || text.trim() === '') {
     captureError(
@@ -600,9 +610,19 @@ async function routeTextMessage(
   if ((targetPlatform === 'whatsapp' || targetPlatform === 'all') && getWhatsAppChatId(user)) {
     try {
       const waChatId = getWhatsAppChatId(user)!;
-      console.log(`[Delivery] Sending WA text to user ${user.id} (${waChatId})`);
       const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
-      await whatsappService.sendMessage(waChatId, text, { format: MessageFormat.HTML });
+
+      if (isProactive) {
+        const { buildWhatsAppTemplate } = await import('../messaging/whatsapp-template');
+        const { generateMagicLink } = await import('../magic-link');
+        const settingsUrl = await generateMagicLink(user.id, user.language || 'en');
+        const template = buildWhatsAppTemplate(text, user.language || 'en', settingsUrl);
+        console.log(`[Delivery] Sending WA template to user ${user.id} (${waChatId}) tpl=${template.name}`);
+        await whatsappService.sendMessage(waChatId, text, { format: MessageFormat.HTML, whatsappTemplate: template });
+      } else {
+        console.log(`[Delivery] Sending WA text to user ${user.id} (${waChatId})`);
+        await whatsappService.sendMessage(waChatId, text, { format: MessageFormat.HTML });
+      }
     } catch (e) {
       console.error(`[Delivery] WA text failed for user ${user.id} (${getWhatsAppChatId(user)}):`, e);
       captureError(e, 'whatsapp-delivery', { user_id: userId, service: 'sendMessage' });
@@ -695,7 +715,7 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     if (progressMessageId) {
       await msgService.updateMessage(userId, progressMessageId, summaryWithWarning, { format: MessageFormat.HTML });
     } else {
-      await routeTextMessage(userId, summaryWithWarning, user, platform);
+      await routeTextMessage(userId, summaryWithWarning, user, platform, !progressMessageId);
     }
 
     trackActivityAsync(user.id, 'text_summary_generated', {
@@ -727,7 +747,7 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
       if (progressMessageId) {
         await msgService.updateMessage(userId, progressMessageId, dateHeader, { format: MessageFormat.HTML });
       } else {
-        await routeTextMessage(userId, dateHeader, user, platform);
+        await routeTextMessage(userId, dateHeader, user, platform, !progressMessageId);
       }
     } else if (!sendText && progressMessageId) {
       await msgService.deleteMessage(userId, progressMessageId);

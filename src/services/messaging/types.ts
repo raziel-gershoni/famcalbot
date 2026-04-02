@@ -82,6 +82,12 @@ export interface WhatsAppListMessage {
 /**
  * Message options for sending messages
  */
+export interface WhatsAppTemplate {
+  name: string;        // Template name registered in Meta Business Manager
+  language: string;    // Language code (e.g. 'en', 'he', 'ru')
+  bodyParams: string[];  // Variables for body ({{1}}, {{2}}, ...)
+}
+
 export interface MessageOptions {
   format?: MessageFormat;
   disablePreview?: boolean;
@@ -89,6 +95,7 @@ export interface MessageOptions {
   whatsappButtons?: WhatsAppReplyButton[];  // WhatsApp reply buttons (max 3)
   whatsappUrlButton?: WhatsAppUrlButton;    // WhatsApp CTA URL button
   whatsappList?: WhatsAppListMessage;       // WhatsApp list message (up to 10 items)
+  whatsappTemplate?: WhatsAppTemplate;      // WhatsApp template message (for proactive sends outside 24h window)
 }
 
 /**

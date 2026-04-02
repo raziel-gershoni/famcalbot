@@ -26,25 +26,35 @@ export async function resolveUserTimezone(
   const cached = await redis.get<string>(cacheKey);
   if (cached) return cached;
 
-  // 2. Try geocoding from location
+  // 2. Try geocoding from location (with 1 retry)
   if (user.location) {
-    try {
-      const geo = await geocodeLocation(user.location);
-      if (geo.timezone) {
-        await redis.set(cacheKey, geo.timezone, { ex: TIMEZONE_CACHE_TTL });
-        return geo.timezone;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const geo = await geocodeLocation(user.location);
+        if (geo.timezone) {
+          await redis.set(cacheKey, geo.timezone, { ex: TIMEZONE_CACHE_TTL });
+          return geo.timezone;
+        }
+        break; // got result but no timezone, don't retry
+      } catch {
+        if (attempt === 0) await new Promise(r => setTimeout(r, 2000));
       }
-    } catch {
-      // Geocoding failed, continue to next source
     }
   }
 
-  // 3. Try Google Calendar settings
+  // 3. Try Google Calendar settings (with 1 retry)
   if (user.googleRefreshToken) {
-    const gcalTz = await getUserCalendarTimezone(user.googleRefreshToken);
-    if (gcalTz) {
-      await redis.set(cacheKey, gcalTz, { ex: TIMEZONE_CACHE_TTL });
-      return gcalTz;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const gcalTz = await getUserCalendarTimezone(user.googleRefreshToken);
+        if (gcalTz) {
+          await redis.set(cacheKey, gcalTz, { ex: TIMEZONE_CACHE_TTL });
+          return gcalTz;
+        }
+        break;
+      } catch {
+        if (attempt === 0) await new Promise(r => setTimeout(r, 2000));
+      }
     }
   }
 

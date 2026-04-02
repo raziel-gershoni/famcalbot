@@ -198,10 +198,14 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
       const waChatId = sub.user.whatsappBsuid || whatsappPhone;
       if (waChatId && (!telegramId || sub.user.messagingPlatform === 'whatsapp' || sub.user.messagingPlatform === 'all')) {
         const { getWhatsAppService } = await import('./messaging/factory');
+        const { buildWhatsAppTemplate } = await import('./messaging/whatsapp-template');
+        const { generateMagicLink } = await import('./magic-link');
+        const settingsUrl = await generateMagicLink(sub.userId, sub.user.language || 'en');
+        const template = buildWhatsAppTemplate(message, sub.user.language || 'en', settingsUrl);
         const waService = getWhatsAppService();
         await waService.sendMessage(waChatId, message, {
           format: MessageFormat.HTML,
-          whatsappUrlButton: { text: buttonText, url: subscriptionUrl },
+          whatsappTemplate: template,
         });
       }
 
