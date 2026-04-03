@@ -86,7 +86,8 @@ function getDayLabel(index: number, date: string, language: string): string {
 }
 
 function getSharavBg(severity: string): string | undefined {
-  if (severity === 'moderate') return 'rgba(255, 140, 0, 0.18)';
+  if (severity === 'mild') return 'rgba(255, 200, 50, 0.14)';
+  if (severity === 'moderate') return 'rgba(255, 170, 0, 0.22)';
   if (severity === 'severe') return 'rgba(255, 60, 0, 0.25)';
   return undefined;
 }
