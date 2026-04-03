@@ -103,8 +103,9 @@ function getSharavLabel(language: string, breakHour?: number): string {
 }
 
 function getDustStormBg(severity: string): string | undefined {
-  if (severity === 'moderate') return 'rgba(139, 119, 42, 0.18)';
-  if (severity === 'severe') return 'rgba(139, 119, 42, 0.25)';
+  if (severity === 'mild') return 'rgba(255, 200, 50, 0.14)';
+  if (severity === 'moderate') return 'rgba(255, 170, 0, 0.22)';
+  if (severity === 'severe') return 'rgba(255, 60, 0, 0.25)';
   return undefined;
 }
 
