@@ -6,7 +6,8 @@
 import { HDate, Locale } from '@hebcal/core';
 import { gematriya } from '@hebcal/hdate';
 import '@hebcal/locales';
-import { WeatherData } from '../../types';
+import { AirQualityData, WeatherData } from '../../types';
+import { detectDustStorm } from './dust-storm';
 import { getWeatherDescription, getWeatherEmoji, getWindDirectionLabel } from './open-meteo';
 import { detectSharav } from './sharav';
 import type { InfographicConfig } from './infographic';
@@ -122,7 +123,7 @@ function formatTime(isoString: string): string {
 /**
  * Build a compact, token-efficient payload for AI weather generation
  */
-export function buildWeatherAIPayload(weather: WeatherData): object {
+export function buildWeatherAIPayload(weather: WeatherData, airQuality?: AirQualityData | null): object {
   const todayDate = weather.daily?.[0]?.date || new Date().toISOString().split('T')[0];
   const tomorrowDate = weather.daily?.[1]?.date || '';
 
@@ -181,6 +182,17 @@ export function buildWeatherAIPayload(weather: WeatherData): object {
     }));
   }
 
+  const dustDays = detectDustStorm(airQuality ?? null, weather);
+  if (dustDays.length > 0) {
+    payload.dustStorm = dustDays.map(d => ({
+      date: d.date,
+      severity: d.severity,
+      peakPM10: d.peakPM10,
+      peakDust: d.peakDust,
+      ...(d.minVisibility != null && { minVisibility: d.minVisibility }),
+    }));
+  }
+
   return payload;
 }
 
@@ -215,8 +227,9 @@ export async function formatWeatherAI(
   culture?: string,
   isAdmin?: boolean,
   generateInfographic?: boolean,
+  airQuality?: AirQualityData | null,
 ): Promise<WeatherFormatResult> {
-  const payload = buildWeatherAIPayload(weather);
+  const payload = buildWeatherAIPayload(weather, airQuality);
   const langName = LANGUAGE_NAMES[language] || 'English';
   const headers = SECTION_HEADERS[language] || SECTION_HEADERS.en;
 
@@ -261,7 +274,7 @@ export async function formatWeatherAI(
         hebrewDateForInfographic = `${hdate.getDate()} ${hdate.getMonthName()} ${hdate.getFullYear()}`;
       }
     }
-    infographicConfig = { weather, language, dateStr, hebrewDateStr: hebrewDateForInfographic, timezone };
+    infographicConfig = { weather, airQuality: airQuality ?? null, language, dateStr, hebrewDateStr: hebrewDateForInfographic, timezone };
   }
 
   const prompt = `You are a friendly weatherperson giving a natural, conversational forecast briefing on someone's phone via Telegram.
@@ -278,6 +291,7 @@ ${culture === 'jewish' ? (language === 'he' ? '- השתמש בגימטריה ל�
 - Mention wind (direction + speed) only when > 20 km/h
 - Mention rain timing when relevant (use rainHours data if available)
 - When sharav data is present in the weather data, warn about it prominently with severity and practical advice (stay hydrated, avoid outdoor exertion, keep windows closed). Use "שרב" in Hebrew, "хамсин" in Russian, "sharav/heatwave" in English.
+- When dustStorm data is present, warn about it prominently with health advice (close windows, avoid outdoor activity, use air purifier if available, N95 mask outdoors). Use "סופת אבק" in Hebrew, "пылевая буря" in Russian, "dust storm" in English. Dust storms can occur in cool, humid weather — they are NOT the same as sharav.
 - Write in flowing paragraphs, NOT bullet lists or one-line-per-day format
 - Group days with similar weather together (e.g. "Wednesday through Friday stays warm and dry around 22–24°C") rather than listing each day separately
 - Transition naturally between sections — no numbered lists

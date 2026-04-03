@@ -464,9 +464,14 @@ async function sendWeatherOnlyToUser(
   const { getTimezone } = await import('../weather/geocoding');
   const { fetchWeather, getWeatherDescription, getWindDirectionLabel } = await import('../weather/open-meteo');
   const { detectSharav } = await import('../weather/sharav');
+  const { fetchAirQuality } = await import('../weather/air-quality');
+  const { detectDustStorm } = await import('../weather/dust-storm');
 
   const timezone = await getTimezone(user.location);
-  const weatherData = await fetchWeather(user.location, timezone);
+  const [weatherData, airQualityData] = await Promise.all([
+    fetchWeather(user.location, timezone),
+    fetchAirQuality(user.location, timezone).catch(() => null),
+  ]);
 
   const t = await getBotMessages(user.language || 'en');
 
@@ -501,12 +506,31 @@ async function sendWeatherOnlyToUser(
     sharavLine = `\n\n⚠️ <b>${t.weatherOnly?.sharav || 'Sharav'}:</b> ${warnings}`;
   }
 
+  // Dust storm warning for today/tomorrow
+  const dustDays = detectDustStorm(airQualityData, weatherData);
+  const nearDust = dustDays.filter(d => d.dayIndex <= 1);
+  let dustLine = '';
+  if (nearDust.length > 0) {
+    const severityKeys: Record<string, string> = {
+      mild: t.weatherOnly?.severityMild || 'mild',
+      moderate: t.weatherOnly?.severityModerate || 'moderate',
+      severe: t.weatherOnly?.severitySevere || 'severe',
+    };
+    const warnings = nearDust.map(d => {
+      const dayLabel = d.dayIndex === 0
+        ? (t.weatherOnly?.today || 'Today')
+        : (t.weatherOnly?.tomorrow || 'Tomorrow');
+      return `${dayLabel}: ${severityKeys[d.severity]}`;
+    }).join(', ');
+    dustLine = `\n\n🌫️ <b>${t.weatherOnly?.dustStorm || 'Dust Storm'}:</b> ${warnings}`;
+  }
+
   const weatherMessage = `🌤️ <b>${t.weatherOnly?.title || 'Weather'} - ${dateStr}</b>
 
 <b>${t.weatherOnly?.current || 'Current'}:</b> ${weatherData.current.temperature}°C (${t.weatherOnly?.feelsLike || 'feels like'} ${weatherData.current.feelsLike}°C), ${getWeatherDescription(weatherData.current.weatherCode)}${windLine}
 
 <b>${t.weatherOnly?.today || 'Today'}:</b> ${t.weatherOnly?.high || 'High'} ${weatherData.today.tempMax}°C, ${t.weatherOnly?.low || 'Low'} ${weatherData.today.tempMin}°C, ${weatherData.today.precipitationProbability}% ${t.weatherOnly?.rain || 'rain'}
-${weatherData.tomorrow ? `<b>${t.weatherOnly?.tomorrow || 'Tomorrow'}:</b> ${t.weatherOnly?.high || 'High'} ${weatherData.tomorrow.tempMax}°C, ${t.weatherOnly?.low || 'Low'} ${weatherData.tomorrow.tempMin}°C, ${weatherData.tomorrow.precipitationProbability}% ${t.weatherOnly?.rain || 'rain'}` : ''}${sharavLine}`;
+${weatherData.tomorrow ? `<b>${t.weatherOnly?.tomorrow || 'Tomorrow'}:</b> ${t.weatherOnly?.high || 'High'} ${weatherData.tomorrow.tempMax}°C, ${t.weatherOnly?.low || 'Low'} ${weatherData.tomorrow.tempMin}°C, ${weatherData.tomorrow.precipitationProbability}% ${t.weatherOnly?.rain || 'rain'}` : ''}${sharavLine}${dustLine}`;
 
   if ((platform === 'telegram' || platform === 'all') && user.telegramId) {
     await messagingService.sendMessage(user.telegramId, weatherMessage, {

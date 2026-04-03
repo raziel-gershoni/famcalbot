@@ -27,6 +27,7 @@ interface OpenMeteoResponse {
     wind_speed_10m: number[];
     relative_humidity_2m: number[];
     wind_direction_10m: number[];
+    visibility: number[];
   };
   daily: {
     time: string[];
@@ -64,7 +65,7 @@ export async function fetchWeather(
     latitude: coords.latitude.toString(),
     longitude: coords.longitude.toString(),
     current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,uv_index',
-    hourly: 'temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m,relative_humidity_2m,wind_direction_10m',
+    hourly: 'temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m,relative_humidity_2m,wind_direction_10m,visibility',
     daily: 'temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code,wind_speed_10m_max,wind_direction_10m_dominant,sunrise,sunset,uv_index_max,relative_humidity_2m_mean',
     timezone: timezone,
     forecast_days: '16',
@@ -123,6 +124,7 @@ export async function fetchWeather(
         windSpeed: data.hourly.wind_speed_10m,
         humidity: data.hourly.relative_humidity_2m,
         windDirection: data.hourly.wind_direction_10m,
+        visibility: data.hourly.visibility,
       },
       daily: data.daily.time.map((date, index) => ({
         date,

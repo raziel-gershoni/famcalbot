@@ -136,6 +136,7 @@ export interface WeatherData {
     windSpeed: number[];
     humidity: number[];
     windDirection: number[];
+    visibility?: number[];
   };
   daily?: Array<{
     date: string;
@@ -151,4 +152,13 @@ export interface WeatherData {
     humidity: number;
   }>;
   summary?: string;  // AI-generated summary
+}
+
+export interface AirQualityData {
+  hourly: {
+    time: string[];
+    pm10: (number | null)[];
+    pm2_5: (number | null)[];
+    dust: (number | null)[];
+  };
 }

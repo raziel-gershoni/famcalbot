@@ -7,7 +7,8 @@ import satori from 'satori';
 import { Resvg } from '@resvg/resvg-js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { WeatherData } from '../../types';
+import { AirQualityData, WeatherData } from '../../types';
+import { detectDustStorm } from './dust-storm';
 import { detectSharav } from './sharav';
 import { getLocalizedLocationName } from './geocoding';
 import { getWeatherIcon, getWindArrowIcon, getWindCalmIcon, getUvIcon, getHumidityIcon, getUmbrellaIcon } from './weather-icons';
@@ -20,6 +21,7 @@ const HEIGHT = 1920;
 
 export interface InfographicConfig {
   weather: WeatherData;
+  airQuality?: AirQualityData | null;
   language: string;
   dateStr: string;
   hebrewDateStr?: string;
@@ -95,6 +97,23 @@ function getSharavLabel(language: string, breakHour?: number): string {
   const label = labels[language] || labels.en;
   if (breakHour == null) return label;
   const time = `${breakHour}:00`;
+  if (language === 'he') return `${label} עד ${time}`;
+  if (language === 'ru') return `${label} до ${time}`;
+  return `${label} till ${time}`;
+}
+
+function getDustStormBg(severity: string): string | undefined {
+  if (severity === 'moderate') return 'rgba(139, 119, 42, 0.18)';
+  if (severity === 'severe') return 'rgba(139, 119, 42, 0.25)';
+  return undefined;
+}
+
+/** Get localized dust storm label with optional clearing hour */
+function getDustStormLabel(language: string, clearingHour?: number): string {
+  const labels: Record<string, string> = { he: 'סופת אבק', en: 'Dust Storm', ru: 'Пылевая буря' };
+  const label = labels[language] || labels.en;
+  if (clearingHour == null) return label;
+  const time = `${clearingHour}:00`;
   if (language === 'he') return `${label} עד ${time}`;
   if (language === 'ru') return `${label} до ${time}`;
   return `${label} till ${time}`;
@@ -184,12 +203,16 @@ interface RowData {
   humidity: string;
   sharavSeverity?: string;
   sharavBreakHour?: number;
+  dustStormSeverity?: string;
+  dustClearingHour?: number;
 }
 
 function computeRows(config: InfographicConfig): { rows: RowData[]; globalMin: number; globalMax: number } {
   const daily = (config.weather.daily || []).slice(0, 12);
   const sharavDays = detectSharav(config.weather);
   const sharavByDate = new Map(sharavDays.map(s => [s.date, s]));
+  const dustDays = detectDustStorm(config.airQuality ?? null, config.weather);
+  const dustByDate = new Map(dustDays.map(d => [d.date, d]));
 
   const rows: RowData[] = daily.map((d, i) => ({
     label: getDayLabel(i, d.date, config.language),
@@ -203,6 +226,8 @@ function computeRows(config: InfographicConfig): { rows: RowData[]; globalMin: n
     humidity: `${Math.round(d.humidity)}%`,
     sharavSeverity: sharavByDate.get(d.date)?.severity,
     sharavBreakHour: sharavByDate.get(d.date)?.sharavBreakHour,
+    dustStormSeverity: dustByDate.get(d.date)?.severity,
+    dustClearingHour: dustByDate.get(d.date)?.clearingHour,
   }));
 
   const globalMin = Math.min(...rows.map(r => r.tempMin)) - 2;
@@ -387,6 +412,8 @@ function buildInfographicJsx(
             const barLeftPct = ((row.tempMin - globalMin) / range) * 100;
             const barWidthPct = Math.max(((row.tempMax - row.tempMin) / range) * 100, 3);
             const sharavBg = row.sharavSeverity ? getSharavBg(row.sharavSeverity) : undefined;
+            const dustBg = row.dustStormSeverity ? getDustStormBg(row.dustStormSeverity) : undefined;
+            const rowBg = sharavBg || dustBg;
 
             return (
               <div
@@ -397,7 +424,7 @@ function buildInfographicJsx(
                   alignItems: 'center',
                   borderRadius: 16,
                   padding: '4px 20px',
-                  ...(sharavBg ? { background: sharavBg } : {}),
+                  ...(rowBg ? { background: rowBg } : {}),
                 }}
               >
                 {/* Day label + optional sharav badge below */}
@@ -423,6 +450,19 @@ function buildInfographicJsx(
                       {isRTL
                         ? toVisualOrder(getSharavLabel(config.language, row.sharavBreakHour))
                         : getSharavLabel(config.language, row.sharavBreakHour)}
+                    </div>
+                  )}
+                  {row.dustStormSeverity && (
+                    <div style={{
+                      display: 'flex',
+                      fontSize: 20,
+                      fontWeight: 700,
+                      color: '#c4a035',
+                      marginTop: -2,
+                    }}>
+                      {isRTL
+                        ? toVisualOrder(getDustStormLabel(config.language, row.dustClearingHour))
+                        : getDustStormLabel(config.language, row.dustClearingHour)}
                     </div>
                   )}
                 </div>

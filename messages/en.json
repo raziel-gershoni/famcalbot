@@ -474,6 +474,7 @@
       "rain": "rain",
       "windSpeed": "km/h",
       "sharav": "Sharav",
+      "dustStorm": "Dust Storm",
       "severityMild": "mild",
       "severityModerate": "moderate",
       "severitySevere": "severe"

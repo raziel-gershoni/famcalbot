@@ -239,12 +239,17 @@ export async function generateSummary(
       const { getTimezone } = await import('./weather/geocoding');
       const { fetchWeather, getWeatherDescription, getWindDirectionLabel } = await import('./weather/open-meteo');
       const { detectSharav } = await import('./weather/sharav');
+      const { fetchAirQuality } = await import('./weather/air-quality');
+      const { detectDustStorm } = await import('./weather/dust-storm');
 
       // Get timezone for the location (used for weather data)
       weatherTimezone = await getTimezone(location);
 
-      // Fetch weather data
-      const weatherData = await fetchWeather(location, weatherTimezone);
+      // Fetch weather and air quality data in parallel
+      const [weatherData, airQualityData] = await Promise.all([
+        fetchWeather(location, weatherTimezone),
+        fetchAirQuality(location, weatherTimezone).catch(() => null),
+      ]);
 
       // Build weather summary for prompt
       const currentWind = weatherData.current.windSpeed > 20
@@ -263,6 +268,17 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
           return `${dayLabel}: ${s.severity} sharav (${s.tempMax}°C, humidity ${s.avgHumidity}%, wind ${s.windDirectionLabel})`;
         }).join('; ');
         weatherSummary += `\n⚠️ Sharav warning: ${sharavWarnings}`;
+      }
+
+      // Add dust storm warning if detected for today or tomorrow
+      const dustDays = detectDustStorm(airQualityData, weatherData);
+      const nearDust = dustDays.filter(d => d.dayIndex <= 1);
+      if (nearDust.length > 0) {
+        const dustWarnings = nearDust.map(d => {
+          const dayLabel = d.dayIndex === 0 ? 'Today' : 'Tomorrow';
+          return `${dayLabel}: ${d.severity} dust storm (PM10 ${d.peakPM10} μg/m³)`;
+        }).join('; ');
+        weatherSummary += `\n🌫️ Dust storm warning: ${dustWarnings}`;
       }
     } catch (error) {
       console.error('Failed to fetch weather/timezone for summary:', error);

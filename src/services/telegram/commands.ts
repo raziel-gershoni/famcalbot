@@ -343,7 +343,7 @@ export async function handleWeatherCommand(
     context: `User: ${userId}, Location: ${user.location}`,
     operation: async () => {
       const { fetchWeather } = await import('../weather/open-meteo');
-      const weatherData = await fetchWeather(user.location);
+      const { fetchAirQuality } = await import('../weather/air-quality');
 
       const { TIMEZONE } = await import('../../config/constants');
       let timezone = TIMEZONE;
@@ -354,8 +354,13 @@ export async function handleWeatherCommand(
         // Fall back to default timezone
       }
 
+      const [weatherData, airQualityData] = await Promise.all([
+        fetchWeather(user.location),
+        fetchAirQuality(user.location, timezone).catch(() => null),
+      ]);
+
       const { formatWeatherAI } = await import('../weather/formatter');
-      return formatWeatherAI(weatherData, user.language, user.name, timezone, user.culture, user.isAdmin, true);
+      return formatWeatherAI(weatherData, user.language, user.name, timezone, user.culture, user.isAdmin, true, airQualityData);
     },
     onSuccess: async (result, messageId) => {
       // Try to generate and send infographic if prompt is available
