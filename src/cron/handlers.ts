@@ -240,17 +240,16 @@ export async function handleSetupReminders(): Promise<CronResult> {
       });
     }
 
-    // Send to WhatsApp (if WA-only)
+    // Send to WhatsApp (if WA-only) — template door opener + content
     const waChatId = user.whatsappPhone || user.whatsappBsuid;
     if (waChatId && !user.telegramId) {
-      const { generateMagicLink } = await import('../services/magic-link');
       const { buildWhatsAppTemplate } = await import('../services/messaging/whatsapp-template');
-      const settingsUrl = await generateMagicLink(user.id, user.language || 'en');
-      const template = buildWhatsAppTemplate(message, user.language || 'en', settingsUrl);
+      const template = buildWhatsAppTemplate(user.language || 'en');
       const waService = getWhatsAppService();
+      await waService.sendMessage(waChatId, '', { whatsappTemplate: template });
       await waService.sendMessage(waChatId, message, {
         format: MessageFormat.HTML,
-        whatsappTemplate: template,
+        whatsappUrlButton: { text: buttonText, url: await (await import('../services/magic-link')).generateMagicLink(user.id, user.language || 'en') },
       });
     }
 

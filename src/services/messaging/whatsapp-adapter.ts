@@ -100,7 +100,7 @@ export class WhatsAppAdapter implements IMessagingService {
         },
       };
     } else if (options?.whatsappTemplate) {
-      // Template message (for proactive sends outside 24h window)
+      // Template message — parameter-free door opener for proactive sends
       const tpl = options.whatsappTemplate;
       body = {
         messaging_product: 'whatsapp',
@@ -109,12 +109,6 @@ export class WhatsAppAdapter implements IMessagingService {
         template: {
           name: tpl.name,
           language: { code: tpl.language },
-          components: [
-            {
-              type: 'body',
-              parameters: tpl.bodyParams.map(p => ({ type: 'text', text: options.format ? this.formatText(p, options.format) : p })),
-            },
-          ],
         },
       };
     } else {

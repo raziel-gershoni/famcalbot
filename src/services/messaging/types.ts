@@ -85,7 +85,6 @@ export interface WhatsAppListMessage {
 export interface WhatsAppTemplate {
   name: string;        // Template name registered in Meta Business Manager
   language: string;    // Language code (e.g. 'en', 'he', 'ru')
-  bodyParams: string[];  // Variables for body ({{1}}, {{2}}, ...)
 }
 
 export interface MessageOptions {

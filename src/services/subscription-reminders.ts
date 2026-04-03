@@ -194,18 +194,17 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
         });
       }
 
-      // Send to WhatsApp if available and user prefers it
+      // Send to WhatsApp if available and user prefers it — template door opener + content
       const waChatId = sub.user.whatsappBsuid || whatsappPhone;
       if (waChatId && (!telegramId || sub.user.messagingPlatform === 'whatsapp' || sub.user.messagingPlatform === 'all')) {
         const { getWhatsAppService } = await import('./messaging/factory');
         const { buildWhatsAppTemplate } = await import('./messaging/whatsapp-template');
-        const { generateMagicLink } = await import('./magic-link');
-        const settingsUrl = await generateMagicLink(sub.userId, sub.user.language || 'en');
-        const template = buildWhatsAppTemplate(message, sub.user.language || 'en', settingsUrl);
+        const template = buildWhatsAppTemplate(sub.user.language || 'en');
         const waService = getWhatsAppService();
+        await waService.sendMessage(waChatId, '', { whatsappTemplate: template });
         await waService.sendMessage(waChatId, message, {
           format: MessageFormat.HTML,
-          whatsappTemplate: template,
+          whatsappUrlButton: { text: buttonText, url: subscriptionUrl },
         });
       }
 

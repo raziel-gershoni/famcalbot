@@ -395,12 +395,12 @@ async function sendSummaryToAll(
               });
             }
             if ((platform === 'whatsapp' || platform === 'all') && getWhatsAppChatId(user)) {
+              const waChatId = getWhatsAppChatId(user)!;
               const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
               const { buildWhatsAppTemplate } = await import('../messaging/whatsapp-template');
-              const { generateMagicLink } = await import('../magic-link');
-              const settingsUrl = await generateMagicLink(user.id, user.language || 'en');
-              const template = buildWhatsAppTemplate(expiredMessage, user.language || 'en', settingsUrl);
-              await whatsappService.sendMessage(getWhatsAppChatId(user)!, expiredMessage, { format: MessageFormat.HTML, whatsappTemplate: template });
+              const template = buildWhatsAppTemplate(user.language || 'en');
+              await whatsappService.sendMessage(waChatId, '', { whatsappTemplate: template });
+              await whatsappService.sendMessage(waChatId, expiredMessage, { format: MessageFormat.HTML });
             }
           } catch (msgError) {
             console.error(`Failed to send token expired message to user ${user.id}:`, msgError);
@@ -521,10 +521,9 @@ ${weatherData.tomorrow ? `<b>${t.weatherOnly?.tomorrow || 'Tomorrow'}:</b> ${t.w
     const waChatId = getWhatsAppChatId(user)!;
     const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
     const { buildWhatsAppTemplate } = await import('../messaging/whatsapp-template');
-    const { generateMagicLink } = await import('../magic-link');
-    const settingsUrl = await generateMagicLink(user.id, user.language || 'en');
-    const template = buildWhatsAppTemplate(weatherMessage, user.language || 'en', settingsUrl);
-    await whatsappService.sendMessage(waChatId, weatherMessage, { format: MessageFormat.HTML, whatsappTemplate: template });
+    const template = buildWhatsAppTemplate(user.language || 'en');
+    await whatsappService.sendMessage(waChatId, '', { whatsappTemplate: template });
+    await whatsappService.sendMessage(waChatId, weatherMessage, { format: MessageFormat.HTML });
   }
 
   console.log(`[Summary] Sent weather-only to user ${user.id}`);
@@ -613,12 +612,12 @@ async function routeTextMessage(
       const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
 
       if (isProactive) {
+        // Send template door opener, then actual content as free-form
         const { buildWhatsAppTemplate } = await import('../messaging/whatsapp-template');
-        const { generateMagicLink } = await import('../magic-link');
-        const settingsUrl = await generateMagicLink(user.id, user.language || 'en');
-        const template = buildWhatsAppTemplate(text, user.language || 'en', settingsUrl);
-        console.log(`[Delivery] Sending WA template to user ${user.id} (${waChatId}) tpl=${template.name}`);
-        await whatsappService.sendMessage(waChatId, text, { format: MessageFormat.HTML, whatsappTemplate: template });
+        const template = buildWhatsAppTemplate(user.language || 'en');
+        console.log(`[Delivery] Sending WA template+text to user ${user.id} (${waChatId}) tpl=${template.name}`);
+        await whatsappService.sendMessage(waChatId, '', { whatsappTemplate: template });
+        await whatsappService.sendMessage(waChatId, text, { format: MessageFormat.HTML });
       } else {
         console.log(`[Delivery] Sending WA text to user ${user.id} (${waChatId})`);
         await whatsappService.sendMessage(waChatId, text, { format: MessageFormat.HTML });
