@@ -219,6 +219,26 @@ export async function handleWhatsAppWebhook(
   const value = changes?.value;
   const messages = value?.messages;
 
+  // Log delivery status callbacks (sent, delivered, read, failed)
+  const statuses = value?.statuses as Array<{
+    id: string;
+    status: string;
+    recipient_id: string;
+    timestamp: string;
+    errors?: Array<{ code: number; title: string; message?: string }>;
+  }> | undefined;
+  if (statuses && statuses.length > 0) {
+    for (const status of statuses) {
+      const errorInfo = status.errors?.[0];
+      if (status.status === 'failed') {
+        console.error(`[WhatsApp Status] FAILED msg=${status.id} to=${status.recipient_id}`,
+          errorInfo ? `code=${errorInfo.code} title="${errorInfo.title}" ${errorInfo.message || ''}` : '');
+      } else {
+        console.log(`[WhatsApp Status] ${status.status} msg=${status.id} to=${status.recipient_id}`);
+      }
+    }
+  }
+
   if (!messages || messages.length === 0) {
     res.status(200).json({ ok: true });
     return;

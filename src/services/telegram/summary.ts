@@ -641,8 +641,7 @@ async function routeTextMessage(
         const template = buildWhatsAppTemplate(user.language || 'en');
         console.log(`[Delivery] Sending WA template+text to user ${user.id} (${waChatId}) tpl=${template.name}`);
         const tplId = await whatsappService.sendMessage(waChatId, '', { whatsappTemplate: template });
-        console.log(`[Delivery] WA template sent (msgId=${tplId}), waiting 2s for conversation window...`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        console.log(`[Delivery] WA template sent (msgId=${tplId})`);
         const txtId = await whatsappService.sendMessage(waChatId, text, { format: MessageFormat.HTML });
         console.log(`[Delivery] WA text sent (msgId=${txtId})`);
       } else {
