@@ -7,5 +7,5 @@ Sentry.init({
   enabled: process.env.NODE_ENV === 'production',
 
   // Performance monitoring
-  tracesSampleRate: 0.1,
+  tracesSampleRate: 0.01,
 });

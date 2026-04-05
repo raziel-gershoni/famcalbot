@@ -47,7 +47,7 @@
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
     "dotenv": "^17.2.3",
-    "googleapis": "^164.1.0",
+    "@googleapis/calendar": "^9.7.9",
     "gray-matter": "^4.0.3",
     "lucide-react": "^0.562.0",
     "next": "^16.1.1",

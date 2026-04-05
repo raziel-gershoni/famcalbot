@@ -1,4 +1,4 @@
-import { google, calendar_v3 } from 'googleapis';
+import { calendar as googleCalendar, calendar_v3, auth } from '@googleapis/calendar';
 import { CalendarEvent } from '../types';
 import { getBot } from './telegram';
 import { fromZonedTime } from 'date-fns-tz';
@@ -16,7 +16,7 @@ export type { CalendarEvent };
  * Create a Google Calendar API client with OAuth credentials
  */
 export function getCalendarClient(refreshToken: string): calendar_v3.Calendar {
-  const oauth2Client = new google.auth.OAuth2(
+  const oauth2Client = new auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET
   );
@@ -25,7 +25,7 @@ export function getCalendarClient(refreshToken: string): calendar_v3.Calendar {
     refresh_token: refreshToken,
   });
 
-  return google.calendar({ version: 'v3', auth: oauth2Client });
+  return googleCalendar({ version: 'v3', auth: oauth2Client });
 }
 
 /**
@@ -81,7 +81,7 @@ async function fetchEvents(
   timezone: string = TIMEZONE
 ): Promise<CalendarEvent[]> {
   // Create OAuth2 client
-  const oauth2Client = new google.auth.OAuth2(
+  const oauth2Client = new auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET
   );
@@ -90,7 +90,7 @@ async function fetchEvents(
     refresh_token: refreshToken,
   });
 
-  const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+  const calendar = googleCalendar({ version: 'v3', auth: oauth2Client });
 
   // Get day boundaries in user's timezone
   const { start, end } = getDayBoundaries(daysOffset, timezone);
@@ -202,7 +202,7 @@ export interface CalendarInfo {
  * @returns Array of calendar information
  */
 export async function listUserCalendars(refreshToken: string): Promise<CalendarInfo[]> {
-  const oauth2Client = new google.auth.OAuth2(
+  const oauth2Client = new auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET
   );
@@ -211,7 +211,7 @@ export async function listUserCalendars(refreshToken: string): Promise<CalendarI
     refresh_token: refreshToken,
   });
 
-  const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+  const calendar = googleCalendar({ version: 'v3', auth: oauth2Client });
 
   try {
     const response = await calendar.calendarList.list({
@@ -330,7 +330,7 @@ export async function createEvent(
   calendarId: string,
   eventData: CreateEventData
 ): Promise<CreateEventResult> {
-  const oauth2Client = new google.auth.OAuth2(
+  const oauth2Client = new auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET
   );
@@ -339,7 +339,7 @@ export async function createEvent(
     refresh_token: refreshToken,
   });
 
-  const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+  const calendar = googleCalendar({ version: 'v3', auth: oauth2Client });
 
   try {
     // Build event request body

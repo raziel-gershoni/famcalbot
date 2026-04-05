@@ -7,10 +7,10 @@ Sentry.init({
   enabled: process.env.NODE_ENV === 'production',
 
   // Performance monitoring
-  tracesSampleRate: 0.1, // 10% of transactions
+  tracesSampleRate: 0.01, // 1% of transactions
 
   // Session replay for debugging user issues
-  replaysSessionSampleRate: 0.1,
+  replaysSessionSampleRate: 0.01,
   replaysOnErrorSampleRate: 1.0,
 
   // Filter out noisy errors

@@ -7,7 +7,7 @@ Sentry.init({
   enabled: process.env.NODE_ENV === 'production',
 
   // Performance monitoring
-  tracesSampleRate: 0.1, // 10% of transactions
+  tracesSampleRate: 0.01, // 1% of transactions
 
   // Set environment
   environment: process.env.NODE_ENV || 'development',
