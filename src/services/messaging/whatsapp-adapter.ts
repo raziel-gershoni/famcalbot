@@ -120,13 +120,22 @@ export class WhatsAppAdapter implements IMessagingService {
         },
       };
     } else {
-      // Plain text message — append TG promotion footer
-      const footer = '\n\n_For the best experience use Telegram t.me/FamCalBot_';
+      // Plain text message with TG CTA button
       body = {
         messaging_product: 'whatsapp',
         to: chatId.toString(),
-        type: 'text',
-        text: { body: formattedText + footer },
+        type: 'interactive',
+        interactive: {
+          type: 'cta_url',
+          body: { text: formattedText },
+          action: {
+            name: 'cta_url',
+            parameters: {
+              display_text: 'Telegram',
+              url: 'https://t.me/FamCalBot',
+            },
+          },
+        },
       };
     }
 
