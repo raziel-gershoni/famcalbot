@@ -194,7 +194,7 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
         });
       }
 
-      // Send to WhatsApp if available and user prefers it — template door opener + content
+      // Send to WhatsApp if available — template notification only (no free-form)
       const waChatId = sub.user.whatsappBsuid || whatsappPhone;
       if (waChatId && (!telegramId || sub.user.messagingPlatform === 'whatsapp' || sub.user.messagingPlatform === 'all')) {
         const { getWhatsAppService } = await import('./messaging/factory');
@@ -202,10 +202,6 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
         const template = buildWhatsAppTemplate(sub.user.language || 'en');
         const waService = getWhatsAppService();
         await waService.sendMessage(waChatId, '', { whatsappTemplate: template });
-        await waService.sendMessage(waChatId, message, {
-          format: MessageFormat.HTML,
-          whatsappUrlButton: { text: buttonText, url: subscriptionUrl },
-        });
       }
 
       await markReminderSent(telegramId || String(sub.userId), sub.currentPeriodEnd!, reminderType);

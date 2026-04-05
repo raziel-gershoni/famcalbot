@@ -240,17 +240,13 @@ export async function handleSetupReminders(): Promise<CronResult> {
       });
     }
 
-    // Send to WhatsApp (if WA-only) — template door opener + content
+    // WA-only users: send template notification only (no free-form — reminders are TG-focused)
     const waChatId = user.whatsappPhone || user.whatsappBsuid;
     if (waChatId && !user.telegramId) {
       const { buildWhatsAppTemplate } = await import('../services/messaging/whatsapp-template');
       const template = buildWhatsAppTemplate(user.language || 'en');
       const waService = getWhatsAppService();
       await waService.sendMessage(waChatId, '', { whatsappTemplate: template });
-      await waService.sendMessage(waChatId, message, {
-        format: MessageFormat.HTML,
-        whatsappUrlButton: { text: buttonText, url: await (await import('../services/magic-link')).generateMagicLink(user.id, user.language || 'en') },
-      });
     }
 
     // Mark this attempt as sent in Redis

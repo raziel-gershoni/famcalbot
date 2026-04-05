@@ -85,6 +85,7 @@ export interface WhatsAppListMessage {
 export interface WhatsAppTemplate {
   name: string;        // Template name registered in Meta Business Manager
   language: string;    // Language code (e.g. 'en', 'he', 'ru')
+  buttonPayload?: string;  // Quick reply button payload (e.g. "summary", "summary tmrw")
 }
 
 export interface MessageOptions {

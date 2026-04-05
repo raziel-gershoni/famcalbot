@@ -100,7 +100,7 @@ export class WhatsAppAdapter implements IMessagingService {
         },
       };
     } else if (options?.whatsappTemplate) {
-      // Template message — parameter-free door opener for proactive sends
+      // Template message with optional quick reply button for proactive sends
       const tpl = options.whatsappTemplate;
       body = {
         messaging_product: 'whatsapp',
@@ -109,15 +109,24 @@ export class WhatsAppAdapter implements IMessagingService {
         template: {
           name: tpl.name,
           language: { code: tpl.language },
+          ...(tpl.buttonPayload && {
+            components: [{
+              type: 'button',
+              sub_type: 'quick_reply',
+              index: '0',
+              parameters: [{ type: 'payload', payload: tpl.buttonPayload }],
+            }],
+          }),
         },
       };
     } else {
-      // Plain text message
+      // Plain text message — append TG promotion footer
+      const footer = '\n\n_For the best experience use Telegram t.me/FamCalBot_';
       body = {
         messaging_product: 'whatsapp',
         to: chatId.toString(),
         type: 'text',
-        text: { body: formattedText },
+        text: { body: formattedText + footer },
       };
     }
 

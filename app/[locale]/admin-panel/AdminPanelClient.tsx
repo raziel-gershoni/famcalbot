@@ -2106,8 +2106,8 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                     </div>
                   </div>
 
-                  {/* Setup Reminder Attempts */}
-                  {selectedUser.setupReminders && (
+                  {/* Setup Reminder Attempts (TG-only — hide for WA-only users) */}
+                  {selectedUser.telegramId && selectedUser.setupReminders && (
                     <div style={{ marginTop: 10, fontSize: 13, color: '#374151' }}>
                       <div style={{ marginBottom: 6, lineHeight: 1.6 }}>
                         <div>
@@ -2272,8 +2272,8 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                     </div>
                   </div>
 
-                  {/* Reminders */}
-                  <div className={`override-toggle-row ${selectedUser.paidFeatures.remindersEnabled ? 'paid' : ''}`}>
+                  {/* Reminders (TG-only — hide for WA-only users) */}
+                  {selectedUser.telegramId && <div className={`override-toggle-row ${selectedUser.paidFeatures.remindersEnabled ? 'paid' : ''}`}>
                     <div className="override-toggle-info">
                       <p className="override-toggle-label">
                         {t('overrides.reminders')}
@@ -2293,7 +2293,7 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                     >
                       <div className="mini-toggle-slider" />
                     </div>
-                  </div>
+                  </div>}
 
                   {/* Voice Events */}
                   <div className={`override-toggle-row ${selectedUser.paidFeatures.voiceEventsEnabled ? 'paid' : ''}`}>

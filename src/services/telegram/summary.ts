@@ -361,7 +361,8 @@ async function sendSummaryToAll(
           summary,
           user,
           platform,
-          dateHeader
+          dateHeader,
+          waButtonPayload: summaryDate ? 'summary tmrw' : 'summary',
         });
 
         console.log(`[Batch Summary] user=${user.id} platform=${platform} total=${Date.now() - tUser}ms`);
@@ -400,7 +401,6 @@ async function sendSummaryToAll(
               const { buildWhatsAppTemplate } = await import('../messaging/whatsapp-template');
               const template = buildWhatsAppTemplate(user.language || 'en');
               await whatsappService.sendMessage(waChatId, '', { whatsappTemplate: template });
-              await whatsappService.sendMessage(waChatId, expiredMessage, { format: MessageFormat.HTML });
             }
           } catch (msgError) {
             console.error(`Failed to send token expired message to user ${user.id}:`, msgError);
@@ -545,9 +545,8 @@ ${weatherData.tomorrow ? `<b>${t.weatherOnly?.tomorrow || 'Tomorrow'}:</b> ${t.w
     const waChatId = getWhatsAppChatId(user)!;
     const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
     const { buildWhatsAppTemplate } = await import('../messaging/whatsapp-template');
-    const template = buildWhatsAppTemplate(user.language || 'en');
+    const template = buildWhatsAppTemplate(user.language || 'en', 'weather');
     await whatsappService.sendMessage(waChatId, '', { whatsappTemplate: template });
-    await whatsappService.sendMessage(waChatId, weatherMessage, { format: MessageFormat.HTML });
   }
 
   console.log(`[Summary] Sent weather-only to user ${user.id}`);
@@ -603,7 +602,8 @@ async function routeTextMessage(
   text: string,
   user: UserConfig,
   platform?: DeliveryPlatform,
-  isProactive = false
+  isProactive = false,
+  waButtonPayload?: string
 ): Promise<void> {
   if (!text || text.trim() === '') {
     captureError(
@@ -636,14 +636,12 @@ async function routeTextMessage(
       const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
 
       if (isProactive) {
-        // Send template door opener, then actual content as free-form
+        // Send template with quick reply button — user taps to get content
         const { buildWhatsAppTemplate } = await import('../messaging/whatsapp-template');
-        const template = buildWhatsAppTemplate(user.language || 'en');
-        console.log(`[Delivery] Sending WA template+text to user ${user.id} (${waChatId}) tpl=${template.name}`);
+        const template = buildWhatsAppTemplate(user.language || 'en', waButtonPayload);
+        console.log(`[Delivery] Sending WA template to user ${user.id} (${waChatId}) tpl=${template.name} payload=${waButtonPayload || 'none'}`);
         const tplId = await whatsappService.sendMessage(waChatId, '', { whatsappTemplate: template });
         console.log(`[Delivery] WA template sent (msgId=${tplId})`);
-        const txtId = await whatsappService.sendMessage(waChatId, text, { format: MessageFormat.HTML });
-        console.log(`[Delivery] WA text sent (msgId=${txtId})`);
       } else {
         console.log(`[Delivery] Sending WA text to user ${user.id} (${waChatId})`);
         await whatsappService.sendMessage(waChatId, text, { format: MessageFormat.HTML });
@@ -665,6 +663,7 @@ interface DeliveryOptions {
   progressMessageId?: number | string;
   platform?: DeliveryPlatform;
   dateHeader?: string;
+  waButtonPayload?: string;
 }
 
 /**
@@ -680,7 +679,8 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     user,
     progressMessageId,
     platform,
-    dateHeader
+    dateHeader,
+    waButtonPayload
   } = options;
 
   // Use correct messaging service based on delivery platform
@@ -740,7 +740,7 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     if (progressMessageId) {
       await msgService.updateMessage(userId, progressMessageId, summaryWithWarning, { format: MessageFormat.HTML });
     } else {
-      await routeTextMessage(userId, summaryWithWarning, user, platform, !progressMessageId);
+      await routeTextMessage(userId, summaryWithWarning, user, platform, !progressMessageId, waButtonPayload);
     }
 
     trackActivityAsync(user.id, 'text_summary_generated', {

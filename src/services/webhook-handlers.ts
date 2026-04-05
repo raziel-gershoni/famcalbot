@@ -287,8 +287,8 @@ export async function handleWhatsAppWebhook(
     return;
   }
 
-  // Support text messages, button replies, and list selections
-  const text = message.text?.body || message.interactive?.button_reply?.id || message.interactive?.list_reply?.id;
+  // Support text messages, template quick reply button taps, interactive button replies, and list selections
+  const text = message.text?.body || message.button?.payload || message.interactive?.button_reply?.id || message.interactive?.list_reply?.id;
 
   if (!text) {
     res.status(200).json({ ok: true });

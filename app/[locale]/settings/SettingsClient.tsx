@@ -993,6 +993,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
               <p className="help-text">{t('eveningHourDescription')}</p>
             </div>
 
+            {currentSettings.messagingPlatform !== 'whatsapp' && (<>
             <h3 className="section-title">{t('remindersSection')}</h3>
 
             <div className="toggle-row">
@@ -1073,6 +1074,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
                 </div>
               </>
             )}
+            </>)}
 
           </form>
         </div>
