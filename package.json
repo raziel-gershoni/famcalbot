@@ -11,7 +11,7 @@
     "dev:next": "next dev",
     "dev:bot": "tsx src/index.ts",
     "build": "prisma generate && prisma migrate deploy && next build",
-    "start": "NODE_OPTIONS='--max-old-space-size=128' next start",
+    "start": "NODE_OPTIONS='--max-old-space-size=256' next start",
     "vercel-build": "prisma generate && prisma migrate deploy && next build",
     "type-check": "tsc --noEmit",
     "get-google-token": "tsx scripts/get-google-token.ts",
