@@ -162,13 +162,21 @@ export default function DashboardClient({
     router.push(`/${locale}/feedback?user_id=${user.id}`);
   };
 
-  const handleShareWeatherStory = () => {
+  const handleShareWeatherStory = async () => {
     const tg = typeof window !== 'undefined' ? window.Telegram?.WebApp : undefined;
     if (!tg?.shareToStory) return;
-    const imageUrl = `${window.location.origin}/api/weather-image?user_id=${user.id}`;
-    tg.shareToStory(imageUrl, {
-      widget_link: { url: 'https://famcal.bot', name: 'FamCal' },
-    });
+
+    // Get signed URL from server
+    try {
+      const res = await fetch(`/api/weather-image/sign?user_id=${user.id}`, { credentials: 'same-origin' });
+      if (!res.ok) return;
+      const { url } = await res.json();
+      tg.shareToStory(url, {
+        widget_link: { url: 'https://famcal.bot', name: 'FamCal' },
+      });
+    } catch {
+      // Silent fail
+    }
   };
 
   return (

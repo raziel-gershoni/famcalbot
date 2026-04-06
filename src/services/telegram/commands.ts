@@ -361,32 +361,31 @@ export async function handleWeatherCommand(
       ]);
 
       const { formatWeatherAI } = await import('../weather/formatter');
-      return formatWeatherAI(weatherData, user.language, user.name, timezone, user.culture, user.isAdmin, true, airQualityData);
-    },
-    onSuccess: async (result) => {
-      // Try to generate and send infographic if prompt is available
-      let infographicSent = false;
+      const result = await formatWeatherAI(weatherData, user.language, user.name, timezone, user.culture, user.isAdmin, true, airQualityData);
+
+      // Generate infographic while typing indicator is still running
+      let imageBuffer: Buffer | null = null;
       if (result.infographicConfig) {
         try {
           const { generateWeatherInfographic } = await import('../weather/infographic');
-          const imageBuffer = await generateWeatherInfographic(result.infographicConfig);
-          if (imageBuffer) {
-            await messagingService.sendPhoto(chatId, imageBuffer, {});
-            infographicSent = true;
-          }
+          imageBuffer = await generateWeatherInfographic(result.infographicConfig);
         } catch (err) {
           console.error(`[Weather] Infographic generation failed for user ${userId}:`, err);
         }
       }
 
-      // Fall back to text message if infographic wasn't sent
-      if (!infographicSent) {
+      return { ...result, imageBuffer };
+    },
+    onSuccess: async (result) => {
+      if (result.imageBuffer) {
+        await messagingService.sendPhoto(chatId, result.imageBuffer, {});
+      } else {
         await messagingService.sendMessage(chatId, result.brief, { format: MessageFormat.HTML });
       }
 
-      // Generate voice message with detailed version if enabled
+      // Voice with typing indicator
       if (user.voiceSummaryEnabled) {
-        sendVoiceMessage(chatId, result.detailed, user, undefined, false, platform).catch(err =>
+        sendVoiceMessage(chatId, result.detailed, user, undefined, true, platform).catch(err =>
           console.error(`[Weather] Voice generation failed for user ${userId}:`, err)
         );
       }
