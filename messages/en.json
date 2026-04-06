@@ -34,7 +34,8 @@
     },
     "weather": {
       "title": "Weather Forecast",
-      "forecast": "Forecast"
+      "forecast": "Forecast",
+      "shareStory": "Share to Story"
     },
     "settings": {
       "title": "Calendar Settings",

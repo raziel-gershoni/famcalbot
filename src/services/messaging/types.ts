@@ -97,6 +97,8 @@ export interface MessageOptions {
   whatsappList?: WhatsAppListMessage;       // WhatsApp list message (up to 10 items)
   whatsappTemplate?: WhatsAppTemplate;      // WhatsApp template message (for proactive sends outside 24h window)
   telegramCta?: string;                     // If set, adds a Telegram CTA URL button with this display text (WA only)
+  forceReply?: boolean;                     // Force user to reply to this message (TG only)
+  inputPlaceholder?: string;                // Placeholder text in input field when forceReply is true
 }
 
 /**

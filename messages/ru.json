@@ -34,7 +34,8 @@
     },
     "weather": {
       "title": "Прогноз погоды",
-      "forecast": "Прогноз"
+      "forecast": "Прогноз",
+      "shareStory": "В историю"
     },
     "settings": {
       "title": "Настройки календаря",

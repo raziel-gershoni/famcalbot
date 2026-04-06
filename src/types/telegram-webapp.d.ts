@@ -74,6 +74,10 @@ interface TelegramWebApp {
   readTextFromClipboard: (callback?: (text: string) => void) => void;
   requestWriteAccess: (callback?: (granted: boolean) => void) => void;
   requestContact: (callback?: (granted: boolean) => void) => void;
+  shareToStory: (media_url: string, params?: {
+    text?: string;
+    widget_link?: { url: string; name?: string };
+  }) => void;
   MainButton: {
     text: string;
     color: string;

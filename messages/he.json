@@ -34,7 +34,8 @@
     },
     "weather": {
       "title": "תחזית מזג אוויר",
-      "forecast": "תחזית"
+      "forecast": "תחזית",
+      "shareStory": "שתף לסטורי"
     },
     "settings": {
       "title": "הגדרות לוח שנה",

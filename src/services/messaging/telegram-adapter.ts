@@ -40,8 +40,13 @@ export class TelegramAdapter implements IMessagingService {
       telegramOptions.disable_web_page_preview = true;
     }
 
-    // Reply markup (keyboards)
-    if (options?.replyMarkup) {
+    // Reply markup (keyboards or force reply)
+    if (options?.forceReply) {
+      telegramOptions.reply_markup = {
+        force_reply: true,
+        ...(options.inputPlaceholder && { input_field_placeholder: options.inputPlaceholder }),
+      };
+    } else if (options?.replyMarkup) {
       telegramOptions.reply_markup = options.replyMarkup;
     }
 

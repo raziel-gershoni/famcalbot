@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
-import { KeyRound, Calendar, CloudSun, RefreshCw, PencilLine, ClipboardList, Loader2, Crown, Sparkles, MessageSquare, ChevronRight, Send } from 'lucide-react';
+import { KeyRound, Calendar, CloudSun, RefreshCw, PencilLine, ClipboardList, Loader2, Crown, Sparkles, MessageSquare, ChevronRight, Send, Share2 } from 'lucide-react';
 import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
 
@@ -160,6 +160,15 @@ export default function DashboardClient({
 
   const handleOpenFeedback = () => {
     router.push(`/${locale}/feedback?user_id=${user.id}`);
+  };
+
+  const handleShareWeatherStory = () => {
+    const tg = typeof window !== 'undefined' ? window.Telegram?.WebApp : undefined;
+    if (!tg?.shareToStory) return;
+    const imageUrl = `${window.location.origin}/api/weather-image?user_id=${user.id}`;
+    tg.shareToStory(imageUrl, {
+      widget_link: { url: 'https://famcal.bot', name: 'FamCal' },
+    });
   };
 
   return (
@@ -659,6 +668,16 @@ export default function DashboardClient({
                       </>
                     )}
                   </button>
+                  {!showTelegramBanner && (
+                    <button
+                      className="action-button"
+                      onClick={handleShareWeatherStory}
+                      disabled={loadingCommand !== null}
+                    >
+                      <span className="icon"><Share2 size={32} /></span>
+                      <span>{t('weather.shareStory')}</span>
+                    </button>
+                  )}
                 </div>
               </Section>
 
