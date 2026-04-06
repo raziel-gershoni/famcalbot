@@ -45,6 +45,10 @@
       "daysRemaining": "дней осталось в пробном периоде",
       "earlyAdopter": "Ранний пользователь"
     },
+    "telegramBanner": {
+      "text": "Получайте напоминания, голосовые сводки и многое другое в Telegram",
+      "button": "Открыть в Telegram"
+    },
     "feedback": {
       "title": "Обратная связь",
       "pageTitle": "Отправить отзыв",

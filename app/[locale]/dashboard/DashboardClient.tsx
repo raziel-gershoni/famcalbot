@@ -5,10 +5,10 @@ import { TelegramLayout, Header } from '@/components/Layout';
 import { Section } from '@/components/UI';
 import { LoadingButton } from '@/components/Feedback';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
-import { KeyRound, Calendar, CloudSun, RefreshCw, PencilLine, ClipboardList, Loader2, Crown, Sparkles, MessageSquare, ChevronRight } from 'lucide-react';
+import { KeyRound, Calendar, CloudSun, RefreshCw, PencilLine, ClipboardList, Loader2, Crown, Sparkles, MessageSquare, ChevronRight, Send } from 'lucide-react';
 import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
 
@@ -87,6 +87,14 @@ export default function DashboardClient({
       hebrew: `${hebDay} ${hebMonth}`
     };
   }, [locale, intlLocale]);
+
+  // Detect if opened outside Telegram (e.g. via WA magic link)
+  const [showTelegramBanner, setShowTelegramBanner] = useState(false);
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !window.Telegram?.WebApp) {
+      setShowTelegramBanner(true);
+    }
+  }, []);
 
   // Track which button is loading
   const [loadingCommand, setLoadingCommand] = useState<string | null>(null);
@@ -458,6 +466,46 @@ export default function DashboardClient({
             color: #667eea;
           }
 
+          .telegram-banner {
+            background: linear-gradient(135deg, #0088cc 0%, #0077b5 100%);
+            border-radius: 12px;
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+            color: white;
+          }
+
+          .telegram-banner:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 136, 204, 0.35);
+          }
+
+          .telegram-banner-icon {
+            flex-shrink: 0;
+          }
+
+          .telegram-banner-text {
+            flex: 1;
+            font-size: 14px;
+            line-height: 1.4;
+          }
+
+          .telegram-banner-button {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            border-radius: 8px;
+            padding: 8px 14px;
+            color: white;
+            font-size: 13px;
+            font-weight: 600;
+            white-space: nowrap;
+            cursor: pointer;
+          }
+
           @media (max-width: 400px) {
             .button-group {
               grid-template-columns: 1fr;
@@ -704,6 +752,21 @@ export default function DashboardClient({
                   )}
                 </div>
               </Section>
+
+              {/* Telegram CTA — only when opened outside Telegram (e.g. WA magic link) */}
+              {showTelegramBanner && (
+                <a
+                  href="https://t.me/family_calendar_telegram_bot"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="telegram-banner"
+                  style={{ marginTop: '8px' }}
+                >
+                  <Send size={22} className="telegram-banner-icon" />
+                  <span className="telegram-banner-text">{t('telegramBanner.text')}</span>
+                  <span className="telegram-banner-button">{t('telegramBanner.button')}</span>
+                </a>
+              )}
 
             </>
           )}

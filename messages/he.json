@@ -45,6 +45,10 @@
       "daysRemaining": "ימים נותרו בתקופת הניסיון",
       "earlyAdopter": "מאמץ מוקדם"
     },
+    "telegramBanner": {
+      "text": "קבלו תזכורות, סיכומים קוליים ועוד בטלגרם",
+      "button": "פתח בטלגרם"
+    },
     "feedback": {
       "title": "משוב",
       "pageTitle": "שלח משוב",

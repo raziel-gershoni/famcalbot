@@ -45,6 +45,10 @@
       "daysRemaining": "days remaining in trial",
       "earlyAdopter": "Early Adopter"
     },
+    "telegramBanner": {
+      "text": "Get reminders, voice summaries, and more on Telegram",
+      "button": "Open in Telegram"
+    },
     "feedback": {
       "title": "Feedback",
       "pageTitle": "Send Feedback",
