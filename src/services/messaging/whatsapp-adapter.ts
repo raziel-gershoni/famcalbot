@@ -119,8 +119,8 @@ export class WhatsAppAdapter implements IMessagingService {
           }),
         },
       };
-    } else {
-      // Plain text message with TG CTA button
+    } else if (options?.telegramCta) {
+      // Text message with translated TG CTA button (summaries only)
       body = {
         messaging_product: 'whatsapp',
         to: chatId.toString(),
@@ -131,11 +131,19 @@ export class WhatsAppAdapter implements IMessagingService {
           action: {
             name: 'cta_url',
             parameters: {
-              display_text: 'Telegram',
+              display_text: options.telegramCta,
               url: 'https://t.me/family_calendar_telegram_bot',
             },
           },
         },
+      };
+    } else {
+      // Plain text message
+      body = {
+        messaging_product: 'whatsapp',
+        to: chatId.toString(),
+        type: 'text',
+        text: { body: formattedText },
       };
     }
 

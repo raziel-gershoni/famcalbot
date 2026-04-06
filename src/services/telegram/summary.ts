@@ -644,7 +644,9 @@ async function routeTextMessage(
         console.log(`[Delivery] WA template sent (msgId=${tplId})`);
       } else {
         console.log(`[Delivery] Sending WA text to user ${user.id} (${waChatId})`);
-        await whatsappService.sendMessage(waChatId, text, { format: MessageFormat.HTML });
+        const ctaLabels: Record<string, string> = { he: 'פתח בטלגרם', ru: 'Открыть в Telegram', en: 'Open in Telegram' };
+        const telegramCta = ctaLabels[user.language || 'en'] || ctaLabels.en;
+        await whatsappService.sendMessage(waChatId, text, { format: MessageFormat.HTML, telegramCta });
       }
     } catch (e) {
       console.error(`[Delivery] WA text failed for user ${user.id} (${getWhatsAppChatId(user)}):`, e);
