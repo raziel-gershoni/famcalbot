@@ -605,10 +605,14 @@
     },
     "connect": {
       "code": "Your link code: <b>{code}</b>\n\nSend this on WhatsApp:\n<code>link {code}</code>\n\nThis code expires in 5 minutes.",
-      "alreadyLinked": "Your account is already linked to WhatsApp ({phone})."
+      "alreadyLinked": "Your account is already linked to WhatsApp ({phone}).",
+      "deepLinkMsg": "Tap below to link your WhatsApp account:",
+      "sendToWhatsApp": "Send to WhatsApp"
     },
     "whatsapp": {
-      "welcome": "Welcome to FamCal, {name}! 👋\n\nFamCal reads your family's Google Calendars and sends you a *daily briefing* every morning — merged schedules, kids' pickup order, weather, and a 30-second voice summary.\n\n_Already use FamCal on Telegram? Send /connect there, then type:_ link CODE",
+      "welcome": "Welcome to FamCal, {name}! 👋\n\nFamCal reads your family's Google Calendars and sends you a *daily briefing* every morning — merged schedules, kids' pickup order, weather, and a 30-second voice summary.",
+      "linkTelegramPrompt": "Already on Telegram? Link your account in one tap:",
+      "linkTelegramButton": "Link Telegram",
       "linkSuccess": "Accounts linked! Your Telegram and WhatsApp are now connected. 🎉",
       "linkInvalidCode": "Invalid or expired link code. Generate a new one with /connect on Telegram.",
       "linkAlreadyLinked": "This Telegram account is already linked to a WhatsApp number.",

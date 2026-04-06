@@ -134,6 +134,11 @@ export async function handleStartCommand(
     return;
   }
 
+  if (args === 'connect') {
+    await handleConnectCommand(Number(chatId), userIdNum, platform, true);
+    return;
+  }
+
   const dashboardUrl = buildUrl(`/${locale}/dashboard?user_id=${user.telegramId ?? user.id}`);
   const welcome = t.start.welcome.replace('{name}', name);
 
@@ -682,7 +687,8 @@ export async function handleFeedbackCommand(
 export async function handleConnectCommand(
   chatId: number,
   userId: number,
-  platform: MessagingPlatform = MessagingPlatform.TELEGRAM
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
+  fromDeepLink = false
 ): Promise<void> {
   if (platform !== MessagingPlatform.TELEGRAM) {
     return; // /connect only works from Telegram
@@ -705,11 +711,26 @@ export async function handleConnectCommand(
 
   const { generateLinkCode } = await import('../account-linking');
   const code = await generateLinkCode(userId);
+  const waNumber = process.env.WHATSAPP_PHONE_NUMBER;
 
-  const msg = (t.connect?.code || 'Your link code: <b>{code}</b>\n\nSend this on WhatsApp:\n<code>link {code}</code>\n\nThis code expires in 5 minutes.')
-    .replace(/\{code\}/g, code);
-
-  await service.sendMessage(chatId, msg, { format: MessageFormat.HTML });
+  if (fromDeepLink && waNumber) {
+    // Deep link flow: button that opens WA with pre-filled "link CODE"
+    const waLink = `https://wa.me/${waNumber}?text=${encodeURIComponent(`link ${code}`)}`;
+    const msg = t.connect?.deepLinkMsg || 'Tap below to link your WhatsApp account:';
+    await service.sendMessage(chatId, msg, {
+      format: MessageFormat.HTML,
+      replyMarkup: {
+        inline_keyboard: [[
+          { text: t.connect?.sendToWhatsApp || 'Send to WhatsApp', url: waLink }
+        ]]
+      }
+    });
+  } else {
+    // Manual flow: show code
+    const msg = (t.connect?.code || 'Your link code: <b>{code}</b>\n\nSend this on WhatsApp:\n<code>link {code}</code>\n\nThis code expires in 5 minutes.')
+      .replace(/\{code\}/g, code);
+    await service.sendMessage(chatId, msg, { format: MessageFormat.HTML });
+  }
 }
 
 /**

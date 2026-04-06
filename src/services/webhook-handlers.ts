@@ -330,13 +330,25 @@ export async function handleWhatsAppWebhook(
     const t = await getBotMessages(locale);
     const wa = t.whatsapp || {};
 
-    // New user: send welcome + start onboarding
+    // New user: send welcome + start onboarding + link TG prompt
     if (isNewUser) {
       const welcomeMsg = (wa.welcome || 'Welcome to FamCal, {name}! 👋').replace('{name}', user.name);
       await waService.sendMessage(from, welcomeMsg);
 
       const { startOnboarding } = await import('./whatsapp-onboarding');
       await startOnboarding(from, user);
+
+      // Prompt to link Telegram account
+      const botUsername = process.env.TELEGRAM_BOT_USERNAME;
+      if (botUsername) {
+        await waService.sendMessage(from, wa.linkTelegramPrompt || 'Already on Telegram? Link your account in one tap:', {
+          whatsappUrlButton: {
+            text: wa.linkTelegramButton || 'Link Telegram',
+            url: `https://t.me/${botUsername}?start=connect`
+          }
+        });
+      }
+
       res.status(200).json({ ok: true });
       return;
     }

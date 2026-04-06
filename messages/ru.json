@@ -605,10 +605,14 @@
     },
     "connect": {
       "code": "Ваш код привязки: <b>{code}</b>\n\nОтправьте в WhatsApp:\n<code>link {code}</code>\n\nКод действителен 5 минут.",
-      "alreadyLinked": "Ваш аккаунт уже привязан к WhatsApp ({phone})."
+      "alreadyLinked": "Ваш аккаунт уже привязан к WhatsApp ({phone}).",
+      "deepLinkMsg": "Нажмите ниже, чтобы привязать WhatsApp:",
+      "sendToWhatsApp": "Отправить в WhatsApp"
     },
     "whatsapp": {
-      "welcome": "Привет, {name}! Добро пожаловать в FamCal! 👋\n\nFamCal читает Google Календари вашей семьи и каждое утро присылает *сводку дня* — общее расписание, порядок забора детей, погоду и голосовой обзор за 30 секунд.\n\n_Уже используете FamCal в Telegram? Отправьте /connect там, затем введите:_ link CODE",
+      "welcome": "Привет, {name}! Добро пожаловать в FamCal! 👋\n\nFamCal читает Google Календари вашей семьи и каждое утро присылает *сводку дня* — общее расписание, порядок забора детей, погоду и голосовой обзор за 30 секунд.",
+      "linkTelegramPrompt": "Уже используете FamCal в Telegram? Привяжите аккаунт в одно касание:",
+      "linkTelegramButton": "Привязать Telegram",
       "linkSuccess": "Аккаунты связаны! Ваши Telegram и WhatsApp теперь подключены. 🎉",
       "linkInvalidCode": "Неверный или просроченный код. Создайте новый с помощью /connect в Telegram.",
       "linkAlreadyLinked": "Этот аккаунт Telegram уже привязан к номеру WhatsApp.",
