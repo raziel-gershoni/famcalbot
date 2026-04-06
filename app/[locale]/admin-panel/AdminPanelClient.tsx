@@ -2106,8 +2106,8 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                     </div>
                   </div>
 
-                  {/* Setup Reminder Attempts (TG-only — hide for WA-only users) */}
-                  {selectedUser.telegramId && selectedUser.setupReminders && (
+                  {/* Setup Reminder Attempts */}
+                  {selectedUser.setupReminders && (
                     <div style={{ marginTop: 10, fontSize: 13, color: '#374151' }}>
                       <div style={{ marginBottom: 6, lineHeight: 1.6 }}>
                         <div>
