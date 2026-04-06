@@ -244,7 +244,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
     const waChatId = user.whatsappPhone || user.whatsappBsuid;
     if (waChatId && !user.telegramId) {
       const { buildWhatsAppTemplate } = await import('../services/messaging/whatsapp-template');
-      const template = buildWhatsAppTemplate(user.language || 'en');
+      const template = buildWhatsAppTemplate(user.language || 'en', 'settings');
       const waService = getWhatsAppService();
       await waService.sendMessage(waChatId, '', { whatsappTemplate: template });
     }
