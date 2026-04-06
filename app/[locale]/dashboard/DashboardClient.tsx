@@ -166,17 +166,13 @@ export default function DashboardClient({
     const tg = typeof window !== 'undefined' ? window.Telegram?.WebApp : undefined;
     if (!tg?.shareToStory) return;
 
-    // Get signed URL from server
-    try {
-      const res = await fetch(`/api/weather-image/sign?user_id=${user.id}`, { credentials: 'same-origin' });
-      if (!res.ok) return;
-      const { url } = await res.json();
-      tg.shareToStory(url, {
-        widget_link: { url: 'https://famcal.bot', name: 'FamCal' },
-      });
-    } catch {
-      // Silent fail
-    }
+    const initData = tg.initData;
+    const res = await fetch(`/api/weather-image/sign?user_id=${user.id}&initData=${encodeURIComponent(initData)}`);
+    if (!res.ok) return;
+    const { url } = await res.json();
+    tg.shareToStory(url, {
+      widget_link: { url: 'https://famcal.bot', name: 'FamCal' },
+    });
   };
 
   return (
