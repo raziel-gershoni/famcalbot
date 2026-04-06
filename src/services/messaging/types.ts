@@ -190,6 +190,11 @@ export interface IMessagingService {
   answerCallbackQuery(queryId: string, text?: string): Promise<void>;
 
   /**
+   * Send typing indicator (TG: "typing..." bubble, WA: no-op)
+   */
+  sendTypingIndicator(chatId: number | string): Promise<void>;
+
+  /**
    * Get platform name
    */
   getPlatform(): MessagingPlatform;

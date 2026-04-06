@@ -8,7 +8,6 @@ import { generateSummary, SummaryUserContext, formatDateHeader } from '../claude
 import { CalendarEvent, UserConfig } from '../../types';
 import { IMessagingService, getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from '../messaging';
 import { getCalendarsByLabel, getPrimaryCalendar, getSpouseInfo } from '../../utils/calendar-helpers';
-import { ProgressType } from '../progress-message';
 import { buildUrl } from '../../config/urls';
 import { executeCommand } from './command-pipeline';
 import { getBotMessages, getBotMessage } from '../../lib/bot-messages';
@@ -164,7 +163,6 @@ export async function sendSummaryToUser(
   summaryDate: Date | undefined,
   errorKey: string,
   modelId?: string,
-  existingProgressMessageId?: number,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM
 ): Promise<void> {
   // Platform-agnostic user lookup
@@ -183,8 +181,6 @@ export async function sendSummaryToUser(
 
   // Check if user has completed setup — nudge them if not
   if (await sendSetupNudgeIfNeeded(user, chatId, messagingService, platform)) return;
-
-  const progressType: ProgressType = summaryDate ? 'summaryTomorrow' : 'summary';
 
   trackActivityAsync(user.id, 'text_summary_requested', {
     summary_type: summaryDate ? 'tomorrow' : 'today',
@@ -207,9 +203,7 @@ export async function sendSummaryToUser(
 
   await executeCommand({
     chatId,
-    progressType,
     language: userLanguage,
-    existingProgressMessageId,
     messagingService,
     errorKey,
     commandName: 'Summary Generation',
@@ -217,21 +211,20 @@ export async function sendSummaryToUser(
     operation: async () => {
       return prepareSummaryForUser(user, fetchFunction, summaryDate, modelId);
     },
-    onSuccess: async (result, messageId) => {
+    onSuccess: async (result) => {
       await deliverSummary({
         userId: chatId,
         summary: result.summary,
         user,
-        progressMessageId: messageId,
         platform: platform === MessagingPlatform.TELEGRAM ? 'telegram' : 'whatsapp',
         dateHeader: result.dateHeader,
       });
     },
-    onError: async (error, messageId) => {
+    onError: async (error) => {
       if (error.message === 'GOOGLE_INSUFFICIENT_SCOPES') {
         const t = await getBotMessages(userLanguage);
         const scopesMessage = `${t.insufficientScopes.title}\n\n${t.insufficientScopes.message}`;
-        await messagingService.updateMessage(chatId, messageId, scopesMessage, {
+        await messagingService.sendMessage(chatId, scopesMessage, {
           format: MessageFormat.HTML
         });
 
@@ -251,7 +244,7 @@ export async function sendSummaryToUser(
       if (error.message === 'GOOGLE_TOKEN_EXPIRED') {
         const t = await getBotMessages(userLanguage);
         const expiredMessage = `${t.tokenExpired.title}\n\n${t.tokenExpired.message}`;
-        await messagingService.updateMessage(chatId, messageId, expiredMessage, {
+        await messagingService.sendMessage(chatId, expiredMessage, {
           format: MessageFormat.HTML
         });
 
@@ -435,7 +428,6 @@ async function sendSummaryToAll(
  */
 export async function sendDailySummaryToUser(
   chatId: number | string,
-  existingProgressMessageId?: number,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM
 ): Promise<void> {
   await sendSummaryToUser(
@@ -444,7 +436,6 @@ export async function sendDailySummaryToUser(
     undefined,
     'calendarFetch',
     undefined,
-    existingProgressMessageId,
     platform
   );
 }
@@ -564,7 +555,6 @@ export async function sendDailySummaryToAll(options?: { filterByHour?: boolean }
  */
 export async function sendTomorrowSummaryToUser(
   chatId: number | string,
-  existingProgressMessageId?: number,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM
 ): Promise<void> {
   const tomorrow = new Date();
@@ -576,7 +566,6 @@ export async function sendTomorrowSummaryToUser(
     tomorrow,
     'tomorrowFetch',
     undefined,
-    existingProgressMessageId,
     platform
   );
 }
@@ -662,7 +651,6 @@ interface DeliveryOptions {
   userId: number | string;
   summary: string;
   user: UserConfig;
-  progressMessageId?: number | string;
   platform?: DeliveryPlatform;
   dateHeader?: string;
   waButtonPayload?: string;
@@ -679,7 +667,6 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     userId,
     summary,
     user,
-    progressMessageId,
     platform,
     dateHeader,
     waButtonPayload
@@ -698,9 +685,6 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
       'summary-generation',
       { user_id: userId, service: 'deliverSummary' }
     );
-    if (progressMessageId) {
-      await msgService.deleteMessage(userId, progressMessageId);
-    }
     const t = await getBotMessages(user.language || 'en');
     await msgService.sendMessage(userId, t.errors?.summaryGenerationFailed || 'Sorry, could not generate summary. Please try again.', { format: MessageFormat.HTML });
     return;
@@ -710,9 +694,6 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
   const sendVoiceEnabled = user.voiceSummaryEnabled !== false;
 
   if (!sendText && !sendVoiceEnabled) {
-    if (progressMessageId) {
-      await msgService.deleteMessage(userId, progressMessageId);
-    }
     return;
   }
 
@@ -739,11 +720,7 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
   // Handle text delivery
   const tTextDelivery = Date.now();
   if (sendText) {
-    if (progressMessageId) {
-      await msgService.updateMessage(userId, progressMessageId, summaryWithWarning, { format: MessageFormat.HTML });
-    } else {
-      await routeTextMessage(userId, summaryWithWarning, user, platform, !!waButtonPayload, waButtonPayload);
-    }
+    await routeTextMessage(userId, summaryWithWarning, user, platform, !!waButtonPayload, waButtonPayload);
 
     trackActivityAsync(user.id, 'text_summary_generated', {
       word_count: summary.split(/\s+/).length,
@@ -752,8 +729,6 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
       console.error('[Subscription] Failed to increment text usage:', err);
       captureError(err, 'summary-increment-text-usage', { user_id: user.id }, 'warning');
     });
-  } else if (progressMessageId && !(sendVoiceEnabled && dateHeader)) {
-    await msgService.deleteMessage(userId, progressMessageId);
   }
   const textDeliveryMs = Date.now() - tTextDelivery;
 
@@ -771,13 +746,7 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     });
 
     if (!sendText && dateHeader) {
-      if (progressMessageId) {
-        await msgService.updateMessage(userId, progressMessageId, dateHeader, { format: MessageFormat.HTML });
-      } else {
-        await routeTextMessage(userId, dateHeader, user, platform, !!waButtonPayload);
-      }
-    } else if (!sendText && progressMessageId) {
-      await msgService.deleteMessage(userId, progressMessageId);
+      await routeTextMessage(userId, dateHeader, user, platform, !!waButtonPayload);
     }
 
     const tVoice = Date.now();

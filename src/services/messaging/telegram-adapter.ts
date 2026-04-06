@@ -162,6 +162,14 @@ export class TelegramAdapter implements IMessagingService {
     };
   }
 
+  async sendTypingIndicator(chatId: number | string): Promise<void> {
+    try {
+      await this.bot.sendChatAction(chatId, 'typing');
+    } catch {
+      // Non-critical — ignore errors
+    }
+  }
+
   async answerCallbackQuery(queryId: string, text?: string): Promise<void> {
     await this.bot.answerCallbackQuery(queryId, text ? { text } : undefined);
   }

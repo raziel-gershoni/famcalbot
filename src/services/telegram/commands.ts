@@ -207,7 +207,6 @@ export async function handleSummaryCommand(
   userId: number | string,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
   args?: string,
-  existingProgressMessageId?: number
 ): Promise<void> {
   addBreadcrumb('command_started', {
     command: '/summary',
@@ -252,9 +251,9 @@ export async function handleSummaryCommand(
 
   // Use the original chatId (telegramId for TG, phone string for WA)
   if (args?.toLowerCase().trim() === 'tmrw') {
-    await sendTomorrowSummaryToUser(chatId, existingProgressMessageId, platform);
+    await sendTomorrowSummaryToUser(chatId, platform);
   } else {
-    await sendDailySummaryToUser(chatId, existingProgressMessageId, platform);
+    await sendDailySummaryToUser(chatId, platform);
   }
 }
 
@@ -267,7 +266,6 @@ export async function handleWeatherCommand(
   userId: number | string,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
   args?: string,
-  existingProgressMessageId?: number
 ): Promise<void> {
   addBreadcrumb('command_started', {
     command: '/weather',
@@ -339,9 +337,7 @@ export async function handleWeatherCommand(
 
   await executeCommand({
     chatId,
-    progressType: 'weather',
     language: userLanguage,
-    existingProgressMessageId,
     messagingService,
     errorKey: 'weatherFetch',
     commandName: 'Weather Command',
@@ -367,18 +363,14 @@ export async function handleWeatherCommand(
       const { formatWeatherAI } = await import('../weather/formatter');
       return formatWeatherAI(weatherData, user.language, user.name, timezone, user.culture, user.isAdmin, true, airQualityData);
     },
-    onSuccess: async (result, messageId) => {
+    onSuccess: async (result) => {
       // Try to generate and send infographic if prompt is available
       let infographicSent = false;
-      let messageDeleted = false;
       if (result.infographicConfig) {
         try {
           const { generateWeatherInfographic } = await import('../weather/infographic');
           const imageBuffer = await generateWeatherInfographic(result.infographicConfig);
           if (imageBuffer) {
-            // Delete progress message and send photo instead
-            await messagingService.deleteMessage(chatId, messageId);
-            messageDeleted = true;
             await messagingService.sendPhoto(chatId, imageBuffer, {});
             infographicSent = true;
           }
@@ -389,16 +381,12 @@ export async function handleWeatherCommand(
 
       // Fall back to text message if infographic wasn't sent
       if (!infographicSent) {
-        if (messageDeleted) {
-          await messagingService.sendMessage(chatId, result.brief, { format: MessageFormat.HTML });
-        } else {
-          await messagingService.updateMessage(chatId, messageId, result.brief, { format: MessageFormat.HTML });
-        }
+        await messagingService.sendMessage(chatId, result.brief, { format: MessageFormat.HTML });
       }
 
       // Generate voice message with detailed version if enabled
       if (user.voiceSummaryEnabled) {
-        sendVoiceMessage(chatId, result.detailed, user, undefined, true, platform).catch(err =>
+        sendVoiceMessage(chatId, result.detailed, user, undefined, false, platform).catch(err =>
           console.error(`[Weather] Voice generation failed for user ${userId}:`, err)
         );
       }
@@ -418,7 +406,6 @@ export async function handleLookaheadCommand(
   chatId: number | string,
   userId: number | string,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
-  existingProgressMessageId?: number
 ): Promise<void> {
   addBreadcrumb('command_started', {
     command: '/lookahead',
@@ -471,9 +458,7 @@ export async function handleLookaheadCommand(
 
   await executeCommand({
     chatId,
-    progressType: 'lookahead',
     language: userLanguage,
-    existingProgressMessageId,
     messagingService,
     errorKey: 'lookaheadFetch',
     commandName: 'Lookahead Command',
@@ -485,8 +470,8 @@ export async function handleLookaheadCommand(
       const { generateWeekLookahead } = await import('../claude');
       return generateWeekLookahead(lookahead, user, userLanguage, undefined, user.isAdmin);
     },
-    onSuccess: async (formattedLookahead, messageId) => {
-      await messagingService.updateMessage(chatId, messageId, formattedLookahead, { format: MessageFormat.HTML });
+    onSuccess: async (formattedLookahead) => {
+      await messagingService.sendMessage(chatId, formattedLookahead, { format: MessageFormat.HTML });
 
       // Generate voice message if enabled
       if (user.voiceSummaryEnabled) {
@@ -505,7 +490,6 @@ export async function handleNextWeekCommand(
   chatId: number | string,
   userId: number | string,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
-  existingProgressMessageId?: number
 ): Promise<void> {
   addBreadcrumb('command_started', {
     command: '/nextweek',
@@ -558,9 +542,7 @@ export async function handleNextWeekCommand(
 
   await executeCommand({
     chatId,
-    progressType: 'nextweek',
     language: userLanguage,
-    existingProgressMessageId,
     messagingService,
     errorKey: 'nextWeekFetch',
     commandName: 'Next Week Command',
@@ -572,8 +554,8 @@ export async function handleNextWeekCommand(
       const { generateNextWeekSummary } = await import('../claude');
       return generateNextWeekSummary(lookahead, user, userLanguage, undefined, user.isAdmin);
     },
-    onSuccess: async (formattedSummary, messageId) => {
-      await messagingService.updateMessage(chatId, messageId, formattedSummary, { format: MessageFormat.HTML });
+    onSuccess: async (formattedSummary) => {
+      await messagingService.sendMessage(chatId, formattedSummary, { format: MessageFormat.HTML });
 
       // Generate voice message if enabled
       if (user.voiceSummaryEnabled) {

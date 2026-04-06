@@ -1,28 +1,26 @@
 /**
  * Unified Command Pipeline
  * Single execution path for all user-facing bot commands.
- * Handles progress messages, operation timeouts, error categorization, and admin notifications.
+ * Uses typing indicators instead of progress messages, with error handling and admin notifications.
  */
 
 import { IMessagingService, MessageFormat } from '../messaging/types';
-import { ProgressType, getProgressText, buildProgressHtml } from '../progress-message';
 import { getBotMessages } from '../../lib/bot-messages';
 
 const DEFAULT_OPERATION_TIMEOUT_MS = 50_000;
+const TYPING_INTERVAL_MS = 4_000;
 
 export interface CommandPipelineOptions<T> {
   chatId: number | string;
-  progressType: ProgressType;
   language: string;
-  existingProgressMessageId?: number;
   messagingService: IMessagingService;
   operationTimeoutMs?: number;
   errorKey: string;
   commandName: string;
   context?: string;
   operation: () => Promise<T>;
-  onSuccess: (result: T, messageId: number | string) => Promise<void>;
-  onError?: (error: Error, messageId: number | string) => Promise<boolean>;
+  onSuccess: (result: T) => Promise<void>;
+  onError?: (error: Error) => Promise<boolean>;
 }
 
 /**
@@ -46,19 +44,29 @@ class OperationTimeoutError extends Error {
 }
 
 /**
+ * Start a repeating typing indicator that fires every 4s.
+ * Returns a cleanup function.
+ */
+export function startTypingInterval(chatId: number | string, service: IMessagingService): () => void {
+  service.sendTypingIndicator(chatId).catch(() => {});
+  const interval = setInterval(() => {
+    service.sendTypingIndicator(chatId).catch(() => {});
+  }, TYPING_INTERVAL_MS);
+  return () => clearInterval(interval);
+}
+
+/**
  * Unified command execution pipeline.
  *
- * 1. Send (or reuse) a progress message with animated emoji
+ * 1. Start typing indicator (repeating every 4s)
  * 2. Run operation() with a timeout
- * 3. On success  -> onSuccess callback edits the message
- * 4. On error    -> categorise, show localized error, notify admin
+ * 3. On success  -> onSuccess callback sends the result
+ * 4. On error    -> send error as new message, notify admin
  */
 export async function executeCommand<T>(opts: CommandPipelineOptions<T>): Promise<void> {
   const {
     chatId,
-    progressType,
     language,
-    existingProgressMessageId,
     messagingService,
     operationTimeoutMs = DEFAULT_OPERATION_TIMEOUT_MS,
     errorKey,
@@ -69,21 +77,8 @@ export async function executeCommand<T>(opts: CommandPipelineOptions<T>): Promis
     onError,
   } = opts;
 
-  // 1. Progress message
-  let messageId: number | string;
-  const progressText = getProgressText(progressType, language);
-  const progressHtml = buildProgressHtml(progressText);
-
-  if (existingProgressMessageId) {
-    messageId = existingProgressMessageId;
-    try {
-      await messagingService.updateMessage(chatId, messageId, progressHtml, { format: MessageFormat.HTML });
-    } catch {
-      // If update fails, the existing message still shows the old progress text — acceptable
-    }
-  } else {
-    messageId = await messagingService.sendMessage(chatId, progressHtml, { format: MessageFormat.HTML });
-  }
+  // 1. Start typing indicator
+  const stopTyping = startTypingInterval(chatId, messagingService);
 
   // 2. Run operation with timeout
   try {
@@ -94,16 +89,20 @@ export async function executeCommand<T>(opts: CommandPipelineOptions<T>): Promis
       ),
     ]);
 
+    stopTyping();
+
     // 3. Success
-    await onSuccess(result, messageId);
+    await onSuccess(result);
   } catch (err) {
+    stopTyping();
+
     const error = err instanceof Error ? err : new Error(String(err));
     console.error(`[${commandName}] Error:`, error);
 
     // Let custom handler run first
     if (onError) {
       try {
-        const handled = await onError(error, messageId);
+        const handled = await onError(error);
         if (handled) return;
       } catch (handlerErr) {
         console.error(`[${commandName}] onError handler failed:`, handlerErr);
@@ -122,14 +121,14 @@ export async function executeCommand<T>(opts: CommandPipelineOptions<T>): Promis
       userMessage = t.errors?.[errorKey] || t.errors?.generic || 'Sorry, there was an error. Please try again later.';
     }
 
-    // Update progress message with error (wrapped in try-catch)
+    // Send error as new message
     try {
-      await messagingService.updateMessage(chatId, messageId, userMessage);
-    } catch (updateErr) {
-      console.error(`[${commandName}] Failed to update message with error:`, updateErr);
+      await messagingService.sendMessage(chatId, userMessage);
+    } catch (sendErr) {
+      console.error(`[${commandName}] Failed to send error message:`, sendErr);
     }
 
-    // Notify admin (wrapped in try-catch)
+    // Notify admin
     try {
       const { notifyAdminError } = await import('../../utils/error-notifier');
       await notifyAdminError(commandName, error, context);

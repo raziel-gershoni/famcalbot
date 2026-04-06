@@ -310,7 +310,7 @@ export function formatEventDateTime(event: ParsedEvent, language: string, allDay
  */
 export async function showEventConfirmation(
   chatId: number,
-  messageId: number,
+  messageId: number | undefined,
   event: ParsedEvent,
   transcription: string,
   user: UserConfig,
@@ -336,17 +336,26 @@ export async function showEventConfirmation(
     `<i>${t.voice.from} "${escapeHtml(transcription)}"</i>` +
     (adminFooter || '');
 
-  await bot.editMessageText(confirmationMessage, {
-    chat_id: chatId,
-    message_id: messageId,
-    parse_mode: 'HTML',
-    reply_markup: {
-      inline_keyboard: [[
-        { text: t.voice.createButton, callback_data: `event_create:${pendingId}` },
-        { text: t.voice.cancelButton, callback_data: `event_cancel:${pendingId}` }
-      ]]
-    }
-  });
+  const replyMarkup = {
+    inline_keyboard: [[
+      { text: t.voice.createButton, callback_data: `event_create:${pendingId}` },
+      { text: t.voice.cancelButton, callback_data: `event_cancel:${pendingId}` }
+    ]]
+  };
+
+  if (messageId) {
+    await bot.editMessageText(confirmationMessage, {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+      reply_markup: replyMarkup,
+    });
+  } else {
+    await bot.sendMessage(chatId, confirmationMessage, {
+      parse_mode: 'HTML',
+      reply_markup: replyMarkup,
+    });
+  }
 }
 
 /**
@@ -354,7 +363,7 @@ export async function showEventConfirmation(
  */
 export async function showEditConfirmation(
   chatId: number,
-  messageId: number,
+  messageId: number | undefined,
   originalEvent: CalendarEvent,
   calendarId: string,
   updates: UpdateEventData,
@@ -409,17 +418,26 @@ export async function showEditConfirmation(
     `<i>${fromLabel} "${escapeHtml(transcription)}"</i>` +
     (adminFooter || '');
 
-  await bot.editMessageText(confirmationMessage, {
-    chat_id: chatId,
-    message_id: messageId,
-    parse_mode: 'HTML',
-    reply_markup: {
-      inline_keyboard: [[
-        { text: confirmBtn, callback_data: `edit_confirm:${pendingId}` },
-        { text: cancelBtn, callback_data: `edit_cancel:${pendingId}` }
-      ]]
-    }
-  });
+  const replyMarkup = {
+    inline_keyboard: [[
+      { text: confirmBtn, callback_data: `edit_confirm:${pendingId}` },
+      { text: cancelBtn, callback_data: `edit_cancel:${pendingId}` }
+    ]]
+  };
+
+  if (messageId) {
+    await bot.editMessageText(confirmationMessage, {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+      reply_markup: replyMarkup,
+    });
+  } else {
+    await bot.sendMessage(chatId, confirmationMessage, {
+      parse_mode: 'HTML',
+      reply_markup: replyMarkup,
+    });
+  }
 }
 
 /**
@@ -427,7 +445,7 @@ export async function showEditConfirmation(
  */
 export async function showDeleteConfirmation(
   chatId: number,
-  messageId: number,
+  messageId: number | undefined,
   event: CalendarEvent,
   calendarId: string,
   transcription: string,
@@ -475,15 +493,24 @@ export async function showDeleteConfirmation(
     `<i>${fromLabel} "${escapeHtml(transcription)}"</i>` +
     (adminFooter || '');
 
-  await bot.editMessageText(confirmationMessage, {
-    chat_id: chatId,
-    message_id: messageId,
-    parse_mode: 'HTML',
-    reply_markup: {
-      inline_keyboard: [[
-        { text: deleteBtn, callback_data: `delete_confirm:${pendingId}` },
-        { text: keepBtn, callback_data: `delete_cancel:${pendingId}` }
-      ]]
-    }
-  });
+  const replyMarkup = {
+    inline_keyboard: [[
+      { text: deleteBtn, callback_data: `delete_confirm:${pendingId}` },
+      { text: keepBtn, callback_data: `delete_cancel:${pendingId}` }
+    ]]
+  };
+
+  if (messageId) {
+    await bot.editMessageText(confirmationMessage, {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+      reply_markup: replyMarkup,
+    });
+  } else {
+    await bot.sendMessage(chatId, confirmationMessage, {
+      parse_mode: 'HTML',
+      reply_markup: replyMarkup,
+    });
+  }
 }

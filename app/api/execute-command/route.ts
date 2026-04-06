@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { after } from 'next/server';
 import { getUserByTelegramId, getUserById } from '@/src/services/user-service';
 import { MessagingPlatform } from '@/src/services/messaging';
-import { getProgressText } from '@/src/services/progress-message';
 import { verifyUserAccess } from '@/src/lib/telegram-auth';
 import { validateSessionFromRequest } from '@/src/lib/session-auth';
 import { checkRateLimit, commandRateLimiter, getRateLimitHeaders } from '@/src/lib/rate-limit';
@@ -11,27 +10,10 @@ import { captureError } from '@/src/lib/error-capture';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-// Map command to progress type
-function getProgressType(command: string, args?: string): 'summary' | 'summaryTomorrow' | 'weather' | 'lookahead' | 'nextweek' | null {
-  if (command === 'summary') {
-    return args?.toLowerCase().trim() === 'tmrw' ? 'summaryTomorrow' : 'summary';
-  }
-  if (command === 'weather') {
-    return 'weather';
-  }
-  if (command === 'lookahead') {
-    return 'lookahead';
-  }
-  if (command === 'nextweek') {
-    return 'nextweek';
-  }
-  return null;
-}
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { user_id, command, args, secret, language, initData } = body;
+    const { user_id, command, args, secret, initData } = body;
 
     // Validate required parameters
     if (!user_id || !command) {
@@ -64,28 +46,6 @@ export async function POST(request: NextRequest) {
           { success: false, error: 'Too many requests. Please wait a minute.' },
           { status: 429, headers: getRateLimitHeaders(rateLimitResult) }
         );
-      }
-    }
-
-    // Send progress message IMMEDIATELY (before any DB queries)
-    // This makes the response feel instant
-    let progressMessageId: number | undefined;
-    const progressType = getProgressType(command, args);
-
-    // Send progress message only for Telegram (progress is inline in the chat)
-    // WhatsApp users get the response directly (no progress messages from web app)
-    if (progressType && language && (hasTelegramAuth || hasServerSecret)) {
-      try {
-        const { getMessagingService } = await import('@/src/services/telegram');
-        const messagingService = getMessagingService();
-        const progressText = getProgressText(progressType, language);
-        progressMessageId = await messagingService.sendMessage(
-          user_id,
-          `\u231B ${progressText}...`
-        ) as number;
-      } catch (err) {
-        console.error('Failed to send initial progress:', err);
-        captureError(err, 'execute-command-progress', { user_id, command }, 'warning');
       }
     }
 
@@ -126,7 +86,6 @@ export async function POST(request: NextRequest) {
               chatId,
               platform,
               args,
-              progressMessageId
             );
             break;
           case 'weather':
@@ -135,7 +94,6 @@ export async function POST(request: NextRequest) {
               chatId,
               platform,
               args,
-              progressMessageId
             );
             break;
           case 'lookahead':
@@ -143,7 +101,6 @@ export async function POST(request: NextRequest) {
               chatId,
               chatId,
               platform,
-              progressMessageId
             );
             break;
           case 'nextweek':
@@ -151,7 +108,6 @@ export async function POST(request: NextRequest) {
               chatId,
               chatId,
               platform,
-              progressMessageId
             );
             break;
         }
@@ -168,14 +124,7 @@ export async function POST(request: NextRequest) {
           const { getMessagingService } = await import('@/src/services/telegram');
           const messagingService = getMessagingService();
           const errorMessage = '❌ Sorry, something went wrong processing your request. Please try again.';
-
-          if (progressMessageId) {
-            // Update progress message with error
-            await messagingService.updateMessage(user_id, progressMessageId, errorMessage);
-          } else {
-            // Send new error message
-            await messagingService.sendMessage(user_id, errorMessage);
-          }
+          await messagingService.sendMessage(user_id, errorMessage);
         } catch (notifyErr) {
           captureError(notifyErr, 'execute-command-notify', { user_id });
         }
@@ -189,12 +138,10 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Return immediately after progress message is sent
-    // Command continues executing via after()
+    // Return immediately — command continues executing via after()
     return NextResponse.json({
       success: true,
       message: 'Command started',
-      progressMessageId,
       timestamp: new Date().toISOString()
     });
   } catch (error) {

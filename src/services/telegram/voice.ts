@@ -6,12 +6,11 @@
 import { UserConfig } from '../../types';
 import { IMessagingService, MessagingPlatform, MessageFormat } from '../messaging';
 import { getMessagingService as getMessagingServiceByPlatform } from '../messaging';
-import { sendAnimatedProgress } from '../progress-message';
-import { getBot, getMessagingService } from './bot';
+import { startTypingInterval } from './command-pipeline';
+import { getMessagingService } from './bot';
 import { trackActivityAsync } from '../analytics-service';
 import { incrementUsage } from '../subscription-service';
 import { formatVoiceCaption } from '../../utils/ai-footer';
-import type { AICompletionResult } from '../ai-provider';
 import type { VoiceCondenserContext } from '../../prompts/voice-condenser';
 
 /**
@@ -36,11 +35,10 @@ export async function sendVoiceMessage(
     : getMessagingService());
   const userLanguage = user.language || 'en';
 
-  // Send animated hourglass progress (if enabled)
-  let messageId: number | string | null = null;
-
+  // Start typing indicator if enabled
+  let stopTyping: (() => void) | null = null;
   if (showProgress) {
-    messageId = await sendAnimatedProgress(chatId, 'voice', userLanguage, msgService);
+    stopTyping = startTypingInterval(chatId, msgService);
   }
 
   try {
@@ -81,8 +79,8 @@ export async function sendVoiceMessage(
 
     const { ttsMs, ttsModel, voiceName } = ttsResult;
 
-    // Delete progress message
-    if (messageId) await msgService.deleteMessage(chatId, messageId);
+    // Stop typing indicator
+    if (stopTyping) stopTyping();
 
     // Send voice via platform-agnostic service
     await msgService.sendVoice(chatId, voiceFilePath!);
@@ -104,15 +102,15 @@ export async function sendVoiceMessage(
   } catch (error) {
     console.error(`[Voice] Voice generation failed for user ${chatId}:`, error);
 
-    if (messageId) {
-      try {
-        const { getBotMessages } = await import('../../lib/bot-messages');
-        const t = await getBotMessages(userLanguage);
-        const errorText = t.errors?.voiceGenerationFailed || 'Voice message unavailable — your text summary is above.';
-        await msgService.updateMessage(chatId, messageId, errorText);
-      } catch (updateErr) {
-        console.error('[Voice] Failed to update progress with error:', updateErr);
-      }
+    if (stopTyping) stopTyping();
+
+    try {
+      const { getBotMessages } = await import('../../lib/bot-messages');
+      const t = await getBotMessages(userLanguage);
+      const errorText = t.errors?.voiceGenerationFailed || 'Voice message unavailable — your text summary is above.';
+      await msgService.sendMessage(chatId, errorText);
+    } catch (sendErr) {
+      console.error('[Voice] Failed to send error message:', sendErr);
     }
 
     const { notifyAdminWarning } = await import('../../utils/error-notifier');
@@ -148,7 +146,7 @@ export async function sendWeeklyVoiceMessage(
     : getMessagingService());
   const userLanguage = user.language || 'en';
 
-  const messageId = await sendAnimatedProgress(chatId, 'voice', userLanguage, msgService);
+  const stopTyping = startTypingInterval(chatId, msgService);
 
   try {
     const { generateVoiceMessage } = await import('../voice-generator');
@@ -187,7 +185,7 @@ export async function sendWeeklyVoiceMessage(
 
     const { ttsMs, ttsModel, voiceName } = ttsResult;
 
-    await msgService.deleteMessage(chatId, messageId);
+    stopTyping();
 
     // Send voice via platform-agnostic service
     await msgService.sendVoice(chatId, voiceFilePath!);
@@ -202,13 +200,15 @@ export async function sendWeeklyVoiceMessage(
   } catch (error) {
     console.error(`[Voice] Weekly voice generation failed for user ${chatId}:`, error);
 
+    stopTyping();
+
     try {
       const { getBotMessages } = await import('../../lib/bot-messages');
       const t = await getBotMessages(userLanguage);
       const errorText = t.errors?.voiceGenerationFailed || 'Voice message unavailable — your text summary is above.';
-      await msgService.updateMessage(chatId, messageId, errorText);
-    } catch (updateErr) {
-      console.error('[Voice] Failed to update progress with error:', updateErr);
+      await msgService.sendMessage(chatId, errorText);
+    } catch (sendErr) {
+      console.error('[Voice] Failed to send error message:', sendErr);
     }
 
     const { notifyAdminWarning } = await import('../../utils/error-notifier');

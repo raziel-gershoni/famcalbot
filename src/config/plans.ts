@@ -44,8 +44,8 @@ export const PLAN_CONFIGS: Record<PlanId, PlanConfig> = {
   BASIC: {
     id: 'BASIC',
     name: 'Basic',
-    priceStars: 150,
-    priceUsd: 3,
+    priceStars: 1500,
+    priceUsd: 30,
     limits: {
       textSummaries: Infinity,
       voiceSummaries: Infinity,
@@ -62,8 +62,8 @@ export const PLAN_CONFIGS: Record<PlanId, PlanConfig> = {
   PRO: {
     id: 'PRO',
     name: 'Pro',
-    priceStars: 300,
-    priceUsd: 6,
+    priceStars: 2500,
+    priceUsd: 50,
     limits: {
       textSummaries: Infinity,
       voiceSummaries: Infinity,

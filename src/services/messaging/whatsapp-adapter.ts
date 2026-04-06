@@ -288,6 +288,10 @@ export class WhatsAppAdapter implements IMessagingService {
     return null;
   }
 
+  async sendTypingIndicator(_chatId: number | string): Promise<void> {
+    // WhatsApp Cloud API doesn't support typing indicators
+  }
+
   async answerCallbackQuery(queryId: string, text?: string): Promise<void> {
     // WhatsApp doesn't have inline buttons with callbacks
     // Uses interactive messages (buttons, lists) instead

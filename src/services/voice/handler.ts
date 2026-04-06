@@ -18,6 +18,7 @@ import { checkFeatureAccess } from '../subscription-service';
 import { downloadVoiceFile, getLastCreatedEvent, findMatchingEvent, convertEditRequestToUpdates } from './event-resolution';
 import { showEventConfirmation, showEditConfirmation, showDeleteConfirmation } from './confirmations';
 import { captureError } from '../../lib/error-capture';
+import { startTypingInterval } from '../telegram/command-pipeline';
 
 interface TelegramVoice {
   file_id: string;
@@ -39,7 +40,7 @@ interface TelegramUser {
  */
 async function handleEditIntent(
   chatId: number,
-  messageId: number,
+  messageId: number | undefined,
   intentResult: VoiceIntentResult,
   transcription: string,
   user: UserConfig,
@@ -50,7 +51,7 @@ async function handleEditIntent(
   const messagingService = getMessagingService();
 
   if (!user.googleRefreshToken) {
-    await messagingService.updateMessage(chatId, messageId, t.voice?.noCalendar || 'Calendar not connected.', { format: MessageFormat.PLAIN });
+    await messagingService.sendMessage(chatId, t.voice?.noCalendar || 'Calendar not connected.', { format: MessageFormat.PLAIN });
     return;
   }
 
@@ -60,7 +61,7 @@ async function handleEditIntent(
   if (intentResult.eventReference?.type === 'last_created') {
     const lastEvent = await getLastCreatedEvent(user.telegramId!);
     if (!lastEvent) {
-      await messagingService.updateMessage(chatId, messageId,
+      await messagingService.sendMessage(chatId,
         t.voice?.noLastEvent || "❌ No recent event found. Try specifying which event to edit.",
         { format: MessageFormat.HTML }
       );
@@ -93,17 +94,17 @@ async function handleEditIntent(
 
     if ('error' in matchResult) {
       if (matchResult.error === 'no_events_found') {
-        await messagingService.updateMessage(chatId, messageId,
+        await messagingService.sendMessage(chatId,
           t.voice?.noEventsFound || "❌ No events found in that time range.",
           { format: MessageFormat.HTML }
         );
       } else if (matchResult.error === 'multiple_matches') {
-        await messagingService.updateMessage(chatId, messageId,
+        await messagingService.sendMessage(chatId,
           t.voice?.ambiguousEvent || "🤔 Found multiple matching events. Please be more specific.",
           { format: MessageFormat.HTML }
         );
       } else {
-        await messagingService.updateMessage(chatId, messageId,
+        await messagingService.sendMessage(chatId,
           t.voice?.eventNotFound || "❌ Couldn't find that event.",
           { format: MessageFormat.HTML }
         );
@@ -116,7 +117,7 @@ async function handleEditIntent(
   }
 
   if (!targetEvent || !targetCalendarId) {
-    await messagingService.updateMessage(chatId, messageId,
+    await messagingService.sendMessage(chatId,
       t.voice?.eventNotFound || "❌ Couldn't find the event to edit.",
       { format: MessageFormat.HTML }
     );
@@ -134,7 +135,7 @@ async function handleEditIntent(
  */
 async function handleDeleteIntent(
   chatId: number,
-  messageId: number,
+  messageId: number | undefined,
   intentResult: VoiceIntentResult,
   transcription: string,
   user: UserConfig,
@@ -145,7 +146,7 @@ async function handleDeleteIntent(
   const messagingService = getMessagingService();
 
   if (!user.googleRefreshToken) {
-    await messagingService.updateMessage(chatId, messageId, t.voice?.noCalendar || 'Calendar not connected.', { format: MessageFormat.PLAIN });
+    await messagingService.sendMessage(chatId, t.voice?.noCalendar || 'Calendar not connected.', { format: MessageFormat.PLAIN });
     return;
   }
 
@@ -155,7 +156,7 @@ async function handleDeleteIntent(
   if (intentResult.eventReference?.type === 'last_created') {
     const lastEvent = await getLastCreatedEvent(user.telegramId!);
     if (!lastEvent) {
-      await messagingService.updateMessage(chatId, messageId,
+      await messagingService.sendMessage(chatId,
         t.voice?.noLastEvent || "❌ No recent event found. Try specifying which event to cancel.",
         { format: MessageFormat.HTML }
       );
@@ -183,17 +184,17 @@ async function handleDeleteIntent(
 
     if ('error' in matchResult) {
       if (matchResult.error === 'no_events_found') {
-        await messagingService.updateMessage(chatId, messageId,
+        await messagingService.sendMessage(chatId,
           t.voice?.noEventsFound || "❌ No events found in that time range.",
           { format: MessageFormat.HTML }
         );
       } else if (matchResult.error === 'multiple_matches') {
-        await messagingService.updateMessage(chatId, messageId,
+        await messagingService.sendMessage(chatId,
           t.voice?.ambiguousEvent || "🤔 Found multiple matching events. Please be more specific.",
           { format: MessageFormat.HTML }
         );
       } else {
-        await messagingService.updateMessage(chatId, messageId,
+        await messagingService.sendMessage(chatId,
           t.voice?.eventNotFound || "❌ Couldn't find that event.",
           { format: MessageFormat.HTML }
         );
@@ -206,7 +207,7 @@ async function handleDeleteIntent(
   }
 
   if (!targetEvent || !targetCalendarId) {
-    await messagingService.updateMessage(chatId, messageId,
+    await messagingService.sendMessage(chatId,
       t.voice?.eventNotFound || "❌ Couldn't find the event to delete.",
       { format: MessageFormat.HTML }
     );
@@ -228,6 +229,7 @@ export async function handleVoiceMessage(
   console.log(`[Voice] Starting voice handler for user ${userId}`);
   const messagingService = getMessagingService();
   let user: Awaited<ReturnType<typeof getUserByTelegramId>> | null = null;
+  let stopTyping: (() => void) | null = null;
 
   setUserContext(userId, from.first_name);
 
@@ -300,16 +302,8 @@ export async function handleVoiceMessage(
       return;
     }
 
-    console.log(`[Voice] Sending processing message to chat ${chatId}`);
-    let processingMsg: number | string;
-    try {
-      processingMsg = await messagingService.sendMessage(chatId, t.voice.processing, { format: MessageFormat.PLAIN });
-      console.log(`[Voice] Processing message sent, id: ${processingMsg}`);
-    } catch (sendError) {
-      console.error(`[Voice] Failed to send processing message:`, sendError);
-      throw sendError;
-    }
-    const processingMsgId = typeof processingMsg === 'number' ? processingMsg : parseInt(processingMsg);
+    console.log(`[Voice] Starting typing indicator for chat ${chatId}`);
+    stopTyping = startTypingInterval(chatId, messagingService);
 
     console.log(`[Voice] Downloading voice file for user ${userId}, file_id: ${voice.file_id}, duration: ${voice.duration}s`);
     const audioBuffer = await downloadVoiceFile(voice.file_id);
@@ -345,10 +339,13 @@ export async function handleVoiceMessage(
       has_event: !!intentResult.event,
     }, 'voice');
 
+    // Stop typing before sending confirmation UI
+    stopTyping();
+
     if (intentResult.intent === 'create') {
       if (!intentResult.event) {
         const safeTranscription = transcription.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        await messagingService.updateMessage(chatId, processingMsgId,
+        await messagingService.sendMessage(chatId,
           `${t.voice.notUnderstood}\n\n` +
           `${t.voice.iHeard} "<i>${safeTranscription}</i>"\n\n` +
           `${t.voice.tryExamples}\n` +
@@ -359,16 +356,17 @@ export async function handleVoiceMessage(
         );
         return;
       }
-      await showEventConfirmation(chatId, processingMsgId, intentResult.event, transcription, user, adminFooter);
+      await showEventConfirmation(chatId, undefined, intentResult.event, transcription, user, adminFooter);
 
     } else if (intentResult.intent === 'edit') {
-      await handleEditIntent(chatId, processingMsgId, intentResult, transcription, user, t, adminFooter);
+      await handleEditIntent(chatId, undefined, intentResult, transcription, user, t, adminFooter);
 
     } else if (intentResult.intent === 'delete') {
-      await handleDeleteIntent(chatId, processingMsgId, intentResult, transcription, user, t, adminFooter);
+      await handleDeleteIntent(chatId, undefined, intentResult, transcription, user, t, adminFooter);
     }
 
   } catch (error) {
+    if (stopTyping) stopTyping();
     console.error('[Voice] Error handling voice message:', error);
     captureError(error, 'voice-handler');
 
