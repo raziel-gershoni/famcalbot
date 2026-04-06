@@ -742,7 +742,7 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     if (progressMessageId) {
       await msgService.updateMessage(userId, progressMessageId, summaryWithWarning, { format: MessageFormat.HTML });
     } else {
-      await routeTextMessage(userId, summaryWithWarning, user, platform, !progressMessageId, waButtonPayload);
+      await routeTextMessage(userId, summaryWithWarning, user, platform, !!waButtonPayload, waButtonPayload);
     }
 
     trackActivityAsync(user.id, 'text_summary_generated', {
@@ -774,7 +774,7 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
       if (progressMessageId) {
         await msgService.updateMessage(userId, progressMessageId, dateHeader, { format: MessageFormat.HTML });
       } else {
-        await routeTextMessage(userId, dateHeader, user, platform, !progressMessageId);
+        await routeTextMessage(userId, dateHeader, user, platform, !!waButtonPayload);
       }
     } else if (!sendText && progressMessageId) {
       await msgService.deleteMessage(userId, progressMessageId);
@@ -788,16 +788,7 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
         captureError(err, 'summary-voice-telegram', { user_id: user.id }, 'warning');
       });
     }
-    // Send voice to WhatsApp if applicable
-    if ((targetPlatform === 'whatsapp' || targetPlatform === 'all') && !getWhatsAppChatId(user)) {
-      console.warn(`[Delivery] WA voice skipped for user ${user.id}: no WhatsApp phone/BSUID`);
-    }
-    if ((targetPlatform === 'whatsapp' || targetPlatform === 'all') && getWhatsAppChatId(user)) {
-      sendVoiceMessage(getWhatsAppChatId(user)!, summary, user, undefined, false, MessagingPlatform.WHATSAPP).catch(err => {
-        console.error(`[Delivery] Voice generation failed for WA user ${user.id}:`, err);
-        captureError(err, 'summary-voice-whatsapp', { user_id: user.id }, 'warning');
-      });
-    }
+    // Voice is Telegram-only (WA requires 24h window; voice sent after user taps template button via command handler)
     voiceDispatchMs = Date.now() - tVoice;
   }
 
