@@ -129,7 +129,6 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
 
       {/* Summary content */}
       <div style={{
-        display: 'flex',
         flex: 1,
         background: 'rgba(255, 255, 255, 0.1)',
         borderRadius: '24px',
@@ -141,7 +140,7 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
         whiteSpace: 'pre-wrap',
         wordBreak: 'break-word',
       }}>
-        {isRtl ? [...plainText].reverse().join('') : plainText}
+        {isRtl ? toVisualOrder(plainText, language) : plainText}
       </div>
 
       {/* Footer */}
