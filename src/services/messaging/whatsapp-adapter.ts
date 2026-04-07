@@ -288,10 +288,9 @@ export class WhatsAppAdapter implements IMessagingService {
     return null;
   }
 
-  async sendTypingIndicator(_chatId: number | string, messageId?: string): Promise<void> {
+  async sendTypingIndicator(_chatId: number | string, messageId?: string, typingType?: 'text' | 'audio'): Promise<void> {
     if (!messageId) return; // WA requires the inbound message ID
     try {
-      // Typing indicator is a STATUS update, not a message — different payload shape
       const url = `${this.apiUrl}/messages`;
       const response = await fetch(url, {
         method: 'POST',
@@ -303,7 +302,7 @@ export class WhatsAppAdapter implements IMessagingService {
           messaging_product: 'whatsapp',
           status: 'read',
           message_id: messageId,
-          typing_indicator: { type: 'text' },
+          typing_indicator: { type: typingType || 'text' },
         }),
       });
       if (!response.ok) {

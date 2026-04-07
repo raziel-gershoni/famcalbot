@@ -27,7 +27,8 @@ export async function sendVoiceMessage(
   user: UserConfig,
   service?: IMessagingService,
   showProgress: boolean = true,
-  platform: MessagingPlatform = MessagingPlatform.TELEGRAM
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
+  waMessageId?: string
 ): Promise<void> {
   let voiceFilePath: string | null = null;
   const msgService = service || (platform === MessagingPlatform.WHATSAPP
@@ -35,10 +36,17 @@ export async function sendVoiceMessage(
     : getMessagingService());
   const userLanguage = user.language || 'en';
 
-  // Start typing indicator if enabled
+  // Resolve WA message ID from Redis if not provided
+  let msgId = waMessageId;
+  if (!msgId && platform === MessagingPlatform.WHATSAPP) {
+    const { redis } = await import('../../utils/redis');
+    msgId = await redis.get<string>(`wa:lastmsg:${chatId}`) || undefined;
+  }
+
+  // Start audio typing indicator if enabled
   let stopTyping: (() => void) | null = null;
   if (showProgress) {
-    stopTyping = startTypingInterval(chatId, msgService);
+    stopTyping = startTypingInterval(chatId, msgService, 'audio', msgId);
   }
 
   try {
@@ -138,7 +146,8 @@ export async function sendWeeklyVoiceMessage(
   user: UserConfig,
   isNextWeek: boolean = false,
   service?: IMessagingService,
-  platform: MessagingPlatform = MessagingPlatform.TELEGRAM
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
+  waMessageId?: string
 ): Promise<void> {
   let voiceFilePath: string | null = null;
   const msgService = service || (platform === MessagingPlatform.WHATSAPP
@@ -146,7 +155,14 @@ export async function sendWeeklyVoiceMessage(
     : getMessagingService());
   const userLanguage = user.language || 'en';
 
-  const stopTyping = startTypingInterval(chatId, msgService);
+  // Resolve WA message ID from Redis if not provided
+  let msgId = waMessageId;
+  if (!msgId && platform === MessagingPlatform.WHATSAPP) {
+    const { redis } = await import('../../utils/redis');
+    msgId = await redis.get<string>(`wa:lastmsg:${chatId}`) || undefined;
+  }
+
+  const stopTyping = startTypingInterval(chatId, msgService, 'audio', msgId);
 
   try {
     const { generateVoiceMessage } = await import('../voice-generator');

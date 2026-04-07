@@ -408,9 +408,12 @@ export async function handleWhatsAppWebhook(
     const runAsync = (fn: () => Promise<void>, cmdName: string) => {
       // Return 200 immediately, process command in background
       res.status(200).json({ ok: true });
-      // Show typing indicator (requires inbound message ID)
+      // Show typing indicator and stash message ID for voice functions
       if (waMessageId) {
         waService.sendTypingIndicator(from, waMessageId).catch(() => {});
+        import('../utils/redis').then(({ redis }) =>
+          redis.set(`wa:lastmsg:${from}`, waMessageId, { ex: 60 })
+        ).catch(() => {});
       }
       fn()
         .then(() => { if (tgId) notifyTelegramAboutWhatsApp(tgId, cmdName).catch(e => captureError(e, 'wa-tg-notify', {}, 'warning')); })

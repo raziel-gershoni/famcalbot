@@ -46,11 +46,18 @@ class OperationTimeoutError extends Error {
 /**
  * Start a repeating typing indicator that fires every 4s.
  * Returns a cleanup function.
+ * @param typingType - 'text' for typing, 'audio' for recording audio
+ * @param messageId - WA inbound message ID (required for WA typing)
  */
-export function startTypingInterval(chatId: number | string, service: IMessagingService): () => void {
-  service.sendTypingIndicator(chatId).catch(() => {});
+export function startTypingInterval(
+  chatId: number | string,
+  service: IMessagingService,
+  typingType: 'text' | 'audio' = 'text',
+  messageId?: string
+): () => void {
+  service.sendTypingIndicator(chatId, messageId, typingType).catch(() => {});
   const interval = setInterval(() => {
-    service.sendTypingIndicator(chatId).catch(() => {});
+    service.sendTypingIndicator(chatId, messageId, typingType).catch(() => {});
   }, TYPING_INTERVAL_MS);
   return () => clearInterval(interval);
 }

@@ -194,8 +194,9 @@ export interface IMessagingService {
 
   /**
    * Send typing indicator (TG: "typing..." bubble, WA: requires inbound messageId)
+   * @param typingType - 'text' for typing, 'audio' for recording audio (WA only)
    */
-  sendTypingIndicator(chatId: number | string, messageId?: string): Promise<void>;
+  sendTypingIndicator(chatId: number | string, messageId?: string, typingType?: 'text' | 'audio'): Promise<void>;
 
   /**
    * Get platform name
