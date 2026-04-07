@@ -114,8 +114,12 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
   const fonts = loadFonts();
   const svg = await satori(jsx, { width: WIDTH, height: HEIGHT, fonts });
 
-  // Log SVG to debug RTL line order
-  console.log(`[SummaryCard] SVG output (first 3000 chars):\n${svg.slice(0, 3000)}`);
+  // Debug: log text before and after bidi
+  if (isRtl) {
+    const bidiResult = toVisualOrder(plainText, language);
+    console.log(`[SummaryCard] BEFORE bidi (first 500):\n${plainText.slice(0, 500)}`);
+    console.log(`[SummaryCard] AFTER bidi (first 500):\n${bidiResult.slice(0, 500)}`);
+  }
 
   const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: WIDTH } });
   const png = resvg.render().asPng();
