@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
-import { KeyRound, Calendar, CloudSun, RefreshCw, PencilLine, ClipboardList, Loader2, Crown, Sparkles, MessageSquare, ChevronRight, Send, Share2 } from 'lucide-react';
+import { KeyRound, Calendar, CloudSun, RefreshCw, PencilLine, ClipboardList, Loader2, Crown, Sparkles, MessageSquare, ChevronRight, Send } from 'lucide-react';
 import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
 
@@ -162,9 +162,6 @@ export default function DashboardClient({
     router.push(`/${locale}/feedback?user_id=${user.id}`);
   };
 
-  const handleShareWeatherStory = () => {
-    router.push(`/${locale}/share-story?user_id=${user.id}&source=fresh`);
-  };
 
   return (
     <TelegramLayout>
@@ -663,16 +660,6 @@ export default function DashboardClient({
                       </>
                     )}
                   </button>
-                  {!showTelegramBanner && (
-                    <button
-                      className="action-button"
-                      onClick={handleShareWeatherStory}
-                      disabled={loadingCommand !== null}
-                    >
-                      <span className="icon"><Share2 size={32} /></span>
-                      <span>{t('weather.shareStory')}</span>
-                    </button>
-                  )}
                 </div>
               </Section>
 
