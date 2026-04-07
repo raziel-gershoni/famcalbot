@@ -162,36 +162,8 @@ export default function DashboardClient({
     router.push(`/${locale}/feedback?user_id=${user.id}`);
   };
 
-  const [sharingStory, setSharingStory] = useState(false);
-
-  const handleShareWeatherStory = async () => {
-    const tg = typeof window !== 'undefined' ? window.Telegram?.WebApp : undefined;
-    if (!tg?.shareToStory) {
-      tg?.showAlert?.('Update Telegram to share stories');
-      return;
-    }
-
-    setSharingStory(true);
-    try {
-      const initData = tg.initData;
-      const res = await fetch(`/api/weather-image/sign?user_id=${user.id}&initData=${encodeURIComponent(initData)}`);
-      const data = await res.json();
-
-      if (!res.ok) {
-        if (data.error === 'no_image') {
-          tg.showAlert?.('Tap "Forecast" first, then share');
-        }
-        return;
-      }
-
-      tg.shareToStory(data.url, {
-        widget_link: { url: 'https://famcal.bot', name: 'FamCal' },
-      });
-    } catch {
-      tg?.showAlert?.('Failed to share');
-    } finally {
-      setSharingStory(false);
-    }
+  const handleShareWeatherStory = () => {
+    router.push(`/${locale}/share-story?user_id=${user.id}&source=fresh`);
   };
 
   return (
@@ -695,16 +667,10 @@ export default function DashboardClient({
                     <button
                       className="action-button"
                       onClick={handleShareWeatherStory}
-                      disabled={loadingCommand !== null || sharingStory}
+                      disabled={loadingCommand !== null}
                     >
-                      {sharingStory ? (
-                        <Loader2 size={28} className="spinner" />
-                      ) : (
-                        <>
-                          <span className="icon"><Share2 size={32} /></span>
-                          <span>{t('weather.shareStory')}</span>
-                        </>
-                      )}
+                      <span className="icon"><Share2 size={32} /></span>
+                      <span>{t('weather.shareStory')}</span>
                     </button>
                   )}
                 </div>

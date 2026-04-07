@@ -115,6 +115,7 @@ export interface VoiceOptions {
 export interface PhotoOptions {
   caption?: string;
   format?: MessageFormat;
+  replyMarkup?: any;  // Telegram-specific keyboard markup
 }
 
 /**

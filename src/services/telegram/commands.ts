@@ -378,12 +378,20 @@ export async function handleWeatherCommand(
     },
     onSuccess: async (result) => {
       if (result.imageBuffer) {
-        await messagingService.sendPhoto(chatId, result.imageBuffer, {});
-
-        // Cache image in Redis for story sharing (30 min TTL)
+        // Cache image in Redis for inline story sharing (30 min TTL)
         import('../../utils/redis').then(({ redis }) =>
           redis.set(`story:img:${user.id}`, Buffer.from(result.imageBuffer!).toString('base64'), { ex: 1800 })
         ).catch(() => {});
+
+        const shareStoryUrl = buildUrl(`/${user.language || 'en'}/share-story?user_id=${user.telegramId ?? user.id}&source=cached`);
+        const t = await getBotMessages(user.language || 'en');
+        await messagingService.sendPhoto(chatId, result.imageBuffer, {
+          replyMarkup: platform === MessagingPlatform.TELEGRAM ? {
+            inline_keyboard: [[
+              { text: t.dashboard?.weather?.shareStory || 'Share to Story', web_app: { url: shareStoryUrl } }
+            ]]
+          } : undefined,
+        });
       } else {
         await messagingService.sendMessage(chatId, result.brief, { format: MessageFormat.HTML });
       }

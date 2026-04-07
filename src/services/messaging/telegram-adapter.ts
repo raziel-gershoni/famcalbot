@@ -134,6 +134,10 @@ export class TelegramAdapter implements IMessagingService {
       telegramOptions.parse_mode = 'Markdown';
     }
 
+    if (options?.replyMarkup) {
+      telegramOptions.reply_markup = options.replyMarkup;
+    }
+
     const message = await this.bot.sendPhoto(chatId, photo, telegramOptions, {
       filename: 'weather.png',
       contentType: 'image/png',

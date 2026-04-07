@@ -28,9 +28,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Check cache, generate if missing
+  const source = request.nextUrl.searchParams.get('source') || 'fresh';
   const cacheKey = `story:img:${userId}`;
-  let cached = await redis.get<string>(cacheKey);
+
+  // source=cached: use cached image (inline button under photo)
+  // source=fresh: always generate new image (dashboard button)
+  let cached = source === 'cached' ? await redis.get<string>(cacheKey) : null;
 
   if (!cached) {
     const { getUserById } = await import('@/src/services/user-service');
