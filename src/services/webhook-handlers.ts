@@ -408,15 +408,25 @@ export async function handleWhatsAppWebhook(
     const runAsync = (fn: () => Promise<void>, cmdName: string) => {
       // Return 200 immediately, process command in background
       res.status(200).json({ ok: true });
-      // Stash inbound message ID for voice typing indicator
+
+      // WA: fire typing indicator with repeating interval + stash message ID for voice
+      let clearWaTyping: (() => void) | undefined;
       if (waMessageId) {
+        waService.sendTypingIndicator(from, waMessageId).catch(() => {});
+        const typingInterval = setInterval(() => {
+          waService.sendTypingIndicator(from, waMessageId).catch(() => {});
+        }, 4000);
+        clearWaTyping = () => clearInterval(typingInterval);
+
         import('../utils/redis').then(({ redis }) =>
           redis.set(`wa:lastmsg:${from}`, waMessageId, { ex: 60 })
         ).catch(() => {});
       }
+
       fn()
         .then(() => { if (tgId) notifyTelegramAboutWhatsApp(tgId, cmdName).catch(e => captureError(e, 'wa-tg-notify', {}, 'warning')); })
-        .catch(err => console.error(`[WhatsApp] ${cmdName} command error:`, err));
+        .catch(err => console.error(`[WhatsApp] ${cmdName} command error:`, err))
+        .finally(() => { if (clearWaTyping) clearWaTyping(); });
     };
 
     if (lowerText === 'start' || lowerText === 'help' || lowerText === 'menu') {
