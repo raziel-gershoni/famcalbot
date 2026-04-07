@@ -608,13 +608,20 @@ async function routeTextMessage(
 
   if ((targetPlatform === 'telegram' || targetPlatform === 'all') && user.telegramId) {
     try {
+      const lang = user.language || 'en';
+      // Stash summary text for on-the-fly card generation when shared
+      import('../../utils/redis').then(({ redis }) =>
+        redis.set(`story:summary:text:${user.id}`, text, { ex: 86400 })
+      ).catch(() => {});
+
+      const { buildUrl } = await import('../../config/urls');
+      const shareUrl = buildUrl(`/${lang}/share-story?user_id=${user.id}&source=summary`);
       const shareLabels: Record<string, string> = { he: 'שתף לסטורי', ru: 'В историю', en: 'Share to Story' };
-      const shareLabel = shareLabels[user.language || 'en'] || shareLabels.en;
       await msgService.sendMessage(user.telegramId, text, {
         format: MessageFormat.HTML,
         replyMarkup: {
           inline_keyboard: [[
-            { text: shareLabel, callback_data: 'share_story' }
+            { text: shareLabels[lang] || shareLabels.en, web_app: { url: shareUrl } }
           ]]
         }
       });
