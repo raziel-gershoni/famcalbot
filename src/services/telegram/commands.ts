@@ -383,7 +383,7 @@ export async function handleWeatherCommand(
           redis.set(`story:img:${user.id}`, Buffer.from(result.imageBuffer!).toString('base64'), { ex: 1800 })
         ).catch(() => {});
 
-        const shareStoryUrl = buildUrl(`/${user.language || 'en'}/share-story?user_id=${user.telegramId ?? user.id}&source=cached`);
+        const shareStoryUrl = buildUrl(`/${user.language || 'en'}/share-story?user_id=${user.id}&source=cached`);
         const t = await getBotMessages(user.language || 'en');
         await messagingService.sendPhoto(chatId, result.imageBuffer, {
           replyMarkup: platform === MessagingPlatform.TELEGRAM ? {
