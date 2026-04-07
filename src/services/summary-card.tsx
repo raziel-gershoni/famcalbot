@@ -8,6 +8,9 @@ import satori from 'satori';
 import { Resvg } from '@resvg/resvg-js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import bidiFactory from 'bidi-js';
+
+const bidi = bidiFactory();
 const WIDTH = 1080;
 const HEIGHT = 1920;
 
@@ -55,6 +58,21 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+/**
+ * Convert logical-order Hebrew text to visual order for satori.
+ * Satori doesn't support bidi — we must reorder characters ourselves.
+ * Applied per-line only (not to the container, which would reverse line order).
+ */
+function toVisualOrder(text: string, lang: string): string {
+  if (lang !== 'he') return text;
+  try {
+    const embeddingLevels = bidi.getEmbeddingLevels(text, 'rtl');
+    return bidi.getReorderedString(text, embeddingLevels);
+  } catch {
+    return text;
+  }
+}
+
 export interface SummaryCardConfig {
   text: string;       // HTML summary text
   language: string;   // en, he, ru
@@ -92,30 +110,29 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
       {/* Header */}
       <div style={{
         display: 'flex',
-        justifyContent: 'space-between',
+        justifyContent: isRtl ? 'flex-end' : 'flex-start',
         alignItems: 'center',
+        gap: '20px',
         marginBottom: '40px',
       }}>
-        <div style={{
-          display: 'flex',
-          fontSize: '48px',
-          fontWeight: 700,
-          letterSpacing: '-1px',
-        }}>
-          FamCal
-        </div>
+        {!isRtl && (
+          <div style={{ display: 'flex', fontSize: '48px', fontWeight: 700, letterSpacing: '-1px' }}>
+            FamCal
+          </div>
+        )}
         {userName && (
-          <div style={{
-            display: 'flex',
-            fontSize: '32px',
-            opacity: 0.8,
-          }}>
-            {userName}
+          <div style={{ display: 'flex', fontSize: '32px', opacity: 0.8 }}>
+            {toVisualOrder(userName, language)}
+          </div>
+        )}
+        {isRtl && (
+          <div style={{ display: 'flex', fontSize: '48px', fontWeight: 700, letterSpacing: '-1px' }}>
+            FamCal
           </div>
         )}
       </div>
 
-      {/* Summary content */}
+      {/* Summary content — NO direction:rtl on flex container (reverses child order) */}
       <div style={{
         display: 'flex',
         flexDirection: 'column',
@@ -124,19 +141,18 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
         borderRadius: '24px',
         padding: '48px',
         gap: `${fontSize * 0.4}px`,
-        direction: isRtl ? 'rtl' : 'ltr',
         overflow: 'hidden',
       }}>
         {displayLines.map((line, i) => (
           <div key={i} style={{
             display: 'flex',
-            textAlign: isRtl ? 'right' : 'left',
+            justifyContent: isRtl ? 'flex-end' : 'flex-start',
             fontSize: `${fontSize}px`,
             lineHeight: 1.5,
             fontWeight: line.length < 40 && !line.startsWith(' ') && !line.startsWith('-') ? 600 : 400,
             opacity: line === '...' ? 0.5 : 1,
           }}>
-            {line}
+            {toVisualOrder(line, language)}
           </div>
         ))}
       </div>
