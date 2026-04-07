@@ -88,13 +88,11 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
   const isRtl = language === 'he';
   const plainText = stripHtml(text);
 
-  // Split into lines and truncate if too long
-  const lines = plainText.split('\n').filter(l => l.trim());
-  const maxLines = 35;
-  const displayLines = lines.slice(0, maxLines);
-  if (lines.length > maxLines) displayLines.push('...');
-
-  const fontSize = displayLines.length > 25 ? 28 : displayLines.length > 18 ? 32 : 36;
+  // Split into paragraphs (double newline), preserve single newlines within
+  const paragraphs = plainText.split(/\n{2,}/).filter(p => p.trim());
+  const totalLines = paragraphs.reduce((n, p) => n + p.split('\n').length, 0);
+  const fontSize = totalLines > 25 ? 28 : totalLines > 18 ? 32 : 36;
+  const charsPerLine = Math.floor((WIDTH - 216) / (fontSize * 0.55));
 
   const jsx = (
     <div style={{
@@ -132,7 +130,7 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
         )}
       </div>
 
-      {/* Summary content — individual divs, bidi per-line, reversed for RTL */}
+      {/* Summary content — one div per paragraph */}
       <div style={{
         display: 'flex',
         flexDirection: 'column',
@@ -140,21 +138,40 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
         background: 'rgba(255, 255, 255, 0.1)',
         borderRadius: '24px',
         padding: '48px',
-        gap: '2px',
+        gap: `${fontSize * 0.6}px`,
         overflow: 'hidden',
       }}>
-        {(isRtl ? [...displayLines].reverse() : displayLines).map((line, i) => (
-          <div key={i} style={{
-            fontSize: `${fontSize}px`,
-            lineHeight: 1.6,
-            textAlign: isRtl ? 'right' : 'left',
-            wordBreak: 'break-word',
-            fontWeight: line.length < 40 && !line.startsWith(' ') && !line.startsWith('-') ? 600 : 400,
-            opacity: line === '...' ? 0.5 : 1,
-          }}>
-            {isRtl ? toVisualOrder(line, language) : line}
-          </div>
-        ))}
+        {paragraphs.map((para, i) => {
+          let content: string;
+          if (isRtl) {
+            // Bidi each line within paragraph, pre-break long lines, reverse to counter satori
+            const lines = para.split('\n');
+            const processedLines = lines.flatMap(line => {
+              const visual = toVisualOrder(line, language);
+              if (visual.length <= charsPerLine) return [visual];
+              // Pre-break into chunks, reverse order (satori will re-reverse)
+              const chunks: string[] = [];
+              for (let j = 0; j < visual.length; j += charsPerLine) {
+                chunks.push(visual.slice(j, j + charsPerLine));
+              }
+              return chunks.reverse();
+            });
+            content = processedLines.join('\n');
+          } else {
+            content = para;
+          }
+          return (
+            <div key={i} style={{
+              fontSize: `${fontSize}px`,
+              lineHeight: 1.6,
+              textAlign: isRtl ? 'right' : 'left',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+            }}>
+              {content}
+            </div>
+          );
+        })}
       </div>
 
       {/* Footer */}
@@ -175,6 +192,6 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
   const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: WIDTH } });
   const png = resvg.render().asPng();
 
-  console.log(`[SummaryCard] Generated in ${Date.now() - t0}ms (${displayLines.length} lines, ${png.length} bytes)`);
+  console.log(`[SummaryCard] Generated in ${Date.now() - t0}ms (${paragraphs.length} paragraphs, ${png.length} bytes)`);
   return Buffer.from(png);
 }
