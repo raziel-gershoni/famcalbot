@@ -384,11 +384,12 @@ export async function handleWeatherCommand(
         ).catch(() => {});
 
         const shareStoryUrl = buildUrl(`/${user.language || 'en'}/share-story?user_id=${user.id}&source=cached`);
-        const t = await getBotMessages(user.language || 'en');
+        const shareLabels: Record<string, string> = { he: 'שתף לסטורי', ru: 'В историю', en: 'Share to Story' };
+        const shareLabel = shareLabels[user.language || 'en'] || shareLabels.en;
         await messagingService.sendPhoto(chatId, result.imageBuffer, {
           replyMarkup: platform === MessagingPlatform.TELEGRAM ? {
             inline_keyboard: [[
-              { text: t.dashboard?.weather?.shareStory || 'Share to Story', web_app: { url: shareStoryUrl } }
+              { text: shareLabel, web_app: { url: shareStoryUrl } }
             ]]
           } : undefined,
         });
