@@ -25,7 +25,7 @@ export class WhatsAppAdapter implements IMessagingService {
   constructor(accessToken: string, phoneNumberId: string) {
     this.accessToken = accessToken;
     this.phoneNumberId = phoneNumberId;
-    this.apiUrl = `https://graph.facebook.com/v21.0/${phoneNumberId}`;
+    this.apiUrl = `https://graph.facebook.com/v22.0/${phoneNumberId}`;
   }
 
   async sendMessage(
@@ -292,14 +292,24 @@ export class WhatsAppAdapter implements IMessagingService {
     if (!messageId) return; // WA requires an inbound message ID to show typing
     try {
       const url = `${this.apiUrl}/messages`;
-      await this.makeRequest(url, {
-        messaging_product: 'whatsapp',
-        recipient_type: 'individual',
-        to: chatId.toString(),
-        type: 'typing_indicator',
-        typing_indicator: { type: 'text' },
-        context: { message_id: messageId },
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: chatId.toString(),
+          type: 'typing_indicator',
+          typing_indicator: { type: 'text' },
+          message_id: messageId,
+        }),
       });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        console.warn(`[WhatsApp] Typing indicator failed (${response.status}):`, JSON.stringify(err));
+      }
     } catch {
       // Non-critical
     }
