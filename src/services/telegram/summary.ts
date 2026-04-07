@@ -609,15 +609,19 @@ async function routeTextMessage(
   if ((targetPlatform === 'telegram' || targetPlatform === 'all') && user.telegramId) {
     try {
       const lang = user.language || 'en';
-      // Stash summary text for on-the-fly card generation when shared
-      import('../../utils/redis').then(({ redis }) =>
-        redis.set(`story:summary:text:${user.id}`, text, { ex: 86400 })
-      ).catch(() => {});
-
       const { buildUrl } = await import('../../config/urls');
-      const shareUrl = buildUrl(`/${lang}/share-story?user_id=${user.id}&source=summary`);
+      const { redis } = await import('../../utils/redis');
       const shareLabels: Record<string, string> = { he: 'שתף לסטורי', ru: 'В историю', en: 'Share to Story' };
-      await msgService.sendMessage(user.telegramId, text, {
+
+      // Send message first to get message ID, then stash text keyed by it
+      const msgId = await msgService.sendMessage(user.telegramId, text, { format: MessageFormat.HTML });
+
+      // Stash text keyed by message ID for per-message story sharing
+      redis.set(`story:text:${user.id}:${msgId}`, text, { ex: 86400 }).catch(() => {});
+
+      // Edit message to add share button with message-specific URL
+      const shareUrl = buildUrl(`/${lang}/share-story?user_id=${user.id}&source=summary&msg=${msgId}`);
+      await msgService.updateMessage(user.telegramId, msgId, text, {
         format: MessageFormat.HTML,
         replyMarkup: {
           inline_keyboard: [[

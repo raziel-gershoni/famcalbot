@@ -77,6 +77,11 @@ export class TelegramAdapter implements IMessagingService {
       telegramOptions.disable_web_page_preview = true;
     }
 
+    // Reply markup (inline keyboard)
+    if (options?.replyMarkup) {
+      telegramOptions.reply_markup = JSON.stringify(options.replyMarkup);
+    }
+
     try {
       await this.bot.editMessageText(text, telegramOptions);
     } catch (error: any) {

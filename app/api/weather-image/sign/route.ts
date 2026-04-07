@@ -37,8 +37,10 @@ export async function GET(request: NextRequest) {
   let cached = (source === 'cached' || source === 'summary') ? await redis.get<string>(cacheKey) : null;
 
   if (!cached && source === 'summary') {
-    // Generate summary card on the fly from stashed text
-    const summaryText = await redis.get<string>(`story:summary:text:${userId}`);
+    // Generate summary card on the fly from stashed text (keyed by message ID)
+    const msgId = request.nextUrl.searchParams.get('msg');
+    const textKey = msgId ? `story:text:${userId}:${msgId}` : `story:summary:text:${userId}`;
+    const summaryText = await redis.get<string>(textKey);
     if (!summaryText) {
       return NextResponse.json({ error: 'Summary expired — request a new one' }, { status: 404 });
     }

@@ -14,6 +14,7 @@ export default function ShareStoryPage() {
   const searchParams = useSearchParams();
   const userId = searchParams.get('user_id');
   const source = searchParams.get('source') || 'fresh';
+  const msg = searchParams.get('msg');
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
@@ -28,7 +29,7 @@ export default function ShareStoryPage() {
     }
 
     const initData = tg.initData;
-    const signUrl = `/api/weather-image/sign?user_id=${userId}&initData=${encodeURIComponent(initData)}&source=${source}`;
+    const signUrl = `/api/weather-image/sign?user_id=${userId}&initData=${encodeURIComponent(initData)}&source=${source}${msg ? `&msg=${msg}` : ''}`;
 
     fetch(signUrl)
       .then(async res => {
@@ -48,7 +49,7 @@ export default function ShareStoryPage() {
         tg.showAlert('Failed to share');
         setTimeout(() => tg.close(), 500);
       });
-  }, [userId, source]);
+  }, [userId, source, msg]);
 
   return (
     <div style={{
