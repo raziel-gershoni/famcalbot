@@ -132,7 +132,7 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
         )}
       </div>
 
-      {/* Summary content — bidi per-line for chars, nowrap to prevent satori line reversal */}
+      {/* Summary content — bidi on entire text block at once */}
       <div style={{
         display: 'flex',
         flex: 1,
@@ -144,19 +144,9 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
         lineHeight: 1.8,
         textAlign: isRtl ? 'right' : 'left',
         whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
       }}>
-        {(isRtl ? displayLines.map(l => toVisualOrder(l, language)) : displayLines)
-          .flatMap(line => {
-            // Break long lines into ~charsPerLine chunks to prevent satori wrapping (which reverses RTL lines)
-            const charsPerLine = Math.floor((WIDTH - 216) / (fontSize * 0.55));
-            if (!isRtl || line.length <= charsPerLine) return [line];
-            const chunks: string[] = [];
-            for (let i = 0; i < line.length; i += charsPerLine) {
-              chunks.push(line.slice(i, i + charsPerLine));
-            }
-            return chunks;
-          })
-          .join('\n')}
+        {isRtl ? toVisualOrder(displayLines.join('\n'), language) : displayLines.join('\n')}
       </div>
 
       {/* Footer */}
