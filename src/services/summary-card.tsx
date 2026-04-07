@@ -94,67 +94,20 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
 
   const jsx = (
     <div style={{
-      display: 'flex',
-      flexDirection: 'column',
       width: WIDTH,
       height: HEIGHT,
       background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
       padding: '80px 60px',
       fontFamily: 'Noto Sans',
       color: 'white',
+      fontSize: `${fontSize}px`,
+      lineHeight: 1.6,
+      textAlign: isRtl ? 'right' : 'left',
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'break-word',
+      overflow: 'hidden',
     }}>
-      {/* Header */}
-      <div style={{
-        display: 'flex',
-        justifyContent: isRtl ? 'flex-end' : 'flex-start',
-        alignItems: 'center',
-        gap: '20px',
-        marginBottom: '40px',
-      }}>
-        {!isRtl && (
-          <div style={{ display: 'flex', fontSize: '48px', fontWeight: 700, letterSpacing: '-1px' }}>
-            FamCal
-          </div>
-        )}
-        {userName && (
-          <div style={{ display: 'flex', fontSize: '32px', opacity: 0.8 }}>
-            {toVisualOrder(userName, language)}
-          </div>
-        )}
-        {isRtl && (
-          <div style={{ display: 'flex', fontSize: '48px', fontWeight: 700, letterSpacing: '-1px' }}>
-            FamCal
-          </div>
-        )}
-      </div>
-
-      {/* Summary content */}
-      <div style={{
-        flexGrow: 1,
-        background: 'rgba(255, 255, 255, 0.1)',
-        borderRadius: '24px',
-        padding: '48px',
-        overflow: 'hidden',
-        fontSize: `${fontSize}px`,
-        lineHeight: 1.6,
-        textAlign: isRtl ? 'right' : 'left',
-        direction: 'ltr',
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-word',
-      }}>
-        {isRtl ? '\u200E' + toVisualOrder(plainText, language) : plainText}
-      </div>
-
-      {/* Footer */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        marginTop: '40px',
-        fontSize: '28px',
-        opacity: 0.6,
-      }}>
-        famcal.bot
-      </div>
+      {isRtl ? toVisualOrder(plainText, language) : plainText}
     </div>
   );
 
