@@ -379,6 +379,11 @@ export async function handleWeatherCommand(
     onSuccess: async (result) => {
       if (result.imageBuffer) {
         await messagingService.sendPhoto(chatId, result.imageBuffer, {});
+
+        // Cache image in Redis for story sharing (30 min TTL)
+        import('../../utils/redis').then(({ redis }) =>
+          redis.set(`story:img:${user.id}`, Buffer.from(result.imageBuffer!).toString('base64'), { ex: 1800 })
+        ).catch(() => {});
       } else {
         await messagingService.sendMessage(chatId, result.brief, { format: MessageFormat.HTML });
       }

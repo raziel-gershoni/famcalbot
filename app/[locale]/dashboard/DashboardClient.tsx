@@ -162,17 +162,36 @@ export default function DashboardClient({
     router.push(`/${locale}/feedback?user_id=${user.id}`);
   };
 
+  const [sharingStory, setSharingStory] = useState(false);
+
   const handleShareWeatherStory = async () => {
     const tg = typeof window !== 'undefined' ? window.Telegram?.WebApp : undefined;
-    if (!tg?.shareToStory) return;
+    if (!tg?.shareToStory) {
+      tg?.showAlert?.('Update Telegram to share stories');
+      return;
+    }
 
-    const initData = tg.initData;
-    const res = await fetch(`/api/weather-image/sign?user_id=${user.id}&initData=${encodeURIComponent(initData)}`);
-    if (!res.ok) return;
-    const { url } = await res.json();
-    tg.shareToStory(url, {
-      widget_link: { url: 'https://famcal.bot', name: 'FamCal' },
-    });
+    setSharingStory(true);
+    try {
+      const initData = tg.initData;
+      const res = await fetch(`/api/weather-image/sign?user_id=${user.id}&initData=${encodeURIComponent(initData)}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (data.error === 'no_image') {
+          tg.showAlert?.('Tap "Forecast" first, then share');
+        }
+        return;
+      }
+
+      tg.shareToStory(data.url, {
+        widget_link: { url: 'https://famcal.bot', name: 'FamCal' },
+      });
+    } catch {
+      tg?.showAlert?.('Failed to share');
+    } finally {
+      setSharingStory(false);
+    }
   };
 
   return (
@@ -676,10 +695,16 @@ export default function DashboardClient({
                     <button
                       className="action-button"
                       onClick={handleShareWeatherStory}
-                      disabled={loadingCommand !== null}
+                      disabled={loadingCommand !== null || sharingStory}
                     >
-                      <span className="icon"><Share2 size={32} /></span>
-                      <span>{t('weather.shareStory')}</span>
+                      {sharingStory ? (
+                        <Loader2 size={28} className="spinner" />
+                      ) : (
+                        <>
+                          <span className="icon"><Share2 size={32} /></span>
+                          <span>{t('weather.shareStory')}</span>
+                        </>
+                      )}
                     </button>
                   )}
                 </div>
