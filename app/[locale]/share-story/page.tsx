@@ -31,21 +31,22 @@ export default function ShareStoryPage() {
     const signUrl = `/api/weather-image/sign?user_id=${userId}&initData=${encodeURIComponent(initData)}&source=${source}`;
 
     fetch(signUrl)
-      .then(res => res.json())
-      .then(data => {
-        if (data.url) {
+      .then(async res => {
+        const data = await res.json();
+        if (res.ok && data.url) {
           tg.shareToStory(data.url, {
             widget_link: { url: 'https://famcal.bot', name: 'FamCal' },
           });
+          // Close after a short delay to let the story editor open
+          setTimeout(() => tg.close(), 1500);
         } else {
-          tg.showAlert(data.message || 'Failed to load image');
+          tg.showAlert(data.error || 'Failed to load image');
+          setTimeout(() => tg.close(), 500);
         }
-        // Close after a short delay to let the story editor open
-        setTimeout(() => tg.close(), 1000);
       })
       .catch(() => {
         tg.showAlert('Failed to share');
-        tg.close();
+        setTimeout(() => tg.close(), 500);
       });
   }, [userId, source]);
 

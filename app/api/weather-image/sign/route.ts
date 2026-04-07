@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateSessionFromRequest } from '@/src/lib/session-auth';
-import { verifyUserAccess } from '@/src/lib/telegram-auth';
+import { validateInitData } from '@/src/lib/telegram-auth';
 import { redis } from '@/src/utils/redis';
 import crypto from 'crypto';
 
@@ -22,7 +22,8 @@ export async function GET(request: NextRequest) {
   const userIdNum = parseInt(userId);
   const sessionUserId = validateSessionFromRequest(request);
   const hasSessionAuth = sessionUserId !== null && sessionUserId === userIdNum;
-  const hasTelegramAuth = initData ? verifyUserAccess(initData, userIdNum) : false;
+  // validateInitData checks signature only (no user_id match needed — user_id is internal DB ID, not TG ID)
+  const hasTelegramAuth = initData ? !!validateInitData(initData) : false;
 
   if (!hasSessionAuth && !hasTelegramAuth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
