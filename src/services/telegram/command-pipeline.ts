@@ -18,6 +18,7 @@ export interface CommandPipelineOptions<T> {
   errorKey: string;
   commandName: string;
   context?: string;
+  typingType?: 'text' | 'audio' | 'photo';
   operation: () => Promise<T>;
   onSuccess: (result: T) => Promise<void>;
   onError?: (error: Error) => Promise<boolean>;
@@ -52,7 +53,7 @@ class OperationTimeoutError extends Error {
 export function startTypingInterval(
   chatId: number | string,
   service: IMessagingService,
-  typingType: 'text' | 'audio' = 'text',
+  typingType: 'text' | 'audio' | 'photo' = 'text',
   messageId?: string
 ): () => void {
   service.sendTypingIndicator(chatId, messageId, typingType).catch(() => {});
@@ -79,13 +80,14 @@ export async function executeCommand<T>(opts: CommandPipelineOptions<T>): Promis
     errorKey,
     commandName,
     context,
+    typingType,
     operation,
     onSuccess,
     onError,
   } = opts;
 
   // 1. Start typing indicator
-  const stopTyping = startTypingInterval(chatId, messagingService);
+  const stopTyping = startTypingInterval(chatId, messagingService, typingType);
 
   // 2. Run operation with timeout
   try {

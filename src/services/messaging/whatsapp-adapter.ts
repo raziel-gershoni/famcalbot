@@ -288,7 +288,7 @@ export class WhatsAppAdapter implements IMessagingService {
     return null;
   }
 
-  async sendTypingIndicator(_chatId: number | string, messageId?: string, typingType?: 'text' | 'audio'): Promise<void> {
+  async sendTypingIndicator(_chatId: number | string, messageId?: string, _typingType?: 'text' | 'audio' | 'photo'): Promise<void> {
     if (!messageId) return; // WA requires the inbound message ID
     try {
       const url = `${this.apiUrl}/messages`;

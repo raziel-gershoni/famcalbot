@@ -342,6 +342,7 @@ export async function handleWeatherCommand(
     errorKey: 'weatherFetch',
     commandName: 'Weather Command',
     context: `User: ${userId}, Location: ${user.location}`,
+    typingType: 'photo',
     operation: async () => {
       const { fetchWeather } = await import('../weather/open-meteo');
       const { fetchAirQuality } = await import('../weather/air-quality');
