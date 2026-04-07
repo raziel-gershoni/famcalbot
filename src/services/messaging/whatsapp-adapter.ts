@@ -25,7 +25,7 @@ export class WhatsAppAdapter implements IMessagingService {
   constructor(accessToken: string, phoneNumberId: string) {
     this.accessToken = accessToken;
     this.phoneNumberId = phoneNumberId;
-    this.apiUrl = `https://graph.facebook.com/v22.0/${phoneNumberId}`;
+    this.apiUrl = `https://graph.facebook.com/v23.0/${phoneNumberId}`;
   }
 
   async sendMessage(
@@ -288,9 +288,10 @@ export class WhatsAppAdapter implements IMessagingService {
     return null;
   }
 
-  async sendTypingIndicator(chatId: number | string, messageId?: string): Promise<void> {
-    if (!messageId) return; // WA requires an inbound message ID to show typing
+  async sendTypingIndicator(_chatId: number | string, messageId?: string): Promise<void> {
+    if (!messageId) return; // WA requires the inbound message ID
     try {
+      // Typing indicator is a STATUS update, not a message — different payload shape
       const url = `${this.apiUrl}/messages`;
       const response = await fetch(url, {
         method: 'POST',
@@ -300,10 +301,9 @@ export class WhatsAppAdapter implements IMessagingService {
         },
         body: JSON.stringify({
           messaging_product: 'whatsapp',
-          to: chatId.toString(),
-          type: 'typing_indicator',
-          typing_indicator: { type: 'text' },
+          status: 'read',
           message_id: messageId,
+          typing_indicator: { type: 'text' },
         }),
       });
       if (!response.ok) {
