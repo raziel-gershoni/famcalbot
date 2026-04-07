@@ -132,7 +132,7 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
         )}
       </div>
 
-      {/* Summary content — for RTL, reverse lines to counter satori's bidi line reversal */}
+      {/* Summary content */}
       <div style={{
         display: 'flex',
         flex: 1,
@@ -143,13 +143,11 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
         fontSize: `${fontSize}px`,
         lineHeight: 1.8,
         textAlign: isRtl ? 'right' : 'left',
+        direction: isRtl ? 'rtl' : 'ltr',
         whiteSpace: 'pre-wrap',
         wordBreak: 'break-word',
       }}>
-        {isRtl
-          ? [...displayLines].reverse().map(l => toVisualOrder(l, language)).join('\n')
-          : displayLines.join('\n')
-        }
+        {displayLines.join('\n')}
       </div>
 
       {/* Footer */}
