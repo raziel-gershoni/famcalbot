@@ -291,15 +291,26 @@ export class WhatsAppAdapter implements IMessagingService {
   async sendTypingIndicator(chatId: number | string): Promise<void> {
     try {
       const url = `${this.apiUrl}/messages`;
-      await this.makeRequest(url, {
-        messaging_product: 'whatsapp',
-        recipient_type: 'individual',
-        to: chatId.toString(),
-        type: 'typing_indicator',
-        typing_indicator: { type: 'text' },
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: chatId.toString(),
+          type: 'typing_indicator',
+          typing_indicator: { type: 'text' },
+        }),
       });
-    } catch {
-      // Non-critical — ignore errors
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        console.warn(`[WhatsApp] Typing indicator failed (${response.status}):`, JSON.stringify(err));
+      }
+    } catch (e) {
+      console.warn('[WhatsApp] Typing indicator error:', e);
     }
   }
 
