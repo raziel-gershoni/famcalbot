@@ -90,6 +90,7 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
 
   const lineCount = plainText.split('\n').length;
   const fontSize = lineCount > 25 ? 28 : lineCount > 18 ? 32 : 36;
+  const charsPerLine = Math.floor((WIDTH - 216) / (fontSize * 0.52));
 
   const jsx = (
     <div style={{
@@ -129,7 +130,7 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
 
       {/* Summary content */}
       <div style={{
-        flex: 1,
+        flexGrow: 1,
         background: 'rgba(255, 255, 255, 0.1)',
         borderRadius: '24px',
         padding: '48px',
@@ -137,6 +138,7 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
         fontSize: `${fontSize}px`,
         lineHeight: 1.6,
         textAlign: isRtl ? 'right' : 'left',
+        direction: 'ltr',
         whiteSpace: 'pre-wrap',
         wordBreak: 'break-word',
       }}>
