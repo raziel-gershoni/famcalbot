@@ -54,6 +54,7 @@ function stripHtml(html: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&#039;/g, "'")
     .replace(/\n{3,}/g, '\n\n')
+    .replace(/\n*📊.*$/s, '') // Strip admin footer (metrics line)
     .trim();
 }
 
@@ -139,12 +140,13 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
         borderRadius: '24px',
         padding: '48px',
         gap: `${fontSize * 0.4}px`,
-        direction: isRtl ? 'rtl' : 'ltr',
+        textAlign: isRtl ? 'right' : 'left',
         overflow: 'hidden',
       }}>
         {displayLines.map((line, i) => (
           <div key={i} style={{
             display: 'flex',
+            justifyContent: isRtl ? 'flex-end' : 'flex-start',
             fontSize: `${fontSize}px`,
             lineHeight: 1.5,
             fontWeight: line.length < 40 && !line.startsWith(' ') && !line.startsWith('-') ? 600 : 400,
