@@ -408,9 +408,8 @@ export async function handleWhatsAppWebhook(
     const runAsync = (fn: () => Promise<void>, cmdName: string) => {
       // Return 200 immediately, process command in background
       res.status(200).json({ ok: true });
-      // Show typing indicator and stash message ID for voice functions
+      // Stash inbound message ID for voice typing indicator
       if (waMessageId) {
-        waService.sendTypingIndicator(from, waMessageId).catch(() => {});
         import('../utils/redis').then(({ redis }) =>
           redis.set(`wa:lastmsg:${from}`, waMessageId, { ex: 60 })
         ).catch(() => {});

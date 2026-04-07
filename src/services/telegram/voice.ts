@@ -36,17 +36,10 @@ export async function sendVoiceMessage(
     : getMessagingService());
   const userLanguage = user.language || 'en';
 
-  // Resolve WA message ID from Redis if not provided
-  let msgId = waMessageId;
-  if (!msgId && platform === MessagingPlatform.WHATSAPP) {
-    const { redis } = await import('../../utils/redis');
-    msgId = await redis.get<string>(`wa:lastmsg:${chatId}`) || undefined;
-  }
-
-  // Start audio typing indicator if enabled
+  // Start audio typing indicator if enabled (TG only — WA typing handled by early fire in deliverSummary)
   let stopTyping: (() => void) | null = null;
-  if (showProgress) {
-    stopTyping = startTypingInterval(chatId, msgService, 'audio', msgId);
+  if (showProgress && platform !== MessagingPlatform.WHATSAPP) {
+    stopTyping = startTypingInterval(chatId, msgService, 'audio');
   }
 
   try {
@@ -155,14 +148,10 @@ export async function sendWeeklyVoiceMessage(
     : getMessagingService());
   const userLanguage = user.language || 'en';
 
-  // Resolve WA message ID from Redis if not provided
-  let msgId = waMessageId;
-  if (!msgId && platform === MessagingPlatform.WHATSAPP) {
-    const { redis } = await import('../../utils/redis');
-    msgId = await redis.get<string>(`wa:lastmsg:${chatId}`) || undefined;
-  }
-
-  const stopTyping = startTypingInterval(chatId, msgService, 'audio', msgId);
+  // TG only — WA typing handled by early fire in deliverSummary
+  const stopTyping = platform !== MessagingPlatform.WHATSAPP
+    ? startTypingInterval(chatId, msgService, 'audio')
+    : null;
 
   try {
     const { generateVoiceMessage } = await import('../voice-generator');
@@ -201,7 +190,7 @@ export async function sendWeeklyVoiceMessage(
 
     const { ttsMs, ttsModel, voiceName } = ttsResult;
 
-    stopTyping();
+    if (stopTyping) stopTyping();
 
     // Send voice via platform-agnostic service
     await msgService.sendVoice(chatId, voiceFilePath!);
@@ -216,7 +205,7 @@ export async function sendWeeklyVoiceMessage(
   } catch (error) {
     console.error(`[Voice] Weekly voice generation failed for user ${chatId}:`, error);
 
-    stopTyping();
+    if (stopTyping) stopTyping();
 
     try {
       const { getBotMessages } = await import('../../lib/bot-messages');
