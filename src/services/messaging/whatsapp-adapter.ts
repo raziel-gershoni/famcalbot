@@ -25,7 +25,7 @@ export class WhatsAppAdapter implements IMessagingService {
   constructor(accessToken: string, phoneNumberId: string) {
     this.accessToken = accessToken;
     this.phoneNumberId = phoneNumberId;
-    this.apiUrl = `https://graph.facebook.com/v18.0/${phoneNumberId}`;
+    this.apiUrl = `https://graph.facebook.com/v21.0/${phoneNumberId}`;
   }
 
   async sendMessage(
