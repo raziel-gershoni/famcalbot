@@ -28,10 +28,44 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Check if image is cached
-  const cached = await redis.get<string>(`story:img:${userId}`);
+  // Check cache, generate if missing
+  const cacheKey = `story:img:${userId}`;
+  let cached = await redis.get<string>(cacheKey);
+
   if (!cached) {
-    return NextResponse.json({ error: 'no_image', message: 'Run /weather first' }, { status: 404 });
+    const { getUserById } = await import('@/src/services/user-service');
+    const user = await getUserById(userIdNum);
+    if (!user?.location) {
+      return NextResponse.json({ error: 'No location set' }, { status: 404 });
+    }
+
+    const { fetchWeather } = await import('@/src/services/weather/open-meteo');
+    const { fetchAirQuality } = await import('@/src/services/weather/air-quality');
+    const { getTimezone } = await import('@/src/services/weather/geocoding');
+    const { formatWeatherAI } = await import('@/src/services/weather/formatter');
+    const { generateWeatherInfographic } = await import('@/src/services/weather/infographic');
+    const { TIMEZONE } = await import('@/src/config/constants');
+
+    let timezone = TIMEZONE;
+    try { timezone = await getTimezone(user.location); } catch { /* fallback */ }
+
+    const [weatherData, airQualityData] = await Promise.all([
+      fetchWeather(user.location),
+      fetchAirQuality(user.location, timezone).catch(() => null),
+    ]);
+
+    const result = await formatWeatherAI(weatherData, user.language, user.name, timezone, user.culture, false, true, airQualityData);
+    if (!result.infographicConfig) {
+      return NextResponse.json({ error: 'Failed to generate config' }, { status: 500 });
+    }
+
+    const imageBuffer = await generateWeatherInfographic(result.infographicConfig);
+    if (!imageBuffer) {
+      return NextResponse.json({ error: 'Failed to generate image' }, { status: 500 });
+    }
+
+    cached = Buffer.from(imageBuffer).toString('base64');
+    await redis.set(cacheKey, cached, { ex: 1800 });
   }
 
   const secret = process.env.ENCRYPTION_KEY || process.env.CRON_SECRET;
