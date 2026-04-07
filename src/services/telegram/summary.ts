@@ -752,10 +752,6 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     const tVoice = Date.now();
     // Send voice to Telegram if applicable
     if ((targetPlatform === 'telegram' || targetPlatform === 'all') && user.telegramId) {
-      // Fire recording indicator immediately
-      const tgService = getMessagingService();
-      tgService.sendTypingIndicator(user.telegramId, undefined, 'audio').catch(() => {});
-
       sendVoiceMessage(user.telegramId, summary, user, undefined, true, MessagingPlatform.TELEGRAM).catch(err => {
         console.error(`[Delivery] Voice generation failed for TG user ${user.id}:`, err);
         captureError(err, 'summary-voice-telegram', { user_id: user.id }, 'warning');
