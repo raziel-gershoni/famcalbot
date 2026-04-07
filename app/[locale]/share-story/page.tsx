@@ -38,6 +38,7 @@ export default function ShareStoryPage() {
           tg.shareToStory(data.url, {
             widget_link: { url: 'https://famcal.bot', name: 'FamCal' },
           });
+          setTimeout(() => tg.close(), 5000);
         } else {
           tg.showAlert(data.error || 'Failed to load image');
           tg.close();

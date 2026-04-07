@@ -8,9 +8,6 @@ import satori from 'satori';
 import { Resvg } from '@resvg/resvg-js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import bidiFactory from 'bidi-js';
-
-const bidi = bidiFactory();
 const WIDTH = 1080;
 const HEIGHT = 1920;
 
@@ -56,19 +53,6 @@ function stripHtml(html: string): string {
     .replace(/\n{3,}/g, '\n\n')
     .replace(/\n*📊.*$/s, '') // Strip admin footer (metrics line)
     .trim();
-}
-
-/**
- * Apply bidi reordering for Hebrew text (visual order for satori)
- */
-function bidiText(text: string, lang: string): string {
-  if (lang !== 'he') return text;
-  try {
-    const embeddingLevels = bidi.getEmbeddingLevels(text, 'rtl');
-    return bidi.getReorderedString(text, embeddingLevels);
-  } catch {
-    return text;
-  }
 }
 
 export interface SummaryCardConfig {
@@ -126,7 +110,7 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
             fontSize: '32px',
             opacity: 0.8,
           }}>
-            {bidiText(userName, language)}
+            {userName}
           </div>
         )}
       </div>
@@ -140,19 +124,19 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
         borderRadius: '24px',
         padding: '48px',
         gap: `${fontSize * 0.4}px`,
-        textAlign: isRtl ? 'right' : 'left',
+        direction: isRtl ? 'rtl' : 'ltr',
         overflow: 'hidden',
       }}>
         {displayLines.map((line, i) => (
           <div key={i} style={{
             display: 'flex',
-            justifyContent: isRtl ? 'flex-end' : 'flex-start',
+            textAlign: isRtl ? 'right' : 'left',
             fontSize: `${fontSize}px`,
             lineHeight: 1.5,
             fontWeight: line.length < 40 && !line.startsWith(' ') && !line.startsWith('-') ? 600 : 400,
             opacity: line === '...' ? 0.5 : 1,
           }}>
-            {bidiText(line, language)}
+            {line}
           </div>
         ))}
       </div>
