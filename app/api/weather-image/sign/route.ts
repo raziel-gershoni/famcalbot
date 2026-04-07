@@ -36,32 +36,11 @@ export async function GET(request: NextRequest) {
   const cacheKey = `story:img:${userId}`;
   let cached: string | null = null;
 
-  if (source === 'summary') {
-    const msgId = request.nextUrl.searchParams.get('msg');
-    const textKey = msgId ? `story:text:${userId}:${msgId}` : `story:summary:text:${userId}`;
-    const summaryText = await redis.get<string>(textKey);
-    if (!summaryText) {
-      return NextResponse.json({ error: 'Summary expired — request a new one' }, { status: 404 });
-    }
-
-    const { generateSummaryCard } = await import('@/src/services/summary-card');
-    const { getUserById } = await import('@/src/services/user-service');
-    const user = await getUserById(userIdNum);
-
-    const imageBuffer = await generateSummaryCard({
-      text: summaryText,
-      language: user?.language || 'en',
-      userName: user?.name,
-    });
-
-    cached = Buffer.from(imageBuffer).toString('base64');
-    // Cache briefly for the serve endpoint to pick up
-    await redis.set(`story:summary:${userId}`, cached, { ex: 300 });
-  } else {
+  if (source !== 'summary') {
     cached = source === 'cached' ? await redis.get<string>(cacheKey) : null;
   }
 
-  if (!cached) {
+  if (!cached && source !== 'summary') {
     const { getUserById } = await import('@/src/services/user-service');
     const user = await getUserById(userIdNum);
     if (!user?.location) {
@@ -105,8 +84,10 @@ export async function GET(request: NextRequest) {
   const ts = Date.now().toString();
   const sig = crypto.createHmac('sha256', secret).update(`${userId}:${ts}`).digest('hex');
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || `https://${request.headers.get('host')}`;
+  const msgId = request.nextUrl.searchParams.get('msg');
   const sourceParam = source !== 'fresh' ? `&source=${source}` : '';
-  const url = `${appUrl}/api/weather-image?user_id=${userId}&ts=${ts}&sig=${sig}${sourceParam}`;
+  const msgParam = msgId ? `&msg=${msgId}` : '';
+  const url = `${appUrl}/api/weather-image?user_id=${userId}&ts=${ts}&sig=${sig}${sourceParam}${msgParam}`;
 
   return NextResponse.json({ url });
 }
