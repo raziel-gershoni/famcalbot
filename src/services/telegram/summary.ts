@@ -752,6 +752,10 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     const tVoice = Date.now();
     // Send voice to Telegram if applicable
     if ((targetPlatform === 'telegram' || targetPlatform === 'all') && user.telegramId) {
+      // Fire recording indicator immediately
+      const tgService = getMessagingService();
+      tgService.sendTypingIndicator(user.telegramId, undefined, 'audio').catch(() => {});
+
       sendVoiceMessage(user.telegramId, summary, user, undefined, true, MessagingPlatform.TELEGRAM).catch(err => {
         console.error(`[Delivery] Voice generation failed for TG user ${user.id}:`, err);
         captureError(err, 'summary-voice-telegram', { user_id: user.id }, 'warning');
@@ -759,7 +763,14 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     }
     // Send voice to WhatsApp only for user-invoked sends (within 24h window)
     if (!waButtonPayload && (targetPlatform === 'whatsapp' || targetPlatform === 'all') && getWhatsAppChatId(user)) {
-      sendVoiceMessage(getWhatsAppChatId(user)!, summary, user, undefined, true, MessagingPlatform.WHATSAPP).catch(err => {
+      // Fire typing indicator immediately (before voice function's async setup)
+      const waChatId = getWhatsAppChatId(user)!;
+      const waService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
+      const { redis } = await import('../../utils/redis');
+      const waMsgId = await redis.get<string>(`wa:lastmsg:${waChatId}`);
+      if (waMsgId) waService.sendTypingIndicator(waChatId, waMsgId).catch(() => {});
+
+      sendVoiceMessage(waChatId, summary, user, undefined, true, MessagingPlatform.WHATSAPP).catch(err => {
         console.error(`[Delivery] Voice generation failed for WA user ${user.id}:`, err);
         captureError(err, 'summary-voice-whatsapp', { user_id: user.id }, 'warning');
       });
