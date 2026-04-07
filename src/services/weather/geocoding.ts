@@ -8,18 +8,22 @@
 import { Coordinates } from '../../types';
 
 /**
- * Fetch with a timeout and one automatic retry on timeout.
- * Default timeout: 5s (these APIs normally respond in 200-500ms).
+ * Fetch with a timeout and automatic retries on timeout/network errors.
+ * Default timeout: 5s, 3 retries (these APIs normally respond in 200-500ms).
  */
-export async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 5000): Promise<Response> {
-  try {
-    return await fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'TimeoutError') {
+export async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 5000, maxRetries = 3): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
       return await fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+      }
     }
-    throw err;
   }
+  throw lastError;
 }
 
 export interface GeoLocation extends Coordinates {
