@@ -288,8 +288,21 @@ export class WhatsAppAdapter implements IMessagingService {
     return null;
   }
 
-  async sendTypingIndicator(_chatId: number | string): Promise<void> {
-    // WA Cloud API doesn't support typing indicators on the /messages endpoint
+  async sendTypingIndicator(chatId: number | string, messageId?: string): Promise<void> {
+    if (!messageId) return; // WA requires an inbound message ID to show typing
+    try {
+      const url = `${this.apiUrl}/messages`;
+      await this.makeRequest(url, {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: chatId.toString(),
+        type: 'typing_indicator',
+        typing_indicator: { type: 'text' },
+        context: { message_id: messageId },
+      });
+    } catch {
+      // Non-critical
+    }
   }
 
   async answerCallbackQuery(queryId: string, text?: string): Promise<void> {

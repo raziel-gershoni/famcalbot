@@ -408,6 +408,10 @@ export async function handleWhatsAppWebhook(
     const runAsync = (fn: () => Promise<void>, cmdName: string) => {
       // Return 200 immediately, process command in background
       res.status(200).json({ ok: true });
+      // Show typing indicator (requires inbound message ID)
+      if (waMessageId) {
+        waService.sendTypingIndicator(from, waMessageId).catch(() => {});
+      }
       fn()
         .then(() => { if (tgId) notifyTelegramAboutWhatsApp(tgId, cmdName).catch(e => captureError(e, 'wa-tg-notify', {}, 'warning')); })
         .catch(err => console.error(`[WhatsApp] ${cmdName} command error:`, err));

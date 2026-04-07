@@ -193,9 +193,9 @@ export interface IMessagingService {
   answerCallbackQuery(queryId: string, text?: string): Promise<void>;
 
   /**
-   * Send typing indicator (TG: "typing..." bubble, WA: no-op)
+   * Send typing indicator (TG: "typing..." bubble, WA: requires inbound messageId)
    */
-  sendTypingIndicator(chatId: number | string): Promise<void>;
+  sendTypingIndicator(chatId: number | string, messageId?: string): Promise<void>;
 
   /**
    * Get platform name

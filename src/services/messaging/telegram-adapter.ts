@@ -171,7 +171,7 @@ export class TelegramAdapter implements IMessagingService {
     };
   }
 
-  async sendTypingIndicator(chatId: number | string): Promise<void> {
+  async sendTypingIndicator(chatId: number | string, _messageId?: string): Promise<void> {
     try {
       await this.bot.sendChatAction(chatId, 'typing');
     } catch {
