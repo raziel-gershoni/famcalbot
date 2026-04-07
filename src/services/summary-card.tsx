@@ -146,7 +146,9 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
         whiteSpace: 'pre-wrap',
         wordBreak: 'break-word',
       }}>
-        {isRtl ? toVisualOrder(displayLines.join('\n'), language) : displayLines.join('\n')}
+        {isRtl
+          ? displayLines.map(l => toVisualOrder(l, language)).join('\n')
+          : displayLines.join('\n')}
       </div>
 
       {/* Footer */}
