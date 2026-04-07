@@ -302,7 +302,7 @@ export class WhatsAppAdapter implements IMessagingService {
           messaging_product: 'whatsapp',
           status: 'read',
           message_id: messageId,
-          typing_indicator: { type: typingType || 'text' },
+          typing_indicator: { type: 'text' }, // WA only supports 'text', no 'audio' variant
         }),
       });
       if (!response.ok) {
