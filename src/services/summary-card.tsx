@@ -132,29 +132,21 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
         )}
       </div>
 
-      {/* Summary content — NO direction:rtl on flex container (reverses child order) */}
+      {/* Summary content — single text block, not per-line flex items */}
       <div style={{
         display: 'flex',
-        flexDirection: 'column',
         flex: 1,
         background: 'rgba(255, 255, 255, 0.1)',
         borderRadius: '24px',
         padding: '48px',
-        gap: `${fontSize * 0.4}px`,
         overflow: 'hidden',
+        fontSize: `${fontSize}px`,
+        lineHeight: 1.8,
+        textAlign: isRtl ? 'right' : 'left',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
       }}>
-        {displayLines.map((line, i) => (
-          <div key={i} style={{
-            display: 'flex',
-            justifyContent: isRtl ? 'flex-end' : 'flex-start',
-            fontSize: `${fontSize}px`,
-            lineHeight: 1.5,
-            fontWeight: line.length < 40 && !line.startsWith(' ') && !line.startsWith('-') ? 600 : 400,
-            opacity: line === '...' ? 0.5 : 1,
-          }}>
-            {toVisualOrder(line, language)}
-          </div>
-        ))}
+        {isRtl ? displayLines.map(l => toVisualOrder(l, language)).join('\n') : displayLines.join('\n')}
       </div>
 
       {/* Footer */}
