@@ -757,7 +757,13 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
         captureError(err, 'summary-voice-telegram', { user_id: user.id }, 'warning');
       });
     }
-    // Voice is Telegram-only (WA requires 24h window; voice sent after user taps template button via command handler)
+    // Send voice to WhatsApp only for user-invoked sends (within 24h window)
+    if (!waButtonPayload && (targetPlatform === 'whatsapp' || targetPlatform === 'all') && getWhatsAppChatId(user)) {
+      sendVoiceMessage(getWhatsAppChatId(user)!, summary, user, undefined, true, MessagingPlatform.WHATSAPP).catch(err => {
+        console.error(`[Delivery] Voice generation failed for WA user ${user.id}:`, err);
+        captureError(err, 'summary-voice-whatsapp', { user_id: user.id }, 'warning');
+      });
+    }
     voiceDispatchMs = Date.now() - tVoice;
   }
 
