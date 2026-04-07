@@ -608,7 +608,16 @@ async function routeTextMessage(
 
   if ((targetPlatform === 'telegram' || targetPlatform === 'all') && user.telegramId) {
     try {
-      await msgService.sendMessage(user.telegramId, text, { format: MessageFormat.HTML });
+      const shareLabels: Record<string, string> = { he: 'שתף לסטורי', ru: 'В историю', en: 'Share to Story' };
+      const shareLabel = shareLabels[user.language || 'en'] || shareLabels.en;
+      await msgService.sendMessage(user.telegramId, text, {
+        format: MessageFormat.HTML,
+        replyMarkup: {
+          inline_keyboard: [[
+            { text: shareLabel, callback_data: 'share_story' }
+          ]]
+        }
+      });
     } catch (e) {
       console.error(`[Delivery] TG text failed for user ${user.id}:`, e);
       captureError(e, 'telegram-delivery', { user_id: userId, service: 'sendMessage' });

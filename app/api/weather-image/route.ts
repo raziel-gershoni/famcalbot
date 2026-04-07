@@ -34,8 +34,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid or expired signature' }, { status: 401 });
   }
 
-  // Serve from Redis cache (pre-rendered by /sign endpoint)
-  const cacheKey = `story:img:${userId}`;
+  // Serve from Redis cache — check summary first, then weather
+  const source = request.nextUrl.searchParams.get('source');
+  const cacheKey = source === 'summary' ? `story:summary:${userId}` : `story:img:${userId}`;
   const cached = await redis.get<string>(cacheKey);
 
   if (!cached) {

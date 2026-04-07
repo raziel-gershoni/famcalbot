@@ -117,6 +117,42 @@ export async function handleTelegramWebhook(
         if (messageId) {
           await handleDeleteCallback(chatId, messageId, queryId, actionType, fullPendingId);
         }
+      } else if (data === 'share_story') {
+        // Handle share to story — generate card from message text
+        const messageText = callbackQuery.message?.text || '';
+        const messageId = callbackQuery.message?.message_id;
+        if (messageText && messageId) {
+          const bot = (await import('./telegram/bot')).getBot();
+          // Show loading notification
+          await bot.answerCallbackQuery(queryId, { text: '...' });
+          // Send typing indicator while generating card
+          await bot.sendChatAction(chatId, 'upload_photo');
+
+          try {
+            const { generateSummaryCard } = await import('./summary-card');
+            const { getUserByTelegramId } = await import('./user-service');
+            const { redis } = await import('../utils/redis');
+            const { buildUrl } = await import('../config/urls');
+
+            const user = await getUserByTelegramId(callbackUserId);
+            const lang = user?.language || 'en';
+
+            const imageBuffer = await generateSummaryCard({ text: messageText, language: lang, userName: user?.name });
+            await redis.set(`story:summary:${callbackUserId}`, Buffer.from(imageBuffer).toString('base64'), { ex: 1800 });
+
+            // Replace callback button with web_app share button
+            const shareUrl = buildUrl(`/${lang}/share-story?user_id=${user?.id || callbackUserId}&source=summary`);
+            const shareLabels: Record<string, string> = { he: 'שתף לסטורי', ru: 'В историю', en: 'Share to Story' };
+            await bot.editMessageReplyMarkup({
+              inline_keyboard: [[
+                { text: shareLabels[lang] || shareLabels.en, web_app: { url: shareUrl } }
+              ]]
+            }, { chat_id: chatId, message_id: messageId });
+          } catch (err) {
+            console.error('[ShareStory] Failed to generate summary card:', err);
+            await bot.answerCallbackQuery(queryId, { text: 'Failed to generate card' });
+          }
+        }
       }
     }
 
