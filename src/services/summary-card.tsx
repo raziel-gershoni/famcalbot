@@ -132,23 +132,29 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
         )}
       </div>
 
-      {/* Summary content — bidi on entire text block at once */}
+      {/* Summary content — individual divs, bidi per-line, reversed for RTL */}
       <div style={{
         display: 'flex',
+        flexDirection: 'column',
         flex: 1,
         background: 'rgba(255, 255, 255, 0.1)',
         borderRadius: '24px',
         padding: '48px',
+        gap: '2px',
         overflow: 'hidden',
-        fontSize: `${fontSize}px`,
-        lineHeight: 1.8,
-        textAlign: isRtl ? 'right' : 'left',
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-word',
       }}>
-        {isRtl
-          ? displayLines.map(l => toVisualOrder(l, language)).join('\n')
-          : displayLines.join('\n')}
+        {(isRtl ? [...displayLines].reverse() : displayLines).map((line, i) => (
+          <div key={i} style={{
+            fontSize: `${fontSize}px`,
+            lineHeight: 1.6,
+            textAlign: isRtl ? 'right' : 'left',
+            wordBreak: 'break-word',
+            fontWeight: line.length < 40 && !line.startsWith(' ') && !line.startsWith('-') ? 600 : 400,
+            opacity: line === '...' ? 0.5 : 1,
+          }}>
+            {isRtl ? toVisualOrder(line, language) : line}
+          </div>
+        ))}
       </div>
 
       {/* Footer */}
