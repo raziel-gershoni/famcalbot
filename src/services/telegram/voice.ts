@@ -36,10 +36,17 @@ export async function sendVoiceMessage(
     : getMessagingService());
   const userLanguage = user.language || 'en';
 
-  // Start audio typing indicator if enabled (TG only — WA typing handled by early fire in deliverSummary)
+  // Resolve WA message ID from Redis if not provided
+  let msgId = waMessageId;
+  if (!msgId && platform === MessagingPlatform.WHATSAPP) {
+    const { redis } = await import('../../utils/redis');
+    msgId = await redis.get<string>(`wa:lastmsg:${chatId}`) || undefined;
+  }
+
+  // Start typing indicator if enabled
   let stopTyping: (() => void) | null = null;
-  if (showProgress && platform !== MessagingPlatform.WHATSAPP) {
-    stopTyping = startTypingInterval(chatId, msgService, 'audio');
+  if (showProgress) {
+    stopTyping = startTypingInterval(chatId, msgService, platform === MessagingPlatform.WHATSAPP ? 'text' : 'audio', msgId);
   }
 
   try {
@@ -148,10 +155,14 @@ export async function sendWeeklyVoiceMessage(
     : getMessagingService());
   const userLanguage = user.language || 'en';
 
-  // TG only — WA typing handled by early fire in deliverSummary
-  const stopTyping = platform !== MessagingPlatform.WHATSAPP
-    ? startTypingInterval(chatId, msgService, 'audio')
-    : null;
+  // Resolve WA message ID from Redis if not provided
+  let msgId = waMessageId;
+  if (!msgId && platform === MessagingPlatform.WHATSAPP) {
+    const { redis } = await import('../../utils/redis');
+    msgId = await redis.get<string>(`wa:lastmsg:${chatId}`) || undefined;
+  }
+
+  const stopTyping = startTypingInterval(chatId, msgService, platform === MessagingPlatform.WHATSAPP ? 'text' : 'audio', msgId);
 
   try {
     const { generateVoiceMessage } = await import('../voice-generator');
