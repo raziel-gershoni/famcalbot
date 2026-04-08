@@ -42,9 +42,11 @@ function buildKidsContext(data: SummaryPromptData): string {
 
   return `
 3. **Other Events** - Kids' events and shared family events
-   - **Identify children's names from calendar names or event content** (e.g., if calendar is named "Shira" or event is "Shira's dentist", the child is named Shira)
-   - **IMPORTANT: Do NOT confuse location names with people's names**
-   - Example: A location ending in "kindergarten" or "gan" is a LOCATION, not a person
+   - **Identify children by calendar name** in the [Calendar: Name] tag (e.g., [Calendar: Shira Leah] = Shira Leah's event)
+   - Events on other calendars (family/general) containing a child's **exact full name** in the title belong to that child. Split into separate entries per child.
+     Example: "dentist - Shmulik and Srulik" → Shmulik: dentist, Srulik: dentist
+   - **CRITICAL: Match only exact full names of children whose names appear as calendar names. Similar-sounding words are NOT names.**
+     Example: "Shirat HaBakashot" is NOT "Shira"'s event — "Shirat" is a different word
    - **In pickup order: use the child's name, followed by location in parentheses**
 `;
 }
