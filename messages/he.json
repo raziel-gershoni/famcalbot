@@ -610,6 +610,15 @@
       "deepLinkMsg": "לחצו למטה כדי לחבר את חשבון הוואטסאפ:",
       "sendToWhatsApp": "שלח בוואטסאפ"
     },
+    "kidNameDetection": {
+      "question": "ראיתי את \"{name}\" באירוע \"{event}\" ביומן {calendar}. {name} הוא ילד/ה שלך?",
+      "yes": "כן",
+      "no": "לא",
+      "confirmed": "הוספתי כלל ביומן {calendar}: \"{name} הוא ילד/ה שלי\"",
+      "declined": "הבנתי, תודה!",
+      "expired": "הבקשה פגה.",
+      "openSettings": "פתח הגדרות"
+    },
     "whatsapp": {
       "welcome": "שלום {name}, ברוכים הבאים ל-FamCal! 👋\n\nFamCal קורא את יומני Google של המשפחה ושולח לכם כל בוקר *תקציר יומי* — לוח זמנים מאוחד, סדר איסופים, מזג אוויר, וסיכום קולי של 30 שניות.",
       "linkTelegramPrompt": "כבר משתמשים ב-FamCal בטלגרם? חברו את החשבון בלחיצה אחת:",

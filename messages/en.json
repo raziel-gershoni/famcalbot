@@ -610,6 +610,15 @@
       "deepLinkMsg": "Tap below to link your WhatsApp account:",
       "sendToWhatsApp": "Send to WhatsApp"
     },
+    "kidNameDetection": {
+      "question": "I noticed \"{name}\" in the event \"{event}\" on {calendar}. Is {name} your child?",
+      "yes": "Yes",
+      "no": "No",
+      "confirmed": "Added a rule to {calendar}: \"{name} is my child\"",
+      "declined": "Got it, thanks!",
+      "expired": "This request has expired.",
+      "openSettings": "Open Settings"
+    },
     "whatsapp": {
       "welcome": "Welcome to FamCal, {name}! 👋\n\nFamCal reads your family's Google Calendars and sends you a *daily briefing* every morning — merged schedules, kids' pickup order, weather, and a 30-second voice summary.",
       "linkTelegramPrompt": "Already on Telegram? Link your account in one tap:",

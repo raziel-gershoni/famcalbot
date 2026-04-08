@@ -44,6 +44,7 @@ export function categorizeEvents(events: CalendarEvent[], user: UserConfig) {
 interface PreparedSummary {
   summary: string;
   dateHeader: string;
+  otherEvents: CalendarEvent[];
 }
 
 async function prepareSummaryForUser(
@@ -150,7 +151,7 @@ async function prepareSummaryForUser(
   const totalMs = Date.now() - t0;
   console.log(`[Summary Timing] user=${user.telegramId} type=${summaryDate ? 'tomorrow' : 'today'} total=${totalMs}ms timezone=${timezoneMs}ms calendar=${calendarMs}ms categorize=${categorizeMs}ms lookahead=${lookaheadMs}ms ai=${aiMs}ms`);
 
-  return { summary, dateHeader };
+  return { summary, dateHeader, otherEvents: categorized.otherEvents };
 }
 
 /**
@@ -218,6 +219,7 @@ export async function sendSummaryToUser(
         user,
         platform: platform === MessagingPlatform.TELEGRAM ? 'telegram' : 'whatsapp',
         dateHeader: result.dateHeader,
+        otherEvents: result.otherEvents,
       });
     },
     onError: async (error) => {
@@ -345,7 +347,7 @@ async function sendSummaryToAll(
 
       try {
         const tUser = Date.now();
-        const { summary, dateHeader } = await prepareSummaryForUser(user, fetchFunction, summaryDate);
+        const { summary, dateHeader, otherEvents } = await prepareSummaryForUser(user, fetchFunction, summaryDate);
 
         // Use telegramId for TG delivery, whatsappPhone for WA, or user.id as fallback
         const deliveryUserId = user.telegramId ?? getWhatsAppChatId(user) ?? user.id;
@@ -356,6 +358,7 @@ async function sendSummaryToAll(
           platform,
           dateHeader,
           waButtonPayload: summaryDate ? 'summary tmrw' : 'summary',
+          otherEvents,
         });
 
         console.log(`[Batch Summary] user=${user.id} platform=${platform} total=${Date.now() - tUser}ms`);
@@ -674,6 +677,7 @@ interface DeliveryOptions {
   platform?: DeliveryPlatform;
   dateHeader?: string;
   waButtonPayload?: string;
+  otherEvents?: CalendarEvent[];
 }
 
 /**
@@ -788,4 +792,13 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
   }
 
   console.log(`[Delivery Timing] user=${userId} total=${Date.now() - t0}ms featureCheck=${featureCheckMs}ms textDelivery=${textDeliveryMs}ms voiceDispatch=${voiceDispatchMs}ms`);
+
+  // Kid name detection follow-up (non-blocking, TG only)
+  if ((targetPlatform === 'telegram' || targetPlatform === 'all') && user.telegramId && options.otherEvents?.length) {
+    import('../kid-name-detection').then(({ sendKidNameFollowUp }) =>
+      sendKidNameFollowUp(user.telegramId!, user, options.otherEvents!)
+    ).catch(err => {
+      console.error(`[KidName] Follow-up failed for user ${user.id}:`, err);
+    });
+  }
 }

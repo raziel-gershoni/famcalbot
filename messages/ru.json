@@ -610,6 +610,15 @@
       "deepLinkMsg": "Нажмите ниже, чтобы привязать WhatsApp:",
       "sendToWhatsApp": "Отправить в WhatsApp"
     },
+    "kidNameDetection": {
+      "question": "Я заметил \"{name}\" в событии \"{event}\" в календаре {calendar}. {name} — ваш ребёнок?",
+      "yes": "Да",
+      "no": "Нет",
+      "confirmed": "Добавлено правило в {calendar}: \"{name} — мой ребёнок\"",
+      "declined": "Понял, спасибо!",
+      "expired": "Запрос истёк.",
+      "openSettings": "Открыть настройки"
+    },
     "whatsapp": {
       "welcome": "Привет, {name}! Добро пожаловать в FamCal! 👋\n\nFamCal читает Google Календари вашей семьи и каждое утро присылает *сводку дня* — общее расписание, порядок забора детей, погоду и голосовой обзор за 30 секунд.",
       "linkTelegramPrompt": "Уже используете FamCal в Telegram? Привяжите аккаунт в одно касание:",

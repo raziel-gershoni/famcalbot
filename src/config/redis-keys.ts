@@ -62,4 +62,8 @@ export const REDIS_KEYS = {
   // Setup reminder tracking (multi-attempt, prevents duplicate sends)
   setupReminder: (userId: number, type: string, attempt: number) =>
     `setup:reminder:${userId}:${type}:${attempt}`,
+
+  // Kid name detection (interactive follow-up after summary delivery)
+  kidNameAsked: (userId: number, name: string) => `kidname:asked:${userId}:${name}`,
+  kidNamePending: (pendingId: string) => `kidname:pending:${pendingId}`,
 } as const;

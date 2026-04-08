@@ -117,6 +117,15 @@ export async function handleTelegramWebhook(
         if (messageId) {
           await handleDeleteCallback(chatId, messageId, queryId, actionType, fullPendingId);
         }
+      } else if (data.startsWith('kidname_yes:') || data.startsWith('kidname_no:')) {
+        // Handle kid name detection callbacks
+        const action = data.startsWith('kidname_yes') ? 'kidname_yes' : 'kidname_no';
+        const pendingId = data.substring(action.length + 1);
+        const messageId = callbackQuery.message?.message_id;
+        if (messageId) {
+          const { handleKidNameCallback } = await import('./kid-name-callbacks');
+          await handleKidNameCallback(chatId, messageId, queryId, action, pendingId);
+        }
       }
     }
 
