@@ -18,6 +18,16 @@ type Weight = 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900;
 type FontEntry = { name: string; data: Buffer; weight: Weight; style: 'normal' | 'italic'; lang?: string };
 let cachedFonts: FontEntry[] | null = null;
 
+let cachedLogo: string | null = null;
+
+function loadLogo(): string {
+  if (cachedLogo) return cachedLogo;
+  const logoPath = join(process.cwd(), 'public', 'icon.png');
+  const logoBuffer = readFileSync(logoPath);
+  cachedLogo = `data:image/png;base64,${logoBuffer.toString('base64')}`;
+  return cachedLogo;
+}
+
 function loadFonts(): FontEntry[] {
   if (cachedFonts) return cachedFonts;
   const dir = join(process.cwd(), 'public', 'fonts');
@@ -127,29 +137,13 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
       fontFamily: 'Noto Sans',
       color: 'white',
     }}>
-      {/* Header */}
+      {/* Header — logo on the side, respecting RTL */}
       <div style={{
         display: 'flex',
         justifyContent: isRtl ? 'flex-end' : 'flex-start',
-        alignItems: 'center',
-        gap: '20px',
         marginBottom: '40px',
       }}>
-        {!isRtl && (
-          <div style={{ display: 'flex', fontSize: '48px', fontWeight: 700, letterSpacing: '-1px' }}>
-            FamCal
-          </div>
-        )}
-        {userName && (
-          <div style={{ display: 'flex', fontSize: '32px', opacity: 0.8 }}>
-            {toVisualOrder(userName, language)}
-          </div>
-        )}
-        {isRtl && (
-          <div style={{ display: 'flex', fontSize: '48px', fontWeight: 700, letterSpacing: '-1px' }}>
-            FamCal
-          </div>
-        )}
+        <img src={loadLogo()} width={80} height={80} />
       </div>
 
       {/* Summary content */}
