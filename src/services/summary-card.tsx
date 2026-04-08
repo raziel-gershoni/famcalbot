@@ -55,6 +55,7 @@ function stripHtml(html: string): string {
     .replace(/&#039;/g, "'")
     .replace(/\n{3,}/g, '\n\n')
     .replace(/\n*📊.*$/s, '') // Strip admin footer (metrics line)
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '') // Strip emojis (no color emoji font loaded — would render as boxes)
     .trim();
 }
 
