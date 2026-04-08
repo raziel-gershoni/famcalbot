@@ -66,7 +66,7 @@ function stripHtml(html: string): string {
     .replace(/\n{3,}/g, '\n\n')
     .replace(/\n*📊.*$/s, '') // Strip admin footer (metrics line)
     .replace(/[\u{200D}\u{FE0F}\u{FE0E}\u{20E3}]/gu, '') // Strip emoji joiners/selectors
-    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\p{Emoji}\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}\u{2B55}\u{231A}-\u{23FF}]/gu, '') // Strip all emojis (no color emoji font)
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}]/gu, '') // Strip emojis but NOT digits (no color emoji font)
     .trim();
 }
 
