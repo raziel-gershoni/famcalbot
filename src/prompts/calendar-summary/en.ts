@@ -47,6 +47,7 @@ function buildKidsContext(data: SummaryPromptData): string {
      Example: "dentist - Shmulik and Srulik" → Shmulik: dentist, Srulik: dentist
    - **CRITICAL: Match only exact full names of children whose names appear as calendar names. Similar-sounding words are NOT names.**
      Example: "Shirat HaBakashot" is NOT "Shira"'s event — "Shirat" is a different word
+   - **IMPORTANT: Include ALL events in this section — events without an identified child name are general family events and MUST still appear**
    - **In pickup order: use the child's name, followed by location in parentheses**
 `;
 }
