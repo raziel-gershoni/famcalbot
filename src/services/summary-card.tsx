@@ -61,7 +61,6 @@ function stripHtml(html: string): string {
 /**
  * Convert logical-order Hebrew text to visual order for satori.
  * Satori doesn't support bidi — we must reorder characters ourselves.
- * Applied per-line only (not to the container, which would reverse line order).
  */
 function toVisualOrder(text: string, lang: string): string {
   if (lang !== 'he') return text;
@@ -71,6 +70,30 @@ function toVisualOrder(text: string, lang: string): string {
   } catch {
     return text;
   }
+}
+
+/**
+ * Pre-break long lines at word boundaries, then bidi each segment.
+ * Simulates what browsers do: line-break first, then apply bidi per visual line.
+ * Short lines pass through untouched.
+ */
+function wrapAndBidi(text: string, lang: string, maxChars: number): string {
+  return text.split('\n').map(line => {
+    if (line.length <= maxChars) return toVisualOrder(line, lang);
+    const words = line.split(' ');
+    const segments: string[] = [];
+    let current = '';
+    for (const word of words) {
+      if (current && (current.length + 1 + word.length) > maxChars) {
+        segments.push(toVisualOrder(current, lang));
+        current = word;
+      } else {
+        current = current ? current + ' ' + word : word;
+      }
+    }
+    if (current) segments.push(toVisualOrder(current, lang));
+    return segments.join('\n');
+  }).join('\n');
 }
 
 export interface SummaryCardConfig {
@@ -94,33 +117,71 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
 
   const jsx = (
     <div style={{
+      display: 'flex',
+      flexDirection: 'column',
       width: WIDTH,
       height: HEIGHT,
       background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
       padding: '80px 60px',
       fontFamily: 'Noto Sans',
       color: 'white',
-      fontSize: `${fontSize}px`,
-      lineHeight: 1.6,
-      textAlign: isRtl ? 'right' : 'left',
-      whiteSpace: 'pre-wrap',
-      wordBreak: 'break-word',
-      overflow: 'hidden',
     }}>
-      {isRtl ? toVisualOrder(plainText, language) : plainText}
+      {/* Header */}
+      <div style={{
+        display: 'flex',
+        justifyContent: isRtl ? 'flex-end' : 'flex-start',
+        alignItems: 'center',
+        gap: '20px',
+        marginBottom: '40px',
+      }}>
+        {!isRtl && (
+          <div style={{ display: 'flex', fontSize: '48px', fontWeight: 700, letterSpacing: '-1px' }}>
+            FamCal
+          </div>
+        )}
+        {userName && (
+          <div style={{ display: 'flex', fontSize: '32px', opacity: 0.8 }}>
+            {toVisualOrder(userName, language)}
+          </div>
+        )}
+        {isRtl && (
+          <div style={{ display: 'flex', fontSize: '48px', fontWeight: 700, letterSpacing: '-1px' }}>
+            FamCal
+          </div>
+        )}
+      </div>
+
+      {/* Summary content */}
+      <div style={{
+        flexGrow: 1,
+        background: 'rgba(255, 255, 255, 0.1)',
+        borderRadius: '24px',
+        padding: '48px',
+        overflow: 'hidden',
+        fontSize: `${fontSize}px`,
+        lineHeight: 1.6,
+        textAlign: isRtl ? 'right' : 'left',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+      }}>
+        {isRtl ? wrapAndBidi(plainText, language, charsPerLine) : plainText}
+      </div>
+
+      {/* Footer */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        marginTop: '40px',
+        fontSize: '28px',
+        opacity: 0.6,
+      }}>
+        famcal.bot
+      </div>
     </div>
   );
 
   const fonts = loadFonts();
   const svg = await satori(jsx, { width: WIDTH, height: HEIGHT, fonts });
-
-  // Debug: log text before and after bidi
-  if (isRtl) {
-    const bidiResult = toVisualOrder(plainText, language);
-    console.log(`[SummaryCard] BEFORE bidi (first 500):\n${plainText.slice(0, 500)}`);
-    console.log(`[SummaryCard] AFTER bidi (first 500):\n${bidiResult.slice(0, 500)}`);
-  }
-
   const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: WIDTH } });
   const png = resvg.render().asPng();
 
