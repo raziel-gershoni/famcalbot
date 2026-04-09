@@ -17,9 +17,7 @@ const DATE_INFO_LABELS: DateInfoLabels = {
   currentDate: 'תאריך נוכחי (היום)',
   summaryDate: 'תאריך הסיכום',
   hebrewDate: 'תאריך עברי (סיכום)',
-  roshChodesh: 'ראש חודש',
-  yes: 'כן',
-  no: 'לא'
+  holidays: 'חגים/מועדים',
 };
 
 function buildSpouseContext(data: SummaryPromptData): string {
@@ -60,7 +58,7 @@ function buildHebrewDateContext(data: SummaryPromptData): string {
 ## לוח עברי
 - כלול את התאריך העברי בכותרת הסיכום
 - תאריך עברי: ${data.summaryHebrewDate}
-- ${data.isRoshChodesh ? 'היום ראש חודש - ציין זאת בכותרת' : ''}
+- ${data.holidays?.length ? `היום: ${data.holidays.join(', ')} - ציין זאת בכותרת` : ''}
 - השתמש בגימטריה לתאריך העברי (כ"ח כסלו תשפ"ה)
 `;
 }
@@ -76,7 +74,7 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
     data.summaryGregorianDate,
     data.culture,
     data.summaryHebrewDate,
-    data.isRoshChodesh,
+    data.holidays,
     DATE_INFO_LABELS
   );
 

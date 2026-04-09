@@ -13,7 +13,7 @@ export interface SummaryPromptData {
   currentGregorianDate: string;
   summaryGregorianDate: string;
   summaryHebrewDate: string;
-  isRoshChodesh: boolean;
+  holidays?: string[];
   greeting: string;
   userEventsText: string;
   spouseEventsText: string;

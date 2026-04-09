@@ -73,4 +73,7 @@ export const REDIS_KEYS = {
 
   // WA typing indicator (stashed inbound message ID for voice typing)
   waLastMsg: (chatId: string) => `wa:lastmsg:${chatId}`,
+
+  // Holiday cache (CalBrew API responses, 24h TTL)
+  holidays: (date: string, lang: string) => `holidays:${date}:${lang}`,
 } as const;

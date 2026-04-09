@@ -17,9 +17,7 @@ const DATE_INFO_LABELS: DateInfoLabels = {
   currentDate: 'Текущая дата (сегодня)',
   summaryDate: 'Дата сводки',
   hebrewDate: 'Еврейская дата (сводка)',
-  roshChodesh: 'Рош Ходеш',
-  yes: 'ДА',
-  no: 'НЕТ'
+  holidays: 'Праздники',
 };
 
 function buildSpouseContext(data: SummaryPromptData): string {
@@ -60,7 +58,7 @@ function buildHebrewDateContext(data: SummaryPromptData): string {
 ## Еврейский календарь
 - Включите еврейскую дату в заголовок сводки
 - Еврейская дата: ${data.summaryHebrewDate}
-- ${data.isRoshChodesh ? 'СЕГОДНЯ РОШ ХОДЕШ - упомяните это в заголовке' : ''}
+- ${data.holidays?.length ? `СЕГОДНЯ: ${data.holidays.join(', ')} - упомяните это в заголовке` : ''}
 - Отображайте еврейскую дату стандартными цифрами (например: "28 Кислев 5785")
 `;
 }
@@ -76,7 +74,7 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
     data.summaryGregorianDate,
     data.culture,
     data.summaryHebrewDate,
-    data.isRoshChodesh,
+    data.holidays,
     DATE_INFO_LABELS
   );
 

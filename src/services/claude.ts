@@ -8,6 +8,7 @@ import { formatEventList } from '../utils/event-formatter';
 import { generateAICompletion } from './ai-provider';
 import { captureError } from '../lib/error-capture';
 import { formatAdminFooter } from '../utils/ai-footer';
+import { getHolidaysForDate } from './hebrew-holidays';
 import type { WeekLookahead, LookaheadEvent } from './week-lookahead';
 
 /**
@@ -77,9 +78,9 @@ export interface SummaryUserContext {
 }
 
 /**
- * Get Hebrew date information and check if today is Rosh Chodesh
+ * Get Hebrew date information
  */
-function getHebrewDateInfo(date: Date = new Date(), timezone: string = TIMEZONE): { hebrewDate: string; isRoshChodesh: boolean; hebrewDateFormatted: string } {
+function getHebrewDateInfo(date: Date = new Date(), timezone: string = TIMEZONE): { hebrewDate: string; hebrewDateFormatted: string } {
   // Convert to user's timezone to get correct Hebrew date (server runs in UTC)
   const localDate = new Date(date.toLocaleString('en-US', { timeZone: timezone }));
   const hdate = new HDate(localDate);
@@ -88,14 +89,10 @@ function getHebrewDateInfo(date: Date = new Date(), timezone: string = TIMEZONE)
   const monthName = Locale.lookupTranslation(hdate.getMonthName(), 'he') || hdate.getMonthName();
   const year = hdate.getFullYear();
 
-  // Check if it's Rosh Chodesh
-  // Rosh Chodesh is on day 1 of any month, or day 30 of a 30-day month
-  const isRoshChodesh = day === 1 || day === 30;
-
   const hebrewDate = `${day} ${monthName} ${year}`;
   const hebrewDateFormatted = `${day} ב${monthName} ${year}`;
 
-  return { hebrewDate, isRoshChodesh, hebrewDateFormatted };
+  return { hebrewDate, hebrewDateFormatted };
 }
 
 /**
@@ -116,7 +113,8 @@ function buildPromptData(
   weatherSummary?: string,
   language?: string,
   userContext?: SummaryUserContext,
-  weekLookahead?: string
+  weekLookahead?: string,
+  holidays?: string[]
 ): SummaryPromptData {
   // Get current date (today) for comparison
   const currentDate = new Date();
@@ -137,7 +135,7 @@ function buildPromptData(
   const greeting = getLocalizedGreeting(currentHour, language);
 
   // Get summary date and Hebrew date information
-  const { isRoshChodesh, hebrewDateFormatted } = getHebrewDateInfo(date, timezone);
+  const { hebrewDateFormatted } = getHebrewDateInfo(date, timezone);
   const gregorianDate = date.toLocaleDateString('en-US', {
     timeZone: timezone,
     weekday: 'long',
@@ -170,7 +168,7 @@ function buildPromptData(
     currentGregorianDate,
     summaryGregorianDate: gregorianDate,
     summaryHebrewDate: hebrewDateFormatted,
-    isRoshChodesh,
+    holidays,
     greeting,
     userEventsText,
     spouseEventsText,
@@ -291,6 +289,12 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
   // Use explicit user timezone for event formatting, fall back to weather/geocoding timezone
   const timezone = userTimezone || weatherTimezone;
 
+  // Fetch holidays for the summary date (Jewish culture only)
+  let holidays: string[] | undefined;
+  if (userContext?.culture === 'jewish') {
+    holidays = await getHolidaysForDate(date, language || 'en', timezone);
+  }
+
   // Build prompt data
   const tPrompt = Date.now();
   const promptData = buildPromptData(
@@ -308,7 +312,8 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
     weatherSummary,
     language,
     userContext,
-    weekLookahead
+    weekLookahead,
+    holidays
   );
 
   // Build the prompt

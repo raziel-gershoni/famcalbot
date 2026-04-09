@@ -16,9 +16,7 @@ const DATE_INFO_LABELS: DateInfoLabels = {
   currentDate: 'Current Date (Today)',
   summaryDate: 'Summary Date',
   hebrewDate: 'Hebrew Date (Summary)',
-  roshChodesh: 'Rosh Chodesh',
-  yes: 'YES',
-  no: 'NO'
+  holidays: 'Holidays',
 };
 
 function buildSpouseContext(data: SummaryPromptData): string {
@@ -59,7 +57,7 @@ function buildHebrewDateContext(data: SummaryPromptData): string {
 ## Hebrew Calendar
 - Include the Hebrew date in the summary header
 - Hebrew Date: ${data.summaryHebrewDate}
-- ${data.isRoshChodesh ? 'TODAY IS ROSH CHODESH - mention this in the header' : ''}
+- ${data.holidays?.length ? `TODAY: ${data.holidays.join(', ')} - mention this in the header` : ''}
 - Display Hebrew date using standard numerals (e.g., "28 Kislev 5785")
 `;
 }
@@ -75,7 +73,7 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
     data.summaryGregorianDate,
     data.culture,
     data.summaryHebrewDate,
-    data.isRoshChodesh,
+    data.holidays,
     DATE_INFO_LABELS
   );
 

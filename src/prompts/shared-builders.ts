@@ -60,9 +60,7 @@ export interface DateInfoLabels {
   currentDate: string;
   summaryDate: string;
   hebrewDate: string;
-  roshChodesh: string;
-  yes: string;
-  no: string;
+  holidays: string;
 }
 
 /**
@@ -74,7 +72,7 @@ export function buildDateInfoSection(
   summaryGregorianDate: string,
   culture: string | undefined,
   summaryHebrewDate: string,
-  isRoshChodesh: boolean,
+  holidays: string[] | undefined,
   labels: DateInfoLabels
 ): string {
   let dateInfo = `**${labels.header}**
@@ -83,8 +81,11 @@ export function buildDateInfoSection(
 
   if (culture === 'jewish') {
     dateInfo += `
-- ${labels.hebrewDate}: ${summaryHebrewDate}
-- ${labels.roshChodesh}: ${isRoshChodesh ? labels.yes : labels.no}`;
+- ${labels.hebrewDate}: ${summaryHebrewDate}`;
+    if (holidays?.length) {
+      dateInfo += `
+- ${labels.holidays}: ${holidays.join(', ')}`;
+    }
   }
 
   return dateInfo;
