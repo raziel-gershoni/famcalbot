@@ -29,8 +29,14 @@ export async function getHolidaysForDate(date: Date, language: string, timezone:
 
   // Check cache first
   const cacheKey = REDIS_KEYS.holidays(dateStr, language);
-  const cached = await redis.get<string>(cacheKey);
-  if (cached) return JSON.parse(cached);
+  const cached = await redis.get(cacheKey);
+  if (cached) {
+    // Upstash may return parsed JSON (array) or raw string
+    if (Array.isArray(cached)) return cached as string[];
+    if (typeof cached === 'string') {
+      try { return JSON.parse(cached); } catch { return [cached]; }
+    }
+  }
 
   try {
     const lang = language === 'he' ? 'he' : language === 'ru' ? 'ru' : 'en';
