@@ -9,7 +9,7 @@ import path from 'path';
 import { randomBytes } from 'crypto';
 import { getGemini } from './ai-provider';
 import { encodePcmToOggOpus } from '../utils/pcm-to-ogg-opus';
-import { getVoiceForUser } from '../config/voice-options';
+import { getVoiceForUser, VOICE_STYLE_PROMPTS } from '../config/voice-options';
 
 // Model ID configurable via env var (prevents production outage on preview→GA rename)
 const GEMINI_TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts';
@@ -136,6 +136,7 @@ export async function generateVoiceMessage(
   condensedText: string,
   language: string = 'en',
   voicePreference?: string,
+  voiceStyle?: string,
 ): Promise<VoiceGenerationResult> {
   const voiceName = voicePreference && voicePreference !== 'default'
     ? getVoiceForUser(language, voicePreference)
@@ -155,7 +156,8 @@ export async function generateVoiceMessage(
   const langName = LANGUAGE_NAMES[language] || 'English';
 
   // Build minimal TTS-only prompt — no reasoning, just speak
-  const ttsPrompt = `Read the following text aloud naturally in ${langName}:\n\n${condensedText}`;
+  const styleInstruction = VOICE_STYLE_PROMPTS[voiceStyle || 'natural'] || VOICE_STYLE_PROMPTS.natural;
+  const ttsPrompt = `Read the following text aloud ${styleInstruction} in ${langName}:\n\n${condensedText}`;
 
   console.log('[TTS] Generating voice message (Gemini TTS):', {
     textLength: condensedText.length,

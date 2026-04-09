@@ -1,0 +1,1 @@
+ALTER TABLE "User" ADD COLUMN "voiceStyle" TEXT NOT NULL DEFAULT 'natural';

@@ -34,6 +34,7 @@ export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'what
   voiceSummaryEnabled?: boolean;
   voiceInputEnabled?: boolean;
   voicePreference?: string;
+  voiceStyle?: string;
   weatherEnabled?: boolean;
   includeWeeklyInLookahead?: boolean;
   includeLookaheadInTomorrow?: boolean;
@@ -64,6 +65,7 @@ export function convertPrismaUserToConfig(user: PrismaUser): UserConfig {
     voiceSummaryEnabled: user.voiceSummaryEnabled,
     voiceInputEnabled: user.voiceInputEnabled,
     voicePreference: user.voicePreference,
+    voiceStyle: user.voiceStyle,
     weatherEnabled: user.weatherEnabled,
     includeWeeklyInLookahead: user.includeWeeklyInLookahead,
     includeLookaheadInTomorrow: user.includeLookaheadInTomorrow,

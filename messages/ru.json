@@ -269,6 +269,8 @@
     "voiceInputDescription": "Создавайте события, отправляя голосовые сообщения боту",
     "voicePreference": "Голос озвучки",
     "voicePreferenceDescription": "Выберите голос для аудио-сводок",
+    "voiceStyle": "Стиль речи",
+    "voiceStyleDescription": "Как должны звучать ваши голосовые сводки",
     "summaryDeliveryTime": "Время доставки сводки",
     "morningHour": "Утренняя сводка",
     "morningHourDescription": "Когда получать сводку на сегодня (ваше местное время)",

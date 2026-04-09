@@ -83,7 +83,7 @@ export async function sendVoiceMessage(
     console.log(`[Voice] Summary condensed: ${summary.length} → ${condensedText.length} chars`);
 
     // Step 2: Generate voice from condensed text
-    const ttsResult = await generateVoiceMessage(condensedText, userLanguage, user.voicePreference);
+    const ttsResult = await generateVoiceMessage(condensedText, userLanguage, user.voicePreference, user.voiceStyle);
     voiceFilePath = ttsResult.filePath;
 
     const { ttsMs, ttsModel, voiceName } = ttsResult;
@@ -95,7 +95,7 @@ export async function sendVoiceMessage(
     await msgService.sendVoice(chatId, voiceFilePath!);
 
     // Send admin caption as separate text (WhatsApp doesn't support captions on audio)
-    const caption = formatVoiceCaption(condensedResult, ttsMs, ttsModel, user.isAdmin, voiceName);
+    const caption = formatVoiceCaption(condensedResult, ttsMs, ttsModel, user.isAdmin, voiceName, user.voiceStyle);
     if (caption && user.isAdmin) {
       await msgService.sendMessage(chatId, caption, { format: MessageFormat.HTML });
     }
@@ -198,7 +198,7 @@ export async function sendWeeklyVoiceMessage(
 
     console.log(`[Voice] Weekly summary condensed: ${summary.length} → ${condensedText.length} chars`);
 
-    const ttsResult = await generateVoiceMessage(condensedText, userLanguage, user.voicePreference);
+    const ttsResult = await generateVoiceMessage(condensedText, userLanguage, user.voicePreference, user.voiceStyle);
     voiceFilePath = ttsResult.filePath;
 
     const { ttsMs, ttsModel, voiceName } = ttsResult;
@@ -209,7 +209,7 @@ export async function sendWeeklyVoiceMessage(
     await msgService.sendVoice(chatId, voiceFilePath!);
 
     // Send admin caption as separate text
-    const caption = formatVoiceCaption(condensedResult, ttsMs, ttsModel, user.isAdmin, voiceName);
+    const caption = formatVoiceCaption(condensedResult, ttsMs, ttsModel, user.isAdmin, voiceName, user.voiceStyle);
     if (caption && user.isAdmin) {
       await msgService.sendMessage(chatId, caption, { format: MessageFormat.HTML });
     }

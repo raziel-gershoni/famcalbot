@@ -10,12 +10,14 @@ export function formatVoiceCaption(
   ttsMs: number,
   ttsModel: string,
   isAdmin: boolean,
-  voiceName?: string
+  voiceName?: string,
+  voiceStyle?: string,
 ): string | undefined {
   if (!isAdmin) return undefined;
   const condenser = `🎙 ${buildMetricsParts(condenserResult).join(' | ')}`;
   const voicePart = voiceName ? ` | ${voiceName}` : '';
-  const tts = `🔊 TTS ${ttsModel}${voicePart} | ${(ttsMs / 1000).toFixed(1)}s`;
+  const stylePart = voiceStyle && voiceStyle !== 'natural' ? ` | style:${voiceStyle}` : '';
+  const tts = `🔊 TTS ${ttsModel}${voicePart}${stylePart} | ${(ttsMs / 1000).toFixed(1)}s`;
   return `${condenser}\n${tts}`;
 }
 

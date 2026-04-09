@@ -36,6 +36,7 @@ model User {
   voiceSummaryEnabled  Boolean @default(true)       // Receive voice summaries
   voiceInputEnabled    Boolean @default(false)      // Allow voice message input for event creation
   voicePreference      String  @default("default")   // TTS voice name (e.g. "Algieba") or "default"
+  voiceStyle           String  @default("natural")          // TTS speaking style preset
   weatherEnabled       Boolean @default(true)       // Include weather in summaries
   includeWeeklyInLookahead Boolean @default(false)  // Include weekly recurring in week lookahead
   includeLookaheadInTomorrow Boolean @default(false) // Include week lookahead in tomorrow summary
