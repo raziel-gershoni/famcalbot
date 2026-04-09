@@ -20,6 +20,7 @@ import { sendVoiceMessage, sendWeeklyVoiceMessage } from './voice';
 import {
   sendDailySummaryToUser,
   sendTomorrowSummaryToUser,
+  routeTextMessage,
 } from './summary';
 
 /**
@@ -485,7 +486,8 @@ export async function handleLookaheadCommand(
       return generateWeekLookahead(lookahead, user, userLanguage, undefined, user.isAdmin);
     },
     onSuccess: async (formattedLookahead) => {
-      await messagingService.sendMessage(chatId, formattedLookahead, { format: MessageFormat.HTML });
+      const deliveryPlatform = platform === MessagingPlatform.TELEGRAM ? 'telegram' : 'whatsapp';
+      await routeTextMessage(chatId, formattedLookahead, user, deliveryPlatform as 'telegram' | 'whatsapp');
 
       // Generate voice message if enabled
       if (user.voiceSummaryEnabled) {
@@ -569,7 +571,8 @@ export async function handleNextWeekCommand(
       return generateNextWeekSummary(lookahead, user, userLanguage, undefined, user.isAdmin);
     },
     onSuccess: async (formattedSummary) => {
-      await messagingService.sendMessage(chatId, formattedSummary, { format: MessageFormat.HTML });
+      const deliveryPlatform = platform === MessagingPlatform.TELEGRAM ? 'telegram' : 'whatsapp';
+      await routeTextMessage(chatId, formattedSummary, user, deliveryPlatform as 'telegram' | 'whatsapp');
 
       // Generate voice message if enabled
       if (user.voiceSummaryEnabled) {

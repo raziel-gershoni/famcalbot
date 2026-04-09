@@ -589,7 +589,7 @@ type DeliveryPlatform = 'telegram' | 'whatsapp' | 'all';
 /**
  * Route text message to appropriate platform(s)
  */
-async function routeTextMessage(
+export async function routeTextMessage(
   userId: number | string,
   text: string,
   user: UserConfig,
