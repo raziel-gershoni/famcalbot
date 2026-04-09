@@ -4,6 +4,7 @@
  */
 
 import { redis } from '../utils/redis';
+import { REDIS_KEYS } from '../config/redis-keys';
 import { prisma } from '../utils/prisma';
 import { getBot } from './telegram/bot';
 import { getUserById } from './user-service';
@@ -37,7 +38,7 @@ export async function handleKidNameCallback(
   const bot = getBot();
 
   // Get pending data from Redis
-  const raw = await redis.get(`kidname:pending:${pendingId}`);
+  const raw = await redis.get(REDIS_KEYS.kidNamePending(pendingId));
   if (!raw) {
     // Expired
     const t = await getBotMessages('en');
@@ -54,7 +55,7 @@ export async function handleKidNameCallback(
   const pending: KidNamePending = typeof raw === 'string' ? JSON.parse(raw) : raw as KidNamePending;
   const user = await getUserById(pending.userId);
   if (!user) {
-    await redis.del(`kidname:pending:${pendingId}`);
+    await redis.del(REDIS_KEYS.kidNamePending(pendingId));
     return;
   }
 
@@ -109,7 +110,7 @@ export async function handleKidNameCallback(
     });
 
     // Delete pending from Redis
-    await redis.del(`kidname:pending:${pendingId}`);
+    await redis.del(REDIS_KEYS.kidNamePending(pendingId));
   } else if (action === 'kidname_no') {
     const declinedText = kd.declined || 'Got it, thanks!';
 
@@ -121,6 +122,6 @@ export async function handleKidNameCallback(
     });
 
     // Delete pending from Redis
-    await redis.del(`kidname:pending:${pendingId}`);
+    await redis.del(REDIS_KEYS.kidNamePending(pendingId));
   }
 }

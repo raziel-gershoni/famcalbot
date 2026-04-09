@@ -427,8 +427,8 @@ export async function handleWhatsAppWebhook(
         }, 4000);
         clearWaTyping = () => clearInterval(typingInterval);
 
-        import('../utils/redis').then(({ redis }) =>
-          redis.set(`wa:lastmsg:${from}`, waMessageId, { ex: 60 })
+        Promise.all([import('../utils/redis'), import('../config/redis-keys')]).then(([{ redis }, { REDIS_KEYS: RK }]) =>
+          redis.set(RK.waLastMsg(from), waMessageId, { ex: 60 })
         ).catch(() => {});
       }
 

@@ -63,7 +63,14 @@ export const REDIS_KEYS = {
   setupReminder: (userId: number, type: string, attempt: number) =>
     `setup:reminder:${userId}:${type}:${attempt}`,
 
+  // Story sharing (cached images and stashed text for share-to-story)
+  storyImage: (userId: number | string) => `story:img:${userId}`,
+  storyText: (userId: number | string, msgId: number | string) => `story:text:${userId}:${msgId}`,
+
   // Kid name detection (interactive follow-up after summary delivery)
   kidNameAsked: (userId: number, name: string) => `kidname:asked:${userId}:${name}`,
   kidNamePending: (pendingId: string) => `kidname:pending:${pendingId}`,
+
+  // WA typing indicator (stashed inbound message ID for voice typing)
+  waLastMsg: (chatId: string) => `wa:lastmsg:${chatId}`,
 } as const;

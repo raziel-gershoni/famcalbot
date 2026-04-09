@@ -8,6 +8,8 @@ import { getUserByTelegramId, getUserByIdentifier, getOrCreateUser, TelegramUser
 import { MessagingPlatform, MessageFormat, IMessagingService } from '../messaging';
 import { getMessagingService as getMessagingServiceByPlatform } from '../messaging';
 import { buildUrl } from '../../config/urls';
+import { SHARE_STORY_LABELS, getLabel } from '../../config/labels';
+import { REDIS_KEYS } from '../../config/redis-keys';
 import { executeCommand } from './command-pipeline';
 import { VALID_LOCALES } from '../../utils/locale';
 import { getBotMessages } from '../../lib/bot-messages';
@@ -382,12 +384,11 @@ export async function handleWeatherCommand(
       if (result.imageBuffer) {
         // Cache image in Redis for inline story sharing (30 min TTL)
         import('../../utils/redis').then(({ redis }) =>
-          redis.set(`story:img:${user.id}`, Buffer.from(result.imageBuffer!).toString('base64'), { ex: 1800 })
+          redis.set(REDIS_KEYS.storyImage(user.id), Buffer.from(result.imageBuffer!).toString('base64'), { ex: 1800 })
         ).catch(() => {});
 
         const shareStoryUrl = buildUrl(`/${user.language || 'en'}/share-story?user_id=${user.id}&source=cached`);
-        const shareLabels: Record<string, string> = { he: 'שתף לסטורי', ru: 'В историю', en: 'Share to Story' };
-        const shareLabel = shareLabels[user.language || 'en'] || shareLabels.en;
+        const shareLabel = getLabel(SHARE_STORY_LABELS, user.language || 'en');
         await messagingService.sendPhoto(chatId, result.imageBuffer, {
           replyMarkup: platform === MessagingPlatform.TELEGRAM ? {
             inline_keyboard: [[

@@ -40,7 +40,8 @@ export async function sendVoiceMessage(
   let msgId = waMessageId;
   if (!msgId && platform === MessagingPlatform.WHATSAPP) {
     const { redis } = await import('../../utils/redis');
-    msgId = await redis.get<string>(`wa:lastmsg:${chatId}`) || undefined;
+    const { REDIS_KEYS } = await import('../../config/redis-keys');
+    msgId = await redis.get<string>(REDIS_KEYS.waLastMsg(String(chatId))) || undefined;
   }
 
   // Start typing indicator if enabled
@@ -159,7 +160,8 @@ export async function sendWeeklyVoiceMessage(
   let msgId = waMessageId;
   if (!msgId && platform === MessagingPlatform.WHATSAPP) {
     const { redis } = await import('../../utils/redis');
-    msgId = await redis.get<string>(`wa:lastmsg:${chatId}`) || undefined;
+    const { REDIS_KEYS } = await import('../../config/redis-keys');
+    msgId = await redis.get<string>(REDIS_KEYS.waLastMsg(String(chatId))) || undefined;
   }
 
   const stopTyping = startTypingInterval(chatId, msgService, platform === MessagingPlatform.WHATSAPP ? 'text' : 'audio', msgId);

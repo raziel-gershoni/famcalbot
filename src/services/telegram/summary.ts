@@ -9,6 +9,8 @@ import { CalendarEvent, UserConfig } from '../../types';
 import { IMessagingService, getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from '../messaging';
 import { getCalendarsByLabel, getPrimaryCalendar, getSpouseInfo } from '../../utils/calendar-helpers';
 import { buildUrl } from '../../config/urls';
+import { SHARE_STORY_LABELS, TELEGRAM_CTA_LABELS, getLabel } from '../../config/labels';
+import { REDIS_KEYS } from '../../config/redis-keys';
 import { executeCommand } from './command-pipeline';
 import { getBotMessages, getBotMessage } from '../../lib/bot-messages';
 import { trackActivityAsync } from '../analytics-service';
@@ -614,13 +616,13 @@ export async function routeTextMessage(
       const lang = user.language || 'en';
       const { buildUrl } = await import('../../config/urls');
       const { redis } = await import('../../utils/redis');
-      const shareLabels: Record<string, string> = { he: 'שתף לסטורי', ru: 'В историю', en: 'Share to Story' };
+      const shareLabel = getLabel(SHARE_STORY_LABELS, lang);
 
       // Send message first to get message ID, then stash text keyed by it
       const msgId = await msgService.sendMessage(user.telegramId, text, { format: MessageFormat.HTML });
 
       // Stash text keyed by message ID for per-message story sharing
-      redis.set(`story:text:${user.id}:${msgId}`, text, { ex: 86400 }).catch(() => {});
+      redis.set(REDIS_KEYS.storyText(user.id, msgId), text, { ex: 86400 }).catch(() => {});
 
       // Edit message to add share button with message-specific URL
       const shareUrl = buildUrl(`/${lang}/share-story?user_id=${user.id}&source=summary&msg=${msgId}`);
@@ -628,7 +630,7 @@ export async function routeTextMessage(
         format: MessageFormat.HTML,
         replyMarkup: {
           inline_keyboard: [[
-            { text: shareLabels[lang] || shareLabels.en, web_app: { url: shareUrl } }
+            { text: shareLabel, web_app: { url: shareUrl } }
           ]]
         }
       });
@@ -656,8 +658,7 @@ export async function routeTextMessage(
         console.log(`[Delivery] WA template sent (msgId=${tplId})`);
       } else {
         console.log(`[Delivery] Sending WA text to user ${user.id} (${waChatId})`);
-        const ctaLabels: Record<string, string> = { he: 'פתח בטלגרם', ru: 'Открыть в Telegram', en: 'Open in Telegram' };
-        const telegramCta = ctaLabels[user.language || 'en'] || ctaLabels.en;
+        const telegramCta = getLabel(TELEGRAM_CTA_LABELS, user.language || 'en');
         await whatsappService.sendMessage(waChatId, text, { format: MessageFormat.HTML, telegramCta });
       }
     } catch (e) {

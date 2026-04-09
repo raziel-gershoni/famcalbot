@@ -39,7 +39,8 @@ export async function GET(request: NextRequest) {
 
   if (source === 'summary') {
     // Generate summary card on the fly from stashed text
-    const textKey = msgId ? `story:text:${userId}:${msgId}` : `story:summary:text:${userId}`;
+    const { REDIS_KEYS } = await import('@/src/config/redis-keys');
+    const textKey = msgId ? REDIS_KEYS.storyText(userId, msgId) : `story:summary:text:${userId}`;
     const summaryText = await redis.get<string>(textKey);
     if (!summaryText) {
       return NextResponse.json({ error: 'Summary expired' }, { status: 404 });
@@ -56,7 +57,8 @@ export async function GET(request: NextRequest) {
     });
   } else {
     // Weather image from cache
-    const cached = await redis.get<string>(`story:img:${userId}`);
+    const { REDIS_KEYS: RK } = await import('@/src/config/redis-keys');
+    const cached = await redis.get<string>(RK.storyImage(userId));
     if (!cached) {
       return NextResponse.json({ error: 'Image not found' }, { status: 404 });
     }

@@ -33,7 +33,8 @@ export async function GET(request: NextRequest) {
   // source=summary: always generate fresh card from stashed text
   // source=cached: weather image from cache
   // source=fresh: generate new weather image
-  const cacheKey = `story:img:${userId}`;
+  const { REDIS_KEYS } = await import('@/src/config/redis-keys');
+  const cacheKey = REDIS_KEYS.storyImage(userId);
   let cached: string | null = null;
 
   if (source !== 'summary') {

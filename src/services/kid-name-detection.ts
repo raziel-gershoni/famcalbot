@@ -5,6 +5,7 @@
 
 import { CalendarEvent, UserConfig } from '../types';
 import { redis } from '../utils/redis';
+import { REDIS_KEYS } from '../config/redis-keys';
 import { getBot } from './telegram/bot';
 import { getBotMessages } from '../lib/bot-messages';
 
@@ -141,7 +142,7 @@ export async function detectUnknownKidName(
       if (userNames.has(normalizedName)) continue;
 
       // Check Redis dedup: skip if already asked
-      const dedupKey = `kidname:asked:${user.id}:${normalizedName}`;
+      const dedupKey = REDIS_KEYS.kidNameAsked(user.id, normalizedName);
       const alreadyAsked = await redis.get(dedupKey);
       if (alreadyAsked) continue;
 
@@ -174,14 +175,14 @@ export async function sendKidNameFollowUp(
   const pendingId = `kn:${user.id}:${Date.now()}`;
 
   // Store pending data in Redis with 10 minute TTL
-  await redis.set(`kidname:pending:${pendingId}`, JSON.stringify({
+  await redis.set(REDIS_KEYS.kidNamePending(pendingId), JSON.stringify({
     name: candidate.name,
     calendarId: candidate.calendarId,
     userId: user.id,
   }), { ex: 600 });
 
   // Mark name as asked with 30 day TTL
-  await redis.set(`kidname:asked:${user.id}:${candidate.name.toLowerCase()}`, '1', { ex: 30 * 24 * 60 * 60 });
+  await redis.set(REDIS_KEYS.kidNameAsked(user.id, candidate.name.toLowerCase()), '1', { ex: 30 * 24 * 60 * 60 });
 
   // Get localized strings
   const t = await getBotMessages(lang);
