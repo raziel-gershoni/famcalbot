@@ -20,9 +20,9 @@ interface CronHandlerOptions {
 }
 
 /**
- * Wraps a cron job handler with error handling
- * No auth required — cron jobs are triggered by the in-process scheduler,
- * HTTP routes exist only for manual debugging
+ * Wraps a cron job handler with error handling and auth
+ * Cron jobs are triggered by the in-process scheduler or manually via HTTP.
+ * Requires CRON_SECRET via Authorization header or query parameter.
  */
 export async function withCronHandler(
   request: NextRequest,
@@ -30,6 +30,13 @@ export async function withCronHandler(
 ): Promise<NextResponse> {
   const { jobName, handler } = options;
   const { searchParams } = new URL(request.url);
+
+  // Validate CRON_SECRET
+  const secret = request.headers.get('authorization')?.replace('Bearer ', '') ||
+    searchParams.get('secret');
+  if (secret !== process.env.CRON_SECRET) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
   let body: string | undefined;
   try {

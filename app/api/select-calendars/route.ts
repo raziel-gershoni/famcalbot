@@ -74,6 +74,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate calendar assignment rules and personName
+    for (const assignment of calendarAssignments) {
+      if (assignment.rules) {
+        if (!Array.isArray(assignment.rules) || assignment.rules.length > 1) {
+          return NextResponse.json({ error: 'Each calendar can have at most 1 rule' }, { status: 400 });
+        }
+        for (const rule of assignment.rules) {
+          if (typeof rule !== 'string' || rule.length > 200) {
+            return NextResponse.json({ error: 'Calendar rule too long (max 200 chars)' }, { status: 400 });
+          }
+        }
+      }
+      if (assignment.personName !== undefined && (typeof assignment.personName !== 'string' || assignment.personName.length > 50)) {
+        return NextResponse.json({ error: 'Person name too long (max 50 chars)' }, { status: 400 });
+      }
+    }
+
     // Sync spouse metadata across all spouse calendars
     const syncedAssignments = syncSpouseMetadata(calendarAssignments);
 

@@ -49,8 +49,8 @@ export async function checkRateLimit(
     };
   } catch (error) {
     console.error('[RateLimit] Error checking rate limit:', error);
-    // Fail open - allow request if Redis is down
-    return { success: true, remaining: 0, reset: 0 };
+    // Fail closed - deny request if Redis is down
+    return { success: false, remaining: 0, reset: 0 };
   }
 }
 

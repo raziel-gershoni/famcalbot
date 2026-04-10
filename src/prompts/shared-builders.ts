@@ -3,6 +3,17 @@
  * Consolidates common logic used across calendar-summary and week-lookahead prompts
  */
 
+/** Strip characters that could break prompt structure or inject instructions */
+export function sanitizeForPrompt(text: string): string {
+  return text
+    .replace(/\n/g, ' ')
+    .replace(/[#*_`~>|]/g, '')
+    .replace(/\[.*?\]/g, '')
+    .replace(/\{.*?\}/g, '')
+    .trim()
+    .slice(0, 500);
+}
+
 interface CalendarRule {
   calendarName: string;
   rule?: string;
@@ -20,7 +31,7 @@ export function buildGlobalRulesSection(
 
   const rules = globalRules
     .filter(r => r.trim())
-    .map((rule, i) => `${i + 1}. ${rule}`)
+    .map((rule, i) => `${i + 1}. ${sanitizeForPrompt(rule)}`)
     .join('\n');
 
   if (!rules) return '';
@@ -42,7 +53,7 @@ export function buildCalendarRulesSection(
 
   const rules = calendarRules
     .filter(r => r.rule?.trim())
-    .map(r => `- **${r.calendarName}**: ${r.rule}`)
+    .map(r => `- **${sanitizeForPrompt(r.calendarName)}**: ${sanitizeForPrompt(r.rule!)}`)
     .join('\n');
 
   if (!rules) return '';

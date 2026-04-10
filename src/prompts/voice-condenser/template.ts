@@ -3,6 +3,8 @@
  * Shared logic for building voice condenser prompts across languages
  */
 
+import { sanitizeForPrompt } from '../shared-builders';
+
 export interface FamilyContextLabels {
   userName: string;
   spouseLabel: string;
@@ -22,9 +24,9 @@ export function buildFamilyContext(
   hasKidsCalendars: boolean,
   labels: FamilyContextLabels
 ): string {
-  let context = `${labels.userName} ${userName}.`;
+  let context = `${labels.userName} ${sanitizeForPrompt(userName)}.`;
   if (spouseName) {
-    context += ` ${labels.spouseLabel} ${spouseName}.`;
+    context += ` ${labels.spouseLabel} ${sanitizeForPrompt(spouseName)}.`;
   }
   if (hasKidsCalendars) {
     context += ` ${labels.kidsLabel}`;

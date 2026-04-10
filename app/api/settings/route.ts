@@ -11,12 +11,27 @@ export async function POST(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
     const body = await request.json();
-    const { language, location, messagingPlatform, culture, globalRules, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, preferredMorningHour, preferredEveningHour, remindersEnabled, defaultReminderMinutes, pickupRemindersEnabled, voiceInputEnabled, voicePreference, voiceStyle, initData } = body;
+    const { language, location, messagingPlatform, culture, globalRules, name, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, preferredMorningHour, preferredEveningHour, remindersEnabled, defaultReminderMinutes, pickupRemindersEnabled, voiceInputEnabled, voicePreference, voiceStyle, initData } = body;
 
     // Authentication and rate limiting
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'settings');
     if (!auth.success) {
       return auth.response;
+    }
+
+    // Input validation
+    if (globalRules !== undefined) {
+      if (!Array.isArray(globalRules) || globalRules.length > 3) {
+        return NextResponse.json({ error: 'Invalid globalRules' }, { status: 400 });
+      }
+      for (const rule of globalRules) {
+        if (typeof rule !== 'string' || rule.length > 200) {
+          return NextResponse.json({ error: 'Rule too long (max 200 chars)' }, { status: 400 });
+        }
+      }
+    }
+    if (name !== undefined && (typeof name !== 'string' || name.length > 50)) {
+      return NextResponse.json({ error: 'Invalid name' }, { status: 400 });
     }
 
     const updatedUser = await updateUser(auth.userId, {

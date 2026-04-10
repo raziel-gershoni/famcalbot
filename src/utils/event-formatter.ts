@@ -1,6 +1,11 @@
 import { CalendarEvent } from '../types';
 import { TIMEZONE } from '../config/constants';
 
+/** Light sanitizer for event fields — strips newlines and markdown links, preserves legitimate text */
+function sanitizeEventField(text: string, maxLen = 500): string {
+  return text.replace(/\n/g, ' ').replace(/\[.*?\]/g, '').trim().slice(0, maxLen);
+}
+
 /**
  * Format a single event for inclusion in the Claude prompt
  */
@@ -18,14 +23,16 @@ export function formatEventForPrompt(event: CalendarEvent, index: number, timezo
     timeZone: timezone,
   });
 
-  let eventStr = `${index + 1}. ${event.summary} (${startTime} - ${endTime}) [Calendar: ${event.calendarName}]`;
+  const summary = sanitizeEventField(event.summary);
+  const calendarName = sanitizeEventField(event.calendarName);
+  let eventStr = `${index + 1}. ${summary} (${startTime} - ${endTime}) [Calendar: ${calendarName}]`;
 
   if (event.location) {
-    eventStr += ` at ${event.location}`;
+    eventStr += ` at ${sanitizeEventField(event.location)}`;
   }
 
   if (event.description) {
-    eventStr += `\n   Description: ${event.description}`;
+    eventStr += `\n   Description: ${sanitizeEventField(event.description, 200)}`;
   }
 
   return eventStr;

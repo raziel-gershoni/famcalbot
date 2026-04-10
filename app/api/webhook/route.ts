@@ -24,15 +24,17 @@ export async function POST(request: NextRequest) {
     // Detect platform from webhook structure
     const platform = detectPlatform({ body } as { body: Record<string, unknown> });
 
-    // Verify Telegram webhook secret token (if configured)
+    // Verify Telegram webhook secret token (mandatory)
     if (platform !== MessagingPlatform.WHATSAPP) {
       const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
-      if (webhookSecret) {
-        const providedSecret = request.headers.get('X-Telegram-Bot-Api-Secret-Token');
-        if (providedSecret !== webhookSecret) {
-          console.warn('[Webhook] Invalid or missing Telegram secret token');
-          return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+      if (!webhookSecret) {
+        console.error('[Webhook] TELEGRAM_WEBHOOK_SECRET not configured');
+        return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 });
+      }
+      const providedSecret = request.headers.get('X-Telegram-Bot-Api-Secret-Token');
+      if (providedSecret !== webhookSecret) {
+        console.warn('[Webhook] Invalid or missing Telegram secret token');
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
     }
     console.log(`[Webhook] Detected platform: ${platform}, Body object field: ${body?.object}`);
