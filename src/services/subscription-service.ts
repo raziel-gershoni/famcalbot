@@ -3,7 +3,7 @@
  * Manages user subscriptions, trials, and feature access
  */
 
-import { Subscription, SubscriptionPlan, SubscriptionStatus, UsageCounter, UserFeatureOverride } from '@prisma/client';
+import { Prisma, Subscription, SubscriptionPlan, SubscriptionStatus, UsageCounter, UserFeatureOverride } from '@prisma/client';
 import { redis } from '../utils/redis';
 import { prisma } from '../utils/prisma';
 import { PlanId, getPlanLimits, TRIAL_DURATION_DAYS, PLAN_CONFIGS } from '../config/plans';
@@ -79,25 +79,34 @@ export async function getOrCreateSubscription(userId: number): Promise<Subscript
   const now = new Date();
   const trialEndsAt = new Date(now.getTime() + TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000);
 
-  const subscription = await prisma.subscription.create({
-    data: {
-      userId,
+  try {
+    const subscription = await prisma.subscription.create({
+      data: {
+        userId,
+        plan: 'FREE',
+        status: 'TRIALING',
+        trialStartedAt: now,
+        trialEndsAt,
+      },
+    });
+
+    // Track trial start
+    await trackActivity(userId, 'subscription_started', {
       plan: 'FREE',
-      status: 'TRIALING',
-      trialStartedAt: now,
-      trialEndsAt,
-    },
-  });
+      is_trial: true,
+    });
 
-  // Track trial start
-  await trackActivity(userId, 'subscription_started', {
-    plan: 'FREE',
-    is_trial: true,
-  });
+    console.log(`[Subscription] Created trial subscription for user ${userId}, ends ${trialEndsAt.toISOString()}`);
 
-  console.log(`[Subscription] Created trial subscription for user ${userId}, ends ${trialEndsAt.toISOString()}`);
-
-  return subscription;
+    return subscription;
+  } catch (error) {
+    // Race condition: another concurrent request created the subscription first
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      const existing = await prisma.subscription.findUnique({ where: { userId } });
+      if (existing) return existing;
+    }
+    throw error;
+  }
 }
 
 /**
