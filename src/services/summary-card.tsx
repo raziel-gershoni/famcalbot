@@ -125,7 +125,7 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
 
   const lineCount = plainText.split('\n').length;
   const fontSize = lineCount > 25 ? 28 : lineCount > 18 ? 32 : 36;
-  const charsPerLine = Math.floor((WIDTH - 216) / (fontSize * 0.52));
+  const charsPerLine = Math.floor((WIDTH - 144) / (fontSize * 0.52));
 
   const jsx = (
     <div style={{
@@ -134,28 +134,28 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
       width: WIDTH,
       height: HEIGHT,
       background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      padding: '80px 60px',
+      padding: '40px 40px',
       fontFamily: 'Noto Sans',
       color: 'white',
     }}>
-      {/* Header — logo on the side, respecting RTL */}
+      {/* Header — compact logo */}
       <div style={{
         display: 'flex',
         justifyContent: isRtl ? 'flex-end' : 'flex-start',
-        marginBottom: '40px',
+        marginBottom: '20px',
       }}>
-        <img src={loadLogo()} width={80} height={80} />
+        <img src={loadLogo()} width={56} height={56} />
       </div>
 
-      {/* Summary content */}
+      {/* Summary content — maximized space */}
       <div style={{
         flexGrow: 1,
         background: 'rgba(255, 255, 255, 0.1)',
-        borderRadius: '24px',
-        padding: '48px',
+        borderRadius: '20px',
+        padding: '32px',
         overflow: 'hidden',
         fontSize: `${fontSize}px`,
-        lineHeight: 1.6,
+        lineHeight: 1.5,
         textAlign: isRtl ? 'right' : 'left',
         whiteSpace: 'pre-wrap',
         wordBreak: 'break-word',
@@ -163,13 +163,13 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
         {isRtl ? wrapAndBidi(plainText, language, charsPerLine) : plainText}
       </div>
 
-      {/* Footer */}
+      {/* Footer — compact */}
       <div style={{
         display: 'flex',
         justifyContent: 'center',
-        marginTop: '40px',
-        fontSize: '28px',
-        opacity: 0.6,
+        marginTop: '16px',
+        fontSize: '22px',
+        opacity: 0.5,
       }}>
         famcal.bot
       </div>
