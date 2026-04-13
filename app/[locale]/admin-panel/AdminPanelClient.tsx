@@ -2207,7 +2207,8 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                   )}
                 </div>
 
-                {/* Messaging Platform Section */}
+                {/* Messaging Platform Section — hide if user already has WhatsApp */}
+                {!selectedUser.whatsappPhone && (
                 <div className="user-card-section">
                   <div className="user-card-section-title">{t('overrides.platformTitle')}</div>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -2242,6 +2243,7 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                     </button>
                   </div>
                 </div>
+                )}
 
                 {/* Feature Overrides Section */}
                 <div className="user-card-section">
