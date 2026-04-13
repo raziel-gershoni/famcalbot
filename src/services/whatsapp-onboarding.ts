@@ -59,7 +59,8 @@ export async function handleOnboardingMessage(phone: string, text: string): Prom
 
   let state: OnboardState;
   try {
-    state = JSON.parse(raw) as OnboardState;
+    // Upstash may return already-parsed object or raw string
+    state = typeof raw === 'string' ? JSON.parse(raw) : raw as unknown as OnboardState;
   } catch (e) {
     captureError(e, 'wa-onboarding', { phone }, 'warning');
     await redis.del(REDIS_KEYS.waOnboard(phone));

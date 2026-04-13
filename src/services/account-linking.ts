@@ -69,7 +69,8 @@ export async function redeemLinkCode(code: string, whatsappPhone: string): Promi
 
   let data: LinkCodeData;
   try {
-    data = JSON.parse(raw) as LinkCodeData;
+    // Upstash may return already-parsed object or raw string
+    data = typeof raw === 'string' ? JSON.parse(raw) : raw as unknown as LinkCodeData;
   } catch {
     return { success: false, error: 'invalid_or_expired' };
   }
