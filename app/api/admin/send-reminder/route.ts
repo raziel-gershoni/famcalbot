@@ -90,6 +90,8 @@ export async function POST(request: NextRequest) {
       select: {
         id: true,
         telegramId: true,
+        whatsappPhone: true,
+        whatsappBsuid: true,
         language: true,
         name: true,
       },
@@ -102,37 +104,48 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!user.telegramId) {
+    const waChatId = user.whatsappPhone || user.whatsappBsuid;
+
+    if (!user.telegramId && !waChatId) {
       return NextResponse.json(
-        { error: 'User has no Telegram ID' },
+        { error: 'User has no messaging platform' },
         { status: 400 }
       );
     }
 
-    // Get localized messages
     const locale = user.language || 'en';
-    const messages = await getBotMessages(locale);
-    const reminderContent = getReminderContent(messages, reminder_type, locale, Number(user.telegramId));
 
-    // Build the message
-    const messageText = `${reminderContent.title}\n\n${reminderContent.body}`;
+    // Send via Telegram if available
+    if (user.telegramId) {
+      const messages = await getBotMessages(locale);
+      const reminderContent = getReminderContent(messages, reminder_type, locale, Number(user.telegramId));
+      const messageText = `${reminderContent.title}\n\n${reminderContent.body}`;
 
-    // Send the message via Telegram
-    const messagingService = getMessagingService();
-    await messagingService.sendMessage(
-      Number(user.telegramId),
-      messageText,
-      {
-        format: MessageFormat.HTML,
-        replyMarkup: {
-          inline_keyboard: [
-            [{ text: reminderContent.button, web_app: { url: reminderContent.url } }]
-          ]
+      const messagingService = getMessagingService();
+      await messagingService.sendMessage(
+        Number(user.telegramId),
+        messageText,
+        {
+          format: MessageFormat.HTML,
+          replyMarkup: {
+            inline_keyboard: [
+              [{ text: reminderContent.button, web_app: { url: reminderContent.url } }]
+            ]
+          }
         }
-      }
-    );
+      );
+    }
 
-    console.log(`[send-reminder] Admin ${auth.adminId} sent ${reminder_type} reminder to user ${user_id} (${user.name})`);
+    // Send via WhatsApp if TG not available (WA-only users get template)
+    if (waChatId && !user.telegramId) {
+      const { getWhatsAppService } = await import('@/src/services/messaging/factory');
+      const { buildWhatsAppTemplate } = await import('@/src/services/messaging/whatsapp-template');
+      const template = buildWhatsAppTemplate(locale, 'settings');
+      const waService = getWhatsAppService();
+      await waService.sendMessage(waChatId, '', { whatsappTemplate: template });
+    }
+
+    console.log(`[send-reminder] Admin ${auth.adminId} sent ${reminder_type} reminder to user ${user_id} (${user.name}) via ${user.telegramId ? 'TG' : 'WA'}`);
 
     return NextResponse.json({
       success: true,
