@@ -226,6 +226,14 @@ export async function handleWhatsAppWebhook(
   const entry = body.entry?.[0];
   const changes = entry?.changes?.[0];
   const value = changes?.value;
+
+  // Ignore messages for other phone numbers (same Meta app, different bots)
+  const incomingPhoneId = value?.metadata?.phone_number_id;
+  if (incomingPhoneId && process.env.WHATSAPP_PHONE_NUMBER_ID && incomingPhoneId !== process.env.WHATSAPP_PHONE_NUMBER_ID) {
+    res.status(200).json({ ok: true });
+    return;
+  }
+
   const messages = value?.messages;
 
   // Log delivery status callbacks (sent, delivered, read, failed)
