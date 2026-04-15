@@ -623,7 +623,7 @@
     },
     "whatsapp": {
       "welcome": "Привет, {name}! Добро пожаловать в FamCal! 👋\n\nFamCal читает Google Календари вашей семьи и каждое утро присылает *сводку дня* — общее расписание, порядок забора детей, погоду и голосовой обзор за 30 секунд.",
-      "linkTelegramPrompt": "Уже используете FamCal в Telegram? Привяжите аккаунт в одно касание:",
+      "linkTelegramPrompt": "Уже используете FamCal в Telegram? Нажмите ниже, чтобы начать привязку, или отправьте /connect в боте Telegram.",
       "linkTelegramButton": "Привязать Telegram",
       "linkSuccess": "Аккаунты связаны! Ваши Telegram и WhatsApp теперь подключены. 🎉",
       "linkInvalidCode": "Неверный или просроченный код. Создайте новый с помощью /connect в Telegram.",

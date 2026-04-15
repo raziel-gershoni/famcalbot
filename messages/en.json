@@ -623,7 +623,7 @@
     },
     "whatsapp": {
       "welcome": "Welcome to FamCal, {name}! 👋\n\nFamCal reads your family's Google Calendars and sends you a *daily briefing* every morning — merged schedules, kids' pickup order, weather, and a 30-second voice summary.",
-      "linkTelegramPrompt": "Already on Telegram? Link your account in one tap:",
+      "linkTelegramPrompt": "Already on Telegram? Tap below to start the linking process, or send /connect in the Telegram bot.",
       "linkTelegramButton": "Link Telegram",
       "linkSuccess": "Accounts linked! Your Telegram and WhatsApp are now connected. 🎉",
       "linkInvalidCode": "Invalid or expired link code. Generate a new one with /connect on Telegram.",
