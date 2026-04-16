@@ -1099,6 +1099,16 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
             </>)}
 
           </form>
+
+          <p style={{
+            textAlign: 'center',
+            fontSize: '12px',
+            color: '#9ca3af',
+            marginTop: '16px',
+            padding: '0 16px',
+          }}>
+            🔒 {t('privacyNote')}
+          </p>
         </div>
       </div>
 

@@ -328,7 +328,10 @@ export default async function LandingPage({ params }: Props) {
               WhatsApp
             </a>
           </div>
-          <p className="mt-6">
+          <p className="mt-6 text-sm text-white/70">
+            🔒 {t('earlyAccess.privacyNote')}
+          </p>
+          <p className="mt-3">
             <Link href={`/${locale}/share`} className="text-sm text-white/80 underline underline-offset-2 hover:text-white">
               {t('earlyAccess.sharePrompt')}
             </Link>

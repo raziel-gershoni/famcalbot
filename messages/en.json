@@ -271,6 +271,7 @@
     "voicePreferenceDescription": "Choose the voice used for audio summaries",
     "voiceStyle": "Voice Style",
     "voiceStyleDescription": "How your voice summaries should sound",
+    "privacyNote": "Your calendar data is never stored — fetched, summarized, and discarded. Settings encrypted at rest.",
     "summaryDeliveryTime": "Summary Delivery Time",
     "morningHour": "Morning Summary",
     "morningHourDescription": "When to receive today's summary (your local time)",
@@ -420,7 +421,7 @@
     "start": {
       "welcome": "👋 <b>Welcome to FamCal, {name}!</b>",
       "valueProp": "FamCal reads your family's Google Calendars and sends you a <b>daily briefing</b> every morning — as text and voice, right here in {platform}.",
-      "featureList": "Here's what you'll get:\n\n📅 <b>Merged family schedule</b> — yours, spouse, and kids in one view\n🎤 <b>30-second voice briefing</b> — listen while making coffee\n🚗 <b>Kids' pickup order</b> — sorted by end time\n🌤️ <b>Weather tied to your schedule</b> — \"Rain at pickup, bring umbrellas\"\n🗣️ <b>Voice commands</b> — create events by talking",
+      "featureList": "Here's what you'll get:\n\n📅 <b>Merged family schedule</b> — yours, spouse, and kids in one view\n🎤 <b>30-second voice briefing</b> — listen while making coffee\n🚗 <b>Kids' pickup order</b> — sorted by end time\n🌤️ <b>Weather tied to your schedule</b> — \"Rain at pickup, bring umbrellas\"\n🗣️ <b>Voice commands</b> — create events by talking\n\n🔒 <i>Your calendar data is never stored — fetched, summarized, and discarded. Only your settings are saved, encrypted at rest.</i>",
       "sampleIntro": "Here's what your morning briefing looks like:",
       "sampleSummary": "☀️ <b>Good morning!</b>\nToday — Sunday, Mar 15\n\n<b>Your Schedule:</b>\n• 09:00 – Team standup (Zoom)\n• 14:00 – Client meeting\n\n<b>Sarah's Schedule:</b>\n• 10:30 – Dentist\n\n<b>Kids Pickup:</b>\n1. 14:00 — Noah (School)\n2. 16:30 — Maya, Liam (Soccer)\n\n💡 Sarah finishes at 12 — she can handle Noah's pickup\n🌤️ 22°C, sunny. Light jacket for evening.",
       "ctaSetup": "Ready? Connect your Google Calendar to see <b>your</b> schedule (60 seconds):",
@@ -863,6 +864,7 @@
     "earlyAccess": {
       "title": "Free during early access",
       "subtitle": "All features. All languages. No credit card. Join now and help shape FamCal.",
+      "privacyNote": "Your calendar data is never stored. Fetched, summarized, discarded. Only settings saved, encrypted.",
       "cta": "Start Free",
       "sharePrompt": "Know a busy parent? Share FamCal →"
     },
