@@ -435,7 +435,7 @@ function buildInfographicJsx(
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'center',
-                    width: 150,
+                    width: 200,
                   }}
                 >
                   <div style={{ display: 'flex', fontSize: 38, fontWeight: 700 }}>
