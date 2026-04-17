@@ -1,6 +1,6 @@
 /**
  * Voice Generation Service
- * Generates speech from text using Gemini 2.5 Flash TTS
+ * Generates speech from text using Gemini 3.1 Flash TTS
  * Replaces the previous Google Cloud TTS implementation
  */
 
@@ -12,7 +12,7 @@ import { encodePcmToOggOpus } from '../utils/pcm-to-ogg-opus';
 import { getVoiceForUser, VOICE_STYLE_PROMPTS } from '../config/voice-options';
 
 // Model ID configurable via env var (prevents production outage on preview→GA rename)
-const GEMINI_TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts';
+const GEMINI_TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-3.1-flash-tts-preview';
 
 // Voice config per language (with env var overrides)
 // All male voices, matching previous Google TTS Wavenet-D male voices
