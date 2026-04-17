@@ -443,24 +443,32 @@ function buildWeekLookaheadPromptData(
     const hebrewDate = user.culture === 'jewish' ? getHebrewDateString(date, language, timezone) : undefined;
     const relativeLabel = getRelativeLabel(daysFromNow, language);
 
+    const birthdayLabel = language === 'he' ? 'יום הולדת' : language === 'ru' ? 'День рождения' : 'Birthday';
+
     const formattedEvents: LookaheadEventData[] = dayEvents.map(event => {
-      // Format time
-      const time = event.start.toLocaleTimeString(intlLocale, {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-        timeZone: timezone,
-      });
-      const isAllDay = time === '00:00';
+      let timeLabel: string;
+      if (event.isBirthday) {
+        timeLabel = birthdayLabel;
+      } else if (event.isAllDay) {
+        timeLabel = allDayLabel;
+      } else {
+        timeLabel = event.start.toLocaleTimeString(intlLocale, {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+          timeZone: timezone,
+        });
+      }
 
       const kidName = kidsCalendarIdMap.get(event.calendarId);
       return {
-        time: isAllDay ? allDayLabel : time,
+        time: timeLabel,
         summary: event.summary,
         calendarName: kidName ? `Child: ${kidName}` : event.calendarName,
-        calendarLabel: event.calendarLabel as 'yours' | 'spouse' | 'kids',
+        calendarLabel: event.calendarLabel as 'yours' | 'spouse' | 'kids' | 'birthdays',
         isRecurring: event.recurrenceType !== 'single',
         recurrenceType: event.recurrenceType !== 'single' ? event.recurrenceType as 'weekly' | 'monthly' | 'yearly' : undefined,
+        isBirthday: event.isBirthday || undefined,
       };
     });
 
@@ -599,24 +607,32 @@ function buildNextWeekPromptData(
     const hebrewDate = user.culture === 'jewish' ? getHebrewDateString(date, language, timezone) : undefined;
     const relativeLabel = getRelativeLabel(daysFromNow, language);
 
+    const birthdayLabel = language === 'he' ? 'יום הולדת' : language === 'ru' ? 'День рождения' : 'Birthday';
+
     const formattedEvents: LookaheadEventData[] = dayEvents.map(event => {
-      // Format time
-      const time = event.start.toLocaleTimeString(intlLocale, {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-        timeZone: timezone,
-      });
-      const isAllDay = time === '00:00';
+      let timeLabel: string;
+      if (event.isBirthday) {
+        timeLabel = birthdayLabel;
+      } else if (event.isAllDay) {
+        timeLabel = allDayLabel;
+      } else {
+        timeLabel = event.start.toLocaleTimeString(intlLocale, {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+          timeZone: timezone,
+        });
+      }
 
       const kidName = kidsCalendarIdMap.get(event.calendarId);
       return {
-        time: isAllDay ? allDayLabel : time,
+        time: timeLabel,
         summary: event.summary,
         calendarName: kidName ? `Child: ${kidName}` : event.calendarName,
-        calendarLabel: event.calendarLabel as 'yours' | 'spouse' | 'kids',
+        calendarLabel: event.calendarLabel as 'yours' | 'spouse' | 'kids' | 'birthdays',
         isRecurring: event.recurrenceType !== 'single',
         recurrenceType: event.recurrenceType !== 'single' ? event.recurrenceType as 'weekly' | 'monthly' | 'yearly' : undefined,
+        isBirthday: event.isBirthday || undefined,
       };
     });
 

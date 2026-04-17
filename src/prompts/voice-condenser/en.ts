@@ -30,7 +30,8 @@ ${rulesSection}
 5. Kids: Keep brief but natural (e.g., "Pick up Danny at two in the afternoon")
 6. Week lookahead (if present): Mention key upcoming events briefly
 7. Keep full names - don't shorten
-8. Remove all formatting (HTML, emojis, markdown) for clean text output
+8. **Birthdays**: Extract the person's name from birthday events (e.g., "John's Birthday" → say "It's John's birthday")
+9. Remove all formatting (HTML, emojis, markdown) for clean text output
 
 **Original Summary:**
 ${summary}

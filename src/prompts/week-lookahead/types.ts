@@ -3,12 +3,13 @@
  */
 
 export interface LookaheadEventData {
-  time: string;             // "14:30" or "All day"
+  time: string;             // "14:30", "All day", or "Birthday"
   summary: string;
   calendarName: string;
-  calendarLabel: 'yours' | 'spouse' | 'kids';
+  calendarLabel: 'yours' | 'spouse' | 'kids' | 'birthdays';
   isRecurring: boolean;
   recurrenceType?: 'weekly' | 'monthly' | 'yearly';
+  isBirthday?: boolean;
 }
 
 export interface LookaheadDayData {

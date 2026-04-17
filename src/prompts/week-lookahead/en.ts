@@ -106,6 +106,7 @@ Generate a friendly, conversational preview. Structure:
 - **Calendar attribution** - For your events, mention source (e.g., "from your work calendar"). For spouse/kids, the name already implies source - don't repeat.
 - **Highlight recurring events** - if something is monthly/yearly, note it (e.g., "monthly checkup")
 - **Time format**: Always use HH:MM (24-hour) - e.g., 08:00, 14:30
+- **Birthdays**: Events with time "Birthday" — present naturally with the person's name extracted from the title (e.g., "John's Birthday" → "It's John's birthday"). No time needed.
 - **Format**: Use Telegram HTML tags: <b>bold</b>, <i>italic</i>
 - **If no events**: Keep it brief - just note that the week looks clear
 ${isNextWeek ? '- **Do NOT say "today"** - refer to days by their actual names (Monday, Tuesday, etc.)' : '- **Use relative day references** - "Tomorrow", "In 3 days" alongside actual dates'}

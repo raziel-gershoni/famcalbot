@@ -5,6 +5,7 @@
 
 import { CalendarEvent, CalendarAssignment, CalendarLabel, UserConfig } from '../types';
 import { getCalendarClient, TIMEZONE } from './calendar';
+import { isAllDayEvent, isBirthdayEvent } from '../utils/event-formatter';
 
 // Recurrence frequency types
 export type RecurrenceType = 'single' | 'daily' | 'weekly' | 'monthly' | 'yearly';
@@ -18,6 +19,8 @@ export interface LookaheadEvent {
   calendarLabel: CalendarLabel;
   recurrenceType: RecurrenceType;
   daysFromNow: number;
+  isAllDay: boolean;
+  isBirthday: boolean;
 }
 
 export interface WeekLookahead {
@@ -210,13 +213,13 @@ async function filterAndBuildLookaheadEvents(
   const lookaheadEvents: LookaheadEvent[] = [];
 
   for (const event of events) {
-    // Skip birthday events (using eventType from Google Calendar API)
-    if (event.eventType === 'birthday') continue;
+    const birthday = isBirthdayEvent(event);
+    const allDay = isAllDayEvent(event);
 
-    // Determine recurrence type
-    let recurrenceType: RecurrenceType = 'single';
+    // Determine recurrence type (skip for birthdays — always include them)
+    let recurrenceType: RecurrenceType = birthday ? 'yearly' : 'single';
 
-    if (event.recurringEventId) {
+    if (!birthday && event.recurringEventId) {
       // Fetch master event to get recurrence rules
       const rrule = await getMasterEventRecurrence(
         user.googleRefreshToken,
@@ -234,7 +237,7 @@ async function filterAndBuildLookaheadEvents(
       }
     }
 
-    // Filter by recurrence rules
+    // Filter by recurrence rules (birthdays bypass this — already set to 'yearly')
     if (recurrenceType === 'daily') continue;
     if (recurrenceType === 'weekly' && !user.includeWeeklyInLookahead) continue;
 
@@ -250,6 +253,8 @@ async function filterAndBuildLookaheadEvents(
       calendarLabel: getCalendarLabel(event.calendarId, calendars),
       recurrenceType,
       daysFromNow: getDaysFromReference(eventStartDate, referenceDate),
+      isAllDay: allDay,
+      isBirthday: birthday,
     });
   }
 
@@ -273,10 +278,8 @@ export async function getWeekLookahead(
   const startDate = referenceDate || new Date();
   const endDate = getNextWeekBoundary(user.culture, user.lookaheadAlways7Days, startDate);
 
-  // Get calendar IDs (exclude birthdays calendars from the scan)
-  const calendarIds = calendars
-    .filter(c => !c.labels.includes('birthdays'))
-    .map(c => c.calendarId);
+  // Get all calendar IDs (including birthdays)
+  const calendarIds = calendars.map(c => c.calendarId);
 
   if (calendarIds.length === 0 || !user.googleRefreshToken) {
     return { events: [], dateRange: { start: startDate, end: endDate } };
@@ -345,10 +348,8 @@ export async function getNextWeekLookahead(
 ): Promise<WeekLookahead> {
   const { start, end } = getNextWeekBoundaries(user.culture, referenceDate);
 
-  // Get calendar IDs (exclude birthdays calendars from the scan)
-  const calendarIds = calendars
-    .filter(c => !c.labels.includes('birthdays'))
-    .map(c => c.calendarId);
+  // Get all calendar IDs (including birthdays)
+  const calendarIds = calendars.map(c => c.calendarId);
 
   if (calendarIds.length === 0 || !user.googleRefreshToken) {
     return { events: [], dateRange: { start, end } };

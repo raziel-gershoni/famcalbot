@@ -37,7 +37,8 @@ ${rulesSection}
 5. For family events: mention whose it is naturally ("${spouseName || 'Your spouse'} has..." or "The kids have...")
 6. Keep full names - don't shorten
 7. If multiple events on same day, combine naturally
-8. Remove all formatting (HTML, emojis, markdown) for clean text output
+8. **Birthdays**: Extract the person's name from birthday events (e.g., "John's Birthday" → say "It's John's birthday")
+9. Remove all formatting (HTML, emojis, markdown) for clean text output
 
 **Original Weekly Summary:**
 ${summary}

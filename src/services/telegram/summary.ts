@@ -105,6 +105,12 @@ async function prepareSummaryForUser(
           .filter(e => e.daysFromNow > 1)
           .map(e => {
             const dayName = e.start.toLocaleDateString('en-US', { weekday: 'long', timeZone: userTimezone });
+            if (e.isBirthday) {
+              return `${dayName}: ${e.summary} (Birthday)`;
+            }
+            if (e.isAllDay) {
+              return `${dayName}: ${e.summary} (All day) (${e.calendarName})`;
+            }
             const time = e.start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: userTimezone });
             return `${dayName}: ${e.summary} at ${time} (${e.calendarName})`;
           })
