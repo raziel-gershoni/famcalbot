@@ -275,6 +275,7 @@ export async function sendSummaryToUser(
 export interface SummaryBatchResult {
   processed: number;
   skippedHour: number;
+  skippedDay: number;
   skippedDedup: number;
 }
 
@@ -287,7 +288,7 @@ async function sendSummaryToAll(
   options?: { filterByHour?: boolean }
 ): Promise<SummaryBatchResult> {
   const messagingService = getMessagingService();
-  const result: SummaryBatchResult = { processed: 0, skippedHour: 0, skippedDedup: 0 };
+  const result: SummaryBatchResult = { processed: 0, skippedHour: 0, skippedDay: 0, skippedDedup: 0 };
 
   try {
     const allUsers = await getAllUsers();
@@ -304,9 +305,10 @@ async function sendSummaryToAll(
       const filtered = await filterUsersForSummary(allUsers, summaryType);
       users = filtered.eligible;
       result.skippedHour = filtered.skippedHour;
+      result.skippedDay = filtered.skippedDay;
       result.skippedDedup = filtered.skippedDedup;
 
-      console.log(`[Summary] Hourly filter: ${users.length} eligible, ${filtered.skippedHour} skipped (hour), ${filtered.skippedDedup} skipped (dedup)`);
+      console.log(`[Summary] Hourly filter: ${users.length} eligible, ${filtered.skippedHour} skipped (hour), ${filtered.skippedDay} skipped (day), ${filtered.skippedDedup} skipped (dedup)`);
     }
 
     for (const user of users) {

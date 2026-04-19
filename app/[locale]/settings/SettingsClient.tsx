@@ -31,6 +31,8 @@ interface SettingsClientProps {
     lookaheadAlways7Days: boolean;
     preferredMorningHour: number;
     preferredEveningHour: number;
+    dailySummaryDays: number[];
+    tomorrowSummaryDays: number[];
     remindersEnabled: boolean;
     defaultReminderMinutes: number | null;
     pickupRemindersEnabled: boolean;
@@ -59,6 +61,8 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
   const [lookaheadAlways7Days, setLookaheadAlways7Days] = useState(currentSettings.lookaheadAlways7Days);
   const [preferredMorningHour, setPreferredMorningHour] = useState(currentSettings.preferredMorningHour);
   const [preferredEveningHour, setPreferredEveningHour] = useState(currentSettings.preferredEveningHour);
+  const [dailySummaryDays, setDailySummaryDays] = useState<number[]>(currentSettings.dailySummaryDays);
+  const [tomorrowSummaryDays, setTomorrowSummaryDays] = useState<number[]>(currentSettings.tomorrowSummaryDays);
   const [remindersEnabled, setRemindersEnabled] = useState(currentSettings.remindersEnabled);
   const [defaultReminderMinutes, setDefaultReminderMinutes] = useState(currentSettings.defaultReminderMinutes ?? 15);
   const [pickupRemindersEnabled, setPickupRemindersEnabled] = useState(currentSettings.pickupRemindersEnabled);
@@ -83,6 +87,8 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
     lookaheadAlways7Days !== currentSettings.lookaheadAlways7Days ||
     preferredMorningHour !== currentSettings.preferredMorningHour ||
     preferredEveningHour !== currentSettings.preferredEveningHour ||
+    JSON.stringify([...dailySummaryDays].sort()) !== JSON.stringify([...currentSettings.dailySummaryDays].sort()) ||
+    JSON.stringify([...tomorrowSummaryDays].sort()) !== JSON.stringify([...currentSettings.tomorrowSummaryDays].sort()) ||
     remindersEnabled !== currentSettings.remindersEnabled ||
     defaultReminderMinutes !== (currentSettings.defaultReminderMinutes ?? 15) ||
     pickupRemindersEnabled !== currentSettings.pickupRemindersEnabled ||
@@ -263,6 +269,8 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
           lookaheadAlways7Days,
           preferredMorningHour,
           preferredEveningHour,
+          dailySummaryDays,
+          tomorrowSummaryDays,
           remindersEnabled,
           defaultReminderMinutes: remindersEnabled ? defaultReminderMinutes : null,
           pickupRemindersEnabled,
@@ -678,6 +686,42 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
           transform: translateX(24px);
         }
 
+        .day-picker {
+          display: flex;
+          gap: 6px;
+          margin-top: 8px;
+          justify-content: space-between;
+        }
+
+        .day-btn {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          border: 2px solid #e5e7eb;
+          background: white;
+          color: #6b7280;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0;
+          -webkit-tap-highlight-color: transparent;
+        }
+
+        .day-btn.active {
+          background: #667eea;
+          border-color: #667eea;
+          color: white;
+        }
+
+        .day-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
         .section-title {
           font-size: 16px;
           font-weight: 600;
@@ -790,7 +834,17 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
                 name="culture"
                 id="culture"
                 value={culture}
-                onChange={(e) => setCulture(e.target.value)}
+                onChange={(e) => {
+                  const newCulture = e.target.value;
+                  setCulture(newCulture);
+                  if (newCulture === 'jewish') {
+                    setDailySummaryDays([0, 1, 2, 3, 4, 5]);
+                    setTomorrowSummaryDays([0, 1, 2, 3, 4, 6]);
+                  } else {
+                    setDailySummaryDays([0, 1, 2, 3, 4, 5, 6]);
+                    setTomorrowSummaryDays([0, 1, 2, 3, 4, 5, 6]);
+                  }
+                }}
                 disabled={formState !== 'idle'}
               >
                 <option value="default">{t('cultureDefault')}</option>
@@ -997,6 +1051,28 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
                 ))}
               </select>
               <p className="help-text">{t('morningHourDescription')}</p>
+              <div className="day-picker">
+                {[0, 1, 2, 3, 4, 5, 6].map(day => (
+                  <button
+                    key={day}
+                    type="button"
+                    className={`day-btn ${dailySummaryDays.includes(day) ? 'active' : ''}`}
+                    onClick={() => {
+                      if (formState !== 'idle') return;
+                      if (dailySummaryDays.includes(day)) {
+                        if (dailySummaryDays.length <= 1) return;
+                        setDailySummaryDays(dailySummaryDays.filter(d => d !== day));
+                      } else {
+                        setDailySummaryDays([...dailySummaryDays, day].sort());
+                      }
+                    }}
+                    disabled={formState !== 'idle'}
+                    aria-pressed={dailySummaryDays.includes(day)}
+                  >
+                    {t(`days.d${day}`)}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="form-group">
@@ -1013,6 +1089,28 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
                 ))}
               </select>
               <p className="help-text">{t('eveningHourDescription')}</p>
+              <div className="day-picker">
+                {[0, 1, 2, 3, 4, 5, 6].map(day => (
+                  <button
+                    key={day}
+                    type="button"
+                    className={`day-btn ${tomorrowSummaryDays.includes(day) ? 'active' : ''}`}
+                    onClick={() => {
+                      if (formState !== 'idle') return;
+                      if (tomorrowSummaryDays.includes(day)) {
+                        if (tomorrowSummaryDays.length <= 1) return;
+                        setTomorrowSummaryDays(tomorrowSummaryDays.filter(d => d !== day));
+                      } else {
+                        setTomorrowSummaryDays([...tomorrowSummaryDays, day].sort());
+                      }
+                    }}
+                    disabled={formState !== 'idle'}
+                    aria-pressed={tomorrowSummaryDays.includes(day)}
+                  >
+                    {t(`days.d${day}`)}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {currentSettings.messagingPlatform !== 'whatsapp' && (<>

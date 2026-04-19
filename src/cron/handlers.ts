@@ -85,6 +85,7 @@ export async function handleDailySummary(): Promise<CronResult> {
     message: 'Daily summaries sent successfully',
     processed: summaryResult.processed,
     skippedHour: summaryResult.skippedHour,
+    skippedDay: summaryResult.skippedDay,
     skippedDedup: summaryResult.skippedDedup,
   };
 }
@@ -100,6 +101,7 @@ export async function handleTomorrowSummary(): Promise<CronResult> {
     message: "Tomorrow's summaries sent successfully",
     processed: summaryResult.processed,
     skippedHour: summaryResult.skippedHour,
+    skippedDay: summaryResult.skippedDay,
     skippedDedup: summaryResult.skippedDedup,
   };
 }

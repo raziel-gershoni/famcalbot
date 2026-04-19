@@ -278,6 +278,15 @@
     "eveningHour": "סיכום ערב",
     "eveningHourDescription": "מתי לקבל את סיכום המחר (שעון מקומי)",
     "hourSuffix": ":00",
+    "days": {
+      "d0": "א׳",
+      "d1": "ב׳",
+      "d2": "ג׳",
+      "d3": "ד׳",
+      "d4": "ה׳",
+      "d5": "ו׳",
+      "d6": "ש׳"
+    },
     "remindersSection": "תזכורות לאירועים",
     "remindersEnabled": "הפעל תזכורות",
     "remindersEnabledDescription": "קבל תזכורות בטלגרם לפני תחילת האירועים",

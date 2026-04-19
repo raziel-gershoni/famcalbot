@@ -278,6 +278,15 @@
     "eveningHour": "Evening Summary",
     "eveningHourDescription": "When to receive tomorrow's summary (your local time)",
     "hourSuffix": ":00",
+    "days": {
+      "d0": "Su",
+      "d1": "Mo",
+      "d2": "Tu",
+      "d3": "We",
+      "d4": "Th",
+      "d5": "Fr",
+      "d6": "Sa"
+    },
     "remindersSection": "Event Reminders",
     "remindersEnabled": "Enable Reminders",
     "remindersEnabledDescription": "Receive Telegram reminders before events start",

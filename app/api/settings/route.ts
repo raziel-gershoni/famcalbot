@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
     const body = await request.json();
-    const { language, location, messagingPlatform, culture, globalRules, name, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, preferredMorningHour, preferredEveningHour, remindersEnabled, defaultReminderMinutes, pickupRemindersEnabled, voiceInputEnabled, voicePreference, voiceStyle, initData } = body;
+    const { language, location, messagingPlatform, culture, globalRules, name, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, preferredMorningHour, preferredEveningHour, dailySummaryDays, tomorrowSummaryDays, remindersEnabled, defaultReminderMinutes, pickupRemindersEnabled, voiceInputEnabled, voicePreference, voiceStyle, initData } = body;
 
     // Authentication and rate limiting
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'settings');
@@ -33,6 +33,15 @@ export async function POST(request: NextRequest) {
     if (name !== undefined && (typeof name !== 'string' || name.length > 50)) {
       return NextResponse.json({ error: 'Invalid name' }, { status: 400 });
     }
+    const isValidDaysArray = (arr: unknown): arr is number[] =>
+      Array.isArray(arr) && arr.length >= 1 && arr.length <= 7 &&
+      arr.every((d: unknown) => typeof d === 'number' && d >= 0 && d <= 6);
+    if (dailySummaryDays !== undefined && !isValidDaysArray(dailySummaryDays)) {
+      return NextResponse.json({ error: 'Invalid dailySummaryDays' }, { status: 400 });
+    }
+    if (tomorrowSummaryDays !== undefined && !isValidDaysArray(tomorrowSummaryDays)) {
+      return NextResponse.json({ error: 'Invalid tomorrowSummaryDays' }, { status: 400 });
+    }
 
     const updatedUser = await updateUser(auth.userId, {
       language: language || undefined,  // Locale code: 'he', 'en', 'ru'
@@ -47,6 +56,8 @@ export async function POST(request: NextRequest) {
       lookaheadAlways7Days: typeof lookaheadAlways7Days === 'boolean' ? lookaheadAlways7Days : undefined,
       preferredMorningHour: typeof preferredMorningHour === 'number' ? preferredMorningHour : undefined,
       preferredEveningHour: typeof preferredEveningHour === 'number' ? preferredEveningHour : undefined,
+      dailySummaryDays: isValidDaysArray(dailySummaryDays) ? dailySummaryDays : undefined,
+      tomorrowSummaryDays: isValidDaysArray(tomorrowSummaryDays) ? tomorrowSummaryDays : undefined,
       remindersEnabled: typeof remindersEnabled === 'boolean' ? remindersEnabled : undefined,
       defaultReminderMinutes: typeof defaultReminderMinutes === 'number' ? defaultReminderMinutes : undefined,
       pickupRemindersEnabled: typeof pickupRemindersEnabled === 'boolean' ? pickupRemindersEnabled : undefined,

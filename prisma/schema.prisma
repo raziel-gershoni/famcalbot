@@ -43,6 +43,8 @@ model User {
   lookaheadAlways7Days Boolean @default(false) // true = always 7 days, false = until end of week
   preferredMorningHour Int @default(7)               // 0-23, user's local time for daily summary
   preferredEveningHour Int @default(19)              // 0-23, user's local time for tomorrow summary
+  dailySummaryDays     Int[] @default([0,1,2,3,4,5,6])   // 0=Sun..6=Sat — which days to send morning summary
+  tomorrowSummaryDays  Int[] @default([0,1,2,3,4,5,6])   // 0=Sun..6=Sat — which days to send evening summary
   remindersEnabled Boolean @default(false)          // Enable event reminders via Telegram
   defaultReminderMinutes Int?                       // Default reminder time (minutes before event)
   pickupRemindersEnabled Boolean @default(true)     // Enable pickup reminders for kids' events

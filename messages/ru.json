@@ -278,6 +278,15 @@
     "eveningHour": "Вечерняя сводка",
     "eveningHourDescription": "Когда получать сводку на завтра (ваше местное время)",
     "hourSuffix": ":00",
+    "days": {
+      "d0": "Вс",
+      "d1": "Пн",
+      "d2": "Вт",
+      "d3": "Ср",
+      "d4": "Чт",
+      "d5": "Пт",
+      "d6": "Сб"
+    },
     "remindersSection": "Напоминания о событиях",
     "remindersEnabled": "Включить напоминания",
     "remindersEnabledDescription": "Получать напоминания в Telegram перед началом событий",

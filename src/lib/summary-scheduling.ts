@@ -14,6 +14,7 @@ type SummaryType = 'daily' | 'tomorrow';
 interface FilterResult {
   eligible: UserConfig[];
   skippedHour: number;
+  skippedDay: number;
   skippedDedup: number;
 }
 
@@ -27,6 +28,7 @@ export async function filterUsersForSummary(
 ): Promise<FilterResult> {
   const eligible: UserConfig[] = [];
   let skippedHour = 0;
+  let skippedDay = 0;
   let skippedDedup = 0;
 
   for (const user of users) {
@@ -39,6 +41,18 @@ export async function filterUsersForSummary(
 
       if (localHour !== preferredHour) {
         skippedHour++;
+        continue;
+      }
+
+      // Check day-of-week preference
+      const isoDay = parseInt(formatInTimeZone(new Date(), timezone, 'i'), 10);
+      const localDay = isoDay === 7 ? 0 : isoDay; // ISO 1=Mon,7=Sun → JS 0=Sun
+      const summaryDays = summaryType === 'daily'
+        ? (user.dailySummaryDays ?? [0, 1, 2, 3, 4, 5, 6])
+        : (user.tomorrowSummaryDays ?? [0, 1, 2, 3, 4, 5, 6]);
+
+      if (!summaryDays.includes(localDay)) {
+        skippedDay++;
         continue;
       }
 
@@ -60,7 +74,7 @@ export async function filterUsersForSummary(
     }
   }
 
-  return { eligible, skippedHour, skippedDedup };
+  return { eligible, skippedHour, skippedDay, skippedDedup };
 }
 
 /**

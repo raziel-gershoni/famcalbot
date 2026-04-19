@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN "dailySummaryDays" INTEGER[] NOT NULL DEFAULT ARRAY[0,1,2,3,4,5,6];
+ALTER TABLE "User" ADD COLUMN "tomorrowSummaryDays" INTEGER[] NOT NULL DEFAULT ARRAY[0,1,2,3,4,5,6];
