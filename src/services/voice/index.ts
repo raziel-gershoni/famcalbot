@@ -14,3 +14,6 @@ export { trackCreatedEvent, getLastCreatedEvent, findMatchingEvent } from './eve
 
 // Confirmations (used externally)
 export { showEditConfirmation, showDeleteConfirmation } from './confirmations';
+
+// Correction handler
+export { handleEventCorrection } from './correction-handler';

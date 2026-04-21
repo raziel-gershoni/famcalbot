@@ -135,6 +135,48 @@ export async function handleTelegramWebhook(
     return;
   }
 
+  // Handle reply-to-message corrections (text or voice reply to a pending event confirmation)
+  if (update.message?.reply_to_message && (update.message.text || update.message.voice)) {
+    const chatId = update.message.chat.id;
+    const replyUserId = update.message.from.id;
+    const repliedToMsgId = update.message.reply_to_message.message_id;
+
+    const { redis } = await import('../utils/redis');
+    const { REDIS_KEYS } = await import('../config/redis-keys');
+    const pendingId = await redis.get<string>(REDIS_KEYS.pendingReply(chatId, repliedToMsgId));
+
+    if (pendingId) {
+      addBreadcrumb('reply_correction_received', {
+        user_id: replyUserId,
+        input_type: update.message.voice ? 'voice' : 'text',
+      }, 'user_action');
+
+      console.log(`[Webhook] Reply correction from user ${replyUserId} to message ${repliedToMsgId}`);
+
+      try {
+        let correctionInput: { text: string } | { audioBuffer: Buffer; language: string };
+
+        if (update.message.voice) {
+          const { downloadVoiceFile } = await import('./voice/event-resolution');
+          const audioBuffer = await downloadVoiceFile(update.message.voice.file_id);
+          const user = await import('./user-service').then(m => m.getUserByTelegramId(replyUserId));
+          correctionInput = { audioBuffer, language: user?.language || 'en' };
+        } else {
+          correctionInput = { text: update.message.text };
+        }
+
+        const { handleEventCorrection } = await import('./voice/correction-handler');
+        await handleEventCorrection(chatId, replyUserId, pendingId, repliedToMsgId, correctionInput);
+      } catch (error) {
+        console.error('[Webhook] Error in correction handler:', error);
+      }
+
+      res.status(200).json({ ok: true });
+      return;
+    }
+    // Not a reply to a pending confirmation — fall through to normal handling
+  }
+
   // Handle voice messages for event creation
   if (update.message?.voice) {
     const chatId = update.message.chat.id;

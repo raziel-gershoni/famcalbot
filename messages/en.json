@@ -595,6 +595,8 @@
       "forwardProcessing": "📨 Processing forwarded message...",
       "forwardNotUnderstood": "📨 I couldn't find a calendar event in this message.\n\nTry forwarding a message that mentions a date, time, or event.",
       "forwardTooLong": "📨 This message is too long to process. Please forward a shorter message.",
+      "correctionApplied": "✏️ Got it! Here's the updated event:",
+      "correctionFailed": "❌ Couldn't apply your correction. Please try again or cancel and start over.",
       "geminiError": "❌ Couldn't process your voice message right now. Try again in a moment, or type your event instead."
     },
     "subscription": {

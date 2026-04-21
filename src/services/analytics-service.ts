@@ -28,6 +28,8 @@ export type ActivityAction =
   | 'forward_event_started'
   | 'forward_event_created'
   | 'forward_event_failed'
+  // Event correction actions
+  | 'event_correction_applied'
   // Reminder actions
   | 'reminder_sent'
   // Settings & config

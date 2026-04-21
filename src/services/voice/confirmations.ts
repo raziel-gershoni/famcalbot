@@ -350,11 +350,15 @@ export async function showEventConfirmation(
       parse_mode: 'HTML',
       reply_markup: replyMarkup,
     });
+    // Store reverse mapping for reply-to-correct
+    await redis.set(REDIS_KEYS.pendingReply(chatId, messageId), pendingId, { ex: PENDING_TTL_SECONDS });
   } else {
-    await bot.sendMessage(chatId, confirmationMessage, {
+    const sentMessage = await bot.sendMessage(chatId, confirmationMessage, {
       parse_mode: 'HTML',
       reply_markup: replyMarkup,
     });
+    // Store reverse mapping for reply-to-correct
+    await redis.set(REDIS_KEYS.pendingReply(chatId, sentMessage.message_id), pendingId, { ex: PENDING_TTL_SECONDS });
   }
 }
 
