@@ -592,6 +592,9 @@
       "ambiguousEvent": "🤔 Found multiple matching events. Please be more specific.",
       "eventNotFound": "❌ Couldn't find that event.",
       "tooLong": "That was a bit long! Please keep your voice message under 30 seconds.",
+      "forwardProcessing": "📨 Processing forwarded message...",
+      "forwardNotUnderstood": "📨 I couldn't find a calendar event in this message.\n\nTry forwarding a message that mentions a date, time, or event.",
+      "forwardTooLong": "📨 This message is too long to process. Please forward a shorter message.",
       "geminiError": "❌ Couldn't process your voice message right now. Try again in a moment, or type your event instead."
     },
     "subscription": {

@@ -1,6 +1,8 @@
 /**
- * Gemini Direct Voice Processing
- * Sends audio directly to Gemini 3 Flash for transcription + intent detection + event extraction
+ * Gemini Event Extraction
+ * Shared prompt builder + response parser for voice and text event extraction
+ * Voice: sends audio directly to Gemini for transcription + intent detection + event extraction
+ * Text: sends forwarded message text for intent detection + event extraction
  */
 
 import { getGemini } from '../ai-provider';
@@ -18,12 +20,13 @@ const VOICE_RETRY_CONFIG = {
 const VOICE_MODEL_FALLBACK = 'gemini-3-flash-preview';
 
 /**
- * Build the voice processing prompt
+ * Build the event extraction prompt (shared between voice and text modes)
  */
-function buildVoicePrompt(
+export function buildEventExtractionPrompt(
   language: string,
   calendars: CalendarAssignment[],
-  timezone: string
+  timezone: string,
+  mode: 'voice' | 'text' = 'voice'
 ): string {
   const calendarList = calendars.map(c =>
     `- "${c.name || c.calendarId}" (ID: ${c.calendarId}, labels: ${c.labels.join(', ')})`
@@ -44,10 +47,17 @@ function buildVoicePrompt(
     timeZone: timezone,
   });
 
-  return `You are a calendar assistant. Listen to the attached audio message and:
+  const modeInstructions = mode === 'voice'
+    ? `You are a calendar assistant. Listen to the attached audio message and:
 1. Transcribe what the user said
 2. Determine the user's intent (create, edit, or delete a calendar event)
-3. Extract structured event data based on the intent
+3. Extract structured event data based on the intent`
+    : `You are a calendar assistant. Parse the following forwarded text message and extract calendar event information.
+The text may be conversational (e.g. "Hey, can you come to dinner at our place on Friday at 7pm?"). Look for dates, times, event names, and locations.
+1. Determine the intent (create, edit, delete, or none if no event information found)
+2. Extract structured event data based on the intent`;
+
+  return `${modeInstructions}
 
 CURRENT DATE/TIME: ${currentDateStr} at ${currentTimeStr} (timezone: ${timezone})
 USER LANGUAGE: ${language}
@@ -90,9 +100,8 @@ INTENT DETECTION RULES:
      * Russian: "все будущие", "с этого момента", "начиная отсюда"
 
 RESPOND IN JSON FORMAT ONLY:
-{
-  "transcription": "Exact text of what the user said in the audio",
-  "intent": "create" | "edit" | "delete",
+{${mode === 'voice' ? '\n  "transcription": "Exact text of what the user said in the audio",' : ''}
+  "intent": ${mode === 'voice' ? '"create" | "edit" | "delete"' : '"create" | "edit" | "delete" | "none"'},
   "confidence": "high" | "medium" | "low",
   "scope": "single" | "all" | "following" (default: "single", only for edit/delete),
 
@@ -175,11 +184,145 @@ Input audio: "Extend the dentist until 17:00"
 Output: {"transcription": "Extend the dentist until 17:00", "intent": "edit", "confidence": "high", "eventReference": {"type": "by_description", "description": "dentist"}, "editRequest": {"newEndTime": "17:00"}}
 
 Input audio: "Change the title of tomorrow's lunch to Lunch with Sarah"
-Output: {"transcription": "Change the title of tomorrow's lunch to Lunch with Sarah", "intent": "edit", "confidence": "high", "eventReference": {"type": "by_description", "description": "lunch", "timeHint": "tomorrow"}, "editRequest": {"newTitle": "Lunch with Sarah"}}`;
+Output: {"transcription": "Change the title of tomorrow's lunch to Lunch with Sarah", "intent": "edit", "confidence": "high", "eventReference": {"type": "by_description", "description": "lunch", "timeHint": "tomorrow"}, "editRequest": {"newTitle": "Lunch with Sarah"}}` + (mode === 'text' ? `
+
+ADDITIONAL TEXT-MODE EXAMPLES:
+
+Input text: "Hey, can we do dinner at my place on Friday at 7pm?"
+Output: {"intent": "create", "confidence": "high", "event": {"title": "Dinner", "startDate": "YYYY-MM-DD", "startTime": "19:00", "endDate": "YYYY-MM-DD", "endTime": "21:00", "allDay": false, "calendarId": "primary", "calendarName": "Primary", "recurrence": null}}
+
+Input text: "Don't forget - parent-teacher meeting next Tuesday at 16:30 in room 204"
+Output: {"intent": "create", "confidence": "high", "event": {"title": "Parent-teacher meeting", "startDate": "YYYY-MM-DD", "startTime": "16:30", "endDate": "YYYY-MM-DD", "endTime": "17:30", "allDay": false, "location": "Room 204", "calendarId": "primary", "calendarName": "Primary", "recurrence": null}}
+
+Input text: "haha that's hilarious 😂"
+Output: {"intent": "none", "confidence": "high", "error": "No calendar event information found in this message."}
+
+Input text: "The meeting tomorrow is pushed to 3pm instead"
+Output: {"intent": "edit", "confidence": "high", "eventReference": {"type": "by_description", "description": "meeting", "timeHint": "tomorrow"}, "editRequest": {"newStartTime": "15:00", "newEndTime": "16:00"}}` : '');
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Parse Gemini JSON response into VoiceIntentResult
+ * Shared between voice and text processing pipelines
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseGeminiEventResponse(
+  parsed: any,
+  calendars: CalendarAssignment[],
+  timezone: string
+): VoiceIntentResult {
+  const intent: VoiceIntent | 'none' = parsed.intent || 'create';
+  const confidence = parsed.confidence || 'medium';
+
+  // Handle 'none' intent (text mode — no event found)
+  if (intent === 'none') {
+    return {
+      intent: 'create',
+      confidence: 'low',
+      error: parsed.error || 'no_event_found',
+    };
+  }
+
+  if (intent === 'create' && parsed.event) {
+    const eventData = parsed.event;
+
+    // Validate calendarId against user's actual calendars
+    const geminiCalId = eventData.calendarId || '';
+    let matchedCalendar = calendars.find(c => c.calendarId === geminiCalId);
+    // Partial match: Gemini may strip the @group.calendar.google.com suffix
+    if (!matchedCalendar && geminiCalId) {
+      matchedCalendar = calendars.find(c => c.calendarId.startsWith(geminiCalId));
+    }
+    // Name match: try matching by calendar name (case-insensitive)
+    if (!matchedCalendar && (geminiCalId || eventData.calendarName)) {
+      const nameToMatch = (eventData.calendarName || geminiCalId).toLowerCase();
+      matchedCalendar = calendars.find(c => c.name?.toLowerCase() === nameToMatch);
+    }
+    if (!matchedCalendar) {
+      console.warn(`[Gemini] Could not match calendarId "${geminiCalId}" / name "${eventData.calendarName}" to user calendars, falling back to "${calendars[0]?.calendarId || 'primary'}"`);
+    }
+    const resolvedCalendarId = matchedCalendar?.calendarId || calendars[0]?.calendarId || 'primary';
+    const resolvedCalendarName = matchedCalendar?.name || calendars[0]?.name || 'Primary';
+
+    // All-day events may not have startTime/endTime from Gemini
+    const startTimeStr = eventData.allDay ? (eventData.startTime || '00:00') : eventData.startTime;
+    const endTimeStr = eventData.allDay ? (eventData.endTime || '23:59') : eventData.endTime;
+    const endDateStr = eventData.endDate || eventData.startDate;
+
+    if (!eventData.startDate || (!eventData.allDay && (!startTimeStr || !endTimeStr))) {
+      return {
+        intent: 'create',
+        confidence: 'low',
+        error: 'Missing date/time fields',
+      };
+    }
+
+    const startDateTime = fromZonedTime(`${eventData.startDate}T${startTimeStr}:00`, timezone);
+    const endDateTime = fromZonedTime(`${endDateStr}T${endTimeStr}:00`, timezone);
+
+    if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
+      return {
+        intent: 'create',
+        confidence: 'low',
+        error: 'Invalid date/time parsed',
+      };
+    }
+
+    const event: ParsedEvent = {
+      title: eventData.title,
+      startTime: startDateTime,
+      endTime: endDateTime,
+      location: eventData.location || undefined,
+      description: eventData.description || undefined,
+      allDay: eventData.allDay || false,
+      calendarId: resolvedCalendarId,
+      calendarName: resolvedCalendarName,
+      confidence,
+      recurrence: eventData.recurrence?.frequency ? eventData.recurrence : undefined,
+    };
+
+    return {
+      intent: 'create',
+      confidence,
+      event,
+      error: parsed.error,
+      needsClarification: parsed.needsClarification,
+      clarificationQuestion: parsed.clarificationQuestion,
+    };
+  } else if (intent === 'edit') {
+    return {
+      intent: 'edit',
+      confidence,
+      editRequest: parsed.editRequest || undefined,
+      eventReference: parsed.eventReference || undefined,
+      scope: parsed.scope || 'single',
+      error: parsed.error,
+      needsClarification: parsed.needsClarification,
+      clarificationQuestion: parsed.clarificationQuestion,
+    };
+  } else if (intent === 'delete') {
+    return {
+      intent: 'delete',
+      confidence,
+      eventReference: parsed.eventReference || undefined,
+      scope: parsed.scope || 'single',
+      error: parsed.error,
+      needsClarification: parsed.needsClarification,
+      clarificationQuestion: parsed.clarificationQuestion,
+    };
+  } else {
+    return {
+      intent: 'create',
+      confidence: 'low',
+      error: parsed.error || 'Unknown intent',
+      needsClarification: parsed.needsClarification,
+      clarificationQuestion: parsed.clarificationQuestion,
+    };
+  }
 }
 
 /**
@@ -215,7 +358,7 @@ export async function processVoiceWithGemini(
 
   for (let attempt = 0; attempt <= VOICE_RETRY_CONFIG.maxRetries; attempt++) {
     try {
-      const promptText = buildVoicePrompt(language, calendars, timezone);
+      const promptText = buildEventExtractionPrompt(language, calendars, timezone, 'voice');
 
       const response = await getGemini().models.generateContent({
         model: resolvedModelId,
@@ -268,108 +411,7 @@ export async function processVoiceWithGemini(
         throw new Error('Empty transcription - could not understand audio');
       }
 
-      const intent: VoiceIntent = parsed.intent || 'create';
-      const confidence = parsed.confidence || 'medium';
-
-      // Build intent result based on detected intent
-      let intentResult: VoiceIntentResult;
-
-      if (intent === 'create' && parsed.event) {
-        const eventData = parsed.event;
-
-        // Validate calendarId against user's actual calendars
-        const geminiCalId = eventData.calendarId || '';
-        let matchedCalendar = calendars.find(c => c.calendarId === geminiCalId);
-        // Partial match: Gemini may strip the @group.calendar.google.com suffix
-        if (!matchedCalendar && geminiCalId) {
-          matchedCalendar = calendars.find(c => c.calendarId.startsWith(geminiCalId));
-        }
-        // Name match: try matching by calendar name (case-insensitive)
-        if (!matchedCalendar && (geminiCalId || eventData.calendarName)) {
-          const nameToMatch = (eventData.calendarName || geminiCalId).toLowerCase();
-          matchedCalendar = calendars.find(c => c.name?.toLowerCase() === nameToMatch);
-        }
-        if (!matchedCalendar) {
-          console.warn(`[Voice Gemini] Could not match calendarId "${geminiCalId}" / name "${eventData.calendarName}" to user calendars, falling back to "${calendars[0]?.calendarId || 'primary'}"`);
-        }
-        const resolvedCalendarId = matchedCalendar?.calendarId || calendars[0]?.calendarId || 'primary';
-        const resolvedCalendarName = matchedCalendar?.name || calendars[0]?.name || 'Primary';
-
-        // All-day events may not have startTime/endTime from Gemini
-        const startTimeStr = eventData.allDay ? (eventData.startTime || '00:00') : eventData.startTime;
-        const endTimeStr = eventData.allDay ? (eventData.endTime || '23:59') : eventData.endTime;
-        const endDateStr = eventData.endDate || eventData.startDate;
-
-        if (!eventData.startDate || (!eventData.allDay && (!startTimeStr || !endTimeStr))) {
-          intentResult = {
-            intent: 'create',
-            confidence: 'low',
-            error: 'Missing date/time fields from audio',
-          };
-        } else {
-          const startDateTime = fromZonedTime(`${eventData.startDate}T${startTimeStr}:00`, timezone);
-          const endDateTime = fromZonedTime(`${endDateStr}T${endTimeStr}:00`, timezone);
-
-          if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
-            intentResult = {
-              intent: 'create',
-              confidence: 'low',
-              error: 'Invalid date/time parsed from audio',
-            };
-          } else {
-            const event: ParsedEvent = {
-              title: eventData.title,
-              startTime: startDateTime,
-              endTime: endDateTime,
-              location: eventData.location || undefined,
-              description: eventData.description || undefined,
-              allDay: eventData.allDay || false,
-              calendarId: resolvedCalendarId,
-              calendarName: resolvedCalendarName,
-              confidence,
-              recurrence: eventData.recurrence?.frequency ? eventData.recurrence : undefined,
-            };
-
-            intentResult = {
-              intent: 'create',
-              confidence,
-              event,
-              error: parsed.error,
-              needsClarification: parsed.needsClarification,
-              clarificationQuestion: parsed.clarificationQuestion,
-            };
-          }
-        }
-      } else if (intent === 'edit') {
-        intentResult = {
-          intent: 'edit',
-          confidence,
-          editRequest: parsed.editRequest || undefined,
-          eventReference: parsed.eventReference || undefined,
-          scope: parsed.scope || 'single',
-          error: parsed.error,
-          needsClarification: parsed.needsClarification,
-          clarificationQuestion: parsed.clarificationQuestion,
-        };
-      } else if (intent === 'delete') {
-        intentResult = {
-          intent: 'delete',
-          confidence,
-          eventReference: parsed.eventReference || undefined,
-          scope: parsed.scope || 'single',
-          error: parsed.error,
-          needsClarification: parsed.needsClarification,
-          clarificationQuestion: parsed.clarificationQuestion,
-        };
-      } else {
-        intentResult = {
-          intent: 'create',
-          confidence: 'low',
-          error: parsed.error || 'Unknown intent',
-          needsClarification: parsed.needsClarification,
-          clarificationQuestion: parsed.clarificationQuestion,
-        };
-      }
+      const intentResult = parseGeminiEventResponse(parsed, calendars, timezone);
 
       return {
         intentResult,

@@ -24,6 +24,10 @@ export type ActivityAction =
   | 'voice_event_started'
   | 'voice_event_created'
   | 'voice_event_failed'
+  // Forward event actions
+  | 'forward_event_started'
+  | 'forward_event_created'
+  | 'forward_event_failed'
   // Reminder actions
   | 'reminder_sent'
   // Settings & config

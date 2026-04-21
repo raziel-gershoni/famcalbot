@@ -4,7 +4,7 @@
  */
 
 // Main entry point
-export { handleVoiceMessage } from './handler';
+export { handleVoiceMessage, handleEditIntent, handleDeleteIntent } from './handler';
 
 // Callback handlers
 export { handleEventCallback, handleEditCallback, handleDeleteCallback } from './callbacks';

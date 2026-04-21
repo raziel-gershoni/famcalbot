@@ -38,7 +38,7 @@ interface TelegramUser {
 /**
  * Handle EDIT intent - find event and show edit confirmation
  */
-async function handleEditIntent(
+export async function handleEditIntent(
   chatId: number,
   messageId: number | undefined,
   intentResult: VoiceIntentResult,
@@ -133,7 +133,7 @@ async function handleEditIntent(
 /**
  * Handle DELETE intent - find event and show delete confirmation
  */
-async function handleDeleteIntent(
+export async function handleDeleteIntent(
   chatId: number,
   messageId: number | undefined,
   intentResult: VoiceIntentResult,

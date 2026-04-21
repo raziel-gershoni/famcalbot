@@ -46,10 +46,12 @@ export async function handleTelegramWebhook(
   }
 
   // Add breadcrumb for webhook type
+  const isForwarded = update.message?.text && (update.message.forward_origin || update.message.forward_from || update.message.forward_from_chat || update.message.forward_date);
   const webhookType = update.pre_checkout_query ? 'pre_checkout'
     : update.message?.successful_payment ? 'successful_payment'
     : update.callback_query ? 'callback_query'
     : update.message?.voice ? 'voice_message'
+    : isForwarded ? 'forwarded_message'
     : update.message?.text ? 'text_message'
     : 'unknown';
 
@@ -167,6 +169,32 @@ export async function handleTelegramWebhook(
       console.error('[Webhook] Error in voice handler:', error);
     } finally {
       await releaseVoiceLock(fileUniqueId);
+    }
+
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  // Handle forwarded text messages for event creation
+  if (update.message?.text && (update.message.forward_origin || update.message.forward_from
+      || update.message.forward_from_chat || update.message.forward_date)) {
+    const chatId = update.message.chat.id;
+    const fwdUserId = update.message.from.id;
+    const fwdText = update.message.text;
+    const from = update.message.from;
+
+    addBreadcrumb('forwarded_message_received', {
+      user_id: fwdUserId,
+      text_length: fwdText.length,
+    }, 'user_action');
+
+    console.log(`[Webhook] Forwarded message received from user ${fwdUserId}, length: ${fwdText.length}`);
+
+    try {
+      const { handleForwardedMessage } = await import('./forward-event');
+      await handleForwardedMessage(chatId, fwdUserId, fwdText, from);
+    } catch (error) {
+      console.error('[Webhook] Error in forward handler:', error);
     }
 
     res.status(200).json({ ok: true });
