@@ -15,13 +15,14 @@ import {
   handleConnectCommand,
   getBot
 } from './telegram';
-import { getUserByWhatsAppPhone, getOrCreateUserByWhatsApp } from './user-service';
+import { getUserByWhatsAppPhone, getOrCreateUserByWhatsApp, getUserByTelegramId } from './user-service';
 import { UserConfig } from '../types';
 import { MessagingPlatform, getWhatsAppService } from './messaging';
 import { handleVoiceMessage, handleEventCallback, handleEditCallback, handleDeleteCallback } from './voice';
 import { handlePreCheckoutQuery, handleSuccessfulPayment } from './payment-handler';
 import { setUserContext, addBreadcrumb } from './analytics-service';
 import { captureError } from '../lib/error-capture';
+import { isIdentifierBlocked, isUserSuspended } from '../lib/user-moderation';
 
 /**
  * Handle Telegram webhook updates
@@ -43,6 +44,21 @@ export async function handleTelegramWebhook(
 
   if (userId) {
     setUserContext(userId, userName);
+  }
+
+  // Moderation gate: drop everything from blocked or suspended Telegram users.
+  if (userId) {
+    if (await isIdentifierBlocked({ telegramId: userId })) {
+      console.log(`[Moderation] Dropped Telegram update from blocked id ${userId}`);
+      res.status(200).json({ ok: true });
+      return;
+    }
+    const existingUser = await getUserByTelegramId(userId);
+    if (existingUser && isUserSuspended(existingUser)) {
+      console.log(`[Moderation] Dropped Telegram update from suspended user ${existingUser.id}`);
+      res.status(200).json({ ok: true });
+      return;
+    }
   }
 
   // Add breadcrumb for webhook type
@@ -387,6 +403,17 @@ export async function handleWhatsAppWebhook(
   // Extract contact name from webhook payload
   const contactName = value?.contacts?.[0]?.profile?.name;
 
+  // Moderation gate: drop incoming WhatsApp messages from blocked phones.
+  // (Done before lookup so a blocked-and-deleted phone never re-registers.)
+  const candidatePhone = contactPhone
+    ? (contactPhone.startsWith('+') ? contactPhone : `+${contactPhone}`)
+    : (isBsuid ? null : fromId);
+  if (candidatePhone && await isIdentifierBlocked({ whatsappPhone: candidatePhone })) {
+    console.log(`[Moderation] Dropped WhatsApp message from blocked phone ${candidatePhone}`);
+    res.status(200).json({ ok: true });
+    return;
+  }
+
   // Auto-register: get existing user or create new one (BSUID-aware)
   const { getUserByWhatsAppId, updateWhatsAppBsuid } = await import('./user-service');
   let isNewUser = false;
@@ -399,6 +426,13 @@ export async function handleWhatsAppWebhook(
     const normalizedPhone = contactPhone ? (contactPhone.startsWith('+') ? contactPhone : `+${contactPhone}`) : (isBsuid ? undefined : fromId);
     user = await getOrCreateUserByWhatsApp(from, contactName, externalUserId, normalizedPhone);
     isNewUser = true;
+  }
+
+  // Drop further activity from suspended users.
+  if (user && isUserSuspended(user)) {
+    console.log(`[Moderation] Dropped WhatsApp message from suspended user ${user.id}`);
+    res.status(200).json({ ok: true });
+    return;
   }
 
   // Backfill BSUID for existing phone-based users

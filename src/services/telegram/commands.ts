@@ -26,11 +26,14 @@ import {
 } from './summary';
 
 /**
- * Check if user is authorized (supports both Telegram ID and WhatsApp phone)
+ * Check if user is authorized (supports both Telegram ID and WhatsApp phone).
+ * Suspended users are treated as unauthorized so their commands silently no-op.
  */
 export async function isUserAuthorized(userId: number | string): Promise<boolean> {
   const user = await getUserByIdentifier(userId);
-  return user !== undefined;
+  if (!user) return false;
+  if (user.suspendedAt) return false;
+  return true;
 }
 
 /**

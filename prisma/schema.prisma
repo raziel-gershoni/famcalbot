@@ -32,6 +32,9 @@ model User {
   language             String  @default("he")       // Locale code: 'he' | 'en' | 'ru'
   messagingPlatform    String  @default("telegram") // 'telegram' | 'whatsapp' | 'all'
   isAdmin              Boolean @default(false)      // Admin panel access
+  suspendedAt          DateTime?                    // Set = user suspended; bot ignores all interaction
+  suspendedBy          Int?                         // Admin User.id who suspended
+  suspendedReason      String?  @db.Text            // Why suspended (admin-facing audit)
   textSummaryEnabled   Boolean @default(true)       // Receive text summaries
   voiceSummaryEnabled  Boolean @default(true)       // Receive voice summaries
   voiceInputEnabled    Boolean @default(false)      // Allow voice message input for event creation
@@ -68,6 +71,21 @@ model User {
   @@index([telegramId])
   @@index([whatsappPhone])
   @@index([whatsappBsuid])
+  @@index([suspendedAt])
+}
+
+// Persistent blocklist for telegramId / whatsappPhone.
+// Survives hard delete so banned identifiers cannot re-register.
+model BlockedIdentifier {
+  id            Int      @id @default(autoincrement())
+  telegramId    BigInt?  @unique
+  whatsappPhone String?  @unique
+  bannedBy      Int                              // Admin User.id who banned
+  bannedReason  String?  @db.Text
+  createdAt     DateTime @default(now())
+
+  @@index([telegramId])
+  @@index([whatsappPhone])
 }
 
 model OAuthState {

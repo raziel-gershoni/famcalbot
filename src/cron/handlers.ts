@@ -30,6 +30,7 @@ export async function handleDailySummary(): Promise<CronResult> {
         remindersEnabled: true,
         googleRefreshToken: { not: '' },
         telegramId: { not: null },
+        suspendedAt: null,
       },
       select: {
         id: true,
@@ -285,6 +286,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
     where: {
       ...isWithinWindow,
       googleRefreshToken: '',
+      suspendedAt: null,
       ...hasMessagingPlatform,
     },
     select: dateSelect,
@@ -317,6 +319,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
     where: {
       ...isWithinWindow,
       googleRefreshToken: { not: '' },
+      suspendedAt: null,
       OR: [
         { calendarAssignments: { equals: Prisma.JsonNull } },
         { calendarAssignments: { equals: Prisma.DbNull } },
@@ -354,6 +357,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
       ...isWithinWindow,
       googleRefreshToken: { not: '' },
       location: '',
+      suspendedAt: null,
       ...hasMessagingPlatform,
     },
     select: { ...dateSelect, calendarAssignments: true },

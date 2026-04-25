@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateMagicToken } from '@/src/services/magic-link';
 import { createSessionToken, SESSION_COOKIE } from '@/src/lib/session-auth';
 import { getBaseUrl } from '@/src/config/urls';
+import { prisma } from '@/src/utils/prisma';
 
 /**
  * Magic link auth handler
@@ -19,6 +20,15 @@ export async function GET(request: NextRequest) {
   if (!data) {
     // Token invalid or expired — redirect to home
     return NextResponse.redirect(new URL('/en/dashboard', getBaseUrl()));
+  }
+
+  // Refuse to grant a session to a suspended user.
+  const user = await prisma.user.findUnique({
+    where: { id: data.userId },
+    select: { suspendedAt: true },
+  });
+  if (user?.suspendedAt) {
+    return NextResponse.redirect(new URL('/', getBaseUrl()));
   }
 
   // Create session cookie and redirect to dashboard with user_id (DB primary key)

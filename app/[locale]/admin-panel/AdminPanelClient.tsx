@@ -51,6 +51,9 @@ interface UserOverrideDetails {
   messagingPlatform: string;
   createdAt: string;
   name: string;
+  suspendedAt: string | null;
+  suspendedBy: number | null;
+  suspendedReason: string | null;
   subscription: {
     plan: string;
     status: string;
@@ -164,6 +167,30 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   // Platform switch state
   const [isSwitchingPlatform, setIsSwitchingPlatform] = useState(false);
   const [whatsappPhoneInput, setWhatsappPhoneInput] = useState('');
+
+  // Moderation state (suspend / hard-delete / ban)
+  const [moderationReason, setModerationReason] = useState('');
+  const [isSuspending, setIsSuspending] = useState(false);
+  const [isHardDeleting, setIsHardDeleting] = useState(false);
+  const [isBanning, setIsBanning] = useState(false);
+  const [showHardDeleteConfirm, setShowHardDeleteConfirm] = useState(false);
+  const [hardDeleteConfirmText, setHardDeleteConfirmText] = useState('');
+  const [banTelegram, setBanTelegram] = useState(true);
+  const [banWhatsapp, setBanWhatsapp] = useState(true);
+  const [moderationFeedback, setModerationFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Blocklist state
+  interface BlocklistEntry {
+    id: number;
+    telegramId: number | null;
+    whatsappPhone: string | null;
+    bannedBy: number;
+    bannedReason: string | null;
+    createdAt: string;
+  }
+  const [blocklist, setBlocklist] = useState<BlocklistEntry[]>([]);
+  const [isLoadingBlocklist, setIsLoadingBlocklist] = useState(false);
+  const [unbanningId, setUnbanningId] = useState<number | null>(null);
 
   // User activity state
   const [activities, setActivities] = useState<ActivityItem[]>([]);
@@ -584,6 +611,177 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
     } finally {
       setIsResettingAll(false);
     }
+  };
+
+  // ============================================
+  // Moderation handlers
+  // ============================================
+
+  const showModFeedback = (type: 'success' | 'error', message: string, persist = false) => {
+    setModerationFeedback({ type, message });
+    if (!persist) {
+      setTimeout(() => setModerationFeedback(null), 3000);
+    }
+  };
+
+  const callModerationAction = async (
+    action: 'suspend' | 'unsuspend' | 'hard_delete',
+    extra: Record<string, unknown> = {}
+  ): Promise<boolean> => {
+    if (!selectedUser) return false;
+    const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+    try {
+      const response = await fetch('/api/admin/users/moderation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          initData,
+          action,
+          user_id: selectedUser.id,
+          reason: moderationReason || null,
+          ...extra,
+        }),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        showModFeedback('error', data.error || 'Action failed');
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error(`[Moderation] ${action} failed:`, err);
+      showModFeedback('error', 'Network error');
+      return false;
+    }
+  };
+
+  const suspendSelectedUser = async () => {
+    if (!selectedUser) return;
+    setIsSuspending(true);
+    const ok = await callModerationAction('suspend');
+    if (ok) {
+      showModFeedback('success', 'User suspended');
+      setModerationReason('');
+      await loadUserDetails(selectedUser.id);
+      await fetchUserList();
+    }
+    setIsSuspending(false);
+  };
+
+  const unsuspendSelectedUser = async () => {
+    if (!selectedUser) return;
+    setIsSuspending(true);
+    const ok = await callModerationAction('unsuspend');
+    if (ok) {
+      showModFeedback('success', 'User unsuspended');
+      await loadUserDetails(selectedUser.id);
+      await fetchUserList();
+    }
+    setIsSuspending(false);
+  };
+
+  const hardDeleteSelectedUser = async () => {
+    if (!selectedUser) return;
+    if (hardDeleteConfirmText !== 'DELETE') {
+      showModFeedback('error', 'Type DELETE to confirm');
+      return;
+    }
+    setIsHardDeleting(true);
+    const ok = await callModerationAction('hard_delete', { confirmation: 'DELETE' });
+    if (ok) {
+      // User is gone — clear selection and refresh list
+      setShowHardDeleteConfirm(false);
+      setHardDeleteConfirmText('');
+      setModerationReason('');
+      clearSelectedUser();
+      await fetchUserList();
+      await fetchBlocklist(); // in case user was also banned earlier
+      showModFeedback('success', 'User deleted', true);
+    }
+    setIsHardDeleting(false);
+  };
+
+  const banSelectedUserIdentifiers = async () => {
+    if (!selectedUser) return;
+    if (!banTelegram && !banWhatsapp) {
+      showModFeedback('error', 'Select at least one identifier to ban');
+      return;
+    }
+    const tg = banTelegram ? selectedUser.telegramId : null;
+    const wa = banWhatsapp ? selectedUser.whatsappPhone : null;
+    if (!tg && !wa) {
+      showModFeedback('error', 'No matching identifier on user');
+      return;
+    }
+    setIsBanning(true);
+    const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+    try {
+      const response = await fetch('/api/admin/users/blocklist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          initData,
+          action: 'ban',
+          telegramId: tg,
+          whatsappPhone: wa,
+          reason: moderationReason || null,
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        showModFeedback('success', 'Identifier banned');
+        setModerationReason('');
+        await fetchBlocklist();
+      } else {
+        showModFeedback('error', data.error || 'Ban failed');
+      }
+    } catch (err) {
+      console.error('[Moderation] ban failed:', err);
+      showModFeedback('error', 'Network error');
+    }
+    setIsBanning(false);
+  };
+
+  const fetchBlocklist = useCallback(async () => {
+    setIsLoadingBlocklist(true);
+    const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+    try {
+      const response = await fetch(`/api/admin/users/blocklist?initData=${encodeURIComponent(initData || '')}`);
+      const data = await response.json();
+      if (data.success) setBlocklist(data.blocklist);
+    } catch (err) {
+      console.error('[Blocklist] fetch failed:', err);
+    } finally {
+      setIsLoadingBlocklist(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchBlocklist();
+  }, [fetchBlocklist]);
+
+  const unbanEntry = async (entry: BlocklistEntry) => {
+    setUnbanningId(entry.id);
+    const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+    try {
+      const response = await fetch('/api/admin/users/blocklist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          initData,
+          action: 'unban',
+          telegramId: entry.telegramId,
+          whatsappPhone: entry.whatsappPhone,
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        await fetchBlocklist();
+      }
+    } catch (err) {
+      console.error('[Blocklist] unban failed:', err);
+    }
+    setUnbanningId(null);
   };
 
   // Switch user to WhatsApp
@@ -2008,7 +2206,14 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
               <div className="user-card">
                 <div className="user-card-header">
                   <div className="user-card-info">
-                    <h3>{selectedUser.name}</h3>
+                    <h3>
+                      {selectedUser.name}
+                      {selectedUser.suspendedAt && (
+                        <span style={{ marginLeft: 8, fontSize: 12, padding: '2px 6px', borderRadius: 6, background: '#fef3c7', color: '#92400e', verticalAlign: 'middle' }}>
+                          🟡 Suspended
+                        </span>
+                      )}
+                    </h3>
                     <p>Telegram ID: {selectedUser.telegramId || 'N/A'}</p>
                     {selectedUser.whatsappPhone && <p>WhatsApp: {selectedUser.whatsappPhone}</p>}
                     <p>{t('overrides.currentPlatform')}: {
@@ -2388,9 +2593,191 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                   )}
                 </button>
                 </div>
+
+                {/* Moderation Section (suspend / hard delete / ban) */}
+                <div className="user-card-section" style={{ borderTop: '2px solid #fee2e2', marginTop: 16, paddingTop: 16 }}>
+                  <div className="user-card-section-title" style={{ color: '#b91c1c' }}>Moderation</div>
+
+                  {selectedUser.suspendedAt && (
+                    <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: 10, marginBottom: 10, fontSize: 13 }}>
+                      <strong>Suspended</strong> on {new Date(selectedUser.suspendedAt).toLocaleString(intlLocale)}
+                      {selectedUser.suspendedReason && <div style={{ marginTop: 4 }}>Reason: {selectedUser.suspendedReason}</div>}
+                    </div>
+                  )}
+
+                  <input
+                    type="text"
+                    className="reason-input"
+                    placeholder="Reason (shared by suspend & ban)"
+                    value={moderationReason}
+                    onChange={(e) => setModerationReason(e.target.value)}
+                    style={{ marginBottom: 8 }}
+                  />
+
+                  {/* Suspend / Unsuspend */}
+                  {selectedUser.suspendedAt ? (
+                    <button
+                      className="send-reminder-btn"
+                      style={{ marginBottom: 6, background: '#10b981' }}
+                      onClick={unsuspendSelectedUser}
+                      disabled={isSuspending}
+                    >
+                      {isSuspending ? <><Loader2 size={16} className="animate-spin" /> Working…</> : 'Unsuspend'}
+                    </button>
+                  ) : (
+                    <button
+                      className="send-reminder-btn"
+                      style={{ marginBottom: 6, background: '#f59e0b' }}
+                      onClick={suspendSelectedUser}
+                      disabled={isSuspending}
+                    >
+                      {isSuspending ? <><Loader2 size={16} className="animate-spin" /> Working…</> : 'Suspend'}
+                    </button>
+                  )}
+
+                  {/* Ban identifier(s) */}
+                  <div style={{ marginTop: 10, padding: 10, border: '1px solid #e5e7eb', borderRadius: 8 }}>
+                    <div style={{ fontSize: 12, color: '#374151', marginBottom: 6 }}>
+                      Ban identifier so they cannot register again. Survives hard delete.
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, marginBottom: 4 }}>
+                      <input
+                        type="checkbox"
+                        checked={banTelegram}
+                        disabled={!selectedUser.telegramId}
+                        onChange={(e) => setBanTelegram(e.target.checked)}
+                      />
+                      Telegram ID: <code>{selectedUser.telegramId ?? '—'}</code>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, marginBottom: 8 }}>
+                      <input
+                        type="checkbox"
+                        checked={banWhatsapp}
+                        disabled={!selectedUser.whatsappPhone}
+                        onChange={(e) => setBanWhatsapp(e.target.checked)}
+                      />
+                      WA Phone: <code>{selectedUser.whatsappPhone ?? '—'}</code>
+                    </label>
+                    <button
+                      className="send-reminder-btn"
+                      style={{ background: '#7c3aed' }}
+                      onClick={banSelectedUserIdentifiers}
+                      disabled={isBanning || (!selectedUser.telegramId && !selectedUser.whatsappPhone)}
+                    >
+                      {isBanning ? <><Loader2 size={16} className="animate-spin" /> Banning…</> : 'Ban Identifier(s)'}
+                    </button>
+                  </div>
+
+                  {/* Hard Delete with confirmation */}
+                  <div style={{ marginTop: 10, padding: 10, border: '1px solid #fecaca', borderRadius: 8, background: '#fef2f2' }}>
+                    <div style={{ fontSize: 12, color: '#991b1b', marginBottom: 6 }}>
+                      Permanently delete this user and all related data (subscription, usage, activity, feedback, overrides). Irreversible.
+                    </div>
+                    {!showHardDeleteConfirm ? (
+                      <button
+                        className="send-reminder-btn"
+                        style={{ background: '#dc2626' }}
+                        onClick={() => setShowHardDeleteConfirm(true)}
+                      >
+                        Hard Delete…
+                      </button>
+                    ) : (
+                      <>
+                        <input
+                          type="text"
+                          className="reason-input"
+                          placeholder="Type DELETE to confirm"
+                          value={hardDeleteConfirmText}
+                          onChange={(e) => setHardDeleteConfirmText(e.target.value)}
+                          style={{ marginBottom: 6 }}
+                        />
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            className="send-reminder-btn"
+                            style={{ background: '#dc2626', flex: 1 }}
+                            onClick={hardDeleteSelectedUser}
+                            disabled={isHardDeleting || hardDeleteConfirmText !== 'DELETE'}
+                          >
+                            {isHardDeleting ? <><Loader2 size={16} className="animate-spin" /> Deleting…</> : 'Confirm Delete'}
+                          </button>
+                          <button
+                            className="send-reminder-btn"
+                            style={{ background: '#6b7280', flex: 1 }}
+                            onClick={() => { setShowHardDeleteConfirm(false); setHardDeleteConfirmText(''); }}
+                            disabled={isHardDeleting}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {moderationFeedback && (
+                    <div className={`reminder-feedback ${moderationFeedback.type}`} style={{ marginTop: 8 }}>
+                      {moderationFeedback.message}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
+            </div>
+          </div>
+
+          {/* Blocklist Section (banned identifiers) */}
+          <div className="section">
+            <div className="section-header">
+              <span className="section-icon section-header-clickable" onClick={() => toggleSection('blocklist')}><X size={20} /></span>
+              <h2 className="section-title section-header-clickable" onClick={() => toggleSection('blocklist')}>Blocklist ({blocklist.length})</h2>
+              <button
+                className="refresh-btn"
+                onClick={fetchBlocklist}
+                disabled={isLoadingBlocklist}
+                aria-label="Refresh blocklist"
+              >
+                <RefreshCw size={18} className={isLoadingBlocklist ? 'animate-spin' : ''} />
+              </button>
+              <span className={`section-chevron section-header-clickable ${collapsedSections['blocklist'] ? 'collapsed' : ''}`} onClick={() => toggleSection('blocklist')}>
+                <ChevronDown size={20} />
+              </span>
+            </div>
+            <div className={`section-content ${collapsedSections['blocklist'] ? 'collapsed' : ''}`}>
+              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
+                Banned Telegram IDs and WhatsApp phones. Blocked identifiers cannot register a new account.
+              </div>
+              {isLoadingBlocklist && blocklist.length === 0 ? (
+                <div className="empty-state">
+                  <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto' }} />
+                </div>
+              ) : blocklist.length === 0 ? (
+                <div className="empty-state">No blocked identifiers</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {blocklist.map(entry => (
+                    <div key={entry.id} style={{ padding: 10, border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          {entry.telegramId !== null && <div>TG: <code>{entry.telegramId}</code></div>}
+                          {entry.whatsappPhone && <div>WA: <code>{entry.whatsappPhone}</code></div>}
+                          {entry.bannedReason && <div style={{ color: '#6b7280', marginTop: 2 }}>{entry.bannedReason}</div>}
+                          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                            {new Date(entry.createdAt).toLocaleString(intlLocale)}
+                          </div>
+                        </div>
+                        <button
+                          className="send-reminder-btn"
+                          style={{ width: 'auto', background: '#10b981' }}
+                          onClick={() => unbanEntry(entry)}
+                          disabled={unbanningId === entry.id}
+                        >
+                          {unbanningId === entry.id ? <Loader2 size={14} className="animate-spin" /> : 'Unban'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 

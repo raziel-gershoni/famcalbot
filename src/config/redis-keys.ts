@@ -77,4 +77,8 @@ export const REDIS_KEYS = {
 
   // Holiday cache (CalBrew API responses, 24h TTL)
   holidays: (date: string, lang: string) => `holidays:${date}:${lang}`,
+
+  // Identifier blocklist cache (admin moderation; banned telegramId / whatsappPhone)
+  blockedTelegramId: (telegramId: number | bigint | string) => `blocked:tg:${telegramId}`,
+  blockedWhatsAppPhone: (phone: string) => `blocked:wa:${phone}`,
 } as const;

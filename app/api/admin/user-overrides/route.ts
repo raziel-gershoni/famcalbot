@@ -232,6 +232,9 @@ export async function GET(request: NextRequest) {
           messagingPlatform: user.messagingPlatform || 'telegram',
           createdAt: user.createdAt.toISOString(),
           name: user.name,
+          suspendedAt: user.suspendedAt ? user.suspendedAt.toISOString() : null,
+          suspendedBy: user.suspendedBy ?? null,
+          suspendedReason: user.suspendedReason ?? null,
           subscription: user.subscription ? {
             plan: user.subscription.plan,
             status: user.subscription.status,

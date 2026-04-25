@@ -2,6 +2,14 @@ import { User as PrismaUser } from '@prisma/client';
 import { UserConfig, convertPrismaUserToConfig } from '../types';
 import { prisma, withRetry } from '../utils/prisma';
 import { encrypt, safeDecrypt } from '../utils/encryption';
+import { isIdentifierBlocked } from '../lib/user-moderation';
+
+export class IdentifierBlockedError extends Error {
+  constructor(message = 'Identifier is on the admin blocklist') {
+    super(message);
+    this.name = 'IdentifierBlockedError';
+  }
+}
 
 /**
  * Get user by Telegram ID
@@ -205,6 +213,12 @@ export async function getOrCreateUser(
     return convertPrismaUserToConfig(existingUser);
   }
 
+  // Defense-in-depth: never silently materialize a banned identifier.
+  // Webhook handlers gate this path already, but this catches any other call site.
+  if (await isIdentifierBlocked({ telegramId })) {
+    throw new IdentifierBlockedError(`Telegram ID ${telegramId} is blocked`);
+  }
+
   // Map Telegram language code to our locale
   const language = mapTelegramLanguage(telegramUser?.language_code);
 
@@ -278,6 +292,12 @@ export async function getOrCreateUserByWhatsApp(
   } else if (!bsuid) {
     const byBsuid = await prisma.user.findUnique({ where: { whatsappBsuid: identifier } });
     if (byBsuid) return convertPrismaUserToConfig(byBsuid);
+  }
+
+  // Defense-in-depth: refuse to create a fresh user for a blocked phone.
+  const phoneToCheck = phone || (isBsuid ? null : identifier);
+  if (phoneToCheck && await isIdentifierBlocked({ whatsappPhone: phoneToCheck })) {
+    throw new IdentifierBlockedError(`WhatsApp phone ${phoneToCheck} is blocked`);
   }
 
   const name = profileName || 'User';

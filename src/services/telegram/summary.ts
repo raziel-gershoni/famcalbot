@@ -291,7 +291,7 @@ async function sendSummaryToAll(
   const result: SummaryBatchResult = { processed: 0, skippedHour: 0, skippedDay: 0, skippedDedup: 0 };
 
   try {
-    const allUsers = await getAllUsers();
+    const allUsers = (await getAllUsers()).filter(u => !u.suspendedAt);
     if (allUsers.length === 0) {
       console.error('No users configured');
       return result;
