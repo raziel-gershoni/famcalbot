@@ -112,6 +112,7 @@ function mapUserToResponse(user: {
   id: number;
   telegramId: bigint | null;
   name: string;
+  suspendedAt: Date | null;
   subscription: { plan: string; status: string; trialEndsAt: Date | null; currentPeriodEnd: Date | null } | null;
   featureOverride: { earlyAdopter: boolean } | null;
   usageCounter: { textSummariesUsed: number; voiceSummariesUsed: number; voiceEventsCreated: number } | null;
@@ -127,6 +128,7 @@ function mapUserToResponse(user: {
     id: user.id,
     telegramId: user.telegramId ? Number(user.telegramId) : null,
     name: user.name,
+    suspendedAt: user.suspendedAt ? user.suspendedAt.toISOString() : null,
     subscription: user.subscription ? {
       plan: user.subscription.plan,
       status: user.subscription.status,

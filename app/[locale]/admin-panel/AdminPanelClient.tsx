@@ -25,6 +25,7 @@ interface UserListItem {
   id: number;
   telegramId: number | null;
   name: string;
+  suspendedAt: string | null;
   subscription: {
     plan: string;
     status: string;
@@ -2154,9 +2155,18 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                       key={user.id}
                       className="user-list-item"
                       onClick={() => loadUserDetails(user.id)}
+                      style={user.suspendedAt ? { background: '#fef3c7' } : undefined}
                     >
-                      <span className="user-list-name">{user.name}</span>
+                      <span className="user-list-name">
+                        {user.suspendedAt && <span style={{ marginRight: 4 }} title="Suspended">🟡</span>}
+                        {user.name}
+                      </span>
                       <div className="user-list-right">
+                        {user.suspendedAt && (
+                          <span className="status-badge" style={{ background: '#fef3c7', color: '#92400e' }}>
+                            Suspended
+                          </span>
+                        )}
                         <span className={`plan-badge ${user.subscription?.plan?.toLowerCase() || 'free'}`}>
                           {user.subscription?.plan || 'FREE'}
                         </span>
