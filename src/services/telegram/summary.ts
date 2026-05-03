@@ -297,6 +297,15 @@ async function sendSummaryToAll(
       return result;
     }
 
+    // One-line WA cohort visibility — useful when only some users seem to receive WA.
+    // Lists every user whose platform is whatsapp/all and what identifier they'd be sent to.
+    const waCohort = allUsers.filter(u => {
+      const p = u.messagingPlatform || 'telegram';
+      return p === 'whatsapp' || p === 'all';
+    });
+    const waCohortSummary = waCohort.map(u => `${u.id}:${u.messagingPlatform}:${getWhatsAppChatId(u) ?? 'NONE'}`).join(', ');
+    console.log(`[Summary] WA cohort (${waCohort.length}/${allUsers.length} users): ${waCohortSummary || '<empty>'}`);
+
     // Filter by preferred hour if requested (hourly cron mode)
     let users = allUsers;
     if (options?.filterByHour) {

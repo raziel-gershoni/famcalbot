@@ -334,8 +334,25 @@ export async function handleWhatsAppWebhook(
     for (const status of statuses) {
       const errorInfo = status.errors?.[0];
       if (status.status === 'failed') {
-        console.error(`[WhatsApp Status] FAILED msg=${status.id} to=${status.recipient_id}`,
-          errorInfo ? `code=${errorInfo.code} title="${errorInfo.title}" ${errorInfo.message || ''}` : '');
+        const summary = errorInfo
+          ? `code=${errorInfo.code} title="${errorInfo.title}" ${errorInfo.message || ''}`
+          : '';
+        console.error(`[WhatsApp Status] FAILED msg=${status.id} to=${status.recipient_id}`, summary);
+        // Surface every Meta delivery failure to Sentry so they're not lost in stdout.
+        // 131026 (Message undeliverable) and 131047 (24h window) are the common ones — they typically
+        // mean policy/state issues (closed 24h window, recipient not on WA, ToS not accepted).
+        captureError(
+          new Error(`WhatsApp delivery failed: ${errorInfo?.title || 'unknown'} (code ${errorInfo?.code ?? '?'})`),
+          'whatsapp-status-failed',
+          {
+            message_id: status.id,
+            recipient_id: status.recipient_id,
+            error_code: errorInfo?.code,
+            error_title: errorInfo?.title,
+            error_message: errorInfo?.message,
+          },
+          'warning',
+        );
       } else {
         console.log(`[WhatsApp Status] ${status.status} msg=${status.id} to=${status.recipient_id}`);
       }
@@ -435,10 +452,21 @@ export async function handleWhatsAppWebhook(
     return;
   }
 
-  // Backfill BSUID for existing phone-based users
+  // Backfill BSUID for existing phone-based users.
+  // Wrapped in try/catch because BSUID has a UNIQUE constraint — if Meta ever
+  // sends the same external_user_id for two different users, the second update
+  // would throw P2002 and break the entire webhook for that user.
   if (user && externalUserId && !user.whatsappBsuid) {
-    await updateWhatsAppBsuid(user.id, externalUserId);
-    user.whatsappBsuid = externalUserId;
+    try {
+      await updateWhatsAppBsuid(user.id, externalUserId);
+      user.whatsappBsuid = externalUserId;
+    } catch (err) {
+      console.error(`[WhatsApp] BSUID backfill failed for user ${user.id} (${externalUserId}):`, err);
+      captureError(err, 'wa-bsuid-backfill', {
+        user_id: user.id,
+        external_user_id: externalUserId,
+      }, 'warning');
+    }
   }
 
   const lowerText = text.toLowerCase().trim();
