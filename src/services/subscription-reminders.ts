@@ -194,8 +194,9 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
         });
       }
 
-      // Send to WhatsApp if available — template notification only (no free-form)
-      const waChatId = sub.user.whatsappBsuid || whatsappPhone;
+      // Send to WhatsApp if available — template notification only (no free-form).
+      // Prefer phone (Meta-reliable) over BSUID until June 2026 transition; see getWhatsAppChatId.
+      const waChatId = whatsappPhone || sub.user.whatsappBsuid;
       if (waChatId && (!telegramId || sub.user.messagingPlatform === 'whatsapp' || sub.user.messagingPlatform === 'all')) {
         const { getWhatsAppService } = await import('./messaging/factory');
         const { buildWhatsAppTemplate } = await import('./messaging/whatsapp-template');

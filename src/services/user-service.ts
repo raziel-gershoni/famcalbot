@@ -81,11 +81,19 @@ export async function updateWhatsAppBsuid(userId: number, bsuid: string): Promis
 }
 
 /**
- * Get the correct WhatsApp chat ID for sending messages
- * Prefers BSUID (future-proof), falls back to phone
+ * Get the correct WhatsApp chat ID for sending messages.
+ *
+ * Prefers phone, falls back to BSUID. Meta's outbound `to:` field is currently
+ * unreliable for BSUIDs (we observed code 131026 "Message undeliverable" for
+ * sends to BSUIDs like "IL.2683713448667645" while phone-based sends work).
+ * Once the June 2026 username transition is complete and Meta fully supports
+ * BSUID outbound, this preference can flip back.
+ *
+ * BSUID remains the fallback so username-only WA users (who don't expose a
+ * phone) can still receive messages.
  */
 export function getWhatsAppChatId(user: UserConfig): string | null {
-  return user.whatsappBsuid || user.whatsappPhone || null;
+  return user.whatsappPhone || user.whatsappBsuid || null;
 }
 
 /**
