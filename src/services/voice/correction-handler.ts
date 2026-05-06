@@ -113,7 +113,9 @@ export async function handleEventCorrection(
     stopTyping = startTypingInterval(chatId, messagingService);
 
     const timezone = await resolveUserTimezone(user);
-    const correctionPrompt = buildCorrectionPrompt(event, user.calendarAssignments || [], timezone);
+    const { getCalendarAssignmentsForUser } = await import('../calendar-provider');
+    const userCalendars = await getCalendarAssignmentsForUser(user);
+    const correctionPrompt = buildCorrectionPrompt(event, userCalendars, timezone);
 
     // Resolve model
     const adminDefault = await getDefaultAiModelSetting();
@@ -183,7 +185,7 @@ export async function handleEventCorrection(
     }
 
     // Validate calendarId against user's calendars
-    const calendars = user.calendarAssignments || [];
+    const calendars = userCalendars;
     const matchedCalendar = calendars.find(c => c.calendarId === parsed.calendarId)
       || calendars.find(c => c.name?.toLowerCase() === (parsed.calendarName || '').toLowerCase());
     const resolvedCalendarId = matchedCalendar?.calendarId || parsed.calendarId || event.calendarId || 'primary';

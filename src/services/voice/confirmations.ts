@@ -39,9 +39,12 @@ function reviveDates<T>(obj: any, dateFields: string[]): T {
  */
 export async function getPendingEvent(pendingId: string) {
   try {
-    const data = await redis.get<{ event: ParsedEvent; user: UserConfig; transcription: string }>(
-      REDIS_KEYS.pendingEvent(pendingId)
-    );
+    const data = await redis.get<{
+      event: ParsedEvent;
+      user: UserConfig;
+      transcription: string;
+      inputModality?: 'voice' | 'text';
+    }>(REDIS_KEYS.pendingEvent(pendingId));
     if (!data) return undefined;
     // Reconstruct Date objects that were serialized as strings
     reviveDates(data.event, ['startTime', 'endTime']);
@@ -314,7 +317,8 @@ export async function showEventConfirmation(
   event: ParsedEvent,
   transcription: string,
   user: UserConfig,
-  adminFooter?: string
+  adminFooter?: string,
+  inputModality: 'voice' | 'text' = 'voice'
 ): Promise<void> {
   const bot = getBot();
   const t = await getBotMessages(user.language || 'en');
@@ -322,8 +326,10 @@ export async function showEventConfirmation(
 
   const pendingId = `${chatId}:${Date.now()}`;
 
-  // Store in Redis with TTL (survives serverless cold starts)
-  await redis.set(REDIS_KEYS.pendingEvent(pendingId), { event, user, transcription }, { ex: PENDING_TTL_SECONDS });
+  // Store in Redis with TTL (survives serverless cold starts).
+  // PR 12: inputModality threads through so callbacks know whether to voice
+  // the outcome (preserves voice-in/voice-out for the same conversation).
+  await redis.set(REDIS_KEYS.pendingEvent(pendingId), { event, user, transcription, inputModality }, { ex: PENDING_TTL_SECONDS });
 
   const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay, timezone);
   const locationStr = event.location ? `\n📍 ${event.location}` : '';
@@ -336,11 +342,26 @@ export async function showEventConfirmation(
     `<i>${t.voice.from} "${escapeHtml(transcription)}"</i>` +
     (adminFooter || '');
 
+  // Quick-correction shortcut row (PR 10 polish): one tap re-prompts for just
+  // one field of the pending event. Only show "Cal" when user has multiple
+  // calendars to pick from — otherwise the button is meaningless.
+  const calendarCount = (user.calendarAssignments?.length ?? 0);
+  const quickRow: Array<{ text: string; callback_data: string }> = [
+    { text: t.voice?.fixTime || '⏰ Time', callback_data: `event_fix:time:${pendingId}` },
+    { text: t.voice?.fixDay || '📅 Day', callback_data: `event_fix:day:${pendingId}` },
+  ];
+  if (calendarCount > 1) {
+    quickRow.push({ text: t.voice?.fixCal || '📁 Cal', callback_data: `event_fix:cal:${pendingId}` });
+  }
+
   const replyMarkup = {
-    inline_keyboard: [[
-      { text: t.voice.createButton, callback_data: `event_create:${pendingId}` },
-      { text: t.voice.cancelButton, callback_data: `event_cancel:${pendingId}` }
-    ]]
+    inline_keyboard: [
+      [
+        { text: t.voice.createButton, callback_data: `event_create:${pendingId}` },
+        { text: t.voice.cancelButton, callback_data: `event_cancel:${pendingId}` }
+      ],
+      quickRow,
+    ]
   };
 
   if (messageId) {

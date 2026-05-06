@@ -4,7 +4,9 @@
  */
 
 import { getBot } from '../telegram';
-import { createEvent, CreateEventResult, updateEvent, UpdateEventResult, deleteEvent, DeleteEventResult, buildRecurrenceRule } from '../calendar';
+import { buildRecurrenceRule } from '../calendar';
+import { getProviderForUser } from '../calendar-provider';
+import type { CreateEventResult, UpdateEventResult, DeleteEventResult } from '../calendar-provider';
 import { buildUrl } from '../../config/urls';
 import { getBotMessages } from '../../lib/bot-messages';
 import { trackActivityAsync } from '../analytics-service';
@@ -71,7 +73,7 @@ export async function handleEventCallback(
       parse_mode: 'HTML'
     });
 
-    if (!user.googleRefreshToken) {
+    if (user.calendarSource === 'GOOGLE' && !user.googleRefreshToken) {
       await bot.editMessageText(
         `${t.voice.notConnected}\n\n${t.voice.connectFirst}`,
         {
@@ -83,8 +85,9 @@ export async function handleEventCallback(
       return;
     }
 
-    const result: CreateEventResult = await createEvent(
-      user.googleRefreshToken,
+    const provider = getProviderForUser(user);
+    const result: CreateEventResult = await provider.createEvent(
+      user,
       event.calendarId || 'primary',
       {
         title: event.title,
@@ -101,6 +104,28 @@ export async function handleEventCallback(
       if (result.eventId) {
         trackCreatedEvent(user.telegramId!, result.eventId, event.calendarId || 'primary', event)
           .catch(err => captureError(err, 'voice-track-event', { user_id: user.id }, 'warning'));
+
+        // Recent-events: feed the sliding window so follow-ups like "move it"
+        // resolve via by_description against the most recent CRUD (PR 9).
+        const { pushRecentEvent } = await import('./recent-events-store');
+        const calId = event.calendarId || 'primary';
+        await pushRecentEvent(user.id, {
+          provider: calId.startsWith('native:') ? 'native' : 'google',
+          calendarId: calId,
+          eventId: result.eventId,
+          title: event.title,
+          startsAt: event.startTime.toISOString(),
+          endsAt: event.endTime.toISOString(),
+          action: 'create',
+        });
+      }
+
+      // PR 12: voice-in → voice-out. Mirror modality on the success outcome.
+      if (pending.inputModality === 'voice') {
+        const { speakOutcome, formatOutcomeLine } = await import('./tts-outcome');
+        const { getMessagingService } = await import('../telegram/bot');
+        const line = formatOutcomeLine('created', event.title, user.language || 'en');
+        speakOutcome(chatId, line, user, getMessagingService()).catch(() => {});
       }
 
       trackActivityAsync(user.id, 'voice_event_created', {
@@ -221,7 +246,7 @@ export async function handleEditCallback(
       parse_mode: 'HTML'
     });
 
-    if (!user.googleRefreshToken) {
+    if (user.calendarSource === 'GOOGLE' && !user.googleRefreshToken) {
       await bot.editMessageText(
         `${t.voice?.notConnected || '❌ Not connected'}\n\n${t.voice?.connectFirst || 'Please connect your calendar first.'}`,
         {
@@ -246,8 +271,9 @@ export async function handleEditCallback(
       return;
     }
 
-    const result: UpdateEventResult = await updateEvent(
-      user.googleRefreshToken,
+    const provider = getProviderForUser(user);
+    const result: UpdateEventResult = await provider.updateEvent(
+      user,
       calendarId,
       eventId,
       {
@@ -274,6 +300,19 @@ export async function handleEditCallback(
           disable_web_page_preview: true
         }
       );
+
+      // Recent-events: refresh the sliding window with the edited event (PR 9).
+      const { pushRecentEvent } = await import('./recent-events-store');
+      await pushRecentEvent(user.id, {
+        provider: calendarId.startsWith('native:') ? 'native' : 'google',
+        calendarId,
+        eventId: originalEvent.eventId || '',
+        recurringEventId: originalEvent.recurringEventId,
+        title: updates.title || originalEvent.summary,
+        startsAt: (updates.startTime ?? new Date(originalEvent.start)).toISOString(),
+        endsAt: (updates.endTime ?? new Date(originalEvent.end)).toISOString(),
+        action: 'edit',
+      });
     } else if (result.error === 'PERMISSION_DENIED') {
       const upgradeUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
       await bot.editMessageText(
@@ -375,7 +414,7 @@ export async function handleDeleteCallback(
       parse_mode: 'HTML'
     });
 
-    if (!user.googleRefreshToken) {
+    if (user.calendarSource === 'GOOGLE' && !user.googleRefreshToken) {
       await bot.editMessageText(
         `${t.voice?.notConnected || '❌ Not connected'}\n\n${t.voice?.connectFirst || 'Please connect your calendar first.'}`,
         {
@@ -400,8 +439,9 @@ export async function handleDeleteCallback(
       return;
     }
 
-    const result: DeleteEventResult = await deleteEvent(
-      user.googleRefreshToken,
+    const provider = getProviderForUser(user);
+    const result: DeleteEventResult = await provider.deleteEvent(
+      user,
       calendarId,
       eventId,
       { scope: scope, recurringEventId: event.recurringEventId }
@@ -418,6 +458,25 @@ export async function handleDeleteCallback(
           parse_mode: 'HTML'
         }
       );
+
+      // Recent-events: drop the deleted event from the sliding window so the
+      // user doesn't see "the meeting" resolve to a tombstone (PR 9).
+      const { removeRecentEvent, pushRecentEvent } = await import('./recent-events-store');
+      if (event.eventId) {
+        await removeRecentEvent(user.id, event.eventId);
+        // Also push a 'delete' marker so any follow-up "undo" / "actually keep
+        // it" has provenance. Cheap; same window.
+        await pushRecentEvent(user.id, {
+          provider: calendarId.startsWith('native:') ? 'native' : 'google',
+          calendarId,
+          eventId: event.eventId,
+          recurringEventId: event.recurringEventId,
+          title: event.summary,
+          startsAt: event.start,
+          endsAt: event.end,
+          action: 'delete',
+        });
+      }
     } else if (result.error === 'PERMISSION_DENIED') {
       const upgradeUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
       await bot.editMessageText(
@@ -468,4 +527,192 @@ export async function handleDeleteCallback(
       );
     }
   }
+}
+
+/**
+ * PR 10: Voice Undo callback — handles the "↩️ Undo (30s)" button shown after
+ * a HIGH-confidence auto-created event. Looks up the undo token, deletes the
+ * event via the provider, and replaces the success message with a confirmation.
+ *
+ * Idempotent on the user side: an expired or already-consumed token is treated
+ * as a no-op with a friendly message.
+ */
+export async function handleVoiceUndoCallback(
+  chatId: number,
+  messageId: number,
+  queryId: string,
+  token: string,
+  callbackUserId: number
+): Promise<void> {
+  const bot = await getBot();
+  await bot.answerCallbackQuery(queryId, { text: '⏳' });
+
+  const { getUserByTelegramId } = await import('../user-service');
+  const user = await getUserByTelegramId(callbackUserId);
+  if (!user) return;
+  const t = await getBotMessages(user.language || 'en');
+
+  const { handleUndoCallback } = await import('./auto-create');
+  const result = await handleUndoCallback(user, token);
+
+  if (result.ok) {
+    await bot.editMessageText(t.voice?.undone || '↩️ <b>Event removed.</b>', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+    });
+  } else if (result.reason === 'expired') {
+    await bot.editMessageText(t.voice?.undoExpired || '⌛ Undo window expired — event kept.', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+    });
+  } else {
+    await bot.editMessageText(t.voice?.undoFailed || '❌ Could not undo. Try editing or deleting from the calendar.', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+    });
+  }
+}
+
+/**
+ * PR 11: Bulk multi-event confirmation callback. Confirms or cancels the
+ * entire batch shown in showBulkConfirmation.
+ */
+export async function handleBulkCallback(
+  chatId: number,
+  messageId: number,
+  queryId: string,
+  action: 'confirm' | 'cancel',
+  pendingId: string
+): Promise<void> {
+  const bot = getBot();
+  await bot.answerCallbackQuery(queryId, { text: '⏳' });
+
+  if (action === 'cancel') {
+    const { handleBulkCancel } = await import('./bulk-confirmations');
+    const user = await handleBulkCancel(pendingId);
+    const t = await getBotMessages(user?.language || 'en');
+    await bot.editMessageText(t.voice?.bulkCancelled || '❌ Batch cancelled.', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+    });
+    return;
+  }
+
+  // confirm
+  try {
+    const { handleBulkConfirmAll } = await import('./bulk-confirmations');
+    const result = await handleBulkConfirmAll(pendingId);
+    const t = await getBotMessages(result.user.language || 'en');
+    let summary: string;
+    if (result.failureCount === 0) {
+      summary = (t.voice?.bulkAllCreated || '✅ Created {count} events.').replace('{count}', String(result.successCount));
+    } else if (result.successCount === 0) {
+      summary = (t.voice?.bulkAllFailed || '❌ Could not create the events. Please re-dictate.');
+    } else {
+      const partialMsg = t.voice?.bulkPartial || '⚠️ Created {ok} of {total}. Failures:\n{errors}';
+      summary = partialMsg
+        .replace('{ok}', String(result.successCount))
+        .replace('{total}', String(result.successCount + result.failureCount))
+        .replace('{errors}', result.failureMessages.map((e) => `• ${e}`).join('\n'));
+    }
+    await bot.editMessageText(summary, {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+    });
+  } catch (err) {
+    const t = await getBotMessages('en');
+    if (err instanceof Error && err.message === 'bulk_pending_expired') {
+      await bot.editMessageText(t.voice?.expiredMessage || '⏰ This confirmation has expired.', {
+        chat_id: chatId,
+        message_id: messageId,
+        parse_mode: 'HTML',
+      });
+      return;
+    }
+    captureError(err, 'voice-bulk-callback');
+    await bot.editMessageText(t.voice?.unknownError || '❌ Something went wrong.', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+    });
+  }
+}
+
+/**
+ * PR 10 polish: quick-correction shortcut button handler. Stashes the
+ * "awaiting field reply" state and prompts the user for the focused field.
+ * The user's next message will be intercepted by the quick-correction
+ * reply handler and merged into the pending event in place.
+ */
+export async function handleQuickFixCallback(
+  chatId: number,
+  messageId: number,
+  queryId: string,
+  field: 'time' | 'day' | 'cal',
+  pendingId: string
+): Promise<void> {
+  const bot = getBot();
+  const pending = await getPendingEvent(pendingId);
+  if (!pending) {
+    await bot.answerCallbackQuery(queryId, { text: '⏰' });
+    await bot.editMessageText('⏰ This confirmation has expired.', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+    });
+    return;
+  }
+
+  await bot.answerCallbackQuery(queryId);
+  const t = await getBotMessages(pending.user.language || 'en');
+  const { setQuickCorrection } = await import('./quick-correction');
+  await setQuickCorrection(chatId, { pendingId, field, messageId });
+
+  const prompt =
+    field === 'time' ? (t.voice?.askTime || 'What time? (reply with text or voice)') :
+    field === 'day' ? (t.voice?.askDay || 'What day? (reply with text or voice)') :
+    (t.voice?.askCal || 'Which calendar? (reply with text or voice)');
+
+  await bot.sendMessage(chatId, prompt);
+}
+
+/**
+ * PR 13 polish: per-event edit from the bulk confirmation card. Pops event #N
+ * out of the batch (discarding the rest) and re-renders as a single-event
+ * confirmation card with full quick-correction polish.
+ */
+export async function handleBulkEditCallback(
+  chatId: number,
+  messageId: number,
+  queryId: string,
+  index: number,
+  pendingId: string
+): Promise<void> {
+  const bot = getBot();
+  await bot.answerCallbackQuery(queryId, { text: '✏️' });
+
+  const { popEventFromBatch } = await import('./bulk-confirmations');
+  const { showEventConfirmation } = await import('./confirmations');
+  const popped = await popEventFromBatch(pendingId, index);
+  if (!popped) {
+    await bot.editMessageText('⏰ This batch has expired.', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+    });
+    return;
+  }
+
+  // Re-render the bulk message as a brief acknowledgement, then send a fresh
+  // single-event card. We don't try to keep N-1 events alive — simpler model.
+  const t = await getBotMessages(popped.user.language || 'en');
+  const splitTemplate = t.voice?.bulkSplitOff || `✏️ Editing #{n} only — the other events were not created. You can re-dictate them.`;
+  const splitMsg = splitTemplate.replace('{n}', String(index + 1));
+  await bot.editMessageText(splitMsg, { chat_id: chatId, message_id: messageId, parse_mode: 'HTML' });
+  await showEventConfirmation(chatId, undefined, popped.event, popped.transcription, popped.user, undefined, 'voice');
 }

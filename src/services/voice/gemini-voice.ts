@@ -26,7 +26,8 @@ export function buildEventExtractionPrompt(
   language: string,
   calendars: CalendarAssignment[],
   timezone: string,
-  mode: 'voice' | 'text' = 'voice'
+  mode: 'voice' | 'text' = 'voice',
+  recentEventsBlock?: string
 ): string {
   const calendarList = calendars.map(c =>
     `- "${c.name || c.calendarId}" (ID: ${c.calendarId}, labels: ${c.labels.join(', ')})`
@@ -64,6 +65,8 @@ USER LANGUAGE: ${language}
 
 USER'S CALENDARS:
 ${calendarList || '- Primary calendar (ID: primary)'}
+NOTE: A calendar ID may start with "native:" — preserve the full ID verbatim in your response.
+${recentEventsBlock ? `\n${recentEventsBlock}\n` : ''}
 
 INTENT DETECTION RULES:
 1. EDIT intent - User wants to modify an existing event. Keywords/phrases:
@@ -99,8 +102,29 @@ INTENT DETECTION RULES:
      * Hebrew: "מעכשיו והלאה", "כל העתידיים", "מכאן והלאה"
      * Russian: "все будущие", "с этого момента", "начиная отсюда"
 
+MULTI-EVENT EXTRACTION:
+If the user clearly describes multiple distinct events or actions in one message
+(e.g. "Lunch with Anna tomorrow at 1, then dentist Friday at 9 and birthday party
+Saturday all day"), return them as an "intents" array of up to 10 entries. Each
+entry has the same shape as the single-intent fields below. Only group multiple
+events into "intents" when they are truly separate; do NOT split a single event
+that just mentions multiple attendees or dates. If unsure, return a single intent.
+
 RESPOND IN JSON FORMAT ONLY:
 {${mode === 'voice' ? '\n  "transcription": "Exact text of what the user said in the audio",' : ''}
+  // Multi-event (preferred when 2+ distinct events): array of intents.
+  // For single events, return the top-level fields below instead and omit "intents".
+  "intents": [
+    {
+      "intent": "create" | "edit" | "delete",
+      "confidence": "high" | "medium" | "low",
+      "event": { /* same shape as below */ } or null,
+      "editRequest": { /* same shape as below */ } or null,
+      "eventReference": { /* same shape as below */ } or null,
+      "scope": "single" | "all" | "following" or null
+    }
+  ] or null (omit for single-event input),
+
   "intent": ${mode === 'voice' ? '"create" | "edit" | "delete"' : '"create" | "edit" | "delete" | "none"'},
   "confidence": "high" | "medium" | "low",
   "scope": "single" | "all" | "following" (default: "single", only for edit/delete),
@@ -206,6 +230,35 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * Multi-event support (PR 11): if Gemini returned `intents` as an array of 2+
+ * entries, split each one through parseGeminiEventResponse. Otherwise return a
+ * single-element array containing the parsed primary intent. Callers that
+ * always expect a single intent can read `[0]`.
+ *
+ * Caps at 10 entries per the locked product decision.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function extractIntents(
+  parsed: any,
+  calendars: CalendarAssignment[],
+  timezone: string
+): VoiceIntentResult[] {
+  if (Array.isArray(parsed.intents) && parsed.intents.length > 1) {
+    const capped = parsed.intents.slice(0, 10);
+    return capped.map((it: unknown) =>
+      parseGeminiEventResponse(
+        // Each intents[i] entry is a sibling shape — splice it onto the top-level
+        // shape parseGeminiEventResponse expects.
+        { ...(it as object), transcription: parsed.transcription },
+        calendars,
+        timezone
+      )
+    );
+  }
+  return [parseGeminiEventResponse(parsed, calendars, timezone)];
+}
+
+/**
  * Parse Gemini JSON response into VoiceIntentResult
  * Shared between voice and text processing pipelines
  */
@@ -233,9 +286,11 @@ export function parseGeminiEventResponse(
     // Validate calendarId against user's actual calendars
     const geminiCalId = eventData.calendarId || '';
     let matchedCalendar = calendars.find(c => c.calendarId === geminiCalId);
-    // Partial match: Gemini may strip the @group.calendar.google.com suffix
-    if (!matchedCalendar && geminiCalId) {
-      matchedCalendar = calendars.find(c => c.calendarId.startsWith(geminiCalId));
+    // Partial match: Gemini may strip the @group.calendar.google.com suffix.
+    // Restricted to non-native IDs because a truncated `native:abc` could
+    // accidentally match a longer `native:abc123` cuid.
+    if (!matchedCalendar && geminiCalId && !geminiCalId.startsWith('native:')) {
+      matchedCalendar = calendars.find(c => !c.calendarId.startsWith('native:') && c.calendarId.startsWith(geminiCalId));
     }
     // Name match: try matching by calendar name (case-insensitive)
     if (!matchedCalendar && (geminiCalId || eventData.calendarName)) {
@@ -340,8 +395,13 @@ export async function processVoiceWithGemini(
   audioBuffer: Buffer,
   language: string,
   calendars: CalendarAssignment[],
-  timezone: string
-): Promise<{ intentResult: VoiceIntentResult; transcription: string; metrics: VoiceProcessingMetrics }> {
+  timezone: string,
+  recentEventsBlock?: string,
+  // PR 10 polish: optional prior-attempt audio for retry-mode parses. Sent
+  // as a SEPARATE inlineData part so Gemini decodes both OGG containers
+  // independently — byte-concat would produce an invalid OGG stream.
+  priorAudioBuffer?: Buffer
+): Promise<{ intentResult: VoiceIntentResult; intentResults?: VoiceIntentResult[]; transcription: string; metrics: VoiceProcessingMetrics }> {
   const startTime = Date.now();
   let lastError: Error | null = null;
 
@@ -358,17 +418,23 @@ export async function processVoiceWithGemini(
 
   for (let attempt = 0; attempt <= VOICE_RETRY_CONFIG.maxRetries; attempt++) {
     try {
-      const promptText = buildEventExtractionPrompt(language, calendars, timezone, 'voice');
+      const retryNote = priorAudioBuffer
+        ? '\n\nNOTE: The next attached audio is a PRIOR attempt that failed to parse. The audio AFTER it is the user clarifying or correcting. Treat the second audio as the authoritative input and use the first only if it adds context.'
+        : '';
+      const promptText = buildEventExtractionPrompt(language, calendars, timezone, 'voice', recentEventsBlock) + retryNote;
+
+      const audioParts: Array<{ inlineData: { mimeType: string; data: string } }> = [];
+      if (priorAudioBuffer) {
+        audioParts.push({ inlineData: { mimeType: 'audio/ogg', data: priorAudioBuffer.toString('base64') } });
+      }
+      audioParts.push({ inlineData: { mimeType: 'audio/ogg', data: audioBuffer.toString('base64') } });
 
       const response = await getGemini().models.generateContent({
         model: resolvedModelId,
         contents: [
           {
             role: 'user',
-            parts: [
-              { text: promptText },
-              { inlineData: { mimeType: 'audio/ogg', data: audioBuffer.toString('base64') } },
-            ],
+            parts: [{ text: promptText }, ...audioParts],
           },
         ],
       });
@@ -411,10 +477,12 @@ export async function processVoiceWithGemini(
         throw new Error('Empty transcription - could not understand audio');
       }
 
-      const intentResult = parseGeminiEventResponse(parsed, calendars, timezone);
+      const intentResults = extractIntents(parsed, calendars, timezone);
+      const intentResult = intentResults[0];
 
       return {
         intentResult,
+        intentResults,
         transcription,
         metrics: { model: resolvedModelId, inputTokens, outputTokens, durationMs: duration },
       };

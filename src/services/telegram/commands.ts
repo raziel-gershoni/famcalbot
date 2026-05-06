@@ -145,6 +145,14 @@ export async function handleStartCommand(
     return;
   }
 
+  // Pairing invite deep link: t.me/<bot>?start=invite_<token>
+  if (args && args.startsWith('invite_')) {
+    const token = args.slice('invite_'.length);
+    const { handlePairAccept } = await import('./pair-handler');
+    await handlePairAccept(chatId, user.id, token, locale, platform);
+    return;
+  }
+
   const dashboardUrl = buildUrl(`/${locale}/dashboard?user_id=${user.telegramId ?? user.id}`);
   const welcome = t.start.welcome.replace('{name}', name);
 

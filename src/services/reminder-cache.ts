@@ -12,6 +12,8 @@ const GLOBAL_KEY = REDIS_KEYS.REMINDERS_GLOBAL_ENABLED;
 const EARLY_ADOPTION_KEY = REDIS_KEYS.EARLY_ADOPTION_GLOBAL;
 const DEFAULT_AI_MODEL_KEY = REDIS_KEYS.DEFAULT_AI_MODEL;
 const GEMINI_THINKING_LEVEL_KEY = REDIS_KEYS.GEMINI_THINKING_LEVEL;
+const VOICE_AUTO_CREATE_KEY = REDIS_KEYS.VOICE_AUTO_CREATE_HIGH_CONF;
+const VOICE_TTS_OUTCOME_KEY = REDIS_KEYS.VOICE_TTS_OUTCOME;
 
 export interface CachedReminderUser {
   id: number;
@@ -243,6 +245,69 @@ export async function setGeminiThinkingLevel(level: string | null): Promise<void
     console.log(`[Reminder Cache] Set Gemini thinking level to ${level ?? 'default (MEDIUM)'}`);
   } catch (error) {
     console.error('[Reminder Cache] Redis write Gemini thinking level error:', error);
+    captureError(error, 'reminder-cache', {}, 'warning');
+  }
+}
+
+// --- Voice frictionlessness toggles (PR 10 / PR 12) ------------------------
+//
+// Read-through cache from AdminSettings, mirrors the earlyAdoptionMode pattern.
+// Defaults are false in both DB and cache so callers degrade safely.
+
+export async function getVoiceAutoCreateHighConf(): Promise<boolean> {
+  try {
+    const cached = await redis.get<boolean>(VOICE_AUTO_CREATE_KEY);
+    if (cached !== null) return cached;
+    const { prisma } = await import('@/src/utils/prisma');
+    const settings = await prisma.adminSettings.findUnique({
+      where: { id: 'global' },
+      select: { voiceAutoCreateHighConf: true },
+    });
+    const value = settings?.voiceAutoCreateHighConf ?? false;
+    await redis.set(VOICE_AUTO_CREATE_KEY, value);
+    return value;
+  } catch (error) {
+    console.error('[Reminder Cache] Redis read voiceAutoCreateHighConf error:', error);
+    captureError(error, 'reminder-cache', {}, 'warning');
+    return false;
+  }
+}
+
+export async function setVoiceAutoCreateHighConf(enabled: boolean): Promise<void> {
+  try {
+    await redis.set(VOICE_AUTO_CREATE_KEY, enabled);
+    console.log(`[Reminder Cache] Set voiceAutoCreateHighConf to ${enabled}`);
+  } catch (error) {
+    console.error('[Reminder Cache] Redis write voiceAutoCreateHighConf error:', error);
+    captureError(error, 'reminder-cache', {}, 'warning');
+  }
+}
+
+export async function getVoiceTtsOutcome(): Promise<boolean> {
+  try {
+    const cached = await redis.get<boolean>(VOICE_TTS_OUTCOME_KEY);
+    if (cached !== null) return cached;
+    const { prisma } = await import('@/src/utils/prisma');
+    const settings = await prisma.adminSettings.findUnique({
+      where: { id: 'global' },
+      select: { voiceTtsOutcome: true },
+    });
+    const value = settings?.voiceTtsOutcome ?? false;
+    await redis.set(VOICE_TTS_OUTCOME_KEY, value);
+    return value;
+  } catch (error) {
+    console.error('[Reminder Cache] Redis read voiceTtsOutcome error:', error);
+    captureError(error, 'reminder-cache', {}, 'warning');
+    return false;
+  }
+}
+
+export async function setVoiceTtsOutcome(enabled: boolean): Promise<void> {
+  try {
+    await redis.set(VOICE_TTS_OUTCOME_KEY, enabled);
+    console.log(`[Reminder Cache] Set voiceTtsOutcome to ${enabled}`);
+  } catch (error) {
+    console.error('[Reminder Cache] Redis write voiceTtsOutcome error:', error);
     captureError(error, 'reminder-cache', {}, 'warning');
   }
 }

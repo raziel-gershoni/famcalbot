@@ -8,7 +8,8 @@ import { getUserByTelegramId } from '../user-service';
 import { MessageFormat } from '../messaging/types';
 import { VoiceIntentResult } from '../event-parser';
 import { processVoiceWithGemini } from './gemini-voice';
-import { fetchEventsInRange, CalendarEvent } from '../calendar';
+import { CalendarEvent } from '../calendar';
+import { getProviderForUser } from '../calendar-provider';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { buildUrl } from '../../config/urls';
 import { UserConfig } from '../../types';
@@ -50,10 +51,12 @@ export async function handleEditIntent(
 ): Promise<void> {
   const messagingService = getMessagingService();
 
-  if (!user.googleRefreshToken) {
+  const { hasUsableCalendar, getCalendarAssignmentsForUser } = await import('../calendar-provider');
+  if (!(await hasUsableCalendar(user))) {
     await messagingService.sendMessage(chatId, t.voice?.noCalendar || 'Calendar not connected.', { format: MessageFormat.PLAIN });
     return;
   }
+  const userCalendars = await getCalendarAssignmentsForUser(user);
 
   let targetEvent: CalendarEvent | undefined;
   let targetCalendarId: string | undefined;
@@ -68,13 +71,9 @@ export async function handleEditIntent(
       return;
     }
 
-    const calendarIds = (user.calendarAssignments || []).map(c => c.calendarId);
-    if (!calendarIds.includes(lastEvent.calendarId)) {
-      calendarIds.push(lastEvent.calendarId);
-    }
-
-    const events = await fetchEventsInRange(
-      user.googleRefreshToken,
+    const provider = getProviderForUser(user);
+    const events = await provider.fetchEventsInRange(
+      user,
       [lastEvent.calendarId],
       new Date(lastEvent.startTime.getTime() - 60000),
       new Date(lastEvent.endTime.getTime() + 60000)
@@ -84,9 +83,9 @@ export async function handleEditIntent(
     targetCalendarId = lastEvent.calendarId;
 
   } else if (intentResult.eventReference?.type === 'by_description') {
-    const calendarIds = (user.calendarAssignments || []).map(c => c.calendarId);
+    const calendarIds = userCalendars.map(c => c.calendarId);
     const matchResult = await findMatchingEvent(
-      user.googleRefreshToken,
+      user,
       calendarIds,
       intentResult.eventReference,
       user.language || 'en'
@@ -145,10 +144,12 @@ export async function handleDeleteIntent(
 ): Promise<void> {
   const messagingService = getMessagingService();
 
-  if (!user.googleRefreshToken) {
+  const { hasUsableCalendar, getCalendarAssignmentsForUser } = await import('../calendar-provider');
+  if (!(await hasUsableCalendar(user))) {
     await messagingService.sendMessage(chatId, t.voice?.noCalendar || 'Calendar not connected.', { format: MessageFormat.PLAIN });
     return;
   }
+  const userCalendars = await getCalendarAssignmentsForUser(user);
 
   let targetEvent: CalendarEvent | undefined;
   let targetCalendarId: string | undefined;
@@ -163,8 +164,9 @@ export async function handleDeleteIntent(
       return;
     }
 
-    const events = await fetchEventsInRange(
-      user.googleRefreshToken,
+    const provider = getProviderForUser(user);
+    const events = await provider.fetchEventsInRange(
+      user,
       [lastEvent.calendarId],
       new Date(lastEvent.startTime.getTime() - 60000),
       new Date(lastEvent.endTime.getTime() + 60000)
@@ -174,9 +176,9 @@ export async function handleDeleteIntent(
     targetCalendarId = lastEvent.calendarId;
 
   } else if (intentResult.eventReference?.type === 'by_description') {
-    const calendarIds = (user.calendarAssignments || []).map(c => c.calendarId);
+    const calendarIds = userCalendars.map(c => c.calendarId);
     const matchResult = await findMatchingEvent(
-      user.googleRefreshToken,
+      user,
       calendarIds,
       intentResult.eventReference,
       user.language || 'en'
@@ -230,6 +232,7 @@ export async function handleVoiceMessage(
   const messagingService = getMessagingService();
   let user: Awaited<ReturnType<typeof getUserByTelegramId>> | null = null;
   let stopTyping: (() => void) | null = null;
+  let audioBuffer: Buffer | null = null;
 
   setUserContext(userId, from.first_name);
 
@@ -291,11 +294,13 @@ export async function handleVoiceMessage(
       language: user.language,
     });
 
-    if (!user.googleRefreshToken) {
-      console.log(`[Voice] User ${userId} has no Google refresh token`);
+    const { hasUsableCalendar, getCalendarAssignmentsForUser } = await import('../calendar-provider');
+    if (!(await hasUsableCalendar(user))) {
+      console.log(`[Voice] User ${userId} has no usable calendar (source=${user.calendarSource})`);
       await messagingService.sendMessage(chatId, t.voice.noCalendar, { format: MessageFormat.PLAIN });
       return;
     }
+    const userCalendars = await getCalendarAssignmentsForUser(user);
 
     if (voice.duration >= 30) {
       await messagingService.sendMessage(chatId, t.voice.tooLong, { format: MessageFormat.PLAIN });
@@ -306,19 +311,36 @@ export async function handleVoiceMessage(
     stopTyping = startTypingInterval(chatId, messagingService);
 
     console.log(`[Voice] Downloading voice file for user ${userId}, file_id: ${voice.file_id}, duration: ${voice.duration}s`);
-    const audioBuffer = await downloadVoiceFile(voice.file_id);
+    audioBuffer = await downloadVoiceFile(voice.file_id);
     console.log(`[Voice] Downloaded ${audioBuffer.length} bytes`);
+
+    // PR 10 polish: if a previous voice attempt failed and we stashed the
+    // original audio, send BOTH audios to Gemini as separate inlineData
+    // parts (byte-concat would produce an invalid OGG stream). The new
+    // utterance is the authoritative one; the prior one is context.
+    const { isInRetryMode, readRetryAudio, clearRetryMode } = await import('./audio-retry');
+    let priorAudio: Buffer | null = null;
+    if (await isInRetryMode(chatId)) {
+      priorAudio = await readRetryAudio(chatId);
+      await clearRetryMode(chatId);
+    }
 
     addBreadcrumb('voice_downloaded', {
       file_size: audioBuffer.length,
     }, 'voice');
 
     const timezone = await resolveUserTimezone(user);
-    const { intentResult, transcription, metrics } = await processVoiceWithGemini(
+    // Recent-events context: best-effort lookup; empty if Redis is missing/cold.
+    const { getRecentEvents, formatRecentEventsBlock } = await import('./recent-events-store');
+    const recentEvents = await getRecentEvents(user.id);
+    const recentBlock = formatRecentEventsBlock(recentEvents, timezone);
+    const { intentResult, intentResults, transcription, metrics } = await processVoiceWithGemini(
       audioBuffer,
       user.language || 'en',
-      user.calendarAssignments || [],
-      timezone
+      userCalendars,
+      timezone,
+      recentBlock,
+      priorAudio ?? undefined
     );
 
     // Build admin footer from voice processing metrics
@@ -342,6 +364,18 @@ export async function handleVoiceMessage(
     // Stop typing before sending confirmation UI
     stopTyping();
 
+    // PR 11: multi-event utterance — if Gemini returned 2+ valid CREATE intents,
+    // route to the bulk confirmation card. Single-intent CREATE/EDIT/DELETE
+    // continues through the existing flows below.
+    const validBulk = (intentResults || []).filter(
+      (r) => r.intent === 'create' && r.event && !r.error
+    );
+    if (validBulk.length > 1) {
+      const { showBulkConfirmation } = await import('./bulk-confirmations');
+      await showBulkConfirmation(chatId, validBulk, user, transcription, t, messagingService, timezone);
+      return;
+    }
+
     if (intentResult.intent === 'create') {
       if (!intentResult.event) {
         const safeTranscription = transcription.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -356,7 +390,20 @@ export async function handleVoiceMessage(
         );
         return;
       }
-      await showEventConfirmation(chatId, undefined, intentResult.event, transcription, user, adminFooter);
+      // PR 10: HIGH-confidence skip-confirmation path. Gated on env flag —
+      // off by default. Only triggers for non-recurring single events; recurring
+      // events still go through the confirmation card so the user can pick scope
+      // before commit.
+      const { isAutoCreateEnabled, autoCreateEvent } = await import('./auto-create');
+      if (
+        intentResult.confidence === 'high' &&
+        !intentResult.event.recurrence &&
+        (await isAutoCreateEnabled())
+      ) {
+        const handled = await autoCreateEvent(user, intentResult.event, t, messagingService, chatId);
+        if (handled) return;
+      }
+      await showEventConfirmation(chatId, undefined, intentResult.event, transcription, user, adminFooter, 'voice');
 
     } else if (intentResult.intent === 'edit') {
       await handleEditIntent(chatId, undefined, intentResult, transcription, user, t, adminFooter);
@@ -377,6 +424,14 @@ export async function handleVoiceMessage(
     }
 
     const errorMessages = await getBotMessages(user?.language || 'en');
-    await messagingService.sendMessage(chatId, errorMessages.voice.geminiError, { format: MessageFormat.PLAIN });
+    // PR 10 polish: keep the failed audio for a 5-minute retry window. The
+    // user's next message can be a short addendum that we'll combine with
+    // the original audio.
+    if (audioBuffer && typeof chatId === 'number') {
+      const { stashFailedAudio } = await import('./audio-retry');
+      await stashFailedAudio(chatId, audioBuffer);
+    }
+    const retryHint = errorMessages.voice?.retryHint || ' (You can also send a short clarification — I\'ll combine it with what I heard.)';
+    await messagingService.sendMessage(chatId, errorMessages.voice.geminiError + retryHint, { format: MessageFormat.PLAIN });
   }
 }

@@ -144,6 +144,51 @@ export async function handleTelegramWebhook(
           const { handleKidNameCallback } = await import('./kid-name-callbacks');
           await handleKidNameCallback(chatId, messageId, queryId, action, pendingId);
         }
+      } else if (data.startsWith('voice_undo:')) {
+        // PR 10: Undo button on auto-create skip path
+        const token = data.substring('voice_undo:'.length);
+        const messageId = callbackQuery.message?.message_id;
+        if (messageId) {
+          const { handleVoiceUndoCallback } = await import('./voice/callbacks');
+          await handleVoiceUndoCallback(chatId, messageId, queryId, token, callbackUserId);
+        }
+      } else if (data.startsWith('bulk_confirm:') || data.startsWith('bulk_cancel:')) {
+        // PR 11: bulk multi-event confirmation
+        const action = data.startsWith('bulk_confirm:') ? 'confirm' : 'cancel';
+        const pendingId = data.substring(action === 'confirm' ? 'bulk_confirm:'.length : 'bulk_cancel:'.length);
+        const messageId = callbackQuery.message?.message_id;
+        if (messageId) {
+          const { handleBulkCallback } = await import('./voice/callbacks');
+          await handleBulkCallback(chatId, messageId, queryId, action, pendingId);
+        }
+      } else if (data.startsWith('bulk_edit:')) {
+        // PR 13 polish: per-event edit on bulk confirmation. Pop event #N
+        // into a single-event card and discard the rest of the batch.
+        const rest = data.substring('bulk_edit:'.length);
+        const colon = rest.indexOf(':');
+        if (colon > 0) {
+          const index = parseInt(rest.slice(0, colon), 10);
+          const pendingId = rest.slice(colon + 1);
+          const messageId = callbackQuery.message?.message_id;
+          if (messageId && Number.isFinite(index)) {
+            const { handleBulkEditCallback } = await import('./voice/callbacks');
+            await handleBulkEditCallback(chatId, messageId, queryId, index, pendingId);
+          }
+        }
+      } else if (data.startsWith('event_fix:')) {
+        // PR 10 polish: quick-correction shortcut buttons
+        // data shape: event_fix:<field>:<pendingId> where field ∈ {time,day,cal}
+        const rest = data.substring('event_fix:'.length);
+        const colon = rest.indexOf(':');
+        if (colon > 0) {
+          const field = rest.slice(0, colon) as 'time' | 'day' | 'cal';
+          const pendingId = rest.slice(colon + 1);
+          const messageId = callbackQuery.message?.message_id;
+          if (messageId) {
+            const { handleQuickFixCallback } = await import('./voice/callbacks');
+            await handleQuickFixCallback(chatId, messageId, queryId, field, pendingId);
+          }
+        }
       }
     }
 
@@ -191,6 +236,74 @@ export async function handleTelegramWebhook(
       return;
     }
     // Not a reply to a pending confirmation — fall through to normal handling
+  }
+
+  // PR 10 polish: quick-correction reply handler. If the user just tapped
+  // ⏰/📅/📁 on a confirmation card, the next text or voice message is a
+  // focused field correction. Intercept it before normal voice/text routing.
+  if (update.message?.chat?.id && (update.message.text || update.message.voice)) {
+    const chatId = update.message.chat.id;
+    const { getQuickCorrection, clearQuickCorrection, extractFieldPatch } = await import('./voice/quick-correction');
+    const quickState = await getQuickCorrection(chatId);
+    if (quickState) {
+      try {
+        const { getPendingEvent, removePendingEvent, showEventConfirmation } = await import('./voice/confirmations');
+        const pending = await getPendingEvent(quickState.pendingId);
+        if (!pending) {
+          await clearQuickCorrection(chatId);
+          // Confirmation expired; do not consume the message — let normal
+          // routing pick it up so user isn't silently dropped.
+        } else {
+          const { resolveUserTimezone } = await import('../lib/timezone');
+          const { getCalendarAssignmentsForUser } = await import('./calendar-provider');
+          const tz = await resolveUserTimezone(pending.user);
+          const userCals = await getCalendarAssignmentsForUser(pending.user);
+          let audioBuffer: Buffer | null = null;
+          if (update.message.voice) {
+            const { downloadVoiceFile } = await import('./voice/event-resolution');
+            audioBuffer = await downloadVoiceFile(update.message.voice.file_id);
+          }
+          const patch = await extractFieldPatch(
+            quickState.field,
+            audioBuffer,
+            update.message.text ?? null,
+            pending.event,
+            userCals,
+            pending.user.language || 'en',
+            tz
+          );
+          await clearQuickCorrection(chatId);
+          if (patch) {
+            // Apply patch to the pending event and re-render the confirmation
+            // card in place via showEventConfirmation(messageId=...).
+            if (patch.startTime) pending.event.startTime = patch.startTime;
+            if (patch.endTime) pending.event.endTime = patch.endTime;
+            if (patch.calendarId) pending.event.calendarId = patch.calendarId;
+            if (patch.calendarName) pending.event.calendarName = patch.calendarName;
+            await removePendingEvent(quickState.pendingId);
+            await showEventConfirmation(
+              chatId,
+              quickState.messageId,
+              pending.event,
+              pending.transcription,
+              pending.user,
+              undefined,
+              pending.inputModality
+            );
+          } else {
+            const { getBotMessages } = await import('../lib/bot-messages');
+            const t = await getBotMessages(pending.user.language || 'en');
+            const { getBot } = await import('./telegram');
+            await getBot().sendMessage(chatId, t.voice?.fixFailed || "❌ I couldn't apply that — please tap the button again or send a fresh voice message.");
+          }
+          res.status(200).json({ ok: true });
+          return;
+        }
+      } catch (err) {
+        console.error('[QuickCorrection] reply handler failed:', err);
+        await clearQuickCorrection(chatId);
+      }
+    }
   }
 
   // Handle voice messages for event creation
@@ -293,6 +406,15 @@ export async function handleTelegramWebhook(
     await handleFeedbackCommand(chatId, textUserId, args || undefined);
   } else if (text.startsWith('/connect')) {
     await handleConnectCommand(chatId, textUserId, MessagingPlatform.TELEGRAM);
+  } else {
+    // Free-text "accept <token>" — pair-invite acceptance via plain message
+    const { parseAcceptCommand, handlePairAccept } = await import('./telegram/pair-handler');
+    const token = parseAcceptCommand(text);
+    if (token) {
+      const { getOrCreateUser } = await import('./user-service');
+      const user = await getOrCreateUser(textUserId, update.message.from);
+      await handlePairAccept(chatId, user.id, token, user.language || 'en', MessagingPlatform.TELEGRAM);
+    }
   }
 
   res.status(200).json({ ok: true });
@@ -397,10 +519,24 @@ export async function handleWhatsAppWebhook(
   if (message.type === 'audio') {
     const mediaId = message.audio?.id;
     if (mediaId) {
-      const { getUserByWhatsAppId } = await import('./user-service');
-      const user = await getUserByWhatsAppId(fromId);
-      if (user) {
-        await handleWhatsAppVoice(fromId, user, mediaId);
+      // Duplicate-prevention lock keyed by mediaId. Meta retries delivery on
+      // non-2xx or slow responses; without this lock, a retry would re-run
+      // the all-HIGH bulk auto-create loop and produce N duplicate events.
+      const { acquireVoiceLock, releaseVoiceLock } = await import('../utils/redis-lock');
+      const lockAcquired = await acquireVoiceLock(mediaId);
+      if (!lockAcquired) {
+        console.log(`[WhatsApp Voice] Media ${mediaId} already being processed — skipping duplicate`);
+        res.status(200).json({ ok: true });
+        return;
+      }
+      try {
+        const { getUserByWhatsAppId } = await import('./user-service');
+        const user = await getUserByWhatsAppId(fromId);
+        if (user) {
+          await handleWhatsAppVoice(fromId, user, mediaId);
+        }
+      } finally {
+        await releaseVoiceLock(mediaId);
       }
     }
     res.status(200).json({ ok: true });
@@ -507,6 +643,17 @@ export async function handleWhatsAppWebhook(
     if (await isInOnboarding(from)) {
       const handled = await handleOnboardingMessage(from, text);
       if (handled) {
+        res.status(200).json({ ok: true });
+        return;
+      }
+    }
+
+    // Free-text "accept <token>" — pair-invite acceptance via plain message
+    {
+      const { parseAcceptCommand, handlePairAccept } = await import('./telegram/pair-handler');
+      const acceptToken = parseAcceptCommand(text);
+      if (acceptToken) {
+        await handlePairAccept(from, user.id, acceptToken, locale, MessagingPlatform.WHATSAPP);
         res.status(200).json({ ok: true });
         return;
       }
@@ -684,10 +831,12 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
       return;
     }
 
-    if (!user.googleRefreshToken) {
+    const { hasUsableCalendar, getCalendarAssignmentsForUser } = await import('./calendar-provider');
+    if (!(await hasUsableCalendar(user))) {
       await waService.sendMessage(phone, t.voice?.noCalendar || 'Please connect your Google Calendar first.');
       return;
     }
+    const userCalendars = await getCalendarAssignmentsForUser(user);
 
     // Send processing message
     await waService.sendMessage(phone, t.voice?.processing || 'Processing your voice message...');
@@ -703,17 +852,172 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     const { resolveUserTimezone } = await import('../lib/timezone');
     const timezone = await resolveUserTimezone(user);
     const { processVoiceWithGemini } = await import('./voice/gemini-voice');
-    const { intentResult, transcription } = await processVoiceWithGemini(
+    const { getRecentEvents, formatRecentEventsBlock } = await import('./voice/recent-events-store');
+    const recentEvents = await getRecentEvents(user.id);
+    const recentBlock = formatRecentEventsBlock(recentEvents, timezone);
+    const { intentResult, intentResults, transcription } = await processVoiceWithGemini(
       audioBuffer,
       user.language || 'en',
-      user.calendarAssignments || [],
-      timezone
+      userCalendars,
+      timezone,
+      recentBlock
     );
 
     console.log(`[WhatsApp Voice] Intent: ${intentResult.intent}, confidence: ${intentResult.confidence}`);
 
+    // Multi-event flow on WhatsApp: only auto-create when EVERY entry is
+    // HIGH confidence and non-recurring. Mixed-confidence (any LOW or
+    // MEDIUM) or any recurring event in the batch routes to a "use TG"
+    // hint — bulk medium-card UX would be too noisy on WhatsApp's button
+    // surface, and recurring events need scope decisions per event.
+    const validBulkWa = (intentResults || []).filter((r) => r.intent === 'create' && r.event && !r.error);
+    if (validBulkWa.length > 1) {
+      const allHigh = validBulkWa.every(
+        (r) => r.confidence === 'high' && !r.event!.recurrence
+      );
+      if (!allHigh) {
+        await waService.sendMessage(
+          phone,
+          wa.bulkUseTelegram ||
+            `📋 I heard ${validBulkWa.length} events at once. For mixed-confidence batches please dictate them on Telegram, or one at a time here.`
+        );
+        return;
+      }
+
+      // All-HIGH bulk auto-create. Iterate sequentially through the provider
+      // so partial failures are reported clearly rather than aborting silently.
+      const { getProviderForUser } = await import('./calendar-provider');
+      const { buildRecurrenceRule } = await import('./calendar');
+      const { pushRecentEvent } = await import('./voice/recent-events-store');
+      const { incrementUsage } = await import('./subscription-service');
+      const { trackActivityAsync } = await import('./analytics-service');
+      const provider = getProviderForUser(user);
+
+      let successCount = 0;
+      const failures: string[] = [];
+      const successTitles: string[] = [];
+
+      for (let i = 0; i < validBulkWa.length; i++) {
+        const ev = validBulkWa[i].event!;
+        const result = await provider.createEvent(user, ev.calendarId || 'primary', {
+          title: ev.title,
+          startTime: ev.startTime,
+          endTime: ev.endTime,
+          location: ev.location,
+          description: ev.description,
+          allDay: ev.allDay,
+          recurrence: buildRecurrenceRule(ev.recurrence),
+        });
+        if (result.success && result.eventId) {
+          successCount++;
+          successTitles.push(ev.title);
+          const calId = ev.calendarId || 'primary';
+          await pushRecentEvent(user.id, {
+            provider: calId.startsWith('native:') ? 'native' : 'google',
+            calendarId: calId,
+            eventId: result.eventId,
+            title: ev.title,
+            startsAt: ev.startTime.toISOString(),
+            endsAt: ev.endTime.toISOString(),
+            action: 'create',
+          });
+          incrementUsage(user.id, 'voiceEvents').catch((e) =>
+            captureError(e, 'usage-increment', { user_id: user.id }, 'warning')
+          );
+        } else {
+          failures.push(`#${i + 1}: ${ev.title} — ${result.error || 'unknown'}`);
+        }
+      }
+
+      trackActivityAsync(user.id, 'voice_event_created', {
+        platform: 'whatsapp',
+        auto: true,
+        bulk: true,
+        count: successCount,
+      });
+
+      let summary: string;
+      if (failures.length === 0) {
+        summary = (wa.bulkAllCreated || `✅ Created ${successCount} events:\n{titles}`)
+          .replace('{count}', String(successCount))
+          .replace('{titles}', successTitles.map((t) => `• ${t}`).join('\n'));
+      } else if (successCount === 0) {
+        summary = wa.bulkAllFailed || `❌ Could not create the events. Please re-dictate.`;
+      } else {
+        summary = (wa.bulkPartial || `⚠️ Created {ok} of {total}.\nFailures:\n{errors}`)
+          .replace('{ok}', String(successCount))
+          .replace('{total}', String(validBulkWa.length))
+          .replace('{errors}', failures.map((e) => `• ${e}`).join('\n'));
+      }
+      await waService.sendMessage(phone, summary);
+      return;
+    }
+
     if (intentResult.intent === 'create' && intentResult.event) {
-      // Store pending event in Redis
+      // WhatsApp voice flow:
+      //   HIGH confidence + non-recurring → auto-create (no confirmation)
+      //   LOW confidence  → plain reject (try-again prompt, no TG redirect —
+      //                     a single misheard event isn't worth a context switch)
+      //   MEDIUM         → confirmation card (existing behavior)
+      // Recurring events always go through the card so the user can choose
+      // scope before commit.
+      if (intentResult.confidence === 'low') {
+        await waService.sendMessage(
+          phone,
+          wa.voiceLowConf || `🤔 I'm not confident I understood. Could you try again?`
+        );
+        return;
+      }
+
+      if (intentResult.confidence === 'high' && !intentResult.event.recurrence) {
+        // Auto-create directly. No confirmation, no Undo button (WhatsApp
+        // template/button surface is constrained — see TG flow for full Undo).
+        const { getProviderForUser } = await import('./calendar-provider');
+        const { buildRecurrenceRule } = await import('./calendar');
+        const provider = getProviderForUser(user);
+        const result = await provider.createEvent(user, intentResult.event.calendarId || 'primary', {
+          title: intentResult.event.title,
+          startTime: intentResult.event.startTime,
+          endTime: intentResult.event.endTime,
+          location: intentResult.event.location,
+          description: intentResult.event.description,
+          allDay: intentResult.event.allDay,
+          recurrence: buildRecurrenceRule(intentResult.event.recurrence),
+        });
+        if (result.success) {
+          if (result.eventId) {
+            const { pushRecentEvent } = await import('./voice/recent-events-store');
+            const calId = intentResult.event.calendarId || 'primary';
+            await pushRecentEvent(user.id, {
+              provider: calId.startsWith('native:') ? 'native' : 'google',
+              calendarId: calId,
+              eventId: result.eventId,
+              title: intentResult.event.title,
+              startsAt: intentResult.event.startTime.toISOString(),
+              endsAt: intentResult.event.endTime.toISOString(),
+              action: 'create',
+            });
+          }
+          const { incrementUsage } = await import('./subscription-service');
+          const { trackActivityAsync } = await import('./analytics-service');
+          trackActivityAsync(user.id, 'voice_event_created', { platform: 'whatsapp', auto: true });
+          incrementUsage(user.id, 'voiceEvents').catch((e) =>
+            captureError(e, 'usage-increment', { user_id: user.id }, 'warning')
+          );
+          await waService.sendMessage(
+            phone,
+            `✅ ${t.voice?.created || 'Event created!'}\n\n*${intentResult.event.title}*`
+          );
+        } else {
+          await waService.sendMessage(
+            phone,
+            `❌ ${(wa.eventFailed || 'Failed to create event: {error}').replace('{error}', result.error || '')}`
+          );
+        }
+        return;
+      }
+
+      // MEDIUM confidence — fall through to the existing confirmation card.
       const { REDIS_KEYS } = await import('../config/redis-keys');
       const { redis } = await import('../utils/redis');
 
@@ -772,9 +1076,11 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
         return;
       }
 
-      const { createEvent, buildRecurrenceRule } = await import('./calendar');
-      const result = await createEvent(
-        pending.user.googleRefreshToken,
+      const { buildRecurrenceRule } = await import('./calendar');
+      const { getProviderForUser } = await import('./calendar-provider');
+      const provider = getProviderForUser(pending.user);
+      const result = await provider.createEvent(
+        pending.user,
         pending.event.calendarId || 'primary',
         {
           title: pending.event.title,
@@ -795,6 +1101,21 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
         const { trackActivityAsync } = await import('./analytics-service');
         trackActivityAsync(pending.user.id, 'voice_event_created', { platform: 'whatsapp' });
         incrementUsage(pending.user.id, 'voiceEvents').catch(e => captureError(e, 'usage-increment', { user_id: pending.user.id }, 'warning'));
+
+        // Recent-events: feed the sliding window so follow-ups resolve via context (PR 9).
+        if (result.eventId) {
+          const { pushRecentEvent } = await import('./voice/recent-events-store');
+          const calId = pending.event.calendarId || 'primary';
+          await pushRecentEvent(pending.user.id, {
+            provider: calId.startsWith('native:') ? 'native' : 'google',
+            calendarId: calId,
+            eventId: result.eventId,
+            title: pending.event.title,
+            startsAt: new Date(pending.event.startTime).toISOString(),
+            endsAt: new Date(pending.event.endTime).toISOString(),
+            action: 'create',
+          });
+        }
       } else {
         await waService.sendMessage(phone, `❌ ${(wa.eventFailed || 'Failed to create event: {error}').replace('{error}', result.error || '')}`);
       }
@@ -809,12 +1130,13 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
         await waService.sendMessage(phone, wa.eventExpired || 'This confirmation has expired.');
         return;
       }
-      const { updateEvent } = await import('./calendar');
-      const result = await updateEvent(
-        pending.user.googleRefreshToken,
+      const { getProviderForUser } = await import('./calendar-provider');
+      const provider = getProviderForUser(pending.user);
+      const result = await provider.updateEvent(
+        pending.user,
         pending.calendarId,
         pending.originalEvent.eventId!,
-        { ...pending.updates, scope: pending.scope }
+        { ...pending.updates, scope: pending.scope, recurringEventId: pending.originalEvent.recurringEventId }
       );
       await removePendingEdit(pendingId);
       await waService.sendMessage(phone, result.success
@@ -831,12 +1153,13 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
         await waService.sendMessage(phone, wa.eventExpired || 'This confirmation has expired.');
         return;
       }
-      const { deleteEvent } = await import('./calendar');
-      const result = await deleteEvent(
-        pending.user.googleRefreshToken,
+      const { getProviderForUser } = await import('./calendar-provider');
+      const provider = getProviderForUser(pending.user);
+      const result = await provider.deleteEvent(
+        pending.user,
         pending.calendarId,
         pending.event.eventId!,
-        pending.scope ? { scope: pending.scope } : undefined
+        pending.scope ? { scope: pending.scope, recurringEventId: pending.event.recurringEventId } : { recurringEventId: pending.event.recurringEventId }
       );
       await removePendingDelete(pendingId);
       await waService.sendMessage(phone, result.success

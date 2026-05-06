@@ -81,4 +81,24 @@ export const REDIS_KEYS = {
   // Identifier blocklist cache (admin moderation; banned telegramId / whatsappPhone)
   blockedTelegramId: (telegramId: number | bigint | string) => `blocked:tg:${telegramId}`,
   blockedWhatsAppPhone: (phone: string) => `blocked:wa:${phone}`,
+
+  // Voice frictionlessness — recent CRUD for follow-up context (PR 9)
+  recentEvents: (userId: number) => `voice:recent:${userId}`,
+
+  // Voice frictionlessness — undo window for HIGH-confidence skipped confirmations (PR 10)
+  undoToken: (token: string) => `voice:undo:${token}`,
+
+  // Voice frictionlessness — bulk pending batch for multi-event confirmations (PR 11)
+  pendingBatch: (pendingId: string) => `voice:pending:batch:${pendingId}`,
+
+  // Voice frictionlessness — admin toggles cached from AdminSettings
+  VOICE_AUTO_CREATE_HIGH_CONF: 'admin:voice_auto_create_high_conf',
+  VOICE_TTS_OUTCOME: 'admin:voice_tts_outcome',
+
+  // Voice frictionlessness — quick-correction "awaiting field reply" state (PR 10 polish)
+  quickCorrection: (chatId: number) => `voice:quick:${chatId}`,
+
+  // Voice frictionlessness — audio retry: keep last failed audio + retry-mode flag (PR 10 polish)
+  retryAudio: (chatId: number) => `voice:retry:audio:${chatId}`,
+  retryMode: (chatId: number) => `voice:retry:mode:${chatId}`,
 } as const;

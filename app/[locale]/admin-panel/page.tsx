@@ -109,6 +109,8 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
       }}
       remindersEnabled={adminSettings?.remindersEnabled ?? false}
       earlyAdoptionMode={adminSettings?.earlyAdoptionMode ?? false}
+      voiceAutoCreateHighConf={adminSettings?.voiceAutoCreateHighConf ?? false}
+      voiceTtsOutcome={adminSettings?.voiceTtsOutcome ?? false}
       defaultAiModel={adminSettings?.defaultAiModel ?? null}
       geminiThinkingLevel={adminSettings?.geminiThinkingLevel ?? null}
     />
