@@ -4,7 +4,9 @@
  */
 
 import { getBot } from '../telegram';
-import { createEvent, CreateEventResult, updateEvent, UpdateEventResult, deleteEvent, DeleteEventResult, buildRecurrenceRule } from '../calendar';
+import { buildRecurrenceRule } from '../calendar';
+import { getProviderForUser } from '../calendar-provider';
+import type { CreateEventResult, UpdateEventResult, DeleteEventResult } from '../calendar-provider';
 import { buildUrl } from '../../config/urls';
 import { getBotMessages } from '../../lib/bot-messages';
 import { trackActivityAsync } from '../analytics-service';
@@ -83,8 +85,9 @@ export async function handleEventCallback(
       return;
     }
 
-    const result: CreateEventResult = await createEvent(
-      user.googleRefreshToken,
+    const provider = getProviderForUser(user);
+    const result: CreateEventResult = await provider.createEvent(
+      user,
       event.calendarId || 'primary',
       {
         title: event.title,
@@ -246,8 +249,9 @@ export async function handleEditCallback(
       return;
     }
 
-    const result: UpdateEventResult = await updateEvent(
-      user.googleRefreshToken,
+    const provider = getProviderForUser(user);
+    const result: UpdateEventResult = await provider.updateEvent(
+      user,
       calendarId,
       eventId,
       {
@@ -400,8 +404,9 @@ export async function handleDeleteCallback(
       return;
     }
 
-    const result: DeleteEventResult = await deleteEvent(
-      user.googleRefreshToken,
+    const provider = getProviderForUser(user);
+    const result: DeleteEventResult = await provider.deleteEvent(
+      user,
       calendarId,
       eventId,
       { scope: scope, recurringEventId: event.recurringEventId }

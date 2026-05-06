@@ -6,7 +6,7 @@
 
 import { redis } from '../utils/redis';
 import { CalendarEvent, CalendarAssignment, UserConfig } from '../types';
-import { fetchTodayEvents } from './calendar';
+import { getProviderForUser } from './calendar-provider';
 import { getBot } from './telegram';
 import { getTelegramService, getWhatsAppService } from './messaging/factory';
 import { MessageFormat } from './messaging/types';
@@ -123,7 +123,8 @@ export async function getDueReminders(
   // Fetch today's events
   let events: CalendarEvent[];
   try {
-    events = await fetchTodayEvents(user.googleRefreshToken, calendarIds);
+    const provider = getProviderForUser(user);
+    events = await provider.fetchTodayEvents(user, calendarIds);
   } catch (error) {
     console.error(`[Reminders] Error fetching events for user ${user.telegramId}:`, error);
     captureError(error, 'reminders-fetch-events', { telegramId: user.telegramId }, 'warning');

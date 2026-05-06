@@ -772,9 +772,11 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
         return;
       }
 
-      const { createEvent, buildRecurrenceRule } = await import('./calendar');
-      const result = await createEvent(
-        pending.user.googleRefreshToken,
+      const { buildRecurrenceRule } = await import('./calendar');
+      const { getProviderForUser } = await import('./calendar-provider');
+      const provider = getProviderForUser(pending.user);
+      const result = await provider.createEvent(
+        pending.user,
         pending.event.calendarId || 'primary',
         {
           title: pending.event.title,
@@ -809,12 +811,13 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
         await waService.sendMessage(phone, wa.eventExpired || 'This confirmation has expired.');
         return;
       }
-      const { updateEvent } = await import('./calendar');
-      const result = await updateEvent(
-        pending.user.googleRefreshToken,
+      const { getProviderForUser } = await import('./calendar-provider');
+      const provider = getProviderForUser(pending.user);
+      const result = await provider.updateEvent(
+        pending.user,
         pending.calendarId,
         pending.originalEvent.eventId!,
-        { ...pending.updates, scope: pending.scope }
+        { ...pending.updates, scope: pending.scope, recurringEventId: pending.originalEvent.recurringEventId }
       );
       await removePendingEdit(pendingId);
       await waService.sendMessage(phone, result.success
@@ -831,12 +834,13 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
         await waService.sendMessage(phone, wa.eventExpired || 'This confirmation has expired.');
         return;
       }
-      const { deleteEvent } = await import('./calendar');
-      const result = await deleteEvent(
-        pending.user.googleRefreshToken,
+      const { getProviderForUser } = await import('./calendar-provider');
+      const provider = getProviderForUser(pending.user);
+      const result = await provider.deleteEvent(
+        pending.user,
         pending.calendarId,
         pending.event.eventId!,
-        pending.scope ? { scope: pending.scope } : undefined
+        pending.scope ? { scope: pending.scope, recurringEventId: pending.event.recurringEventId } : { recurringEventId: pending.event.recurringEventId }
       );
       await removePendingDelete(pendingId);
       await waService.sendMessage(phone, result.success

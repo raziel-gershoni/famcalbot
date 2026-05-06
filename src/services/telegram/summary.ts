@@ -3,7 +3,15 @@
  */
 
 import { getUserByTelegramId, getUserByIdentifier, getAllUsers, getWhatsAppChatId } from '../user-service';
-import { fetchTodayEvents, fetchTomorrowEvents } from '../calendar';
+import { getProviderForUser } from '../calendar-provider';
+
+// Provider-aware fetchers that match the fetchFunction signature in summary callers.
+// These are stable wrappers around getProviderForUser(user) so PR 4 can change
+// provider dispatch without re-touching summary call sites.
+const fetchTodayEvents = (user: UserConfig, calendarIds: string[], tz?: string): Promise<CalendarEvent[]> =>
+  getProviderForUser(user).fetchTodayEvents(user, calendarIds, tz);
+const fetchTomorrowEvents = (user: UserConfig, calendarIds: string[], tz?: string): Promise<CalendarEvent[]> =>
+  getProviderForUser(user).fetchTomorrowEvents(user, calendarIds, tz);
 import { generateSummary, SummaryUserContext, formatDateHeader } from '../claude';
 import { CalendarEvent, UserConfig } from '../../types';
 import { IMessagingService, getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from '../messaging';
@@ -51,7 +59,7 @@ interface PreparedSummary {
 
 async function prepareSummaryForUser(
   user: UserConfig,
-  fetchFunction: (refreshToken: string, calendarIds: string[], timezone?: string) => Promise<CalendarEvent[]>,
+  fetchFunction: (user: UserConfig, calendarIds: string[], timezone?: string) => Promise<CalendarEvent[]>,
   summaryDate: Date | undefined,
   modelId?: string
 ): Promise<PreparedSummary> {
@@ -68,7 +76,7 @@ async function prepareSummaryForUser(
 
   // Fetch calendar events with user's timezone
   const tCalendar = Date.now();
-  const events = await fetchFunction(user.googleRefreshToken, allCalendarIds, userTimezone);
+  const events = await fetchFunction(user, allCalendarIds, userTimezone);
   const calendarMs = Date.now() - tCalendar;
 
   // Categorize events by ownership
@@ -168,7 +176,7 @@ async function prepareSummaryForUser(
  */
 export async function sendSummaryToUser(
   chatId: number | string,
-  fetchFunction: (refreshToken: string, calendarIds: string[], timezone?: string) => Promise<CalendarEvent[]>,
+  fetchFunction: (user: UserConfig, calendarIds: string[], timezone?: string) => Promise<CalendarEvent[]>,
   summaryDate: Date | undefined,
   errorKey: string,
   modelId?: string,
@@ -283,7 +291,7 @@ export interface SummaryBatchResult {
  * Generic function to send summary to all users
  */
 async function sendSummaryToAll(
-  fetchFunction: (refreshToken: string, calendarIds: string[], timezone?: string) => Promise<CalendarEvent[]>,
+  fetchFunction: (user: UserConfig, calendarIds: string[], timezone?: string) => Promise<CalendarEvent[]>,
   summaryDate: Date | undefined,
   options?: { filterByHour?: boolean }
 ): Promise<SummaryBatchResult> {

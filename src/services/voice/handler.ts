@@ -8,7 +8,8 @@ import { getUserByTelegramId } from '../user-service';
 import { MessageFormat } from '../messaging/types';
 import { VoiceIntentResult } from '../event-parser';
 import { processVoiceWithGemini } from './gemini-voice';
-import { fetchEventsInRange, CalendarEvent } from '../calendar';
+import { CalendarEvent } from '../calendar';
+import { getProviderForUser } from '../calendar-provider';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { buildUrl } from '../../config/urls';
 import { UserConfig } from '../../types';
@@ -73,8 +74,9 @@ export async function handleEditIntent(
       calendarIds.push(lastEvent.calendarId);
     }
 
-    const events = await fetchEventsInRange(
-      user.googleRefreshToken,
+    const provider = getProviderForUser(user);
+    const events = await provider.fetchEventsInRange(
+      user,
       [lastEvent.calendarId],
       new Date(lastEvent.startTime.getTime() - 60000),
       new Date(lastEvent.endTime.getTime() + 60000)
@@ -86,7 +88,7 @@ export async function handleEditIntent(
   } else if (intentResult.eventReference?.type === 'by_description') {
     const calendarIds = (user.calendarAssignments || []).map(c => c.calendarId);
     const matchResult = await findMatchingEvent(
-      user.googleRefreshToken,
+      user,
       calendarIds,
       intentResult.eventReference,
       user.language || 'en'
@@ -163,8 +165,9 @@ export async function handleDeleteIntent(
       return;
     }
 
-    const events = await fetchEventsInRange(
-      user.googleRefreshToken,
+    const provider = getProviderForUser(user);
+    const events = await provider.fetchEventsInRange(
+      user,
       [lastEvent.calendarId],
       new Date(lastEvent.startTime.getTime() - 60000),
       new Date(lastEvent.endTime.getTime() + 60000)
@@ -176,7 +179,7 @@ export async function handleDeleteIntent(
   } else if (intentResult.eventReference?.type === 'by_description') {
     const calendarIds = (user.calendarAssignments || []).map(c => c.calendarId);
     const matchResult = await findMatchingEvent(
-      user.googleRefreshToken,
+      user,
       calendarIds,
       intentResult.eventReference,
       user.language || 'en'

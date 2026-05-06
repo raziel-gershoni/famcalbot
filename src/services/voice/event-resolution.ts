@@ -6,7 +6,9 @@
 import { redis } from '../../utils/redis';
 import { getBot } from '../telegram';
 import { ParsedEvent, EventReference, EditRequest } from '../event-parser';
-import { fetchEventsInRange, CalendarEvent, UpdateEventData } from '../calendar';
+import { CalendarEvent, UpdateEventData } from '../calendar';
+import { getProviderForUser } from '../calendar-provider';
+import type { UserConfig } from '../../types';
 import { generateAICompletion } from '../ai-provider';
 import { fromZonedTime } from 'date-fns-tz';
 import { REDIS_KEYS } from '../../config/redis-keys';
@@ -105,7 +107,7 @@ export async function getLastCreatedEvent(userId: number): Promise<CreatedEventT
  * Uses AI to match event titles and returns the best match
  */
 export async function findMatchingEvent(
-  refreshToken: string,
+  user: UserConfig,
   calendarIds: string[],
   reference: EventReference,
   language: string
@@ -142,7 +144,8 @@ export async function findMatchingEvent(
   }
 
   // Fetch events from all calendars
-  const events = await fetchEventsInRange(refreshToken, calendarIds, startDate, endDate);
+  const provider = getProviderForUser(user);
+  const events = await provider.fetchEventsInRange(user, calendarIds, startDate, endDate);
 
   if (events.length === 0) {
     return { error: 'no_events_found' };
