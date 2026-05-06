@@ -234,7 +234,8 @@ export async function getOrCreateUser(
   const name = [telegramUser?.first_name, telegramUser?.last_name]
     .filter(Boolean).join(' ') || 'User';
 
-  // Create new user with defaults
+  // Create new user with defaults. calendarSource defaults to NATIVE in the
+  // schema; new users land in the in-bot calendar unless they connect Google.
   const newUser = await prisma.user.create({
     data: {
       telegramId: BigInt(telegramId),
@@ -245,9 +246,18 @@ export async function getOrCreateUser(
       location: '',
       culture: 'default',
       messagingPlatform: 'telegram',
-      googleRefreshToken: '',  // Empty until OAuth
+      googleRefreshToken: '',  // Empty for NATIVE users; OAuth fills this for GOOGLE.
     }
   });
+
+  // Best-effort primary calendar bootstrap so voice CRUD works on first event.
+  // Failure is non-fatal — it'll be retried lazily on next CRUD or settings load.
+  try {
+    const { ensurePrimaryNativeCalendar } = await import('./native-calendar/onboarding');
+    await ensurePrimaryNativeCalendar(newUser.id);
+  } catch (err) {
+    console.warn(`[User] Failed to bootstrap primary native calendar for ${newUser.id}:`, err);
+  }
 
   console.log(`[User] Created new user: ${name} (Telegram ID: ${telegramId})`);
   return convertPrismaUserToConfig(newUser);
@@ -324,6 +334,14 @@ export async function getOrCreateUserByWhatsApp(
       googleRefreshToken: '',
     }
   });
+
+  // Same bootstrap as the Telegram path — see getOrCreateUser comment.
+  try {
+    const { ensurePrimaryNativeCalendar } = await import('./native-calendar/onboarding');
+    await ensurePrimaryNativeCalendar(newUser.id);
+  } catch (err) {
+    console.warn(`[User] Failed to bootstrap primary native calendar for ${newUser.id}:`, err);
+  }
 
   console.log(`[User] Created new WhatsApp user: ${name} (ID: ${identifier})`);
   return convertPrismaUserToConfig(newUser);
