@@ -365,6 +365,19 @@ export async function handleVoiceMessage(
         );
         return;
       }
+      // PR 10: HIGH-confidence skip-confirmation path. Gated on env flag —
+      // off by default. Only triggers for non-recurring single events; recurring
+      // events still go through the confirmation card so the user can pick scope
+      // before commit.
+      const { isAutoCreateEnabled, autoCreateEvent } = await import('./auto-create');
+      if (
+        intentResult.confidence === 'high' &&
+        !intentResult.event.recurrence &&
+        isAutoCreateEnabled()
+      ) {
+        const handled = await autoCreateEvent(user, intentResult.event, t, messagingService, chatId);
+        if (handled) return;
+      }
       await showEventConfirmation(chatId, undefined, intentResult.event, transcription, user, adminFooter);
 
     } else if (intentResult.intent === 'edit') {

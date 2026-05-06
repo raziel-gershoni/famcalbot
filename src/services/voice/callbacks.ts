@@ -520,3 +520,50 @@ export async function handleDeleteCallback(
     }
   }
 }
+
+/**
+ * PR 10: Voice Undo callback — handles the "↩️ Undo (30s)" button shown after
+ * a HIGH-confidence auto-created event. Looks up the undo token, deletes the
+ * event via the provider, and replaces the success message with a confirmation.
+ *
+ * Idempotent on the user side: an expired or already-consumed token is treated
+ * as a no-op with a friendly message.
+ */
+export async function handleVoiceUndoCallback(
+  chatId: number,
+  messageId: number,
+  queryId: string,
+  token: string,
+  callbackUserId: number
+): Promise<void> {
+  const bot = await getBot();
+  await bot.answerCallbackQuery(queryId, { text: '⏳' });
+
+  const { getUserByTelegramId } = await import('../user-service');
+  const user = await getUserByTelegramId(callbackUserId);
+  if (!user) return;
+  const t = await getBotMessages(user.language || 'en');
+
+  const { handleUndoCallback } = await import('./auto-create');
+  const result = await handleUndoCallback(user, token);
+
+  if (result.ok) {
+    await bot.editMessageText(t.voice?.undone || '↩️ <b>Event removed.</b>', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+    });
+  } else if (result.reason === 'expired') {
+    await bot.editMessageText(t.voice?.undoExpired || '⌛ Undo window expired — event kept.', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+    });
+  } else {
+    await bot.editMessageText(t.voice?.undoFailed || '❌ Could not undo. Try editing or deleting from the calendar.', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+    });
+  }
+}

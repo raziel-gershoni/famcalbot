@@ -144,6 +144,14 @@ export async function handleTelegramWebhook(
           const { handleKidNameCallback } = await import('./kid-name-callbacks');
           await handleKidNameCallback(chatId, messageId, queryId, action, pendingId);
         }
+      } else if (data.startsWith('voice_undo:')) {
+        // PR 10: Undo button on auto-create skip path
+        const token = data.substring('voice_undo:'.length);
+        const messageId = callbackQuery.message?.message_id;
+        if (messageId) {
+          const { handleVoiceUndoCallback } = await import('./voice/callbacks');
+          await handleVoiceUndoCallback(chatId, messageId, queryId, token, callbackUserId);
+        }
       }
     }
 
