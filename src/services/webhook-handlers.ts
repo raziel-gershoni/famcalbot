@@ -851,16 +851,91 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
 
     console.log(`[WhatsApp Voice] Intent: ${intentResult.intent}, confidence: ${intentResult.confidence}`);
 
-    // Multi-event batches are not yet supported on WhatsApp (PR 11 ships TG
-    // bulk only). Surface a clear message rather than silently dropping all
-    // but the first event.
+    // Multi-event flow on WhatsApp: only auto-create when EVERY entry is
+    // HIGH confidence and non-recurring. Mixed-confidence (any LOW or
+    // MEDIUM) or any recurring event in the batch routes to a "use TG"
+    // hint — bulk medium-card UX would be too noisy on WhatsApp's button
+    // surface, and recurring events need scope decisions per event.
     const validBulkWa = (intentResults || []).filter((r) => r.intent === 'create' && r.event && !r.error);
     if (validBulkWa.length > 1) {
-      await waService.sendMessage(
-        phone,
-        wa.bulkUseTelegram ||
-          `📋 I heard ${validBulkWa.length} events at once. Multi-event is only on Telegram for now — please dictate them one at a time here.`
+      const allHigh = validBulkWa.every(
+        (r) => r.confidence === 'high' && !r.event!.recurrence
       );
+      if (!allHigh) {
+        await waService.sendMessage(
+          phone,
+          wa.bulkUseTelegram ||
+            `📋 I heard ${validBulkWa.length} events at once. For mixed-confidence batches please dictate them on Telegram, or one at a time here.`
+        );
+        return;
+      }
+
+      // All-HIGH bulk auto-create. Iterate sequentially through the provider
+      // so partial failures are reported clearly rather than aborting silently.
+      const { getProviderForUser } = await import('./calendar-provider');
+      const { buildRecurrenceRule } = await import('./calendar');
+      const { pushRecentEvent } = await import('./voice/recent-events-store');
+      const { incrementUsage } = await import('./subscription-service');
+      const { trackActivityAsync } = await import('./analytics-service');
+      const provider = getProviderForUser(user);
+
+      let successCount = 0;
+      const failures: string[] = [];
+      const successTitles: string[] = [];
+
+      for (let i = 0; i < validBulkWa.length; i++) {
+        const ev = validBulkWa[i].event!;
+        const result = await provider.createEvent(user, ev.calendarId || 'primary', {
+          title: ev.title,
+          startTime: ev.startTime,
+          endTime: ev.endTime,
+          location: ev.location,
+          description: ev.description,
+          allDay: ev.allDay,
+          recurrence: buildRecurrenceRule(ev.recurrence),
+        });
+        if (result.success && result.eventId) {
+          successCount++;
+          successTitles.push(ev.title);
+          const calId = ev.calendarId || 'primary';
+          await pushRecentEvent(user.id, {
+            provider: calId.startsWith('native:') ? 'native' : 'google',
+            calendarId: calId,
+            eventId: result.eventId,
+            title: ev.title,
+            startsAt: ev.startTime.toISOString(),
+            endsAt: ev.endTime.toISOString(),
+            action: 'create',
+          });
+          incrementUsage(user.id, 'voiceEvents').catch((e) =>
+            captureError(e, 'usage-increment', { user_id: user.id }, 'warning')
+          );
+        } else {
+          failures.push(`#${i + 1}: ${ev.title} — ${result.error || 'unknown'}`);
+        }
+      }
+
+      trackActivityAsync(user.id, 'voice_event_created', {
+        platform: 'whatsapp',
+        auto: true,
+        bulk: true,
+        count: successCount,
+      });
+
+      let summary: string;
+      if (failures.length === 0) {
+        summary = (wa.bulkAllCreated || `✅ Created ${successCount} events:\n{titles}`)
+          .replace('{count}', String(successCount))
+          .replace('{titles}', successTitles.map((t) => `• ${t}`).join('\n'));
+      } else if (successCount === 0) {
+        summary = wa.bulkAllFailed || `❌ Could not create the events. Please re-dictate.`;
+      } else {
+        summary = (wa.bulkPartial || `⚠️ Created {ok} of {total}.\nFailures:\n{errors}`)
+          .replace('{ok}', String(successCount))
+          .replace('{total}', String(validBulkWa.length))
+          .replace('{errors}', failures.map((e) => `• ${e}`).join('\n'));
+      }
+      await waService.sendMessage(phone, summary);
       return;
     }
 
