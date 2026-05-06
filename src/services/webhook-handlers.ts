@@ -725,11 +725,15 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     const { resolveUserTimezone } = await import('../lib/timezone');
     const timezone = await resolveUserTimezone(user);
     const { processVoiceWithGemini } = await import('./voice/gemini-voice');
+    const { getRecentEvents, formatRecentEventsBlock } = await import('./voice/recent-events-store');
+    const recentEvents = await getRecentEvents(user.id);
+    const recentBlock = formatRecentEventsBlock(recentEvents, timezone);
     const { intentResult, transcription } = await processVoiceWithGemini(
       audioBuffer,
       user.language || 'en',
       userCalendars,
-      timezone
+      timezone,
+      recentBlock
     );
 
     console.log(`[WhatsApp Voice] Intent: ${intentResult.intent}, confidence: ${intentResult.confidence}`);
@@ -819,6 +823,21 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
         const { trackActivityAsync } = await import('./analytics-service');
         trackActivityAsync(pending.user.id, 'voice_event_created', { platform: 'whatsapp' });
         incrementUsage(pending.user.id, 'voiceEvents').catch(e => captureError(e, 'usage-increment', { user_id: pending.user.id }, 'warning'));
+
+        // Recent-events: feed the sliding window so follow-ups resolve via context (PR 9).
+        if (result.eventId) {
+          const { pushRecentEvent } = await import('./voice/recent-events-store');
+          const calId = pending.event.calendarId || 'primary';
+          await pushRecentEvent(pending.user.id, {
+            provider: calId.startsWith('native:') ? 'native' : 'google',
+            calendarId: calId,
+            eventId: result.eventId,
+            title: pending.event.title,
+            startsAt: new Date(pending.event.startTime).toISOString(),
+            endsAt: new Date(pending.event.endTime).toISOString(),
+            action: 'create',
+          });
+        }
       } else {
         await waService.sendMessage(phone, `❌ ${(wa.eventFailed || 'Failed to create event: {error}').replace('{error}', result.error || '')}`);
       }

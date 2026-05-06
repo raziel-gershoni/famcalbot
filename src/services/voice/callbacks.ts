@@ -104,6 +104,20 @@ export async function handleEventCallback(
       if (result.eventId) {
         trackCreatedEvent(user.telegramId!, result.eventId, event.calendarId || 'primary', event)
           .catch(err => captureError(err, 'voice-track-event', { user_id: user.id }, 'warning'));
+
+        // Recent-events: feed the sliding window so follow-ups like "move it"
+        // resolve via by_description against the most recent CRUD (PR 9).
+        const { pushRecentEvent } = await import('./recent-events-store');
+        const calId = event.calendarId || 'primary';
+        await pushRecentEvent(user.id, {
+          provider: calId.startsWith('native:') ? 'native' : 'google',
+          calendarId: calId,
+          eventId: result.eventId,
+          title: event.title,
+          startsAt: event.startTime.toISOString(),
+          endsAt: event.endTime.toISOString(),
+          action: 'create',
+        });
       }
 
       trackActivityAsync(user.id, 'voice_event_created', {
@@ -278,6 +292,19 @@ export async function handleEditCallback(
           disable_web_page_preview: true
         }
       );
+
+      // Recent-events: refresh the sliding window with the edited event (PR 9).
+      const { pushRecentEvent } = await import('./recent-events-store');
+      await pushRecentEvent(user.id, {
+        provider: calendarId.startsWith('native:') ? 'native' : 'google',
+        calendarId,
+        eventId: originalEvent.eventId || '',
+        recurringEventId: originalEvent.recurringEventId,
+        title: updates.title || originalEvent.summary,
+        startsAt: (updates.startTime ?? new Date(originalEvent.start)).toISOString(),
+        endsAt: (updates.endTime ?? new Date(originalEvent.end)).toISOString(),
+        action: 'edit',
+      });
     } else if (result.error === 'PERMISSION_DENIED') {
       const upgradeUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
       await bot.editMessageText(
@@ -423,6 +450,25 @@ export async function handleDeleteCallback(
           parse_mode: 'HTML'
         }
       );
+
+      // Recent-events: drop the deleted event from the sliding window so the
+      // user doesn't see "the meeting" resolve to a tombstone (PR 9).
+      const { removeRecentEvent, pushRecentEvent } = await import('./recent-events-store');
+      if (event.eventId) {
+        await removeRecentEvent(user.id, event.eventId);
+        // Also push a 'delete' marker so any follow-up "undo" / "actually keep
+        // it" has provenance. Cheap; same window.
+        await pushRecentEvent(user.id, {
+          provider: calendarId.startsWith('native:') ? 'native' : 'google',
+          calendarId,
+          eventId: event.eventId,
+          recurringEventId: event.recurringEventId,
+          title: event.summary,
+          startsAt: event.start,
+          endsAt: event.end,
+          action: 'delete',
+        });
+      }
     } else if (result.error === 'PERMISSION_DENIED') {
       const upgradeUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
       await bot.editMessageText(

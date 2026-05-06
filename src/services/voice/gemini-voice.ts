@@ -26,7 +26,8 @@ export function buildEventExtractionPrompt(
   language: string,
   calendars: CalendarAssignment[],
   timezone: string,
-  mode: 'voice' | 'text' = 'voice'
+  mode: 'voice' | 'text' = 'voice',
+  recentEventsBlock?: string
 ): string {
   const calendarList = calendars.map(c =>
     `- "${c.name || c.calendarId}" (ID: ${c.calendarId}, labels: ${c.labels.join(', ')})`
@@ -65,6 +66,7 @@ USER LANGUAGE: ${language}
 USER'S CALENDARS:
 ${calendarList || '- Primary calendar (ID: primary)'}
 NOTE: A calendar ID may start with "native:" — preserve the full ID verbatim in your response.
+${recentEventsBlock ? `\n${recentEventsBlock}\n` : ''}
 
 INTENT DETECTION RULES:
 1. EDIT intent - User wants to modify an existing event. Keywords/phrases:
@@ -341,7 +343,8 @@ export async function processVoiceWithGemini(
   audioBuffer: Buffer,
   language: string,
   calendars: CalendarAssignment[],
-  timezone: string
+  timezone: string,
+  recentEventsBlock?: string
 ): Promise<{ intentResult: VoiceIntentResult; transcription: string; metrics: VoiceProcessingMetrics }> {
   const startTime = Date.now();
   let lastError: Error | null = null;
@@ -359,7 +362,7 @@ export async function processVoiceWithGemini(
 
   for (let attempt = 0; attempt <= VOICE_RETRY_CONFIG.maxRetries; attempt++) {
     try {
-      const promptText = buildEventExtractionPrompt(language, calendars, timezone, 'voice');
+      const promptText = buildEventExtractionPrompt(language, calendars, timezone, 'voice', recentEventsBlock);
 
       const response = await getGemini().models.generateContent({
         model: resolvedModelId,

@@ -318,11 +318,16 @@ export async function handleVoiceMessage(
     }, 'voice');
 
     const timezone = await resolveUserTimezone(user);
+    // Recent-events context: best-effort lookup; empty if Redis is missing/cold.
+    const { getRecentEvents, formatRecentEventsBlock } = await import('./recent-events-store');
+    const recentEvents = await getRecentEvents(user.id);
+    const recentBlock = formatRecentEventsBlock(recentEvents, timezone);
     const { intentResult, transcription, metrics } = await processVoiceWithGemini(
       audioBuffer,
       user.language || 'en',
       userCalendars,
-      timezone
+      timezone,
+      recentBlock
     );
 
     // Build admin footer from voice processing metrics

@@ -81,4 +81,13 @@ export const REDIS_KEYS = {
   // Identifier blocklist cache (admin moderation; banned telegramId / whatsappPhone)
   blockedTelegramId: (telegramId: number | bigint | string) => `blocked:tg:${telegramId}`,
   blockedWhatsAppPhone: (phone: string) => `blocked:wa:${phone}`,
+
+  // Voice frictionlessness — recent CRUD for follow-up context (PR 9)
+  recentEvents: (userId: number) => `voice:recent:${userId}`,
+
+  // Voice frictionlessness — undo window for HIGH-confidence skipped confirmations (PR 10)
+  undoToken: (token: string) => `voice:undo:${token}`,
+
+  // Voice frictionlessness — bulk pending batch for multi-event confirmations (PR 11)
+  pendingBatch: (pendingId: string) => `voice:pending:batch:${pendingId}`,
 } as const;
