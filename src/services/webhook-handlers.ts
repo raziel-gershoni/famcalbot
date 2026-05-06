@@ -293,6 +293,15 @@ export async function handleTelegramWebhook(
     await handleFeedbackCommand(chatId, textUserId, args || undefined);
   } else if (text.startsWith('/connect')) {
     await handleConnectCommand(chatId, textUserId, MessagingPlatform.TELEGRAM);
+  } else {
+    // Free-text "accept <token>" — pair-invite acceptance via plain message
+    const { parseAcceptCommand, handlePairAccept } = await import('./telegram/pair-handler');
+    const token = parseAcceptCommand(text);
+    if (token) {
+      const { getOrCreateUser } = await import('./user-service');
+      const user = await getOrCreateUser(textUserId, update.message.from);
+      await handlePairAccept(chatId, user.id, token, user.language || 'en', MessagingPlatform.TELEGRAM);
+    }
   }
 
   res.status(200).json({ ok: true });
@@ -507,6 +516,17 @@ export async function handleWhatsAppWebhook(
     if (await isInOnboarding(from)) {
       const handled = await handleOnboardingMessage(from, text);
       if (handled) {
+        res.status(200).json({ ok: true });
+        return;
+      }
+    }
+
+    // Free-text "accept <token>" — pair-invite acceptance via plain message
+    {
+      const { parseAcceptCommand, handlePairAccept } = await import('./telegram/pair-handler');
+      const acceptToken = parseAcceptCommand(text);
+      if (acceptToken) {
+        await handlePairAccept(from, user.id, acceptToken, locale, MessagingPlatform.WHATSAPP);
         res.status(200).json({ ok: true });
         return;
       }
