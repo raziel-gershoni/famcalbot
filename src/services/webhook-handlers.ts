@@ -161,6 +161,34 @@ export async function handleTelegramWebhook(
           const { handleBulkCallback } = await import('./voice/callbacks');
           await handleBulkCallback(chatId, messageId, queryId, action, pendingId);
         }
+      } else if (data.startsWith('bulk_edit:')) {
+        // PR 13 polish: per-event edit on bulk confirmation. Pop event #N
+        // into a single-event card and discard the rest of the batch.
+        const rest = data.substring('bulk_edit:'.length);
+        const colon = rest.indexOf(':');
+        if (colon > 0) {
+          const index = parseInt(rest.slice(0, colon), 10);
+          const pendingId = rest.slice(colon + 1);
+          const messageId = callbackQuery.message?.message_id;
+          if (messageId && Number.isFinite(index)) {
+            const { handleBulkEditCallback } = await import('./voice/callbacks');
+            await handleBulkEditCallback(chatId, messageId, queryId, index, pendingId);
+          }
+        }
+      } else if (data.startsWith('event_fix:')) {
+        // PR 10 polish: quick-correction shortcut buttons
+        // data shape: event_fix:<field>:<pendingId> where field ∈ {time,day,cal}
+        const rest = data.substring('event_fix:'.length);
+        const colon = rest.indexOf(':');
+        if (colon > 0) {
+          const field = rest.slice(0, colon) as 'time' | 'day' | 'cal';
+          const pendingId = rest.slice(colon + 1);
+          const messageId = callbackQuery.message?.message_id;
+          if (messageId) {
+            const { handleQuickFixCallback } = await import('./voice/callbacks');
+            await handleQuickFixCallback(chatId, messageId, queryId, field, pendingId);
+          }
+        }
       }
     }
 
@@ -208,6 +236,74 @@ export async function handleTelegramWebhook(
       return;
     }
     // Not a reply to a pending confirmation — fall through to normal handling
+  }
+
+  // PR 10 polish: quick-correction reply handler. If the user just tapped
+  // ⏰/📅/📁 on a confirmation card, the next text or voice message is a
+  // focused field correction. Intercept it before normal voice/text routing.
+  if (update.message?.chat?.id && (update.message.text || update.message.voice)) {
+    const chatId = update.message.chat.id;
+    const { getQuickCorrection, clearQuickCorrection, extractFieldPatch } = await import('./voice/quick-correction');
+    const quickState = await getQuickCorrection(chatId);
+    if (quickState) {
+      try {
+        const { getPendingEvent, removePendingEvent, showEventConfirmation } = await import('./voice/confirmations');
+        const pending = await getPendingEvent(quickState.pendingId);
+        if (!pending) {
+          await clearQuickCorrection(chatId);
+          // Confirmation expired; do not consume the message — let normal
+          // routing pick it up so user isn't silently dropped.
+        } else {
+          const { resolveUserTimezone } = await import('../lib/timezone');
+          const { getCalendarAssignmentsForUser } = await import('./calendar-provider');
+          const tz = await resolveUserTimezone(pending.user);
+          const userCals = await getCalendarAssignmentsForUser(pending.user);
+          let audioBuffer: Buffer | null = null;
+          if (update.message.voice) {
+            const { downloadVoiceFile } = await import('./voice/event-resolution');
+            audioBuffer = await downloadVoiceFile(update.message.voice.file_id);
+          }
+          const patch = await extractFieldPatch(
+            quickState.field,
+            audioBuffer,
+            update.message.text ?? null,
+            pending.event,
+            userCals,
+            pending.user.language || 'en',
+            tz
+          );
+          await clearQuickCorrection(chatId);
+          if (patch) {
+            // Apply patch to the pending event and re-render the confirmation
+            // card in place via showEventConfirmation(messageId=...).
+            if (patch.startTime) pending.event.startTime = patch.startTime;
+            if (patch.endTime) pending.event.endTime = patch.endTime;
+            if (patch.calendarId) pending.event.calendarId = patch.calendarId;
+            if (patch.calendarName) pending.event.calendarName = patch.calendarName;
+            await removePendingEvent(quickState.pendingId);
+            await showEventConfirmation(
+              chatId,
+              quickState.messageId,
+              pending.event,
+              pending.transcription,
+              pending.user,
+              undefined,
+              pending.inputModality
+            );
+          } else {
+            const { getBotMessages } = await import('../lib/bot-messages');
+            const t = await getBotMessages(pending.user.language || 'en');
+            const { getBot } = await import('./telegram');
+            await getBot().sendMessage(chatId, t.voice?.fixFailed || "❌ I couldn't apply that — please tap the button again or send a fresh voice message.");
+          }
+          res.status(200).json({ ok: true });
+          return;
+        }
+      } catch (err) {
+        console.error('[QuickCorrection] reply handler failed:', err);
+        await clearQuickCorrection(chatId);
+      }
+    }
   }
 
   // Handle voice messages for event creation
@@ -769,7 +865,70 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     }
 
     if (intentResult.intent === 'create' && intentResult.event) {
-      // Store pending event in Redis
+      // WhatsApp voice flow:
+      //   HIGH confidence + non-recurring → auto-create (no confirmation)
+      //   LOW confidence  → reject with "use Telegram for granularity" hint
+      //   MEDIUM         → confirmation card (existing behavior)
+      // Recurring events always go through the card so the user can choose
+      // scope before commit.
+      if (intentResult.confidence === 'low') {
+        await waService.sendMessage(
+          phone,
+          wa.voiceLowConf ||
+            `🤔 I'm not confident I understood. For more granular control, please dictate this on Telegram instead.`
+        );
+        return;
+      }
+
+      if (intentResult.confidence === 'high' && !intentResult.event.recurrence) {
+        // Auto-create directly. No confirmation, no Undo button (WhatsApp
+        // template/button surface is constrained — see TG flow for full Undo).
+        const { getProviderForUser } = await import('./calendar-provider');
+        const { buildRecurrenceRule } = await import('./calendar');
+        const provider = getProviderForUser(user);
+        const result = await provider.createEvent(user, intentResult.event.calendarId || 'primary', {
+          title: intentResult.event.title,
+          startTime: intentResult.event.startTime,
+          endTime: intentResult.event.endTime,
+          location: intentResult.event.location,
+          description: intentResult.event.description,
+          allDay: intentResult.event.allDay,
+          recurrence: buildRecurrenceRule(intentResult.event.recurrence),
+        });
+        if (result.success) {
+          if (result.eventId) {
+            const { pushRecentEvent } = await import('./voice/recent-events-store');
+            const calId = intentResult.event.calendarId || 'primary';
+            await pushRecentEvent(user.id, {
+              provider: calId.startsWith('native:') ? 'native' : 'google',
+              calendarId: calId,
+              eventId: result.eventId,
+              title: intentResult.event.title,
+              startsAt: intentResult.event.startTime.toISOString(),
+              endsAt: intentResult.event.endTime.toISOString(),
+              action: 'create',
+            });
+          }
+          const { incrementUsage } = await import('./subscription-service');
+          const { trackActivityAsync } = await import('./analytics-service');
+          trackActivityAsync(user.id, 'voice_event_created', { platform: 'whatsapp', auto: true });
+          incrementUsage(user.id, 'voiceEvents').catch((e) =>
+            captureError(e, 'usage-increment', { user_id: user.id }, 'warning')
+          );
+          await waService.sendMessage(
+            phone,
+            `✅ ${t.voice?.created || 'Event created!'}\n\n*${intentResult.event.title}*`
+          );
+        } else {
+          await waService.sendMessage(
+            phone,
+            `❌ ${(wa.eventFailed || 'Failed to create event: {error}').replace('{error}', result.error || '')}`
+          );
+        }
+        return;
+      }
+
+      // MEDIUM confidence — fall through to the existing confirmation card.
       const { REDIS_KEYS } = await import('../config/redis-keys');
       const { redis } = await import('../utils/redis');
 

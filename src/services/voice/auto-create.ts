@@ -3,10 +3,9 @@
 // card and create the event immediately, replacing it with a "Done — tap to
 // undo" message that's live for 30 seconds.
 //
-// SAFETY: this is gated behind VOICE_AUTO_CREATE_HIGH_CONF=true (env). When
-// disabled (the default), every event continues to flow through the existing
-// confirmation card. We keep the gate because there's no dev environment —
-// the feature should not auto-activate on first deploy.
+// SAFETY: gated behind AdminSettings.voiceAutoCreateHighConf (admin panel).
+// Defaults to false — the feature does not auto-activate on first deploy and
+// admin can flip it on/off without redeploys via the admin panel.
 //
 // Multi-event batches (PR 11) intentionally never auto-create even at HIGH
 // confidence: a single mistaken parse in a 5-event batch is much louder than
@@ -25,8 +24,13 @@ import { pushRecentEvent } from './recent-events-store';
 
 const UNDO_TTL_SECONDS = 30;
 
-export function isAutoCreateEnabled(): boolean {
-  return process.env.VOICE_AUTO_CREATE_HIGH_CONF === 'true';
+/**
+ * Read-through cached AdminSettings flag (voiceAutoCreateHighConf). Defaults
+ * to false on Redis or DB errors so the user-facing flow stays conservative.
+ */
+export async function isAutoCreateEnabled(): Promise<boolean> {
+  const { getVoiceAutoCreateHighConf } = await import('../reminder-cache');
+  return getVoiceAutoCreateHighConf();
 }
 
 interface UndoPayload {
@@ -84,7 +88,7 @@ export async function autoCreateEvent(
   service: IMessagingService,
   chatId: number | string
 ): Promise<boolean> {
-  if (!isAutoCreateEnabled()) return false;
+  if (!(await isAutoCreateEnabled())) return false;
 
   const provider = getProviderForUser(user);
   const calendarId = event.calendarId || 'primary';

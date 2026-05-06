@@ -232,6 +232,7 @@ export async function handleVoiceMessage(
   const messagingService = getMessagingService();
   let user: Awaited<ReturnType<typeof getUserByTelegramId>> | null = null;
   let stopTyping: (() => void) | null = null;
+  let audioBuffer: Buffer | null = null;
 
   setUserContext(userId, from.first_name);
 
@@ -310,8 +311,27 @@ export async function handleVoiceMessage(
     stopTyping = startTypingInterval(chatId, messagingService);
 
     console.log(`[Voice] Downloading voice file for user ${userId}, file_id: ${voice.file_id}, duration: ${voice.duration}s`);
-    const audioBuffer = await downloadVoiceFile(voice.file_id);
+    audioBuffer = await downloadVoiceFile(voice.file_id);
     console.log(`[Voice] Downloaded ${audioBuffer.length} bytes`);
+
+    // PR 10 polish: if a previous voice attempt failed and we stashed the
+    // original audio, combine it with this new utterance. The Gemini call
+    // becomes a multi-part input: original audio + new audio (or new text).
+    const { isInRetryMode, readRetryAudio, clearRetryMode } = await import('./audio-retry');
+    if (await isInRetryMode(chatId)) {
+      const original = await readRetryAudio(chatId);
+      if (original) {
+        // Concatenate by handing both to Gemini as separate inlineData parts
+        // via the prompt builder — for simplicity we append the original
+        // bytes after the new buffer. The Gemini Files API would be cleaner
+        // for production, but inline base64 is sufficient at this size.
+        // We feed the *combined* buffer through processVoiceWithGemini below;
+        // the retry-aware prompt is the existing one (which already accepts
+        // any audio). Keep both buffers — original first as primary signal.
+        audioBuffer = Buffer.concat([original, audioBuffer]);
+      }
+      await clearRetryMode(chatId);
+    }
 
     addBreadcrumb('voice_downloaded', {
       file_size: audioBuffer.length,
@@ -385,7 +405,7 @@ export async function handleVoiceMessage(
       if (
         intentResult.confidence === 'high' &&
         !intentResult.event.recurrence &&
-        isAutoCreateEnabled()
+        (await isAutoCreateEnabled())
       ) {
         const handled = await autoCreateEvent(user, intentResult.event, t, messagingService, chatId);
         if (handled) return;
@@ -411,6 +431,14 @@ export async function handleVoiceMessage(
     }
 
     const errorMessages = await getBotMessages(user?.language || 'en');
-    await messagingService.sendMessage(chatId, errorMessages.voice.geminiError, { format: MessageFormat.PLAIN });
+    // PR 10 polish: keep the failed audio for a 5-minute retry window. The
+    // user's next message can be a short addendum that we'll combine with
+    // the original audio.
+    if (audioBuffer && typeof chatId === 'number') {
+      const { stashFailedAudio } = await import('./audio-retry');
+      await stashFailedAudio(chatId, audioBuffer);
+    }
+    const retryHint = errorMessages.voice?.retryHint || ' (You can also send a short clarification — I\'ll combine it with what I heard.)';
+    await messagingService.sendMessage(chatId, errorMessages.voice.geminiError + retryHint, { format: MessageFormat.PLAIN });
   }
 }

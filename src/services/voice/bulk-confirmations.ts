@@ -100,6 +100,19 @@ export async function showBulkConfirmation(
   const confirmLabel = t.voice?.bulkConfirmAll || '✅ Confirm all';
   const cancelLabel = t.voice?.bulkCancelAll || '❌ Cancel all';
 
+  // Per-event edit row(s). Tapping ✏️ #N pops just that event into a single
+  // confirmation card (with full quick-correction polish) and discards the
+  // rest of the bulk — user can re-dictate the others.
+  const editButtons = creates.map((_, i) => ({
+    text: `✏️ #${i + 1}`,
+    callback_data: `bulk_edit:${i}:${pendingId}`,
+  }));
+  // 4 per row keeps mobile-friendly button width.
+  const editRows: typeof editButtons[] = [];
+  for (let i = 0; i < editButtons.length; i += 4) {
+    editRows.push(editButtons.slice(i, i + 4));
+  }
+
   await service.sendMessage(chatId, body, {
     format: MessageFormat.HTML,
     replyMarkup: {
@@ -108,11 +121,30 @@ export async function showBulkConfirmation(
           { text: confirmLabel, callback_data: `bulk_confirm:${pendingId}` },
           { text: cancelLabel, callback_data: `bulk_cancel:${pendingId}` },
         ],
+        ...editRows,
       ],
     },
   });
 
   return pendingId;
+}
+
+/**
+ * Pop a single event out of the pending batch and discard the rest. Used by
+ * the ✏️ #N callback to refocus on one event of the batch via the standard
+ * single-event confirmation card.
+ */
+export async function popEventFromBatch(
+  pendingId: string,
+  index: number
+): Promise<{ user: UserConfig; event: ParsedEvent; transcription: string } | null> {
+  const pending = await getPendingBatch(pendingId);
+  if (!pending) return null;
+  if (index < 0 || index >= pending.intents.length) return null;
+  await removePendingBatch(pendingId);
+  const intent = pending.intents[index];
+  if (intent.intent !== 'create' || !intent.event) return null;
+  return { user: pending.user, event: intent.event, transcription: pending.transcription };
 }
 
 /**

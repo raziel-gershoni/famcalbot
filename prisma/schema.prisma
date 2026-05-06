@@ -115,12 +115,14 @@ model OAuthState {
 }
 
 model AdminSettings {
-  id                  String   @id @default("global")
-  remindersEnabled    Boolean  @default(false)
-  earlyAdoptionMode   Boolean  @default(true)
-  defaultAiModel      String?
-  geminiThinkingLevel String?
-  updatedAt           DateTime @updatedAt
+  id                      String   @id @default("global")
+  remindersEnabled        Boolean  @default(false)
+  earlyAdoptionMode       Boolean  @default(true)
+  defaultAiModel          String?
+  geminiThinkingLevel     String?
+  voiceAutoCreateHighConf Boolean  @default(false) // Auto-create on HIGH-confidence voice CRUD (skip confirmation)
+  voiceTtsOutcome         Boolean  @default(false) // Speak the outcome line back when input was voice
+  updatedAt               DateTime @updatedAt
 }
 
 // ============================================

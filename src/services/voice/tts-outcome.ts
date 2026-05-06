@@ -12,10 +12,14 @@ import { UserConfig } from '../../types';
 import type { IMessagingService } from '../messaging/types';
 import { captureError } from '../../lib/error-capture';
 
-export function isTtsOutcomeEnabled(): boolean {
-  // Gated for the same reason as auto-create: this is a new audio path on
-  // every CRUD; the env flag lets ops turn it on after observing TTS cost.
-  return process.env.VOICE_TTS_OUTCOME === 'true';
+/**
+ * Read-through cached AdminSettings flag (voiceTtsOutcome). Admin can flip
+ * on/off from the panel without redeploys; defaults false so this is a
+ * no-op on first deploy.
+ */
+export async function isTtsOutcomeEnabled(): Promise<boolean> {
+  const { getVoiceTtsOutcome } = await import('../reminder-cache');
+  return getVoiceTtsOutcome();
 }
 
 /**
@@ -29,7 +33,7 @@ export async function speakOutcome(
   user: UserConfig,
   service: IMessagingService
 ): Promise<void> {
-  if (!isTtsOutcomeEnabled()) return;
+  if (!(await isTtsOutcomeEnabled())) return;
   if (!spokenLine.trim()) return;
 
   try {

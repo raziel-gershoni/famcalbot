@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { captureError } from '@/src/lib/error-capture';
-import { setGlobalRemindersEnabled, setEarlyAdoptionMode, setDefaultAiModelSetting, setGeminiThinkingLevel } from '@/src/services/reminder-cache';
+import { setGlobalRemindersEnabled, setEarlyAdoptionMode, setDefaultAiModelSetting, setGeminiThinkingLevel, setVoiceAutoCreateHighConf, setVoiceTtsOutcome } from '@/src/services/reminder-cache';
 import { invalidateAllFeatureAccessCaches } from '@/src/services/subscription-service';
 import { getModelConfig } from '@/src/config/ai-models';
 
@@ -27,6 +27,8 @@ export async function GET() {
       earlyAdoptionMode: adminSettings?.earlyAdoptionMode ?? false,
       defaultAiModel: adminSettings?.defaultAiModel ?? null,
       geminiThinkingLevel: adminSettings?.geminiThinkingLevel ?? null,
+      voiceAutoCreateHighConf: adminSettings?.voiceAutoCreateHighConf ?? false,
+      voiceTtsOutcome: adminSettings?.voiceTtsOutcome ?? false,
     });
   } catch (error) {
     captureError(error, 'admin-settings-get', { api_route: '/api/admin/settings' });
@@ -41,7 +43,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { remindersEnabled, earlyAdoptionMode, defaultAiModel, geminiThinkingLevel, initData } = body;
+    const { remindersEnabled, earlyAdoptionMode, defaultAiModel, geminiThinkingLevel, voiceAutoCreateHighConf, voiceTtsOutcome, initData } = body;
 
     // Verify admin access
     const auth = await verifyAdminAccess(initData);
@@ -57,7 +59,9 @@ export async function POST(request: NextRequest) {
     const hasEarlyAdoption = typeof earlyAdoptionMode === 'boolean';
     const hasAiModel = 'defaultAiModel' in body;
     const hasThinkingLevel = 'geminiThinkingLevel' in body;
-    if (!hasReminders && !hasEarlyAdoption && !hasAiModel && !hasThinkingLevel) {
+    const hasVoiceAutoCreate = typeof voiceAutoCreateHighConf === 'boolean';
+    const hasVoiceTts = typeof voiceTtsOutcome === 'boolean';
+    if (!hasReminders && !hasEarlyAdoption && !hasAiModel && !hasThinkingLevel && !hasVoiceAutoCreate && !hasVoiceTts) {
       return NextResponse.json(
         { error: 'At least one setting field must be provided' },
         { status: 400 }
@@ -105,11 +109,19 @@ export async function POST(request: NextRequest) {
         updateData.geminiThinkingLevel = geminiThinkingLevel ?? null;
         createData.geminiThinkingLevel = geminiThinkingLevel ?? null;
       }
+      if (hasVoiceAutoCreate) {
+        updateData.voiceAutoCreateHighConf = voiceAutoCreateHighConf;
+        createData.voiceAutoCreateHighConf = voiceAutoCreateHighConf;
+      }
+      if (hasVoiceTts) {
+        updateData.voiceTtsOutcome = voiceTtsOutcome;
+        createData.voiceTtsOutcome = voiceTtsOutcome;
+      }
 
       const settings = await prisma.adminSettings.upsert({
         where: { id: 'global' },
         update: updateData,
-        create: createData as { id: string; remindersEnabled?: boolean; earlyAdoptionMode?: boolean; defaultAiModel?: string | null; geminiThinkingLevel?: string | null },
+        create: createData as { id: string; remindersEnabled?: boolean; earlyAdoptionMode?: boolean; defaultAiModel?: string | null; geminiThinkingLevel?: string | null; voiceAutoCreateHighConf?: boolean; voiceTtsOutcome?: boolean },
       });
 
       // Sync to Redis cache
@@ -126,8 +138,14 @@ export async function POST(request: NextRequest) {
       if (hasThinkingLevel) {
         await setGeminiThinkingLevel(geminiThinkingLevel ?? null);
       }
+      if (hasVoiceAutoCreate) {
+        await setVoiceAutoCreateHighConf(voiceAutoCreateHighConf);
+      }
+      if (hasVoiceTts) {
+        await setVoiceTtsOutcome(voiceTtsOutcome);
+      }
 
-      console.log(`[admin-settings] Admin ${auth.adminId} updated settings:`, { remindersEnabled, earlyAdoptionMode, defaultAiModel, geminiThinkingLevel });
+      console.log(`[admin-settings] Admin ${auth.adminId} updated settings:`, { remindersEnabled, earlyAdoptionMode, defaultAiModel, geminiThinkingLevel, voiceAutoCreateHighConf, voiceTtsOutcome });
 
       return NextResponse.json({
         success: true,
@@ -135,6 +153,8 @@ export async function POST(request: NextRequest) {
         earlyAdoptionMode: settings.earlyAdoptionMode,
         defaultAiModel: settings.defaultAiModel ?? null,
         geminiThinkingLevel: settings.geminiThinkingLevel ?? null,
+        voiceAutoCreateHighConf: settings.voiceAutoCreateHighConf,
+        voiceTtsOutcome: settings.voiceTtsOutcome,
       });
     } catch (dbError) {
       // Table might not exist yet

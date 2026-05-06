@@ -642,3 +642,78 @@ export async function handleBulkCallback(
     });
   }
 }
+
+/**
+ * PR 10 polish: quick-correction shortcut button handler. Stashes the
+ * "awaiting field reply" state and prompts the user for the focused field.
+ * The user's next message will be intercepted by the quick-correction
+ * reply handler and merged into the pending event in place.
+ */
+export async function handleQuickFixCallback(
+  chatId: number,
+  messageId: number,
+  queryId: string,
+  field: 'time' | 'day' | 'cal',
+  pendingId: string
+): Promise<void> {
+  const bot = getBot();
+  const pending = await getPendingEvent(pendingId);
+  if (!pending) {
+    await bot.answerCallbackQuery(queryId, { text: '⏰' });
+    await bot.editMessageText('⏰ This confirmation has expired.', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+    });
+    return;
+  }
+
+  await bot.answerCallbackQuery(queryId);
+  const t = await getBotMessages(pending.user.language || 'en');
+  const { setQuickCorrection } = await import('./quick-correction');
+  await setQuickCorrection(chatId, { pendingId, field, messageId });
+
+  const prompt =
+    field === 'time' ? (t.voice?.askTime || 'What time? (reply with text or voice)') :
+    field === 'day' ? (t.voice?.askDay || 'What day? (reply with text or voice)') :
+    (t.voice?.askCal || 'Which calendar? (reply with text or voice)');
+
+  await bot.sendMessage(chatId, prompt);
+}
+
+/**
+ * PR 13 polish: per-event edit from the bulk confirmation card. Pops event #N
+ * out of the batch (discarding the rest) and re-renders as a single-event
+ * confirmation card with full quick-correction polish.
+ */
+export async function handleBulkEditCallback(
+  chatId: number,
+  messageId: number,
+  queryId: string,
+  index: number,
+  pendingId: string
+): Promise<void> {
+  const bot = getBot();
+  await bot.answerCallbackQuery(queryId, { text: '✏️' });
+
+  const { popEventFromBatch } = await import('./bulk-confirmations');
+  const { showEventConfirmation } = await import('./confirmations');
+  const popped = await popEventFromBatch(pendingId, index);
+  if (!popped) {
+    await bot.editMessageText('⏰ This batch has expired.', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+    });
+    return;
+  }
+
+  // Re-render the bulk message as a brief acknowledgement, then send a fresh
+  // single-event card. We don't try to keep N-1 events alive — simpler model.
+  const t = await getBotMessages(popped.user.language || 'en');
+  await bot.editMessageText(
+    t.voice?.bulkSplitOff || `✏️ Editing #${index + 1} only — the other events were not created. You can re-dictate them.`,
+    { chat_id: chatId, message_id: messageId, parse_mode: 'HTML' }
+  );
+  await showEventConfirmation(chatId, undefined, popped.event, popped.transcription, popped.user, undefined, 'voice');
+}

@@ -342,11 +342,26 @@ export async function showEventConfirmation(
     `<i>${t.voice.from} "${escapeHtml(transcription)}"</i>` +
     (adminFooter || '');
 
+  // Quick-correction shortcut row (PR 10 polish): one tap re-prompts for just
+  // one field of the pending event. Only show "Cal" when user has multiple
+  // calendars to pick from — otherwise the button is meaningless.
+  const calendarCount = (user.calendarAssignments?.length ?? 0);
+  const quickRow: Array<{ text: string; callback_data: string }> = [
+    { text: t.voice?.fixTime || '⏰ Time', callback_data: `event_fix:time:${pendingId}` },
+    { text: t.voice?.fixDay || '📅 Day', callback_data: `event_fix:day:${pendingId}` },
+  ];
+  if (calendarCount > 1) {
+    quickRow.push({ text: t.voice?.fixCal || '📁 Cal', callback_data: `event_fix:cal:${pendingId}` });
+  }
+
   const replyMarkup = {
-    inline_keyboard: [[
-      { text: t.voice.createButton, callback_data: `event_create:${pendingId}` },
-      { text: t.voice.cancelButton, callback_data: `event_cancel:${pendingId}` }
-    ]]
+    inline_keyboard: [
+      [
+        { text: t.voice.createButton, callback_data: `event_create:${pendingId}` },
+        { text: t.voice.cancelButton, callback_data: `event_cancel:${pendingId}` }
+      ],
+      quickRow,
+    ]
   };
 
   if (messageId) {

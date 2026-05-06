@@ -16,6 +16,8 @@ interface AdminPanelClientProps {
   };
   remindersEnabled: boolean;
   earlyAdoptionMode: boolean;
+  voiceAutoCreateHighConf: boolean;
+  voiceTtsOutcome: boolean;
   defaultAiModel: string | null;
   geminiThinkingLevel: string | null;
 }
@@ -130,12 +132,16 @@ interface FeedbackItem {
   createdAt: string;
 }
 
-export default function AdminPanelClient({ userId, locale, stats, remindersEnabled: initialRemindersEnabled, earlyAdoptionMode: initialEarlyAdoptionMode, defaultAiModel: initialDefaultAiModel, geminiThinkingLevel: initialGeminiThinkingLevel }: AdminPanelClientProps) {
+export default function AdminPanelClient({ userId, locale, stats, remindersEnabled: initialRemindersEnabled, earlyAdoptionMode: initialEarlyAdoptionMode, voiceAutoCreateHighConf: initialVoiceAutoCreateHighConf, voiceTtsOutcome: initialVoiceTtsOutcome, defaultAiModel: initialDefaultAiModel, geminiThinkingLevel: initialGeminiThinkingLevel }: AdminPanelClientProps) {
   const t = useTranslations('admin');
   const [remindersEnabled, setRemindersEnabled] = useState(initialRemindersEnabled);
   const [remindersSaving, setRemindersSaving] = useState(false);
   const [earlyAdoptionMode, setEarlyAdoptionMode] = useState(initialEarlyAdoptionMode);
   const [earlyAdoptionSaving, setEarlyAdoptionSaving] = useState(false);
+  const [voiceAutoCreateHighConf, setVoiceAutoCreateHighConf] = useState(initialVoiceAutoCreateHighConf);
+  const [voiceAutoCreateSaving, setVoiceAutoCreateSaving] = useState(false);
+  const [voiceTtsOutcome, setVoiceTtsOutcome] = useState(initialVoiceTtsOutcome);
+  const [voiceTtsOutcomeSaving, setVoiceTtsOutcomeSaving] = useState(false);
   const [defaultAiModel, setDefaultAiModel] = useState(initialDefaultAiModel ?? '');
   const [aiModelSaving, setAiModelSaving] = useState(false);
   const [geminiThinkingLevel, setGeminiThinkingLevel] = useState(initialGeminiThinkingLevel ?? '');
@@ -266,6 +272,40 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
       }
     } finally {
       setEarlyAdoptionSaving(false);
+    }
+  };
+
+  const toggleVoiceAutoCreate = async () => {
+    setVoiceAutoCreateSaving(true);
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voiceAutoCreateHighConf: !voiceAutoCreateHighConf, initData })
+      });
+      if (response.ok) {
+        setVoiceAutoCreateHighConf(!voiceAutoCreateHighConf);
+      }
+    } finally {
+      setVoiceAutoCreateSaving(false);
+    }
+  };
+
+  const toggleVoiceTtsOutcome = async () => {
+    setVoiceTtsOutcomeSaving(true);
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voiceTtsOutcome: !voiceTtsOutcome, initData })
+      });
+      if (response.ok) {
+        setVoiceTtsOutcome(!voiceTtsOutcome);
+      }
+    } finally {
+      setVoiceTtsOutcomeSaving(false);
     }
   };
 
@@ -1986,6 +2026,48 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                   if ((e.key === 'Enter' || e.key === ' ') && !earlyAdoptionSaving) {
                     e.preventDefault();
                     toggleEarlyAdoption();
+                  }
+                }}
+              >
+                <div className="toggle-slider" />
+              </div>
+            </div>
+            <div className="toggle-row" style={{ marginTop: '12px' }}>
+              <div className="toggle-info">
+                <p className="toggle-label">Voice auto-create on HIGH confidence</p>
+                <p className="toggle-description">Skip the confirmation card when the bot is sure (single, non-recurring events). Shows a 30s Undo button instead.</p>
+              </div>
+              <div
+                className={`toggle-switch ${voiceAutoCreateHighConf ? 'checked' : ''} ${voiceAutoCreateSaving ? 'disabled' : ''}`}
+                onClick={() => !voiceAutoCreateSaving && toggleVoiceAutoCreate()}
+                role="switch"
+                aria-checked={voiceAutoCreateHighConf}
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if ((e.key === 'Enter' || e.key === ' ') && !voiceAutoCreateSaving) {
+                    e.preventDefault();
+                    toggleVoiceAutoCreate();
+                  }
+                }}
+              >
+                <div className="toggle-slider" />
+              </div>
+            </div>
+            <div className="toggle-row" style={{ marginTop: '12px' }}>
+              <div className="toggle-info">
+                <p className="toggle-label">Voice TTS outcome</p>
+                <p className="toggle-description">When the user dictated by voice, also speak the success outcome ("Done. Added X."). Adds Gemini TTS cost per voice CRUD.</p>
+              </div>
+              <div
+                className={`toggle-switch ${voiceTtsOutcome ? 'checked' : ''} ${voiceTtsOutcomeSaving ? 'disabled' : ''}`}
+                onClick={() => !voiceTtsOutcomeSaving && toggleVoiceTtsOutcome()}
+                role="switch"
+                aria-checked={voiceTtsOutcome}
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if ((e.key === 'Enter' || e.key === ' ') && !voiceTtsOutcomeSaving) {
+                    e.preventDefault();
+                    toggleVoiceTtsOutcome();
                   }
                 }}
               >
