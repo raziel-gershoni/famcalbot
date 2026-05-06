@@ -120,6 +120,14 @@ export async function handleEventCallback(
         });
       }
 
+      // PR 12: voice-in → voice-out. Mirror modality on the success outcome.
+      if (pending.inputModality === 'voice') {
+        const { speakOutcome, formatOutcomeLine } = await import('./tts-outcome');
+        const { getMessagingService } = await import('../telegram/bot');
+        const line = formatOutcomeLine('created', event.title, user.language || 'en');
+        speakOutcome(chatId, line, user, getMessagingService()).catch(() => {});
+      }
+
       trackActivityAsync(user.id, 'voice_event_created', {
         calendar_id: event.calendarId || 'primary',
       });

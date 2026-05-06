@@ -390,7 +390,7 @@ export async function handleVoiceMessage(
         const handled = await autoCreateEvent(user, intentResult.event, t, messagingService, chatId);
         if (handled) return;
       }
-      await showEventConfirmation(chatId, undefined, intentResult.event, transcription, user, adminFooter);
+      await showEventConfirmation(chatId, undefined, intentResult.event, transcription, user, adminFooter, 'voice');
 
     } else if (intentResult.intent === 'edit') {
       await handleEditIntent(chatId, undefined, intentResult, transcription, user, t, adminFooter);

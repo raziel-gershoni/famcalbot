@@ -39,9 +39,12 @@ function reviveDates<T>(obj: any, dateFields: string[]): T {
  */
 export async function getPendingEvent(pendingId: string) {
   try {
-    const data = await redis.get<{ event: ParsedEvent; user: UserConfig; transcription: string }>(
-      REDIS_KEYS.pendingEvent(pendingId)
-    );
+    const data = await redis.get<{
+      event: ParsedEvent;
+      user: UserConfig;
+      transcription: string;
+      inputModality?: 'voice' | 'text';
+    }>(REDIS_KEYS.pendingEvent(pendingId));
     if (!data) return undefined;
     // Reconstruct Date objects that were serialized as strings
     reviveDates(data.event, ['startTime', 'endTime']);
@@ -314,7 +317,8 @@ export async function showEventConfirmation(
   event: ParsedEvent,
   transcription: string,
   user: UserConfig,
-  adminFooter?: string
+  adminFooter?: string,
+  inputModality: 'voice' | 'text' = 'voice'
 ): Promise<void> {
   const bot = getBot();
   const t = await getBotMessages(user.language || 'en');
@@ -322,8 +326,10 @@ export async function showEventConfirmation(
 
   const pendingId = `${chatId}:${Date.now()}`;
 
-  // Store in Redis with TTL (survives serverless cold starts)
-  await redis.set(REDIS_KEYS.pendingEvent(pendingId), { event, user, transcription }, { ex: PENDING_TTL_SECONDS });
+  // Store in Redis with TTL (survives serverless cold starts).
+  // PR 12: inputModality threads through so callbacks know whether to voice
+  // the outcome (preserves voice-in/voice-out for the same conversation).
+  await redis.set(REDIS_KEYS.pendingEvent(pendingId), { event, user, transcription, inputModality }, { ex: PENDING_TTL_SECONDS });
 
   const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay, timezone);
   const locationStr = event.location ? `\n📍 ${event.location}` : '';
