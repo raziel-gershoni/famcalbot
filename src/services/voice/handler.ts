@@ -322,7 +322,7 @@ export async function handleVoiceMessage(
     const { getRecentEvents, formatRecentEventsBlock } = await import('./recent-events-store');
     const recentEvents = await getRecentEvents(user.id);
     const recentBlock = formatRecentEventsBlock(recentEvents, timezone);
-    const { intentResult, transcription, metrics } = await processVoiceWithGemini(
+    const { intentResult, intentResults, transcription, metrics } = await processVoiceWithGemini(
       audioBuffer,
       user.language || 'en',
       userCalendars,
@@ -350,6 +350,18 @@ export async function handleVoiceMessage(
 
     // Stop typing before sending confirmation UI
     stopTyping();
+
+    // PR 11: multi-event utterance — if Gemini returned 2+ valid CREATE intents,
+    // route to the bulk confirmation card. Single-intent CREATE/EDIT/DELETE
+    // continues through the existing flows below.
+    const validBulk = (intentResults || []).filter(
+      (r) => r.intent === 'create' && r.event && !r.error
+    );
+    if (validBulk.length > 1) {
+      const { showBulkConfirmation } = await import('./bulk-confirmations');
+      await showBulkConfirmation(chatId, validBulk, user, transcription, t, messagingService, timezone);
+      return;
+    }
 
     if (intentResult.intent === 'create') {
       if (!intentResult.event) {

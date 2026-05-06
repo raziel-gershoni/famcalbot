@@ -152,6 +152,15 @@ export async function handleTelegramWebhook(
           const { handleVoiceUndoCallback } = await import('./voice/callbacks');
           await handleVoiceUndoCallback(chatId, messageId, queryId, token, callbackUserId);
         }
+      } else if (data.startsWith('bulk_confirm:') || data.startsWith('bulk_cancel:')) {
+        // PR 11: bulk multi-event confirmation
+        const action = data.startsWith('bulk_confirm:') ? 'confirm' : 'cancel';
+        const pendingId = data.substring(action === 'confirm' ? 'bulk_confirm:'.length : 'bulk_cancel:'.length);
+        const messageId = callbackQuery.message?.message_id;
+        if (messageId) {
+          const { handleBulkCallback } = await import('./voice/callbacks');
+          await handleBulkCallback(chatId, messageId, queryId, action, pendingId);
+        }
       }
     }
 

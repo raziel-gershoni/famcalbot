@@ -567,3 +567,70 @@ export async function handleVoiceUndoCallback(
     });
   }
 }
+
+/**
+ * PR 11: Bulk multi-event confirmation callback. Confirms or cancels the
+ * entire batch shown in showBulkConfirmation.
+ */
+export async function handleBulkCallback(
+  chatId: number,
+  messageId: number,
+  queryId: string,
+  action: 'confirm' | 'cancel',
+  pendingId: string
+): Promise<void> {
+  const bot = getBot();
+  await bot.answerCallbackQuery(queryId, { text: '⏳' });
+
+  if (action === 'cancel') {
+    const { handleBulkCancel } = await import('./bulk-confirmations');
+    const user = await handleBulkCancel(pendingId);
+    const t = await getBotMessages(user?.language || 'en');
+    await bot.editMessageText(t.voice?.bulkCancelled || '❌ Batch cancelled.', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+    });
+    return;
+  }
+
+  // confirm
+  try {
+    const { handleBulkConfirmAll } = await import('./bulk-confirmations');
+    const result = await handleBulkConfirmAll(pendingId);
+    const t = await getBotMessages(result.user.language || 'en');
+    let summary: string;
+    if (result.failureCount === 0) {
+      summary = (t.voice?.bulkAllCreated || '✅ Created {count} events.').replace('{count}', String(result.successCount));
+    } else if (result.successCount === 0) {
+      summary = (t.voice?.bulkAllFailed || '❌ Could not create the events. Please re-dictate.');
+    } else {
+      const partialMsg = t.voice?.bulkPartial || '⚠️ Created {ok} of {total}. Failures:\n{errors}';
+      summary = partialMsg
+        .replace('{ok}', String(result.successCount))
+        .replace('{total}', String(result.successCount + result.failureCount))
+        .replace('{errors}', result.failureMessages.map((e) => `• ${e}`).join('\n'));
+    }
+    await bot.editMessageText(summary, {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+    });
+  } catch (err) {
+    const t = await getBotMessages('en');
+    if (err instanceof Error && err.message === 'bulk_pending_expired') {
+      await bot.editMessageText(t.voice?.expiredMessage || '⏰ This confirmation has expired.', {
+        chat_id: chatId,
+        message_id: messageId,
+        parse_mode: 'HTML',
+      });
+      return;
+    }
+    captureError(err, 'voice-bulk-callback');
+    await bot.editMessageText(t.voice?.unknownError || '❌ Something went wrong.', {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'HTML',
+    });
+  }
+}
