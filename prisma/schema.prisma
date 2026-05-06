@@ -3,8 +3,8 @@
 
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL")      // Pooled connection for queries
-  directUrl = env("DIRECT_URL")        // Direct connection for migrations
+  url       = env("DATABASE_URL") // Pooled connection for queries
+  directUrl = env("DIRECT_URL") // Direct connection for migrations
 }
 
 generator client {
@@ -16,50 +16,55 @@ model User {
 
   // Platform identifiers
   telegramId    BigInt? @unique
-  whatsappPhone String? @unique      // E.164 phone number (may be absent for username-only users)
-  whatsappBsuid String? @unique      // Business-Scoped User ID (June 2026+, replaces phone for username users)
+  whatsappPhone String? @unique // E.164 phone number (may be absent for username-only users)
+  whatsappBsuid String? @unique // Business-Scoped User ID (June 2026+, replaces phone for username users)
 
   // Personal info
-  name              String                              // Name in user's natural language
-  englishName       String  @default("")                // English name for reference
-  gender            String                              // 'male' | 'female'
+  name        String // Name in user's natural language
+  englishName String @default("") // English name for reference
+  gender      String // 'male' | 'female'
 
   // Settings
-  location          String  @default("")                // User's location for weather/timezone
-  culture           String  @default("default")         // 'jewish' | 'default'
-  locationForced    Boolean @default(false)             // true = user confirmed their location
-  globalRules       String[] @default([])               // Max 3 free-text rules for all calendars
-  language             String  @default("he")       // Locale code: 'he' | 'en' | 'ru'
-  messagingPlatform    String  @default("telegram") // 'telegram' | 'whatsapp' | 'all'
-  isAdmin              Boolean @default(false)      // Admin panel access
-  suspendedAt          DateTime?                    // Set = user suspended; bot ignores all interaction
-  suspendedBy          Int?                         // Admin User.id who suspended
-  suspendedReason      String?  @db.Text            // Why suspended (admin-facing audit)
-  textSummaryEnabled   Boolean @default(true)       // Receive text summaries
-  voiceSummaryEnabled  Boolean @default(true)       // Receive voice summaries
-  voiceInputEnabled    Boolean @default(false)      // Allow voice message input for event creation
-  voicePreference      String  @default("default")   // TTS voice name (e.g. "Algieba") or "default"
-  voiceStyle           String  @default("natural")          // TTS speaking style preset
-  weatherEnabled       Boolean @default(true)       // Include weather in summaries
-  includeWeeklyInLookahead Boolean @default(false)  // Include weekly recurring in week lookahead
-  includeLookaheadInTomorrow Boolean @default(false) // Include week lookahead in tomorrow summary
-  lookaheadAlways7Days Boolean @default(false) // true = always 7 days, false = until end of week
-  preferredMorningHour Int @default(7)               // 0-23, user's local time for daily summary
-  preferredEveningHour Int @default(19)              // 0-23, user's local time for tomorrow summary
-  dailySummaryDays     Int[] @default([0,1,2,3,4,5,6])   // 0=Sun..6=Sat — which days to send morning summary
-  tomorrowSummaryDays  Int[] @default([0,1,2,3,4,5,6])   // 0=Sun..6=Sat — which days to send evening summary
-  remindersEnabled Boolean @default(false)          // Enable event reminders via Telegram
-  defaultReminderMinutes Int?                       // Default reminder time (minutes before event)
-  pickupRemindersEnabled Boolean @default(true)     // Enable pickup reminders for kids' events
+  location                   String    @default("") // User's location for weather/timezone
+  culture                    String    @default("default") // 'jewish' | 'default'
+  locationForced             Boolean   @default(false) // true = user confirmed their location
+  globalRules                String[]  @default([]) // Max 3 free-text rules for all calendars
+  language                   String    @default("he") // Locale code: 'he' | 'en' | 'ru'
+  messagingPlatform          String    @default("telegram") // 'telegram' | 'whatsapp' | 'all'
+  isAdmin                    Boolean   @default(false) // Admin panel access
+  suspendedAt                DateTime? // Set = user suspended; bot ignores all interaction
+  suspendedBy                Int? // Admin User.id who suspended
+  suspendedReason            String?   @db.Text // Why suspended (admin-facing audit)
+  textSummaryEnabled         Boolean   @default(true) // Receive text summaries
+  voiceSummaryEnabled        Boolean   @default(true) // Receive voice summaries
+  voiceInputEnabled          Boolean   @default(false) // Allow voice message input for event creation
+  voicePreference            String    @default("default") // TTS voice name (e.g. "Algieba") or "default"
+  voiceStyle                 String    @default("natural") // TTS speaking style preset
+  weatherEnabled             Boolean   @default(true) // Include weather in summaries
+  includeWeeklyInLookahead   Boolean   @default(false) // Include weekly recurring in week lookahead
+  includeLookaheadInTomorrow Boolean   @default(false) // Include week lookahead in tomorrow summary
+  lookaheadAlways7Days       Boolean   @default(false) // true = always 7 days, false = until end of week
+  preferredMorningHour       Int       @default(7) // 0-23, user's local time for daily summary
+  preferredEveningHour       Int       @default(19) // 0-23, user's local time for tomorrow summary
+  dailySummaryDays           Int[]     @default([0, 1, 2, 3, 4, 5, 6]) // 0=Sun..6=Sat — which days to send morning summary
+  tomorrowSummaryDays        Int[]     @default([0, 1, 2, 3, 4, 5, 6]) // 0=Sun..6=Sat — which days to send evening summary
+  remindersEnabled           Boolean   @default(false) // Enable event reminders via Telegram
+  defaultReminderMinutes     Int? // Default reminder time (minutes before event)
+  pickupRemindersEnabled     Boolean   @default(true) // Enable pickup reminders for kids' events
 
-  // Calendar integration (shared token for now)
-  googleRefreshToken  String   @db.Text
-  calendarAssignments Json?    // Array of CalendarAssignment: {calendarId, labels[], name, color, personName?, personEnglishName?, personGender?, rules?[]}
+  // Calendar integration
+  calendarSource      CalendarSource @default(NATIVE) // GOOGLE for legacy GCal users, NATIVE for in-bot calendar
+  googleRefreshToken  String         @db.Text // Empty string '' for NATIVE users (existing convention for pre-OAuth users)
+  calendarAssignments Json? // GOOGLE only — Array of CalendarAssignment: {calendarId, labels[], name, color, personName?, personEnglishName?, personGender?, rules?[]}
+
+  // Pairing (NATIVE only — 1:1 partner)
+  pairingId String?
+  pairing   Pairing? @relation("UserPairing", fields: [pairingId], references: [id], onDelete: SetNull)
 
   // Timestamps
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  reminderStartAt  DateTime?                // When set, overrides createdAt for reminder scheduling
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  reminderStartAt DateTime? // When set, overrides createdAt for reminder scheduling
 
   // Relations
   subscription    Subscription?
@@ -68,10 +73,20 @@ model User {
   featureOverride UserFeatureOverride?
   feedbacks       UserFeedback[]
 
+  // Native calendar relations
+  ownedNativeCalendars   NativeCalendar[] @relation("OwnedNativeCalendars")
+  createdNativeEvents    NativeEvent[]    @relation("CreatedNativeEvents")
+  pairingsInvited        Pairing[]        @relation("PairingsInvited")
+  pairingsAccepted       Pairing[]        @relation("PairingsAccepted")
+  pairingInvitesCreated  PairingInvite[]  @relation("PairingInvitesCreated")
+  pairingInvitesAccepted PairingInvite[]  @relation("PairingInvitesAccepted")
+
   @@index([telegramId])
   @@index([whatsappPhone])
   @@index([whatsappBsuid])
   @@index([suspendedAt])
+  @@index([calendarSource])
+  @@index([pairingId])
 }
 
 // Persistent blocklist for telegramId / whatsappPhone.
@@ -80,7 +95,7 @@ model BlockedIdentifier {
   id            Int      @id @default(autoincrement())
   telegramId    BigInt?  @unique
   whatsappPhone String?  @unique
-  bannedBy      Int                              // Admin User.id who banned
+  bannedBy      Int // Admin User.id who banned
   bannedReason  String?  @db.Text
   createdAt     DateTime @default(now())
 
@@ -100,12 +115,143 @@ model OAuthState {
 }
 
 model AdminSettings {
-  id                    String   @id @default("global")
-  remindersEnabled      Boolean  @default(false)
-  earlyAdoptionMode     Boolean  @default(true)
-  defaultAiModel        String?
-  geminiThinkingLevel   String?
-  updatedAt             DateTime @updatedAt
+  id                  String   @id @default("global")
+  remindersEnabled    Boolean  @default(false)
+  earlyAdoptionMode   Boolean  @default(true)
+  defaultAiModel      String?
+  geminiThinkingLevel String?
+  updatedAt           DateTime @updatedAt
+}
+
+// ============================================
+// NATIVE CALENDAR + PAIRING
+// ============================================
+
+enum CalendarSource {
+  GOOGLE // Legacy Google Calendar OAuth users
+  NATIVE // In-bot native calendar users
+}
+
+enum NativeCalendarPrivacy {
+  PRIVATE // Owner only (even when paired)
+  SHARED_VIEWER // Partner can view + receive reminders, not edit
+  SHARED_EDITOR // Partner can view + edit + receive reminders
+}
+
+enum PairingStatus {
+  PENDING // Invite sent, not yet accepted
+  ACTIVE // Both members linked
+  UNLINKED // Was active, has been broken; row kept for audit
+}
+
+enum NativeEventInstanceStatus {
+  OVERRIDE // This occurrence has modified fields (rescheduled, retitled, etc.)
+  CANCELLED // This occurrence is removed (alternative to series-level exdates)
+}
+
+model NativeCalendar {
+  id                String                @id @default(cuid())
+  ownerUserId       Int
+  owner             User                  @relation("OwnedNativeCalendars", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  name              String
+  color             String                @default("#039BE5") // Fixed palette in v1
+  labels            String[]              @default([]) // Reuses label vocab: primary | yours | spouse | kids | birthdays
+  personName        String? // Mirror of CalendarAssignment for kid/spouse calendars
+  personEnglishName String?
+  personGender      String?
+  rules             String[]              @default([]) // Free-text rules (max 1, 200 chars each)
+  privacy           NativeCalendarPrivacy @default(PRIVATE)
+  isDeleted         Boolean               @default(false) // Soft delete to preserve event history
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  events NativeEvent[]
+
+  @@index([ownerUserId])
+  @@index([ownerUserId, privacy])
+  @@index([ownerUserId, isDeleted])
+}
+
+model NativeEvent {
+  id              String         @id @default(cuid())
+  calendarId      String
+  calendar        NativeCalendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+  creatorUserId   Int
+  creator         User           @relation("CreatedNativeEvents", fields: [creatorUserId], references: [id], onDelete: Restrict)
+  title           String
+  description     String?        @db.Text
+  location        String?
+  startsAt        DateTime // For recurring: dtstart
+  endsAt          DateTime
+  allDay          Boolean        @default(false)
+  timeZone        String // IANA tz, snapshot at creation
+  rrule           String? // RFC-5545 RRULE on series; null = single event
+  exdates         DateTime[]     @default([]) // Cancelled instance start times (UTC)
+  reminderMinutes Int? // Overrides user default
+  isDeleted       Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  instances NativeEventInstance[]
+
+  @@index([calendarId, startsAt])
+  @@index([calendarId, isDeleted])
+  @@index([creatorUserId])
+}
+
+model NativeEventInstance {
+  id               String                    @id @default(cuid())
+  seriesEventId    String
+  seriesEvent      NativeEvent               @relation(fields: [seriesEventId], references: [id], onDelete: Cascade)
+  originalStartsAt DateTime // recurrence-id (which instance this overrides)
+  status           NativeEventInstanceStatus
+  title            String? // null = inherit from series
+  description      String?                   @db.Text
+  location         String?
+  startsAt         DateTime?
+  endsAt           DateTime?
+  allDay           Boolean?
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+
+  @@unique([seriesEventId, originalStartsAt])
+  @@index([seriesEventId, originalStartsAt])
+}
+
+model Pairing {
+  id               String        @id @default(cuid())
+  status           PairingStatus
+  inviterUserId    Int
+  inviter          User          @relation("PairingsInvited", fields: [inviterUserId], references: [id], onDelete: Restrict)
+  inviteeUserId    Int?
+  invitee          User?         @relation("PairingsAccepted", fields: [inviteeUserId], references: [id], onDelete: Restrict)
+  createdAt        DateTime      @default(now())
+  acceptedAt       DateTime?
+  unlinkedAt       DateTime?
+  unlinkedByUserId Int?
+
+  members User[] @relation("UserPairing") // Both partners point here via User.pairingId
+
+  @@index([inviterUserId])
+  @@index([inviteeUserId])
+  @@index([status])
+}
+
+model PairingInvite {
+  id               String    @id @default(cuid())
+  token            String    @unique
+  inviterUserId    Int
+  inviter          User      @relation("PairingInvitesCreated", fields: [inviterUserId], references: [id], onDelete: Cascade)
+  expiresAt        DateTime // now + 7 days
+  acceptedAt       DateTime?
+  acceptedByUserId Int?
+  acceptedBy       User?     @relation("PairingInvitesAccepted", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@index([token])
+  @@index([inviterUserId])
+  @@index([expiresAt])
 }
 
 // ============================================
@@ -113,10 +259,10 @@ model AdminSettings {
 // ============================================
 
 enum SubscriptionStatus {
-  TRIALING      // 14-day trial active
-  ACTIVE        // Paid and active
-  CANCELED      // Will expire at period end
-  EXPIRED       // Trial/subscription ended
+  TRIALING // 14-day trial active
+  ACTIVE // Paid and active
+  CANCELED // Will expire at period end
+  EXPIRED // Trial/subscription ended
 }
 
 enum SubscriptionPlan {
@@ -126,58 +272,58 @@ enum SubscriptionPlan {
 }
 
 model Subscription {
-  id                      String             @id @default(cuid())
-  userId                  Int                @unique
-  user                    User               @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId Int    @unique
+  user   User   @relation(fields: [userId], references: [id])
 
-  plan                    SubscriptionPlan   @default(FREE)
-  status                  SubscriptionStatus @default(TRIALING)
+  plan   SubscriptionPlan   @default(FREE)
+  status SubscriptionStatus @default(TRIALING)
 
   // Telegram Stars subscription
-  telegramPaymentChargeId String?            // From successful_payment
+  telegramPaymentChargeId String? // From successful_payment
 
   // Trial tracking
-  trialStartedAt          DateTime           @default(now())
-  trialEndsAt             DateTime           // trialStartedAt + 14 days
+  trialStartedAt DateTime @default(now())
+  trialEndsAt    DateTime // trialStartedAt + 14 days
 
   // Paid subscription tracking
-  currentPeriodStart      DateTime?
-  currentPeriodEnd        DateTime?
-  cancelAtPeriodEnd       Boolean            @default(false)
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  cancelAtPeriodEnd  Boolean   @default(false)
 
-  createdAt               DateTime           @default(now())
-  updatedAt               DateTime           @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([status])
 }
 
 model UsageCounter {
-  id                      String   @id @default(cuid())
-  userId                  Int      @unique
-  user                    User     @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId Int    @unique
+  user   User   @relation(fields: [userId], references: [id])
 
-  textSummariesUsed       Int      @default(0)
-  voiceSummariesUsed      Int      @default(0)
-  voiceEventsCreated      Int      @default(0)
-  remindersTriggered      Int      @default(0)
+  textSummariesUsed  Int @default(0)
+  voiceSummariesUsed Int @default(0)
+  voiceEventsCreated Int @default(0)
+  remindersTriggered Int @default(0)
 
-  cycleStartDate          DateTime @default(now())
-  updatedAt               DateTime @updatedAt
+  cycleStartDate DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@index([userId])
 }
 
 // User activity logging for analytics
 model UserActivity {
-  id          String   @id @default(cuid())
-  userId      Int
-  user        User     @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId Int
+  user   User   @relation(fields: [userId], references: [id])
 
-  action      String   // 'text_summary', 'voice_summary', 'reminder_sent', etc.
-  metadata    Json?    // Additional context (calendar count, language, etc.)
+  action   String // 'text_summary', 'voice_summary', 'reminder_sent', etc.
+  metadata Json? // Additional context (calendar count, language, etc.)
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([userId])
   @@index([action])
@@ -186,24 +332,24 @@ model UserActivity {
 
 // Admin-granted feature overrides for individual users
 model UserFeatureOverride {
-  id              String   @id @default(cuid())
-  userId          Int      @unique
-  user            User     @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId Int    @unique
+  user   User   @relation(fields: [userId], references: [id])
 
   // Admin-granted features (null = no override, use subscription)
-  unlimitedSummaries    Boolean?  // Bypass text/voice summary limits
-  remindersEnabled      Boolean?  // Grant reminders access
-  voiceEventsEnabled    Boolean?  // Grant voice event creation
-  unlimitedCalendars    Boolean?  // Bypass calendar limit
-  earlyAdopter          Boolean  @default(false)
+  unlimitedSummaries Boolean? // Bypass text/voice summary limits
+  remindersEnabled   Boolean? // Grant reminders access
+  voiceEventsEnabled Boolean? // Grant voice event creation
+  unlimitedCalendars Boolean? // Bypass calendar limit
+  earlyAdopter       Boolean  @default(false)
 
   // Metadata
-  grantedBy       Int?              // Admin user ID who granted
-  grantedAt       DateTime?
-  reason          String?           // Why override was granted
+  grantedBy Int? // Admin user ID who granted
+  grantedAt DateTime?
+  reason    String? // Why override was granted
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
 }
