@@ -73,7 +73,7 @@ export async function handleEventCallback(
       parse_mode: 'HTML'
     });
 
-    if (!user.googleRefreshToken) {
+    if (user.calendarSource === 'GOOGLE' && !user.googleRefreshToken) {
       await bot.editMessageText(
         `${t.voice.notConnected}\n\n${t.voice.connectFirst}`,
         {
@@ -224,7 +224,7 @@ export async function handleEditCallback(
       parse_mode: 'HTML'
     });
 
-    if (!user.googleRefreshToken) {
+    if (user.calendarSource === 'GOOGLE' && !user.googleRefreshToken) {
       await bot.editMessageText(
         `${t.voice?.notConnected || '❌ Not connected'}\n\n${t.voice?.connectFirst || 'Please connect your calendar first.'}`,
         {
@@ -379,7 +379,7 @@ export async function handleDeleteCallback(
       parse_mode: 'HTML'
     });
 
-    if (!user.googleRefreshToken) {
+    if (user.calendarSource === 'GOOGLE' && !user.googleRefreshToken) {
       await bot.editMessageText(
         `${t.voice?.notConnected || '❌ Not connected'}\n\n${t.voice?.connectFirst || 'Please connect your calendar first.'}`,
         {

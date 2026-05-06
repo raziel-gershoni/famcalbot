@@ -6,7 +6,7 @@
 
 import { redis } from '../utils/redis';
 import { CalendarEvent, CalendarAssignment, UserConfig } from '../types';
-import { getProviderForUser } from './calendar-provider';
+import { getProviderForUser, getCalendarAssignmentsForUser, hasUsableCalendar } from './calendar-provider';
 import { getBot } from './telegram';
 import { getTelegramService, getWhatsAppService } from './messaging/factory';
 import { MessageFormat } from './messaging/types';
@@ -115,8 +115,12 @@ export async function getDueReminders(
   windowMinutes: number = 5,
   timezone?: string
 ): Promise<DueReminder[]> {
-  const calendarIds = user.calendarAssignments?.map(a => a.calendarId) || [];
-  if (!calendarIds.length || !user.googleRefreshToken) {
+  if (!(await hasUsableCalendar(user))) {
+    return [];
+  }
+  const assignments = await getCalendarAssignmentsForUser(user);
+  const calendarIds = assignments.map(a => a.calendarId);
+  if (calendarIds.length === 0) {
     return [];
   }
 
@@ -165,14 +169,14 @@ export async function getDueReminders(
           type: 'start',
           reminderTime: startReminderTime,
           eventTime: startTime,
-          calendarAssignment: getCalendarAssignment(event, user.calendarAssignments),
+          calendarAssignment: getCalendarAssignment(event, assignments),
           isAutoReminder: isAuto,
         });
       }
     }
 
     // Check PICKUP reminder (only for kids' events, when pickup reminders are enabled)
-    if (isKidsEvent(event, user.calendarAssignments) && user.pickupRemindersEnabled !== false) {
+    if (isKidsEvent(event, assignments) && user.pickupRemindersEnabled !== false) {
       const pickupReminderTime = new Date(endTime.getTime() - reminderMinutes * 60 * 1000);
       const pickupReminderTimeStr = pickupReminderTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
       console.log(`[Reminders] Pickup check: ${event.summary}, pickupAt: ${endTimeStr}, reminderTime: ${pickupReminderTimeStr}, inWindow: ${pickupReminderTime >= now && pickupReminderTime < windowEnd}`);
@@ -185,7 +189,7 @@ export async function getDueReminders(
             type: 'pickup',
             reminderTime: pickupReminderTime,
             eventTime: endTime,
-            calendarAssignment: getCalendarAssignment(event, user.calendarAssignments),
+            calendarAssignment: getCalendarAssignment(event, assignments),
             isAutoReminder: isAuto,
           });
         }

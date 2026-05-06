@@ -684,10 +684,12 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
       return;
     }
 
-    if (!user.googleRefreshToken) {
+    const { hasUsableCalendar, getCalendarAssignmentsForUser } = await import('./calendar-provider');
+    if (!(await hasUsableCalendar(user))) {
       await waService.sendMessage(phone, t.voice?.noCalendar || 'Please connect your Google Calendar first.');
       return;
     }
+    const userCalendars = await getCalendarAssignmentsForUser(user);
 
     // Send processing message
     await waService.sendMessage(phone, t.voice?.processing || 'Processing your voice message...');
@@ -706,7 +708,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     const { intentResult, transcription } = await processVoiceWithGemini(
       audioBuffer,
       user.language || 'en',
-      user.calendarAssignments || [],
+      userCalendars,
       timezone
     );
 

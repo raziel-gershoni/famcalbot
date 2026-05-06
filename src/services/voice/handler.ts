@@ -51,10 +51,12 @@ export async function handleEditIntent(
 ): Promise<void> {
   const messagingService = getMessagingService();
 
-  if (!user.googleRefreshToken) {
+  const { hasUsableCalendar, getCalendarAssignmentsForUser } = await import('../calendar-provider');
+  if (!(await hasUsableCalendar(user))) {
     await messagingService.sendMessage(chatId, t.voice?.noCalendar || 'Calendar not connected.', { format: MessageFormat.PLAIN });
     return;
   }
+  const userCalendars = await getCalendarAssignmentsForUser(user);
 
   let targetEvent: CalendarEvent | undefined;
   let targetCalendarId: string | undefined;
@@ -69,11 +71,6 @@ export async function handleEditIntent(
       return;
     }
 
-    const calendarIds = (user.calendarAssignments || []).map(c => c.calendarId);
-    if (!calendarIds.includes(lastEvent.calendarId)) {
-      calendarIds.push(lastEvent.calendarId);
-    }
-
     const provider = getProviderForUser(user);
     const events = await provider.fetchEventsInRange(
       user,
@@ -86,7 +83,7 @@ export async function handleEditIntent(
     targetCalendarId = lastEvent.calendarId;
 
   } else if (intentResult.eventReference?.type === 'by_description') {
-    const calendarIds = (user.calendarAssignments || []).map(c => c.calendarId);
+    const calendarIds = userCalendars.map(c => c.calendarId);
     const matchResult = await findMatchingEvent(
       user,
       calendarIds,
@@ -147,10 +144,12 @@ export async function handleDeleteIntent(
 ): Promise<void> {
   const messagingService = getMessagingService();
 
-  if (!user.googleRefreshToken) {
+  const { hasUsableCalendar, getCalendarAssignmentsForUser } = await import('../calendar-provider');
+  if (!(await hasUsableCalendar(user))) {
     await messagingService.sendMessage(chatId, t.voice?.noCalendar || 'Calendar not connected.', { format: MessageFormat.PLAIN });
     return;
   }
+  const userCalendars = await getCalendarAssignmentsForUser(user);
 
   let targetEvent: CalendarEvent | undefined;
   let targetCalendarId: string | undefined;
@@ -177,7 +176,7 @@ export async function handleDeleteIntent(
     targetCalendarId = lastEvent.calendarId;
 
   } else if (intentResult.eventReference?.type === 'by_description') {
-    const calendarIds = (user.calendarAssignments || []).map(c => c.calendarId);
+    const calendarIds = userCalendars.map(c => c.calendarId);
     const matchResult = await findMatchingEvent(
       user,
       calendarIds,
@@ -294,11 +293,13 @@ export async function handleVoiceMessage(
       language: user.language,
     });
 
-    if (!user.googleRefreshToken) {
-      console.log(`[Voice] User ${userId} has no Google refresh token`);
+    const { hasUsableCalendar, getCalendarAssignmentsForUser } = await import('../calendar-provider');
+    if (!(await hasUsableCalendar(user))) {
+      console.log(`[Voice] User ${userId} has no usable calendar (source=${user.calendarSource})`);
       await messagingService.sendMessage(chatId, t.voice.noCalendar, { format: MessageFormat.PLAIN });
       return;
     }
+    const userCalendars = await getCalendarAssignmentsForUser(user);
 
     if (voice.duration >= 30) {
       await messagingService.sendMessage(chatId, t.voice.tooLong, { format: MessageFormat.PLAIN });
@@ -320,7 +321,7 @@ export async function handleVoiceMessage(
     const { intentResult, transcription, metrics } = await processVoiceWithGemini(
       audioBuffer,
       user.language || 'en',
-      user.calendarAssignments || [],
+      userCalendars,
       timezone
     );
 

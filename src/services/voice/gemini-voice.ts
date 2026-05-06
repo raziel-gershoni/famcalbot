@@ -64,6 +64,7 @@ USER LANGUAGE: ${language}
 
 USER'S CALENDARS:
 ${calendarList || '- Primary calendar (ID: primary)'}
+NOTE: A calendar ID may start with "native:" — preserve the full ID verbatim in your response.
 
 INTENT DETECTION RULES:
 1. EDIT intent - User wants to modify an existing event. Keywords/phrases:
