@@ -40,13 +40,23 @@ export async function getCalendarAssignmentsForUser(user: UserConfig): Promise<C
  * True if the user has a usable calendar setup for read/write. For GOOGLE
  * users that means a non-empty refresh token. For NATIVE users we just need
  * at least one visible calendar (own or partner-shared editor).
+ *
+ * NATIVE recovery: if a NATIVE user has zero visible calendars (rare — only
+ * if `ensurePrimaryNativeCalendar` failed at signup), this lazily re-runs
+ * the bootstrap so the user isn't permanently bricked. Best-effort only.
  */
 export async function hasUsableCalendar(user: UserConfig): Promise<boolean> {
   if (user.calendarSource === 'NATIVE') {
-    const partnerId = await getPartnerUserId(user.id, user.pairingId ?? null);
-    // Quick check: any owned non-deleted calendar, or any editable shared one.
-    const assignments = await getCalendarAssignmentsForUser(user);
-    void partnerId;
+    let assignments = await getCalendarAssignmentsForUser(user);
+    if (assignments.length === 0) {
+      try {
+        const { ensurePrimaryNativeCalendar } = await import('../native-calendar/onboarding');
+        await ensurePrimaryNativeCalendar(user.id);
+        assignments = await getCalendarAssignmentsForUser(user);
+      } catch (err) {
+        console.warn('[UserCalendars] Lazy primary-calendar bootstrap failed:', err);
+      }
+    }
     return assignments.length > 0;
   }
   return Boolean(user.googleRefreshToken && user.googleRefreshToken.length > 0);

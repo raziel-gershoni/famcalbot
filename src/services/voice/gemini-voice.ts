@@ -286,9 +286,11 @@ export function parseGeminiEventResponse(
     // Validate calendarId against user's actual calendars
     const geminiCalId = eventData.calendarId || '';
     let matchedCalendar = calendars.find(c => c.calendarId === geminiCalId);
-    // Partial match: Gemini may strip the @group.calendar.google.com suffix
-    if (!matchedCalendar && geminiCalId) {
-      matchedCalendar = calendars.find(c => c.calendarId.startsWith(geminiCalId));
+    // Partial match: Gemini may strip the @group.calendar.google.com suffix.
+    // Restricted to non-native IDs because a truncated `native:abc` could
+    // accidentally match a longer `native:abc123` cuid.
+    if (!matchedCalendar && geminiCalId && !geminiCalId.startsWith('native:')) {
+      matchedCalendar = calendars.find(c => !c.calendarId.startsWith('native:') && c.calendarId.startsWith(geminiCalId));
     }
     // Name match: try matching by calendar name (case-insensitive)
     if (!matchedCalendar && (geminiCalId || eventData.calendarName)) {

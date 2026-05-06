@@ -48,12 +48,11 @@ async function storeUndoToken(payload: UndoPayload): Promise<string> {
   return token;
 }
 
-/** Look up + atomically consume an undo token. */
-export async function consumeUndoToken(token: string): Promise<UndoPayload | null> {
+/** Read an undo token's payload without consuming it. */
+async function readUndoToken(token: string): Promise<UndoPayload | null> {
   const key = REDIS_KEYS.undoToken(token);
   const raw = await redis.get<string | UndoPayload>(key);
   if (!raw) return null;
-  await redis.del(key);
   if (typeof raw === 'string') {
     try {
       return JSON.parse(raw) as UndoPayload;
@@ -62,6 +61,11 @@ export async function consumeUndoToken(token: string): Promise<UndoPayload | nul
     }
   }
   return raw as UndoPayload;
+}
+
+/** Atomically consume the token (deletes the key). */
+async function deleteUndoToken(token: string): Promise<void> {
+  await redis.del(REDIS_KEYS.undoToken(token));
 }
 
 /**
@@ -118,12 +122,26 @@ export async function autoCreateEvent(
     `\n\n📅 <b>${event.title}</b>`;
   const undoLabel = t.voice?.undo || '↩️ Undo (30s)';
 
-  await service.sendMessage(chatId, summary, {
-    format: MessageFormat.HTML,
-    replyMarkup: {
-      inline_keyboard: [[{ text: undoLabel, callback_data: `voice_undo:${token}` }]],
-    },
-  });
+  try {
+    await service.sendMessage(chatId, summary, {
+      format: MessageFormat.HTML,
+      replyMarkup: {
+        inline_keyboard: [[{ text: undoLabel, callback_data: `voice_undo:${token}` }]],
+      },
+    });
+  } catch (err) {
+    // The event already exists but the user has no undo button — clean up so
+    // we don't leave an invisible auto-created event behind. If the rollback
+    // delete also fails, log and surface failure: returning false makes the
+    // caller fall back to standard confirmation flow.
+    console.error('[AutoCreate] sendMessage failed after createEvent — rolling back:', err);
+    try {
+      await provider.deleteEvent(user, calendarId, result.eventId, { scope: 'single' });
+    } catch (delErr) {
+      console.error('[AutoCreate] rollback deleteEvent also failed:', delErr);
+    }
+    return false;
+  }
 
   return true;
 }
@@ -137,7 +155,10 @@ export async function handleUndoCallback(
   user: UserConfig,
   token: string
 ): Promise<{ ok: boolean; reason?: 'expired' | 'failed' }> {
-  const payload = await consumeUndoToken(token);
+  // Read first so a wrong-user click doesn't consume the token and lock out
+  // the legitimate owner. Only delete after we confirm ownership AND the
+  // delete succeeds.
+  const payload = await readUndoToken(token);
   if (!payload) return { ok: false, reason: 'expired' };
 
   // Permission check: only the original creator's user may undo.
@@ -150,6 +171,7 @@ export async function handleUndoCallback(
   });
   if (!result.success) return { ok: false, reason: 'failed' };
 
+  await deleteUndoToken(token);
   const { removeRecentEvent } = await import('./recent-events-store');
   await removeRecentEvent(user.id, payload.eventId);
   return { ok: true };

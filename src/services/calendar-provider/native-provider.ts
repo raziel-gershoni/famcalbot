@@ -182,7 +182,10 @@ export const nativeProvider: CalendarProvider = {
       return { success: false, error: 'NOT_FOUND', errorMessage: `Not a native calendar id: ${calendarId}` };
     }
     try {
-      const tz = (user as { location?: string }).location || TIMEZONE;
+      // user.location is a city name (e.g. "Tel Aviv"), not an IANA tz —
+      // resolveUserTimezone is the authoritative source.
+      const { resolveUserTimezone } = await import('../../lib/timezone');
+      const tz = (await resolveUserTimezone(user)) || TIMEZONE;
       const event = await createNativeEvent({
         calendarCuid: cuid,
         creatorUserId: user.id,

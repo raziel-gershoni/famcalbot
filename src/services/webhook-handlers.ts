@@ -745,7 +745,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     const { getRecentEvents, formatRecentEventsBlock } = await import('./voice/recent-events-store');
     const recentEvents = await getRecentEvents(user.id);
     const recentBlock = formatRecentEventsBlock(recentEvents, timezone);
-    const { intentResult, transcription } = await processVoiceWithGemini(
+    const { intentResult, intentResults, transcription } = await processVoiceWithGemini(
       audioBuffer,
       user.language || 'en',
       userCalendars,
@@ -754,6 +754,19 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     );
 
     console.log(`[WhatsApp Voice] Intent: ${intentResult.intent}, confidence: ${intentResult.confidence}`);
+
+    // Multi-event batches are not yet supported on WhatsApp (PR 11 ships TG
+    // bulk only). Surface a clear message rather than silently dropping all
+    // but the first event.
+    const validBulkWa = (intentResults || []).filter((r) => r.intent === 'create' && r.event && !r.error);
+    if (validBulkWa.length > 1) {
+      await waService.sendMessage(
+        phone,
+        wa.bulkUseTelegram ||
+          `📋 I heard ${validBulkWa.length} events at once. Multi-event is only on Telegram for now — please dictate them one at a time here.`
+      );
+      return;
+    }
 
     if (intentResult.intent === 'create' && intentResult.event) {
       // Store pending event in Redis
