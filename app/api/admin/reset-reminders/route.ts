@@ -46,21 +46,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Reset all incomplete users
+    // Reset all incomplete users. "Incomplete" means different things by source:
+    //   GOOGLE: missing OAuth, missing calendars, OR missing location.
+    //   NATIVE: missing location only (calendar is auto-bootstrapped at signup;
+    //     OAuth and per-calendar selection are not part of native onboarding).
     if (reset_all) {
       const { Prisma } = await import('@prisma/client');
       const incompleteUsers = await prisma.user.findMany({
         where: {
-          OR: [
-            { googleRefreshToken: '' },
-            { calendarAssignments: { equals: Prisma.JsonNull } },
-            { calendarAssignments: { equals: Prisma.DbNull } },
-            { calendarAssignments: { equals: [] } },
-            { location: '' },
-          ],
           AND: {
             OR: [{ telegramId: { not: null } }, { whatsappPhone: { not: null } }, { whatsappBsuid: { not: null } }],
           },
+          OR: [
+            // GOOGLE — incomplete on any of OAuth / calendars / location
+            {
+              calendarSource: 'GOOGLE',
+              OR: [
+                { googleRefreshToken: '' },
+                { calendarAssignments: { equals: Prisma.JsonNull } },
+                { calendarAssignments: { equals: Prisma.DbNull } },
+                { calendarAssignments: { equals: [] } },
+                { location: '' },
+              ],
+            },
+            // NATIVE — incomplete only when location is missing
+            { calendarSource: 'NATIVE', location: '' },
+          ],
         },
         select: { id: true, name: true },
       });

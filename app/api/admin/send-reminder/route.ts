@@ -94,6 +94,7 @@ export async function POST(request: NextRequest) {
         whatsappBsuid: true,
         language: true,
         name: true,
+        calendarSource: true,
       },
     });
 
@@ -101,6 +102,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'User not found' },
         { status: 404 }
+      );
+    }
+
+    // Source guard: oauth/calendars reminders are GOOGLE-only. Sending them
+    // to a NATIVE user would point them at /dashboard or /select-calendars,
+    // which are GCal-specific and confusing. Reject with a clear error.
+    if (user.calendarSource === 'NATIVE' && (reminder_type === 'oauth' || reminder_type === 'calendars')) {
+      return NextResponse.json(
+        { error: `${reminder_type} reminder is not applicable to NATIVE users` },
+        { status: 400 }
       );
     }
 

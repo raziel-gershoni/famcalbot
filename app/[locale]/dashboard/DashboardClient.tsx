@@ -36,6 +36,7 @@ interface DashboardClientProps {
   user: User;
   calendarAssignments: CalendarAssignment[];
   locale: string;
+  calendarSource?: 'GOOGLE' | 'NATIVE';
   needsOAuth: boolean;
   needsCalendars: boolean;
   subscription: SubscriptionInfo | null;
@@ -47,6 +48,7 @@ export default function DashboardClient({
   user,
   calendarAssignments,
   locale,
+  calendarSource,
   needsOAuth,
   needsCalendars,
   subscription,
@@ -558,7 +560,17 @@ export default function DashboardClient({
         />
 
         <div className="dashboard-content">
-          {needsOAuth ? (
+          {/* GOOGLE legacy users without OAuth see the connect funnel.
+              NATIVE users have an auto-bootstrapped calendar at signup, so the
+              dashboard never asks them to connect Google or pick calendars —
+              if their location is missing it shows a native-flavored welcome
+              card pointing at /settings instead. */}
+          {calendarSource === 'NATIVE' && !user.location ? (
+            <div className="setup-card" onClick={handleOpenSettings}>
+              <h3><Calendar size={20} className="inline-icon" /> {t('setup.nativeWelcome')}</h3>
+              <p>{t('setup.nativeLocationDesc')}</p>
+            </div>
+          ) : needsOAuth ? (
             <div className="setup-card" onClick={handleConnectGoogle}>
               <h3><KeyRound size={20} className="inline-icon" /> {t('setup.connectGoogle')}</h3>
               <p>{t('setup.connectGoogleDesc')}</p>
