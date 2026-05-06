@@ -13,6 +13,7 @@ interface AdminPanelClientProps {
     usersWithOAuth: number;
     usersWithCalendars: number;
     needSetup: number;
+    nativeUsers?: number;
   };
   remindersEnabled: boolean;
   earlyAdoptionMode: boolean;
@@ -96,6 +97,7 @@ interface UserOverrideDetails {
     hasCalendars: boolean;
     hasLocation: boolean;
     applicableReminder: 'oauth' | 'calendars' | 'location' | null;
+    calendarSource?: 'GOOGLE' | 'NATIVE';
   };
   setupReminders: {
     daysSinceCreated: number;
@@ -2387,16 +2389,42 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
 
                 {/* Registration Status Section */}
                 <div className="user-card-section">
-                  <div className="user-card-section-title">{t('overrides.registrationTitle')}</div>
+                  <div className="user-card-section-title">
+                    {t('overrides.registrationTitle')}
+                    {selectedUser.registrationStatus.calendarSource && (
+                      <span
+                        style={{
+                          marginLeft: 8,
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          backgroundColor:
+                            selectedUser.registrationStatus.calendarSource === 'NATIVE' ? '#dcfce7' : '#dbeafe',
+                          color:
+                            selectedUser.registrationStatus.calendarSource === 'NATIVE' ? '#166534' : '#1e40af',
+                        }}
+                      >
+                        {selectedUser.registrationStatus.calendarSource === 'NATIVE' ? '📅 Native' : '🟢 Google'}
+                      </span>
+                    )}
+                  </div>
                   <div className="registration-status-grid">
-                    <div className={`registration-status-item ${selectedUser.registrationStatus.hasOAuth ? 'complete' : 'incomplete'}`}>
-                      {selectedUser.registrationStatus.hasOAuth ? <Check size={16} /> : <X size={16} />}
-                      <span>{t('overrides.hasOAuth')}</span>
-                    </div>
-                    <div className={`registration-status-item ${selectedUser.registrationStatus.hasCalendars ? 'complete' : 'incomplete'}`}>
-                      {selectedUser.registrationStatus.hasCalendars ? <Check size={16} /> : <X size={16} />}
-                      <span>{t('overrides.hasCalendars')}</span>
-                    </div>
+                    {/* OAuth and per-calendar selection only matter for GOOGLE users.
+                        NATIVE users have an auto-bootstrapped primary calendar at signup,
+                        so showing those rows would be misleading. */}
+                    {selectedUser.registrationStatus.calendarSource !== 'NATIVE' && (
+                      <>
+                        <div className={`registration-status-item ${selectedUser.registrationStatus.hasOAuth ? 'complete' : 'incomplete'}`}>
+                          {selectedUser.registrationStatus.hasOAuth ? <Check size={16} /> : <X size={16} />}
+                          <span>{t('overrides.hasOAuth')}</span>
+                        </div>
+                        <div className={`registration-status-item ${selectedUser.registrationStatus.hasCalendars ? 'complete' : 'incomplete'}`}>
+                          {selectedUser.registrationStatus.hasCalendars ? <Check size={16} /> : <X size={16} />}
+                          <span>{t('overrides.hasCalendars')}</span>
+                        </div>
+                      </>
+                    )}
                     <div className={`registration-status-item ${selectedUser.registrationStatus.hasLocation ? 'complete' : 'incomplete'}`}>
                       {selectedUser.registrationStatus.hasLocation ? <Check size={16} /> : <X size={16} />}
                       <span>{t('overrides.hasLocation')}</span>
@@ -2420,8 +2448,13 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                         )}
                       </div>
                       {[
-                        { label: t('overrides.hasOAuth'), attempts: selectedUser.setupReminders.oauth, done: selectedUser.registrationStatus.hasOAuth },
-                        { label: t('overrides.hasCalendars'), attempts: selectedUser.setupReminders.calendars, done: selectedUser.registrationStatus.hasCalendars },
+                        // OAuth + calendars rows only apply to GOOGLE users.
+                        ...(selectedUser.registrationStatus.calendarSource !== 'NATIVE'
+                          ? [
+                              { label: t('overrides.hasOAuth'), attempts: selectedUser.setupReminders.oauth, done: selectedUser.registrationStatus.hasOAuth },
+                              { label: t('overrides.hasCalendars'), attempts: selectedUser.setupReminders.calendars, done: selectedUser.registrationStatus.hasCalendars },
+                            ]
+                          : []),
                         { label: t('overrides.hasLocation'), attempts: selectedUser.setupReminders.location, done: selectedUser.registrationStatus.hasLocation },
                       ].map(({ label, attempts, done }) => {
                         const sent = attempts.filter(a => a.sent).length;

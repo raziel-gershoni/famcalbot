@@ -281,10 +281,13 @@ export async function handleSetupReminders(): Promise<CronResult> {
     return user.reminderStartAt ?? user.createdAt;
   }
 
-  // 1. OAuth reminders — users within reminder window without Google connected
+  // 1. OAuth reminders — GOOGLE-source users within window without a token.
+  // NATIVE users skip this entire track (their calendar is auto-bootstrapped
+  // at signup; OAuth is irrelevant for them).
   const needsOAuthUsers = await prisma.user.findMany({
     where: {
       ...isWithinWindow,
+      calendarSource: 'GOOGLE',
       googleRefreshToken: '',
       suspendedAt: null,
       ...hasMessagingPlatform,
@@ -314,10 +317,14 @@ export async function handleSetupReminders(): Promise<CronResult> {
     }
   }
 
-  // 2. Calendars reminders — users with OAuth but no calendars selected
+  // 2. Calendars reminders — GOOGLE users with OAuth done but no calendars
+  // selected. NATIVE users skip: their primary calendar is auto-created and
+  // multi-calendar management lives in the miniapp /calendars page (not part
+  // of the new-user setup nudge).
   const needsCalendarsUsers = await prisma.user.findMany({
     where: {
       ...isWithinWindow,
+      calendarSource: 'GOOGLE',
       googleRefreshToken: { not: '' },
       suspendedAt: null,
       OR: [
@@ -351,19 +358,31 @@ export async function handleSetupReminders(): Promise<CronResult> {
     }
   }
 
-  // 3. Location reminders — users with OAuth + calendars but no location
+  // 3. Location reminders — fires for both sources, but with different
+  // prerequisites:
+  //   - GOOGLE: must have OAuth + at least one selected calendar before
+  //     we ask about location (existing chained behavior).
+  //   - NATIVE: only the location is missing (calendar is auto-bootstrapped).
+  // Selecting both groups together so a single track sends one location
+  // nudge per user regardless of source.
   const needsLocationUsers = await prisma.user.findMany({
     where: {
       ...isWithinWindow,
-      googleRefreshToken: { not: '' },
       location: '',
       suspendedAt: null,
       ...hasMessagingPlatform,
+      OR: [
+        // GOOGLE: chained behind OAuth + calendars (filtered post-query below)
+        { calendarSource: 'GOOGLE', googleRefreshToken: { not: '' } },
+        // NATIVE: calendar is implicit
+        { calendarSource: 'NATIVE' },
+      ],
     },
-    select: { ...dateSelect, calendarAssignments: true },
+    select: { ...dateSelect, calendarAssignments: true, calendarSource: true },
   });
 
   const locationUsersFiltered = needsLocationUsers.filter(u => {
+    if (u.calendarSource === 'NATIVE') return true;
     const assignments = u.calendarAssignments as unknown[];
     return Array.isArray(assignments) && assignments.length > 0;
   });

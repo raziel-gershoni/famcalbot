@@ -37,9 +37,12 @@ export default async function DashboardPage({ params, searchParams }: PageProps)
     redirect(`/${userLocale}/dashboard?user_id=${userId}`);
   }
 
-  // Check setup status
-  const needsOAuth = !user.googleRefreshToken;
-  const needsCalendars = !user.calendarAssignments || user.calendarAssignments.length === 0;
+  // Check setup status. OAuth and calendar selection are GOOGLE-only — for
+  // NATIVE users the calendar is auto-bootstrapped at signup, so the only
+  // setup gap is location (handled in SettingsClient, not here).
+  const isNative = user.calendarSource === 'NATIVE';
+  const needsOAuth = !isNative && !user.googleRefreshToken;
+  const needsCalendars = !isNative && (!user.calendarAssignments || user.calendarAssignments.length === 0);
 
   // Fetch subscription data
   const [subWithUsage, trialStatus, isEarlyAdopter] = await Promise.all([
@@ -65,6 +68,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps)
       }}
       calendarAssignments={user.calendarAssignments || []}
       locale={locale}
+      calendarSource={user.calendarSource}
       needsOAuth={needsOAuth}
       needsCalendars={needsCalendars}
       subscription={subscription}

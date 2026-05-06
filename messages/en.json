@@ -23,7 +23,9 @@
       "connectGoogle": "Connect Google Calendar",
       "connectGoogleDesc": "Unlock daily schedule summaries, voice briefings, and smart pickup order. Takes 60 seconds.",
       "selectCalendars": "Select Your Calendars",
-      "selectCalendarsDesc": "Choose which calendars to merge — yours, spouse, kids. Unlocks the full family view."
+      "selectCalendarsDesc": "Choose which calendars to merge — yours, spouse, kids. Unlocks the full family view.",
+      "nativeWelcome": "Your calendar is ready",
+      "nativeLocationDesc": "Tell me where you live so weather and timezones work right."
     },
     "summary": {
       "title": "Calendar Summary",
@@ -521,7 +523,9 @@
       "valueProp": "Here's what you'll get:\n\n📅 *Merged family schedule* — yours, spouse, and kids in one view\n🎤 *30-second voice briefing* — listen while making coffee\n🚗 *Kids' pickup order* — sorted by end time\n🌤️ *Weather tied to your schedule*\n🗣️ *Voice commands* — create events by talking",
       "sampleSummary": "Here's what your morning briefing looks like:\n\n━━━━━━━━━━━━━━━\n☀️ *Good morning!*\nToday — Sunday, Mar 15\n\n*Your Schedule:*\n• 09:00 – Team standup (Zoom)\n• 14:00 – Client meeting\n\n*Sarah's Schedule:*\n• 10:30 – Dentist\n\n*Kids Pickup:*\n1. 14:00 — Noah (School)\n2. 16:30 — Maya, Liam (Soccer)\n\n💡 Sarah finishes at 12 — she can handle Noah's pickup\n🌤️ 22°C, sunny. Light jacket for evening.\n━━━━━━━━━━━━━━━",
       "ctaSetup": "Ready? Connect your Google Calendar to see *your* schedule (60 seconds):",
-      "ctaButton": "🚀 Set Up FamCal"
+      "ctaButton": "🚀 Set Up FamCal",
+      "nativeWelcome": "👋 Hi {name}, your calendar is ready in {platform}. Tell me where you live so weather and timezones work right.",
+      "nativeLocationButton": "📍 Set my location"
     },
     "setupNudge": {
       "noOAuth": "📅 <b>Connect your calendar first</b>\n\nTo get your personalized summary, I need access to your Google Calendar.\n\nOnce connected, you'll get:\n✅ Today's schedule for your whole family\n✅ Kids' pickup order\n✅ 30-second voice briefing\n\nTap below to connect (60 seconds):",
@@ -529,6 +533,7 @@
       "noCalendars": "📋 <b>One more step — pick your calendars</b>\n\nYour Google account is connected! Now choose which calendars to include so I can build your family summary.\n\nTap below:",
       "noCalendarsButton": "📆 Select Calendars",
       "noLocation": "🌤️ <b>Add your location for weather</b>\n\nI can tie weather to your schedule — like \"Rain at 16:00 pickup, bring umbrellas.\"\n\nJust set your city:",
+      "noLocationNative": "🌤️ <b>One quick thing</b>\n\nYour calendar is ready! I just need your location so weather and timezones work right.\n\nTap below to set your city:",
       "noLocationButton": "📍 Set Location"
     },
     "voice": {

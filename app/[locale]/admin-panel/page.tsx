@@ -83,8 +83,19 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
     );
   }
 
-  // Get statistics (with retry for Neon cold start)
-  const [totalUsers, usersWithOAuth, usersWithCalendars, adminSettings] = await Promise.all([
+  // Get statistics (with retry for Neon cold start). "Need setup" must be
+  // computed source-aware:
+  //   GOOGLE: missing OAuth, missing calendars, OR missing location.
+  //   NATIVE: missing location only (calendar is auto-bootstrapped at signup).
+  const [
+    totalUsers,
+    usersWithOAuth,
+    usersWithCalendars,
+    googleIncompleteCount,
+    nativeIncompleteCount,
+    nativeUsers,
+    adminSettings,
+  ] = await Promise.all([
     prisma.user.count(),
     prisma.user.count({
       where: { NOT: { googleRefreshToken: '' } }
@@ -92,6 +103,22 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
     prisma.user.count({
       where: { calendarAssignments: { not: Prisma.JsonNull } }
     }),
+    prisma.user.count({
+      where: {
+        calendarSource: 'GOOGLE',
+        OR: [
+          { googleRefreshToken: '' },
+          { calendarAssignments: { equals: Prisma.JsonNull } },
+          { calendarAssignments: { equals: Prisma.DbNull } },
+          { calendarAssignments: { equals: [] } },
+          { location: '' },
+        ],
+      },
+    }),
+    prisma.user.count({
+      where: { calendarSource: 'NATIVE', location: '' },
+    }),
+    prisma.user.count({ where: { calendarSource: 'NATIVE' } }),
     prisma.adminSettings.findUnique({
       where: { id: 'global' }
     }).catch(() => null) // Handle missing table gracefully
@@ -105,7 +132,8 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
         totalUsers,
         usersWithOAuth,
         usersWithCalendars,
-        needSetup: totalUsers - usersWithOAuth
+        needSetup: googleIncompleteCount + nativeIncompleteCount,
+        nativeUsers,
       }}
       remindersEnabled={adminSettings?.remindersEnabled ?? false}
       earlyAdoptionMode={adminSettings?.earlyAdoptionMode ?? false}

@@ -41,13 +41,14 @@ export async function isUserAuthorized(userId: number | string): Promise<boolean
  * Returns true if a nudge was sent (caller should return early), false if setup is complete.
  */
 export async function sendSetupNudgeIfNeeded(
-  user: { id: number; telegramId: number | bigint | null; googleRefreshToken: string; calendarAssignments?: unknown[] | null; location?: string; language?: string },
+  user: { id: number; telegramId: number | bigint | null; googleRefreshToken: string; calendarAssignments?: unknown[] | null; location?: string; language?: string; calendarSource?: 'GOOGLE' | 'NATIVE' },
   chatId: number | string,
   messagingService: IMessagingService,
   platform: MessagingPlatform,
   checks: ('oauth' | 'calendars' | 'location')[] = ['oauth', 'calendars']
 ): Promise<boolean> {
   const userLanguage = user.language || 'en';
+  const isNative = user.calendarSource === 'NATIVE';
   const { generateMagicLink } = await import('../magic-link');
 
   async function sendNudge(message: string, buttonText: string, route: string) {
@@ -63,14 +64,17 @@ export async function sendSetupNudgeIfNeeded(
     });
   }
 
-  if (checks.includes('oauth') && !user.googleRefreshToken) {
+  // OAuth and per-calendar selection only matter for GOOGLE users. NATIVE
+  // users have an auto-bootstrapped primary calendar at signup, so they skip
+  // both checks and only need a location.
+  if (!isNative && checks.includes('oauth') && !user.googleRefreshToken) {
     const t = await getBotMessages(userLanguage);
     const nudge = t.setupNudge || {};
     await sendNudge(nudge.noOAuth || 'Please connect your Google Calendar first.', nudge.noOAuthButton || '🚀 Connect Calendar', 'dashboard');
     return true;
   }
 
-  if (checks.includes('calendars') && (!user.calendarAssignments || user.calendarAssignments.length === 0)) {
+  if (!isNative && checks.includes('calendars') && (!user.calendarAssignments || user.calendarAssignments.length === 0)) {
     const t = await getBotMessages(userLanguage);
     const nudge = t.setupNudge || {};
     await sendNudge(nudge.noCalendars || 'Please select your calendars first.', nudge.noCalendarsButton || '📆 Select Calendars', 'select-calendars');
@@ -80,7 +84,12 @@ export async function sendSetupNudgeIfNeeded(
   if (checks.includes('location') && !user.location) {
     const t = await getBotMessages(userLanguage);
     const nudge = t.setupNudge || {};
-    await sendNudge(nudge.noLocation || 'Please set your location first.', nudge.noLocationButton || '📍 Set Location', 'settings');
+    // Native-flavored prompt sounds like "your calendar is ready, just tell me
+    // where you live" rather than the GOOGLE setup chain.
+    const message = isNative
+      ? (nudge.noLocationNative || 'Your calendar is ready! Tell me where you live for weather + timezone.')
+      : (nudge.noLocation || 'Please set your location first.');
+    await sendNudge(message, nudge.noLocationButton || '📍 Set Location', 'settings');
     return true;
   }
 
@@ -172,9 +181,16 @@ export async function handleStartCommand(
     return;
   }
 
-  // New user (hasn't connected Google yet): send value prop + sample summary
-  const needsSetup = !user.googleRefreshToken;
-  if (needsSetup) {
+  // New-user setup branches differ by calendar source (A1 model):
+  // - GOOGLE legacy users without OAuth → existing "connect Google" funnel.
+  // - NATIVE users (the new default) → calendar is auto-bootstrapped at signup,
+  //   so the only thing that gates good summaries is location. Welcome them
+  //   warmly and point at /settings instead of /dashboard.
+  const isNative = user.calendarSource === 'NATIVE';
+  const needsGoogleSetup = !isNative && !user.googleRefreshToken;
+  const needsLocationOnly = isNative && !user.location;
+
+  if (needsGoogleSetup) {
     const platformName = platform === MessagingPlatform.TELEGRAM ? 'Telegram' : 'WhatsApp';
     const valueProp = (t.start.valueProp || '').replace('{platform}', platformName);
     const featureList = t.start.featureList || '';
@@ -193,6 +209,24 @@ export async function handleStartCommand(
       replyMarkup: {
         inline_keyboard: [[
           { text: t.start.ctaButton || '🚀 Set Up FamCal', web_app: { url: dashboardUrl } }
+        ]]
+      }
+    });
+    return;
+  }
+
+  if (needsLocationOnly) {
+    const settingsUrl = buildUrl(`/${locale}/settings?user_id=${user.telegramId ?? user.id}`);
+    const platformName = platform === MessagingPlatform.TELEGRAM ? 'Telegram' : 'WhatsApp';
+    const nativeWelcome = (t.start.nativeWelcome
+      || `${welcome}\n\n👋 Your calendar is ready in {platform}. Tell me where you live so weather and timezones work right.`)
+      .replace('{platform}', platformName)
+      .replace('{name}', name);
+    await service.sendMessage(chatId, nativeWelcome, {
+      format: MessageFormat.HTML,
+      replyMarkup: {
+        inline_keyboard: [[
+          { text: t.start.nativeLocationButton || '📍 Set my location', web_app: { url: settingsUrl } }
         ]]
       }
     });

@@ -309,6 +309,25 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   try {
     await updateGoogleRefreshToken(telegramId, tokens.refresh_token);
 
+    // If the user was previously on NATIVE, completing OAuth is an explicit
+    // opt-in to GOOGLE. Flip calendarSource and soft-delete the auto-created
+    // native calendar so the model stays "either/or per user" (locked
+    // product decision). The native calendar row is preserved (isDeleted=true)
+    // in case the user ever switches back; the in-bot calendar UI hides it.
+    if (user.calendarSource === 'NATIVE') {
+      const { prisma } = await import('@/src/utils/prisma');
+      await prisma.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: user.id },
+          data: { calendarSource: 'GOOGLE' },
+        });
+        await tx.nativeCalendar.updateMany({
+          where: { ownerUserId: user.id, isDeleted: false },
+          data: { isDeleted: true },
+        });
+      });
+    }
+
     // Update reminder cache if user has reminders enabled
     if (user.remindersEnabled) {
       await updateUserInCache({

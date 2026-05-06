@@ -207,19 +207,22 @@ export async function GET(request: NextRequest) {
       const calendarAssignments = user.calendarAssignments as Array<{ calendarId: string }> | null;
       const calendarsCount = calendarAssignments?.length ?? 0;
 
-      // Calculate registration status
+      // Calculate registration status. The applicableReminder differs by
+      // calendarSource: GOOGLE walks oauth → calendars → location, while
+      // NATIVE only ever needs location (calendar is auto-bootstrapped at
+      // signup; OAuth is irrelevant).
+      const isNativeUser = user.calendarSource === 'NATIVE';
       const hasOAuth = user.googleRefreshToken !== '';
-      const hasCalendars = calendarsCount > 0;
+      const hasCalendars = isNativeUser ? true : calendarsCount > 0;
       const hasLocation = user.location !== '';
 
-      // Determine applicable reminder (first incomplete step in registration flow)
       let applicableReminder: 'oauth' | 'calendars' | 'location' | null = null;
-      if (!hasOAuth) {
-        applicableReminder = 'oauth';
-      } else if (!hasCalendars) {
-        applicableReminder = 'calendars';
-      } else if (!hasLocation) {
-        applicableReminder = 'location';
+      if (isNativeUser) {
+        if (!hasLocation) applicableReminder = 'location';
+      } else {
+        if (!hasOAuth) applicableReminder = 'oauth';
+        else if (!hasCalendars) applicableReminder = 'calendars';
+        else if (!hasLocation) applicableReminder = 'location';
       }
 
       // Get setup reminder status from Redis
@@ -266,6 +269,7 @@ export async function GET(request: NextRequest) {
             hasCalendars,
             hasLocation,
             applicableReminder,
+            calendarSource: user.calendarSource,
           },
           setupReminders,
         },
