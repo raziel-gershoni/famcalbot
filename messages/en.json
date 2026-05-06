@@ -688,7 +688,7 @@
       "createButton": "✅ Create",
       "cancelButton": "❌ Cancel",
       "voiceError": "Sorry, could not process your voice message. Please try again.",
-      "voiceLowConf": "🤔 I'm not confident I understood. For more granular control, please dictate this on Telegram instead.",
+      "voiceLowConf": "🤔 I'm not confident I understood. Could you try again?",
       "bulkUseTelegram": "📋 I heard multiple events but I'm not fully confident on all of them. For mixed batches please dictate them on Telegram, or one at a time here.",
       "bulkAllCreated": "✅ Created {count} events:\n{titles}",
       "bulkAllFailed": "❌ Could not create the events. Please re-dictate.",

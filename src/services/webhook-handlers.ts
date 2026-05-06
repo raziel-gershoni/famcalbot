@@ -942,15 +942,15 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     if (intentResult.intent === 'create' && intentResult.event) {
       // WhatsApp voice flow:
       //   HIGH confidence + non-recurring → auto-create (no confirmation)
-      //   LOW confidence  → reject with "use Telegram for granularity" hint
+      //   LOW confidence  → plain reject (try-again prompt, no TG redirect —
+      //                     a single misheard event isn't worth a context switch)
       //   MEDIUM         → confirmation card (existing behavior)
       // Recurring events always go through the card so the user can choose
       // scope before commit.
       if (intentResult.confidence === 'low') {
         await waService.sendMessage(
           phone,
-          wa.voiceLowConf ||
-            `🤔 I'm not confident I understood. For more granular control, please dictate this on Telegram instead.`
+          wa.voiceLowConf || `🤔 I'm not confident I understood. Could you try again?`
         );
         return;
       }
