@@ -396,7 +396,11 @@ export async function processVoiceWithGemini(
   language: string,
   calendars: CalendarAssignment[],
   timezone: string,
-  recentEventsBlock?: string
+  recentEventsBlock?: string,
+  // PR 10 polish: optional prior-attempt audio for retry-mode parses. Sent
+  // as a SEPARATE inlineData part so Gemini decodes both OGG containers
+  // independently — byte-concat would produce an invalid OGG stream.
+  priorAudioBuffer?: Buffer
 ): Promise<{ intentResult: VoiceIntentResult; intentResults?: VoiceIntentResult[]; transcription: string; metrics: VoiceProcessingMetrics }> {
   const startTime = Date.now();
   let lastError: Error | null = null;
@@ -414,17 +418,23 @@ export async function processVoiceWithGemini(
 
   for (let attempt = 0; attempt <= VOICE_RETRY_CONFIG.maxRetries; attempt++) {
     try {
-      const promptText = buildEventExtractionPrompt(language, calendars, timezone, 'voice', recentEventsBlock);
+      const retryNote = priorAudioBuffer
+        ? '\n\nNOTE: The next attached audio is a PRIOR attempt that failed to parse. The audio AFTER it is the user clarifying or correcting. Treat the second audio as the authoritative input and use the first only if it adds context.'
+        : '';
+      const promptText = buildEventExtractionPrompt(language, calendars, timezone, 'voice', recentEventsBlock) + retryNote;
+
+      const audioParts: Array<{ inlineData: { mimeType: string; data: string } }> = [];
+      if (priorAudioBuffer) {
+        audioParts.push({ inlineData: { mimeType: 'audio/ogg', data: priorAudioBuffer.toString('base64') } });
+      }
+      audioParts.push({ inlineData: { mimeType: 'audio/ogg', data: audioBuffer.toString('base64') } });
 
       const response = await getGemini().models.generateContent({
         model: resolvedModelId,
         contents: [
           {
             role: 'user',
-            parts: [
-              { text: promptText },
-              { inlineData: { mimeType: 'audio/ogg', data: audioBuffer.toString('base64') } },
-            ],
+            parts: [{ text: promptText }, ...audioParts],
           },
         ],
       });

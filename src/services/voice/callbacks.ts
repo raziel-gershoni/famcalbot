@@ -711,9 +711,8 @@ export async function handleBulkEditCallback(
   // Re-render the bulk message as a brief acknowledgement, then send a fresh
   // single-event card. We don't try to keep N-1 events alive — simpler model.
   const t = await getBotMessages(popped.user.language || 'en');
-  await bot.editMessageText(
-    t.voice?.bulkSplitOff || `✏️ Editing #${index + 1} only — the other events were not created. You can re-dictate them.`,
-    { chat_id: chatId, message_id: messageId, parse_mode: 'HTML' }
-  );
+  const splitTemplate = t.voice?.bulkSplitOff || `✏️ Editing #{n} only — the other events were not created. You can re-dictate them.`;
+  const splitMsg = splitTemplate.replace('{n}', String(index + 1));
+  await bot.editMessageText(splitMsg, { chat_id: chatId, message_id: messageId, parse_mode: 'HTML' });
   await showEventConfirmation(chatId, undefined, popped.event, popped.transcription, popped.user, undefined, 'voice');
 }

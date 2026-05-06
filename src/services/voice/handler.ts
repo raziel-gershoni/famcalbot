@@ -315,21 +315,13 @@ export async function handleVoiceMessage(
     console.log(`[Voice] Downloaded ${audioBuffer.length} bytes`);
 
     // PR 10 polish: if a previous voice attempt failed and we stashed the
-    // original audio, combine it with this new utterance. The Gemini call
-    // becomes a multi-part input: original audio + new audio (or new text).
+    // original audio, send BOTH audios to Gemini as separate inlineData
+    // parts (byte-concat would produce an invalid OGG stream). The new
+    // utterance is the authoritative one; the prior one is context.
     const { isInRetryMode, readRetryAudio, clearRetryMode } = await import('./audio-retry');
+    let priorAudio: Buffer | null = null;
     if (await isInRetryMode(chatId)) {
-      const original = await readRetryAudio(chatId);
-      if (original) {
-        // Concatenate by handing both to Gemini as separate inlineData parts
-        // via the prompt builder — for simplicity we append the original
-        // bytes after the new buffer. The Gemini Files API would be cleaner
-        // for production, but inline base64 is sufficient at this size.
-        // We feed the *combined* buffer through processVoiceWithGemini below;
-        // the retry-aware prompt is the existing one (which already accepts
-        // any audio). Keep both buffers — original first as primary signal.
-        audioBuffer = Buffer.concat([original, audioBuffer]);
-      }
+      priorAudio = await readRetryAudio(chatId);
       await clearRetryMode(chatId);
     }
 
@@ -347,7 +339,8 @@ export async function handleVoiceMessage(
       user.language || 'en',
       userCalendars,
       timezone,
-      recentBlock
+      recentBlock,
+      priorAudio ?? undefined
     );
 
     // Build admin footer from voice processing metrics

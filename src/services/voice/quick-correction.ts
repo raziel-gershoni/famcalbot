@@ -14,7 +14,7 @@ import { REDIS_KEYS } from '../../config/redis-keys';
 import { getGemini } from '../ai-provider';
 import { getModelConfig } from '../../config/ai-models';
 import { getDefaultAiModelSetting } from '../reminder-cache';
-import { fromZonedTime } from 'date-fns-tz';
+import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 import type { ParsedEvent } from '../event-parser';
 import type { CalendarAssignment } from '../../types';
 
@@ -147,14 +147,15 @@ export async function extractFieldPatch(
 
     const out: FieldPatch = {};
     if (field === 'time' && parsed.startTime && parsed.endTime) {
-      // Reuse existing date from current event.
-      const datePart = current.startTime.toISOString().slice(0, 10);
+      // Reuse existing date from current event — IN THE USER'S TIMEZONE,
+      // not UTC, so an event near local midnight doesn't slip a day.
+      const datePart = formatInTimeZone(current.startTime, timezone, 'yyyy-MM-dd');
       out.startTime = fromZonedTime(`${datePart}T${parsed.startTime}:00`, timezone);
       out.endTime = fromZonedTime(`${datePart}T${parsed.endTime}:00`, timezone);
     } else if (field === 'day' && parsed.startDate) {
-      // Reuse existing time from current event.
-      const startTimePart = current.startTime.toISOString().slice(11, 16);
-      const endTimePart = current.endTime.toISOString().slice(11, 16);
+      // Reuse existing time from current event — IN THE USER'S TIMEZONE.
+      const startTimePart = formatInTimeZone(current.startTime, timezone, 'HH:mm');
+      const endTimePart = formatInTimeZone(current.endTime, timezone, 'HH:mm');
       const endDate = parsed.endDate || parsed.startDate;
       out.startTime = fromZonedTime(`${parsed.startDate}T${startTimePart}:00`, timezone);
       out.endTime = fromZonedTime(`${endDate}T${endTimePart}:00`, timezone);

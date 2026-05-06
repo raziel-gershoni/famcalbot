@@ -688,6 +688,8 @@
       "createButton": "✅ Create",
       "cancelButton": "❌ Cancel",
       "voiceError": "Sorry, could not process your voice message. Please try again.",
+      "voiceLowConf": "🤔 I'm not confident I understood. For more granular control, please dictate this on Telegram instead.",
+      "bulkUseTelegram": "📋 I heard multiple events at once. Multi-event is only on Telegram for now — please dictate them one at a time here.",
       "eventExpired": "This confirmation has expired. Please send a new voice message.",
       "eventCancelled": "Event creation cancelled.",
       "eventUpdated": "Event updated!",
