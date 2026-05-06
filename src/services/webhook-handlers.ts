@@ -519,10 +519,24 @@ export async function handleWhatsAppWebhook(
   if (message.type === 'audio') {
     const mediaId = message.audio?.id;
     if (mediaId) {
-      const { getUserByWhatsAppId } = await import('./user-service');
-      const user = await getUserByWhatsAppId(fromId);
-      if (user) {
-        await handleWhatsAppVoice(fromId, user, mediaId);
+      // Duplicate-prevention lock keyed by mediaId. Meta retries delivery on
+      // non-2xx or slow responses; without this lock, a retry would re-run
+      // the all-HIGH bulk auto-create loop and produce N duplicate events.
+      const { acquireVoiceLock, releaseVoiceLock } = await import('../utils/redis-lock');
+      const lockAcquired = await acquireVoiceLock(mediaId);
+      if (!lockAcquired) {
+        console.log(`[WhatsApp Voice] Media ${mediaId} already being processed — skipping duplicate`);
+        res.status(200).json({ ok: true });
+        return;
+      }
+      try {
+        const { getUserByWhatsAppId } = await import('./user-service');
+        const user = await getUserByWhatsAppId(fromId);
+        if (user) {
+          await handleWhatsAppVoice(fromId, user, mediaId);
+        }
+      } finally {
+        await releaseVoiceLock(mediaId);
       }
     }
     res.status(200).json({ ok: true });
