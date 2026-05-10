@@ -14,14 +14,21 @@ export async function GET() {
   try {
     const bot = getBot();
 
-    // Set menu button for quick dashboard access
+    // Set the GLOBAL default menu button. node-telegram-bot-api v0.66 does
+    // not auto-JSON-stringify the `menu_button` field (only reply_markup /
+    // entities / reply_parameters get the auto-stringify treatment). Passing
+    // an object would form-encode it as bracket notation, which the Bot API
+    // rejects with 400. Pre-stringify here so the wire format is the
+    // "JSON-serialized object" the API expects.
     const dashboardUrl = buildUrl('/en/dashboard');
-    await bot.setChatMenuButton({
-      menu_button: {
-        type: 'web_app',
-        text: 'Dashboard',
-        web_app: { url: dashboardUrl }
-      }
+    const menuButtonJson = JSON.stringify({
+      type: 'web_app',
+      text: 'Dashboard',
+      web_app: { url: dashboardUrl }
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (bot as any).setChatMenuButton({
+      menu_button: menuButtonJson
     });
 
     return NextResponse.json({
