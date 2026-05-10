@@ -41,8 +41,13 @@ export function initBot(): TelegramBot {
 }
 
 /**
- * Set per-user menu button with localized text
- * Opens the dashboard webapp in the user's preferred language
+ * Set per-user menu button with localized text. Opens the dashboard webapp
+ * in the user's preferred language.
+ *
+ * Android Telegram requires this to actually succeed for the button to
+ * render — there's no fallback rendering like iOS has when the call fails.
+ * Errors used to be swallowed with console.error only; now they're routed
+ * to Sentry via captureError so silent regressions become visible.
  */
 export async function setUserMenuButton(userId: number, locale: string): Promise<void> {
   const botInstance = getBot();
@@ -52,6 +57,10 @@ export async function setUserMenuButton(userId: number, locale: string): Promise
     const text = messages.menuButton.open;
     const url = buildUrl(`/${locale}/dashboard?user_id=${userId}`);
 
+    // node-telegram-bot-api v0.66 doesn't auto-stringify `menu_button`
+    // (verified — see _fixReplyMarkup in the lib). Pre-stringify so the
+    // form body is the JSON-serialized object the Bot API expects rather
+    // than bracket-notation form encoding.
     const menuButtonJson = JSON.stringify({
       type: 'web_app',
       text: text,
@@ -66,6 +75,8 @@ export async function setUserMenuButton(userId: number, locale: string): Promise
     console.log(`✅ Menu button set for user ${userId} (${locale})`);
   } catch (error) {
     console.error(`❌ Failed to set menu button for user ${userId}:`, error);
+    const { captureError } = await import('../../lib/error-capture');
+    captureError(error, 'set-menu-button-per-user', { user_id: userId, locale }, 'warning');
   }
 }
 
