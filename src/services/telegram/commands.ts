@@ -7,6 +7,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import { getUserByTelegramId, getUserByIdentifier, getOrCreateUser, TelegramUserInfo } from '../user-service';
 import { MessagingPlatform, MessageFormat, IMessagingService } from '../messaging';
 import { getMessagingService as getMessagingServiceByPlatform } from '../messaging';
+import type { StreamMessageHandle } from '../messaging/types';
 import { buildUrl } from '../../config/urls';
 import { SHARE_STORY_LABELS, getLabel } from '../../config/labels';
 import { REDIS_KEYS } from '../../config/redis-keys';
@@ -255,6 +256,7 @@ export async function handleSummaryCommand(
   userId: number | string,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
   args?: string,
+  streamHandle?: StreamMessageHandle,
 ): Promise<void> {
   addBreadcrumb('command_started', {
     command: '/summary',
@@ -299,9 +301,9 @@ export async function handleSummaryCommand(
 
   // Use the original chatId (telegramId for TG, phone string for WA)
   if (args?.toLowerCase().trim() === 'tmrw') {
-    await sendTomorrowSummaryToUser(chatId, platform);
+    await sendTomorrowSummaryToUser(chatId, platform, streamHandle);
   } else {
-    await sendDailySummaryToUser(chatId, platform);
+    await sendDailySummaryToUser(chatId, platform, streamHandle);
   }
 }
 
@@ -467,6 +469,7 @@ export async function handleLookaheadCommand(
   chatId: number | string,
   userId: number | string,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
+  streamHandle?: StreamMessageHandle,
 ): Promise<void> {
   addBreadcrumb('command_started', {
     command: '/lookahead',
@@ -524,16 +527,20 @@ export async function handleLookaheadCommand(
     errorKey: 'lookaheadFetch',
     commandName: 'Lookahead Command',
     context: `User: ${userId}`,
+    streamHandle,
     operation: async () => {
       const { getWeekLookahead } = await import('../week-lookahead');
       const lookahead = await getWeekLookahead(user, user.calendarAssignments || []);
 
       const { generateWeekLookahead } = await import('../claude');
-      return generateWeekLookahead(lookahead, user, userLanguage, undefined, user.isAdmin);
+      const onTextDelta = streamHandle
+        ? (_delta: string, accumulated: string) => streamHandle.pushDelta(accumulated)
+        : undefined;
+      return generateWeekLookahead(lookahead, user, userLanguage, undefined, user.isAdmin, onTextDelta);
     },
     onSuccess: async (formattedLookahead) => {
       const deliveryPlatform = platform === MessagingPlatform.TELEGRAM ? 'telegram' : 'whatsapp';
-      await routeTextMessage(chatId, formattedLookahead, user, deliveryPlatform as 'telegram' | 'whatsapp');
+      await routeTextMessage(chatId, formattedLookahead, user, deliveryPlatform as 'telegram' | 'whatsapp', false, undefined, streamHandle);
 
       // Generate voice message if enabled
       if (user.voiceSummaryEnabled) {
@@ -552,6 +559,7 @@ export async function handleNextWeekCommand(
   chatId: number | string,
   userId: number | string,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
+  streamHandle?: StreamMessageHandle,
 ): Promise<void> {
   addBreadcrumb('command_started', {
     command: '/nextweek',
@@ -609,16 +617,20 @@ export async function handleNextWeekCommand(
     errorKey: 'nextWeekFetch',
     commandName: 'Next Week Command',
     context: `User: ${userId}`,
+    streamHandle,
     operation: async () => {
       const { getNextWeekLookahead } = await import('../week-lookahead');
       const lookahead = await getNextWeekLookahead(user, user.calendarAssignments || []);
 
       const { generateNextWeekSummary } = await import('../claude');
-      return generateNextWeekSummary(lookahead, user, userLanguage, undefined, user.isAdmin);
+      const onTextDelta = streamHandle
+        ? (_delta: string, accumulated: string) => streamHandle.pushDelta(accumulated)
+        : undefined;
+      return generateNextWeekSummary(lookahead, user, userLanguage, undefined, user.isAdmin, onTextDelta);
     },
     onSuccess: async (formattedSummary) => {
       const deliveryPlatform = platform === MessagingPlatform.TELEGRAM ? 'telegram' : 'whatsapp';
-      await routeTextMessage(chatId, formattedSummary, user, deliveryPlatform as 'telegram' | 'whatsapp');
+      await routeTextMessage(chatId, formattedSummary, user, deliveryPlatform as 'telegram' | 'whatsapp', false, undefined, streamHandle);
 
       // Generate voice message if enabled
       if (user.voiceSummaryEnabled) {

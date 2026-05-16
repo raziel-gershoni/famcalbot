@@ -14,6 +14,8 @@ import {
   VoiceOptions,
   PhotoOptions,
   ParsedCommand,
+  StreamMessageHandle,
+  StreamMessageOptions,
 } from './types';
 import { captureError } from '../../lib/error-capture';
 
@@ -318,6 +320,37 @@ export class WhatsAppAdapter implements IMessagingService {
     // WhatsApp doesn't have inline buttons with callbacks
     // Uses interactive messages (buttons, lists) instead
     console.log(`[WhatsApp] Callback queries not supported`);
+  }
+
+  async streamMessage(
+    chatId: number | string,
+    options?: StreamMessageOptions
+  ): Promise<StreamMessageHandle> {
+    // WhatsApp Business API has no equivalent to sendMessageDraft — buffer
+    // text in the handle and emit a single sendMessage on finalize so the
+    // IMessagingService contract holds without spamming intermediate messages.
+    let finalized = false;
+    let cancelled = false;
+
+    return {
+      pushDelta: (_accumulated: string) => {
+        // intentional no-op
+      },
+      finalize: async (finalText: string, finalizeOptions?: MessageOptions) => {
+        if (finalized) return '';
+        finalized = true;
+        return this.sendMessage(chatId, finalText, { ...options, ...finalizeOptions });
+      },
+      cancel: async (errorText: string, cancelOptions?: MessageOptions) => {
+        if (finalized || cancelled) return;
+        cancelled = true;
+        try {
+          await this.sendMessage(chatId, errorText, cancelOptions);
+        } catch {
+          // best-effort
+        }
+      },
+    };
   }
 
   getPlatform(): MessagingPlatform {

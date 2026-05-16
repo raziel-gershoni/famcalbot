@@ -4,7 +4,7 @@
  * Uses typing indicators instead of progress messages, with error handling and admin notifications.
  */
 
-import { IMessagingService, MessageFormat } from '../messaging/types';
+import { IMessagingService, MessageFormat, StreamMessageHandle } from '../messaging/types';
 import { getBotMessages } from '../../lib/bot-messages';
 
 const DEFAULT_OPERATION_TIMEOUT_MS = 50_000;
@@ -22,6 +22,8 @@ export interface CommandPipelineOptions<T> {
   operation: () => Promise<T>;
   onSuccess: (result: T) => Promise<void>;
   onError?: (error: Error) => Promise<boolean>;
+  /** When set, the default error path collapses the in-flight draft into the error message instead of opening a separate sendMessage. */
+  streamHandle?: StreamMessageHandle;
 }
 
 /**
@@ -84,6 +86,7 @@ export async function executeCommand<T>(opts: CommandPipelineOptions<T>): Promis
     operation,
     onSuccess,
     onError,
+    streamHandle,
   } = opts;
 
   // 1. Start typing indicator
@@ -130,9 +133,15 @@ export async function executeCommand<T>(opts: CommandPipelineOptions<T>): Promis
       userMessage = t.errors?.[errorKey] || t.errors?.generic || 'Sorry, there was an error. Please try again later.';
     }
 
-    // Send error as new message
+    // Send error as new message. When a streaming draft is open, collapse it
+    // into the error so the user doesn't see a stale "Composing…" placeholder
+    // sitting above the error message.
     try {
-      await messagingService.sendMessage(chatId, userMessage);
+      if (streamHandle) {
+        await streamHandle.cancel(userMessage);
+      } else {
+        await messagingService.sendMessage(chatId, userMessage);
+      }
     } catch (sendErr) {
       console.error(`[${commandName}] Failed to send error message:`, sendErr);
     }

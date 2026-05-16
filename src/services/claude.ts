@@ -5,7 +5,7 @@ import { TIMEZONE } from '../config/constants';
 import { buildCalendarSummaryPrompt, SummaryPromptData } from '../prompts/calendar-summary';
 import { buildWeekLookaheadPrompt, WeekLookaheadPromptData, LookaheadDayData, LookaheadEventData } from '../prompts/week-lookahead';
 import { formatEventList } from '../utils/event-formatter';
-import { generateAICompletion } from './ai-provider';
+import { generateAICompletion, streamAICompletion } from './ai-provider';
 import { captureError } from '../lib/error-capture';
 import { formatAdminFooter } from '../utils/ai-footer';
 import { getHolidaysForDate } from './hebrew-holidays';
@@ -185,13 +185,36 @@ function buildPromptData(
 }
 
 /**
+ * Optional streaming callback. When set, callAI uses streamAICompletion and
+ * invokes the callback as token deltas arrive. On stream failure the function
+ * falls back to a single buffered retry so the user still gets a response.
+ */
+type AITextDelta = (delta: string, accumulated: string) => void | Promise<void>;
+
+/**
  * Call AI provider with retry logic
  * @param prompt - The prompt to send to AI
  * @param includeModelInfo - Whether to append model info footer (for admin only)
  * @param modelId - Optional model ID to override default model
+ * @param onTextDelta - Optional streaming callback (used by miniapp-invoked summaries)
  */
-async function callAI(prompt: string, includeModelInfo: boolean = false, modelId?: string): Promise<string> {
+async function callAI(
+  prompt: string,
+  includeModelInfo: boolean = false,
+  modelId?: string,
+  onTextDelta?: AITextDelta
+): Promise<string> {
   try {
+    if (onTextDelta) {
+      try {
+        const result = await streamAICompletion({ prompt, modelId, onTextDelta });
+        return result.text + formatAdminFooter(result, includeModelInfo);
+      } catch (streamError) {
+        console.warn('AI stream failed, falling back to buffered:', streamError);
+        captureError(streamError, 'claude-ai-stream-fallback', undefined, 'warning');
+        // fall through to buffered path below
+      }
+    }
     const result = await generateAICompletion(prompt, modelId);
     return result.text + formatAdminFooter(result, includeModelInfo);
   } catch (error) {
@@ -223,7 +246,8 @@ export async function generateSummary(
   userContext?: SummaryUserContext,
   weatherEnabled: boolean = true,
   weekLookahead?: string,
-  userTimezone?: string
+  userTimezone?: string,
+  onTextDelta?: AITextDelta
 ): Promise<string> {
   const t0 = Date.now();
 
@@ -322,7 +346,7 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
 
   // Call AI provider with retry logic, including model info if requested
   const tAICall = Date.now();
-  const result = await callAI(prompt, includeModelInfo, modelId);
+  const result = await callAI(prompt, includeModelInfo, modelId, onTextDelta);
   const aiCallMs = Date.now() - tAICall;
 
   console.log(`[AI Summary Timing] total=${Date.now() - t0}ms weather=${weatherMs}ms prompt=${promptMs}ms aiCall=${aiCallMs}ms`);
@@ -512,7 +536,8 @@ export async function generateWeekLookahead(
   user: UserConfig,
   language: string,
   modelId?: string,
-  isAdmin: boolean = false
+  isAdmin: boolean = false,
+  onTextDelta?: AITextDelta
 ): Promise<string> {
   // Build prompt data
   const promptData = buildWeekLookaheadPromptData(lookahead, user, language);
@@ -530,9 +555,8 @@ export async function generateWeekLookahead(
   // Build the prompt
   const prompt = buildWeekLookaheadPrompt(promptData);
 
-  // Call AI provider
-  const result = await generateAICompletion(prompt, modelId);
-  return result.text + formatAdminFooter(result, isAdmin);
+  // Call AI provider (streamed when onTextDelta is set)
+  return callAI(prompt, isAdmin, modelId, onTextDelta);
 }
 
 /**
@@ -678,7 +702,8 @@ export async function generateNextWeekSummary(
   user: UserConfig,
   language: string,
   modelId?: string,
-  isAdmin: boolean = false
+  isAdmin: boolean = false,
+  onTextDelta?: AITextDelta
 ): Promise<string> {
   // Build prompt data
   const promptData = buildNextWeekPromptData(lookahead, user, language);
@@ -696,9 +721,8 @@ export async function generateNextWeekSummary(
   // Build the prompt with "Next Week" context
   const prompt = buildNextWeekPrompt(promptData, language);
 
-  // Call AI provider
-  const result = await generateAICompletion(prompt, modelId);
-  return result.text + formatAdminFooter(result, isAdmin);
+  // Call AI provider (streamed when onTextDelta is set)
+  return callAI(prompt, isAdmin, modelId, onTextDelta);
 }
 
 /**
