@@ -15,7 +15,7 @@ let anthropic: Anthropic | null = null;
 let openai: OpenAI | null = null;
 let gemini: GoogleGenAI | null = null;
 
-const getAnthropic = () => {
+export const getAnthropic = () => {
   if (!anthropic) {
     anthropic = new Anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY,
@@ -351,3 +351,6 @@ export async function generateAICompletion(prompt: string, modelId?: string): Pr
   }
   throw new Error(`AI API failed: ${lastError}`);
 }
+
+export { streamAICompletion } from './streaming/text-stream';
+export type { StreamAICompletionOptions } from './streaming/text-stream';

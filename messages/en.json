@@ -446,6 +446,10 @@
     "menuButton": {
       "open": "Open"
     },
+    "streaming": {
+      "composing": "📝 Composing your summary…",
+      "failed": "❌ Couldn't generate this one — please try again."
+    },
     "errors": {
       "unauthorized": "Sorry, you are not authorized to use this bot.",
       "generic": "Sorry, there was an error. Please try again later.",

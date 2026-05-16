@@ -15,6 +15,7 @@ const fetchTomorrowEvents = (user: UserConfig, calendarIds: string[], tz?: strin
 import { generateSummary, SummaryUserContext, formatDateHeader } from '../claude';
 import { CalendarEvent, UserConfig } from '../../types';
 import { IMessagingService, getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from '../messaging';
+import type { StreamMessageHandle } from '../messaging/types';
 import { getCalendarsByLabel, getPrimaryCalendar, getSpouseInfo } from '../../utils/calendar-helpers';
 import { buildUrl } from '../../config/urls';
 import { SHARE_STORY_LABELS, TELEGRAM_CTA_LABELS, getLabel } from '../../config/labels';
@@ -61,7 +62,8 @@ async function prepareSummaryForUser(
   user: UserConfig,
   fetchFunction: (user: UserConfig, calendarIds: string[], timezone?: string) => Promise<CalendarEvent[]>,
   summaryDate: Date | undefined,
-  modelId?: string
+  modelId?: string,
+  onTextDelta?: (delta: string, accumulated: string) => void | Promise<void>
 ): Promise<PreparedSummary> {
   const t0 = Date.now();
 
@@ -152,7 +154,8 @@ async function prepareSummaryForUser(
     userContext,
     user.weatherEnabled,
     weekLookaheadText,
-    userTimezone
+    userTimezone,
+    onTextDelta
   );
   const aiMs = Date.now() - tAI;
 
@@ -180,7 +183,8 @@ export async function sendSummaryToUser(
   summaryDate: Date | undefined,
   errorKey: string,
   modelId?: string,
-  platform: MessagingPlatform = MessagingPlatform.TELEGRAM
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
+  streamHandle?: StreamMessageHandle
 ): Promise<void> {
   // Platform-agnostic user lookup
   const user = await getUserByIdentifier(chatId);
@@ -225,8 +229,12 @@ export async function sendSummaryToUser(
     errorKey,
     commandName: 'Summary Generation',
     context: `User: ${chatId}, Date: ${summaryDate ? summaryDate.toISOString() : 'today'}`,
+    streamHandle,
     operation: async () => {
-      return prepareSummaryForUser(user, fetchFunction, summaryDate, modelId);
+      const onTextDelta = streamHandle
+        ? (_delta: string, accumulated: string) => streamHandle.pushDelta(accumulated)
+        : undefined;
+      return prepareSummaryForUser(user, fetchFunction, summaryDate, modelId, onTextDelta);
     },
     onSuccess: async (result) => {
       await deliverSummary({
@@ -236,6 +244,7 @@ export async function sendSummaryToUser(
         platform: platform === MessagingPlatform.TELEGRAM ? 'telegram' : 'whatsapp',
         dateHeader: result.dateHeader,
         otherEvents: result.otherEvents,
+        streamHandle,
       });
     },
     onError: async (error) => {
@@ -458,7 +467,8 @@ async function sendSummaryToAll(
  */
 export async function sendDailySummaryToUser(
   chatId: number | string,
-  platform: MessagingPlatform = MessagingPlatform.TELEGRAM
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
+  streamHandle?: StreamMessageHandle
 ): Promise<void> {
   await sendSummaryToUser(
     chatId,
@@ -466,7 +476,8 @@ export async function sendDailySummaryToUser(
     undefined,
     'calendarFetch',
     undefined,
-    platform
+    platform,
+    streamHandle
   );
 }
 
@@ -585,7 +596,8 @@ export async function sendDailySummaryToAll(options?: { filterByHour?: boolean }
  */
 export async function sendTomorrowSummaryToUser(
   chatId: number | string,
-  platform: MessagingPlatform = MessagingPlatform.TELEGRAM
+  platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
+  streamHandle?: StreamMessageHandle
 ): Promise<void> {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
@@ -596,7 +608,8 @@ export async function sendTomorrowSummaryToUser(
     tomorrow,
     'tomorrowFetch',
     undefined,
-    platform
+    platform,
+    streamHandle
   );
 }
 
@@ -622,7 +635,8 @@ export async function routeTextMessage(
   user: UserConfig,
   platform?: DeliveryPlatform,
   isProactive = false,
-  waButtonPayload?: string
+  waButtonPayload?: string,
+  streamHandle?: StreamMessageHandle
 ): Promise<void> {
   if (!text || text.trim() === '') {
     captureError(
@@ -643,8 +657,14 @@ export async function routeTextMessage(
       const { redis } = await import('../../utils/redis');
       const shareLabel = getLabel(SHARE_STORY_LABELS, lang);
 
-      // Send message first to get message ID, then stash text keyed by it
-      const msgId = await msgService.sendMessage(user.telegramId, text, { format: MessageFormat.HTML });
+      // Send message first to get message ID, then stash text keyed by it.
+      // When a streamHandle is present (miniapp-invoked path), finalize the
+      // animated draft into the persisted message instead of opening a fresh
+      // sendMessage — the draft was already showing the prose live.
+      const initialMsgId = streamHandle
+        ? await streamHandle.finalize(text, { format: MessageFormat.HTML })
+        : await msgService.sendMessage(user.telegramId, text, { format: MessageFormat.HTML });
+      const msgId = typeof initialMsgId === 'number' ? initialMsgId : Number(initialMsgId);
 
       // Stash text keyed by message ID for per-message story sharing
       redis.set(REDIS_KEYS.storyText(user.id, msgId), text, { ex: 86400 }).catch(() => {});
@@ -704,6 +724,8 @@ interface DeliveryOptions {
   dateHeader?: string;
   waButtonPayload?: string;
   otherEvents?: CalendarEvent[];
+  /** When set, the TG text branch finalizes this draft handle instead of opening a fresh sendMessage. WA delivery ignores it. */
+  streamHandle?: StreamMessageHandle;
 }
 
 /**
@@ -719,7 +741,8 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     user,
     platform,
     dateHeader,
-    waButtonPayload
+    waButtonPayload,
+    streamHandle
   } = options;
 
   // Use correct messaging service based on delivery platform
@@ -736,7 +759,12 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
       { user_id: userId, service: 'deliverSummary' }
     );
     const t = await getBotMessages(user.language || 'en');
-    await msgService.sendMessage(userId, t.errors?.summaryGenerationFailed || 'Sorry, could not generate summary. Please try again.', { format: MessageFormat.HTML });
+    const errorText = t.errors?.summaryGenerationFailed || 'Sorry, could not generate summary. Please try again.';
+    if (streamHandle) {
+      await streamHandle.cancel(errorText, { format: MessageFormat.HTML });
+    } else {
+      await msgService.sendMessage(userId, errorText, { format: MessageFormat.HTML });
+    }
     return;
   }
 
@@ -770,7 +798,7 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
   // Handle text delivery
   const tTextDelivery = Date.now();
   if (sendText) {
-    await routeTextMessage(userId, summaryWithWarning, user, platform, !!waButtonPayload, waButtonPayload);
+    await routeTextMessage(userId, summaryWithWarning, user, platform, !!waButtonPayload, waButtonPayload, streamHandle);
 
     trackActivityAsync(user.id, 'text_summary_generated', {
       word_count: summary.split(/\s+/).length,

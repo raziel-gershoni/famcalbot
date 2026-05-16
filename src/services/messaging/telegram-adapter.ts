@@ -12,7 +12,18 @@ import {
   VoiceOptions,
   PhotoOptions,
   ParsedCommand,
+  StreamMessageHandle,
+  StreamMessageOptions,
 } from './types';
+import { captureError } from '../../lib/error-capture';
+
+// Telegram-side flush cadence for sendMessageDraft updates. Drafts are
+// animated, so 250ms feels live without overwhelming the API.
+const DRAFT_FLUSH_INTERVAL_MS = 250;
+// Telegram drafts auto-dismiss at 30s. Finalize early to avoid losing text.
+const DRAFT_SAFETY_GUARD_MS = 25_000;
+// Telegram message size cap (sendMessage and sendMessageDraft both 4096).
+const DRAFT_MAX_TEXT_CHARS = 4090;
 
 export class TelegramAdapter implements IMessagingService {
   private bot: TelegramBot;
@@ -187,6 +198,153 @@ export class TelegramAdapter implements IMessagingService {
 
   async answerCallbackQuery(queryId: string, text?: string): Promise<void> {
     await this.bot.answerCallbackQuery(queryId, text ? { text } : undefined);
+  }
+
+  async streamMessage(
+    chatId: number | string,
+    options?: StreamMessageOptions
+  ): Promise<StreamMessageHandle> {
+    // draft_id must be a non-zero int32 unique per stream; updates with the
+    // same id are animated in place. Use the low-31 bits of the timestamp.
+    const draftId = (Date.now() & 0x7fffffff) || 1;
+
+    let latestText = options?.initialPlaceholder ?? '';
+    let lastSentText: string | null = null;
+    let flushTimer: NodeJS.Timeout | null = null;
+    let safetyTimer: NodeJS.Timeout | null = null;
+    let finalized = false;
+    let cancelled = false;
+    // When the 25s safety guard fires, we send a real message to persist the
+    // in-flight text before the ephemeral draft expires. finalize then edits
+    // that message in place instead of opening a fresh one — so callers that
+    // depend on a stable messageId (e.g. for share-button updates) keep
+    // working in the overrun case.
+    let safetySentMessageId: number | string | null = null;
+
+    // Send the initial placeholder (or empty draft for native "Thinking…").
+    // sendMessageDraft is new in Bot API 9.5 and not yet typed in
+    // node-telegram-bot-api v0.66, so we use the lib's _request escape hatch
+    // (same pattern as setChatMenuButton in src/services/telegram/bot.ts).
+    const callSendMessageDraft = async (text: string): Promise<void> => {
+      const form: Record<string, unknown> = {
+        chat_id: chatId,
+        draft_id: draftId,
+        text: text.slice(0, DRAFT_MAX_TEXT_CHARS),
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (this.bot as any)._request('sendMessageDraft', { form });
+    };
+
+    try {
+      await callSendMessageDraft(latestText);
+      lastSentText = latestText;
+    } catch (error) {
+      captureError(error, 'stream-message-draft-init', { chat_id: chatId }, 'warning');
+      // Initial draft failed — fall through; finalize will still send a real
+      // message. The flush loop is best-effort either way.
+    }
+
+    const flush = async (): Promise<void> => {
+      if (finalized || cancelled) return;
+      if (latestText === lastSentText) return;
+      const toSend = latestText;
+      try {
+        await callSendMessageDraft(toSend);
+        lastSentText = toSend;
+      } catch (error) {
+        // Single non-blocking warning; the stream will still finalize as a
+        // normal sendMessage. Don't tear down the stream over a draft hiccup.
+        captureError(error, 'stream-message-draft-flush', { chat_id: chatId }, 'warning');
+      }
+    };
+
+    flushTimer = setInterval(() => {
+      void flush();
+    }, DRAFT_FLUSH_INTERVAL_MS);
+
+    const teardownTimers = (): void => {
+      if (flushTimer) {
+        clearInterval(flushTimer);
+        flushTimer = null;
+      }
+      if (safetyTimer) {
+        clearTimeout(safetyTimer);
+        safetyTimer = null;
+      }
+    };
+
+    // Promise that, when present, signals the safety guard is mid-flight
+    // sending a persisted message. finalize awaits this so it doesn't race
+    // with the safety send and double-send the prose to the user.
+    let safetyInFlight: Promise<void> | null = null;
+
+    safetyTimer = setTimeout(() => {
+      if (finalized || cancelled) return;
+      // Mark finalized BEFORE the async send to close the race window with
+      // finalize() / cancel(). finalize will see finalized=true, await the
+      // promise, then update the safety message in place.
+      finalized = true;
+      teardownTimers();
+      safetyInFlight = (async () => {
+        try {
+          safetySentMessageId = await this.sendMessage(chatId, latestText || ' ', {
+            format: MessageFormat.PLAIN,
+          });
+        } catch (error) {
+          captureError(error, 'stream-message-safety-finalize', { chat_id: chatId }, 'warning');
+        }
+      })();
+    }, DRAFT_SAFETY_GUARD_MS);
+
+    return {
+      pushDelta: (accumulated: string) => {
+        latestText = accumulated;
+      },
+      finalize: async (finalText: string, finalizeOptions?: MessageOptions) => {
+        // Safety guard already fired — wait for its send to land, then edit
+        // that message in place so the caller's returned messageId stays
+        // stable. If the safety send failed (safetySentMessageId stays null)
+        // we fall through to a fresh sendMessage so the user still gets the
+        // final text.
+        if (finalized && safetyInFlight) {
+          await safetyInFlight;
+          if (safetySentMessageId !== null) {
+            try {
+              await this.updateMessage(chatId, safetySentMessageId, finalText, {
+                ...options,
+                ...finalizeOptions,
+              });
+            } catch (error) {
+              captureError(error, 'stream-message-finalize-update', { chat_id: chatId }, 'warning');
+            }
+            return safetySentMessageId;
+          }
+          const recoveryId = await this.sendMessage(chatId, finalText, {
+            ...options,
+            ...finalizeOptions,
+          });
+          return recoveryId;
+        }
+        if (finalized) return 0;
+        finalized = true;
+        teardownTimers();
+        const messageId = await this.sendMessage(chatId, finalText, {
+          ...options,
+          ...finalizeOptions,
+        });
+        return messageId;
+      },
+      cancel: async (errorText: string, cancelOptions?: MessageOptions) => {
+        if (finalized || cancelled) return;
+        cancelled = true;
+        teardownTimers();
+        try {
+          await this.sendMessage(chatId, errorText, cancelOptions);
+        } catch (error) {
+          captureError(error, 'stream-message-cancel', { chat_id: chatId }, 'warning');
+        }
+      },
+    };
   }
 
   getPlatform(): MessagingPlatform {

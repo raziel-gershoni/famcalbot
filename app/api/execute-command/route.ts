@@ -72,8 +72,30 @@ export async function POST(request: NextRequest) {
       handleSummaryCommand,
       handleWeatherCommand,
       handleLookaheadCommand,
-      handleNextWeekCommand
+      handleNextWeekCommand,
+      getMessagingService,
     } = await import('@/src/services/telegram');
+
+    // For user-invoked summary surfaces on Telegram, open a streaming draft
+    // so the response animates in via sendMessageDraft. Other commands and
+    // WhatsApp users keep the buffered path.
+    const isStreamableCommand =
+      command === 'summary' || command === 'lookahead' || command === 'nextweek';
+    let streamHandle: import('@/src/services/messaging/types').StreamMessageHandle | undefined;
+    if (platform === MessagingPlatform.TELEGRAM && isStreamableCommand) {
+      try {
+        const { getBotMessages } = await import('@/src/lib/bot-messages');
+        const messages = await getBotMessages(user.language || 'en');
+        const placeholder = messages.streaming?.composing ?? '';
+        const tgService = getMessagingService();
+        streamHandle = await tgService.streamMessage(chatId, {
+          initialPlaceholder: placeholder,
+        });
+      } catch (err) {
+        captureError(err, 'execute-command-open-stream', { user_id, command }, 'warning');
+        // Fall through — handlers default to buffered when streamHandle is undefined.
+      }
+    }
 
     // Schedule command to run after response is sent (keeps function alive)
     // Using Next.js `after()` to ensure background work completes
@@ -86,6 +108,7 @@ export async function POST(request: NextRequest) {
               chatId,
               platform,
               args,
+              streamHandle,
             );
             break;
           case 'weather':
@@ -101,6 +124,7 @@ export async function POST(request: NextRequest) {
               chatId,
               chatId,
               platform,
+              streamHandle,
             );
             break;
           case 'nextweek':
@@ -108,6 +132,7 @@ export async function POST(request: NextRequest) {
               chatId,
               chatId,
               platform,
+              streamHandle,
             );
             break;
         }
@@ -119,12 +144,20 @@ export async function POST(request: NextRequest) {
           api_route: '/api/execute-command'
         });
 
-        // Send error message to user
+        // Send error message to user. If the stream was opened, surface the
+        // error via the draft handle so the placeholder/animation collapses
+        // cleanly into a single error message.
         try {
-          const { getMessagingService } = await import('@/src/services/telegram');
-          const messagingService = getMessagingService();
-          const errorMessage = '❌ Sorry, something went wrong processing your request. Please try again.';
-          await messagingService.sendMessage(user_id, errorMessage);
+          const { getBotMessages } = await import('@/src/lib/bot-messages');
+          const messages = await getBotMessages(user.language || 'en');
+          const errorMessage = messages.streaming?.failed
+            ?? '❌ Sorry, something went wrong processing your request. Please try again.';
+          if (streamHandle) {
+            await streamHandle.cancel(errorMessage);
+          } else {
+            const messagingService = getMessagingService();
+            await messagingService.sendMessage(user_id, errorMessage);
+          }
         } catch (notifyErr) {
           captureError(notifyErr, 'execute-command-notify', { user_id });
         }

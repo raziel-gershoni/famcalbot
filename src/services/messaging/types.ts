@@ -110,6 +110,29 @@ export interface VoiceOptions {
 }
 
 /**
+ * Options for opening a streaming message session.
+ */
+export interface StreamMessageOptions extends MessageOptions {
+  /** Localized placeholder shown while the model is generating. Empty string is allowed. */
+  initialPlaceholder?: string;
+}
+
+/**
+ * Handle returned by streamMessage. Caller pushes accumulated text via
+ * pushDelta during generation, then calls finalize once with the complete
+ * text to persist a real message in the chat. cancel sends a localized
+ * error and tears down the stream.
+ */
+export interface StreamMessageHandle {
+  /** Update the in-flight draft with the latest accumulated text. Coalesced — safe to call per token. */
+  pushDelta(accumulated: string): void;
+  /** Replace the ephemeral draft with a real, persisted message. Returns the persisted messageId. Idempotent. */
+  finalize(finalText: string, options?: MessageOptions): Promise<number | string>;
+  /** Abort the stream and surface an error message to the user. Idempotent. */
+  cancel(errorText: string, options?: MessageOptions): Promise<void>;
+}
+
+/**
  * Photo message options
  */
 export interface PhotoOptions {
@@ -197,6 +220,17 @@ export interface IMessagingService {
    * @param typingType - 'text' for typing, 'audio' for recording audio, 'photo' for uploading photo
    */
   sendTypingIndicator(chatId: number | string, messageId?: string, typingType?: 'text' | 'audio' | 'photo'): Promise<void>;
+
+  /**
+   * Open a streaming message session. On Telegram this uses sendMessageDraft
+   * for animated in-place updates; on platforms without a streaming primitive
+   * (WhatsApp) the handle buffers internally and emits a single message on
+   * finalize.
+   */
+  streamMessage(
+    chatId: number | string,
+    options?: StreamMessageOptions
+  ): Promise<StreamMessageHandle>;
 
   /**
    * Get platform name
