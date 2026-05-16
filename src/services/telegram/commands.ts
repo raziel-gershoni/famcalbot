@@ -529,9 +529,18 @@ export async function handleLookaheadCommand(
     context: `User: ${userId}`,
     streamHandle,
     operation: async () => {
+      const stageMessages = streamHandle ? await getBotMessages(userLanguage) : null;
+      const pushStage = (key: 'lookingAhead' | 'composing') => {
+        if (!streamHandle || !stageMessages) return;
+        const text = stageMessages.streaming?.[key];
+        if (text) streamHandle.pushDelta(text);
+      };
+
+      pushStage('lookingAhead');
       const { getWeekLookahead } = await import('../week-lookahead');
       const lookahead = await getWeekLookahead(user, user.calendarAssignments || []);
 
+      pushStage('composing');
       const { generateWeekLookahead } = await import('../claude');
       const onTextDelta = streamHandle
         ? (_delta: string, accumulated: string) => streamHandle.pushDelta(accumulated)
@@ -619,9 +628,18 @@ export async function handleNextWeekCommand(
     context: `User: ${userId}`,
     streamHandle,
     operation: async () => {
+      const stageMessages = streamHandle ? await getBotMessages(userLanguage) : null;
+      const pushStage = (key: 'lookingAhead' | 'composing') => {
+        if (!streamHandle || !stageMessages) return;
+        const text = stageMessages.streaming?.[key];
+        if (text) streamHandle.pushDelta(text);
+      };
+
+      pushStage('lookingAhead');
       const { getNextWeekLookahead } = await import('../week-lookahead');
       const lookahead = await getNextWeekLookahead(user, user.calendarAssignments || []);
 
+      pushStage('composing');
       const { generateNextWeekSummary } = await import('../claude');
       const onTextDelta = streamHandle
         ? (_delta: string, accumulated: string) => streamHandle.pushDelta(accumulated)

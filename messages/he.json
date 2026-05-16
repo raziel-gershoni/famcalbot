@@ -447,6 +447,10 @@
       "open": "פתח"
     },
     "streaming": {
+      "preparing": "✨ מתכוננים…",
+      "fetchingCalendar": "📅 קוראים את היומן שלך…",
+      "fetchingWeather": "🌤️ בודקים את מזג האוויר…",
+      "lookingAhead": "🔭 מסתכלים על השבוע הקרוב…",
       "composing": "📝 מכינים את הסיכום…",
       "failed": "❌ לא הצלחתי להפיק את זה — נסו שוב."
     },
