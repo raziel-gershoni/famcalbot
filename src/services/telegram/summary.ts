@@ -58,12 +58,19 @@ interface PreparedSummary {
   otherEvents: CalendarEvent[];
 }
 
+/**
+ * Stages the streaming draft can be in. Caller wires this to localized
+ * placeholder text and pushes via streamHandle.pushDelta.
+ */
+type StreamStage = 'fetchingCalendar' | 'lookingAhead' | 'composing';
+
 async function prepareSummaryForUser(
   user: UserConfig,
   fetchFunction: (user: UserConfig, calendarIds: string[], timezone?: string) => Promise<CalendarEvent[]>,
   summaryDate: Date | undefined,
   modelId?: string,
-  onTextDelta?: (delta: string, accumulated: string) => void | Promise<void>
+  onTextDelta?: (delta: string, accumulated: string) => void | Promise<void>,
+  onStageChange?: (stage: StreamStage) => void
 ): Promise<PreparedSummary> {
   const t0 = Date.now();
 
@@ -77,6 +84,7 @@ async function prepareSummaryForUser(
   const allCalendarIds = user.calendarAssignments?.map(a => a.calendarId) || [];
 
   // Fetch calendar events with user's timezone
+  onStageChange?.('fetchingCalendar');
   const tCalendar = Date.now();
   const events = await fetchFunction(user, allCalendarIds, userTimezone);
   const calendarMs = Date.now() - tCalendar;
@@ -105,6 +113,7 @@ async function prepareSummaryForUser(
   let weekLookaheadText: string | undefined;
   let lookaheadMs = 0;
   if (summaryDate && user.includeLookaheadInTomorrow) {
+    onStageChange?.('lookingAhead');
     const tLookahead = Date.now();
     try {
       const { getWeekLookahead } = await import('../week-lookahead');
@@ -133,7 +142,10 @@ async function prepareSummaryForUser(
     lookaheadMs = Date.now() - tLookahead;
   }
 
-  // Generate summary with AI
+  // Generate summary with AI (this also fetches weather inline, but the
+  // weather fetch is short relative to LLM time so we surface this whole
+  // phase as "composing"; the first streamed token will replace the text)
+  onStageChange?.('composing');
   const tAI = Date.now();
   const summary = await generateSummary(
     categorized.userEvents,
@@ -234,7 +246,15 @@ export async function sendSummaryToUser(
       const onTextDelta = streamHandle
         ? (_delta: string, accumulated: string) => streamHandle.pushDelta(accumulated)
         : undefined;
-      return prepareSummaryForUser(user, fetchFunction, summaryDate, modelId, onTextDelta);
+      let onStageChange: ((stage: StreamStage) => void) | undefined;
+      if (streamHandle) {
+        const stageMessages = await getBotMessages(userLanguage);
+        onStageChange = (stage: StreamStage) => {
+          const text = stageMessages.streaming?.[stage];
+          if (text) streamHandle.pushDelta(text);
+        };
+      }
+      return prepareSummaryForUser(user, fetchFunction, summaryDate, modelId, onTextDelta, onStageChange);
     },
     onSuccess: async (result) => {
       await deliverSummary({

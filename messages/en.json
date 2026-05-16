@@ -447,6 +447,10 @@
       "open": "Open"
     },
     "streaming": {
+      "preparing": "✨ Preparing…",
+      "fetchingCalendar": "📅 Reading your calendar…",
+      "fetchingWeather": "🌤️ Checking the weather…",
+      "lookingAhead": "🔭 Looking at the week ahead…",
       "composing": "📝 Composing your summary…",
       "failed": "❌ Couldn't generate this one — please try again."
     },

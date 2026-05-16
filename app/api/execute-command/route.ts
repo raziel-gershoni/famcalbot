@@ -86,7 +86,10 @@ export async function POST(request: NextRequest) {
       try {
         const { getBotMessages } = await import('@/src/lib/bot-messages');
         const messages = await getBotMessages(user.language || 'en');
-        const placeholder = messages.streaming?.composing ?? '';
+        // Use a neutral preparing message as the first placeholder. Each
+        // command's handler updates the draft with stage-specific text as
+        // it progresses through fetch → compose → stream.
+        const placeholder = messages.streaming?.preparing ?? messages.streaming?.composing ?? '';
         const tgService = getMessagingService();
         streamHandle = await tgService.streamMessage(chatId, {
           initialPlaceholder: placeholder,
