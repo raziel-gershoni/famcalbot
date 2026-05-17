@@ -247,7 +247,8 @@ export async function generateSummary(
   weatherEnabled: boolean = true,
   weekLookahead?: string,
   userTimezone?: string,
-  onTextDelta?: AITextDelta
+  onTextDelta?: AITextDelta,
+  onStageChange?: (stage: 'composing') => void
 ): Promise<string> {
   const t0 = Date.now();
 
@@ -309,6 +310,10 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
     }
   }
   const weatherMs = Date.now() - tWeather;
+
+  // Weather is done — caller-driven placeholder can now reflect that the
+  // bot is composing prose. The first streamed token will replace this.
+  onStageChange?.('composing');
 
   // Use explicit user timezone for event formatting, fall back to weather/geocoding timezone
   const timezone = userTimezone || weatherTimezone;
