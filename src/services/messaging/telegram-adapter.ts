@@ -22,8 +22,65 @@ import { captureError } from '../../lib/error-capture';
 const DRAFT_FLUSH_INTERVAL_MS = 250;
 // Telegram drafts auto-dismiss at 30s. Finalize early to avoid losing text.
 const DRAFT_SAFETY_GUARD_MS = 25_000;
-// Telegram message size cap (sendMessage and sendMessageDraft both 4096).
-const DRAFT_MAX_TEXT_CHARS = 4090;
+// Telegram message size cap is 4096; the sanitizer can append up to ~50 chars
+// of closing tags when many remain unclosed, so cap truncation lower.
+const DRAFT_MAX_TEXT_CHARS = 4040;
+
+// Tags Telegram parses in HTML mode. Anything else gets stripped during
+// sanitization so it doesn't break the parse_mode pass.
+const TG_HTML_TAGS = new Set([
+  'b', 'strong',
+  'i', 'em',
+  'u', 'ins',
+  's', 'strike', 'del',
+  'tg-spoiler',
+  'code',
+  'pre',
+  'blockquote',
+  'a',
+]);
+
+/**
+ * Make a streamed-mid-flight HTML buffer safe to send with parse_mode='HTML'.
+ *
+ * The LLM emits tokens like `<b>Hello wor` and Telegram rejects unclosed
+ * tags with a 400. We:
+ *   1. Strip any trailing partial tag (text ending in `<` or `<b` etc.)
+ *   2. Strip any trailing partial HTML entity (`&am` waiting for `p;`)
+ *   3. Append closing tags in reverse order for any opener still on the stack
+ *
+ * Stray `<` mid-text (e.g. the LLM writes `3 < 5` instead of `3 &lt; 5`) is
+ * NOT fixed here — that would error in the buffered path too. Treating it as
+ * out of scope for this helper.
+ */
+export function sanitizeStreamingHtml(text: string): string {
+  // 1. Strip trailing partial tag.
+  let cleaned = text.replace(/<[^>]*$/, '');
+  // 2. Strip trailing partial entity reference.
+  cleaned = cleaned.replace(/&[a-zA-Z#0-9]*$/, '');
+
+  // 3. Walk the tag sequence and track unclosed openers.
+  const openStack: string[] = [];
+  const tagPattern = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*>/g;
+  let match: RegExpExecArray | null;
+  while ((match = tagPattern.exec(cleaned)) !== null) {
+    const isClosing = match[1] === '/';
+    const tagName = match[2].toLowerCase();
+    if (!TG_HTML_TAGS.has(tagName)) continue;
+    if (isClosing) {
+      const lastIdx = openStack.lastIndexOf(tagName);
+      if (lastIdx !== -1) openStack.splice(lastIdx, 1);
+    } else {
+      openStack.push(tagName);
+    }
+  }
+
+  let suffix = '';
+  for (let i = openStack.length - 1; i >= 0; i--) {
+    suffix += `</${openStack[i]}>`;
+  }
+  return cleaned + suffix;
+}
 
 export class TelegramAdapter implements IMessagingService {
   private bot: TelegramBot;
@@ -225,11 +282,16 @@ export class TelegramAdapter implements IMessagingService {
     // sendMessageDraft is new in Bot API 9.5 and not yet typed in
     // node-telegram-bot-api v0.66, so we use the lib's _request escape hatch
     // (same pattern as setChatMenuButton in src/services/telegram/bot.ts).
+    // parse_mode=HTML so bold/italic/links render live as the LLM streams;
+    // sanitizeStreamingHtml balances mid-stream tag boundaries.
     const callSendMessageDraft = async (text: string): Promise<void> => {
+      const truncated = text.slice(0, DRAFT_MAX_TEXT_CHARS);
+      const safe = sanitizeStreamingHtml(truncated);
       const form: Record<string, unknown> = {
         chat_id: chatId,
         draft_id: draftId,
-        text: text.slice(0, DRAFT_MAX_TEXT_CHARS),
+        text: safe,
+        parse_mode: 'HTML',
       };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (this.bot as any)._request('sendMessageDraft', { form });
@@ -287,8 +349,11 @@ export class TelegramAdapter implements IMessagingService {
       teardownTimers();
       safetyInFlight = (async () => {
         try {
-          safetySentMessageId = await this.sendMessage(chatId, latestText || ' ', {
-            format: MessageFormat.PLAIN,
+          // Match the in-flight draft's HTML rendering so the persisted
+          // safety message doesn't visually regress to plain text.
+          const safeText = sanitizeStreamingHtml(latestText || ' ');
+          safetySentMessageId = await this.sendMessage(chatId, safeText, {
+            format: MessageFormat.HTML,
           });
         } catch (error) {
           captureError(error, 'stream-message-safety-finalize', { chat_id: chatId }, 'warning');
