@@ -533,7 +533,7 @@ export async function handleLookaheadCommand(
       const pushStage = (key: 'lookingAhead' | 'composing') => {
         if (!streamHandle || !stageMessages) return;
         const text = stageMessages.streaming?.[key];
-        if (text) streamHandle.pushDelta(text);
+        if (text) streamHandle.pushStage(text);
       };
 
       pushStage('lookingAhead');
@@ -632,7 +632,7 @@ export async function handleNextWeekCommand(
       const pushStage = (key: 'lookingAhead' | 'composing') => {
         if (!streamHandle || !stageMessages) return;
         const text = stageMessages.streaming?.[key];
-        if (text) streamHandle.pushDelta(text);
+        if (text) streamHandle.pushStage(text);
       };
 
       pushStage('lookingAhead');

@@ -261,29 +261,39 @@ export class TelegramAdapter implements IMessagingService {
     chatId: number | string,
     options?: StreamMessageOptions
   ): Promise<StreamMessageHandle> {
-    // draft_id must be a non-zero int32 unique per stream; updates with the
-    // same id are animated in place. Use the low-31 bits of the timestamp.
-    const draftId = (Date.now() & 0x7fffffff) || 1;
+    // Phase 1: send a regular sendMessage as the stage placeholder. We edit
+    // it in place via editMessageText for each stage transition — drafts are
+    // designed for actively-streaming content, not static service text.
+    // Phase 2: the first pushDelta transitions us into draft mode for live
+    // animated LLM streaming. We delete the placeholder and open a draft.
+    let placeholderMessageId: number | string | null = null;
+    let lastStageText: string | null = null;
+    try {
+      const initialText = options?.initialPlaceholder ?? ' ';
+      placeholderMessageId = await this.sendMessage(chatId, initialText, {
+        format: MessageFormat.HTML,
+      });
+      lastStageText = initialText;
+    } catch (error) {
+      captureError(error, 'stream-message-placeholder-init', { chat_id: chatId }, 'warning');
+    }
 
-    let latestText = options?.initialPlaceholder ?? '';
+    // Streaming-phase state (only initialized when pushDelta first fires).
+    const draftId = (Date.now() & 0x7fffffff) || 1;
+    let latestText = '';
     let lastSentText: string | null = null;
     let flushTimer: NodeJS.Timeout | null = null;
     let safetyTimer: NodeJS.Timeout | null = null;
+    let streamingStarted = false;
     let finalized = false;
     let cancelled = false;
     // When the 25s safety guard fires, we send a real message to persist the
     // in-flight text before the ephemeral draft expires. finalize then edits
-    // that message in place instead of opening a fresh one — so callers that
-    // depend on a stable messageId (e.g. for share-button updates) keep
-    // working in the overrun case.
+    // that message in place — so callers that depend on a stable messageId
+    // (e.g. for share-button updates) keep working in the overrun case.
     let safetySentMessageId: number | string | null = null;
+    let safetyInFlight: Promise<void> | null = null;
 
-    // Send the initial placeholder (or empty draft for native "Thinking…").
-    // sendMessageDraft is new in Bot API 9.5 and not yet typed in
-    // node-telegram-bot-api v0.66, so we use the lib's _request escape hatch
-    // (same pattern as setChatMenuButton in src/services/telegram/bot.ts).
-    // parse_mode=HTML so bold/italic/links render live as the LLM streams;
-    // sanitizeStreamingHtml balances mid-stream tag boundaries.
     const callSendMessageDraft = async (text: string): Promise<void> => {
       const truncated = text.slice(0, DRAFT_MAX_TEXT_CHARS);
       const safe = sanitizeStreamingHtml(truncated);
@@ -297,15 +307,6 @@ export class TelegramAdapter implements IMessagingService {
       await (this.bot as any)._request('sendMessageDraft', { form });
     };
 
-    try {
-      await callSendMessageDraft(latestText);
-      lastSentText = latestText;
-    } catch (error) {
-      captureError(error, 'stream-message-draft-init', { chat_id: chatId }, 'warning');
-      // Initial draft failed — fall through; finalize will still send a real
-      // message. The flush loop is best-effort either way.
-    }
-
     const flush = async (): Promise<void> => {
       if (finalized || cancelled) return;
       if (latestText === lastSentText) return;
@@ -314,15 +315,9 @@ export class TelegramAdapter implements IMessagingService {
         await callSendMessageDraft(toSend);
         lastSentText = toSend;
       } catch (error) {
-        // Single non-blocking warning; the stream will still finalize as a
-        // normal sendMessage. Don't tear down the stream over a draft hiccup.
         captureError(error, 'stream-message-draft-flush', { chat_id: chatId }, 'warning');
       }
     };
-
-    flushTimer = setInterval(() => {
-      void flush();
-    }, DRAFT_FLUSH_INTERVAL_MS);
 
     const teardownTimers = (): void => {
       if (flushTimer) {
@@ -335,42 +330,95 @@ export class TelegramAdapter implements IMessagingService {
       }
     };
 
-    // Promise that, when present, signals the safety guard is mid-flight
-    // sending a persisted message. finalize awaits this so it doesn't race
-    // with the safety send and double-send the prose to the user.
-    let safetyInFlight: Promise<void> | null = null;
+    const startStreamingPhase = async (firstAccumulated: string): Promise<void> => {
+      if (streamingStarted || finalized || cancelled) return;
+      streamingStarted = true;
+      latestText = firstAccumulated;
 
-    safetyTimer = setTimeout(() => {
-      if (finalized || cancelled) return;
-      // Mark finalized BEFORE the async send to close the race window with
-      // finalize() / cancel(). finalize will see finalized=true, await the
-      // promise, then update the safety message in place.
-      finalized = true;
-      teardownTimers();
-      safetyInFlight = (async () => {
+      // Delete the stage placeholder so the user only sees the active draft.
+      if (placeholderMessageId !== null) {
         try {
-          // Match the in-flight draft's HTML rendering so the persisted
-          // safety message doesn't visually regress to plain text.
-          const safeText = sanitizeStreamingHtml(latestText || ' ');
-          safetySentMessageId = await this.sendMessage(chatId, safeText, {
-            format: MessageFormat.HTML,
-          });
+          await this.deleteMessage(chatId, placeholderMessageId);
         } catch (error) {
-          captureError(error, 'stream-message-safety-finalize', { chat_id: chatId }, 'warning');
+          captureError(error, 'stream-message-placeholder-delete', { chat_id: chatId }, 'warning');
         }
-      })();
-    }, DRAFT_SAFETY_GUARD_MS);
+        placeholderMessageId = null;
+      }
+
+      try {
+        await callSendMessageDraft(latestText);
+        lastSentText = latestText;
+      } catch (error) {
+        captureError(error, 'stream-message-draft-init', { chat_id: chatId }, 'warning');
+      }
+
+      flushTimer = setInterval(() => {
+        void flush();
+      }, DRAFT_FLUSH_INTERVAL_MS);
+
+      safetyTimer = setTimeout(() => {
+        if (finalized || cancelled) return;
+        // Mark finalized BEFORE the async send to close the race window
+        // with finalize() / cancel().
+        finalized = true;
+        teardownTimers();
+        safetyInFlight = (async () => {
+          try {
+            const safeText = sanitizeStreamingHtml(latestText || ' ');
+            safetySentMessageId = await this.sendMessage(chatId, safeText, {
+              format: MessageFormat.HTML,
+            });
+          } catch (error) {
+            captureError(error, 'stream-message-safety-finalize', { chat_id: chatId }, 'warning');
+          }
+        })();
+      }, DRAFT_SAFETY_GUARD_MS);
+    };
 
     return {
+      pushStage: (text: string) => {
+        if (streamingStarted || finalized || cancelled) return;
+        if (placeholderMessageId === null) return;
+        if (text === lastStageText) return;
+        const stageText = text;
+        const messageId = placeholderMessageId;
+        lastStageText = stageText;
+        // Fire-and-forget: editMessageText is best-effort, the next stage or
+        // streaming transition can recover.
+        this.updateMessage(chatId, messageId, stageText, {
+          format: MessageFormat.HTML,
+        }).catch(error => {
+          captureError(error, 'stream-message-stage-update', { chat_id: chatId }, 'warning');
+        });
+      },
       pushDelta: (accumulated: string) => {
+        if (finalized || cancelled) return;
+        if (!streamingStarted) {
+          void startStreamingPhase(accumulated);
+          return;
+        }
         latestText = accumulated;
       },
       finalize: async (finalText: string, finalizeOptions?: MessageOptions) => {
-        // Safety guard already fired — wait for its send to land, then edit
-        // that message in place so the caller's returned messageId stays
-        // stable. If the safety send failed (safetySentMessageId stays null)
-        // we fall through to a fresh sendMessage so the user still gets the
-        // final text.
+        // Phase 1 (no streaming happened): edit the placeholder in place
+        // with the final text + keyboard, so we don't leave debris.
+        if (!streamingStarted && placeholderMessageId !== null && !finalized) {
+          finalized = true;
+          try {
+            await this.updateMessage(chatId, placeholderMessageId, finalText, {
+              ...options,
+              ...finalizeOptions,
+            });
+          } catch (error) {
+            captureError(error, 'stream-message-finalize-placeholder', { chat_id: chatId }, 'warning');
+            // Recover with a fresh send so the user still gets the text.
+            return this.sendMessage(chatId, finalText, { ...options, ...finalizeOptions });
+          }
+          return placeholderMessageId;
+        }
+
+        // Phase 2: safety guard already fired — wait for its send, then
+        // edit the safety message in place for a stable messageId.
         if (finalized && safetyInFlight) {
           await safetyInFlight;
           if (safetySentMessageId !== null) {
@@ -384,11 +432,7 @@ export class TelegramAdapter implements IMessagingService {
             }
             return safetySentMessageId;
           }
-          const recoveryId = await this.sendMessage(chatId, finalText, {
-            ...options,
-            ...finalizeOptions,
-          });
-          return recoveryId;
+          return this.sendMessage(chatId, finalText, { ...options, ...finalizeOptions });
         }
         if (finalized) return 0;
         finalized = true;
@@ -403,6 +447,22 @@ export class TelegramAdapter implements IMessagingService {
         if (finalized || cancelled) return;
         cancelled = true;
         teardownTimers();
+
+        // Phase 1 (still showing stage placeholder): edit it with the error
+        // so we don't leave a stale "Composing…" above the error.
+        if (!streamingStarted && placeholderMessageId !== null) {
+          try {
+            await this.updateMessage(chatId, placeholderMessageId, errorText, {
+              format: MessageFormat.HTML,
+              ...cancelOptions,
+            });
+            return;
+          } catch (error) {
+            captureError(error, 'stream-message-cancel-edit', { chat_id: chatId }, 'warning');
+            // fall through to fresh send
+          }
+        }
+
         try {
           await this.sendMessage(chatId, errorText, cancelOptions);
         } catch (error) {

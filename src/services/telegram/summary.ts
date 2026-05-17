@@ -257,7 +257,7 @@ export async function sendSummaryToUser(
         const stageMessages = await getBotMessages(userLanguage);
         onStageChange = (stage: StreamStage) => {
           const text = stageMessages.streaming?.[stage];
-          if (text) streamHandle.pushDelta(text);
+          if (text) streamHandle.pushStage(text);
         };
       }
       return prepareSummaryForUser(user, fetchFunction, summaryDate, modelId, onTextDelta, onStageChange);

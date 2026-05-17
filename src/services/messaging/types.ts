@@ -118,15 +118,21 @@ export interface StreamMessageOptions extends MessageOptions {
 }
 
 /**
- * Handle returned by streamMessage. Caller pushes accumulated text via
- * pushDelta during generation, then calls finalize once with the complete
- * text to persist a real message in the chat. cancel sends a localized
- * error and tears down the stream.
+ * Handle returned by streamMessage. Two phases:
+ *  - **Stage phase**: pushStage(text) updates a regular sendMessage in-place
+ *    via editMessageText. Use for static service messages ("Fetching…",
+ *    "Composing…") that don't benefit from draft animation.
+ *  - **Streaming phase**: the first pushDelta(accumulated) transitions to
+ *    sendMessageDraft so LLM tokens animate live. The stage placeholder is
+ *    deleted on transition so the user sees only the active animation.
+ * finalize persists a real chat message; cancel surfaces an error.
  */
 export interface StreamMessageHandle {
-  /** Update the in-flight draft with the latest accumulated text. Coalesced — safe to call per token. */
+  /** Update the placeholder message with a new static text (uses editMessageText). No-op once streaming has started. */
+  pushStage(text: string): void;
+  /** Update the in-flight draft with the latest accumulated text. First call transitions out of stage phase into draft phase. */
   pushDelta(accumulated: string): void;
-  /** Replace the ephemeral draft with a real, persisted message. Returns the persisted messageId. Idempotent. */
+  /** Replace the in-flight UI with a real, persisted message. Returns the persisted messageId. Idempotent. */
   finalize(finalText: string, options?: MessageOptions): Promise<number | string>;
   /** Abort the stream and surface an error message to the user. Idempotent. */
   cancel(errorText: string, options?: MessageOptions): Promise<void>;
