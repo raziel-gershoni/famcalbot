@@ -333,6 +333,9 @@ export class WhatsAppAdapter implements IMessagingService {
     let cancelled = false;
 
     return {
+      pushStage: (_text: string) => {
+        // intentional no-op — WA has no animated editing surface
+      },
       pushDelta: (_accumulated: string) => {
         // intentional no-op
       },
