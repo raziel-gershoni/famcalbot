@@ -62,7 +62,7 @@ interface PreparedSummary {
  * Stages the streaming draft can be in. Caller wires this to localized
  * placeholder text and pushes via streamHandle.pushDelta.
  */
-type StreamStage = 'fetchingCalendar' | 'lookingAhead' | 'composing';
+type StreamStage = 'fetchingCalendar' | 'lookingAhead' | 'fetchingWeather' | 'composing';
 
 async function prepareSummaryForUser(
   user: UserConfig,
@@ -142,10 +142,15 @@ async function prepareSummaryForUser(
     lookaheadMs = Date.now() - tLookahead;
   }
 
-  // Generate summary with AI (this also fetches weather inline, but the
-  // weather fetch is short relative to LLM time so we surface this whole
-  // phase as "composing"; the first streamed token will replace the text)
-  onStageChange?.('composing');
+  // generateSummary internally does (1) weather fetch, then (2) prompt build,
+  // then (3) AI streaming. Show 'fetchingWeather' before entering; pass the
+  // stage callback through so generateSummary can flip to 'composing' as soon
+  // as weather lands. The first streamed token then replaces the placeholder.
+  if (user.weatherEnabled && user.location) {
+    onStageChange?.('fetchingWeather');
+  } else {
+    onStageChange?.('composing');
+  }
   const tAI = Date.now();
   const summary = await generateSummary(
     categorized.userEvents,
@@ -167,7 +172,8 @@ async function prepareSummaryForUser(
     user.weatherEnabled,
     weekLookaheadText,
     userTimezone,
-    onTextDelta
+    onTextDelta,
+    onStageChange ? () => onStageChange('composing') : undefined
   );
   const aiMs = Date.now() - tAI;
 
