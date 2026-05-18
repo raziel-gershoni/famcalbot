@@ -178,7 +178,7 @@ export const AI_MODELS: Record<string, ModelConfig> = {
 
   'gemini-3.1-flash-lite': {
     provider: 'gemini',
-    modelId: 'gemini-3.1-flash-lite-preview',
+    modelId: 'gemini-3.1-flash-lite',
     displayName: 'Gemini 3.1 Flash-Lite',
     maxOutputTokens: 65536,
     contextWindow: 1048576,
