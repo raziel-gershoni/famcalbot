@@ -185,6 +185,16 @@ export const AI_MODELS: Record<string, ModelConfig> = {
     costPer1MTokens: { input: 0.25, output: 1.50 },
     description: 'Latest Flash-Lite (Mar 2026), best cost-efficiency for high-volume tasks',
   },
+
+  'gemini-3.5-flash': {
+    provider: 'gemini',
+    modelId: 'gemini-3.5-flash',
+    displayName: 'Gemini 3.5 Flash',
+    maxOutputTokens: 65536,
+    contextWindow: 1048576,
+    costPer1MTokens: { input: 1.50, output: 9.00 },
+    description: 'Smarter Flash (May 2026) — better prose and agentic reasoning, thinking on by default',
+  },
 };
 
 /**

@@ -7,7 +7,7 @@ import { getModelConfig, ModelConfig } from './ai-models';
 export const TIMEZONE = 'Asia/Jerusalem';
 
 // Default AI model from environment
-export const DEFAULT_AI_MODEL = process.env.AI_MODEL || 'gemini-3.1-flash-lite';
+export const DEFAULT_AI_MODEL = process.env.AI_MODEL || 'gemini-3.5-flash';
 
 // Retry configuration (static)
 // MAX_RETRIES=1 means 2 total attempts (initial + 1 retry).
