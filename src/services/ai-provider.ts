@@ -219,7 +219,7 @@ async function callGemini(prompt: string, modelId?: string): Promise<AICompletio
     model: config.MODEL_CONFIG.modelId,
     contents: prompt,
     config: {
-      abortSignal: AbortSignal.timeout(25_000),
+      abortSignal: AbortSignal.timeout(45_000),
       ...(thinkingLevel && {
         thinkingConfig: { thinkingLevel: ThinkingLevel[thinkingLevel as keyof typeof ThinkingLevel] },
       }),
@@ -270,6 +270,13 @@ function isNonRetryableError(error: unknown): boolean {
   if (status === 429 || status === 529 || status === 401 || status === 403) return true;
   const name = e.name;
   if (name === 'RateLimitError' || name === 'AuthenticationError') return true;
+  // AbortError from AbortSignal.timeout means the model didn't finish in
+  // time. Retrying produces the same slow generation; surface the timeout
+  // fast so the pipeline can render a user-facing error instead of burning
+  // the whole 50s budget on two doomed attempts.
+  if (name === 'AbortError') return true;
+  const code = e.code;
+  if (code === 20 /* DOMException.ABORT_ERR */ || code === 'ABORT_ERR') return true;
   return false;
 }
 
