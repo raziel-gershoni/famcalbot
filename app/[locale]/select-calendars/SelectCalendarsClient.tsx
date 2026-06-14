@@ -606,11 +606,15 @@ export default function SelectCalendarsClient({
         }
         .rule-input {
           width: 100%;
+          box-sizing: border-box;
           padding: 8px 12px;
           border: 1px solid #e5e7eb;
           border-radius: 6px;
           font-size: 14px;
+          font-family: inherit;
+          line-height: 1.4;
           background: white;
+          resize: vertical;
         }
         .rule-input:focus {
           outline: none;
@@ -910,9 +914,10 @@ export default function SelectCalendarsClient({
                           </div>
                           {isExpanded && (
                             <div className="panel-content">
-                              <input
-                                type="text"
+                              <textarea
                                 className="rule-input"
+                                rows={3}
+                                maxLength={200}
                                 placeholder={t('calendarRule.placeholder')}
                                 value={calendarRules.get(calendar.id) || ''}
                                 onChange={(e) => handleRuleChange(calendar.id, e.target.value)}
