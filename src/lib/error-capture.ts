@@ -24,8 +24,12 @@ export function captureError(
   extra?: ErrorContext,
   severity: SeverityLevel = 'error'
 ): void {
-  // Always log to console for local dev
-  console.error(`[${context}]`, error);
+  // Always log to console for local dev. Respect severity for the console sink
+  // so warning/info-level captures don't surface as red errors in log
+  // aggregators (e.g. Railway tags everything on stderr as 'error').
+  const consoleFn =
+    severity === 'warning' ? console.warn : severity === 'info' ? console.info : console.error;
+  consoleFn(`[${context}]`, error);
 
   // Capture to Sentry with context
   Sentry.withScope(scope => {

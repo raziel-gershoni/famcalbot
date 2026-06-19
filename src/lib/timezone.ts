@@ -8,7 +8,7 @@ import { TIMEZONE } from '../config/constants';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { getUserCalendarTimezone } from '../services/calendar';
 import { geocodeLocation } from '../services/weather/geocoding';
-import { captureError } from './error-capture';
+import { captureInfo, captureWarning } from './error-capture';
 
 const TIMEZONE_CACHE_TTL = 24 * 60 * 60; // 24 hours in seconds
 
@@ -58,18 +58,22 @@ export async function resolveUserTimezone(
     }
   }
 
-  // 4. Fallback to UTC — log Sentry warning once per 24h (cached)
-  captureError(
-    new Error('No timezone source available'),
-    'timezone-resolution',
-    {
-      user_id: user.id,
-      service: 'timezone',
-      hasToken: !!user.googleRefreshToken,
-      location: user.location || '(none)',
-    },
-    'warning'
-  );
+  // 4. No timezone resolved — fall back to the default (cached once per 24h).
+  // Distinguish "a configured source failed" (worth a warning — e.g. a revoked
+  // Google token or a geocoding outage) from "no source configured at all"
+  // (expected for location-less WhatsApp users — log at info, not as an error).
+  const attemptedSource = !!user.location || !!user.googleRefreshToken;
+  const ctx = {
+    user_id: user.id,
+    service: 'timezone',
+    hasToken: !!user.googleRefreshToken,
+    location: user.location || '(none)',
+  };
+  if (attemptedSource) {
+    captureWarning('Timezone sources failed; using default', 'timezone-resolution', ctx);
+  } else {
+    captureInfo('No timezone source configured; using default', 'timezone-resolution', ctx);
+  }
 
   await redis.set(cacheKey, TIMEZONE, { ex: TIMEZONE_CACHE_TTL });
   return TIMEZONE;
