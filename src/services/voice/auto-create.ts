@@ -21,6 +21,8 @@ import type { UserConfig } from '../../types';
 import type { IMessagingService } from '../messaging/types';
 import { MessageFormat } from '../messaging/types';
 import { pushRecentEvent } from './recent-events-store';
+import { resolveUserTimezone } from '../../lib/timezone';
+import { formatEventDateTime } from './confirmations';
 
 const UNDO_TTL_SECONDS = 30;
 
@@ -121,9 +123,12 @@ export async function autoCreateEvent(
     action: 'create',
   });
 
+  const timezone = await resolveUserTimezone(user);
+  const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice?.allDay || 'All day', timezone);
+  const locationStr = event.location ? `\n📍 ${event.location}` : '';
   const summary =
     `${t.voice?.created || '✅ Event created!'}` +
-    `\n\n📅 <b>${event.title}</b>`;
+    `\n\n📅 <b>${event.title}</b>\n${dateTimeStr}${locationStr}`;
   const undoLabel = t.voice?.undo || '↩️ Undo (30s)';
 
   try {
