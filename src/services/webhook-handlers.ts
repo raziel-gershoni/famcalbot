@@ -67,6 +67,7 @@ export async function handleTelegramWebhook(
     : update.message?.successful_payment ? 'successful_payment'
     : update.callback_query ? 'callback_query'
     : update.message?.voice ? 'voice_message'
+    : update.message?.photo ? 'photo_message'
     : isForwarded ? 'forwarded_message'
     : update.message?.text ? 'text_message'
     : 'unknown';
@@ -338,6 +339,52 @@ export async function handleTelegramWebhook(
       await handleVoiceMessage(chatId, voiceUserId, voice, from);
     } catch (error) {
       console.error('[Webhook] Error in voice handler:', error);
+    } finally {
+      await releaseVoiceLock(fileUniqueId);
+    }
+
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  // Handle invitation photos for event creation
+  if (update.message?.photo && update.message.photo.length > 0) {
+    const chatId = update.message.chat.id;
+    const from = update.message.from;
+    if (!from) {
+      // No sender (e.g. channel post) — nothing to attribute the event to.
+      res.status(200).json({ ok: true });
+      return;
+    }
+    const photoUserId = from.id;
+    // Telegram sends ascending resolutions; the last is the highest.
+    const photo = update.message.photo[update.message.photo.length - 1];
+    const caption = update.message.caption;
+    const fileUniqueId = photo.file_unique_id;
+
+    addBreadcrumb('photo_message_received', {
+      user_id: photoUserId,
+      file_size: photo.file_size,
+    }, 'user_action');
+
+    console.log(`[Webhook] Photo received from user ${photoUserId}, file_unique_id: ${fileUniqueId}`);
+
+    // Reuse the generic Redis lock to dedupe webhook retries. Image OCR can be
+    // slower than voice, so use a longer TTL to avoid mid-processing expiry.
+    const IMAGE_LOCK_TTL_SECONDS = 180;
+    const { acquireVoiceLock, releaseVoiceLock } = await import('../utils/redis-lock');
+    const lockAcquired = await acquireVoiceLock(fileUniqueId, IMAGE_LOCK_TTL_SECONDS);
+    if (!lockAcquired) {
+      console.log(`[Webhook] Photo ${fileUniqueId} already being processed - skipping duplicate`);
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    try {
+      const { handleImageMessage } = await import('./image-event');
+      await handleImageMessage(chatId, photoUserId, photo, from, caption);
+    } catch (error) {
+      console.error('[Webhook] Error in image handler:', error);
     } finally {
       await releaseVoiceLock(fileUniqueId);
     }

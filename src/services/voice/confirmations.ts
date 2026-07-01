@@ -43,7 +43,7 @@ export async function getPendingEvent(pendingId: string) {
       event: ParsedEvent;
       user: UserConfig;
       transcription: string;
-      inputModality?: 'voice' | 'text';
+      inputModality?: 'voice' | 'text' | 'image';
     }>(REDIS_KEYS.pendingEvent(pendingId));
     if (!data) return undefined;
     // Reconstruct Date objects that were serialized as strings
@@ -318,7 +318,7 @@ export async function showEventConfirmation(
   transcription: string,
   user: UserConfig,
   adminFooter?: string,
-  inputModality: 'voice' | 'text' = 'voice'
+  inputModality: 'voice' | 'text' | 'image' = 'voice'
 ): Promise<void> {
   const bot = getBot();
   const t = await getBotMessages(user.language || 'en');

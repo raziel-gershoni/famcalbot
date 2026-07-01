@@ -26,7 +26,7 @@ export function buildEventExtractionPrompt(
   language: string,
   calendars: CalendarAssignment[],
   timezone: string,
-  mode: 'voice' | 'text' = 'voice',
+  mode: 'voice' | 'text' | 'image' = 'voice',
   recentEventsBlock?: string
 ): string {
   const calendarList = calendars.map(c =>
@@ -53,6 +53,18 @@ export function buildEventExtractionPrompt(
 1. Transcribe what the user said
 2. Determine the user's intent (create, edit, or delete a calendar event)
 3. Extract structured event data based on the intent`
+    : mode === 'image'
+    ? `You are a calendar assistant. The user sent an IMAGE of an event invitation, flyer, poster, or a screenshot. Read ALL text visible in the image (OCR) — it may be in Hebrew (right-to-left), Russian, or English — and:
+1. Determine whether the image describes a calendar event (intent "create") or not (intent "none").
+2. Extract structured event data for the event.
+
+IMAGE-SPECIFIC RULES:
+- If the image is NOT an event (a meme, a random photo, a screenshot with no event details), return intent "none".
+- Extract the ACTUAL event date and start time. If the invitation also shows an RSVP / reply-by / confirmation deadline (e.g. "אישור הגעה", "RSVP by", "просьба подтвердить до"), that is NOT the event date — never use it as the event start; you may mention it in "description".
+- If the year is not printed, choose the nearest FUTURE date consistent with the current date/time below.
+- Put the venue name and/or address into "location".
+- CONFIDENCE: return "high" ONLY when the event date AND start time are explicitly and unambiguously printed. If you had to infer the year, guess the time, or you are unsure whether a printed date is the event date or an RSVP date, return "medium" or "low". (Lower confidence routes the event to a manual confirmation card instead of auto-creating it.)
+- Intent is ONLY "create" or "none" — never "edit" or "delete" for an image.`
     : `You are a calendar assistant. Parse the following forwarded text message and extract calendar event information.
 The text may be conversational (e.g. "Hey, can you come to dinner at our place on Friday at 7pm?"). Look for dates, times, event names, and locations.
 1. Determine the intent (create, edit, delete, or none if no event information found)
@@ -125,7 +137,7 @@ RESPOND IN JSON FORMAT ONLY:
     }
   ] or null (omit for single-event input),
 
-  "intent": ${mode === 'voice' ? '"create" | "edit" | "delete"' : '"create" | "edit" | "delete" | "none"'},
+  "intent": ${mode === 'voice' ? '"create" | "edit" | "delete"' : mode === 'image' ? '"create" | "none"' : '"create" | "edit" | "delete" | "none"'},
   "confidence": "high" | "medium" | "low",
   "scope": "single" | "all" | "following" (default: "single", only for edit/delete),
 
@@ -222,7 +234,18 @@ Input text: "haha that's hilarious 😂"
 Output: {"intent": "none", "confidence": "high", "error": "No calendar event information found in this message."}
 
 Input text: "The meeting tomorrow is pushed to 3pm instead"
-Output: {"intent": "edit", "confidence": "high", "eventReference": {"type": "by_description", "description": "meeting", "timeHint": "tomorrow"}, "editRequest": {"newStartTime": "15:00", "newEndTime": "16:00"}}` : '');
+Output: {"intent": "edit", "confidence": "high", "eventReference": {"type": "by_description", "description": "meeting", "timeHint": "tomorrow"}, "editRequest": {"newStartTime": "15:00", "newEndTime": "16:00"}}` : '') + (mode === 'image' ? `
+
+ADDITIONAL IMAGE-MODE EXAMPLES (the actual input is the attached image; these show the expected OUTPUT):
+
+Image: a birthday invitation reading "You're invited! Noa turns 5 — Saturday, March 14 at 17:00, Gymboree Hall, Herzliya. RSVP by March 1."
+Output: {"intent": "create", "confidence": "high", "event": {"title": "Noa's 5th birthday", "startDate": "YYYY-03-14", "startTime": "17:00", "endDate": "YYYY-03-14", "endTime": "19:00", "allDay": false, "location": "Gymboree Hall, Herzliya", "description": "RSVP by March 1", "calendarId": "primary", "calendarName": "Primary", "recurrence": null}}
+
+Image: a wedding invitation in Hebrew with the date printed but no time.
+Output: {"intent": "create", "confidence": "medium", "event": {"title": "Wedding", "startDate": "YYYY-MM-DD", "startTime": "19:00", "endDate": "YYYY-MM-DD", "endTime": "23:00", "allDay": false, "location": "...", "calendarId": "primary", "calendarName": "Primary", "recurrence": null}}
+
+Image: a photo of a cat with no text.
+Output: {"intent": "none", "confidence": "high", "error": "No event found in this image."}` : '');
 }
 
 function sleep(ms: number): Promise<void> {

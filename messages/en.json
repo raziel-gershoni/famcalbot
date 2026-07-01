@@ -544,6 +544,10 @@
       "noLocationNative": "🌤️ <b>One quick thing</b>\n\nYour calendar is ready! I just need your location so weather and timezones work right.\n\nTap below to set your city:",
       "noLocationButton": "📍 Set Location"
     },
+    "imageEvent": {
+      "noEventFound": "🤔 I couldn't find an event in that image. Try sending a clear photo of an invitation, flyer, or event details.",
+      "fromImage": "an invitation image"
+    },
     "voice": {
       "notRegistered": "❌ Please use /start to register first before creating events.",
       "featureDisabled": "🎤 <b>Voice Event Creation</b>\n\nThis feature lets you create calendar events by sending voice messages.\n\nTo enable it, tap the button below:",

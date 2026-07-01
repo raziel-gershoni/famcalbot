@@ -10,15 +10,21 @@ const VOICE_LOCK_KEY_PREFIX = 'voice:lock:';
 const VOICE_LOCK_TTL_SECONDS = 60; // Voice processing is fast (5-15s), with safety margin
 
 /**
- * Try to acquire a lock for voice message processing
+ * Try to acquire a lock for media message processing (voice, photo, …)
  * @param fileUniqueId - Unique file ID from Telegram (consistent across retries)
+ * @param ttlSeconds - Lock lifetime; default suits fast voice jobs. Slower jobs
+ *   (e.g. image OCR + retry) should pass a longer TTL so the lock doesn't expire
+ *   mid-processing and let a webhook retry double-process.
  * @returns true if lock acquired, false if already locked (duplicate)
  */
-export async function acquireVoiceLock(fileUniqueId: string): Promise<boolean> {
+export async function acquireVoiceLock(
+  fileUniqueId: string,
+  ttlSeconds: number = VOICE_LOCK_TTL_SECONDS
+): Promise<boolean> {
   const lockKey = `${VOICE_LOCK_KEY_PREFIX}${fileUniqueId}`;
 
   try {
-    const result = await redis.set(lockKey, Date.now(), { nx: true, ex: VOICE_LOCK_TTL_SECONDS });
+    const result = await redis.set(lockKey, Date.now(), { nx: true, ex: ttlSeconds });
 
     if (result === 'OK') {
       console.log(`[Voice Lock] Acquired for file ${fileUniqueId}`);

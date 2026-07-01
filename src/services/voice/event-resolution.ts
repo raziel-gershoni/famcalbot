@@ -15,9 +15,9 @@ import { REDIS_KEYS } from '../../config/redis-keys';
 import { captureError } from '../../lib/error-capture';
 
 /**
- * Download voice file from Telegram CDN
+ * Download any file from the Telegram CDN by file_id (voice, photo, document).
  */
-export async function downloadVoiceFile(fileId: string): Promise<Buffer> {
+export async function downloadTelegramFile(fileId: string): Promise<Buffer> {
   const bot = getBot();
 
   const fileInfo = await bot.getFile(fileId);
@@ -32,11 +32,18 @@ export async function downloadVoiceFile(fileId: string): Promise<Buffer> {
 
   const response = await fetch(downloadUrl);
   if (!response.ok) {
-    throw new Error(`Failed to download voice file: ${response.statusText}`);
+    throw new Error(`Failed to download file: ${response.statusText}`);
   }
 
   const arrayBuffer = await response.arrayBuffer();
   return Buffer.from(arrayBuffer);
+}
+
+/**
+ * Download a voice file from Telegram CDN (thin alias over downloadTelegramFile).
+ */
+export async function downloadVoiceFile(fileId: string): Promise<Buffer> {
+  return downloadTelegramFile(fileId);
 }
 
 /**
