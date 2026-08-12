@@ -96,18 +96,39 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
     voicePreference !== currentSettings.voicePreference ||
     voiceStyle !== currentSettings.voiceStyle;
 
-  // Valid location types for weather (cities, towns, regions, etc.)
+  // Granularity accepted for weather: anything from a country down to a suburb.
+  // Nominatim's place_rank is the reliable dial here (country 4, state 8,
+  // state_district 10, city 16, suburb 19, road 26, building 30) — addresstype is an
+  // open-ended vocabulary, so an allowlist of it alone always leaves gaps.
+  const MAX_LOCATION_PLACE_RANK = 20;
+
+  // Kept as an extra accept-path for named types that rank below the cutoff.
   const VALID_LOCATION_TYPES = [
-    'city', 'town', 'village', 'municipality', 'county', 'state',
+    'city', 'town', 'village', 'municipality', 'county', 'state', 'state_district',
     'country', 'suburb', 'hamlet', 'locality', 'region', 'province',
     'district', 'neighbourhood', 'borough', 'quarter'
   ];
 
-  // Validate location by attempting to geocode it
-  const validateLocation = async (loc: string): Promise<boolean> => {
-    if (!loc.trim()) {
+  // Build a city-level name from a Nominatim `address` object. Shared by the
+  // geolocation button and by save-time normalization so both store the same shape.
+  const buildPlaceName = (addr: Record<string, string> | undefined): string => {
+    const place =
+      addr?.city || addr?.town || addr?.village || addr?.municipality ||
+      addr?.county || addr?.state_district || addr?.state;
+    const country = addr?.country;
+    if (place && country) return `${place}, ${country}`;
+    return place || '';
+  };
+
+  // Validate a location, and collapse over-specific matches to the city containing
+  // them. Returns the value that should actually be stored — callers must use it
+  // rather than the `location` state, which React has not updated yet.
+  const validateLocation = async (loc: string): Promise<{ valid: boolean; normalized: string }> => {
+    const trimmed = loc.trim();
+
+    if (!trimmed) {
       setLocationError(null);
-      return true; // Empty is allowed
+      return { valid: true, normalized: '' }; // Empty is allowed
     }
 
     setLocationValidating(true);
@@ -115,51 +136,65 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
 
     try {
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(loc)}&format=json&limit=1&addressdetails=1`,
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(trimmed)}&format=json&limit=1&addressdetails=1`,
         {
           headers: {
-            'User-Agent': 'FamCalBot/1.0'
+            'User-Agent': 'FamCalBot/1.0',
+            // Match the reverse-geocode call: names we may store must come back in
+            // English, or a collapsed address lands in the DB in the local script.
+            'Accept-Language': 'en'
           }
         }
       );
 
       if (!response.ok) {
         setLocationError(t('locationValidationError'));
-        return false;
+        return { valid: false, normalized: trimmed };
       }
 
       const data = await response.json();
 
       if (Array.isArray(data) && data.length > 0) {
         const result = data[0];
-        // Check if it's a valid location type (not a building, ridge, etc.)
-        if (VALID_LOCATION_TYPES.includes(result.addresstype)) {
-          setLocationError(null);
-          return true;
+        setLocationError(null);
+
+        // Anything geocodeLocation() can resolve is acceptable — this gate must never
+        // be stricter than the weather pipeline that consumes the value. It decides
+        // only whether to keep the string as typed. Deliberately not keyed on
+        // `importance`: that measures fame, not granularity, so it would let a
+        // well-known building ("1600 Pennsylvania Ave NW") through uncollapsed.
+        const isCityLevel =
+          result.place_rank <= MAX_LOCATION_PLACE_RANK ||
+          VALID_LOCATION_TYPES.includes(result.addresstype);
+
+        if (isCityLevel) {
+          return { valid: true, normalized: trimmed };
         }
-        // Fallback: accept if importance is high enough (major places)
-        if (result.importance > 0.4) {
-          setLocationError(null);
-          return true;
-        }
-        setLocationError(t('locationInvalid'));
-        return false;
+
+        // Over-specific match (a street address or a single building): keep it, but
+        // store the city that contains it. Weather is grid-based, so the precision
+        // buys nothing, and there is no reason to persist a house number.
+        const collapsed = buildPlaceName(result.address);
+        return { valid: true, normalized: collapsed || trimmed };
       } else {
         setLocationError(t('locationInvalid'));
-        return false;
+        return { valid: false, normalized: trimmed };
       }
     } catch (error) {
       setLocationError(t('locationValidationError'));
-      return false;
+      return { valid: false, normalized: trimmed };
     } finally {
       setLocationValidating(false);
     }
   };
 
-  // Validate on blur
-  const handleLocationBlur = () => {
-    if (location.trim()) {
-      validateLocation(location);
+  // Validate on blur, showing the user the value that will actually be saved
+  const handleLocationBlur = async () => {
+    if (!location.trim()) return;
+
+    const { valid, normalized } = await validateLocation(location);
+    if (valid && normalized && normalized !== location) {
+      setLocation(normalized);
     }
   };
 
@@ -183,20 +218,23 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
       const { latitude, longitude } = position.coords;
 
       // Reverse geocode using Nominatim (free, no API key needed)
-      // Force English output for geocoding compatibility
+      // zoom controls the *bottom* of the returned hierarchy, so a higher zoom only
+      // ever adds narrower fields to `address`. zoom=14 is deep enough that city/town
+      // is populated even in sparsely mapped areas (zoom=10 stops at the subdistrict
+      // and omits it entirely), while staying above road level, where `name` ignores
+      // accept-language, and building level, where `name` is often empty.
+      // English output keeps the result forward-geocodable.
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&zoom=10&accept-language=en`
+        `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&zoom=14&accept-language=en`
       );
       const data = await response.json();
 
-      // Extract city and country
-      const city = data.address?.city || data.address?.town || data.address?.village || data.address?.municipality;
-      const country = data.address?.country;
+      // Always read `address`, never `name`/`display_name`: those hold whatever object
+      // happened to match the zoom (a suburb, a road, an unnamed building), while
+      // `address` reliably carries the containing city/town on upward.
+      let locationString = buildPlaceName(data.address);
 
-      let locationString = '';
-      if (city && country) {
-        locationString = `${city}, ${country}`;
-      } else if (data.display_name) {
+      if (!locationString && data.display_name) {
         // Fallback to display name, but shorten it
         const parts = data.display_name.split(',');
         locationString = parts.slice(0, 2).join(',').trim();
@@ -240,11 +278,17 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validate location before saving
+    // Validate location before saving. setLocation() below will not have taken effect
+    // by the time we POST, so send the returned value rather than the state.
+    let locationToSave = location;
     if (location.trim()) {
-      const isValid = await validateLocation(location);
-      if (!isValid) {
+      const { valid, normalized } = await validateLocation(location);
+      if (!valid) {
         return; // Don't save if location is invalid
+      }
+      if (normalized !== location) {
+        locationToSave = normalized;
+        setLocation(normalized);
       }
     }
 
@@ -259,7 +303,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           language,
-          location,
+          location: locationToSave,
           messagingPlatform,
           culture,
           textSummaryEnabled,
