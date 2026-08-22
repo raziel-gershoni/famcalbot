@@ -13,6 +13,7 @@
 import { ThinkingLevel, type GenerateContentResponse } from '@google/genai';
 import { getAnthropic, getGemini } from '../ai-provider';
 import { getAIConfig } from '../../config/constants';
+import { resolveThinkingLevel } from '../../config/ai-models';
 import { notifyAdminWarning } from '../../utils/error-notifier';
 import { captureError } from '../../lib/error-capture';
 import type { AICompletionResult } from '../ai-provider';
@@ -105,7 +106,8 @@ async function streamGemini(
   const config = getAIConfig(opts.modelId);
 
   const { getGeminiThinkingLevel } = await import('../reminder-cache');
-  const thinkingLevel = await getGeminiThinkingLevel();
+  // Same reconciliation as the non-streaming path — see callGemini().
+  const thinkingLevel = resolveThinkingLevel(config.MODEL_CONFIG, await getGeminiThinkingLevel());
 
   const stream = await getGemini().models.generateContentStream({
     model: config.MODEL_CONFIG.modelId,

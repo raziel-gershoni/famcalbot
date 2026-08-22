@@ -15,7 +15,20 @@ export interface ModelConfig {
   costPer1MTokens: { input: number; output: number }; // USD
   description: string;
   reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' | 'none'; // Optional: For GPT-5 models
+  unsupportedThinkingLevels?: ThinkingLevelName[]; // Optional: Gemini levels this model rejects with a 400
 }
+
+/** Gemini thinking levels, mirroring the SDK's ThinkingLevel enum. */
+export type ThinkingLevelName = 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH';
+
+/**
+ * Nearest supported level to fall back to when a model rejects one outright.
+ * MINIMAL -> LOW is behaviour-preserving: on models without MINIMAL, LOW is the
+ * floor and returns zero thought tokens.
+ */
+const THINKING_LEVEL_FALLBACK: Partial<Record<ThinkingLevelName, ThinkingLevelName>> = {
+  MINIMAL: 'LOW',
+};
 
 /**
  * Available AI models catalog
@@ -195,6 +208,20 @@ export const AI_MODELS: Record<string, ModelConfig> = {
     costPer1MTokens: { input: 1.50, output: 9.00 },
     description: 'Smarter Flash (May 2026) — better prose and agentic reasoning, thinking on by default',
   },
+
+  'gemini-3.7-flash': {
+    provider: 'gemini',
+    modelId: 'gemini-3.7-flash',
+    displayName: 'Gemini 3.7 Flash',
+    maxOutputTokens: 65536,
+    contextWindow: 1048576,
+    // Introductory rate through 2026-12-31; rises to $1.50 / $7.50 on 2027-01-01.
+    costPer1MTokens: { input: 0.75, output: 3.75 },
+    description: 'Flash (Aug 2026), current default — stronger coding and agentic work than 3.5 at half the price',
+    // 3.7 dropped MINIMAL: sending it returns 400 "Thinking level MINIMAL is not
+    // supported for this model". 3.5 and earlier still accept it.
+    unsupportedThinkingLevels: ['MINIMAL'],
+  },
 };
 
 /**
@@ -211,6 +238,23 @@ export function getModelConfig(identifier: string): ModelConfig | undefined {
  */
 export function getAvailableModels(): string[] {
   return Object.keys(AI_MODELS);
+}
+
+/**
+ * Coerce an admin-selected Gemini thinking level to one the model actually accepts.
+ * Levels differ per model generation, so passing the stored value through blind
+ * turns a settings change into a 400 on every completion.
+ *
+ * @returns the level to send, or null to omit thinkingConfig and take the model default
+ */
+export function resolveThinkingLevel(
+  model: ModelConfig,
+  level: string | null | undefined
+): ThinkingLevelName | null {
+  if (!level) return null;
+  const requested = level as ThinkingLevelName;
+  if (!model.unsupportedThinkingLevels?.includes(requested)) return requested;
+  return THINKING_LEVEL_FALLBACK[requested] ?? null;
 }
 
 /**

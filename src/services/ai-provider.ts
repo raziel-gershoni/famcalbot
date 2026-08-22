@@ -7,6 +7,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { getAIConfig, AI_RETRY_CONFIG } from '../config/constants';
+import { resolveThinkingLevel } from '../config/ai-models';
 import { notifyAdminWarning } from '../utils/error-notifier';
 import { captureError } from '../lib/error-capture';
 
@@ -213,7 +214,9 @@ async function callGemini(prompt: string, modelId?: string): Promise<AICompletio
   const config = getAIConfig(modelId);
 
   const { getGeminiThinkingLevel } = await import('./reminder-cache');
-  const thinkingLevel = await getGeminiThinkingLevel();
+  // Not every model accepts every level (3.7 Flash rejects MINIMAL outright), so
+  // reconcile the admin setting against this model before sending it.
+  const thinkingLevel = resolveThinkingLevel(config.MODEL_CONFIG, await getGeminiThinkingLevel());
 
   const response = await getGemini().models.generateContent({
     model: config.MODEL_CONFIG.modelId,
