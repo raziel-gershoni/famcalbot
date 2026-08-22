@@ -8,7 +8,7 @@ import { getGemini } from '../ai-provider';
 import { VoiceIntentResult } from '../event-parser';
 import { CalendarAssignment } from '../../types';
 import { getDefaultAiModelSetting } from '../reminder-cache';
-import { getModelConfig } from '../../config/ai-models';
+import { getModelConfig, FALLBACK_MODEL_ID } from '../../config/ai-models';
 import { buildEventExtractionPrompt, extractIntents } from '../voice/gemini-voice';
 
 const IMAGE_RETRY_CONFIG = {
@@ -16,7 +16,7 @@ const IMAGE_RETRY_CONFIG = {
   baseDelayMs: 500,
 } as const;
 
-const IMAGE_MODEL_FALLBACK = 'gemini-3-flash-preview';
+const IMAGE_MODEL_FALLBACK = FALLBACK_MODEL_ID;
 
 export interface ImageProcessingMetrics {
   model: string;

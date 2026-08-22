@@ -2,134 +2,108 @@
 
 ## Quick Start
 
-Simply set the `AI_MODEL` environment variable to switch between models:
+Set the `AI_MODEL` environment variable to switch models — no code changes needed:
 
 ```bash
-# Use Claude Sonnet 4.6 (default, best balance)
-AI_MODEL=claude-sonnet-4.6
-
-# Use Claude Opus 4.6 (most powerful)
-AI_MODEL=claude-opus-4.6
-
-# Use Claude Haiku 4.5 (fastest, cheapest Claude)
-AI_MODEL=claude-haiku-4.5
+AI_MODEL=gemini-3.7-flash
 ```
 
 ## Available Models
 
-### Claude Models (Anthropic)
+The catalog in `src/config/ai-models.ts` lists only the models actually in use.
+The provider layer still supports Claude and GPT — see [Adding a model](#adding-a-model).
 
-| Identifier | Model | Max Tokens | Context | Cost (per 1M tokens) | Best For |
-|------------|-------|------------|---------|---------------------|----------|
-| `claude-opus-4.6` | Claude Opus 4.6 | 128K | 200K | $5/$25 (in/out) | Most capable, complex reasoning |
-| `claude-sonnet-4.6` | Claude Sonnet 4.6 | 64K | 200K | $3/$15 (in/out) | **Default choice** - best balance |
-| `claude-haiku-4.5` | Claude Haiku 4.5 | 64K | 200K | $1/$5 (in/out) | Fastest, cheapest Claude |
+| Identifier | Model | Max output | Context | Cost (per 1M tokens) | Notes |
+|------------|-------|-----------|---------|---------------------|-------|
+| `gemini-3.7-flash` | Gemini 3.7 Flash | 64K | 1M | $0.75/$3.75 (in/out) | **Default.** Introductory rate through 2026-12-31; $1.50/$7.50 after |
+| `gemini-3.5-flash` | Gemini 3.5 Flash | 64K | 1M | $1.50/$9.00 (in/out) | Rollback target for 3.7 |
 
-### OpenAI Models (GPT)
+## How the model is chosen
 
-| Identifier | Model | Max Tokens | Context | Cost (per 1M tokens) | Best For |
-|------------|-------|------------|---------|---------------------|----------|
-| `gpt-4.1` | GPT-4.1 | 16K | 1M | $2.5/$10 (in/out) | Latest GPT, great coding |
-| `gpt-4.1-mini` | GPT-4.1 Mini | 16K | 1M | $0.15/$0.6 (in/out) | Faster, cheaper, good for most tasks |
-| `gpt-4.1-nano` | GPT-4.1 Nano | 16K | 1M | $0.04/$0.16 (in/out) | **Cheapest** - simple summaries |
-| `gpt-4o` | GPT-4o | 16K | 128K | $2.5/$10 (in/out) | Multimodal (audio/vision/text) |
-| `gpt-4o-mini` | GPT-4o Mini | 16K | 128K | $0.15/$0.6 (in/out) | Cheaper multimodal |
+Two different resolution paths, which is worth knowing before you change anything:
 
-## Environment Variables
+**Text completions** (`generateAICompletion`, `streamAICompletion`):
+
+```
+AdminSettings.defaultAiModel  →  process.env.AI_MODEL  →  FALLBACK_AI_MODEL
+```
+
+An identifier that isn't in the catalog logs a warning and falls back rather than
+throwing — a stale value in the DB or the env shouldn't take the app down.
+
+**Media pipelines** (voice, image, forward-event, correction) resolve separately and
+never read `DEFAULT_AI_MODEL`:
+
+```
+AdminSettings.defaultAiModel  →  process.env.AI_MODEL  →  per-service hardcoded fallback
+```
+
+Each service's fallback is `FALLBACK_MODEL_ID` from `src/config/ai-models.ts` — the
+raw provider ID for `FALLBACK_AI_MODEL`, since these services call the Gemini SDK
+directly and need the API-side ID rather than the catalog key. Don't paste literals
+here: the previous per-file literals drifted until one of them (`gemini-2.0-flash-exp`)
+had been retired by the provider and would 404 on every call that reached it.
+
+## Gemini thinking level
+
+`AdminSettings.geminiThinkingLevel` accepts `MINIMAL`, `LOW`, `MEDIUM`, `HIGH`, and is
+sent as `thinkingConfig.thinkingLevel`. Support differs by model — 3.7 Flash rejects
+`MINIMAL` with a 400 — so `resolveThinkingLevel()` coerces an unsupported level to the
+nearest one the model accepts (`MINIMAL` → `LOW`, the floor on 3.7). Declare exclusions
+per model via `unsupportedThinkingLevels`.
+
+Note that 3.7 thinks by default. Levels reduce it but don't reliably zero it: on a
+trivial prompt, unset averaged ~90 thought tokens, `LOW` ranged 0–62.
+
+Thinking tokens are billed as output tokens and are reported separately in the
+completion result.
+
+## Environment variables
 
 ```bash
-# Required: Choose your model
-AI_MODEL=claude-sonnet-4.6
+# Which model to use (optional — defaults to gemini-3.7-flash)
+AI_MODEL=gemini-3.7-flash
 
-# Required: Provide API key for your chosen provider
-ANTHROPIC_API_KEY=sk-ant-...    # For Claude models
-OPENAI_API_KEY=sk-...           # For GPT models
+# API key for your chosen model's provider
+GEMINI_API_KEY=...
 
-# Optional: Override max output tokens (default: 2000)
-AI_MAX_TOKENS=3000
+# Optional: cap output tokens (defaults to the model's maxOutputTokens)
+AI_MAX_TOKENS=8192
 
-# Optional: Configure retry attempts (default: 3)
-AI_MAX_RETRIES=5
+# Optional: retry attempts on API failure (default: 1, i.e. 2 total attempts)
+AI_MAX_RETRIES=1
 ```
 
-## Features
+SDK-level retries are disabled (`maxRetries: 0`), so `AI_MAX_RETRIES` is the only
+retry layer. Streaming completions are not retried — partial streams can't be safely
+replayed, so callers fall back to the buffered path.
 
-### ✅ Automatic Token Monitoring
-The system monitors token usage and sends you a Telegram alert if the response is truncated due to hitting the token limit.
+## Switching models in production
 
-### ✅ Automatic Retries with Exponential Backoff
-If the AI API fails (network issues, rate limits, etc.), the system automatically retries with increasing delays:
-- Attempt 1: Immediate
-- Attempt 2: Wait 1 second
-- Attempt 3: Wait 2 seconds
-- Attempt 4: Wait 4 seconds
+The admin panel (Settings → AI Model) writes `AdminSettings.defaultAiModel` and takes
+effect immediately — it overrides `AI_MODEL`. Use the Railway environment variable
+only to change the floor for when no admin setting is present.
 
-### ✅ Easy Model Switching
-Just change the `AI_MODEL` environment variable in Vercel or your `.env` file - no code changes needed!
+## Adding a model
 
-### ✅ Cost Tracking
-All API calls log token usage to help you monitor costs:
-
-```
-AI Completion Success: {
-  model: 'Claude Sonnet 4.6',
-  inputTokens: 1407,
-  outputTokens: 256,
-  stopReason: 'end_turn'
-}
-```
-
-## How to Switch Models
-
-### In Development (Local)
-Edit your `.env` file:
-```bash
-AI_MODEL=gpt-4.1-mini
-OPENAI_API_KEY=sk-...
-```
-
-### In Production (Vercel)
-1. Go to Vercel Dashboard → Your Project → Settings → Environment Variables
-2. Update `AI_MODEL` to your chosen model
-3. Add the appropriate API key (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`)
-4. Redeploy
-
-## Cost Optimization Tips
-
-1. **Start with the cheapest**: Try `gpt-4.1-nano` first ($0.04/$0.16 per 1M tokens)
-2. **Monitor usage**: Check Vercel logs for token counts
-3. **Upgrade if needed**: If quality isn't good enough, upgrade to `gpt-4.1-mini` or `claude-sonnet-4.6`
-4. **Use different models for different tasks**: Daily summaries might work with `gpt-4.1-nano`, while complex analysis might need `claude-opus-4.6`
-
-## Current Usage
-
-Based on your current logs (256 average output tokens):
-- **Claude Sonnet 4.6**: ~$0.004 per summary
-- **GPT-4.1 Mini**: ~$0.0002 per summary
-- **GPT-4.1 Nano**: ~$0.00004 per summary
-
-With 2 summaries/day × 2 users = 4 summaries/day:
-- **Claude Sonnet 4.6**: ~$5/month
-- **GPT-4.1 Mini**: ~$0.25/month
-- **GPT-4.1 Nano**: ~$0.05/month
-
-## Adding New Models
-
-To add a new model, edit `src/config/ai-models.ts`:
+Add an entry to `src/config/ai-models.ts`:
 
 ```typescript
-export const AI_MODELS: Record<string, ModelConfig> = {
-  'my-new-model': {
-    provider: 'openai', // or 'claude'
-    modelId: 'gpt-5-turbo',
-    displayName: 'GPT-5 Turbo',
-    maxOutputTokens: 32000,
-    contextWindow: 2000000,
-    costPer1MTokens: { input: 1, output: 5 },
-    description: 'Next generation GPT',
-  },
-  // ... other models
-};
+'gemini-4-flash': {
+  provider: 'gemini',            // 'claude' | 'openai' | 'gemini'
+  modelId: 'gemini-4-flash',     // exact API model ID
+  displayName: 'Gemini 4 Flash',
+  maxOutputTokens: 65536,
+  contextWindow: 1048576,
+  costPer1MTokens: { input: 0.75, output: 3.75 },
+  description: 'What it is good for',
+},
 ```
 
-Then use it: `AI_MODEL=my-new-model`
+It appears in the admin panel dropdown automatically. Verify the `modelId` against the
+provider's live model list first — a wrong ID only surfaces as a 404 at call time.
+
+## Monitoring
+
+Token usage is logged per call, and hitting the output ceiling sends a Telegram alert
+to the admin. Usage is tracked per provider, including cache and thinking tokens.

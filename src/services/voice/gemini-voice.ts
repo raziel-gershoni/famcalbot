@@ -10,14 +10,14 @@ import { VoiceIntentResult, VoiceIntent, ParsedEvent } from '../event-parser';
 import { CalendarAssignment } from '../../types';
 import { fromZonedTime } from 'date-fns-tz';
 import { getDefaultAiModelSetting } from '../reminder-cache';
-import { getModelConfig } from '../../config/ai-models';
+import { getModelConfig, FALLBACK_MODEL_ID } from '../../config/ai-models';
 
 const VOICE_RETRY_CONFIG = {
   maxRetries: 1,
   baseDelayMs: 500,
 } as const;
 
-const VOICE_MODEL_FALLBACK = 'gemini-3-flash-preview';
+const VOICE_MODEL_FALLBACK = FALLBACK_MODEL_ID;
 
 /**
  * Build the event extraction prompt (shared between voice and text modes)

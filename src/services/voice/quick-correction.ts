@@ -12,7 +12,7 @@
 import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { getGemini } from '../ai-provider';
-import { getModelConfig } from '../../config/ai-models';
+import { getModelConfig, FALLBACK_MODEL_ID } from '../../config/ai-models';
 import { getDefaultAiModelSetting } from '../reminder-cache';
 import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 import type { ParsedEvent } from '../event-parser';
@@ -20,7 +20,7 @@ import type { CalendarAssignment } from '../../types';
 
 export type QuickField = 'time' | 'day' | 'cal';
 const QUICK_TTL_SECONDS = 120; // 2 minutes — enough to read the prompt and reply
-const FIELD_MODEL_FALLBACK = 'gemini-2.0-flash-exp';
+const FIELD_MODEL_FALLBACK = FALLBACK_MODEL_ID;
 
 interface QuickPayload {
   pendingId: string;

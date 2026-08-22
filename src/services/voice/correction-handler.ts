@@ -14,7 +14,7 @@ import { getBotMessages } from '../../lib/bot-messages';
 import { trackActivityAsync, addBreadcrumb } from '../analytics-service';
 import { captureError } from '../../lib/error-capture';
 import { getDefaultAiModelSetting } from '../reminder-cache';
-import { getModelConfig } from '../../config/ai-models';
+import { getModelConfig, FALLBACK_MODEL_ID } from '../../config/ai-models';
 import { fromZonedTime } from 'date-fns-tz';
 import { formatInTimeZone } from 'date-fns-tz';
 import { getPendingEvent, removePendingEvent, showEventConfirmation } from './confirmations';
@@ -24,7 +24,7 @@ import { startTypingInterval } from '../telegram/command-pipeline';
 
 type CorrectionInput = { text: string } | { audioBuffer: Buffer; language: string };
 
-const CORRECTION_MODEL_FALLBACK = 'gemini-3-flash-preview';
+const CORRECTION_MODEL_FALLBACK = FALLBACK_MODEL_ID;
 
 /**
  * Build the correction prompt with current event context

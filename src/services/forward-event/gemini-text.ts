@@ -7,7 +7,7 @@ import { getGemini } from '../ai-provider';
 import { VoiceIntentResult } from '../event-parser';
 import { CalendarAssignment } from '../../types';
 import { getDefaultAiModelSetting } from '../reminder-cache';
-import { getModelConfig } from '../../config/ai-models';
+import { getModelConfig, FALLBACK_MODEL_ID } from '../../config/ai-models';
 import { buildEventExtractionPrompt, parseGeminiEventResponse } from '../voice/gemini-voice';
 
 const TEXT_RETRY_CONFIG = {
@@ -15,7 +15,7 @@ const TEXT_RETRY_CONFIG = {
   baseDelayMs: 500,
 } as const;
 
-const TEXT_MODEL_FALLBACK = 'gemini-3-flash-preview';
+const TEXT_MODEL_FALLBACK = FALLBACK_MODEL_ID;
 
 export interface TextProcessingMetrics {
   model: string;
