@@ -190,6 +190,19 @@
       "resetAllResetting": "מאפס...",
       "resetAllResult": "אופסו {count} משתמשים"
     },
+    "comp": {
+      "title": "פרימיום במתנה",
+      "description": "לתת למשתמש הזה גישת PRO בלי תשלום.",
+      "grant": "תן PRO",
+      "granting": "נותן...",
+      "revoke": "בטל PRO",
+      "revoking": "מבטל...",
+      "activeSince": "PRO במתנה מאז {date}",
+      "reasonPlaceholder": "למה? (לא חובה)",
+      "blockedActive": "למשתמש הזה כבר יש מנוי פעיל - אין מה לתת.",
+      "earlyAdoptionWarning": "מצב מאמצים מוקדמים פעיל לכולם, אז למשתמש הזה כבר יש גישה מלאה. המתנה לא תשנה כלום עד שתכבה אותו.",
+      "failed": "לא הצלחתי לעדכן את גישת הפרימיום. נסה שוב."
+    },
     "openDashboard": "פתח לוח בקרה למשתמש",
     "activity": {
       "title": "פעילות משתמשים",
@@ -203,7 +216,8 @@
       "justNow": "עכשיו",
       "minutes": "ד'",
       "hours": "ש'",
-      "days": "ימ'"
+      "days": "ימ'",
+      "userTitle": "פעילות אחרונה"
     },
     "feedback": {
       "title": "משוב משתמשים",

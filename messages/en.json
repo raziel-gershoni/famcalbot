@@ -190,6 +190,19 @@
       "resetAllResetting": "Resetting...",
       "resetAllResult": "Reset {count} users"
     },
+    "comp": {
+      "title": "Comped Premium",
+      "description": "Give this user PRO access at no charge.",
+      "grant": "Grant PRO",
+      "granting": "Granting...",
+      "revoke": "Revoke PRO",
+      "revoking": "Revoking...",
+      "activeSince": "Comped PRO since {date}",
+      "reasonPlaceholder": "Why? (optional)",
+      "blockedActive": "This user already has an active plan - nothing to comp.",
+      "earlyAdoptionWarning": "Early-adoption mode is on for everyone, so this user already has full access. Granting won't change anything visible until you turn it off.",
+      "failed": "Couldn't update premium access. Try again."
+    },
     "openDashboard": "Open User Dashboard",
     "activity": {
       "title": "User Activity",
@@ -203,7 +216,8 @@
       "justNow": "just now",
       "minutes": "min",
       "hours": "hr",
-      "days": "d"
+      "days": "d",
+      "userTitle": "Recent activity"
     },
     "feedback": {
       "title": "User Feedback",
