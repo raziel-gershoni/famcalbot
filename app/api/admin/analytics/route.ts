@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyUserAccess } from '@/src/lib/telegram-auth';
-import { getUserByTelegramId } from '@/src/services/user-service';
+import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import {
   getActivityStats,
   getDailyActivityCounts,
@@ -20,34 +19,21 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('user_id');
     const initData = searchParams.get('initData');
     const days = parseInt(searchParams.get('days') || '30');
     const reportType = searchParams.get('type') || 'overview';
 
-    if (!userId) {
+    // This route used to gate on `if (initData && !verifyUserAccess(...))`, which
+    // skipped verification entirely when initData was absent and then trusted a
+    // user_id query param to name the admin - so knowing any admin's Telegram ID
+    // was enough to read the full analytics. Now it uses the same unconditional
+    // gate as every other admin route, and no longer takes an identity from the
+    // query string at all.
+    const auth = await verifyAdminAccess(initData || undefined);
+    if (!auth.authorized) {
       return NextResponse.json(
-        { success: false, error: 'Missing user_id' },
-        { status: 400 }
-      );
-    }
-
-    const userIdNum = parseInt(userId);
-
-    // Verify user access via Telegram initData
-    if (initData && !verifyUserAccess(initData, userIdNum)) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    // Check admin status
-    const user = await getUserByTelegramId(userIdNum);
-    if (!user?.isAdmin) {
-      return NextResponse.json(
-        { success: false, error: 'Admin access required' },
-        { status: 403 }
+        { success: false, error: auth.error },
+        { status: auth.error === 'Admin access required' ? 403 : 401 }
       );
     }
 

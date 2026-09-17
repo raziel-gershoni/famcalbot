@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { sendSubscriptionInvoice } from '@/src/services/payment-handler';
 import { verifyUserAccess } from '@/src/lib/telegram-auth';
+import { validateSessionFromRequest } from '@/src/lib/session-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { PlanId, PLAN_CONFIGS } from '@/src/config/plans';
 
@@ -51,8 +52,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify Telegram authentication if initData is provided
-    if (initData && !verifyUserAccess(initData, user_id)) {
+    // Authenticate. This used to read `if (initData && !verifyUserAccess(...))`,
+    // so a request with NO initData skipped verification altogether and a known
+    // Telegram ID was enough to make the bot send that person an invoice.
+    // Verification is now mandatory, accepting either Telegram initData or the
+    // WhatsApp magic-link session - the session carries the DB user id, while
+    // user_id here is a telegramId, so they are compared against different fields.
+    const telegramAuthed = verifyUserAccess(initData ?? null, user_id);
+    let sessionAuthed = false;
+    if (!telegramAuthed) {
+      const sessionUserId = validateSessionFromRequest(request);
+      sessionAuthed = sessionUserId !== null && sessionUserId === user.id;
+    }
+
+    if (!telegramAuthed && !sessionAuthed) {
+      console.warn(`[subscription-upgrade] Unauthorized upgrade attempt for user ${user_id}`);
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
