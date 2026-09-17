@@ -210,6 +210,14 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   const [activityHasMore, setActivityHasMore] = useState(false);
   const [activityOffset, setActivityOffset] = useState(0);
 
+  // Per-user activity shown inside the selected-user card. Deliberately separate
+  // from the global activity state above - sharing it would empty the global
+  // list whenever a user was selected.
+  const [userActivity, setUserActivity] = useState<ActivityItem[]>([]);
+  const [isLoadingUserActivity, setIsLoadingUserActivity] = useState(false);
+  const [userActivityOffset, setUserActivityOffset] = useState(0);
+  const [userActivityHasMore, setUserActivityHasMore] = useState(false);
+
   // Collapsible sections state
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
 
@@ -396,6 +404,33 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
     }
   }, [activityFilter, activityUserFilter, activityOffset]);
 
+  // Fetch one user's activity for the selected-user card
+  const fetchUserActivity = useCallback(async (userId: number, reset: boolean = false) => {
+    setIsLoadingUserActivity(true);
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const newOffset = reset ? 0 : userActivityOffset;
+      const params = new URLSearchParams({
+        initData: initData || '',
+        user_id: String(userId),
+        limit: '20',
+        offset: String(newOffset),
+      });
+
+      const response = await fetch(`/api/admin/user-activity?${params}`);
+      const data = await response.json();
+      if (data.success) {
+        setUserActivity(prev => (reset ? (data.activities || []) : [...prev, ...(data.activities || [])]));
+        setUserActivityOffset(newOffset + 20);
+        setUserActivityHasMore(data.pagination?.hasMore || false);
+      }
+    } catch (error) {
+      console.error('Failed to fetch user activity:', error);
+    } finally {
+      setIsLoadingUserActivity(false);
+    }
+  }, [userActivityOffset]);
+
   // Fetch user feedback
   const fetchFeedback = useCallback(async () => {
     setIsLoadingFeedback(true);
@@ -523,6 +558,9 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
           earlyAdopter: data.user.override?.earlyAdopter === true,
         });
         setOverrideReason(data.user.override?.reason || '');
+        setUserActivity([]);
+        setUserActivityOffset(0);
+        void fetchUserActivity(userId, true);
       }
     } catch (error) {
       console.error('Failed to load user:', error);
@@ -567,6 +605,9 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   const clearSelectedUser = () => {
     setSelectedUser(null);
     setReminderFeedback(null);
+    setUserActivity([]);
+    setUserActivityOffset(0);
+    setUserActivityHasMore(false);
   };
 
   // Send registration reminder
@@ -1726,6 +1767,44 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
           color: #9ca3af;
           white-space: nowrap;
         }
+        .user-activity-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 8px;
+          padding: 6px 0;
+          border-bottom: 1px solid #f3f4f6;
+        }
+        .user-activity-row:last-of-type {
+          border-bottom: none;
+        }
+        .user-activity-main {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 6px;
+          min-width: 0;
+        }
+        .user-activity-meta {
+          font-size: 11px;
+          color: #9ca3af;
+          word-break: break-all;
+        }
+        .user-activity-more {
+          width: 100%;
+          margin-top: 8px;
+          padding: 8px;
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          background: #fff;
+          color: #4b5563;
+          font-size: 13px;
+          cursor: pointer;
+        }
+        .user-activity-more:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
 
         .activity-filter-row {
           display: flex;
@@ -2717,6 +2796,48 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                     </>
                   )}
                 </button>
+                </div>
+
+                {/* Recent activity for this user */}
+                <div className="user-card-section">
+                  <div className="user-card-section-title">{t('activity.userTitle')}</div>
+                  {isLoadingUserActivity && userActivity.length === 0 ? (
+                    <div className="empty-state">
+                      <Loader2 size={20} className="animate-spin" style={{ margin: '0 auto' }} />
+                    </div>
+                  ) : userActivity.length === 0 ? (
+                    <div className="empty-state">{t('activity.noActivity')}</div>
+                  ) : (
+                    <>
+                      {userActivity.map((item) => (
+                        <div key={item.id} className="user-activity-row">
+                          <div className="user-activity-main">
+                            <span className="activity-action-badge">{item.action}</span>
+                            {item.metadata && Object.keys(item.metadata).length > 0 && (
+                              <span className="user-activity-meta">
+                                {JSON.stringify(item.metadata).substring(0, 60)}
+                                {JSON.stringify(item.metadata).length > 60 && '...'}
+                              </span>
+                            )}
+                          </div>
+                          <div className="activity-time">{formatRelativeTime(item.createdAt)}</div>
+                        </div>
+                      ))}
+                      {userActivityHasMore && (
+                        <button
+                          className="user-activity-more"
+                          onClick={() => selectedUser && fetchUserActivity(selectedUser.id)}
+                          disabled={isLoadingUserActivity}
+                        >
+                          {isLoadingUserActivity ? (
+                            <Loader2 size={14} className="animate-spin" />
+                          ) : (
+                            t('activity.loadMore')
+                          )}
+                        </button>
+                      )}
+                    </>
+                  )}
                 </div>
 
                 {/* Moderation Section (suspend / hard delete / ban) */}
