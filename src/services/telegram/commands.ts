@@ -538,7 +538,8 @@ export async function handleLookaheadCommand(
 
       pushStage('lookingAhead');
       const { getWeekLookahead } = await import('../week-lookahead');
-      const lookahead = await getWeekLookahead(user, user.calendarAssignments || []);
+      const { getCalendarAssignmentsForUser } = await import('../calendar-provider');
+      const lookahead = await getWeekLookahead(user, await getCalendarAssignmentsForUser(user));
 
       pushStage('composing');
       const { generateWeekLookahead } = await import('../claude');
@@ -637,7 +638,8 @@ export async function handleNextWeekCommand(
 
       pushStage('lookingAhead');
       const { getNextWeekLookahead } = await import('../week-lookahead');
-      const lookahead = await getNextWeekLookahead(user, user.calendarAssignments || []);
+      const { getCalendarAssignmentsForUser } = await import('../calendar-provider');
+      const lookahead = await getNextWeekLookahead(user, await getCalendarAssignmentsForUser(user));
 
       pushStage('composing');
       const { generateNextWeekSummary } = await import('../claude');

@@ -28,7 +28,13 @@ export async function handleDailySummary(): Promise<CronResult> {
     const users = await prisma.user.findMany({
       where: {
         remindersEnabled: true,
-        googleRefreshToken: { not: '' },
+        // A NATIVE user has googleRefreshToken = '' by definition, so filtering
+        // on the token alone kept every one of them out of the reminder cache -
+        // meaning event reminders never fired for them at all.
+        OR: [
+          { googleRefreshToken: { not: '' } },
+          { calendarSource: 'NATIVE' },
+        ],
         telegramId: { not: null },
         suspendedAt: null,
       },
@@ -37,6 +43,8 @@ export async function handleDailySummary(): Promise<CronResult> {
         telegramId: true,
         googleRefreshToken: true,
         calendarAssignments: true,
+        calendarSource: true,
+        pairingId: true,
         defaultReminderMinutes: true,
         pickupRemindersEnabled: true,
         language: true,
@@ -49,6 +57,8 @@ export async function handleDailySummary(): Promise<CronResult> {
       telegramId: u.telegramId?.toString() ?? '',
       googleRefreshToken: safeDecrypt(u.googleRefreshToken),
       calendarAssignments: u.calendarAssignments,
+      calendarSource: u.calendarSource,
+      pairingId: u.pairingId,
       defaultReminderMinutes: u.defaultReminderMinutes,
       language: u.language,
       name: u.name,
@@ -149,6 +159,10 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
         language: cachedUser.language,
         googleRefreshToken: cachedUser.googleRefreshToken,
         calendarAssignments: cachedUser.calendarAssignments,
+        // Carry the provider context, or getProviderForUser dispatches every
+        // cached user to Google regardless of their actual calendar source.
+        calendarSource: cachedUser.calendarSource ?? 'GOOGLE',
+        pairingId: cachedUser.pairingId ?? null,
         defaultReminderMinutes: cachedUser.defaultReminderMinutes ?? undefined,
         remindersEnabled: true,
       } as import('../types').UserConfig;

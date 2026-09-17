@@ -407,6 +407,19 @@ export interface DeleteNativeEventInput {
   actingUserId: number;
 }
 
+/**
+ * Read a native series' RRULE. Used by the week lookahead to classify how often
+ * a recurring occurrence repeats, the same way it reads Google's master event.
+ * Returns null for a one-off event or an unknown id.
+ */
+export async function getNativeSeriesRrule(seriesCuid: string): Promise<string | null> {
+  const series = await prisma.nativeEvent.findUnique({
+    where: { id: seriesCuid },
+    select: { rrule: true },
+  });
+  return series?.rrule ?? null;
+}
+
 export async function deleteNativeEvent(input: DeleteNativeEventInput): Promise<void> {
   const series = await prisma.nativeEvent.findUnique({ where: { id: input.seriesCuid } });
   if (!series || series.isDeleted) throw new NativeNotFoundError();

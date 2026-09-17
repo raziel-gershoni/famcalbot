@@ -24,6 +24,13 @@ export interface CachedReminderUser {
   language: string;
   name: string;
   pickupRemindersEnabled: boolean;
+  // Needed to rebuild a UserConfig the provider dispatch can read. Without
+  // these, a cached NATIVE user is reconstructed with no calendarSource and
+  // getProviderForUser falls through to Google. Optional so entries written
+  // before this field existed still parse - they degrade to the Google path,
+  // which is what they were anyway.
+  calendarSource?: string;
+  pairingId?: string | null;
 }
 
 /**

@@ -97,11 +97,16 @@ export async function handleForwardedMessage(
       language: user.language,
     });
 
-    if (!user.googleRefreshToken) {
-      console.log(`[Forward] User ${userId} has no Google refresh token`);
+    // Matches the voice and image handlers, which are already source-aware. The
+    // previous token-only gate turned every forwarded message from a NATIVE user
+    // into "no calendar", since their googleRefreshToken is '' by definition.
+    const { hasUsableCalendar, getCalendarAssignmentsForUser } = await import('../calendar-provider');
+    if (!(await hasUsableCalendar(user))) {
+      console.log(`[Forward] User ${userId} has no usable calendar (source=${user.calendarSource})`);
       await messagingService.sendMessage(chatId, t.voice.noCalendar, { format: MessageFormat.PLAIN });
       return;
     }
+    const userCalendars = await getCalendarAssignmentsForUser(user);
 
     if (messageText.length > MAX_TEXT_LENGTH) {
       await messagingService.sendMessage(chatId, t.voice.forwardTooLong, { format: MessageFormat.PLAIN });
@@ -115,7 +120,7 @@ export async function handleForwardedMessage(
     const { intentResult, metrics } = await processTextWithGemini(
       messageText,
       user.language || 'en',
-      user.calendarAssignments || [],
+      userCalendars,
       timezone
     );
 

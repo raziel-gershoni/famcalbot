@@ -5,6 +5,8 @@
 
 import { CalendarEvent, CalendarAssignment, CalendarLabel, UserConfig } from '../types';
 import { getCalendarClient, TIMEZONE } from './calendar';
+import { getProviderForUser } from './calendar-provider';
+import { getNativeSeriesRrule } from './native-calendar/event-store';
 import { isAllDayEvent, isBirthdayEvent } from '../utils/event-formatter';
 
 // Recurrence frequency types
@@ -90,7 +92,7 @@ function parseRecurrence(rrule?: string[]): RecurrenceType {
  * Uses caching to avoid repeated API calls for the same recurring event
  */
 async function getMasterEventRecurrence(
-  refreshToken: string,
+  user: UserConfig,
   calendarId: string,
   recurringEventId: string
 ): Promise<string[] | null> {
@@ -100,8 +102,32 @@ async function getMasterEventRecurrence(
     return recurrenceCache.get(cacheKey) || null;
   }
 
+  // NATIVE: the series rule lives in our own table. Falling through to the
+  // Google client here would authenticate with an empty refresh token, fail,
+  // and land in the catch below - which classifies the event as 'daily' and
+  // therefore filters every recurring native event out of the lookahead,
+  // including the monthly and yearly ones that ought to show.
+  if (user.calendarSource === 'NATIVE') {
+    try {
+      const rrule = await getNativeSeriesRrule(recurringEventId);
+      // parseRecurrence only looks at entries prefixed 'RRULE:', which is how
+      // Google returns them. Native stores the bare rule, so normalize - without
+      // this every recurring native event parses as 'single', gets forced to
+      // 'daily' by the caller, and is filtered out of the lookahead.
+      const recurrence = rrule
+        ? [rrule.startsWith('RRULE:') ? rrule : `RRULE:${rrule}`]
+        : null;
+      recurrenceCache.set(cacheKey, recurrence);
+      return recurrence;
+    } catch (error) {
+      console.warn(`Failed to read native series ${recurringEventId}:`, error);
+      recurrenceCache.set(cacheKey, null);
+      return null;
+    }
+  }
+
   try {
-    const calendar = getCalendarClient(refreshToken);
+    const calendar = getCalendarClient(user.googleRefreshToken);
     const master = await calendar.events.get({
       calendarId,
       eventId: recurringEventId,
@@ -156,12 +182,19 @@ function getDaysFromReference(eventStart: Date, referenceDate?: Date): number {
  * Fetch events for date range from all assigned calendars
  */
 async function fetchEventsInRange(
-  refreshToken: string,
+  user: UserConfig,
   calendarIds: string[],
   start: Date,
   end: Date
 ): Promise<CalendarEvent[]> {
-  const calendar = getCalendarClient(refreshToken);
+  // NATIVE users go through the provider, which reads the in-bot calendar.
+  // This function's Google path below talks to the API directly, so without
+  // this branch /week and /nextweek returned nothing for them.
+  if (user.calendarSource === 'NATIVE') {
+    return getProviderForUser(user).fetchEventsInRange(user, calendarIds, start, end);
+  }
+
+  const calendar = getCalendarClient(user.googleRefreshToken);
   const allEvents: CalendarEvent[] = [];
 
   for (const calendarId of calendarIds) {
@@ -222,7 +255,7 @@ async function filterAndBuildLookaheadEvents(
     if (!birthday && event.recurringEventId) {
       // Fetch master event to get recurrence rules
       const rrule = await getMasterEventRecurrence(
-        user.googleRefreshToken,
+        user,
         event.calendarId,
         event.recurringEventId
       );
@@ -281,13 +314,13 @@ export async function getWeekLookahead(
   // Get all calendar IDs (including birthdays)
   const calendarIds = calendars.map(c => c.calendarId);
 
-  if (calendarIds.length === 0 || !user.googleRefreshToken) {
+  if (calendarIds.length === 0 || (user.calendarSource !== 'NATIVE' && !user.googleRefreshToken)) {
     return { events: [], dateRange: { start: startDate, end: endDate } };
   }
 
   // Fetch all events in range
   const events = await fetchEventsInRange(
-    user.googleRefreshToken,
+    user,
     calendarIds,
     startDate,
     endDate
@@ -351,13 +384,13 @@ export async function getNextWeekLookahead(
   // Get all calendar IDs (including birthdays)
   const calendarIds = calendars.map(c => c.calendarId);
 
-  if (calendarIds.length === 0 || !user.googleRefreshToken) {
+  if (calendarIds.length === 0 || (user.calendarSource !== 'NATIVE' && !user.googleRefreshToken)) {
     return { events: [], dateRange: { start, end } };
   }
 
   // Fetch all events in range
   const events = await fetchEventsInRange(
-    user.googleRefreshToken,
+    user,
     calendarIds,
     start,
     end

@@ -3,7 +3,7 @@
  */
 
 import { getUserByTelegramId, getUserByIdentifier, getAllUsers, getWhatsAppChatId } from '../user-service';
-import { getProviderForUser } from '../calendar-provider';
+import { getProviderForUser, getCalendarAssignmentsForUser } from '../calendar-provider';
 
 // Provider-aware fetchers that match the fetchFunction signature in summary callers.
 // These are stable wrappers around getProviderForUser(user) so PR 4 can change
@@ -13,7 +13,7 @@ const fetchTodayEvents = (user: UserConfig, calendarIds: string[], tz?: string):
 const fetchTomorrowEvents = (user: UserConfig, calendarIds: string[], tz?: string): Promise<CalendarEvent[]> =>
   getProviderForUser(user).fetchTomorrowEvents(user, calendarIds, tz);
 import { generateSummary, SummaryUserContext, formatDateHeader } from '../claude';
-import { CalendarEvent, UserConfig } from '../../types';
+import { CalendarEvent, UserConfig, CalendarAssignment } from '../../types';
 import { IMessagingService, getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from '../messaging';
 import type { StreamMessageHandle } from '../messaging/types';
 import { getCalendarsByLabel, getPrimaryCalendar, getSpouseInfo } from '../../utils/calendar-helpers';
@@ -32,13 +32,17 @@ import { sendSetupNudgeIfNeeded } from './commands';
 /**
  * Categorize events by ownership for a specific user
  */
-export function categorizeEvents(events: CalendarEvent[], user: UserConfig) {
-  const ownCalendars = user.calendarAssignments
-    ? getCalendarsByLabel(user.calendarAssignments, 'yours')
-    : [];
-  const spouseCalendars = user.calendarAssignments
-    ? getCalendarsByLabel(user.calendarAssignments, 'spouse')
-    : [];
+export function categorizeEvents(
+  events: CalendarEvent[],
+  user: UserConfig,
+  // Resolved assignments. Defaults to the raw Google-only JSON column for
+  // backwards compatibility; callers with a NATIVE user must pass the result of
+  // getCalendarAssignmentsForUser(), or every event lands in `otherEvents`.
+  assignments?: CalendarAssignment[]
+) {
+  const resolved = assignments ?? user.calendarAssignments ?? [];
+  const ownCalendars = getCalendarsByLabel(resolved, 'yours');
+  const spouseCalendars = getCalendarsByLabel(resolved, 'spouse');
 
   return {
     userEvents: events.filter(e => ownCalendars.includes(e.calendarId)),
@@ -80,8 +84,13 @@ async function prepareSummaryForUser(
   const userTimezone = await resolveUserTimezone(user);
   const timezoneMs = Date.now() - tTimezone;
 
-  // Extract all calendar IDs from assignments
-  const allCalendarIds = user.calendarAssignments?.map(a => a.calendarId) || [];
+  // Resolve the user's calendars through the provider. Reading
+  // user.calendarAssignments directly would hand a NATIVE user an empty list -
+  // that column is the Google-only JSON and is never populated for them - and
+  // the native provider short-circuits to [] on an empty calendar list, so the
+  // whole summary would come back with no events.
+  const assignments = await getCalendarAssignmentsForUser(user);
+  const allCalendarIds = assignments.map(a => a.calendarId);
 
   // Fetch calendar events with user's timezone
   onStageChange?.('fetchingCalendar');
@@ -91,13 +100,11 @@ async function prepareSummaryForUser(
 
   // Categorize events by ownership
   const tCategorize = Date.now();
-  const categorized = categorizeEvents(events, user);
+  const categorized = categorizeEvents(events, user, assignments);
   const categorizeMs = Date.now() - tCategorize;
 
   // Extract primary calendar ID
-  const primaryCalendar = user.calendarAssignments
-    ? getPrimaryCalendar(user.calendarAssignments) || ''
-    : '';
+  const primaryCalendar = getPrimaryCalendar(assignments) || '';
 
   // Get spouse info from calendar assignment or legacy fields
   const spouseInfo = getSpouseInfo(user);
@@ -106,7 +113,7 @@ async function prepareSummaryForUser(
   const userContext: SummaryUserContext = {
     culture: user.culture,
     globalRules: user.globalRules,
-    calendarAssignments: user.calendarAssignments,
+    calendarAssignments: assignments,
   };
 
   // Fetch week lookahead if enabled for tomorrow summary
@@ -117,7 +124,7 @@ async function prepareSummaryForUser(
     const tLookahead = Date.now();
     try {
       const { getWeekLookahead } = await import('../week-lookahead');
-      const lookahead = await getWeekLookahead(user, user.calendarAssignments || [], summaryDate);
+      const lookahead = await getWeekLookahead(user, assignments, summaryDate);
 
       if (lookahead.events.length > 0) {
         weekLookaheadText = lookahead.events
@@ -371,11 +378,18 @@ async function sendSummaryToAll(
         console.log(`[Summary] User ${user.id}: platform=${platform} waPhone=${user.whatsappPhone || 'null'} waBsuid=${user.whatsappBsuid || 'null'} waChatId=${getWhatsAppChatId(user) || 'null'}`);
       }
 
-      const hasToken = !!user.googleRefreshToken;
-      const hasCalendars = user.calendarAssignments && user.calendarAssignments.length > 0;
+      // A NATIVE user has googleRefreshToken = '' by definition, so gating on the
+      // token alone skipped every one of them on every scheduled run - no daily
+      // summary, no tomorrow summary, not even the weather-only fallback below.
+      const isNative = user.calendarSource === 'NATIVE';
+      const hasBackend = isNative || !!user.googleRefreshToken;
+      const assignments = isNative
+        ? await getCalendarAssignmentsForUser(user)
+        : (user.calendarAssignments ?? []);
+      const hasCalendars = assignments.length > 0;
       const hasLocation = !!user.location;
 
-      if (!hasToken) {
+      if (!hasBackend) {
         console.log(`[Summary] Skipping user ${user.id}: No Google token`);
         continue;
       }
