@@ -13,6 +13,7 @@ import { trackActivity } from './analytics-service';
 import { buildUrl } from '../config/urls';
 import { captureError } from '../lib/error-capture';
 import { getEarlyAdoptionMode } from './reminder-cache';
+import { invalidateFeatureAccessCache } from './subscription-service';
 import { REDIS_KEYS } from '../config/redis-keys';
 
 
@@ -237,6 +238,8 @@ async function expireSubscriptions(): Promise<void> {
     where: {
       status: { in: ['ACTIVE', 'CANCELED'] },
       plan: { not: 'FREE' },
+      // Comped subscriptions never expire - only an admin revoke ends them.
+      compedBy: null,
       currentPeriodEnd: {
         lt: now,
       },
@@ -283,6 +286,10 @@ async function expireSubscriptions(): Promise<void> {
         plan: 'FREE',
       },
     });
+
+    // The 24h feature-access cache would otherwise keep serving paid access
+    // after the downgrade.
+    await invalidateFeatureAccessCache(sub.userId);
 
     // Send notification
     const locale = sub.user.language || 'en';

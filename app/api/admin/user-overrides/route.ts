@@ -435,6 +435,10 @@ export async function POST(request: NextRequest) {
         where: { userId: user_id },
       });
 
+      // Without this the user keeps granted access for up to 24h on the cached
+      // feature-access result.
+      await invalidateFeatureAccessCache(user_id);
+
       console.log(`[user-overrides] Admin ${auth.adminId} removed override for user ${user_id}`);
 
       return NextResponse.json({
@@ -538,6 +542,8 @@ export async function DELETE(request: NextRequest) {
         { status: 404 }
       );
     }
+
+    await invalidateFeatureAccessCache(userId);
 
     console.log(`[user-overrides] Admin ${auth.adminId} deleted override for user ${userId}`);
 
