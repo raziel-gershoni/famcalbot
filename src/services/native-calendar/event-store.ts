@@ -359,7 +359,7 @@ export async function updateNativeEvent(input: UpdateNativeEventInput): Promise<
       // 1. Truncate parent rrule
       await tx.nativeEvent.update({
         where: { id: series.id },
-        data: { rrule: truncateRruleBefore(series.rrule!, input.instanceStartsAt!) },
+        data: { rrule: truncateRruleBefore(series.rrule!, input.instanceStartsAt!, series.timeZone) },
       });
       // 2. Insert new series starting from the instance, with overrides applied
       const newStarts = input.startsAt ?? input.instanceStartsAt!;
@@ -465,11 +465,20 @@ export async function deleteNativeEvent(input: DeleteNativeEventInput): Promise<
     await prisma.$transaction(async (tx) => {
       await tx.nativeEvent.update({
         where: { id: series.id },
-        data: { rrule: truncateRruleBefore(series.rrule!, input.instanceStartsAt!) },
+        data: { rrule: truncateRruleBefore(series.rrule!, input.instanceStartsAt!, series.timeZone) },
       });
       await tx.nativeEventInstance.deleteMany({
         where: { seriesEventId: series.id, originalStartsAt: { gte: input.instanceStartsAt! } },
       });
     });
+    return;
   }
+
+  // 'following' with nothing to truncate - a one-off event, or a series we were
+  // given no occurrence for. Delete the event, matching the Google path, which
+  // falls through to deleting the whole event in the same situation. Previously
+  // this fell off the end having done nothing while the caller still reported
+  // "Event deleted!" - and it is reachable, because the model is instructed to
+  // emit scope 'following' for "from now on" even on a non-recurring event.
+  await prisma.nativeEvent.update({ where: { id: series.id }, data: { isDeleted: true } });
 }

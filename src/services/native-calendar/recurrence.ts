@@ -12,7 +12,9 @@
 // and exdates. Callers feed the result into UnifiedEvent shape via toUnifiedEvent.
 
 import { RRule, RRuleSet } from 'rrule';
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import type { NativeEvent, NativeEventInstance } from '@prisma/client';
+import { TIMEZONE } from '../../config/constants';
 
 export interface VirtualInstance {
   // Identity
@@ -50,6 +52,21 @@ function buildRuleSet(rrule: string, dtstart: Date): RRuleSet {
   const set = new RRuleSet();
   set.rrule(rule);
   return set;
+}
+
+/**
+ * Carry an instant's wall-clock reading in `tz` inside a Date's UTC fields.
+ * "Floating" time in RFC-5545 terms: 08:00 local becomes 08:00Z regardless of
+ * the real offset, which is the only representation in which a weekly rule
+ * keeps a constant local time across a DST transition.
+ */
+function toFloating(instant: Date, tz: string): Date {
+  return new Date(`${formatInTimeZone(instant, tz, "yyyy-MM-dd'T'HH:mm:ss")}Z`);
+}
+
+/** Inverse of toFloating: re-anchor a wall clock in `tz` to a real instant. */
+function fromFloating(floating: Date, tz: string): Date {
+  return fromZonedTime(floating.toISOString().slice(0, 19), tz);
 }
 
 /**
@@ -143,15 +160,34 @@ export function expandSeries(
     return instance ? [{ ...instance, isRecurringInstance: false }] : [];
   }
 
-  // Recurring: enumerate occurrences in [from, to)
-  const ruleset = buildRuleSet(event.rrule, event.startsAt);
-  // rrule's `between(after, before, inc=true)` is inclusive on both ends; we want
-  // [from, to) so we trim any equal-to-to result below.
-  const occurrences = ruleset.between(range.from, range.to, true);
+  // Recurring: enumerate occurrences in [from, to).
+  //
+  // Expansion runs in floating local time and each occurrence is re-anchored to
+  // a real instant through the event's own timezone. Anchoring the rule at the
+  // stored UTC instant instead holds the UTC time-of-day constant, which walks
+  // the local clock by an hour at every DST transition — a weekly 08:00 event
+  // silently becomes 07:00. Verified against rrule 2.8.1. Note that rrule's own
+  // `tzid` option does NOT fix this: it expects a floating dtstart, so handing
+  // it a real instant makes it a no-op.
+  const tz = event.timeZone || TIMEZONE;
+  const ruleset = buildRuleSet(event.rrule, toFloating(event.startsAt, tz));
+
+  // Widen the floating window by a day either side so an occurrence sitting near
+  // a DST boundary can't be trimmed by the offset shift, then filter exactly on
+  // the re-anchored instants. `between(after, before, inc=true)` is inclusive at
+  // both ends; the filter below restores the half-open [from, to).
+  const PAD_MS = 24 * 60 * 60 * 1000;
+  const occurrences = ruleset
+    .between(
+      new Date(toFloating(range.from, tz).getTime() - PAD_MS),
+      new Date(toFloating(range.to, tz).getTime() + PAD_MS),
+      true
+    )
+    .map((floating) => fromFloating(floating, tz))
+    .filter((start) => start >= range.from && start < range.to);
 
   const instances: VirtualInstance[] = [];
   for (const start of occurrences) {
-    if (start.getTime() >= range.to.getTime()) continue;
     const inst = buildInstance(event, start, overrideMap);
     if (inst) instances.push(inst);
   }
@@ -180,18 +216,24 @@ export function expandSeries(
  * Used for scope=following edits/deletes — caller updates NativeEvent.rrule
  * with the returned string.
  *
- * Strategy: strip any existing UNTIL/COUNT and append UNTIL=<instanceDate-1>
- * formatted as YYYYMMDD (the RFC-5545 date form, which RRULE accepts when
- * the original DTSTART was timed). We use the day-before so the truncation
- * is exclusive of the targeted instance.
+ * Strategy: strip any existing UNTIL/COUNT and append an UNTIL set one second
+ * before the targeted occurrence, expressed in the same floating local space
+ * expandSeries works in.
+ *
+ * The earlier form used UNTIL=<instanceDate-1 day> as a bare YYYYMMDD, which
+ * rrule reads as the previous midnight — so a timed series lost an extra
+ * occurrence. Cutting a daily 08:00 series at 2026-09-20 produced
+ * UNTIL=20260919 and dropped the 08:00 event on the 19th as well.
+ *
+ * The UNTIL is deliberately floating rather than UTC: expansion is anchored in
+ * the event's local time, and this string is only ever read back by
+ * expandSeries. It would need converting to a UTC `Z` form to be RFC-5545
+ * conformant for export.
  */
-export function truncateRruleBefore(rrule: string, instanceDate: Date): string {
-  const dayBefore = new Date(instanceDate);
-  dayBefore.setUTCDate(dayBefore.getUTCDate() - 1);
-  const yyyy = dayBefore.getUTCFullYear();
-  const mm = String(dayBefore.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(dayBefore.getUTCDate()).padStart(2, '0');
-  const untilStr = `${yyyy}${mm}${dd}`;
+export function truncateRruleBefore(rrule: string, instanceDate: Date, timeZone: string): string {
+  const justBefore = toFloating(new Date(instanceDate.getTime() - 1000), timeZone || TIMEZONE);
+  // YYYYMMDDTHHMMSS
+  const untilStr = justBefore.toISOString().replace(/[-:]/g, '').slice(0, 15);
 
   const trimmed = rrule.startsWith('RRULE:') ? rrule.slice(6) : rrule;
   const parts = trimmed

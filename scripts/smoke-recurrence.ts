@@ -180,11 +180,82 @@ check('Range is half-open: occurrence at exactly `to` is excluded', () => {
 // 9. truncateRruleBefore appends UNTIL
 check('truncateRruleBefore replaces UNTIL/COUNT with new UNTIL', () => {
   const inDay = new Date('2026-06-15T09:00:00Z');
-  const out = truncateRruleBefore('FREQ=WEEKLY;BYDAY=MO;COUNT=10', inDay);
-  assert(out.includes('UNTIL=20260614'), `missing UNTIL: ${out}`);
+  const out = truncateRruleBefore('FREQ=WEEKLY;BYDAY=MO;COUNT=10', inDay, 'UTC');
+  // One second before the cut occurrence, not the previous midnight.
+  assert(out.includes('UNTIL=20260615T085959'), `wrong UNTIL: ${out}`);
   assert(!out.includes('COUNT='), `COUNT should be removed: ${out}`);
   assert(out.includes('FREQ=WEEKLY'), 'FREQ preserved');
   assert(out.includes('BYDAY=MO'), 'BYDAY preserved');
+});
+
+// 10. A 'following' cut must not eat the occurrence before it. The old
+// day-before-midnight UNTIL dropped one extra event from every timed series.
+check('following-cut keeps the occurrence immediately before the cut', () => {
+  const series = makeSeries({ rrule: 'FREQ=DAILY' });
+  const cut = new Date('2026-06-04T09:00:00Z');
+  const truncated = truncateRruleBefore('FREQ=DAILY', cut, 'UTC');
+  const out = expandSeries({ ...series, rrule: truncated }, {
+    from: new Date('2026-06-01T00:00:00Z'),
+    to: new Date('2026-07-01T00:00:00Z'),
+  });
+  const days = out.map((i) => i.startsAt.toISOString().slice(0, 10));
+  assert(
+    days.join(',') === '2026-06-01,2026-06-02,2026-06-03',
+    `expected Jun 1-3, got [${days.join(',')}] from ${truncated}`
+  );
+});
+
+// 11. DST: a weekly event must hold its LOCAL time across a transition.
+// Anchoring the rule at the stored UTC instant holds the UTC time-of-day
+// instead, walking an 08:00 event to 07:00. Note rrule's own `tzid` option
+// does not fix this - it expects a floating dtstart.
+check('weekly event holds local time across a DST transition', () => {
+  const TZ = 'Asia/Jerusalem';
+  const series = makeSeries({
+    // 2026-09-17 08:00 Asia/Jerusalem (UTC+3 in summer)
+    startsAt: new Date('2026-09-17T05:00:00Z'),
+    endsAt: new Date('2026-09-17T06:00:00Z'),
+    timeZone: TZ,
+    rrule: 'FREQ=WEEKLY;BYDAY=TH',
+  });
+  const out = expandSeries(series, {
+    from: new Date('2026-09-01T00:00:00Z'),
+    to: new Date('2026-12-01T00:00:00Z'),
+  });
+  assert(out.length >= 8, `expected several occurrences, got ${out.length}`);
+  const locals = new Set(
+    out.map((i) =>
+      new Intl.DateTimeFormat('en-GB', {
+        timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false,
+      }).format(i.startsAt)
+    )
+  );
+  assert(locals.size === 1, `local time drifted across DST: ${[...locals].join(', ')}`);
+  assert(locals.has('08:00'), `expected 08:00 local, got ${[...locals].join(', ')}`);
+  // And it must actually span the transition, or the check proves nothing.
+  assert(
+    out.some((i) => i.startsAt > new Date('2026-10-29T00:00:00Z')),
+    'range did not cross the Oct 2026 transition'
+  );
+});
+
+// 12. An EXDATE recorded after a DST transition must still match the
+// occurrence instant the expander now produces.
+check('post-DST exdate still cancels its occurrence', () => {
+  const TZ = 'Asia/Jerusalem';
+  const series = makeSeries({
+    startsAt: new Date('2026-09-17T05:00:00Z'),
+    endsAt: new Date('2026-09-17T06:00:00Z'),
+    timeZone: TZ,
+    rrule: 'FREQ=WEEKLY;BYDAY=TH',
+    // 2026-11-05 08:00 Asia/Jerusalem, now UTC+2
+    exdates: [new Date('2026-11-05T06:00:00Z')],
+  });
+  const out = expandSeries(series, {
+    from: new Date('2026-11-01T00:00:00Z'),
+    to: new Date('2026-11-12T00:00:00Z'),
+  });
+  assert(out.length === 0, `exdate did not match; got ${out.length} occurrence(s)`);
 });
 
 // Print results
