@@ -113,7 +113,7 @@ function mapUserToResponse(user: {
   telegramId: bigint | null;
   name: string;
   suspendedAt: Date | null;
-  subscription: { plan: string; status: string; trialEndsAt: Date | null; currentPeriodEnd: Date | null } | null;
+  subscription: { plan: string; status: string; trialEndsAt: Date | null; currentPeriodEnd: Date | null; compedBy: number | null } | null;
   featureOverride: { earlyAdopter: boolean } | null;
   usageCounter: { textSummariesUsed: number; voiceSummariesUsed: number; voiceEventsCreated: number } | null;
   calendarAssignments: unknown;
@@ -135,6 +135,7 @@ function mapUserToResponse(user: {
       trialEndsAt: user.subscription.trialEndsAt,
       trialDaysRemaining,
       currentPeriodEnd: user.subscription.currentPeriodEnd,
+      comped: user.subscription.compedBy != null,
     } : null,
     usage: user.usageCounter ? {
       textSummariesUsed: user.usageCounter.textSummariesUsed,
@@ -246,6 +247,9 @@ export async function GET(request: NextRequest) {
             trialEndsAt: user.subscription.trialEndsAt,
             trialDaysRemaining,
             currentPeriodEnd: user.subscription.currentPeriodEnd,
+            comped: user.subscription.compedBy != null,
+            compedAt: user.subscription.compedAt ? user.subscription.compedAt.toISOString() : null,
+            compReason: user.subscription.compReason,
           } : null,
           usage: user.usageCounter ? {
             textSummariesUsed: user.usageCounter.textSummariesUsed,
