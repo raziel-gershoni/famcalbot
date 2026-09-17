@@ -55,6 +55,9 @@ export type ActivityAction =
   | 'subscription_reminder_sent'
   // Feature gating
   | 'feature_blocked'
+  // Admin actions (attributed to the target user; the acting admin is in metadata)
+  | 'admin_granted_premium'
+  | 'admin_revoked_premium'
   // Error tracking (NEW)
   | 'user_error_shown'
   // Feedback
@@ -100,6 +103,10 @@ export interface ActivityMetadata {
   // Feedback
   source?: 'telegram' | 'dashboard';
   text_length?: number;
+
+  // Admin actions
+  admin_id?: number;
+  reason?: string | null;
 
   // Generic
   [key: string]: unknown;

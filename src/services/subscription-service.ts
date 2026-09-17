@@ -211,6 +211,145 @@ export async function upgradeSubscription(
   return updated;
 }
 
+// ============================================
+// ADMIN-GRANTED ("COMPED") SUBSCRIPTIONS
+// ============================================
+
+export type CompGrantResult =
+  | { ok: true; subscription: Subscription }
+  | { ok: false; code: 'ALREADY_COMPED' }
+  | { ok: false; code: 'ALREADY_ACTIVE'; plan: string; status: string };
+
+export type CompRevokeResult =
+  | { ok: true }
+  | { ok: false; code: 'NOT_COMPED' };
+
+/**
+ * Does this subscription currently confer paid access?
+ *
+ * TRIALING and ACTIVE obviously do. CANCELED still does until the period ends -
+ * the user paid for that time and an admin grant must not quietly overwrite it.
+ */
+function hasPaidAccess(sub: Subscription, now: Date): boolean {
+  if (sub.status === 'TRIALING' || sub.status === 'ACTIVE') return true;
+  if (sub.status === 'CANCELED' && sub.currentPeriodEnd && sub.currentPeriodEnd > now) return true;
+  return false;
+}
+
+/**
+ * Give a user PRO at no charge.
+ *
+ * Deliberately does NOT reuse upgradeSubscription(): that stamps a one-month
+ * currentPeriodEnd and is the payment path. A comp has no period end at all,
+ * which is what keeps expireSubscriptions() away from it even if the explicit
+ * compedBy guard is ever removed.
+ */
+export async function grantCompedSubscription(
+  userId: number,
+  adminId: number,
+  reason?: string
+): Promise<CompGrantResult> {
+  const now = new Date();
+
+  // Read directly rather than through getOrCreateSubscription(), which would
+  // write a TRIALING row for a brand-new user and then trip the check below
+  // against itself.
+  const existing = await prisma.subscription.findUnique({ where: { userId } });
+
+  if (existing?.compedBy != null) {
+    return { ok: false, code: 'ALREADY_COMPED' };
+  }
+  if (existing && hasPaidAccess(existing, now)) {
+    return { ok: false, code: 'ALREADY_ACTIVE', plan: existing.plan, status: existing.status };
+  }
+
+  const compFields = {
+    plan: 'PRO' as SubscriptionPlan,
+    status: 'ACTIVE' as SubscriptionStatus,
+    currentPeriodStart: now,
+    currentPeriodEnd: null,
+    cancelAtPeriodEnd: false,
+    compedBy: adminId,
+    compedAt: now,
+    compReason: reason ?? null,
+  };
+
+  const subscription = existing
+    ? await prisma.subscription.update({ where: { userId }, data: compFields })
+    : await prisma.subscription.create({
+        // trialEndsAt has no default in the schema and must be supplied. There is
+        // no trial to give - this user is going straight to PRO.
+        data: { userId, trialStartedAt: now, trialEndsAt: now, ...compFields },
+      });
+
+  // Match upgradeSubscription: a new period starts with a clean slate.
+  await prisma.usageCounter.upsert({
+    where: { userId },
+    update: {
+      textSummariesUsed: 0,
+      voiceSummariesUsed: 0,
+      voiceEventsCreated: 0,
+      remindersTriggered: 0,
+      cycleStartDate: now,
+    },
+    create: { userId, cycleStartDate: now },
+  });
+
+  await trackActivity(userId, 'admin_granted_premium', {
+    admin_id: adminId,
+    reason: reason ?? null,
+    to_plan: 'PRO',
+  });
+
+  await invalidateFeatureAccessCache(userId);
+
+  console.log(`[Subscription] Admin ${adminId} comped PRO for user ${userId}${reason ? ` (${reason})` : ''}`);
+
+  return { ok: true, subscription };
+}
+
+/**
+ * Take a comped PRO back.
+ *
+ * Refuses anything that is not a comp, so a real paying customer can never be
+ * downgraded through this path.
+ */
+export async function revokeCompedSubscription(
+  userId: number,
+  adminId: number
+): Promise<CompRevokeResult> {
+  const existing = await prisma.subscription.findUnique({ where: { userId } });
+
+  if (!existing || existing.compedBy == null) {
+    return { ok: false, code: 'NOT_COMPED' };
+  }
+
+  await prisma.subscription.update({
+    where: { userId },
+    data: {
+      plan: 'FREE',
+      status: 'EXPIRED',
+      currentPeriodStart: null,
+      currentPeriodEnd: null,
+      cancelAtPeriodEnd: false,
+      compedBy: null,
+      compedAt: null,
+      compReason: null,
+    },
+  });
+
+  // Usage counters are deliberately left alone. They were zeroed at grant time,
+  // and zeroing them again would hand a revoked user a fresh free quota.
+
+  await trackActivity(userId, 'admin_revoked_premium', { admin_id: adminId });
+
+  await invalidateFeatureAccessCache(userId);
+
+  console.log(`[Subscription] Admin ${adminId} revoked comped PRO for user ${userId}`);
+
+  return { ok: true };
+}
+
 /**
  * Cancel subscription (will expire at period end)
  */
