@@ -293,6 +293,13 @@ model Subscription {
   currentPeriodEnd   DateTime?
   cancelAtPeriodEnd  Boolean   @default(false)
 
+  // Admin-granted ("comped") access. compedBy IS NULL means this is a real
+  // subscription; non-null means an admin gave it away for free. A comped row
+  // has currentPeriodEnd = NULL so the expiry cron can never match it.
+  compedBy   Int? // admin User.id who granted it
+  compedAt   DateTime?
+  compReason String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -330,6 +337,7 @@ model UserActivity {
   @@index([userId])
   @@index([action])
   @@index([createdAt])
+  @@index([userId, createdAt])
 }
 
 // Admin-granted feature overrides for individual users
