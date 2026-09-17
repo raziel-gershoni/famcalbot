@@ -64,6 +64,9 @@ interface UserOverrideDetails {
     trialEndsAt: string | null;
     trialDaysRemaining: number | null;
     currentPeriodEnd: string | null;
+    comped: boolean;
+    compedAt: string | null;
+    compReason: string | null;
   } | null;
   usage: {
     textSummariesUsed: number;
@@ -217,6 +220,11 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   const [isLoadingUserActivity, setIsLoadingUserActivity] = useState(false);
   const [userActivityOffset, setUserActivityOffset] = useState(0);
   const [userActivityHasMore, setUserActivityHasMore] = useState(false);
+
+  // Comped premium (admin-granted PRO)
+  const [compReason, setCompReason] = useState('');
+  const [isSavingComp, setIsSavingComp] = useState(false);
+  const [compError, setCompError] = useState<string | null>(null);
 
   // Collapsible sections state
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
@@ -558,6 +566,8 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
           earlyAdopter: data.user.override?.earlyAdopter === true,
         });
         setOverrideReason(data.user.override?.reason || '');
+        setCompReason(data.user.subscription?.compReason || '');
+        setCompError(null);
         setUserActivity([]);
         setUserActivityOffset(0);
         void fetchUserActivity(userId, true);
@@ -602,12 +612,47 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
     }
   };
 
+  // Grant or revoke a comped PRO subscription
+  const toggleComp = async (grant: boolean) => {
+    if (!selectedUser) return;
+    setIsSavingComp(true);
+    setCompError(null);
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = grant
+        ? await fetch('/api/admin/subscription', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ initData, user_id: selectedUser.id, reason: compReason || null }),
+          })
+        : await fetch(
+            `/api/admin/subscription?initData=${encodeURIComponent(initData || '')}&user_id=${selectedUser.id}`,
+            { method: 'DELETE' }
+          );
+
+      const data = await response.json();
+      if (data.success) {
+        await loadUserDetails(selectedUser.id);
+        await fetchUserList();
+      } else {
+        setCompError(data.error || t('comp.failed'));
+      }
+    } catch (error) {
+      console.error('Failed to update comped subscription:', error);
+      setCompError(t('comp.failed'));
+    } finally {
+      setIsSavingComp(false);
+    }
+  };
+
   const clearSelectedUser = () => {
     setSelectedUser(null);
     setReminderFeedback(null);
     setUserActivity([]);
     setUserActivityOffset(0);
     setUserActivityHasMore(false);
+    setCompReason('');
+    setCompError(null);
   };
 
   // Send registration reminder
@@ -1805,6 +1850,50 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
           opacity: 0.6;
           cursor: not-allowed;
         }
+        .comp-description {
+          font-size: 13px;
+          color: #6b7280;
+          margin: 0 0 8px;
+        }
+        .comp-warning {
+          background: #fef3c7;
+          border: 1px solid #f59e0b;
+          border-radius: 8px;
+          padding: 10px;
+          margin-bottom: 10px;
+          font-size: 12px;
+          color: #92400e;
+        }
+        .comp-error {
+          margin-top: 8px;
+          font-size: 12px;
+          color: #b91c1c;
+        }
+        .comp-btn {
+          width: 100%;
+          margin-top: 8px;
+          padding: 12px;
+          border: none;
+          border-radius: 10px;
+          font-size: 14px;
+          font-weight: 600;
+          color: #fff;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          cursor: pointer;
+        }
+        .comp-btn.grant {
+          background: #10b981;
+        }
+        .comp-btn.revoke {
+          background: #ef4444;
+        }
+        .comp-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
 
         .activity-filter-row {
           display: flex;
@@ -2796,6 +2885,72 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                     </>
                   )}
                 </button>
+                </div>
+
+                {/* Comped premium */}
+                <div className="user-card-section">
+                  <div className="user-card-section-title">{t('comp.title')}</div>
+
+                  {earlyAdoptionMode && (
+                    <div className="comp-warning">{t('comp.earlyAdoptionWarning')}</div>
+                  )}
+
+                  {selectedUser.subscription?.comped ? (
+                    <>
+                      <p className="comp-description">
+                        {selectedUser.subscription.compedAt
+                          ? t('comp.activeSince').replace(
+                              '{date}',
+                              new Date(selectedUser.subscription.compedAt).toLocaleDateString(intlLocale, {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric',
+                              })
+                            )
+                          : t('comp.title')}
+                      </p>
+                      {selectedUser.subscription.compReason && (
+                        <p className="comp-description">{selectedUser.subscription.compReason}</p>
+                      )}
+                      <button className="comp-btn revoke" onClick={() => toggleComp(false)} disabled={isSavingComp}>
+                        {isSavingComp ? (
+                          <>
+                            <Loader2 size={16} className="animate-spin" />
+                            {t('comp.revoking')}
+                          </>
+                        ) : (
+                          t('comp.revoke')
+                        )}
+                      </button>
+                    </>
+                  ) : selectedUser.subscription &&
+                    (selectedUser.subscription.status === 'TRIALING' ||
+                      selectedUser.subscription.status === 'ACTIVE') ? (
+                    <p className="comp-description">{t('comp.blockedActive')}</p>
+                  ) : (
+                    <>
+                      <p className="comp-description">{t('comp.description')}</p>
+                      <input
+                        type="text"
+                        className="reason-input"
+                        placeholder={t('comp.reasonPlaceholder')}
+                        value={compReason}
+                        onChange={(e) => setCompReason(e.target.value)}
+                      />
+                      <button className="comp-btn grant" onClick={() => toggleComp(true)} disabled={isSavingComp}>
+                        {isSavingComp ? (
+                          <>
+                            <Loader2 size={16} className="animate-spin" />
+                            {t('comp.granting')}
+                          </>
+                        ) : (
+                          t('comp.grant')
+                        )}
+                      </button>
+                    </>
+                  )}
+
+                  {compError && <div className="comp-error">{compError}</div>}
                 </div>
 
                 {/* Recent activity for this user */}
