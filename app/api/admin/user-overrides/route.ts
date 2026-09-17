@@ -195,13 +195,21 @@ export async function GET(request: NextRequest) {
       // Get paid features (protected from being disabled)
       const paidFeatures = await getPaidFeatures(userId);
 
+      // getPaidFeatures() -> getSubscriptionWithUsage() has write side effects: it
+      // creates a 14-day TRIALING row for a user who has none, and flips a lapsed
+      // trial to EXPIRED. Re-read afterwards, or the card reports the row as it was
+      // a moment before this very request rewrote it. That is not cosmetic any more:
+      // the comp block gates Grant on this status, and a stale `null` would offer
+      // Grant for a user the server has just turned into a trialist and will refuse.
+      const subscription = await prisma.subscription.findUnique({ where: { userId } });
+
       // Calculate trial days remaining
-      const trialDaysRemaining = user.subscription?.status === 'TRIALING' && user.subscription?.trialEndsAt
-        ? calculateTrialDaysRemaining(user.subscription.trialEndsAt)
+      const trialDaysRemaining = subscription?.status === 'TRIALING' && subscription?.trialEndsAt
+        ? calculateTrialDaysRemaining(subscription.trialEndsAt)
         : null;
 
       // Get plan limits for usage display
-      const effectivePlan = user.subscription?.status === 'TRIALING' && trialDaysRemaining ? 'PRO' : (user.subscription?.plan || 'FREE');
+      const effectivePlan = subscription?.status === 'TRIALING' && trialDaysRemaining ? 'PRO' : (subscription?.plan || 'FREE');
       const limits = getPlanLimits(effectivePlan as 'FREE' | 'BASIC' | 'PRO');
 
       // Count calendars from calendarAssignments JSON
@@ -241,15 +249,15 @@ export async function GET(request: NextRequest) {
           suspendedAt: user.suspendedAt ? user.suspendedAt.toISOString() : null,
           suspendedBy: user.suspendedBy ?? null,
           suspendedReason: user.suspendedReason ?? null,
-          subscription: user.subscription ? {
-            plan: user.subscription.plan,
-            status: user.subscription.status,
-            trialEndsAt: user.subscription.trialEndsAt,
+          subscription: subscription ? {
+            plan: subscription.plan,
+            status: subscription.status,
+            trialEndsAt: subscription.trialEndsAt,
             trialDaysRemaining,
-            currentPeriodEnd: user.subscription.currentPeriodEnd,
-            comped: user.subscription.compedBy != null,
-            compedAt: user.subscription.compedAt ? user.subscription.compedAt.toISOString() : null,
-            compReason: user.subscription.compReason,
+            currentPeriodEnd: subscription.currentPeriodEnd,
+            comped: subscription.compedBy != null,
+            compedAt: subscription.compedAt ? subscription.compedAt.toISOString() : null,
+            compReason: subscription.compReason,
           } : null,
           usage: user.usageCounter ? {
             textSummariesUsed: user.usageCounter.textSummariesUsed,

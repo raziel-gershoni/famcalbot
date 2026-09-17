@@ -74,9 +74,11 @@ interface UserOverrideDetails {
     voiceEventsCreated: number;
   };
   limits: {
-    textSummaries: number;
-    voiceSummaries: number;
-    calendars: number;
+    // getPlanLimits() uses Infinity as the unlimited sentinel, and JSON.stringify
+    // encodes Infinity as null - so an unlimited plan arrives here as null.
+    textSummaries: number | null;
+    voiceSummaries: number | null;
+    calendars: number | null;
   };
   calendarsCount: number;
   override: {
@@ -220,6 +222,9 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   const [isLoadingUserActivity, setIsLoadingUserActivity] = useState(false);
   const [userActivityOffset, setUserActivityOffset] = useState(0);
   const [userActivityHasMore, setUserActivityHasMore] = useState(false);
+  // Monotonic request id: a response is only applied if no newer request has
+  // been issued since, so a slow fetch for user A cannot land in user B's card.
+  const userActivityReqRef = useRef(0);
 
   // Comped premium (admin-granted PRO)
   const [compReason, setCompReason] = useState('');
@@ -414,6 +419,7 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
 
   // Fetch one user's activity for the selected-user card
   const fetchUserActivity = useCallback(async (userId: number, reset: boolean = false) => {
+    const seq = ++userActivityReqRef.current;
     setIsLoadingUserActivity(true);
     try {
       const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
@@ -427,6 +433,7 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
 
       const response = await fetch(`/api/admin/user-activity?${params}`);
       const data = await response.json();
+      if (seq !== userActivityReqRef.current) return; // superseded by a newer request
       if (data.success) {
         setUserActivity(prev => (reset ? (data.activities || []) : [...prev, ...(data.activities || [])]));
         setUserActivityOffset(newOffset + 20);
@@ -435,7 +442,7 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
     } catch (error) {
       console.error('Failed to fetch user activity:', error);
     } finally {
-      setIsLoadingUserActivity(false);
+      if (seq === userActivityReqRef.current) setIsLoadingUserActivity(false);
     }
   }, [userActivityOffset]);
 
@@ -2533,13 +2540,13 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                     <div className="usage-item">
                       <span className="usage-label">{t('overrides.textSummaries')}</span>
                       <span className="usage-value">
-                        {selectedUser.usage.textSummariesUsed} / {selectedUser.limits.textSummaries === Infinity ? '∞' : selectedUser.limits.textSummaries}
+                        {selectedUser.usage.textSummariesUsed} / {selectedUser.limits.textSummaries == null ? '∞' : selectedUser.limits.textSummaries}
                       </span>
                     </div>
                     <div className="usage-item">
                       <span className="usage-label">{t('overrides.voiceSummaries')}</span>
                       <span className="usage-value">
-                        {selectedUser.usage.voiceSummariesUsed} / {selectedUser.limits.voiceSummaries === Infinity ? '∞' : selectedUser.limits.voiceSummaries}
+                        {selectedUser.usage.voiceSummariesUsed} / {selectedUser.limits.voiceSummaries == null ? '∞' : selectedUser.limits.voiceSummaries}
                       </span>
                     </div>
                     <div className="usage-item">
@@ -2549,7 +2556,7 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                     <div className="usage-item">
                       <span className="usage-label">{t('overrides.calendarsUsage')}</span>
                       <span className="usage-value">
-                        {selectedUser.calendarsCount} / {selectedUser.limits.calendars === Infinity ? '∞' : selectedUser.limits.calendars}
+                        {selectedUser.calendarsCount} / {selectedUser.limits.calendars == null ? '∞' : selectedUser.limits.calendars}
                       </span>
                     </div>
                   </div>
@@ -2899,14 +2906,13 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                     <>
                       <p className="comp-description">
                         {selectedUser.subscription.compedAt
-                          ? t('comp.activeSince').replace(
-                              '{date}',
-                              new Date(selectedUser.subscription.compedAt).toLocaleDateString(intlLocale, {
+                          ? t('comp.activeSince', {
+                              date: new Date(selectedUser.subscription.compedAt).toLocaleDateString(intlLocale, {
                                 month: 'short',
                                 day: 'numeric',
                                 year: 'numeric',
-                              })
-                            )
+                              }),
+                            })
                           : t('comp.title')}
                       </p>
                       {selectedUser.subscription.compReason && (
@@ -2925,7 +2931,10 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                     </>
                   ) : selectedUser.subscription &&
                     (selectedUser.subscription.status === 'TRIALING' ||
-                      selectedUser.subscription.status === 'ACTIVE') ? (
+                      selectedUser.subscription.status === 'ACTIVE' ||
+                      (selectedUser.subscription.status === 'CANCELED' &&
+                        selectedUser.subscription.currentPeriodEnd != null &&
+                        new Date(selectedUser.subscription.currentPeriodEnd) > new Date())) ? (
                     <p className="comp-description">{t('comp.blockedActive')}</p>
                   ) : (
                     <>

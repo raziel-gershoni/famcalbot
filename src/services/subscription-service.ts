@@ -178,6 +178,12 @@ export async function upgradeSubscription(
       currentPeriodStart: now,
       currentPeriodEnd: periodEnd,
       cancelAtPeriodEnd: false,
+      // A payment ends a comp. Leaving these set would make the paid period
+      // invisible to expireSubscriptions() (which skips compedBy != null) and
+      // would let the admin Revoke button downgrade a genuinely paying customer.
+      compedBy: null,
+      compedAt: null,
+      compReason: null,
     },
   });
 
@@ -452,6 +458,12 @@ export async function renewSubscription(
       currentPeriodStart: now,
       currentPeriodEnd: periodEnd,
       cancelAtPeriodEnd: false,
+      // A payment ends a comp. Leaving these set would make the paid period
+      // invisible to expireSubscriptions() (which skips compedBy != null) and
+      // would let the admin Revoke button downgrade a genuinely paying customer.
+      compedBy: null,
+      compedAt: null,
+      compReason: null,
     },
   });
 
