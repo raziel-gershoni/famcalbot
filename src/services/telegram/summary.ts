@@ -341,7 +341,9 @@ async function sendSummaryToAll(
   const result: SummaryBatchResult = { processed: 0, skippedHour: 0, skippedDay: 0, skippedDedup: 0 };
 
   try {
-    const allUsers = (await getAllUsers()).filter(u => !u.suspendedAt);
+    // Skip users Telegram refuses to deliver to. Without this a blocked user is
+    // retried on every run forever, failing three sends and paging an admin each time.
+    const allUsers = (await getAllUsers()).filter(u => !u.suspendedAt && !u.unreachableSince);
     if (allUsers.length === 0) {
       console.error('No users configured');
       return result;
@@ -722,6 +724,16 @@ export async function routeTextMessage(
     } catch (e) {
       console.error(`[Delivery] TG text failed for user ${user.id}:`, e);
       captureError(e, 'telegram-delivery', { user_id: userId, service: 'sendMessage' });
+
+      // This is where a blocked user first shows up - the text send 403s before the
+      // voice one does. Marking here is what actually stops the retries; the voice
+      // path only ever saw it because this catch swallowed the error and let
+      // execution continue as if delivery had succeeded.
+      const { isUnreachableError, describeDeliveryError } = await import('../../lib/delivery-errors');
+      if (isUnreachableError(e)) {
+        const { markUserUnreachable } = await import('../../lib/user-reachability');
+        await markUserUnreachable(user.id, describeDeliveryError(e));
+      }
     }
   }
 

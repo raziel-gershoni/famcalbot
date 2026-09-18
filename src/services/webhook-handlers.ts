@@ -54,6 +54,15 @@ export async function handleTelegramWebhook(
       return;
     }
     const existingUser = await getUserByTelegramId(userId);
+
+    // Hearing from them proves the chat accepts our messages again, so lift any
+    // unreachable flag. Fire-and-forget: this runs on every inbound update and must
+    // not add latency or fail the webhook. No-ops for everyone who was never flagged.
+    if (existingUser?.unreachableSince) {
+      const { clearUserUnreachable } = await import('../lib/user-reachability');
+      clearUserUnreachable(existingUser.id).catch(() => {});
+    }
+
     if (existingUser && isUserSuspended(existingUser)) {
       console.log(`[Moderation] Dropped Telegram update from suspended user ${existingUser.id}`);
       res.status(200).json({ ok: true });

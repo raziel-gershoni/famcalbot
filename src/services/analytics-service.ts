@@ -58,6 +58,9 @@ export type ActivityAction =
   // Admin actions (attributed to the target user; the acting admin is in metadata)
   | 'admin_granted_premium'
   | 'admin_revoked_premium'
+  // Delivery reachability
+  | 'user_unreachable'
+  | 'user_reachable_again'
   // Error tracking (NEW)
   | 'user_error_shown'
   // Feedback

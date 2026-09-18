@@ -37,6 +37,8 @@ export async function handleDailySummary(): Promise<CronResult> {
         ],
         telegramId: { not: null },
         suspendedAt: null,
+        // Telegram refuses delivery to these chats; reminders would 403 every 5 minutes.
+        unreachableSince: null,
       },
       select: {
         id: true,

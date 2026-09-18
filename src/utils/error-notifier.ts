@@ -79,19 +79,35 @@ export async function notifyAdminError(
 /**
  * Notify admin of a warning (non-critical)
  */
-export async function notifyAdminWarning(context: string, message: string): Promise<void> {
+export async function notifyAdminWarning(
+  context: string,
+  message: string,
+  // Who the warning is about. Without this a warning names a failure but not its
+  // subject, which makes it undiagnosable - you get an error string and no way to
+  // tell which user it concerns, or whether it is one user or twenty.
+  subject?: { userId?: number; name?: string | null }
+): Promise<void> {
+  const subjectLine = subject?.userId
+    ? `User ${subject.userId}${subject.name ? ` (${subject.name})` : ''}`
+    : null;
+
   // Capture warning to Sentry
   Sentry.withScope(scope => {
     scope.setTag('context', context);
     scope.setLevel('warning');
     scope.setTag('notified_admin', 'true');
+    if (subject?.userId) {
+      scope.setUser({ id: String(subject.userId), username: subject.name ?? undefined });
+      scope.setTag('user_id', String(subject.userId));
+    }
     Sentry.captureMessage(message);
   });
 
   // Then notify via Telegram
   try {
     const bot = getBot();
-    const warningMessage = `⚠️ <b>Warning: ${context}</b>\n\n${message}\n\n<i>Time: ${new Date().toISOString()}</i>`;
+    const body = subjectLine ? `${subjectLine}\n\n${message}` : message;
+    const warningMessage = `⚠️ <b>Warning: ${context}</b>\n\n${body}\n\n<i>Time: ${new Date().toISOString()}</i>`;
 
     const adminIds = await getAdminUserIds();
     await Promise.all(adminIds.map(id => bot.sendMessage(id, warningMessage, { parse_mode: 'HTML' })));

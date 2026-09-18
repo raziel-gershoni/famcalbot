@@ -33,6 +33,11 @@ model User {
   messagingPlatform          String    @default("telegram") // 'telegram' | 'whatsapp' | 'all'
   isAdmin                    Boolean   @default(false) // Admin panel access
   suspendedAt                DateTime? // Set = user suspended; bot ignores all interaction
+  // Set when Telegram refuses delivery with 403 (user blocked the bot, deactivated
+  // their account, or kicked the bot from a group). Distinct from BlockedIdentifier,
+  // which is an admin ban - this is the user refusing us, not us refusing them.
+  // Cleared automatically the next time we hear from them.
+  unreachableSince           DateTime?
   suspendedBy                Int? // Admin User.id who suspended
   suspendedReason            String?   @db.Text // Why suspended (admin-facing audit)
   textSummaryEnabled         Boolean   @default(true) // Receive text summaries
@@ -85,6 +90,7 @@ model User {
   @@index([whatsappPhone])
   @@index([whatsappBsuid])
   @@index([suspendedAt])
+  @@index([unreachableSince])
   @@index([calendarSource])
   @@index([pairingId])
 }

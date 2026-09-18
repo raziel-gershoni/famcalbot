@@ -113,6 +113,17 @@ export async function sendVoiceMessage(
 
     if (stopTyping) stopTyping();
 
+    // A 403 from Telegram means this chat will never accept our messages again. It is
+    // not a voice-generation fault and there is nothing an admin can act on, so record
+    // it and stay quiet - otherwise every scheduled run pages about the same user
+    // forever. Checked before the apology below, which would simply be a third 403.
+    const { isUnreachableError, describeDeliveryError } = await import('../../lib/delivery-errors');
+    if (isUnreachableError(error)) {
+      const { markUserUnreachable } = await import('../../lib/user-reachability');
+      await markUserUnreachable(user.id, describeDeliveryError(error));
+      return;
+    }
+
     try {
       const { getBotMessages } = await import('../../lib/bot-messages');
       const t = await getBotMessages(userLanguage);
@@ -125,7 +136,11 @@ export async function sendVoiceMessage(
     const { notifyAdminWarning } = await import('../../utils/error-notifier');
     await notifyAdminWarning(
       'Voice Generation',
-      `Failed to generate voice message:\n${error instanceof Error ? error.message : 'Unknown error'}\n\nText summary was delivered successfully.`
+      // Previously this asserted "Text summary was delivered successfully" as a
+      // hardcoded string. It was not a check, and in the blocked-user case the text
+      // send had already failed - so the warning reported a failure as a success.
+      `Failed to generate voice message:\n${describeDeliveryError(error)}`,
+      { userId: user.id, name: user.name }
     );
   } finally {
     if (voiceFilePath) {
@@ -220,6 +235,15 @@ export async function sendWeeklyVoiceMessage(
 
     if (stopTyping) stopTyping();
 
+    // Same terminal-403 handling as sendVoiceMessage above.
+    const { isUnreachableError: isUnreachableWeekly, describeDeliveryError: describeWeekly } =
+      await import('../../lib/delivery-errors');
+    if (isUnreachableWeekly(error)) {
+      const { markUserUnreachable } = await import('../../lib/user-reachability');
+      await markUserUnreachable(user.id, describeWeekly(error));
+      return;
+    }
+
     try {
       const { getBotMessages } = await import('../../lib/bot-messages');
       const t = await getBotMessages(userLanguage);
@@ -232,7 +256,8 @@ export async function sendWeeklyVoiceMessage(
     const { notifyAdminWarning } = await import('../../utils/error-notifier');
     await notifyAdminWarning(
       'Weekly Voice Generation',
-      `Failed to generate weekly voice message:\n${error instanceof Error ? error.message : 'Unknown error'}\n\nText summary was delivered successfully.`
+      `Failed to generate weekly voice message:\n${describeWeekly(error)}`,
+      { userId: user.id, name: user.name }
     );
   } finally {
     if (voiceFilePath) {
