@@ -5,7 +5,7 @@
  * Text: sends forwarded message text for intent detection + event extraction
  */
 
-import { getGemini } from '../ai-provider';
+import { getGemini, extractionConfig } from '../ai-provider';
 import { VoiceIntentResult, VoiceIntent, ParsedEvent } from '../event-parser';
 import { CalendarAssignment } from '../../types';
 import { fromZonedTime } from 'date-fns-tz';
@@ -454,6 +454,7 @@ export async function processVoiceWithGemini(
 
       const response = await getGemini().models.generateContent({
         model: resolvedModelId,
+        ...extractionConfig(resolvedModelId),
         contents: [
           {
             role: 'user',

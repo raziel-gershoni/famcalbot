@@ -102,7 +102,9 @@
       "aiModel": "מודל AI ברירת מחדל",
       "aiModelDescription": "בחר את מודל ה-AI לסיכומים, מזג אוויר וקול",
       "geminiThinking": "רמת חשיבה Gemini",
-      "geminiThinkingDescription": "שליטה בעומק החשיבה למודלי Gemini (נמוך = מהיר וזול יותר)"
+      "geminiThinkingDescription": "שליטה בעומק החשיבה למודלי Gemini (נמוך = מהיר וזול יותר)",
+      "ttsModel": "מודל קול",
+      "ttsModelDescription": "מנוע הדיבור לסיכומים קוליים ולתשובות בקול"
     },
     "overrides": {
       "title": "דריסות תכונות למשתמשים",

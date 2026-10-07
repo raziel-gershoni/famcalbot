@@ -102,7 +102,9 @@
       "aiModel": "Модель ИИ по умолчанию",
       "aiModelDescription": "Выберите модель ИИ для сводок, погоды и голоса",
       "geminiThinking": "Уровень мышления Gemini",
-      "geminiThinkingDescription": "Глубина рассуждений для моделей Gemini (ниже = быстрее и дешевле)"
+      "geminiThinkingDescription": "Глубина рассуждений для моделей Gemini (ниже = быстрее и дешевле)",
+      "ttsModel": "Голосовая модель",
+      "ttsModelDescription": "Движок речи для голосовых сводок и ответов"
     },
     "overrides": {
       "title": "Переопределения функций",

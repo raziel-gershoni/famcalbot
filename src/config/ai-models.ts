@@ -16,6 +16,9 @@ export interface ModelConfig {
   description: string;
   reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' | 'none'; // Optional: For GPT-5 models
   unsupportedThinkingLevels?: ThinkingLevelName[]; // Optional: Gemini levels this model rejects with a 400
+  // Optional: thinking level to send when the admin has not chosen one. Without it the
+  // API applies the model's own default, which for some models is far too slow.
+  defaultThinkingLevel?: ThinkingLevelName;
 }
 
 /** Gemini thinking levels, mirroring the SDK's ThinkingLevel enum. */
@@ -63,6 +66,24 @@ export const AI_MODELS: Record<string, ModelConfig> = {
     // supported for this model". 3.5 and earlier still accept it.
     unsupportedThinkingLevels: ['MINIMAL'],
   },
+
+  'gemini-3.8-flash': {
+    provider: 'gemini',
+    modelId: 'gemini-3.8-flash',
+    displayName: 'Gemini 3.8 Flash',
+    maxOutputTokens: 65536,
+    contextWindow: 1048576,
+    // Same as 3.7: introductory through 2026-12-31, then $1.50 / $7.50 from 2027-01-01.
+    costPer1MTokens: { input: 0.75, output: 3.75 },
+    description: 'GA Sep 2026 - same price as 3.7, runs at LOW thinking by default',
+    // Like 3.7, MINIMAL returns 400.
+    unsupportedThinkingLevels: ['MINIMAL'],
+    // 3.8's own default is MEDIUM, and on the real Hebrew daily-summary prompt that
+    // took 17-46s (median 38s) against 5-11s on 3.7. At HIGH, 3 of 4 runs never
+    // finished inside the 45s abort. LOW ran a stable ~5s with correct output, so an
+    // unset admin level means LOW for this model rather than the API default.
+    defaultThinkingLevel: 'LOW',
+  },
 };
 
 /**
@@ -96,18 +117,41 @@ export function getAvailableModels(): string[] {
 /**
  * Coerce an admin-selected Gemini thinking level to one the model actually accepts.
  * Levels differ per model generation, so passing the stored value through blind
- * turns a settings change into a 400 on every completion.
+ * turns a settings change into a 400 on every completion. With no admin level set,
+ * the model's own declared defaultThinkingLevel applies, if it has one.
  *
- * @returns the level to send, or null to omit thinkingConfig and take the model default
+ * @returns the level to send, or null to omit thinkingConfig and take the API default
  */
 export function resolveThinkingLevel(
   model: ModelConfig,
   level: string | null | undefined
 ): ThinkingLevelName | null {
-  if (!level) return null;
+  if (!level) return model.defaultThinkingLevel ?? null;
   const requested = level as ThinkingLevelName;
   if (!model.unsupportedThinkingLevels?.includes(requested)) return requested;
   return THINKING_LEVEL_FALLBACK[requested] ?? null;
+}
+
+/**
+ * Look up a catalog entry by its raw API model id rather than its catalog key.
+ * The media pipelines carry only the API id by the time they call the model.
+ */
+export function getModelConfigByModelId(modelId: string): ModelConfig | undefined {
+  return Object.values(AI_MODELS).find(m => m.modelId === modelId);
+}
+
+/**
+ * Thinking level for the media pipelines (voice, image, forwarded text, corrections).
+ *
+ * These calls have never sent a thinking config, so they run at the API default. That
+ * is fine for 3.7, but on 3.8 the default made voice extraction ~6s and photo
+ * extraction up to 18s, against 3-5s and 3-10s at LOW with the same output. So apply
+ * the model's declared default, and only that: the admin thinking level stays a
+ * summary setting, as it always has been. Returns null - send nothing - for models
+ * that declare no default, which leaves today's behaviour for 3.5 and 3.7 unchanged.
+ */
+export function getExtractionThinkingLevel(modelId: string): ThinkingLevelName | null {
+  return getModelConfigByModelId(modelId)?.defaultThinkingLevel ?? null;
 }
 
 /**

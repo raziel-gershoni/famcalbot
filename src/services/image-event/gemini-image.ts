@@ -4,7 +4,7 @@
  * Twin of processTextWithGemini, but sends an image inlineData part.
  */
 
-import { getGemini } from '../ai-provider';
+import { getGemini, extractionConfig } from '../ai-provider';
 import { VoiceIntentResult } from '../event-parser';
 import { CalendarAssignment } from '../../types';
 import { getDefaultAiModelSetting } from '../reminder-cache';
@@ -64,6 +64,7 @@ export async function processImageWithGemini(
 
       const response = await getGemini().models.generateContent({
         model: resolvedModelId,
+        ...extractionConfig(resolvedModelId),
         contents: [
           {
             role: 'user',

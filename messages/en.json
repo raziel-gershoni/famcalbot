@@ -102,7 +102,9 @@
       "aiModel": "Default AI Model",
       "aiModelDescription": "Select the AI model used for summaries, weather, and voice",
       "geminiThinking": "Gemini Thinking Level",
-      "geminiThinkingDescription": "Control reasoning depth for Gemini models (lower = faster, cheaper)"
+      "geminiThinkingDescription": "Control reasoning depth for Gemini models (lower = faster, cheaper)",
+      "ttsModel": "Voice model",
+      "ttsModelDescription": "Speech engine for spoken summaries and voice replies"
     },
     "overrides": {
       "title": "User Feature Overrides",

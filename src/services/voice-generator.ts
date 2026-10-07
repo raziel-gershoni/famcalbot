@@ -1,18 +1,36 @@
 /**
  * Voice Generation Service
- * Generates speech from text using Gemini 3.1 Flash TTS
- * Replaces the previous Google Cloud TTS implementation
+ * Generates speech from text using Gemini TTS. The model is chosen per request - see
+ * resolveTtsModel() - and the request shape per model lives in ./gemini-tts.
  */
 
 import fs from 'fs/promises';
 import path from 'path';
 import { randomBytes } from 'crypto';
-import { getGemini } from './ai-provider';
-import { encodePcmToOggOpus } from '../utils/pcm-to-ogg-opus';
+import { encodePcmToOggOpus, SAMPLE_RATE } from '../utils/pcm-to-ogg-opus';
 import { getVoiceForUser, VOICE_STYLE_PROMPTS } from '../config/voice-options';
+import { DEFAULT_TTS_MODEL, getTtsModelConfig } from '../config/tts-models';
+import { synthesizeSpeech } from './gemini-tts';
+import { getTtsModelSetting } from './reminder-cache';
 
-// Model ID configurable via env var (prevents production outage on preview→GA rename)
-const GEMINI_TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-3.1-flash-tts-preview';
+/**
+ * Which TTS model to use: the admin panel setting, then the GEMINI_TTS_MODEL env var,
+ * then the code default. Resolved per request, not at import, so a change in the admin
+ * panel takes effect on the next voice message without a redeploy.
+ */
+export async function resolveTtsModel(): Promise<string> {
+  const fromAdmin = await getTtsModelSetting();
+  // The admin route validates on write; re-check here so a stale or hand-edited row
+  // can't route every voice message to a model id that doesn't exist.
+  if (fromAdmin && getTtsModelConfig(fromAdmin)) return fromAdmin;
+  return process.env.GEMINI_TTS_MODEL || DEFAULT_TTS_MODEL;
+}
+
+/** VOICE_STYLE_PROMPTS phrase for a user's style, or undefined for a plain read. */
+function styleFor(voiceStyle?: string): string | undefined {
+  if (!voiceStyle || voiceStyle === 'natural') return undefined;
+  return VOICE_STYLE_PROMPTS[voiceStyle];
+}
 
 // Voice config per language (with env var overrides)
 // All male voices, matching previous Google TTS Wavenet-D male voices
@@ -79,6 +97,8 @@ async function generateVoiceRemote(
   text: string,
   language: string,
   voiceName: string,
+  model: string,
+  style: string | undefined,
 ): Promise<VoiceGenerationResult> {
   const startTime = Date.now();
   const url = `${process.env.TTS_SERVICE_URL}/api/tts`;
@@ -88,6 +108,7 @@ async function generateVoiceRemote(
     textLength: text.length,
     language,
     voice: voiceName,
+    model,
   });
 
   const controller = new AbortController();
@@ -100,7 +121,10 @@ async function generateVoiceRemote(
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${process.env.TTS_API_KEY}`,
       },
-      body: JSON.stringify({ text, language, voiceName }),
+      // model and style travel with the request so the admin panel setting and the
+      // user's voice style apply on the remote path too. A tts-service deployed before
+      // these fields existed ignores them and uses its own GEMINI_TTS_MODEL.
+      body: JSON.stringify({ text, language, voiceName, model, style }),
       signal: controller.signal,
     });
 
@@ -111,6 +135,10 @@ async function generateVoiceRemote(
 
     const oggBuffer = Buffer.from(await response.arrayBuffer());
     const remoteDurationMs = response.headers.get('X-TTS-Duration-Ms');
+    // The model that actually spoke. A tts-service deployed before model selection
+    // existed sends no header and uses its own GEMINI_TTS_MODEL, so the requested
+    // model is only a best guess in that case - log both so it's visible.
+    const remoteModel = response.headers.get('X-TTS-Model');
 
     // Write to temp file
     const randomId = randomBytes(4).toString('hex');
@@ -123,10 +151,12 @@ async function generateVoiceRemote(
       filePath,
       oggKB: (oggBuffer.length / 1024).toFixed(2),
       remoteDurationMs,
+      requestedModel: model,
+      remoteModel: remoteModel ?? '(not reported - tts-service predates model selection)',
       totalMs: elapsed,
     });
 
-    return { filePath, ttsMs: elapsed, ttsModel: GEMINI_TTS_MODEL, voiceName };
+    return { filePath, ttsMs: elapsed, ttsModel: remoteModel ?? model, voiceName };
   } finally {
     clearTimeout(timeout);
   }
@@ -142,73 +172,49 @@ export async function generateVoiceMessage(
     ? getVoiceForUser(language, voicePreference)
     : VOICE_CONFIG[language] || VOICE_CONFIG['en'] || 'Achird';
 
+  const model = await resolveTtsModel();
+  const style = styleFor(voiceStyle);
+
   // If TTS_SERVICE_URL is set, offload to remote serverless function
   if (process.env.TTS_SERVICE_URL) {
     try {
-      return await generateVoiceRemote(condensedText, language, voiceName);
+      return await generateVoiceRemote(condensedText, language, voiceName, model, style);
     } catch (error) {
       console.warn('[TTS] Remote TTS failed, falling back to local:', error);
     }
   }
 
-  // Local generation (existing code)
   const startTime = Date.now();
-  const langName = LANGUAGE_NAMES[language] || 'English';
-
-  // Build minimal TTS-only prompt — no reasoning, just speak
-  const styleInstruction = VOICE_STYLE_PROMPTS[voiceStyle || 'natural'] || VOICE_STYLE_PROMPTS.natural;
-  const ttsPrompt = `Read the following text aloud ${styleInstruction} in ${langName}:\n\n${condensedText}`;
 
   console.log('[TTS] Generating voice message (Gemini TTS):', {
     textLength: condensedText.length,
     language,
     voice: voiceName,
-    model: GEMINI_TTS_MODEL,
+    model,
+    style: voiceStyle || 'natural',
   });
 
-  // Call Gemini TTS with retry and timeout
-  const result = await callWithRetry(async () => {
-    return await getGemini().models.generateContent({
-      model: GEMINI_TTS_MODEL,
-      contents: [{ parts: [{ text: ttsPrompt }] }],
-      config: {
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName }
-          }
-        }
-      }
-    });
-  }, TTS_MAX_RETRIES, TTS_BASE_DELAY_MS);
+  const audio = await callWithRetry(
+    () => synthesizeSpeech({
+      apiKey: process.env.GEMINI_API_KEY || '',
+      model,
+      text: condensedText,
+      voiceName,
+      style,
+      languageName: LANGUAGE_NAMES[language] || 'English',
+    }),
+    TTS_MAX_RETRIES,
+    TTS_BASE_DELAY_MS,
+  );
 
-  // Validate response
-  const inlineData = result.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-  if (!inlineData?.data) {
-    throw new Error('[TTS] No audio data in Gemini TTS response');
+  // The Opus encoder is fixed at 24 kHz. Audio at any other rate would play at the
+  // wrong speed and pitch with no error, so refuse it instead.
+  if (audio.sampleRate !== SAMPLE_RATE) {
+    throw new Error(`[TTS] ${model} returned ${audio.sampleRate} Hz audio; the encoder needs ${SAMPLE_RATE} Hz`);
   }
 
-  // Validate MIME type — Gemini TTS should return raw PCM
-  const mimeType = inlineData.mimeType || '';
-  if (mimeType && !mimeType.includes('audio/L16') && !mimeType.includes('audio/pcm') && mimeType !== '') {
-    if (mimeType.includes('audio/wav') || mimeType.includes('audio/x-wav')) {
-      console.log(`[TTS] Received WAV MIME type (${mimeType}), will strip 44-byte header`);
-    } else if (!mimeType.startsWith('audio/')) {
-      throw new Error(`[TTS] Unexpected MIME type from Gemini TTS: ${mimeType}`);
-    }
-  }
-
-  // Decode base64 to raw PCM buffer
-  let pcmBuffer = Buffer.from(inlineData.data, 'base64');
-
-  // Strip WAV header if present (44 bytes)
-  if (mimeType.includes('audio/wav') || mimeType.includes('audio/x-wav')) {
-    if (pcmBuffer.length > 44) {
-      pcmBuffer = pcmBuffer.subarray(44);
-    }
-  }
-
-  console.log(`[TTS] Received ${pcmBuffer.length} bytes of PCM audio (MIME: ${mimeType || 'unspecified'})`);
+  const pcmBuffer = audio.pcm;
+  console.log(`[TTS] Received ${pcmBuffer.length} bytes of PCM audio (MIME: ${audio.mimeType || 'unspecified'})`);
 
   // Convert PCM to OGG OPUS — encoder handles frame truncation internally
   const oggBuffer = encodePcmToOggOpus(pcmBuffer);
@@ -227,7 +233,7 @@ export async function generateVoiceMessage(
     durationMs: elapsed,
   });
 
-  return { filePath, ttsMs: elapsed, ttsModel: GEMINI_TTS_MODEL, voiceName };
+  return { filePath, ttsMs: elapsed, ttsModel: model, voiceName };
 }
 
 /**

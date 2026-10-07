@@ -11,7 +11,7 @@
 
 import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
-import { getGemini } from '../ai-provider';
+import { getGemini, extractionConfig } from '../ai-provider';
 import { getModelConfig, FALLBACK_MODEL_ID } from '../../config/ai-models';
 import { getDefaultAiModelSetting } from '../reminder-cache';
 import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
@@ -136,6 +136,7 @@ export async function extractFieldPatch(
   try {
     const response = await getGemini().models.generateContent({
       model: modelId,
+      ...extractionConfig(modelId),
       contents: [{ role: 'user', parts }],
     });
     const responseText = response.text ?? '';

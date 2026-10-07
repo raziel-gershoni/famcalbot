@@ -1,8 +1,14 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { GoogleGenAI } from '@google/genai';
-import { encodePcmToOggOpus } from '../lib/pcm-to-ogg-opus.js';
+import { encodePcmToOggOpus, SAMPLE_RATE } from '../lib/pcm-to-ogg-opus.js';
+import { synthesizeSpeech } from '../lib/gemini-tts.js';
 
-const GEMINI_TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-3.1-flash-tts-preview';
+// Used only when the caller sends no model. The main app now always sends one - the
+// admin panel's choice - so this matters mainly for direct callers and old clients.
+const DEFAULT_TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-lite-tts';
+
+// The model id becomes part of the upstream URL, so accept only the TTS id shape.
+const TTS_MODEL_ID = /^gemini-[a-z0-9.-]+-tts(?:-preview)?$/;
+const MAX_STYLE_LENGTH = 300;
 
 const LANGUAGE_NAMES: Record<string, string> = {
   he: 'Hebrew',
@@ -44,72 +50,63 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const { text, language, voiceName } = req.body || {};
+  const { text, language, voiceName, model: requestedModel, style: requestedStyle } = req.body || {};
   if (!text || !voiceName) {
     return res.status(400).json({ error: 'Missing required fields: text, voiceName' });
   }
 
-  const langName = LANGUAGE_NAMES[language] || 'English';
-  const ttsPrompt = `Read the following text aloud naturally in ${langName}:\n\n${text}`;
+  const model = typeof requestedModel === 'string' && TTS_MODEL_ID.test(requestedModel)
+    ? requestedModel
+    : DEFAULT_TTS_MODEL;
+  const style = typeof requestedStyle === 'string' && requestedStyle.length <= MAX_STYLE_LENGTH
+    ? requestedStyle
+    : undefined;
 
   console.log('[TTS] Generating voice:', {
     textLength: text.length,
     language,
     voice: voiceName,
-    model: GEMINI_TTS_MODEL,
+    model,
+    styled: Boolean(style),
   });
 
   const startTime = Date.now();
 
   try {
-    const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+    const audio = await callWithRetry(
+      () => synthesizeSpeech({
+        apiKey: process.env.GEMINI_API_KEY || '',
+        model,
+        text,
+        voiceName,
+        style,
+        languageName: LANGUAGE_NAMES[language] || 'English',
+      }),
+      TTS_MAX_RETRIES,
+      TTS_BASE_DELAY_MS,
+    );
 
-    const result = await callWithRetry(async () => {
-      return await genai.models.generateContent({
-        model: GEMINI_TTS_MODEL,
-        contents: [{ parts: [{ text: ttsPrompt }] }],
-        config: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName }
-            }
-          }
-        }
-      });
-    }, TTS_MAX_RETRIES, TTS_BASE_DELAY_MS);
-
-    // Validate response
-    const inlineData = result.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-    if (!inlineData?.data) {
-      return res.status(502).json({ error: 'No audio data in Gemini TTS response' });
+    // The Opus encoder is fixed at 24 kHz; anything else would play at the wrong speed.
+    if (audio.sampleRate !== SAMPLE_RATE) {
+      console.error(`[TTS] ${model} returned ${audio.sampleRate} Hz audio; encoder needs ${SAMPLE_RATE} Hz`);
+      return res.status(502).json({ error: `Unsupported sample rate ${audio.sampleRate}` });
     }
 
-    // Decode base64 to raw PCM buffer
-    const mimeType = inlineData.mimeType || '';
-    let pcmBuffer = Buffer.from(inlineData.data, 'base64');
+    console.log(`[TTS] Received ${audio.pcm.length} bytes of PCM audio (MIME: ${audio.mimeType || 'unspecified'})`);
 
-    // Strip WAV header if present (44 bytes)
-    if (mimeType.includes('audio/wav') || mimeType.includes('audio/x-wav')) {
-      if (pcmBuffer.length > 44) {
-        pcmBuffer = pcmBuffer.subarray(44);
-      }
-    }
-
-    console.log(`[TTS] Received ${pcmBuffer.length} bytes of PCM audio (MIME: ${mimeType || 'unspecified'})`);
-
-    // Convert PCM to OGG OPUS
-    const oggBuffer = encodePcmToOggOpus(pcmBuffer);
+    const oggBuffer = encodePcmToOggOpus(audio.pcm);
 
     const elapsed = Date.now() - startTime;
     console.log('[TTS] Voice generated:', {
-      pcmKB: (pcmBuffer.length / 1024).toFixed(2),
+      pcmKB: (audio.pcm.length / 1024).toFixed(2),
       oggKB: (oggBuffer.length / 1024).toFixed(2),
       durationMs: elapsed,
     });
 
     res.setHeader('Content-Type', 'audio/ogg');
     res.setHeader('X-TTS-Duration-Ms', String(elapsed));
+    // Lets the caller report the model that actually spoke, not the one it asked for.
+    res.setHeader('X-TTS-Model', model);
     return res.status(200).send(oggBuffer);
   } catch (error) {
     console.error('[TTS] Generation failed:', error);

@@ -12,7 +12,7 @@ import OpusScript from 'opusscript';
 import { randomBytes } from 'crypto';
 
 // Audio format constants (Gemini TTS output: 24kHz, 16-bit LE, mono)
-const SAMPLE_RATE = 24000;
+export const SAMPLE_RATE = 24000;
 const CHANNELS = 1;
 const FRAME_SIZE = 480; // 20ms at 24kHz
 const BYTES_PER_FRAME = FRAME_SIZE * CHANNELS * 2; // 960 bytes per frame (16-bit = 2 bytes per sample)

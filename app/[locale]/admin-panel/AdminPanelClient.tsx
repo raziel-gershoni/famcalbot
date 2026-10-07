@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { Activity, Crown, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock, RefreshCw, ChevronDown, MessageSquare } from 'lucide-react';
 import { AI_MODELS } from '@/src/config/ai-models';
+import { TTS_MODELS } from '@/src/config/tts-models';
 
 interface AdminPanelClientProps {
   userId: number;
@@ -21,6 +22,7 @@ interface AdminPanelClientProps {
   voiceTtsOutcome: boolean;
   defaultAiModel: string | null;
   geminiThinkingLevel: string | null;
+  ttsModel: string | null;
 }
 
 
@@ -139,7 +141,7 @@ interface FeedbackItem {
   createdAt: string;
 }
 
-export default function AdminPanelClient({ userId, locale, stats, remindersEnabled: initialRemindersEnabled, earlyAdoptionMode: initialEarlyAdoptionMode, voiceAutoCreateHighConf: initialVoiceAutoCreateHighConf, voiceTtsOutcome: initialVoiceTtsOutcome, defaultAiModel: initialDefaultAiModel, geminiThinkingLevel: initialGeminiThinkingLevel }: AdminPanelClientProps) {
+export default function AdminPanelClient({ userId, locale, stats, remindersEnabled: initialRemindersEnabled, earlyAdoptionMode: initialEarlyAdoptionMode, voiceAutoCreateHighConf: initialVoiceAutoCreateHighConf, voiceTtsOutcome: initialVoiceTtsOutcome, defaultAiModel: initialDefaultAiModel, geminiThinkingLevel: initialGeminiThinkingLevel, ttsModel: initialTtsModel }: AdminPanelClientProps) {
   const t = useTranslations('admin');
   const [remindersEnabled, setRemindersEnabled] = useState(initialRemindersEnabled);
   const [remindersSaving, setRemindersSaving] = useState(false);
@@ -152,6 +154,8 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   const [defaultAiModel, setDefaultAiModel] = useState(initialDefaultAiModel ?? '');
   const [aiModelSaving, setAiModelSaving] = useState(false);
   const [geminiThinkingLevel, setGeminiThinkingLevel] = useState(initialGeminiThinkingLevel ?? '');
+  const [ttsModel, setTtsModel] = useState(initialTtsModel ?? '');
+  const [ttsModelSaving, setTtsModelSaving] = useState(false);
   const [thinkingLevelSaving, setThinkingLevelSaving] = useState(false);
 
   // User overrides state
@@ -346,6 +350,23 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
       }
     } finally {
       setAiModelSaving(false);
+    }
+  };
+
+  const changeTtsModel = async (modelId: string) => {
+    setTtsModelSaving(true);
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ttsModel: modelId || null, initData })
+      });
+      if (response.ok) {
+        setTtsModel(modelId);
+      }
+    } finally {
+      setTtsModelSaving(false);
     }
   };
 
@@ -2302,14 +2323,51 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                   cursor: thinkingLevelSaving ? 'not-allowed' : 'pointer',
                 }}
               >
-                <option value="">Default (Medium)</option>
-                <option value="MINIMAL">Minimal - Lowest latency</option>
+                {/* The default and MINIMAL support both vary by model. 3.8 defaults to
+                    LOW, and 3.7/3.8 reject MINIMAL, which is coerced to LOW server-side. */}
+                <option value="">
+                  Default ({AI_MODELS[defaultAiModel]?.defaultThinkingLevel === 'LOW' ? 'Low' : 'Medium'})
+                </option>
+                <option value="MINIMAL">
+                  {AI_MODELS[defaultAiModel]?.unsupportedThinkingLevels?.includes('MINIMAL')
+                    ? 'Minimal - not supported, runs as Low'
+                    : 'Minimal - Lowest latency'}
+                </option>
                 <option value="LOW">Low - Fast</option>
                 <option value="MEDIUM">Medium - General</option>
                 <option value="HIGH">High - Complex reasoning</option>
               </select>
             </div>
             )}
+            <div className="toggle-row" style={{ marginTop: '12px' }}>
+              <div className="toggle-info">
+                <p className="toggle-label">{t('features.ttsModel')}</p>
+                <p className="toggle-description">{t('features.ttsModelDescription')}</p>
+              </div>
+              <select
+                value={ttsModel}
+                onChange={(e) => changeTtsModel(e.target.value)}
+                disabled={ttsModelSaving}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color, #ddd)',
+                  background: 'var(--card-bg, #fff)',
+                  color: 'var(--text-primary, #333)',
+                  fontSize: '13px',
+                  minWidth: '160px',
+                  opacity: ttsModelSaving ? 0.6 : 1,
+                  cursor: ttsModelSaving ? 'not-allowed' : 'pointer',
+                }}
+              >
+                <option value="">Default (env)</option>
+                {Object.entries(TTS_MODELS).map(([id, model]) => (
+                  <option key={id} value={id}>
+                    {model.displayName}
+                  </option>
+                ))}
+              </select>
+            </div>
             </div>
           </div>
 

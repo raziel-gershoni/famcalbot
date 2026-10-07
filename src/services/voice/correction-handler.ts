@@ -4,7 +4,7 @@
  * Sends correction to Gemini and updates the confirmation message in-place
  */
 
-import { getGemini } from '../ai-provider';
+import { getGemini, extractionConfig } from '../ai-provider';
 import { ParsedEvent } from '../event-parser';
 import { getBot, getMessagingService } from '../telegram';
 import { getUserByTelegramId } from '../user-service';
@@ -145,6 +145,7 @@ export async function handleEventCorrection(
 
     const response = await getGemini().models.generateContent({
       model: resolvedModelId,
+      ...extractionConfig(resolvedModelId),
       contents: [{ role: 'user', parts }],
     });
 

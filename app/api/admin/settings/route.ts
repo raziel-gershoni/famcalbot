@@ -8,9 +8,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { captureError } from '@/src/lib/error-capture';
-import { setGlobalRemindersEnabled, setEarlyAdoptionMode, setDefaultAiModelSetting, setGeminiThinkingLevel, setVoiceAutoCreateHighConf, setVoiceTtsOutcome } from '@/src/services/reminder-cache';
+import { setGlobalRemindersEnabled, setEarlyAdoptionMode, setDefaultAiModelSetting, setGeminiThinkingLevel, setVoiceAutoCreateHighConf, setVoiceTtsOutcome, setTtsModelSetting } from '@/src/services/reminder-cache';
 import { invalidateAllFeatureAccessCaches } from '@/src/services/subscription-service';
 import { getModelConfig } from '@/src/config/ai-models';
+import { getTtsModelConfig } from '@/src/config/tts-models';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,6 +30,7 @@ export async function GET() {
       geminiThinkingLevel: adminSettings?.geminiThinkingLevel ?? null,
       voiceAutoCreateHighConf: adminSettings?.voiceAutoCreateHighConf ?? false,
       voiceTtsOutcome: adminSettings?.voiceTtsOutcome ?? false,
+      ttsModel: adminSettings?.ttsModel ?? null,
     });
   } catch (error) {
     captureError(error, 'admin-settings-get', { api_route: '/api/admin/settings' });
@@ -43,7 +45,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { remindersEnabled, earlyAdoptionMode, defaultAiModel, geminiThinkingLevel, voiceAutoCreateHighConf, voiceTtsOutcome, initData } = body;
+    const { remindersEnabled, earlyAdoptionMode, defaultAiModel, geminiThinkingLevel, voiceAutoCreateHighConf, voiceTtsOutcome, ttsModel, initData } = body;
 
     // Verify admin access
     const auth = await verifyAdminAccess(initData);
@@ -61,7 +63,8 @@ export async function POST(request: NextRequest) {
     const hasThinkingLevel = 'geminiThinkingLevel' in body;
     const hasVoiceAutoCreate = typeof voiceAutoCreateHighConf === 'boolean';
     const hasVoiceTts = typeof voiceTtsOutcome === 'boolean';
-    if (!hasReminders && !hasEarlyAdoption && !hasAiModel && !hasThinkingLevel && !hasVoiceAutoCreate && !hasVoiceTts) {
+    const hasTtsModel = 'ttsModel' in body;
+    if (!hasReminders && !hasEarlyAdoption && !hasAiModel && !hasThinkingLevel && !hasVoiceAutoCreate && !hasVoiceTts && !hasTtsModel) {
       return NextResponse.json(
         { error: 'At least one setting field must be provided' },
         { status: 400 }
@@ -73,6 +76,16 @@ export async function POST(request: NextRequest) {
       if (typeof defaultAiModel !== 'string' || !getModelConfig(defaultAiModel)) {
         return NextResponse.json(
           { error: `Invalid AI model: "${defaultAiModel}"` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Validate TTS model if provided (null clears it back to the env/code default)
+    if (hasTtsModel && ttsModel !== null) {
+      if (typeof ttsModel !== 'string' || !getTtsModelConfig(ttsModel)) {
+        return NextResponse.json(
+          { error: `Invalid TTS model: "${ttsModel}"` },
           { status: 400 }
         );
       }
@@ -117,11 +130,15 @@ export async function POST(request: NextRequest) {
         updateData.voiceTtsOutcome = voiceTtsOutcome;
         createData.voiceTtsOutcome = voiceTtsOutcome;
       }
+      if (hasTtsModel) {
+        updateData.ttsModel = ttsModel ?? null;
+        createData.ttsModel = ttsModel ?? null;
+      }
 
       const settings = await prisma.adminSettings.upsert({
         where: { id: 'global' },
         update: updateData,
-        create: createData as { id: string; remindersEnabled?: boolean; earlyAdoptionMode?: boolean; defaultAiModel?: string | null; geminiThinkingLevel?: string | null; voiceAutoCreateHighConf?: boolean; voiceTtsOutcome?: boolean },
+        create: createData as { id: string; remindersEnabled?: boolean; earlyAdoptionMode?: boolean; defaultAiModel?: string | null; geminiThinkingLevel?: string | null; voiceAutoCreateHighConf?: boolean; voiceTtsOutcome?: boolean; ttsModel?: string | null },
       });
 
       // Sync to Redis cache
@@ -144,8 +161,11 @@ export async function POST(request: NextRequest) {
       if (hasVoiceTts) {
         await setVoiceTtsOutcome(voiceTtsOutcome);
       }
+      if (hasTtsModel) {
+        await setTtsModelSetting(ttsModel ?? null);
+      }
 
-      console.log(`[admin-settings] Admin ${auth.adminId} updated settings:`, { remindersEnabled, earlyAdoptionMode, defaultAiModel, geminiThinkingLevel, voiceAutoCreateHighConf, voiceTtsOutcome });
+      console.log(`[admin-settings] Admin ${auth.adminId} updated settings:`, { remindersEnabled, earlyAdoptionMode, defaultAiModel, geminiThinkingLevel, voiceAutoCreateHighConf, voiceTtsOutcome, ttsModel });
 
       return NextResponse.json({
         success: true,
@@ -155,6 +175,7 @@ export async function POST(request: NextRequest) {
         geminiThinkingLevel: settings.geminiThinkingLevel ?? null,
         voiceAutoCreateHighConf: settings.voiceAutoCreateHighConf,
         voiceTtsOutcome: settings.voiceTtsOutcome,
+        ttsModel: settings.ttsModel ?? null,
       });
     } catch (dbError) {
       // Table might not exist yet

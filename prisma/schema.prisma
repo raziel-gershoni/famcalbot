@@ -126,6 +126,9 @@ model AdminSettings {
   earlyAdoptionMode       Boolean  @default(true)
   defaultAiModel          String?
   geminiThinkingLevel     String?
+  // Text-to-speech model for spoken summaries. NULL falls back to the
+  // GEMINI_TTS_MODEL env var, then to DEFAULT_TTS_MODEL in src/config/tts-models.ts.
+  ttsModel                String?
   voiceAutoCreateHighConf Boolean  @default(false) // Auto-create on HIGH-confidence voice CRUD (skip confirmation)
   voiceTtsOutcome         Boolean  @default(false) // Speak the outcome line back when input was voice
   updatedAt               DateTime @updatedAt

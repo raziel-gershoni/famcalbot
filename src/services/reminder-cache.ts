@@ -12,6 +12,7 @@ const GLOBAL_KEY = REDIS_KEYS.REMINDERS_GLOBAL_ENABLED;
 const EARLY_ADOPTION_KEY = REDIS_KEYS.EARLY_ADOPTION_GLOBAL;
 const DEFAULT_AI_MODEL_KEY = REDIS_KEYS.DEFAULT_AI_MODEL;
 const GEMINI_THINKING_LEVEL_KEY = REDIS_KEYS.GEMINI_THINKING_LEVEL;
+const TTS_MODEL_KEY = REDIS_KEYS.TTS_MODEL;
 const VOICE_AUTO_CREATE_KEY = REDIS_KEYS.VOICE_AUTO_CREATE_HIGH_CONF;
 const VOICE_TTS_OUTCOME_KEY = REDIS_KEYS.VOICE_TTS_OUTCOME;
 
@@ -210,6 +211,49 @@ export async function setDefaultAiModelSetting(modelId: string | null): Promise<
     console.log(`[Reminder Cache] Set default AI model to ${modelId ?? 'env default'}`);
   } catch (error) {
     console.error('[Reminder Cache] Redis write default AI model error:', error);
+    captureError(error, 'reminder-cache', {}, 'warning');
+  }
+}
+
+/**
+ * Get the admin-selected TTS model from Redis (read-through cache from DB).
+ * Null means no admin choice - callers fall back to the env var, then the default.
+ */
+export async function getTtsModelSetting(): Promise<string | null> {
+  try {
+    const cached = await redis.get<string>(TTS_MODEL_KEY);
+    if (cached !== null) return cached;
+
+    const { prisma } = await import('@/src/utils/prisma');
+    const settings = await prisma.adminSettings.findUnique({
+      where: { id: 'global' },
+      select: { ttsModel: true },
+    });
+    const value = settings?.ttsModel ?? null;
+    if (value) {
+      await redis.set(TTS_MODEL_KEY, value);
+    }
+    return value;
+  } catch (error) {
+    console.error('[Reminder Cache] Redis read TTS model error:', error);
+    captureError(error, 'reminder-cache', {}, 'warning');
+    return null;
+  }
+}
+
+/**
+ * Set the admin-selected TTS model in Redis (null clears the key)
+ */
+export async function setTtsModelSetting(modelId: string | null): Promise<void> {
+  try {
+    if (modelId) {
+      await redis.set(TTS_MODEL_KEY, modelId);
+    } else {
+      await redis.del(TTS_MODEL_KEY);
+    }
+    console.log(`[Reminder Cache] Set TTS model to ${modelId ?? 'env default'}`);
+  } catch (error) {
+    console.error('[Reminder Cache] Redis write TTS model error:', error);
     captureError(error, 'reminder-cache', {}, 'warning');
   }
 }

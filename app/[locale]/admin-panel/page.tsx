@@ -141,6 +141,7 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
       voiceTtsOutcome={adminSettings?.voiceTtsOutcome ?? false}
       defaultAiModel={adminSettings?.defaultAiModel ?? null}
       geminiThinkingLevel={adminSettings?.geminiThinkingLevel ?? null}
+      ttsModel={adminSettings?.ttsModel ?? null}
     />
   );
 }

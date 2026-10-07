@@ -7,7 +7,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { getAIConfig, AI_RETRY_CONFIG } from '../config/constants';
-import { resolveThinkingLevel } from '../config/ai-models';
+import { resolveThinkingLevel, getExtractionThinkingLevel } from '../config/ai-models';
 import { notifyAdminWarning } from '../utils/error-notifier';
 import { captureError } from '../lib/error-capture';
 
@@ -37,6 +37,17 @@ const getOpenAI = () => {
   }
   return openai;
 };
+
+/**
+ * generateContent options for the media pipelines (voice, image, forwarded text and
+ * corrections), spread into the request. Applies the model's declared default
+ * thinking level - see getExtractionThinkingLevel - and is empty for models that
+ * declare none, so 3.5 and 3.7 requests are unchanged.
+ */
+export function extractionConfig(modelId: string): { config?: { thinkingConfig: { thinkingLevel: ThinkingLevel } } } {
+  const level = getExtractionThinkingLevel(modelId);
+  return level ? { config: { thinkingConfig: { thinkingLevel: ThinkingLevel[level] } } } : {};
+}
 
 export const getGemini = () => {
   if (!gemini) {
