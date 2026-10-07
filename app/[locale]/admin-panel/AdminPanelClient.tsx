@@ -2366,6 +2366,13 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                     {model.displayName}
                   </option>
                 ))}
+                {/* A saved model that has since left the catalog (3.1 is due to be removed
+                    after its shutdown). Without this option React shows the first entry for
+                    an unmatched value, so choosing "Default (env)" fires no change and the
+                    dead id could never be cleared. The server already ignores it. */}
+                {ttsModel && !TTS_MODELS[ttsModel] && (
+                  <option value={ttsModel}>{ttsModel} (removed - not in use)</option>
+                )}
               </select>
             </div>
             </div>

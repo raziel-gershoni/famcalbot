@@ -29,7 +29,9 @@ export async function resolveTtsModel(): Promise<string> {
 /** VOICE_STYLE_PROMPTS phrase for a user's style, or undefined for a plain read. */
 function styleFor(voiceStyle?: string): string | undefined {
   if (!voiceStyle || voiceStyle === 'natural') return undefined;
-  return VOICE_STYLE_PROMPTS[voiceStyle];
+  // /api/settings stores any string here, so look up own keys only - a value like
+  // "constructor" would otherwise return Object.prototype members as the style.
+  return Object.hasOwn(VOICE_STYLE_PROMPTS, voiceStyle) ? VOICE_STYLE_PROMPTS[voiceStyle] : undefined;
 }
 
 // Voice config per language (with env var overrides)

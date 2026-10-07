@@ -101,10 +101,17 @@ export async function synthesizeSpeech(input: SynthesizeSpeechInput): Promise<Sp
     signal: AbortSignal.timeout(input.timeoutMs ?? DEFAULT_TIMEOUT_MS),
   });
 
-  const body = (await response.json().catch(() => null)) as {
+  type TtsResponseBody = {
     error?: { message?: string };
     candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { mimeType?: string; data?: string } }> } }>;
-  } | null;
+  };
+  // On an error status the body is only a nicety for the message, so tolerate a bad
+  // one. On success it IS the audio: the timeout above also covers reading it, so a
+  // multi-MB body cut off by the timer or a connection reset must surface as what it
+  // is - not be swallowed and reported further down as "returned no audio".
+  const body = response.ok
+    ? ((await response.json()) as TtsResponseBody)
+    : ((await response.json().catch(() => null)) as TtsResponseBody | null);
 
   if (!response.ok) {
     const detail = body?.error?.message || response.statusText;
