@@ -26,7 +26,7 @@
 import { ThinkingLevel } from '@google/genai';
 import { getGemini } from '../ai-provider';
 
-export { isSilent, measureLoudnessDbfs, SILENCE_THRESHOLD_DBFS } from './audio-level';
+export { isSilent, loudestWindowDbfs, SILENCE_THRESHOLD_DBFS } from './audio-level';
 
 /** Result marker for "the voice note had no speech" - see VoiceIntentResult.error. */
 export const NO_SPEECH = 'no_speech';

@@ -10,6 +10,11 @@
 // create, edit or delete on both 3.7 and 3.8. Re-run this after any change to the
 // voice prompt, the extraction model, or the gates.
 //
+// Expected: every real command acted on, and no non-speech clip producing an action -
+// except loud broadband noise ("pinknoise"), which the model-based gate still lets
+// through now and then (measured ~1 run in 6-16 on both 3.7 and 3.8). Anything else
+// failing is a regression.
+//
 // COSTS MONEY: it calls the Gemini API (clips x runs x models, each with a second
 // small gate call). Needs macOS `say` (with the Carmit and Milena voices) and ffmpeg
 // to build the corpus.
@@ -36,6 +41,9 @@ const CLIPS: Clip[] = [
   { name: 'en_create', language: 'en', expect: 'create' },
   { name: 'en_delete', language: 'en', expect: 'delete' },
   { name: 'ru_create', language: 'ru', expect: 'create' },
+  // A real command said quietly, inside a mostly-quiet note. A whole-clip loudness
+  // average dropped this as silence; it must reach the model and be acted on.
+  { name: 'he_quiet_farfield', language: 'he', expect: 'create' },
   { name: 'silence', language: 'he', expect: 'none' },
   { name: 'roomtone', language: 'he', expect: 'none' },
   { name: 'short', language: 'he', expect: 'none' },
@@ -65,6 +73,12 @@ function buildCorpus(dir: string) {
   say('Samantha', 'Add a dentist appointment tomorrow at three', 'en_create');
   say('Samantha', 'Cancel the karate class', 'en_delete');
   say('Milena', 'Добавь встречу с врачом завтра в три часа', 'ru_create');
+
+  // 30 dB quieter, 6 s of near-silence before it, 15 s total.
+  ff(['-i', join(dir, 'he_create.aiff'), '-f', 'lavfi', '-i', 'anoisesrc=d=15:c=pink:a=0.0003',
+    '-filter_complex', '[0:a]aresample=48000,volume=-30dB,adelay=6000:all=1,apad=whole_dur=15[s];[s][1:a]amix=inputs=2:duration=first:normalize=0',
+    '-ac', '1', '-t', '15', join(dir, 'he_quiet_farfield.wav')]);
+  toOgg(join(dir, 'he_quiet_farfield.wav'), 'he_quiet_farfield');
 
   ff(['-i', join(dir, 'he_create.aiff'), '-f', 'lavfi', '-i', 'anoisesrc=d=6:c=pink:a=0.06',
     '-filter_complex', '[0:a]aresample=48000,apad=pad_dur=1[s];[s][1:a]amix=inputs=2:duration=shortest', '-ac', '1',

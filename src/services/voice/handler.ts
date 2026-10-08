@@ -379,6 +379,13 @@ export async function handleVoiceMessage(
 
     if (intentResult.intent === 'create') {
       if (intentResult.error === NO_SPEECH) {
+        // A silent follow-up is not the clarification we invited. Retry mode was
+        // already cleared to read priorAudio, so put the original recording back -
+        // otherwise the clarification they send next is parsed without it.
+        if (priorAudio && typeof chatId === 'number') {
+          const { stashFailedAudio } = await import('./audio-retry');
+          await stashFailedAudio(chatId, priorAudio);
+        }
         // Silence or noise. Quoting an empty "I heard" and suggesting phrasings would
         // read as a misunderstanding; the user just needs to record again.
         await messagingService.sendMessage(chatId,
