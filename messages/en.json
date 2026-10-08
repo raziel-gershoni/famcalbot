@@ -575,6 +575,7 @@
       "understanding": "📅 Understanding your event...",
       "iHeard": "🎤 I heard:",
       "notUnderstood": "❌ I couldn't understand that as a calendar event.",
+      "noSpeech": "🎤 I didn't hear anything in that voice message. Please try again.",
       "tryExamples": "Please try saying something like:",
       "example1": "Meeting with David tomorrow at 3pm",
       "example2": "Dentist appointment on Friday at 10am",

@@ -6,6 +6,8 @@
  */
 
 import { getGemini, extractionConfig } from '../ai-provider';
+import { isSilent } from './audio-level';
+import { detectSpeech, NO_SPEECH } from './speech-presence';
 import { VoiceIntentResult, VoiceIntent, ParsedEvent } from '../event-parser';
 import { CalendarAssignment } from '../../types';
 import { fromZonedTime } from 'date-fns-tz';
@@ -439,6 +441,34 @@ export async function processVoiceWithGemini(
     if (cfg) resolvedModelId = cfg.modelId;
   }
 
+  // Speech presence. Without these gates, non-speech audio - silence, a pocket
+  // recording, music - came back as a high-confidence create, edit or delete in every
+  // test run, on both 3.7 and 3.8. See ./speech-presence for why there are two.
+  const noSpeechResult = (reason: string) => {
+    console.log(`[Voice Gemini] No speech detected (${reason}); no calendar action taken`);
+    const intentResult: VoiceIntentResult = { intent: 'create', confidence: 'low', error: NO_SPEECH };
+    return {
+      intentResult,
+      intentResults: [intentResult],
+      transcription: '',
+      metrics: { model: resolvedModelId, inputTokens: 0, outputTokens: 0, durationMs: Date.now() - startTime },
+    };
+  };
+
+  // Quiet audio first: the model invents words for near-silence however it is asked,
+  // and catching it here costs no model call at all.
+  if (isSilent(audioBuffer)) {
+    return noSpeechResult('near-silent audio');
+  }
+
+  // Loud non-speech the model judges correctly on its own but not inside the
+  // extraction prompt, so ask separately and in parallel - extraction is slower, so
+  // this adds no latency in the usual case. Only the newest clip is checked: in
+  // retry mode a silent follow-up is not a clarification.
+  const speechCheck = detectSpeech(audioBuffer, resolvedModelId);
+  let speechVerdict: boolean | undefined;
+  void speechCheck.then(v => { speechVerdict = v; });
+
   for (let attempt = 0; attempt <= VOICE_RETRY_CONFIG.maxRetries; attempt++) {
     try {
       const retryNote = priorAudioBuffer
@@ -504,6 +534,10 @@ export async function processVoiceWithGemini(
       const intentResults = extractIntents(parsed, calendars, timezone);
       const intentResult = intentResults[0];
 
+      // The extraction prompt fabricates commands for non-speech, so its answer only
+      // counts if the context-free check agrees there was speech at all.
+      if (!(await speechCheck)) return noSpeechResult('speech gate');
+
       return {
         intentResult,
         intentResults,
@@ -514,6 +548,9 @@ export async function processVoiceWithGemini(
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
 
+      // A failed parse of audio already judged speechless is not worth a retry.
+      if (speechVerdict === false) return noSpeechResult('speech gate');
+
       if (attempt < VOICE_RETRY_CONFIG.maxRetries) {
         const delay = VOICE_RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt);
         console.warn(`[Voice Gemini] Error (attempt ${attempt + 1}/${VOICE_RETRY_CONFIG.maxRetries + 1}), retrying in ${delay}ms:`, error);
@@ -521,6 +558,11 @@ export async function processVoiceWithGemini(
       }
     }
   }
+
+  // Every attempt failed. If there was no speech, say so rather than report an
+  // outage - the handler's error path would also stash this clip and merge it into
+  // the user's next message.
+  if (!(await speechCheck)) return noSpeechResult('speech gate');
 
   console.error(`[Voice Gemini] Failed after ${VOICE_RETRY_CONFIG.maxRetries + 1} attempts:`, lastError);
   throw new Error(`Voice processing failed: ${lastError?.message || 'Unknown error'}`);

@@ -18,6 +18,7 @@ import { trackActivityAsync, addBreadcrumb, setUserContext } from '../analytics-
 import { checkFeatureAccess } from '../subscription-service';
 import { downloadVoiceFile, getLastCreatedEvent, findMatchingEvent, convertEditRequestToUpdates } from './event-resolution';
 import { showEventConfirmation, showEditConfirmation, showDeleteConfirmation } from './confirmations';
+import { NO_SPEECH } from './speech-presence';
 import { captureError } from '../../lib/error-capture';
 import { startTypingInterval } from '../telegram/command-pipeline';
 
@@ -377,6 +378,15 @@ export async function handleVoiceMessage(
     }
 
     if (intentResult.intent === 'create') {
+      if (intentResult.error === NO_SPEECH) {
+        // Silence or noise. Quoting an empty "I heard" and suggesting phrasings would
+        // read as a misunderstanding; the user just needs to record again.
+        await messagingService.sendMessage(chatId,
+          t.voice.noSpeech || "🎤 I didn't hear anything in that voice message. Please try again.",
+          { format: MessageFormat.PLAIN }
+        );
+        return;
+      }
       if (!intentResult.event) {
         const safeTranscription = transcription.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         await messagingService.sendMessage(chatId,

@@ -7,6 +7,7 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 interface WebhookRequest { body: any }
 interface WebhookResponse { status(code: number): { json(data: unknown): void } }
+import { NO_SPEECH } from './voice/speech-presence';
 import {
   handleStartCommand,
   handleSummaryCommand,
@@ -1093,6 +1094,9 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
           ],
         }
       );
+    } else if (intentResult.error === NO_SPEECH) {
+      // Silence or noise - there is no transcript to quote back.
+      await waService.sendMessage(phone, t.voice?.noSpeech || "🎤 I didn't hear anything in that voice message. Please try again.");
     } else {
       const safeTranscription = transcription || '';
       await waService.sendMessage(phone,
