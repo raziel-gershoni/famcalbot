@@ -34,6 +34,7 @@ import {
   UpdateScope,
 } from '../native-calendar/event-store';
 import { TIMEZONE } from '../../config/constants';
+import { addDaysToDate } from '../../utils/day-events';
 
 const PROVIDER_NAME = 'native' as const;
 
@@ -68,14 +69,16 @@ export function toUnifiedEvent(
     isRecurringInstance: boolean;
   }
 ): UnifiedEvent {
-  // An all-day event is stored at local midnight in its own timezone. Formatting it on
-  // the server's clock would shift the date on a UTC server, and summaries compare
-  // these dates to keep only the day's events.
+  // All-day dates follow Google: the start date and an exclusive end date, both in the
+  // event's own timezone (on the server's clock a UTC server would shift them a day).
+  // The bot saves an all-day event as 00:00 to 23:59 local on its last day, and a
+  // recurring one keeps that duration, so count whole days rather than reading the
+  // end's date: a DST day is 23 or 25 hours long.
   const start = instance.allDay
     ? formatInTimeZone(instance.startsAt, instance.timeZone, 'yyyy-MM-dd')
     : instance.startsAt.toISOString();
   const end = instance.allDay
-    ? formatInTimeZone(instance.endsAt, instance.timeZone, 'yyyy-MM-dd')
+    ? addDaysToDate(start, Math.max(1, Math.round((instance.endsAt.getTime() - instance.startsAt.getTime()) / 86_400_000)))
     : instance.endsAt.toISOString();
 
   return {

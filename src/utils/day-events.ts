@@ -31,6 +31,23 @@ export function nextDate(day: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Plus `days` calendar days to yyyy-MM-dd. */
+export function addDaysToDate(day: string, days: number): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * The first instant of `day` in `timezone`. Where daylight saving starts at midnight
+ * (Chile, Cuba, Lebanon) 00:00 does not exist and would resolve to 23:00 the day before,
+ * so the day then starts at 01:00.
+ */
+export function startOfLocalDay(day: string, timezone: string): Date {
+  const midnight = fromZonedTime(`${day} 00:00:00`, timezone);
+  return formatInTimeZone(midnight, timezone, 'yyyy-MM-dd') === day ? midnight : fromZonedTime(`${day} 01:00:00`, timezone);
+}
+
 /**
  * How an event sits on `day` (yyyy-MM-dd in `timezone`): undefined when wholly inside
  * it, a DaySpan when it crosses the day's edges, or null when it does not belong to the
@@ -42,15 +59,16 @@ export function daySpanOf(event: CalendarEvent, day: string, timezone: string): 
   if (!event.start) return undefined;
 
   if (!event.start.includes('T')) {
-    const end = event.end && !event.end.includes('T') ? event.end : nextDate(event.start);
+    // Google's end date is exclusive; a missing or non-advancing end means one day.
+    const end = event.end && !event.end.includes('T') && event.end > event.start ? event.end : nextDate(event.start);
     if (day < event.start || day >= end) return null;
     const startsBefore = event.start < day;
     const endsAfter = end > nextDate(day);
     return startsBefore ? (endsAfter ? 'spansDay' : 'continues') : endsAfter ? 'endsLater' : undefined;
   }
 
-  const dayStart = fromZonedTime(`${day} 00:00:00`, timezone);
-  const dayEnd = fromZonedTime(`${nextDate(day)} 00:00:00`, timezone);
+  const dayStart = startOfLocalDay(day, timezone);
+  const dayEnd = startOfLocalDay(nextDate(day), timezone);
   const start = new Date(event.start);
   const end = new Date(event.end || event.start);
   if (end <= dayStart || start >= dayEnd) return null;

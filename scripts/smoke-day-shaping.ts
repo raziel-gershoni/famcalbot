@@ -134,6 +134,46 @@ check('events outside the day are dropped and the rest keep their order', () => 
   assert(day.map(e => e.summary).join(',') === 'Breakfast,Meeting', day.map(e => e.summary).join(','));
 });
 
+// Native all-day events as the bot saves them: 00:00 to 23:59 local on the last day.
+const nativeAllDay = (title: string, startsAt: string, endsAt: string) => toUnifiedEvent({ id: 'cal1', name: 'Family' }, {
+  title, startsAt: new Date(startsAt), endsAt: new Date(endsAt), allDay: true, timeZone: TZ,
+  seriesEventId: 'e1', instanceStartsAt: new Date(startsAt), isRecurringInstance: false,
+}) as CalendarEvent;
+
+check('native one-day all-day event saved 00:00-23:59 stays on its day', () => {
+  // Saturday 2026-10-17 in Israel: 2026-10-16T21:00Z to 2026-10-17T20:59Z.
+  const beach = nativeAllDay('Beach day', '2026-10-16T21:00:00Z', '2026-10-17T20:59:00Z');
+  assert(beach.start === '2026-10-17' && beach.end === '2026-10-18', `dates ${beach.start}..${beach.end}`);
+  assert(onDay(beach, '2026-10-17') === '1. Beach day (All day) [Calendar: Family]', `Sat ${onDay(beach, '2026-10-17')}`);
+  assert(onDay(beach, '2026-10-18') === undefined, 'kept on Sunday');
+});
+
+check('native multi-day all-day event Mon 00:00 - Wed 23:59 runs through Wednesday', () => {
+  const trip = nativeAllDay('Trip', '2026-10-18T21:00:00Z', '2026-10-21T20:59:00Z');
+  assert(trip.start === '2026-10-19' && trip.end === '2026-10-22', `dates ${trip.start}..${trip.end}`);
+  assert(onDay(trip, '2026-10-19') === '1. Trip (All day, through Wed) [Calendar: Family]', `Mon ${onDay(trip, '2026-10-19')}`);
+  assert(onDay(trip, '2026-10-22') === undefined, 'kept on Thursday');
+});
+
+check('native recurring all-day occurrence on the 25-hour DST day keeps one day', () => {
+  // 24 h from local midnight on 2026-10-25 ends at 23:00 the same day.
+  const weekly = nativeAllDay('Cleaning day', '2026-10-24T21:00:00Z', '2026-10-25T21:00:00Z');
+  assert(weekly.start === '2026-10-25' && weekly.end === '2026-10-26', `dates ${weekly.start}..${weekly.end}`);
+  assert(onDay(weekly, '2026-10-25') === '1. Cleaning day (All day) [Calendar: Family]', `line ${onDay(weekly, '2026-10-25')}`);
+});
+
+check('an all-day event whose end does not advance counts as one day', () => {
+  const odd = ev('Odd', '2026-10-12', '2026-10-12');
+  assert(onDay(odd, '2026-10-12') === '1. Odd (All day) [Calendar: Family]', `got ${onDay(odd, '2026-10-12')}`);
+});
+
+check('where DST starts at midnight (Chile), the evening before keeps its last hour', () => {
+  // America/Santiago skips 2026-09-06 00:00 -> 01:00.
+  const late = ev('Late call', '2026-09-05T23:00:00-04:00', '2026-09-05T23:45:00-04:00');
+  assert(onDay(late, '2026-09-05', 'America/Santiago') === '1. Late call (23:00 - 23:45) [Calendar: Family]', `Sat ${onDay(late, '2026-09-05', 'America/Santiago')}`);
+  assert(onDay(late, '2026-09-06', 'America/Santiago') === undefined, 'kept on Sunday');
+});
+
 check('native all-day event: dated in its own timezone, so a UTC server keeps it on its day', () => {
   // Stored at Israel midnight: 2026-10-12 00:00 local is 2026-10-11 21:00 UTC.
   const unified = toUnifiedEvent({ id: 'cal1', name: 'Family' }, {

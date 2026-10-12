@@ -17,6 +17,7 @@ import { checkFeatureAccess, incrementUsage } from './subscription-service';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { resolveUserTimezone } from '../lib/timezone';
 import { captureError } from '../lib/error-capture';
+import { isAllDayEvent } from '../utils/event-formatter';
 
 
 const REMINDER_TTL_SECONDS = 86400; // 24 hours
@@ -145,6 +146,9 @@ export async function getDueReminders(
 
   for (const event of events) {
     if (!event.eventId) continue;
+    // An all-day event has no start or pickup time; its date alone would become a
+    // reminder at midnight UTC (3 AM in Israel).
+    if (isAllDayEvent(event)) continue;
 
     const startTime = new Date(event.start);
     const endTime = new Date(event.end);

@@ -95,14 +95,19 @@ async function prepareSummaryForUser(
   // Fetch calendar events with user's timezone. Google returns every event that
   // overlaps the day, so keep only what belongs to it: last night's 22:00-02:00 party
   // is dropped, and an event crossing the day's edges is marked for the prompt.
+  //
+  // The summary day is decided once, before the fetch, the way the providers pick the
+  // day they fetch: the user's local date, plus one calendar day for tomorrow (not
+  // 24 hours, which lands on the wrong day around a DST change). The prompt and the
+  // date header get noon of that day.
   onStageChange?.('fetchingCalendar');
   const tCalendar = Date.now();
-  const { localDate, shapeEventsForDay } = await import('../../utils/day-events');
-  const events = shapeEventsForDay(
-    await fetchFunction(user, allCalendarIds, userTimezone),
-    localDate(summaryDate || new Date(), userTimezone),
-    userTimezone,
-  );
+  const { localDate, nextDate, shapeEventsForDay } = await import('../../utils/day-events');
+  const { fromZonedTime } = await import('date-fns-tz');
+  const today = localDate(new Date(), userTimezone);
+  const day = summaryDate ? nextDate(today) : today;
+  const dayNoon = fromZonedTime(`${day} 12:00:00`, userTimezone);
+  const events = shapeEventsForDay(await fetchFunction(user, allCalendarIds, userTimezone), day, userTimezone);
   const calendarMs = Date.now() - tCalendar;
 
   // Categorize events by ownership
@@ -177,7 +182,7 @@ async function prepareSummaryForUser(
     spouseInfo?.englishName,
     spouseInfo?.gender,
     primaryCalendar,
-    summaryDate,
+    dayNoon,
     user.isAdmin,
     modelId,
     user.location,
@@ -193,7 +198,7 @@ async function prepareSummaryForUser(
 
   // Generate date header for voice-only delivery
   const dateHeader = formatDateHeader(
-    summaryDate || new Date(),
+    dayNoon,
     user.language,
     user.culture,
     userTimezone
