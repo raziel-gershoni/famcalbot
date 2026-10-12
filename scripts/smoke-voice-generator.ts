@@ -124,7 +124,7 @@ async function main() {
         assert(result.via === 'local' && result.lineCount === 4 && result.audioTokens === 60, JSON.stringify(result));
         assert(synthCalls.length === 4, `synth calls ${synthCalls.length}`);
         assert(synthCalls.every((c, i) => c.voiceName === (LINES[i].host === 'A' ? 'voice_33yuo333h4y2' : 'voice_override123')), 'voices');
-        assert(synthCalls[1].style === 'amused, laughing a little', `style ${synthCalls[1].style}`);
+        assert(synthCalls[1].style === 'excited sports commentator, amused', `style ${synthCalls[1].style}`);
         // 4 lines of 0.6 s tone + 2 x 40 ms kept edges, 3 gaps of 0.2 s.
         assert(Math.abs(result.audioSeconds - 3.32) < 0.05, `audioSeconds ${result.audioSeconds}`);
         const file = await fs.readFile(result.filePath);
