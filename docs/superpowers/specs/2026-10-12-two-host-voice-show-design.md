@@ -1,7 +1,12 @@
 # Two-host voice show
 
 **Date:** 2026-10-12
-**Status:** Design approved in chat; spec pending review
+**Status:** Shipped. Later the same day the owner replaced the designed voices with
+Gemini built-in ones (commit bc485a0), so every mention below of `voice_` ids, the
+designed-voice request shape, the legacy-model substitution and the voice-missing
+narrator fallback is superseded. Hosts now: Hebrew and Russian Schedar + Puck,
+English Rasalgethi + Sadachbia, persona `high-energy, excited sports commentator`.
+English and Russian have their own show prompts.
 
 Every summary voice note stops being one narrator in a user-chosen voice and
 style. It becomes a short show: two energetic hosts, excited sports-commentator

@@ -54,9 +54,9 @@ const MOOD_COLOURS: Record<Mood, string> = {
   warm: 'warm',
 };
 
-/** A mood's style string on top of a host persona. */
-export function moodStyle(mood: Mood, hostStyle: string = HOST_STYLE): string {
-  return MOOD_COLOURS[mood] ? `${hostStyle}, ${MOOD_COLOURS[mood]}` : hostStyle;
+/** A mood's style string: the hosts' persona plus the mood's colour. */
+export function moodStyle(mood: Mood): string {
+  return MOOD_COLOURS[mood] ? `${HOST_STYLE}, ${MOOD_COLOURS[mood]}` : HOST_STYLE;
 }
 
 export const MOOD_STYLES = Object.fromEntries(MOODS.map(mood => [mood, moodStyle(mood)])) as Record<Mood, string>;

@@ -1,4 +1,4 @@
-// Live evaluation of the Hebrew two-host show. Costs money: an LLM call or two and up
+// Live evaluation of the two-host show in Hebrew, English and Russian. Costs money: an LLM call or two and up
 // to about a minute of Gemini TTS audio per fixture (roughly $0.02 each).
 //
 // Run: npx tsx -r dotenv/config scripts/eval-voice-show.ts <outDir> [--model gemini-3.8-flash]

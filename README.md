@@ -82,7 +82,7 @@ Copy `.env.example` (production) or `.env.local.example` (local dev) and fill in
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Redis for locks, caching, rate limiting |
 | `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY` | Scheduled job triggering / signature verification |
 | `CRON_SECRET` | Shared secret guarding internal cron/usage endpoints |
-| `GEMINI_TTS_VOICE_HE`, `GEMINI_TTS_VOICE_EN`, `GEMINI_TTS_VOICE_RU`, `GEMINI_TTS_MODEL` | Optional voice/model overrides for TTS |
+| `GEMINI_TTS_MODEL` | Optional TTS model override. Voices are fixed per language in `src/services/voice-generator.ts` |
 | `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT` | Error tracking |
 | `NODE_ENV` | Runtime environment |
 

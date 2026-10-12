@@ -4,8 +4,8 @@
  * resolveTtsModel() - and the request shape per model lives in ./gemini-tts.
  *
  * Two products:
- * - generateVoiceMessage: one narrator reads one text. Languages without show hosts,
- *   the show's fallback when a host voice is missing, and the spoken CRUD outcome.
+ * - generateVoiceMessage: one voice reads one text: the spoken CRUD outcome, and the
+ *   narrator for a language without show hosts. It speaks in the language's anchor.
  * - generateShowVoice: the two-host show. One TTS request per line, mixed into one
  *   voice note. See docs/superpowers/specs/2026-10-12-two-host-voice-show-design.md.
  *
@@ -48,13 +48,14 @@ export interface ShowVoices {
   B: string;
 }
 
-// Built-in voices only, so they work with any Gemini key. Hebrew chosen by ear on
-// 2026-10-12 from four built-in pairs, with the high-energy HOST_STYLE. A language
-// without an entry has no show and gets the narrator in the English anchor's voice.
+// Built-in voices only, so they work with any Gemini key. All picked by the owner's ear
+// on 2026-10-12 with the high-energy HOST_STYLE: Hebrew from four built-in pairs,
+// English and Russian from finalists of a blind round-robin of all 16 male built-in
+// voices. A language without an entry has no show and gets the English anchor.
 const SHOW_VOICES: Record<string, ShowVoices> = {
   he: { A: 'Schedar', B: 'Puck' },
-  en: { A: 'Charon', B: 'Puck' }, // PLACEHOLDER until the owner picks by ear
-  ru: { A: 'Charon', B: 'Umbriel' }, // PLACEHOLDER until the owner picks by ear
+  en: { A: 'Rasalgethi', B: 'Sadachbia' },
+  ru: { A: 'Schedar', B: 'Puck' },
 };
 
 /** Host voices for a language, or null when the language has no show yet. */

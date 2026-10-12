@@ -1,10 +1,10 @@
 /**
  * Telegram voice message functions
  *
- * Languages with show hosts (Hebrew today) get the two-host show: an LLM writes the
- * script and each line is spoken by its host - see ../voice-show/produce.ts. Other
- * languages keep the 2-step narrator pipeline: an LLM condenses the summary, then
- * Gemini TTS reads it in the language's default voice.
+ * Languages with show hosts (Hebrew, English, Russian) get the two-host show: an LLM
+ * writes the script and each line is spoken by its host - see ../voice-show/produce.ts.
+ * Any other language keeps the 2-step narrator pipeline: an LLM condenses the summary,
+ * then Gemini TTS reads it in the English anchor's voice.
  */
 
 import { UserConfig } from '../../types';

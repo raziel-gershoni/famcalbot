@@ -52,9 +52,10 @@ const SOUND_TAG = /<([a-z-]+)>/g;
 // A whitelisted sound exactly as TTS gets it, or else a stray angle bracket.
 const KEPT_SOUND_OR_BRACKET = new RegExp(`<(?:${SOUND_TAGS.join('|')})>|[<>]`, 'g');
 // A label may follow leading sounds: "<laugh> A: ..." keeps the laugh, loses the label.
-const LEADING_LABEL = /^((?:\s*<[a-z-]+>)*)\s*(?:host\s*)?[AB]\s*[:：]\s*/i;
+// Russian writers may use Cyrillic А and Б, which look like Latin A and B.
+const LEADING_LABEL = /^((?:\s*<[a-z-]+>)*)\s*(?:host\s*|ведущий\s*)?[ABАБ]\s*[:：]\s*/i;
 // '>' is a boundary too, so "... <laugh> B: ..." is caught.
-const INNER_LABEL = /(?:^|[.!?]\s+|>\s*)(?:host\s*)?[AB]\s*[:：]\s/i;
+const INNER_LABEL = /(?:^|[.!?]\s+|>\s*)(?:host\s*|ведущий\s*)?[ABАБ]\s*[:：]\s/i;
 const ENTITY = /&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|(amp|lt|gt|quot|apos|nbsp));/gi;
 const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
 // A keycap (1️⃣) goes whole, digit included. Then pictographs, skin tones, flag letters,
@@ -74,8 +75,13 @@ const CUE_WORD = new RegExp([
   'מפהק', 'פיהוק', 'פיהק', 'כחכח', 'כחכוח',
   'מתנשפ', 'מתנשף', 'התנשפות', 'משתנק', 'נושמ(?:ת)? עמוק', 'נשימה עמוקה',
   // Russian stems: смеётся, хихикает, вздыхает, шепчет, улыбается, зевает, откашливается...
-  'смеёт', 'смеет', 'смех', 'хихик', 'хохоч', 'хохот', 'вздых', 'вздох', 'шепч', 'шёпот', 'шепот', 'шепнул',
-  'усмех', 'улыба', 'улыбк', 'зева', 'зевн', 'кашл', 'откашл', 'ахнул', 'ахает', 'прыска',
+  // The noun smile and cough count only in their stage-direction shapes, so a clinic
+  // called "Улыбка" or a cough syrup keeps its words.
+  'смеёт', 'смеет', 'смея', 'смеют', 'смеюс', 'смех', 'смешк', 'смешок', 'посмеива', 'хихик', 'хохоч', 'хохот',
+  'вздых', 'вздох', 'шепч', 'шёпот', 'шепот', 'шепн', 'вполголоса',
+  'усмех', 'ухмыл', 'хмык', 'улыба', 'улыбн', '(?<!\\p{L})с улыбк', 'фырк', 'прыска', 'прысн',
+  'зева', 'зевн', 'кашляет', 'кашлян', 'откашл', 'покашл', 'ахнул', 'ахнув', 'ахает',
+  '(?<!\\p{L})(?:ха|хи|хе)(?:-(?:ха|хи|хе))+(?!\\p{L})',
   '\\b(?:laugh|sigh(?:s|ing|ed)?\\b|whisper|chuckl|giggl|gasp|snicker|smil|grin(?:s|ning)?\\b|yawn|clears? (?:his |her |their )?throat|haha|hehe)',
 ].join('|'), 'iu');
 const STAGE_SPAN = /\*{1,2}([^*\n]{1,50})\*{1,2}|_{1,2}([^_\n]{1,50})_{1,2}|\(([^()\n]{1,50})\)/g;
@@ -92,7 +98,8 @@ function forMatching(text: string): string {
     .replace(/<[^>]*>/g, ' ')
     .replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
     .replace(NIQQUD, '')
-    .replace(/["'\u05F3\u05F4!?,.;:]/g, '')
+    .replace(/ё/g, 'е')
+    .replace(/["'\u05F3\u05F4«»„“”‹›!?,.;:]/g, '')
     .replace(/[*_`~()\u05BE-]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -115,10 +122,26 @@ function isFromSummary(span: string, source: string): boolean {
     return bracketed.test(source.toLowerCase().replace(NIQQUD, ''));
   }
   if (!list.some(w => !CUE_WORD.test(w) && !MANNER_WORD.test(w))) return false;
+  if (/\p{Script=Cyrillic}/u.test(words)) return hasStemRun(list, forMatching(source).split(' '));
   const variants = /^[ובכלמהש]\p{L}{2}/u.test(words) ? [words, words.slice(1)] : [words];
   const haystack = forMatching(source);
   return variants.some(v =>
     new RegExp(`(?:^|[^\\p{L}\\p{N}])[ובכלמהש]{0,2}${escapeRegExp(v)}(?:[^\\p{L}\\p{N}]|$)`, 'u').test(haystack));
+}
+
+// Russian declines names and nouns, so the writer's "(в комнате смеха)" must still match
+// the summary's "Комната смеха": words match on their stems, in order, and a leading
+// preposition in the span may be missing from the summary.
+const RU_PREPOSITION = /^(?:в|во|на|к|ко|с|со|у|из|по|о|об|от|до|за|для)$/;
+const stem = (word: string) => (word.length <= 3 ? word : word.slice(0, Math.max(3, word.length - 2)));
+const sameStem = (a: string, b: string) => a.startsWith(stem(b)) || b.startsWith(stem(a));
+
+function hasStemRun(span: string[], source: string[]): boolean {
+  const words = RU_PREPOSITION.test(span[0]) && span.length > 2 ? span.slice(1) : span;
+  for (let i = 0; i + words.length <= source.length; i++) {
+    if (words.every((word, j) => sameStem(word, source[i + j]))) return true;
+  }
+  return false;
 }
 
 function isStageDirection(span: string, source: string): boolean {

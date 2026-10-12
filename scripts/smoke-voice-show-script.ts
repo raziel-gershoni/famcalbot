@@ -181,6 +181,12 @@ const CLEANUP: Array<[string, string]> = [
   ['(с улыбкой) Поехали', 'Поехали'],
   ['(тихо смеётся) Ну что ж', 'Ну что ж'],
   ['(откашливается) Итак', 'Итак'],
+  ['(смеясь) Ну ты даёшь', 'Ну ты даёшь'],
+  ['(улыбнулся) Поехали', 'Поехали'],
+  ['(ухмыляется) Ну-ну', 'Ну-ну'],
+  ['(шепнул) Секрет', 'Секрет'],
+  ['(вполголоса) Только между нами', 'Только между нами'],
+  ['(ха-ха) Отлично', 'Отлично'],
   // Everyday words that share letters with a cue keep their words.
   ['תשלום ארנונה (לחשבון העירייה) עד מחר', 'תשלום ארנונה (לחשבון העירייה) עד מחר'],
   ['בעשר תור (לחשמלאי)', 'בעשר תור (לחשמלאי)'],
@@ -190,6 +196,8 @@ const CLEANUP: Array<[string, string]> = [
   ['(sightseeing tour) מחר', '(sightseeing tour) מחר'],
   ['В семь (встреча с Олегом) в Зуме', 'В семь (встреча с Олегом) в Зуме'],
   ['(смена в больнице) с восьми', '(смена в больнице) с восьми'],
+  ['В десять (стоматология Улыбка)', 'В десять (стоматология Улыбка)'],
+  ['Сироп (от кашля) для Даши', 'Сироп (от кашля) для Даши'],
   ['יותר > פחות', 'יותר פחות'],
 ];
 for (const [input, expected] of CLEANUP) {
@@ -238,6 +246,27 @@ for (const [summary, input, expected] of NEAR_COPIES) {
     assert(s.turns[4].text === expected, `got ${JSON.stringify(s.turns[4].text)}`);
   });
 }
+
+// Russian declines names: the writer's case endings and prepositions still match.
+const RU_FROM_SUMMARY: Array<[string, string, string]> = [
+  ['• 19:00 - Комната смеха с детьми', 'Вечером идём (в комнате смеха)', 'Вечером идём (в комнате смеха)'],
+  ['• 18:00 - «Смехотерапия» в клубе', 'В шесть (смехотерапия в клубе)', 'В шесть (смехотерапия в клубе)'],
+  ['• 20:00 - Вечер смеха', 'В восемь (вечер смеха)!', 'В восемь (вечер смеха)!'],
+  ['• 20:00 - Вечер смеха', '(тихо смеётся) Ну что ж', 'Ну что ж'],
+];
+for (const [summary, input, expected] of RU_FROM_SUMMARY) {
+  check(`with Russian summary ${JSON.stringify(summary)}, cleans ${JSON.stringify(input)}`, () => {
+    const s = parseShowScript(show(...base(), turn('A', input)), summary);
+    assert(s.turns[4].text === expected, `got ${JSON.stringify(s.turns[4].text)}`);
+  });
+}
+
+check('Cyrillic speaker labels: a leading one is stripped, a second speaker is rejected', () => {
+  const s = parseShowScript(show(...base(), turn('A', 'А: Поехали!')));
+  assert(s.turns[4].text === 'Поехали!', `got ${JSON.stringify(s.turns[4].text)}`);
+  rejects(show(...base(), turn('A', 'Вот это день! Б: Точно!')), /Turn 5: contains another speaker label/);
+  rejects(show(...base(), turn('A', 'Вот это день! Ведущий Б: Точно!')), /Turn 5: contains another speaker label/);
+});
 
 check('one cue word counts as content only when the summary brackets it too', () => {
   const s = parseShowScript(show(...base(), turn('A', '*צחוק* בשמונה')), 'סטנדאפ ערב צחוק');
@@ -294,6 +323,8 @@ check('toShowLines maps moods to styles, marks whispers and points Hebrew', () =
 // Each host must stay one person: a mood may colour the read but never replace the
 // persona, or the host's pitch and pace jump between lines.
 check('every mood style keeps the sports-commentator persona', () => {
+  // The persona the owner picked by ear on 2026-10-12.
+  assert(HOST_STYLE === 'high-energy, excited sports commentator', `persona ${HOST_STYLE}`);
   for (const [mood, style] of Object.entries(MOOD_STYLES)) {
     assert(style.startsWith(HOST_STYLE), `${mood}: ${style}`);
     assert(!/slow|fast|rapid|whisper|loud|pitch|quiet/i.test(style), `${mood} sets pace, pitch or volume: ${style}`);

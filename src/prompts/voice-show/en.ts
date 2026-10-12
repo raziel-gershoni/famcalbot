@@ -29,7 +29,7 @@ interface KindRules {
   turns: [min: number, max: number];
 }
 
-// The hosts speak about two and a half words a second.
+// The hosts speak about 2.9 words a second (eval, gaps included).
 function kindRules(context: ShowPromptContext): KindRules {
   if (context.kind === 'weekly') {
     const weekRef = context.isNextWeek ? 'next week' : 'this week';
@@ -37,13 +37,15 @@ function kindRules(context: ShowPromptContext): KindRules {
       goal: `what's coming up for the listener ${weekRef}`,
       content: [
         `Open with a quick overview (e.g. "Here's what's waiting for you ${weekRef}").`,
-        'Use dates the way the summary gives them.',
+        context.culture === 'jewish'
+          ? 'Use dates the way the summary gives them, with the Hebrew date if it has one, but never say a year, Hebrew or Gregorian.'
+          : 'Use dates the way the summary gives them, without the year.',
         'Go day by day with relative days ("on Tuesday", "on Thursday") and highlight the big events.',
         'Every event in the summary goes in, with its day and time. Several events on the same day may share one turn.',
         "For family events, say naturally whose event it is.",
         "A week with no events: say the calendar is clear. Never invent events.",
       ],
-      length: 'about 45-60 seconds of speech (roughly 120-160 words). A busy week may run longer, but never at the cost of events.',
+      length: 'about 45-60 seconds of speech (roughly 130-170 words). A busy week may run longer, but never at the cost of events.',
       turns: [6, 20],
     };
   }
@@ -73,7 +75,7 @@ function kindRules(context: ShowPromptContext): KindRules {
       goal: "what's waiting for the listener tomorrow",
       content: [
         'An evening greeting: the same one the summary opens with (usually "Good evening"). Never "Good morning": if the summary opens with one, open with the name and no time-of-day greeting.',
-        'Say "tomorrow" in the very first sentence: this is tomorrow\'s schedule. Then tomorrow\'s date with the weekday, e.g. "Tomorrow, Monday, ...".',
+        'Say "tomorrow" in the very first sentence: this is tomorrow\'s schedule. Then tomorrow\'s date with the weekday, e.g. "Tomorrow, Monday, ...", never with a year.',
         'Everything in the summary happens tomorrow. Never call it "today": not "today is Monday", not "later today", not "tonight" for tomorrow evening. Say "tomorrow", "tomorrow morning", "tomorrow evening".',
         "Tomorrow's weather comes right after the date, before the schedule: a sentence or two with a practical tip.",
         'Every event in the summary goes in, with its time. Several small events may share one turn.',
@@ -82,7 +84,7 @@ function kindRules(context: ShowPromptContext): KindRules {
         "Nothing on tomorrow: say tomorrow's calendar is clear and celebrate it. Never invent events.",
         'A closing that fits the evening and gets the listener ready for tomorrow.',
       ],
-      length: 'about 45-60 seconds of speech (roughly 120-160 words). A busy day may run longer, but never at the cost of events.',
+      length: 'about 45-60 seconds of speech (roughly 130-170 words). A busy day may run longer, but never at the cost of events.',
       turns: [6, 20],
     };
   }
@@ -91,14 +93,16 @@ function kindRules(context: ShowPromptContext): KindRules {
     goal: "the listener's day",
     content: [
       'Greeting: the same one the summary opens with ("Good morning", "Good afternoon" or "Good evening"). If it has none, don\'t invent a time-of-day greeting.',
-      'Say the date with the weekday, the way the summary gives it.',
+      context.culture === 'jewish'
+        ? 'Say the date with the weekday the way the summary gives it, with the Hebrew date if it has one, but never say a year, Hebrew or Gregorian.'
+        : 'Say the date with the weekday the way the summary gives it, without the year.',
       'The weather comes right after the date, before the schedule: a sentence or two with a practical tip.',
       'Every event in the summary goes in, with its time. Several small events may share one turn.',
       'Kids: brief and natural (e.g. "pick up Danny at two").',
       'A look at the week, if the summary has one: brief, only the main events.',
       'A day with no events: say the calendar is clear and celebrate it. Never invent events.',
     ],
-    length: 'about 45-60 seconds of speech (roughly 120-160 words). A busy day may run longer, but never at the cost of events.',
+    length: 'about 45-60 seconds of speech (roughly 130-170 words). A busy day may run longer, but never at the cost of events.',
     turns: [6, 20],
   };
 }
@@ -116,7 +120,7 @@ export function buildShowPrompt(context: ShowPromptContext): string {
 
   const allContent = [
     ...content,
-    'Every time in full words, never digits, 12-hour: "nine in the morning", "ten fifteen", "eleven thirty", "four thirty in the afternoon".',
+    'Every time in full words, never digits, 12-hour, with the part of day whenever the hour alone could be morning or evening: "nine in the morning", "ten fifteen in the morning", "four thirty in the afternoon", "six forty-five in the evening".',
     'Other numbers in words too, e.g. temperatures ("twenty-eight degrees").',
     'Birthdays: take the person\'s name from the event ("it\'s John\'s birthday").',
     'Full names, no abbreviations.',
@@ -137,7 +141,8 @@ Both are men. They have no names; don't invent any.
 ${allContent.map((rule, i) => `${i + 1}. ${rule}`).join('\n')}
 
 **Style:**
-- Sports broadcast energy: pace, excitement, hand-offs between the hosts, "Let's go!", "What a day!".
+- Sports broadcast energy: pace, excitement, hand-offs between the hosts, "Let's go!", "What a day!". The energy is in the delivery, not the vocabulary: at most one sports metaphor per show, and no stock "game day" lines.
+- Talk like live American radio: contractions everywhere ("it's", "here's", "you've got"), never "it is" or "here is".
 - Personal: say ${listener}'s name in the opening and talk to ${listener} directly as "you". Not "you all" or "folks".
 - Only ${listener} is "you". The hosts never say "you" or "your" to each other.
 - Short turns: a sentence or two each. The hosts alternate and react to each other.
