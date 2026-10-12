@@ -5,7 +5,6 @@ import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { TelegramLayout } from '@/components/Layout';
 import { CheckCircle2, Settings, MapPin, Loader2, ArrowLeft, Check } from 'lucide-react';
-import { VOICE_OPTIONS, VOICE_STYLES } from '@/src/config/voice-options';
 
 interface SubscriptionInfo {
   effectivePlan: string;
@@ -37,8 +36,6 @@ interface SettingsClientProps {
     defaultReminderMinutes: number | null;
     pickupRemindersEnabled: boolean;
     voiceInputEnabled: boolean;
-    voicePreference: string;
-    voiceStyle: string;
   };
   remindersGloballyEnabled: boolean;
   subscriptionInfo: SubscriptionInfo;
@@ -67,8 +64,6 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
   const [defaultReminderMinutes, setDefaultReminderMinutes] = useState(currentSettings.defaultReminderMinutes ?? 15);
   const [pickupRemindersEnabled, setPickupRemindersEnabled] = useState(currentSettings.pickupRemindersEnabled);
   const [voiceInputEnabled, setVoiceInputEnabled] = useState(currentSettings.voiceInputEnabled);
-  const [voicePreference, setVoicePreference] = useState(currentSettings.voicePreference);
-  const [voiceStyle, setVoiceStyle] = useState(currentSettings.voiceStyle);
   const [locationLoading, setLocationLoading] = useState(false);
   const [detectedLocation, setDetectedLocation] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -92,9 +87,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
     remindersEnabled !== currentSettings.remindersEnabled ||
     defaultReminderMinutes !== (currentSettings.defaultReminderMinutes ?? 15) ||
     pickupRemindersEnabled !== currentSettings.pickupRemindersEnabled ||
-    voiceInputEnabled !== currentSettings.voiceInputEnabled ||
-    voicePreference !== currentSettings.voicePreference ||
-    voiceStyle !== currentSettings.voiceStyle;
+    voiceInputEnabled !== currentSettings.voiceInputEnabled;
 
   // Granularity accepted for weather: anything from a country down to a suburb.
   // Nominatim's place_rank is the reliable dial here (country 4, state 8,
@@ -319,8 +312,6 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
           defaultReminderMinutes: remindersEnabled ? defaultReminderMinutes : null,
           pickupRemindersEnabled,
           voiceInputEnabled,
-          voicePreference,
-          voiceStyle,
           initData
         })
       });
@@ -954,42 +945,6 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
                 <div className="toggle-slider" />
               </div>
             </div>
-
-            {voiceSummaryEnabled && (<>
-              <div className="form-group" style={{ marginTop: '4px', marginBottom: '16px' }}>
-                <label htmlFor="voicePreference">{t('voicePreference')}</label>
-                <select
-                  name="voicePreference"
-                  id="voicePreference"
-                  value={voicePreference}
-                  onChange={(e) => setVoicePreference(e.target.value)}
-                  disabled={formState !== 'idle'}
-                >
-                  {(VOICE_OPTIONS[language] || VOICE_OPTIONS['en']).map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-                <p className="help-text">{t('voicePreferenceDescription')}</p>
-              </div>
-
-              <div className="form-group" style={{ marginTop: '4px', marginBottom: '16px' }}>
-                <label htmlFor="voiceStyle">{t('voiceStyle')}</label>
-                <select
-                  name="voiceStyle"
-                  id="voiceStyle"
-                  value={voiceStyle}
-                  onChange={(e) => setVoiceStyle(e.target.value)}
-                  disabled={formState !== 'idle'}
-                >
-                  {VOICE_STYLES.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label[language as keyof typeof opt.label] || opt.label.en}
-                    </option>
-                  ))}
-                </select>
-                <p className="help-text">{t('voiceStyleDescription')}</p>
-              </div>
-            </>)}
 
             <div className="toggle-row">
               <div className="toggle-info">

@@ -101,9 +101,7 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
         remindersEnabled: user.remindersEnabled,
         defaultReminderMinutes: user.defaultReminderMinutes ?? null,
         pickupRemindersEnabled: user.pickupRemindersEnabled ?? true,
-        voiceInputEnabled: user.voiceInputEnabled,
-        voicePreference: user.voicePreference || 'default',
-        voiceStyle: user.voiceStyle || 'natural'
+        voiceInputEnabled: user.voiceInputEnabled
       }}
       remindersGloballyEnabled={adminSettings?.remindersEnabled ?? false}
       subscriptionInfo={subscriptionInfo}
