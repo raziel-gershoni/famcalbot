@@ -185,6 +185,7 @@ ${data.weekLookahead ? `
 - **CRITICAL: EVERYTHING must be in English**
 - **CRITICAL: Always use HH:MM format (24-hour, no AM/PM) - e.g., 08:00, 13:45, 20:15**
 - **Birthdays**: Events marked "(Birthday)" — show without any time. Extract the person's name from the event title (e.g., "John Doe's Birthday" → mention "John Doe's birthday"). Present naturally.
+- **Events crossing midnight are marked in the event list.** "22:00 - 02:00 next day" ends after midnight: show it as "22:00-02:00 (past midnight)". "until 10:00 (started yesterday 18:00)" began the day before: show it as "until 10:00", first in the list, and never present it as starting on this day. A multi-day event shows its span: say which day of it this is. A "next day" end time is not a time on this day, also in the pickup order.
 ${data.hasKidsCalendars ? `- **CRITICAL: Pickup Order MUST be sorted chronologically by time (earliest first)**
 - **CRITICAL: Pickup Order: Group kids with SAME pickup time on ONE line together**
 ` : ''}- Use Telegram HTML tags for formatting: <b>bold</b>, <i>italic</i>, <u>underline</u>

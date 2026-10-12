@@ -5,6 +5,7 @@ import { TIMEZONE } from '../config/constants';
 import { buildCalendarSummaryPrompt, SummaryPromptData } from '../prompts/calendar-summary';
 import { buildWeekLookaheadPrompt, WeekLookaheadPromptData, LookaheadDayData, LookaheadEventData } from '../prompts/week-lookahead';
 import { formatEventList } from '../utils/event-formatter';
+import { localDate } from '../utils/day-events';
 import { generateAICompletion, streamAICompletion } from './ai-provider';
 import { captureError } from '../lib/error-capture';
 import { formatAdminFooter } from '../utils/ai-footer';
@@ -144,10 +145,12 @@ function buildPromptData(
     day: 'numeric',
   });
 
-  // Format event lists
-  const userEventsText = formatEventList(userEvents, timezone);
-  const spouseEventsText = formatEventList(spouseEvents, timezone);
-  const otherEventsText = formatEventList(otherEvents, timezone);
+  // Format event lists. The summary day lets an event carried over from last night
+  // say "started yesterday".
+  const day = localDate(date, timezone);
+  const userEventsText = formatEventList(userEvents, timezone, day);
+  const spouseEventsText = formatEventList(spouseEvents, timezone, day);
+  const otherEventsText = formatEventList(otherEvents, timezone, day);
 
   // Extract calendar rules from assignments
   const calendarRules = userContext?.calendarAssignments

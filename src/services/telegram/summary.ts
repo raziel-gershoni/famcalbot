@@ -92,10 +92,17 @@ async function prepareSummaryForUser(
   const assignments = await getCalendarAssignmentsForUser(user);
   const allCalendarIds = assignments.map(a => a.calendarId);
 
-  // Fetch calendar events with user's timezone
+  // Fetch calendar events with user's timezone. Google returns every event that
+  // overlaps the day, so keep only what belongs to it: last night's 22:00-02:00 party
+  // is dropped, and an event crossing the day's edges is marked for the prompt.
   onStageChange?.('fetchingCalendar');
   const tCalendar = Date.now();
-  const events = await fetchFunction(user, allCalendarIds, userTimezone);
+  const { localDate, shapeEventsForDay } = await import('../../utils/day-events');
+  const events = shapeEventsForDay(
+    await fetchFunction(user, allCalendarIds, userTimezone),
+    localDate(summaryDate || new Date(), userTimezone),
+    userTimezone,
+  );
   const calendarMs = Date.now() - tCalendar;
 
   // Categorize events by ownership

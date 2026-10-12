@@ -89,7 +89,17 @@ export interface CalendarEvent {
     useDefault: boolean;
     overrides?: Array<{ method: string; minutes: number }>;
   };
+  // How the event sits on the summary day when it is not wholly inside it. Set by
+  // shapeEventsForDay (src/utils/day-events.ts); unset means within the day.
+  daySpan?: DaySpan;
 }
+
+/**
+ * - endsLater: starts on the day, ends after it (22:00 to 02:00 next day)
+ * - continues: started before the day, ends on it (a sleepover until 10:00)
+ * - spansDay: started before the day and ends after it (day two of a conference)
+ */
+export type DaySpan = 'endsLater' | 'continues' | 'spansDay';
 
 export interface Coordinates {
   latitude: number;

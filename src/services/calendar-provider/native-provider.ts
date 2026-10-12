@@ -5,7 +5,7 @@
 // provider for everyone. PR 4 will branch on user.calendarSource.
 
 import { format } from 'date-fns';
-import { fromZonedTime } from 'date-fns-tz';
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import {
   CalendarProvider,
   CreateEventInput,
@@ -53,7 +53,7 @@ function ownDayBoundaries(daysOffset: number, tz: string): { from: Date; to: Dat
  * downstream code already knows how to render. Date strings mirror GCal's
  * format: `YYYY-MM-DD` for all-day, ISO8601 for timed.
  */
-function toUnifiedEvent(
+export function toUnifiedEvent(
   calendar: { id: string; name: string },
   instance: {
     title: string;
@@ -62,16 +62,20 @@ function toUnifiedEvent(
     startsAt: Date;
     endsAt: Date;
     allDay: boolean;
+    timeZone: string;
     seriesEventId: string;
     instanceStartsAt: Date;
     isRecurringInstance: boolean;
   }
 ): UnifiedEvent {
+  // An all-day event is stored at local midnight in its own timezone. Formatting it on
+  // the server's clock would shift the date on a UTC server, and summaries compare
+  // these dates to keep only the day's events.
   const start = instance.allDay
-    ? format(instance.startsAt, 'yyyy-MM-dd')
+    ? formatInTimeZone(instance.startsAt, instance.timeZone, 'yyyy-MM-dd')
     : instance.startsAt.toISOString();
   const end = instance.allDay
-    ? format(instance.endsAt, 'yyyy-MM-dd')
+    ? formatInTimeZone(instance.endsAt, instance.timeZone, 'yyyy-MM-dd')
     : instance.endsAt.toISOString();
 
   return {

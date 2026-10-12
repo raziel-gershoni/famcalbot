@@ -124,6 +124,7 @@ export function buildShowPrompt(context: ShowPromptContext): string {
     'Other numbers in words too, e.g. temperatures ("twenty-eight degrees").',
     'Birthdays: take the person\'s name from the event ("it\'s John\'s birthday").',
     'Full names, no abbreviations.',
+    'Keep what the summary says about midnight: an event that runs "past midnight" ends in the small hours after this day, and one that "started yesterday" is not starting today.',
     'The hype and the jokes never add or drop facts: no events, times, names or details that are not in the summary.',
   ];
 
