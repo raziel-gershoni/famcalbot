@@ -141,17 +141,31 @@ const CLEANUP: Array<[string, string]> = [
   ['רוק&#8217;נרול', 'רוק’נרול'],
   ['ג&#x27;רי', "ג'רי"],
   ['פגישה (בזום) עם לוי', 'פגישה (בזום) עם לוי'],
+  // A cue anywhere in the span marks a stage direction, nested or not.
   ['(צוחקת) איזה יום', 'איזה יום'],
   ['(בצחוק) איזה יום', 'איזה יום'],
   ['איזה יום (laughs softly)', 'איזה יום'],
   ['(in a whisper) סוד קטן', 'סוד קטן'],
   ['*נאנח* שוב גשם', 'שוב גשם'],
-  // Event names that merely contain a cue word keep every word.
-  ['בשמונה סטנדאפ (ערב צחוק) בתל אביב', 'בשמונה סטנדאפ (ערב צחוק) בתל אביב'],
-  ['*ערב צחוק* בשמונה', 'ערב צחוק בשמונה'],
-  ['(הצחוק של השנה) הערב', '(הצחוק של השנה) הערב'],
+  ['*(צוחק)* איזה יום', 'איזה יום'],
+  ['(*צוחק*) בוקר', 'בוקר'],
+  ['*(sighs dramatically)* שוב גשם', 'שוב גשם'],
+  ['(nervous laugh) טוב', 'טוב'],
+  ['(with a little laugh) טוב', 'טוב'],
+  ['(פורץ בצחוק) טוב', 'טוב'],
+  ['(שניהם צוחקים) טוב', 'טוב'],
+  ['(תוך כדי צחוק) טוב', 'טוב'],
+  ['(כמעט לוחש) סוד', 'סוד'],
+  ['(אנחת רווחה) סוף סוף', 'סוף סוף'],
+  ['(בלחישות) סוד', 'סוד'],
+  ['(smiling) יופי', 'יופי'],
+  ['(clears throat) ובכן', 'ובכן'],
+  ['(מפהק) בוקר', 'בוקר'],
+  // Everyday words that share letters with a cue keep their words.
+  ['תשלום ארנונה (לחשבון העירייה) עד מחר', 'תשלום ארנונה (לחשבון העירייה) עד מחר'],
+  ['בעשר תור (לחשמלאי)', 'בעשר תור (לחשמלאי)'],
+  ['(אנחנו בדרך) יאללה', '(אנחנו בדרך) יאללה'],
   ['(sightseeing tour) מחר', '(sightseeing tour) מחר'],
-  ['(צוחק כל הדרך לבנק עם דני)', '(צוחק כל הדרך לבנק עם דני)'],
   ['יותר > פחות', 'יותר פחות'],
 ];
 for (const [input, expected] of CLEANUP) {
@@ -160,6 +174,32 @@ for (const [input, expected] of CLEANUP) {
     assert(s.turns[4].text === expected, `got ${JSON.stringify(s.turns[4].text)}`);
   });
 }
+
+// What the user's own summary holds is content: an event called "(ערב צחוק)" is copied
+// into the show, not performed.
+const SUMMARY = '<b>היום</b>\n• 20:00 סטנדאפ (ערב צחוק) בתל אביב\n• 18:00 Laugh Factory\n• 09:00 חוג (צחוק)\n• 17:00 טום &amp; ג׳רי (smile clinic)';
+const FROM_SUMMARY: Array<[string, string]> = [
+  ['בשמונה סטנדאפ (ערב צחוק) בתל אביב', 'בשמונה סטנדאפ (ערב צחוק) בתל אביב'],
+  ['*ערב צחוק* בשמונה', 'ערב צחוק בשמונה'],
+  ['*(ערב צחוק)* בשמונה', '(ערב צחוק) בשמונה'],
+  ['בשש (Laugh Factory)', 'בשש (Laugh Factory)'],
+  ['בתשע חוג (צחוק)', 'בתשע חוג (צחוק)'],
+  ['בחמש (Smile Clinic)', 'בחמש (Smile Clinic)'],
+  // A stage direction is still one, even when the summary is about laughing.
+  ['(צוחק) איזה ערב', 'איזה ערב'],
+  ['(nervous laugh) טוב', 'טוב'],
+];
+for (const [input, expected] of FROM_SUMMARY) {
+  check(`with the summary, cleans ${JSON.stringify(input)}`, () => {
+    const s = parseShowScript(show(...base(), turn('A', input)), SUMMARY);
+    assert(s.turns[4].text === expected, `got ${JSON.stringify(s.turns[4].text)}`);
+  });
+}
+
+check('one cue word counts as content only when the summary brackets it too', () => {
+  const s = parseShowScript(show(...base(), turn('A', '*צחוק* בשמונה')), 'סטנדאפ ערב צחוק');
+  assert(s.turns[4].text === 'בשמונה', `got ${JSON.stringify(s.turns[4].text)}`);
+});
 
 check('a speaker label right after a sound mid-turn is rejected', () => {
   rejects(show(...base(), turn('A', 'איזה יום! <laugh> B: באמת')), /Turn 5: contains another speaker label/);

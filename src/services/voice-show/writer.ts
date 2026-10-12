@@ -41,7 +41,7 @@ export async function writeShowScript(context: ShowPromptContext, options: Write
       : prompt;
     const completion = await complete(request, options.modelId, { responseJsonSchema: SHOW_RESPONSE_SCHEMA });
     try {
-      return { script: parseShowScript(completion.text), completion, attempts: attempt };
+      return { script: parseShowScript(completion.text, context.summary), completion, attempts: attempt };
     } catch (error) {
       if (!(error instanceof ShowScriptError)) throw error;
       console.warn(`[VoiceShow] Script rejected (attempt ${attempt}/${MAX_ATTEMPTS}): ${error.message}`);

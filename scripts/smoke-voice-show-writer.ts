@@ -181,6 +181,21 @@ async function main() {
     assert(calls[0].options?.responseJsonSchema === SHOW_RESPONSE_SCHEMA, 'schema not passed');
   });
 
+  await check('writer keeps bracketed event names from the summary, drops stage directions', async () => {
+    const script = JSON.stringify({ turns: [
+      { host: 'A', mood: 'hype', text: 'בוקר טוב דני!' },
+      { host: 'B', mood: 'amused', text: 'בשמונה סטנדאפ (ערב צחוק)!' },
+      { host: 'A', mood: 'hype', text: '(צוחק) איזה ערב.' },
+      { host: 'B', mood: 'warm', text: 'שיהיה יום מנצח!' },
+    ] });
+    const written = await writeShowScript(context({ summary: '<b>בוקר טוב</b>\n• 20:00 - סטנדאפ (ערב צחוק)' }), {
+      complete: async () => completion(script),
+    });
+    const texts = written.script.turns.map(t => t.text);
+    assert(texts[1] === 'בשמונה סטנדאפ (ערב צחוק)!', `event name: ${texts[1]}`);
+    assert(texts[2] === 'איזה ערב.', `stage direction: ${texts[2]}`);
+  });
+
   await check('writer regenerates once with the rejection reason', async () => {
     const prompts: string[] = [];
     const written = await writeShowScript(context(), {
