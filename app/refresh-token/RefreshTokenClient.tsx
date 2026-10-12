@@ -87,6 +87,7 @@ export default function RefreshTokenClient({ oauthUrl, userId, locale, translati
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     // Also check on mount in case user already completed OAuth
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reads localStorage, which exists only on the client, so the check must run after mount
     checkTokenRefresh();
 
     return () => {

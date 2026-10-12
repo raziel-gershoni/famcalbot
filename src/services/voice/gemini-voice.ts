@@ -262,8 +262,8 @@ function sleep(ms: number): Promise<void> {
  *
  * Caps at 10 entries per the locked product decision.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function extractIntents(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw model JSON, read field by field
   parsed: any,
   calendars: CalendarAssignment[],
   timezone: string
@@ -287,8 +287,8 @@ export function extractIntents(
  * Parse Gemini JSON response into VoiceIntentResult
  * Shared between voice and text processing pipelines
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function parseGeminiEventResponse(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw model JSON, validated field by field below
   parsed: any,
   calendars: CalendarAssignment[],
   timezone: string

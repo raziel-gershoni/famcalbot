@@ -6,5 +6,5 @@ declare module 'hebcal' {
     getFullYear(): number;
   }
 
-  export const months: any;
+  export const months: unknown;
 }

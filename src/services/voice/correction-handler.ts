@@ -6,8 +6,7 @@
 
 import { getGemini, extractionConfig } from '../ai-provider';
 import { ParsedEvent } from '../event-parser';
-import { getBot, getMessagingService } from '../telegram';
-import { getUserByTelegramId } from '../user-service';
+import { getMessagingService } from '../telegram';
 import { MessageFormat } from '../messaging/types';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { getBotMessages } from '../../lib/bot-messages';

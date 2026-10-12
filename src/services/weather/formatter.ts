@@ -379,7 +379,6 @@ async function formatWeatherDetailed(weather: WeatherData): Promise<string> {
   if (weather.hourly) {
     output += `\n*━━━ Next 12 Hours ━━━*\n`;
     const now = new Date();
-    const currentHour = now.getHours();
 
     let hoursShown = 0;
     for (let i = 0; i < weather.hourly.time.length && hoursShown < 12; i++) {

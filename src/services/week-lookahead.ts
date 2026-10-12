@@ -347,7 +347,7 @@ function getNextWeekBoundaries(culture?: string, referenceDate?: Date): { start:
   const dayOfWeek = israelTime.getDay(); // 0=Sun, 1=Mon, ...
 
   let daysUntilNextWeekStart: number;
-  let weekLength: number = 7;
+  const weekLength: number = 7;
 
   if (culture === 'jewish') {
     // Next Sunday (start of next week for Jewish)

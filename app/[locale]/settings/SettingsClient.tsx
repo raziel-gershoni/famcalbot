@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { TelegramLayout } from '@/components/Layout';
-import { CheckCircle2, Settings, MapPin, Loader2, ArrowLeft, Check } from 'lucide-react';
+import { CheckCircle2, MapPin, Loader2, ArrowLeft, Check } from 'lucide-react';
 
 interface SubscriptionInfo {
   effectivePlan: string;
@@ -173,7 +173,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
         setLocationError(t('locationInvalid'));
         return { valid: false, normalized: trimmed };
       }
-    } catch (error) {
+    } catch {
       setLocationError(t('locationValidationError'));
       return { valid: false, normalized: trimmed };
     } finally {
@@ -910,7 +910,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    formState === 'idle' && setTextSummaryEnabled(!textSummaryEnabled);
+                    if (formState === 'idle') setTextSummaryEnabled(!textSummaryEnabled);
                   }
                 }}
               >
@@ -938,7 +938,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    formState === 'idle' && setVoiceSummaryEnabled(!voiceSummaryEnabled);
+                    if (formState === 'idle') setVoiceSummaryEnabled(!voiceSummaryEnabled);
                   }
                 }}
               >
@@ -960,7 +960,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    formState === 'idle' && setWeatherEnabled(!weatherEnabled);
+                    if (formState === 'idle') setWeatherEnabled(!weatherEnabled);
                   }
                 }}
               >
@@ -982,7 +982,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    formState === 'idle' && setIncludeLookaheadInTomorrow(!includeLookaheadInTomorrow);
+                    if (formState === 'idle') setIncludeLookaheadInTomorrow(!includeLookaheadInTomorrow);
                   }
                 }}
               >
@@ -1004,7 +1004,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    formState === 'idle' && setLookaheadAlways7Days(!lookaheadAlways7Days);
+                    if (formState === 'idle') setLookaheadAlways7Days(!lookaheadAlways7Days);
                   }
                 }}
               >
@@ -1026,7 +1026,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    formState === 'idle' && setVoiceInputEnabled(!voiceInputEnabled);
+                    if (formState === 'idle') setVoiceInputEnabled(!voiceInputEnabled);
                   }
                 }}
               >
@@ -1142,7 +1142,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
                 onKeyDown={(e) => {
                   if ((e.key === 'Enter' || e.key === ' ') && remindersGloballyEnabled && subscriptionInfo.remindersAllowed) {
                     e.preventDefault();
-                    formState === 'idle' && setRemindersEnabled(!remindersEnabled);
+                    if (formState === 'idle') setRemindersEnabled(!remindersEnabled);
                   }
                 }}
               >
@@ -1184,7 +1184,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        formState === 'idle' && setPickupRemindersEnabled(!pickupRemindersEnabled);
+                        if (formState === 'idle') setPickupRemindersEnabled(!pickupRemindersEnabled);
                       }
                     }}
                   >

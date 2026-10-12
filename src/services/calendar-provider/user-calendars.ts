@@ -10,7 +10,6 @@ import type { UserConfig } from '../../types';
 import type { CalendarAssignment, CalendarLabel } from '../../types';
 import {
   encodeCalendarId,
-  getPartnerUserId,
   listVisibleCalendars,
 } from '../native-calendar/event-store';
 

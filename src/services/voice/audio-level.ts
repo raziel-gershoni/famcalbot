@@ -32,7 +32,6 @@ export const SILENCE_THRESHOLD_DBFS = -50;
 export const MAX_MEASURED_SECONDS = 120;
 
 const OPUS_RATE = 48_000;
-const WINDOW_MS = 500;
 const HOP_MS = 250;
 
 export interface LoudnessOptions {

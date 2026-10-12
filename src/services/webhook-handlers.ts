@@ -19,6 +19,7 @@ import {
 import { getUserByWhatsAppPhone, getOrCreateUserByWhatsApp, getUserByTelegramId } from './user-service';
 import { UserConfig } from '../types';
 import { MessagingPlatform, getWhatsAppService } from './messaging';
+import type { WhatsAppAdapter } from './messaging/whatsapp-adapter';
 import { handleVoiceMessage, handleEventCallback, handleEditCallback, handleDeleteCallback } from './voice';
 import { handlePreCheckoutQuery, handleSuccessfulPayment } from './payment-handler';
 import { setUserContext, addBreadcrumb } from './analytics-service';
@@ -121,7 +122,7 @@ export async function handleTelegramWebhook(
     if (chatId && data) {
       if (data.startsWith('event_create:') || data.startsWith('event_cancel:')) {
         // Handle event creation callbacks
-        const [action, pendingId] = data.split(':').slice(0, 2);
+        const [action] = data.split(':').slice(0, 2);
         const actionType = action.replace('event_', '');
         const fullPendingId = data.substring(action.length + 1); // Get everything after "event_create:" or "event_cancel:"
         const messageId = callbackQuery.message?.message_id;
@@ -899,8 +900,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     await waService.sendMessage(phone, t.voice?.processing || 'Processing your voice message...');
 
     // Download audio from WhatsApp
-    const { WhatsAppAdapter } = await import('./messaging/whatsapp-adapter');
-    const adapter = waService as InstanceType<typeof WhatsAppAdapter>;
+    const adapter = waService as WhatsAppAdapter;
     const audioBuffer = await adapter.downloadMedia(mediaId);
 
     console.log(`[WhatsApp Voice] Downloaded ${audioBuffer.length} bytes from media ${mediaId}`);

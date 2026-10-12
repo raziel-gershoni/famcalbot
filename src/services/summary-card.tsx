@@ -119,7 +119,7 @@ export interface SummaryCardConfig {
  */
 export async function generateSummaryCard(config: SummaryCardConfig): Promise<Buffer> {
   const t0 = Date.now();
-  const { text, language, userName } = config;
+  const { text, language } = config;
   const isRtl = language === 'he';
   const plainText = stripHtml(text);
 
@@ -144,7 +144,8 @@ export async function generateSummaryCard(config: SummaryCardConfig): Promise<Bu
         justifyContent: isRtl ? 'flex-end' : 'flex-start',
         marginBottom: '20px',
       }}>
-        <img src={loadLogo()} width={56} height={56} />
+        {/* eslint-disable-next-line @next/next/no-img-element -- satori renders this to SVG; next/image does not apply */}
+        <img src={loadLogo()} width={56} height={56} alt="" />
       </div>
 
       {/* Summary content — maximized space */}

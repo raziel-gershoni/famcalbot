@@ -85,6 +85,7 @@ export default function InviteClient(props: Props) {
     if (tg?.initData && tg.initDataUnsafe?.user?.id) {
       tg.ready?.();
       tg.expand?.();
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- window.Telegram exists only on the client, so this must run after mount
       setTgInitData(tg.initData);
       setTgUser(tg.initDataUnsafe.user.id);
     }

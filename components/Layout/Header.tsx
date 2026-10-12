@@ -20,7 +20,6 @@ export default function Header({
   onSettingsClick,
   onAdminClick,
   onBackClick,
-  backgroundColor = '#667eea',
   isAdmin = false,
 }: HeaderProps) {
   const bgGradient = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';

@@ -20,7 +20,7 @@ type ReminderType = 'oauth' | 'calendars' | 'location';
  * Get the reminder message content based on type
  */
 function getReminderContent(
-  messages: any,
+  messages: Awaited<ReturnType<typeof getBotMessages>>,
   reminderType: ReminderType,
   locale: string,
   telegramId: number

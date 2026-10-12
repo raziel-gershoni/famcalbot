@@ -2,7 +2,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import Script from 'next/script';
-import { locales } from '@/i18n';
+import { locales, type Locale } from '@/i18n';
 import type { Metadata, Viewport } from 'next';
 import '../globals.css';
 
@@ -82,7 +82,7 @@ export default async function LocaleLayout({
   const { locale } = await params;
 
   // Validate locale
-  if (!locales.includes(locale as any)) {
+  if (!locales.includes(locale as Locale)) {
     notFound();
   }
 

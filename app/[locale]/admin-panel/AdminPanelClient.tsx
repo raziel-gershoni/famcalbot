@@ -215,7 +215,7 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   const [activityStats, setActivityStats] = useState<ActivityStats[]>([]);
   const [isLoadingActivity, setIsLoadingActivity] = useState(false);
   const [activityFilter, setActivityFilter] = useState<string>('');
-  const [activityUserFilter, setActivityUserFilter] = useState<string>('');
+  const [activityUserFilter] = useState<string>('');
   const [activityHasMore, setActivityHasMore] = useState(false);
   const [activityOffset, setActivityOffset] = useState(0);
 
@@ -496,11 +496,13 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
     fetchUserList();
     fetchActivity(true);
     fetchFeedback();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchActivity changes with activityOffset after every fetch; adding it would refetch in a loop
   }, [fetchUserList, fetchFeedback]);
 
   // Reload activity when filter changes
   useEffect(() => {
     fetchActivity(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- only a filter change should reload; fetchActivity also changes with activityOffset
   }, [activityFilter]);
 
   // Refs to avoid re-creating the observer on every state change
@@ -528,7 +530,6 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Format relative time
@@ -2254,7 +2255,7 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
             <div className="toggle-row" style={{ marginTop: '12px' }}>
               <div className="toggle-info">
                 <p className="toggle-label">Voice TTS outcome</p>
-                <p className="toggle-description">When the user dictated by voice, also speak the success outcome ("Done. Added X."). Adds Gemini TTS cost per voice CRUD.</p>
+                <p className="toggle-description">When the user dictated by voice, also speak the success outcome (&quot;Done. Added X.&quot;). Adds Gemini TTS cost per voice CRUD.</p>
               </div>
               <div
                 className={`toggle-switch ${voiceTtsOutcome ? 'checked' : ''} ${voiceTtsOutcomeSaving ? 'disabled' : ''}`}

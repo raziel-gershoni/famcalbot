@@ -95,7 +95,7 @@ export async function handleOnboardingMessage(phone: string, text: string): Prom
     }
 
     // Update user language
-    await updateUserById(state.userId, { language } as any);
+    await updateUserById(state.userId, { language });
 
     // Complete onboarding
     await redis.del(REDIS_KEYS.waOnboard(phone));

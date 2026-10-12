@@ -1,10 +1,8 @@
 import { calendar as googleCalendar, calendar_v3, auth } from '@googleapis/calendar';
 import { CalendarEvent } from '../types';
-import { getBot } from './telegram';
 import { fromZonedTime } from 'date-fns-tz';
 import { addDays, format } from 'date-fns';
 import { TIMEZONE } from '../config/constants';
-import { ALERT_MESSAGES } from '../config/messages';
 import { isTokenError, isInsufficientScopesError } from '../utils/errors';
 import { captureError } from '../lib/error-capture';
 

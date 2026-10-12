@@ -45,6 +45,7 @@ export default function SuccessClient({ userName, botUsername }: SuccessClientPr
       <head>
         <title>Calendars Saved</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        {/* eslint-disable-next-line @next/next/no-sync-scripts -- the Telegram WebApp SDK loads synchronously so window.Telegram exists before page code runs */}
         <script src="https://telegram.org/js/telegram-web-app.js"></script>
         <style>{`
           body {

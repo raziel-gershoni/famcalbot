@@ -1,6 +1,5 @@
 import { getTranslations } from 'next-intl/server';
 import { Metadata } from 'next';
-import Link from 'next/link';
 import SiteHeader from '@/components/Layout/SiteHeader';
 import SiteFooter from '@/components/Layout/Footer';
 

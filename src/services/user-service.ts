@@ -1,7 +1,7 @@
-import { User as PrismaUser } from '@prisma/client';
+import { Prisma, User as PrismaUser } from '@prisma/client';
 import { UserConfig, convertPrismaUserToConfig } from '../types';
 import { prisma, withRetry } from '../utils/prisma';
-import { encrypt, safeDecrypt } from '../utils/encryption';
+import { encrypt } from '../utils/encryption';
 import { isIdentifierBlocked } from '../lib/user-moderation';
 
 export class IdentifierBlockedError extends Error {
@@ -141,11 +141,11 @@ export async function updateUser(telegramId: number | bigint, data: Partial<Pris
   }
 
   // Remove immutable fields that shouldn't be in update
-  const { id, createdAt, updatedAt, ...updateData } = encryptedData;
+  const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...updateData } = encryptedData;
 
   const updatedUser = await prisma.user.update({
     where: { telegramId: BigInt(telegramId) },
-    data: updateData as any // Type assertion needed for JSON fields
+    data: updateData as Prisma.UserUpdateInput // Type assertion needed for JSON fields
   });
 
   return convertPrismaUserToConfig(updatedUser);
@@ -273,11 +273,11 @@ export async function updateUserById(id: number, data: Partial<PrismaUser>): Pro
     encryptedData.googleRefreshToken = encrypt(data.googleRefreshToken);
   }
 
-  const { id: _id, createdAt, updatedAt, ...updateData } = encryptedData;
+  const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...updateData } = encryptedData;
 
   const updatedUser = await prisma.user.update({
     where: { id },
-    data: updateData as any
+    data: updateData as Prisma.UserUpdateInput
   });
 
   return convertPrismaUserToConfig(updatedUser);

@@ -2,7 +2,7 @@
  * Application-wide constants
  */
 
-import { getModelConfig, ModelConfig, FALLBACK_AI_MODEL } from './ai-models';
+import { getModelConfig, FALLBACK_AI_MODEL } from './ai-models';
 
 export const TIMEZONE = 'Asia/Jerusalem';
 

@@ -1,4 +1,6 @@
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- next.config.js is a CommonJS config file
 const { withSentryConfig } = require('@sentry/nextjs');
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- next.config.js is a CommonJS config file
 const withNextIntl = require('next-intl/plugin')();
 
 /** @type {import('next').NextConfig} */

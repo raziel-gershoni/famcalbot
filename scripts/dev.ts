@@ -12,7 +12,7 @@ dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 let nextProcess: ChildProcess | null = null;
-let botInstance: any = null;
+let botInstance: ReturnType<typeof initBot> | null = null;
 
 /**
  * Start Next.js dev server

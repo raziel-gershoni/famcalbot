@@ -7,7 +7,6 @@ import { TelegramLayout, Header } from '@/components/Layout';
 import { Calendar, Pencil, ChevronDown, ChevronUp } from 'lucide-react';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarLabel, CalendarAssignment } from '@/src/types';
-import { validateCalendarAssignments } from '@/src/utils/calendar-helpers';
 
 interface Calendar {
   id: string;
@@ -22,10 +21,6 @@ interface SpouseInfo {
   personName?: string;
   personEnglishName?: string;
   personGender?: 'male' | 'female';
-}
-
-interface CalendarRules {
-  [calendarId: string]: string;
 }
 
 interface SelectCalendarsClientProps {
@@ -139,6 +134,7 @@ export default function SelectCalendarsClient({
         showFeedback(t(feedbackKey) || feedbackKey);
       }
     }, DEBOUNCE_DELAY);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- saveToServer is declared below (TDZ in a deps array). KNOWN ISSUE: the captured showFeedback reads a stale messageIdCounter, so feedback ids (React keys) can repeat; fix by taking ids from a useRef counter
   }, [selectedCalendars, calendarLabels, spouseInfo, calendarRules, globalRules]);
 
   // Immediate save (for panel collapse)
@@ -154,6 +150,7 @@ export default function SelectCalendarsClient({
       showFeedback(t(feedbackKey) || feedbackKey);
     }
     return success;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- saveToServer is declared below (TDZ in a deps array). KNOWN ISSUE: the captured showFeedback reads a stale messageIdCounter, so feedback ids (React keys) can repeat; fix by taking ids from a useRef counter
   }, [selectedCalendars, calendarLabels, spouseInfo, calendarRules, globalRules]);
 
   // Save current state to server

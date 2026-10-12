@@ -21,6 +21,7 @@ function ErrorPage({ message, telegramId }: { message: string; telegramId?: bigi
     <html>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        {/* eslint-disable-next-line @next/next/no-sync-scripts -- the Telegram WebApp SDK loads synchronously so window.Telegram exists before page code runs */}
         <script src="https://telegram.org/js/telegram-web-app.js"></script>
         <style>{`
           body {
@@ -77,6 +78,7 @@ function NoRefreshTokenPage({ telegramId }: { telegramId: bigint }) {
     <html>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        {/* eslint-disable-next-line @next/next/no-sync-scripts -- the Telegram WebApp SDK loads synchronously so window.Telegram exists before page code runs */}
         <script src="https://telegram.org/js/telegram-web-app.js"></script>
         <style>{`
           body {
@@ -140,6 +142,7 @@ async function InsufficientScopesPage({ telegramId, missingScopes, locale }: { t
     <html dir={isRtl ? 'rtl' : 'ltr'}>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        {/* eslint-disable-next-line @next/next/no-sync-scripts -- the Telegram WebApp SDK loads synchronously so window.Telegram exists before page code runs */}
         <script src="https://telegram.org/js/telegram-web-app.js"></script>
         <style>{`
           body {

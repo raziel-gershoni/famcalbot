@@ -4,7 +4,7 @@
  * Uses typing indicators instead of progress messages, with error handling and admin notifications.
  */
 
-import { IMessagingService, MessageFormat, StreamMessageHandle } from '../messaging/types';
+import { IMessagingService, StreamMessageHandle } from '../messaging/types';
 import { getBotMessages } from '../../lib/bot-messages';
 
 const DEFAULT_OPERATION_TIMEOUT_MS = 50_000;

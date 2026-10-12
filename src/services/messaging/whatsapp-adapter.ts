@@ -177,8 +177,8 @@ export class WhatsAppAdapter implements IMessagingService {
   }
 
   async deleteMessage(
-    chatId: number | string,
-    messageId: number | string
+    _chatId: number | string,
+    _messageId: number | string
   ): Promise<void> {
     // WhatsApp message deletion is limited and requires specific conditions
     console.warn('[WhatsApp] Message deletion not implemented');
@@ -187,7 +187,7 @@ export class WhatsAppAdapter implements IMessagingService {
   async sendVoice(
     chatId: number | string,
     audioPath: string,
-    options?: VoiceOptions
+    _options?: VoiceOptions
   ): Promise<void> {
     try {
       // Step 1: Upload media to get media ID
@@ -316,7 +316,7 @@ export class WhatsAppAdapter implements IMessagingService {
     }
   }
 
-  async answerCallbackQuery(queryId: string, text?: string): Promise<void> {
+  async answerCallbackQuery(_queryId: string, _text?: string): Promise<void> {
     // WhatsApp doesn't have inline buttons with callbacks
     // Uses interactive messages (buttons, lists) instead
     console.log(`[WhatsApp] Callback queries not supported`);
@@ -389,7 +389,7 @@ export class WhatsAppAdapter implements IMessagingService {
   /**
    * Make a request to WhatsApp API with retry logic
    */
-  private async makeRequest(url: string, body: any, retries = 3): Promise<Response> {
+  private async makeRequest(url: string, body: unknown, retries = 3): Promise<Response> {
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         const response = await fetch(url, {

@@ -15,7 +15,7 @@ const TELEGRAM_API_BASE = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 /**
  * Make a request to Telegram API
  */
-function telegramRequest(endpoint: string, data?: any): Promise<any> {
+function telegramRequest(endpoint: string, data?: unknown): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const url = `${TELEGRAM_API_BASE}${endpoint}`;
     const options = {

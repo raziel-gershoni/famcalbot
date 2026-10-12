@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { Prisma } from '@prisma/client';
 import { getUserByTelegramId } from '@/src/services/user-service';
 import { validateCalendarAssignments } from '@/src/utils/calendar-helpers';
 import { CalendarAssignment } from '@/src/types';
@@ -120,7 +121,7 @@ export async function POST(request: NextRequest) {
     const updatedUser = await prisma.user.update({
       where: { telegramId: BigInt(auth.userId) },
       data: {
-        calendarAssignments: syncedAssignments as any,
+        calendarAssignments: syncedAssignments as unknown as Prisma.InputJsonValue,
         ...(globalRules !== undefined && { globalRules }),
         googleRefreshToken: encrypt(currentUser.googleRefreshToken) // Re-encrypt
       }

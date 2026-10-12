@@ -2,7 +2,7 @@
  * Telegram summary generation and delivery functions
  */
 
-import { getUserByTelegramId, getUserByIdentifier, getAllUsers, getWhatsAppChatId } from '../user-service';
+import { getUserByIdentifier, getAllUsers, getWhatsAppChatId } from '../user-service';
 import { getProviderForUser, getCalendarAssignmentsForUser } from '../calendar-provider';
 
 // Provider-aware fetchers that match the fetchFunction signature in summary callers.
@@ -14,18 +14,18 @@ const fetchTomorrowEvents = (user: UserConfig, calendarIds: string[], tz?: strin
   getProviderForUser(user).fetchTomorrowEvents(user, calendarIds, tz);
 import { generateSummary, SummaryUserContext, formatDateHeader } from '../claude';
 import { CalendarEvent, UserConfig, CalendarAssignment } from '../../types';
-import { IMessagingService, getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from '../messaging';
+import { getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from '../messaging';
 import type { StreamMessageHandle } from '../messaging/types';
 import { getCalendarsByLabel, getPrimaryCalendar, getSpouseInfo } from '../../utils/calendar-helpers';
 import { buildUrl } from '../../config/urls';
 import { SHARE_STORY_LABELS, TELEGRAM_CTA_LABELS, getLabel } from '../../config/labels';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { executeCommand } from './command-pipeline';
-import { getBotMessages, getBotMessage } from '../../lib/bot-messages';
+import { getBotMessages } from '../../lib/bot-messages';
 import { trackActivityAsync } from '../analytics-service';
 import { checkFeatureAccess, incrementUsage } from '../subscription-service';
 import { captureError } from '../../lib/error-capture';
-import { getBot, getMessagingService } from './bot';
+import { getMessagingService } from './bot';
 import { sendVoiceMessage } from './voice';
 import { sendSetupNudgeIfNeeded } from './commands';
 

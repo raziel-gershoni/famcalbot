@@ -94,7 +94,7 @@ export class TelegramAdapter implements IMessagingService {
     text: string,
     options?: MessageOptions
   ): Promise<number> {
-    const telegramOptions: any = {};
+    const telegramOptions: TelegramBot.SendMessageOptions = {};
 
     // Set parse mode based on format
     if (options?.format === MessageFormat.HTML) {
@@ -128,9 +128,11 @@ export class TelegramAdapter implements IMessagingService {
     text: string,
     options?: MessageOptions
   ): Promise<void> {
-    const telegramOptions: any = {
+    // reply_markup goes out pre-serialized below, which the library's
+    // EditMessageTextOptions typing doesn't allow
+    const telegramOptions: Omit<TelegramBot.EditMessageTextOptions, 'reply_markup'> & { reply_markup?: string } = {
       chat_id: chatId,
-      message_id: messageId,
+      message_id: messageId as number,
     };
 
     // Set parse mode based on format
@@ -151,10 +153,10 @@ export class TelegramAdapter implements IMessagingService {
     }
 
     try {
-      await this.bot.editMessageText(text, telegramOptions);
-    } catch (error: any) {
+      await this.bot.editMessageText(text, telegramOptions as TelegramBot.EditMessageTextOptions);
+    } catch (error) {
       // Ignore "message is not modified" errors
-      if (!error.message?.includes('message is not modified')) {
+      if (!(error as { message?: string }).message?.includes('message is not modified')) {
         throw error;
       }
     }
@@ -177,7 +179,7 @@ export class TelegramAdapter implements IMessagingService {
     audioPath: string,
     options?: VoiceOptions
   ): Promise<void> {
-    const telegramOptions: any = {};
+    const telegramOptions: TelegramBot.SendVoiceOptions = {};
 
     if (options?.caption) {
       telegramOptions.caption = options.caption;
@@ -195,7 +197,7 @@ export class TelegramAdapter implements IMessagingService {
     photo: Buffer,
     options?: PhotoOptions
   ): Promise<number> {
-    const telegramOptions: any = {};
+    const telegramOptions: TelegramBot.SendPhotoOptions = {};
 
     if (options?.caption) {
       telegramOptions.caption = options.caption;
