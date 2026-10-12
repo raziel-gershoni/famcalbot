@@ -246,6 +246,7 @@ check('voice-missing errors are recognised, others are not', () => {
 const TWINS: Array<[string, string]> = [
   ['src/services/gemini-tts.ts', 'tts-service/lib/gemini-tts.ts'],
   ['src/utils/pcm-to-ogg-opus.ts', 'tts-service/lib/pcm-to-ogg-opus.ts'],
+  ['src/services/dialogue-tts.ts', 'tts-service/lib/dialogue-tts.ts'],
 ];
 for (const [app, service] of TWINS) {
   check(`${service} is identical to ${app}`, () => {
