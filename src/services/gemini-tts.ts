@@ -19,6 +19,12 @@
  *   full-scale noise at the end of every message. Requesting AUDIO_L16 returns the
  *   same headerless PCM the legacy models always did.
  *
+ * Voices come in two kinds. Prebuilt voices are names (Algieba) and go in
+ * `prebuiltVoiceConfig.voiceName`, as they always have. Designed voices, made with the
+ * Voice design API and stored in the Gemini project, are ids (voice_33yuo333h4y2) and
+ * go in `voiceConfig.voice`; `prebuiltVoiceConfig` rejects them with a 400. Only 3.8
+ * and later can speak designed voices.
+ *
  * The REST API is called directly because @google/genai 1.x drops both
  * `speechMetadata` and `responseFormat` from the request.
  */
@@ -34,11 +40,24 @@ export function isLegacyTtsModel(model: string): boolean {
   return LEGACY_TTS_MODELS.has(model);
 }
 
+/** True for a Voice design id (voice_...), false for a prebuilt voice name. */
+export function isDesignedVoice(voiceName: string): boolean {
+  return voiceName.startsWith('voice_');
+}
+
+/** Speaks designed voices when a legacy model is configured, since legacy models cannot. */
+export const DESIGNED_VOICE_FALLBACK_MODEL = 'gemini-3.8-flash-tts';
+
+export function modelForDesignedVoices(model: string): string {
+  return isLegacyTtsModel(model) ? DESIGNED_VOICE_FALLBACK_MODEL : model;
+}
+
 export interface SynthesizeSpeechInput {
   apiKey: string;
   model: string;
   /** Exactly the words to speak. Must contain no stage directions. */
   text: string;
+  /** A prebuilt voice name (Algieba) or a designed voice id (voice_...). */
   voiceName: string;
   /** Delivery style, e.g. "softly and warmly". Omit for a plain read. */
   style?: string;
@@ -53,6 +72,8 @@ export interface SpeechAudio {
   sampleRate: number;
   /** As returned by the API, for logging. */
   mimeType: string;
+  /** Output audio tokens as billed, when the API reports them. */
+  audioTokens?: number;
 }
 
 /** Carries the HTTP status so a retry wrapper can tell 429/503 from a hard failure. */
@@ -63,14 +84,31 @@ export class TtsHttpError extends Error {
   }
 }
 
+/**
+ * A designed voice this API key's project cannot use: deleted, expired after a year
+ * unused, or stored in another project. Gemini answers 404 "The voice was not found or
+ * the caller does not have permission to access it." Duck-typed so it also recognises
+ * errors thrown by the other copy of this file.
+ */
+export function isVoiceMissingError(error: unknown): boolean {
+  const e = error as { status?: unknown; message?: unknown } | null;
+  return e?.status === 404 && typeof e.message === 'string' && /voice was not found/i.test(e.message);
+}
+
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_TIMEOUT_MS = 45_000;
 const DEFAULT_PCM_RATE = 24_000;
 
 export function buildTtsRequestBody(input: SynthesizeSpeechInput): Record<string, unknown> {
-  const speechConfig = { voiceConfig: { prebuiltVoiceConfig: { voiceName: input.voiceName } } };
+  const designed = isDesignedVoice(input.voiceName);
+  const speechConfig = designed
+    ? { voiceConfig: { voice: input.voiceName } }
+    : { voiceConfig: { prebuiltVoiceConfig: { voiceName: input.voiceName } } };
 
   if (isLegacyTtsModel(input.model)) {
+    if (designed) {
+      throw new Error(`${input.model} cannot speak designed voice ${input.voiceName}; use modelForDesignedVoices()`);
+    }
     const style = input.style || 'naturally';
     const language = input.languageName || 'English';
     return {
@@ -92,6 +130,12 @@ export function buildTtsRequestBody(input: SynthesizeSpeechInput): Record<string
   };
 }
 
+export interface TtsResponseBody {
+  error?: { message?: string };
+  candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { mimeType?: string; data?: string } }> } }>;
+  usageMetadata?: { candidatesTokenCount?: number };
+}
+
 export async function synthesizeSpeech(input: SynthesizeSpeechInput): Promise<SpeechAudio> {
   const response = await fetch(`${ENDPOINT}/${encodeURIComponent(input.model)}:generateContent`, {
     method: 'POST',
@@ -101,10 +145,6 @@ export async function synthesizeSpeech(input: SynthesizeSpeechInput): Promise<Sp
     signal: AbortSignal.timeout(input.timeoutMs ?? DEFAULT_TIMEOUT_MS),
   });
 
-  type TtsResponseBody = {
-    error?: { message?: string };
-    candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { mimeType?: string; data?: string } }> } }>;
-  };
   // On an error status the body is only a nicety for the message, so tolerate a bad
   // one. On success it IS the audio: the timeout above also covers reading it, so a
   // multi-MB body cut off by the timer or a connection reset must surface as what it
@@ -118,13 +158,33 @@ export async function synthesizeSpeech(input: SynthesizeSpeechInput): Promise<Sp
     throw new TtsHttpError(`Gemini TTS ${input.model} returned ${response.status}: ${detail}`, response.status);
   }
 
-  const inline = body?.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.data)?.inlineData;
-  if (!inline?.data) {
-    throw new Error(`Gemini TTS ${input.model} returned no audio`);
+  return extractSpeechAudio(body ?? {}, input.model);
+}
+
+/**
+ * Pull the audio out of a successful response. Every audio part is decoded and joined
+ * in order: reading only the first would silently drop the rest of the speech if the
+ * API ever splits it.
+ */
+export function extractSpeechAudio(body: TtsResponseBody, model: string): SpeechAudio {
+  const parts = (body.candidates?.[0]?.content?.parts ?? []).filter(p => p.inlineData?.data);
+  if (!parts.length) {
+    throw new Error(`Gemini TTS ${model} returned no audio`);
   }
 
-  const mimeType = inline.mimeType || '';
-  return { ...decodeSpeechAudio(Buffer.from(inline.data, 'base64'), mimeType), mimeType };
+  const decoded = parts.map(p => decodeSpeechAudio(Buffer.from(p.inlineData!.data!, 'base64'), p.inlineData!.mimeType || ''));
+  const sampleRate = decoded[0].sampleRate;
+  if (decoded.some(d => d.sampleRate !== sampleRate)) {
+    throw new Error(`Gemini TTS ${model} returned audio parts at different sample rates`);
+  }
+
+  const tokens = body.usageMetadata?.candidatesTokenCount;
+  return {
+    pcm: decoded.length === 1 ? decoded[0].pcm : Buffer.concat(decoded.map(d => d.pcm)),
+    sampleRate,
+    mimeType: parts[0].inlineData!.mimeType || '',
+    audioTokens: typeof tokens === 'number' ? tokens : undefined,
+  };
 }
 
 /**

@@ -4,7 +4,11 @@
 //
 // Run: npx tsx scripts/smoke-tts.ts
 
-import { buildTtsRequestBody, decodeSpeechAudio, isLegacyTtsModel } from '../src/services/gemini-tts';
+import fs from 'fs';
+import {
+  buildTtsRequestBody, decodeSpeechAudio, extractSpeechAudio, isDesignedVoice, isLegacyTtsModel,
+  isVoiceMissingError, modelForDesignedVoices, TtsHttpError,
+} from '../src/services/gemini-tts';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -156,6 +160,98 @@ check('legacy model detection', () => {
   assert(!isLegacyTtsModel('gemini-3.8-flash-lite-tts'), '3.8 lite');
   assert(!isLegacyTtsModel('gemini-3.8-flash-tts'), '3.8');
 });
+
+// 8. Designed voices (Voice design ids) use voiceConfig.voice; prebuilt names keep prebuiltVoiceConfig.
+check('designed voice id goes in voiceConfig.voice', () => {
+  const body = buildTtsRequestBody({ apiKey: 'x', model: 'gemini-3.8-flash-tts', text: 'שלום', voiceName: 'voice_33yuo333h4y2' }) as {
+    generationConfig: { speechConfig: Record<string, unknown> };
+  };
+  const json = JSON.stringify(body.generationConfig.speechConfig);
+  assert(json === '{"voiceConfig":{"voice":"voice_33yuo333h4y2"}}', `speechConfig was ${json}`);
+});
+
+check('prebuilt voice keeps prebuiltVoiceConfig (narrator request unchanged)', () => {
+  const body = buildTtsRequestBody({ apiKey: 'x', model: 'gemini-3.8-flash-tts', text: 'Hi', voiceName: 'Algieba' }) as {
+    generationConfig: { speechConfig: Record<string, unknown> };
+  };
+  const json = JSON.stringify(body.generationConfig.speechConfig);
+  assert(json === '{"voiceConfig":{"prebuiltVoiceConfig":{"voiceName":"Algieba"}}}', `speechConfig was ${json}`);
+});
+
+check('legacy model with a designed voice is refused', () => {
+  let threw = false;
+  try {
+    buildTtsRequestBody({ apiKey: 'x', model: 'gemini-3.1-flash-tts-preview', text: 'Hi', voiceName: 'voice_abc123' });
+  } catch { threw = true; }
+  assert(threw, 'legacy + designed voice accepted');
+});
+
+check('designed voice detection and model substitution', () => {
+  assert(isDesignedVoice('voice_33yuo333h4y2'), 'voice_ id');
+  assert(!isDesignedVoice('Algieba'), 'prebuilt name');
+  assert(modelForDesignedVoices('gemini-3.1-flash-tts-preview') === 'gemini-3.8-flash-tts', 'legacy not replaced');
+  assert(modelForDesignedVoices('gemini-3.8-flash-lite-tts') === 'gemini-3.8-flash-lite-tts', '3.8 lite replaced');
+  assert(modelForDesignedVoices('gemini-3.8-flash-tts') === 'gemini-3.8-flash-tts', '3.8 replaced');
+});
+
+// 9. Multi-part responses: every audio part, in order; tokens from usageMetadata.
+check('all audio parts are joined in order, tokens read', () => {
+  const a = Buffer.from([1, 0, 2, 0]);
+  const b = Buffer.from([3, 0, 4, 0]);
+  const audio = extractSpeechAudio({
+    candidates: [{ content: { parts: [
+      { inlineData: { mimeType: 'audio/l16; rate=24000', data: a.toString('base64') } },
+      { inlineData: { mimeType: 'audio/l16; rate=24000', data: b.toString('base64') } },
+    ] } }],
+    usageMetadata: { candidatesTokenCount: 125 },
+  }, 'gemini-3.8-flash-tts');
+  assert(audio.pcm.equals(Buffer.concat([a, b])), `pcm ${audio.pcm.toString('hex')}`);
+  assert(audio.sampleRate === 24000, `rate ${audio.sampleRate}`);
+  assert(audio.audioTokens === 125, `tokens ${audio.audioTokens}`);
+});
+
+check('response without audio parts throws "returned no audio"', () => {
+  let message = '';
+  try { extractSpeechAudio({ candidates: [{ content: { parts: [] } }] }, 'm'); } catch (e) { message = (e as Error).message; }
+  assert(/returned no audio/.test(message), `message ${message}`);
+});
+
+check('audio parts at different rates are refused', () => {
+  let threw = false;
+  try {
+    extractSpeechAudio({ candidates: [{ content: { parts: [
+      { inlineData: { mimeType: 'audio/l16; rate=24000', data: 'AQA=' } },
+      { inlineData: { mimeType: 'audio/l16; rate=16000', data: 'AQA=' } },
+    ] } }] }, 'm');
+  } catch { threw = true; }
+  assert(threw, 'mixed rates accepted');
+});
+
+check('missing token count leaves audioTokens undefined', () => {
+  const audio = extractSpeechAudio({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/l16', data: 'AQA=' } }] } }] }, 'm');
+  assert(audio.audioTokens === undefined, `tokens ${audio.audioTokens}`);
+});
+
+// 10. A designed voice the project cannot see answers 404 "The voice was not found ...".
+check('voice-missing errors are recognised, others are not', () => {
+  const missing = new TtsHttpError('Gemini TTS gemini-3.8-flash-tts returned 404: The voice was not found or the caller does not have permission to access it.', 404);
+  assert(isVoiceMissingError(missing), 'TtsHttpError 404 voice');
+  assert(isVoiceMissingError({ status: 404, message: 'The voice was not found' }), 'duck-typed copy');
+  assert(!isVoiceMissingError(new TtsHttpError('Gemini TTS x returned 404: models/x is not found', 404)), 'model 404');
+  assert(!isVoiceMissingError(new TtsHttpError('Gemini TTS x returned 400: The voice was not found', 400)), '400');
+  assert(!isVoiceMissingError(null), 'null');
+});
+
+// 11. tts-service deploys separately and carries verbatim copies of the shared library.
+const TWINS: Array<[string, string]> = [
+  ['src/services/gemini-tts.ts', 'tts-service/lib/gemini-tts.ts'],
+  ['src/utils/pcm-to-ogg-opus.ts', 'tts-service/lib/pcm-to-ogg-opus.ts'],
+];
+for (const [app, service] of TWINS) {
+  check(`${service} is identical to ${app}`, () => {
+    assert(fs.readFileSync(app).equals(fs.readFileSync(service)), 'copies differ - copy the src/ file over the tts-service one');
+  });
+}
 
 // Print results
 let failed = 0;
