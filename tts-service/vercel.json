@@ -3,6 +3,10 @@
     "api/tts.ts": {
       "maxDuration": 60,
       "includeFiles": "node_modules/opusscript/build/**"
+    },
+    "api/dialogue.ts": {
+      "maxDuration": 60,
+      "includeFiles": "node_modules/opusscript/build/**"
     }
   }
 }
