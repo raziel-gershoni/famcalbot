@@ -11,7 +11,7 @@
 
 import { pointHebrewTimes, pointSecondPerson } from './hebrew-pointing';
 import {
-  MAX_SOUNDS_PER_SHOW, MAX_TURN_CHARS, MAX_TURNS, MIN_TURNS, MOOD_STYLES, MOODS, SOUND_TAGS,
+  HOST_STYLE, MAX_SOUNDS_PER_SHOW, MAX_TURN_CHARS, MAX_TURNS, MIN_TURNS, MOODS, SOUND_TAGS, moodStyle,
   type Mood, type ShowLine, type ShowScript, type ShowTurn,
 } from './types';
 
@@ -268,12 +268,20 @@ function speakable(text: string, language: string, listenerGender: 'male' | 'fem
   return language === 'he' ? pointSecondPerson(pointHebrewTimes(text), listenerGender) : text;
 }
 
-/** Turns as TTS lines: mood becomes its style string; Hebrew words get their niqqud. */
-export function toShowLines(turns: ShowTurn[], language: string, listenerGender: 'male' | 'female'): ShowLine[] {
+/**
+ * Turns as TTS lines: mood becomes its style string on the hosts' persona; Hebrew words
+ * get their niqqud.
+ */
+export function toShowLines(
+  turns: ShowTurn[],
+  language: string,
+  listenerGender: 'male' | 'female',
+  hostStyle: string = HOST_STYLE,
+): ShowLine[] {
   return turns.map(turn => ({
     host: turn.host,
     text: speakable(turn.text, language, listenerGender),
-    style: MOOD_STYLES[turn.mood],
+    style: moodStyle(turn.mood, hostStyle),
     whisper: turn.text.includes('<whispers>'),
   }));
 }

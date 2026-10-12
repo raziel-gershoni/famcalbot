@@ -39,7 +39,7 @@ export async function speakOutcome(
 
   try {
     const language = user.language || 'en';
-    const { generateVoiceMessage, cleanupVoiceFile, getShowVoices } = await import('../voice-generator');
+    const { generateVoiceMessage, cleanupVoiceFile, getShowVoices, getStandInVoices } = await import('../voice-generator');
     // Where the language has show hosts, host A says the outcome, so the bot keeps one
     // voice across summaries and replies.
     const hostVoice = getShowVoices(language)?.A;
@@ -47,9 +47,11 @@ export async function speakOutcome(
     try {
       result = await generateVoiceMessage(spokenLine, language, { voiceName: hostVoice });
     } catch (err) {
+      // The designed host is unreachable: the stand-in anchor says it, as it does in the
+      // shows, or the language's narrator where there is none.
       const { isVoiceMissingError } = await import('../gemini-tts');
       if (!hostVoice || !isVoiceMissingError(err)) throw err;
-      result = await generateVoiceMessage(spokenLine, language);
+      result = await generateVoiceMessage(spokenLine, language, { voiceName: getStandInVoices(language)?.A });
     }
     try {
       await service.sendVoice(chatId, result.filePath);

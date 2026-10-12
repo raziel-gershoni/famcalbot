@@ -68,6 +68,18 @@ export function getShowVoices(language: string): ShowVoices | null {
   return Object.hasOwn(SHOW_VOICES, language) ? SHOW_VOICES[language] : null;
 }
 
+// Built-in voices that stand in when the designed hosts are unreachable: a designed
+// voice exists only in its own Gemini project, and built-in voices work with any key.
+// Chosen by ear on 2026-10-12, with STAND_IN_HOST_STYLE.
+const STAND_IN_VOICES: Record<string, ShowVoices> = {
+  he: { A: 'Schedar', B: 'Puck' },
+};
+
+/** Built-in stand-ins for a language's hosts, or null when it has none. */
+export function getStandInVoices(language: string): ShowVoices | null {
+  return Object.hasOwn(STAND_IN_VOICES, language) ? STAND_IN_VOICES[language] : null;
+}
+
 // Retry configuration
 const TTS_MAX_RETRIES = 1;
 const TTS_BASE_DELAY_MS = 500;
@@ -279,6 +291,8 @@ export interface ShowVoiceResult {
 /** Test seams: the Gemini call on the local path, and the show's time budget. */
 export interface ShowVoiceDeps {
   synthesize?: (input: SynthesizeSpeechInput) => Promise<SpeechAudio>;
+  /** Overrides the language's hosts, for the stand-in pair. */
+  voices?: ShowVoices;
   /** Defaults to SHOW_DEADLINE_MS. */
   deadlineMs?: number;
 }
@@ -310,7 +324,7 @@ export async function generateShowVoice(
   language: string,
   deps: ShowVoiceDeps = {},
 ): Promise<ShowVoiceResult> {
-  const voices = getShowVoices(language);
+  const voices = deps.voices ?? getShowVoices(language);
   if (!voices) throw new Error(`[TTS] No show hosts for language "${language}"`);
   if (!lines.length) throw new Error('[TTS] Show has no lines');
 

@@ -6,7 +6,7 @@ import {
   parseShowScript, scriptToNarration, SHOW_RESPONSE_SCHEMA, ShowScriptError, toShowLines,
 } from '../src/services/voice-show/script';
 import { pointHebrewTimes, pointSecondPerson } from '../src/services/voice-show/hebrew-pointing';
-import { MOOD_STYLES, MOODS, type ShowTurn } from '../src/services/voice-show/types';
+import { MOOD_STYLES, MOODS, STAND_IN_HOST_STYLE, moodStyle, type ShowTurn } from '../src/services/voice-show/types';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -290,6 +290,16 @@ check('every mood style keeps the sports-commentator persona', () => {
     assert(style.startsWith('excited sports commentator'), `${mood}: ${style}`);
     assert(!/slow|fast|rapid|whisper|loud|pitch|quiet/i.test(style), `${mood} sets pace, pitch or volume: ${style}`);
   }
+  for (const mood of MOODS) {
+    const style = moodStyle(mood, STAND_IN_HOST_STYLE);
+    assert(style.startsWith(STAND_IN_HOST_STYLE), `stand-in ${mood}: ${style}`);
+    assert(!/slow|fast|rapid|whisper|loud|pitch|quiet/i.test(style), `stand-in ${mood} sets pace, pitch or volume: ${style}`);
+  }
+});
+
+check('toShowLines takes the stand-in persona', () => {
+  const lines = toShowLines([{ host: 'A', mood: 'amused', text: 'יאללה' }], 'he', 'male', STAND_IN_HOST_STYLE);
+  assert(lines[0].style === 'high-energy, excited sports commentator, amused', `style ${lines[0].style}`);
 });
 
 check('toShowLines leaves other languages untouched', () => {

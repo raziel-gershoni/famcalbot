@@ -1,18 +1,21 @@
 /**
  * Turns a text summary into the two-host show voice note: writer → validator →
- * pointing → TTS (remote or local) → OGG. If a host voice is missing from the Gemini
- * project, the same script is read by the single narrator and admins get one alert a
- * day. Any other failure propagates to the caller's "voice unavailable" path.
+ * pointing → TTS (remote or local) → OGG. If a designed host voice is missing from the
+ * Gemini project, built-in stand-in hosts perform the same script, and if those are
+ * missing too, the single narrator reads it; admins get one alert a day. Any other
+ * failure propagates to the caller's "voice unavailable" path.
  */
 
 import type { UserConfig } from '../../types';
 import { hasShowPrompt } from '../../prompts/voice-show';
 import { formatShowCaption, formatVoiceCaption } from '../../utils/ai-footer';
 import { isVoiceMissingError } from '../gemini-tts';
-import { generateShowVoice, generateVoiceMessage, getShowVoices, type ShowVoiceDeps } from '../voice-generator';
+import {
+  generateShowVoice, generateVoiceMessage, getShowVoices, getStandInVoices, type ShowVoiceDeps,
+} from '../voice-generator';
 import { buildShowContext } from './context';
 import { scriptToNarration, toShowLines } from './script';
-import type { ProducedVoice, ShowKind } from './types';
+import { STAND_IN_HOST_STYLE, type ProducedVoice, type ShowKind } from './types';
 import { writeShowScript, type CompletionFn } from './writer';
 
 /** A language gets the show when it has both a writer prompt and host voices. */
@@ -41,18 +44,35 @@ export async function produceShowVoice(
   if (warnings.length) console.warn(`[VoiceShow] Script repaired for user ${user.id}:`, warnings);
   console.log(`[VoiceShow] ${kind} script for user ${user.id}: ${turns.length} turns from ${summary.length} chars`);
 
-  try {
-    const show = await generateShowVoice(toShowLines(turns, language, context.listener.gender), language, {
+  const gender = context.listener.gender;
+  const perform = async (hostStyle?: string, voices?: ShowVoiceDeps['voices'], note?: string): Promise<ProducedVoice> => {
+    const show = await generateShowVoice(toShowLines(turns, language, gender, hostStyle), language, {
       synthesize: deps.synthesize,
+      voices,
     });
+    const caption = formatShowCaption(written.completion, written.attempts, show, user.isAdmin);
     return {
       filePath: show.filePath,
-      caption: formatShowCaption(written.completion, written.attempts, show, user.isAdmin),
+      caption: caption && note ? `${caption}\n${note}` : caption,
       durationSeconds: Math.max(1, Math.round(show.audioSeconds)),
     };
+  };
+
+  try {
+    return await perform();
   } catch (error) {
     if (!isVoiceMissingError(error)) throw error;
     await alertVoiceMissing(language, error);
+
+    const standIn = getStandInVoices(language);
+    if (standIn) {
+      try {
+        return await perform(STAND_IN_HOST_STYLE, standIn, '⚠️ designed hosts missing - stand-in hosts');
+      } catch (standInError) {
+        if (!isVoiceMissingError(standInError)) throw standInError;
+        console.error('[VoiceShow] Stand-in hosts missing too, narrator fallback:', standInError);
+      }
+    }
 
     const narration = scriptToNarration(turns, language, context.listener.gender);
     const tts = await (deps.narrate ?? generateVoiceMessage)(narration, language);
@@ -77,7 +97,7 @@ async function alertVoiceMissing(language: string, error: unknown): Promise<void
     const { notifyAdminWarning } = await import('../../utils/error-notifier');
     await notifyAdminWarning(
       'Voice Show',
-      `A show host voice for "${language}" was not found, so shows fall back to the single narrator.\n` +
+      `A show host voice for "${language}" was not found, so shows use the built-in stand-in hosts.\n` +
         'Check GEMINI_SHOW_VOICE_*, and set GEMINI_VOICES_API_KEY (or GEMINI_API_KEY) to a key of the Gemini project holding the designed voices.\n' +
         (error instanceof Error ? error.message : String(error)),
     );

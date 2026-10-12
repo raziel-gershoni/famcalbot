@@ -1,5 +1,6 @@
 // The show pipeline wired end to end with the LLM and Gemini faked: captions, cost,
-// routing by language, and the narrator fallback when a host voice is missing.
+// routing by language, and the stand-in and narrator fallbacks when a host voice is
+// missing.
 // No network.
 //
 // Run: npx tsx scripts/smoke-voice-show-produce.ts
@@ -100,10 +101,38 @@ async function main() {
     assert(prompts.length === 1 && prompts[0].includes('מה שמחכה למאזין מחר'), 'writer prompt is not the tomorrow one');
   });
 
-  await check('missing host voice: the narrator reads the same script', async () => {
+  const voiceNotFound = () =>
+    new TtsHttpError('Gemini TTS gemini-3.8-flash-tts returned 404: The voice was not found or the caller does not have permission to access it.', 404);
+
+  await check('missing designed hosts: built-in stand-ins perform the same script, high-energy', async () => {
+    const calls: SynthesizeSpeechInput[] = [];
+    const designedMissing = async (input: SynthesizeSpeechInput): Promise<SpeechAudio> => {
+      calls.push(input);
+      if (input.voiceName.startsWith('voice_')) throw voiceNotFound();
+      return fakeSynth(input);
+    };
+    const voice = await produceShowVoice('summary', user, 'daily', false, {
+      complete: fakeComplete,
+      synthesize: designedMissing,
+      narrate: async () => { throw new Error('narrator must not be used'); },
+    });
+    try {
+      const standIn = calls.filter(c => !c.voiceName.startsWith('voice_'));
+      assert(standIn.length === 4, `stand-in lines ${standIn.length}`);
+      assert(standIn.map(c => c.voiceName).join() === 'Schedar,Puck,Schedar,Puck', standIn.map(c => c.voiceName).join());
+      assert(standIn[0].style === 'high-energy, excited sports commentator', `style ${standIn[0].style}`);
+      assert(standIn[1].style === 'high-energy, excited sports commentator, amused', `style ${standIn[1].style}`);
+      assert((await fs.readFile(voice.filePath)).subarray(0, 4).toString('ascii') === 'OggS', 'not Ogg');
+      assert(!!voice.caption && voice.caption.includes('A:Schedar B:Puck') && voice.caption.includes('stand-in hosts'), `caption ${voice.caption}`);
+    } finally {
+      await fs.unlink(voice.filePath).catch(() => {});
+    }
+  });
+
+  await check('designed and stand-in hosts both missing: the narrator reads the same script', async () => {
     const narrated: string[] = [];
     const missing = async (): Promise<SpeechAudio> => {
-      throw new TtsHttpError('Gemini TTS gemini-3.8-flash-tts returned 404: The voice was not found or the caller does not have permission to access it.', 404);
+      throw voiceNotFound();
     };
     const voice = await produceShowVoice('summary', user, 'daily', false, {
       complete: fakeComplete,

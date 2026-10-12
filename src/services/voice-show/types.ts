@@ -25,7 +25,13 @@ export const MOODS = [
 
 export type Mood = (typeof MOODS)[number];
 
-const HOST_STYLE = 'excited sports commentator';
+export const HOST_STYLE = 'excited sports commentator';
+
+/**
+ * The persona for the built-in stand-in hosts, which start calmer than the designed
+ * ones. Picked by ear on 2026-10-12 from four built-in pairs in two styles.
+ */
+export const STAND_IN_HOST_STYLE = 'high-energy, excited sports commentator';
 
 /**
  * The style string each mood sends in speechMetadata. Every mood keeps the hosts'
@@ -38,16 +44,23 @@ const HOST_STYLE = 'excited sports commentator';
  * leans in instead. Kept short on purpose: short styles never changed the spoken words
  * (0 of 57 takes) while long director's notes did (4 of 5).
  */
-export const MOOD_STYLES: Record<Mood, string> = {
-  hype: HOST_STYLE,
-  triumph: `${HOST_STYLE}, celebrating`,
-  suspense: `${HOST_STYLE}, teasing`,
-  amused: `${HOST_STYLE}, amused`,
-  surprised: `${HOST_STYLE}, surprised`,
-  mock_disappointed: `${HOST_STYLE}, playfully disappointed`,
-  secret: `${HOST_STYLE}, leaning in close`,
-  warm: `${HOST_STYLE}, warm`,
+const MOOD_COLOURS: Record<Mood, string> = {
+  hype: '',
+  triumph: 'celebrating',
+  suspense: 'teasing',
+  amused: 'amused',
+  surprised: 'surprised',
+  mock_disappointed: 'playfully disappointed',
+  secret: 'leaning in close',
+  warm: 'warm',
 };
+
+/** A mood's style string on top of a host persona. */
+export function moodStyle(mood: Mood, hostStyle: string = HOST_STYLE): string {
+  return MOOD_COLOURS[mood] ? `${hostStyle}, ${MOOD_COLOURS[mood]}` : hostStyle;
+}
+
+export const MOOD_STYLES = Object.fromEntries(MOODS.map(mood => [mood, moodStyle(mood)])) as Record<Mood, string>;
 
 /**
  * Inline sounds the hosts may use. Each was heard by a blind listener on both hosts in
