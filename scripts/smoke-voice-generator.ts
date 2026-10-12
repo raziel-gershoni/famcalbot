@@ -68,6 +68,7 @@ async function withServer(respond: (res: http.ServerResponse) => void, fn: (url:
   try {
     await fn(`http://127.0.0.1:${port}`, seen);
   } finally {
+    server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));
   }
 }
@@ -154,6 +155,41 @@ async function main() {
       } finally {
         await fs.unlink(result.filePath).catch(() => {});
       }
+    });
+  });
+
+  await check('a slow remote failure leaves the local fallback only the time the show has left', async () => {
+    await withServer(res => { setTimeout(() => { res.statusCode = 500; res.end('boom'); }, 300); }, async url => {
+      process.env.TTS_SERVICE_URL = url;
+      synthCalls.length = 0;
+      const result = await generateShowVoice(LINES, 'he', { synthesize: fakeSynth, deadlineMs: 3000 });
+      await fs.unlink(result.filePath).catch(() => {});
+      const timeouts = synthCalls.map(c => c.timeoutMs ?? 0);
+      assert(result.via === 'local' && timeouts.length === 4, `via ${result.via}, calls ${timeouts.length}`);
+      assert(timeouts.every(t => t <= 2700 && t > 2000), `local timeouts ${timeouts.join(',')}`);
+    });
+  });
+
+  await check('a hung remote is cut at the show deadline and the local fallback fails fast', async () => {
+    let held: http.ServerResponse | undefined;
+    // Timed from the remote request: locally the model lookup before the slot waits
+    // ~4 s on the Upstash client's retries.
+    let receivedAt = 0;
+    await withServer(res => { held = res; receivedAt = Date.now(); }, async url => {
+      process.env.TTS_SERVICE_URL = url;
+      synthCalls.length = 0;
+      let caught: unknown;
+      try {
+        await Promise.race([
+          generateShowVoice(LINES, 'he', { synthesize: fakeSynth, deadlineMs: 400 }),
+          sleep(15_000).then(() => { throw new Error('still waiting after 15 s'); }),
+        ]);
+      } catch (e) { caught = e; }
+      const elapsed = Date.now() - receivedAt;
+      held?.destroy();
+      assert((caught as Error)?.name === 'DialogueDeadlineError', `error ${String(caught)}`);
+      assert(synthCalls.length === 0, `local synth calls ${synthCalls.length}`);
+      assert(receivedAt > 0 && elapsed >= 300 && elapsed < 1500, `rejected ${elapsed} ms after the remote request`);
     });
   });
 

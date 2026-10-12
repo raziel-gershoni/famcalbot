@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { encodePcmToOggOpus, SAMPLE_RATE } from '../lib/pcm-to-ogg-opus.js';
 import { isVoiceMissingError, modelForDesignedVoices, synthesizeSpeech } from '../lib/gemini-tts.js';
-import { synthesizeDialogue } from '../lib/dialogue-tts.js';
+import { DialogueDeadlineError, synthesizeDialogue } from '../lib/dialogue-tts.js';
 import { mixDialogue } from '../lib/pcm-mix.js';
 
 // The two-host show: every line synthesized in parallel in its host's voice, mixed,
@@ -20,6 +20,10 @@ const MAX_LINES = 30;
 const MAX_LINE_CHARS = 1000;
 const MAX_STYLE_LENGTH = 300;
 const LINE_CONCURRENCY = 8;
+// Under the app's 55 s timeout and Vercel's 60 s maxDuration: a slow show ends here with
+// a 504 the app falls back on, rather than a cut connection after which this function
+// keeps paying for Gemini calls that the app's local fallback repeats.
+const SHOW_DEADLINE_MS = 50_000;
 
 interface Line {
   host: 'A' | 'B';
@@ -64,6 +68,7 @@ function parseRequest(body: unknown): ShowRequest | string {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const startTime = Date.now();
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -80,7 +85,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { model, voices, lines } = parsed;
 
   console.log('[TTS] Generating show:', { lines: lines.length, model, voices });
-  const startTime = Date.now();
 
   try {
     const audio = await synthesizeDialogue({
@@ -89,6 +93,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       lines: lines.map(line => ({ voice: voices[line.host], text: line.text, style: line.style })),
       synthesize: synthesizeSpeech,
       concurrency: LINE_CONCURRENCY,
+      deadline: startTime + SHOW_DEADLINE_MS,
     });
 
     // The Opus encoder is fixed at 24 kHz; anything else would play at the wrong speed.
@@ -107,6 +112,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     console.log('[TTS] Show generated:', {
       requests: audio.requests,
+      retries: audio.requests - lines.length,
       audioSeconds: audioSeconds.toFixed(1),
       oggKB: (oggBuffer.length / 1024).toFixed(2),
       durationMs: elapsed,
@@ -117,11 +123,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader('X-TTS-Model', model);
     res.setHeader('X-TTS-Audio-Seconds', audioSeconds.toFixed(2));
     res.setHeader('X-TTS-Audio-Tokens', String(audio.audioTokens));
+    res.setHeader('X-TTS-Requests', String(audio.requests));
     return res.status(200).send(oggBuffer);
   } catch (error) {
     console.error('[TTS] Show generation failed:', error);
     if (isVoiceMissingError(error)) {
       return res.status(422).json({ error: 'voice_not_found' });
+    }
+    if (error instanceof DialogueDeadlineError) {
+      return res.status(504).json({ error: 'Show ran out of time' });
     }
     return res.status(500).json({ error: 'TTS generation failed' });
   }

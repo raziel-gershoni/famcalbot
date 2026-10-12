@@ -3,7 +3,7 @@
 //
 // Run: npx tsx scripts/smoke-dialogue-tts.ts
 
-import { isRetryableTtsError, synthesizeDialogue, type DialogueLine } from '../src/services/dialogue-tts';
+import { DialogueDeadlineError, isRetryableTtsError, synthesizeDialogue, type DialogueLine } from '../src/services/dialogue-tts';
 import type { SpeechAudio, SynthesizeSpeechInput } from '../src/services/gemini-tts';
 
 type Result = { name: string; ok: boolean; reason?: string };
@@ -141,6 +141,73 @@ async function main() {
     assert((caught as { status?: number })?.status === 400, `error ${String(caught)}`);
     assert(calls[0] === 1, `line 0 sent ${calls[0]} requests`);
     assert(elapsed < 250, `rejected after ${elapsed} ms`);
+  });
+
+  // --- the show's deadline ---
+  const timeoutError = () => Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+
+  await check('deadline: every attempt timeout is capped at the time left', async () => {
+    const seen: number[] = [];
+    await synthesizeDialogue({
+      apiKey: 'k', model: 'm', lines: lines(2), lineTimeoutMs: 20_000, deadline: Date.now() + 1000, minAttemptMs: 10,
+      synthesize: async input => { seen.push(input.timeoutMs!); return audio(0); },
+    });
+    assert(seen.length === 2 && seen.every(t => t <= 1000 && t > 900), `timeouts ${seen.join(',')}`);
+  });
+
+  await check('deadline: no retry starts when its backoff would run past the deadline', async () => {
+    let calls = 0;
+    const start = Date.now();
+    let caught: unknown;
+    try {
+      await synthesizeDialogue({
+        apiKey: 'k', model: 'm', lines: lines(1), maxAttempts: 10, baseDelayMs: 50, deadline: start + 120, minAttemptMs: 10,
+        synthesize: async () => { calls++; throw httpError(503); },
+      });
+    } catch (e) { caught = e; }
+    // Attempt 1 at 0 ms, attempt 2 after 50 ms; a 100 ms backoff then cannot fit.
+    assert(caught instanceof DialogueDeadlineError, `error ${String(caught)}`);
+    assert((caught.cause as { status?: number })?.status === 503, 'last error not kept as the cause');
+    assert(calls === 2, `calls ${calls}`);
+    assert(Date.now() - start < 120, `rejected after ${Date.now() - start} ms`);
+  });
+
+  await check('deadline: an attempt cut short by the deadline ends the dialogue', async () => {
+    let calls = 0;
+    const start = Date.now();
+    let caught: unknown;
+    try {
+      await synthesizeDialogue({
+        apiKey: 'k', model: 'm', lines: lines(1), lineTimeoutMs: 20_000, deadline: start + 150, minAttemptMs: 10, baseDelayMs: 1,
+        synthesize: async input => { calls++; await sleep(input.timeoutMs!); throw timeoutError(); },
+      });
+    } catch (e) { caught = e; }
+    const elapsed = Date.now() - start;
+    assert(caught instanceof DialogueDeadlineError, `error ${String(caught)}`);
+    assert(calls === 1, `calls ${calls}`);
+    assert(elapsed >= 140 && elapsed < 250, `elapsed ${elapsed} ms`);
+  });
+
+  await check('deadline: too little time left fails at once without a request', async () => {
+    let calls = 0;
+    let caught: unknown;
+    const start = Date.now();
+    try {
+      await synthesizeDialogue({
+        apiKey: 'k', model: 'm', lines: lines(3), deadline: start + 500,
+        synthesize: async () => { calls++; return audio(0); },
+      });
+    } catch (e) { caught = e; }
+    assert(caught instanceof DialogueDeadlineError, `error ${String(caught)}`);
+    assert(calls === 0 && Date.now() - start < 50, `calls ${calls}, ${Date.now() - start} ms`);
+  });
+
+  await check('deadline: a deadline that leaves time changes nothing', async () => {
+    const out = await synthesizeDialogue({
+      apiKey: 'k', model: 'm', lines: lines(4), deadline: Date.now() + 60_000,
+      synthesize: async input => audio(indexOf(input)),
+    });
+    assert(out.pcms.length === 4 && out.requests === 4, `requests ${out.requests}`);
   });
 
   await check('lines at different sample rates are refused', async () => {

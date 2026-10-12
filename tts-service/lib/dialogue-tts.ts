@@ -34,6 +34,14 @@ export interface SynthesizeDialogueInput {
   maxAttempts?: number;
   /** Backoff before the second attempt; doubles after that. Default 500 ms. */
   baseDelayMs?: number;
+  /**
+   * Epoch ms by which the whole dialogue must be done. No attempt starts after it and
+   * each attempt's timeout is capped at the time left, so a slow Gemini cannot stretch
+   * a show past its caller's budget. Without one, only the per-line limits apply.
+   */
+  deadline?: number;
+  /** With less time than this left, fail rather than start a request. Default 2 s. */
+  minAttemptMs?: number;
 }
 
 export interface DialogueAudio {
@@ -44,6 +52,14 @@ export interface DialogueAudio {
   audioTokens: number;
   /** TTS requests sent, retries included. */
   requests: number;
+}
+
+/** The dialogue ran out of time before every line was spoken. `cause` holds the last line error, if any. */
+export class DialogueDeadlineError extends Error {
+  constructor(message: string, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = 'DialogueDeadlineError';
+  }
 }
 
 /** 429, 5xx, timeouts, dropped connections and empty responses are worth another try. */
@@ -67,6 +83,11 @@ export async function synthesizeDialogue(input: SynthesizeDialogueInput): Promis
   const lineTimeoutMs = input.lineTimeoutMs ?? 20_000;
   const maxAttempts = Math.max(1, Math.floor(input.maxAttempts ?? 3));
   const baseDelayMs = input.baseDelayMs ?? 500;
+  const { deadline } = input;
+  // A Hebrew line takes 1-4 s to synthesize; a request with less time than this would
+  // most likely be cut off and only spend a Gemini call.
+  const minAttemptMs = input.minAttemptMs ?? 2_000;
+  const timeLeft = () => (deadline === undefined ? Infinity : deadline - Date.now());
 
   const results: SpeechAudio[] = new Array(lines.length);
   let requests = 0;
@@ -77,6 +98,8 @@ export async function synthesizeDialogue(input: SynthesizeDialogueInput): Promis
   const runLine = async (index: number): Promise<void> => {
     const line = lines[index];
     for (let attempt = 1; ; attempt++) {
+      const left = timeLeft();
+      if (left < minAttemptMs) throw new DialogueDeadlineError(`Dialogue deadline reached before line ${index + 1}`);
       requests++;
       try {
         results[index] = await input.synthesize({
@@ -85,13 +108,20 @@ export async function synthesizeDialogue(input: SynthesizeDialogueInput): Promis
           text: line.text,
           voiceName: line.voice,
           style: line.style,
-          timeoutMs: lineTimeoutMs,
+          timeoutMs: Math.min(lineTimeoutMs, left),
         });
         return;
       } catch (error) {
         // Once any line has failed for good the show is lost, so stop retrying too.
-        if (failed || attempt >= maxAttempts || !isRetryableTtsError(error)) throw error;
-        await sleep(baseDelayMs * 2 ** (attempt - 1));
+        if (failed || !isRetryableTtsError(error)) throw error;
+        const delay = baseDelayMs * 2 ** (attempt - 1);
+        // Checked before the attempt count so running out of time is reported as such
+        // (tts-service answers it with a 504).
+        if (timeLeft() - delay < minAttemptMs) {
+          throw new DialogueDeadlineError(`Dialogue deadline reached on line ${index + 1} after ${attempt} attempt(s)`, error);
+        }
+        if (attempt >= maxAttempts) throw error;
+        await sleep(delay);
         // Another line may have failed while this one slept; a retry now would only
         // delay the rejection by a whole request and spend one more Gemini call.
         if (failed) throw failure;

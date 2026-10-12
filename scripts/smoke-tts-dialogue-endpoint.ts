@@ -79,6 +79,29 @@ async function main() {
     await expect400({ voices, lines: [{ ...line, style: 's'.repeat(301) }] }, /line 1: style/);
   });
 
+  await check('504 when the show runs out of time, with no further Gemini call', async () => {
+    // Gemini is faked: each call times out and moves the clock on 49 s, so after one
+    // call the service's own deadline (about 50 s) leaves no room for a retry.
+    const realNow = Date.now;
+    const realFetch = globalThis.fetch;
+    let offset = 0;
+    let calls = 0;
+    Date.now = () => realNow() + offset;
+    globalThis.fetch = (async () => {
+      calls++;
+      offset += 49_000;
+      throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+    }) as typeof fetch;
+    try {
+      const out = await post({ voices, lines: [line, { ...line, host: 'B' }] });
+      assert(out.status === 504, `status ${out.status} ${JSON.stringify(out.json)}`);
+      assert(calls <= 2, `Gemini calls ${calls}`);
+    } finally {
+      Date.now = realNow;
+      globalThis.fetch = realFetch;
+    }
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

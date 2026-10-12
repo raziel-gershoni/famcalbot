@@ -276,9 +276,11 @@ export interface ShowVoiceResult {
   via: 'remote' | 'local';
 }
 
-/** Test seam: replaces the Gemini call on the local path. */
+/** Test seams: the Gemini call on the local path, and the show's time budget. */
 export interface ShowVoiceDeps {
   synthesize?: (input: SynthesizeSpeechInput) => Promise<SpeechAudio>;
+  /** Defaults to SHOW_DEADLINE_MS. */
+  deadlineMs?: number;
 }
 
 // The hourly summary run can start many shows at once, and each show already sends up
@@ -291,6 +293,11 @@ const withShowSlot = createSemaphore(MAX_CONCURRENT_SHOWS);
 // Below Vercel's 60s maxDuration, and longer than the narrator's 30s because a show is
 // many requests.
 const REMOTE_SHOW_TIMEOUT_MS = 55_000;
+
+// One budget per show, from the moment it gets a slot: the remote attempt and the local
+// fallback share it. Without it a slow Gemini kept one of the three slots for minutes
+// (55 s remote, then a full local redo with per-line retries) while other users queued.
+const SHOW_DEADLINE_MS = 90_000;
 
 /**
  * Generate the two-host show from validated lines.
@@ -308,16 +315,20 @@ export async function generateShowVoice(
   if (!lines.length) throw new Error('[TTS] Show has no lines');
 
   const model = modelForDesignedVoices(await resolveTtsModel());
+  const queuedAt = Date.now();
 
   return withShowSlot(async () => {
+    const deadline = Date.now() + (deps.deadlineMs ?? SHOW_DEADLINE_MS);
+    console.log('[TTS] Show got a slot:', { waitedMs: Date.now() - queuedAt, lines: lines.length });
     if (process.env.TTS_SERVICE_URL) {
       try {
-        return await generateShowRemote(lines, language, voices, model);
+        return await generateShowRemote(lines, language, voices, model, deadline);
       } catch (error) {
         console.warn('[TTS] Remote show failed, falling back to local:', error);
       }
     }
-    return generateShowLocal(lines, voices, model, deps);
+    // Only the time left: synthesizeDialogue fails fast when too little remains.
+    return generateShowLocal(lines, voices, model, deps, deadline);
   });
 }
 
@@ -326,6 +337,7 @@ async function generateShowRemote(
   language: string,
   voices: ShowVoices,
   model: string,
+  deadline: number,
 ): Promise<ShowVoiceResult> {
   const startTime = Date.now();
   const url = `${process.env.TTS_SERVICE_URL}/api/dialogue`;
@@ -339,7 +351,7 @@ async function generateShowRemote(
     },
     body: JSON.stringify({ language, model, voices, lines }),
     // Also bounds reading the body below.
-    signal: AbortSignal.timeout(REMOTE_SHOW_TIMEOUT_MS),
+    signal: AbortSignal.timeout(Math.max(0, Math.min(REMOTE_SHOW_TIMEOUT_MS, deadline - Date.now()))),
   });
 
   if (!response.ok) {
@@ -360,7 +372,13 @@ async function generateShowRemote(
     audioTokens: Number(response.headers.get('X-TTS-Audio-Tokens')) || 0,
     via: 'remote',
   };
-  console.log('[TTS] Remote show completed:', { ...result, oggKB: (oggBuffer.length / 1024).toFixed(2) });
+  // The service reports its request count; requests beyond one per line were retries.
+  const requests = Number(response.headers.get('X-TTS-Requests')) || undefined;
+  console.log('[TTS] Remote show completed:', {
+    ...result,
+    retries: requests === undefined ? undefined : requests - lines.length,
+    oggKB: (oggBuffer.length / 1024).toFixed(2),
+  });
   return result;
 }
 
@@ -369,9 +387,10 @@ async function generateShowLocal(
   voices: ShowVoices,
   model: string,
   deps: ShowVoiceDeps,
+  deadline: number,
 ): Promise<ShowVoiceResult> {
   const startTime = Date.now();
-  console.log('[TTS] Generating show locally:', { lines: lines.length, model, voices });
+  console.log('[TTS] Generating show locally:', { lines: lines.length, model, voices, msLeft: deadline - startTime });
 
   const audio = await synthesizeDialogue({
     apiKey: process.env.GEMINI_API_KEY || '',
@@ -379,6 +398,7 @@ async function generateShowLocal(
     lines: lines.map(line => ({ voice: voices[line.host], text: line.text, style: line.style })),
     synthesize: deps.synthesize ?? synthesizeSpeech,
     concurrency: SHOW_LINE_CONCURRENCY,
+    deadline,
   });
 
   // The Opus encoder is fixed at 24 kHz; anything else would play at the wrong speed.
@@ -403,7 +423,12 @@ async function generateShowLocal(
     audioTokens: audio.audioTokens,
     via: 'local',
   };
-  console.log('[TTS] Local show completed:', { ...result, requests: audio.requests, oggKB: (oggBuffer.length / 1024).toFixed(2) });
+  console.log('[TTS] Local show completed:', {
+    ...result,
+    requests: audio.requests,
+    retries: audio.requests - lines.length,
+    oggKB: (oggBuffer.length / 1024).toFixed(2),
+  });
   return result;
 }
 
