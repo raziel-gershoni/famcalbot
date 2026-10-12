@@ -1,6 +1,6 @@
 /**
  * Admin Settings API
- * GET: Fetch admin settings (public - for settings page to check if reminders are globally enabled)
+ * GET: Fetch admin settings (admin-only; pages read AdminSettings server-side)
  * POST: Update admin settings (admin-only)
  */
 
@@ -15,8 +15,16 @@ import { getTtsModelConfig } from '@/src/config/tts-models';
 
 export const dynamic = 'force-dynamic';
 
-// GET: Fetch admin settings
-export async function GET() {
+// GET: Fetch admin settings (admin-only)
+export async function GET(request: NextRequest) {
+  const auth = await verifyAdminAccess(request.nextUrl.searchParams.get('initData') || undefined);
+  if (!auth.authorized) {
+    return NextResponse.json(
+      { error: auth.error },
+      { status: auth.error === 'Admin access required' ? 403 : 401 }
+    );
+  }
+
   try {
     const adminSettings = await prisma.adminSettings.findUnique({
       where: { id: 'global' }
