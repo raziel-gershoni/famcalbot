@@ -192,16 +192,51 @@ for (const text of UNTOUCHED) {
 }
 
 check('second person is pointed for the listener', () => {
-  assert(same(pointSecondPerson('יש לך פגישה', 'male'), 'יש לְךָ פגישה'), 'male לך');
   assert(same(pointSecondPerson('יש לך פגישה', 'female'), 'יש לָךְ פגישה'), 'female לך');
   assert(same(pointSecondPerson('והיום שלך', 'female'), 'והיום שֶׁלָּךְ'), 'female שלך');
-  assert(same(pointSecondPerson('ולך', 'male'), 'וּלְךָ'), 'male ולך');
+  assert(same(pointSecondPerson('והיום שלך', 'male'), 'והיום שֶׁלְּךָ'), 'male שלך');
   assert(same(pointSecondPerson('ולך', 'female'), 'וְלָךְ'), 'female ולך');
   assert(same(pointSecondPerson('מחכה בשבילך', 'female'), 'מחכה בִּשְׁבִילֵךְ'), 'female בשבילך');
 });
 
+check('bare "לך" stays unpointed for a man: "לך על זה" (go for it) is spelled the same', () => {
+  for (const text of ['יש לך פגישה', 'ולך', 'לך על זה דני!']) {
+    assert(pointSecondPerson(text, 'male') === text, `${text} → ${pointSecondPerson(text, 'male')}`);
+  }
+});
+
+const MORE_SECOND_PERSON: Array<[string, string, string]> = [
+  ['לפניך', 'לְפָנֶיךָ', 'לְפָנַיִךְ'],
+  ['אחריך', 'אַחֲרֶיךָ', 'אַחֲרַיִךְ'],
+  ['מאחוריך', 'מֵאֲחוֹרֶיךָ', 'מֵאֲחוֹרַיִךְ'],
+  ['לידך', 'לְיָדְךָ', 'לְיָדֵךְ'],
+  ['כמוך', 'כָּמוֹךָ', 'כָּמוֹךְ'],
+  ['בך', 'בְּךָ', 'בָּךְ'],
+  ['עבורך', 'עֲבוּרְךָ', 'עֲבוּרֵךְ'],
+  ['אתך', 'אִתְּךָ', 'אִתָּךְ'],
+];
+for (const [word, male, female] of MORE_SECOND_PERSON) {
+  check(`points "${word}" for a man and for a woman`, () => {
+    const m = pointSecondPerson(`זה ${word}!`, 'male');
+    const f = pointSecondPerson(`זה ${word}!`, 'female');
+    assert(same(m, `זה ${male}!`), `male ${m}`);
+    assert(same(f, `זה ${female}!`), `female ${f}`);
+  });
+}
+
+check('after a prefix, a leading ב, כ or פ loses its dagesh', () => {
+  assert(same(pointSecondPerson('ובך', 'male'), 'וּבְךָ'), `ובך male ${pointSecondPerson('ובך', 'male')}`);
+  assert(same(pointSecondPerson('ובך', 'female'), 'וּבָךְ'), `ובך female ${pointSecondPerson('ובך', 'female')}`);
+  assert(same(pointSecondPerson('ובשבילך', 'male'), 'וּבִשְׁבִילְךָ'), `ובשבילך male ${pointSecondPerson('ובשבילך', 'male')}`);
+  assert(same(pointSecondPerson('ובשבילך', 'female'), 'וּבִשְׁבִילֵךְ'), `ובשבילך female ${pointSecondPerson('ובשבילך', 'female')}`);
+  assert(same(pointSecondPerson('וכמוך', 'male'), 'וְכָמוֹךָ'), `וכמוך male ${pointSecondPerson('וכמוך', 'male')}`);
+  // Without a prefix the dagesh stays.
+  assert(same(pointSecondPerson('גאים בך', 'female'), 'גאים בָּךְ'), `בך female ${pointSecondPerson('גאים בך', 'female')}`);
+  assert(same(pointSecondPerson('ולפניך', 'female'), 'וּלְפָנַיִךְ'), `ולפניך female ${pointSecondPerson('ולפניך', 'female')}`);
+});
+
 check('second-person pointing leaves other words alone', () => {
-  for (const text of ['הולך', 'מלך', 'ללכת', 'לכת', 'הלך']) {
+  for (const text of ['הולך', 'מלך', 'ללכת', 'לכת', 'הלך', 'לבך', 'שבך', 'לפני', 'כמו', 'בכך', 'אתכם', 'עבור']) {
     assert(pointSecondPerson(text, 'female') === text, `${text} → ${pointSecondPerson(text, 'female')}`);
   }
 });

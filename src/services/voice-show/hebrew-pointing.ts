@@ -11,9 +11,14 @@
  * Second person: "לך", "שלך", "אותך" and the like are spelled the same for a man and
  * a woman, so TTS has to guess and defaults to the masculine. The show addresses only
  * the listener in the second person, so they are pointed for the listener's gender.
+ * Bare "לך" is the exception for a man: the imperative "לך" (go, as in "לך על זה")
+ * is spelled the same, and the masculine "to you" is Gemini's default reading anyway.
+ * A woman's imperative is "לכי", so for her "לך" is always "to you".
  *
  * A prefix ו/ב/ל/כ (or ו plus one of the others) is pointed too; מ, ש and ה prefixes
- * are left bare. Words that already carry niqqud are left alone.
+ * are left bare. After a prefix the word's own ב, כ or פ no longer starts the word and
+ * loses its dagesh ("ובשבילך" is "u-vi", not "u-bi"). Words that already carry niqqud
+ * are left alone.
  */
 
 const LETTER = '\\u05D0-\\u05EA';
@@ -46,8 +51,9 @@ const TEN = 'עֶשֶׂר';
 const QUARTER = 'רֶבַע';
 const MASCULINE_UNITS = ['אחד', 'שנים', 'שניים', 'שלושה', 'ארבעה', 'חמישה', 'שישה', 'שבעה', 'שמונה', 'תשעה'];
 
-const SECOND_PERSON: Record<string, { male: string; female: string }> = {
-  'לך': { male: 'לְךָ', female: 'לָךְ' },
+// No male form means: leave the word bare for a man.
+const SECOND_PERSON: Record<string, { male?: string; female: string }> = {
+  'לך': { female: 'לָךְ' },
   'שלך': { male: 'שֶׁלְּךָ', female: 'שֶׁלָּךְ' },
   'אותך': { male: 'אוֹתְךָ', female: 'אוֹתָךְ' },
   'עליך': { male: 'עָלֶיךָ', female: 'עָלַיִךְ' },
@@ -56,6 +62,14 @@ const SECOND_PERSON: Record<string, { male: string; female: string }> = {
   'איתך': { male: 'אִתְּךָ', female: 'אִתָּךְ' },
   'אצלך': { male: 'אֶצְלְךָ', female: 'אֶצְלֵךְ' },
   'ממך': { male: 'מִמְּךָ', female: 'מִמֵּךְ' },
+  'לפניך': { male: 'לְפָנֶיךָ', female: 'לְפָנַיִךְ' },
+  'אחריך': { male: 'אַחֲרֶיךָ', female: 'אַחֲרַיִךְ' },
+  'מאחוריך': { male: 'מֵאֲחוֹרֶיךָ', female: 'מֵאֲחוֹרַיִךְ' },
+  'לידך': { male: 'לְיָדְךָ', female: 'לְיָדֵךְ' },
+  'כמוך': { male: 'כָּמוֹךָ', female: 'כָּמוֹךְ' },
+  'בך': { male: 'בְּךָ', female: 'בָּךְ' },
+  'עבורך': { male: 'עֲבוּרְךָ', female: 'עֲבוּרֵךְ' },
+  'אתך': { male: 'אִתְּךָ', female: 'אִתָּךְ' },
 };
 
 const TEEN_RE = new RegExp(`${START}${PREFIX}(${Object.keys(FEMININE_UNITS).join('|')})\\s+עשרה${END}`, 'g');
@@ -96,21 +110,30 @@ function pointPrefix(prefix: string, pointed: string): string {
   return 'ו' + (last === 'ב' || vowel === SHVA ? DAGESH : SHVA) + pointedLast;
 }
 
+/** The prefix and the word joined: the prefix pointed, the word's leading ב/כ/פ softened. */
+function withPrefix(prefix: string, pointed: string): string {
+  if (!prefix) return pointed;
+  const head = pointPrefix(prefix, pointed);
+  if (!'בכפ'.includes(pointed[0])) return head + pointed;
+  const marks = /^[֑-ׇ]*/.exec(pointed.slice(1))![0];
+  return head + pointed[0] + marks.replace(DAGESH, '') + pointed.slice(1 + marks.length);
+}
+
 const nfc = (s: string) => s.normalize('NFC');
 
 export function pointHebrewTimes(text: string): string {
   return text
     .replace(TEEN_RE, (_m, prefix: string, unit: string) => {
       const pointed = FEMININE_UNITS[unit];
-      return nfc(`${pointPrefix(prefix, pointed)}${pointed} ${TEEN}`);
+      return nfc(`${withPrefix(prefix, pointed)} ${TEEN}`);
     })
-    .replace(TEN_RE, (_m, prefix: string) => nfc(pointPrefix(prefix, TEN) + TEN))
+    .replace(TEN_RE, (_m, prefix: string) => nfc(withPrefix(prefix, TEN)))
     .replace(QUARTER_RE, (_m, prefix: string) => nfc((prefix === 'ו' ? 'ו' + QAMATS : pointPrefix(prefix, QUARTER)) + QUARTER));
 }
 
 export function pointSecondPerson(text: string, gender: 'male' | 'female'): string {
-  return text.replace(SECOND_PERSON_RE, (_m, vav: string, word: string) => {
+  return text.replace(SECOND_PERSON_RE, (match, vav: string, word: string) => {
     const pointed = SECOND_PERSON[word][gender];
-    return nfc(pointPrefix(vav, pointed) + pointed);
+    return pointed ? nfc(withPrefix(vav, pointed)) : match;
   });
 }
