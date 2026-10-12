@@ -45,10 +45,10 @@ const fakeSynth = async (input: SynthesizeSpeechInput): Promise<SpeechAudio> => 
 };
 
 const LINES: ShowLine[] = [
-  { host: 'A', text: 'בוקר טוב', style: 'excited sports commentator' },
-  { host: 'B', text: 'יאללה', style: 'excited sports commentator, amused' },
-  { host: 'A', text: 'פגישה', style: 'excited sports commentator' },
-  { host: 'B', text: '<whispers> סוד', style: 'excited sports commentator, leaning in close', whisper: true },
+  { host: 'A', text: 'בוקר טוב', style: 'high-energy, excited sports commentator' },
+  { host: 'B', text: 'יאללה', style: 'high-energy, excited sports commentator, amused' },
+  { host: 'A', text: 'פגישה', style: 'high-energy, excited sports commentator' },
+  { host: 'B', text: '<whispers> סוד', style: 'high-energy, excited sports commentator, leaning in close', whisper: true },
 ];
 
 type Seen = { method?: string; url?: string; auth?: string; body?: { voices?: { A: string; B: string }; lines?: unknown[]; model?: string } };
@@ -74,8 +74,6 @@ async function withServer(respond: (res: http.ServerResponse) => void, fn: (url:
 }
 
 async function main() {
-  // Before voice-generator loads: its host table reads the env at import.
-  process.env.GEMINI_SHOW_VOICE_HE_B = 'voice_override123';
   process.env.TTS_API_KEY = 'test-key';
   const { generateShowVoice, getShowVoices } = await import('../src/services/voice-generator');
 
@@ -103,10 +101,10 @@ async function main() {
     assert(threw, 'size 0 accepted');
   });
 
-  await check('host table: Hebrew defaults with env override, nothing elsewhere', () => {
+  await check('host table: built-in Hebrew pair, nothing elsewhere', () => {
     const he = getShowVoices('he');
-    assert(he?.A === 'voice_33yuo333h4y2', `A ${he?.A}`);
-    assert(he?.B === 'voice_override123', `B ${he?.B}`);
+    assert(he?.A === 'Schedar', `A ${he?.A}`);
+    assert(he?.B === 'Puck', `B ${he?.B}`);
     assert(getShowVoices('en') === null && getShowVoices('ru') === null, 'en/ru');
     assert(getShowVoices('__proto__') === null && getShowVoices('constructor') === null, 'prototype keys');
   });
@@ -119,12 +117,12 @@ async function main() {
       try {
         assert(seen.method === 'POST' && seen.url === '/api/dialogue', `${seen.method} ${seen.url}`);
         assert(seen.auth === 'Bearer test-key', `auth ${seen.auth}`);
-        assert(seen.body?.voices?.B === 'voice_override123' && seen.body.lines?.length === 4, 'remote body');
+        assert(seen.body?.voices?.B === 'Puck' && seen.body.lines?.length === 4, 'remote body');
         assert(typeof seen.body?.model === 'string', 'model not sent');
         assert(result.via === 'local' && result.lineCount === 4 && result.audioTokens === 60, JSON.stringify(result));
         assert(synthCalls.length === 4, `synth calls ${synthCalls.length}`);
-        assert(synthCalls.every((c, i) => c.voiceName === (LINES[i].host === 'A' ? 'voice_33yuo333h4y2' : 'voice_override123')), 'voices');
-        assert(synthCalls[1].style === 'excited sports commentator, amused', `style ${synthCalls[1].style}`);
+        assert(synthCalls.every((c, i) => c.voiceName === (LINES[i].host === 'A' ? 'Schedar' : 'Puck')), 'voices');
+        assert(synthCalls[1].style === 'high-energy, excited sports commentator, amused', `style ${synthCalls[1].style}`);
         // 4 lines of 0.6 s tone + 2 x 40 ms kept edges, 3 gaps of 0.2 s.
         assert(Math.abs(result.audioSeconds - 3.32) < 0.05, `audioSeconds ${result.audioSeconds}`);
         const file = await fs.readFile(result.filePath);
@@ -198,24 +196,6 @@ async function main() {
     const result = await generateShowVoice(LINES.slice(0, 2), 'he', { synthesize: fakeSynth });
     await fs.unlink(result.filePath).catch(() => {});
     assert(result.via === 'local' && result.lineCount === 2, JSON.stringify(result));
-  });
-
-  await check('the hosts speak with GEMINI_VOICES_API_KEY when it is set', async () => {
-    delete process.env.TTS_SERVICE_URL;
-    const saved = { main: process.env.GEMINI_API_KEY, voices: process.env.GEMINI_VOICES_API_KEY };
-    process.env.GEMINI_API_KEY = 'main-key';
-    process.env.GEMINI_VOICES_API_KEY = 'voices-key';
-    synthCalls.length = 0;
-    try {
-      const result = await generateShowVoice(LINES.slice(0, 2), 'he', { synthesize: fakeSynth });
-      await fs.unlink(result.filePath).catch(() => {});
-      assert(synthCalls.length === 2 && synthCalls.every(c => c.apiKey === 'voices-key'), synthCalls.map(c => c.apiKey).join(','));
-    } finally {
-      for (const [name, value] of [['GEMINI_API_KEY', saved.main], ['GEMINI_VOICES_API_KEY', saved.voices]] as const) {
-        if (value === undefined) delete process.env[name];
-        else process.env[name] = value;
-      }
-    }
   });
 
   await check('a language without hosts and an empty show are refused', async () => {

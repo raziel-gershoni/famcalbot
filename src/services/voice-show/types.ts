@@ -25,13 +25,12 @@ export const MOODS = [
 
 export type Mood = (typeof MOODS)[number];
 
-export const HOST_STYLE = 'excited sports commentator';
-
 /**
- * The persona for the built-in stand-in hosts, which start calmer than the designed
- * ones. Picked by ear on 2026-10-12 from four built-in pairs in two styles.
+ * The hosts' persona, on every line. Built-in voices start calmer than an excited
+ * commentator, so it asks for high energy; picked by ear on 2026-10-12 from four
+ * built-in pairs in two styles.
  */
-export const STAND_IN_HOST_STYLE = 'high-energy, excited sports commentator';
+export const HOST_STYLE = 'high-energy, excited sports commentator';
 
 /**
  * The style string each mood sends in speechMetadata. Every mood keeps the hosts'

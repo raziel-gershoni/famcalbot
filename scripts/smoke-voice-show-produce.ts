@@ -1,6 +1,5 @@
 // The show pipeline wired end to end with the LLM and Gemini faked: captions, cost,
-// routing by language, and the stand-in and narrator fallbacks when a host voice is
-// missing.
+// routing by language, and failures reaching the caller.
 // No network.
 //
 // Run: npx tsx scripts/smoke-voice-show-produce.ts
@@ -101,58 +100,12 @@ async function main() {
     assert(prompts.length === 1 && prompts[0].includes('מה שמחכה למאזין מחר'), 'writer prompt is not the tomorrow one');
   });
 
-  const voiceNotFound = () =>
-    new TtsHttpError('Gemini TTS gemini-3.8-flash-tts returned 404: The voice was not found or the caller does not have permission to access it.', 404);
-
-  await check('missing designed hosts: built-in stand-ins perform the same script, high-energy', async () => {
-    const calls: SynthesizeSpeechInput[] = [];
-    const designedMissing = async (input: SynthesizeSpeechInput): Promise<SpeechAudio> => {
-      calls.push(input);
-      if (input.voiceName.startsWith('voice_')) throw voiceNotFound();
-      return fakeSynth(input);
-    };
-    const voice = await produceShowVoice('summary', user, 'daily', false, {
-      complete: fakeComplete,
-      synthesize: designedMissing,
-      narrate: async () => { throw new Error('narrator must not be used'); },
-    });
-    try {
-      const standIn = calls.filter(c => !c.voiceName.startsWith('voice_'));
-      assert(standIn.length === 4, `stand-in lines ${standIn.length}`);
-      assert(standIn.map(c => c.voiceName).join() === 'Schedar,Puck,Schedar,Puck', standIn.map(c => c.voiceName).join());
-      assert(standIn[0].style === 'high-energy, excited sports commentator', `style ${standIn[0].style}`);
-      assert(standIn[1].style === 'high-energy, excited sports commentator, amused', `style ${standIn[1].style}`);
-      assert((await fs.readFile(voice.filePath)).subarray(0, 4).toString('ascii') === 'OggS', 'not Ogg');
-      assert(!!voice.caption && voice.caption.includes('A:Schedar B:Puck') && voice.caption.includes('stand-in hosts'), `caption ${voice.caption}`);
-    } finally {
-      await fs.unlink(voice.filePath).catch(() => {});
-    }
-  });
-
-  await check('designed and stand-in hosts both missing: the narrator reads the same script', async () => {
-    const narrated: string[] = [];
-    const missing = async (): Promise<SpeechAudio> => {
-      throw voiceNotFound();
-    };
-    const voice = await produceShowVoice('summary', user, 'daily', false, {
-      complete: fakeComplete,
-      synthesize: missing,
-      narrate: async text => { narrated.push(text); return { filePath: '/tmp/narrator-fake.opus', ttsMs: 900, ttsModel: 'gemini-3.8-flash-tts', voiceName: 'Algieba' }; },
-    });
-    assert(narrated.length === 1, `narrate calls ${narrated.length}`);
-    assert(!narrated[0].includes('<') && narrated[0].includes('בוקר טוב דני'), `narration ${narrated[0]}`);
-    assert(narrated[0].normalize('NFC').includes('בְּאַחַת עֶשְׂרֵה'.normalize('NFC')), 'narration not pointed');
-    assert(voice.filePath === '/tmp/narrator-fake.opus', voice.filePath);
-    assert(!!voice.caption && voice.caption.includes('narrator fallback'), `caption ${voice.caption}`);
-  });
-
-  await check('other TTS errors are not hidden by the fallback', async () => {
+  await check('a TTS failure reaches the caller', async () => {
     let error: unknown;
     try {
       await produceShowVoice('summary', user, 'daily', false, {
         complete: fakeComplete,
         synthesize: async () => { throw new TtsHttpError('Gemini TTS x returned 400: bad request', 400); },
-        narrate: async () => { throw new Error('narrator must not be used'); },
       });
     } catch (e) { error = e; }
     assert((error as { status?: number })?.status === 400, `error ${String(error)}`);

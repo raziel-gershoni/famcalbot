@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { encodePcmToOggOpus, SAMPLE_RATE } from '../lib/pcm-to-ogg-opus.js';
-import { apiKeyForVoice, synthesizeSpeech } from '../lib/gemini-tts.js';
+import { synthesizeSpeech } from '../lib/gemini-tts.js';
 
 // Used only when the caller sends no model. The main app now always sends one - the
 // admin panel's choice - so this matters mainly for direct callers and old clients.
@@ -75,7 +75,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const audio = await callWithRetry(
       () => synthesizeSpeech({
-        apiKey: apiKeyForVoice(voiceName),
+        apiKey: process.env.GEMINI_API_KEY || '',
         model,
         text,
         voiceName,

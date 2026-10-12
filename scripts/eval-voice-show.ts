@@ -1,11 +1,9 @@
 // Live evaluation of the Hebrew two-host show. Costs money: an LLM call or two and up
-// to about a minute of Gemini TTS audio per fixture (roughly $0.02 each). Stops at the
-// first "voice was not found", since every later fixture would fail the same way.
+// to about a minute of Gemini TTS audio per fixture (roughly $0.02 each).
 //
 // Run: npx tsx -r dotenv/config scripts/eval-voice-show.ts <outDir> [--model gemini-3.8-flash]
 //
-// Needs GEMINI_API_KEY for the Gemini project that holds the designed voices. For each
-// fixture: writes the script with the real writer; checks facts survive, forbidden
+// Needs GEMINI_API_KEY. For each fixture: writes the script with the real writer; checks facts survive, forbidden
 // phrases are absent, the opening leads where it should, no digits are left, sounds
 // stay in budget and genders are right (an LLM judge); synthesizes the
 // show locally with Flash TTS and checks its length. Then runs tts-service's
@@ -258,12 +256,10 @@ async function main() {
   const { toShowLines } = await import('../src/services/voice-show/script');
   const { generateShowVoice, getShowVoices } = await import('../src/services/voice-generator');
   const { generateAICompletion } = await import('../src/services/ai-provider');
-  const { isVoiceMissingError } = await import('../src/services/gemini-tts');
 
   await fs.mkdir(outDir, { recursive: true });
   const report: Array<{ name: string; checks: Check[] }> = [];
   let firstTurns: ShowTurn[] = [];
-  let voiceMissing = false;
 
   for (const fixture of FIXTURES) {
     console.log(`\n=== ${fixture.name} ===`);
@@ -317,27 +313,16 @@ async function main() {
       Object.assign(record, { lines, show: { ...show, filePath: undefined } });
     } catch (error) {
       checks.push({ name: 'run', ok: false, detail: error instanceof Error ? `${error.name}: ${error.message}` : String(error) });
-      voiceMissing = isVoiceMissingError(error) || /voice was not found/i.test(error instanceof Error ? error.message : String(error));
     }
 
     record.checks = checks;
     await fs.writeFile(path.join(outDir, `${fixture.name}.json`), JSON.stringify(record, null, 2));
     for (const c of checks) console.log(`${c.ok ? 'OK  ' : 'FAIL'}  ${c.name}: ${c.detail}`);
     report.push({ name: fixture.name, checks });
-
-    // Every other fixture would fail the same way and still pay for its writer call.
-    if (voiceMissing) {
-      console.error(
-        `\nSTOPPED: a host voice was not found (${JSON.stringify(getShowVoices('he'))}). ` +
-          'GEMINI_VOICES_API_KEY (or GEMINI_API_KEY) must belong to the Gemini project that holds the designed voices; check the key or GEMINI_SHOW_VOICE_HE_*.',
-      );
-      break;
-    }
   }
 
   // The tts-service endpoint, in-process, with the first fixture's opening lines.
-  // Skipped after a missing voice: it would fail the same way.
-  if (!voiceMissing) {
+  {
     console.log('\n=== tts-service /api/dialogue (in-process) ===');
     const endpointChecks: Check[] = [];
     try {

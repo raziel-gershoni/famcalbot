@@ -2,7 +2,7 @@
 //
 // When the user dictated a voice message and the bot just completed a CRUD
 // (create / edit / delete success), we speak the 1-2-sentence outcome back
-// via Gemini TTS, in show host A's voice where the language has hosts.
+// via Gemini TTS, in the voice of the language's show anchor.
 // Text-input flows continue with text-only outcomes.
 //
 // Difference from telegram/voice.ts:sendVoiceMessage: this path SKIPS the
@@ -39,20 +39,10 @@ export async function speakOutcome(
 
   try {
     const language = user.language || 'en';
-    const { generateVoiceMessage, cleanupVoiceFile, getShowVoices, getStandInVoices } = await import('../voice-generator');
-    // Where the language has show hosts, host A says the outcome, so the bot keeps one
-    // voice across summaries and replies.
-    const hostVoice = getShowVoices(language)?.A;
-    let result;
-    try {
-      result = await generateVoiceMessage(spokenLine, language, { voiceName: hostVoice });
-    } catch (err) {
-      // The designed host is unreachable: the stand-in anchor says it, as it does in the
-      // shows, or the language's narrator where there is none.
-      const { isVoiceMissingError } = await import('../gemini-tts');
-      if (!hostVoice || !isVoiceMissingError(err)) throw err;
-      result = await generateVoiceMessage(spokenLine, language, { voiceName: getStandInVoices(language)?.A });
-    }
+    const { generateVoiceMessage, cleanupVoiceFile } = await import('../voice-generator');
+    // The single voice is the show's anchor, so the bot sounds the same in summaries
+    // and replies.
+    const result = await generateVoiceMessage(spokenLine, language);
     try {
       await service.sendVoice(chatId, result.filePath);
     } finally {

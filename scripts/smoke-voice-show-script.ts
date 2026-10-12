@@ -3,10 +3,10 @@
 // Run: npx tsx scripts/smoke-voice-show-script.ts
 
 import {
-  parseShowScript, scriptToNarration, SHOW_RESPONSE_SCHEMA, ShowScriptError, toShowLines,
+  parseShowScript, SHOW_RESPONSE_SCHEMA, ShowScriptError, toShowLines,
 } from '../src/services/voice-show/script';
 import { pointHebrewTimes, pointSecondPerson } from '../src/services/voice-show/hebrew-pointing';
-import { MOOD_STYLES, MOODS, STAND_IN_HOST_STYLE, moodStyle, type ShowTurn } from '../src/services/voice-show/types';
+import { HOST_STYLE, MOOD_STYLES, MOODS, type ShowTurn } from '../src/services/voice-show/types';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -277,9 +277,9 @@ check('toShowLines maps moods to styles, marks whispers and points Hebrew', () =
     { host: 'A', mood: 'warm', text: '<whispers> רק בינינו' },
   ];
   const lines = toShowLines(turns, 'he', 'female');
-  assert(lines[0].style === 'excited sports commentator', `style ${lines[0].style}`);
+  assert(lines[0].style === HOST_STYLE, `style ${lines[0].style}`);
   assert(same(lines[0].text, 'בְּעֶשֶׂר וָרֶבַע יש לָךְ פגישה'), `text ${lines[0].text}`);
-  assert(lines[1].style === 'excited sports commentator, leaning in close' && lines[1].whisper === false, 'secret');
+  assert(lines[1].style === `${HOST_STYLE}, leaning in close` && lines[1].whisper === false, 'secret');
   assert(lines[2].whisper === true && lines[0].whisper === false, 'whisper flags');
 });
 
@@ -287,32 +287,14 @@ check('toShowLines maps moods to styles, marks whispers and points Hebrew', () =
 // persona, or the host's pitch and pace jump between lines.
 check('every mood style keeps the sports-commentator persona', () => {
   for (const [mood, style] of Object.entries(MOOD_STYLES)) {
-    assert(style.startsWith('excited sports commentator'), `${mood}: ${style}`);
+    assert(style.startsWith(HOST_STYLE), `${mood}: ${style}`);
     assert(!/slow|fast|rapid|whisper|loud|pitch|quiet/i.test(style), `${mood} sets pace, pitch or volume: ${style}`);
   }
-  for (const mood of MOODS) {
-    const style = moodStyle(mood, STAND_IN_HOST_STYLE);
-    assert(style.startsWith(STAND_IN_HOST_STYLE), `stand-in ${mood}: ${style}`);
-    assert(!/slow|fast|rapid|whisper|loud|pitch|quiet/i.test(style), `stand-in ${mood} sets pace, pitch or volume: ${style}`);
-  }
-});
-
-check('toShowLines takes the stand-in persona', () => {
-  const lines = toShowLines([{ host: 'A', mood: 'amused', text: 'יאללה' }], 'he', 'male', STAND_IN_HOST_STYLE);
-  assert(lines[0].style === 'high-energy, excited sports commentator, amused', `style ${lines[0].style}`);
 });
 
 check('toShowLines leaves other languages untouched', () => {
   const lines = toShowLines([{ host: 'A', mood: 'triumph', text: 'At ten fifteen' }], 'en', 'male');
   assert(lines[0].text === 'At ten fifteen' && lines[0].style === MOOD_STYLES.triumph, JSON.stringify(lines[0]));
-});
-
-check('scriptToNarration drops sound tags and joins the turns', () => {
-  const text = scriptToNarration([
-    { host: 'A', mood: 'hype', text: '<chuckle> בוקר טוב' },
-    { host: 'B', mood: 'hype', text: 'באחת עשרה פגישה' },
-  ], 'he', 'male');
-  assert(same(text, 'בוקר טוב בְּאַחַת עֶשְׂרֵה פגישה'), `text ${text}`);
 });
 
 // --- Hebrew pointing ---

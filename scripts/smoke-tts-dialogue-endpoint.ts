@@ -49,8 +49,8 @@ async function main() {
   }
 
   const auth = { authorization: 'Bearer test-key' };
-  const voices = { A: 'voice_33yuo333h4y2', B: 'voice_zrrafp34tgt8' };
-  const line = { host: 'A', text: 'שלום', style: 'excited sports commentator' };
+  const voices = { A: 'Schedar', B: 'Puck' };
+  const line = { host: 'A', text: 'שלום', style: 'high-energy, excited sports commentator' };
   const post = (body: unknown) => call({ method: 'POST', headers: auth, body });
   const expect400 = async (body: unknown, pattern: RegExp) => {
     const out = await post(body);
@@ -72,7 +72,8 @@ async function main() {
   });
   await check('400 without voices or with a bad voice id', async () => {
     await expect400({ lines: [line] }, /voices/);
-    await expect400({ voices: { A: 'voice_ok1234', B: 'voice bad!' }, lines: [line] }, /voices/);
+    await expect400({ voices: { A: 'Schedar', B: 'voice_designed123' }, lines: [line] }, /voices/);
+    await expect400({ voices: { A: 'Schedar', B: 'puck bad!' }, lines: [line] }, /voices/);
   });
   await check('400 for no lines and for 31 lines', async () => {
     await expect400({ voices, lines: [] }, /lines/);

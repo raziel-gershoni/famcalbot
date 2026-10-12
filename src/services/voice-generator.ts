@@ -21,7 +21,7 @@ import { mixDialogue } from '../utils/pcm-mix';
 import { createSemaphore } from '../utils/semaphore';
 import { DEFAULT_TTS_MODEL, getTtsModelConfig } from '../config/tts-models';
 import {
-  apiKeyForVoice, isDesignedVoice, modelForDesignedVoices, synthesizeSpeech, type SpeechAudio, type SynthesizeSpeechInput,
+  synthesizeSpeech, type SpeechAudio, type SynthesizeSpeechInput,
 } from './gemini-tts';
 import { synthesizeDialogue } from './dialogue-tts';
 import { getTtsModelSetting } from './reminder-cache';
@@ -40,27 +40,19 @@ export async function resolveTtsModel(): Promise<string> {
   return process.env.GEMINI_TTS_MODEL || DEFAULT_TTS_MODEL;
 }
 
-// Narrator voice per language (with env var overrides)
-// All male voices, matching previous Google TTS Wavenet-D male voices
-const VOICE_CONFIG: Record<string, string> = {
-  he: process.env.GEMINI_TTS_VOICE_HE || 'Algieba',   // Smooth male — Hebrew
-  en: process.env.GEMINI_TTS_VOICE_EN || 'Achird',     // Friendly male — English
-  ru: process.env.GEMINI_TTS_VOICE_RU || 'Schedar',    // Even male — Russian
-};
-
-/** The two show hosts' voices for a language: designed voices stored in the Gemini project. */
+/** The two show hosts' voices for a language: Gemini built-in voices, by name. */
 export interface ShowVoices {
+  /** The anchor. Also the voice of every single-voice message: replies and the narrator. */
   A: string;
+  /** The co-host. */
   B: string;
 }
 
-// Hebrew hosts chosen by ear in the 2026-10 trial. A language without an entry keeps
-// the narrator. The env overrides allow a swap without a code change.
+// Built-in voices only, so they work with any Gemini key. Hebrew chosen by ear on
+// 2026-10-12 from four built-in pairs, with the high-energy HOST_STYLE. A language
+// without an entry has no show and gets the narrator in the English anchor's voice.
 const SHOW_VOICES: Record<string, ShowVoices> = {
-  he: {
-    A: process.env.GEMINI_SHOW_VOICE_HE_A || 'voice_33yuo333h4y2', // warm, late 30s
-    B: process.env.GEMINI_SHOW_VOICE_HE_B || 'voice_zrrafp34tgt8', // young, energetic, 20s
-  },
+  he: { A: 'Schedar', B: 'Puck' },
 };
 
 /** Host voices for a language, or null when the language has no show yet. */
@@ -68,16 +60,9 @@ export function getShowVoices(language: string): ShowVoices | null {
   return Object.hasOwn(SHOW_VOICES, language) ? SHOW_VOICES[language] : null;
 }
 
-// Built-in voices that stand in when the designed hosts are unreachable: a designed
-// voice exists only in its own Gemini project, and built-in voices work with any key.
-// Chosen by ear on 2026-10-12, with STAND_IN_HOST_STYLE.
-const STAND_IN_VOICES: Record<string, ShowVoices> = {
-  he: { A: 'Schedar', B: 'Puck' },
-};
-
-/** Built-in stand-ins for a language's hosts, or null when it has none. */
-export function getStandInVoices(language: string): ShowVoices | null {
-  return Object.hasOwn(STAND_IN_VOICES, language) ? STAND_IN_VOICES[language] : null;
+/** The single voice for a language: its anchor, so replies sound like the show. */
+function narratorVoice(language: string): string {
+  return (getShowVoices(language) ?? getShowVoices('en') ?? SHOW_VOICES.he).A;
 }
 
 // Retry configuration
@@ -121,7 +106,7 @@ export interface VoiceGenerationResult {
 }
 
 export interface VoiceMessageOptions {
-  /** A prebuilt voice name or a designed voice id. Defaults to the language's narrator. */
+  /** A built-in voice name. Defaults to the language's anchor. */
   voiceName?: string;
 }
 
@@ -216,11 +201,8 @@ export async function generateVoiceMessage(
   language: string = 'en',
   options: VoiceMessageOptions = {},
 ): Promise<VoiceGenerationResult> {
-  const voiceName = options.voiceName || VOICE_CONFIG[language] || VOICE_CONFIG['en'] || 'Achird';
-
-  const configuredModel = await resolveTtsModel();
-  // Legacy models cannot speak designed voices.
-  const model = isDesignedVoice(voiceName) ? modelForDesignedVoices(configuredModel) : configuredModel;
+  const voiceName = options.voiceName || narratorVoice(language);
+  const model = await resolveTtsModel();
 
   // If TTS_SERVICE_URL is set, offload to remote serverless function
   if (process.env.TTS_SERVICE_URL) {
@@ -242,7 +224,7 @@ export async function generateVoiceMessage(
 
   const audio = await callWithRetry(
     () => synthesizeSpeech({
-      apiKey: apiKeyForVoice(voiceName),
+      apiKey: process.env.GEMINI_API_KEY || '',
       model,
       text: condensedText,
       voiceName,
@@ -291,8 +273,6 @@ export interface ShowVoiceResult {
 /** Test seams: the Gemini call on the local path, and the show's time budget. */
 export interface ShowVoiceDeps {
   synthesize?: (input: SynthesizeSpeechInput) => Promise<SpeechAudio>;
-  /** Overrides the language's hosts, for the stand-in pair. */
-  voices?: ShowVoices;
   /** Defaults to SHOW_DEADLINE_MS. */
   deadlineMs?: number;
 }
@@ -324,11 +304,11 @@ export async function generateShowVoice(
   language: string,
   deps: ShowVoiceDeps = {},
 ): Promise<ShowVoiceResult> {
-  const voices = deps.voices ?? getShowVoices(language);
+  const voices = getShowVoices(language);
   if (!voices) throw new Error(`[TTS] No show hosts for language "${language}"`);
   if (!lines.length) throw new Error('[TTS] Show has no lines');
 
-  const model = modelForDesignedVoices(await resolveTtsModel());
+  const model = await resolveTtsModel();
   const queuedAt = Date.now();
 
   return withShowSlot(async () => {
@@ -407,8 +387,7 @@ async function generateShowLocal(
   console.log('[TTS] Generating show locally:', { lines: lines.length, model, voices, msLeft: deadline - startTime });
 
   const audio = await synthesizeDialogue({
-    // Both hosts are designed in the same Gemini project, so host A's key serves both.
-    apiKey: apiKeyForVoice(voices.A),
+    apiKey: process.env.GEMINI_API_KEY || '',
     model,
     lines: lines.map(line => ({ voice: voices[line.host], text: line.text, style: line.style })),
     synthesize: deps.synthesize ?? synthesizeSpeech,

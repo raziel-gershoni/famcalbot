@@ -6,16 +6,17 @@
  * identical. The synthesize function is passed in rather than imported for the same
  * reason: a runtime import would need a .js extension in the service and none here.
  *
- * Why one request per line rather than one multi-speaker request: with two male
- * designed voices, a multi-speaker request blurs them and pulls the younger host's
- * pitch toward the older one. Per-line requests were also faster in the trial (about
- * 4 s against 11-12 s for 8 lines) and drew no 429s at 24 in flight.
+ * Why one request per line rather than one multi-speaker request: in the 2026-10
+ * trial with two male voices, a multi-speaker request blurred them and pulled the
+ * younger host's pitch toward the older one. Per-line requests were also faster (about
+ * 4 s against 11-12 s for 8 lines), drew no 429s at 24 in flight, and let each line
+ * carry its own mood style.
  */
 
 import type { SpeechAudio, SynthesizeSpeechInput } from './gemini-tts';
 
 export interface DialogueLine {
-  /** Designed voice id or prebuilt voice name. */
+  /** Built-in voice name. */
   voice: string;
   text: string;
   style?: string;

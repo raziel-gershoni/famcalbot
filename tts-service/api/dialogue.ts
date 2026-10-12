@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { encodePcmToOggOpus, SAMPLE_RATE } from '../lib/pcm-to-ogg-opus.js';
-import { apiKeyForVoice, isVoiceMissingError, modelForDesignedVoices, synthesizeSpeech } from '../lib/gemini-tts.js';
+import { synthesizeSpeech } from '../lib/gemini-tts.js';
 import { DialogueDeadlineError, synthesizeDialogue } from '../lib/dialogue-tts.js';
 import { mixDialogue } from '../lib/pcm-mix.js';
 
@@ -13,8 +13,8 @@ const DEFAULT_TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-tts'
 
 // The model id becomes part of the upstream URL, so accept only the TTS id shape.
 const TTS_MODEL_ID = /^gemini-[a-z0-9.-]+-tts(?:-preview)?$/;
-// A designed voice id (voice_...) or a prebuilt voice name (Algieba).
-const VOICE_ID = /^(?:voice_[A-Za-z0-9]{4,64}|[A-Z][a-z]{2,20})$/;
+// A built-in voice name (Schedar).
+const VOICE_ID = /^[A-Z][a-z]{2,20}$/;
 const MAX_LINES = 30;
 // The app caps a turn at 400 characters; niqqud added after that makes lines longer.
 const MAX_LINE_CHARS = 1000;
@@ -62,9 +62,8 @@ function parseRequest(body: unknown): ShowRequest | string {
     lines.push({ host: l.host, text: l.text, style: l.style, whisper: l.whisper === true });
   }
 
-  const requested = typeof b.model === 'string' && TTS_MODEL_ID.test(b.model) ? b.model : DEFAULT_TTS_MODEL;
-  // Legacy models cannot speak designed voices.
-  return { model: modelForDesignedVoices(requested), voices: { A: voices.A, B: voices.B }, lines };
+  const model = typeof b.model === 'string' && TTS_MODEL_ID.test(b.model) ? b.model : DEFAULT_TTS_MODEL;
+  return { model, voices: { A: voices.A, B: voices.B }, lines };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -88,8 +87,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const audio = await synthesizeDialogue({
-      // Both hosts are designed in the same Gemini project, so host A's key serves both.
-      apiKey: apiKeyForVoice(voices.A),
+      apiKey: process.env.GEMINI_API_KEY || '',
       model,
       lines: lines.map(line => ({ voice: voices[line.host], text: line.text, style: line.style })),
       synthesize: synthesizeSpeech,
@@ -128,9 +126,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).send(oggBuffer);
   } catch (error) {
     console.error('[TTS] Show generation failed:', error);
-    if (isVoiceMissingError(error)) {
-      return res.status(422).json({ error: 'voice_not_found' });
-    }
     if (error instanceof DialogueDeadlineError) {
       return res.status(504).json({ error: 'Show ran out of time' });
     }

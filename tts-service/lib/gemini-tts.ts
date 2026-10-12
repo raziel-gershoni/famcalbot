@@ -19,11 +19,8 @@
  *   full-scale noise at the end of every message. Requesting AUDIO_L16 returns the
  *   same headerless PCM the legacy models always did.
  *
- * Voices come in two kinds. Prebuilt voices are names (Algieba) and go in
- * `prebuiltVoiceConfig.voiceName`, as they always have. Designed voices, made with the
- * Voice design API and stored in the Gemini project, are ids (voice_33yuo333h4y2) and
- * go in `voiceConfig.voice`; `prebuiltVoiceConfig` rejects them with a 400. Only 3.8
- * and later can speak designed voices.
+ * Voices are Gemini's built-in ones, by name (Schedar), in
+ * `prebuiltVoiceConfig.voiceName`; they work with any API key.
  *
  * The REST API is called directly because @google/genai 1.x drops both
  * `speechMetadata` and `responseFormat` from the request.
@@ -40,33 +37,12 @@ export function isLegacyTtsModel(model: string): boolean {
   return LEGACY_TTS_MODELS.has(model);
 }
 
-/** True for a Voice design id (voice_...), false for a prebuilt voice name. */
-export function isDesignedVoice(voiceName: string): boolean {
-  return voiceName.startsWith('voice_');
-}
-
-/** Speaks designed voices when a legacy model is configured, since legacy models cannot. */
-export const DESIGNED_VOICE_FALLBACK_MODEL = 'gemini-3.8-flash-tts';
-
-export function modelForDesignedVoices(model: string): string {
-  return isLegacyTtsModel(model) ? DESIGNED_VOICE_FALLBACK_MODEL : model;
-}
-
-/**
- * The API key to speak a voice with. A designed voice exists only in the Gemini project
- * it was made in, so GEMINI_VOICES_API_KEY can name that project while GEMINI_API_KEY
- * keeps every other call where it is. Unset, designed voices use GEMINI_API_KEY too.
- */
-export function apiKeyForVoice(voiceName: string, env: Record<string, string | undefined> = process.env): string {
-  return (isDesignedVoice(voiceName) && env.GEMINI_VOICES_API_KEY) || env.GEMINI_API_KEY || '';
-}
-
 export interface SynthesizeSpeechInput {
   apiKey: string;
   model: string;
   /** Exactly the words to speak. Must contain no stage directions. */
   text: string;
-  /** A prebuilt voice name (Algieba) or a designed voice id (voice_...). */
+  /** A built-in voice name, e.g. Schedar. */
   voiceName: string;
   /** Delivery style, e.g. "softly and warmly". Omit for a plain read. */
   style?: string;
@@ -93,31 +69,14 @@ export class TtsHttpError extends Error {
   }
 }
 
-/**
- * A designed voice this API key's project cannot use: deleted, expired after a year
- * unused, or stored in another project. Gemini answers 404 "The voice was not found or
- * the caller does not have permission to access it." Duck-typed so it also recognises
- * errors thrown by the other copy of this file.
- */
-export function isVoiceMissingError(error: unknown): boolean {
-  const e = error as { status?: unknown; message?: unknown } | null;
-  return e?.status === 404 && typeof e.message === 'string' && /voice was not found/i.test(e.message);
-}
-
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_TIMEOUT_MS = 45_000;
 const DEFAULT_PCM_RATE = 24_000;
 
 export function buildTtsRequestBody(input: SynthesizeSpeechInput): Record<string, unknown> {
-  const designed = isDesignedVoice(input.voiceName);
-  const speechConfig = designed
-    ? { voiceConfig: { voice: input.voiceName } }
-    : { voiceConfig: { prebuiltVoiceConfig: { voiceName: input.voiceName } } };
+  const speechConfig = { voiceConfig: { prebuiltVoiceConfig: { voiceName: input.voiceName } } };
 
   if (isLegacyTtsModel(input.model)) {
-    if (designed) {
-      throw new Error(`${input.model} cannot speak designed voice ${input.voiceName}; use modelForDesignedVoices()`);
-    }
     const style = input.style || 'naturally';
     const language = input.languageName || 'English';
     return {
