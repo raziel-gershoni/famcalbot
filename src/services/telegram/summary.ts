@@ -136,7 +136,8 @@ async function prepareSummaryForUser(
     const tLookahead = Date.now();
     try {
       const { getWeekLookahead } = await import('../week-lookahead');
-      const lookahead = await getWeekLookahead(user, assignments, summaryDate);
+      // From the same summary day, not now+24h, which is a day off on a DST eve.
+      const lookahead = await getWeekLookahead(user, assignments, dayNoon);
 
       if (lookahead.events.length > 0) {
         weekLookaheadText = lookahead.events
