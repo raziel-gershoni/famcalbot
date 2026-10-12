@@ -278,6 +278,7 @@ export async function sendSummaryToUser(
         dateHeader: result.dateHeader,
         otherEvents: result.otherEvents,
         streamHandle,
+        summaryDate,
       });
     },
     onError: async (error) => {
@@ -437,6 +438,7 @@ async function sendSummaryToAll(
           dateHeader,
           waButtonPayload: summaryDate ? 'summary tmrw' : 'summary',
           otherEvents,
+          summaryDate,
         });
 
         console.log(`[Batch Summary] user=${user.id} platform=${platform} total=${Date.now() - tUser}ms`);
@@ -778,6 +780,8 @@ interface DeliveryOptions {
   otherEvents?: CalendarEvent[];
   /** When set, the TG text branch finalizes this draft handle instead of opening a fresh sendMessage. WA delivery ignores it. */
   streamHandle?: StreamMessageHandle;
+  /** Set for the tomorrow summary, unset for today's: the voice show must know which day it covers. */
+  summaryDate?: Date;
 }
 
 /**
@@ -794,7 +798,8 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     platform,
     dateHeader,
     waButtonPayload,
-    streamHandle
+    streamHandle,
+    summaryDate
   } = options;
 
   // Use correct messaging service based on delivery platform
@@ -880,16 +885,17 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     }
 
     const tVoice = Date.now();
+    const voiceKind = summaryDate ? 'tomorrow' : 'daily';
     // Send voice to Telegram if applicable
     if ((targetPlatform === 'telegram' || targetPlatform === 'all') && user.telegramId) {
-      sendVoiceMessage(user.telegramId, summary, user, undefined, true, MessagingPlatform.TELEGRAM).catch(err => {
+      sendVoiceMessage(user.telegramId, summary, user, undefined, true, MessagingPlatform.TELEGRAM, undefined, voiceKind).catch(err => {
         console.error(`[Delivery] Voice generation failed for TG user ${user.id}:`, err);
         captureError(err, 'summary-voice-telegram', { user_id: user.id }, 'warning');
       });
     }
     // Send voice to WhatsApp only for user-invoked sends (within 24h window)
     if (!waButtonPayload && (targetPlatform === 'whatsapp' || targetPlatform === 'all') && getWhatsAppChatId(user)) {
-      sendVoiceMessage(getWhatsAppChatId(user)!, summary, user, undefined, true, MessagingPlatform.WHATSAPP).catch(err => {
+      sendVoiceMessage(getWhatsAppChatId(user)!, summary, user, undefined, true, MessagingPlatform.WHATSAPP, undefined, voiceKind).catch(err => {
         console.error(`[Delivery] Voice generation failed for WA user ${user.id}:`, err);
         captureError(err, 'summary-voice-whatsapp', { user_id: user.id }, 'warning');
       });

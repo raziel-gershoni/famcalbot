@@ -5,8 +5,12 @@
 
 export type ShowHost = 'A' | 'B';
 
-/** Which summary the show is about. Daily also covers the tomorrow summary. */
-export type ShowKind = 'daily' | 'weekly' | 'weather';
+/**
+ * Which summary the show is about. Tomorrow is its own kind so the writer knows the day
+ * from code: given only the summary's own "מחר" label, it still opened with "good
+ * morning, today is..." in every eval run.
+ */
+export type ShowKind = 'daily' | 'tomorrow' | 'weekly' | 'weather';
 
 export const MOODS = [
   'hype',

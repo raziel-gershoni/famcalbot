@@ -90,6 +90,16 @@ async function main() {
     }
   });
 
+  await check('a tomorrow summary reaches the writer as tomorrow', async () => {
+    const prompts: string[] = [];
+    const voice = await produceShowVoice('summary', user, 'tomorrow', false, {
+      complete: async prompt => { prompts.push(prompt); return { ...writer, text: SCRIPT }; },
+      synthesize: fakeSynth,
+    });
+    await fs.unlink(voice.filePath).catch(() => {});
+    assert(prompts.length === 1 && prompts[0].includes('מה שמחכה למאזין מחר'), 'writer prompt is not the tomorrow one');
+  });
+
   await check('missing host voice: the narrator reads the same script', async () => {
     const narrated: string[] = [];
     const missing = async (): Promise<SpeechAudio> => {

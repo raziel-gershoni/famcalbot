@@ -57,7 +57,7 @@ async function produceNarratorVoice(summary: string, user: UserConfig, kind: Sho
     globalRules: user.globalRules,
     isNextWeek: kind === 'weekly' ? isNextWeek : undefined,
   };
-  // Weather has no condenser of its own; it has always used the daily one.
+  // Tomorrow and weather have no condenser of their own; they have always used the daily one.
   const condenserPrompt = kind === 'weekly'
     ? buildWeeklyVoiceCondenserPrompt(condenserContext)
     : buildVoiceCondenserPrompt(condenserContext);
@@ -78,7 +78,7 @@ async function produceNarratorVoice(summary: string, user: UserConfig, kind: Sho
  * Generate and send voice version of summary
  * Shows animated progress that gets deleted when voice arrives (optional)
  * Non-blocking - errors logged but don't affect text summary delivery
- * @param kind - 'weather' for /weather; anything else is a daily or tomorrow summary
+ * @param kind - 'tomorrow' for the tomorrow summary, 'weather' for /weather, else 'daily'
  */
 export async function sendVoiceMessage(
   chatId: number | string,
@@ -88,7 +88,7 @@ export async function sendVoiceMessage(
   showProgress: boolean = true,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
   waMessageId?: string,
-  kind: 'daily' | 'weather' = 'daily'
+  kind: 'daily' | 'tomorrow' | 'weather' = 'daily'
 ): Promise<void> {
   let voiceFilePath: string | null = null;
   const msgService = service || (platform === MessagingPlatform.WHATSAPP

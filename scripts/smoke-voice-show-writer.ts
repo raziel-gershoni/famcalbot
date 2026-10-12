@@ -78,6 +78,27 @@ async function main() {
     assert(!p.includes('המאזין: מיכל'), 'masculine label used for her');
   });
 
+  await check('daily prompt reuses the summary greeting and says nothing about tomorrow', () => {
+    const p = buildShowPrompt(context());
+    assert(p.includes('היום של המאזין'), 'today goal');
+    assert(p.includes('אותה ברכה שהסיכום נפתח בה'), 'greeting rule');
+    assert(!p.includes('מחר'), 'tomorrow wording in the daily prompt');
+  });
+
+  await check('tomorrow prompt: about tomorrow, opens with מחר, evening greeting, never "today"', () => {
+    const p = buildShowPrompt(context({ kind: 'tomorrow', summary: '<b>ערב טוב, דני!</b>\n<b>מחר - יום שני</b>\n• 07:00 - חדר כושר' }));
+    assert(p.includes('מה שמחכה למאזין מחר'), 'tomorrow goal');
+    assert(!p.includes('היום של המאזין'), 'today goal in the tomorrow prompt');
+    assert(p.includes('"מחר" כבר במשפט הפתיחה'), 'opening rule');
+    assert(p.includes('לעולם לא "בוקר טוב"'), 'no good morning');
+    assert(p.includes('לעולם אל תקראו לו "היום"'), 'never today');
+    assert(p.includes('מזג האוויר של מחר'), 'tomorrow weather rule');
+    assert(p.includes('אל תמציאו אירועים') && p.includes('לא בספרות'), 'shared content rules');
+    assert(p.includes('בין 6 ל-20 תורות'), 'turn count');
+    const female = buildShowPrompt(context({ kind: 'tomorrow', listener: { name: 'מיכל', gender: 'female' } }));
+    assert(female.includes('מה שמחכה למאזינה מחר'), 'feminine tomorrow goal');
+  });
+
   await check('spouse and kids with and without known gender', () => {
     const p = buildShowPrompt(context({
       spouse: { name: 'שי' },
@@ -124,6 +145,9 @@ async function main() {
     assert(c.kids.length === 1 && c.kids[0].name === 'איתי' && c.kids[0].gender === 'male', `kids ${JSON.stringify(c.kids)}`);
     assert(c.hasKidsCalendars && c.culture === 'jewish' && c.globalRules?.[0] === 'r1', 'flags');
     assert(buildShowContext('s', user, 'daily', true).isNextWeek === undefined, 'isNextWeek only for weekly');
+    const tomorrow = buildShowContext('s', user, 'tomorrow', true);
+    assert(tomorrow.kind === 'tomorrow' && tomorrow.isNextWeek === undefined, `tomorrow ${tomorrow.kind} ${tomorrow.isNextWeek}`);
+    assert(buildShowPrompt(tomorrow).includes('מה שמחכה למאזין מחר'), 'tomorrow context does not reach the prompt');
   });
 
   await check('writer returns the first valid script and asks for JSON', async () => {
