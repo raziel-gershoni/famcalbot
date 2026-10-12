@@ -35,18 +35,27 @@ at https://claude.ai/artifact/KnuTuSNF8MSG6PnU1uDUXQ.
 ### Moods and sounds
 
 Each line carries one mood. The writer picks it, code maps it to a short style
-string (short styles never changed words in 57 takes; long ones did):
+string (short styles never changed words in 57 takes; long ones did). Every style
+keeps the sports-commentator persona and adds only a colour, so each host stays one
+person at one pace:
 
 | Mood | Style string sent |
 |---|---|
 | `hype` (default) | `excited sports commentator` |
-| `triumph` | `triumphant, loud and celebratory` |
-| `suspense` | `slow and suspenseful, building tension` |
-| `amused` | `amused, laughing a little` |
-| `surprised` | `surprised, high pitch` |
-| `mock_disappointed` | `mock-disappointed, deflated` |
-| `secret` | `whispering, secretive` |
-| `warm` | `warm and relaxed, slower` |
+| `triumph` | `excited sports commentator, celebrating` |
+| `suspense` | `excited sports commentator, teasing` |
+| `amused` | `excited sports commentator, amused` |
+| `surprised` | `excited sports commentator, surprised` |
+| `mock_disappointed` | `excited sports commentator, playfully disappointed` |
+| `secret` | `excited sports commentator, leaning in close` |
+| `warm` | `excited sports commentator, warm` |
+
+The first build gave each mood a style of its own ("slow and suspenseful", "warm and
+relaxed, slower", "whispering, secretive"). Measured over 4 scripts in 3 takes, those
+dropped a host's pitch by about nine semitones and slowed suspense by 30%, and the
+owner heard the two hosts as four people. With the persona kept, each colour stayed
+within 8% of the base pace and 3 semitones of its pitch. Whispering now comes only
+from the `<whispers>` sound, inside the sound budget.
 
 Allowed inline sounds: `<chuckle>`, `<laugh>`, `<sigh>`, `<gasp>`, `<whispers>`,
 `<throat-clearing>`. These were heard by a blind listener on both hosts in sports

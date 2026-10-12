@@ -25,20 +25,28 @@ export const MOODS = [
 
 export type Mood = (typeof MOODS)[number];
 
+const HOST_STYLE = 'excited sports commentator';
+
 /**
- * The style string each mood sends in speechMetadata. Kept short on purpose: in the
- * trial, short styles never changed the spoken words (0 of 57 takes) while long
- * director's notes did (4 of 5).
+ * The style string each mood sends in speechMetadata. Every mood keeps the hosts'
+ * sports-commentator persona and only adds a colour, so each host stays one person at
+ * one pace. Mood styles of their own ("slow and suspenseful", "warm and relaxed,
+ * slower") dropped a host's pitch by about nine semitones and slowed suspense by 30%,
+ * and the owner heard the two hosts as four people. With the persona kept, every
+ * colour below measured within 8% of the base pace and 3 semitones of its pitch.
+ * "Confidential" and "conspiratorial" still dropped six to seven semitones, so secret
+ * leans in instead. Kept short on purpose: short styles never changed the spoken words
+ * (0 of 57 takes) while long director's notes did (4 of 5).
  */
 export const MOOD_STYLES: Record<Mood, string> = {
-  hype: 'excited sports commentator',
-  triumph: 'triumphant, loud and celebratory',
-  suspense: 'slow and suspenseful, building tension',
-  amused: 'amused, laughing a little',
-  surprised: 'surprised, high pitch',
-  mock_disappointed: 'mock-disappointed, deflated',
-  secret: 'whispering, secretive',
-  warm: 'warm and relaxed, slower',
+  hype: HOST_STYLE,
+  triumph: `${HOST_STYLE}, celebrating`,
+  suspense: `${HOST_STYLE}, teasing`,
+  amused: `${HOST_STYLE}, amused`,
+  surprised: `${HOST_STYLE}, surprised`,
+  mock_disappointed: `${HOST_STYLE}, playfully disappointed`,
+  secret: `${HOST_STYLE}, leaning in close`,
+  warm: `${HOST_STYLE}, warm`,
 };
 
 /**

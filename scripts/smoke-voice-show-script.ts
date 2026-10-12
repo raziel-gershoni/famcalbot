@@ -6,7 +6,7 @@ import {
   parseShowScript, scriptToNarration, SHOW_RESPONSE_SCHEMA, ShowScriptError, toShowLines,
 } from '../src/services/voice-show/script';
 import { pointHebrewTimes, pointSecondPerson } from '../src/services/voice-show/hebrew-pointing';
-import { MOODS, type ShowTurn } from '../src/services/voice-show/types';
+import { MOOD_STYLES, MOODS, type ShowTurn } from '../src/services/voice-show/types';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -204,13 +204,22 @@ check('toShowLines maps moods to styles, marks whispers and points Hebrew', () =
   const lines = toShowLines(turns, 'he', 'female');
   assert(lines[0].style === 'excited sports commentator', `style ${lines[0].style}`);
   assert(same(lines[0].text, 'בְּעֶשֶׂר וָרֶבַע יש לָךְ פגישה'), `text ${lines[0].text}`);
-  assert(lines[1].style === 'whispering, secretive' && lines[1].whisper === true, 'secret');
+  assert(lines[1].style === 'excited sports commentator, leaning in close' && lines[1].whisper === false, 'secret');
   assert(lines[2].whisper === true && lines[0].whisper === false, 'whisper flags');
+});
+
+// Each host must stay one person: a mood may colour the read but never replace the
+// persona, or the host's pitch and pace jump between lines.
+check('every mood style keeps the sports-commentator persona', () => {
+  for (const [mood, style] of Object.entries(MOOD_STYLES)) {
+    assert(style.startsWith('excited sports commentator'), `${mood}: ${style}`);
+    assert(!/slow|fast|rapid|whisper|loud|pitch|quiet/i.test(style), `${mood} sets pace, pitch or volume: ${style}`);
+  }
 });
 
 check('toShowLines leaves other languages untouched', () => {
   const lines = toShowLines([{ host: 'A', mood: 'triumph', text: 'At ten fifteen' }], 'en', 'male');
-  assert(lines[0].text === 'At ten fifteen' && lines[0].style === 'triumphant, loud and celebratory', JSON.stringify(lines[0]));
+  assert(lines[0].text === 'At ten fifteen' && lines[0].style === MOOD_STYLES.triumph, JSON.stringify(lines[0]));
 });
 
 check('scriptToNarration drops sound tags and joins the turns', () => {

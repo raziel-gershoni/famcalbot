@@ -46,9 +46,9 @@ const fakeSynth = async (input: SynthesizeSpeechInput): Promise<SpeechAudio> => 
 
 const LINES: ShowLine[] = [
   { host: 'A', text: 'בוקר טוב', style: 'excited sports commentator' },
-  { host: 'B', text: 'יאללה', style: 'amused, laughing a little' },
+  { host: 'B', text: 'יאללה', style: 'excited sports commentator, amused' },
   { host: 'A', text: 'פגישה', style: 'excited sports commentator' },
-  { host: 'B', text: 'סוד', style: 'whispering, secretive', whisper: true },
+  { host: 'B', text: '<whispers> סוד', style: 'excited sports commentator, leaning in close', whisper: true },
 ];
 
 type Seen = { method?: string; url?: string; auth?: string; body?: { voices?: { A: string; B: string }; lines?: unknown[]; model?: string } };

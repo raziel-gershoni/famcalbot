@@ -220,7 +220,7 @@ export function toShowLines(turns: ShowTurn[], language: string, listenerGender:
     host: turn.host,
     text: speakable(turn.text, language, listenerGender),
     style: MOOD_STYLES[turn.mood],
-    whisper: turn.mood === 'secret' || turn.text.includes('<whispers>'),
+    whisper: turn.text.includes('<whispers>'),
   }));
 }
 
