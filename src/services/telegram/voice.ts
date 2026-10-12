@@ -83,7 +83,7 @@ export async function sendVoiceMessage(
     console.log(`[Voice] Summary condensed: ${summary.length} → ${condensedText.length} chars`);
 
     // Step 2: Generate voice from condensed text
-    const ttsResult = await generateVoiceMessage(condensedText, userLanguage, user.voicePreference, user.voiceStyle);
+    const ttsResult = await generateVoiceMessage(condensedText, userLanguage);
     voiceFilePath = ttsResult.filePath;
 
     const { ttsMs, ttsModel, voiceName } = ttsResult;
@@ -213,7 +213,7 @@ export async function sendWeeklyVoiceMessage(
 
     console.log(`[Voice] Weekly summary condensed: ${summary.length} → ${condensedText.length} chars`);
 
-    const ttsResult = await generateVoiceMessage(condensedText, userLanguage, user.voicePreference, user.voiceStyle);
+    const ttsResult = await generateVoiceMessage(condensedText, userLanguage);
     voiceFilePath = ttsResult.filePath;
 
     const { ttsMs, ttsModel, voiceName } = ttsResult;

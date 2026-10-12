@@ -38,12 +38,7 @@ export async function speakOutcome(
 
   try {
     const { generateVoiceMessage, cleanupVoiceFile } = await import('../voice-generator');
-    const result = await generateVoiceMessage(
-      spokenLine,
-      user.language || 'en',
-      user.voicePreference,
-      user.voiceStyle
-    );
+    const result = await generateVoiceMessage(spokenLine, user.language || 'en');
     try {
       await service.sendVoice(chatId, result.filePath);
     } finally {
