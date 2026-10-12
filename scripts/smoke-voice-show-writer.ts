@@ -67,6 +67,7 @@ async function main() {
     }
     assert(p.includes('לא בספרות'), 'times-as-words rule');
     assert(p.includes('|וואו|'), 'backchannel ban');
+    assert(p.includes('צליל לבד הוא לא תור'), 'sound-only turn rule');
     assert(p.includes('מזג האוויר מגיע מיד אחרי התאריך'), 'weather-first rule');
     assert(p.includes('אל תמציאו אירועים'), 'empty-day rule');
     assert(p.includes('יש לכם'), 'personal-address rule');

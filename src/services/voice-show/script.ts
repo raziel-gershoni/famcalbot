@@ -2,11 +2,11 @@
  * Parses and polices the show writer's JSON before any of it reaches TTS.
  *
  * Hard failures throw ShowScriptError so the writer can regenerate once: bad JSON,
- * a host other than A/B, too few or too many turns, a turn with nothing to say or over
- * the length limit, two speakers merged into one turn, a show where one host never
- * speaks. Everything else is repaired in place and noted in `warnings`: unknown moods
- * become hype, HTML and unlisted tags are stripped, |backchannels| and [cues] removed,
- * sounds over budget dropped.
+ * a host other than A/B, too few or too many turns, a turn over the length limit, two
+ * speakers merged into one turn, a show where one host never speaks. Everything else
+ * is repaired in place and noted in `warnings`: unknown moods become hype, HTML and
+ * unlisted tags are stripped, |backchannels| and stage-direction cues removed, sounds
+ * over budget dropped, and a turn left with no words (a lone <laugh>) is dropped.
  */
 
 import { pointHebrewTimes, pointSecondPerson } from './hebrew-pointing';
@@ -46,11 +46,24 @@ export const SHOW_RESPONSE_SCHEMA = {
 };
 
 const SOUNDS: ReadonlySet<string> = new Set(SOUND_TAGS);
-const ANY_TAG = /<\s*(\/?)\s*([A-Za-z][\w-]*)[^<>]*>/g;
+// Any tag, with a Latin or Hebrew name: <b>, </laugh>, <cheer x="1">, <צחוק>.
+const ANY_TAG = /<\s*(\/?)\s*(\p{L}[\p{L}\p{M}\w-]*)[^<>]*>/gu;
 const SOUND_TAG = /<([a-z-]+)>/g;
-const LEADING_LABEL = /^\s*(?:host\s*)?[AB]\s*[:：]\s*/i;
-const INNER_LABEL = /(?:^|[.!?]\s+)(?:host\s*)?[AB]\s*[:：]\s/i;
-const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#39': "'" };
+// A whitelisted sound exactly as TTS gets it, or else a stray angle bracket.
+const KEPT_SOUND_OR_BRACKET = new RegExp(`<(?:${SOUND_TAGS.join('|')})>|[<>]`, 'g');
+// A label may follow leading sounds: "<laugh> A: ..." keeps the laugh, loses the label.
+const LEADING_LABEL = /^((?:\s*<[a-z-]+>)*)\s*(?:host\s*)?[AB]\s*[:：]\s*/i;
+// '>' is a boundary too, so "... <laugh> B: ..." is caught.
+const INNER_LABEL = /(?:^|[.!?]\s+|>\s*)(?:host\s*)?[AB]\s*[:：]\s/i;
+const ENTITY = /&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|(amp|lt|gt|quot|apos|nbsp));/gi;
+const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+// A keycap (1️⃣) goes whole, digit included. Then pictographs, skin tones, flag letters,
+// tag characters, and the joiners and selectors that hold emoji sequences together.
+const KEYCAP = /[0-9#*]\uFE0F?\u20E3/g;
+const EMOJI = /[\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\u200D\uFE0E\uFE0F\u20E3\u{E0020}-\u{E007F}]/gu;
+// Stage directions written out as words: TTS would read "צוחק" aloud instead of laughing.
+const CUE_WORD = /צוחק|צחוק|מצחקק|צחקוק|נאנח|אנחה|לוחש|בלחש|לחישה|מגחך|גיחוך|\b(?:laugh|sigh(?:s|ing|ed)?\b|whisper|chuckl|giggl|gasp|snicker)/i;
+const STAR_OR_PAREN_CUE = /\*{1,2}([^*\n]{1,30})\*{1,2}|\(([^()\n]{1,30})\)/g;
 
 export function parseShowScript(raw: string): ShowScript {
   let data: unknown;
@@ -67,7 +80,12 @@ export function parseShowScript(raw: string): ShowScript {
   }
 
   const warnings: string[] = [];
-  const turns = rawTurns.map((value, i) => normalizeTurn(value, i + 1, warnings));
+  const turns = rawTurns
+    .map((value, i) => normalizeTurn(value, i + 1, warnings))
+    .filter((turn): turn is ShowTurn => turn !== null);
+  if (turns.length < MIN_TURNS) {
+    throw new ShowScriptError(`Only ${turns.length} turns left after dropping turns with no words; need ${MIN_TURNS}`);
+  }
   if (!turns.some(t => t.host === 'A') || !turns.some(t => t.host === 'B')) {
     throw new ShowScriptError('Both hosts must speak');
   }
@@ -80,7 +98,8 @@ function stripCodeFence(raw: string): string {
   return fenced ? fenced[1] : raw.trim();
 }
 
-function normalizeTurn(value: unknown, n: number, warnings: string[]): ShowTurn {
+/** The turn, cleaned; null for a turn with no words to speak. */
+function normalizeTurn(value: unknown, n: number, warnings: string[]): ShowTurn | null {
   const t = (value ?? {}) as { host?: unknown; mood?: unknown; text?: unknown };
   if (t.host !== 'A' && t.host !== 'B') throw new ShowScriptError(`Turn ${n}: host must be "A" or "B"`);
   if (typeof t.text !== 'string') throw new ShowScriptError(`Turn ${n}: text must be a string`);
@@ -93,7 +112,11 @@ function normalizeTurn(value: unknown, n: number, warnings: string[]): ShowTurn 
   }
 
   const text = cleanText(t.text, n, warnings);
-  if (!/\p{L}/u.test(text.replace(SOUND_TAG, ''))) throw new ShowScriptError(`Turn ${n}: nothing to say`);
+  // A reaction that is only a sound ({B: '<laugh>'}) is not worth a regeneration.
+  if (!/\p{L}/u.test(text.replace(SOUND_TAG, ''))) {
+    warnings.push(`Turn ${n}: dropped, no words to speak (${JSON.stringify(t.text)})`);
+    return null;
+  }
   if (text.length > MAX_TURN_CHARS) {
     throw new ShowScriptError(`Turn ${n}: ${text.length} characters, limit ${MAX_TURN_CHARS}`);
   }
@@ -101,13 +124,34 @@ function normalizeTurn(value: unknown, n: number, warnings: string[]): ShowTurn 
   return { host: t.host, mood, text };
 }
 
+/**
+ * Every strip comes before the label and tag checks, so nothing they would catch can
+ * reappear afterwards: "**B:**" only becomes a label once the asterisks go, "<*cheer*>"
+ * only a tag. Gemini reads whatever is left verbatim.
+ */
 function cleanText(input: string, n: number, warnings: string[]): string {
-  let text = input.replace(/&(amp|lt|gt|quot|apos|nbsp|#39);/g, (_m, entity: string) => ENTITIES[entity]);
+  let text = input.replace(ENTITY, (_m, dec: string | undefined, hex: string | undefined, name: string | undefined) => {
+    if (name) return NAMED_ENTITIES[name.toLowerCase()];
+    const code = dec ? parseInt(dec, 10) : parseInt(hex!, 16);
+    return code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) ? String.fromCodePoint(code) : ' ';
+  });
 
-  text = text.replace(LEADING_LABEL, '');
-  if (INNER_LABEL.test(text)) {
-    throw new ShowScriptError(`Turn ${n}: contains another speaker label; one host per turn`);
-  }
+  text = text.replace(KEYCAP, ' ').replace(EMOJI, ' ');
+
+  // [laughs] goes whatever it says; *...* and (...) only when they hold a cue word, so
+  // "*יופי*" and "(בזום)" keep their words. Before the markdown strip, which would
+  // otherwise turn "*צוחק*" into the word itself.
+  text = text.replace(/\[[^\]\n]{0,30}\]/g, m => {
+    warnings.push(`Turn ${n}: removed cue ${m}`);
+    return ' ';
+  });
+  text = text.replace(STAR_OR_PAREN_CUE, (m, starred: string | undefined, paren: string | undefined) => {
+    if (!CUE_WORD.test(starred ?? paren ?? '')) return m;
+    warnings.push(`Turn ${n}: removed cue ${m}`);
+    return ' ';
+  });
+
+  text = text.replace(/[*_#`~]/g, '');
 
   // |wow| backchannels make a phantom second voice in a single-voice request.
   text = text.replace(/\|[^|\n]{0,40}\|/g, m => {
@@ -123,13 +167,18 @@ function cleanText(input: string, n: number, warnings: string[]): string {
     return ' ';
   });
 
-  // [laughs]-style cues would be read aloud.
-  text = text.replace(/\[[^\]\n]{0,30}\]/g, m => {
-    warnings.push(`Turn ${n}: removed cue ${m}`);
+  text = text.replace(LEADING_LABEL, '$1 ');
+  if (INNER_LABEL.test(text)) {
+    throw new ShowScriptError(`Turn ${n}: contains another speaker label; one host per turn`);
+  }
+
+  // Last guard: only exact sound tags may carry angle brackets.
+  text = text.replace(KEPT_SOUND_OR_BRACKET, m => {
+    if (m.length > 1) return m;
+    warnings.push(`Turn ${n}: removed stray ${m}`);
     return ' ';
   });
 
-  text = text.replace(/\p{Extended_Pictographic}️?/gu, '').replace(/[*_#`~]/g, '');
   return text.replace(/\s+/g, ' ').replace(/\s+([,.!?;:])/g, '$1').trim();
 }
 

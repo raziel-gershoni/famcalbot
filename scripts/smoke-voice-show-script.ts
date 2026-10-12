@@ -67,11 +67,22 @@ check('401 characters in a turn is rejected', () => {
   rejects(show(...base(), turn('A', 'א'.repeat(401))), /401 characters/);
 });
 
-check('bad host, non-string text, empty and tag-only text are rejected', () => {
+check('bad host and non-string text are rejected', () => {
   rejects(show(...base(), turn('C', 'שלום')), /Turn 5: host/);
   rejects(show(...base(), { host: 'A', mood: 'hype', text: 5 }), /Turn 5: text/);
-  rejects(show(...base(), turn('B', '   ')), /Turn 5: nothing to say/);
-  rejects(show(...base(), turn('B', '<laugh>')), /Turn 5: nothing to say/);
+});
+
+check('a turn with no words (only a sound, or blank) is dropped with a warning', () => {
+  const s = parseShowScript(show(...base(), turn('B', '<laugh>'), turn('A', '   ')));
+  assert(s.turns.length === 4, `turns ${s.turns.length}`);
+  assert(s.turns.every(t => /\p{L}/u.test(t.text)), 'a wordless turn was kept');
+  assert(s.warnings.some(w => /Turn 5: dropped/.test(w)) && s.warnings.some(w => /Turn 6: dropped/.test(w)), s.warnings.join('; '));
+});
+
+check('dropping wordless turns still rejects too short a show or a missing host', () => {
+  const [a1, , a2, b2] = base();
+  rejects(show(a1, turn('B', '<laugh>'), a2, b2), /3 turns left/);
+  rejects(show(a1, turn('B', '<chuckle>'), a2, turn('A', 'עוד משהו'), turn('A', 'וסיום')), /Both hosts/);
 });
 
 check('a show where only one host speaks is rejected', () => {
@@ -108,6 +119,44 @@ check('HTML, foreign tags, closing sound tags, cues and backchannels are strippe
 check('sound tags are normalised, emoji and markdown removed, entities decoded', () => {
   const s = parseShowScript(show(...base(), turn('A', '<Laugh> *יופי* 🎉 טום &amp; ג׳רי')));
   assert(s.turns[4].text === '<laugh> יופי טום & ג׳רי', `text "${s.turns[4].text}"`);
+});
+
+// Each of these used to reach TTS, which reads leftovers aloud: a label, a tag, a cue
+// word, an emoji piece or an undecoded entity.
+const CLEANUP: Array<[string, string]> = [
+  ['**B:** בוקר טוב דני', 'בוקר טוב דני'],
+  ['<*cheer*> יאללה', 'יאללה'],
+  ['כל הכבוד 👍🏽', 'כל הכבוד'],
+  ['חג שמח 🇮🇱', 'חג שמח'],
+  ['1️⃣ פגישה ראשונה', 'פגישה ראשונה'],
+  ['משפחה 👨‍👩‍👧 שלמה', 'משפחה שלמה'],
+  ['<laugh> A: שלום', '<laugh> שלום'],
+  ['|וואו| B: יאללה', 'יאללה'],
+  ['[צוחק] B: יאללה', 'יאללה'],
+  ['<b>B:</b> יאללה', 'יאללה'],
+  ['*צוחק* איזה יום', 'איזה יום'],
+  ['(צוחק) איזה יום', 'איזה יום'],
+  ['איזה יום (laughs)', 'איזה יום'],
+  ['<צחוק> איזה יום', 'איזה יום'],
+  ['רוק&#8217;נרול', 'רוק’נרול'],
+  ['ג&#x27;רי', "ג'רי"],
+  ['פגישה (בזום) עם לוי', 'פגישה (בזום) עם לוי'],
+  ['יותר > פחות', 'יותר פחות'],
+];
+for (const [input, expected] of CLEANUP) {
+  check(`cleans ${JSON.stringify(input)}`, () => {
+    const s = parseShowScript(show(...base(), turn('A', input)));
+    assert(s.turns[4].text === expected, `got ${JSON.stringify(s.turns[4].text)}`);
+  });
+}
+
+check('a speaker label right after a sound mid-turn is rejected', () => {
+  rejects(show(...base(), turn('A', 'איזה יום! <laugh> B: באמת')), /Turn 5: contains another speaker label/);
+});
+
+check('a stray angle bracket is removed with a warning', () => {
+  const s = parseShowScript(show(...base(), turn('A', 'יותר > פחות')));
+  assert(s.warnings.some(w => /Turn 5: removed stray >/.test(w)), s.warnings.join('; '));
 });
 
 check('sound budget: at most two, never on consecutive turns', () => {
