@@ -1,0 +1,144 @@
+/**
+ * Hebrew two-host show prompt
+ * תסריט לשני מגישים בסגנון שדרני ספורט, כפלט JSON של תורות.
+ *
+ * Content rules carry over from ../voice-condenser/he.ts and week-he.ts: every event
+ * kept, every time in words, weather right after the date, birthday names, the user's
+ * own rules. The show rules add the hosts, personal address, moods and sounds.
+ */
+
+import { sanitizeForPrompt } from '../shared-builders';
+import { buildRulesSection } from '../voice-condenser/template';
+import { MAX_SOUNDS_PER_SHOW, SOUND_TAGS } from '../../services/voice-show/types';
+import type { ShowPerson, ShowPromptContext } from './types';
+
+const SOUND_LIST = SOUND_TAGS.map(sound => `<${sound}>`).join(' ');
+
+function personLine(label: string, person: ShowPerson): string {
+  const name = sanitizeForPrompt(person.name);
+  if (person.gender === 'male') return `${label}: ${name} (זכר — דברו עליו בלשון זכר)`;
+  if (person.gender === 'female') return `${label}: ${name} (נקבה — דברו עליה בלשון נקבה)`;
+  return `${label}: ${name} (מין לא ידוע — השתמשו בשם ובניסוח שלא מסגיר מין, למשל "ל${name} יש..." במקום "הוא" או "היא")`;
+}
+
+function listenerLine(context: ShowPromptContext): string {
+  const name = sanitizeForPrompt(context.listener.name);
+  return context.listener.gender === 'female'
+    ? `המאזינה: ${name}. היא אישה — פנו אליה בשמה ובלשון נקבה ("את", "יש לך", "תזכרי", "מוכנה").`
+    : `המאזין: ${name}. הוא גבר — פנו אליו בשמו ובלשון זכר ("אתה", "יש לך", "תזכור", "מוכן").`;
+}
+
+function kindRules(context: ShowPromptContext): { goal: string; content: string[]; length: string } {
+  const female = context.listener.gender === 'female';
+  if (context.kind === 'weekly') {
+    const weekRef = context.isNextWeek ? 'בשבוע הבא' : 'השבוע';
+    return {
+      goal: `מה שמחכה ${female ? 'למאזינה' : 'למאזין'} ${weekRef}`,
+      content: [
+        `פתחו בסקירה קצרה (למשל "הנה מה שמחכה לך ${weekRef}").`,
+        context.culture === 'jewish'
+          ? 'השתמשו בתאריכים עבריים (בלי תאריכים לועזיים ובלי שנה עברית).'
+          : 'השתמשו בתאריכים לועזיים.',
+        'עברו יום אחרי יום, עם ימים יחסיים ("ביום שלישי", "ביום חמישי"), והדגישו את האירועים החשובים.',
+        'כל אירוע מהסיכום נכנס, עם היום והשעה שלו. מותר לאחד כמה אירועים של אותו יום בתור אחד.',
+        'לאירועי משפחה ציינו בטבעיות של מי האירוע.',
+        'שבוע בלי אירועים: אמרו שהיומן פנוי. אל תמציאו אירועים.',
+      ],
+      length: 'כ-45-60 שניות דיבור (בערך 110-150 מילים). בשבוע עמוס מותר יותר, אבל אף פעם לא על חשבון אירועים.',
+    };
+  }
+
+  if (context.kind === 'weather') {
+    return {
+      goal: 'תחזית מזג האוויר של היום',
+      content: [
+        'רק מזג אוויר: טמפרטורות, גשם, רוח, ואיכות אוויר אם היא מופיעה בסיכום.',
+        'סיימו בטיפ מעשי אחד (מטרייה, קרם הגנה, שכבה נוספת).',
+      ],
+      length: 'כ-20-35 שניות דיבור (בערך 50-90 מילים), 4-8 תורות.',
+    };
+  }
+
+  return {
+    goal: `היום של ${female ? 'המאזינה' : 'המאזין'}`,
+    content: [
+      context.culture === 'jewish'
+        ? 'אמרו רק את התאריך העברי עם היום בשבוע (בלי תאריך לועזי ובלי שנה עברית).'
+        : 'אמרו את התאריך עם היום בשבוע.',
+      'מזג האוויר מגיע מיד אחרי התאריך, לפני לוח הזמנים: משפט או שניים עם טיפ מעשי.',
+      'כל אירוע מהסיכום נכנס, עם השעה שלו. מותר לאחד כמה אירועים קטנים בתור אחד.',
+      'ילדים: בקצרה ובטבעיות (למשל "לאסוף את דני בשתיים").',
+      'מבט לשבוע, אם יש בסיכום: בקצרה, רק האירועים המרכזיים.',
+      'יום בלי אירועים: אמרו שהיומן פנוי וחגגו את זה. אל תמציאו אירועים.',
+    ],
+    length: 'כ-45-60 שניות דיבור (בערך 110-150 מילים). ביום עמוס מותר יותר, אבל אף פעם לא על חשבון אירועים.',
+  };
+}
+
+export function buildShowPrompt(context: ShowPromptContext): string {
+  const female = context.listener.gender === 'female';
+  const listener = female ? 'המאזינה' : 'המאזין';
+  const toListener = female ? 'אליה' : 'אליו';
+  const { goal, content, length } = kindRules(context);
+
+  const family = [listenerLine(context)];
+  if (context.spouse) family.push(personLine('בן או בת הזוג', context.spouse));
+  for (const kid of context.kids) family.push(personLine('ילד או ילדה', kid));
+  if (!context.kids.length && context.hasKidsCalendars) family.push('יש יומנים של ילדים.');
+
+  const rules = buildRulesSection(context.globalRules, 'כללים אישיים של המשתמש (יש ליישם):');
+
+  const allContent = [
+    ...content,
+    'כל השעות במילים מלאות, לא בספרות: "תשע בבוקר", "עשר ורבע", "אחת עשרה וחצי", "ארבע וחצי אחר הצהריים".',
+    'גם שאר המספרים במילים, למשל טמפרטורות ("עשרים ושמונה מעלות").',
+    'ימי הולדת: הוציאו את שם האדם מהאירוע ("יום ההולדת של יוחנן").',
+    'שמות מלאים, בלי קיצורים.',
+    'ההתלהבות והבדיחות לא מוסיפות ולא משמיטות עובדות: אין אירועים, שעות, שמות או פרטים שלא מופיעים בסיכום.',
+  ];
+
+  return `אתם כותבים תסריט לתוכנית אודיו קצרה בעברית על ${goal}: שני מגישים נלהבים, בסגנון שדרני ספורט.
+
+**המשפחה:**
+${family.join('\n')}
+${rules}
+**המגישים:**
+- A: המגיש המוביל. חם, בטוח, סוף שנות השלושים.
+- B: המגיש הצעיר. אנרגטי, שנות העשרים.
+שניהם גברים ומדברים על עצמם בלשון זכר. אין להם שמות, ואל תמציאו להם.
+
+**תוכן (חובה):**
+${allContent.map((rule, i) => `${i + 1}. ${rule}`).join('\n')}
+
+**סגנון:**
+- אנרגיה של שידור ספורט: קצב, התלהבות, מסירות בין המגישים, "יאללה", "איזה יום!".
+- פנייה אישית: הזכירו את השם כבר בפתיחה, ודברו ${toListener} ישירות בגוף שני ובלשון הנכונה. לא "יש לכם" — "יש לך".
+- רק ${listener} מקבל${female ? 'ת' : ''} פנייה בגוף שני. המגישים לא אומרים זה לזה "לך", "שלך", "אותך", "עליך", "איתך".
+- תורות קצרים: משפט או שניים בכל תור. המגישים מתחלפים ומגיבים זה לזה.
+- אורך: ${length}
+- פתיחה קצרה וסגירה קצרה ואנרגטית.
+
+**מצב רוח (mood) לכל תור, אחד מהרשימה:**
+- hype: ברירת המחדל, התלהבות של שדרן
+- triumph: חגיגה (משהו משמח, סוף יום מוצלח)
+- suspense: מתח לפני משהו גדול
+- amused: משועשע
+- surprised: מופתע
+- mock_disappointed: אכזבה משחקית (גשם, השכמה מוקדמת)
+- secret: לחישה סודית (רמז, הפתעה)
+- warm: חם ורגוע (סגירה, רגע נוגע)
+רוב התורות hype. שלבו 2-4 מצבי רוח אחרים במקומות שהתוכן מצדיק.
+
+**צלילים:**
+- אפשר להכניס לתוך הטקסט צליל אחד או שניים מהרשימה הזאת בלבד: ${SOUND_LIST}
+- לכל היותר ${MAX_SOUNDS_PER_SHOW} בכל התוכנית, ולא בשני תורות רצופים. רק ברגע שמצדיק אותם.
+- אין שום תגית אחרת: אין HTML, אין אימוג'י, אין markdown.
+- אין קריאות ביניים בין קווים אנכיים כמו |וואו|. תגובה של מגיש היא תור קצר משלו.
+- אל תכתבו "A:" או "B:" בתוך הטקסט.
+
+**פלט:** JSON בלבד, בין 6 ל-20 תורות:
+{"turns":[{"host":"A","mood":"hype","text":"..."},{"host":"B","mood":"amused","text":"..."}]}
+
+**הסיכום המקורי (עם עיצוב — התעלמו מהעיצוב):**
+${context.summary}`;
+}

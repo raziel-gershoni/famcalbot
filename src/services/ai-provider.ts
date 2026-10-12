@@ -57,6 +57,15 @@ export const getGemini = () => {
 };
 
 /**
+ * Extra request options. Gemini only: every model in the catalog is Gemini, and the
+ * Claude and OpenAI paths ignore these.
+ */
+export interface AICompletionOptions {
+  /** JSON Schema the answer must follow. Also sets responseMimeType to application/json. */
+  responseJsonSchema?: object;
+}
+
+/**
  * Result from AI completion request
  */
 export interface AICompletionResult {
@@ -221,7 +230,7 @@ async function callOpenAI(prompt: string, modelId?: string): Promise<AICompletio
 /**
  * Call Gemini API with a prompt
  */
-async function callGemini(prompt: string, modelId?: string): Promise<AICompletionResult> {
+async function callGemini(prompt: string, modelId?: string, options: AICompletionOptions = {}): Promise<AICompletionResult> {
   const config = getAIConfig(modelId);
 
   const { getGeminiThinkingLevel } = await import('./reminder-cache');
@@ -236,6 +245,10 @@ async function callGemini(prompt: string, modelId?: string): Promise<AICompletio
       abortSignal: AbortSignal.timeout(45_000),
       ...(thinkingLevel && {
         thinkingConfig: { thinkingLevel: ThinkingLevel[thinkingLevel as keyof typeof ThinkingLevel] },
+      }),
+      ...(options.responseJsonSchema && {
+        responseMimeType: 'application/json',
+        responseJsonSchema: options.responseJsonSchema,
       }),
     },
   });
@@ -300,10 +313,11 @@ function isNonRetryableError(error: unknown): boolean {
  *
  * @param prompt - The prompt to send to the AI
  * @param modelId - Optional model ID to override default model
+ * @param options - Optional request options (JSON mode); Gemini only
  * @returns AI completion result with text and usage statistics
  * @throws Original error if all retries fail (preserves .status for downstream detection)
  */
-export async function generateAICompletion(prompt: string, modelId?: string): Promise<AICompletionResult> {
+export async function generateAICompletion(prompt: string, modelId?: string, options?: AICompletionOptions): Promise<AICompletionResult> {
   if (!modelId) {
     const { getDefaultAiModelSetting } = await import('./reminder-cache');
     const adminDefault = await getDefaultAiModelSetting();
@@ -322,7 +336,7 @@ export async function generateAICompletion(prompt: string, modelId?: string): Pr
       if (config.MODEL_CONFIG.provider === 'claude') {
         result = await callClaude(prompt, modelId);
       } else if (config.MODEL_CONFIG.provider === 'gemini') {
-        result = await callGemini(prompt, modelId);
+        result = await callGemini(prompt, modelId, options);
       } else {
         result = await callOpenAI(prompt, modelId);
       }
