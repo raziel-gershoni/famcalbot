@@ -343,7 +343,10 @@ async function main() {
     try {
       if (!firstTurns.length) throw new Error('no script to send (every fixture failed)');
       process.env.TTS_API_KEY = 'eval-key';
-      const { default: handler } = await import('../tts-service/api/dialogue');
+      // Through a variable, so TypeScript does not follow it into tts-service: its
+      // @vercel/node types are not installed for the app, and next build checks scripts/.
+      const handlerPath = '../tts-service/api/dialogue';
+      const { default: handler } = (await import(handlerPath)) as { default: (req: unknown, res: unknown) => Promise<void> };
       const { toShowLines } = await import('../src/services/voice-show/script');
       const out = { status: 0, headers: {} as Record<string, string>, body: Buffer.alloc(0), json: undefined as unknown };
       const res = {

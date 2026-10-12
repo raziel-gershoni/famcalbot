@@ -24,8 +24,14 @@ function assert(cond: boolean, message: string): asserts cond {
   if (!cond) throw new Error(message);
 }
 
+// The handler is loaded through a variable so TypeScript does not follow it: its
+// @vercel/node types live only in tts-service/node_modules, and next build type-checks
+// scripts/ on a fresh install that never has them.
+const DIALOGUE_HANDLER = '../tts-service/api/dialogue';
+type DialogueHandler = (req: unknown, res: unknown) => Promise<void>;
+
 async function main() {
-  const { default: handler } = await import('../tts-service/api/dialogue');
+  const { default: handler } = (await import(DIALOGUE_HANDLER)) as { default: DialogueHandler };
 
   async function call(req: { method: string; headers?: Record<string, string>; body?: unknown }): Promise<Captured> {
     const { res, out } = fakeRes();
