@@ -16,7 +16,7 @@ async function main() {
   results.push({ name: 'forged initData -> 401', ok: forged.status === 401, reason: `status ${forged.status}` });
 
   const body = await noAuth.json().catch(() => ({}));
-  results.push({ name: 'no settings leaked', ok: !('ttsModel' in body) && !('defaultAiModel' in body), reason: JSON.stringify(body) });
+  results.push({ name: 'no settings leaked', ok: !('remindersEnabled' in body) && !('voiceTtsOutcome' in body), reason: JSON.stringify(body) });
 
   let failed = 0;
   for (const r of results) { console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`); if (!r.ok) failed++; }

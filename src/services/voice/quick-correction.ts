@@ -12,15 +12,13 @@
 import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { getGemini, extractionConfig } from '../ai-provider';
-import { getModelConfig, FALLBACK_MODEL_ID } from '../../config/ai-models';
-import { getDefaultAiModelSetting } from '../reminder-cache';
+import { AI_MODEL_ID } from '../../config/ai-models';
 import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 import type { ParsedEvent } from '../event-parser';
 import type { CalendarAssignment } from '../../types';
 
 export type QuickField = 'time' | 'day' | 'cal';
 const QUICK_TTL_SECONDS = 120; // 2 minutes — enough to read the prompt and reply
-const FIELD_MODEL_FALLBACK = FALLBACK_MODEL_ID;
 
 interface QuickPayload {
   pendingId: string;
@@ -113,16 +111,6 @@ export async function extractFieldPatch(
   language: string,
   timezone: string
 ): Promise<FieldPatch | null> {
-  const adminDefault = await getDefaultAiModelSetting();
-  let modelId = FIELD_MODEL_FALLBACK;
-  if (adminDefault) {
-    const cfg = getModelConfig(adminDefault);
-    if (cfg) modelId = cfg.modelId;
-  } else if (process.env.AI_MODEL) {
-    const cfg = getModelConfig(process.env.AI_MODEL);
-    if (cfg) modelId = cfg.modelId;
-  }
-
   const prompt = buildFieldPrompt(field, current, calendars, language, timezone);
   const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [{ text: prompt }];
   if (audioBuffer) {
@@ -135,8 +123,8 @@ export async function extractFieldPatch(
 
   try {
     const response = await getGemini().models.generateContent({
-      model: modelId,
-      ...extractionConfig(modelId),
+      model: AI_MODEL_ID,
+      ...extractionConfig(AI_MODEL_ID),
       contents: [{ role: 'user', parts }],
     });
     const responseText = response.text ?? '';

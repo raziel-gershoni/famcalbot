@@ -5,19 +5,12 @@
  * a verbatim copy at tts-service/lib/gemini-tts.ts. That service deploys separately
  * and cannot import from src/. Keep the two copies identical.
  *
- * Two request shapes exist, because Gemini 3.8 TTS changed the contract:
- *
- * - Legacy models (3.1 preview and earlier) take a prompt and follow directions in
- *   it: "Read the following text aloud <style> in <Language>: ...". They return
- *   headerless PCM (audio/l16) and reject both fields below with a 400.
- *
- * - 3.8 and later read their input as a verbatim transcript, so that same prompt gets
- *   spoken aloud - measured at 6/20 samples on Flash TTS and 13/20 on Flash-Lite TTS,
- *   and in 9 of those Lite dropped the actual text entirely. Style must travel in a
- *   per-part `speechMetadata`. They also default to WAV with a ~6 KB C2PA metadata
- *   chunk after the audio, which a fixed 44-byte header strip encodes as a burst of
- *   full-scale noise at the end of every message. Requesting AUDIO_L16 returns the
- *   same headerless PCM the legacy models always did.
+ * Gemini 3.8 TTS reads its input as a verbatim transcript: a prompt such as "Read the
+ * following text aloud cheerfully: ..." gets spoken aloud (measured at 6/20 samples on
+ * Flash TTS). Style must travel in a per-part `speechMetadata`. It also defaults to WAV
+ * with a ~6 KB C2PA metadata chunk after the audio, which a fixed 44-byte header strip
+ * encodes as a burst of full-scale noise at the end of every message, so the request
+ * asks for AUDIO_L16: headerless PCM.
  *
  * Voices are Gemini's built-in ones, by name (Schedar), in
  * `prebuiltVoiceConfig.voiceName`; they work with any API key.
@@ -25,17 +18,6 @@
  * The REST API is called directly because @google/genai 1.x drops both
  * `speechMetadata` and `responseFormat` from the request.
  */
-
-/** Models that predate the 3.8 TTS schema. Anything else gets the new shape. */
-export const LEGACY_TTS_MODELS: ReadonlySet<string> = new Set([
-  'gemini-3.1-flash-tts-preview',
-  'gemini-2.5-flash-preview-tts',
-  'gemini-2.5-pro-preview-tts',
-]);
-
-export function isLegacyTtsModel(model: string): boolean {
-  return LEGACY_TTS_MODELS.has(model);
-}
 
 export interface SynthesizeSpeechInput {
   apiKey: string;
@@ -46,8 +28,6 @@ export interface SynthesizeSpeechInput {
   voiceName: string;
   /** Delivery style, e.g. "softly and warmly". Omit for a plain read. */
   style?: string;
-  /** English name of the language. Only the legacy prompt uses it - 3.8 detects language itself. */
-  languageName?: string;
   timeoutMs?: number;
 }
 
@@ -75,16 +55,6 @@ const DEFAULT_PCM_RATE = 24_000;
 
 export function buildTtsRequestBody(input: SynthesizeSpeechInput): Record<string, unknown> {
   const speechConfig = { voiceConfig: { prebuiltVoiceConfig: { voiceName: input.voiceName } } };
-
-  if (isLegacyTtsModel(input.model)) {
-    const style = input.style || 'naturally';
-    const language = input.languageName || 'English';
-    return {
-      contents: [{ parts: [{ text: `Read the following text aloud ${style} in ${language}:\n\n${input.text}` }] }],
-      generationConfig: { responseModalities: ['AUDIO'], speechConfig },
-    };
-  }
-
   const part: Record<string, unknown> = { text: input.text };
   if (input.style) part.speechMetadata = { style: input.style };
 

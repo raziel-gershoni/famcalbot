@@ -1,70 +1,46 @@
 # AI Model Configuration Guide
 
-## Quick Start
+## The models
 
-Set the `AI_MODEL` environment variable to switch models — no code changes needed:
+Every call in the app runs on one text model and one TTS model. Both are fixed in code;
+there is no admin setting and no environment variable for either.
 
-```bash
-AI_MODEL=gemini-3.7-flash
-```
+| What | Constant | Model | Defined in |
+|------|----------|-------|------------|
+| Text | `AI_MODEL` / `AI_MODEL_ID` | `gemini-3.8-flash` | `src/config/ai-models.ts` |
+| Speech | `TTS_MODEL` | `gemini-3.8-flash-tts` | `src/config/tts-models.ts` |
 
-## Available Models
+The `AdminSettings` columns `defaultAiModel`, `geminiThinkingLevel` and `ttsModel` are
+still in the schema but nothing reads or writes them.
 
-The catalog in `src/config/ai-models.ts` lists only the models actually in use.
-The provider layer still supports Claude and GPT — see [Adding a model](#adding-a-model).
+## Text model
 
 | Identifier | Model | Max output | Context | Cost (per 1M tokens) | Notes |
 |------------|-------|-----------|---------|---------------------|-------|
-| `gemini-3.8-flash` | Gemini 3.8 Flash | 64K | 1M | $0.75/$3.75 (in/out) | Selectable in the admin panel. Runs at LOW thinking unless one is set - see below |
-| `gemini-3.7-flash` | Gemini 3.7 Flash | 64K | 1M | $0.75/$3.75 (in/out) | **Default.** Introductory rate through 2026-12-31; $1.50/$7.50 after. Vertex retires it 2027-01-28 |
-| `gemini-3.5-flash` | Gemini 3.5 Flash | 64K | 1M | $1.50/$9.00 (in/out) | Rollback target for 3.7 |
+| `gemini-3.8-flash` | Gemini 3.8 Flash | 64K | 1M | $0.75/$3.75 (in/out) | Introductory rate through 2026-12-31; $1.50/$7.50 after |
 
-## How the model is chosen
+Text completions (`generateAICompletion`, `streamAICompletion`) use `getAIConfig()`,
+which defaults to `AI_MODEL`. Its optional model id exists only for the live eval's
+`--model`; an id that isn't in the catalog logs a warning and falls back to `AI_MODEL`.
 
-Two different resolution paths, which is worth knowing before you change anything:
+The media pipelines (voice, image, forward-event, correction) call the Gemini SDK
+directly with `AI_MODEL_ID`, the raw API id. Don't paste literals in their place: the
+old per-file literals drifted until one of them (`gemini-2.0-flash-exp`) had been
+retired by the provider and would 404 on every call that reached it.
 
-**Text completions** (`generateAICompletion`, `streamAICompletion`):
+The provider layer still supports Claude and GPT - see [Changing a model](#changing-a-model).
 
-```
-AdminSettings.defaultAiModel  →  process.env.AI_MODEL  →  FALLBACK_AI_MODEL
-```
+## Thinking level
 
-An identifier that isn't in the catalog logs a warning and falls back rather than
-throwing — a stale value in the DB or the env shouldn't take the app down.
+Every Gemini call is sent at the model's own declared level, `defaultThinkingLevel`,
+which is `LOW` for 3.8 Flash. Text completions get it from `thinkingLevelFor()`, the
+media pipelines from `getExtractionThinkingLevel()` via `extractionConfig()`. A model
+that declares no level gets no `thinkingConfig` and takes the API default.
 
-**Media pipelines** (voice, image, forward-event, correction) resolve separately and
-never read `DEFAULT_AI_MODEL`:
-
-```
-AdminSettings.defaultAiModel  →  process.env.AI_MODEL  →  per-service hardcoded fallback
-```
-
-Each service's fallback is `FALLBACK_MODEL_ID` from `src/config/ai-models.ts` — the
-raw provider ID for `FALLBACK_AI_MODEL`, since these services call the Gemini SDK
-directly and need the API-side ID rather than the catalog key. Don't paste literals
-here: the previous per-file literals drifted until one of them (`gemini-2.0-flash-exp`)
-had been retired by the provider and would 404 on every call that reached it.
-
-## Gemini thinking level
-
-`AdminSettings.geminiThinkingLevel` accepts `MINIMAL`, `LOW`, `MEDIUM`, `HIGH`, and is
-sent as `thinkingConfig.thinkingLevel`. Support differs by model — 3.7 Flash rejects
-`MINIMAL` with a 400 — so `resolveThinkingLevel()` coerces an unsupported level to the
-nearest one the model accepts (`MINIMAL` → `LOW`, the floor on 3.7). Declare exclusions
-per model via `unsupportedThinkingLevels`.
-
-Note that 3.7 thinks by default. Levels reduce it but don't reliably zero it: on a
-trivial prompt, unset averaged ~90 thought tokens, `LOW` ranged 0–62.
-
-**A model can declare its own default** via `defaultThinkingLevel`, which applies when
-no admin level is set. 3.8 Flash declares `LOW`, because its API default is `MEDIUM`
-and that is far too slow here: on the real Hebrew daily-summary prompt, 3.8 at `MEDIUM`
-took 17–46s (median 38s) against 5–11s on 3.7, and at `HIGH` three of four runs never
-finished inside the 45s abort. At `LOW` it ran a stable ~5s.
-
-The media pipelines (voice, image, forwarded text, corrections) never send the admin
-level - it is a summary setting - but they do send the model's declared default, via
-`extractionConfig()`. For models that declare none nothing is sent, as before.
+3.8 declares `LOW` because its API default is `MEDIUM`, which is far too slow here: on
+the real Hebrew daily-summary prompt, 3.8 at `MEDIUM` took 17-46s (median 38s) against
+5-11s on 3.7, and at `HIGH` three of four runs never finished inside the 45s abort. At
+`LOW` it ran a stable ~5s.
 
 Thinking tokens are billed as output tokens and are reported separately in the
 completion result.
@@ -72,10 +48,7 @@ completion result.
 ## Environment variables
 
 ```bash
-# Which model to use (optional — defaults to gemini-3.7-flash)
-AI_MODEL=gemini-3.7-flash
-
-# API key for your chosen model's provider
+# API key for the Gemini models
 GEMINI_API_KEY=...
 
 # Optional: cap output tokens (defaults to the model's maxOutputTokens)
@@ -86,51 +59,37 @@ AI_MAX_RETRIES=1
 ```
 
 SDK-level retries are disabled (`maxRetries: 0`), so `AI_MAX_RETRIES` is the only
-retry layer. Streaming completions are not retried — partial streams can't be safely
+retry layer. Streaming completions are not retried - partial streams can't be safely
 replayed, so callers fall back to the buffered path.
 
 ## Text-to-speech
 
-Spoken summaries and voice replies use Gemini TTS, chosen per request:
-
-```
-AdminSettings.ttsModel  →  GEMINI_TTS_MODEL  →  DEFAULT_TTS_MODEL (gemini-3.8-flash-lite-tts)
-```
+Spoken summaries and voice replies always use `TTS_MODEL`:
 
 | Identifier | Audio output, per 1M tokens | Notes |
 |------------|-----------------------------|-------|
-| `gemini-3.8-flash-lite-tts` | $6 ($12 from 2027) | **Default.** Google's named replacement for 3.1 preview |
-| `gemini-3.8-flash-tts` | $9 ($18 from 2027) | Higher-fidelity tier |
-| `gemini-3.1-flash-tts-preview` | $20 | Legacy rollback only - Google shuts it down from 2026-11-17 |
+| `gemini-3.8-flash-tts` | $9 ($18 from 2027) | Chosen over Flash-Lite by ear |
 
 The catalog is `src/config/tts-models.ts`; request building and decoding live in
-`src/services/gemini-tts.ts`. **3.8 TTS changed the contract** in two ways that fail
-silently if you only swap the model id:
+`src/services/gemini-tts.ts`. 3.8 TTS has two quirks that fail silently if ignored:
 
-- **It reads its input verbatim.** Directions in the text get spoken aloud. The voice
-  style therefore goes in a per-part `speechMetadata.style`, not the prompt. Legacy
-  models still get the old "Read the following text aloud..." prompt, and reject
-  `speechMetadata` with a 400.
+- **It reads its input verbatim.** Directions in the text get spoken aloud, so the
+  voice style goes in a per-part `speechMetadata.style`, not the prompt.
 - **It returns WAV by default**, with a ~6 KB C2PA metadata chunk after the audio.
-  We request `AUDIO_L16` instead, which is the same headerless 24 kHz PCM the legacy
-  models always returned. WAV is still parsed chunk by chunk as a fallback, never by
-  stripping a fixed 44-byte header - that turns the C2PA chunk into a burst of noise.
+  We request `AUDIO_L16` instead: headerless 24 kHz PCM. WAV is still parsed chunk by
+  chunk as a fallback, never by stripping a fixed 44-byte header - that turns the C2PA
+  chunk into a burst of noise.
 
 The REST API is called directly because `@google/genai` 1.x drops both fields.
 `tts-service/` carries an identical copy of `gemini-tts.ts` and must be redeployed
 separately; it honours the `model` and `style` the main app sends.
 
-`npx tsx scripts/smoke-tts.ts` covers the decoding and the request shapes.
+`npx tsx scripts/smoke-tts.ts` covers the decoding and the request shape.
 
-## Switching models in production
+## Changing a model
 
-The admin panel (Settings → AI Model) writes `AdminSettings.defaultAiModel` and takes
-effect immediately — it overrides `AI_MODEL`. Use the Railway environment variable
-only to change the floor for when no admin setting is present.
-
-## Adding a model
-
-Add an entry to `src/config/ai-models.ts`:
+Switching models is a code change and a redeploy. For text, add the entry to
+`src/config/ai-models.ts` and point `AI_MODEL` at it:
 
 ```typescript
 'gemini-4-flash': {
@@ -141,11 +100,17 @@ Add an entry to `src/config/ai-models.ts`:
   contextWindow: 1048576,
   costPer1MTokens: { input: 0.75, output: 3.75 },
   description: 'What it is good for',
+  defaultThinkingLevel: 'LOW',   // omit to take the API default
 },
 ```
 
-It appears in the admin panel dropdown automatically. Verify the `modelId` against the
-provider's live model list first — a wrong ID only surfaces as a 404 at call time.
+For speech, do the same with `TTS_MODELS` and `TTS_MODEL` in `src/config/tts-models.ts`.
+The media pipelines call Gemini directly, so a non-Gemini text model would need them
+reworked too.
+
+Verify the `modelId` against the provider's live model list first - a wrong ID only
+surfaces as a 404 at call time - and check the thinking level against real prompts,
+since the API default can be much slower.
 
 ## Monitoring
 

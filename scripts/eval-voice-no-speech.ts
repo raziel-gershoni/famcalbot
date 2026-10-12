@@ -15,13 +15,13 @@
 // through now and then (measured ~1 run in 6-16 on both 3.7 and 3.8). Anything else
 // failing is a regression.
 //
-// COSTS MONEY: it calls the Gemini API (clips x runs x models, each with a second
+// COSTS MONEY: it calls the Gemini API (clips x runs, each with a second
 // small gate call). Needs macOS `say` (with the Carmit and Milena voices) and ffmpeg
 // to build the corpus.
 //
 // Run:
 //   NODE_OPTIONS='--conditions=import' npx tsx -r dotenv/config scripts/eval-voice-no-speech.ts
-// Options (env): EVAL_MODELS=gemini-3.7-flash,gemini-3.8-flash  EVAL_RUNS=3
+// Options (env): EVAL_RUNS=3
 
 import { execFileSync } from 'child_process';
 import { mkdtempSync, readFileSync } from 'fs';
@@ -29,7 +29,6 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import type { CalendarAssignment } from '../src/types';
 
-const MODELS = (process.env.EVAL_MODELS || 'gemini-3.7-flash').split(',');
 const RUNS = Number(process.env.EVAL_RUNS || 3);
 
 type Clip = { name: string; language: string; expect: 'create' | 'delete' | 'none' };
@@ -114,6 +113,7 @@ async function main() {
     process.exit(2);
   }
 
+  const { AI_MODEL } = await import('../src/config/ai-models');
   const { processVoiceWithGemini } = await import('../src/services/voice/gemini-voice');
   const { formatRecentEventsBlock } = await import('../src/services/voice/recent-events-store');
 
@@ -131,40 +131,36 @@ async function main() {
   ] as never, 'Asia/Jerusalem');
 
   let failures = 0;
-  for (const model of MODELS) {
-    // The resolver reads AI_MODEL at call time; runs are serial because it is global.
-    process.env.AI_MODEL = model;
-    console.log(`\n=== ${model} (${RUNS} runs per clip)`);
-    let noiseActions = 0, noiseRuns = 0, speechOk = 0, speechRuns = 0;
+  console.log(`\n=== ${AI_MODEL} (${RUNS} runs per clip)`);
+  let noiseActions = 0, noiseRuns = 0, speechOk = 0, speechRuns = 0;
 
-    for (const clip of CLIPS) {
-      const audio = readFileSync(join(dir, `${clip.name}.ogg`));
-      const outcomes: string[] = [];
-      for (let r = 0; r < RUNS; r++) {
-        try {
-          const { intentResult } = await processVoiceWithGemini(audio, clip.language, calendars, 'Asia/Jerusalem', recent);
-          const it = intentResult;
-          const acts = it.intent === 'create' ? !!it.event : !!it.eventReference;
-          outcomes.push(it.error === 'no_speech' ? 'no_speech' : acts ? it.intent : 'no_action');
-        } catch {
-          outcomes.push('error');
-        }
+  for (const clip of CLIPS) {
+    const audio = readFileSync(join(dir, `${clip.name}.ogg`));
+    const outcomes: string[] = [];
+    for (let r = 0; r < RUNS; r++) {
+      try {
+        const { intentResult } = await processVoiceWithGemini(audio, clip.language, calendars, 'Asia/Jerusalem', recent);
+        const it = intentResult;
+        const acts = it.intent === 'create' ? !!it.event : !!it.eventReference;
+        outcomes.push(it.error === 'no_speech' ? 'no_speech' : acts ? it.intent : 'no_action');
+      } catch {
+        outcomes.push('error');
       }
-      const ok = clip.expect === 'none'
-        ? outcomes.every(o => !['create', 'edit', 'delete'].includes(o))
-        : outcomes.every(o => o === clip.expect);
-      if (clip.expect === 'none') {
-        noiseRuns += outcomes.length;
-        noiseActions += outcomes.filter(o => ['create', 'edit', 'delete'].includes(o)).length;
-      } else {
-        speechRuns += outcomes.length;
-        speechOk += outcomes.filter(o => o === clip.expect).length;
-      }
-      if (!ok) failures++;
-      console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${clip.name.padEnd(16)} expect=${clip.expect.padEnd(6)} got=[${outcomes.join(',')}]`);
     }
-    console.log(`  -> non-speech produced an action ${noiseActions}/${noiseRuns}; real commands correct ${speechOk}/${speechRuns}`);
+    const ok = clip.expect === 'none'
+      ? outcomes.every(o => !['create', 'edit', 'delete'].includes(o))
+      : outcomes.every(o => o === clip.expect);
+    if (clip.expect === 'none') {
+      noiseRuns += outcomes.length;
+      noiseActions += outcomes.filter(o => ['create', 'edit', 'delete'].includes(o)).length;
+    } else {
+      speechRuns += outcomes.length;
+      speechOk += outcomes.filter(o => o === clip.expect).length;
+    }
+    if (!ok) failures++;
+    console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${clip.name.padEnd(16)} expect=${clip.expect.padEnd(6)} got=[${outcomes.join(',')}]`);
   }
+  console.log(`  -> non-speech produced an action ${noiseActions}/${noiseRuns}; real commands correct ${speechOk}/${speechRuns}`);
 
   console.log(failures === 0 ? '\nALL CLIPS PASSED' : `\n${failures} clip result(s) failed`);
   process.exit(failures === 0 ? 0 : 1);

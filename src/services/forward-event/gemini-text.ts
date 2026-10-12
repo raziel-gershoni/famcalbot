@@ -6,16 +6,13 @@
 import { getGemini, extractionConfig } from '../ai-provider';
 import { VoiceIntentResult } from '../event-parser';
 import { CalendarAssignment } from '../../types';
-import { getDefaultAiModelSetting } from '../reminder-cache';
-import { getModelConfig, FALLBACK_MODEL_ID } from '../../config/ai-models';
+import { AI_MODEL_ID } from '../../config/ai-models';
 import { buildEventExtractionPrompt, parseGeminiEventResponse } from '../voice/gemini-voice';
 
 const TEXT_RETRY_CONFIG = {
   maxRetries: 1,
   baseDelayMs: 500,
 } as const;
-
-const TEXT_MODEL_FALLBACK = FALLBACK_MODEL_ID;
 
 export interface TextProcessingMetrics {
   model: string;
@@ -41,24 +38,13 @@ export async function processTextWithGemini(
   const startTime = Date.now();
   let lastError: Error | null = null;
 
-  // Resolve model: admin setting → env var → hardcoded fallback
-  const adminDefault = await getDefaultAiModelSetting();
-  let resolvedModelId = TEXT_MODEL_FALLBACK;
-  if (adminDefault) {
-    const cfg = getModelConfig(adminDefault);
-    if (cfg) resolvedModelId = cfg.modelId;
-  } else if (process.env.AI_MODEL) {
-    const cfg = getModelConfig(process.env.AI_MODEL);
-    if (cfg) resolvedModelId = cfg.modelId;
-  }
-
   for (let attempt = 0; attempt <= TEXT_RETRY_CONFIG.maxRetries; attempt++) {
     try {
       const promptText = buildEventExtractionPrompt(language, calendars, timezone, 'text');
 
       const response = await getGemini().models.generateContent({
-        model: resolvedModelId,
-        ...extractionConfig(resolvedModelId),
+        model: AI_MODEL_ID,
+        ...extractionConfig(AI_MODEL_ID),
         contents: [
           {
             role: 'user',
@@ -73,7 +59,7 @@ export async function processTextWithGemini(
       const inputTokens = response.usageMetadata?.promptTokenCount || 0;
       const outputTokens = response.usageMetadata?.candidatesTokenCount || 0;
 
-      console.log(`[Forward Gemini] Response in ${duration}ms, model: ${resolvedModelId}, tokens: ${inputTokens}in/${outputTokens}out, attempt: ${attempt + 1}`);
+      console.log(`[Forward Gemini] Response in ${duration}ms, model: ${AI_MODEL_ID}, tokens: ${inputTokens}in/${outputTokens}out, attempt: ${attempt + 1}`);
 
       // response.text getter can throw if no candidates are present
       let responseText: string;
@@ -103,7 +89,7 @@ export async function processTextWithGemini(
 
       return {
         intentResult,
-        metrics: { model: resolvedModelId, inputTokens, outputTokens, durationMs: duration },
+        metrics: { model: AI_MODEL_ID, inputTokens, outputTokens, durationMs: duration },
       };
 
     } catch (error) {

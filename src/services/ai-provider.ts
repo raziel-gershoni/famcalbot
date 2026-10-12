@@ -7,7 +7,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { getAIConfig, AI_RETRY_CONFIG } from '../config/constants';
-import { resolveThinkingLevel, getExtractionThinkingLevel } from '../config/ai-models';
+import { thinkingLevelFor, getExtractionThinkingLevel } from '../config/ai-models';
 import { notifyAdminWarning } from '../utils/error-notifier';
 import { captureError } from '../lib/error-capture';
 
@@ -42,7 +42,7 @@ const getOpenAI = () => {
  * generateContent options for the media pipelines (voice, image, forwarded text and
  * corrections), spread into the request. Applies the model's declared default
  * thinking level - see getExtractionThinkingLevel - and is empty for models that
- * declare none, so 3.5 and 3.7 requests are unchanged.
+ * declare none.
  */
 export function extractionConfig(modelId: string): { config?: { thinkingConfig: { thinkingLevel: ThinkingLevel } } } {
   const level = getExtractionThinkingLevel(modelId);
@@ -233,10 +233,8 @@ async function callOpenAI(prompt: string, modelId?: string): Promise<AICompletio
 async function callGemini(prompt: string, modelId?: string, options: AICompletionOptions = {}): Promise<AICompletionResult> {
   const config = getAIConfig(modelId);
 
-  const { getGeminiThinkingLevel } = await import('./reminder-cache');
-  // Not every model accepts every level (3.7 Flash rejects MINIMAL outright), so
-  // reconcile the admin setting against this model before sending it.
-  const thinkingLevel = resolveThinkingLevel(config.MODEL_CONFIG, await getGeminiThinkingLevel());
+  // The model's own level, not the API default - see thinkingLevelFor().
+  const thinkingLevel = thinkingLevelFor(config.MODEL_CONFIG);
 
   const response = await getGemini().models.generateContent({
     model: config.MODEL_CONFIG.modelId,
@@ -312,18 +310,12 @@ function isNonRetryableError(error: unknown): boolean {
  * Automatically routes to the configured provider (Claude, OpenAI, or Gemini)
  *
  * @param prompt - The prompt to send to the AI
- * @param modelId - Optional model ID to override default model
+ * @param modelId - Optional catalog key; defaults to AI_MODEL (the live eval's --model passes one)
  * @param options - Optional request options (JSON mode); Gemini only
  * @returns AI completion result with text and usage statistics
  * @throws Original error if all retries fail (preserves .status for downstream detection)
  */
 export async function generateAICompletion(prompt: string, modelId?: string, options?: AICompletionOptions): Promise<AICompletionResult> {
-  if (!modelId) {
-    const { getDefaultAiModelSetting } = await import('./reminder-cache');
-    const adminDefault = await getDefaultAiModelSetting();
-    if (adminDefault) modelId = adminDefault;
-  }
-
   let lastError: unknown = null;
   const maxRetries = AI_RETRY_CONFIG.MAX_RETRIES;
   const config = getAIConfig(modelId);

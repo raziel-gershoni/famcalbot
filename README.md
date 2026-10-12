@@ -36,7 +36,7 @@ FamCal is a multi-platform, multilingual calendar assistant for individuals and 
 
 ## 🏗️ How it works
 
-**One AI interface, three providers.** `src/services/ai-provider.ts` wraps Anthropic, OpenAI, and Google Gemini behind a single `generateAICompletion` call. The active model is chosen by the `AI_MODEL` env var and resolved through a typed model registry (`src/config/ai-models.ts`), so switching from Claude to GPT to Gemini is a one-line config change. The layer adds its own retry/backoff (SDK retries are disabled in favor of explicit control), 25-second client timeouts, per-provider token accounting (including cache and thinking tokens), and admin alerting when a response hits its output-token ceiling.
+**One AI interface, three providers.** `src/services/ai-provider.ts` wraps Anthropic, OpenAI, and Google Gemini behind a single `generateAICompletion` call. Every call runs on one model, Gemini 3.8 Flash, fixed in a typed model registry (`src/config/ai-models.ts`), so switching from Claude to GPT to Gemini is a one-line code change. The layer adds its own retry/backoff (SDK retries are disabled in favor of explicit control), 25-second client timeouts, per-provider token accounting (including cache and thinking tokens), and admin alerting when a response hits its output-token ceiling.
 
 **Streaming UX inside serverless.** User-invoked summaries use a sibling streaming path (`src/services/streaming/text-stream.ts`) that emits text deltas as the model writes, which the Telegram adapter renders as an animated, progressively-updating message draft with live HTML tag-balancing so partial markup never breaks Telegram's parser. Because a partial stream can't be safely retried mid-flight, the streaming path deliberately drops the retry wrapper and callers fall back to the buffered path on failure.
 
@@ -64,7 +64,7 @@ FamCal is a multi-platform, multilingual calendar assistant for individuals and 
 - An Upstash Redis instance
 - A Telegram bot token (via BotFather); WhatsApp Business API credentials are optional
 - Google OAuth credentials for Google Calendar access
-- At least one AI provider key (Anthropic, OpenAI, or Gemini) matching your chosen `AI_MODEL`
+- A Gemini API key (the text and voice models are both Gemini)
 
 ### Environment variables
 
@@ -75,16 +75,16 @@ Copy `.env.example` (production) or `.env.local.example` (local dev) and fill in
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_BOT_USERNAME` | Telegram bot auth and webhook verification (username used in local dev) |
 | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | WhatsApp Business Cloud API (optional) |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, `GOOGLE_REDIRECT_URI` | Google Calendar OAuth |
-| `AI_MODEL` | Selects the active model/provider from the model registry |
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` | AI provider keys (provide at least one) |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` | AI provider keys (the fixed models need only `GEMINI_API_KEY`) |
 | `AI_MAX_TOKENS`, `AI_MAX_RETRIES` | Optional output-token and retry overrides |
 | `DATABASE_URL`, `DIRECT_URL` | Postgres connection (pooled + direct for migrations) |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Redis for locks, caching, rate limiting |
 | `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY` | Scheduled job triggering / signature verification |
 | `CRON_SECRET` | Shared secret guarding internal cron/usage endpoints |
-| `GEMINI_TTS_MODEL` | Optional TTS model override. Voices are fixed per language in `src/services/voice-generator.ts` |
 | `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT` | Error tracking |
 | `NODE_ENV` | Runtime environment |
+
+The models are not configurable: text and TTS are fixed in `src/config/ai-models.ts` and `src/config/tts-models.ts`, and the voices per language in `src/services/voice-generator.ts`.
 
 ### Install & run
 

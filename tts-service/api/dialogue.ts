@@ -8,8 +8,9 @@ import { mixDialogue } from '../lib/pcm-mix.js';
 // and encoded once. Same auth and function limits as api/tts.ts. The main app falls
 // back to local synthesis on any non-200 from here.
 
-// Used only when the caller sends no valid model. The main app always sends one.
-const DEFAULT_TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-tts';
+// Used only when the caller sends no valid model. The main app always sends its
+// TTS_MODEL (src/config/tts-models.ts).
+const DEFAULT_TTS_MODEL = 'gemini-3.8-flash-tts';
 
 // The model id becomes part of the upstream URL, so accept only the TTS id shape.
 const TTS_MODEL_ID = /^gemini-[a-z0-9.-]+-tts(?:-preview)?$/;

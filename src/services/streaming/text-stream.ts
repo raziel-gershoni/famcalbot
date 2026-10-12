@@ -13,7 +13,7 @@
 import { ThinkingLevel, type GenerateContentResponse } from '@google/genai';
 import { getAnthropic, getGemini } from '../ai-provider';
 import { getAIConfig } from '../../config/constants';
-import { resolveThinkingLevel } from '../../config/ai-models';
+import { thinkingLevelFor } from '../../config/ai-models';
 import { notifyAdminWarning } from '../../utils/error-notifier';
 import { captureError } from '../../lib/error-capture';
 import type { AICompletionResult } from '../ai-provider';
@@ -105,9 +105,8 @@ async function streamGemini(
 ): Promise<AICompletionResult> {
   const config = getAIConfig(opts.modelId);
 
-  const { getGeminiThinkingLevel } = await import('../reminder-cache');
-  // Same reconciliation as the non-streaming path — see callGemini().
-  const thinkingLevel = resolveThinkingLevel(config.MODEL_CONFIG, await getGeminiThinkingLevel());
+  // Same level as the non-streaming path — see callGemini().
+  const thinkingLevel = thinkingLevelFor(config.MODEL_CONFIG);
 
   const stream = await getGemini().models.generateContentStream({
     model: config.MODEL_CONFIG.modelId,
@@ -193,21 +192,14 @@ async function streamGemini(
 export async function streamAICompletion(
   opts: StreamAICompletionOptions
 ): Promise<AICompletionResult> {
-  let modelId = opts.modelId;
-  if (!modelId) {
-    const { getDefaultAiModelSetting } = await import('../reminder-cache');
-    const adminDefault = await getDefaultAiModelSetting();
-    if (adminDefault) modelId = adminDefault;
-  }
-
-  const config = getAIConfig(modelId);
+  const config = getAIConfig(opts.modelId);
   const startMs = Date.now();
 
   let result: AICompletionResult;
   if (config.MODEL_CONFIG.provider === 'claude') {
-    result = await streamClaude({ ...opts, modelId });
+    result = await streamClaude(opts);
   } else if (config.MODEL_CONFIG.provider === 'gemini') {
-    result = await streamGemini({ ...opts, modelId });
+    result = await streamGemini(opts);
   } else {
     throw new Error(
       `streamAICompletion: provider "${config.MODEL_CONFIG.provider}" is not supported for streaming. Use generateAICompletion (buffered) instead.`

@@ -2,19 +2,13 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { encodePcmToOggOpus, SAMPLE_RATE } from '../lib/pcm-to-ogg-opus.js';
 import { synthesizeSpeech } from '../lib/gemini-tts.js';
 
-// Used only when the caller sends no model. The main app now always sends one - the
-// admin panel's choice - so this matters mainly for direct callers and old clients.
-const DEFAULT_TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-lite-tts';
+// Used only when the caller sends no valid model. The main app always sends its
+// TTS_MODEL (src/config/tts-models.ts), so this matters only for direct callers.
+const DEFAULT_TTS_MODEL = 'gemini-3.8-flash-tts';
 
 // The model id becomes part of the upstream URL, so accept only the TTS id shape.
 const TTS_MODEL_ID = /^gemini-[a-z0-9.-]+-tts(?:-preview)?$/;
 const MAX_STYLE_LENGTH = 300;
-
-const LANGUAGE_NAMES: Record<string, string> = {
-  he: 'Hebrew',
-  en: 'English',
-  ru: 'Russian',
-};
 
 // Retry configuration
 const TTS_MAX_RETRIES = 1;
@@ -80,7 +74,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         text,
         voiceName,
         style,
-        languageName: LANGUAGE_NAMES[language] || 'English',
       }),
       TTS_MAX_RETRIES,
       TTS_BASE_DELAY_MS,

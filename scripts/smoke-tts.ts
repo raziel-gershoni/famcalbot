@@ -1,11 +1,11 @@
 // Pure-function smoke test for src/services/gemini-tts.ts.
 // Covers the audio decoding that broke silently on the move to Gemini 3.8 TTS, and
-// the per-model request shape. No network; safe to run anywhere.
+// the 3.8 request shape. No network; safe to run anywhere.
 //
 // Run: npx tsx scripts/smoke-tts.ts
 
 import fs from 'fs';
-import { buildTtsRequestBody, decodeSpeechAudio, extractSpeechAudio, isLegacyTtsModel } from '../src/services/gemini-tts';
+import { buildTtsRequestBody, decodeSpeechAudio, extractSpeechAudio } from '../src/services/gemini-tts';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -124,10 +124,10 @@ check('WAV with no data chunk is rejected', () => {
   assert(threw, 'accepted');
 });
 
-// 7. Request shape per model generation.
+// 7. The 3.8 request shape.
 check('3.8 request: bare text, style in speechMetadata, AUDIO_L16', () => {
   const body = buildTtsRequestBody({
-    apiKey: 'x', model: 'gemini-3.8-flash-lite-tts', text: 'Good morning', voiceName: 'Achird', style: 'softly',
+    apiKey: 'x', model: 'gemini-3.8-flash-tts', text: 'Good morning', voiceName: 'Achird', style: 'softly',
   }) as { contents: Array<{ parts: Array<Record<string, unknown>> }>; generationConfig: Record<string, unknown> };
   const part = body.contents[0].parts[0];
   assert(part.text === 'Good morning', `text was rewritten: ${String(part.text)}`);
@@ -140,22 +140,6 @@ check('3.8 request without a style sends no speechMetadata', () => {
     contents: Array<{ parts: Array<Record<string, unknown>> }>;
   };
   assert(!('speechMetadata' in body.contents[0].parts[0]), 'unexpected speechMetadata');
-});
-
-check('legacy request keeps the prompt shape and sends no 3.8-only fields', () => {
-  const body = buildTtsRequestBody({
-    apiKey: 'x', model: 'gemini-3.1-flash-tts-preview', text: 'Good morning', voiceName: 'Achird', languageName: 'Hebrew',
-  }) as { contents: Array<{ parts: Array<Record<string, unknown>> }>; generationConfig: Record<string, unknown> };
-  const part = body.contents[0].parts[0];
-  assert(String(part.text).startsWith('Read the following text aloud naturally in Hebrew:'), `prompt: ${String(part.text)}`);
-  assert(!('speechMetadata' in part), 'legacy got speechMetadata (3.1 rejects it with a 400)');
-  assert(!('responseFormat' in body.generationConfig), 'legacy got responseFormat (3.1 rejects it with a 400)');
-});
-
-check('legacy model detection', () => {
-  assert(isLegacyTtsModel('gemini-3.1-flash-tts-preview'), '3.1');
-  assert(!isLegacyTtsModel('gemini-3.8-flash-lite-tts'), '3.8 lite');
-  assert(!isLegacyTtsModel('gemini-3.8-flash-tts'), '3.8');
 });
 
 // 8. Voices are built-in names in prebuiltVoiceConfig.

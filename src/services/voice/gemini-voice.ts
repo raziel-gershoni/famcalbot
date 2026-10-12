@@ -11,15 +11,12 @@ import { detectSpeech, NO_SPEECH } from './speech-presence';
 import { VoiceIntentResult, VoiceIntent, ParsedEvent } from '../event-parser';
 import { CalendarAssignment } from '../../types';
 import { fromZonedTime } from 'date-fns-tz';
-import { getDefaultAiModelSetting } from '../reminder-cache';
-import { getModelConfig, FALLBACK_MODEL_ID } from '../../config/ai-models';
+import { AI_MODEL_ID } from '../../config/ai-models';
 
 const VOICE_RETRY_CONFIG = {
   maxRetries: 1,
   baseDelayMs: 500,
 } as const;
-
-const VOICE_MODEL_FALLBACK = FALLBACK_MODEL_ID;
 
 /**
  * Build the event extraction prompt (shared between voice and text modes)
@@ -430,17 +427,6 @@ export async function processVoiceWithGemini(
   const startTime = Date.now();
   let lastError: Error | null = null;
 
-  // Resolve model: admin setting → env var → hardcoded fallback
-  const adminDefault = await getDefaultAiModelSetting();
-  let resolvedModelId = VOICE_MODEL_FALLBACK;
-  if (adminDefault) {
-    const cfg = getModelConfig(adminDefault);
-    if (cfg) resolvedModelId = cfg.modelId;
-  } else if (process.env.AI_MODEL) {
-    const cfg = getModelConfig(process.env.AI_MODEL);
-    if (cfg) resolvedModelId = cfg.modelId;
-  }
-
   // Speech presence. Without these gates, non-speech audio - silence, a pocket
   // recording, music - came back as a high-confidence create, edit or delete in every
   // test run, on both 3.7 and 3.8. See ./speech-presence for why there are two.
@@ -451,7 +437,7 @@ export async function processVoiceWithGemini(
       intentResult,
       intentResults: [intentResult],
       transcription: '',
-      metrics: { model: resolvedModelId, inputTokens: 0, outputTokens: 0, durationMs: Date.now() - startTime },
+      metrics: { model: AI_MODEL_ID, inputTokens: 0, outputTokens: 0, durationMs: Date.now() - startTime },
     };
   };
 
@@ -465,7 +451,7 @@ export async function processVoiceWithGemini(
   // extraction prompt, so ask separately and in parallel - extraction is slower, so
   // this adds no latency in the usual case. Only the newest clip is checked: in
   // retry mode a silent follow-up is not a clarification.
-  const speechCheck = detectSpeech(audioBuffer, resolvedModelId);
+  const speechCheck = detectSpeech(audioBuffer, AI_MODEL_ID);
   let speechVerdict: boolean | undefined;
   void speechCheck.then(v => { speechVerdict = v; });
 
@@ -483,8 +469,8 @@ export async function processVoiceWithGemini(
       audioParts.push({ inlineData: { mimeType: 'audio/ogg', data: audioBuffer.toString('base64') } });
 
       const response = await getGemini().models.generateContent({
-        model: resolvedModelId,
-        ...extractionConfig(resolvedModelId),
+        model: AI_MODEL_ID,
+        ...extractionConfig(AI_MODEL_ID),
         contents: [
           {
             role: 'user',
@@ -497,7 +483,7 @@ export async function processVoiceWithGemini(
       const inputTokens = response.usageMetadata?.promptTokenCount || 0;
       const outputTokens = response.usageMetadata?.candidatesTokenCount || 0;
 
-      console.log(`[Voice Gemini] Response in ${duration}ms, model: ${resolvedModelId}, tokens: ${inputTokens}in/${outputTokens}out, attempt: ${attempt + 1}`);
+      console.log(`[Voice Gemini] Response in ${duration}ms, model: ${AI_MODEL_ID}, tokens: ${inputTokens}in/${outputTokens}out, attempt: ${attempt + 1}`);
 
       // response.text getter can throw if no candidates are present
       let responseText: string;
@@ -542,7 +528,7 @@ export async function processVoiceWithGemini(
         intentResult,
         intentResults,
         transcription,
-        metrics: { model: resolvedModelId, inputTokens, outputTokens, durationMs: duration },
+        metrics: { model: AI_MODEL_ID, inputTokens, outputTokens, durationMs: duration },
       };
 
     } catch (error) {

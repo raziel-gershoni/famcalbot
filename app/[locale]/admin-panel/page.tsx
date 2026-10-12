@@ -139,9 +139,6 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
       earlyAdoptionMode={adminSettings?.earlyAdoptionMode ?? false}
       voiceAutoCreateHighConf={adminSettings?.voiceAutoCreateHighConf ?? false}
       voiceTtsOutcome={adminSettings?.voiceTtsOutcome ?? false}
-      defaultAiModel={adminSettings?.defaultAiModel ?? null}
-      geminiThinkingLevel={adminSettings?.geminiThinkingLevel ?? null}
-      ttsModel={adminSettings?.ttsModel ?? null}
     />
   );
 }

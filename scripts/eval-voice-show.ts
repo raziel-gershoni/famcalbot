@@ -14,6 +14,7 @@ import path from 'path';
 import type { UserConfig } from '../src/types';
 import type { ShowKind, ShowTurn } from '../src/services/voice-show/types';
 import type { ShowPromptContext } from '../src/prompts/voice-show/types';
+import { AI_MODEL } from '../src/config/ai-models';
 
 interface Fixture {
   name: string;
@@ -549,8 +550,6 @@ async function main() {
   const langs = langFlag >= 0 ? args[langFlag + 1].split(',') : ['he', 'en', 'ru'];
   const outDirArg = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--model' && args[i - 1] !== '--lang')[0];
 
-  // Production runs Flash TTS (admin setting); locally there is no admin setting.
-  process.env.GEMINI_TTS_MODEL ||= 'gemini-3.8-flash-tts';
   // Synthesize here, not on a deployed tts-service.
   delete process.env.TTS_SERVICE_URL;
   if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not set');
@@ -582,7 +581,7 @@ async function main() {
     const language = fixture.language ?? 'he';
     const user = { id: 1, language, isAdmin: true, ...fixture.user } as unknown as UserConfig;
     const context = buildShowContext(fixture.summary, user, fixture.kind, fixture.isNextWeek);
-    const record: Record<string, unknown> = { fixture: fixture.name, model: modelId ?? '(admin default)' };
+    const record: Record<string, unknown> = { fixture: fixture.name, model: modelId ?? AI_MODEL };
 
     try {
       const written = await writeShowScript(context, { modelId });

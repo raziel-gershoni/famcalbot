@@ -1,7 +1,7 @@
 /**
  * Voice Generation Service
- * Generates speech from text using Gemini TTS. The model is chosen per request - see
- * resolveTtsModel() - and the request shape per model lives in ./gemini-tts.
+ * Generates speech from text using Gemini TTS, always on TTS_MODEL; the request shape
+ * lives in ./gemini-tts.
  *
  * Two products:
  * - generateVoiceMessage: one voice reads one text: the spoken CRUD outcome, and the
@@ -19,26 +19,12 @@ import { randomBytes } from 'crypto';
 import { encodePcmToOggOpus, SAMPLE_RATE } from '../utils/pcm-to-ogg-opus';
 import { mixDialogue } from '../utils/pcm-mix';
 import { createSemaphore } from '../utils/semaphore';
-import { DEFAULT_TTS_MODEL, getTtsModelConfig } from '../config/tts-models';
+import { TTS_MODEL } from '../config/tts-models';
 import {
   synthesizeSpeech, type SpeechAudio, type SynthesizeSpeechInput,
 } from './gemini-tts';
 import { synthesizeDialogue } from './dialogue-tts';
-import { getTtsModelSetting } from './reminder-cache';
 import type { ShowLine } from './voice-show/types';
-
-/**
- * Which TTS model to use: the admin panel setting, then the GEMINI_TTS_MODEL env var,
- * then the code default. Resolved per request, not at import, so a change in the admin
- * panel takes effect on the next voice message without a redeploy.
- */
-export async function resolveTtsModel(): Promise<string> {
-  const fromAdmin = await getTtsModelSetting();
-  // The admin route validates on write; re-check here so a stale or hand-edited row
-  // can't route every voice message to a model id that doesn't exist.
-  if (fromAdmin && getTtsModelConfig(fromAdmin)) return fromAdmin;
-  return process.env.GEMINI_TTS_MODEL || DEFAULT_TTS_MODEL;
-}
 
 /** The two show hosts' voices for a language: Gemini built-in voices, by name. */
 export interface ShowVoices {
@@ -94,13 +80,6 @@ async function callWithRetry<T>(
   throw new Error('Unreachable');
 }
 
-// Language names for TTS prompt
-const LANGUAGE_NAMES: Record<string, string> = {
-  he: 'Hebrew',
-  en: 'English',
-  ru: 'Russian',
-};
-
 export interface VoiceGenerationResult {
   filePath: string;
   ttsMs: number;
@@ -155,9 +134,8 @@ async function generateVoiceRemote(
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${process.env.TTS_API_KEY}`,
       },
-      // The model travels with the request so the admin panel setting applies on the
-      // remote path too. A tts-service deployed before model selection existed ignores
-      // it and uses its own GEMINI_TTS_MODEL.
+      // The model travels with the request so the remote path speaks with the same
+      // model as the local one, whatever the deployed service's own default is.
       body: JSON.stringify({ text, language, voiceName, model }),
       signal: controller.signal,
     });
@@ -170,8 +148,8 @@ async function generateVoiceRemote(
     const oggBuffer = Buffer.from(await response.arrayBuffer());
     const remoteDurationMs = response.headers.get('X-TTS-Duration-Ms');
     // The model that actually spoke. A tts-service deployed before model selection
-    // existed sends no header and uses its own GEMINI_TTS_MODEL, so the requested
-    // model is only a best guess in that case - log both so it's visible.
+    // existed ignores the request's model and sends no header, so the requested model
+    // is only a best guess in that case - log both so it's visible.
     const remoteModel = response.headers.get('X-TTS-Model');
 
     const filePath = await writeVoiceFile(oggBuffer);
@@ -205,7 +183,7 @@ export async function generateVoiceMessage(
   options: VoiceMessageOptions = {},
 ): Promise<VoiceGenerationResult> {
   const voiceName = options.voiceName || narratorVoice(language);
-  const model = await resolveTtsModel();
+  const model = TTS_MODEL;
 
   // If TTS_SERVICE_URL is set, offload to remote serverless function
   if (process.env.TTS_SERVICE_URL) {
@@ -231,7 +209,6 @@ export async function generateVoiceMessage(
       model,
       text: condensedText,
       voiceName,
-      languageName: LANGUAGE_NAMES[language] || 'English',
     }),
     TTS_MAX_RETRIES,
     TTS_BASE_DELAY_MS,
@@ -311,7 +288,7 @@ export async function generateShowVoice(
   if (!voices) throw new Error(`[TTS] No show hosts for language "${language}"`);
   if (!lines.length) throw new Error('[TTS] Show has no lines');
 
-  const model = await resolveTtsModel();
+  const model = TTS_MODEL;
   const queuedAt = Date.now();
 
   return withShowSlot(async () => {

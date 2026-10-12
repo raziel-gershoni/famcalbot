@@ -7,16 +7,13 @@
 import { getGemini, extractionConfig } from '../ai-provider';
 import { VoiceIntentResult } from '../event-parser';
 import { CalendarAssignment } from '../../types';
-import { getDefaultAiModelSetting } from '../reminder-cache';
-import { getModelConfig, FALLBACK_MODEL_ID } from '../../config/ai-models';
+import { AI_MODEL_ID } from '../../config/ai-models';
 import { buildEventExtractionPrompt, extractIntents } from '../voice/gemini-voice';
 
 const IMAGE_RETRY_CONFIG = {
   maxRetries: 1,
   baseDelayMs: 500,
 } as const;
-
-const IMAGE_MODEL_FALLBACK = FALLBACK_MODEL_ID;
 
 export interface ImageProcessingMetrics {
   model: string;
@@ -46,25 +43,14 @@ export async function processImageWithGemini(
   const startTime = Date.now();
   let lastError: Error | null = null;
 
-  // Resolve model: admin setting → env var → hardcoded fallback
-  const adminDefault = await getDefaultAiModelSetting();
-  let resolvedModelId = IMAGE_MODEL_FALLBACK;
-  if (adminDefault) {
-    const cfg = getModelConfig(adminDefault);
-    if (cfg) resolvedModelId = cfg.modelId;
-  } else if (process.env.AI_MODEL) {
-    const cfg = getModelConfig(process.env.AI_MODEL);
-    if (cfg) resolvedModelId = cfg.modelId;
-  }
-
   for (let attempt = 0; attempt <= IMAGE_RETRY_CONFIG.maxRetries; attempt++) {
     try {
       const promptText = buildEventExtractionPrompt(language, calendars, timezone, 'image')
         + (caption?.trim() ? `\n\nUSER CAPTION (extra context):\n${caption.trim()}` : '');
 
       const response = await getGemini().models.generateContent({
-        model: resolvedModelId,
-        ...extractionConfig(resolvedModelId),
+        model: AI_MODEL_ID,
+        ...extractionConfig(AI_MODEL_ID),
         contents: [
           {
             role: 'user',
@@ -80,7 +66,7 @@ export async function processImageWithGemini(
       const inputTokens = response.usageMetadata?.promptTokenCount || 0;
       const outputTokens = response.usageMetadata?.candidatesTokenCount || 0;
 
-      console.log(`[Image Gemini] Response in ${duration}ms, model: ${resolvedModelId}, tokens: ${inputTokens}in/${outputTokens}out, attempt: ${attempt + 1}`);
+      console.log(`[Image Gemini] Response in ${duration}ms, model: ${AI_MODEL_ID}, tokens: ${inputTokens}in/${outputTokens}out, attempt: ${attempt + 1}`);
 
       // response.text getter can throw if no candidates are present
       let responseText: string;
@@ -112,7 +98,7 @@ export async function processImageWithGemini(
       return {
         intentResult,
         intentResults,
-        metrics: { model: resolvedModelId, inputTokens, outputTokens, durationMs: duration },
+        metrics: { model: AI_MODEL_ID, inputTokens, outputTokens, durationMs: duration },
       };
 
     } catch (error) {

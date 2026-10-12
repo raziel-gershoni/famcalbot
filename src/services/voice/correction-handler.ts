@@ -12,8 +12,7 @@ import { resolveUserTimezone } from '../../lib/timezone';
 import { getBotMessages } from '../../lib/bot-messages';
 import { trackActivityAsync, addBreadcrumb } from '../analytics-service';
 import { captureError } from '../../lib/error-capture';
-import { getDefaultAiModelSetting } from '../reminder-cache';
-import { getModelConfig, FALLBACK_MODEL_ID } from '../../config/ai-models';
+import { AI_MODEL_ID } from '../../config/ai-models';
 import { fromZonedTime } from 'date-fns-tz';
 import { formatInTimeZone } from 'date-fns-tz';
 import { getPendingEvent, removePendingEvent, showEventConfirmation } from './confirmations';
@@ -22,8 +21,6 @@ import { REDIS_KEYS } from '../../config/redis-keys';
 import { startTypingInterval } from '../telegram/command-pipeline';
 
 type CorrectionInput = { text: string } | { audioBuffer: Buffer; language: string };
-
-const CORRECTION_MODEL_FALLBACK = FALLBACK_MODEL_ID;
 
 /**
  * Build the correction prompt with current event context
@@ -116,17 +113,6 @@ export async function handleEventCorrection(
     const userCalendars = await getCalendarAssignmentsForUser(user);
     const correctionPrompt = buildCorrectionPrompt(event, userCalendars, timezone);
 
-    // Resolve model
-    const adminDefault = await getDefaultAiModelSetting();
-    let resolvedModelId = CORRECTION_MODEL_FALLBACK;
-    if (adminDefault) {
-      const cfg = getModelConfig(adminDefault);
-      if (cfg) resolvedModelId = cfg.modelId;
-    } else if (process.env.AI_MODEL) {
-      const cfg = getModelConfig(process.env.AI_MODEL);
-      if (cfg) resolvedModelId = cfg.modelId;
-    }
-
     // Build Gemini request parts — text or audio in a single call
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const parts: any[] = [{ text: correctionPrompt }];
@@ -143,8 +129,8 @@ export async function handleEventCorrection(
     }
 
     const response = await getGemini().models.generateContent({
-      model: resolvedModelId,
-      ...extractionConfig(resolvedModelId),
+      model: AI_MODEL_ID,
+      ...extractionConfig(AI_MODEL_ID),
       contents: [{ role: 'user', parts }],
     });
 
@@ -214,7 +200,7 @@ export async function handleEventCorrection(
     const inputTokens = response.usageMetadata?.promptTokenCount || 0;
     const outputTokens = response.usageMetadata?.candidatesTokenCount || 0;
     const adminFooter = user.isAdmin
-      ? `\n\n<i>📊 correction | ${resolvedModelId} | ${inputTokens}→${outputTokens} tok</i>`
+      ? `\n\n<i>📊 correction | ${AI_MODEL_ID} | ${inputTokens}→${outputTokens} tok</i>`
       : undefined;
 
     // Show updated confirmation — edits the original message in-place

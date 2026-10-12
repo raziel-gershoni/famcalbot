@@ -98,13 +98,7 @@
       "reminders": "Event Reminders",
       "remindersDescription": "Enable/disable reminders feature globally for all users",
       "earlyAdoption": "Early Adoption Mode",
-      "earlyAdoptionDescription": "Give all users PRO access. Hides payment UI.",
-      "aiModel": "Default AI Model",
-      "aiModelDescription": "Select the AI model used for summaries, weather, and voice",
-      "geminiThinking": "Gemini Thinking Level",
-      "geminiThinkingDescription": "Control reasoning depth for Gemini models (lower = faster, cheaper)",
-      "ttsModel": "Voice model",
-      "ttsModelDescription": "Speech engine for spoken summaries and voice replies"
+      "earlyAdoptionDescription": "Give all users PRO access. Hides payment UI."
     },
     "overrides": {
       "title": "User Feature Overrides",

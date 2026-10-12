@@ -8,6 +8,7 @@ import fs from 'fs/promises';
 import http from 'http';
 import type { AddressInfo } from 'net';
 import { createSemaphore } from '../src/utils/semaphore';
+import { TTS_MODEL } from '../src/config/tts-models';
 import type { SpeechAudio, SynthesizeSpeechInput } from '../src/services/gemini-tts';
 import type { ShowLine } from '../src/services/voice-show/types';
 
@@ -122,9 +123,10 @@ async function main() {
         assert(seen.method === 'POST' && seen.url === '/api/dialogue', `${seen.method} ${seen.url}`);
         assert(seen.auth === 'Bearer test-key', `auth ${seen.auth}`);
         assert(seen.body?.voices?.B === 'Puck' && seen.body.lines?.length === 4, 'remote body');
-        assert(typeof seen.body?.model === 'string', 'model not sent');
+        assert(seen.body?.model === TTS_MODEL, `remote model ${seen.body?.model}`);
         assert(result.via === 'local' && result.lineCount === 4 && result.audioTokens === 60, JSON.stringify(result));
         assert(synthCalls.length === 4, `synth calls ${synthCalls.length}`);
+        assert(synthCalls.every(c => c.model === TTS_MODEL), `local models ${synthCalls.map(c => c.model).join(',')}`);
         assert(synthCalls.every((c, i) => c.voiceName === (LINES[i].host === 'A' ? 'Schedar' : 'Puck')), 'voices');
         assert(synthCalls[1].style === 'high-energy, excited sports commentator, amused', `style ${synthCalls[1].style}`);
         // 4 lines of 0.6 s tone + 2 x 40 ms kept edges, 3 gaps of 0.2 s.
@@ -174,8 +176,7 @@ async function main() {
 
   await check('a hung remote is cut at the show deadline and the local fallback fails fast', async () => {
     let held: http.ServerResponse | undefined;
-    // Timed from the remote request: locally the model lookup before the slot waits
-    // ~4 s on the Upstash client's retries.
+    // Timed from the remote request, so nothing before it counts against the deadline.
     let receivedAt = 0;
     await withServer(res => { held = res; receivedAt = Date.now(); }, async url => {
       process.env.TTS_SERVICE_URL = url;

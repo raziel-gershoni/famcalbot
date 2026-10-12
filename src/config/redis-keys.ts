@@ -22,9 +22,6 @@ export const REDIS_KEYS = {
   REMINDER_USERS: 'reminders:users',
   REMINDERS_GLOBAL_ENABLED: 'reminders:global_enabled',
   EARLY_ADOPTION_GLOBAL: 'early_adoption:global_enabled',
-  DEFAULT_AI_MODEL: 'admin:default_ai_model',
-  GEMINI_THINKING_LEVEL: 'admin:gemini_thinking_level',
-  TTS_MODEL: 'admin:tts_model',
 
   // Summary dedup (prevents double-delivery within same day)
   summaryDedup: (userId: number, type: 'daily' | 'tomorrow', date: string) =>

@@ -1,8 +1,8 @@
 /**
- * Writes the show script: one LLM call through generateAICompletion (the admin's
- * default model) in JSON mode, then ./script's validator. A rejected answer is
- * regenerated once with the reason attached; a second rejection throws, and the caller
- * takes the "voice unavailable" path.
+ * Writes the show script: one LLM call through generateAICompletion (AI_MODEL) in
+ * JSON mode, then ./script's validator. A rejected answer is regenerated once with the
+ * reason attached; a second rejection throws, and the caller takes the "voice
+ * unavailable" path.
  */
 
 import type { AICompletionOptions, AICompletionResult } from '../ai-provider';
@@ -23,7 +23,7 @@ export interface WrittenShow {
 export interface WriteShowOptions {
   /** Defaults to generateAICompletion. Tests inject a fake. */
   complete?: CompletionFn;
-  /** Overrides the admin default model. Used by the eval script. */
+  /** Overrides AI_MODEL. Used by the eval script's --model. */
   modelId?: string;
 }
 
