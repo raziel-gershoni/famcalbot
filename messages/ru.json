@@ -276,7 +276,7 @@
     "textSummary": "Текстовая сводка",
     "textSummaryDescription": "Получать сводку текстовым сообщением",
     "voiceSummary": "Голосовая сводка",
-    "voiceSummaryDescription": "Получать сводку голосовым сообщением",
+    "voiceSummaryDescription": "Получать сводку как короткое радиошоу с двумя ведущими",
     "weatherSummary": "Прогноз погоды",
     "weatherSummaryDescription": "Включить прогноз погоды в сводку",
     "weekLookahead": "Обзор недели",

@@ -75,8 +75,8 @@ async function main() {
     assert(caption.includes('| Algieba |') && !caption.includes('style:'), caption);
   });
 
-  await check('only Hebrew has the show', () => {
-    assert(isShowLanguage('he') && !isShowLanguage('en') && !isShowLanguage('ru'), 'routing');
+  await check('Hebrew, English and Russian have the show, other languages do not', () => {
+    assert(isShowLanguage('he') && isShowLanguage('en') && isShowLanguage('ru') && !isShowLanguage('fr'), 'routing');
   });
 
   await check('produceShowVoice: script → lines → mixed OGG with admin caption', async () => {

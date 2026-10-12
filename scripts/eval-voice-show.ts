@@ -17,11 +17,13 @@ import type { ShowPromptContext } from '../src/prompts/voice-show/types';
 
 interface Fixture {
   name: string;
+  /** Defaults to Hebrew. */
+  language?: 'he' | 'en' | 'ru';
   kind: ShowKind;
   isNextWeek?: boolean;
   user: Record<string, unknown>;
   summary: string;
-  /** Each group is satisfied when any of its strings appears in the script. */
+  /** Each group is satisfied when any of its strings appears in the script, ignoring case. */
   facts: string[][];
   /** Checked like facts, but the check fails when any of these appears. */
   forbidden?: string[];
@@ -212,6 +214,314 @@ ${WEATHER_WEEK}`,
   },
 ];
 
+// English and Russian: the same families and days as the Hebrew fixtures. Facts match
+// word stems, since Russian declines names and times (Итай -> Итая).
+const WEATHER_WEEK_EN = `<b>This week</b>
+Saturday and Sunday stay hot, 29-31° with high humidity, a real beach weekend 🏖️. Monday brings relief: temperatures drop to 24-25°, with a 40% chance of the first showers on Tuesday morning 🌦️. Wednesday is back to clear skies, dry and pleasant, around 25°.
+
+<b>Extended outlook</b>
+The week after looks set to cool gradually, with daytime highs of 21-24°. More rainy days are possible, but this is only a general outlook and it is too early to be sure 🍂.`;
+
+const WEATHER_WEEK_RU = `<b>На этой неделе</b>
+В субботу и воскресенье жара сохранится, 29-31° и высокая влажность, настоящие пляжные выходные 🏖️. С понедельника станет легче: температура опустится до 24-25°, а во вторник утром 40% вероятность первых ливней 🌦️. В среду снова ясно, сухо и приятно, около 25°.
+
+<b>Расширенный прогноз</b>
+На следующей неделе ожидается постепенное похолодание, днём 21-24°. Возможны новые дождливые дни, но это лишь общая оценка и пока рано говорить наверняка 🍂.`;
+
+const FIXTURES_EN_RU: Fixture[] = [
+  {
+    name: 'en-daily-male-busy',
+    language: 'en',
+    kind: 'daily',
+    user: {
+      name: 'Danny', gender: 'male', culture: 'default',
+      calendarAssignments: [
+        { calendarId: 's', labels: ['spouse'], name: 'Noa', color: '', personName: 'Noa', personGender: 'female' },
+        { calendarId: 'k1', labels: ['kids'], name: 'Itai', color: '', personName: 'Itai', personGender: 'male' },
+        { calendarId: 'k2', labels: ['kids'], name: 'Tamar', color: '', personName: 'Tamar', personGender: 'female' },
+      ],
+    },
+    summary: `<b>Good morning, Danny! ☀️</b>
+
+<b>Today - Sunday, October 18</b>
+
+<b>Your schedule:</b>
+• 08:30 - Team meeting on Zoom
+• 10:15 - Meeting with attorney Levy
+• 13:00 - Lunch with Dad
+
+<b>Noa's schedule:</b>
+• 11:00 - Dentist
+
+<b>Pickups:</b>
+• 14:00 - Noa picks up Itai from kindergarten
+• 16:30 - Swimming class for Tamar
+
+<b>Weather:</b> ☀️ 28°/19°, clear, no rain. Humid around noon.
+
+<b>Week ahead:</b>
+• Wednesday - Grandma Rachel's birthday`,
+    facts: [['danny'], ['team'], ['levy'], ['dad'], ['dentist'], ['itai'], ['tamar'], ['swim'], ['rachel'], ['ten fifteen', 'quarter past ten'], ['eleven'], ['four thirty', 'half past four']],
+    seconds: [35, 85],
+  },
+  {
+    // A female listener with a spouse of unknown gender: no "he" or "she" for Shai.
+    name: 'en-daily-female-busy',
+    language: 'en',
+    kind: 'daily',
+    user: {
+      name: 'Noa', gender: 'female', culture: 'default',
+      calendarAssignments: [
+        { calendarId: 's', labels: ['spouse'], name: 'Shai', color: '', personName: 'Shai' },
+        { calendarId: 'k1', labels: ['kids'], name: 'Yoav', color: '', personName: 'Yoav', personGender: 'male' },
+        { calendarId: 'k2', labels: ['kids'], name: 'Maya', color: '', personName: 'Maya', personGender: 'female' },
+      ],
+    },
+    summary: `<b>Good morning, Noa! ☀️</b>
+
+<b>Today - Wednesday, October 21</b>
+
+<b>Your schedule:</b>
+• 08:00-09:00 - Management meeting
+• 12:15 - Lunch with Dana
+• 17:45 - Pilates
+
+<b>Shai's schedule:</b>
+• 10:30 - Job interview
+• 19:00 - Football game
+
+<b>Pickups:</b>
+• 13:30 - Yoav: school pickup (Shai)
+• 16:00 - Maya: ballet class
+
+<b>Weather:</b> 🌤️ 25°/16°, pleasant with a light breeze. Cooler this evening, bring a light jacket.`,
+    facts: [['noa'], ['management'], ['dana'], ['pilates'], ['shai'], ['interview'], ['football', 'soccer'], ['yoav'], ['maya'], ['ballet'], ['ten thirty', 'half past ten'], ['twelve fifteen', 'quarter past twelve']],
+    seconds: [35, 90],
+  },
+  {
+    name: 'en-tomorrow-male',
+    language: 'en',
+    kind: 'tomorrow',
+    user: { name: 'Omer', gender: 'male', culture: 'default', calendarAssignments: [] },
+    summary: `<b>Good evening, Omer! 🌙</b>
+
+<b>Tomorrow - Monday, October 19</b>
+
+<b>Your schedule:</b>
+• 07:00 - Gym
+• 11:00 - Doctor's appointment
+• 18:30 - Dinner with friends
+
+<b>Weather:</b> ⛅ 26°/18°, partly cloudy.`,
+    facts: [['tomorrow'], ['omer'], ['doctor'], ['gym', 'workout'], ['eleven'], ['six thirty', 'half past six']],
+    forbidden: ['good morning', 'today is'],
+    leads: { within: 2, any: ['tomorrow'] },
+    seconds: [30, 85],
+  },
+  {
+    name: 'en-weekly-busy',
+    language: 'en',
+    kind: 'weekly',
+    isNextWeek: false,
+    user: {
+      name: 'Raziel', gender: 'male', culture: 'default',
+      calendarAssignments: [
+        { calendarId: 's', labels: ['spouse'], name: 'Shai', color: '', personName: 'Shai' },
+        { calendarId: 'k1', labels: ['kids'], name: 'Uri', color: '', personName: 'Uri', personGender: 'male' },
+      ],
+    },
+    summary: `<b>Your week 📅</b>
+
+<b>Sunday</b>
+• 09:00 - Quarterly planning meeting
+• 17:00 - Shai: yoga
+
+<b>Monday</b>
+• 08:00 - Uri: school trip
+• 12:30 - Team lunch
+• 19:00 - Parent-teacher meeting
+
+<b>Tuesday</b>
+• 10:00 - Dr. Cohen
+• 15:45 - Uri: robotics club
+
+<b>Wednesday</b>
+• 07:30 - Flight to Eilat
+• 21:00 - Shai: concert
+
+<b>Thursday</b>
+• 11:15 - Investor call
+• 18:00 - Grandpa Moshe's birthday
+
+<b>Friday</b>
+• 13:00 - Friday lunch at the parents'`,
+    facts: [['planning'], ['yoga'], ['trip'], ['parent'], ['cohen'], ['robotics'], ['eilat'], ['concert'], ['investor'], ['moshe'], ['friday']],
+    seconds: [40, 100],
+  },
+  {
+    name: 'en-weather-evening',
+    language: 'en',
+    kind: 'weather',
+    user: { name: 'Joe', gender: 'male', culture: 'default', calendarAssignments: [] },
+    summary: `Good evening, Joe! 🌙 Today is Thursday, October 22, 2026.
+
+<b>Today and tomorrow</b>
+The evening is already pleasant and cooling: 22° right now, clear skies and a weak westerly wind 🌙. Overnight it drops to 19°. Tomorrow, Friday, the morning starts at 20° and climbs to 30° by noon ☀️. Skies stay clear with no rain, but the UV index reaches 9 between 11:00 and 14:00, so sunscreen and a hat are a good idea. In the afternoon a light westerly breeze takes a little edge off the heat 🌬️.
+
+${WEATHER_WEEK_EN}`,
+    facts: [['tomorrow'], ['thirty'], ['sunscreen', 'hat'], ['rain', 'shower'], ['weekend', 'saturday']],
+    forbidden: ['good morning'],
+    leads: { within: 2, any: ['tomorrow'] },
+    seconds: [25, 65],
+  },
+  {
+    name: 'ru-daily-male-busy',
+    language: 'ru',
+    kind: 'daily',
+    user: {
+      name: 'Денис', gender: 'male', culture: 'default',
+      calendarAssignments: [
+        { calendarId: 's', labels: ['spouse'], name: 'Ноа', color: '', personName: 'Ноа', personGender: 'female' },
+        { calendarId: 'k1', labels: ['kids'], name: 'Итай', color: '', personName: 'Итай', personGender: 'male' },
+        { calendarId: 'k2', labels: ['kids'], name: 'Тамар', color: '', personName: 'Тамар', personGender: 'female' },
+      ],
+    },
+    summary: `<b>Доброе утро, Денис! ☀️</b>
+
+<b>Сегодня - воскресенье, 18 октября</b>
+
+<b>Твоё расписание:</b>
+• 08:30 - Планёрка в Зуме
+• 10:15 - Встреча с адвокатом Леви
+• 13:00 - Обед с папой
+
+<b>Расписание Ноа:</b>
+• 11:00 - Стоматолог
+
+<b>Кого забрать:</b>
+• 14:00 - Ноа забирает Итая из садика
+• 16:30 - Тамар: плавание
+
+<b>Погода:</b> ☀️ 28°/19°, ясно, без осадков. В полдень влажно.
+
+<b>Взгляд на неделю:</b>
+• Среда - День рождения бабушки Рахель`,
+    facts: [['денис'], ['планёр', 'планер', 'совещ', 'команд'], ['леви'], ['пап'], ['стоматолог', 'зубн'], ['ита'], ['тамар'], ['плава'], ['рахел'], ['десять пятнадцать', 'четверть одиннадцатого'], ['одиннадцат'], ['четыре тридцать', 'половин', 'шестнадцать тридцать']],
+    seconds: [35, 85],
+  },
+  {
+    // A female listener with a spouse of unknown gender: Russian genders past-tense
+    // verbs and short adjectives, so Шай must get neutral phrasing.
+    name: 'ru-daily-female-busy',
+    language: 'ru',
+    kind: 'daily',
+    user: {
+      name: 'Ноа', gender: 'female', culture: 'default',
+      calendarAssignments: [
+        { calendarId: 's', labels: ['spouse'], name: 'Шай', color: '', personName: 'Шай' },
+        { calendarId: 'k1', labels: ['kids'], name: 'Йоав', color: '', personName: 'Йоав', personGender: 'male' },
+        { calendarId: 'k2', labels: ['kids'], name: 'Майя', color: '', personName: 'Майя', personGender: 'female' },
+      ],
+    },
+    summary: `<b>Доброе утро, Ноа! ☀️</b>
+
+<b>Сегодня - среда, 21 октября</b>
+
+<b>Твоё расписание:</b>
+• 08:00-09:00 - Совещание руководства
+• 12:15 - Обед с Даной
+• 17:45 - Пилатес
+
+<b>Расписание Шай:</b>
+• 10:30 - Собеседование
+• 19:00 - Футбольный матч
+
+<b>Кого забрать:</b>
+• 13:30 - Йоав: забрать из школы (Шай)
+• 16:00 - Майя: балет
+
+<b>Погода:</b> 🌤️ 25°/16°, приятно, лёгкий ветер. К вечеру прохладнее, возьми лёгкую куртку.`,
+    facts: [['ноа'], ['руковод', 'совещ'], ['дан'], ['пилатес'], ['шай'], ['собеседов'], ['футбол'], ['йоав'], ['май'], ['балет'], ['десять тридцать', 'половин'], ['двенадцать пятнадцать', 'четверть первого']],
+    seconds: [35, 90],
+  },
+  {
+    name: 'ru-tomorrow-male',
+    language: 'ru',
+    kind: 'tomorrow',
+    user: { name: 'Омер', gender: 'male', culture: 'default', calendarAssignments: [] },
+    summary: `<b>Добрый вечер, Омер! 🌙</b>
+
+<b>Завтра - понедельник, 19 октября</b>
+
+<b>Твоё расписание:</b>
+• 07:00 - Спортзал
+• 11:00 - Приём у врача
+• 18:30 - Ужин с друзьями
+
+<b>Погода:</b> ⛅ 26°/18°, переменная облачность.`,
+    facts: [['завтра'], ['омер'], ['врач'], ['спортзал', 'зал', 'трениров'], ['одиннадцат'], ['шесть тридцать', 'половин', 'восемнадцать тридцать']],
+    forbidden: ['доброе утро', 'сегодня понедельник'],
+    leads: { within: 2, any: ['завтра'] },
+    seconds: [30, 85],
+  },
+  {
+    name: 'ru-weekly-busy',
+    language: 'ru',
+    kind: 'weekly',
+    isNextWeek: false,
+    user: {
+      name: 'Рафаэль', gender: 'male', culture: 'default',
+      calendarAssignments: [
+        { calendarId: 's', labels: ['spouse'], name: 'Шай', color: '', personName: 'Шай' },
+        { calendarId: 'k1', labels: ['kids'], name: 'Ури', color: '', personName: 'Ури', personGender: 'male' },
+      ],
+    },
+    summary: `<b>Твоя неделя 📅</b>
+
+<b>Воскресенье</b>
+• 09:00 - Квартальное планирование
+• 17:00 - Шай: йога
+
+<b>Понедельник</b>
+• 08:00 - Ури: школьная экскурсия
+• 12:30 - Обед с командой
+• 19:00 - Родительское собрание
+
+<b>Вторник</b>
+• 10:00 - Доктор Коэн
+• 15:45 - Ури: кружок робототехники
+
+<b>Среда</b>
+• 07:30 - Рейс в Эйлат
+• 21:00 - Шай: концерт
+
+<b>Четверг</b>
+• 11:15 - Звонок с инвесторами
+• 18:00 - День рождения дедушки Моше
+
+<b>Пятница</b>
+• 13:00 - Пятничный обед у родителей`,
+    facts: [['планиров'], ['йог'], ['экскурс'], ['собрани'], ['коэн'], ['робототехн'], ['эйлат'], ['концерт'], ['инвестор'], ['моше'], ['пятниц']],
+    seconds: [40, 100],
+  },
+  {
+    name: 'ru-weather-evening',
+    language: 'ru',
+    kind: 'weather',
+    user: { name: 'Иосиф', gender: 'male', culture: 'default', calendarAssignments: [] },
+    summary: `Добрый вечер, Иосиф! 🌙 Сегодня четверг, 22 октября 2026.
+
+<b>Сегодня и завтра</b>
+Вечер уже приятный и становится прохладнее: сейчас 22°, ясно, слабый западный ветер 🌙. Ночью до 19°. Завтра, в пятницу, утро начнётся с 20°, а к полудню до 30° ☀️. Небо останется ясным, без дождя, но УФ-индекс дойдёт до 9 с 11:00 до 14:00, так что пригодятся солнцезащитный крем и шляпа. Днём лёгкий западный ветер немного смягчит жару 🌬️.
+
+${WEATHER_WEEK_RU}`,
+    facts: [['завтра'], ['тридцат'], ['крем', 'шляп', 'панам'], ['дожд', 'ливн', 'ливен'], ['выходн', 'суббот']],
+    forbidden: ['доброе утро'],
+    leads: { within: 2, any: ['завтра'] },
+    seconds: [25, 65],
+  },
+];
+
 const SOUND = /<(chuckle|laugh|sigh|gasp|whispers|throat-clearing)>/g;
 const JUDGE_SCHEMA = {
   type: 'object',
@@ -232,9 +542,12 @@ function describePeople(context: ShowPromptContext): string {
 
 async function main() {
   const args = process.argv.slice(2);
-  const outDir = args.find(a => !a.startsWith('--')) ?? 'eval-voice-show-out';
   const modelFlag = args.indexOf('--model');
   const modelId = modelFlag >= 0 ? args[modelFlag + 1] : undefined;
+  // --lang en,ru runs only those languages' fixtures.
+  const langFlag = args.indexOf('--lang');
+  const langs = langFlag >= 0 ? args[langFlag + 1].split(',') : ['he', 'en', 'ru'];
+  const outDirArg = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--model' && args[i - 1] !== '--lang')[0];
 
   // Production runs Flash TTS (admin setting); locally there is no admin setting.
   process.env.GEMINI_TTS_MODEL ||= 'gemini-3.8-flash-tts';
@@ -257,34 +570,38 @@ async function main() {
   const { generateShowVoice, getShowVoices } = await import('../src/services/voice-generator');
   const { generateAICompletion } = await import('../src/services/ai-provider');
 
+  const outDir = outDirArg ?? 'eval-voice-show-out';
   await fs.mkdir(outDir, { recursive: true });
   const report: Array<{ name: string; checks: Check[] }> = [];
   let firstTurns: ShowTurn[] = [];
+  let firstLanguage = 'he';
 
-  for (const fixture of FIXTURES) {
+  for (const fixture of [...FIXTURES, ...FIXTURES_EN_RU].filter(f => langs.includes(f.language ?? 'he'))) {
     console.log(`\n=== ${fixture.name} ===`);
     const checks: Check[] = [];
-    const user = { id: 1, language: 'he', isAdmin: true, ...fixture.user } as unknown as UserConfig;
+    const language = fixture.language ?? 'he';
+    const user = { id: 1, language, isAdmin: true, ...fixture.user } as unknown as UserConfig;
     const context = buildShowContext(fixture.summary, user, fixture.kind, fixture.isNextWeek);
     const record: Record<string, unknown> = { fixture: fixture.name, model: modelId ?? '(admin default)' };
 
     try {
       const written = await writeShowScript(context, { modelId });
       const turns = written.script.turns;
-      if (!firstTurns.length) firstTurns = turns;
+      if (!firstTurns.length) { firstTurns = turns; firstLanguage = language; }
       const text = turns.map(t => t.text).join('\n');
+      const lower = text.toLowerCase();
       Object.assign(record, { attempts: written.attempts, warnings: written.script.warnings, turns, writerMs: written.completion.durationMs, writerUsage: written.completion.usage });
 
-      const missing = fixture.facts.filter(group => !group.some(fact => text.includes(fact)));
+      const missing = fixture.facts.filter(group => !group.some(fact => lower.includes(fact.toLowerCase())));
       checks.push({ name: 'facts', ok: missing.length === 0, detail: missing.length ? `missing ${missing.map(g => g.join('|')).join(', ')}` : `${fixture.facts.length} groups found` });
       if (fixture.forbidden) {
-        const present = fixture.forbidden.filter(word => text.includes(word));
+        const present = fixture.forbidden.filter(word => lower.includes(word.toLowerCase()));
         checks.push({ name: 'forbidden', ok: present.length === 0, detail: present.length ? `contains ${present.join(', ')}` : `none of ${fixture.forbidden.join(', ')}` });
       }
       if (fixture.leads) {
         const { within, any } = fixture.leads;
-        const opening = turns.slice(0, within).map(t => t.text).join('\n');
-        const found = any.filter(word => opening.includes(word));
+        const opening = turns.slice(0, within).map(t => t.text).join('\n').toLowerCase();
+        const found = any.filter(word => opening.includes(word.toLowerCase()));
         checks.push({ name: 'leads with', ok: found.length > 0, detail: found.length ? `${found.join(', ')} in the first ${within} turns` : `none of ${any.join('|')} in the first ${within} turns` });
       }
       checks.push({ name: 'no digits', ok: !/\d/.test(text), detail: (text.match(/\S*\d\S*/g) ?? []).join(' ') || 'none' });
@@ -293,7 +610,7 @@ async function main() {
       checks.push({ name: 'shape', ok: true, detail: `${turns.length} turns, ${new Set(turns.map(t => t.mood)).size} moods (${[...new Set(turns.map(t => t.mood))].join(', ')}), attempts ${written.attempts}` });
 
       const judge = await generateAICompletion(
-        `You check a Hebrew radio script for grammatical gender agreement.\n` +
+        `You check a ${{ he: 'Hebrew', en: 'English', ru: 'Russian' }[language]} radio script for grammatical gender agreement.\n` +
         `The two hosts (A and B) are men and must speak of themselves in the masculine.\n${describePeople(context)}\n` +
         `Report every place where the listener is addressed with the wrong gender (second-person verbs, adjectives, pronouns), ` +
         `a family member is referred to with the wrong gender, a person of unknown gender is given one, or a host speaks of himself in the feminine. ` +
@@ -304,8 +621,8 @@ async function main() {
       const verdict = JSON.parse(judge.text) as { ok: boolean; problems: string[] };
       checks.push({ name: 'gender', ok: verdict.ok, detail: verdict.problems.join(' / ') || 'ok' });
 
-      const lines = toShowLines(turns, 'he', context.listener.gender);
-      const show = await generateShowVoice(lines, 'he');
+      const lines = toShowLines(turns, language, context.listener.gender);
+      const show = await generateShowVoice(lines, language);
       const [min, max] = fixture.seconds;
       checks.push({ name: 'length', ok: show.audioSeconds >= min && show.audioSeconds <= max, detail: `${show.audioSeconds.toFixed(1)}s (want ${min}-${max}), TTS ${(show.ttsMs / 1000).toFixed(1)}s, ${show.audioTokens} tokens, ${show.ttsModel}` });
       await fs.copyFile(show.filePath, path.join(outDir, `${fixture.name}.ogg`));
@@ -343,7 +660,7 @@ async function main() {
       await handler({
         method: 'POST',
         headers: { authorization: 'Bearer eval-key' },
-        body: { language: 'he', model: 'gemini-3.8-flash-tts', voices: getShowVoices('he'), lines: toShowLines(firstTurns.slice(0, 4), 'he', 'male') },
+        body: { language: firstLanguage, model: 'gemini-3.8-flash-tts', voices: getShowVoices(firstLanguage), lines: toShowLines(firstTurns.slice(0, 4), firstLanguage, 'male') },
       } as never, res as never);
       const ok = out.status === 200 && out.body.subarray(0, 4).toString('ascii') === 'OggS' && Number(out.headers['X-TTS-Audio-Seconds']) > 0;
       endpointChecks.push({ name: 'endpoint', ok, detail: `status ${out.status}, ${out.headers['X-TTS-Audio-Seconds']}s, ${out.headers['X-TTS-Audio-Tokens']} tokens ${out.json ? JSON.stringify(out.json) : ''}` });

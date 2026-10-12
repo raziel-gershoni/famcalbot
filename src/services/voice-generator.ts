@@ -53,6 +53,8 @@ export interface ShowVoices {
 // without an entry has no show and gets the narrator in the English anchor's voice.
 const SHOW_VOICES: Record<string, ShowVoices> = {
   he: { A: 'Schedar', B: 'Puck' },
+  en: { A: 'Charon', B: 'Puck' }, // PLACEHOLDER until the owner picks by ear
+  ru: { A: 'Charon', B: 'Umbriel' }, // PLACEHOLDER until the owner picks by ear
 };
 
 /** Host voices for a language, or null when the language has no show yet. */

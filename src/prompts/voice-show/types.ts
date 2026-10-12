@@ -14,7 +14,7 @@ export interface ShowPromptContext {
   kind: ShowKind;
   /** The text summary exactly as the user received it (Telegram HTML). */
   summary: string;
-  /** Locale code: 'he' today. */
+  /** Locale code: 'he', 'en' or 'ru'. */
   locale: string;
   listener: { name: string; gender: 'male' | 'female' };
   spouse?: ShowPerson;

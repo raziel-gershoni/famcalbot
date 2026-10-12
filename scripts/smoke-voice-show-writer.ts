@@ -49,9 +49,30 @@ function completion(text: string): AICompletionResult {
 }
 
 async function main() {
-  await check('Hebrew has a show prompt, English and Russian do not yet', () => {
-    assert(hasShowPrompt('he'), 'he');
-    assert(!hasShowPrompt('en') && !hasShowPrompt('ru') && !hasShowPrompt('__proto__'), 'en/ru/proto');
+  await check('Hebrew, English and Russian have a show prompt, nothing else does', () => {
+    assert(hasShowPrompt('he') && hasShowPrompt('en') && hasShowPrompt('ru'), 'he/en/ru');
+    assert(!hasShowPrompt('fr') && !hasShowPrompt('__proto__'), 'fr/proto');
+  });
+
+  await check('English prompt: summary, name as "you", tomorrow framing, neutral unknown spouse', () => {
+    const daily = buildShowPrompt(context({ locale: 'en', listener: { name: 'Danny', gender: 'male' }, summary: '<b>Good morning, Danny!</b>', spouse: { name: 'Shai' } }));
+    assert(daily.includes('<b>Good morning, Danny!</b>') && daily.includes('Danny'), 'summary or name missing');
+    assert(daily.includes('never "he" or "she"'), 'unknown-gender spouse rule missing');
+    assert(daily.includes('6 to 20 turns'), 'turn count');
+    const tomorrow = buildShowPrompt(context({ locale: 'en', kind: 'tomorrow' }));
+    assert(tomorrow.includes('Never call it "today"') && tomorrow.includes('Never "Good morning"'), 'tomorrow rules');
+    assert(buildShowPrompt(context({ locale: 'en', kind: 'weather' })).includes('6 to 10 turns'), 'weather turn count');
+  });
+
+  await check('Russian prompt: "ты" in the listener\'s gender, tomorrow framing, neutral unknown spouse', () => {
+    const female = buildShowPrompt(context({ locale: 'ru', listener: { name: 'Ноа', gender: 'female' }, spouse: { name: 'Шай' } }));
+    assert(female.includes('женском роде') && female.includes('ты готова'), 'female listener');
+    assert(female.includes('пол неизвестен'), 'unknown-gender spouse rule missing');
+    const male = buildShowPrompt(context({ locale: 'ru', listener: { name: 'Денис', gender: 'male' } }));
+    assert(male.includes('ты готов') && !male.includes('ты готова'), 'male listener');
+    const tomorrow = buildShowPrompt(context({ locale: 'ru', kind: 'tomorrow' }));
+    assert(tomorrow.includes('Никогда не называйте это "сегодня"') && tomorrow.includes('Никогда не "Доброе утро"'), 'tomorrow rules');
+    assert(buildShowPrompt(context({ locale: 'ru', kind: 'weekly', isNextWeek: true })).includes('на следующей неделе'), 'next week');
   });
 
   await check('daily prompt carries the summary, the listener and the rules', () => {

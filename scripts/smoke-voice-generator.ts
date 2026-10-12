@@ -101,11 +101,15 @@ async function main() {
     assert(threw, 'size 0 accepted');
   });
 
-  await check('host table: built-in Hebrew pair, nothing elsewhere', () => {
+  await check('host table: built-in pairs for Hebrew, English and Russian, nothing elsewhere', () => {
     const he = getShowVoices('he');
     assert(he?.A === 'Schedar', `A ${he?.A}`);
     assert(he?.B === 'Puck', `B ${he?.B}`);
-    assert(getShowVoices('en') === null && getShowVoices('ru') === null, 'en/ru');
+    for (const language of ['he', 'en', 'ru']) {
+      const voices = getShowVoices(language);
+      assert(!!voices && /^[A-Z][a-z]+$/.test(voices.A) && /^[A-Z][a-z]+$/.test(voices.B) && voices.A !== voices.B, `${language}: ${JSON.stringify(voices)}`);
+    }
+    assert(getShowVoices('fr') === null, 'fr');
     assert(getShowVoices('__proto__') === null && getShowVoices('constructor') === null, 'prototype keys');
   });
 
@@ -199,11 +203,11 @@ async function main() {
   });
 
   await check('a language without hosts and an empty show are refused', async () => {
-    let enThrew = false;
+    let frThrew = false;
     let emptyThrew = false;
-    try { await generateShowVoice(LINES, 'en', { synthesize: fakeSynth }); } catch { enThrew = true; }
+    try { await generateShowVoice(LINES, 'fr', { synthesize: fakeSynth }); } catch { frThrew = true; }
     try { await generateShowVoice([], 'he', { synthesize: fakeSynth }); } catch { emptyThrew = true; }
-    assert(enThrew && emptyThrew, `en ${enThrew} empty ${emptyThrew}`);
+    assert(frThrew && emptyThrew, `fr ${frThrew} empty ${emptyThrew}`);
   });
 
   let failed = 0;

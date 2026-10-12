@@ -63,7 +63,7 @@ const KEYCAP = /[0-9#*]\uFE0F?\u20E3/g;
 const EMOJI = /[\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\u200D\uFE0E\uFE0F\u20E3\u{E0020}-\u{E007F}]/gu;
 // Stage directions written out as words: TTS would read "צוחק" aloud instead of laughing.
 // A cue anywhere in a starred, underscored or bracketed span marks it, so "(nervous
-// laugh)", "(פורץ בצחוק)" and "*(laughs)*" all go. Stems are picked to miss everyday
+// laugh)", "(פורץ בצחוק)", "(смеётся)" and "*(laughs)*" all go. Stems are picked to miss everyday
 // words: a bare אנח would catch אנחנו, לחש לחשבון, לחיש לחישוב, צחק the name יצחק.
 const CUE_WORD = new RegExp([
   'צוחק', 'צחוק', 'צחקק', 'ציחקק', 'צחקוק', '(?<!\\p{L})[וב]?צחק[הו]?(?!\\p{L})', 'חחח', 'הא הא',
@@ -73,6 +73,9 @@ const CUE_WORD = new RegExp([
   'מחייכ', 'מחייך', 'חייכה', 'חייכו', 'חיוכ', 'חיוך', 'מחויכ', 'מחויך',
   'מפהק', 'פיהוק', 'פיהק', 'כחכח', 'כחכוח',
   'מתנשפ', 'מתנשף', 'התנשפות', 'משתנק', 'נושמ(?:ת)? עמוק', 'נשימה עמוקה',
+  // Russian stems: смеётся, хихикает, вздыхает, шепчет, улыбается, зевает, откашливается...
+  'смеёт', 'смеет', 'смех', 'хихик', 'хохоч', 'хохот', 'вздых', 'вздох', 'шепч', 'шёпот', 'шепот', 'шепнул',
+  'усмех', 'улыба', 'улыбк', 'зева', 'зевн', 'кашл', 'откашл', 'ахнул', 'ахает', 'прыска',
   '\\b(?:laugh|sigh(?:s|ing|ed)?\\b|whisper|chuckl|giggl|gasp|snicker|smil|grin(?:s|ning)?\\b|yawn|clears? (?:his |her |their )?throat|haha|hehe)',
 ].join('|'), 'iu');
 const STAGE_SPAN = /\*{1,2}([^*\n]{1,50})\*{1,2}|_{1,2}([^_\n]{1,50})_{1,2}|\(([^()\n]{1,50})\)/g;
@@ -80,7 +83,7 @@ const STAGE_SPAN = /\*{1,2}([^*\n]{1,50})\*{1,2}|_{1,2}([^_\n]{1,50})_{1,2}|\(([
 const NIQQUD = /[\u0591-\u05BD\u05BF-\u05C7]/g;
 // Words that only say how a cue is performed. A span made of cues and these alone is a
 // stage direction however the summary reads: "(עם חיוך)" could echo its sign-off.
-const MANNER_WORD = /^(?:ו?עם|קצת|תוך|כדי|בקול|בשקט|ממש|כמעט|מאוד|שניהם|כולם|קטן|קטנה|גדול|גדולה|חזק|חזקה|with|a|an|little|bit|soft|softly|quiet|quietly|loud|loudly|in|and|both|nervous|nervously|dramatic|dramatically|deep|deeply|small|big)$/;
+const MANNER_WORD = /^(?:ו?עם|קצת|תוך|כדי|בקול|בשקט|ממש|כמעט|מאוד|שניהם|כולם|קטן|קטנה|גדול|גדולה|חזק|חזקה|with|a|an|little|bit|soft|softly|quiet|quietly|loud|loudly|in|and|both|nervous|nervously|dramatic|dramatically|deep|deeply|small|big|с|со|тихо|громко|немного|слегка|нервно|глубоко|оба|все)$/;
 
 /** Lowercase, no niqqud, HTML, entities, quotes, punctuation, markdown or hyphens, single spaces. */
 function forMatching(text: string): string {
