@@ -62,32 +62,65 @@ const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quo
 const KEYCAP = /[0-9#*]\uFE0F?\u20E3/g;
 const EMOJI = /[\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\u200D\uFE0E\uFE0F\u20E3\u{E0020}-\u{E007F}]/gu;
 // Stage directions written out as words: TTS would read "צוחק" aloud instead of laughing.
-// A cue anywhere in a starred or bracketed span marks it, so "(nervous laugh)", "(פורץ
-// בצחוק)" and "*(laughs)*" all go. Stems are picked to miss everyday words: a bare אנח
-// would catch אנחנו and a bare לחש would catch לחשבון.
-const CUE_WORD = /צוחק|צחוק|מצחקק|צחקוק|נאנח|אנחה|אנחת|אנחות|לוחש|בלחש|לחיש|מגחך|גיחוך|מחייכ|מחייך|חיוכ|חיוך|מפהק|פיהוק|מכחכח|כחכוח|\b(?:laugh|sigh(?:s|ing|ed)?\b|whisper|chuckl|giggl|gasp|snicker|smil|grin(?:s|ning)?\b|yawn|clears? (?:his |her |their )?throat)/i;
-const STAR_OR_PAREN_CUE = /\*{1,2}([^*\n]{1,30})\*{1,2}|\(([^()\n]{1,30})\)/g;
-const NIQQUD = /[֑-ׇ]/g;
+// A cue anywhere in a starred, underscored or bracketed span marks it, so "(nervous
+// laugh)", "(פורץ בצחוק)" and "*(laughs)*" all go. Stems are picked to miss everyday
+// words: a bare אנח would catch אנחנו, לחש לחשבון, לחיש לחישוב, צחק the name יצחק.
+const CUE_WORD = new RegExp([
+  'צוחק', 'צחוק', 'צחקק', 'ציחקק', 'צחקוק', '(?<!\\p{L})[וב]?צחק[הו]?(?!\\p{L})', 'חחח', 'הא הא',
+  'נאנח', 'תאנח', 'אנחה', 'אנחת', 'אנחות',
+  'לוחש', 'בלחש', 'לחישה', 'לחישות', 'לחשה', 'תלחש',
+  'מגחכ', 'מגחך', 'גיחוך', 'גיחכ', 'גיחך',
+  'מחייכ', 'מחייך', 'חייכה', 'חייכו', 'חיוכ', 'חיוך', 'מחויכ', 'מחויך',
+  'מפהק', 'פיהוק', 'פיהק', 'כחכח', 'כחכוח',
+  'מתנשפ', 'מתנשף', 'התנשפות', 'משתנק', 'נושמ(?:ת)? עמוק', 'נשימה עמוקה',
+  '\\b(?:laugh|sigh(?:s|ing|ed)?\\b|whisper|chuckl|giggl|gasp|snicker|smil|grin(?:s|ning)?\\b|yawn|clears? (?:his |her |their )?throat|haha|hehe)',
+].join('|'), 'iu');
+const STAGE_SPAN = /\*{1,2}([^*\n]{1,50})\*{1,2}|_{1,2}([^_\n]{1,50})_{1,2}|\(([^()\n]{1,50})\)/g;
+// Vowel points and cantillation. Not the maqaf (U+05BE), which joins words like a hyphen.
+const NIQQUD = /[\u0591-\u05BD\u05BF-\u05C7]/g;
+// Words that only say how a cue is performed. A span made of cues and these alone is a
+// stage direction however the summary reads: "(עם חיוך)" could echo its sign-off.
+const MANNER_WORD = /^(?:ו?עם|קצת|תוך|כדי|בקול|בשקט|ממש|כמעט|מאוד|שניהם|כולם|קטן|קטנה|גדול|גדולה|חזק|חזקה|with|a|an|little|bit|soft|softly|quiet|quietly|loud|loudly|in|and|both|nervous|nervously|dramatic|dramatically|deep|deeply|small|big)$/;
 
-/** Lowercase, no niqqud, HTML or markdown, single spaces: for matching against the summary. */
+/** Lowercase, no niqqud, HTML, entities, quotes, punctuation, markdown or hyphens, single spaces. */
 function forMatching(text: string): string {
-  return text.toLowerCase().replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(NIQQUD, '').replace(/[*_`~()]/g, ' ').replace(/\s+/g, ' ').trim();
+  return text
+    .toLowerCase()
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(NIQQUD, '')
+    .replace(/["'\u05F3\u05F4!?,.;:]/g, '')
+    .replace(/[*_`~()\u05BE-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
- * A span with a cue word is a stage direction unless the user's own summary holds it:
- * an event called "(ערב צחוק)" reaches the show because the writer copied it. One word
- * alone ("(צחוק)") is the commonest stage direction there is, so it counts as content
- * only when the summary has it in brackets too.
+ * Does the summary hold the span's words? Then the writer copied the user's content, an
+ * event called "(ערב צחוק)" say, and it must be spoken. A Hebrew prefix letter on either
+ * side still matches ("לערב צחוק", "(בערב צחוק)"). A lone cue word ("(צחוק)") is the
+ * commonest stage direction there is, so it counts only when the summary brackets it too.
  */
-function isStageDirection(span: string, source: string): boolean {
-  if (!CUE_WORD.test(span)) return false;
+function isFromSummary(span: string, source: string): boolean {
   const words = forMatching(span);
-  if (!words || !source) return true;
-  const escaped = words.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const phrase = words.includes(' ') ? escaped : `\\(\\s*${escaped}\\s*\\)`;
-  const haystack = words.includes(' ') ? forMatching(source) : source.toLowerCase().replace(NIQQUD, '');
-  return !new RegExp(`(?:^|[^\\p{L}\\p{N}])${phrase}(?:[^\\p{L}\\p{N}]|$)`, 'u').test(haystack);
+  if (!words) return false;
+  const list = words.split(' ');
+  if (list.length === 1) {
+    const bracketed = new RegExp(`\\(\\s*${escapeRegExp(words)}\\s*\\)`, 'u');
+    return bracketed.test(source.toLowerCase().replace(NIQQUD, ''));
+  }
+  if (!list.some(w => !CUE_WORD.test(w) && !MANNER_WORD.test(w))) return false;
+  const variants = /^[ובכלמהש]\p{L}{2}/u.test(words) ? [words, words.slice(1)] : [words];
+  const haystack = forMatching(source);
+  return variants.some(v =>
+    new RegExp(`(?:^|[^\\p{L}\\p{N}])[ובכלמהש]{0,2}${escapeRegExp(v)}(?:[^\\p{L}\\p{N}]|$)`, 'u').test(haystack));
+}
+
+function isStageDirection(span: string, source: string): boolean {
+  const bare = span.replace(NIQQUD, '');
+  return CUE_WORD.test(bare) && !(source && isFromSummary(bare, source));
 }
 
 /**
@@ -167,15 +200,15 @@ function cleanText(input: string, n: number, warnings: string[], source: string)
 
   text = text.replace(KEYCAP, ' ').replace(EMOJI, ' ');
 
-  // [laughs] goes whatever it says; *...* and (...) only when they are a stage
+  // [laughs] goes whatever it says; *...*, _..._ and (...) only when they are a stage
   // direction, so "*יופי*", "(בזום)" and a summary's own "(ערב צחוק)" keep their words.
   // Before the markdown strip, which would otherwise turn "*צוחק*" into the word itself.
   text = text.replace(/\[[^\]\n]{0,30}\]/g, m => {
     warnings.push(`Turn ${n}: removed cue ${m}`);
     return ' ';
   });
-  text = text.replace(STAR_OR_PAREN_CUE, (m, starred: string | undefined, paren: string | undefined) => {
-    if (!isStageDirection(starred ?? paren ?? '', source)) return m;
+  text = text.replace(STAGE_SPAN, (m, starred: string | undefined, underscored: string | undefined, paren: string | undefined) => {
+    if (!isStageDirection(starred ?? underscored ?? paren ?? '', source)) return m;
     warnings.push(`Turn ${n}: removed cue ${m}`);
     return ' ';
   });

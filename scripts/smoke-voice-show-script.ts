@@ -161,10 +161,26 @@ const CLEANUP: Array<[string, string]> = [
   ['(smiling) יופי', 'יופי'],
   ['(clears throat) ובכן', 'ובכן'],
   ['(מפהק) בוקר', 'בוקר'],
+  ['(מגחכת) נו', 'נו'],
+  ['(מגחכים) נו באמת', 'נו באמת'],
+  ['(מתאנח) שוב גשם', 'שוב גשם'],
+  ['(מתנשפת) מה', 'מה'],
+  ['(מתלחשים) סוד', 'סוד'],
+  ['(בקול מחויך) יופי', 'יופי'],
+  ['(צחק) נו', 'נו'],
+  ['(צחקה) נו', 'נו'],
+  ['(חחח) איזה יום', 'איזה יום'],
+  ['(haha) איזה יום', 'איזה יום'],
+  ['(נשימה עמוקה) יאללה', 'יאללה'],
+  ['(צוֹחֵק) איזה יום', 'איזה יום'],
+  ['_צוחק_ בוקר', 'בוקר'],
+  ['(לוחש כאילו זה הסוד הכי גדול בעולם) מחר', 'מחר'],
   // Everyday words that share letters with a cue keep their words.
   ['תשלום ארנונה (לחשבון העירייה) עד מחר', 'תשלום ארנונה (לחשבון העירייה) עד מחר'],
   ['בעשר תור (לחשמלאי)', 'בעשר תור (לחשמלאי)'],
   ['(אנחנו בדרך) יאללה', '(אנחנו בדרך) יאללה'],
+  ['רואה חשבון (לחישוב החזר המס) בעשר', 'רואה חשבון (לחישוב החזר המס) בעשר'],
+  ['ביקור (אצל יצחק) בחמש', 'ביקור (אצל יצחק) בחמש'],
   ['(sightseeing tour) מחר', '(sightseeing tour) מחר'],
   ['יותר > פחות', 'יותר פחות'],
 ];
@@ -192,6 +208,25 @@ const FROM_SUMMARY: Array<[string, string]> = [
 for (const [input, expected] of FROM_SUMMARY) {
   check(`with the summary, cleans ${JSON.stringify(input)}`, () => {
     const s = parseShowScript(show(...base(), turn('A', input)), SUMMARY);
+    assert(s.turns[4].text === expected, `got ${JSON.stringify(s.turns[4].text)}`);
+  });
+}
+
+// The writer may add or drop a prefix letter, and the summary may hyphenate or point.
+const NEAR_COPIES: Array<[string, string, string]> = [
+  ['• 20:00 הולכים לערב צחוק בקאמרי', '(ערב צחוק) בשמונה', '(ערב צחוק) בשמונה'],
+  ['• 20:00 ערב צחוק בקאמרי', '(בערב צחוק) בשמונה', '(בערב צחוק) בשמונה'],
+  ['• 19:00 הופעה במועדון הצחוק', 'בשבע הופעה (מועדון הצחוק)', 'בשבע הופעה (מועדון הצחוק)'],
+  ['• 20:00 ערב־צחוק בקאמרי', '(ערב צחוק) בשמונה', '(ערב צחוק) בשמונה'],
+  ['• 10:00 רופא שיניים ד"ר חיוך', 'בעשר (ד״ר חיוך)', 'בעשר (ד״ר חיוך)'],
+  ['סטנדאפ (ערב צחוק) בתל אביב', 'בשמונה (ערב צחוק!)', 'בשמונה (ערב צחוק!)'],
+  ["• 21:00 צחוקים עם החבר'ה", '(צחוקים עם החבר׳ה) בתשע', '(צחוקים עם החבר׳ה) בתשע'],
+  // A manner word plus a cue is a stage direction even if the summary's sign-off says it.
+  ['שיהיה יום מלא חיוכים! עם חיוך', '(עם חיוך) שיהיה יום מעולה', 'שיהיה יום מעולה'],
+];
+for (const [summary, input, expected] of NEAR_COPIES) {
+  check(`with summary ${JSON.stringify(summary)}, cleans ${JSON.stringify(input)}`, () => {
+    const s = parseShowScript(show(...base(), turn('A', input)), summary);
     assert(s.turns[4].text === expected, `got ${JSON.stringify(s.turns[4].text)}`);
   });
 }
