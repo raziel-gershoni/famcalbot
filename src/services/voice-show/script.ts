@@ -62,8 +62,16 @@ const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quo
 const KEYCAP = /[0-9#*]\uFE0F?\u20E3/g;
 const EMOJI = /[\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\u200D\uFE0E\uFE0F\u20E3\u{E0020}-\u{E007F}]/gu;
 // Stage directions written out as words: TTS would read "צוחק" aloud instead of laughing.
-const CUE_WORD = /צוחק|צחוק|מצחקק|צחקוק|נאנח|אנחה|לוחש|בלחש|לחישה|מגחך|גיחוך|\b(?:laugh|sigh(?:s|ing|ed)?\b|whisper|chuckl|giggl|gasp|snicker)/i;
+// A starred or bracketed span is one only when it opens with the cue, after at most a
+// ב/ו prefix or a filler word, and runs four words or fewer: "(בצחוק)", "(laughs
+// softly)" and "(in a whisper)" go, while an event name such as "(ערב צחוק)" stays.
+const STAGE_DIRECTION = /^(?:(?:עם|קצת|תוך|with|in|a|softly|little)\s+){0,2}[בו]{0,2}(?:צוחק|צחוק|מצחקק|צחקוק|נאנח|אנחה|לוחש|לחש|לחישה|מגחך|גיחוך|מחייך|חיוך|laugh|sigh(?:s|ing|ed)?\b|whisper|chuckl|giggl|gasp|snicker)/i;
 const STAR_OR_PAREN_CUE = /\*{1,2}([^*\n]{1,30})\*{1,2}|\(([^()\n]{1,30})\)/g;
+
+function isStageDirection(span: string): boolean {
+  const words = span.trim();
+  return STAGE_DIRECTION.test(words) && words.split(/\s+/).length <= 4;
+}
 
 export function parseShowScript(raw: string): ShowScript {
   let data: unknown;
@@ -138,15 +146,15 @@ function cleanText(input: string, n: number, warnings: string[]): string {
 
   text = text.replace(KEYCAP, ' ').replace(EMOJI, ' ');
 
-  // [laughs] goes whatever it says; *...* and (...) only when they hold a cue word, so
-  // "*יופי*" and "(בזום)" keep their words. Before the markdown strip, which would
-  // otherwise turn "*צוחק*" into the word itself.
+  // [laughs] goes whatever it says; *...* and (...) only when they are a stage
+  // direction, so "*יופי*", "(בזום)" and "(ערב צחוק)" keep their words. Before the
+  // markdown strip, which would otherwise turn "*צוחק*" into the word itself.
   text = text.replace(/\[[^\]\n]{0,30}\]/g, m => {
     warnings.push(`Turn ${n}: removed cue ${m}`);
     return ' ';
   });
   text = text.replace(STAR_OR_PAREN_CUE, (m, starred: string | undefined, paren: string | undefined) => {
-    if (!CUE_WORD.test(starred ?? paren ?? '')) return m;
+    if (!isStageDirection(starred ?? paren ?? '')) return m;
     warnings.push(`Turn ${n}: removed cue ${m}`);
     return ' ';
   });
