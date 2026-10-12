@@ -37,6 +37,8 @@ export const REDIS_KEYS = {
 
   // Locks
   voiceLock: (fileUniqueId: string) => `voice:lock:${fileUniqueId}`,
+  // Voice show: one admin alert per day when a host voice is missing from the Gemini project
+  showVoiceMissing: (date: string) => `voice:show:voice_missing:${date}`,
 
   // Voice pending operations (serverless-safe, replaces in-memory Maps)
   pendingEvent: (pendingId: string) => `voice:pending:event:${pendingId}`,

@@ -2,7 +2,8 @@
 //
 // When the user dictated a voice message and the bot just completed a CRUD
 // (create / edit / delete success), we speak the 1-2-sentence outcome back
-// via Gemini TTS. Text-input flows continue with text-only outcomes.
+// via Gemini TTS, in show host A's voice where the language has hosts.
+// Text-input flows continue with text-only outcomes.
 //
 // Difference from telegram/voice.ts:sendVoiceMessage: this path SKIPS the
 // LLM condensation step. The outcome line is already short and crafted by
@@ -37,8 +38,19 @@ export async function speakOutcome(
   if (!spokenLine.trim()) return;
 
   try {
-    const { generateVoiceMessage, cleanupVoiceFile } = await import('../voice-generator');
-    const result = await generateVoiceMessage(spokenLine, user.language || 'en');
+    const language = user.language || 'en';
+    const { generateVoiceMessage, cleanupVoiceFile, getShowVoices } = await import('../voice-generator');
+    // Where the language has show hosts, host A says the outcome, so the bot keeps one
+    // voice across summaries and replies.
+    const hostVoice = getShowVoices(language)?.A;
+    let result;
+    try {
+      result = await generateVoiceMessage(spokenLine, language, { voiceName: hostVoice });
+    } catch (err) {
+      const { isVoiceMissingError } = await import('../gemini-tts');
+      if (!hostVoice || !isVoiceMissingError(err)) throw err;
+      result = await generateVoiceMessage(spokenLine, language);
+    }
     try {
       await service.sendVoice(chatId, result.filePath);
     } finally {

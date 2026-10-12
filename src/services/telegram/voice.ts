@@ -1,6 +1,10 @@
 /**
  * Telegram voice message functions
- * 2-step pipeline: LLM condenses summary text, then Gemini TTS speaks it
+ *
+ * Languages with show hosts (Hebrew today) get the two-host show: an LLM writes the
+ * script and each line is spoken by its host - see ../voice-show/produce.ts. Other
+ * languages keep the 2-step narrator pipeline: an LLM condenses the summary, then
+ * Gemini TTS reads it in the language's default voice.
  */
 
 import { UserConfig } from '../../types';
@@ -12,14 +16,69 @@ import { trackActivityAsync } from '../analytics-service';
 import { incrementUsage } from '../subscription-service';
 import { formatVoiceCaption } from '../../utils/ai-footer';
 import type { VoiceCondenserContext } from '../../prompts/voice-condenser';
+import type { ProducedVoice, ShowKind } from '../voice-show/types';
+
+/**
+ * Make the voice note for a summary: the show where the language has hosts, the
+ * single narrator elsewhere.
+ */
+async function produceVoice(summary: string, user: UserConfig, kind: ShowKind, isNextWeek = false): Promise<ProducedVoice> {
+  const { isShowLanguage, produceShowVoice } = await import('../voice-show/produce');
+  if (isShowLanguage(user.language || 'en')) {
+    return produceShowVoice(summary, user, kind, isNextWeek);
+  }
+  return produceNarratorVoice(summary, user, kind, isNextWeek);
+}
+
+/**
+ * Step 1: LLM condenses the summary via generateAICompletion
+ * Step 2: Gemini TTS speaks the condensed plain text
+ */
+async function produceNarratorVoice(summary: string, user: UserConfig, kind: ShowKind, isNextWeek: boolean): Promise<ProducedVoice> {
+  const userLanguage = user.language || 'en';
+  const { generateVoiceMessage } = await import('../voice-generator');
+  const { buildVoiceCondenserPrompt, buildWeeklyVoiceCondenserPrompt } = await import('../../prompts/voice-condenser');
+  const { generateAICompletion } = await import('../ai-provider');
+
+  const spouseCalendar = user.calendarAssignments?.find(cal =>
+    cal.labels.includes('spouse')
+  );
+  const hasKidsCalendars = user.calendarAssignments?.some(cal =>
+    cal.labels.includes('kids')
+  ) ?? false;
+
+  const condenserContext: VoiceCondenserContext = {
+    summary,
+    locale: userLanguage,
+    userName: user.name,
+    spouseName: spouseCalendar?.personName,
+    hasKidsCalendars,
+    culture: user.culture,
+    globalRules: user.globalRules,
+    isNextWeek: kind === 'weekly' ? isNextWeek : undefined,
+  };
+  // Weather has no condenser of its own; it has always used the daily one.
+  const condenserPrompt = kind === 'weekly'
+    ? buildWeeklyVoiceCondenserPrompt(condenserContext)
+    : buildVoiceCondenserPrompt(condenserContext);
+  const condensedResult = await generateAICompletion(condenserPrompt);
+  const condensedText = condensedResult.text;
+
+  console.log(`[Voice] ${kind} summary condensed: ${summary.length} → ${condensedText.length} chars`);
+
+  const { filePath, ttsMs, ttsModel, voiceName } = await generateVoiceMessage(condensedText, userLanguage);
+  return {
+    filePath,
+    caption: formatVoiceCaption(condensedResult, ttsMs, ttsModel, user.isAdmin, voiceName),
+    durationSeconds: Math.ceil(condensedText.length / 15),
+  };
+}
 
 /**
  * Generate and send voice version of summary
- * Step 1: LLM condenses the summary via generateAICompletion
- * Step 2: Gemini TTS speaks the condensed plain text
- *
  * Shows animated progress that gets deleted when voice arrives (optional)
  * Non-blocking - errors logged but don't affect text summary delivery
+ * @param kind - 'weather' for /weather; anything else is a daily or tomorrow summary
  */
 export async function sendVoiceMessage(
   chatId: number | string,
@@ -28,7 +87,8 @@ export async function sendVoiceMessage(
   service?: IMessagingService,
   showProgress: boolean = true,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
-  waMessageId?: string
+  waMessageId?: string,
+  kind: 'daily' | 'weather' = 'daily'
 ): Promise<void> {
   let voiceFilePath: string | null = null;
   const msgService = service || (platform === MessagingPlatform.WHATSAPP
@@ -51,57 +111,24 @@ export async function sendVoiceMessage(
   }
 
   try {
-    const { generateVoiceMessage } = await import('../voice-generator');
-    const { buildVoiceCondenserPrompt } = await import('../../prompts/voice-condenser');
-    const { generateAICompletion } = await import('../ai-provider');
+    console.log(`[Voice] Generating ${kind} voice message for user ${chatId}...`);
 
-    console.log(`[Voice] Generating voice message for user ${chatId}...`);
-
-    const spouseCalendar = user.calendarAssignments?.find(cal =>
-      cal.labels.includes('spouse')
-    );
-    const spouseName = spouseCalendar?.personName;
-
-    const hasKidsCalendars = user.calendarAssignments?.some(cal =>
-      cal.labels.includes('kids')
-    ) ?? false;
-
-    // Step 1: Condense summary via LLM
-    const condenserContext: VoiceCondenserContext = {
-      summary,
-      locale: userLanguage,
-      userName: user.name,
-      spouseName,
-      hasKidsCalendars,
-      culture: user.culture,
-      globalRules: user.globalRules,
-    };
-    const condenserPrompt = buildVoiceCondenserPrompt(condenserContext);
-    const condensedResult = await generateAICompletion(condenserPrompt);
-    const condensedText = condensedResult.text;
-
-    console.log(`[Voice] Summary condensed: ${summary.length} → ${condensedText.length} chars`);
-
-    // Step 2: Generate voice from condensed text
-    const ttsResult = await generateVoiceMessage(condensedText, userLanguage);
-    voiceFilePath = ttsResult.filePath;
-
-    const { ttsMs, ttsModel, voiceName } = ttsResult;
+    const voice = await produceVoice(summary, user, kind);
+    voiceFilePath = voice.filePath;
 
     // Stop typing indicator
     if (stopTyping) stopTyping();
 
     // Send voice via platform-agnostic service
-    await msgService.sendVoice(chatId, voiceFilePath!);
+    await msgService.sendVoice(chatId, voiceFilePath);
 
     // Send admin caption as separate text (WhatsApp doesn't support captions on audio)
-    const caption = formatVoiceCaption(condensedResult, ttsMs, ttsModel, user.isAdmin, voiceName, user.voiceStyle);
-    if (caption && user.isAdmin) {
-      await msgService.sendMessage(chatId, caption, { format: MessageFormat.HTML });
+    if (voice.caption && user.isAdmin) {
+      await msgService.sendMessage(chatId, voice.caption, { format: MessageFormat.HTML });
     }
 
     trackActivityAsync(user.id, 'voice_summary_generated', {
-      duration_seconds: Math.ceil(condensedText.length / 15),
+      duration_seconds: voice.durationSeconds,
     });
     incrementUsage(user.id, 'voiceSummaries').catch(err =>
       console.error('[Subscription] Failed to increment voice usage:', err)
@@ -154,7 +181,7 @@ export async function sendVoiceMessage(
 
 /**
  * Send a voice message for weekly summary (lookahead/next week)
- * Uses weekly-specific TTS prompts via single Gemini call
+ * Uses the weekly show (or the weekly condenser for languages without hosts)
  */
 export async function sendWeeklyVoiceMessage(
   chatId: number | string,
@@ -182,51 +209,19 @@ export async function sendWeeklyVoiceMessage(
   const stopTyping = startTypingInterval(chatId, msgService, platform === MessagingPlatform.WHATSAPP ? 'text' : 'audio', msgId);
 
   try {
-    const { generateVoiceMessage } = await import('../voice-generator');
-    const { buildWeeklyVoiceCondenserPrompt } = await import('../../prompts/voice-condenser');
-    const { generateAICompletion } = await import('../ai-provider');
-
     console.log(`[Voice] Generating weekly voice message for user ${chatId}...`);
 
-    const spouseCalendar = user.calendarAssignments?.find(cal =>
-      cal.labels.includes('spouse')
-    );
-    const spouseName = spouseCalendar?.personName;
-
-    const hasKidsCalendars = user.calendarAssignments?.some(cal =>
-      cal.labels.includes('kids')
-    ) ?? false;
-
-    const condenserContext: VoiceCondenserContext = {
-      summary,
-      locale: userLanguage,
-      userName: user.name,
-      spouseName,
-      hasKidsCalendars,
-      culture: user.culture,
-      globalRules: user.globalRules,
-      isNextWeek,
-    };
-    const condenserPrompt = buildWeeklyVoiceCondenserPrompt(condenserContext);
-    const condensedResult = await generateAICompletion(condenserPrompt);
-    const condensedText = condensedResult.text;
-
-    console.log(`[Voice] Weekly summary condensed: ${summary.length} → ${condensedText.length} chars`);
-
-    const ttsResult = await generateVoiceMessage(condensedText, userLanguage);
-    voiceFilePath = ttsResult.filePath;
-
-    const { ttsMs, ttsModel, voiceName } = ttsResult;
+    const voice = await produceVoice(summary, user, 'weekly', isNextWeek);
+    voiceFilePath = voice.filePath;
 
     if (stopTyping) stopTyping();
 
     // Send voice via platform-agnostic service
-    await msgService.sendVoice(chatId, voiceFilePath!);
+    await msgService.sendVoice(chatId, voiceFilePath);
 
     // Send admin caption as separate text
-    const caption = formatVoiceCaption(condensedResult, ttsMs, ttsModel, user.isAdmin, voiceName, user.voiceStyle);
-    if (caption && user.isAdmin) {
-      await msgService.sendMessage(chatId, caption, { format: MessageFormat.HTML });
+    if (voice.caption && user.isAdmin) {
+      await msgService.sendMessage(chatId, voice.caption, { format: MessageFormat.HTML });
     }
 
     console.log(`[Voice] Weekly voice message sent successfully to user ${chatId}`);

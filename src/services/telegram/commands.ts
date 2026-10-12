@@ -449,7 +449,7 @@ export async function handleWeatherCommand(
 
       // Voice with typing indicator
       if (user.voiceSummaryEnabled) {
-        sendVoiceMessage(chatId, result.detailed, user, undefined, true, platform).catch(err =>
+        sendVoiceMessage(chatId, result.detailed, user, undefined, true, platform, undefined, 'weather').catch(err =>
           console.error(`[Weather] Voice generation failed for user ${userId}:`, err)
         );
       }
