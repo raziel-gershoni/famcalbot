@@ -107,6 +107,7 @@ async function main() {
       hasKidsCalendars: true,
     }));
     assert(/שי \(מין לא ידוע/.test(p), 'unknown-gender spouse not flagged neutral');
+    assert(p.includes('בלי פועל או תואר בזכר או בנקבה') && p.includes('"ל' + 'שי יש..."'), 'neutral verbs rule');
     assert(/איתי \(זכר/.test(p) && /תמר \(נקבה/.test(p), 'kids genders');
   });
 

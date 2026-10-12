@@ -18,7 +18,9 @@ function personLine(label: string, person: ShowPerson): string {
   const name = sanitizeForPrompt(person.name);
   if (person.gender === 'male') return `${label}: ${name} (זכר — דברו עליו בלשון זכר)`;
   if (person.gender === 'female') return `${label}: ${name} (נקבה — דברו עליה בלשון נקבה)`;
-  return `${label}: ${name} (מין לא ידוע — השתמשו בשם ובניסוח שלא מסגיר מין, למשל "ל${name} יש..." במקום "הוא" או "היא")`;
+  // Pronouns alone were not enough: the eval writer still gave such a spouse masculine
+  // present-tense verbs ("שי אוסף"), which Hebrew genders like adjectives.
+  return `${label}: ${name} (מין לא ידוע — אל תנחשו: בלי "הוא" או "היא", ובלי פועל או תואר בזכר או בנקבה, לא "${name} אוסף" ולא "${name} אוספת". נסחו עם השם ושם עצם: "ל${name} יש...", "האיסוף על ${name}", "אצל ${name}...")`;
 }
 
 function listenerLine(context: ShowPromptContext): string {
@@ -70,7 +72,8 @@ function kindRules(context: ShowPromptContext): KindRules {
         'התחזית המורחבת: לכל היותר משפט אחד, בזהירות ("כנראה", "צפוי").',
         'סיימו בטיפ מעשי אחד (מטרייה, קרם הגנה, שכבה נוספת).',
       ],
-      length: 'כ-35-50 שניות דיבור (בערך 85-120 מילים), 6-10 תורות.',
+      // The hosts speak about two words a second (eval: 1.9-2.0).
+      length: 'כ-35-50 שניות דיבור (בערך 70-95 מילים), 6-10 תורות.',
       turns: [6, 10],
     };
   }
