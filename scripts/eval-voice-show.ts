@@ -329,7 +329,7 @@ async function main() {
     if (voiceMissing) {
       console.error(
         `\nSTOPPED: a host voice was not found (${JSON.stringify(getShowVoices('he'))}). ` +
-          'GEMINI_API_KEY must belong to the Gemini project that holds the designed voices; check the key or GEMINI_SHOW_VOICE_HE_*.',
+          'GEMINI_VOICES_API_KEY (or GEMINI_API_KEY) must belong to the Gemini project that holds the designed voices; check the key or GEMINI_SHOW_VOICE_HE_*.',
       );
       break;
     }

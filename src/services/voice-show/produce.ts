@@ -78,7 +78,7 @@ async function alertVoiceMissing(language: string, error: unknown): Promise<void
     await notifyAdminWarning(
       'Voice Show',
       `A show host voice for "${language}" was not found, so shows fall back to the single narrator.\n` +
-        'Check GEMINI_SHOW_VOICE_* and that GEMINI_API_KEY belongs to the Gemini project holding the designed voices.\n' +
+        'Check GEMINI_SHOW_VOICE_*, and set GEMINI_VOICES_API_KEY (or GEMINI_API_KEY) to a key of the Gemini project holding the designed voices.\n' +
         (error instanceof Error ? error.message : String(error)),
     );
   } catch (alertError) {

@@ -52,6 +52,15 @@ export function modelForDesignedVoices(model: string): string {
   return isLegacyTtsModel(model) ? DESIGNED_VOICE_FALLBACK_MODEL : model;
 }
 
+/**
+ * The API key to speak a voice with. A designed voice exists only in the Gemini project
+ * it was made in, so GEMINI_VOICES_API_KEY can name that project while GEMINI_API_KEY
+ * keeps every other call where it is. Unset, designed voices use GEMINI_API_KEY too.
+ */
+export function apiKeyForVoice(voiceName: string, env: Record<string, string | undefined> = process.env): string {
+  return (isDesignedVoice(voiceName) && env.GEMINI_VOICES_API_KEY) || env.GEMINI_API_KEY || '';
+}
+
 export interface SynthesizeSpeechInput {
   apiKey: string;
   model: string;

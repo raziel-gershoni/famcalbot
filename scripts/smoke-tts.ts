@@ -6,7 +6,7 @@
 
 import fs from 'fs';
 import {
-  buildTtsRequestBody, decodeSpeechAudio, extractSpeechAudio, isDesignedVoice, isLegacyTtsModel,
+  apiKeyForVoice, buildTtsRequestBody, decodeSpeechAudio, extractSpeechAudio, isDesignedVoice, isLegacyTtsModel,
   isVoiceMissingError, modelForDesignedVoices, TtsHttpError,
 } from '../src/services/gemini-tts';
 
@@ -192,6 +192,16 @@ check('designed voice detection and model substitution', () => {
   assert(modelForDesignedVoices('gemini-3.1-flash-tts-preview') === 'gemini-3.8-flash-tts', 'legacy not replaced');
   assert(modelForDesignedVoices('gemini-3.8-flash-lite-tts') === 'gemini-3.8-flash-lite-tts', '3.8 lite replaced');
   assert(modelForDesignedVoices('gemini-3.8-flash-tts') === 'gemini-3.8-flash-tts', '3.8 replaced');
+});
+
+// Designed voices live in one Gemini project; production's main key may be another's.
+check('designed voices use GEMINI_VOICES_API_KEY when set, everything else GEMINI_API_KEY', () => {
+  const both = { GEMINI_API_KEY: 'main', GEMINI_VOICES_API_KEY: 'voices' };
+  assert(apiKeyForVoice('voice_33yuo333h4y2', both) === 'voices', 'designed voice on the main key');
+  assert(apiKeyForVoice('Algieba', both) === 'main', 'prebuilt voice on the voices key');
+  assert(apiKeyForVoice('voice_33yuo333h4y2', { GEMINI_API_KEY: 'main' }) === 'main', 'unset voices key not falling back');
+  assert(apiKeyForVoice('voice_33yuo333h4y2', { GEMINI_API_KEY: 'main', GEMINI_VOICES_API_KEY: '' }) === 'main', 'empty voices key used');
+  assert(apiKeyForVoice('Algieba', {}) === '', 'no key at all');
 });
 
 // 9. Multi-part responses: every audio part, in order; tokens from usageMetadata.

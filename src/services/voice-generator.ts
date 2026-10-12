@@ -21,7 +21,7 @@ import { mixDialogue } from '../utils/pcm-mix';
 import { createSemaphore } from '../utils/semaphore';
 import { DEFAULT_TTS_MODEL, getTtsModelConfig } from '../config/tts-models';
 import {
-  isDesignedVoice, modelForDesignedVoices, synthesizeSpeech, type SpeechAudio, type SynthesizeSpeechInput,
+  apiKeyForVoice, isDesignedVoice, modelForDesignedVoices, synthesizeSpeech, type SpeechAudio, type SynthesizeSpeechInput,
 } from './gemini-tts';
 import { synthesizeDialogue } from './dialogue-tts';
 import { getTtsModelSetting } from './reminder-cache';
@@ -230,7 +230,7 @@ export async function generateVoiceMessage(
 
   const audio = await callWithRetry(
     () => synthesizeSpeech({
-      apiKey: process.env.GEMINI_API_KEY || '',
+      apiKey: apiKeyForVoice(voiceName),
       model,
       text: condensedText,
       voiceName,
@@ -393,7 +393,8 @@ async function generateShowLocal(
   console.log('[TTS] Generating show locally:', { lines: lines.length, model, voices, msLeft: deadline - startTime });
 
   const audio = await synthesizeDialogue({
-    apiKey: process.env.GEMINI_API_KEY || '',
+    // Both hosts are designed in the same Gemini project, so host A's key serves both.
+    apiKey: apiKeyForVoice(voices.A),
     model,
     lines: lines.map(line => ({ voice: voices[line.host], text: line.text, style: line.style })),
     synthesize: deps.synthesize ?? synthesizeSpeech,

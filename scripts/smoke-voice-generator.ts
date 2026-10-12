@@ -200,6 +200,24 @@ async function main() {
     assert(result.via === 'local' && result.lineCount === 2, JSON.stringify(result));
   });
 
+  await check('the hosts speak with GEMINI_VOICES_API_KEY when it is set', async () => {
+    delete process.env.TTS_SERVICE_URL;
+    const saved = { main: process.env.GEMINI_API_KEY, voices: process.env.GEMINI_VOICES_API_KEY };
+    process.env.GEMINI_API_KEY = 'main-key';
+    process.env.GEMINI_VOICES_API_KEY = 'voices-key';
+    synthCalls.length = 0;
+    try {
+      const result = await generateShowVoice(LINES.slice(0, 2), 'he', { synthesize: fakeSynth });
+      await fs.unlink(result.filePath).catch(() => {});
+      assert(synthCalls.length === 2 && synthCalls.every(c => c.apiKey === 'voices-key'), synthCalls.map(c => c.apiKey).join(','));
+    } finally {
+      for (const [name, value] of [['GEMINI_API_KEY', saved.main], ['GEMINI_VOICES_API_KEY', saved.voices]] as const) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+
   await check('a language without hosts and an empty show are refused', async () => {
     let enThrew = false;
     let emptyThrew = false;

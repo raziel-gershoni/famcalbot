@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { encodePcmToOggOpus, SAMPLE_RATE } from '../lib/pcm-to-ogg-opus.js';
-import { isVoiceMissingError, modelForDesignedVoices, synthesizeSpeech } from '../lib/gemini-tts.js';
+import { apiKeyForVoice, isVoiceMissingError, modelForDesignedVoices, synthesizeSpeech } from '../lib/gemini-tts.js';
 import { DialogueDeadlineError, synthesizeDialogue } from '../lib/dialogue-tts.js';
 import { mixDialogue } from '../lib/pcm-mix.js';
 
@@ -88,7 +88,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const audio = await synthesizeDialogue({
-      apiKey: process.env.GEMINI_API_KEY || '',
+      // Both hosts are designed in the same Gemini project, so host A's key serves both.
+      apiKey: apiKeyForVoice(voices.A),
       model,
       lines: lines.map(line => ({ voice: voices[line.host], text: line.text, style: line.style })),
       synthesize: synthesizeSpeech,
