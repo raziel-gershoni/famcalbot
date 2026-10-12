@@ -120,6 +120,29 @@ async function main() {
     assert(threw && calls === 1, `threw ${threw} calls ${calls}`);
   });
 
+  await check('a line waiting out its backoff sends nothing once another line has failed', async () => {
+    const calls = [0, 0];
+    const start = Date.now();
+    let caught: unknown;
+    try {
+      await synthesizeDialogue({
+        apiKey: 'k', model: 'm', lines: lines(2), concurrency: 2, baseDelayMs: 60,
+        synthesize: async input => {
+          const i = indexOf(input);
+          calls[i]++;
+          if (i === 0 && calls[0] === 1) throw httpError(503); // line 0 backs off 60 ms
+          if (i === 0) { await sleep(300); return audio(0); } // a retry would hold the show up
+          await sleep(10);
+          throw httpError(400); // line 1 fails for good at ~10 ms
+        },
+      });
+    } catch (e) { caught = e; }
+    const elapsed = Date.now() - start;
+    assert((caught as { status?: number })?.status === 400, `error ${String(caught)}`);
+    assert(calls[0] === 1, `line 0 sent ${calls[0]} requests`);
+    assert(elapsed < 250, `rejected after ${elapsed} ms`);
+  });
+
   await check('lines at different sample rates are refused', async () => {
     let threw = false;
     try {

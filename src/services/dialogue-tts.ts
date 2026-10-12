@@ -92,6 +92,9 @@ export async function synthesizeDialogue(input: SynthesizeDialogueInput): Promis
         // Once any line has failed for good the show is lost, so stop retrying too.
         if (failed || attempt >= maxAttempts || !isRetryableTtsError(error)) throw error;
         await sleep(baseDelayMs * 2 ** (attempt - 1));
+        // Another line may have failed while this one slept; a retry now would only
+        // delay the rejection by a whole request and spend one more Gemini call.
+        if (failed) throw failure;
       }
     }
   };
