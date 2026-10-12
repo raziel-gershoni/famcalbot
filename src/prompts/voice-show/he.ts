@@ -28,7 +28,15 @@ function listenerLine(context: ShowPromptContext): string {
     : `המאזין: ${name}. הוא גבר — פנו אליו בשמו ובלשון זכר ("אתה", "יש לך", "תזכור", "מוכן").`;
 }
 
-function kindRules(context: ShowPromptContext): { goal: string; content: string[]; length: string } {
+interface KindRules {
+  goal: string;
+  content: string[];
+  length: string;
+  /** Turn count asked for in the output line. */
+  turns: [min: number, max: number];
+}
+
+function kindRules(context: ShowPromptContext): KindRules {
   const female = context.listener.gender === 'female';
   if (context.kind === 'weekly') {
     const weekRef = context.isNextWeek ? 'בשבוע הבא' : 'השבוע';
@@ -45,17 +53,25 @@ function kindRules(context: ShowPromptContext): { goal: string; content: string[
         'שבוע בלי אירועים: אמרו שהיומן פנוי. אל תמציאו אירועים.',
       ],
       length: 'כ-45-60 שניות דיבור (בערך 110-150 מילים). בשבוע עמוס מותר יותר, אבל אף פעם לא על חשבון אירועים.',
+      turns: [6, 20],
     };
   }
 
+  // /weather sends the whole forecast text: today and tomorrow, the week, and a 16-day
+  // outlook, written around the time it was asked for.
   if (context.kind === 'weather') {
     return {
-      goal: 'תחזית מזג האוויר של היום',
+      goal: 'תחזית מזג האוויר כולה — עכשיו, מחר והימים הבאים',
       content: [
-        'רק מזג אוויר: טמפרטורות, גשם, רוח, ואיכות אוויר אם היא מופיעה בסיכום.',
+        'ברכת הפתיחה: אותה ברכה שהתחזית נפתחת בה. אם אין בה ברכה של שעה ביום, אל תמציאו כזאת.',
+        'רק מזג אוויר: טמפרטורות, גשם, רוח, ואיכות אוויר אם היא מופיעה בתחזית.',
+        'קודם עכשיו ושאר היום, אחר כך מחר. אם התחזית נכתבה בערב (היא נפתחת ב"ערב טוב" או מדברת על הערב והלילה), הפכו את הסדר: פתחו במחר, ועל הערב והלילה מספיק משפט קצר.',
+        'השבוע: תור או שניים, רק המגמה והשינויים הבולטים. כאן מותר לסכם ולקבץ ימים.',
+        'התחזית המורחבת: לכל היותר משפט אחד, בזהירות ("כנראה", "צפוי").',
         'סיימו בטיפ מעשי אחד (מטרייה, קרם הגנה, שכבה נוספת).',
       ],
-      length: 'כ-20-35 שניות דיבור (בערך 50-90 מילים), 4-8 תורות.',
+      length: 'כ-35-50 שניות דיבור (בערך 85-120 מילים), 6-10 תורות.',
+      turns: [6, 10],
     };
   }
 
@@ -78,6 +94,7 @@ function kindRules(context: ShowPromptContext): { goal: string; content: string[
         'סגירה שמתאימה לערב ומכינה למחר.',
       ],
       length: 'כ-45-60 שניות דיבור (בערך 110-150 מילים). ביום עמוס מותר יותר, אבל אף פעם לא על חשבון אירועים.',
+      turns: [6, 20],
     };
   }
 
@@ -95,6 +112,7 @@ function kindRules(context: ShowPromptContext): { goal: string; content: string[
       'יום בלי אירועים: אמרו שהיומן פנוי וחגגו את זה. אל תמציאו אירועים.',
     ],
     length: 'כ-45-60 שניות דיבור (בערך 110-150 מילים). ביום עמוס מותר יותר, אבל אף פעם לא על חשבון אירועים.',
+    turns: [6, 20],
   };
 }
 
@@ -102,7 +120,7 @@ export function buildShowPrompt(context: ShowPromptContext): string {
   const female = context.listener.gender === 'female';
   const listener = female ? 'המאזינה' : 'המאזין';
   const toListener = female ? 'אליה' : 'אליו';
-  const { goal, content, length } = kindRules(context);
+  const { goal, content, length, turns: [minTurns, maxTurns] } = kindRules(context);
 
   const family = [listenerLine(context)];
   if (context.spouse) family.push(personLine('בן או בת הזוג', context.spouse));
@@ -159,7 +177,7 @@ ${allContent.map((rule, i) => `${i + 1}. ${rule}`).join('\n')}
 - אין קריאות ביניים בין קווים אנכיים כמו |וואו|. תגובה של מגיש היא תור קצר משלו.
 - אל תכתבו "A:" או "B:" בתוך הטקסט.
 
-**פלט:** JSON בלבד, בין 6 ל-20 תורות:
+**פלט:** JSON בלבד, בין ${minTurns} ל-${maxTurns} תורות:
 {"turns":[{"host":"A","mood":"hype","text":"..."},{"host":"B","mood":"amused","text":"..."}]}
 
 **הסיכום המקורי (עם עיצוב — התעלמו מהעיצוב):**
