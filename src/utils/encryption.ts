@@ -7,6 +7,7 @@ import crypto from 'crypto';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
+const AUTH_TAG_LENGTH = 16;
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 
 // Get key buffer (lazy initialization to avoid startup errors)
@@ -56,10 +57,13 @@ export function decrypt(encryptedText: string): string {
   const authTag = Buffer.from(parts[1], 'hex');
   const encrypted = parts[2];
 
-  // FOLLOW-UP: the auth tag length is not enforced. Node 22 (engines.node) still accepts
-  // truncated GCM tags down to 4 bytes (DEP0182). Pass { authTagLength: 16 } here and
-  // reject authTag.length !== 16; encrypt() always writes 16-byte tags.
-  const decipher = crypto.createDecipheriv(ALGORITHM, getKeyBuffer(), iv);
+  // encrypt() always writes a 16-byte tag. Node 22 (engines.node) would otherwise verify
+  // a truncated one down to 4 bytes (DEP0182), so a forgery only had to match 32 bits.
+  if (authTag.length !== AUTH_TAG_LENGTH) {
+    throw new Error('Invalid encrypted text format');
+  }
+
+  const decipher = crypto.createDecipheriv(ALGORITHM, getKeyBuffer(), iv, { authTagLength: AUTH_TAG_LENGTH });
   decipher.setAuthTag(authTag);
 
   let decrypted = decipher.update(encrypted, 'hex', 'utf8');

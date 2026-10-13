@@ -11,16 +11,21 @@ import { getBot } from './telegram';
 import { getTelegramService, getWhatsAppService } from './messaging/factory';
 import { MessageFormat } from './messaging/types';
 import { getWhatsAppChatId } from './user-service';
-import { format } from 'date-fns';
 import { trackActivityAsync } from './analytics-service';
 import { checkFeatureAccess, incrementUsage } from './subscription-service';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { resolveUserTimezone } from '../lib/timezone';
 import { captureError } from '../lib/error-capture';
 import { isAllDayEvent } from '../utils/event-formatter';
+import { localDate, nextDate, startOfLocalDay } from '../utils/day-events';
 
 
 const REMINDER_TTL_SECONDS = 86400; // 24 hours
+// The longest reminder lead time the bot sends whatever day it falls on, the evening
+// before included (23:55 for a 00:10 start). A longer one is sent only on the event's own
+// day, as it was while the run fetched only today: "3 hours before" is, but Google's
+// "1 day before" would read on Telegram as starting now.
+const MAX_LEAD_MINUTES = 120;
 
 export type ReminderType = 'start' | 'pickup';
 
@@ -31,6 +36,7 @@ export interface DueReminder {
   eventTime: Date;
   calendarAssignment?: CalendarAssignment;
   isAutoReminder: boolean;  // true if using user's default, false if event has its own reminder
+  sentKeyDate: string;  // reminderTime's date in the user's timezone; checked and marked under the same key
 }
 
 /**
@@ -41,17 +47,25 @@ export interface DueReminder {
 function getReminderMinutes(event: CalendarEvent, userDefault?: number): { minutes: number; isAuto: boolean } {
   // Check event-specific reminders
   if (event.reminders?.overrides?.length) {
-    // Use the first popup/email reminder (prefer popup)
-    const popup = event.reminders.overrides.find(r => r.method === 'popup');
-    const any = event.reminders.overrides[0];
-    const minutes = popup?.minutes ?? any?.minutes;
-    if (minutes !== undefined) {
-      return { minutes, isAuto: false };
-    }
+    // The nearest of the popups (or, without one, the emails): a longer one may fall on
+    // the day before, where it is not sent (isSendable). Taking the first one dropped the
+    // 30-minute popup of an event that also had "1 day before".
+    const popups = event.reminders.overrides.filter(r => r.method === 'popup');
+    const leads = (popups.length ? popups : event.reminders.overrides).map(r => r.minutes);
+    return { minutes: Math.min(...leads), isAuto: false };
   }
 
   // Fall back to user default
   return { minutes: userDefault ?? 0, isAuto: true };
+}
+
+/**
+ * Whether a reminder at `reminderTime` for `eventTime` (a start, or an end for a pickup)
+ * is sent: up to MAX_LEAD_MINUTES ahead always, a longer lead only on the event's own day.
+ */
+function isSendable(reminderTime: Date, eventTime: Date, timezone: string): boolean {
+  return eventTime.getTime() - reminderTime.getTime() <= MAX_LEAD_MINUTES * 60 * 1000
+    || localDate(reminderTime, timezone) === localDate(eventTime, timezone);
 }
 
 /**
@@ -125,24 +139,35 @@ export async function getDueReminders(
     return [];
   }
 
-  // Fetch today's events
-  let events: CalendarEvent[];
-  try {
-    const provider = getProviderForUser(user);
-    events = await provider.fetchTodayEvents(user, calendarIds);
-  } catch (error) {
-    console.error(`[Reminders] Error fetching events for user ${user.telegramId}:`, error);
-    captureError(error, 'reminders-fetch-events', { telegramId: user.telegramId }, 'warning');
-    return [];
-  }
-
   // Truncate to minute boundary to avoid millisecond edge cases
   // e.g., now = 12:35:06 → 12:35:00, so window is [12:35:00, 12:40:00)
   const now = new Date();
   now.setSeconds(0, 0); // Truncate seconds and milliseconds
   const windowEnd = new Date(now.getTime() + windowMinutes * 60 * 1000);
-  const dateStr = format(now, 'yyyy-MM-dd');
   const dueReminders: DueReminder[] = [];
+
+  // Fetch the events a reminder in this window can belong to: those starting or ending
+  // up to MAX_LEAD_MINUTES after it, or later on its day for a longer lead. Fetching
+  // "today" dropped every reminder whose event lay past the user's midnight (23:55 for a
+  // 00:10 start). Both providers return what overlaps the range; it opens a minute early
+  // because an event ending exactly at its opening is left out, and a pickup at 0 minutes
+  // falls on that end.
+  const tz = timezone ?? (await resolveUserTimezone(user));
+  const endOfWindowDay = startOfLocalDay(nextDate(localDate(new Date(windowEnd.getTime() - 1), tz)), tz);
+  let events: CalendarEvent[];
+  try {
+    const provider = getProviderForUser(user);
+    events = await provider.fetchEventsInRange(
+      user,
+      calendarIds,
+      new Date(now.getTime() - 60 * 1000),
+      new Date(Math.max(windowEnd.getTime() + MAX_LEAD_MINUTES * 60 * 1000, endOfWindowDay.getTime()))
+    );
+  } catch (error) {
+    console.error(`[Reminders] Error fetching events for user ${user.telegramId}:`, error);
+    captureError(error, 'reminders-fetch-events', { telegramId: user.telegramId }, 'warning');
+    return [];
+  }
 
   for (const event of events) {
     if (!event.eventId) continue;
@@ -155,7 +180,6 @@ export async function getDueReminders(
     const { minutes: reminderMinutes, isAuto } = getReminderMinutes(event, user.defaultReminderMinutes ?? undefined);
 
     // Debug logging with actual times
-    const tz = timezone || 'UTC';
     const startTimeStr = startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
     const endTimeStr = endTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
     const nowStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
@@ -164,9 +188,12 @@ export async function getDueReminders(
 
     // Check START reminder
     const startReminderTime = new Date(startTime.getTime() - reminderMinutes * 60 * 1000);
-    if (startReminderTime >= now && startReminderTime < windowEnd) {
-      // Check if already sent
-      const alreadySent = await isReminderSent(user.id, event.eventId, 'start', dateStr);
+    if (startReminderTime >= now && startReminderTime < windowEnd && isSendable(startReminderTime, startTime, tz)) {
+      // Check if already sent. The key's date is the reminder's own, not the server's
+      // today: a run whose window overlaps the last one must find its mark even when the
+      // server's date turned in between (20:00 in New York on a UTC server).
+      const sentKeyDate = localDate(startReminderTime, tz);
+      const alreadySent = await isReminderSent(user.id, event.eventId, 'start', sentKeyDate);
       if (!alreadySent) {
         dueReminders.push({
           event,
@@ -175,6 +202,7 @@ export async function getDueReminders(
           eventTime: startTime,
           calendarAssignment: getCalendarAssignment(event, assignments),
           isAutoReminder: isAuto,
+          sentKeyDate,
         });
       }
     }
@@ -184,9 +212,10 @@ export async function getDueReminders(
       const pickupReminderTime = new Date(endTime.getTime() - reminderMinutes * 60 * 1000);
       const pickupReminderTimeStr = pickupReminderTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
       console.log(`[Reminders] Pickup check: ${event.summary}, pickupAt: ${endTimeStr}, reminderTime: ${pickupReminderTimeStr}, inWindow: ${pickupReminderTime >= now && pickupReminderTime < windowEnd}`);
-      if (pickupReminderTime >= now && pickupReminderTime < windowEnd) {
+      if (pickupReminderTime >= now && pickupReminderTime < windowEnd && isSendable(pickupReminderTime, endTime, tz)) {
         // Check if already sent
-        const alreadySent = await isReminderSent(user.id, event.eventId, 'pickup', dateStr);
+        const sentKeyDate = localDate(pickupReminderTime, tz);
+        const alreadySent = await isReminderSent(user.id, event.eventId, 'pickup', sentKeyDate);
         if (!alreadySent) {
           dueReminders.push({
             event,
@@ -195,6 +224,7 @@ export async function getDueReminders(
             eventTime: endTime,
             calendarAssignment: getCalendarAssignment(event, assignments),
             isAutoReminder: isAuto,
+            sentKeyDate,
           });
         }
       }
@@ -297,10 +327,9 @@ export async function sendReminder(
       return false;
     }
 
-    // Mark as sent
-    const dateStr = format(new Date(), 'yyyy-MM-dd');
+    // Mark as sent, under the key getDueReminders checked
     if (reminder.event.eventId) {
-      await markReminderSent(user.id, reminder.event.eventId, reminder.type, dateStr);
+      await markReminderSent(user.id, reminder.event.eventId, reminder.type, reminder.sentKeyDate);
     }
 
     trackActivityAsync(user.id, 'reminder_sent', {

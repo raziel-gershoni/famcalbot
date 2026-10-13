@@ -51,6 +51,7 @@ export async function handleDailySummary(): Promise<CronResult> {
         pickupRemindersEnabled: true,
         language: true,
         name: true,
+        location: true,
       }
     });
 
@@ -65,6 +66,7 @@ export async function handleDailySummary(): Promise<CronResult> {
       language: u.language,
       name: u.name,
       pickupRemindersEnabled: u.pickupRemindersEnabled ?? true,
+      location: u.location,
     }));
 
     await syncReminderCache(reminderUsers);
@@ -166,7 +168,12 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
         calendarSource: cachedUser.calendarSource ?? 'GOOGLE',
         pairingId: cachedUser.pairingId ?? null,
         defaultReminderMinutes: cachedUser.defaultReminderMinutes ?? undefined,
+        // Without it a user who turned pickup reminders off still got them.
+        pickupRemindersEnabled: cachedUser.pickupRemindersEnabled,
+        // resolveUserTimezone geocodes this before falling back to Israel.
+        location: cachedUser.location ?? '',
         remindersEnabled: true,
+        // No messagingPlatform on purpose: reminders go to Telegram only.
       } as import('../types').UserConfig;
       const sentCount = await processUserReminders(user, windowMinutes);
       totalRemindersSent += sentCount;

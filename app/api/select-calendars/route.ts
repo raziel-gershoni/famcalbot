@@ -134,10 +134,13 @@ export async function POST(request: NextRequest) {
         telegramId: updatedUser.telegramId?.toString() ?? '',
         googleRefreshToken: currentUser.googleRefreshToken, // Use existing decrypted token
         calendarAssignments: syncedAssignments,
+        calendarSource: currentUser.calendarSource,
+        pairingId: currentUser.pairingId,
         defaultReminderMinutes: currentUser.defaultReminderMinutes ?? null,
         language: currentUser.language,
         name: currentUser.name,
         pickupRemindersEnabled: currentUser.pickupRemindersEnabled ?? true,
+        location: currentUser.location,
       });
     }
 

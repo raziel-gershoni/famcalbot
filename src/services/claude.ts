@@ -5,7 +5,7 @@ import { TIMEZONE } from '../config/constants';
 import { buildCalendarSummaryPrompt, SummaryPromptData } from '../prompts/calendar-summary';
 import { buildWeekLookaheadPrompt, WeekLookaheadPromptData, LookaheadDayData, LookaheadEventData } from '../prompts/week-lookahead';
 import { formatEventList } from '../utils/event-formatter';
-import { localDate } from '../utils/day-events';
+import { localDate, startOfLocalDay } from '../utils/day-events';
 import { generateAICompletion, streamAICompletion } from './ai-provider';
 import { captureError } from '../lib/error-capture';
 import { formatAdminFooter } from '../utils/ai-footer';
@@ -415,24 +415,21 @@ function getHebrewDateString(date: Date, language: string, timezone: string = TI
 function buildWeekLookaheadPromptData(
   lookahead: WeekLookahead,
   user: UserConfig,
-  language: string,
-  timezone: string = TIMEZONE
+  language: string
 ): WeekLookaheadPromptData {
-  const { events, dateRange } = lookahead;
+  // The lookahead's days are the user's, so everything formats in their timezone
+  const { events, dateRange, timezone } = lookahead;
 
   // Format today's date
   const today = new Date();
   const todayGregorian = formatLookaheadDate(today, language, timezone);
 
-  // Fix: use noon of boundary day to avoid timezone spillover when formatting
-  // (23:59 UTC becomes next day in Israel timezone)
-  const weekEndForDisplay = new Date(dateRange.end);
-  weekEndForDisplay.setUTCHours(12, 0, 0, 0);
-  const weekEndGregorian = formatLookaheadDate(weekEndForDisplay, language, timezone);
+  // The range ends at the last instant of its last day in the user's timezone
+  const weekEndGregorian = formatLookaheadDate(dateRange.end, language, timezone);
 
   // Hebrew dates if Jewish culture
   const todayHebrew = user.culture === 'jewish' ? getHebrewDateString(today, language, timezone) : undefined;
-  const weekEndHebrew = user.culture === 'jewish' ? getHebrewDateString(weekEndForDisplay, language, timezone) : undefined;
+  const weekEndHebrew = user.culture === 'jewish' ? getHebrewDateString(dateRange.end, language, timezone) : undefined;
 
   // Check for spouse and kids calendars
   const hasSpouseCalendar = user.calendarAssignments?.some(c => c.labels.includes('spouse')) ?? false;
@@ -452,10 +449,10 @@ function buildWeekLookaheadPromptData(
     }
   }
 
-  // Group events by day
+  // Group events by the user's day each is listed on (not the server's date of its start)
   const eventsByDayMap = new Map<string, LookaheadEvent[]>();
   for (const event of events) {
-    const dayKey = event.start.toDateString();
+    const dayKey = event.day;
     if (!eventsByDayMap.has(dayKey)) {
       eventsByDayMap.set(dayKey, []);
     }
@@ -468,7 +465,7 @@ function buildWeekLookaheadPromptData(
 
   const eventsByDay: LookaheadDayData[] = [];
   for (const [dayKey, dayEvents] of eventsByDayMap) {
-    const date = new Date(dayKey);
+    const date = startOfLocalDay(dayKey, timezone);
     const daysFromNow = dayEvents[0].daysFromNow;
 
     const dayLabel = formatLookaheadDate(date, language, timezone);
@@ -481,6 +478,9 @@ function buildWeekLookaheadPromptData(
       let timeLabel: string;
       if (event.isBirthday) {
         timeLabel = birthdayLabel;
+      } else if (event.runningLabel) {
+        // Already running on the first day: its start time is not that day's
+        timeLabel = event.runningLabel;
       } else if (event.isAllDay) {
         timeLabel = allDayLabel;
       } else {
@@ -573,30 +573,24 @@ export async function generateWeekLookahead(
 function buildNextWeekPromptData(
   lookahead: WeekLookahead,
   user: UserConfig,
-  language: string,
-  timezone: string = TIMEZONE
+  language: string
 ): WeekLookaheadPromptData {
-  const { events, dateRange } = lookahead;
+  // The lookahead's days are the user's, so everything formats in their timezone
+  const { events, dateRange, timezone } = lookahead;
 
   // Format actual today's date (so AI knows when "now" is)
   const today = new Date();
-  const todayForDisplay = new Date(today);
-  todayForDisplay.setUTCHours(12, 0, 0, 0);
-  const todayGregorian = formatLookaheadDate(todayForDisplay, language, timezone);
-  const todayHebrew = user.culture === 'jewish' ? getHebrewDateString(todayForDisplay, language, timezone) : undefined;
+  const todayGregorian = formatLookaheadDate(today, language, timezone);
+  const todayHebrew = user.culture === 'jewish' ? getHebrewDateString(today, language, timezone) : undefined;
 
-  // Format week start and end dates (next week has explicit start/end)
-  const weekStartForDisplay = new Date(dateRange.start);
-  weekStartForDisplay.setUTCHours(12, 0, 0, 0);
-  const weekStartGregorian = formatLookaheadDate(weekStartForDisplay, language, timezone);
-
-  const weekEndForDisplay = new Date(dateRange.end);
-  weekEndForDisplay.setUTCHours(12, 0, 0, 0);
-  const weekEndGregorian = formatLookaheadDate(weekEndForDisplay, language, timezone);
+  // Format week start and end dates (next week has explicit start/end): the user's
+  // midnight on the first day and the last instant of the last
+  const weekStartGregorian = formatLookaheadDate(dateRange.start, language, timezone);
+  const weekEndGregorian = formatLookaheadDate(dateRange.end, language, timezone);
 
   // Hebrew dates if Jewish culture
-  const weekStartHebrew = user.culture === 'jewish' ? getHebrewDateString(weekStartForDisplay, language, timezone) : undefined;
-  const weekEndHebrew = user.culture === 'jewish' ? getHebrewDateString(weekEndForDisplay, language, timezone) : undefined;
+  const weekStartHebrew = user.culture === 'jewish' ? getHebrewDateString(dateRange.start, language, timezone) : undefined;
+  const weekEndHebrew = user.culture === 'jewish' ? getHebrewDateString(dateRange.end, language, timezone) : undefined;
 
   // Check for spouse and kids calendars
   const hasSpouseCalendar = user.calendarAssignments?.some(c => c.labels.includes('spouse')) ?? false;
@@ -616,10 +610,10 @@ function buildNextWeekPromptData(
     }
   }
 
-  // Group events by day
+  // Group events by the user's day each is listed on (not the server's date of its start)
   const eventsByDayMap = new Map<string, LookaheadEvent[]>();
   for (const event of events) {
-    const dayKey = event.start.toDateString();
+    const dayKey = event.day;
     if (!eventsByDayMap.has(dayKey)) {
       eventsByDayMap.set(dayKey, []);
     }
@@ -632,7 +626,7 @@ function buildNextWeekPromptData(
 
   const eventsByDay: LookaheadDayData[] = [];
   for (const [dayKey, dayEvents] of eventsByDayMap) {
-    const date = new Date(dayKey);
+    const date = startOfLocalDay(dayKey, timezone);
     const daysFromNow = dayEvents[0].daysFromNow;
 
     const dayLabel = formatLookaheadDate(date, language, timezone);
@@ -645,6 +639,9 @@ function buildNextWeekPromptData(
       let timeLabel: string;
       if (event.isBirthday) {
         timeLabel = birthdayLabel;
+      } else if (event.runningLabel) {
+        // Already running on the first day: its start time is not that day's
+        timeLabel = event.runningLabel;
       } else if (event.isAllDay) {
         timeLabel = allDayLabel;
       } else {

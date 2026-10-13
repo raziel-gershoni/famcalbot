@@ -13,6 +13,7 @@ import { UserConfig } from '../../types';
 import { getBotMessages } from '../../lib/bot-messages';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { captureError } from '../../lib/error-capture';
+import { daysBetween, describeEdit, EditSpan } from './event-resolution';
 
 const PENDING_TTL_SECONDS = 600; // 10 minutes
 
@@ -149,7 +150,7 @@ export async function removePendingDelete(pendingId: string) {
 /**
  * Format CalendarEvent date/time for display (uses string dates)
  */
-function formatCalendarEventDateTime(event: CalendarEvent, language: string, allDayText: string, timezone: string): string {
+export function formatCalendarEventDateTime(event: CalendarEvent, language: string, allDayText: string, timezone: string): string {
   const locale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
   const startDate = new Date(event.start);
   const endDate = new Date(event.end);
@@ -176,57 +177,61 @@ function formatCalendarEventDateTime(event: CalendarEvent, language: string, all
   const isAllDay = event.start.length <= 10;  // YYYY-MM-DD format
 
   if (isAllDay) {
-    return `📆 ${dateStr} (${allDayText})`;
+    // Its own date: read as an instant it is UTC midnight, the day before west of UTC
+    const day = new Date(`${event.start}T12:00:00Z`).toLocaleDateString(locale, { ...dateOptions, timeZone: 'UTC' });
+    return `📆 ${day} (${allDayText})`;
   }
 
   return `📆 ${dateStr}\n🕐 ${startTimeStr} - ${endTimeStr}`;
 }
 
 /**
- * Format the changes being made to an event
+ * Format the changes being made to an event. Its days and times come from describeEdit,
+ * on the user's clock: an all-day event's own dates, never its date read as an instant.
  */
-function formatEditChanges(
+export function formatEditChanges(
   originalEvent: CalendarEvent,
   updates: UpdateEventData,
   language: string,
-  timezone: string
+  timezone: string,
+  allDayText: string
 ): string {
   const locale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
   const changes: string[] = [];
 
-  const timeOptions: Intl.DateTimeFormatOptions = {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: timezone
-  };
-
-  const dateOptions: Intl.DateTimeFormatOptions = {
+  // A yyyy-MM-dd date as the user reads it
+  const dayLabel = (day: string) => new Date(`${day}T12:00:00Z`).toLocaleDateString(locale, {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
-    timeZone: timezone
-  };
+    timeZone: 'UTC'
+  });
 
   if (updates.title && updates.title !== originalEvent.summary) {
     changes.push(`📝 ${originalEvent.summary} → ${updates.title}`);
   }
 
-  if (updates.startTime) {
-    const originalStart = new Date(originalEvent.start);
-    const newStart = updates.startTime;
+  const { before, after } = describeEdit(originalEvent, updates, timezone);
 
-    const originalDateStr = originalStart.toLocaleDateString(locale, dateOptions);
-    const newDateStr = newStart.toLocaleDateString(locale, dateOptions);
-    if (originalDateStr !== newDateStr) {
-      changes.push(`📆 ${originalDateStr} → ${newDateStr}`);
-    }
+  // The date: a timed event's start day, an all-day event's first to last day
+  const days = (span: EditSpan) =>
+    span.allDay && span.lastDay !== span.firstDay ? `${dayLabel(span.firstDay)} – ${dayLabel(span.lastDay)}` : dayLabel(span.firstDay);
+  if (days(before) !== days(after)) {
+    changes.push(`📆 ${days(before)} → ${days(after)}`);
+  }
 
-    const originalTimeStr = originalStart.toLocaleTimeString(locale, timeOptions);
-    const newTimeStr = newStart.toLocaleTimeString(locale, timeOptions);
-    if (originalTimeStr !== newTimeStr) {
-      changes.push(`🕐 ${originalTimeStr} → ${newTimeStr}`);
-    }
+  // The time: a timed event's start, or its whole span when only the end moves. A span is
+  // the same when its end time and its length in days are: one that crosses midnight moved
+  // to another day keeps both, and the date line shows the move.
+  const time = (span: EditSpan) => (span.allDay ? allDayText : span.startTime);
+  const timeSpan = (span: EditSpan) =>
+    `${span.startTime} - ${span.lastDay !== span.firstDay ? `${dayLabel(span.lastDay)} ` : ''}${span.endTime}`;
+  const sameSpan = before.endTime === after.endTime &&
+    daysBetween(before.firstDay, before.lastDay) === daysBetween(after.firstDay, after.lastDay);
+  if (time(before) !== time(after)) {
+    changes.push(`🕐 ${time(before)} → ${time(after)}`);
+  } else if (!after.allDay && !sameSpan) {
+    changes.push(`🕐 ${timeSpan(before)} → ${timeSpan(after)}`);
   }
 
   if (updates.location) {
@@ -406,7 +411,7 @@ export async function showEditConfirmation(
   await redis.set(REDIS_KEYS.pendingEdit(pendingId), { originalEvent, calendarId, updates, user, transcription, scope }, { ex: PENDING_TTL_SECONDS });
 
   const currentInfo = formatCalendarEventDateTime(originalEvent, user.language || 'en', t.voice?.allDay || 'All day', timezone);
-  const changesInfo = formatEditChanges(originalEvent, updates, user.language || 'en', timezone);
+  const changesInfo = formatEditChanges(originalEvent, updates, user.language || 'en', timezone, t.voice?.allDay || 'All day');
 
   const editTitle = t.voice?.editConfirmTitle || '📝 <b>Edit this event?</b>';
   const currentLabel = t.voice?.currentEvent || 'Current:';

@@ -135,25 +135,12 @@ async function prepareSummaryForUser(
     onStageChange?.('lookingAhead');
     const tLookahead = Date.now();
     try {
-      const { getWeekLookahead } = await import('../week-lookahead');
+      const { getWeekLookahead, formatTomorrowLookahead } = await import('../week-lookahead');
       // From the same summary day, not now+24h, which is a day off on a DST eve.
       const lookahead = await getWeekLookahead(user, assignments, dayNoon);
 
       if (lookahead.events.length > 0) {
-        weekLookaheadText = lookahead.events
-          .filter(e => e.daysFromNow > 1)
-          .map(e => {
-            const dayName = e.start.toLocaleDateString('en-US', { weekday: 'long', timeZone: userTimezone });
-            if (e.isBirthday) {
-              return `${dayName}: ${e.summary} (Birthday)`;
-            }
-            if (e.isAllDay) {
-              return `${dayName}: ${e.summary} (All day) (${e.calendarName})`;
-            }
-            const time = e.start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: userTimezone });
-            return `${dayName}: ${e.summary} at ${time} (${e.calendarName})`;
-          })
-          .join('\n');
+        weekLookaheadText = formatTomorrowLookahead(lookahead);
       }
     } catch (error) {
       console.error('Failed to fetch week lookahead:', error);
@@ -548,7 +535,6 @@ async function sendWeatherOnlyToUser(
   platform: string
 ): Promise<void> {
   const messagingService = getMessagingService();
-  const targetDate = summaryDate || new Date();
 
   const { getTimezone } = await import('../weather/geocoding');
   const { fetchWeather, getWeatherDescription, getWindDirectionLabel } = await import('../weather/open-meteo');
@@ -563,6 +549,14 @@ async function sendWeatherOnlyToUser(
   ]);
 
   const t = await getBotMessages(user.language || 'en');
+
+  // The message's day, picked the way prepareSummaryForUser picks the summary day: the
+  // local date, plus one calendar day for tomorrow. summaryDate is now+24h on the UTC
+  // server, which on a spring-forward eve is the day after tomorrow.
+  const { localDate, nextDate } = await import('../../utils/day-events');
+  const { fromZonedTime } = await import('date-fns-tz');
+  const today = localDate(new Date(), timezone);
+  const targetDate = fromZonedTime(`${summaryDate ? nextDate(today) : today} 12:00:00`, timezone);
 
   const dateStr = targetDate.toLocaleDateString(user.language === 'he' ? 'he-IL' : user.language === 'ru' ? 'ru-RU' : 'en-US', {
     weekday: 'long',

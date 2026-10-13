@@ -95,6 +95,7 @@ export function toUnifiedEvent(
     reminders: undefined,
     provider: PROVIDER_NAME,
     instanceStartsAt: instance.isRecurringInstance ? instance.instanceStartsAt.toISOString() : undefined,
+    timeZone: instance.timeZone,
   };
 }
 

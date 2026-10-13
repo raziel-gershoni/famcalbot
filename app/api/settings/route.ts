@@ -64,17 +64,28 @@ export async function POST(request: NextRequest) {
       voiceInputEnabled: typeof voiceInputEnabled === 'boolean' ? voiceInputEnabled : undefined
     });
 
-    // Update reminder cache (no extra DB query - uses data from updateUser)
-    if (updatedUser.remindersEnabled && updatedUser.googleRefreshToken) {
+    // Update reminder cache (no extra DB query - uses data from updateUser). Who belongs
+    // in it is the hourly sync's rule (handleDailySummary): a NATIVE user has no Google
+    // token by definition, and a save must not put back a suspended or unreachable user
+    // the sync left out (Telegram refuses an unreachable chat every 5 minutes).
+    const remindable = updatedUser.remindersEnabled &&
+      updatedUser.telegramId !== null &&
+      !updatedUser.suspendedAt &&
+      !updatedUser.unreachableSince &&
+      (!!updatedUser.googleRefreshToken || updatedUser.calendarSource === 'NATIVE');
+    if (remindable) {
       await updateUserInCache({
         id: updatedUser.id,
         telegramId: updatedUser.telegramId?.toString() ?? '',
         googleRefreshToken: updatedUser.googleRefreshToken, // Already decrypted by convertPrismaUserToConfig
         calendarAssignments: updatedUser.calendarAssignments,
+        calendarSource: updatedUser.calendarSource,
+        pairingId: updatedUser.pairingId,
         defaultReminderMinutes: updatedUser.defaultReminderMinutes ?? null,
         language: updatedUser.language,
         name: updatedUser.name,
         pickupRemindersEnabled: updatedUser.pickupRemindersEnabled ?? true,
+        location: updatedUser.location,
       });
     } else {
       await removeUserFromCache(updatedUser.id);

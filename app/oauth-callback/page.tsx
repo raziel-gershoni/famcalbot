@@ -338,10 +338,13 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
         telegramId: user.telegramId?.toString() ?? '',
         googleRefreshToken: tokens.refresh_token, // Fresh token (not encrypted)
         calendarAssignments: user.calendarAssignments,
+        calendarSource: 'GOOGLE', // Completing OAuth switches a NATIVE user to Google (above)
+        pairingId: user.pairingId,
         defaultReminderMinutes: user.defaultReminderMinutes ?? null,
         language: user.language,
         name: user.name,
         pickupRemindersEnabled: user.pickupRemindersEnabled ?? true,
+        location: user.location,
       });
     }
 

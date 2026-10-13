@@ -4,10 +4,12 @@
  */
 
 import { CalendarEvent, CalendarAssignment, CalendarLabel, UserConfig } from '../types';
-import { getCalendarClient, TIMEZONE } from './calendar';
+import { getCalendarClient } from './calendar';
 import { getProviderForUser } from './calendar-provider';
 import { getNativeSeriesRrule } from './native-calendar/event-store';
-import { isAllDayEvent, isBirthdayEvent } from '../utils/event-formatter';
+import { eventTimeLabel, isAllDayEvent, isBirthdayEvent } from '../utils/event-formatter';
+import { addDaysToDate, daySpanOf, localDate, nextDate, startOfLocalDay } from '../utils/day-events';
+import { resolveUserTimezone } from '../lib/timezone';
 
 // Recurrence frequency types
 export type RecurrenceType = 'single' | 'daily' | 'weekly' | 'monthly' | 'yearly';
@@ -16,6 +18,17 @@ export interface LookaheadEvent {
   summary: string;
   start: Date;
   end: Date;
+  /**
+   * The user's local day it is listed on (yyyy-MM-dd): the day it starts, or the first
+   * day for one already running then.
+   */
+  day: string;
+  /**
+   * For an event already running on the first day (a vacation since Monday, a sleepover
+   * until 10:00): how it sits on that day, in the daily summary's words. Its own start
+   * time is not that day's.
+   */
+  runningLabel?: string;
   calendarName: string;
   calendarId: string;
   calendarLabel: CalendarLabel;
@@ -28,32 +41,48 @@ export interface LookaheadEvent {
 export interface WeekLookahead {
   events: LookaheadEvent[];
   dateRange: { start: Date; end: Date };
+  /** The user's timezone; the lookahead's days are their local days. */
+  timezone: string;
+}
+
+/** The user's days a lookahead lists, and the day "In N days" counts from (yyyy-MM-dd). */
+interface LookaheadDays {
+  timezone: string;
+  today: string;
+  first: string;
+  last: string;
 }
 
 // Cache for master event recurrence rules to avoid repeated API calls
 const recurrenceCache = new Map<string, string[] | null>();
 
+/** Day of the week of yyyy-MM-dd, 0 = Sunday. */
+function weekdayOf(day: string): number {
+  return new Date(`${day}T00:00:00Z`).getUTCDay();
+}
+
+/** The last instant of yyyy-MM-dd in `timezone`. */
+function endOfLocalDay(day: string, timezone: string): Date {
+  return new Date(startOfLocalDay(nextDate(day), timezone).getTime() - 1);
+}
+
 /**
- * Get the week boundary based on user settings
+ * Get the last day of the week based on user settings, as yyyy-MM-dd
  * - If lookaheadAlways7Days: always 7 days from reference date
  * - Jewish culture: through Saturday (week ends Saturday, Sunday is next week)
  * - Default culture: through Sunday (week ends Sunday, Monday is next week)
  * @param culture - User's culture setting
  * @param always7Days - Whether to always show 7 days
- * @param referenceDate - The date to calculate from (defaults to now)
+ * @param today - The reference day in the user's timezone
  */
-function getNextWeekBoundary(culture?: string, always7Days?: boolean, referenceDate?: Date): Date {
-  const baseDate = referenceDate || new Date();
-  // Get day in Israel timezone
-  const israelTime = new Date(baseDate.toLocaleString('en-US', { timeZone: TIMEZONE }));
-
+function getNextWeekBoundary(culture: string | undefined, always7Days: boolean | undefined, today: string): string {
   let daysUntilBoundary: number;
 
   if (always7Days) {
     // Always 7 days
     daysUntilBoundary = 7;
   } else {
-    const dayOfWeek = israelTime.getDay(); // 0=Sun, 1=Mon, ...
+    const dayOfWeek = weekdayOf(today); // 0=Sun, 1=Mon, ...
 
     if (culture === 'jewish') {
       // Through Saturday (dayOfWeek 6) - Sunday is already next week
@@ -64,11 +93,7 @@ function getNextWeekBoundary(culture?: string, always7Days?: boolean, referenceD
     }
   }
 
-  const boundary = new Date(israelTime);
-  boundary.setDate(boundary.getDate() + daysUntilBoundary);
-  boundary.setHours(23, 59, 59, 999);
-
-  return boundary;
+  return addDaysToDate(today, daysUntilBoundary);
 }
 
 /**
@@ -162,20 +187,11 @@ function getCalendarLabel(
 }
 
 /**
- * Calculate days from reference date
- * @param eventStart - Event start date
- * @param referenceDate - The date to calculate from (defaults to now)
+ * Calendar days from the reference day to the event's day, both yyyy-MM-dd. Read as
+ * UTC dates, so a 23- or 25-hour DST day still counts as one.
  */
-function getDaysFromReference(eventStart: Date, referenceDate?: Date): number {
-  const baseDate = referenceDate || new Date();
-  const refDay = new Date(baseDate.toLocaleString('en-US', { timeZone: TIMEZONE }));
-  refDay.setHours(0, 0, 0, 0);
-
-  const eventDay = new Date(eventStart);
-  eventDay.setHours(0, 0, 0, 0);
-
-  const diffMs = eventDay.getTime() - refDay.getTime();
-  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+function getDaysFromReference(eventDay: string, referenceDay: string): number {
+  return Math.round((Date.parse(`${eventDay}T00:00:00Z`) - Date.parse(`${referenceDay}T00:00:00Z`)) / 86_400_000);
 }
 
 /**
@@ -185,7 +201,8 @@ async function fetchEventsInRange(
   user: UserConfig,
   calendarIds: string[],
   start: Date,
-  end: Date
+  end: Date,
+  timezone: string
 ): Promise<CalendarEvent[]> {
   // NATIVE users go through the provider, which reads the in-bot calendar.
   // This function's Google path below talks to the API directly, so without
@@ -208,7 +225,7 @@ async function fetchEventsInRange(
         timeMax: end.toISOString(),
         singleEvents: true,
         orderBy: 'startTime',
-        timeZone: TIMEZONE,
+        timeZone: timezone,
       });
 
       const events = response.data.items || [];
@@ -241,13 +258,31 @@ async function filterAndBuildLookaheadEvents(
   events: CalendarEvent[],
   user: UserConfig,
   calendars: CalendarAssignment[],
-  referenceDate?: Date
+  days: LookaheadDays
 ): Promise<LookaheadEvent[]> {
   const lookaheadEvents: LookaheadEvent[] = [];
 
   for (const event of events) {
     const birthday = isBirthdayEvent(event);
     const allDay = isAllDayEvent(event);
+
+    // An event is listed once, on the day it starts in the user's timezone; all-day
+    // dates already are such days. The fetch returns whatever overlaps the range, so one
+    // that started before the first day comes back too. It is listed on the first day,
+    // as running, if it belongs to that day by the daily summary's rule (a vacation, a
+    // sleepover until 10:00), and dropped if not (last night's party until 02:00); its
+    // own day would read "In -1 days". One without a start has no day.
+    if (!event.start) continue;
+    let day = allDay ? event.start : localDate(new Date(event.start), days.timezone);
+    if (day > days.last) continue;
+    let runningLabel: string | undefined;
+    if (day < days.first) {
+      const span = daySpanOf(event, days.first, days.timezone);
+      if (!span) continue;
+      // "Started yesterday" only reads right when the first day is today.
+      runningLabel = eventTimeLabel({ ...event, daySpan: span }, days.timezone, days.first === days.today ? days.first : undefined);
+      day = days.first;
+    }
 
     // Determine recurrence type (skip for birthdays — always include them)
     let recurrenceType: RecurrenceType = birthday ? 'yearly' : 'single';
@@ -274,20 +309,30 @@ async function filterAndBuildLookaheadEvents(
     if (recurrenceType === 'daily') continue;
     if (recurrenceType === 'weekly' && !user.includeWeeklyInLookahead) continue;
 
-    const eventStartDate = new Date(event.start);
-    const eventEndDate = new Date(event.end);
+    // An all-day event starts at the user's midnight, not at UTC midnight, which west of
+    // UTC is the evening before. Its end date is exclusive; a missing or non-advancing
+    // end means one day, as in daySpanOf.
+    let eventStartDate = new Date(event.start);
+    let eventEndDate = new Date(event.end);
+    if (allDay) {
+      const endDate = event.end && !event.end.includes('T') && event.end > event.start ? event.end : nextDate(event.start);
+      eventStartDate = startOfLocalDay(event.start, days.timezone);
+      eventEndDate = startOfLocalDay(endDate, days.timezone);
+    }
 
     lookaheadEvents.push({
       summary: event.summary,
       start: eventStartDate,
       end: eventEndDate,
+      day,
       calendarName: event.calendarName,
       calendarId: event.calendarId,
       calendarLabel: getCalendarLabel(event.calendarId, calendars),
       recurrenceType,
-      daysFromNow: getDaysFromReference(eventStartDate, referenceDate),
+      daysFromNow: getDaysFromReference(day, days.today),
       isAllDay: allDay,
       isBirthday: birthday,
+      runningLabel,
     });
   }
 
@@ -309,13 +354,17 @@ export async function getWeekLookahead(
   referenceDate?: Date
 ): Promise<WeekLookahead> {
   const startDate = referenceDate || new Date();
-  const endDate = getNextWeekBoundary(user.culture, user.lookaheadAlways7Days, startDate);
+  // The week is made of the user's days, from the reference day to the end of the last.
+  const timezone = await resolveUserTimezone(user);
+  const today = localDate(startDate, timezone);
+  const lastDay = getNextWeekBoundary(user.culture, user.lookaheadAlways7Days, today);
+  const endDate = endOfLocalDay(lastDay, timezone);
 
   // Get all calendar IDs (including birthdays)
   const calendarIds = calendars.map(c => c.calendarId);
 
   if (calendarIds.length === 0 || (user.calendarSource !== 'NATIVE' && !user.googleRefreshToken)) {
-    return { events: [], dateRange: { start: startDate, end: endDate } };
+    return { events: [], dateRange: { start: startDate, end: endDate }, timezone };
   }
 
   // Fetch all events in range
@@ -323,28 +372,53 @@ export async function getWeekLookahead(
     user,
     calendarIds,
     startDate,
-    endDate
+    endDate,
+    timezone
   );
 
-  const lookaheadEvents = await filterAndBuildLookaheadEvents(events, user, calendars, referenceDate);
+  const lookaheadEvents = await filterAndBuildLookaheadEvents(events, user, calendars, {
+    timezone, today, first: today, last: lastDay,
+  });
 
   return {
     events: lookaheadEvents,
     dateRange: { start: startDate, end: endDate },
+    timezone,
   };
 }
 
 /**
- * Get next week's boundaries based on culture
+ * The lookahead block of the tomorrow summary, one line per event. The lookahead counts
+ * from the summary day, which the summary itself covers, so it starts the day after
+ * (daysFromNow 1); `> 1`, written when it counted from today, dropped that day.
+ */
+export function formatTomorrowLookahead(lookahead: WeekLookahead): string {
+  const { timezone } = lookahead;
+  return lookahead.events
+    .filter(e => e.daysFromNow >= 1)
+    .map(e => {
+      const dayName = e.start.toLocaleDateString('en-US', { weekday: 'long', timeZone: timezone });
+      if (e.isBirthday) {
+        return `${dayName}: ${e.summary} (Birthday)`;
+      }
+      if (e.isAllDay) {
+        return `${dayName}: ${e.summary} (All day) (${e.calendarName})`;
+      }
+      const time = e.start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: timezone });
+      return `${dayName}: ${e.summary} at ${time} (${e.calendarName})`;
+    })
+    .join('\n');
+}
+
+/**
+ * Get next week's first and last days (yyyy-MM-dd) based on culture
  * - Jewish: Sunday to Saturday
  * - Default: Monday to Sunday
  * @param culture - User's culture setting
- * @param referenceDate - The date to calculate from (defaults to now)
+ * @param today - The reference day in the user's timezone
  */
-function getNextWeekBoundaries(culture?: string, referenceDate?: Date): { start: Date; end: Date } {
-  const baseDate = referenceDate || new Date();
-  const israelTime = new Date(baseDate.toLocaleString('en-US', { timeZone: TIMEZONE }));
-  const dayOfWeek = israelTime.getDay(); // 0=Sun, 1=Mon, ...
+function getNextWeekBoundaries(culture: string | undefined, today: string): { first: string; last: string } {
+  const dayOfWeek = weekdayOf(today); // 0=Sun, 1=Mon, ...
 
   let daysUntilNextWeekStart: number;
   const weekLength: number = 7;
@@ -357,15 +431,8 @@ function getNextWeekBoundaries(culture?: string, referenceDate?: Date): { start:
     daysUntilNextWeekStart = ((8 - dayOfWeek) % 7) || 7;
   }
 
-  const start = new Date(israelTime);
-  start.setDate(start.getDate() + daysUntilNextWeekStart);
-  start.setHours(0, 0, 0, 0);
-
-  const end = new Date(start);
-  end.setDate(end.getDate() + weekLength - 1);
-  end.setHours(23, 59, 59, 999);
-
-  return { start, end };
+  const first = addDaysToDate(today, daysUntilNextWeekStart);
+  return { first, last: addDaysToDate(first, weekLength - 1) };
 }
 
 /**
@@ -379,13 +446,18 @@ export async function getNextWeekLookahead(
   calendars: CalendarAssignment[],
   referenceDate?: Date
 ): Promise<WeekLookahead> {
-  const { start, end } = getNextWeekBoundaries(user.culture, referenceDate);
+  // Next week's days run from the user's midnight to the end of their last day.
+  const timezone = await resolveUserTimezone(user);
+  const today = localDate(referenceDate || new Date(), timezone);
+  const { first, last } = getNextWeekBoundaries(user.culture, today);
+  const start = startOfLocalDay(first, timezone);
+  const end = endOfLocalDay(last, timezone);
 
   // Get all calendar IDs (including birthdays)
   const calendarIds = calendars.map(c => c.calendarId);
 
   if (calendarIds.length === 0 || (user.calendarSource !== 'NATIVE' && !user.googleRefreshToken)) {
-    return { events: [], dateRange: { start, end } };
+    return { events: [], dateRange: { start, end }, timezone };
   }
 
   // Fetch all events in range
@@ -393,14 +465,16 @@ export async function getNextWeekLookahead(
     user,
     calendarIds,
     start,
-    end
+    end,
+    timezone
   );
 
-  const lookaheadEvents = await filterAndBuildLookaheadEvents(events, user, calendars, referenceDate);
+  const lookaheadEvents = await filterAndBuildLookaheadEvents(events, user, calendars, { timezone, today, first, last });
 
   return {
     events: lookaheadEvents,
     dateRange: { start, end },
+    timezone,
   };
 }
 

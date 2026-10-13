@@ -3,7 +3,7 @@
  */
 
 export interface LookaheadEventData {
-  time: string;             // "14:30", "All day", or "Birthday"
+  time: string;             // "14:30", "All day", "Birthday", or for one already running "until 10:00 (started Sat 22:00)"
   summary: string;
   calendarName: string;
   calendarLabel: 'yours' | 'spouse' | 'kids' | 'birthdays';

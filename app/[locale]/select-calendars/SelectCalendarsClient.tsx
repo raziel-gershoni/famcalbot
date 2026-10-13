@@ -74,7 +74,9 @@ export default function SelectCalendarsClient({
       : ['', '', '']
   );
   const [feedbackMessages, setFeedbackMessages] = useState<FeedbackMessage[]>([]);
-  const [messageIdCounter, setMessageIdCounter] = useState(0);
+  // Feedback ids (React keys) come from a ref: the save callbacks below keep an older
+  // render's showFeedback, which would reuse an id if the counter lived in state.
+  const messageIdRef = useRef(0);
   // Track which panels are expanded (collapsed by default if data exists)
   const [expandedGlobalRules, setExpandedGlobalRules] = useState(false);
   const [expandedSpousePanels, setExpandedSpousePanels] = useState<Set<string>>(new Set());
@@ -90,8 +92,7 @@ export default function SelectCalendarsClient({
 
   // Show feedback message
   const showFeedback = (text: string, type: 'success' | 'error' = 'success') => {
-    const id = messageIdCounter;
-    setMessageIdCounter(prev => prev + 1);
+    const id = messageIdRef.current++;
 
     const message: FeedbackMessage = { text, type, id };
     setFeedbackMessages(prev => [...prev, message]);
@@ -134,7 +135,7 @@ export default function SelectCalendarsClient({
         showFeedback(t(feedbackKey) || feedbackKey);
       }
     }, DEBOUNCE_DELAY);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- saveToServer is declared below (TDZ in a deps array). KNOWN ISSUE: the captured showFeedback reads a stale messageIdCounter, so feedback ids (React keys) can repeat; fix by taking ids from a useRef counter
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- saveToServer is declared below (TDZ in a deps array)
   }, [selectedCalendars, calendarLabels, spouseInfo, calendarRules, globalRules]);
 
   // Immediate save (for panel collapse)
@@ -150,7 +151,7 @@ export default function SelectCalendarsClient({
       showFeedback(t(feedbackKey) || feedbackKey);
     }
     return success;
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- saveToServer is declared below (TDZ in a deps array). KNOWN ISSUE: the captured showFeedback reads a stale messageIdCounter, so feedback ids (React keys) can repeat; fix by taking ids from a useRef counter
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- saveToServer is declared below (TDZ in a deps array)
   }, [selectedCalendars, calendarLabels, spouseInfo, calendarRules, globalRules]);
 
   // Save current state to server

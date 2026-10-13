@@ -78,6 +78,29 @@ function defaultDurationMs(series: NativeEvent): number {
 }
 
 /**
+ * The end of an occurrence starting at `start` when no override sets one. A timed
+ * occurrence keeps the series's length. An all-day one keeps its wall-clock span
+ * (the bot saves 00:00 to 23:59 local on the last day): a fixed length would run
+ * an hour past midnight on a 23-hour DST day, into the next day's fetch.
+ */
+function defaultEnd(series: NativeEvent, start: Date): Date {
+  if (!series.allDay) return new Date(start.getTime() + defaultDurationMs(series));
+  const tz = series.timeZone || TIMEZONE;
+  const spanMs = toFloating(series.endsAt, tz).getTime() - toFloating(series.startsAt, tz).getTime();
+  return fromFloating(new Date(toFloating(start, tz).getTime() + spanMs), tz);
+}
+
+/**
+ * Whether an occurrence belongs to a fetch window: it overlaps [from, to), the
+ * way Google's events.list decides it, so an event from Monday 22:00 to Tuesday
+ * 02:00 is in both days' windows. One that starts inside the window always
+ * counts, whatever its end says, as it did before.
+ */
+function overlapsRange(start: Date, end: Date, range: { from: Date; to: Date }): boolean {
+  return start < range.to && (start >= range.from || end > range.from);
+}
+
+/**
  * Apply overrides + exdates to a single occurrence start time. Returns a
  * VirtualInstance, or undefined if this occurrence is cancelled.
  */
@@ -99,11 +122,7 @@ function buildInstance(
 
   if (override?.status === 'OVERRIDE') {
     const startsAt = override.startsAt ?? occurrenceStart;
-    const endsAt =
-      override.endsAt ??
-      (override.startsAt
-        ? new Date(override.startsAt.getTime() + defaultDurationMs(series))
-        : new Date(occurrenceStart.getTime() + defaultDurationMs(series)));
+    const endsAt = override.endsAt ?? defaultEnd(series, startsAt);
 
     return {
       seriesEventId: series.id,
@@ -121,7 +140,7 @@ function buildInstance(
   }
 
   // No override, use series defaults shifted to this occurrence
-  const occurrenceEnd = new Date(occurrenceStart.getTime() + defaultDurationMs(series));
+  const occurrenceEnd = defaultEnd(series, occurrenceStart);
   return {
     seriesEventId: series.id,
     instanceStartsAt: occurrenceStart,
@@ -139,8 +158,9 @@ function buildInstance(
 
 /**
  * Expand a NativeEvent (single or recurring) into virtual instances within a
- * date range. The range is treated as half-open [from, to) on the occurrence
- * start time — instances starting at exactly `to` are excluded.
+ * date range: every instance that overlaps the half-open [from, to), with
+ * overrides applied. An instance starting at exactly `to`, or ending at exactly
+ * `from`, is excluded.
  */
 export function expandSeries(
   event: NativeEvent,
@@ -155,12 +175,12 @@ export function expandSeries(
 
   // Non-recurring: at most one instance
   if (!event.rrule) {
-    if (event.startsAt >= range.to || event.startsAt < range.from) return [];
+    if (!overlapsRange(event.startsAt, event.endsAt, range)) return [];
     const instance = buildInstance(event, event.startsAt, overrideMap);
     return instance ? [{ ...instance, isRecurringInstance: false }] : [];
   }
 
-  // Recurring: enumerate occurrences in [from, to).
+  // Recurring: enumerate the occurrences that overlap [from, to).
   //
   // Expansion runs in floating local time and each occurrence is re-anchored to
   // a real instant through the event's own timezone. Anchoring the rule at the
@@ -172,38 +192,40 @@ export function expandSeries(
   const tz = event.timeZone || TIMEZONE;
   const ruleset = buildRuleSet(event.rrule, toFloating(event.startsAt, tz));
 
-  // Widen the floating window by a day either side so an occurrence sitting near
-  // a DST boundary can't be trimmed by the offset shift, then filter exactly on
-  // the re-anchored instants. `between(after, before, inc=true)` is inclusive at
-  // both ends; the filter below restores the half-open [from, to).
+  // Reach back by the series's length too, so an occurrence that started before
+  // the window but is still running in it (Monday 22:00 to Tuesday 02:00, on
+  // Tuesday) is a candidate. Widen the floating window by a further day either
+  // side so an occurrence sitting near a DST boundary can't be trimmed by the
+  // offset shift, then filter exactly below. `between(after, before, inc=true)`
+  // is inclusive at both ends; the overlap filter restores the half-open window.
   const PAD_MS = 24 * 60 * 60 * 1000;
-  const occurrences = ruleset
+  const reachBackMs = Math.max(0, defaultDurationMs(event)) + PAD_MS;
+  const candidates = ruleset
     .between(
-      new Date(toFloating(range.from, tz).getTime() - PAD_MS),
+      new Date(toFloating(range.from, tz).getTime() - reachBackMs),
       new Date(toFloating(range.to, tz).getTime() + PAD_MS),
       true
     )
-    .map((floating) => fromFloating(floating, tz))
-    .filter((start) => start >= range.from && start < range.to);
+    .map((floating) => fromFloating(floating, tz));
 
+  // Filter on the instance as overridden, not the original slot: an occurrence
+  // moved to Tuesday shows on Tuesday, not on the Monday it was moved off.
   const instances: VirtualInstance[] = [];
-  for (const start of occurrences) {
+  for (const start of candidates) {
     const inst = buildInstance(event, start, overrideMap);
-    if (inst) instances.push(inst);
+    if (inst && overlapsRange(inst.startsAt, inst.endsAt, range)) instances.push(inst);
   }
 
-  // Floating overrides whose new start lands inside the range but whose original
-  // occurrence falls outside the range still need to be rendered. Iterate any
-  // overrides whose effective startsAt is in range and whose original time was
-  // NOT already enumerated above.
-  const enumeratedStarts = new Set(occurrences.map((d) => d.getTime()));
+  // Overrides whose original occurrence is too far away to be a candidate can
+  // still land in the window - moved into it, or lengthened into it. Render any
+  // of those whose effective instance overlaps the window; the ones that were
+  // candidates were already decided above.
+  const candidateStarts = new Set(candidates.map((d) => d.getTime()));
   for (const o of overrides) {
-    if (enumeratedStarts.has(o.originalStartsAt.getTime())) continue;
+    if (candidateStarts.has(o.originalStartsAt.getTime())) continue;
     if (o.status === 'CANCELLED') continue;
-    const effectiveStart = o.startsAt ?? o.originalStartsAt;
-    if (effectiveStart < range.from || effectiveStart >= range.to) continue;
     const inst = buildInstance(event, o.originalStartsAt, overrideMap);
-    if (inst) instances.push(inst);
+    if (inst && overlapsRange(inst.startsAt, inst.endsAt, range)) instances.push(inst);
   }
 
   // Sort by effective start time

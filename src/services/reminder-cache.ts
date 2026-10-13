@@ -29,6 +29,10 @@ export interface CachedReminderUser {
   // which is what they were anyway.
   calendarSource?: string;
   pairingId?: string | null;
+  // The reminder run resolves the user's timezone from it, as the summaries do;
+  // without it a NATIVE user fell back to Israel, and that fallback was cached for
+  // the summaries too. Optional for entries written before it existed.
+  location?: string;
 }
 
 /**

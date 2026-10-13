@@ -127,8 +127,11 @@ export interface FetchRange {
 
 /**
  * Fetch all events (single + recurring expanded) across a set of calendars
- * within a date range. The caller is responsible for permission filtering
- * (typically by passing in calendars from listVisibleCalendars).
+ * that overlap a date range, the way Google's events.list returns them: a
+ * Monday 22:00 to Tuesday 02:00 event comes back for both days, and the summary
+ * shaping (src/utils/day-events.ts) decides how each day shows it. The caller
+ * is responsible for permission filtering (typically by passing in calendars
+ * from listVisibleCalendars).
  */
 export async function fetchEventsInCalendars(
   calendarCuids: string[],
@@ -142,14 +145,21 @@ export async function fetchEventsInCalendars(
   const calendarsById = new Map(calendars.map((c) => [c.id, c]));
 
   // Pull all candidate series — recurring (rrule != null) get filtered later by
-  // expansion; one-offs are filtered cheaply at the SQL level via startsAt range.
+  // expansion; one-offs are filtered cheaply at the SQL level by overlap, with
+  // the same rule expandSeries applies.
   const series = await prisma.nativeEvent.findMany({
     where: {
       calendarId: { in: calendarCuids },
       isDeleted: false,
       OR: [
-        // single-event: must start in range
-        { rrule: null, startsAt: { gte: range.from, lt: range.to } },
+        // single-event: overlaps the range - starts before it ends and is still
+        // running when it opens. One starting inside the range always counts,
+        // whatever its end says.
+        {
+          rrule: null,
+          startsAt: { lt: range.to },
+          OR: [{ startsAt: { gte: range.from } }, { endsAt: { gt: range.from } }],
+        },
         // recurring: include all whose dtstart is before range.to and (no UNTIL
         // filter at SQL level — rrule expansion handles bounded series).
         { rrule: { not: null }, startsAt: { lt: range.to } },

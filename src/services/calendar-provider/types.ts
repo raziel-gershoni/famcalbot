@@ -15,6 +15,8 @@ export type RecurrenceScope = 'single' | 'all' | 'following';
 export interface UnifiedEvent extends CalendarEvent {
   provider: CalendarProviderName;
   instanceStartsAt?: string; // ISO; only set for native recurring instances
+  // Native only: the event's own IANA timezone, the one its all-day dates are read in.
+  timeZone?: string;
 }
 
 // Subset of GCal CalendarInfo + provider tag. Surfaces in select-calendars and
@@ -29,6 +31,9 @@ export interface UnifiedCalendar {
   provider: CalendarProviderName;
 }
 
+// An all-day event's startTime and endTime are 00:00 on its first day and a time on its
+// last (23:59 as the bot creates one), in the user's timezone, for both providers: the
+// native calendar stores them, the Google provider turns them into Google's dates.
 export interface CreateEventInput {
   title: string;
   startTime: Date;

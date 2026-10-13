@@ -13,9 +13,9 @@ import { getBotMessages } from '../../lib/bot-messages';
 import { trackActivityAsync, addBreadcrumb } from '../analytics-service';
 import { captureError } from '../../lib/error-capture';
 import { AI_MODEL_ID } from '../../config/ai-models';
-import { fromZonedTime } from 'date-fns-tz';
 import { formatInTimeZone } from 'date-fns-tz';
 import { getPendingEvent, removePendingEvent, showEventConfirmation } from './confirmations';
+import { buildEventTimes } from './gemini-voice';
 import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { startTypingInterval } from '../telegram/command-pipeline';
@@ -159,12 +159,9 @@ export async function handleEventCorrection(
     const parsed: any = JSON.parse(jsonMatch[0]);
 
     // Build corrected ParsedEvent
-    const startTimeStr = parsed.allDay ? (parsed.startTime || '00:00') : parsed.startTime;
-    const endTimeStr = parsed.allDay ? (parsed.endTime || '23:59') : parsed.endTime;
-    const endDateStr = parsed.endDate || parsed.startDate;
-
-    const startDateTime = fromZonedTime(`${parsed.startDate}T${startTimeStr}:00`, timezone);
-    const endDateTime = fromZonedTime(`${endDateStr}T${endTimeStr}:00`, timezone);
+    const { start: startDateTime, end: endDateTime } = buildEventTimes(
+      parsed.startDate, parsed.startTime, parsed.endDate, parsed.endTime, !!parsed.allDay, timezone
+    );
 
     if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
       throw new Error('Invalid date/time in correction response');

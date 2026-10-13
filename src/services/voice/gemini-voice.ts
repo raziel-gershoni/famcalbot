@@ -12,6 +12,7 @@ import { VoiceIntentResult, VoiceIntent, ParsedEvent } from '../event-parser';
 import { CalendarAssignment } from '../../types';
 import { fromZonedTime } from 'date-fns-tz';
 import { AI_MODEL_ID } from '../../config/ai-models';
+import { startOfLocalDay } from '../../utils/day-events';
 
 const VOICE_RETRY_CONFIG = {
   maxRetries: 1,
@@ -172,7 +173,7 @@ RESPOND IN JSON FORMAT ONLY:
     "description": "dentist", "meeting with David" - keywords to match event,
     "timeHint": "tomorrow", "next week" - relative date hint,
     "originalTime": "HH:MM" or null - the START TIME of the event being referenced (NOT the new time),
-    "originalDate": "YYYY-MM-DD" or null - explicit date of the event (if mentioned)
+    "originalDate": "YYYY-MM-DD" or null - the DATE of the event being referenced, if mentioned (NOT the new date)
   },
 
   "error": "Error message" or null,
@@ -281,6 +282,37 @@ export function extractIntents(
 }
 
 /**
+ * When an extracted event starts and ends in `timezone`. An all-day event starts at the
+ * first instant of its first day: where daylight saving starts at midnight (Chile,
+ * Lebanon, Egypt) 00:00 does not exist and resolves to 23:00 the day before, which dated
+ * the event a day early. It ends at 23:59 on its last day whatever end time the model
+ * read: the native calendar counts an all-day event's days from its length, so a camp
+ * ending at an 11:00 pickup lost its last day there while Google kept it.
+ * An unreadable date or time gives an Invalid Date.
+ */
+export function buildEventTimes(
+  startDate: string,
+  startTime: string | undefined,
+  endDate: string | undefined,
+  endTime: string | undefined,
+  allDay: boolean,
+  timezone: string
+): { start: Date; end: Date } {
+  const lastDate = endDate || startDate;
+  if (!allDay) {
+    return {
+      start: fromZonedTime(`${startDate}T${startTime}:00`, timezone),
+      end: fromZonedTime(`${lastDate}T${endTime}:00`, timezone),
+    };
+  }
+  const midnight = fromZonedTime(`${startDate}T00:00:00`, timezone);
+  return {
+    start: isNaN(midnight.getTime()) ? midnight : startOfLocalDay(startDate, timezone),
+    end: fromZonedTime(`${lastDate}T23:59:00`, timezone),
+  };
+}
+
+/**
  * Parse Gemini JSON response into VoiceIntentResult
  * Shared between voice and text processing pipelines
  */
@@ -326,11 +358,7 @@ export function parseGeminiEventResponse(
     const resolvedCalendarName = matchedCalendar?.name || calendars[0]?.name || 'Primary';
 
     // All-day events may not have startTime/endTime from Gemini
-    const startTimeStr = eventData.allDay ? (eventData.startTime || '00:00') : eventData.startTime;
-    const endTimeStr = eventData.allDay ? (eventData.endTime || '23:59') : eventData.endTime;
-    const endDateStr = eventData.endDate || eventData.startDate;
-
-    if (!eventData.startDate || (!eventData.allDay && (!startTimeStr || !endTimeStr))) {
+    if (!eventData.startDate || (!eventData.allDay && (!eventData.startTime || !eventData.endTime))) {
       return {
         intent: 'create',
         confidence: 'low',
@@ -338,8 +366,9 @@ export function parseGeminiEventResponse(
       };
     }
 
-    const startDateTime = fromZonedTime(`${eventData.startDate}T${startTimeStr}:00`, timezone);
-    const endDateTime = fromZonedTime(`${endDateStr}T${endTimeStr}:00`, timezone);
+    const { start: startDateTime, end: endDateTime } = buildEventTimes(
+      eventData.startDate, eventData.startTime, eventData.endDate, eventData.endTime, !!eventData.allDay, timezone
+    );
 
     if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
       return {

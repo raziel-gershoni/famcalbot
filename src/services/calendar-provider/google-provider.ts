@@ -26,6 +26,15 @@ import { UserConfig } from '../../types';
 
 const PROVIDER_NAME = 'google' as const;
 
+/**
+ * The user's timezone, which an all-day event's instants are on (see CreateEventInput);
+ * calendar.ts turns them into Google's dates with it.
+ */
+async function allDayTimezone(user: UserConfig): Promise<string> {
+  const { resolveUserTimezone } = await import('../../lib/timezone');
+  return resolveUserTimezone(user);
+}
+
 function notConnected(action: string): {
   success: false;
   error: 'NOT_CONNECTED';
@@ -83,6 +92,7 @@ export const googleProvider: CalendarProvider = {
       location: data.location,
       allDay: data.allDay,
       recurrence: data.recurrence,
+      timeZone: data.allDay ? await allDayTimezone(user) : undefined,
     });
     return result;
   },
@@ -99,6 +109,9 @@ export const googleProvider: CalendarProvider = {
       scope: data.scope,
       recurringEventId: data.recurringEventId,
       // instanceStartsAt is native-only; GCal uses the instance eventId directly.
+      // Whether the event is all-day may only show once calendar.ts reads it, so any
+      // new time takes the timezone along.
+      timeZone: data.startTime || data.endTime || data.allDay ? await allDayTimezone(user) : undefined,
     });
     return result;
   },

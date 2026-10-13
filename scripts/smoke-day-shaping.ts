@@ -1,6 +1,7 @@
 // Smoke test for src/utils/day-events.ts and the event lines the summary prompt gets.
 // An event from 22:00 to 02:00 used to show on both days, and on the second day its
-// bare "22:00 - 02:00" read as that evening. No network.
+// bare "22:00 - 02:00" read as that evening. An event a week long or more named its
+// ends by weekday alone, "Sat 15:00 - Sat 12:00". No network.
 //
 // Run under both clocks; the output must not depend on the server's timezone:
 //   TZ=UTC npx tsx scripts/smoke-day-shaping.ts
@@ -93,6 +94,38 @@ check('multi-day all-day event: each day it covers, marked, and not the day afte
   assert(onDay(vacation, '2026-10-13') === '1. Vacation (All day (began Mon, through Wed)) [Calendar: Family]', `Tue ${onDay(vacation, '2026-10-13')}`);
   assert(onDay(vacation, '2026-10-14') === '1. Vacation (All day (last day; began Mon)) [Calendar: Family]', `Wed ${onDay(vacation, '2026-10-14')}`);
   assert(onDay(vacation, '2026-10-15') === undefined, 'kept on Thursday');
+});
+
+// A week apart, weekday names alone repeat: "all day (Sat 15:00 - Sat 12:00)".
+check('week-long visit: both ends carry the day of the month', () => {
+  const visit = ev('Grandma visiting', '2026-10-10T15:00:00+03:00', '2026-10-17T12:00:00+03:00');
+  assert(onDay(visit, '2026-10-10') === '1. Grandma visiting (from 15:00 until Sat 17 12:00) [Calendar: Family]', `Sat ${onDay(visit, '2026-10-10')}`);
+  assert(onDay(visit, '2026-10-13') === '1. Grandma visiting (all day (Sat 10 15:00 - Sat 17 12:00)) [Calendar: Family]', `Tue ${onDay(visit, '2026-10-13')}`);
+  assert(onDay(visit, '2026-10-17') === '1. Grandma visiting (until 12:00 (started Sat 10 15:00)) [Calendar: Family]', `next Sat ${onDay(visit, '2026-10-17')}`);
+  // The dates are the user's: 21:00 Saturday in New York is already Sunday in UTC.
+  const nyVisit = ev('Grandma visiting', '2026-10-10T21:00:00-04:00', '2026-10-17T20:00:00-04:00');
+  const ny = onDay(nyVisit, '2026-10-13', 'America/New_York');
+  assert(ny === '1. Grandma visiting (all day (Sat 10 21:00 - Sat 17 20:00)) [Calendar: Family]', `New York ${ny}`);
+});
+
+check('a timed event whose ends are six days apart keeps weekday names alone', () => {
+  const visit = ev('Visit', '2026-10-10T15:00:00+03:00', '2026-10-16T12:00:00+03:00');
+  assert(onDay(visit, '2026-10-10') === '1. Visit (from 15:00 until Fri 12:00) [Calendar: Family]', `Sat ${onDay(visit, '2026-10-10')}`);
+  assert(onDay(visit, '2026-10-13') === '1. Visit (all day (Sat 15:00 - Fri 12:00)) [Calendar: Family]', `Tue ${onDay(visit, '2026-10-13')}`);
+  assert(onDay(visit, '2026-10-16') === '1. Visit (until 12:00 (started Sat 15:00)) [Calendar: Family]', `Fri ${onDay(visit, '2026-10-16')}`);
+  // Ending at the next Saturday's midnight, the label names that Saturday, so it is dated.
+  const toMidnight = ev('Visit', '2026-10-10T15:00:00+03:00', '2026-10-17T00:00:00+03:00');
+  assert(onDay(toMidnight, '2026-10-10') === '1. Visit (from 15:00 until Sat 17 00:00) [Calendar: Family]', `midnight ${onDay(toMidnight, '2026-10-10')}`);
+});
+
+check('all-day events: dated from a week long, weekday names alone up to six days', () => {
+  const camp = ev('Camp', '2026-10-10', '2026-10-18');
+  assert(onDay(camp, '2026-10-10') === '1. Camp (All day, through Sat 17) [Calendar: Family]', `Sat ${onDay(camp, '2026-10-10')}`);
+  assert(onDay(camp, '2026-10-13') === '1. Camp (All day (began Sat 10, through Sat 17)) [Calendar: Family]', `Tue ${onDay(camp, '2026-10-13')}`);
+  assert(onDay(camp, '2026-10-17') === '1. Camp (All day (last day; began Sat 10)) [Calendar: Family]', `next Sat ${onDay(camp, '2026-10-17')}`);
+  const shortCamp = ev('Camp', '2026-10-10', '2026-10-17');
+  assert(onDay(shortCamp, '2026-10-10') === '1. Camp (All day, through Fri) [Calendar: Family]', `short Sat ${onDay(shortCamp, '2026-10-10')}`);
+  assert(onDay(shortCamp, '2026-10-16') === '1. Camp (All day (last day; began Sat)) [Calendar: Family]', `short Fri ${onDay(shortCamp, '2026-10-16')}`);
 });
 
 check('birthdays keep their plain line', () => {

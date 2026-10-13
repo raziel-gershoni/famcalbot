@@ -1,7 +1,7 @@
 import { formatInTimeZone } from 'date-fns-tz';
 import { CalendarEvent } from '../types';
 import { TIMEZONE } from '../config/constants';
-import { daySpanOf, localDate, nextDate } from './day-events';
+import { addDaysToDate, daySpanOf, localDate, nextDate } from './day-events';
 
 /** Light sanitizer for event fields — strips newlines and markdown links, preserves legitimate text */
 function sanitizeEventField(text: string, maxLen = 500): string {
@@ -19,8 +19,15 @@ export function isBirthdayEvent(event: CalendarEvent): boolean {
 }
 
 const clock = (iso: string, timezone: string) => formatInTimeZone(new Date(iso), timezone, 'HH:mm');
-const weekdayOf = (iso: string, timezone: string) => formatInTimeZone(new Date(iso), timezone, 'EEE');
-const weekdayOfDate = (date: string) => formatInTimeZone(new Date(`${date}T12:00:00Z`), 'UTC', 'EEE');
+// "Sat", or "Sat 17" when the weekday alone would be ambiguous (see eventTimeLabel).
+const weekdayOf = (iso: string, timezone: string, dated = false) => formatInTimeZone(new Date(iso), timezone, dated ? 'EEE d' : 'EEE');
+const weekdayOfDate = (date: string, dated = false) => formatInTimeZone(new Date(`${date}T12:00:00Z`), 'UTC', dated ? 'EEE d' : 'EEE');
+
+/**
+ * The most days apart an event's first and last day can be for weekday names alone to
+ * tell them apart; a week apart, "Sat 15:00 - Sat 12:00" does not say which Saturday.
+ */
+const WEEKDAY_ONLY_SPAN_DAYS = 6;
 
 /** The day before yyyy-MM-dd. */
 function previousDate(day: string): string {
@@ -32,17 +39,21 @@ function previousDate(day: string): string {
 /**
  * The time part of an event line. An event that crosses the summary day's edges says
  * so: on its own, "22:00 - 02:00" on the day after a late party reads as that evening.
+ * The week lookahead uses it for an event already running on its first day. Its days
+ * are weekday names, with the day of the month added once the ends are more than
+ * WEEKDAY_ONLY_SPAN_DAYS apart.
  */
-function timeLabel(event: CalendarEvent, timezone: string, day?: string): string {
+export function eventTimeLabel(event: CalendarEvent, timezone: string, day?: string): string {
   // Shaped events carry their span; anything else is worked out here when the day is
   // known, so the line is right even if a caller skipped shapeEventsForDay.
   const span = event.daySpan ?? (day ? daySpanOf(event, day, timezone) ?? undefined : undefined);
   if (isAllDayEvent(event)) {
     const lastDay = event.end && !event.end.includes('T') ? previousDate(event.end) : event.start;
+    const dated = lastDay > addDaysToDate(event.start, WEEKDAY_ONLY_SPAN_DAYS);
     switch (span) {
-      case 'endsLater': return `All day, through ${weekdayOfDate(lastDay)}`;
-      case 'continues': return `All day (last day; began ${weekdayOfDate(event.start)})`;
-      case 'spansDay': return `All day (began ${weekdayOfDate(event.start)}, through ${weekdayOfDate(lastDay)})`;
+      case 'endsLater': return `All day, through ${weekdayOfDate(lastDay, dated)}`;
+      case 'continues': return `All day (last day; began ${weekdayOfDate(event.start, dated)})`;
+      case 'spansDay': return `All day (began ${weekdayOfDate(event.start, dated)}, through ${weekdayOfDate(lastDay, dated)})`;
       default: return 'All day';
     }
   }
@@ -51,15 +62,16 @@ function timeLabel(event: CalendarEvent, timezone: string, day?: string): string
   const end = clock(event.end, timezone);
   const startDay = localDate(new Date(event.start), timezone);
   const endDay = localDate(new Date(event.end), timezone);
+  const dated = endDay > addDaysToDate(startDay, WEEKDAY_ONLY_SPAN_DAYS);
   switch (span) {
     case 'endsLater':
-      return endDay === nextDate(startDay) ? `${start} - ${end} next day` : `from ${start} until ${weekdayOf(event.end, timezone)} ${end}`;
+      return endDay === nextDate(startDay) ? `${start} - ${end} next day` : `from ${start} until ${weekdayOf(event.end, timezone, dated)} ${end}`;
     case 'continues': {
-      const began = day && startDay === previousDate(day) ? 'yesterday' : weekdayOf(event.start, timezone);
+      const began = day && startDay === previousDate(day) ? 'yesterday' : weekdayOf(event.start, timezone, dated);
       return `until ${end} (started ${began} ${start})`;
     }
     case 'spansDay':
-      return `all day (${weekdayOf(event.start, timezone)} ${start} - ${weekdayOf(event.end, timezone)} ${end})`;
+      return `all day (${weekdayOf(event.start, timezone, dated)} ${start} - ${weekdayOf(event.end, timezone, dated)} ${end})`;
     default:
       return `${start} - ${end}`;
   }
@@ -70,7 +82,7 @@ function timeLabel(event: CalendarEvent, timezone: string, day?: string): string
  * @param day - The summary day (yyyy-MM-dd), so a carried-over event can say "yesterday"
  */
 export function formatEventForPrompt(event: CalendarEvent, index: number, timezone: string = TIMEZONE, day?: string): string {
-  const timeStr = isBirthdayEvent(event) ? 'Birthday' : timeLabel(event, timezone, day);
+  const timeStr = isBirthdayEvent(event) ? 'Birthday' : eventTimeLabel(event, timezone, day);
 
   const summary = sanitizeEventField(event.summary);
   const calendarName = sanitizeEventField(event.calendarName);

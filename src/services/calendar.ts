@@ -1,8 +1,9 @@
 import { calendar as googleCalendar, calendar_v3, auth } from '@googleapis/calendar';
 import { CalendarEvent } from '../types';
-import { fromZonedTime } from 'date-fns-tz';
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import { addDays, format } from 'date-fns';
 import { TIMEZONE } from '../config/constants';
+import { nextDate } from '../utils/day-events';
 import { isTokenError, isInsufficientScopesError } from '../utils/errors';
 import { captureError } from '../lib/error-capture';
 
@@ -255,6 +256,21 @@ export interface CreateEventData {
   location?: string;
   allDay?: boolean;
   recurrence?: string[];  // RRULE strings for Google Calendar API
+  timeZone?: string;      // The user's: an all-day event's instants are on their clock (allDayDates)
+}
+
+/**
+ * Google's dates for an all-day event, which the bot hands over as instants: 00:00 on its
+ * first day to a time on its last (23:59 as created), in the user's timezone, as the
+ * native calendar stores one. A string is a date Google already holds, kept as it is. The
+ * end date is exclusive. Formatted on the server's clock (UTC in production) the dates
+ * came out a day early east of UTC.
+ */
+function allDayDates(start: Date | string, end: Date | string, timezone: string): { start: string; end: string } {
+  const startDate = typeof start === 'string' ? start : formatInTimeZone(start, timezone, 'yyyy-MM-dd');
+  // An end instant falls on the last day; one exactly at midnight ends the day before.
+  const endDate = typeof end === 'string' ? end : nextDate(formatInTimeZone(new Date(end.getTime() - 1), timezone, 'yyyy-MM-dd'));
+  return { start: startDate, end: endDate > startDate ? endDate : nextDate(startDate) };
 }
 
 /**
@@ -349,12 +365,13 @@ export async function createEvent(
 
     if (eventData.allDay) {
       // All-day event uses date format (YYYY-MM-DD)
+      const dates = allDayDates(eventData.startTime, eventData.endTime, eventData.timeZone ?? TIMEZONE);
       eventBody.start = {
-        date: format(eventData.startTime, 'yyyy-MM-dd'),
+        date: dates.start,
         timeZone: TIMEZONE,
       };
       eventBody.end = {
-        date: format(eventData.endTime, 'yyyy-MM-dd'),
+        date: dates.end,
         timeZone: TIMEZONE,
       };
     } else {
@@ -433,57 +450,65 @@ export async function fetchEventsInRange(
 ): Promise<CalendarEvent[]> {
   const calendar = getCalendarClient(refreshToken);
 
-  const allEvents: CalendarEvent[] = [];
-
-  for (const calendarId of calendarIds) {
-    try {
-      // Fetch calendar metadata to get the display name
-      const calendarInfo = await calendar.calendars.get({
-        calendarId: calendarId,
-      });
+  // Fetch events from all calendars in parallel, as fetchEvents does: one after another
+  // they cost the 5-minute reminder run two round trips per calendar per user.
+  const results = await Promise.allSettled(
+    calendarIds.map(async (calendarId) => {
+      // Fetch calendar metadata (for the display name) and events in parallel
+      const [calendarInfo, response] = await Promise.all([
+        calendar.calendars.get({ calendarId }),
+        calendar.events.list({
+          calendarId: calendarId,
+          timeMin: startDate.toISOString(),
+          timeMax: endDate.toISOString(),
+          singleEvents: true,
+          orderBy: 'startTime',
+          timeZone: TIMEZONE,
+        }),
+      ]);
       const calendarName = calendarInfo.data.summary || calendarId;
-
-      const response = await calendar.events.list({
-        calendarId: calendarId,
-        timeMin: startDate.toISOString(),
-        timeMax: endDate.toISOString(),
-        singleEvents: true,
-        orderBy: 'startTime',
-        timeZone: TIMEZONE,
-      });
 
       const events = response.data.items || [];
 
-      for (const event of events) {
-        allEvents.push({
-          summary: event.summary || 'No title',
-          start: event.start?.dateTime || event.start?.date || '',
-          end: event.end?.dateTime || event.end?.date || '',
-          description: event.description || undefined,
-          location: event.location || undefined,
-          calendarName: calendarName,
-          calendarId: calendarId,
-          eventType: event.eventType || undefined,
-          recurringEventId: event.recurringEventId || undefined,
-          eventId: event.id || undefined,
-          reminders: event.reminders ? {
-            useDefault: event.reminders.useDefault || false,
-            overrides: event.reminders.overrides?.map(o => ({
-              method: o.method || 'popup',
-              minutes: o.minutes || 0,
-            })),
-          } : undefined,
-        });
-      }
-    } catch (error) {
-      console.error(`Error fetching calendar ${calendarId}:`, error);
-      captureError(error, 'calendar-fetch-range', { calendarId }, 'warning');
+      return events.map((event): CalendarEvent => ({
+        summary: event.summary || 'No title',
+        start: event.start?.dateTime || event.start?.date || '',
+        end: event.end?.dateTime || event.end?.date || '',
+        description: event.description || undefined,
+        location: event.location || undefined,
+        calendarName: calendarName,
+        calendarId: calendarId,
+        eventType: event.eventType || undefined,
+        recurringEventId: event.recurringEventId || undefined,
+        eventId: event.id || undefined,
+        reminders: event.reminders ? {
+          useDefault: event.reminders.useDefault || false,
+          overrides: event.reminders.overrides?.map(o => ({
+            method: o.method || 'popup',
+            minutes: o.minutes || 0,
+          })),
+        } : undefined,
+      }));
+    })
+  );
 
-      if (isTokenError(error)) {
-        throw new Error('GOOGLE_TOKEN_EXPIRED');
-      }
-      // Continue with other calendars if it's a different error
+  // Collect in calendar order, so the events, the failures reported and the token error
+  // are the same as when the calendars were fetched one by one
+  const allEvents: CalendarEvent[] = [];
+  for (const [i, result] of results.entries()) {
+    if (result.status === 'fulfilled') {
+      allEvents.push(...result.value);
+      continue;
     }
+    const calendarId = calendarIds[i];
+    const error = result.reason;
+    console.error(`Error fetching calendar ${calendarId}:`, error);
+    captureError(error, 'calendar-fetch-range', { calendarId }, 'warning');
+
+    if (isTokenError(error)) {
+      throw new Error('GOOGLE_TOKEN_EXPIRED');
+    }
+    // Continue with other calendars if it's a different error
   }
 
   // Sort all events by start time
@@ -509,6 +534,7 @@ export interface UpdateEventData {
   allDay?: boolean;
   scope?: RecurrenceScope;        // For recurring events: single instance, all, or this+following
   recurringEventId?: string;      // Parent event ID for recurring event modifications
+  timeZone?: string;              // The user's: an all-day event's instants are on their clock (allDayDates)
 }
 
 /**
@@ -583,12 +609,18 @@ export async function updateEvent(
       const endTime = updates.endTime ?? (existingEnd?.dateTime ? new Date(existingEnd.dateTime) : new Date(existingEnd?.date || ''));
 
       if (newAllDay) {
+        // A date the event already has is kept as it is: read as an instant it is UTC midnight
+        const dates = allDayDates(
+          updates.startTime ?? existingStart?.date ?? startTime,
+          updates.endTime ?? existingEnd?.date ?? endTime,
+          updates.timeZone ?? TIMEZONE
+        );
         updateBody.start = {
-          date: format(startTime, 'yyyy-MM-dd'),
+          date: dates.start,
           timeZone: TIMEZONE,
         };
         updateBody.end = {
-          date: format(endTime, 'yyyy-MM-dd'),
+          date: dates.end,
           timeZone: TIMEZONE,
         };
       } else {
@@ -734,12 +766,18 @@ async function updateThisAndFollowing(
     };
 
     if (isAllDay || updates.allDay) {
+      // A date the instance already has is kept as it is, as in updateEvent
+      const dates = allDayDates(
+        updates.startTime ?? existingStart?.date ?? newStartTime,
+        updates.endTime ?? existingEnd?.date ?? newEndTime,
+        updates.timeZone ?? TIMEZONE
+      );
       newEventBody.start = {
-        date: format(newStartTime, 'yyyy-MM-dd'),
+        date: dates.start,
         timeZone: TIMEZONE,
       };
       newEventBody.end = {
-        date: format(newEndTime, 'yyyy-MM-dd'),
+        date: dates.end,
         timeZone: TIMEZONE,
       };
     } else {
