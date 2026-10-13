@@ -64,8 +64,8 @@ Quality was mixed, `MEDIUM` against `LOW`:
 - The same: event matching, corrections, forwarded text and the speech gate.
 - Photos: 6 of 24 runs were auto-created against 10. `MEDIUM` more often answered
   "medium" confidence for invitations with no printed year, as the prompt's rule said,
-  while its example said "high". On 2026-10-13 the rule changed so that an upcoming
-  date (within 6 months) without a year is "high".
+  while its example said "high". On 2026-10-13 the rule changed: a date without a year
+  is "high" when it falls later this year or within the next 2 months.
 
 Thinking tokens are billed as output tokens and are reported separately in the
 completion result.
