@@ -451,3 +451,4 @@ The repo has no test runner. Tests are `tsx` smoke scripts, run under `TZ=UTC` a
 - The due-gate memo assumes one app process (Railway today). Inside that process it lives on `globalThis`, because Next 16 gives `instrumentation.ts` and the route handlers separate module instances. A second replica needs it moved to Redis.
 - A "done" statement ("I did it", "סיימתי") creates nothing and gets the generic "didn't understand" reply. Marking done belongs to the ping buttons and the future calendar UI.
 - After a series-level time change, an undone occurrence from before the change no longer carries over (state is re-keyed; see §6.2).
+- A "from now on" edit that keeps the time carries the series' skipped and moved occurrences into the new series. One that changes the time drops them, as it does for events today.
