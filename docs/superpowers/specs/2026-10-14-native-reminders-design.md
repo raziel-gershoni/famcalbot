@@ -172,7 +172,9 @@ When `remindersSupported` is true, the prompt gets a reminder block (en/he/ru ph
 - **Target:**
   - `forPerson: partner` with an ACTIVE NATIVE partner who has a `telegramId` → `forUserId = partner`.
   - Partner paired but not on Telegram → the card says "Dana isn't on Telegram, so I can't ping her" and offers to keep it as the creator's.
-  - Unpaired, or the partner is GOOGLE → the creator's, and the card says "for you".
+  - Unpaired, or the partner is GOOGLE → the creator's. Like every self reminder, the card has no "for" part (§3.3).
+  - Forwarded text is always the forwarder's: the prompt gets no partner names, and resolution forces self.
+  - A partner-not-on-Telegram reminder never auto-creates; the card must ask "Keep as mine?".
 - **Anchor:** `findMatchingEvent` over the creator's visible calendars, nearest upcoming occurrence; reminder time = its start + `offsetMinutes`.
   - No match, or several matches → a clarification message, and nothing is created.
   - An all-day anchor with an hour offset → ask for a time. With a day offset → a date-only reminder.
@@ -182,8 +184,8 @@ When `remindersSupported` is true, the prompt gets a reminder block (en/he/ru ph
 - **Card:** `⏰ Call the plumber · Thu 10:00 · for Dana` (date-only: `· Thu`; for self: no "for" part). It shows no end time and no dead "📁 Cal" button. A date-only reminder for today created after 09:00 adds "No time set; it'll be in your summaries."
 - **Auto-create:** the same rules as events (single intent, HIGH confidence, non-recurring, admin flag). Repeating reminders always get the card.
 - **Bulk:** the multi-intent bulk card supports reminders. This needs the bulk-confirm crash fix in §11.
-- **Replies:** the created message and the spoken reply have reminder variants ("I'll remind Dana at 17:00", "Reminder set for Thursday").
-- **HTML:** titles in the card and the ping are HTML-escaped (export `escapeHtml` from `confirmations.ts`).
+- **Replies:** the created message and the spoken reply have reminder variants ("I'll remind Dana tomorrow at 17:00", "Reminder set for today"). `{when}` is relative for today and tomorrow, otherwise "on Thu, Oct 15 at 10:00" (`bot.nativeReminders.when.*`).
+- **HTML:** titles in the card and the ping are HTML-escaped. `escapeHtml` moves to the leaf module `src/utils/html.ts`; `confirmations.ts` re-exports it.
 
 ## 4. Firing
 
@@ -240,7 +242,8 @@ Only the process that gets a row back sends. That covers overlapping ticks and R
 | Failure | Handling |
 |---|---|
 | Transient (5xx, 429 including `retry_after`, network) | Release the claim: restore the previous `lastPingedAt`, conditional on the claimed value. Retry on later passes, up to 3 attempts in total (`pingAttempts`). |
-| 403 | `markUserUnreachable`, keep the claim. |
+| 403 the codebase's `isUnreachableError` recognises (blocked, deactivated, chat not found) | `markUserUnreachable`, keep the claim. |
+| Any other 403 | Keep the claim and `captureError`. |
 | Other 4xx | Keep the claim and `captureError`. |
 
 ## 5. Buttons
@@ -279,8 +282,10 @@ Only the process that gets a row back sends. That covers overlapping ticks and R
     creatorIsViewer: boolean;
     ownerName?: string;
     creatorName?: string;
-    openSince?: string;  // ISO date of a carried-over occurrence
+    done?: boolean;      // this occurrence was marked done (dropped from digests)
+    snoozed?: boolean;   // snoozed into the future (still counts as open)
     open?: boolean;      // due earlier on the summary day and still undone
+    openSince?: string;  // yyyy-MM-dd of a carried-over occurrence
   }
   ```
 - **Labels:**
@@ -304,6 +309,7 @@ Only the process that gets a row back sends. That covers overlapping ticks and R
 - **One-off:** undone and due before the cutoff.
 - **Repeating:**
   - Only its latest occurrence before the cutoff, and only if that occurrence is undone.
+  - Never an occurrence due before `series.armedAt − 15 min`: it was never armed or pinged (its time predates the series or its last time change), so "open" would be a phantom. One-offs have no such bound.
   - Suppressed when the same series has an occurrence on the summary day.
   - The new `latestOccurrenceBefore(series, overrides, cutoff)` in `recurrence.ts` applies exdates, CANCELLED occurrences and moved overrides.
 - **Cap:** at most 5 lines, newest first, plus `and N more open` (R5).
@@ -316,7 +322,7 @@ Only the process that gets a row back sends. That covers overlapping ticks and R
 
 ### 6.3 Partner identity in built-in calendar digests (R8)
 
-- **Labels from the viewer's side:** `getCalendarAssignmentsForUser` relabels calendars the viewer doesn't own: `yours` → `spouse`, `spouse` → `yours`, `primary` dropped. When `personName` is missing, it fills `personName`, `personEnglishName` and `personGender` from the owner user.
+- **Labels from the viewer's side:** `getCalendarAssignmentsForUser` relabels calendars the viewer doesn't own: `yours` → `spouse`, `spouse` → `yours`, `primary` dropped (a partner calendar labelled `primary` alone becomes `spouse`). When a partner calendar relabels to `spouse` and has no `personName`, it fills `personName`, `personEnglishName` and `personGender` from the owner user. Partner `kids`/`birthdays` calendars stay unnamed, so the partner never shows up as a child.
 - **Spouse info:** `getSpouseInfo` takes the resolved assignments, so built-in calendar users get the partner's name and gender.
 - **Callers:** daily and tomorrow prompts (`summary.ts`), week prompts (`claude.ts` week builders), and the voice show context (`voice-show/context.ts`). Google users are unchanged.
 - **Side effect:** a paired built-in calendar user's digest now puts the partner's events in the partner's section, by name, instead of under "Your Schedule".
@@ -356,7 +362,7 @@ Users on `messagingPlatform: 'all'` see reminders in their WhatsApp digest like 
 
 ## 9. Gating and admin
 
-- **R3 is one helper:** `getReminderSupport(user) → { supported, reason }`. It is cached per request.
+- **R3 is one helper:** `getReminderSupport(user) → { supported, reason }`. It is not cached itself; each message handler computes it once and passes it down (the admin flag and feature access underneath are Redis-cached). It fails closed if the feature check throws.
 - **No downgrade notice:** the new pass never sends the event-alert "reminders paused" notice.
 - **Admin flag:** the admin settings page gets a "Native reminders" toggle (`nativeRemindersEnabled`). The settings API accepts it as a partial update, following the toggle-sync pattern.
 - **Analytics:** new `ActivityAction` values `native_reminder_created`, `native_reminder_pinged`, `native_reminder_done`, `native_reminder_snoozed`. `UsageCounter.remindersTriggered` is not incremented, because it counts event alerts.
@@ -407,7 +413,7 @@ The repo has no test runner. Tests are `tsx` smoke scripts, run under `TZ=UTC` a
   - the creator lacking access;
   - the admin flag off;
   - the due gate (memo, invalidation, 60-minute ceiling).
-- **The same script, for buttons:** owner, creator, ex-partner, stranger; double Done; a stale button after a re-arm or delete; snooze math including R6's 00:00–04:00 case; the creator's done notice.
+- **`scripts/smoke-native-reminder-buttons.ts`, for buttons:** owner, creator, ex-partner, stranger; double Done; a stale button after a re-arm or delete; snooze math including R6's 00:00–04:00 case; the creator's done notice.
 - **`scripts/smoke-recurrence.ts`:** `latestOccurrenceBefore` with exdates, cancelled occurrences, overrides moved in and out, and DST; the `UNTIL` fix.
 - **`scripts/smoke-day-shaping.ts`:**
   - reminder labels;
@@ -419,11 +425,10 @@ The repo has no test runner. Tests are `tsx` smoke scripts, run under `TZ=UTC` a
   - partner relabelling (R8).
 - **`scripts/smoke-week-lookahead.ts`:** reminders only on their own day, attribution, and `formatTomorrowLookahead`.
 - **`scripts/smoke-reminders.ts`:** event alerts skip reminders.
-- **`scripts/smoke-voice-dates.ts`:**
-  - parser: reminder fields, no `endTime` needed, date-only, zero length;
-  - edits keep zero length;
-  - the following split copies the fields;
-  - re-arm deletes state.
+- **Per-area scripts** (the File Structure table in the plan lists them all):
+  - store (`smoke-native-reminder-store.ts`): edits keep zero length, the following split copies the fields, re-arm deletes state;
+  - extraction (`smoke-native-reminder-creation.ts`): parser reminder fields, no `endTime` needed, date-only, zero length, byte-identical prompts when reminders are off;
+  - creation flow, typed route, provider, digest, partner labels, support gate and edit/delete each get their own script.
 - **`scripts/check-i18n-parity.ts`** passes.
 - **Live Gemini check at MEDIUM thinking** (`scripts/eval-native-reminders.ts`), he/en/ru:
   - creation phrases: remind me, remind Dana, date-only, part of day, relative, repeating, anchor;
@@ -443,4 +448,6 @@ The repo has no test runner. Tests are `tsx` smoke scripts, run under `TZ=UTC` a
 - Users with no location fall back to Asia/Jerusalem (existing behaviour).
 - Moving the anchor event doesn't move a reminder set relative to it.
 - Typed edits and deletes need a reminder keyword in the message.
-- The due-gate memo assumes one app instance (Railway today). A second replica needs it moved to Redis.
+- The due-gate memo assumes one app process (Railway today). Inside that process it lives on `globalThis`, because Next 16 gives `instrumentation.ts` and the route handlers separate module instances. A second replica needs it moved to Redis.
+- A "done" statement ("I did it", "סיימתי") creates nothing and gets the generic "didn't understand" reply. Marking done belongs to the ping buttons and the future calendar UI.
+- After a series-level time change, an undone occurrence from before the change no longer carries over (state is re-keyed; see §6.2).
