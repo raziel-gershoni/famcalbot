@@ -152,6 +152,13 @@ async function fakeUpdateUser(telegramId: number, data: Record<string, unknown>)
   return convertPrismaUserToConfig(row as never);
 }
 
+/**
+ * Part of a module faked, the rest read through to the real one. A proxy, not a copy:
+ * it reads the real module lazily, so it survives import cycles.
+ */
+const fakeOver = (real: Record<string, unknown>, fakes: Record<string, unknown>) =>
+  new Proxy(real, { get: (target, key) => (typeof key === 'string' && key in fakes ? fakes[key] : Reflect.get(target, key)) });
+
 /** Modules replaced by fakes, by package name or file path; a function fakes part of the real module. */
 const stubs: Record<string, object | ((real: Record<string, unknown>) => object)> = {
   '@googleapis/calendar': fakeGoogle,
@@ -183,8 +190,7 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
     checkFeatureAccess: async () => ({ allowed: true }),
     incrementUsage: async () => {},
   },
-  [`${SRC}/services/native-calendar/event-store.ts`]: real => ({
-    ...real,
+  [`${SRC}/services/native-calendar/event-store.ts`]: real => fakeOver(real, {
     listVisibleCalendars: async () => nativeCalendars.map(c => ({ ...c, color: '#000000', personName: null, personEnglishName: null, personGender: null, rules: [] })),
     // One-off events overlapping the range, as the real store takes them.
     fetchEventsInCalendars: async (cuids: string[], range: { from: Date; to: Date }) =>

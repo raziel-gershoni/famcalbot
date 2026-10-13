@@ -14,6 +14,11 @@ import type {
   User,
 } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
+import { TIMEZONE } from '../../config/constants';
+import { localDate, startOfLocalDay } from '../../utils/day-events';
+import { invalidateDueGate } from '../native-reminders/due-gate';
+import { effectiveOwnerId, getActivePartnerSummary } from '../native-reminders/ownership';
+import { ensurePrimaryNativeCalendar } from './onboarding';
 import { expandSeries, truncateRruleBefore, VirtualInstance } from './recurrence';
 
 export const NATIVE_CALENDAR_ID_PREFIX = 'native:';
@@ -118,6 +123,28 @@ export async function listVisibleCalendars(userId: number, pairingId: string | n
   return prisma.nativeCalendar.findMany({ where, orderBy: [{ createdAt: 'asc' }] });
 }
 
+/**
+ * The calendar a user's reminders go on: their own calendar labelled primary, else
+ * their oldest own calendar, else the one onboarding creates. Never the partner's:
+ * a partner's calendar keeps its owner's 'primary' label and listVisibleCalendars
+ * orders both partners' calendars together, so neither can tell them apart.
+ */
+export async function getMainNativeCalendar(userId: number): Promise<NativeCalendar> {
+  const findOwn = async () => {
+    const own = await prisma.nativeCalendar.findMany({
+      where: { ownerUserId: userId, isDeleted: false },
+      orderBy: [{ createdAt: 'asc' }],
+    });
+    return own.find((c) => c.labels.includes('primary')) ?? own[0];
+  };
+  const existing = await findOwn();
+  if (existing) return existing;
+  await ensurePrimaryNativeCalendar(userId);
+  const created = await findOwn();
+  if (!created) throw new NativeNotFoundError('User has no native calendar');
+  return created;
+}
+
 // --- Events: read -----------------------------------------------------------
 
 export interface FetchRange {
@@ -209,6 +236,26 @@ export interface CreateNativeEventInput {
   timeZone: string;
   rrule?: string | null;
   reminderMinutes?: number | null;
+  // A reminder is an event with no length (spec §1). forUserId is the partner it
+  // is for; null means the creator. Ignored for an EVENT.
+  kind?: 'EVENT' | 'REMINDER';
+  forUserId?: number | null;
+}
+
+/**
+ * A reminder starts and ends at the same instant. A date-only one sits at the start
+ * of its local day in the event's timezone, so it stays on that day whatever the
+ * caller sent as its end (the bot saves an all-day event until 23:59).
+ */
+export function normalizeReminderTimes(
+  startsAt: Date,
+  allDay: boolean,
+  timeZone: string
+): { startsAt: Date; endsAt: Date } {
+  if (!allDay) return { startsAt, endsAt: new Date(startsAt.getTime()) };
+  const tz = timeZone || TIMEZONE;
+  const dayStart = startOfLocalDay(localDate(startsAt, tz), tz);
+  return { startsAt: dayStart, endsAt: new Date(dayStart.getTime()) };
 }
 
 export class NativePermissionDeniedError extends Error {
@@ -241,21 +288,32 @@ export async function createNativeEvent(input: CreateNativeEventInput): Promise<
   const access = await getCalendarAccess(creator, calendar);
   if (!canWriteAccess(access)) throw new NativePermissionDeniedError();
 
-  return prisma.nativeEvent.create({
+  const isReminder = input.kind === 'REMINDER';
+  const times = isReminder
+    ? normalizeReminderTimes(input.startsAt, input.allDay ?? false, input.timeZone)
+    : { startsAt: input.startsAt, endsAt: input.endsAt };
+  const event = await prisma.nativeEvent.create({
     data: {
       calendarId: input.calendarCuid,
       creatorUserId: input.creatorUserId,
       title: input.title,
       description: input.description,
       location: input.location,
-      startsAt: input.startsAt,
-      endsAt: input.endsAt,
+      startsAt: times.startsAt,
+      endsAt: times.endsAt,
       allDay: input.allDay ?? false,
       timeZone: input.timeZone,
       rrule: input.rrule ?? null,
       reminderMinutes: input.reminderMinutes ?? null,
+      // armedAt bounds how far back the ping pass looks, so a reminder created for a
+      // time long gone doesn't ping (spec §4.2).
+      ...(isReminder
+        ? { kind: 'REMINDER' as const, forUserId: input.forUserId ?? null, armedAt: new Date() }
+        : {}),
     },
   });
+  if (isReminder) invalidateDueGate();
+  return event;
 }
 
 // --- Events: update ---------------------------------------------------------
@@ -278,12 +336,21 @@ export interface UpdateNativeEventInput {
   allDay?: boolean;
 }
 
+/** A ping message whose buttons a reminder's time change made stale. */
+export interface ClearedPing {
+  chatId: bigint;
+  messageId: number;
+}
+
 /**
  * Update an event with scope semantics that mirror the GCal flow.
  * Returns the canonical id the caller should reference afterwards (the series
- * cuid for scope=all/following, or the instance composite id for scope=single).
+ * cuid for scope=all/following, or the instance composite id for scope=single),
+ * and, for a reminder whose time changed, the live pings to strip the buttons from.
  */
-export async function updateNativeEvent(input: UpdateNativeEventInput): Promise<{ canonicalEventId: string }> {
+export async function updateNativeEvent(
+  input: UpdateNativeEventInput
+): Promise<{ canonicalEventId: string; clearedPings: ClearedPing[] }> {
   const series = await prisma.nativeEvent.findUnique({ where: { id: input.seriesCuid } });
   if (!series || series.isDeleted) throw new NativeNotFoundError();
 
@@ -297,7 +364,16 @@ export async function updateNativeEvent(input: UpdateNativeEventInput): Promise<
   if (!actor) throw new NativeNotFoundError('Actor user not found');
 
   const access = await getCalendarAccess(actor, calendar);
-  if (!canWriteAccess(access)) throw new NativePermissionDeniedError();
+  // A reminder's creator may always change it, even on a calendar they can only view.
+  const isReminder = series.kind === 'REMINDER';
+  if (!canWriteAccess(access) && !(isReminder && series.creatorUserId === actor.id)) {
+    throw new NativePermissionDeniedError();
+  }
+  if (isReminder) {
+    const result = await updateNativeReminder(series, input);
+    invalidateDueGate();
+    return result;
+  }
 
   // Field update bag for series-level changes
   const seriesUpdate: Prisma.NativeEventUpdateInput = {};
@@ -336,13 +412,13 @@ export async function updateNativeEvent(input: UpdateNativeEventInput): Promise<
         ...(input.allDay !== undefined ? { allDay: input.allDay } : {}),
       },
     });
-    return { canonicalEventId: encodeEventId(series.id, occ) };
+    return { canonicalEventId: encodeEventId(series.id, occ), clearedPings: [] };
   }
 
   // Single occurrence on a non-recurring event: act on the series itself.
   if (input.scope === 'single' && !series.rrule) {
     await prisma.nativeEvent.update({ where: { id: series.id }, data: seriesUpdate });
-    return { canonicalEventId: encodeEventId(series.id) };
+    return { canonicalEventId: encodeEventId(series.id), clearedPings: [] };
   }
 
   // 'all': update the series. If startsAt changes we wipe orphan overrides
@@ -354,7 +430,7 @@ export async function updateNativeEvent(input: UpdateNativeEventInput): Promise<
         await tx.nativeEventInstance.deleteMany({ where: { seriesEventId: series.id } });
       }
     });
-    return { canonicalEventId: encodeEventId(series.id) };
+    return { canonicalEventId: encodeEventId(series.id), clearedPings: [] };
   }
 
   // 'following': truncate the original series and create a new one starting
@@ -363,7 +439,7 @@ export async function updateNativeEvent(input: UpdateNativeEventInput): Promise<
     if (!series.rrule || !input.instanceStartsAt) {
       // Fallback: nothing to truncate; treat as 'all'
       await prisma.nativeEvent.update({ where: { id: series.id }, data: seriesUpdate });
-      return { canonicalEventId: encodeEventId(series.id) };
+      return { canonicalEventId: encodeEventId(series.id), clearedPings: [] };
     }
     const newSeriesId = await prisma.$transaction(async (tx) => {
       // 1. Truncate parent rrule
@@ -402,10 +478,161 @@ export async function updateNativeEvent(input: UpdateNativeEventInput): Promise<
       });
       return newSeries.id;
     });
-    return { canonicalEventId: encodeEventId(newSeriesId) };
+    return { canonicalEventId: encodeEventId(newSeriesId), clearedPings: [] };
   }
 
-  return { canonicalEventId: encodeEventId(series.id) };
+  return { canonicalEventId: encodeEventId(series.id), clearedPings: [] };
+}
+
+/**
+ * Where a reminder occurrence lands after an edit, zero-length, or null when the edit
+ * leaves its time alone. Any end the caller computed is ignored (the edit path adds an
+ * hour to a timed event and stretches an all-day one to 23:59). `changed` is whether
+ * the start or allDay actually moved, which is what re-arms the reminder.
+ */
+function reminderTimeEdit(
+  current: { startsAt: Date; allDay: boolean },
+  input: Pick<UpdateNativeEventInput, 'startsAt' | 'allDay'>,
+  timeZone: string
+): { startsAt: Date; endsAt: Date; allDay: boolean; changed: boolean } | null {
+  if (input.startsAt === undefined && input.allDay === undefined) return null;
+  const allDay = input.allDay ?? current.allDay;
+  const times = normalizeReminderTimes(input.startsAt ?? current.startsAt, allDay, timeZone);
+  const changed = times.startsAt.getTime() !== current.startsAt.getTime() || allDay !== current.allDay;
+  return { ...times, allDay, changed };
+}
+
+/**
+ * Delete the state rows (done, snoozed, last ping) of the occurrences a time change
+ * moved, so each pings again at its new time. Returns their live ping messages, whose
+ * buttons now point at nothing.
+ */
+async function clearReminderStates(
+  tx: Prisma.TransactionClient,
+  where: Prisma.NativeReminderStateWhereInput
+): Promise<ClearedPing[]> {
+  const rows = await tx.nativeReminderState.findMany({
+    where,
+    select: { pingChatId: true, pingMessageId: true },
+  });
+  if (rows.length === 0) return [];
+  await tx.nativeReminderState.deleteMany({ where });
+  return rows.flatMap((r) =>
+    r.pingChatId !== null && r.pingMessageId !== null ? [{ chatId: r.pingChatId, messageId: r.pingMessageId }] : []
+  );
+}
+
+/**
+ * updateNativeEvent for a REMINDER, with the same scopes. Every write keeps it
+ * zero-length, and a change of time or allDay re-arms it in the same transaction
+ * (spec §7): the moved occurrences lose their state rows and the series' armedAt is
+ * reset. A title or location change keeps the state.
+ */
+async function updateNativeReminder(
+  series: NativeEvent,
+  input: UpdateNativeEventInput
+): Promise<{ canonicalEventId: string; clearedPings: ClearedPing[] }> {
+  const text = {
+    ...(input.title !== undefined ? { title: input.title } : {}),
+    ...(input.description !== undefined ? { description: input.description } : {}),
+    ...(input.location !== undefined ? { location: input.location } : {}),
+  };
+
+  // One occurrence of a repeating reminder: an OVERRIDE row. armedAt stays on the
+  // series; the pass arms a moved occurrence from the override's updatedAt.
+  if (input.scope === 'single' && series.rrule && input.instanceStartsAt) {
+    const key = { seriesEventId: series.id, originalStartsAt: input.instanceStartsAt };
+    const clearedPings = await prisma.$transaction(async (tx) => {
+      const existing = await tx.nativeEventInstance.findUnique({ where: { seriesEventId_originalStartsAt: key } });
+      const edit = reminderTimeEdit(
+        { startsAt: existing?.startsAt ?? key.originalStartsAt, allDay: existing?.allDay ?? series.allDay },
+        input,
+        series.timeZone
+      );
+      const times = edit ? { startsAt: edit.startsAt, endsAt: edit.endsAt, allDay: edit.allDay } : {};
+      await tx.nativeEventInstance.upsert({
+        where: { seriesEventId_originalStartsAt: key },
+        create: {
+          ...key,
+          status: 'OVERRIDE',
+          title: input.title,
+          description: input.description ?? null,
+          location: input.location ?? null,
+          ...times,
+        },
+        update: { status: 'OVERRIDE', ...text, ...times },
+      });
+      return edit?.changed ? clearReminderStates(tx, key) : [];
+    });
+    return { canonicalEventId: encodeEventId(series.id, key.originalStartsAt), clearedPings };
+  }
+
+  // 'following' from an occurrence: cut the series there and start a new one. The new
+  // series stays the creator's reminder for the same person, whoever made the edit.
+  if (input.scope === 'following' && series.rrule && input.instanceStartsAt) {
+    const cut = input.instanceStartsAt;
+    const edit = reminderTimeEdit({ startsAt: cut, allDay: series.allDay }, input, series.timeZone);
+    const target = edit ?? { startsAt: cut, endsAt: cut, allDay: series.allDay, changed: false };
+    const { newSeriesId, clearedPings } = await prisma.$transaction(async (tx) => {
+      await tx.nativeEvent.update({
+        where: { id: series.id },
+        data: { rrule: truncateRruleBefore(series.rrule!, cut, series.timeZone) },
+      });
+      const newSeries = await tx.nativeEvent.create({
+        data: {
+          calendarId: series.calendarId,
+          creatorUserId: series.creatorUserId,
+          title: input.title ?? series.title,
+          description: input.description ?? series.description,
+          location: input.location ?? series.location,
+          startsAt: target.startsAt,
+          endsAt: target.endsAt,
+          allDay: target.allDay,
+          timeZone: series.timeZone,
+          rrule: series.rrule,
+          reminderMinutes: series.reminderMinutes,
+          kind: 'REMINDER',
+          forUserId: series.forUserId,
+          armedAt: target.changed ? new Date() : series.armedAt,
+        },
+      });
+      const fromCut = { seriesEventId: series.id, originalStartsAt: { gte: cut } };
+      await tx.nativeEventInstance.deleteMany({ where: fromCut });
+      if (target.changed) {
+        return { newSeriesId: newSeries.id, clearedPings: await clearReminderStates(tx, fromCut) };
+      }
+      // Unmoved, the new series' occurrences keep the same instants, so their
+      // done/snoozed state follows them to it.
+      await tx.nativeReminderState.updateMany({ where: fromCut, data: { seriesEventId: newSeries.id } });
+      return { newSeriesId: newSeries.id, clearedPings: [] };
+    });
+    return { canonicalEventId: encodeEventId(newSeriesId), clearedPings };
+  }
+
+  // The series itself: a one-off reminder, every occurrence ('all'), or 'following'
+  // with nothing to cut. 'single' on a series with no occurrence given changes
+  // nothing, as for an event.
+  if (input.scope === 'single' && series.rrule) {
+    return { canonicalEventId: encodeEventId(series.id), clearedPings: [] };
+  }
+  const edit = reminderTimeEdit({ startsAt: series.startsAt, allDay: series.allDay }, input, series.timeZone);
+  const clearedPings = await prisma.$transaction(async (tx) => {
+    await tx.nativeEvent.update({
+      where: { id: series.id },
+      data: {
+        ...text,
+        ...(edit ? { startsAt: edit.startsAt, endsAt: edit.endsAt, allDay: edit.allDay } : {}),
+        ...(edit?.changed ? { armedAt: new Date() } : {}),
+      },
+    });
+    if (!edit?.changed) return [];
+    // Moving every occurrence orphans the overrides, as for an event.
+    if (input.scope === 'all') {
+      await tx.nativeEventInstance.deleteMany({ where: { seriesEventId: series.id } });
+    }
+    return clearReminderStates(tx, { seriesEventId: series.id });
+  });
+  return { canonicalEventId: encodeEventId(series.id), clearedPings };
 }
 
 // --- Events: delete ---------------------------------------------------------
@@ -444,8 +671,34 @@ export async function deleteNativeEvent(input: DeleteNativeEventInput): Promise<
   if (!actor) throw new NativeNotFoundError('Actor user not found');
 
   const access = await getCalendarAccess(actor, calendar);
-  if (!canWriteAccess(access)) throw new NativePermissionDeniedError();
+  if (!canWriteAccess(access) && !(await mayDeleteReminder(series, actor.id))) {
+    throw new NativePermissionDeniedError();
+  }
 
+  await deleteOccurrences(series, input);
+  if (series.kind === 'REMINDER') invalidateDueGate();
+}
+
+/**
+ * Whether someone without write access to the calendar may still delete a reminder:
+ * its creator, or the person it is for ("stop reminding me"). That person is worked out
+ * on every read (spec R2), so an ex-partner or a partner now on Google can't.
+ */
+async function mayDeleteReminder(series: NativeEvent, actorId: number): Promise<boolean> {
+  if (series.kind !== 'REMINDER') return false;
+  if (series.creatorUserId === actorId) return true;
+  if (series.forUserId !== actorId) return false;
+  const creator = await prisma.user.findUnique({
+    where: { id: series.creatorUserId },
+    select: { pairingId: true },
+  });
+  if (!creator) return false;
+  const creatorPartner = await getActivePartnerSummary(series.creatorUserId, creator.pairingId);
+  return effectiveOwnerId(series, creatorPartner) === actorId;
+}
+
+/** The write half of deleteNativeEvent, once the actor may delete. */
+async function deleteOccurrences(series: NativeEvent, input: DeleteNativeEventInput): Promise<void> {
   // Single occurrence on recurring: prefer EXDATE (cheap), but if there's an
   // existing OVERRIDE row for this date, mark it CANCELLED so it stops rendering.
   if (input.scope === 'single' && series.rrule && input.instanceStartsAt) {
