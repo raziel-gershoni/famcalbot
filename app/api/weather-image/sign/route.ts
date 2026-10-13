@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     const { fetchWeather } = await import('@/src/services/weather/open-meteo');
     const { fetchAirQuality } = await import('@/src/services/weather/air-quality');
     const { getTimezone } = await import('@/src/services/weather/geocoding');
-    const { formatWeatherAI } = await import('@/src/services/weather/formatter');
+    const { buildInfographicConfig } = await import('@/src/services/weather/formatter');
     const { generateWeatherInfographic } = await import('@/src/services/weather/infographic');
     const { TIMEZONE } = await import('@/src/config/constants');
 
@@ -63,12 +63,8 @@ export async function GET(request: NextRequest) {
       fetchAirQuality(user.location, timezone).catch(() => null),
     ]);
 
-    const result = await formatWeatherAI(weatherData, user.language, user.name, timezone, user.culture, false, true, airQualityData);
-    if (!result.infographicConfig) {
-      return NextResponse.json({ error: 'Failed to generate config' }, { status: 500 });
-    }
-
-    const imageBuffer = await generateWeatherInfographic(result.infographicConfig);
+    const config = buildInfographicConfig(weatherData, user.language, timezone, user.culture, airQualityData);
+    const imageBuffer = await generateWeatherInfographic(config);
     if (!imageBuffer) {
       return NextResponse.json({ error: 'Failed to generate image' }, { status: 500 });
     }

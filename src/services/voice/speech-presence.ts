@@ -25,6 +25,7 @@
 
 import { ThinkingLevel } from '@google/genai';
 import { getGemini } from '../ai-provider';
+import { getExtractionThinkingLevel } from '../../config/ai-models';
 
 export { isSilent, loudestWindowDbfs, SILENCE_THRESHOLD_DBFS } from './audio-level';
 
@@ -41,6 +42,7 @@ const SPEECH_QUESTION =
  * has already started, so a rejection here must not surface as an unhandled error.
  */
 export async function detectSpeech(ogg: Buffer, modelId: string): Promise<boolean> {
+  const level = getExtractionThinkingLevel(modelId);
   try {
     const response = await getGemini().models.generateContent({
       model: modelId,
@@ -52,10 +54,11 @@ export async function detectSpeech(ogg: Buffer, modelId: string): Promise<boolea
         ],
       }],
       config: {
-        // LOW is accepted by every model in the catalog; MINIMAL is not.
-        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-        // Thinking tokens count against this, so leave room beyond the one-word answer.
-        maxOutputTokens: 1024,
+        // The same level as extraction.
+        ...(level && { thinkingConfig: { thinkingLevel: ThinkingLevel[level] } }),
+        // Thinking tokens count against this. Running out leaves no answer, which reads
+        // as speech, so leave room well beyond the one-word answer.
+        maxOutputTokens: 8192,
         abortSignal: AbortSignal.timeout(SPEECH_GATE_TIMEOUT_MS),
       },
     });

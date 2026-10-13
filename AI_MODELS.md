@@ -32,15 +32,27 @@ The provider layer still supports Claude and GPT - see [Changing a model](#chang
 
 ## Thinking level
 
-Every Gemini call is sent at the model's own declared level, `defaultThinkingLevel`,
-which is `LOW` for 3.8 Flash. Text completions get it from `thinkingLevelFor()`, the
-media pipelines from `getExtractionThinkingLevel()` via `extractionConfig()`. A model
-that declares no level gets no `thinkingConfig` and takes the API default.
+Every Gemini text call is sent at the model's own declared level,
+`defaultThinkingLevel`, which is `MEDIUM` for 3.8 Flash. Text completions get it from
+`thinkingLevelFor()`; the media pipelines and the voice speech gate get it from
+`getExtractionThinkingLevel()`. A model that declares no level gets no
+`thinkingConfig` and takes the API default. TTS calls send no thinking config.
 
-3.8 declares `LOW` because its API default is `MEDIUM`, which is far too slow here: on
-the real Hebrew daily-summary prompt, 3.8 at `MEDIUM` took 17-46s (median 38s) against
-5-11s on 3.7, and at `HIGH` three of four runs never finished inside the 45s abort. At
-`LOW` it ran a stable ~5s.
+`MEDIUM` is the owner's choice (2026-10-13). A benchmark of every path on 2026-10-12
+found the same accuracy as `LOW` at about three times the latency:
+
+| Path | `LOW` median / worst | `MEDIUM` median / worst |
+|------|------------------|---------------------|
+| Daily summary | 3.6s / 5.2s | 12s / 17.6s |
+| Streamed summary (miniapp) | 4.8s / 9.1s | 18.5s / 30.2s |
+| Weather forecast | 6.4s / 14.9s | 20s / 29.8s |
+| Two-host show writer | 4.4s / 6.8s | 17.1s / 23.7s |
+| Voice note extraction | 3.2s / 10s | 4.6s / 17.9s |
+| Photo extraction | 3.2s / 9.6s | 6.8s / 13.4s |
+
+Everything fits the 45s abort and the 50s command budget. An earlier run saw 17-46s
+on the Hebrew daily summary at `MEDIUM`; the benchmark did not reproduce that tail.
+`HIGH` is out: three of four summaries never finished inside the 45s abort.
 
 Thinking tokens are billed as output tokens and are reported separately in the
 completion result.

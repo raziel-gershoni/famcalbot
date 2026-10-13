@@ -214,6 +214,45 @@ export interface WeatherFormatResult {
   infographicConfig?: InfographicConfig; // config for satori rendering
 }
 
+/** The long local date both the forecast and its infographic open with. */
+function weatherDateLine(now: Date, language: string, timezone: string): string {
+  return now.toLocaleDateString(
+    language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US',
+    {
+      timeZone: timezone,
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    },
+  );
+}
+
+/**
+ * The weather infographic's input. It comes from the weather data alone, so the story
+ * image route builds it here instead of paying for a forecast it would throw away.
+ */
+export function buildInfographicConfig(
+  weather: WeatherData,
+  language: string,
+  timezone: string,
+  culture?: string,
+  airQuality?: AirQualityData | null,
+  now: Date = new Date(),
+): InfographicConfig {
+  let hebrewDateStr: string | undefined;
+  if (culture === 'jewish') {
+    const localDate = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
+    const hdate = new HDate(localDate);
+    if (language === 'he') {
+      hebrewDateStr = `${gematriya(hdate.getDate())} ב${Locale.lookupTranslation(hdate.getMonthName(), 'he') || hdate.getMonthName()} ${gematriya(hdate.getFullYear())}`;
+    } else {
+      hebrewDateStr = `${hdate.getDate()} ${hdate.getMonthName()} ${hdate.getFullYear()}`;
+    }
+  }
+  return { weather, airQuality: airQuality ?? null, language, dateStr: weatherDateLine(now, language, timezone), hebrewDateStr, timezone };
+}
+
 /**
  * Format weather data using AI for a natural, conversational summary
  * Returns brief (text) and detailed (voice) versions
@@ -234,16 +273,7 @@ export async function formatWeatherAI(
   const headers = SECTION_HEADERS[language] || SECTION_HEADERS.en;
 
   const now = new Date();
-  const dateStr = now.toLocaleDateString(
-    language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US',
-    {
-      timeZone: timezone,
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    },
-  );
+  const dateStr = weatherDateLine(now, language, timezone);
 
   // Hebrew date for Jewish culture users
   let hebrewDateStr = '';
@@ -262,20 +292,9 @@ export async function formatWeatherAI(
     { timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false }
   );
 
-  let infographicConfig: InfographicConfig | undefined;
-  if (generateInfographic) {
-    let hebrewDateForInfographic: string | undefined;
-    if (culture === 'jewish') {
-      const localDate = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
-      const hdate = new HDate(localDate);
-      if (language === 'he') {
-        hebrewDateForInfographic = `${gematriya(hdate.getDate())} ב${Locale.lookupTranslation(hdate.getMonthName(), 'he') || hdate.getMonthName()} ${gematriya(hdate.getFullYear())}`;
-      } else {
-        hebrewDateForInfographic = `${hdate.getDate()} ${hdate.getMonthName()} ${hdate.getFullYear()}`;
-      }
-    }
-    infographicConfig = { weather, airQuality: airQuality ?? null, language, dateStr, hebrewDateStr: hebrewDateForInfographic, timezone };
-  }
+  const infographicConfig = generateInfographic
+    ? buildInfographicConfig(weather, language, timezone, culture, airQuality, now)
+    : undefined;
 
   const prompt = `You are a friendly weatherperson giving a natural, conversational forecast briefing on someone's phone via Telegram.
 

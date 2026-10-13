@@ -12,8 +12,7 @@ export interface ModelConfig {
   costPer1MTokens: { input: number; output: number }; // USD
   description: string;
   reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' | 'none'; // Optional: For GPT-5 models
-  // Thinking level to send. Without it the API applies the model's own default, which
-  // for 3.8 is far too slow.
+  // Thinking level to send. Without it the API applies the model's own default.
   defaultThinkingLevel?: ThinkingLevelName;
 }
 
@@ -29,11 +28,14 @@ export const AI_MODELS: Record<string, ModelConfig> = {
     contextWindow: 1048576,
     // Introductory through 2026-12-31, then $1.50 / $7.50 from 2027-01-01.
     costPer1MTokens: { input: 0.75, output: 3.75 },
-    description: 'GA Sep 2026, run at LOW thinking',
-    // 3.8's own default is MEDIUM, and on the real Hebrew daily-summary prompt that
-    // took 17-46s (median 38s) against 5-11s on 3.7. At HIGH, 3 of 4 runs never
-    // finished inside the 45s abort. LOW ran a stable ~5s with correct output.
-    defaultThinkingLevel: 'LOW',
+    description: 'GA Sep 2026, run at MEDIUM thinking',
+    // The owner's choice (2026-10-13). MEDIUM is also 3.8's API default. A benchmark of
+    // every path (2026-10-12) found the same accuracy as LOW at about 3x the time: the
+    // daily summary took 12s median, 17.6s worst (LOW: 3.6s, 5.2s), and weather, the
+    // slowest path, 20s and 30s. All of it fits the 45s abort and the 50s command budget.
+    // An earlier run saw 17-46s on the Hebrew daily summary; the benchmark did not
+    // reproduce that tail. HIGH is out: 3 of 4 summaries hit the 45s abort.
+    defaultThinkingLevel: 'MEDIUM',
   },
 };
 
@@ -69,9 +71,9 @@ export function thinkingLevelFor(model: ModelConfig): ThinkingLevelName | null {
 }
 
 /**
- * Thinking level for the media pipelines (voice, image, forwarded text, corrections),
- * which carry only the raw API id. On 3.8 the API default made voice extraction ~6s and
- * photo extraction up to 18s, against 3-5s and 3-10s at LOW with the same output.
+ * Thinking level for the media pipelines (voice, image, forwarded text, corrections and
+ * the speech gate), which carry only the raw API id. At MEDIUM voice extraction took
+ * 4.6s median, 18s worst, and photo extraction 6.8s and 13s.
  */
 export function getExtractionThinkingLevel(modelId: string): ThinkingLevelName | null {
   const model = getModelConfigByModelId(modelId);

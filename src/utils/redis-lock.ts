@@ -7,7 +7,9 @@ import { redis } from './redis';
 import { captureError } from '../lib/error-capture';
 
 const VOICE_LOCK_KEY_PREFIX = 'voice:lock:';
-const VOICE_LOCK_TTL_SECONDS = 60; // Voice processing is fast (5-15s), with safety margin
+// A voice note can take an extraction retry plus three matcher calls, about 50s at MEDIUM
+// thinking. The lock must outlive that, or a Telegram retry processes the note twice.
+const VOICE_LOCK_TTL_SECONDS = 120;
 
 /**
  * Try to acquire a lock for media message processing (voice, photo, …)
