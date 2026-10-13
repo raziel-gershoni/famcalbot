@@ -66,7 +66,8 @@ Quality was mixed, `MEDIUM` against `LOW`:
   "medium" confidence for invitations with no printed year, as the prompt's rule said,
   while its example said "high". On 2026-10-13 the rule changed: a date without a year
   is "high" when it falls later this year or within the next 2 months, unless it also
-  fell within the last 2 months or a printed weekday doesn't match.
+  fell within the last 2 months, a printed weekday doesn't match, or the date is
+  printed only in the Hebrew calendar.
 
 Thinking tokens are billed as output tokens and are reported separately in the
 completion result.

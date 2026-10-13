@@ -146,10 +146,10 @@ export async function handleImageMessage(
       // Auto-create only for HIGH-confidence, non-recurring single events, and
       // only when the shared admin flag is on. The image prompt already
       // downgrades confidence on any ambiguity (RSVP-vs-event date, a guessed
-      // time, a printed weekday that doesn't match, or no printed year on a date
-      // that looks past), so "high" here means the day, month and time were
-      // printed and the year, if missing, is clear — the approved ambiguity
-      // guard, expressed through the confidence channel.
+      // time, a printed weekday that doesn't match, a Hebrew-calendar-only date,
+      // or a date that is or looks past), so "high" here means the day, month
+      // and time were printed and the year, if missing, is clear — the approved
+      // ambiguity guard, expressed through the confidence channel.
       const { isAutoCreateEnabled, autoCreateEvent } = await import('../voice/auto-create');
       if (
         intentResult.confidence === 'high' &&
