@@ -59,11 +59,13 @@ Quality was mixed, `MEDIUM` against `LOW`:
 - Better: daily summaries (a judge preferred `MEDIUM` about 2:1) and voice note
   extraction (309/309 fields right, against 302/309).
 - Worse: the two-host show script reads less naturally (the judge preferred `LOW`
-  about 2:1); photo extraction more often says "medium" confidence, so 6 of 24 photo runs
-  were auto-created against 10, with 12 confirm cards against 8; 8 of 18 weather
-  forecasts passed every check, against 11; Russian week summaries lost 2:9 (Hebrew
-  and English won 9:2 and 8:4).
+  about 2:1); 8 of 18 weather forecasts passed every check, against 11; Russian week
+  summaries lost 2:9 (Hebrew and English won 9:2 and 8:4).
 - The same: event matching, corrections, forwarded text and the speech gate.
+- Photos: 6 of 24 runs were auto-created against 10. `MEDIUM` more often answered
+  "medium" confidence for invitations with no printed year, as the prompt's rule said,
+  while its example said "high". On 2026-10-13 the rule changed so that an upcoming
+  date (within 6 months) without a year is "high".
 
 Thinking tokens are billed as output tokens and are reported separately in the
 completion result.
