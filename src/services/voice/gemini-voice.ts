@@ -63,7 +63,7 @@ IMAGE-SPECIFIC RULES:
 - Extract the ACTUAL event date and start time. If the invitation also shows an RSVP / reply-by / confirmation deadline (e.g. "אישור הגעה", "RSVP by", "просьба подтвердить до"), that is NOT the event date — never use it as the event start; you may mention it in "description".
 - If the year is not printed, choose the nearest FUTURE date consistent with the current date/time below.
 - Put the venue name and/or address into "location".
-- CONFIDENCE: return "high" ONLY when the event date AND start time are explicitly and unambiguously printed. A missing year does not lower confidence when that nearest future date falls later this year or within the next 2 months: the year is then clear. Otherwise the printed date has most likely passed already (e.g. an old flyer): return "medium". Also return "medium" or "low" if you guessed the time, or are unsure whether a printed date is the event date or an RSVP date. (Lower confidence routes the event to a manual confirmation card instead of auto-creating it.)
+- CONFIDENCE: return "high" ONLY when the event date AND start time are explicitly and unambiguously printed. If the year is not printed, it is still clear - keep "high" - when the nearest future date falls later this year or within the next 2 months, unless that day and month also fell within the last 2 months. Otherwise the printed date has most likely passed already (e.g. an old flyer): return "medium". A printed year is never lowered by this rule. Return "medium" as well when a printed weekday does not fall on the date you chose, and "medium" or "low" when you guessed the time or are unsure whether a printed date is the event date or an RSVP date. (Lower confidence routes the event to a manual confirmation card instead of auto-creating it.)
 - Intent is ONLY "create" or "none" — never "edit" or "delete" for an image.`
     : `You are a calendar assistant. Parse the following forwarded text message and extract calendar event information.
 The text may be conversational (e.g. "Hey, can you come to dinner at our place on Friday at 7pm?"). Look for dates, times, event names, and locations.
@@ -241,8 +241,11 @@ ADDITIONAL IMAGE-MODE EXAMPLES (the actual input is the attached image; these sh
 Image: a birthday invitation reading "You're invited! Noa turns 5 — March 14 at 17:00, Gymboree Hall, Herzliya. RSVP by March 1." No year is printed, and the next March 14 is five weeks away.
 Output: {"intent": "create", "confidence": "high", "event": {"title": "Noa's 5th birthday", "startDate": "YYYY-03-14", "startTime": "17:00", "endDate": "YYYY-03-14", "endTime": "19:00", "allDay": false, "location": "Gymboree Hall, Herzliya", "description": "RSVP by March 1", "calendarId": "primary", "calendarName": "Primary", "recurrence": null}}
 
-Image: a concert poster reading "Spring Concert — April 2 at 19:30, City Hall." No year is printed, and April 2 was three weeks ago, so the next one is eleven months away.
+Image: a concert poster reading "Spring Concert — April 2 at 19:30, City Hall." No year is printed, and April 2 was three weeks ago, so this is most likely an old poster.
 Output: {"intent": "create", "confidence": "medium", "event": {"title": "Spring Concert", "startDate": "YYYY-04-02", "startTime": "19:30", "endDate": "YYYY-04-02", "endTime": "21:30", "allDay": false, "location": "City Hall", "calendarId": "primary", "calendarName": "Primary", "recurrence": null}}
+
+Image: a class notice reading "Parents' evening — Thursday, November 20 at 18:00, school library." No year is printed, and the coming November 20 is a Friday, so the notice is most likely from another year.
+Output: {"intent": "create", "confidence": "medium", "event": {"title": "Parents' evening", "startDate": "YYYY-11-20", "startTime": "18:00", "endDate": "YYYY-11-20", "endTime": "19:00", "allDay": false, "location": "School library", "calendarId": "primary", "calendarName": "Primary", "recurrence": null}}
 
 Image: a wedding invitation in Hebrew with the date printed but no time.
 Output: {"intent": "create", "confidence": "medium", "event": {"title": "Wedding", "startDate": "YYYY-MM-DD", "startTime": "19:00", "endDate": "YYYY-MM-DD", "endTime": "23:00", "allDay": false, "location": "...", "calendarId": "primary", "calendarName": "Primary", "recurrence": null}}
