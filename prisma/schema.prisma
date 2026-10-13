@@ -79,12 +79,14 @@ model User {
   feedbacks       UserFeedback[]
 
   // Native calendar relations
-  ownedNativeCalendars   NativeCalendar[] @relation("OwnedNativeCalendars")
-  createdNativeEvents    NativeEvent[]    @relation("CreatedNativeEvents")
-  pairingsInvited        Pairing[]        @relation("PairingsInvited")
-  pairingsAccepted       Pairing[]        @relation("PairingsAccepted")
-  pairingInvitesCreated  PairingInvite[]  @relation("PairingInvitesCreated")
-  pairingInvitesAccepted PairingInvite[]  @relation("PairingInvitesAccepted")
+  ownedNativeCalendars   NativeCalendar[]      @relation("OwnedNativeCalendars")
+  createdNativeEvents    NativeEvent[]         @relation("CreatedNativeEvents")
+  nativeRemindersFor     NativeEvent[]         @relation("NativeRemindersFor")
+  nativeRemindersDone    NativeReminderState[] @relation("NativeRemindersDone")
+  pairingsInvited        Pairing[]             @relation("PairingsInvited")
+  pairingsAccepted       Pairing[]             @relation("PairingsAccepted")
+  pairingInvitesCreated  PairingInvite[]       @relation("PairingInvitesCreated")
+  pairingInvitesAccepted PairingInvite[]       @relation("PairingInvitesAccepted")
 
   @@index([telegramId])
   @@index([whatsappPhone])
@@ -131,6 +133,7 @@ model AdminSettings {
   ttsModel                String?
   voiceAutoCreateHighConf Boolean  @default(false) // Auto-create on HIGH-confidence voice CRUD (skip confirmation)
   voiceTtsOutcome         Boolean  @default(false) // Speak the outcome line back when input was voice
+  nativeRemindersEnabled  Boolean  @default(true) // Built-in calendar reminders: the extraction rules and the 1-minute ping pass
   updatedAt               DateTime @updatedAt
 }
 
@@ -160,6 +163,11 @@ enum NativeEventInstanceStatus {
   CANCELLED // This occurrence is removed (alternative to series-level exdates)
 }
 
+enum NativeEventKind {
+  EVENT // Has a duration (every event before reminders)
+  REMINDER // No duration: endsAt = startsAt; all-day = start of its local day
+}
+
 model NativeCalendar {
   id                String                @id @default(cuid())
   ownerUserId       Int
@@ -184,30 +192,37 @@ model NativeCalendar {
 }
 
 model NativeEvent {
-  id              String         @id @default(cuid())
+  id              String          @id @default(cuid())
   calendarId      String
-  calendar        NativeCalendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+  calendar        NativeCalendar  @relation(fields: [calendarId], references: [id], onDelete: Cascade)
   creatorUserId   Int
-  creator         User           @relation("CreatedNativeEvents", fields: [creatorUserId], references: [id], onDelete: Restrict)
+  creator         User            @relation("CreatedNativeEvents", fields: [creatorUserId], references: [id], onDelete: Restrict)
   title           String
-  description     String?        @db.Text
+  description     String?         @db.Text
   location        String?
   startsAt        DateTime // For recurring: dtstart
   endsAt          DateTime
-  allDay          Boolean        @default(false)
+  allDay          Boolean         @default(false)
   timeZone        String // IANA tz, snapshot at creation
   rrule           String? // RFC-5545 RRULE on series; null = single event
-  exdates         DateTime[]     @default([]) // Cancelled instance start times (UTC)
+  exdates         DateTime[]      @default([]) // Cancelled instance start times (UTC)
   reminderMinutes Int? // Overrides user default
-  isDeleted       Boolean        @default(false)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  kind            NativeEventKind @default(EVENT)
+  forUserId       Int? // REMINDER target; null = the creator. Meaningful only for REMINDER
+  forUser         User?           @relation("NativeRemindersFor", fields: [forUserId], references: [id], onDelete: SetNull)
+  armedAt         DateTime? // REMINDER: when its time was last set (create or time change); bounds the ping lookback
+  isDeleted       Boolean         @default(false)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   instances NativeEventInstance[]
+  states    NativeReminderState[]
 
   @@index([calendarId, startsAt])
   @@index([calendarId, isDeleted])
   @@index([creatorUserId])
+  @@index([kind, isDeleted, startsAt])
+  @@index([forUserId])
 }
 
 model NativeEventInstance {
@@ -227,6 +242,28 @@ model NativeEventInstance {
 
   @@unique([seriesEventId, originalStartsAt])
   @@index([seriesEventId, originalStartsAt])
+}
+
+// Per-occurrence state of a REMINDER, keyed like NativeEventInstance. No row means
+// pending; a row appears once the occurrence is pinged, snoozed or marked done.
+model NativeReminderState {
+  id               String      @id @default(cuid())
+  seriesEventId    String
+  seriesEvent      NativeEvent @relation(fields: [seriesEventId], references: [id], onDelete: Cascade)
+  originalStartsAt DateTime // occurrence key, exactly expandSeries' instanceStartsAt (one-off: startsAt)
+  doneAt           DateTime?
+  doneByUserId     Int?
+  doneBy           User?       @relation("NativeRemindersDone", fields: [doneByUserId], references: [id], onDelete: SetNull)
+  snoozedUntil     DateTime?
+  lastPingedAt     DateTime?
+  pingAttempts     Int         @default(0)
+  pingChatId       BigInt? // the live ping message, so later edits can strip its buttons
+  pingMessageId    Int?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  @@unique([seriesEventId, originalStartsAt])
+  @@index([snoozedUntil])
 }
 
 model Pairing {
