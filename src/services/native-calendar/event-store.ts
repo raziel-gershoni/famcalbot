@@ -594,10 +594,26 @@ async function updateNativeReminder(
           kind: 'REMINDER',
           forUserId: series.forUserId,
           armedAt: target.changed ? new Date() : series.armedAt,
+          // Unmoved, the occurrences skipped after the cut stay skipped.
+          ...(target.changed ? {} : { exdates: series.exdates.filter((d) => d.getTime() >= cut.getTime()) }),
         },
       });
       const fromCut = { seriesEventId: series.id, originalStartsAt: { gte: cut } };
-      await tx.nativeEventInstance.deleteMany({ where: fromCut });
+      if (target.changed) {
+        await tx.nativeEventInstance.deleteMany({ where: fromCut });
+      } else {
+        // Same keys under the new series, so skipped and moved occurrences follow it.
+        // A field this edit sets wins over an older per-occurrence value.
+        await tx.nativeEventInstance.updateMany({
+          where: fromCut,
+          data: {
+            seriesEventId: newSeries.id,
+            ...(input.title !== undefined ? { title: null } : {}),
+            ...(input.description !== undefined ? { description: null } : {}),
+            ...(input.location !== undefined ? { location: null } : {}),
+          },
+        });
+      }
       if (target.changed) {
         return { newSeriesId: newSeries.id, clearedPings: await clearReminderStates(tx, fromCut) };
       }

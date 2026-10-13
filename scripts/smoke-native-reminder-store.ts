@@ -14,6 +14,7 @@
 
 import path from 'path';
 import { fromZonedTime } from 'date-fns-tz';
+import { expandSeries } from '../src/services/native-calendar/recurrence';
 import { __resetDueGateForTests, setNextDue, shouldRunPass } from '../src/services/native-reminders/due-gate';
 
 type Result = { name: string; ok: boolean; reason?: string };
@@ -431,6 +432,45 @@ async function main() {
     assert(stateKeys('daily').join() === iso(at('2026-10-13 08:00')), `parent states ${stateKeys('daily').join()}`);
     assert(stateKeys(splitId).join() === iso(at('2026-10-15 08:00')), `new series states ${stateKeys(splitId).join()}`);
     assert(iso(eventRow(splitId).armedAt) === iso(OLD_ARMED), `new series armedAt ${iso(eventRow(splitId).armedAt)}`);
+  });
+
+  await check('a "from now on" edit that keeps the time keeps what was skipped or moved after the cut; one that moves the time drops them', async () => {
+    const seed = (kind: 'REMINDER' | 'EVENT') => {
+      reset();
+      seedEvent('daily', { kind, calendarId: 'raziel', creatorUserId: 1, title: 'Feed the cat', startsAt: at('2026-10-10 08:00'), rrule: 'FREQ=DAILY', exdates: [at('2026-10-12 08:00'), at('2026-10-17 08:00')] });
+      const ov = { ...DEFAULTS.nativeEventInstance(), seriesEventId: 'daily' };
+      tables.nativeEventInstance.push(
+        { ...ov, id: 'skip', originalStartsAt: at('2026-10-16 08:00'), status: 'CANCELLED' },
+        { ...ov, id: 'moved', originalStartsAt: at('2026-10-18 08:00'), status: 'OVERRIDE', startsAt: at('2026-10-18 12:00'), endsAt: at('2026-10-18 12:00'), title: 'Old title', location: 'Home' },
+        { ...ov, id: 'before', originalStartsAt: at('2026-10-13 08:00'), status: 'CANCELLED' },
+      );
+    };
+    const cut = at('2026-10-14 08:00');
+    const ovs = (id: string) => tables.nativeEventInstance.find((r) => r.id === id)!;
+    seed('REMINDER');
+    const kept = await updateNativeEvent({ seriesCuid: 'daily', instanceStartsAt: cut, scope: 'following', actingUserId: 1, title: 'Feed the dog' });
+    const split = eventRow(kept.canonicalEventId);
+    assert((split.exdates as Date[]).map(iso).join() === iso(at('2026-10-17 08:00')), `exdates ${(split.exdates as Date[]).map(iso).join()}`);
+    assert(ovs('skip').seriesEventId === split.id && ovs('skip').status === 'CANCELLED', `skip on ${ovs('skip').seriesEventId}`);
+    assert(ovs('moved').seriesEventId === split.id && iso(ovs('moved').startsAt) === iso(at('2026-10-18 12:00')), 'the moved override did not follow');
+    assert(ovs('moved').title === null && ovs('moved').location === 'Home', `title ${ovs('moved').title}, location ${ovs('moved').location}`);
+    assert(ovs('before').seriesEventId === 'daily', 'an override before the cut moved');
+    const days = expandSeries(
+      split as never,
+      { from: at('2026-10-14 00:00'), to: at('2026-10-19 00:00') },
+      tables.nativeEventInstance.filter((r) => r.seriesEventId === split.id) as never,
+    ).map((i) => iso(i.instanceStartsAt));
+    assert(days.length > 0 && !days.includes(iso(at('2026-10-16 08:00'))) && !days.includes(iso(at('2026-10-17 08:00'))), `expanded: ${days.join()}`);
+    // A change of time starts afresh.
+    seed('REMINDER');
+    const moved = await updateNativeEvent({ seriesCuid: 'daily', instanceStartsAt: cut, scope: 'following', actingUserId: 1, startsAt: at('2026-10-14 09:00') });
+    assert((eventRow(moved.canonicalEventId).exdates as Date[]).length === 0, 'a time change kept exdates');
+    assert(tables.nativeEventInstance.map((r) => r.id).join() === 'before', `overrides left ${tables.nativeEventInstance.map((r) => r.id).join()}`);
+    // An event split is as it was: its overrides after the cut are dropped.
+    seed('EVENT');
+    const ev = await updateNativeEvent({ seriesCuid: 'daily', instanceStartsAt: cut, scope: 'following', actingUserId: 1, title: 'Feed the dog' });
+    assert((eventRow(ev.canonicalEventId).exdates as Date[]).length === 0, 'an event split got exdates');
+    assert(tables.nativeEventInstance.map((r) => r.id).join() === 'before', `event overrides left ${tables.nativeEventInstance.map((r) => r.id).join()}`);
   });
 
   await check('following on an event is unchanged: the editor becomes the creator, the length is kept, nothing is for anyone', async () => {
