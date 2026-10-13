@@ -47,7 +47,7 @@ put it at about three times `LOW`'s latency:
 | Streamed summary (miniapp) | 4.8s / 9.1s | 18.5s / 30.2s |
 | Weather forecast | 6.4s / 14.9s | 20s / 29.8s |
 | Two-host show writer | 4.4s / 6.8s | 17.1s / 23.7s |
-| Voice note extraction | 3.2s / 10s | 4.6s / 17.9s |
+| Voice note extraction | 3.2s / 6.2s | 4.6s / 9.4s |
 | Photo extraction | 3.2s / 9.6s | 6.8s / 13.4s |
 
 Everything fits the 45s abort and the 50s command budget. An earlier run saw 17-46s

@@ -431,6 +431,8 @@ export async function handleWeatherCommand(
 
       // Without a photo the forecast is the reply, so it stays inside the time budget.
       const brief = imageBuffer ? null : (await (voiceForecast ?? makeForecast())).brief;
+      // Nothing to send: fail, so the user gets the error reply rather than silence.
+      if (!imageBuffer && !brief) throw new Error('No weather photo and an empty forecast');
       return { imageBuffer, brief, voiceForecast };
     },
     onSuccess: async (result) => {

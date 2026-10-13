@@ -75,7 +75,7 @@ export function thinkingLevelFor(model: ModelConfig): ThinkingLevelName | null {
 /**
  * Thinking level for the media pipelines (voice, image, forwarded text, corrections and
  * the speech gate), which carry only the raw API id. At MEDIUM voice extraction took
- * 4.6s median, 18s worst, and photo extraction 6.8s and 13s.
+ * 4.6s median, 9.4s worst (one run saw 17.9s), and photo extraction 6.8s and 13s.
  */
 export function getExtractionThinkingLevel(modelId: string): ThinkingLevelName | null {
   const model = getModelConfigByModelId(modelId);
