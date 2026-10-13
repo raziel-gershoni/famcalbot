@@ -11,7 +11,7 @@ import type { StreamMessageHandle } from '../messaging/types';
 import { buildUrl } from '../../config/urls';
 import { SHARE_STORY_LABELS, getLabel } from '../../config/labels';
 import { REDIS_KEYS } from '../../config/redis-keys';
-import { executeCommand } from './command-pipeline';
+import { executeCommand, startTypingInterval } from './command-pipeline';
 import { VALID_LOCALES } from '../../utils/locale';
 import { getBotMessages } from '../../lib/bot-messages';
 import { trackActivityAsync, addBreadcrumb } from '../analytics-service';
@@ -411,21 +411,27 @@ export async function handleWeatherCommand(
         fetchAirQuality(user.location, timezone).catch(() => null),
       ]);
 
-      const { formatWeatherAI } = await import('../weather/formatter');
-      const result = await formatWeatherAI(weatherData, user.language, user.name, timezone, user.culture, user.isAdmin, true, airQualityData);
+      // The photo is drawn from the weather data alone. The AI forecast (20-30s at MEDIUM
+      // thinking) is needed only for the voice note, or as the reply when the photo
+      // fails, so the photo never waits for it.
+      const { buildInfographicConfig, formatWeatherAI } = await import('../weather/formatter');
+      const makeForecast = () => formatWeatherAI(weatherData, user.language, user.name, timezone, user.culture, user.isAdmin, false, airQualityData);
+      const voiceForecast = user.voiceSummaryEnabled ? makeForecast() : null;
+      // Awaited later, if at all; this keeps an early rejection from going unhandled.
+      voiceForecast?.catch(() => {});
 
       // Generate infographic while typing indicator is still running
       let imageBuffer: Buffer | null = null;
-      if (result.infographicConfig) {
-        try {
-          const { generateWeatherInfographic } = await import('../weather/infographic');
-          imageBuffer = await generateWeatherInfographic(result.infographicConfig);
-        } catch (err) {
-          console.error(`[Weather] Infographic generation failed for user ${userId}:`, err);
-        }
+      try {
+        const { generateWeatherInfographic } = await import('../weather/infographic');
+        imageBuffer = await generateWeatherInfographic(buildInfographicConfig(weatherData, user.language, timezone, user.culture, airQualityData));
+      } catch (err) {
+        console.error(`[Weather] Infographic generation failed for user ${userId}:`, err);
       }
 
-      return { ...result, imageBuffer };
+      // Without a photo the forecast is the reply, so it stays inside the time budget.
+      const brief = imageBuffer ? null : (await (voiceForecast ?? makeForecast())).brief;
+      return { imageBuffer, brief, voiceForecast };
     },
     onSuccess: async (result) => {
       if (result.imageBuffer) {
@@ -443,15 +449,25 @@ export async function handleWeatherCommand(
             ]]
           } : undefined,
         });
-      } else {
+      } else if (result.brief) {
         await messagingService.sendMessage(chatId, result.brief, { format: MessageFormat.HTML });
       }
 
-      // Voice with typing indicator
-      if (user.voiceSummaryEnabled) {
-        sendVoiceMessage(chatId, result.detailed, user, undefined, true, platform, undefined, 'weather').catch(err =>
-          console.error(`[Weather] Voice generation failed for user ${userId}:`, err)
-        );
+      // Voice with typing indicator. On Telegram, "recording" shows while the forecast is
+      // still being written; sendVoiceMessage keeps it up from there.
+      if (result.voiceForecast) {
+        const stopRecording = platform === MessagingPlatform.TELEGRAM
+          ? startTypingInterval(chatId, messagingService, 'audio')
+          : () => {};
+        result.voiceForecast
+          .then(forecast => {
+            stopRecording();
+            return sendVoiceMessage(chatId, forecast.detailed, user, undefined, true, platform, undefined, 'weather');
+          })
+          .catch(err => {
+            stopRecording();
+            console.error(`[Weather] Voice generation failed for user ${userId}:`, err);
+          });
       }
 
       incrementUsage(user.id, 'textSummaries').catch(err =>

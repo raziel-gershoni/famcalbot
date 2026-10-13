@@ -30,9 +30,11 @@ export const AI_MODELS: Record<string, ModelConfig> = {
     costPer1MTokens: { input: 0.75, output: 3.75 },
     description: 'GA Sep 2026, run at MEDIUM thinking',
     // The owner's choice (2026-10-13). MEDIUM is also 3.8's API default. A benchmark of
-    // every path (2026-10-12) found the same accuracy as LOW at about 3x the time: the
-    // daily summary took 12s median, 17.6s worst (LOW: 3.6s, 5.2s), and weather, the
-    // slowest path, 20s and 30s. All of it fits the 45s abort and the 50s command budget.
+    // every path (2026-10-12) put it at about 3x LOW's time - the daily summary 12s
+    // median, 17.6s worst (LOW: 3.6s, 5.2s); weather, the slowest, 20s and 30s - all
+    // inside the 45s abort and the 50s command budget. Quality was mixed: better daily
+    // summaries and voice extraction, less natural show scripts, fewer auto-created
+    // photo events, Russian week summaries judged worse. AI_MODELS.md has the numbers.
     // An earlier run saw 17-46s on the Hebrew daily summary; the benchmark did not
     // reproduce that tail. HIGH is out: 3 of 4 summaries hit the 45s abort.
     defaultThinkingLevel: 'MEDIUM',

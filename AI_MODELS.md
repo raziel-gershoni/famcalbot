@@ -39,7 +39,7 @@ Every Gemini text call is sent at the model's own declared level,
 `thinkingConfig` and takes the API default. TTS calls send no thinking config.
 
 `MEDIUM` is the owner's choice (2026-10-13). A benchmark of every path on 2026-10-12
-found the same accuracy as `LOW` at about three times the latency:
+put it at about three times `LOW`'s latency:
 
 | Path | `LOW` median / worst | `MEDIUM` median / worst |
 |------|------------------|---------------------|
@@ -53,6 +53,17 @@ found the same accuracy as `LOW` at about three times the latency:
 Everything fits the 45s abort and the 50s command budget. An earlier run saw 17-46s
 on the Hebrew daily summary at `MEDIUM`; the benchmark did not reproduce that tail.
 `HIGH` is out: three of four summaries never finished inside the 45s abort.
+
+Quality was mixed, `MEDIUM` against `LOW`:
+
+- Better: daily summaries (a judge preferred `MEDIUM` about 2:1) and voice note
+  extraction (309/309 fields right, against 302/309).
+- Worse: the two-host show script reads less naturally (the judge preferred `LOW`
+  about 2:1); photo extraction more often says "medium" confidence, so 6 of 24 photo runs
+  were auto-created against 10, with 12 confirm cards against 8; 8 of 18 weather
+  forecasts passed every check, against 11; Russian week summaries lost 2:9 (Hebrew
+  and English won 9:2 and 8:4).
+- The same: event matching, corrections, forwarded text and the speech gate.
 
 Thinking tokens are billed as output tokens and are reported separately in the
 completion result.
@@ -112,7 +123,7 @@ Switching models is a code change and a redeploy. For text, add the entry to
   contextWindow: 1048576,
   costPer1MTokens: { input: 0.75, output: 3.75 },
   description: 'What it is good for',
-  defaultThinkingLevel: 'LOW',   // omit to take the API default
+  defaultThinkingLevel: 'MEDIUM',   // omit to take the API default
 },
 ```
 
