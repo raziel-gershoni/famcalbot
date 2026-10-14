@@ -557,14 +557,15 @@ export async function handleLookaheadCommand(
       pushStage('lookingAhead');
       const { getWeekLookahead } = await import('../week-lookahead');
       const { getCalendarAssignmentsForUser } = await import('../calendar-provider');
-      const lookahead = await getWeekLookahead(user, await getCalendarAssignmentsForUser(user));
+      const calendars = await getCalendarAssignmentsForUser(user);
+      const lookahead = await getWeekLookahead(user, calendars);
 
       pushStage('composing');
       const { generateWeekLookahead } = await import('../claude');
       const onTextDelta = streamHandle
         ? (_delta: string, accumulated: string) => streamHandle.pushDelta(accumulated)
         : undefined;
-      return generateWeekLookahead(lookahead, user, userLanguage, undefined, user.isAdmin, onTextDelta);
+      return generateWeekLookahead(lookahead, user, userLanguage, undefined, user.isAdmin, onTextDelta, calendars);
     },
     onSuccess: async (formattedLookahead) => {
       const deliveryPlatform = platform === MessagingPlatform.TELEGRAM ? 'telegram' : 'whatsapp';
@@ -657,14 +658,15 @@ export async function handleNextWeekCommand(
       pushStage('lookingAhead');
       const { getNextWeekLookahead } = await import('../week-lookahead');
       const { getCalendarAssignmentsForUser } = await import('../calendar-provider');
-      const lookahead = await getNextWeekLookahead(user, await getCalendarAssignmentsForUser(user));
+      const calendars = await getCalendarAssignmentsForUser(user);
+      const lookahead = await getNextWeekLookahead(user, calendars);
 
       pushStage('composing');
       const { generateNextWeekSummary } = await import('../claude');
       const onTextDelta = streamHandle
         ? (_delta: string, accumulated: string) => streamHandle.pushDelta(accumulated)
         : undefined;
-      return generateNextWeekSummary(lookahead, user, userLanguage, undefined, user.isAdmin, onTextDelta);
+      return generateNextWeekSummary(lookahead, user, userLanguage, undefined, user.isAdmin, onTextDelta, calendars);
     },
     onSuccess: async (formattedSummary) => {
       const deliveryPlatform = platform === MessagingPlatform.TELEGRAM ? 'telegram' : 'whatsapp';

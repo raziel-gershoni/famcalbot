@@ -410,12 +410,34 @@ function getHebrewDateString(date: Date, language: string, timezone: string = TI
 }
 
 /**
+ * The family a week prompt names, from the user's calendars: whether a spouse and kids
+ * calendar exist, the spouse's name, and each kids calendar's child for the "Child:" prefix.
+ */
+function weekFamilyContext(calendars: CalendarAssignment[]) {
+  const spouseCalendar = calendars.find(c => c.labels.includes('spouse'));
+  const kidsCalendarIdMap = new Map<string, string>();
+  for (const ca of calendars) {
+    if (ca.labels.includes('kids') && ca.personName) {
+      kidsCalendarIdMap.set(ca.calendarId, ca.personName);
+    }
+  }
+  return {
+    hasSpouseCalendar: !!spouseCalendar,
+    hasKidsCalendars: calendars.some(c => c.labels.includes('kids')),
+    spouseName: spouseCalendar?.personName,
+    kidsCalendarIdMap,
+  };
+}
+
+/**
  * Build week lookahead prompt data from lookahead events and user info
+ * @param calendars - The user's resolved calendars; a NATIVE user's are not on the user row
  */
 function buildWeekLookaheadPromptData(
   lookahead: WeekLookahead,
   user: UserConfig,
-  language: string
+  language: string,
+  calendars: CalendarAssignment[] = user.calendarAssignments ?? []
 ): WeekLookaheadPromptData {
   // The lookahead's days are the user's, so everything formats in their timezone
   const { events, dateRange, timezone } = lookahead;
@@ -431,23 +453,8 @@ function buildWeekLookaheadPromptData(
   const todayHebrew = user.culture === 'jewish' ? getHebrewDateString(today, language, timezone) : undefined;
   const weekEndHebrew = user.culture === 'jewish' ? getHebrewDateString(dateRange.end, language, timezone) : undefined;
 
-  // Check for spouse and kids calendars
-  const hasSpouseCalendar = user.calendarAssignments?.some(c => c.labels.includes('spouse')) ?? false;
-  const hasKidsCalendars = user.calendarAssignments?.some(c => c.labels.includes('kids')) ?? false;
-
-  // Get spouse name from calendar assignment
-  const spouseCalendar = user.calendarAssignments?.find(c => c.labels.includes('spouse'));
-  const spouseName = spouseCalendar?.personName;
-
-  // Build kids calendar ID → personName map for Child: prefix annotation
-  const kidsCalendarIdMap = new Map<string, string>();
-  if (user.calendarAssignments) {
-    for (const ca of user.calendarAssignments) {
-      if (ca.labels.includes('kids') && ca.personName) {
-        kidsCalendarIdMap.set(ca.calendarId, ca.personName);
-      }
-    }
-  }
+  // Spouse and kids calendars, and the kids calendar ID → personName map for Child: prefix annotation
+  const { hasSpouseCalendar, hasKidsCalendars, spouseName, kidsCalendarIdMap } = weekFamilyContext(calendars);
 
   // Group events by the user's day each is listed on (not the server's date of its start)
   const eventsByDayMap = new Map<string, LookaheadEvent[]>();
@@ -545,10 +552,11 @@ export async function generateWeekLookahead(
   language: string,
   modelId?: string,
   isAdmin: boolean = false,
-  onTextDelta?: AITextDelta
+  onTextDelta?: AITextDelta,
+  calendars?: CalendarAssignment[]
 ): Promise<string> {
   // Build prompt data
-  const promptData = buildWeekLookaheadPromptData(lookahead, user, language);
+  const promptData = buildWeekLookaheadPromptData(lookahead, user, language, calendars);
 
   // Handle empty lookahead
   if (lookahead.events.length === 0) {
@@ -569,11 +577,13 @@ export async function generateWeekLookahead(
 
 /**
  * Build prompt data for next week summary
+ * @param calendars - The user's resolved calendars; a NATIVE user's are not on the user row
  */
 function buildNextWeekPromptData(
   lookahead: WeekLookahead,
   user: UserConfig,
-  language: string
+  language: string,
+  calendars: CalendarAssignment[] = user.calendarAssignments ?? []
 ): WeekLookaheadPromptData {
   // The lookahead's days are the user's, so everything formats in their timezone
   const { events, dateRange, timezone } = lookahead;
@@ -592,23 +602,8 @@ function buildNextWeekPromptData(
   const weekStartHebrew = user.culture === 'jewish' ? getHebrewDateString(dateRange.start, language, timezone) : undefined;
   const weekEndHebrew = user.culture === 'jewish' ? getHebrewDateString(dateRange.end, language, timezone) : undefined;
 
-  // Check for spouse and kids calendars
-  const hasSpouseCalendar = user.calendarAssignments?.some(c => c.labels.includes('spouse')) ?? false;
-  const hasKidsCalendars = user.calendarAssignments?.some(c => c.labels.includes('kids')) ?? false;
-
-  // Get spouse name from calendar assignment
-  const spouseCalendar = user.calendarAssignments?.find(c => c.labels.includes('spouse'));
-  const spouseName = spouseCalendar?.personName;
-
-  // Build kids calendar ID → personName map for Child: prefix annotation
-  const kidsCalendarIdMap = new Map<string, string>();
-  if (user.calendarAssignments) {
-    for (const ca of user.calendarAssignments) {
-      if (ca.labels.includes('kids') && ca.personName) {
-        kidsCalendarIdMap.set(ca.calendarId, ca.personName);
-      }
-    }
-  }
+  // Spouse and kids calendars, and the kids calendar ID → personName map for Child: prefix annotation
+  const { hasSpouseCalendar, hasKidsCalendars, spouseName, kidsCalendarIdMap } = weekFamilyContext(calendars);
 
   // Group events by the user's day each is listed on (not the server's date of its start)
   const eventsByDayMap = new Map<string, LookaheadEvent[]>();
@@ -708,10 +703,11 @@ export async function generateNextWeekSummary(
   language: string,
   modelId?: string,
   isAdmin: boolean = false,
-  onTextDelta?: AITextDelta
+  onTextDelta?: AITextDelta,
+  calendars?: CalendarAssignment[]
 ): Promise<string> {
   // Build prompt data
-  const promptData = buildNextWeekPromptData(lookahead, user, language);
+  const promptData = buildNextWeekPromptData(lookahead, user, language, calendars);
 
   // Handle empty lookahead
   if (lookahead.events.length === 0) {

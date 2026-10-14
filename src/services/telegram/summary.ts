@@ -118,8 +118,8 @@ async function prepareSummaryForUser(
   // Extract primary calendar ID
   const primaryCalendar = getPrimaryCalendar(assignments) || '';
 
-  // Get spouse info from calendar assignment or legacy fields
-  const spouseInfo = getSpouseInfo(user);
+  // Get spouse info from the resolved calendars: a NATIVE user's partner is named there
+  const spouseInfo = getSpouseInfo(user, assignments);
 
   // Build user context for summary generation
   const userContext: SummaryUserContext = {

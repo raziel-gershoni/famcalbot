@@ -3,12 +3,21 @@
  * the hosts may mention, with genders where the calendars record them.
  */
 
-import type { UserConfig } from '../../types';
+import type { CalendarAssignment, UserConfig } from '../../types';
 import type { ShowPerson, ShowPromptContext } from '../../prompts/voice-show/types';
 import type { ShowKind } from './types';
 
-export function buildShowContext(summary: string, user: UserConfig, kind: ShowKind, isNextWeek = false): ShowPromptContext {
-  const calendars = user.calendarAssignments ?? [];
+/**
+ * @param calendars - The user's resolved calendars (resolveShowCalendars); a Google
+ *   user's are the ones on the user row.
+ */
+export function buildShowContext(
+  summary: string,
+  user: UserConfig,
+  kind: ShowKind,
+  isNextWeek = false,
+  calendars: CalendarAssignment[] = user.calendarAssignments ?? [],
+): ShowPromptContext {
   const spouse = calendars.find(cal => cal.labels.includes('spouse') && cal.personName?.trim());
 
   // A kid can have several calendars; name each kid once.
@@ -33,4 +42,20 @@ export function buildShowContext(summary: string, user: UserConfig, kind: ShowKi
     globalRules: user.globalRules,
     isNextWeek: kind === 'weekly' ? isNextWeek : undefined,
   };
+}
+
+/**
+ * A NATIVE user's calendars, which name the partner and the kids; they are not on the
+ * user row. Undefined for a Google user, and when the lookup fails: the show then goes
+ * on without the family's names rather than not at all.
+ */
+export async function resolveShowCalendars(user: UserConfig): Promise<CalendarAssignment[] | undefined> {
+  if (user.calendarSource !== 'NATIVE') return undefined;
+  try {
+    const { getCalendarAssignmentsForUser } = await import('../calendar-provider/user-calendars');
+    return await getCalendarAssignmentsForUser(user);
+  } catch (err) {
+    console.warn(`[VoiceShow] Could not resolve calendars for user ${user.id}:`, err);
+    return undefined;
+  }
 }

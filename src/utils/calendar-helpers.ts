@@ -14,10 +14,12 @@ export interface SpouseInfo {
  * Get spouse info from calendar assignments
  * Returns null only if no spouse calendar exists
  * Returns partial info if spouse calendar exists but metadata is incomplete
+ * @param assignments - Resolved assignments (getCalendarAssignmentsForUser). A NATIVE
+ *   user has none on the user row, so without them there is never a spouse.
  */
-export function getSpouseInfo(user: UserConfig): SpouseInfo | null {
+export function getSpouseInfo(user: UserConfig, assignments?: CalendarAssignment[]): SpouseInfo | null {
   // Find any spouse calendar (may or may not have metadata)
-  const spouseCalendar = user.calendarAssignments?.find(
+  const spouseCalendar = (assignments ?? user.calendarAssignments)?.find(
     a => a.labels.includes('spouse')
   );
 

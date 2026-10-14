@@ -8,7 +8,7 @@ import type { UserConfig } from '../../types';
 import { hasShowPrompt } from '../../prompts/voice-show';
 import { formatShowCaption } from '../../utils/ai-footer';
 import { generateShowVoice, getShowVoices, type ShowVoiceDeps } from '../voice-generator';
-import { buildShowContext } from './context';
+import { buildShowContext, resolveShowCalendars } from './context';
 import { toShowLines } from './script';
 import type { ProducedVoice, ShowKind } from './types';
 import { writeShowScript, type CompletionFn } from './writer';
@@ -32,7 +32,7 @@ export async function produceShowVoice(
   deps: ProduceShowDeps = {},
 ): Promise<ProducedVoice> {
   const language = user.language || 'en';
-  const context = buildShowContext(summary, user, kind, isNextWeek);
+  const context = buildShowContext(summary, user, kind, isNextWeek, await resolveShowCalendars(user));
   const written = await writeShowScript(context, { complete: deps.complete });
   const { turns, warnings } = written.script;
   if (warnings.length) console.warn(`[VoiceShow] Script repaired for user ${user.id}:`, warnings);

@@ -6,33 +6,81 @@
 // rows so the existing label-aware prompt logic in gemini-voice.ts works
 // unchanged — native calendar IDs are namespaced as `native:<cuid>`.
 
+import type { NativeCalendar, User } from '@prisma/client';
 import type { UserConfig } from '../../types';
 import type { CalendarAssignment, CalendarLabel } from '../../types';
+import { prisma } from '../../utils/prisma';
 import {
   encodeCalendarId,
   listVisibleCalendars,
 } from '../native-calendar/event-store';
 
+type CalendarOwner = Pick<User, 'id' | 'name' | 'englishName' | 'gender'>;
+
 /**
  * Resolve the CalendarAssignment[] shape for a user regardless of provider.
  * Pure read; safe to call from voice handlers, reminders, summaries.
+ *
+ * A NativeCalendar's labels are its owner's, so the partner's own calendar says
+ * `primary, yours`. The user sees the partner's calendars labelled from their own
+ * side (labelsFromViewerSide), and the partner's own calendar, when it names no
+ * person, is named after the partner, so summaries file and name it as the spouse's.
  */
 export async function getCalendarAssignmentsForUser(user: UserConfig): Promise<CalendarAssignment[]> {
   if (user.calendarSource === 'NATIVE') {
     const calendars = await listVisibleCalendars(user.id, user.pairingId ?? null);
-    return calendars.map((c) => ({
-      calendarId: encodeCalendarId(c.id),
-      labels: (c.labels as CalendarLabel[]) || [],
-      name: c.name,
-      color: c.color,
-      personName: c.personName ?? undefined,
-      personEnglishName: c.personEnglishName ?? undefined,
-      personGender: (c.personGender as 'male' | 'female' | undefined) ?? undefined,
-      rules: c.rules || undefined,
-    }));
+    const owners = await loadUnnamedOwners(calendars, user.id);
+    return calendars.map((c) => {
+      const partnersCalendar = c.ownerUserId !== user.id;
+      const owner = needsOwnerName(c, user.id) ? owners.get(c.ownerUserId) : undefined;
+      return {
+        calendarId: encodeCalendarId(c.id),
+        labels: partnersCalendar ? labelsFromViewerSide(c.labels as CalendarLabel[]) : (c.labels as CalendarLabel[]) || [],
+        name: c.name,
+        color: c.color,
+        personName: owner ? owner.name : c.personName ?? undefined,
+        personEnglishName: owner ? owner.englishName || undefined : c.personEnglishName ?? undefined,
+        personGender: ((owner ? owner.gender : c.personGender) as 'male' | 'female' | undefined) ?? undefined,
+        rules: c.rules || undefined,
+      };
+    });
   }
   // GOOGLE: existing behavior — assignments are stored on User.calendarAssignments JSON
   return user.calendarAssignments ?? [];
+}
+
+/**
+ * The labels of the partner's calendar as the other partner sees it: the owner's
+ * own (`primary` or `yours`) is the spouse's, the owner's `spouse` is the viewer's
+ * own (`yours`), and `kids` and `birthdays` stay. `primary` is dropped, since the
+ * viewer's primary calendar is their own.
+ */
+export function labelsFromViewerSide(labels: CalendarLabel[]): CalendarLabel[] {
+  const seen = new Set<CalendarLabel>();
+  for (const label of labels) {
+    if (label === 'primary' || label === 'yours') seen.add('spouse');
+    else if (label === 'spouse') seen.add('yours');
+    else seen.add(label);
+  }
+  return [...seen];
+}
+
+/** The partner's own calendar with no person on it, which is named after its owner. */
+function needsOwnerName(calendar: NativeCalendar, viewerId: number): boolean {
+  return calendar.ownerUserId !== viewerId
+    && !calendar.personName?.trim()
+    && labelsFromViewerSide(calendar.labels as CalendarLabel[]).includes('spouse');
+}
+
+/** The owners of the calendars needsOwnerName picks, in one query; none when it picks none. */
+async function loadUnnamedOwners(calendars: NativeCalendar[], viewerId: number): Promise<Map<number, CalendarOwner>> {
+  const ids = [...new Set(calendars.filter(c => needsOwnerName(c, viewerId)).map(c => c.ownerUserId))];
+  if (ids.length === 0) return new Map();
+  const owners = await prisma.user.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, name: true, englishName: true, gender: true },
+  });
+  return new Map(owners.map(o => [o.id, o]));
 }
 
 /**
