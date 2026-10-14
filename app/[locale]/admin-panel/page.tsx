@@ -139,6 +139,7 @@ export default async function AdminPanelPage({ params, searchParams }: PageProps
       earlyAdoptionMode={adminSettings?.earlyAdoptionMode ?? false}
       voiceAutoCreateHighConf={adminSettings?.voiceAutoCreateHighConf ?? false}
       voiceTtsOutcome={adminSettings?.voiceTtsOutcome ?? false}
+      nativeRemindersEnabled={adminSettings?.nativeRemindersEnabled ?? true}
     />
   );
 }

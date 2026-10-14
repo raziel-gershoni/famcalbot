@@ -14,12 +14,12 @@ import { getBotMessages } from '../../lib/bot-messages';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { captureError } from '../../lib/error-capture';
 import { daysBetween, describeEdit, EditSpan } from './event-resolution';
+import { escapeHtml } from '../../utils/html';
+
+// Voice modules import escapeHtml from here; anything outside voice imports src/utils/html.
+export { escapeHtml } from '../../utils/html';
 
 const PENDING_TTL_SECONDS = 600; // 10 minutes
-
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
 
 /**
  * Reconstruct Date objects from JSON-parsed data

@@ -95,8 +95,10 @@
     },
     "features": {
       "title": "מתגי תכונות",
-      "reminders": "תזכורות לאירועים",
-      "remindersDescription": "הפעל/השבת תזכורות באופן גלובלי לכל המשתמשים",
+      "reminders": "התראות על אירועים",
+      "remindersDescription": "הפעלה או כיבוי של ההתראה לפני תחילת אירוע, לכל המשתמשים",
+      "nativeReminders": "תזכורות (יומן מובנה)",
+      "nativeRemindersDescription": "\"תזכיר לי…\" למשתמשי היומן המובנה בטלגרם: יצירה בקול או בטקסט, שליחה עם כפתורי בוצע/נודניק, והצגה בסיכומים עד הסימון כבוצע. כבוי: אין תזכורות חדשות ואין שליחות.",
       "earlyAdoption": "מצב אימוץ מוקדם",
       "earlyAdoptionDescription": "תן לכל המשתמשים גישת PRO. מסתיר ממשק תשלום."
     },
@@ -295,14 +297,14 @@
       "d5": "ו׳",
       "d6": "ש׳"
     },
-    "remindersSection": "תזכורות לאירועים",
-    "remindersEnabled": "הפעל תזכורות",
-    "remindersEnabledDescription": "קבל תזכורות בטלגרם לפני תחילת האירועים",
-    "remindersBetaDescription": "תזכורות נמצאות כרגע בבטא (בקרוב)",
-    "defaultReminderMinutes": "זמן תזכורת ברירת מחדל",
-    "defaultReminderMinutesHelp": "זמן לפני אירוע לשליחת תזכורת (בשימוש כשאין תזכורת מוגדרת לאירוע)",
-    "pickupRemindersEnabled": "תזכורות איסוף",
-    "pickupRemindersDescription": "ליומנים של ילדים, קבל גם תזכורות בזמן סיום האירוע (איסוף)",
+    "remindersSection": "התראות על אירועים",
+    "remindersEnabled": "הפעלת התראות על אירועים",
+    "remindersEnabledDescription": "התראה בטלגרם לפני שאירוע מתחיל",
+    "remindersBetaDescription": "התראות על אירועים עדיין בבטא (בקרוב)",
+    "defaultReminderMinutes": "זמן התראה ברירת מחדל",
+    "defaultReminderMinutesHelp": "כמה זמן לפני האירוע לשלוח התראה (כשלאירוע אין התראה משלו)",
+    "pickupRemindersEnabled": "התראות איסוף",
+    "pickupRemindersDescription": "ביומני ילדים, גם התראה בשעת סיום האירוע (איסוף)",
     "minutes": "דק'",
     "globalRulesLabel": "כללים מותאמים",
     "globalRulesHelp": "הוסף כללים שחלים על כל היומנים (לדוגמה, יציאה מוקדמת בימים מסוימים)",
@@ -310,7 +312,7 @@
     "successMessage": "ההעדפות שלך עודכנו בהצלחה",
     "cancelButton": "ביטול",
     "usageCounterSuffix": "בשימוש החודש",
-    "remindersProRequired": "תזכורות דורשות תוכנית Pro.",
+    "remindersProRequired": "התראות על אירועים זמינות בתוכנית Pro.",
     "upgradeLink": "שדרג",
     "actions": {
       "save": "שמור הגדרות",
@@ -731,6 +733,54 @@
       "greeting": "היי! אשמח לנסות את FamCal 👋",
       "buttonLabel": "וואטסאפ",
       "startOn": "התחילו בוואטסאפ"
+    },
+    "nativeReminders": {
+      "ping": {
+        "from": "מאת: {name}"
+      },
+      "buttons": {
+        "done": "✅ בוצע",
+        "snooze15": "💤 עוד 15 דק׳",
+        "snooze60": "💤 עוד שעה",
+        "snoozeTomorrow": "💤 מחר"
+      },
+      "done": "✅ {title}",
+      "snoozedUntil": "💤 {title} · עד {time}",
+      "alreadyDone": "כבר בוצע 👍",
+      "notYours": "התזכורת הזו לא שלך.",
+      "changed": "התזכורת הזו השתנתה או שכבר לא קיימת.",
+      "doneBy": "✅ בוצע ע״י {name}: {title}",
+      "moved": "⏰ {title} · זמן חדש: {when}",
+      "card": {
+        "title": "⏰ {title}",
+        "forPartner": "בשביל {name}",
+        "noTimeSet": "בלי שעה מסוימת, אז זה יופיע בסיכומים היומיים.",
+        "partnerNotOnTelegram": "{name} לא בטלגרם, אז אין לי איך לשלוח תזכורת. להשאיר אותה אצלך?",
+        "keepAsMine": "להשאיר אצלי"
+      },
+      "created": {
+        "self": "⏰ אזכיר לך {when}.",
+        "partner": "⏰ אזכיר ל-{name} {when}.",
+        "dateOnly": "⏰ התזכורת נקבעה ל{when}."
+      },
+      "when": {
+        "todayAt": "היום ב-{time}",
+        "tomorrowAt": "מחר ב-{time}",
+        "dateAt": "ב{date}, ב-{time}",
+        "today": "היום",
+        "tomorrow": "מחר",
+        "date": "{date}"
+      },
+      "typed": {
+        "processing": "⏰ רגע…",
+        "notUnderstood": "לא מצאתי פה תזכורת. אפשר לנסות למשל: \"תזכיר לי להתקשר לאמא מחר ב-5\"."
+      },
+      "anchor": {
+        "notFound": "לא מצאתי את \"{description}\" ביומן. מתי להזכיר לך?",
+        "ambiguous": "מצאתי כמה התאמות ל\"{description}\". איזו מהן, או באיזו שעה להזכיר?",
+        "needsTime": "\"{description}\" הוא אירוע של יום שלם. באיזו שעה להזכיר לך?"
+      },
+      "permissionDenied": "אין לך הרשאה לשנות את זה."
     }
   },
   "subscription": {

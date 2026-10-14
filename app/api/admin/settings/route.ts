@@ -10,6 +10,7 @@ import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { setGlobalRemindersEnabled, setEarlyAdoptionMode, setVoiceAutoCreateHighConf, setVoiceTtsOutcome } from '@/src/services/reminder-cache';
 import { invalidateAllFeatureAccessCaches } from '@/src/services/subscription-service';
+import { setNativeRemindersEnabled } from '@/src/services/native-reminders/support';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,6 +35,7 @@ export async function GET(request: NextRequest) {
       earlyAdoptionMode: adminSettings?.earlyAdoptionMode ?? false,
       voiceAutoCreateHighConf: adminSettings?.voiceAutoCreateHighConf ?? false,
       voiceTtsOutcome: adminSettings?.voiceTtsOutcome ?? false,
+      nativeRemindersEnabled: adminSettings?.nativeRemindersEnabled ?? true,
     });
   } catch (error) {
     captureError(error, 'admin-settings-get', { api_route: '/api/admin/settings' });
@@ -48,7 +50,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { remindersEnabled, earlyAdoptionMode, voiceAutoCreateHighConf, voiceTtsOutcome, initData } = body;
+    const { remindersEnabled, earlyAdoptionMode, voiceAutoCreateHighConf, voiceTtsOutcome, nativeRemindersEnabled, initData } = body;
 
     // Verify admin access
     const auth = await verifyAdminAccess(initData);
@@ -64,7 +66,8 @@ export async function POST(request: NextRequest) {
     const hasEarlyAdoption = typeof earlyAdoptionMode === 'boolean';
     const hasVoiceAutoCreate = typeof voiceAutoCreateHighConf === 'boolean';
     const hasVoiceTts = typeof voiceTtsOutcome === 'boolean';
-    if (!hasReminders && !hasEarlyAdoption && !hasVoiceAutoCreate && !hasVoiceTts) {
+    const hasNativeReminders = typeof nativeRemindersEnabled === 'boolean';
+    if (!hasReminders && !hasEarlyAdoption && !hasVoiceAutoCreate && !hasVoiceTts && !hasNativeReminders) {
       return NextResponse.json(
         { error: 'At least one setting field must be provided' },
         { status: 400 }
@@ -91,11 +94,15 @@ export async function POST(request: NextRequest) {
         updateData.voiceTtsOutcome = voiceTtsOutcome;
         createData.voiceTtsOutcome = voiceTtsOutcome;
       }
+      if (hasNativeReminders) {
+        updateData.nativeRemindersEnabled = nativeRemindersEnabled;
+        createData.nativeRemindersEnabled = nativeRemindersEnabled;
+      }
 
       const settings = await prisma.adminSettings.upsert({
         where: { id: 'global' },
         update: updateData,
-        create: createData as { id: string; remindersEnabled?: boolean; earlyAdoptionMode?: boolean; voiceAutoCreateHighConf?: boolean; voiceTtsOutcome?: boolean },
+        create: createData as { id: string; remindersEnabled?: boolean; earlyAdoptionMode?: boolean; voiceAutoCreateHighConf?: boolean; voiceTtsOutcome?: boolean; nativeRemindersEnabled?: boolean },
       });
 
       // Sync to Redis cache
@@ -112,8 +119,11 @@ export async function POST(request: NextRequest) {
       if (hasVoiceTts) {
         await setVoiceTtsOutcome(voiceTtsOutcome);
       }
+      if (hasNativeReminders) {
+        await setNativeRemindersEnabled(nativeRemindersEnabled);
+      }
 
-      console.log(`[admin-settings] Admin ${auth.adminId} updated settings:`, { remindersEnabled, earlyAdoptionMode, voiceAutoCreateHighConf, voiceTtsOutcome });
+      console.log(`[admin-settings] Admin ${auth.adminId} updated settings:`, { remindersEnabled, earlyAdoptionMode, voiceAutoCreateHighConf, voiceTtsOutcome, nativeRemindersEnabled });
 
       return NextResponse.json({
         success: true,
@@ -121,6 +131,7 @@ export async function POST(request: NextRequest) {
         earlyAdoptionMode: settings.earlyAdoptionMode,
         voiceAutoCreateHighConf: settings.voiceAutoCreateHighConf,
         voiceTtsOutcome: settings.voiceTtsOutcome,
+        nativeRemindersEnabled: settings.nativeRemindersEnabled,
       });
     } catch (dbError) {
       // Table might not exist yet

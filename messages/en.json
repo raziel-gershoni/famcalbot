@@ -95,8 +95,10 @@
     },
     "features": {
       "title": "Feature Toggles",
-      "reminders": "Event Reminders",
-      "remindersDescription": "Enable/disable reminders feature globally for all users",
+      "reminders": "Event alerts",
+      "remindersDescription": "Turn event alerts (the heads-up before an event starts) on or off for everyone",
+      "nativeReminders": "Reminders (built-in calendar)",
+      "nativeRemindersDescription": "“Remind me…” for built-in calendar users on Telegram: made by voice or text, pinged with Done/Snooze, kept in summaries until done. Off: no new reminders and no pings.",
       "earlyAdoption": "Early Adoption Mode",
       "earlyAdoptionDescription": "Give all users PRO access. Hides payment UI."
     },
@@ -295,14 +297,14 @@
       "d5": "Fr",
       "d6": "Sa"
     },
-    "remindersSection": "Event Reminders",
-    "remindersEnabled": "Enable Reminders",
-    "remindersEnabledDescription": "Receive Telegram reminders before events start",
-    "remindersBetaDescription": "Reminders are currently in beta (coming soon)",
-    "defaultReminderMinutes": "Default Reminder Time",
-    "defaultReminderMinutesHelp": "Time before event to send reminder (used when event has no reminder set)",
-    "pickupRemindersEnabled": "Pickup Reminders",
-    "pickupRemindersDescription": "For kids' calendars, also receive reminders at event end time (pickup)",
+    "remindersSection": "Event alerts",
+    "remindersEnabled": "Enable event alerts",
+    "remindersEnabledDescription": "Get a Telegram alert before an event starts",
+    "remindersBetaDescription": "Event alerts are in beta (coming soon)",
+    "defaultReminderMinutes": "Default alert time",
+    "defaultReminderMinutesHelp": "How long before an event to send the alert (when the event has no alert of its own)",
+    "pickupRemindersEnabled": "Pickup alerts",
+    "pickupRemindersDescription": "For kids' calendars, also get an alert when the event ends (pickup)",
     "minutes": "min",
     "globalRulesLabel": "Custom Rules",
     "globalRulesHelp": "Add rules that apply to all calendars (e.g., early dismissal on certain days)",
@@ -310,7 +312,7 @@
     "successMessage": "Your preferences have been updated successfully",
     "cancelButton": "Cancel",
     "usageCounterSuffix": "used this month",
-    "remindersProRequired": "Reminders require a Pro plan.",
+    "remindersProRequired": "Event alerts need a Pro plan.",
     "upgradeLink": "Upgrade",
     "actions": {
       "save": "Save Settings",
@@ -731,6 +733,54 @@
       "greeting": "Hi! I'd like to try FamCal 👋",
       "buttonLabel": "WhatsApp",
       "startOn": "Start on WhatsApp"
+    },
+    "nativeReminders": {
+      "ping": {
+        "from": "from: {name}"
+      },
+      "buttons": {
+        "done": "✅ Done",
+        "snooze15": "💤 15 min",
+        "snooze60": "💤 1 hour",
+        "snoozeTomorrow": "💤 Tomorrow"
+      },
+      "done": "✅ {title}",
+      "snoozedUntil": "💤 {title} · until {time}",
+      "alreadyDone": "Already done 👍",
+      "notYours": "This reminder isn't yours.",
+      "changed": "This reminder changed or no longer exists.",
+      "doneBy": "✅ Done by {name}: {title}",
+      "moved": "⏰ {title} · moved to {when}",
+      "card": {
+        "title": "⏰ {title}",
+        "forPartner": "for {name}",
+        "noTimeSet": "No time set; it'll be in your summaries.",
+        "partnerNotOnTelegram": "{name} isn't on Telegram, so I can't ping them. Keep it as yours?",
+        "keepAsMine": "Keep as mine"
+      },
+      "created": {
+        "self": "⏰ I'll remind you {when}.",
+        "partner": "⏰ I'll remind {name} {when}.",
+        "dateOnly": "⏰ Reminder set for {when}."
+      },
+      "when": {
+        "todayAt": "today at {time}",
+        "tomorrowAt": "tomorrow at {time}",
+        "dateAt": "on {date} at {time}",
+        "today": "today",
+        "tomorrow": "tomorrow",
+        "date": "{date}"
+      },
+      "typed": {
+        "processing": "⏰ On it…",
+        "notUnderstood": "I couldn't find a reminder in that. Try: “remind me to call mom tomorrow at 5”."
+      },
+      "anchor": {
+        "notFound": "I couldn't find “{description}” in your calendar. When should I remind you?",
+        "ambiguous": "I found more than one “{description}”. Which one, or what time?",
+        "needsTime": "“{description}” is all day. What time should I remind you?"
+      },
+      "permissionDenied": "You can't change this one."
     }
   },
   "subscription": {

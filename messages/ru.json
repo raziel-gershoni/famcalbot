@@ -95,8 +95,10 @@
     },
     "features": {
       "title": "Переключатели функций",
-      "reminders": "Напоминания о событиях",
-      "remindersDescription": "Включить/отключить напоминания глобально для всех пользователей",
+      "reminders": "Уведомления о событиях",
+      "remindersDescription": "Включить или выключить уведомление перед началом события для всех",
+      "nativeReminders": "Напоминания (встроенный календарь)",
+      "nativeRemindersDescription": "«Напомни мне…» для пользователей встроенного календаря в Telegram: голосом или текстом, пинг с кнопками «Готово»/«Отложить», в сводках до отметки «готово». Выкл.: ни новых напоминаний, ни пингов.",
       "earlyAdoption": "Режим раннего доступа",
       "earlyAdoptionDescription": "Дать всем пользователям PRO-доступ. Скрывает интерфейс оплаты."
     },
@@ -295,14 +297,14 @@
       "d5": "Пт",
       "d6": "Сб"
     },
-    "remindersSection": "Напоминания о событиях",
-    "remindersEnabled": "Включить напоминания",
-    "remindersEnabledDescription": "Получать напоминания в Telegram перед началом событий",
-    "remindersBetaDescription": "Напоминания находятся в бета-тестировании (скоро)",
-    "defaultReminderMinutes": "Время напоминания по умолчанию",
-    "defaultReminderMinutesHelp": "Время до события для отправки напоминания (используется, если у события нет напоминания)",
-    "pickupRemindersEnabled": "Напоминания о заборе",
-    "pickupRemindersDescription": "Для детских календарей также получать напоминания в конце события",
+    "remindersSection": "Уведомления о событиях",
+    "remindersEnabled": "Включить уведомления о событиях",
+    "remindersEnabledDescription": "Уведомление в Telegram перед началом события",
+    "remindersBetaDescription": "Уведомления о событиях пока в бете (скоро)",
+    "defaultReminderMinutes": "Время уведомления по умолчанию",
+    "defaultReminderMinutesHelp": "За сколько до события присылать уведомление (если у события нет своего)",
+    "pickupRemindersEnabled": "Уведомления о заборе детей",
+    "pickupRemindersDescription": "Для детских календарей ещё и уведомление в конце события (пора забирать)",
     "minutes": "мин",
     "globalRulesLabel": "Пользовательские правила",
     "globalRulesHelp": "Добавьте правила, которые применяются ко всем календарям (напр., ранний уход в определённые дни)",
@@ -310,7 +312,7 @@
     "successMessage": "Ваши настройки успешно обновлены",
     "cancelButton": "Отмена",
     "usageCounterSuffix": "использовано в этом месяце",
-    "remindersProRequired": "Напоминания требуют план Pro.",
+    "remindersProRequired": "Уведомления о событиях доступны в плане Pro.",
     "upgradeLink": "Улучшить",
     "actions": {
       "save": "Сохранить настройки",
@@ -731,6 +733,54 @@
       "greeting": "Привет! Хочу попробовать FamCal 👋",
       "buttonLabel": "WhatsApp",
       "startOn": "Начать в WhatsApp"
+    },
+    "nativeReminders": {
+      "ping": {
+        "from": "от: {name}"
+      },
+      "buttons": {
+        "done": "✅ Готово",
+        "snooze15": "💤 15 мин",
+        "snooze60": "💤 1 час",
+        "snoozeTomorrow": "💤 Завтра"
+      },
+      "done": "✅ {title}",
+      "snoozedUntil": "💤 {title} · до {time}",
+      "alreadyDone": "Уже сделано 👍",
+      "notYours": "Это напоминание не для тебя.",
+      "changed": "Это напоминание изменилось или его больше нет.",
+      "doneBy": "✅ {name}: готово — {title}",
+      "moved": "⏰ {title} · перенесено на {when}",
+      "card": {
+        "title": "⏰ {title}",
+        "forPartner": "кому: {name}",
+        "noTimeSet": "Без точного времени, зато будет в твоих сводках.",
+        "partnerNotOnTelegram": "{name} не пользуется Telegram, так что напомнить не получится. Оставить напоминание себе?",
+        "keepAsMine": "Оставить себе"
+      },
+      "created": {
+        "self": "⏰ Напомню тебе {when}.",
+        "partner": "⏰ {name} получит напоминание {when}.",
+        "dateOnly": "⏰ Напоминание на {when} поставлено."
+      },
+      "when": {
+        "todayAt": "сегодня в {time}",
+        "tomorrowAt": "завтра в {time}",
+        "dateAt": "{date} в {time}",
+        "today": "сегодня",
+        "tomorrow": "завтра",
+        "date": "{date}"
+      },
+      "typed": {
+        "processing": "⏰ Секунду…",
+        "notUnderstood": "Не вижу тут напоминания. Попробуй так: «напомни мне позвонить маме завтра в 5»."
+      },
+      "anchor": {
+        "notFound": "Не вижу «{description}» в календаре. Когда напомнить?",
+        "ambiguous": "Нашлось несколько «{description}». Какое из них — или во сколько напомнить?",
+        "needsTime": "«{description}» — на весь день. Во сколько напомнить?"
+      },
+      "permissionDenied": "Это изменить не получится."
     }
   },
   "subscription": {

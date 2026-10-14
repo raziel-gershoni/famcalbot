@@ -93,6 +93,10 @@ export const REDIS_KEYS = {
   VOICE_AUTO_CREATE_HIGH_CONF: 'admin:voice_auto_create_high_conf',
   VOICE_TTS_OUTCOME: 'admin:voice_tts_outcome',
 
+  // Native reminders — the admin switch cached from AdminSettings. Its own prefix:
+  // "reminder:" and "reminders:" belong to event alerts.
+  NATIVE_REMINDERS_ENABLED: 'nrem:enabled',
+
   // Voice frictionlessness — quick-correction "awaiting field reply" state (PR 10 polish)
   quickCorrection: (chatId: number) => `voice:quick:${chatId}`,
 

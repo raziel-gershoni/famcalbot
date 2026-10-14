@@ -18,6 +18,7 @@ interface AdminPanelClientProps {
   earlyAdoptionMode: boolean;
   voiceAutoCreateHighConf: boolean;
   voiceTtsOutcome: boolean;
+  nativeRemindersEnabled: boolean;
 }
 
 
@@ -136,7 +137,7 @@ interface FeedbackItem {
   createdAt: string;
 }
 
-export default function AdminPanelClient({ userId, locale, stats, remindersEnabled: initialRemindersEnabled, earlyAdoptionMode: initialEarlyAdoptionMode, voiceAutoCreateHighConf: initialVoiceAutoCreateHighConf, voiceTtsOutcome: initialVoiceTtsOutcome }: AdminPanelClientProps) {
+export default function AdminPanelClient({ userId, locale, stats, remindersEnabled: initialRemindersEnabled, earlyAdoptionMode: initialEarlyAdoptionMode, voiceAutoCreateHighConf: initialVoiceAutoCreateHighConf, voiceTtsOutcome: initialVoiceTtsOutcome, nativeRemindersEnabled: initialNativeRemindersEnabled }: AdminPanelClientProps) {
   const t = useTranslations('admin');
   const [remindersEnabled, setRemindersEnabled] = useState(initialRemindersEnabled);
   const [remindersSaving, setRemindersSaving] = useState(false);
@@ -146,6 +147,8 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   const [voiceAutoCreateSaving, setVoiceAutoCreateSaving] = useState(false);
   const [voiceTtsOutcome, setVoiceTtsOutcome] = useState(initialVoiceTtsOutcome);
   const [voiceTtsOutcomeSaving, setVoiceTtsOutcomeSaving] = useState(false);
+  const [nativeRemindersEnabled, setNativeRemindersEnabled] = useState(initialNativeRemindersEnabled);
+  const [nativeRemindersSaving, setNativeRemindersSaving] = useState(false);
 
   // User overrides state
   const [userList, setUserList] = useState<UserListItem[]>([]);
@@ -322,6 +325,23 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
       }
     } finally {
       setVoiceTtsOutcomeSaving(false);
+    }
+  };
+
+  const toggleNativeReminders = async () => {
+    setNativeRemindersSaving(true);
+    try {
+      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+      const response = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nativeRemindersEnabled: !nativeRemindersEnabled, initData })
+      });
+      if (response.ok) {
+        setNativeRemindersEnabled(!nativeRemindersEnabled);
+      }
+    } finally {
+      setNativeRemindersSaving(false);
     }
   };
 
@@ -2142,6 +2162,27 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
                   if ((e.key === 'Enter' || e.key === ' ') && !remindersSaving) {
                     e.preventDefault();
                     toggleReminders();
+                  }
+                }}
+              >
+                <div className="toggle-slider" />
+              </div>
+            </div>
+            <div className="toggle-row" style={{ marginTop: '12px' }}>
+              <div className="toggle-info">
+                <p className="toggle-label">{t('features.nativeReminders')}</p>
+                <p className="toggle-description">{t('features.nativeRemindersDescription')}</p>
+              </div>
+              <div
+                className={`toggle-switch ${nativeRemindersEnabled ? 'checked' : ''} ${nativeRemindersSaving ? 'disabled' : ''}`}
+                onClick={() => !nativeRemindersSaving && toggleNativeReminders()}
+                role="switch"
+                aria-checked={nativeRemindersEnabled}
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if ((e.key === 'Enter' || e.key === ' ') && !nativeRemindersSaving) {
+                    e.preventDefault();
+                    toggleNativeReminders();
                   }
                 }}
               >
