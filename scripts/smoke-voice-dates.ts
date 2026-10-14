@@ -669,6 +669,33 @@ async function main() {
     assert(!result.event && result.error === 'Invalid date/time parsed', `got ${result.error}`);
   });
 
+  // The model slips on an end date now and then, mostly after a 20:00 start: the year's
+  // "20" picks up the hour's colon (benchmark 2026-10-12, "Dinner with Sarah next Friday at
+  // eight"). Its start and end time are right, so the event must not be lost over it.
+  check('a garbled end date ("20:26-10-23", "20:26") ends the event on its start date', () => {
+    for (const endDate of ['20:26-10-23', '20:26']) {
+      const { event, error } = create({ startDate: '2026-10-23', startTime: '20:00', endDate, endTime: '21:00', allDay: false }, IL);
+      assert(!!event, `${endDate}: no event (${error})`);
+      assert(at(event.startTime, IL) === '2026-10-23 20:00' && at(event.endTime, IL) === '2026-10-23 21:00', `${endDate}: ${at(event.startTime, IL)}..${at(event.endTime, IL)}`);
+    }
+    const corrected = buildEventTimes('2026-10-23', '20:00', '20:26-10-23', '21:00', false, IL);
+    assert(at(corrected.end, IL) === '2026-10-23 21:00', `correction ${at(corrected.end, IL)}`);
+  });
+
+  check('a garbled end date on an evening that crosses midnight ends the next day; an all-day one keeps its day', () => {
+    const late = create({ startDate: '2026-10-23', startTime: '20:00', endDate: '20:26-10-24', endTime: '01:00', allDay: false }, IL).event;
+    assert(!!late && at(late.endTime, IL) === '2026-10-24 01:00', `overnight ${at(late?.startTime, IL)}..${at(late?.endTime, IL)}`);
+    const day = create({ startDate: '2026-10-23', endDate: '20:26-10-23', allDay: true }, IL).event;
+    assert(!!day && at(day.startTime, IL) === '2026-10-23 00:00' && at(day.endTime, IL) === '2026-10-23 23:59', `all-day ${at(day?.startTime, IL)}..${at(day?.endTime, IL)}`);
+  });
+
+  check('a garbled start date is still reported, and a readable end date is kept as given', () => {
+    const lost = create({ startDate: '20:26-10-23', startTime: '20:00', endDate: '2026-10-23', endTime: '21:00', allDay: false }, IL);
+    assert(!lost.event && lost.error === 'Invalid date/time parsed', `got ${lost.error}`);
+    const party = create({ startDate: '2026-10-23', startTime: '22:00', endDate: '2026-10-24', endTime: '02:00', allDay: false }, IL).event;
+    assert(!!party && at(party.endTime, IL) === '2026-10-24 02:00', `party ends ${at(party?.endTime, IL)}`);
+  });
+
   // (d) Editing a reminder: one time and no length, whatever end the model sends (spec §7).
 
   /** A reminder as the native provider lists it: a timed one ends where it starts. */

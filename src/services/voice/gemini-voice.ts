@@ -12,7 +12,7 @@ import { VoiceIntentResult, VoiceIntent, ParsedEvent } from '../event-parser';
 import { CalendarAssignment } from '../../types';
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import { AI_MODEL_ID } from '../../config/ai-models';
-import { startOfLocalDay } from '../../utils/day-events';
+import { nextDate, startOfLocalDay } from '../../utils/day-events';
 
 const VOICE_RETRY_CONFIG = {
   maxRetries: 1,
@@ -435,7 +435,11 @@ export function extractIntents(
  * the event a day early. It ends at 23:59 on its last day whatever end time the model
  * read: the native calendar counts an all-day event's days from its length, so a camp
  * ending at an 11:00 pickup lost its last day there while Google kept it.
- * An unreadable date or time gives an Invalid Date.
+ * An end date that is not yyyy-MM-dd is a slip of the model's, mostly after a 20:00 start
+ * ("20:26-10-23": the year's "20" took the hour's colon). Its start and end time are still
+ * right, so the event ends on its start date, as with no end date at all, or on the next day
+ * when that would end it at or before its start.
+ * Any other unreadable date or time gives an Invalid Date.
  */
 export function buildEventTimes(
   startDate: string,
@@ -445,11 +449,14 @@ export function buildEventTimes(
   allDay: boolean,
   timezone: string
 ): { start: Date; end: Date } {
-  const lastDate = endDate || startDate;
+  const garbledEnd = !!endDate && !/^\d{4}-\d{2}-\d{2}$/.test(endDate);
+  const lastDate = endDate && !garbledEnd ? endDate : startDate;
   if (!allDay) {
+    const start = fromZonedTime(`${startDate}T${startTime}:00`, timezone);
+    const end = fromZonedTime(`${lastDate}T${endTime}:00`, timezone);
     return {
-      start: fromZonedTime(`${startDate}T${startTime}:00`, timezone),
-      end: fromZonedTime(`${lastDate}T${endTime}:00`, timezone),
+      start,
+      end: garbledEnd && end.getTime() <= start.getTime() ? fromZonedTime(`${nextDate(startDate)}T${endTime}:00`, timezone) : end,
     };
   }
   const midnight = fromZonedTime(`${startDate}T00:00:00`, timezone);
