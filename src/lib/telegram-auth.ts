@@ -7,6 +7,13 @@
 
 import crypto from 'crypto';
 
+/**
+ * How long a Mini App launch's initData stays valid. Telegram signs it once, when the
+ * Mini App opens, so this is how long a user can keep the page open and still save.
+ * 24h matches the session cookie's TTL. Applies to every initData check, admin APIs too.
+ */
+export const INIT_DATA_MAX_AGE_SEC = 24 * 3600;
+
 export interface TelegramUser {
   id: number;
   first_name: string;
@@ -59,12 +66,11 @@ export function validateInitData(initData: string): TelegramUser | null {
       return null;
     }
 
-    // Check auth_date is not too old (5 minutes max)
+    // Check auth_date is not too old (INIT_DATA_MAX_AGE_SEC)
     const authDate = parseInt(params.auth_date, 10);
     const now = Math.floor(Date.now() / 1000);
-    const maxAge = 5 * 60; // 5 minutes
 
-    if (now - authDate > maxAge) {
+    if (now - authDate > INIT_DATA_MAX_AGE_SEC) {
       console.warn('[TelegramAuth] initData expired');
       return null;
     }

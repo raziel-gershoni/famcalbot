@@ -161,12 +161,22 @@ let captured: string[] = [];
 const SRC = path.resolve(__dirname, '../src');
 
 /**
- * The settings route's updateUser: applies the given fields to the row and returns it
+ * The settings route's verifyUserAuth, as a Telegram save proves the user: the row whose
+ * telegramId is user_id, through the real convertPrismaUserToConfig.
+ */
+async function fakeVerifyUserAuth(_request: unknown, userId: string) {
+  const { convertPrismaUserToConfig } = await import('../src/types');
+  const row = userRows.find(r => Number(r.telegramId) === Number(userId))!;
+  return { success: true, via: 'telegram', user: convertPrismaUserToConfig(row as never) };
+}
+
+/**
+ * The settings route's updateUserById: applies the given fields to the row and returns it
  * through the real convertPrismaUserToConfig, as the route gets it.
  */
-async function fakeUpdateUser(telegramId: number, data: Record<string, unknown>) {
+async function fakeUpdateUserById(id: number, data: Record<string, unknown>) {
   const { convertPrismaUserToConfig } = await import('../src/types');
-  const row = userRows.find(r => Number(r.telegramId) === Number(telegramId))!;
+  const row = userRows.find(r => r.id === id)!;
   for (const [key, value] of Object.entries(data)) if (value !== undefined) row[key] = value;
   return convertPrismaUserToConfig(row as never);
 }
@@ -185,7 +195,7 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
     NextRequest: class {},
     NextResponse: { json: (body: unknown, init?: { status?: number }) => ({ body, status: init?.status ?? 200 }) },
   },
-  [`${SRC}/lib/api-auth.ts`]: { verifyUserAuth: async (_req: unknown, userId: string) => ({ success: true, userId: Number(userId) }) },
+  [`${SRC}/lib/api-auth.ts`]: { verifyUserAuth: fakeVerifyUserAuth },
   [`${SRC}/lib/rate-limit.ts`]: { settingsRateLimiter: {} },
   [`${SRC}/utils/redis.ts`]: { redis: fakeRedis },
   [`${SRC}/utils/prisma.ts`]: { prisma: fakePrisma },
@@ -207,7 +217,7 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
     getTelegramService: () => recorder,
     getWhatsAppService: () => ({ sendMessage: async () => { throw new Error('reminders went to WhatsApp'); } }),
   },
-  [`${SRC}/services/user-service.ts`]: { getWhatsAppChatId: () => null, updateUser: fakeUpdateUser },
+  [`${SRC}/services/user-service.ts`]: { getWhatsAppChatId: () => null, updateUserById: fakeUpdateUserById },
   [`${SRC}/services/analytics-service.ts`]: { trackActivityAsync: () => {} },
   [`${SRC}/services/subscription-service.ts`]: {
     checkFeatureAccess: async () => ({ allowed: true }),

@@ -39,12 +39,8 @@ export async function generateMagicLink(userId: number, locale: string): Promise
 export async function validateMagicToken(token: string): Promise<MagicLinkData | null> {
   const key = REDIS_KEYS.magicLink(token);
 
-  // Upstash auto-parses JSON, so this returns the object directly
-  const data = await redis.get<MagicLinkData>(key);
-  if (!data) return null;
-
-  // Delete the key to prevent reuse
-  await redis.del(key);
-
-  return data;
+  // GETDEL reads and deletes in one command, so two concurrent clicks cannot both get
+  // the data. Upstash auto-parses JSON, so this returns the object directly.
+  const data = await redis.getdel<MagicLinkData>(key);
+  return data ?? null;
 }

@@ -5,8 +5,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/src/utils/prisma';
-import { verifyUserAccess, extractUserId } from '@/src/lib/telegram-auth';
-import { getUserByTelegramId } from '@/src/services/user-service';
+import { verifyUserAuth } from '@/src/lib/api-auth';
+import { generalRateLimiter } from '@/src/lib/rate-limit';
 import { notifyAdminFeedback } from '@/src/utils/error-notifier';
 import { trackActivityAsync } from '@/src/services/analytics-service';
 import { captureError } from '@/src/lib/error-capture';
@@ -23,41 +23,20 @@ const FEEDBACK_CONFIG = {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { text, initData } = body;
+    const { text, initData, user_id } = body;
 
-    // Validate initData and extract user ID
-    if (!initData) {
-      return NextResponse.json(
-        { success: false, error: 'Missing initData' },
-        { status: 401 }
-      );
+    // Telegram initData or the WhatsApp session cookie, matched against user_id
+    const auth = await verifyUserAuth(
+      request,
+      user_id != null ? String(user_id) : null,
+      initData,
+      generalRateLimiter,
+      'feedback'
+    );
+    if (!auth.success) {
+      return auth.response;
     }
-
-    const telegramUserId = extractUserId(initData);
-    if (telegramUserId === null) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid initData' },
-        { status: 401 }
-      );
-    }
-
-    // Verify Telegram authentication
-    if (!verifyUserAccess(initData, telegramUserId)) {
-      console.warn(`[feedback] Unauthorized access attempt for user ${telegramUserId}`);
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    // Get user from database
-    const user = await getUserByTelegramId(telegramUserId);
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: 'User not found' },
-        { status: 404 }
-      );
-    }
+    const user = auth.user;
 
     // Validate feedback text
     if (!text || typeof text !== 'string') {
@@ -120,7 +99,7 @@ export async function POST(request: NextRequest) {
       text_length: trimmedText.length
     });
 
-    console.log(`[feedback] User ${telegramUserId} submitted feedback via dashboard (${trimmedText.length} chars)`);
+    console.log(`[feedback] User ${user.id} submitted feedback via dashboard (${trimmedText.length} chars)`);
 
     return NextResponse.json({ success: true });
   } catch (error) {

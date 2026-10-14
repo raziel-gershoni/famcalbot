@@ -1,32 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateSessionFromRequest } from '@/src/lib/session-auth';
-import { validateInitData } from '@/src/lib/telegram-auth';
+import { verifyUserAuth } from '@/src/lib/api-auth';
+import { generalRateLimiter } from '@/src/lib/rate-limit';
 import { redis } from '@/src/utils/redis';
 import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/weather-image/sign?user_id=X&initData=...
- * Returns a signed URL for the cached weather image.
+ * GET /api/weather-image/sign?user_id=X&initData=...&source=...&msg=...
+ * Returns a signed URL for the cached weather image or the summary card.
  * Image must already be cached from the /weather command.
+ *
+ * user_id is the DB id (share-story links carry it, since the story keys are per
+ * DB id); a Telegram user may also send the telegramId. The URL is signed for the
+ * proved user only, and the signature covers source and msg.
  */
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
   const initData = request.nextUrl.searchParams.get('initData');
 
-  if (!userId) {
-    return NextResponse.json({ error: 'Missing user_id' }, { status: 400 });
+  const auth = await verifyUserAuth(request, userId, initData, generalRateLimiter, 'weather-image-sign');
+  if (!auth.success) {
+    return auth.response;
   }
+  const dbUserId = String(auth.user.id);
 
-  const userIdNum = parseInt(userId);
-  const sessionUserId = validateSessionFromRequest(request);
-  const hasSessionAuth = sessionUserId !== null && sessionUserId === userIdNum;
-  // validateInitData checks signature only (no user_id match needed — user_id is internal DB ID, not TG ID)
-  const hasTelegramAuth = initData ? !!validateInitData(initData) : false;
-
-  if (!hasSessionAuth && !hasTelegramAuth) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const msgId = request.nextUrl.searchParams.get('msg') || null;
+  if (msgId !== null && !/^\d+$/.test(msgId)) {
+    return NextResponse.json({ error: 'Invalid msg' }, { status: 400 });
   }
 
   const source = request.nextUrl.searchParams.get('source') || 'fresh';
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest) {
   // source=cached: weather image from cache
   // source=fresh: generate new weather image
   const { REDIS_KEYS } = await import('@/src/config/redis-keys');
-  const cacheKey = REDIS_KEYS.storyImage(userId);
+  const cacheKey = REDIS_KEYS.storyImage(dbUserId);
   let cached: string | null = null;
 
   if (source !== 'summary') {
@@ -42,9 +43,8 @@ export async function GET(request: NextRequest) {
   }
 
   if (!cached && source !== 'summary') {
-    const { getUserById } = await import('@/src/services/user-service');
-    const user = await getUserById(userIdNum);
-    if (!user?.location) {
+    const user = auth.user;
+    if (!user.location) {
       return NextResponse.json({ error: 'No location set' }, { status: 404 });
     }
 
@@ -78,13 +78,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Server config error' }, { status: 500 });
   }
 
+  // weather-image recomputes this same string from the URL (source defaults to 'fresh')
   const ts = Date.now().toString();
-  const sig = crypto.createHmac('sha256', secret).update(`${userId}:${ts}`).digest('hex');
+  const sig = crypto.createHmac('sha256', secret).update(`${dbUserId}:${source}:${msgId ?? ''}:${ts}`).digest('hex');
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || `https://${request.headers.get('host')}`;
-  const msgId = request.nextUrl.searchParams.get('msg');
-  const sourceParam = source !== 'fresh' ? `&source=${source}` : '';
+  const sourceParam = source !== 'fresh' ? `&source=${encodeURIComponent(source)}` : '';
   const msgParam = msgId ? `&msg=${msgId}` : '';
-  const url = `${appUrl}/api/weather-image?user_id=${userId}&ts=${ts}&sig=${sig}${sourceParam}${msgParam}`;
+  const url = `${appUrl}/api/weather-image?user_id=${dbUserId}&ts=${ts}&sig=${sig}${sourceParam}${msgParam}`;
 
   return NextResponse.json({ url });
 }

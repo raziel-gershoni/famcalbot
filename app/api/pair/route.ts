@@ -4,7 +4,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
-import { getUserByIdentifier } from '@/src/services/user-service';
 import { getActivePartner, unlink, PairingError } from '@/src/services/pairing-service';
 import { captureError } from '@/src/lib/error-capture';
 
@@ -17,8 +16,7 @@ export async function GET(request: NextRequest) {
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'pair-get');
     if (!auth.success) return auth.response;
 
-    const user = await getUserByIdentifier(auth.userId);
-    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    const user = auth.user;
     if (user.calendarSource !== 'NATIVE') {
       return NextResponse.json({ paired: false, native: false });
     }
@@ -51,8 +49,7 @@ export async function DELETE(request: NextRequest) {
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'pair-unlink');
     if (!auth.success) return auth.response;
 
-    const user = await getUserByIdentifier(auth.userId);
-    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    const user = auth.user;
 
     const result = await unlink(user.id);
     return NextResponse.json({ success: true, partnerUserId: result.partnerUserId });

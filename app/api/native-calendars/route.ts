@@ -8,7 +8,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
-import { getUserByIdentifier } from '@/src/services/user-service';
 import { listVisibleCalendars, encodeCalendarId } from '@/src/services/native-calendar/event-store';
 import { checkCalendarLimit } from '@/src/services/subscription-service';
 import { prisma } from '@/src/utils/prisma';
@@ -26,8 +25,7 @@ export async function GET(request: NextRequest) {
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'native-calendars-list');
     if (!auth.success) return auth.response;
 
-    const user = await getUserByIdentifier(auth.userId);
-    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    const user = auth.user;
 
     const calendars = await listVisibleCalendars(user.id, user.pairingId ?? null);
     return NextResponse.json({
@@ -63,8 +61,7 @@ export async function POST(request: NextRequest) {
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'native-calendars-create');
     if (!auth.success) return auth.response;
 
-    const user = await getUserByIdentifier(auth.userId);
-    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    const user = auth.user;
     if (user.calendarSource !== 'NATIVE') {
       return NextResponse.json({ error: 'native_only' }, { status: 400 });
     }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyUserAccess } from '@/src/lib/telegram-auth';
+import { verifyUserAuth } from '@/src/lib/api-auth';
+import { generalRateLimiter } from '@/src/lib/rate-limit';
 import {
   getSubscriptionWithUsage,
   getTrialStatus,
@@ -19,25 +20,15 @@ export async function GET(request: NextRequest) {
     const userId = searchParams.get('user_id');
     const initData = searchParams.get('initData');
 
-    if (!userId) {
-      return NextResponse.json(
-        { success: false, error: 'Missing user_id' },
-        { status: 400 }
-      );
+    // Mandatory: Telegram initData or the WhatsApp session cookie (400 without user_id)
+    const auth = await verifyUserAuth(request, userId, initData, generalRateLimiter, 'subscription');
+    if (!auth.success) {
+      return auth.response;
     }
-
-    const userIdNum = parseInt(userId);
-
-    // Verify user access via Telegram initData
-    if (initData && !verifyUserAccess(initData, userIdNum)) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const dbUserId = auth.user.id;
 
     // Get subscription with usage
-    const subWithUsage = await getSubscriptionWithUsage(userIdNum);
+    const subWithUsage = await getSubscriptionWithUsage(dbUserId);
 
     if (!subWithUsage) {
       return NextResponse.json(
@@ -47,7 +38,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get trial status
-    const trialStatus = await getTrialStatus(userIdNum);
+    const trialStatus = await getTrialStatus(dbUserId);
 
     // Get all plan configs for comparison
     const plans = getAllPlanConfigs();

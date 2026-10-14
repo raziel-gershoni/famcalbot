@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { after } from 'next/server';
 import { getUserByTelegramId, getUserById } from '@/src/services/user-service';
-import { MessagingPlatform } from '@/src/services/messaging';
-import { verifyUserAccess } from '@/src/lib/telegram-auth';
-import { validateSessionFromRequest } from '@/src/lib/session-auth';
-import { checkRateLimit, commandRateLimiter, getRateLimitHeaders } from '@/src/lib/rate-limit';
+import { MessagingPlatform, getMessagingService as getPlatformService } from '@/src/services/messaging';
+import { verifyUserAuth, type AuthVia } from '@/src/lib/api-auth';
+import { resolveCommandTarget } from '@/src/lib/command-target';
+import { commandRateLimiter } from '@/src/lib/rate-limit';
 import { captureError } from '@/src/lib/error-capture';
+import type { UserConfig } from '@/src/types';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -23,34 +24,25 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Authentication: server secret OR Telegram initData OR session cookie
+    // Authentication: server secret (operator path) OR Telegram initData OR session cookie
     const hasServerSecret = secret && secret === process.env.CRON_SECRET;
-    const hasTelegramAuth = initData && verifyUserAccess(initData, user_id);
-    const sessionUserId = validateSessionFromRequest(request);
-    const hasSessionAuth = sessionUserId !== null && sessionUserId === user_id;
+    let user: UserConfig | null;
+    let via: AuthVia | 'server';
 
-    if (!hasServerSecret && !hasTelegramAuth && !hasSessionAuth) {
-      console.warn(`[execute-command] Unauthorized: user_id=${user_id} (${typeof user_id}), sessionUserId=${sessionUserId} (${typeof sessionUserId}), hasCookie=${!!request.cookies.get('famcal_session')}`);
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    // Rate limiting (skip for server-side cron calls)
-    if (!hasServerSecret) {
-      const rateLimitResult = await checkRateLimit(commandRateLimiter, user_id);
-      if (!rateLimitResult.success) {
-        console.warn(`[execute-command] Rate limit exceeded for user ${user_id}`);
-        return NextResponse.json(
-          { success: false, error: 'Too many requests. Please wait a minute.' },
-          { status: 429, headers: getRateLimitHeaders(rateLimitResult) }
-        );
+    if (hasServerSecret) {
+      // Operator path, no rate limit: user_id is a telegramId, or else a DB id
+      user = await getUserByTelegramId(user_id) ?? await getUserById(user_id);
+      via = 'server';
+    } else {
+      // verifyUserAuth also rate limits (commandRateLimiter)
+      const auth = await verifyUserAuth(request, String(user_id), initData, commandRateLimiter, 'execute-command');
+      if (!auth.success) {
+        return auth.response;
       }
+      user = auth.user;
+      via = auth.via;
     }
 
-    // Now get user from database — try Telegram ID first, fall back to DB ID
-    const user = await getUserByTelegramId(user_id) ?? await getUserById(user_id);
     if (!user) {
       return NextResponse.json(
         { success: false, error: 'User not found' },
@@ -58,14 +50,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Determine platform and chat ID based on auth method
-    const platform = hasTelegramAuth || hasServerSecret
-      ? MessagingPlatform.TELEGRAM
-      : (user.whatsappPhone ? MessagingPlatform.WHATSAPP : MessagingPlatform.TELEGRAM);
-    const { getWhatsAppChatId } = await import('@/src/services/user-service');
-    const chatId: number | string = platform === MessagingPlatform.WHATSAPP && getWhatsAppChatId(user)
-      ? getWhatsAppChatId(user)!
-      : (user.telegramId ?? user_id);
+    // The answer goes to the proved user's own chat, never to a chat named by a DB id
+    const target = resolveCommandTarget(user, via);
+    if (!target) {
+      return NextResponse.json(
+        { success: false, error: 'no_channel' },
+        { status: 400 }
+      );
+    }
+    const { platform, chatId } = target;
 
     // Dynamically import to avoid build-time initialization
     const {
@@ -157,9 +150,10 @@ export async function POST(request: NextRequest) {
             ?? '❌ Sorry, something went wrong processing your request. Please try again.';
           if (streamHandle) {
             await streamHandle.cancel(errorMessage);
+          } else if (platform === MessagingPlatform.TELEGRAM) {
+            await getMessagingService().sendMessage(chatId, errorMessage);
           } else {
-            const messagingService = getMessagingService();
-            await messagingService.sendMessage(user_id, errorMessage);
+            await getPlatformService(platform).sendMessage(chatId, errorMessage);
           }
         } catch (notifyErr) {
           captureError(notifyErr, 'execute-command-notify', { user_id });

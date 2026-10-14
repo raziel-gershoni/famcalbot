@@ -4,10 +4,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserByTelegramId } from '@/src/services/user-service';
 import { sendSubscriptionInvoice } from '@/src/services/payment-handler';
-import { verifyUserAccess } from '@/src/lib/telegram-auth';
-import { validateSessionFromRequest } from '@/src/lib/session-auth';
+import { verifyUserAuth } from '@/src/lib/api-auth';
+import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { captureError } from '@/src/lib/error-capture';
 import { PlanId, PLAN_CONFIGS } from '@/src/config/plans';
 
@@ -43,35 +42,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get user by Telegram ID
-    const user = await getUserByTelegramId(user_id);
-    if (!user) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
-      );
+    // Authenticate before any lookup. Verification is mandatory (a request with no
+    // initData once skipped it, so a known Telegram ID was enough to make the bot send
+    // that person an invoice). Telegram initData proves the user whether user_id is
+    // the telegramId or, from an old button, the DB id; the WhatsApp session matches
+    // user_id against the DB id it carries.
+    const auth = await verifyUserAuth(request, String(user_id), initData, settingsRateLimiter, 'subscription-upgrade');
+    if (!auth.success) {
+      return auth.response;
     }
-
-    // Authenticate. This used to read `if (initData && !verifyUserAccess(...))`,
-    // so a request with NO initData skipped verification altogether and a known
-    // Telegram ID was enough to make the bot send that person an invoice.
-    // Verification is now mandatory, accepting either Telegram initData or the
-    // WhatsApp magic-link session - the session carries the DB user id, while
-    // user_id here is a telegramId, so they are compared against different fields.
-    const telegramAuthed = verifyUserAccess(initData ?? null, user_id);
-    let sessionAuthed = false;
-    if (!telegramAuthed) {
-      const sessionUserId = validateSessionFromRequest(request);
-      sessionAuthed = sessionUserId !== null && sessionUserId === user.id;
-    }
-
-    if (!telegramAuthed && !sessionAuthed) {
-      console.warn(`[subscription-upgrade] Unauthorized upgrade attempt for user ${user_id}`);
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const user = auth.user;
 
     // Send invoice to user via Telegram (manual renewal model)
     // The chatId is the same as the telegramId for private chats

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { updateUser } from '@/src/services/user-service';
+import { updateUserById } from '@/src/services/user-service';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { captureError } from '@/src/lib/error-capture';
@@ -43,7 +43,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid tomorrowSummaryDays' }, { status: 400 });
     }
 
-    const updatedUser = await updateUser(auth.userId, {
+    // auth.user is the row the credential proved (a Telegram user, or a WhatsApp session's DB id)
+    const updatedUser = await updateUserById(auth.user.id, {
       language: language || undefined,  // Locale code: 'he', 'en', 'ru'
       location: location || undefined,
       messagingPlatform: messagingPlatform || undefined,
@@ -64,7 +65,7 @@ export async function POST(request: NextRequest) {
       voiceInputEnabled: typeof voiceInputEnabled === 'boolean' ? voiceInputEnabled : undefined
     });
 
-    // Update reminder cache (no extra DB query - uses data from updateUser). Who belongs
+    // Update reminder cache (no extra DB query - uses data from updateUserById). Who belongs
     // in it is the hourly sync's rule (handleDailySummary): a NATIVE user has no Google
     // token by definition, and a save must not put back a suspended or unreachable user
     // the sync left out (Telegram refuses an unreachable chat every 5 minutes).
@@ -91,9 +92,9 @@ export async function POST(request: NextRequest) {
       await removeUserFromCache(updatedUser.id);
     }
 
-    // Update menu button when language changes
-    if (language) {
-      await setUserMenuButton(auth.userId, language);
+    // Update menu button when language changes (Telegram users only; the chat is the telegramId)
+    if (language && auth.user.telegramId) {
+      await setUserMenuButton(Number(auth.user.telegramId), language);
     }
 
     return NextResponse.json({ success: true });

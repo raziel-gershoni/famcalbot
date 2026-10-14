@@ -9,7 +9,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
-import { getUserByIdentifier } from '@/src/services/user-service';
 import {
   createInvite,
   getActiveInvite,
@@ -33,8 +32,7 @@ export async function POST(request: NextRequest) {
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'pair-invite-create');
     if (!auth.success) return auth.response;
 
-    const user = await getUserByIdentifier(auth.userId);
-    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    const user = auth.user;
 
     const invite = await createInvite(user.id);
     return NextResponse.json({
@@ -61,8 +59,7 @@ export async function GET(request: NextRequest) {
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'pair-invite-get');
     if (!auth.success) return auth.response;
 
-    const user = await getUserByIdentifier(auth.userId);
-    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    const user = auth.user;
 
     const invite = await getActiveInvite(user.id);
     if (!invite) return NextResponse.json({ active: false });
@@ -90,8 +87,7 @@ export async function DELETE(request: NextRequest) {
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'pair-invite-revoke');
     if (!auth.success) return auth.response;
 
-    const user = await getUserByIdentifier(auth.userId);
-    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    const user = auth.user;
 
     await revokeInvite(user.id);
     return NextResponse.json({ success: true });

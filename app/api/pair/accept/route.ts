@@ -8,7 +8,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
-import { getUserByIdentifier } from '@/src/services/user-service';
 import { acceptInvite, PairingError } from '@/src/services/pairing-service';
 import { captureError } from '@/src/lib/error-capture';
 import { prisma } from '@/src/utils/prisma';
@@ -28,8 +27,7 @@ export async function POST(request: NextRequest) {
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'pair-accept');
     if (!auth.success) return auth.response;
 
-    const user = await getUserByIdentifier(auth.userId);
-    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    const user = auth.user;
 
     const result = await acceptInvite(token, user.id);
 

@@ -5,15 +5,28 @@ import crypto from 'crypto';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-function validateSignature(userId: string, timestamp: string, signature: string): boolean {
+/**
+ * The signature covers the user, the source and the msg (see weather-image/sign), so
+ * a signed URL cannot be pointed at another summary or another kind of image.
+ */
+function validateSignature(
+  userId: string,
+  source: string,
+  msgId: string | null,
+  timestamp: string,
+  signature: string
+): boolean {
   const secret = process.env.ENCRYPTION_KEY || process.env.CRON_SECRET;
   if (!secret) return false;
 
   const age = Date.now() - parseInt(timestamp);
   if (isNaN(age) || age > 3600_000) return false;
 
-  const expected = crypto.createHmac('sha256', secret).update(`${userId}:${timestamp}`).digest('hex');
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  const expected = Buffer.from(
+    crypto.createHmac('sha256', secret).update(`${userId}:${source}:${msgId ?? ''}:${timestamp}`).digest('hex')
+  );
+  const given = Buffer.from(signature);
+  return given.length === expected.length && crypto.timingSafeEqual(expected, given);
 }
 
 /**
@@ -31,7 +44,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Missing parameters' }, { status: 400 });
   }
 
-  if (!validateSignature(userId, ts, sig)) {
+  if (!validateSignature(userId, source ?? 'fresh', msgId, ts, sig)) {
     return NextResponse.json({ error: 'Invalid or expired signature' }, { status: 401 });
   }
 

@@ -59,6 +59,7 @@ export default function FeedbackClient({ userId, locale }: FeedbackClientProps) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: trimmedText,
+          user_id: userId,
           initData,
         }),
       });

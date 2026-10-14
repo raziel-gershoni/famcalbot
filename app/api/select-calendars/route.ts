@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { Prisma } from '@prisma/client';
-import { getUserByTelegramId } from '@/src/services/user-service';
 import { validateCalendarAssignments } from '@/src/utils/calendar-helpers';
 import { CalendarAssignment } from '@/src/types';
 import { prisma } from '@/src/utils/prisma';
@@ -95,14 +94,9 @@ export async function POST(request: NextRequest) {
     // Sync spouse metadata across all spouse calendars
     const syncedAssignments = syncSpouseMetadata(calendarAssignments);
 
-    // Get current user to preserve encrypted refresh token
-    const currentUser = await getUserByTelegramId(auth.userId);
-    if (!currentUser) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
-      );
-    }
+    // The proved user (verifyUserAuth already returned 404 for a missing row); its
+    // decrypted refresh token is re-encrypted below
+    const currentUser = auth.user;
 
     // Check calendar limit based on subscription
     const calendarLimitResult = await checkCalendarLimit(currentUser.id, calendarAssignments.length);
@@ -119,7 +113,7 @@ export async function POST(request: NextRequest) {
 
     // Update user with new calendarAssignments and globalRules
     const updatedUser = await prisma.user.update({
-      where: { telegramId: BigInt(auth.userId) },
+      where: { id: currentUser.id },
       data: {
         calendarAssignments: syncedAssignments as unknown as Prisma.InputJsonValue,
         ...(globalRules !== undefined && { globalRules }),

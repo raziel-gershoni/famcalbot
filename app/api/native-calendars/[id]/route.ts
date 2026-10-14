@@ -7,7 +7,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
-import { getUserByIdentifier } from '@/src/services/user-service';
 import { prisma } from '@/src/utils/prisma';
 import { captureError } from '@/src/lib/error-capture';
 
@@ -30,8 +29,7 @@ export async function PATCH(request: NextRequest, { params }: PathProps) {
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'native-calendar-patch');
     if (!auth.success) return auth.response;
 
-    const user = await getUserByIdentifier(auth.userId);
-    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    const user = auth.user;
 
     const calendar = await prisma.nativeCalendar.findUnique({ where: { id: calendarId } });
     if (!calendar || calendar.isDeleted) {
@@ -116,8 +114,7 @@ export async function DELETE(request: NextRequest, { params }: PathProps) {
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'native-calendar-delete');
     if (!auth.success) return auth.response;
 
-    const user = await getUserByIdentifier(auth.userId);
-    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    const user = auth.user;
 
     const calendar = await prisma.nativeCalendar.findUnique({ where: { id: calendarId } });
     if (!calendar || calendar.isDeleted) {
