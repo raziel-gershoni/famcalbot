@@ -510,10 +510,10 @@ async function main() {
     const relative = [
       { event: { startTime: at('2026-10-14 17:00'), allDay: false }, want: { en: 'today at 17:00', he: 'היום ב-17:00', ru: 'сегодня в 17:00' } },
       { event: { startTime: at('2026-10-15 10:00'), allDay: false }, want: { en: 'tomorrow at 10:00', he: 'מחר ב-10:00', ru: 'завтра в 10:00' } },
-      { event: { startTime: at('2026-10-16 10:00'), allDay: false }, want: { en: 'on Fri, Oct 16 at 10:00', he: 'ביום ו׳, 16 באוק׳, ב-10:00', ru: 'пт, 16 окт. в 10:00' } },
+      { event: { startTime: at('2026-10-16 10:00'), allDay: false }, want: { en: 'on Fri, Oct 16 at 10:00', he: 'ביום ו׳, 16 באוק׳, ב-10:00', ru: '16 октября в 10:00' } },
       { event: dateOnly('2026-10-14'), want: { en: 'today', he: 'היום', ru: 'сегодня' } },
       { event: dateOnly('2026-10-15'), want: { en: 'tomorrow', he: 'מחר', ru: 'завтра' } },
-      { event: dateOnly('2026-10-16'), want: { en: 'Fri, Oct 16', he: 'יום ו׳, 16 באוק׳', ru: 'пт, 16 окт.' } },
+      { event: dateOnly('2026-10-16'), want: { en: 'Fri, Oct 16', he: 'יום ו׳, 16 באוק׳', ru: '16 октября' } },
     ];
     for (const { event, want } of relative) {
       for (const language of ['en', 'he', 'ru'] as const) {
@@ -760,6 +760,52 @@ async function main() {
     assert(JSON.stringify(textCalls[0][4]) === '{"userName":"Dana","userEnglishName":"Dana","partnerName":null,"partnerEnglishName":null}', JSON.stringify(textCalls[0][4]));
     assert(partnerLookups === 0, `${partnerLookups} partner lookups`);
     assert(lastBot()?.text.startsWith('⏰ <b>Call the plumber</b>\n📆 Thu, Oct 15, 10:00\n'), JSON.stringify(botCalls));
+  });
+
+  await check('replies: a partner\'s date-only reminder names the partner, in three languages', async () => {
+    const event = await resolved(parsedReminder({ forPerson: 'partner', ...dateOnly('2026-10-16') }));
+    const en = await reminderCreatedLine(event, 'en', IL);
+    assert(en === '⏰ Reminder for Raziel set for Fri, Oct 16.', en);
+    const ru = await reminderCreatedLine(event, 'ru', IL);
+    assert(ru === '⏰ Напоминание для Raziel поставлено на 16 октября', ru);
+    const he = await reminderCreatedLine(event, 'he', IL);
+    assert(he.includes('Raziel') && !he.includes('{'), he);
+  });
+
+  await check('anchor: "the day before" keeps the wall-clock time across a DST change', async () => {
+    // Israel leaves summer time on Sun Oct 25 2026 at 02:00
+    rangeEvents = [calendarEvent('Dentist', iso('2026-10-25 10:00'), iso('2026-10-25 11:00'))];
+    const r = await resolveReminderForCreate(dana, anchored('the dentist', -1440), IL);
+    assert(r.ok && sameInstant(r.startTime, at('2026-10-24 10:00')), JSON.stringify(r));
+  });
+
+  const questionText = await getBotMessage('en', 'nativeReminders.anchor.notFound', { description: 'the dentist' });
+  for (const order of ['failed first', 'valid first'] as const) {
+    const list = () => {
+      const bad = createIntent(anchored('the dentist', -60));
+      const good = createIntent(parsedReminder({ title: 'Buy milk' }));
+      return order === 'failed first' ? [bad, good] : [good, bad];
+    };
+    await check(`voice: ${order} - the valid reminder still gets its card and the failure is asked about`, async () => {
+      extracted = list();
+      await handleVoiceMessage(555, 1001, voice, from);
+      assert(lastBot()?.text.includes('Buy milk'), JSON.stringify(botCalls));
+      assert(serviceCalls.some(s => s.text === questionText), JSON.stringify(serviceCalls));
+    });
+    await check(`forwarded text: ${order} - the valid reminder still gets its card and the failure is asked about`, async () => {
+      extracted = list();
+      await handleForwardedMessage(555, 1001, 'buy milk, and an hour before the dentist', from);
+      assert(lastBot()?.text.includes('Buy milk'), JSON.stringify(botCalls));
+      assert(serviceCalls.some(s => s.text === questionText), JSON.stringify(serviceCalls));
+    });
+  }
+
+  await check('voice: a date-only reminder for today after 09:00 never auto-creates; its card says no time was set', async () => {
+    flags.autoCreate = true;
+    extracted = [createIntent(parsedReminder(dateOnly('2026-10-14')), 'high')];
+    await handleVoiceMessage(555, 1001, voice, from);
+    const noTime = await getBotMessage('en', 'nativeReminders.card.noTimeSet');
+    assert(created.length === 0 && lastBot().text.includes(noTime), JSON.stringify({ created, botCalls }));
   });
 
   let failed = 0;

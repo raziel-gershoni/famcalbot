@@ -761,7 +761,8 @@
       "created": {
         "self": "⏰ I'll remind you {when}.",
         "partner": "⏰ I'll remind {name} {when}.",
-        "dateOnly": "⏰ Reminder set for {when}."
+        "dateOnly": "⏰ Reminder set for {when}.",
+        "partnerDateOnly": "⏰ Reminder for {name} set for {when}."
       },
       "when": {
         "todayAt": "today at {time}",

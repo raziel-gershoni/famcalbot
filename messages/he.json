@@ -761,7 +761,8 @@
       "created": {
         "self": "⏰ אזכיר לך {when}.",
         "partner": "⏰ אזכיר ל-{name} {when}.",
-        "dateOnly": "⏰ התזכורת נקבעה ל{when}."
+        "dateOnly": "⏰ התזכורת נקבעה ל{when}.",
+        "partnerDateOnly": "⏰ התזכורת ל{name} נקבעה ל{when}"
       },
       "when": {
         "todayAt": "היום ב-{time}",

@@ -357,7 +357,8 @@ export async function handleVoiceMessage(
     if (support.supported) {
       const resolved = await resolveReminderIntents(user, intentResults ?? [intentResult], timezone);
       intentResults = resolved.intents;
-      intentResult = resolved.intents[0];
+      // Keep a valid item beside one that failed: the failures are asked about after its card
+      intentResult = resolved.intents.find(i => i.event && !i.error) ?? resolved.intents[0];
       reminderFailures = resolved.failures;
     }
 
@@ -438,8 +439,8 @@ export async function handleVoiceMessage(
       if (
         intentResult.confidence === 'high' &&
         !intentResult.event.recurrence &&
-        // A reminder for a partner who can't be pinged waits for "keep as mine"
-        intentResult.event.reminderNotice !== 'partner_not_on_telegram' &&
+        // A reminder with a notice (partner not on Telegram, no time set) waits for its card
+        !intentResult.event.reminderNotice &&
         (await isAutoCreateEnabled())
       ) {
         const handled = await autoCreateEvent(user, intentResult.event, t, messagingService, chatId);

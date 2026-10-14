@@ -945,7 +945,8 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     if (support.supported) {
       const resolved = await resolveReminderIntents(user, intentResults ?? [intentResult], timezone);
       intentResults = resolved.intents;
-      intentResult = resolved.intents[0];
+      // Keep a valid item beside one that failed: the failures are asked about after its card
+      intentResult = resolved.intents.find(i => i.event && !i.error) ?? resolved.intents[0];
       reminderFailures = resolved.failures;
     }
     const askAboutReminders = async () => {
@@ -965,9 +966,9 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     // surface, and recurring events need scope decisions per event.
     const validBulkWa = (intentResults || []).filter((r) => r.intent === 'create' && r.event && !r.error);
     if (validBulkWa.length > 1) {
-      // A reminder for a partner who can't be pinged needs "keep as mine" first
+      // A reminder with a notice (partner not on Telegram, no time set) needs its card first
       const allHigh = validBulkWa.every(
-        (r) => r.confidence === 'high' && !r.event!.recurrence && r.event!.reminderNotice !== 'partner_not_on_telegram'
+        (r) => r.confidence === 'high' && !r.event!.recurrence && !r.event!.reminderNotice
       );
       if (!allHigh) {
         await waService.sendMessage(
@@ -1065,6 +1066,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
           phone,
           wa.voiceLowConf || `🤔 I'm not confident I understood. Could you try again?`
         );
+        await askAboutReminders();
         return;
       }
 
@@ -1072,7 +1074,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
       if (
         intentResult.confidence === 'high' &&
         !intentResult.event.recurrence &&
-        intentResult.event.reminderNotice !== 'partner_not_on_telegram'
+        !intentResult.event.reminderNotice
       ) {
         // Auto-create directly. No confirmation, no Undo button (WhatsApp
         // template/button surface is constrained — see TG flow for full Undo).
@@ -1121,6 +1123,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
             `❌ ${(wa.eventFailed || 'Failed to create event: {error}').replace('{error}', result.error || '')}`
           );
         }
+        await askAboutReminders();
         return;
       }
 
@@ -1155,6 +1158,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
           ],
         }
       );
+      await askAboutReminders();
     } else if (reminderFailures.length > 0) {
       // A reminder anchored to an event that couldn't be found asks for a time instead
       await askAboutReminders();

@@ -351,7 +351,10 @@ export async function formatReminderRelativeWhen(
   const day = localDate(event.startTime, timezone);
   const today = localDate(new Date(), timezone);
   const relative = day === today ? 'today' : day === addDaysToDate(today, 1) ? 'tomorrow' : 'date';
-  const date = formatReminderWhen({ startTime: event.startTime, allDay: true }, language, timezone);
+  // Russian says the date as "16 октября", not as a timestamp "пт, 16 окт."
+  const date = language === 'ru'
+    ? event.startTime.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: timezone })
+    : formatReminderWhen({ startTime: event.startTime, allDay: true }, language, timezone);
   if (event.allDay) return getBotMessage(language, `nativeReminders.when.${relative}`, { date });
   const time = formatInTimeZone(event.startTime, timezone, 'HH:mm');
   return getBotMessage(language, `nativeReminders.when.${relative}At`, { date, time });
@@ -407,9 +410,14 @@ export async function reminderCreatedLine(
   html = true
 ): Promise<string> {
   const when = await formatReminderRelativeWhen(event, language, timezone);
-  if (event.allDay) return getBotMessage(language, 'nativeReminders.created.dateOnly', { when });
-  if (event.forUserId != null && event.forName) {
-    const name = html ? escapeHtml(event.forName) : event.forName;
+  const forPartner = event.forUserId != null && !!event.forName;
+  const name = forPartner ? (html ? escapeHtml(event.forName!) : event.forName!) : '';
+  if (event.allDay) {
+    return forPartner
+      ? getBotMessage(language, 'nativeReminders.created.partnerDateOnly', { name, when })
+      : getBotMessage(language, 'nativeReminders.created.dateOnly', { when });
+  }
+  if (forPartner) {
     return getBotMessage(language, 'nativeReminders.created.partner', { name, when });
   }
   return getBotMessage(language, 'nativeReminders.created.self', { when });

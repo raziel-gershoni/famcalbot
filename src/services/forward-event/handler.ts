@@ -136,7 +136,8 @@ export async function handleForwardedMessage(
     if (support.supported) {
       const resolved = await resolveReminderIntents(user, intentResults ?? [intentResult], timezone, { selfOnly: true });
       intentResults = resolved.intents;
-      intentResult = resolved.intents[0];
+      // Keep a valid item beside one that failed: the failures are asked about after its card
+      intentResult = resolved.intents.find(i => i.event && !i.error) ?? resolved.intents[0];
       reminderFailures = resolved.failures;
     }
 

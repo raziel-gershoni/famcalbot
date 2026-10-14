@@ -230,7 +230,7 @@ export async function handleBulkConfirmAll(pendingId: string): Promise<{
       });
     } else {
       failed++;
-      errors.push(`#${i + 1}: ${ev.title} — ${result.error || 'unknown'}`);
+      errors.push(`#${i + 1}: ${escapeHtml(ev.title)} — ${result.error || 'unknown'}`);
     }
   }
 
