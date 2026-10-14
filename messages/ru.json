@@ -303,7 +303,7 @@
     "remindersBetaDescription": "Уведомления о событиях пока в бете (скоро)",
     "defaultReminderMinutes": "Время уведомления по умолчанию",
     "defaultReminderMinutesHelp": "За сколько до события присылать уведомление (если у события нет своего)",
-    "pickupRemindersEnabled": "Уведомления о заборе детей",
+    "pickupRemindersEnabled": "Уведомления: забрать детей",
     "pickupRemindersDescription": "Для детских календарей ещё и уведомление в конце события (пора забирать)",
     "minutes": "мин",
     "globalRulesLabel": "Пользовательские правила",
@@ -777,7 +777,7 @@
       },
       "anchor": {
         "notFound": "Не вижу «{description}» в календаре. Когда напомнить?",
-        "ambiguous": "Нашлось несколько «{description}». Какое из них — или во сколько напомнить?",
+        "ambiguous": "Нашлось несколько событий «{description}». Какое из них — или во сколько напомнить?",
         "needsTime": "«{description}» — на весь день. Во сколько напомнить?"
       },
       "permissionDenied": "Это изменить не получится."
