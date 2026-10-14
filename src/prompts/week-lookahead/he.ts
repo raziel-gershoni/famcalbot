@@ -38,9 +38,17 @@ function formatEventsForDay(day: LookaheadDayData): string {
     const recurNote = event.isRecurring && event.recurrenceType
       ? ` [${event.recurrenceType === 'monthly' ? 'חודשי' : event.recurrenceType === 'yearly' ? 'שנתי' : 'שבועי'}]`
       : '';
-    return `  - ${event.time} - ${event.summary} (${event.calendarName})${recurNote}`;
+    const reminderNote = event.reminderNote ? ` (${event.reminderNote})` : '';
+    return `  - ${event.time} - ${event.summary} (${event.calendarName})${recurNote}${reminderNote}`;
   });
   return lines.join('\n');
+}
+
+// Only weeks with reminders get this, so every other prompt stays as it was.
+function buildRemindersGuideline(data: WeekLookaheadPromptData): string {
+  if (!data.eventsByDay.some(day => day.events.some(event => event.isReminder))) return '';
+  return `- **תזכורות**: זמנים שמתחילים ב"תזכורת" הם תזכורות: רגע אחד, לא טווח. הזכר כל אחת בקצרה כמשימה, עם ⏰ והשעה שלה ("⏰ להתקשר לאינסטלטור ב-10:00"); תזכורת בלי שעה היא פשוט לאותו יום. "(from [שם])" אומר ש[שם] קבע/ה אותה למשתמש; "(for [שם], you asked)" אומר שהמשתמש קבע אותה ל[שם].
+`;
 }
 
 function buildEventsSection(data: WeekLookaheadPromptData): string {
@@ -109,7 +117,7 @@ ${hebrewDateContext}${globalRules}
 - **הדגש אירועים חוזרים** - אם משהו חודשי/שנתי, ציין זאת (לדוגמה, "בדיקה חודשית")
 - **פורמט שעות**: תמיד השתמש ב-HH:MM (24 שעות) - לדוגמה, 08:00, 14:30
 - **ימי הולדת**: אירועים עם זמן "יום הולדת" — הצג בצורה טבעית עם שם האדם מהכותרת (לדוגמה: "יום ההולדת של יוחנן" → "יום הולדת של יוחנן"). אין צורך בשעה.
-- **פורמט**: השתמש בתגי HTML של טלגרם: <b>מודגש</b>, <i>נטוי</i>
+${buildRemindersGuideline(data)}- **פורמט**: השתמש בתגי HTML של טלגרם: <b>מודגש</b>, <i>נטוי</i>
 - **אם אין אירועים**: שמור על קיצור - פשוט ציין שהשבוע נראה פנוי
 ${isNextWeek ? '- **אל תגיד "היום"** - התייחס לימים בשמותם (ראשון, שני וכו\')' : '- **השתמש בהתייחסויות יחסיות** - "מחר", "בעוד 3 ימים" לצד תאריכים'}
 

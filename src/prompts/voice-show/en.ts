@@ -14,6 +14,10 @@ import type { ShowPerson, ShowPromptContext } from './types';
 
 const SOUND_LIST = SOUND_TAGS.map(sound => `<${sound}>`).join(' ');
 
+// The digests mark built-in calendar reminders with ⏰; only a summary that has one gets this rule.
+const REMINDERS_RULE =
+  'Reminders (marked ⏰ in the summary) go in too, one quick line each and never a segment of their own: the task, and its time if it has one. One the summary calls still open is said as still open (e.g. "still open since Tuesday"), never as one of the day\'s events.';
+
 function personLine(label: string, person: ShowPerson): string {
   const name = sanitizeForPrompt(person.name);
   if (person.gender === 'male') return `${label}: ${name} (he/him)`;
@@ -120,6 +124,7 @@ export function buildShowPrompt(context: ShowPromptContext): string {
 
   const allContent = [
     ...content,
+    ...(context.summary.includes('⏰') ? [REMINDERS_RULE] : []),
     'Every time in full words, never digits, 12-hour, with the part of day whenever the hour alone could be morning or evening: "nine in the morning", "ten fifteen in the morning", "four thirty in the afternoon", "six forty-five in the evening".',
     'Other numbers in words too, e.g. temperatures ("twenty-eight degrees").',
     'Birthdays: take the person\'s name from the event ("it\'s John\'s birthday").',

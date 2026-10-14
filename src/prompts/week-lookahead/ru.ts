@@ -38,9 +38,17 @@ function formatEventsForDay(day: LookaheadDayData): string {
     const recurNote = event.isRecurring && event.recurrenceType
       ? ` [${event.recurrenceType === 'monthly' ? 'ежемесячно' : event.recurrenceType === 'yearly' ? 'ежегодно' : 'еженедельно'}]`
       : '';
-    return `  - ${event.time} - ${event.summary} (${event.calendarName})${recurNote}`;
+    const reminderNote = event.reminderNote ? ` (${event.reminderNote})` : '';
+    return `  - ${event.time} - ${event.summary} (${event.calendarName})${recurNote}${reminderNote}`;
   });
   return lines.join('\n');
+}
+
+// Only weeks with reminders get this, so every other prompt stays as it was.
+function buildRemindersGuideline(data: WeekLookaheadPromptData): string {
+  if (!data.eventsByDay.some(day => day.events.some(event => event.isReminder))) return '';
+  return `- **Напоминания**: Время, начинающееся с "Напоминание", — это напоминания: один момент, а не промежуток. Упоминай каждое коротко, как дело, с ⏰ и временем ("⏰ позвонить сантехнику в 10:00"); напоминание без времени просто относится к этому дню. "(from [Имя])" значит, что [Имя] поставил(а) его пользователю; "(for [Имя], you asked)" — что пользователь поставил его для [Имя].
+`;
 }
 
 function buildEventsSection(data: WeekLookaheadPromptData): string {
@@ -107,7 +115,7 @@ ${hebrewDateContext}${globalRules}
 - **Выделяй повторяющиеся события** - если что-то ежемесячное/ежегодное, отметь это
 - **Формат времени**: Всегда используй HH:MM (24-часовой) - например, 08:00, 14:30
 - **Дни рождения**: События со временем "День рождения" — представляй естественно с именем человека из названия (например: "День рождения Ивана" → "День рождения Ивана"). Время не нужно.
-- **Форматирование**: Используй HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
+${buildRemindersGuideline(data)}- **Форматирование**: Используй HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
 - **Если нет событий**: Будь краток - просто отметь, что неделя свободна
 ${isNextWeek ? '- **НЕ говори "сегодня"** - называй дни по их названиям (понедельник, вторник и т.д.)' : '- **Используй относительные ссылки** - "Завтра", "Через 3 дня" наряду с датами'}
 

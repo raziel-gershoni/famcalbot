@@ -16,6 +16,10 @@ import type { ShowPerson, ShowPromptContext } from './types';
 
 const SOUND_LIST = SOUND_TAGS.map(sound => `<${sound}>`).join(' ');
 
+// The digests mark built-in calendar reminders with ⏰; only a summary that has one gets this rule.
+const REMINDERS_RULE =
+  'Напоминания (в сводке они с ⏰) тоже входят, по одной короткой фразе на каждое и никогда не отдельным блоком: дело и время, если оно есть. Напоминание, которое в сводке ещё не сделано, так и называйте (например, "ещё не сделано со вторника"), и никогда не подавайте как одно из событий дня.';
+
 function personLine(label: string, person: ShowPerson): string {
   const name = sanitizeForPrompt(person.name);
   if (person.gender === 'male') return `${label}: ${name} (мужчина — о нём в мужском роде)`;
@@ -131,6 +135,7 @@ export function buildShowPrompt(context: ShowPromptContext): string {
 
   const allContent = [
     ...content,
+    ...(context.summary.includes('⏰') ? [REMINDERS_RULE] : []),
     'Всё время словами, никогда цифрами, по-разговорному в 12-часовом виде с частью суток: "в девять утра", "в десять пятнадцать утра", "в половине пятого дня". Целый час иногда можно подчеркнуть словом "ровно" ("ровно в семь вечера"), но не больше двух раз за выпуск. Не "в девятнадцать ноль-ноль".',
     'Остальные числа тоже словами, например температура ("двадцать восемь градусов").',
     'Дни рождения: возьмите имя человека из события ("день рождения Ивана").',

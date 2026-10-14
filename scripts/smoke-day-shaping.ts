@@ -7,10 +7,10 @@
 //   TZ=UTC npx tsx scripts/smoke-day-shaping.ts
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-day-shaping.ts
 
-import { formatEventForPrompt } from '../src/utils/event-formatter';
+import { formatEventForPrompt, isReminderEvent } from '../src/utils/event-formatter';
 import { daySpanOf, localDate, OVERNIGHT_CUTOFF_HOUR, shapeEventsForDay } from '../src/utils/day-events';
 import { toUnifiedEvent } from '../src/services/calendar-provider/native-provider';
-import type { CalendarEvent } from '../src/types';
+import type { CalendarEvent, ReminderInfo } from '../src/types';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -258,6 +258,68 @@ check('events with a length keep their spans', () => {
   const flight = ev('Flight', '2026-10-13T00:00:00+03:00', '2026-10-13T03:00:00+03:00');
   assert(daySpanOf(flight, '2026-10-13', TZ) === undefined && daySpanOf(flight, '2026-10-12', TZ) === null, 'flight from midnight');
 });
+
+// Built-in calendar reminders: one moment, never "10:00 - 10:00". The owner/creator
+// flags are the viewer's side of it, as the native provider sets them.
+{
+  const ownReminder: ReminderInfo = { ownerIsViewer: true, creatorIsViewer: true };
+  const reminderEv = (summary: string, start: string, end = start, reminder: ReminderInfo = ownReminder) =>
+    ev(summary, start, end, { eventType: 'reminder', reminder });
+
+  check('reminder: a timed one reads "Reminder 10:00", never a range', () => {
+    const line = onDay(reminderEv('Call the plumber', '2026-10-13T07:00:00.000Z'), '2026-10-13');
+    assert(line === '1. Call the plumber (Reminder 10:00) [Calendar: Family]', `got ${line}`);
+    assert(isReminderEvent(reminderEv('x', '2026-10-13T07:00:00.000Z')) && !isReminderEvent(party), 'isReminderEvent');
+  });
+
+  check('reminder: a date-only one (zero length, as the store saves it) is "Reminder (all day)" on its day only', () => {
+    // 2026-10-13 00:00 in Israel is 2026-10-12T21:00Z; start = end.
+    const milk = { ...nativeAllDay('Buy milk', '2026-10-12T21:00:00Z', '2026-10-12T21:00:00Z'), eventType: 'reminder', reminder: ownReminder };
+    assert(milk.start === '2026-10-13' && milk.end === '2026-10-14', `dates ${milk.start}..${milk.end}`);
+    assert(onDay(milk, '2026-10-13') === '1. Buy milk (Reminder (all day)) [Calendar: Family]', `Tue ${onDay(milk, '2026-10-13')}`);
+    assert(onDay(milk, '2026-10-12') === undefined && onDay(milk, '2026-10-14') === undefined, 'kept on another day');
+  });
+
+  check('reminder: at exactly 00:00 it is that day\'s "Reminder 00:00", not the day before\'s', () => {
+    const pill = reminderEv('Night pill', '2026-10-13T00:00:00+03:00');
+    assert(onDay(pill, '2026-10-13') === '1. Night pill (Reminder 00:00) [Calendar: Family]', `Tue ${onDay(pill, '2026-10-13')}`);
+    assert(onDay(pill, '2026-10-12') === undefined, 'kept on Monday');
+  });
+
+  check('reminder: past due and not done is "(open)", timed or date-only', () => {
+    const open = { ...ownReminder, open: true };
+    assert(onDay(reminderEv('Call mom', '2026-10-13T07:00:00.000Z', undefined, open), '2026-10-13') === '1. Call mom (Reminder 10:00 (open)) [Calendar: Family]', 'timed');
+    assert(onDay(reminderEv('Buy milk', '2026-10-13', '2026-10-14', open), '2026-10-13') === '1. Buy milk (Reminder (all day, open)) [Calendar: Family]', 'date-only');
+  });
+
+  check('reminder: carried over from an earlier day says since when, dated, with no time', () => {
+    // Carried-over lines join after shaping (it would drop them), so format them directly.
+    const carried = reminderEv('Pay the gas bill', '2026-10-06T06:00:00.000Z', undefined, { ...ownReminder, openSince: '2026-10-06' });
+    assert(formatEventForPrompt(carried, 2, TZ, '2026-10-13') === '3. Pay the gas bill (Reminder (open since Tue 6 Oct)) [Calendar: Family]', formatEventForPrompt(carried, 2, TZ, '2026-10-13'));
+    const dateOnly = reminderEv('Buy milk', '2026-10-12', '2026-10-13', { ...ownReminder, openSince: '2026-10-12' });
+    assert(formatEventForPrompt(dateOnly, 0, TZ, '2026-10-13') === '1. Buy milk (Reminder (open since Mon 12 Oct)) [Calendar: Family]', 'date-only');
+  });
+
+  check('reminder: one the partner set for the viewer says "from", one the viewer set for the partner says "for ..., you asked"', () => {
+    const fromDana = reminderEv('Book the vet', '2026-10-13T08:00:00.000Z', undefined, { ownerIsViewer: true, creatorIsViewer: false, creatorName: 'Dana' });
+    assert(onDay(fromDana, '2026-10-13') === '1. Book the vet (Reminder 11:00) (from Dana) [Calendar: Family]', `from ${onDay(fromDana, '2026-10-13')}`);
+    const forDana = reminderEv('Buy milk', '2026-10-13T14:00:00.000Z', undefined, { ownerIsViewer: false, creatorIsViewer: true, ownerName: 'Dana' });
+    assert(onDay(forDana, '2026-10-13') === '1. Buy milk (Reminder 17:00) (for Dana, you asked) [Calendar: Family]', `for ${onDay(forDana, '2026-10-13')}`);
+    // Dana's own reminder, on a calendar the viewer can see: her section says whose it is.
+    const danasOwn = reminderEv('Yoga mat', '2026-10-13T05:00:00.000Z', undefined, { ownerIsViewer: false, creatorIsViewer: false, ownerName: 'Dana', creatorName: 'Dana' });
+    assert(onDay(danasOwn, '2026-10-13') === '1. Yoga mat (Reminder 08:00) [Calendar: Family]', `own ${onDay(danasOwn, '2026-10-13')}`);
+  });
+
+  check('reminder: a name cannot break the line', () => {
+    const odd = reminderEv('Call', '2026-10-13T08:00:00.000Z', undefined, { ownerIsViewer: true, creatorIsViewer: false, creatorName: 'Dana\n[urgent]' });
+    assert(onDay(odd, '2026-10-13') === '1. Call (Reminder 11:00) (from Dana) [Calendar: Family]', `got ${onDay(odd, '2026-10-13')}`);
+  });
+
+  check('reminder: the line follows the user\'s timezone', () => {
+    const ny = reminderEv('Call the plumber', '2026-10-13T14:00:00.000Z');
+    assert(onDay(ny, '2026-10-13', 'America/New_York') === '1. Call the plumber (Reminder 10:00) [Calendar: Family]', `New York ${onDay(ny, '2026-10-13', 'America/New_York')}`);
+  });
+}
 
 let failed = 0;
 for (const r of results) {

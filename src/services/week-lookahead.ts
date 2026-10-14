@@ -3,11 +3,11 @@
  * Surfaces notable upcoming events, filtering out routine daily noise
  */
 
-import { CalendarEvent, CalendarAssignment, CalendarLabel, UserConfig } from '../types';
+import { CalendarEvent, CalendarAssignment, CalendarLabel, ReminderInfo, UserConfig } from '../types';
 import { getCalendarClient } from './calendar';
 import { getProviderForUser } from './calendar-provider';
 import { getNativeSeriesRrule } from './native-calendar/event-store';
-import { eventTimeLabel, isAllDayEvent, isBirthdayEvent } from '../utils/event-formatter';
+import { eventTimeLabel, isAllDayEvent, isBirthdayEvent, isReminderEvent, reminderAttribution } from '../utils/event-formatter';
 import { addDaysToDate, daySpanOf, localDate, nextDate, startOfLocalDay } from '../utils/day-events';
 import { resolveUserTimezone } from '../lib/timezone';
 
@@ -36,6 +36,8 @@ export interface LookaheadEvent {
   daysFromNow: number;
   isAllDay: boolean;
   isBirthday: boolean;
+  /** Set on a built-in calendar reminder: whose it is, from the viewer's side. */
+  reminder?: ReminderInfo;
 }
 
 export interface WeekLookahead {
@@ -265,6 +267,10 @@ async function filterAndBuildLookaheadEvents(
   for (const event of events) {
     const birthday = isBirthdayEvent(event);
     const allDay = isAllDayEvent(event);
+    // A reminder is listed only on its own day: having no duration, it is never running
+    // on the first day. One already done is not coming up.
+    const reminder = isReminderEvent(event) ? event.reminder ?? { ownerIsViewer: true, creatorIsViewer: true } : undefined;
+    if (reminder?.done) continue;
 
     // An event is listed once, on the day it starts in the user's timezone; all-day
     // dates already are such days. The fetch returns whatever overlaps the range, so one
@@ -333,6 +339,7 @@ async function filterAndBuildLookaheadEvents(
       isAllDay: allDay,
       isBirthday: birthday,
       runningLabel,
+      ...(reminder ? { reminder } : {}),
     });
   }
 
@@ -400,6 +407,14 @@ export function formatTomorrowLookahead(lookahead: WeekLookahead): string {
       const dayName = e.start.toLocaleDateString('en-US', { weekday: 'long', timeZone: timezone });
       if (e.isBirthday) {
         return `${dayName}: ${e.summary} (Birthday)`;
+      }
+      if (e.reminder) {
+        // The daily summary's reminder label: one moment, with whose it is
+        const label = e.isAllDay
+          ? 'Reminder (all day)'
+          : `Reminder ${e.start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: timezone })}`;
+        const attribution = reminderAttribution(e);
+        return `${dayName}: ${e.summary} (${label})${attribution ? ` (${attribution})` : ''}`;
       }
       if (e.isAllDay) {
         return `${dayName}: ${e.summary} (All day) (${e.calendarName})`;

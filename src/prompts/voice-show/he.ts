@@ -14,6 +14,10 @@ import type { ShowPerson, ShowPromptContext } from './types';
 
 const SOUND_LIST = SOUND_TAGS.map(sound => `<${sound}>`).join(' ');
 
+// The digests mark built-in calendar reminders with ⏰; only a summary that has one gets this rule.
+const REMINDERS_RULE =
+  'תזכורות (מסומנות ⏰ בסיכום) נכנסות גם הן, שורה קצרה לכל אחת ולעולם לא קטע משלהן: המשימה, והשעה אם יש לה. תזכורת שהסיכום אומר שהיא עדיין פתוחה נאמרת כפתוחה (למשל "עדיין פתוחה מיום שלישי"), ולעולם לא כאחד מאירועי היום.';
+
 function personLine(label: string, person: ShowPerson): string {
   const name = sanitizeForPrompt(person.name);
   if (person.gender === 'male') return `${label}: ${name} (זכר — דברו עליו בלשון זכר)`;
@@ -134,6 +138,7 @@ export function buildShowPrompt(context: ShowPromptContext): string {
 
   const allContent = [
     ...content,
+    ...(context.summary.includes('⏰') ? [REMINDERS_RULE] : []),
     'כל השעות במילים מלאות, לא בספרות: "תשע בבוקר", "עשר ורבע", "אחת עשרה וחצי", "ארבע וחצי אחר הצהריים".',
     'גם שאר המספרים במילים, למשל טמפרטורות ("עשרים ושמונה מעלות").',
     'ימי הולדת: הוציאו את שם האדם מהאירוע ("יום ההולדת של יוחנן").',

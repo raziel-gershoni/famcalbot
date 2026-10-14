@@ -4,7 +4,7 @@ import { CalendarEvent, CalendarAssignment, UserConfig } from '../types';
 import { TIMEZONE } from '../config/constants';
 import { buildCalendarSummaryPrompt, SummaryPromptData } from '../prompts/calendar-summary';
 import { buildWeekLookaheadPrompt, WeekLookaheadPromptData, LookaheadDayData, LookaheadEventData } from '../prompts/week-lookahead';
-import { formatEventList } from '../utils/event-formatter';
+import { formatEventList, isReminderEvent, reminderAttribution } from '../utils/event-formatter';
 import { localDate, startOfLocalDay } from '../utils/day-events';
 import { generateAICompletion, streamAICompletion } from './ai-provider';
 import { captureError } from '../lib/error-capture';
@@ -76,6 +76,8 @@ export interface SummaryUserContext {
   culture?: string;
   globalRules?: string[];
   calendarAssignments?: CalendarAssignment[];
+  /** Open reminders past the digest's cap, left out of the event lists. */
+  openRemindersMore?: number;
 }
 
 /**
@@ -184,6 +186,8 @@ function buildPromptData(
     globalRules: userContext?.globalRules,
     calendarRules,
     hasKidsCalendars,
+    hasReminders: [userEvents, spouseEvents, otherEvents].some(list => list.some(isReminderEvent)),
+    openRemindersMore: userContext?.openRemindersMore,
   };
 }
 
@@ -480,6 +484,7 @@ function buildWeekLookaheadPromptData(
     const relativeLabel = getRelativeLabel(daysFromNow, language);
 
     const birthdayLabel = language === 'he' ? 'יום הולדת' : language === 'ru' ? 'День рождения' : 'Birthday';
+    const reminderLabel = language === 'he' ? 'תזכורת' : language === 'ru' ? 'Напоминание' : 'Reminder';
 
     const formattedEvents: LookaheadEventData[] = dayEvents.map(event => {
       let timeLabel: string;
@@ -489,7 +494,8 @@ function buildWeekLookaheadPromptData(
         // Already running on the first day: its start time is not that day's
         timeLabel = event.runningLabel;
       } else if (event.isAllDay) {
-        timeLabel = allDayLabel;
+        // A date-only reminder has no time to show
+        timeLabel = event.reminder ? reminderLabel : allDayLabel;
       } else {
         timeLabel = event.start.toLocaleTimeString(intlLocale, {
           hour: '2-digit',
@@ -497,6 +503,8 @@ function buildWeekLookaheadPromptData(
           hour12: false,
           timeZone: timezone,
         });
+        // A reminder is one moment: "Reminder 10:00", never a range
+        if (event.reminder) timeLabel = `${reminderLabel} ${timeLabel}`;
       }
 
       const kidName = kidsCalendarIdMap.get(event.calendarId);
@@ -508,6 +516,7 @@ function buildWeekLookaheadPromptData(
         isRecurring: event.recurrenceType !== 'single',
         recurrenceType: event.recurrenceType !== 'single' ? event.recurrenceType as 'weekly' | 'monthly' | 'yearly' : undefined,
         isBirthday: event.isBirthday || undefined,
+        ...(event.reminder ? { isReminder: true, reminderNote: reminderAttribution(event) } : {}),
       };
     });
 
@@ -629,6 +638,7 @@ function buildNextWeekPromptData(
     const relativeLabel = getRelativeLabel(daysFromNow, language);
 
     const birthdayLabel = language === 'he' ? 'יום הולדת' : language === 'ru' ? 'День рождения' : 'Birthday';
+    const reminderLabel = language === 'he' ? 'תזכורת' : language === 'ru' ? 'Напоминание' : 'Reminder';
 
     const formattedEvents: LookaheadEventData[] = dayEvents.map(event => {
       let timeLabel: string;
@@ -638,7 +648,8 @@ function buildNextWeekPromptData(
         // Already running on the first day: its start time is not that day's
         timeLabel = event.runningLabel;
       } else if (event.isAllDay) {
-        timeLabel = allDayLabel;
+        // A date-only reminder has no time to show
+        timeLabel = event.reminder ? reminderLabel : allDayLabel;
       } else {
         timeLabel = event.start.toLocaleTimeString(intlLocale, {
           hour: '2-digit',
@@ -646,6 +657,8 @@ function buildNextWeekPromptData(
           hour12: false,
           timeZone: timezone,
         });
+        // A reminder is one moment: "Reminder 10:00", never a range
+        if (event.reminder) timeLabel = `${reminderLabel} ${timeLabel}`;
       }
 
       const kidName = kidsCalendarIdMap.get(event.calendarId);
@@ -657,6 +670,7 @@ function buildNextWeekPromptData(
         isRecurring: event.recurrenceType !== 'single',
         recurrenceType: event.recurrenceType !== 'single' ? event.recurrenceType as 'weekly' | 'monthly' | 'yearly' : undefined,
         isBirthday: event.isBirthday || undefined,
+        ...(event.reminder ? { isReminder: true, reminderNote: reminderAttribution(event) } : {}),
       };
     });
 

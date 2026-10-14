@@ -16,7 +16,7 @@
 import path from 'path';
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import { startOfLocalDay } from '../src/utils/day-events';
-import type { CalendarAssignment, CalendarEvent, UserConfig } from '../src/types';
+import type { CalendarAssignment, CalendarEvent, ReminderInfo, UserConfig } from '../src/types';
 import type { WeekLookahead } from '../src/services/week-lookahead';
 
 type Result = { name: string; ok: boolean; reason?: string };
@@ -81,7 +81,7 @@ const RUNNING_EVENTS: Fixture[] = [
 ];
 
 const GOOGLE_EVENTS: Record<string, Fixture[]> = { 'token-il': ISRAEL_EVENTS, 'token-ny': NEW_YORK_EVENTS, 'token-running': RUNNING_EVENTS };
-const RRULES: Record<string, string> = { gym: 'RRULE:FREQ=DAILY', anniv: 'FREQ=YEARLY', standup: 'FREQ=DAILY' };
+const RRULES: Record<string, string> = { gym: 'RRULE:FREQ=DAILY', anniv: 'FREQ=YEARLY', standup: 'FREQ=DAILY', vitamins: 'FREQ=DAILY' };
 
 // Native events as the provider hands them over: all-day as dates in the event's own
 // timezone, timed as UTC instants.
@@ -91,7 +91,22 @@ const NATIVE_EVENTS: CalendarEvent[] = [
   { summary: 'Anniversary', start: '2026-10-17T23:00:00.000Z', end: '2026-10-18T01:00:00.000Z', calendarName: 'Family', calendarId: 'native-family', recurringEventId: 'anniv' },
 ];
 
-const TIMEZONES: Record<number, string> = { 1: IL, 2: NY, 3: NY, 4: NY };
+// Built-in calendar reminders for an Israeli native user, as the provider hands them
+// over: zero length, with whose they are from the viewer's side.
+const nativeReminder = (summary: string, start: string, end: string, info: ReminderInfo, extra: Partial<CalendarEvent> = {}): CalendarEvent =>
+  ({ summary, start, end, calendarName: 'Family', calendarId: 'native-family', eventType: 'reminder', reminder: info, ...extra });
+const OWN_REMINDER: ReminderInfo = { ownerIsViewer: true, creatorIsViewer: true };
+const NATIVE_REMINDERS: CalendarEvent[] = [
+  nativeReminder('Renew passport', '2026-10-14T09:00:00.000Z', '2026-10-14T09:00:00.000Z', { ...OWN_REMINDER, done: true }),
+  nativeReminder('Take vitamins', '2026-10-14T05:00:00.000Z', '2026-10-14T05:00:00.000Z', OWN_REMINDER, { recurringEventId: 'vitamins' }),
+  nativeReminder('Call the plumber', '2026-10-15T07:00:00.000Z', '2026-10-15T07:00:00.000Z', OWN_REMINDER),
+  { summary: 'Dentist', start: '2026-10-15T08:00:00.000Z', end: '2026-10-15T09:00:00.000Z', calendarName: 'Family', calendarId: 'native-family' },
+  nativeReminder('Buy milk', '2026-10-16T14:00:00.000Z', '2026-10-16T14:00:00.000Z', { ownerIsViewer: false, creatorIsViewer: true, ownerName: 'Dana' }),
+  nativeReminder('Pick up the cake', '2026-10-17', '2026-10-18', { ownerIsViewer: true, creatorIsViewer: false, creatorName: 'Dana' }),
+];
+const NATIVE_BY_USER: Record<number, CalendarEvent[]> = { 5: NATIVE_REMINDERS };
+
+const TIMEZONES: Record<number, string> = { 1: IL, 2: NY, 3: NY, 4: NY, 5: IL };
 
 /** Every events.list request, to see which timezone it asked for. */
 const googleCalls: Array<{ token: string; timeMin: string; timeMax: string; timeZone?: string }> = [];
@@ -143,6 +158,7 @@ const israeli = user(1, { culture: 'jewish', googleRefreshToken: 'token-il' });
 const newYorker = user(2, { culture: 'default', googleRefreshToken: 'token-ny' });
 const nativeNewYorker = user(3, { culture: 'default', googleRefreshToken: '', calendarSource: 'NATIVE' });
 const runningNewYorker = user(4, { culture: 'default', googleRefreshToken: 'token-running' });
+const nativeIsraeli = user(5, { culture: 'default', googleRefreshToken: '', calendarSource: 'NATIVE' });
 const calendars: CalendarAssignment[] = [{ calendarId: 'family', labels: ['primary'], name: 'Family', color: '#000' }];
 
 /** The prompt's EVENTS BY DAY section, one line per day: header | event | event. */
@@ -178,7 +194,8 @@ async function main() {
   };
   stub('services/calendar.ts', { TIMEZONE: IL, getCalendarClient: fakeGoogleClient });
   stub('services/calendar-provider/index.ts', {
-    getProviderForUser: () => ({ fetchEventsInRange: async () => NATIVE_EVENTS }),
+    getProviderForUser: (u: { id: number }) => ({ fetchEventsInRange: async () => NATIVE_BY_USER[u.id] ?? NATIVE_EVENTS }),
+    getCalendarAssignmentsForUser: async () => calendars,
   });
   stub('services/native-calendar/event-store.ts', { getNativeSeriesRrule: async (id: string) => RRULES[id] ?? null });
   stub('lib/timezone.ts', { resolveUserTimezone: async (u: { id: number }) => TIMEZONES[u.id] });
@@ -374,6 +391,45 @@ async function main() {
     const lookahead = await getNextWeekLookahead(israeli, calendars, new Date('2026-10-20T12:00:00+03:00'));
     assert(lookahead.dateRange.start.toISOString() === '2026-10-24T21:00:00.000Z', `starts ${lookahead.dateRange.start.toISOString()}`);
     assert(lookahead.dateRange.end.toISOString() === '2026-10-31T21:59:59.999Z', `ends ${lookahead.dateRange.end.toISOString()}`);
+  });
+
+  // (f) built-in calendar reminders
+  const reminderWeek = await getWeekLookahead(nativeIsraeli, calendars, new Date('2026-10-13T09:00:00+03:00'));
+
+  await check('(f) /week: a reminder shows once, on its own day, as "Reminder HH:MM", with whose it is', async () => {
+    // Renew passport is done and Take vitamins is daily: neither is coming up.
+    assertList(daysOf(await promptFor(reminderWeek, nativeIsraeli)), [
+      'Thursday, Oct 15 - In 2 days | Reminder 10:00 - Call the plumber (Family) | 11:00 - Dentist (Family)',
+      'Friday, Oct 16 - In 3 days | Reminder 17:00 - Buy milk (Family) (for Dana, you asked)',
+      'Saturday, Oct 17 - In 4 days | Reminder - Pick up the cake (Family) (from Dana)',
+    ]);
+  });
+
+  await check('(f) /week: the reminders guideline comes only with reminders', async () => {
+    assert((await promptFor(reminderWeek, nativeIsraeli)).includes('- **Reminders**: Times starting with "Reminder"'), 'no guideline');
+    assert(!(await promptFor(nyWeek, newYorker)).includes('Reminder'), 'a Google week mentions reminders');
+  });
+
+  await check('(f) /week in Hebrew and Russian: the reminder label is the user\'s language', async () => {
+    prompts.length = 0;
+    await generateWeekLookahead(reminderWeek, nativeIsraeli, 'he');
+    assert(prompts[0]?.includes('  - תזכורת 10:00 - Call the plumber (Family)'), 'Hebrew timed');
+    assert(prompts[0]?.includes('  - תזכורת - Pick up the cake (Family) (from Dana)'), 'Hebrew date-only');
+    assert(prompts[0]?.includes('- **תזכורות**:'), 'Hebrew guideline');
+    prompts.length = 0;
+    await generateWeekLookahead(reminderWeek, nativeIsraeli, 'ru');
+    assert(prompts[0]?.includes('  - Напоминание 17:00 - Buy milk (Family) (for Dana, you asked)'), 'Russian timed');
+    assert(prompts[0]?.includes('- **Напоминания**:'), 'Russian guideline');
+  });
+
+  await check('(f) the tomorrow summary\'s lookahead lists reminders with the daily summary\'s label', async () => {
+    const lookahead = await getWeekLookahead(nativeIsraeli, calendars, fromZonedTime('2026-10-14 12:00:00', IL));
+    assertList(formatTomorrowLookahead(lookahead).split('\n'), [
+      'Thursday: Call the plumber (Reminder 10:00)',
+      'Thursday: Dentist at 11:00 (Family)',
+      'Friday: Buy milk (Reminder 17:00) (for Dana, you asked)',
+      'Saturday: Pick up the cake (Reminder (all day)) (from Dana)',
+    ]);
   });
 
   let failed = 0;

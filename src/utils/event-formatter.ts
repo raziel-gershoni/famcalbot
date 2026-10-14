@@ -18,10 +18,31 @@ export function isBirthdayEvent(event: CalendarEvent): boolean {
   return event.eventType === 'birthday';
 }
 
+/** Check if a CalendarEvent is a built-in calendar reminder: a moment, with no duration */
+export function isReminderEvent(event: Pick<CalendarEvent, 'eventType'>): boolean {
+  return event.eventType === 'reminder';
+}
+
+/**
+ * Whose a reminder is, from the viewer's side, in English like the other prompt
+ * markers: "from Dana" on one Dana set for the viewer, "for Dana, you asked" on one
+ * the viewer set for Dana. Nothing on the viewer's own, nor on one the partner set
+ * for themselves: the section it sits in already says whose it is.
+ */
+export function reminderAttribution(event: Pick<CalendarEvent, 'reminder'>): string | undefined {
+  const info = event.reminder;
+  if (!info) return undefined;
+  if (info.ownerIsViewer && !info.creatorIsViewer) return `from ${sanitizeEventField(info.creatorName || 'your partner', 100)}`;
+  if (info.creatorIsViewer && !info.ownerIsViewer) return `for ${sanitizeEventField(info.ownerName || 'your partner', 100)}, you asked`;
+  return undefined;
+}
+
 const clock = (iso: string, timezone: string) => formatInTimeZone(new Date(iso), timezone, 'HH:mm');
 // "Sat", or "Sat 17" when the weekday alone would be ambiguous (see eventTimeLabel).
 const weekdayOf = (iso: string, timezone: string, dated = false) => formatInTimeZone(new Date(iso), timezone, dated ? 'EEE d' : 'EEE');
 const weekdayOfDate = (date: string, dated = false) => formatInTimeZone(new Date(`${date}T12:00:00Z`), 'UTC', dated ? 'EEE d' : 'EEE');
+// "Tue 12 Oct": an open reminder can be any age, so its day is always dated.
+const fullDateOf = (date: string) => formatInTimeZone(new Date(`${date}T12:00:00Z`), 'UTC', 'EEE d MMM');
 
 /**
  * The most days apart an event's first and last day can be for weekday names alone to
@@ -37,6 +58,19 @@ function previousDate(day: string): string {
 }
 
 /**
+ * The time part of a reminder's line: one moment, never "10:00 - 10:00". "(open)"
+ * marks one whose time has passed on the summary day and that is not done yet; one
+ * carried over from an earlier day says since when it is open instead of a time.
+ */
+function reminderTimeLabel(event: CalendarEvent, timezone: string): string {
+  const info = event.reminder;
+  if (info?.openSince) return `Reminder (open since ${fullDateOf(info.openSince)})`;
+  if (isAllDayEvent(event)) return info?.open ? 'Reminder (all day, open)' : 'Reminder (all day)';
+  const label = `Reminder ${clock(event.start, timezone)}`;
+  return info?.open ? `${label} (open)` : label;
+}
+
+/**
  * The time part of an event line. An event that crosses the summary day's edges says
  * so: on its own, "22:00 - 02:00" on the day after a late party reads as that evening.
  * The week lookahead uses it for an event already running on its first day. Its days
@@ -44,6 +78,7 @@ function previousDate(day: string): string {
  * WEEKDAY_ONLY_SPAN_DAYS apart.
  */
 export function eventTimeLabel(event: CalendarEvent, timezone: string, day?: string): string {
+  if (isReminderEvent(event)) return reminderTimeLabel(event, timezone);
   // Shaped events carry their span; anything else is worked out here when the day is
   // known, so the line is right even if a caller skipped shapeEventsForDay.
   const span = event.daySpan ?? (day ? daySpanOf(event, day, timezone) ?? undefined : undefined);
@@ -86,7 +121,8 @@ export function formatEventForPrompt(event: CalendarEvent, index: number, timezo
 
   const summary = sanitizeEventField(event.summary);
   const calendarName = sanitizeEventField(event.calendarName);
-  let eventStr = `${index + 1}. ${summary} (${timeStr}) [Calendar: ${calendarName}]`;
+  const attribution = reminderAttribution(event);
+  let eventStr = `${index + 1}. ${summary} (${timeStr})${attribution ? ` (${attribution})` : ''} [Calendar: ${calendarName}]`;
 
   if (event.location) {
     eventStr += ` at ${sanitizeEventField(event.location)}`;

@@ -10,6 +10,8 @@ export interface LookaheadEventData {
   isRecurring: boolean;
   recurrenceType?: 'weekly' | 'monthly' | 'yearly';
   isBirthday?: boolean;
+  isReminder?: boolean;      // A built-in calendar reminder: one moment; its time reads "Reminder 10:00"
+  reminderNote?: string;     // Whose reminder, in English like the daily markers: "from Dana", "for Dana, you asked"
 }
 
 export interface LookaheadDayData {

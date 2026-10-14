@@ -62,6 +62,17 @@ function buildHebrewDateContext(data: SummaryPromptData): string {
 `;
 }
 
+// Only digests with reminders get this, so every other prompt stays as it was.
+function buildRemindersGuideline(data: SummaryPromptData): string {
+  if (!data.hasReminders) return '';
+  const n = data.openRemindersMore ?? 0;
+  const more = n
+    ? ` ${n === 1 ? '1 more open reminder is' : `${n} more open reminders are`} not in the lists: after the open ones, say so in one short line ("${n === 1 ? 'and 1 more open reminder' : `and ${n} more open reminders`}").`
+    : '';
+  return `- **Reminders**: Items marked "Reminder" are reminders: one moment, never a time range. Show each as "HH:MM ⏰ [task]", or "⏰ [task]" when it has no time ("all day"), in the section of the person it is for, with no end time. "(open)" means its time has passed and it isn't done yet: add "(still open)". "open since Tue 12 Oct" means it is still open from that earlier day: list it briefly after the day's own items, as "⏰ [task] (open since Tuesday)", never as happening on this day. "(from [Name])" means [Name] set it for the user: keep "(from [Name])". "(for [Name], you asked)" means the user set it for [Name]: show it in [Name]'s section with "(you asked)".${more}
+`;
+}
+
 export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
   const spouseContext = buildSpouseContext(data);
   const kidsContext = buildKidsContext(data);
@@ -186,7 +197,7 @@ ${data.weekLookahead ? `
 - **CRITICAL: Always use HH:MM format (24-hour, no AM/PM) - e.g., 08:00, 13:45, 20:15**
 - **Birthdays**: Events marked "(Birthday)" — show without any time. Extract the person's name from the event title (e.g., "John Doe's Birthday" → mention "John Doe's birthday"). Present naturally.
 - **Events crossing midnight are marked in the event list.** "22:00 - 02:00 next day" ends after midnight: show it as "22:00-02:00 (past midnight)". "until 10:00 (started yesterday 18:00)" began the day before: show it as "until 10:00", first in the list, and never present it as starting on this day. A multi-day event shows its span: say which day of it this is. A "next day" end time is not a time on this day, also in the pickup order.
-${data.hasKidsCalendars ? `- **CRITICAL: Pickup Order MUST be sorted chronologically by time (earliest first)**
+${buildRemindersGuideline(data)}${data.hasKidsCalendars ? `- **CRITICAL: Pickup Order MUST be sorted chronologically by time (earliest first)**
 - **CRITICAL: Pickup Order: Group kids with SAME pickup time on ONE line together**
 ` : ''}- Use Telegram HTML tags for formatting: <b>bold</b>, <i>italic</i>, <u>underline</u>
 

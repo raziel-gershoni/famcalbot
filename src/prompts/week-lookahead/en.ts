@@ -38,9 +38,17 @@ function formatEventsForDay(day: LookaheadDayData): string {
     const recurNote = event.isRecurring && event.recurrenceType
       ? ` [${event.recurrenceType}]`
       : '';
-    return `  - ${event.time} - ${event.summary} (${event.calendarName})${recurNote}`;
+    const reminderNote = event.reminderNote ? ` (${event.reminderNote})` : '';
+    return `  - ${event.time} - ${event.summary} (${event.calendarName})${recurNote}${reminderNote}`;
   });
   return lines.join('\n');
+}
+
+// Only weeks with reminders get this, so every other prompt stays as it was.
+function buildRemindersGuideline(data: WeekLookaheadPromptData): string {
+  if (!data.eventsByDay.some(day => day.events.some(event => event.isReminder))) return '';
+  return `- **Reminders**: Times starting with "Reminder" are reminders: one moment, never a range. Mention each briefly as a to-do, with ⏰ and its time ("⏰ call the plumber at 10:00"); one with no time is simply for that day. "(from [Name])" means [Name] set it for the user; "(for [Name], you asked)" means the user set it for [Name].
+`;
 }
 
 function buildEventsSection(data: WeekLookaheadPromptData): string {
@@ -107,7 +115,7 @@ Generate a friendly, conversational preview. Structure:
 - **Highlight recurring events** - if something is monthly/yearly, note it (e.g., "monthly checkup")
 - **Time format**: Always use HH:MM (24-hour) - e.g., 08:00, 14:30
 - **Birthdays**: Events with time "Birthday" — present naturally with the person's name extracted from the title (e.g., "John's Birthday" → "It's John's birthday"). No time needed.
-- **Format**: Use Telegram HTML tags: <b>bold</b>, <i>italic</i>
+${buildRemindersGuideline(data)}- **Format**: Use Telegram HTML tags: <b>bold</b>, <i>italic</i>
 - **If no events**: Keep it brief - just note that the week looks clear
 ${isNextWeek ? '- **Do NOT say "today"** - refer to days by their actual names (Monday, Tuesday, etc.)' : '- **Use relative day references** - "Tomorrow", "In 3 days" alongside actual dates'}
 

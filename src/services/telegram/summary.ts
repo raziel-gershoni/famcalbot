@@ -17,6 +17,8 @@ import { CalendarEvent, UserConfig, CalendarAssignment } from '../../types';
 import { getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from '../messaging';
 import type { StreamMessageHandle } from '../messaging/types';
 import { getCalendarsByLabel, getPrimaryCalendar, getSpouseInfo } from '../../utils/calendar-helpers';
+import { isReminderEvent } from '../../utils/event-formatter';
+import { addDigestReminders } from '../native-reminders/open-reminders';
 import { buildUrl } from '../../config/urls';
 import { SHARE_STORY_LABELS, TELEGRAM_CTA_LABELS, getLabel } from '../../config/labels';
 import { REDIS_KEYS } from '../../config/redis-keys';
@@ -44,12 +46,18 @@ export function categorizeEvents(
   const ownCalendars = getCalendarsByLabel(resolved, 'yours');
   const spouseCalendars = getCalendarsByLabel(resolved, 'spouse');
 
+  // A reminder goes by whose it is, not by its calendar: the viewer's own (set by them
+  // or for them) are theirs, the partner's go to the partner. Never to otherEvents,
+  // which feeds the kid-name follow-up.
+  const isOwn = (e: CalendarEvent) =>
+    isReminderEvent(e) ? e.reminder?.ownerIsViewer !== false : ownCalendars.includes(e.calendarId);
+  const isSpouse = (e: CalendarEvent) =>
+    isReminderEvent(e) ? e.reminder?.ownerIsViewer === false : spouseCalendars.includes(e.calendarId);
+
   return {
-    userEvents: events.filter(e => ownCalendars.includes(e.calendarId)),
-    spouseEvents: events.filter(e => spouseCalendars.includes(e.calendarId)),
-    otherEvents: events.filter(
-      e => !ownCalendars.includes(e.calendarId) && !spouseCalendars.includes(e.calendarId)
-    ),
+    userEvents: events.filter(isOwn),
+    spouseEvents: events.filter(isSpouse),
+    otherEvents: events.filter(e => !isOwn(e) && !isSpouse(e)),
   };
 }
 
@@ -107,7 +115,11 @@ async function prepareSummaryForUser(
   const today = localDate(new Date(), userTimezone);
   const day = summaryDate ? nextDate(today) : today;
   const dayNoon = fromZonedTime(`${day} 12:00:00`, userTimezone);
-  const events = shapeEventsForDay(await fetchFunction(user, allCalendarIds, userTimezone), day, userTimezone);
+  const dayEvents = shapeEventsForDay(await fetchFunction(user, allCalendarIds, userTimezone), day, userTimezone);
+  // Built-in calendar reminders: done ones leave the day, past-due ones are marked
+  // open, and older open ones join after the day's own (shaping would drop them).
+  // Anyone else's events pass through as they are.
+  const { events, moreCount: openRemindersMore } = await addDigestReminders(user, dayEvents, day, userTimezone);
   const calendarMs = Date.now() - tCalendar;
 
   // Categorize events by ownership
@@ -126,6 +138,7 @@ async function prepareSummaryForUser(
     culture: user.culture,
     globalRules: user.globalRules,
     calendarAssignments: assignments,
+    openRemindersMore,
   };
 
   // Fetch week lookahead if enabled for tomorrow summary
