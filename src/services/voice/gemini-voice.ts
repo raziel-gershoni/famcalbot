@@ -10,7 +10,7 @@ import { isSilent } from './audio-level';
 import { detectSpeech, NO_SPEECH } from './speech-presence';
 import { VoiceIntentResult, VoiceIntent, ParsedEvent } from '../event-parser';
 import { CalendarAssignment } from '../../types';
-import { fromZonedTime } from 'date-fns-tz';
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import { AI_MODEL_ID } from '../../config/ai-models';
 import { startOfLocalDay } from '../../utils/day-events';
 
@@ -20,14 +20,28 @@ const VOICE_RETRY_CONFIG = {
 } as const;
 
 /**
+ * Who a reminder can be for, as the extraction prompt names them. Each name comes as the
+ * user wrote it and in English: a partner can be "דנה" to one of them and "Dana" to the other.
+ */
+export interface ReminderPromptContext {
+  userName: string;
+  userEnglishName?: string | null;
+  partnerName?: string | null;
+  partnerEnglishName?: string | null;
+}
+
+/**
  * Build the event extraction prompt (shared between voice and text modes)
+ * With `reminders`, voice and text prompts also learn reminders (see buildReminderRules);
+ * without it the prompt is exactly the one users without reminders always had.
  */
 export function buildEventExtractionPrompt(
   language: string,
   calendars: CalendarAssignment[],
   timezone: string,
   mode: 'voice' | 'text' | 'image' = 'voice',
-  recentEventsBlock?: string
+  recentEventsBlock?: string,
+  reminders?: ReminderPromptContext
 ): string {
   const calendarList = calendars.map(c =>
     `- "${c.name || c.calendarId}" (ID: ${c.calendarId}, labels: ${c.labels.join(', ')})`
@@ -70,7 +84,7 @@ The text may be conversational (e.g. "Hey, can you come to dinner at our place o
 1. Determine the intent (create, edit, delete, or none if no event information found)
 2. Extract structured event data based on the intent`;
 
-  return `${modeInstructions}
+  const prompt = `${modeInstructions}
 
 CURRENT DATE/TIME: ${currentDateStr} at ${currentTimeStr} (timezone: ${timezone})
 USER LANGUAGE: ${language}
@@ -252,6 +266,130 @@ Output: {"intent": "create", "confidence": "medium", "event": {"title": "Wedding
 
 Image: a photo of a cat with no text.
 Output: {"intent": "none", "confidence": "high", "error": "No event found in this image."}` : '');
+
+  // A photo never makes a reminder, so the image prompt never learns them.
+  return reminders && mode !== 'image' ? prompt + buildReminderRules(mode, reminders) : prompt;
+}
+
+/** `"דנה" (in English: "Dana")`, or just `"Dana"` when both spellings are the same. */
+function spellings(name: string, englishName?: string | null): string {
+  return englishName && englishName.trim().toLowerCase() !== name.trim().toLowerCase()
+    ? `"${name}" (in English: "${englishName}")`
+    : `"${name}"`;
+}
+
+/**
+ * The reminder rules appended to the voice and text prompts for users who have reminders.
+ * They teach the "kind", "forPerson" and "anchor" event fields, a reminder's single time,
+ * and the phrasings that must not become events or deletes, in Hebrew, English and Russian.
+ * Examples follow the mode: a voice example repeats its words as the transcription.
+ */
+function buildReminderRules(mode: 'voice' | 'text', people: ReminderPromptContext): string {
+  const partner = people.partnerName || people.partnerEnglishName;
+  const partnerInEnglish = people.partnerEnglishName || partner;
+  const example = (input: string, translation: string, output: string) => (mode === 'voice'
+    ? `Input audio: "${input}"${translation ? ` (${translation})` : ''}\nOutput: {"transcription": "${input}", ${output}}`
+    : `Input text: "${input}"${translation ? ` (${translation})` : ''}\nOutput: {${output}}`);
+  const reminder = (fields: string) => `"intent": "create", "confidence": "high", "event": {"kind": "reminder", ${fields}}`;
+
+  const peopleRules = partner
+    ? `- The user: ${spellings(people.userName, people.userEnglishName)}
+- The user's partner: ${spellings(partner, people.partnerEnglishName)}. Also called "my wife", "my husband", "my partner", "אשתי", "בעלי", "בן הזוג שלי", "בת הזוג שלי", "моя жена", "мой муж".`
+    : `- The user: ${spellings(people.userName, people.userEnglishName)}
+- The user has no linked partner, so every reminder is for the user.`;
+
+  const whoRules = partner
+    ? `2. WHO IT IS FOR - every reminder has "forPerson":
+   - "partner" when it is for the user's partner, by name or by role: "remind ${partnerInEnglish} to...", "remind my wife to...", "תזכיר לבעלי...", "תזכירי לאשתי...", "напомни мужу...", "напомни жене...".
+   - "self" for everything else: "remind me", "remind us", and a child or anyone else. Keep that person's name in the title: "Remind Noa to take her medicine" → title "Noa: take her medicine", "forPerson": "self".`
+    : `2. WHO IT IS FOR - "forPerson" is always "self". Keep anyone else's name in the title: "Remind Noa to take her medicine" → title "Noa: take her medicine".`;
+
+  const forwardedRule = mode === 'text'
+    ? `\n\n8. FORWARDED MESSAGES - in a message the user forwarded, "me", "I", "לי" and "мне" mean the user who forwarded it, never whoever wrote it.`
+    : '';
+
+  const examples = [
+    example('Remind me to call the plumber Thursday at 10', '',
+      reminder('"forPerson": "self", "title": "Call the plumber", "startDate": "YYYY-MM-DD", "startTime": "10:00", "endDate": null, "endTime": null, "allDay": false, "recurrence": null, "anchor": null')),
+    partner
+      ? example(`Remind ${partnerInEnglish} to buy milk tomorrow`, '',
+        reminder('"forPerson": "partner", "title": "Buy milk", "startDate": "YYYY-MM-DD", "startTime": null, "endDate": null, "endTime": null, "allDay": true, "recurrence": null, "anchor": null'))
+      : example('Remind me to buy milk tomorrow', '',
+        reminder('"forPerson": "self", "title": "Buy milk", "startDate": "YYYY-MM-DD", "startTime": null, "endDate": null, "endTime": null, "allDay": true, "recurrence": null, "anchor": null')),
+    example('תזכיר לי בערב להתקשר לאמא', 'Hebrew: Remind me in the evening to call mom',
+      reminder('"forPerson": "self", "title": "להתקשר לאמא", "startDate": "YYYY-MM-DD", "startTime": "20:00", "endDate": null, "endTime": null, "allDay": false, "recurrence": null, "anchor": null')),
+    ...(partner
+      ? [example('напомни мужу забрать детей в четыре', 'Russian: Remind my husband to pick up the kids at four',
+        reminder('"forPerson": "partner", "title": "Забрать детей", "startDate": "YYYY-MM-DD", "startTime": "16:00", "endDate": null, "endTime": null, "allDay": false, "recurrence": null, "anchor": null'))]
+      : []),
+    example('напомни через 20 минут выключить духовку', 'Russian: Remind me in 20 minutes to turn off the oven; said at 18:40',
+      reminder('"forPerson": "self", "title": "Выключить духовку", "startDate": "YYYY-MM-DD", "startTime": "19:00", "endDate": null, "endTime": null, "allDay": false, "recurrence": null, "anchor": null')),
+    example('Remind me every Sunday at 8 to take out the trash', '',
+      reminder('"forPerson": "self", "title": "Take out the trash", "startDate": "YYYY-MM-DD", "startTime": "08:00", "endDate": null, "endTime": null, "allDay": false, "recurrence": {"frequency": "weekly", "daysOfWeek": ["SU"]}, "anchor": null')),
+    example('Remind me an hour before the dentist to bring the forms', '',
+      reminder('"forPerson": "self", "title": "Bring the forms", "startDate": null, "startTime": null, "endDate": null, "endTime": null, "allDay": false, "recurrence": null, "anchor": {"description": "dentist", "offsetMinutes": -60}')),
+    example('אל תשכח לשלם את חשבון החשמל', "Hebrew: Don't forget to pay the electricity bill",
+      reminder('"forPerson": "self", "title": "לשלם את חשבון החשמל", "startDate": "YYYY-MM-DD", "startTime": null, "endDate": null, "endTime": null, "allDay": true, "recurrence": null, "anchor": null')),
+    example('Dentist Thursday at 10', '',
+      '"intent": "create", "confidence": "high", "event": {"kind": "event", "title": "Dentist", "startDate": "YYYY-MM-DD", "startTime": "10:00", "endDate": "YYYY-MM-DD", "endTime": "11:00", "allDay": false, "calendarId": "primary", "calendarName": "Primary", "recurrence": null}'),
+    example('Move the plumber reminder to 5pm', '',
+      '"intent": "edit", "confidence": "high", "eventReference": {"type": "by_description", "description": "plumber"}, "editRequest": {"newStartTime": "17:00"}'),
+    example('Stop reminding me about the vitamins', '',
+      '"intent": "delete", "confidence": "high", "scope": "all", "eventReference": {"type": "by_description", "description": "vitamins"}'),
+    example('סיימתי', "Hebrew: I'm done",
+      '"intent": "none", "confidence": "high", "error": "The user reported a finished task; there is nothing to change."'),
+  ];
+
+  return `
+
+REMINDERS:
+The user can also ask FamCal to remind someone of something. A reminder is a calendar item with a single moment and no duration; at that moment FamCal sends the person a reminder message. These rules come on top of the rules above and win wherever they disagree.
+
+PEOPLE:
+${peopleRules}
+
+1. KIND - every "event" has "kind":
+   - "reminder" ONLY when the user explicitly asks to be reminded, or not to forget something:
+     * English: "remind me", "remind us", "remind <name>", "set a reminder", "reminder to", "don't forget to"
+     * Hebrew: "תזכיר לי", "תזכירי לי", "תזכיר ל<name>", "תזכורת", "להזכיר", "אל תשכח", "אל תשכחי"
+     * Russian: "напомни", "напомните", "напоминание", "не забудь", "не забыть"
+   - "event" for everything else. An appointment stays an event: "Dentist Thursday at 10" is an event.
+   - "Don't forget - <a meeting, class or party with its own time and place>" announces an event, so it stays an event. "Don't forget to <do something>" is a reminder.
+   - The "forget" in "don't forget", "אל תשכח" or "не забудь" is never the DELETE keyword.
+
+${whoRules}
+
+3. TITLE - the bare task, in the language the user used: "Call the plumber", "להתקשר לאינסטלטור", "Позвонить сантехнику". Never "Remind <name> to...", "Reminder: ...", "תזכורת ל...", "Напоминание: ...".
+
+4. TIME - a reminder has a start and nothing else:
+   - Give "startDate", and "startTime" when there is a time. "endDate" and "endTime" are always null.
+   - A date with no time: "allDay": true and no "startTime".
+   - No date and no time: today's date, "allDay": true.
+   - Parts of the day: morning, בבוקר, утром → 09:00. Noon, בצהריים, в обед, в полдень → 12:00. Afternoon, אחר הצהריים, после обеда, днём → 16:00. Evening, tonight, בערב, הערב, вечером, сегодня вечером → 20:00.
+   - An hour with no date and no part of the day ("at 5", "בחמש", "в пять") is the next time the clock shows it: said at 14:00, "at 5" is 17:00 today; said at 21:00, "at 8" is 08:00 tomorrow. A full time that has already passed today ("at 13:00" said at 15:00) is tomorrow.
+   - "In 20 minutes", "בעוד חצי שעה", "через 20 минут": the CURRENT DATE/TIME above plus that much, as "startDate" and "startTime".
+   - Repeating reminders use "recurrence" as events do, with "startDate" the first time: "every Sunday at 8" → weekly, "daysOfWeek": ["SU"], "startTime": "08:00"; "every morning" → daily at 09:00.
+   - Leave out "calendarId" and "calendarName": FamCal keeps a reminder on the user's own calendar, whoever it is for.
+
+5. RELATIVE TO ANOTHER EVENT - "an hour before the dentist", "שעה לפני רופא השיניים", "за час до стоматолога":
+   - Give "anchor": {"description": the words naming that event, "offsetMinutes": minutes from that event's start, negative for before}. Leave "startDate" and "startTime" null: FamCal finds the event and works out the time.
+   - "An hour before" → -60. "Half an hour after" → 30. "The day before" → -1440. "On the day of" → 0.
+
+6. CHANGING A REMINDER:
+   - Moving a reminder ("move the reminder to 5", "תזיז את התזכורת לחמש", "перенеси напоминание на пять") sets "newStartDate" and/or "newStartTime" (or "newAllDay") only. "newEndDate" and "newEndTime" stay null: a reminder has one time, so never add an hour.
+   - "Stop reminding me to...", "תפסיק להזכיר לי...", "хватит напоминать..." → intent "delete", "scope": "all".
+   - "Skip today's reminder", "דלג על התזכורת של היום", "пропусти сегодняшнее напоминание" → intent "delete", "scope": "single", "timeHint": "today".
+
+7. DONE - "I did it", "done", "I already called", "סיימתי", "עשיתי את זה", "כבר התקשרתי", "сделал", "сделала", "готово" report a finished task: intent "none", with nothing to create, edit or delete. "none" is allowed here in every mode.${forwardedRule}
+
+REMINDER FIELDS (inside "event", and inside the "event" of each "intents" entry):
+  "kind": "event" | "reminder",
+  "forPerson": "self" | "partner" (reminders only),
+  "anchor": {"description": "dentist", "offsetMinutes": -60} or null (reminders only)
+
+REMINDER EXAMPLES:
+
+${examples.join('\n\n')}`;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -265,12 +403,14 @@ function sleep(ms: number): Promise<void> {
  * always expect a single intent can read `[0]`.
  *
  * Caps at 10 entries per the locked product decision.
+ * `remindersOn` as in parseGeminiEventResponse.
  */
 export function extractIntents(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw model JSON, read field by field
   parsed: any,
   calendars: CalendarAssignment[],
-  timezone: string
+  timezone: string,
+  remindersOn = false
 ): VoiceIntentResult[] {
   if (Array.isArray(parsed.intents) && parsed.intents.length > 1) {
     const capped = parsed.intents.slice(0, 10);
@@ -280,11 +420,12 @@ export function extractIntents(
         // shape parseGeminiEventResponse expects.
         { ...(it as object), transcription: parsed.transcription },
         calendars,
-        timezone
+        timezone,
+        remindersOn
       )
     );
   }
-  return [parseGeminiEventResponse(parsed, calendars, timezone)];
+  return [parseGeminiEventResponse(parsed, calendars, timezone, remindersOn)];
 }
 
 /**
@@ -319,14 +460,99 @@ export function buildEventTimes(
 }
 
 /**
+ * When a reminder is due in `timezone`. A reminder is one moment, so callers end it where it
+ * starts. With a time it is that moment. A date with no time is all day, starting at the
+ * first instant of that day as an all-day event does (buildEventTimes) but with no length,
+ * where an event's 23:59 end would give it one. No date at all means today.
+ * An unreadable date or time gives an Invalid Date.
+ */
+export function buildReminderTimes(
+  startDate: string | undefined,
+  startTime: string | undefined,
+  allDay: boolean,
+  timezone: string,
+  now: Date = new Date()
+): { start: Date; allDay: boolean } {
+  const date = startDate || formatInTimeZone(now, timezone, 'yyyy-MM-dd');
+  const dateOnly = allDay || !startTime;
+  const { start } = buildEventTimes(date, startTime, undefined, startTime, dateOnly, timezone);
+  return { start, allDay: dateOnly };
+}
+
+/** The model's anchor ("an hour before the dentist"), or undefined when it is missing or unreadable. */
+function readAnchor(raw: unknown): ParsedEvent['anchor'] {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const { description, offsetMinutes } = raw as { description?: unknown; offsetMinutes?: unknown };
+  if (typeof description !== 'string' || !description.trim()) return undefined;
+  const offset = Number(offsetMinutes ?? 0);
+  return Number.isFinite(offset) ? { description: description.trim(), offsetMinutes: Math.round(offset) } : undefined;
+}
+
+/**
+ * A reminder the model created. It ends where it starts (see buildReminderTimes). An
+ * anchored one has no time of its own yet: both times stay Invalid Dates until resolution
+ * finds the anchor event. It goes on the user's own calendar whatever the model picked, so
+ * the model's pick is neither matched nor warned about.
+ */
+function parseReminderCreate(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw model JSON, read field by field
+  parsed: any,
+  calendars: CalendarAssignment[],
+  timezone: string
+): VoiceIntentResult {
+  const eventData = parsed.event;
+  const confidence = parsed.confidence || 'medium';
+  const anchor = readAnchor(eventData.anchor);
+  if (!anchor && eventData.anchor && !eventData.startDate) {
+    return { intent: 'create', confidence: 'low', error: 'Missing date/time fields' };
+  }
+
+  const { start, allDay } = anchor
+    ? { start: new Date(NaN), allDay: false }
+    : buildReminderTimes(eventData.startDate, eventData.startTime, !!eventData.allDay, timezone);
+  if (!anchor && isNaN(start.getTime())) {
+    return { intent: 'create', confidence: 'low', error: 'Invalid date/time parsed' };
+  }
+
+  const own = calendars.find(c => c.labels.includes('primary')) ?? calendars[0];
+  const event: ParsedEvent = {
+    title: eventData.title,
+    startTime: start,
+    endTime: new Date(start.getTime()),
+    location: eventData.location || undefined,
+    description: eventData.description || undefined,
+    allDay,
+    calendarId: own?.calendarId || 'primary',
+    calendarName: own?.name || 'Primary',
+    confidence,
+    recurrence: eventData.recurrence?.frequency ? eventData.recurrence : undefined,
+    kind: 'reminder',
+    forPerson: eventData.forPerson === 'partner' ? 'partner' : 'self',
+    ...(anchor ? { anchor } : {}),
+  };
+
+  return {
+    intent: 'create',
+    confidence,
+    event,
+    error: parsed.error,
+    needsClarification: parsed.needsClarification,
+    clarificationQuestion: parsed.clarificationQuestion,
+  };
+}
+
+/**
  * Parse Gemini JSON response into VoiceIntentResult
  * Shared between voice and text processing pipelines
+ * `remindersOn`: the prompt had the reminder rules, so an event of kind "reminder" is read
+ * as one. Off, every create is read as an event, exactly as before reminders existed.
  */
 export function parseGeminiEventResponse(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw model JSON, validated field by field below
   parsed: any,
   calendars: CalendarAssignment[],
-  timezone: string
+  timezone: string,
+  remindersOn = false
 ): VoiceIntentResult {
   const intent: VoiceIntent | 'none' = parsed.intent || 'create';
   const confidence = parsed.confidence || 'medium';
@@ -341,7 +567,12 @@ export function parseGeminiEventResponse(
   }
 
   if (intent === 'create' && parsed.event) {
+    if (remindersOn && parsed.event.kind === 'reminder') {
+      return parseReminderCreate(parsed, calendars, timezone);
+    }
     const eventData = parsed.event;
+
+    // Validate calendarId against user's actual calendars
 
     // Validate calendarId against user's actual calendars
     const geminiCalId = eventData.calendarId || '';
@@ -457,7 +688,9 @@ export async function processVoiceWithGemini(
   // PR 10 polish: optional prior-attempt audio for retry-mode parses. Sent
   // as a SEPARATE inlineData part so Gemini decodes both OGG containers
   // independently — byte-concat would produce an invalid OGG stream.
-  priorAudioBuffer?: Buffer
+  priorAudioBuffer?: Buffer,
+  // Given only for users who have reminders: the prompt learns them and the parser reads them.
+  reminders?: ReminderPromptContext
 ): Promise<{ intentResult: VoiceIntentResult; intentResults?: VoiceIntentResult[]; transcription: string; metrics: VoiceProcessingMetrics }> {
   const startTime = Date.now();
   let lastError: Error | null = null;
@@ -495,7 +728,7 @@ export async function processVoiceWithGemini(
       const retryNote = priorAudioBuffer
         ? '\n\nNOTE: The next attached audio is a PRIOR attempt that failed to parse. The audio AFTER it is the user clarifying or correcting. Treat the second audio as the authoritative input and use the first only if it adds context.'
         : '';
-      const promptText = buildEventExtractionPrompt(language, calendars, timezone, 'voice', recentEventsBlock) + retryNote;
+      const promptText = buildEventExtractionPrompt(language, calendars, timezone, 'voice', recentEventsBlock, reminders) + retryNote;
 
       const audioParts: Array<{ inlineData: { mimeType: string; data: string } }> = [];
       if (priorAudioBuffer) {
@@ -552,7 +785,7 @@ export async function processVoiceWithGemini(
         throw new Error('Empty transcription - could not understand audio');
       }
 
-      const intentResults = extractIntents(parsed, calendars, timezone);
+      const intentResults = extractIntents(parsed, calendars, timezone, !!reminders);
       const intentResult = intentResults[0];
 
       // The extraction prompt fabricates commands for non-speech, so its answer only

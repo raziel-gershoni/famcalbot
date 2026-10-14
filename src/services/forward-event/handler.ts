@@ -117,7 +117,7 @@ export async function handleForwardedMessage(
     stopTyping = startTypingInterval(chatId, messagingService);
 
     const timezone = await resolveUserTimezone(user);
-    const { intentResult, metrics } = await processTextWithGemini(
+    const { intentResult, intentResults, metrics } = await processTextWithGemini(
       messageText,
       user.language || 'en',
       userCalendars,
@@ -139,6 +139,14 @@ export async function handleForwardedMessage(
 
     // Stop typing before sending confirmation UI
     stopTyping();
+
+    // Several events in one message: one bulk card, as for voice notes and photos.
+    const validBulk = intentResults.filter(r => r.intent === 'create' && r.event && !r.error);
+    if (validBulk.length > 1) {
+      const { showBulkConfirmation } = await import('../voice/bulk-confirmations');
+      await showBulkConfirmation(chatId, validBulk, user, messageText, t, messagingService, timezone);
+      return;
+    }
 
     if (intentResult.intent === 'create') {
       if (!intentResult.event) {

@@ -78,4 +78,14 @@ export interface ParsedEvent {
   confidence: 'high' | 'medium' | 'low';
   ambiguities?: string[];
   recurrence?: RecurrencePattern;
+  /** 'reminder' for a reminder: one moment, so endTime equals startTime. Unset on an event. */
+  kind?: 'event' | 'reminder';
+  /** Reminders only: who it is for, as a role. Resolution maps 'partner' to the user's partner. */
+  forPerson?: 'self' | 'partner';
+  /**
+   * Reminders only, for "an hour before the dentist": the words naming that event and the
+   * minutes from its start (negative is before). startTime and endTime are Invalid Dates
+   * until resolution finds the event.
+   */
+  anchor?: { description: string; offsetMinutes: number };
 }

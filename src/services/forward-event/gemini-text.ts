@@ -7,7 +7,7 @@ import { getGemini, extractionConfig } from '../ai-provider';
 import { VoiceIntentResult } from '../event-parser';
 import { CalendarAssignment } from '../../types';
 import { AI_MODEL_ID } from '../../config/ai-models';
-import { buildEventExtractionPrompt, parseGeminiEventResponse } from '../voice/gemini-voice';
+import { buildEventExtractionPrompt, extractIntents, ReminderPromptContext } from '../voice/gemini-voice';
 
 const TEXT_RETRY_CONFIG = {
   maxRetries: 1,
@@ -28,19 +28,23 @@ function sleep(ms: number): Promise<void> {
 /**
  * Process forwarded message text with Gemini
  * Single API call: intent detection + event extraction
+ * Several actions in one message come back as `intentResults`; `intentResult` is the first.
+ * `reminders` is given only for users who have reminders: the prompt learns them and the
+ * parser reads them.
  */
 export async function processTextWithGemini(
   text: string,
   language: string,
   calendars: CalendarAssignment[],
-  timezone: string
-): Promise<{ intentResult: VoiceIntentResult; metrics: TextProcessingMetrics }> {
+  timezone: string,
+  reminders?: ReminderPromptContext
+): Promise<{ intentResult: VoiceIntentResult; intentResults: VoiceIntentResult[]; metrics: TextProcessingMetrics }> {
   const startTime = Date.now();
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= TEXT_RETRY_CONFIG.maxRetries; attempt++) {
     try {
-      const promptText = buildEventExtractionPrompt(language, calendars, timezone, 'text');
+      const promptText = buildEventExtractionPrompt(language, calendars, timezone, 'text', undefined, reminders);
 
       const response = await getGemini().models.generateContent({
         model: AI_MODEL_ID,
@@ -85,10 +89,12 @@ export async function processTextWithGemini(
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const parsed: any = JSON.parse(jsonMatch[0]);
-      const intentResult = parseGeminiEventResponse(parsed, calendars, timezone);
+      const intentResults = extractIntents(parsed, calendars, timezone, !!reminders);
+      const intentResult = intentResults[0];
 
       return {
         intentResult,
+        intentResults,
         metrics: { model: AI_MODEL_ID, inputTokens, outputTokens, durationMs: duration },
       };
 
