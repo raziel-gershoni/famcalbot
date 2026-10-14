@@ -198,6 +198,54 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
   };
 }
 
+// The native reminder pass ticks every minute, so a tick that finds the last one still
+// running skips, and a failing pass tells the admin at most once an hour. Both live on
+// globalThis, like the due gate's memo: the scheduler (instrumentation.ts) and the
+// manual route (app/api/native-reminders) load this file in separate bundles, and a
+// module-level flag would let a manual run overlap a scheduled one.
+const NATIVE_REMINDERS_ALERT_INTERVAL_MS = 60 * 60 * 1000;
+type NativeRemindersCronState = { running: boolean; alertedAt: number };
+const nativeRemindersCron = ((globalThis as { __nativeRemindersCron?: NativeRemindersCronState }).__nativeRemindersCron ??= {
+  running: false,
+  alertedAt: 0,
+});
+
+/**
+ * Native reminders handler (built-in calendar reminders, not event alerts)
+ * Pings the reminder occurrences due now. The database is read only when the in-process
+ * due gate says something may be due; a pass that fails leaves the gate open, so the
+ * next tick tries again.
+ */
+export async function handleNativeReminders(): Promise<void> {
+  // The running flag first: shouldRunPass marks the start of a pass (due-gate.ts).
+  if (nativeRemindersCron.running) return;
+  nativeRemindersCron.running = true;
+  const now = new Date();
+  try {
+    const { shouldRunPass, setNextDue } = await import('../services/native-reminders/due-gate');
+    if (!shouldRunPass(now)) return;
+    const { runNativeReminderPass } = await import('../services/native-reminders/pass');
+    const result = await runNativeReminderPass(now);
+    setNextDue(result.nextDue, now); // only after a pass that succeeded
+    if (result.sent || result.skipped || result.failed) {
+      console.log(`[NativeReminders] Sent ${result.sent}, skipped ${result.skipped}, failed ${result.failed}`);
+    }
+  } catch (error) {
+    captureError(error, 'cron-native-reminders');
+    if (now.getTime() - nativeRemindersCron.alertedAt >= NATIVE_REMINDERS_ALERT_INTERVAL_MS) {
+      nativeRemindersCron.alertedAt = now.getTime();
+      try {
+        const { notifyAdminError } = await import('../utils/error-notifier');
+        await notifyAdminError('Cron Job', error, 'Job: Native Reminders');
+      } catch (notifyError) {
+        captureError(notifyError, 'cron-admin-notify', { job: 'Native Reminders' }, 'warning');
+      }
+    }
+  } finally {
+    nativeRemindersCron.running = false;
+  }
+}
+
 /**
  * Setup reminders handler
  * Sends reminders to users who haven't completed their setup flow

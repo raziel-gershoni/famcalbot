@@ -35,6 +35,11 @@ export type ActivityAction =
   | 'event_correction_applied'
   // Reminder actions
   | 'reminder_sent'
+  // Native reminders (built-in calendar): reminder_sent above is event alerts
+  | 'native_reminder_created'
+  | 'native_reminder_pinged'
+  | 'native_reminder_done'
+  | 'native_reminder_snoozed'
   // Settings & config
   | 'settings_changed'
   | 'calendar_connected'

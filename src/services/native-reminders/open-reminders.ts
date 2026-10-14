@@ -19,27 +19,21 @@ import { isReminderEvent } from '../../utils/event-formatter';
 import { expandSeries, latestOccurrenceBefore } from '../native-calendar/recurrence';
 import { reminderInfoFor, toUnifiedEvent } from '../calendar-provider/native-provider';
 import { effectiveOwnerForViewer, loadViewerContext, type ViewerContext } from './ownership';
+import { ARMED_GRACE_MS, REMINDER_MORNING_HOUR } from './due';
 
 export const OPEN_REMINDERS_DIGEST_CAP = 5;
-
-// A date-only reminder is due at this hour of its day. The same rule as the ping's
-// (due.ts: REMINDER_MORNING_HOUR, dueAtForOccurrence); read it from there once it exists.
-const MORNING_HOUR = 9;
-// A repeating reminder's occurrence due more than this before the series was armed was
-// never pinged. The same grace as the ping's (due.ts: ARMED_GRACE_MS, isEligible); read it
-// from there once it exists.
-const ARMED_GRACE_MS = 15 * 60 * 1000;
 
 /** Stands in for a reminder whose info is missing: the viewer's own. */
 const OWN_REMINDER: ReminderInfo = { ownerIsViewer: true, creatorIsViewer: true };
 
 /**
  * When a reminder on a digest is due, in the viewer's timezone: its time, or
- * MORNING_HOUR on its date (an all-day start is already the event's own date).
+ * REMINDER_MORNING_HOUR (the ping's, due.ts) on its date (an all-day start is already
+ * the event's own date).
  */
 export function reminderDueAt(event: Pick<CalendarEvent, 'start'>, timezone: string): Date {
   if (event.start.includes('T')) return new Date(event.start);
-  return fromZonedTime(`${event.start} ${String(MORNING_HOUR).padStart(2, '0')}:00:00`, timezone);
+  return fromZonedTime(`${event.start} ${String(REMINDER_MORNING_HOUR).padStart(2, '0')}:00:00`, timezone);
 }
 
 /**

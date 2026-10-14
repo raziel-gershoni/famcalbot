@@ -24,6 +24,20 @@ export function startScheduler(): void {
     }
   });
 
+  // Native reminder pings — every minute. Separate from the event alerts above, which
+  // return early when alerts are off; the pass reads the database only when its
+  // in-process gate says something may be due, and handles its own errors.
+  cron.schedule('* * * * *', async () => {
+    try {
+      const { handleNativeReminders } = await import('./handlers');
+      await handleNativeReminders();
+    } catch (error) {
+      console.error('[Scheduler] Native reminders failed:', error);
+      captureError(error, 'cron-native-reminders');
+      notifyAdmin('Native Reminders', error);
+    }
+  });
+
   // Daily summary — every hour (filters by user preferred hour)
   cron.schedule('0 * * * *', async () => {
     try {
@@ -78,6 +92,7 @@ export function startScheduler(): void {
 
   console.log('[Scheduler] Cron jobs registered:');
   console.log('  */5 * * * *  Event reminders');
+  console.log('  * * * * *    Native reminders (gated: reads the DB only when one may be due)');
   console.log('  0 * * * *    Daily summary (hourly, filters by user preferred hour)');
   console.log('  0 * * * *    Tomorrow summary (hourly, filters by user preferred hour)');
   console.log('  0 7 * * *    Setup reminders (UTC 7:00 = Israel ~10:00)');
