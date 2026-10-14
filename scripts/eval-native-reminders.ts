@@ -139,6 +139,15 @@ const deletesSeries = (description: RegExp): Expect => results => {
   return description.test(r.eventReference?.description ?? '') ? null : `description "${r.eventReference?.description}"`;
 };
 
+/** Only today's occurrence is skipped: a single-scope delete whose reference says "today". */
+const skipsToday = (description: RegExp): Expect => results => {
+  const r = results[0];
+  if (results.length !== 1 || r.intent !== 'delete') return describeAll(results);
+  if (r.scope !== 'single') return `scope ${r.scope}`;
+  if (r.eventReference?.timeHint !== 'today') return `timeHint ${r.eventReference?.timeHint}`;
+  return description.test(r.eventReference?.description ?? '') ? null : `description "${r.eventReference?.description}"`;
+};
+
 /** An edit that moves the start to `time` and leaves the end alone. */
 const movesTo = (time: string): Expect => results => {
   const r = results[0];
@@ -208,6 +217,10 @@ const CASES: Case[] = [
   { language: 'en', label: 'stop reminding', text: 'Stop reminding me about the vitamins', expect: deletesSeries(/vitamin/i) },
   { language: 'he', label: 'stop reminding', text: 'תפסיק להזכיר לי על הוויטמינים', expect: deletesSeries(/ויטמינ/) },
   { language: 'ru', label: 'stop reminding', text: 'Хватит напоминать про витамины', expect: deletesSeries(/витамин/i) },
+  // "Skip today's reminder" skips one occurrence.
+  { language: 'en', label: 'skip today', text: "Skip today's vitamins reminder", expect: skipsToday(/vitamin/i) },
+  { language: 'he', label: 'skip today', text: 'תדלג על התזכורת של הוויטמינים היום', expect: skipsToday(/ויטמינ/) },
+  { language: 'ru', label: 'skip today', text: 'Пропусти сегодняшнее напоминание про витамины', expect: skipsToday(/витамин/i) },
   // Moving a reminder sets one time.
   { language: 'en', label: 'move', text: 'Move the plumber reminder to 5pm', expect: movesTo('17:00') },
   { language: 'he', label: 'move', text: 'תזיז את התזכורת של האינסטלטור לחמש בערב', expect: movesTo('17:00') },

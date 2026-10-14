@@ -352,7 +352,7 @@ ${peopleRules}
    - "reminder" ONLY when the user explicitly asks to be reminded, or not to forget something:
      * English: "remind me", "remind us", "remind <name>", "set a reminder", "reminder to", "don't forget to"
      * Hebrew: "תזכיר לי", "תזכירי לי", "תזכיר ל<name>", "תזכורת", "להזכיר", "אל תשכח", "אל תשכחי"
-     * Russian: "напомни", "напомните", "напоминание", "не забудь", "не забыть"
+     * Russian: "напомни", "напомните", "напоминай", "напоминать", "напоминание", "не забудь", "не забыть"
    - "event" for everything else. An appointment stays an event: "Dentist Thursday at 10" is an event.
    - "Don't forget - <a meeting, class or party with its own time and place>" announces an event, so it stays an event. "Don't forget to <do something>" is a reminder.
    - The "forget" in "don't forget", "אל תשכח" or "не забудь" is never the DELETE keyword.
@@ -365,7 +365,7 @@ ${whoRules}
    - Give "startDate", and "startTime" when there is a time. "endDate" and "endTime" are always null.
    - A date with no time: "allDay": true and no "startTime".
    - No date and no time: today's date, "allDay": true.
-   - Parts of the day: morning, בבוקר, утром → 09:00. Noon, בצהריים, в обед, в полдень → 12:00. Afternoon, אחר הצהריים, после обеда, днём → 16:00. Evening, tonight, בערב, הערב, вечером, сегодня вечером → 20:00.
+   - Parts of the day: morning, בבוקר, утром → 09:00. Noon, בצהריים, в обед, в полдень → 12:00. Afternoon, אחר הצהריים, после обеда → 16:00. Evening, tonight, בערב, הערב, вечером, сегодня вечером → 20:00.
    - An hour with no date and no part of the day ("at 5", "בחמש", "в пять") is the next time the clock shows it: said at 14:00, "at 5" is 17:00 today; said at 21:00, "at 8" is 08:00 tomorrow. A full time that has already passed today ("at 13:00" said at 15:00) is tomorrow.
    - "In 20 minutes", "בעוד חצי שעה", "через 20 минут": the CURRENT DATE/TIME above plus that much, as "startDate" and "startTime".
    - Repeating reminders use "recurrence" as events do, with "startDate" the first time: "every Sunday at 8" → weekly, "daysOfWeek": ["SU"], "startTime": "08:00"; "every morning" → daily at 09:00.
@@ -378,7 +378,7 @@ ${whoRules}
 6. CHANGING A REMINDER:
    - Moving a reminder ("move the reminder to 5", "תזיז את התזכורת לחמש", "перенеси напоминание на пять") sets "newStartDate" and/or "newStartTime" (or "newAllDay") only. "newEndDate" and "newEndTime" stay null: a reminder has one time, so never add an hour.
    - "Stop reminding me to...", "תפסיק להזכיר לי...", "хватит напоминать..." → intent "delete", "scope": "all".
-   - "Skip today's reminder", "דלג על התזכורת של היום", "пропусти сегодняшнее напоминание" → intent "delete", "scope": "single", "timeHint": "today".
+   - "Skip today's reminder", "תדלג על התזכורת של היום", "пропусти сегодняшнее напоминание" → intent "delete", "scope": "single", "eventReference": {"type": "by_description", "description": <the reminder's title>, "timeHint": "today"}.
 
 7. DONE - "I did it", "done", "I already called", "סיימתי", "עשיתי את זה", "כבר התקשרתי", "сделал", "сделала", "готово" report a finished task: intent "none", with nothing to create, edit or delete. "none" is allowed here in every mode.${forwardedRule}
 
@@ -571,8 +571,6 @@ export function parseGeminiEventResponse(
       return parseReminderCreate(parsed, calendars, timezone);
     }
     const eventData = parsed.event;
-
-    // Validate calendarId against user's actual calendars
 
     // Validate calendarId against user's actual calendars
     const geminiCalId = eventData.calendarId || '';
