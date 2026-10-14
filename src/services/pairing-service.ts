@@ -110,6 +110,17 @@ export interface AcceptResult {
   inviteeUserId: number;
 }
 
+/** Why an invite cannot be accepted right now, or null when it still can. */
+function inviteUnavailableCode(
+  invite: Pick<PairingInvite, 'revokedAt' | 'acceptedAt' | 'expiresAt'> | null
+): PairingErrorCode | null {
+  if (!invite) return 'INVITE_NOT_FOUND';
+  if (invite.revokedAt) return 'INVITE_REVOKED';
+  if (invite.acceptedAt) return 'INVITE_ALREADY_USED';
+  if (invite.expiresAt.getTime() <= Date.now()) return 'INVITE_EXPIRED';
+  return null;
+}
+
 /**
  * Accept an invite and link both users. Reuses constraints transactionally:
  *   - inviter still NATIVE, still unpaired
@@ -117,16 +128,33 @@ export interface AcceptResult {
  *   - all of inviter's and invitee's PRIVATE calendars get bumped to
  *     SHARED_EDITOR (matches "auto-share existing calendars on link" rule)
  *
+ * Single use under concurrency: the invite is claimed, and each user's pairingId
+ * is set, by a conditional UPDATE (updateMany with the "still open" / "still
+ * unpaired" condition in its WHERE). Under READ COMMITTED a second writer waits
+ * for the first to commit, re-checks the WHERE and updates nothing, so one token
+ * (and one user) can be claimed only once. A plain read-then-write let two
+ * concurrent accepts both pass the checks.
+ *
  * Throws PairingError on any constraint violation.
  */
 export async function acceptInvite(token: string, acceptingUserId: number): Promise<AcceptResult> {
   return prisma.$transaction(async (tx) => {
     const invite = await tx.pairingInvite.findUnique({ where: { token } });
     if (!invite) throw new PairingError('INVITE_NOT_FOUND');
-    if (invite.revokedAt) throw new PairingError('INVITE_REVOKED');
-    if (invite.acceptedAt) throw new PairingError('INVITE_ALREADY_USED');
-    if (invite.expiresAt.getTime() <= Date.now()) throw new PairingError('INVITE_EXPIRED');
+    const unavailable = inviteUnavailableCode(invite);
+    if (unavailable) throw new PairingError(unavailable);
     if (invite.inviterUserId === acceptingUserId) throw new PairingError('CANNOT_ACCEPT_OWN_INVITE');
+
+    // Claim the invite. Count 0 means another accept (or a revoke) got there first.
+    const now = new Date();
+    const claimed = await tx.pairingInvite.updateMany({
+      where: { id: invite.id, acceptedAt: null, revokedAt: null, expiresAt: { gt: now } },
+      data: { acceptedAt: now, acceptedByUserId: acceptingUserId },
+    });
+    if (claimed.count !== 1) {
+      const current = await tx.pairingInvite.findUnique({ where: { id: invite.id } });
+      throw new PairingError(inviteUnavailableCode(current) ?? 'INVITE_ALREADY_USED');
+    }
 
     const [inviter, invitee] = await Promise.all([
       tx.user.findUnique({
@@ -151,23 +179,28 @@ export async function acceptInvite(token: string, acceptingUserId: number): Prom
         status: 'ACTIVE',
         inviterUserId: inviter.id,
         inviteeUserId: invitee.id,
-        acceptedAt: new Date(),
+        acceptedAt: now,
       },
     });
 
-    await tx.user.update({ where: { id: inviter.id }, data: { pairingId: pairing.id } });
-    await tx.user.update({ where: { id: invitee.id }, data: { pairingId: pairing.id } });
+    // Link each side only while it is still unpaired; a concurrent accept that
+    // paired either user first leaves count 0 and this one rolls back.
+    const linkedInviter = await tx.user.updateMany({
+      where: { id: inviter.id, pairingId: null },
+      data: { pairingId: pairing.id },
+    });
+    if (linkedInviter.count !== 1) throw new PairingError('INVITER_ALREADY_PAIRED');
+    const linkedInvitee = await tx.user.updateMany({
+      where: { id: invitee.id, pairingId: null },
+      data: { pairingId: pairing.id },
+    });
+    if (linkedInvitee.count !== 1) throw new PairingError('INVITEE_ALREADY_PAIRED');
 
     // Auto-share PRIVATE calendars on both sides at the default permission.
     // Owner can later flip any back to PRIVATE or to SHARED_VIEWER.
     await tx.nativeCalendar.updateMany({
       where: { ownerUserId: { in: [inviter.id, invitee.id] }, privacy: 'PRIVATE', isDeleted: false },
       data: { privacy: 'SHARED_EDITOR' },
-    });
-
-    await tx.pairingInvite.update({
-      where: { id: invite.id },
-      data: { acceptedAt: new Date(), acceptedByUserId: invitee.id },
     });
 
     return { pairing, inviterUserId: inviter.id, inviteeUserId: invitee.id };

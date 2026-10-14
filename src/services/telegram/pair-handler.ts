@@ -12,6 +12,7 @@ import { prisma } from '../../utils/prisma';
 import { getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from '../messaging';
 import { getBotMessages } from '../../lib/bot-messages';
 import { captureError } from '../../lib/error-capture';
+import { escapeHtml } from '../../utils/html';
 
 /**
  * Map a PairingError code to a user-facing message in the recipient's language.
@@ -50,9 +51,10 @@ function pairingErrorMessage(
 
 /**
  * Notify the inviter that their invite was accepted. Best-effort — failures
- * are logged but never block the success message to the acceptor.
+ * are logged but never block the success message to the acceptor. Used by
+ * the chat accept below and by POST /api/pair/accept.
  */
-async function notifyInviterOfAccept(inviterUserId: number, acceptorName: string): Promise<void> {
+export async function notifyInviterOfAccept(inviterUserId: number, acceptorName: string): Promise<void> {
   try {
     const inviter = await prisma.user.findUnique({
       where: { id: inviterUserId },
@@ -60,7 +62,7 @@ async function notifyInviterOfAccept(inviterUserId: number, acceptorName: string
     });
     if (!inviter) return;
     const t = await getBotMessages(inviter.language || 'en');
-    const message = (t.pair?.acceptedNotification || '🎉 {name} accepted your invite. You are now paired.').replace('{name}', acceptorName);
+    const message = (t.pair?.acceptedNotification || '🎉 {name} accepted your invite. You are now paired.').replace('{name}', () => escapeHtml(acceptorName));
     const platform =
       inviter.messagingPlatform === 'whatsapp' && (inviter.whatsappPhone || inviter.whatsappBsuid)
         ? MessagingPlatform.WHATSAPP
@@ -109,7 +111,7 @@ export async function handlePairAccept(
 
     const inviterName = inviter?.name || 'your partner';
     const acceptorName = acceptor?.name || 'partner';
-    const successMessage = (t.pair?.acceptedSuccess || '🎉 You are now paired with {name}!').replace('{name}', inviterName);
+    const successMessage = (t.pair?.acceptedSuccess || '🎉 You are now paired with {name}!').replace('{name}', () => escapeHtml(inviterName));
 
     await service.sendMessage(chatId, successMessage, { format: MessageFormat.HTML });
 

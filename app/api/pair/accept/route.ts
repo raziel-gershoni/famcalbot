@@ -2,13 +2,14 @@
 // Body: { token, initData? }. Returns { success: true, partnerName }.
 //
 // Validation lives in pairing-service.acceptInvite — this route just maps the
-// PairingError codes onto HTTP responses. Notification of the inviter is
-// handled at the bot layer in PR 6 (TG/WA outbound message after accept).
+// PairingError codes onto HTTP responses. The inviter is told about the accept
+// here, through the same helper the chat accept uses (pair-handler).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { acceptInvite, PairingError } from '@/src/services/pairing-service';
+import { notifyInviterOfAccept } from '@/src/services/telegram/pair-handler';
 import { captureError } from '@/src/lib/error-capture';
 import { prisma } from '@/src/utils/prisma';
 
@@ -30,6 +31,9 @@ export async function POST(request: NextRequest) {
     const user = auth.user;
 
     const result = await acceptInvite(token, user.id);
+
+    // Tell the inviter (best effort: the helper catches and logs its own errors)
+    await notifyInviterOfAccept(result.inviterUserId, user.name || 'partner');
 
     // Inviter side: pull their name for the success response so the UI can
     // confirm "paired with X" without an extra round-trip.
