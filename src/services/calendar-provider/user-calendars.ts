@@ -67,9 +67,10 @@ export function labelsFromViewerSide(labels: CalendarLabel[]): CalendarLabel[] {
 
 /** The partner's own calendar with no person on it, which is named after its owner. */
 function needsOwnerName(calendar: NativeCalendar, viewerId: number): boolean {
-  return calendar.ownerUserId !== viewerId
-    && !calendar.personName?.trim()
-    && labelsFromViewerSide(calendar.labels as CalendarLabel[]).includes('spouse');
+  if (calendar.ownerUserId === viewerId || calendar.personName?.trim()) return false;
+  const viewerLabels = labelsFromViewerSide(calendar.labels as CalendarLabel[]);
+  // A kids calendar's person is a child, never the partner.
+  return viewerLabels.includes('spouse') && !viewerLabels.includes('kids');
 }
 
 /** The owners of the calendars needsOwnerName picks, in one query; none when it picks none. */

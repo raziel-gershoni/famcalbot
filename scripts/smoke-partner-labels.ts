@@ -65,6 +65,9 @@ const VISIBLE: Record<number, Row[]> = {
     { id: 'gal-main', ownerUserId: 8, name: 'Gal', labels: ['primary', 'yours'], personName: 'Gal', personGender: 'female' },
   ],
 };
+VISIBLE[9] = [
+  { id: 'dana-main', ownerUserId: 2, name: 'Dana', labels: ['primary', 'yours', 'kids'] },
+];
 const USERS = [
   { id: 2, name: 'דנה', englishName: 'Dana', gender: 'female' },
   { id: 6, name: 'ליאור', englishName: '', gender: 'male' },
@@ -303,6 +306,16 @@ async function main() {
     await generateWeekLookahead(lookahead, googleUser, 'en', undefined, false, undefined, googleCalendars);
     assert(prompts.length === 2 && prompts[0] === prompts[1], 'prompts differ');
     assert(prompts[0].includes('Belong to Noa'), 'Google spouse context lost');
+  });
+
+  await check('a partner calendar that is also a kids calendar is not named after the partner', async () => {
+    const both = await getCalendarAssignmentsForUser(user(9, { pairingId: 'pair-9' }));
+    assertList(both[0].labels, ['spouse', 'kids']);
+    assert(both[0].personName === undefined, `named ${both[0].personName}`);
+    prompts.length = 0;
+    await generateWeekLookahead(lookahead, raziel, 'en', undefined, false, undefined, both);
+    assert(!(prompts[0] ?? '').includes('Child: דנה'), 'partner annotated as a child');
+    assert(!buildShowContext('s', raziel, 'daily', false, both).kids.some(k => k.name === 'דנה'), 'partner listed as a kid');
   });
 
   await check('voice show: the resolved calendars give the hosts the partner and the kids', () => {
