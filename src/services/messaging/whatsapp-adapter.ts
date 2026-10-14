@@ -383,7 +383,13 @@ export class WhatsAppAdapter implements IMessagingService {
       .replace(/<i>(.+?)<\/i>/g, '_$1_')      // <i>italic</i> → _italic_
       .replace(/<code>(.+?)<\/code>/g, '`$1`') // <code>code</code> → `code`
       .replace(/<u>(.+?)<\/u>/g, '$1')        // <u>underline</u> → underline (no support)
-      .replace(/<[^>]+>/g, '');                // Remove other HTML tags
+      .replace(/<[^>]+>/g, '')                 // Remove other HTML tags
+      // Then the entities Telegram decodes (escapeHtml writes &amp; &lt; &gt;), so an
+      // escaped name reads as typed. &amp; last: an escaped "&lt;" stays "&lt;".
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&amp;/g, '&');
   }
 
   /**

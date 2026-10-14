@@ -58,7 +58,8 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
   const user = await getUserByTelegramId(parseInt(user_id)) ?? await getUserById(parseInt(user_id));
   const locale = user?.language || 'en';
   const messages = { en: enMessages, he: heMessages, ru: ruMessages }[locale] ?? enMessages;
-  const t = messages.refreshToken;
+  // With no credential the page says what the gate on the [locale] pages says
+  const t = { ...messages.refreshToken, gate: messages.pageGate };
 
   // No OAuth state here: the client asks POST /api/oauth/start for the Google URL with
   // its credential (initData or the WhatsApp session), and the state is bound to the

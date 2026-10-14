@@ -10,6 +10,9 @@
 // statements), Redis (in memory), the rate limiter (always allows), Telegram and
 // messaging (record every send), error capture, and fetch (blocked). No network, no DB.
 //
+// Review fix (#6): the names are escaped for Telegram's HTML, so the WhatsApp adapter,
+// which turns that HTML into WhatsApp text, decodes the entities again.
+//
 // The check named [guard] already passes before the fix and must keep passing. The
 // others fail until the fix lands. Numbers follow the design's smoke list.
 //
@@ -458,6 +461,43 @@ async function main() {
     assert(after === 'none', `after unlink: ${after}`);
     const stale = await getCalendarAccess({ id: 2, pairingId }, danaCal);
     assert(stale === 'none', `after unlink, with the old pairingId: ${stale}`);
+  });
+
+  // ---- WhatsApp recipients (review fix) ----
+
+  await check('#6 WhatsApp reads names as typed: "Dana & Roy <3" reaches a WhatsApp inviter (API accept) and acceptor (chat accept) with no &amp;', async () => {
+    const { WhatsAppAdapter } = await load('src/services/messaging/whatsapp-adapter.ts');
+    const { MessageFormat } = await load('src/services/messaging/types.ts');
+    const shownOnWhatsApp = (text: string): string => new WhatsAppAdapter('test', 'test').formatText(text, MessageFormat.HTML);
+    const NAME = 'Dana & Roy <3';
+    const problems: string[] = [];
+
+    // API accept: the WhatsApp inviter (1) is told the acceptor's name
+    seed();
+    Object.assign(userRow(1), { messagingPlatform: 'whatsapp', whatsappPhone: '972500000001' });
+    userRow(2).name = NAME;
+    const { POST } = await load('app/api/pair/accept/route.ts');
+    const res: Response = await POST(new NextRequest('http://localhost/api/pair/accept?user_id=7770002', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: TOKEN_1, initData: initDataFor(7770002) }),
+    }));
+    await settle();
+    if (res.status !== 200) problems.push(`API accept: status ${res.status}`);
+    const toInviter = sent.filter(m => m.platform === 'whatsapp' && String(m.chatId) === '972500000001').map(m => shownOnWhatsApp(m.text ?? ''));
+    if (toInviter.length !== 1 || !toInviter[0].includes(NAME)) problems.push(`the WhatsApp inviter reads ${show(toInviter)}`);
+
+    // Chat accept on WhatsApp: the acceptor (2) is told the inviter's name
+    seed();
+    userRow(1).name = NAME;
+    Object.assign(userRow(2), { messagingPlatform: 'whatsapp', whatsappPhone: '972500000002' });
+    const { handlePairAccept } = await load('src/services/telegram/pair-handler.ts');
+    await handlePairAccept('972500000002', 2, TOKEN_1, 'en', 'whatsapp');
+    await settle();
+    const toAcceptor = sent.filter(m => m.platform === 'whatsapp' && String(m.chatId) === '972500000002').map(m => shownOnWhatsApp(m.text ?? ''));
+    if (!toAcceptor.some(t => t.includes(NAME))) problems.push(`the WhatsApp acceptor reads ${show(toAcceptor)}`);
+
+    assert(problems.length === 0, problems.join('; '));
   });
 
   let failed = 0;

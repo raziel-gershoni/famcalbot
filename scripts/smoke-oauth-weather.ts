@@ -7,6 +7,12 @@
 // now it is bound to the proved user and covers both. Also: check-token-refresh on a
 // WhatsApp session.
 //
+// Review fixes (#10-#13): /refresh-token is reached from the dashboard by a full page load
+// (a different root layout) with no #tgWebAppData hash, so it needs the Telegram SDK of
+// its own and an initData reader that falls back to the SDK's sessionStorage copy;
+// check-token-refresh takes initData in a header, never the URL; and with no credential
+// the page says what PageGate says, Telegram hint included.
+//
 // The pages, the routes, user-service and the signing run for real. Faked at the
 // boundaries: Prisma (in memory), Redis (in memory), the rate limiter (always allows),
 // Telegram and messaging (record every send), error capture, and fetch (the Google token
@@ -18,6 +24,7 @@
 // Run with the fake env from the task brief (no dotenv):
 //   npx tsx scripts/smoke-oauth-weather.ts
 
+import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { createRequire } from 'module';
@@ -533,6 +540,102 @@ async function main() {
     assert(res.status === 200, `status ${res.status} ${await bodyOf(res)}`);
     const body = await res.clone().json();
     assert(body.refreshed === true, `body ${await bodyOf(res)} (row 7 has no token, row 42 has a fresh one)`);
+  });
+
+  // ---- /refresh-token inside Telegram (review fixes) ----
+
+  const SDK = 'https://telegram.org/js/telegram-web-app.js';
+  const readSource = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
+
+  await check('#10 /refresh-token has a root layout that loads the Telegram SDK before hydration; no inline-URL <script>', async () => {
+    const layout = (await load('app/refresh-token/layout.tsx')).default;
+    const tree = layout({ children: 'PAGE' }) as Row;
+    const elements: Row[] = [];
+    const walk = (node: unknown) => {
+      if (Array.isArray(node)) return node.forEach(walk);
+      if (!node || typeof node !== 'object') return;
+      elements.push(node as Row);
+      walk((node as Row).props?.children);
+    };
+    walk(tree);
+    assert(tree.type === 'html' && elements.some(e => e.type === 'body'), `layout root: ${String(tree.type)}`);
+    const sdk = elements.find(e => e.props?.src === SDK);
+    assert(sdk && sdk.props.strategy === 'beforeInteractive', `SDK script: ${show(sdk?.props ?? null)}`);
+    // The old tag: a <script> whose body was the URL text, which loads nothing
+    assert(!/__html:\s*`https:\/\/telegram\.org/.test(readSource('app/refresh-token/RefreshTokenClient.tsx')),
+      'RefreshTokenClient still renders the inline <script> whose body is the SDK URL');
+  });
+
+  await check('#11 dashboard -> /refresh-token (full load, SDK not run yet, no hash): initData comes from the SDK\'s sessionStorage copy and oauth/start accepts it', async () => {
+    seed();
+    const launch = initDataFor(111111111);
+    const store = new Map<string, string>();
+    const fakeWindow: Row = {
+      location: { hash: '' },
+      sessionStorage: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => { store.set(k, String(v)); } },
+    };
+    const g = globalThis as Row;
+    const reads: Record<string, string> = {};
+    try {
+      g.window = fakeWindow;
+      const { readInitData } = await load('src/lib/read-init-data.ts');
+      reads.browser = readInitData();
+      fakeWindow.location.hash = `#tgWebAppData=${encodeURIComponent(launch)}&tgWebAppVersion=8.0`;
+      reads.directLaunch = readInitData();
+      // The dashboard's SDK stored its launch params; /refresh-token loads with no hash
+      fakeWindow.location.hash = '';
+      store.set('__telegram__initParams', JSON.stringify({ tgWebAppData: launch, tgWebAppVersion: '8.0', tgWebAppPlatform: 'ios' }));
+      reads.afterFullLoad = readInitData();
+      fakeWindow.Telegram = { WebApp: { initData: 'from-sdk' } };
+      reads.sdk = readInitData();
+    } finally {
+      delete g.window;
+    }
+    assert(reads.browser === '', `a plain browser read ${show(reads.browser)}`);
+    assert(reads.directLaunch === launch, `a direct launch read ${show(reads.directLaunch)}`);
+    assert(reads.sdk === 'from-sdk', `with the SDK loaded it read ${show(reads.sdk)}`);
+    assert(reads.afterFullLoad === launch, `after the full page load it read ${show(reads.afterFullLoad)}`);
+    const res = await oauthStart({ user_id: '111111111', initData: reads.afterFullLoad });
+    assert(res.status === 200, `oauth/start: status ${res.status} ${await bodyOf(res)}`);
+    assert(DB.oAuthState.length === 1 && String(DB.oAuthState[0].userId) === '9', `OAuth states: ${show(DB.oAuthState)}`);
+    for (const rel of ['app/refresh-token/RefreshTokenClient.tsx', 'app/[locale]/PageGate.tsx']) {
+      assert(readSource(rel).includes("from '@/src/lib/read-init-data'"), `${rel} does not use the shared initData reader`);
+    }
+  });
+
+  await check('#12 check-token-refresh takes initData from the X-Telegram-Init-Data header, not the URL', async () => {
+    seed();
+    const row9 = DB.user.find(u => u.id === 9) as Row;
+    row9.googleRefreshToken = 'google-rt-9';
+    row9.updatedAt = new Date();
+    const { GET } = await load('app/api/check-token-refresh/route.ts');
+    const url = `http://localhost/api/check-token-refresh?user_id=111111111&since=${Date.now() - 60_000}`;
+    const viaHeader: Response = await GET(new NextRequest(url, { headers: { 'x-telegram-init-data': initDataFor(111111111) } }));
+    assert(viaHeader.status === 200, `header: status ${viaHeader.status} ${await bodyOf(viaHeader)}`);
+    assert((await viaHeader.clone().json()).refreshed === true, `header: ${await bodyOf(viaHeader)}`);
+    const viaQuery: Response = await GET(new NextRequest(`${url}&initData=${encodeURIComponent(initDataFor(111111111))}`));
+    assert(viaQuery.status === 401, `initData in the query string: status ${viaQuery.status} (want 401)`);
+    const poll = readSource('app/refresh-token/RefreshTokenClient.tsx').match(/fetch\(`\/api\/check-token-refresh[^`]*`/)?.[0] ?? '';
+    assert(poll && !poll.includes('initData'), `the client's poll URL: ${poll || '(not found)'}`);
+  });
+
+  await check('#13 /refresh-token with no credential says what the gate says: browser = expired link + Telegram hint; Telegram = reopen from the bot', async () => {
+    seed();
+    (DB.user.find(u => u.id === 9) as Row).language = 'he';
+    const page = (await load('app/refresh-token/page.tsx')).default;
+    const el = (await page({ searchParams: Promise.resolve({ user_id: '111111111' }) })) as Row;
+    const t = el?.props?.translations as Row;
+    const he = JSON.parse(readSource('messages/he.json'));
+    const { startErrorLines } = await load('app/refresh-token/RefreshTokenClient.tsx');
+    assert(typeof startErrorLines === 'function', 'RefreshTokenClient exports no startErrorLines');
+    const browser: string[] = startErrorLines(401, '', t);
+    assert(browser.includes(he.pageGate.browserBody) && browser.includes(he.pageGate.browserTelegramHint),
+      `in a browser (401, no initData): ${show(browser)}`);
+    const telegram: string[] = startErrorLines(401, 'initData', t);
+    assert(telegram.includes(he.pageGate.telegramBody) && !telegram.includes(he.pageGate.browserBody),
+      `inside Telegram (401): ${show(telegram)}`);
+    const failed: string[] = startErrorLines(500, '', t);
+    assert(failed.length === 1 && failed[0] === he.refreshToken.startFailed, `on a 500: ${show(failed)}`);
   });
 
   let failed = 0;

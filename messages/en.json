@@ -416,8 +416,6 @@
     "step3": "Your bot will work again!",
     "button": "Connect Google Calendar",
     "checking": "Checking authentication...",
-    "openFromBot": "Please open this page from the FamCal bot in Telegram, using the button in the chat.",
-    "sessionExpired": "This link has expired. Send “settings” to FamCal on WhatsApp and we’ll send you a fresh one.",
     "startFailed": "We couldn’t reach Google just now. Please try again in a minute."
   },
   "pageGate": {

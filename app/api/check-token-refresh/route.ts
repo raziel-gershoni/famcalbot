@@ -8,7 +8,9 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const userId = searchParams.get('user_id');
   const since = searchParams.get('since');
-  const initData = searchParams.get('initData');
+  // In a header, never the query string: initData is a credential for 24 hours, and URLs
+  // end up in logs and traces
+  const initData = request.headers.get('x-telegram-init-data');
 
   if (!userId || !since) {
     return NextResponse.json({ error: 'Missing parameters' }, { status: 400 });

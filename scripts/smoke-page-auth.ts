@@ -11,6 +11,9 @@
 // send), error capture, the Google Calendar list (counted) and fetch (blocked). No
 // network, no DB.
 //
+// Review fix (#9): the dead /oauth-success route looked a user up by the URL's Telegram
+// id with no credential and showed their name.
+//
 // Every check here fails until the fix lands. Numbers follow the design's smoke list.
 //
 // Run with the fake env from the task brief (no dotenv):
@@ -566,6 +569,19 @@ async function main() {
     const body = await fullBody(res);
     assert(body.includes('notNative'), `status ${res.status} ${await bodyOf(res)}`);
     assert(!body.includes('CAL-SECRET'), `the notice carries calendars: ${await bodyOf(res)}`);
+  });
+
+  // ---- Review fix: the dead /oauth-success route ----
+
+  await check('#9 /oauth-success?user_id=<Telegram id> shows no one\'s name (the dead route is gone, or renders no user)', async () => {
+    seed();
+    const rel = 'app/oauth-success/page.tsx';
+    if (!fs.existsSync(path.join(ROOT, rel))) return;
+    process.env.TELEGRAM_BOT_USERNAME ||= 'test_bot';
+    const page = (await load(rel)).default;
+    const el = await page({ searchParams: Promise.resolve({ user_id: '5550001' }) });
+    const out = `${serialize(el)} ${renderHtml(el, 'en')}`;
+    assert(!out.includes('Dana'), 'the page shows the name of Telegram user 5550001 (Dana)');
   });
 
   let failed = 0;

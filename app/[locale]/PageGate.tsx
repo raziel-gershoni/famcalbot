@@ -13,6 +13,7 @@ import { notFound, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import type { PageDataResult, PageName, PageNotice, PagePropsMap } from '@/src/lib/page-data';
+import { readInitData } from '@/src/lib/read-init-data';
 
 /** The look each page already has: the purple Telegram gradient, or the light Tailwind one. */
 type Look = 'telegram' | 'light';
@@ -105,21 +106,6 @@ function renderPage(page: PageName, props: PagePropsMap[PageName]) {
       return <Calendars {...(props as PagePropsMap['calendars'])} />;
     case 'pair':
       return <Pair {...(props as PagePropsMap['pair'])} />;
-  }
-}
-
-/**
- * The Mini App's signed initData: from the Telegram SDK, else from the launch URL's hash
- * (tgWebAppData). '' in a plain browser, where the session cookie is the credential.
- */
-function readInitData(): string {
-  if (typeof window === 'undefined') return '';
-  const fromSdk = window.Telegram?.WebApp?.initData;
-  if (fromSdk) return fromSdk;
-  try {
-    return new URLSearchParams(window.location.hash.slice(1)).get('tgWebAppData') ?? '';
-  } catch {
-    return '';
   }
 }
 

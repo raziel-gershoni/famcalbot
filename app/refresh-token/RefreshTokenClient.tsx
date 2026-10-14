@@ -2,6 +2,7 @@
 
 import { useEffect, useCallback, useState } from 'react';
 import { RefreshCw, KeyRound, ArrowLeft, Loader2 } from 'lucide-react';
+import { readInitData } from '@/src/lib/read-init-data';
 
 interface Translations {
   title: string;
@@ -12,9 +13,15 @@ interface Translations {
   step3: string;
   button: string;
   checking: string;
-  openFromBot: string;
-  sessionExpired: string;
   startFailed: string;
+  /** pageGate's strings: what to do when there is no credential for this page */
+  gate: {
+    telegramTitle: string;
+    telegramBody: string;
+    browserTitle: string;
+    browserBody: string;
+    browserTelegramHint: string;
+  };
 }
 
 interface RefreshTokenClientProps {
@@ -26,18 +33,18 @@ interface RefreshTokenClientProps {
 const OAUTH_PENDING_KEY = 'famcalbot_oauth_pending';
 
 /**
- * The Mini App's signed initData: from the Telegram SDK when it is loaded, else from
- * the launch URL's hash, where Telegram puts it (tgWebAppData). '' in a plain browser.
+ * What the page says when oauth/start gives no Google URL. With no credential it says
+ * what PageGate says: inside Telegram, reopen from the bot; in a browser, the WhatsApp
+ * link has expired, or, on Telegram, open it from the bot (oauth-callback's "Try again"
+ * lands a Telegram user here in the external browser).
  */
-function readInitData(): string {
-  if (typeof window === 'undefined') return '';
-  const fromSdk = window.Telegram?.WebApp?.initData;
-  if (fromSdk) return fromSdk;
-  try {
-    return new URLSearchParams(window.location.hash.slice(1)).get('tgWebAppData') ?? '';
-  } catch {
-    return '';
+export function startErrorLines(status: number, initData: string, t: Translations): string[] {
+  if (status === 401 || status === 403 || status === 404) {
+    return initData
+      ? [t.gate.telegramTitle, t.gate.telegramBody]
+      : [t.gate.browserTitle, t.gate.browserBody, t.gate.browserTelegramHint];
   }
+  return [t.startFailed];
 }
 
 export default function RefreshTokenClient({ userId, locale, translations: t }: RefreshTokenClientProps) {
@@ -46,7 +53,7 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
   // The Google URL comes from POST /api/oauth/start, which creates the OAuth state for
   // the user our credential proves. Until it arrives the button stays disabled.
   const [oauthUrl, setOauthUrl] = useState<string | null>(null);
-  const [startError, setStartError] = useState<string | null>(null);
+  const [startError, setStartError] = useState<string[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,22 +70,18 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
         if (cancelled) return;
         if (response.ok && typeof data.oauthUrl === 'string') {
           setOauthUrl(data.oauthUrl);
-        } else if (response.status === 401 || response.status === 403 || response.status === 404) {
-          // No credential for this user: inside Telegram, reopen from the bot; in a
-          // browser, the WhatsApp link has expired
-          setStartError(initData ? t.openFromBot : t.sessionExpired);
         } else {
-          setStartError(t.startFailed);
+          setStartError(startErrorLines(response.status, initData, t));
         }
       } catch (error) {
         console.error('Error starting Google sign-in:', error);
-        if (!cancelled) setStartError(t.startFailed);
+        if (!cancelled) setStartError([t.startFailed]);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [userId, t.openFromBot, t.sessionExpired, t.startFailed]);
+  }, [userId, t]);
 
   const checkTokenRefresh = useCallback(async () => {
     const pending = localStorage.getItem(OAUTH_PENDING_KEY);
@@ -87,9 +90,12 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     setIsChecking(true);
     try {
       const { userId: pendingUserId, startTime } = JSON.parse(pending);
-      const initData = encodeURIComponent(readInitData());
-      const response = await fetch(`/api/check-token-refresh?user_id=${pendingUserId}&since=${startTime}&initData=${initData}`, {
+      // initData goes in a header, never the URL: it is a credential for 24 hours, and
+      // URLs end up in logs and traces
+      const initData = readInitData();
+      const response = await fetch(`/api/check-token-refresh?user_id=${pendingUserId}&since=${startTime}`, {
         credentials: 'same-origin',
+        headers: initData ? { 'X-Telegram-Init-Data': initData } : undefined,
       });
       const data = await response.json();
 
@@ -383,7 +389,11 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
         </div>
 
         {startError ? (
-          <p className="subtitle" role="alert">{startError}</p>
+          <div role="alert">
+            {startError.map((line, i) => (
+              <p key={line} className="subtitle">{i === 0 && startError.length > 1 ? <strong>{line}</strong> : line}</p>
+            ))}
+          </div>
         ) : (
           <button
             onClick={startOAuth}
@@ -395,12 +405,6 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
           </button>
         )}
       </div>
-
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `https://telegram.org/js/telegram-web-app.js`,
-        }}
-      />
     </>
   );
 }
