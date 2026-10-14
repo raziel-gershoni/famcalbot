@@ -26,6 +26,17 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * Where the text came from. In a forwarded message "me" is whoever wrote it; a typed one is
+ * the user talking to us (spec §3.1). Forwarded text gets exactly the prompt it always had.
+ */
+export type TextSource = 'forwarded' | 'typed';
+
+const MESSAGE_HEADERS: Record<TextSource, string> = {
+  forwarded: 'FORWARDED MESSAGE:',
+  typed: 'TYPED MESSAGE (the user typed this to you directly, it was not forwarded, so "me", "I" and "my" mean the user):',
+};
+
+/**
  * Process forwarded message text with Gemini
  * Single API call: intent detection + event extraction
  * Several actions in one message come back as `intentResults`; `intentResult` is the first.
@@ -37,7 +48,8 @@ export async function processTextWithGemini(
   language: string,
   calendars: CalendarAssignment[],
   timezone: string,
-  reminders?: ReminderPromptContext
+  reminders?: ReminderPromptContext,
+  source: TextSource = 'forwarded'
 ): Promise<{ intentResult: VoiceIntentResult; intentResults: VoiceIntentResult[]; metrics: TextProcessingMetrics }> {
   const startTime = Date.now();
   let lastError: Error | null = null;
@@ -53,7 +65,7 @@ export async function processTextWithGemini(
           {
             role: 'user',
             parts: [
-              { text: promptText + '\n\nFORWARDED MESSAGE:\n' + text },
+              { text: promptText + '\n\n' + MESSAGE_HEADERS[source] + '\n' + text },
             ],
           },
         ],

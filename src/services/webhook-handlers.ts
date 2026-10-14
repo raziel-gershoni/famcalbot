@@ -485,10 +485,36 @@ export async function handleTelegramWebhook(
       const { getOrCreateUser } = await import('./user-service');
       const user = await getOrCreateUser(textUserId, update.message.from);
       await handlePairAccept(chatId, user.id, token, user.language || 'en', MessagingPlatform.TELEGRAM);
+    } else {
+      await routeTypedReminderText(chatId, textUserId, text, update.message.message_id);
     }
   }
 
   res.status(200).json({ ok: true });
+}
+
+/**
+ * Typed text that names a reminder ("remind me…", spec §3.1) goes to the native reminders'
+ * typed route, for users who have them (R3, R4). Other typed text is still ignored, and so
+ * is this for everyone else. Never throws: Telegram would redeliver a failed update.
+ */
+async function routeTypedReminderText(chatId: number, telegramUserId: number, text: string, messageId: number): Promise<void> {
+  if (text.startsWith('/')) return;
+  try {
+    const { hasReminderKeyword, handleTypedReminderText } = await import('./native-reminders/typed-route');
+    if (!hasReminderKeyword(text)) return;
+    const user = await getUserByTelegramId(telegramUserId);
+    if (!user) return;
+    const { getReminderSupport } = await import('./native-reminders/support');
+    if (!(await getReminderSupport(user)).supported) return;
+
+    addBreadcrumb('typed_reminder_received', { user_id: telegramUserId, text_length: text.length }, 'user_action');
+    console.log(`[Webhook] Typed reminder text from user ${telegramUserId}, length: ${text.length}`);
+    await handleTypedReminderText(user, chatId, text, messageId);
+  } catch (error) {
+    console.error('[Webhook] Error in typed reminder route:', error);
+    captureError(error, 'typed-reminder-route');
+  }
 }
 
 /**
