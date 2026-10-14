@@ -94,7 +94,7 @@ export async function handleKidNameCallback(
       .replace('{calendar}', calendarName)
       .replace('{name}', pending.name);
 
-    const settingsUrl = buildUrl(`/${lang}/select-calendars?user_id=${pending.userId}`);
+    const settingsUrl = buildUrl(`/${lang}/select-calendars?user_id=${user.telegramId ?? user.id}`);
     const openSettingsText = kd.openSettings || 'Open Settings';
 
     await bot.answerCallbackQuery(queryId, { text: ruleText });

@@ -134,7 +134,7 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
     const t = await getSubscriptionMessages(locale);
     const planConfig = PLAN_CONFIGS[sub.plan as PlanId];
     const usage = usageMap.get(sub.userId);
-    const subscriptionUrl = buildUrl(`/${locale}/subscription?user_id=${sub.userId}`);
+    const subscriptionUrl = buildUrl(`/${locale}/subscription?user_id=${sub.user.telegramId ?? sub.userId}`);
 
     // Compute per-user days left
     const userDaysLeft = Math.max(0, Math.ceil(
@@ -295,7 +295,7 @@ async function expireSubscriptions(): Promise<void> {
     const locale = sub.user.language || 'en';
     const t = await getSubscriptionMessages(locale);
     const planConfig = PLAN_CONFIGS[previousPlan as PlanId];
-    const subscriptionUrl = buildUrl(`/${locale}/subscription?user_id=${sub.userId}`);
+    const subscriptionUrl = buildUrl(`/${locale}/subscription?user_id=${sub.user.telegramId ?? sub.userId}`);
 
     const message = [
       t.reminders?.expired?.title || '\uD83D\uDCC5 Your FamCal subscription has ended',

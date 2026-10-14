@@ -390,7 +390,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
 
       const t = await getSetupMessages(user.language || 'en');
       const body = pickBody(t.oauth, dueAttempt, OAUTH_SCHEDULE.length);
-      const dashboardUrl = buildUrl(`/${user.language || 'en'}/dashboard?user_id=${user.id}`);
+      const dashboardUrl = buildUrl(`/${user.language || 'en'}/dashboard?user_id=${user.telegramId ?? user.id}`);
       await sendSetupReminder(user, t.oauth.title, body, t.oauth.button, dashboardUrl, 'oauth', dueAttempt);
     } catch (error) {
       results.push({
@@ -431,7 +431,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
 
       const t = await getSetupMessages(user.language || 'en');
       const body = pickBody(t.calendars, dueAttempt, CALENDARS_SCHEDULE.length);
-      const calendarsUrl = buildUrl(`/${user.language || 'en'}/select-calendars?user_id=${user.id}`);
+      const calendarsUrl = buildUrl(`/${user.language || 'en'}/select-calendars?user_id=${user.telegramId ?? user.id}`);
       await sendSetupReminder(user, t.calendars.title, body, t.calendars.button, calendarsUrl, 'calendars', dueAttempt);
     } catch (error) {
       results.push({
@@ -480,7 +480,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
       if (alreadySent) continue;
 
       const t = await getSetupMessages(user.language || 'en');
-      const settingsUrl = buildUrl(`/${user.language || 'en'}/settings?user_id=${user.id}`);
+      const settingsUrl = buildUrl(`/${user.language || 'en'}/settings?user_id=${user.telegramId ?? user.id}`);
       await sendSetupReminder(user, t.location.title, t.location.body, t.location.button, settingsUrl, 'location', dueAttempt);
     } catch (error) {
       results.push({
