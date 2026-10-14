@@ -168,6 +168,9 @@ const fakeMessaging = {
 /** Pings whose buttons were stripped, and one ping chat whose edit fails. */
 let stripped: Array<{ chatId: string; messageId: number; text: string }> = [];
 let failingPingChat: bigint | undefined;
+
+/** Whether the timezone lookup fails, as its Redis read does when Redis is down. */
+let timezoneFails = false;
 const fakePing = {
   stripPingButtons: async (chatId: bigint | number, messageId: number, text: string) => {
     if (failingPingChat !== undefined && BigInt(chatId) === failingPingChat) throw new Error('Bad Request: chat not found');
@@ -196,7 +199,12 @@ const noDatabase = new Proxy({}, {
 
 /** Modules replaced by fakes, by file path; a function fakes part of the real module. */
 const stubs: Record<string, object | ((real: Record<string, unknown>) => object)> = {
-  [`${SRC}/lib/timezone.ts`]: { resolveUserTimezone: async (u: { id: number }) => TIMEZONES[u.id] },
+  [`${SRC}/lib/timezone.ts`]: {
+    resolveUserTimezone: async (u: { id: number }) => {
+      if (timezoneFails) throw new Error('Redis unavailable');
+      return TIMEZONES[u.id];
+    },
+  },
   [`${SRC}/services/ai-provider.ts`]: { generateAICompletion: fakeMatcher },
   [`${SRC}/utils/redis.ts`]: { redis: fakeRedis },
   [`${SRC}/utils/prisma.ts`]: { prisma: noDatabase },
@@ -274,6 +282,7 @@ function reset() {
   edits = [];
   stripped = [];
   failingPingChat = undefined;
+  timezoneFails = false;
   captured.length = 0;
   createResult = { success: true };
   updateResult = { success: true };
@@ -289,6 +298,7 @@ async function main() {
   const { handleEventCallback, handleEditCallback, handleDeleteCallback } = await import('../src/services/voice/callbacks');
   const { nativeProvider } = await import('../src/services/calendar-provider/native-provider');
   const { getBotMessages } = await import('../src/lib/bot-messages');
+  const { showEditConfirmation, showDeleteConfirmation } = await import('../src/services/voice/confirmations');
 
   const byDescription = (description: string, extra: Partial<EventReference> = {}): EventReference =>
     ({ type: 'by_description', description, ...extra });
@@ -504,6 +514,33 @@ async function main() {
     reset();
     const done = await confirm('delete', event('A & B', '2026-10-15T07:00:00.000Z', '2026-10-15T08:00:00.000Z'), raziel);
     assert(done.text.includes('<s>A &amp; B</s>'), `deleted: ${JSON.stringify(done.text)}`);
+  });
+
+  await check('a move whose pings cannot be worked out still answers "updated", and only logs it', async () => {
+    reset();
+    timezoneFails = true;
+    updateResult = { success: true, eventId: 'r1', clearedPings: [{ chatId: 1002n, messageId: 12 }] };
+    const fivePm = at('2026-10-15T17:00:00');
+    const done = await confirm('edit', reminder('Call mom', '2026-10-14T07:00:00.000Z', { eventId: 'r1' }), raziel, { startTime: fivePm, endTime: fivePm });
+    assert(done.text.startsWith('✅') && done.text.includes('📅 Call mom'), `edited: ${JSON.stringify(done.text)}`);
+    assert(stripped.length === 0, `stripped ${JSON.stringify(stripped)}`);
+    assert(captured.some(c => c.context === 'native-reminder-moved-ping' && c.severity === 'warning'), `captured ${JSON.stringify(captured)}`);
+  });
+
+  await check('the edit card escapes the title, in its current line and its rename', async () => {
+    reset();
+    const callMom = reminder('Call <mom> & dad', '2026-10-15T07:00:00.000Z');
+    await showEditConfirmation(1001, undefined, callMom, 'native:c1', { title: 'Call <grandma> & dad' }, 'rename it', raziel);
+    const card = sent[sent.length - 1]?.text ?? '';
+    assert(card.includes('📅 Call &lt;mom&gt; &amp; dad\n') && card.includes('📝 Call &lt;mom&gt; &amp; dad → Call &lt;grandma&gt; &amp; dad')
+      && !card.includes('<mom>') && !card.includes('<grandma>'), `edit card: ${JSON.stringify(card)}`);
+  });
+
+  await check('the delete card escapes the title', async () => {
+    reset();
+    await showDeleteConfirmation(1001, undefined, reminder('Call <mom> & dad', '2026-10-15T07:00:00.000Z'), 'native:c1', 'delete it', raziel);
+    const card = sent[sent.length - 1]?.text ?? '';
+    assert(card.includes('📅 <b>Call &lt;mom&gt; &amp; dad</b>') && !card.includes('<mom>'), `delete card: ${JSON.stringify(card)}`);
   });
 
   await check('the native provider hands back the pings a re-arm cleared, and nothing new for an event', async () => {

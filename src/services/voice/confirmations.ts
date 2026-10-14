@@ -218,7 +218,7 @@ export function formatEditChanges(
   });
 
   if (updates.title && updates.title !== originalEvent.summary) {
-    changes.push(`📝 ${originalEvent.summary} → ${updates.title}`);
+    changes.push(`📝 ${escapeHtml(originalEvent.summary)} → ${escapeHtml(updates.title)}`);
   }
 
   const { before, after } = describeEdit(originalEvent, updates, timezone);
@@ -599,7 +599,7 @@ export async function showEditConfirmation(
   const confirmationMessage =
     `${editTitle}\n\n` +
     `<b>${currentLabel}</b>\n` +
-    `📅 ${originalEvent.summary}\n` +
+    `📅 ${escapeHtml(originalEvent.summary)}\n` +
     `${currentInfo}${scopeInfo}\n\n` +
     `<b>${changesLabel}</b>\n` +
     `${changesInfo}\n\n` +
@@ -676,7 +676,7 @@ export async function showDeleteConfirmation(
 
   const confirmationMessage =
     `${deleteTitle}\n\n` +
-    `📅 <b>${event.summary}</b>\n` +
+    `📅 <b>${escapeHtml(event.summary)}</b>\n` +
     `${eventInfo}${scopeInfo}\n\n` +
     `<i>${fromLabel} "${escapeHtml(transcription)}"</i>` +
     (adminFooter || '');

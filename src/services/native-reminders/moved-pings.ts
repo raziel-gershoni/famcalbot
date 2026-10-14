@@ -32,7 +32,8 @@ export function movedWhen(startsAt: Date, allDay: boolean, language: string, rea
  * Edit each cleared ping to "⏰ <title> · moved to <when>", without buttons. A ping is
  * read by its recipient, who may be the partner: a private chat's id is its user's
  * Telegram id, so it is read in their language and on their clock, else the editor's.
- * Best-effort: the edit is already saved, so a failed ping edit is only logged.
+ * Best-effort: the edit is already saved, so any failure here (the editor's timezone
+ * lookup reads Redis) is only logged, and never fails the caller's confirm.
  */
 export async function stripMovedPings(
   pings: ClearedPing[],
@@ -40,14 +41,20 @@ export async function stripMovedPings(
   updates: UpdateEventData,
   editor: UserConfig
 ): Promise<void> {
-  const editorZone = await resolveUserTimezone(editor);
-  // A date-only reminder's day is read in its own timezone (native-provider toUnifiedEvent)
-  const ownZone = (original as Partial<UnifiedEvent>).timeZone || editorZone;
-  const allDay = updates.allDay ?? isAllDayEvent(original);
-  const startsAt = updates.startTime
-    ? new Date(updates.startTime)
-    : isAllDayEvent(original) ? startOfLocalDay(original.start, ownZone) : new Date(original.start);
-  const title = escapeHtml(updates.title || original.summary);
+  let editorZone: string, ownZone: string, allDay: boolean, startsAt: Date, title: string;
+  try {
+    editorZone = await resolveUserTimezone(editor);
+    // A date-only reminder's day is read in its own timezone (native-provider toUnifiedEvent)
+    ownZone = (original as Partial<UnifiedEvent>).timeZone || editorZone;
+    allDay = updates.allDay ?? isAllDayEvent(original);
+    startsAt = updates.startTime
+      ? new Date(updates.startTime)
+      : isAllDayEvent(original) ? startOfLocalDay(original.start, ownZone) : new Date(original.start);
+    title = escapeHtml(updates.title || original.summary);
+  } catch (error) {
+    captureError(error, 'native-reminder-moved-ping', { user_id: editor.id }, 'warning');
+    return;
+  }
 
   for (const ping of pings) {
     try {
