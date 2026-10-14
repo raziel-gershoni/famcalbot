@@ -1,12 +1,13 @@
 import { redirect } from 'next/navigation';
 import { prisma } from '@/src/utils/prisma';
-import { getUserByTelegramId, updateGoogleRefreshToken } from '@/src/services/user-service';
+import { getUserById, updateUserById } from '@/src/services/user-service';
 import { normalizeLocale } from '@/src/utils/locale';
 import { XCircle, AlertTriangle } from 'lucide-react';
 import { buildUrl } from '@/src/config/urls';
 import { updateUserInCache } from '@/src/services/reminder-cache';
 import { getTranslations } from 'next-intl/server';
 import { captureError } from '@/src/lib/error-capture';
+import { OAUTH_STATE_PREFIX } from '@/src/lib/oauth-state';
 
 interface PageProps {
   searchParams: Promise<{
@@ -15,8 +16,8 @@ interface PageProps {
   }>;
 }
 
-// Error page component
-function ErrorPage({ message, telegramId }: { message: string; telegramId?: bigint }) {
+// Error page component. retryUserId is the user_id for the retry link (telegramId ?? DB id).
+function ErrorPage({ message, retryUserId }: { message: string; retryUserId?: number }) {
   return (
     <html>
       <head>
@@ -61,8 +62,8 @@ function ErrorPage({ message, telegramId }: { message: string; telegramId?: bigi
           <div className="icon"><XCircle size={64} color="#ef4444" /></div>
           <h2>Error</h2>
           <p>{message}</p>
-          {telegramId && (
-            <a href={`/refresh-token?user_id=${telegramId}`} className="btn">
+          {retryUserId !== undefined && (
+            <a href={`/refresh-token?user_id=${retryUserId}`} className="btn">
               Try Again
             </a>
           )}
@@ -73,7 +74,7 @@ function ErrorPage({ message, telegramId }: { message: string; telegramId?: bigi
 }
 
 // No refresh token error page
-function NoRefreshTokenPage({ telegramId }: { telegramId: bigint }) {
+function NoRefreshTokenPage({ retryUserId }: { retryUserId: number }) {
   return (
     <html>
       <head>
@@ -122,7 +123,7 @@ function NoRefreshTokenPage({ telegramId }: { telegramId: bigint }) {
           <p>1. Go to <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer">Google Permissions</a></p>
           <p>2. Remove &quot;FamCalBot&quot;</p>
           <p>3. Come back and try again</p>
-          <a href={`/refresh-token?user_id=${telegramId}`} className="btn">
+          <a href={`/refresh-token?user_id=${retryUserId}`} className="btn">
             Try Again
           </a>
         </div>
@@ -132,7 +133,7 @@ function NoRefreshTokenPage({ telegramId }: { telegramId: bigint }) {
 }
 
 // Insufficient scopes error page - shown when user deselects permissions on Google consent screen
-async function InsufficientScopesPage({ telegramId, missingScopes, locale }: { telegramId: bigint; missingScopes: string[]; locale: string }) {
+async function InsufficientScopesPage({ retryUserId, missingScopes, locale }: { retryUserId: number; missingScopes: string[]; locale: string }) {
   const t = await getTranslations({ locale, namespace: 'oauth.insufficientScopes' });
   const missingRead = missingScopes.some(s => s.includes('readonly'));
   const missingWrite = missingScopes.some(s => s.includes('events'));
@@ -217,7 +218,7 @@ async function InsufficientScopesPage({ telegramId, missingScopes, locale }: { t
             {t('footnote')}
           </p>
 
-          <a href={`/refresh-token?user_id=${telegramId}`} className="btn">
+          <a href={`/refresh-token?user_id=${retryUserId}`} className="btn">
             {t('tryAgain')}
           </a>
         </div>
@@ -235,6 +236,12 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
     return <ErrorPage message="Missing or invalid state parameter" />;
   }
 
+  // Only states from POST /api/oauth/start (bound to an authenticated user) are
+  // honoured. An unprefixed one came from the old unauthenticated /refresh-token page.
+  if (!state.startsWith(OAUTH_STATE_PREFIX)) {
+    return <ErrorPage message="State token expired. Please try again." />;
+  }
+
   // Look up state token in database
   const stateRecord = await prisma.oAuthState.findUnique({ where: { token: state } });
 
@@ -249,10 +256,16 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
     return <ErrorPage message="State token expired. Please try again." />;
   }
 
-  const telegramId = stateRecord.userId;
-
   // Delete used state token (one-time use only)
   await prisma.oAuthState.delete({ where: { id: stateRecord.id } });
+
+  // The state holds the DB id of the user oauth/start authenticated. Resolve it before
+  // talking to Google: the token is saved on this user and no other.
+  const user = await getUserById(Number(stateRecord.userId));
+  if (!user) {
+    return <ErrorPage message="User not found" />;
+  }
+  const retryUserId = user.telegramId ?? user.id;
 
   // Exchange code for tokens
   const redirectUri = buildUrl('/api/refresh-token');
@@ -275,18 +288,12 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
     return (
       <ErrorPage
         message={`Error exchanging authorization code: ${error instanceof Error ? error.message : 'Unknown error'}`}
-        telegramId={telegramId}
+        retryUserId={retryUserId}
       />
     );
   }
 
   const tokens = await tokenResponse.json();
-
-  // Get user to verify and get locale for i18n
-  const user = await getUserByTelegramId(telegramId);
-  if (!user) {
-    return <ErrorPage message="User not found" telegramId={telegramId} />;
-  }
 
   const userLocale = normalizeLocale(user.language);
 
@@ -300,17 +307,17 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   const missingScopes = REQUIRED_SCOPES.filter(s => !grantedScopes.includes(s));
 
   if (missingScopes.length > 0) {
-    return <InsufficientScopesPage telegramId={telegramId} missingScopes={missingScopes} locale={userLocale} />;
+    return <InsufficientScopesPage retryUserId={retryUserId} missingScopes={missingScopes} locale={userLocale} />;
   }
 
   if (!tokens.refresh_token) {
     // No refresh token - need to revoke and retry
-    return <NoRefreshTokenPage telegramId={telegramId} />;
+    return <NoRefreshTokenPage retryUserId={retryUserId} />;
   }
 
-  // Save new refresh token (user already verified above)
+  // Save new refresh token on the authenticated owner, by DB id (updateUserById encrypts it)
   try {
-    await updateGoogleRefreshToken(telegramId, tokens.refresh_token);
+    await updateUserById(user.id, { googleRefreshToken: tokens.refresh_token });
 
     // If the user was previously on NATIVE, completing OAuth is an explicit
     // opt-in to GOOGLE. Flip calendarSource and soft-delete the auto-created
@@ -352,18 +359,18 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
     const { notifyAdminWarning } = await import('@/src/utils/error-notifier');
     await notifyAdminWarning(
       'Token Refreshed',
-      `User ${telegramId} (${user.name || 'Unknown'}) successfully refreshed their Google Calendar token`
+      `User ${retryUserId} (${user.name || 'Unknown'}) successfully refreshed their Google Calendar token`
     ).catch(err => captureError(err, 'oauth-admin-notify', {}, 'warning'));
   } catch (error) {
     captureError(error, 'oauth-save-token');
     return (
       <ErrorPage
         message={`Error saving token: ${error instanceof Error ? error.message : 'Unknown error'}`}
-        telegramId={telegramId}
+        retryUserId={retryUserId}
       />
     );
   }
 
   // Redirect to success page which will guide user back to Telegram
-  redirect(`/oauth-complete?user_id=${telegramId}&locale=${userLocale}`);
+  redirect(`/oauth-complete?user_id=${retryUserId}&locale=${userLocale}`);
 }

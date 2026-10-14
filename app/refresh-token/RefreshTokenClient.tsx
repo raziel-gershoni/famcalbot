@@ -12,10 +12,12 @@ interface Translations {
   step3: string;
   button: string;
   checking: string;
+  openFromBot: string;
+  sessionExpired: string;
+  startFailed: string;
 }
 
 interface RefreshTokenClientProps {
-  oauthUrl: string;
   userId: string;
   locale: string;
   translations: Translations;
@@ -23,9 +25,60 @@ interface RefreshTokenClientProps {
 
 const OAUTH_PENDING_KEY = 'famcalbot_oauth_pending';
 
-export default function RefreshTokenClient({ oauthUrl, userId, locale, translations: t }: RefreshTokenClientProps) {
+/**
+ * The Mini App's signed initData: from the Telegram SDK when it is loaded, else from
+ * the launch URL's hash, where Telegram puts it (tgWebAppData). '' in a plain browser.
+ */
+function readInitData(): string {
+  if (typeof window === 'undefined') return '';
+  const fromSdk = window.Telegram?.WebApp?.initData;
+  if (fromSdk) return fromSdk;
+  try {
+    return new URLSearchParams(window.location.hash.slice(1)).get('tgWebAppData') ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export default function RefreshTokenClient({ userId, locale, translations: t }: RefreshTokenClientProps) {
   const isRTL = locale === 'he';
   const [isChecking, setIsChecking] = useState(false);
+  // The Google URL comes from POST /api/oauth/start, which creates the OAuth state for
+  // the user our credential proves. Until it arrives the button stays disabled.
+  const [oauthUrl, setOauthUrl] = useState<string | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const initData = readInitData();
+    (async () => {
+      try {
+        const response = await fetch('/api/oauth/start', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId, initData }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (cancelled) return;
+        if (response.ok && typeof data.oauthUrl === 'string') {
+          setOauthUrl(data.oauthUrl);
+        } else if (response.status === 401 || response.status === 403 || response.status === 404) {
+          // No credential for this user: inside Telegram, reopen from the bot; in a
+          // browser, the WhatsApp link has expired
+          setStartError(initData ? t.openFromBot : t.sessionExpired);
+        } else {
+          setStartError(t.startFailed);
+        }
+      } catch (error) {
+        console.error('Error starting Google sign-in:', error);
+        if (!cancelled) setStartError(t.startFailed);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, t.openFromBot, t.sessionExpired, t.startFailed]);
 
   const checkTokenRefresh = useCallback(async () => {
     const pending = localStorage.getItem(OAUTH_PENDING_KEY);
@@ -34,7 +87,10 @@ export default function RefreshTokenClient({ oauthUrl, userId, locale, translati
     setIsChecking(true);
     try {
       const { userId: pendingUserId, startTime } = JSON.parse(pending);
-      const response = await fetch(`/api/check-token-refresh?user_id=${pendingUserId}&since=${startTime}`);
+      const initData = encodeURIComponent(readInitData());
+      const response = await fetch(`/api/check-token-refresh?user_id=${pendingUserId}&since=${startTime}&initData=${initData}`, {
+        credentials: 'same-origin',
+      });
       const data = await response.json();
 
       if (data.refreshed) {
@@ -52,6 +108,8 @@ export default function RefreshTokenClient({ oauthUrl, userId, locale, translati
   }, [locale]);
 
   const startOAuth = useCallback(() => {
+    if (!oauthUrl) return;
+
     // Save pending OAuth flag
     localStorage.setItem(OAUTH_PENDING_KEY, JSON.stringify({
       userId,
@@ -69,11 +127,7 @@ export default function RefreshTokenClient({ oauthUrl, userId, locale, translati
   useEffect(() => {
     // Initialize Telegram WebApp if available
     if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-      const tg = window.Telegram.WebApp;
-      tg.expand();
-      tg.MainButton.setText('Connect Google Calendar');
-      tg.MainButton.onClick(startOAuth);
-      tg.MainButton.show();
+      window.Telegram.WebApp.expand();
     }
 
     // Listen for visibility changes to detect return from OAuth
@@ -93,7 +147,19 @@ export default function RefreshTokenClient({ oauthUrl, userId, locale, translati
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [oauthUrl, startOAuth, checkTokenRefresh]);
+  }, [checkTokenRefresh]);
+
+  useEffect(() => {
+    // The Telegram MainButton appears once the Google URL is ready
+    const tg = typeof window !== 'undefined' ? window.Telegram?.WebApp : undefined;
+    if (!tg || !oauthUrl) return;
+    tg.MainButton.setText('Connect Google Calendar');
+    tg.MainButton.onClick(startOAuth);
+    tg.MainButton.show();
+    return () => {
+      tg.MainButton.offClick(startOAuth);
+    };
+  }, [oauthUrl, startOAuth]);
 
   return (
     <>
@@ -316,13 +382,18 @@ export default function RefreshTokenClient({ oauthUrl, userId, locale, translati
           </ol>
         </div>
 
-        <button
-          onClick={startOAuth}
-          className="btn"
-        >
-          <KeyRound size={20} />
-          {t.button}
-        </button>
+        {startError ? (
+          <p className="subtitle" role="alert">{startError}</p>
+        ) : (
+          <button
+            onClick={startOAuth}
+            className="btn"
+            disabled={!oauthUrl}
+          >
+            {oauthUrl ? <KeyRound size={20} /> : <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />}
+            {t.button}
+          </button>
+        )}
       </div>
 
       <script

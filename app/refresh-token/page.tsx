@@ -1,13 +1,10 @@
 import { redirect } from 'next/navigation';
-import crypto from 'crypto';
-import { prisma } from '@/src/utils/prisma';
 import { getUserByTelegramId, getUserById } from '@/src/services/user-service';
 import { XCircle } from 'lucide-react';
 import RefreshTokenClient from './RefreshTokenClient';
 import enMessages from '@/messages/en.json';
 import heMessages from '@/messages/he.json';
 import ruMessages from '@/messages/ru.json';
-import { buildUrl } from '@/src/config/urls';
 
 interface PageProps {
   searchParams: Promise<{
@@ -16,10 +13,6 @@ interface PageProps {
     user_id?: string;
   }>;
 }
-
-// OAuth scopes
-const CALENDAR_SCOPE_READ = 'https://www.googleapis.com/auth/calendar.readonly';
-const CALENDAR_SCOPE_WRITE = 'https://www.googleapis.com/auth/calendar.events';
 
 export default async function RefreshTokenPage({ searchParams }: PageProps) {
   const params = await searchParams;
@@ -67,35 +60,8 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
   const messages = { en: enMessages, he: heMessages, ru: ruMessages }[locale] ?? enMessages;
   const t = messages.refreshToken;
 
-  // Generate secure state token
-  const stateToken = crypto.randomBytes(32).toString('hex');
-
-  // Store state in database with 10-minute expiration
-  await prisma.oAuthState.create({
-    data: {
-      userId: BigInt(user_id),
-      token: stateToken,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
-    }
-  });
-
-  // Always request both read and write scopes for full functionality
-  const oauthScope = `${CALENDAR_SCOPE_READ} ${CALENDAR_SCOPE_WRITE}`;
-
-  // Generate OAuth URL
-  const baseUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
-  const redirectUri = buildUrl('/api/refresh-token');
-  const urlParams = new URLSearchParams({
-    client_id: process.env.GOOGLE_CLIENT_ID || '',
-    redirect_uri: redirectUri,
-    response_type: 'code',
-    scope: oauthScope,
-    access_type: 'offline',
-    prompt: 'consent', // Force consent to get refresh token
-    state: stateToken // Secure random token
-  });
-
-  const oauthUrl = `${baseUrl}?${urlParams.toString()}`;
-
-  return <RefreshTokenClient oauthUrl={oauthUrl} userId={user_id} locale={locale} translations={t} />;
+  // No OAuth state here: the client asks POST /api/oauth/start for the Google URL with
+  // its credential (initData or the WhatsApp session), and the state is bound to the
+  // user that credential proves, not to this URL's user_id.
+  return <RefreshTokenClient userId={user_id} locale={locale} translations={t} />;
 }
