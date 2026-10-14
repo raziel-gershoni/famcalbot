@@ -19,6 +19,8 @@ import { escapeHtml, formatEventDateTime, formatReminderWhen } from './confirmat
 import { reminderCreateFields } from '../native-reminders/resolve';
 import { trackActivityAsync } from '../analytics-service';
 import { getBotMessage } from '../../lib/bot-messages';
+import { trackCreatedEvent } from './event-resolution';
+import { captureError } from '../../lib/error-capture';
 import type { ParsedEvent, VoiceIntentResult } from '../event-parser';
 import type { UserConfig } from '../../types';
 import type { IMessagingService } from '../messaging/types';
@@ -219,6 +221,11 @@ export async function handleBulkConfirmAll(pendingId: string): Promise<{
         trackActivityAsync(pending.user.id, 'native_reminder_created', { bulk: true, for_partner: ev.forUserId != null, all_day: ev.allDay });
       }
       const calId = ev.calendarId || 'primary';
+      // "Cancel that" reaches the batch's last reminder, as after a card (spec §11.3)
+      if (ev.kind === 'reminder' && pending.user.telegramId != null) {
+        trackCreatedEvent(pending.user.telegramId, result.eventId, calId, ev)
+          .catch(err => captureError(err, 'voice-track-event', { user_id: pending.user.id }, 'warning'));
+      }
       await pushRecentEvent(pending.user.id, {
         provider: calId.startsWith('native:') ? 'native' : 'google',
         calendarId: calId,

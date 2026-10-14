@@ -669,6 +669,70 @@ async function main() {
     assert(!result.event && result.error === 'Invalid date/time parsed', `got ${result.error}`);
   });
 
+  // (d) Editing a reminder: one time and no length, whatever end the model sends (spec §7).
+
+  /** A reminder as the native provider lists it: a timed one ends where it starts. */
+  const reminderAt = (start: string, end = start, timeZone = IL): CalendarEvent =>
+    ({
+      ...ev('Call mom', start, end), calendarId: 'native:c1', eventType: 'reminder', timeZone,
+      reminder: { ownerIsViewer: true, creatorIsViewer: true },
+    }) as CalendarEvent;
+  /** An edit's times as start..end on `tz`'s clock, and its allDay when it sets one. */
+  const editSpan = (updates: { startTime?: Date; endTime?: Date; allDay?: boolean }, tz = IL) =>
+    `${at(updates.startTime, tz)}..${at(updates.endTime, tz)}${updates.allDay === undefined ? '' : ` allDay=${updates.allDay}`}`;
+  const callMomAt10 = reminderAt('2026-10-14T10:00:00+03:00');
+
+  check('a timed reminder "moved to 17:00" is 17:00 to 17:00; the hour the model adds is dropped', () => {
+    const moved = editSpan(convertEditRequestToUpdates({ newStartTime: '17:00', newEndTime: '18:00' }, callMomAt10, IL));
+    assert(moved === '2026-10-14 17:00..2026-10-14 17:00', `got ${moved}`);
+    const thursday = editSpan(convertEditRequestToUpdates({ newStartDate: '2026-10-15' }, callMomAt10, IL));
+    assert(thursday === '2026-10-15 10:00..2026-10-15 10:00', `Thursday: got ${thursday}`);
+    const endOnly = convertEditRequestToUpdates({ newEndTime: '11:00' }, callMomAt10, IL);
+    assert(endOnly.startTime === undefined && endOnly.endTime === undefined, `an end alone moved it: ${editSpan(endOnly)}`);
+  });
+
+  check('a date-only reminder moved to Friday is 00:00 to 00:00 there, never 23:59, in its own timezone', () => {
+    const friday = editSpan(convertEditRequestToUpdates({ newStartDate: '2026-10-16', newEndDate: '2026-10-16' }, reminderAt('2026-10-14', '2026-10-15'), IL));
+    assert(friday === '2026-10-16 00:00..2026-10-16 00:00', `Israel: got ${friday}`);
+    // A New York reminder edited from Israel keeps New York's day
+    const newYork = convertEditRequestToUpdates({ newStartDate: '2026-10-16' }, reminderAt('2026-10-14', '2026-10-15', NY), IL);
+    assert(editSpan(newYork, NY) === '2026-10-16 00:00..2026-10-16 00:00', `New York: got ${editSpan(newYork, NY)}`);
+    const allDayTime = convertEditRequestToUpdates({ newAllDay: true, newStartTime: '10:00' }, reminderAt('2026-10-14', '2026-10-15'), IL);
+    assert(allDayTime.startTime === undefined && allDayTime.endTime === undefined, `a time on a kept date-only one moved it: ${editSpan(allDayTime)}`);
+  });
+
+  check('a date-only reminder given a time becomes timed at it; made timed with none, it rings at 09:00', () => {
+    const atFive = editSpan(convertEditRequestToUpdates({ newStartTime: '17:00' }, reminderAt('2026-10-14', '2026-10-15'), IL));
+    assert(atFive === '2026-10-14 17:00..2026-10-14 17:00 allDay=false', `given a time: got ${atFive}`);
+    const noTime = editSpan(convertEditRequestToUpdates({ newAllDay: false }, reminderAt('2026-10-14', '2026-10-15'), IL));
+    assert(noTime === '2026-10-14 09:00..2026-10-14 09:00 allDay=false', `no time: got ${noTime}`);
+  });
+
+  check('a timed reminder made date-only starts and ends at 00:00 of its day', () => {
+    const allDay = editSpan(convertEditRequestToUpdates({ newAllDay: true }, callMomAt10, IL));
+    assert(allDay === '2026-10-14 00:00..2026-10-14 00:00 allDay=true', `got ${allDay}`);
+  });
+
+  check('a reminder renamed keeps its time; the same move on an event keeps the event\'s hour', () => {
+    const renamed = convertEditRequestToUpdates({ newTitle: 'Call grandma' }, callMomAt10, IL);
+    assert(JSON.stringify(renamed) === '{"title":"Call grandma"}', `renamed: ${JSON.stringify(renamed)}`);
+    const dentist = ev('Dentist', '2026-10-14T10:00:00+03:00', '2026-10-14T11:00:00+03:00');
+    const event = editSpan(convertEditRequestToUpdates({ newStartTime: '17:00' }, dentist, IL));
+    assert(event === '2026-10-14 17:00..2026-10-14 18:00', `event: got ${event}`);
+  });
+
+  check('the edit card shows a reminder\'s one time and its move, never a range', () => {
+    const current = formatCalendarEventDateTime(callMomAt10, 'en', 'All day', IL);
+    assert(current === '📆 Wednesday, October 14\n🕐 10:00', `current: got ${JSON.stringify(current)}`);
+    const changes = formatEditChanges(callMomAt10, convertEditRequestToUpdates({ newStartTime: '17:00', newEndTime: '18:00' }, callMomAt10, IL), 'en', IL, 'All day');
+    assert(changes === '🕐 10:00 → 17:00', `changes: got ${JSON.stringify(changes)}`);
+    const milk = reminderAt('2026-10-14', '2026-10-15');
+    const friday = formatEditChanges(milk, convertEditRequestToUpdates({ newStartDate: '2026-10-16' }, milk, IL), 'en', IL, 'All day');
+    assert(friday === '📆 Wed, Oct 14 → Fri, Oct 16', `date-only move: got ${JSON.stringify(friday)}`);
+    const dentist = formatCalendarEventDateTime(ev('Dentist', '2026-10-14T10:00:00+03:00', '2026-10-14T11:00:00+03:00'), 'en', 'All day', IL);
+    assert(dentist === '📆 Wednesday, October 14\n🕐 10:00 - 11:00', `event: got ${JSON.stringify(dentist)}`);
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

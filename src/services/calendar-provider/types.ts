@@ -5,6 +5,7 @@
 // recurrence handling.
 
 import { CalendarEvent, UserConfig } from '../../types';
+import type { ClearedPing } from '../native-calendar/event-store';
 
 export type CalendarProviderName = 'google' | 'native';
 
@@ -89,6 +90,9 @@ export interface UpdateEventResult {
   eventLink?: string;
   error?: ProviderErrorCode;
   errorMessage?: string;
+  // Native only: the live pings of a reminder whose time changed, now without state
+  // (re-armed), so the caller can strip their buttons. Absent when there are none.
+  clearedPings?: ClearedPing[];
 }
 
 export interface DeleteEventResult {

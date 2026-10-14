@@ -20,6 +20,7 @@ import type { ReminderFailure } from '../native-reminders/resolve';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { captureError } from '../../lib/error-capture';
 import { daysBetween, describeEdit, EditSpan } from './event-resolution';
+import { isReminderEvent } from '../../utils/event-formatter';
 import { escapeHtml } from '../../utils/html';
 
 // Voice modules import escapeHtml from here; anything outside voice imports src/utils/html.
@@ -187,6 +188,9 @@ export function formatCalendarEventDateTime(event: CalendarEvent, language: stri
     const day = new Date(`${event.start}T12:00:00Z`).toLocaleDateString(locale, { ...dateOptions, timeZone: 'UTC' });
     return `📆 ${day} (${allDayText})`;
   }
+
+  // A reminder has one time, never a range
+  if (isReminderEvent(event)) return `📆 ${dateStr}\n🕐 ${startTimeStr}`;
 
   return `📆 ${dateStr}\n🕐 ${startTimeStr} - ${endTimeStr}`;
 }

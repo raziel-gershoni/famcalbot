@@ -1307,6 +1307,11 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
       await waService.sendMessage(phone, result.success
         ? `✅ ${wa.eventUpdated || 'Event updated!'}`
         : `❌ ${(wa.editFailed || 'Failed to update: {error}').replace('{error}', result.error || '')}`);
+      // A moved reminder's pings are on Telegram, whichever chat moved it (spec §7)
+      if (result.clearedPings?.length) {
+        const { stripMovedPings } = await import('./native-reminders/moved-pings');
+        await stripMovedPings(result.clearedPings, pending.originalEvent, pending.updates, pending.user);
+      }
     } else if (action === 'edit_cancel') {
       const { removePendingEdit } = await import('./voice/confirmations');
       await removePendingEdit(pendingId);

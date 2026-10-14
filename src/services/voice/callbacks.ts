@@ -168,6 +168,13 @@ export async function handleEventCallback(
           disable_web_page_preview: true
         }
       );
+    } else if (result.error === 'PERMISSION_DENIED' && user.calendarSource === 'NATIVE') {
+      // On the built-in calendar no grant fixes this: the calendar is not theirs to add to
+      await bot.editMessageText(t.nativeReminders?.permissionDenied || "You can't change this one.", {
+        chat_id: chatId,
+        message_id: messageId,
+        parse_mode: 'HTML'
+      });
     } else if (result.error === 'PERMISSION_DENIED') {
       const upgradeUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
 
@@ -308,7 +315,7 @@ export async function handleEditCallback(
 
       await bot.editMessageText(
         `${editedMsg}\n\n` +
-        `📅 ${updates.title || originalEvent.summary}${linkButton}`,
+        `📅 ${escapeHtml(updates.title || originalEvent.summary)}${linkButton}`,
         {
           chat_id: chatId,
           message_id: messageId,
@@ -328,6 +335,20 @@ export async function handleEditCallback(
         startsAt: (updates.startTime ?? new Date(originalEvent.start)).toISOString(),
         endsAt: (updates.endTime ?? new Date(originalEvent.end)).toISOString(),
         action: 'edit',
+      });
+
+      // A reminder moved to another time was re-armed: its pings still on screen say
+      // where it went, and lose their buttons (spec §7).
+      if (result.clearedPings?.length) {
+        const { stripMovedPings } = await import('../native-reminders/moved-pings');
+        await stripMovedPings(result.clearedPings, originalEvent, updates, user);
+      }
+    } else if (result.error === 'PERMISSION_DENIED' && user.calendarSource === 'NATIVE') {
+      // On the built-in calendar no grant fixes this: the item is not theirs to change
+      await bot.editMessageText(t.nativeReminders?.permissionDenied || "You can't change this one.", {
+        chat_id: chatId,
+        message_id: messageId,
+        parse_mode: 'HTML'
       });
     } else if (result.error === 'PERMISSION_DENIED') {
       const upgradeUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
@@ -467,7 +488,7 @@ export async function handleDeleteCallback(
       const deletedMsg = t.voice?.deleted || '✅ <b>Event deleted!</b>';
       await bot.editMessageText(
         `${deletedMsg}\n\n` +
-        `📅 <s>${event.summary}</s>`,
+        `📅 <s>${escapeHtml(event.summary)}</s>`,
         {
           chat_id: chatId,
           message_id: messageId,
@@ -493,6 +514,13 @@ export async function handleDeleteCallback(
           action: 'delete',
         });
       }
+    } else if (result.error === 'PERMISSION_DENIED' && user.calendarSource === 'NATIVE') {
+      // On the built-in calendar no grant fixes this: the item is not theirs to delete
+      await bot.editMessageText(t.nativeReminders?.permissionDenied || "You can't change this one.", {
+        chat_id: chatId,
+        message_id: messageId,
+        parse_mode: 'HTML'
+      });
     } else if (result.error === 'PERMISSION_DENIED') {
       const upgradeUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
       await bot.editMessageText(

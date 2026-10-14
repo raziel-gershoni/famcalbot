@@ -333,7 +333,11 @@ export const nativeProvider: CalendarProvider = {
         endsAt: data.endTime,
         allDay: data.allDay,
       });
-      return { success: true, eventId: result.canonicalEventId };
+      return {
+        success: true,
+        eventId: result.canonicalEventId,
+        ...(result.clearedPings.length > 0 ? { clearedPings: result.clearedPings } : {}),
+      };
     } catch (err) {
       return toErrorResult<UpdateEventResult>(err);
     }

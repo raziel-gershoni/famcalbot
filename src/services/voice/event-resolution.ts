@@ -17,7 +17,10 @@ import { REDIS_KEYS } from '../../config/redis-keys';
 import { captureError } from '../../lib/error-capture';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { addDaysToDate, daySpanOf, localDate, nextDate, startOfLocalDay } from '../../utils/day-events';
-import { isAllDayEvent } from '../../utils/event-formatter';
+import { isAllDayEvent, isReminderEvent } from '../../utils/event-formatter';
+import { loadViewerContext } from '../native-reminders/ownership';
+import { fetchOpenReminders } from '../native-reminders/open-reminders';
+import { REMINDER_MORNING_HOUR } from '../native-reminders/due';
 
 /**
  * Download any file from the Telegram CDN by file_id (voice, photo, document).
@@ -112,6 +115,16 @@ export async function getLastCreatedEvent(userId: number): Promise<CreatedEventT
     captureError(error, 'voice-event-resolution');
     return undefined;
   }
+}
+
+/**
+ * Whether a fetched event is the one created last. A repeating native item was created,
+ * and tracked, as its series ("<cuid>"), while each of its fetched occurrences is
+ * "<cuid>#<start>" with the series as its recurringEventId (spec §11.3).
+ */
+export function isLastCreatedEvent(event: CalendarEvent, last: Pick<CreatedEventTracker, 'eventId' | 'calendarId'>): boolean {
+  if (event.eventId === last.eventId) return true;
+  return isNativeCalendarId(last.calendarId) && event.recurringEventId === last.eventId;
 }
 
 /** The part of a reference that says which day: the model's date for it, or the user's words. */
@@ -221,8 +234,37 @@ export function describeEventForMatching(event: CalendarEvent, index: number, ti
   if (span.lastDay !== span.startDate) {
     when += allDay ? ` until ${withWeekday(span.lastDay)}` : ` until ${withWeekday(span.endDate)} ${span.endTime}`;
   }
-  return `${index + 1}. "${event.summary}" ${when} (calendar: ${event.calendarId})`;
+  return `${index + 1}. ${reminderTag(event)}"${event.summary}" ${when} (calendar: ${event.calendarId})`;
 }
+
+/** "[reminder] ", or "[reminder for Dana] " when it is the partner's, before a reminder's title. */
+function reminderTag(event: CalendarEvent): string {
+  if (!isReminderEvent(event)) return '';
+  const owner = event.reminder && !event.reminder.ownerIsViewer ? event.reminder.ownerName : undefined;
+  return owner ? `[reminder for ${owner}] ` : '[reminder] ';
+}
+
+/**
+ * Words that name a reminder in English, Hebrew and Russian: "reminder", "remind",
+ * "תזכורת", "להזכיר", "תזכיר", "напоминание", "напомни".
+ */
+const REMINDER_WORDS = /remind|תזכור|הזכיר|תזכיר|напомин|напомн/i;
+
+/** Whether the user's words ask about a reminder rather than an event. */
+function asksForReminder(text: string): boolean {
+  return REMINDER_WORDS.test(text);
+}
+
+/**
+ * The matcher's tie rule when reminders are among the candidates (spec §7): an event
+ * wins a tie with a reminder of the same title, unless the user asked about a reminder.
+ */
+const REMINDER_RULES = {
+  preferEvents: '6. Items tagged [reminder] are reminders ("[reminder for Dana]" is one for Dana); the others are events. When an event and a reminder match equally, choose the event',
+  preferReminders: '6. Items tagged [reminder] are reminders ("[reminder for Dana]" is one for Dana); the others are events. The user is asking about a reminder: when an event and a reminder match equally, choose the reminder',
+} as const;
+
+export type ReminderRule = keyof typeof REMINDER_RULES;
 
 /**
  * The matcher's prompt. It states the user's date and the day the reference names: the
@@ -234,7 +276,8 @@ export function buildMatchPrompt(
   language: string,
   eventList: string,
   now: Date,
-  timezone: string
+  timezone: string,
+  reminderRule?: ReminderRule
 ): string {
   const day = hintedDay(reference, now, timezone);
   const today = `Today is ${withWeekday(localDate(now, timezone))}`;
@@ -259,7 +302,7 @@ MATCHING CRITERIA (in priority order):
    - If multiple title matches exist, the time match MUST be used to disambiguate
 3. If a date is meant (e.g., "tomorrow"), prefer events that start on that date; count one carried over from an earlier day only when none starting on it matches
 4. If multiple events match ALL criteria equally, return "multiple"
-5. If no event matches the description, return "none"
+5. If no event matches the description, return "none"${reminderRule ? `\n${REMINDER_RULES[reminderRule]}` : ''}
 
 RESPOND IN JSON:
 {
@@ -276,6 +319,17 @@ type MatchResult = { event: CalendarEvent; calendarId: string } | { error: strin
 export interface MatchOptions {
   /** Which of the events in range may match (a reminder's anchor: upcoming events only, never reminders). */
   eligible?: (events: CalendarEvent[]) => CalendarEvent[];
+  /** A chat edit or delete: the user's own words. Naming a reminder in them lets a reminder win a tie with an event. */
+  request?: string;
+  /** A chat edit or delete: offer the user's open reminders too, however old (built-in calendar only). */
+  openReminders?: boolean;
+}
+
+/** What every round of one search shares: the open reminders, whether a reminder is meant, and the caller's filter. */
+interface MatchExtras {
+  open: CalendarEvent[];
+  wantsReminder: boolean;
+  eligible?: MatchOptions['eligible'];
 }
 
 /**
@@ -292,7 +346,12 @@ export async function findMatchingEvent(
 ): Promise<MatchResult> {
   const timezone = await resolveUserTimezone(user);
   const day = hintedDay(reference, now, timezone);
-  const narrowed = await matchInRange(user, calendarIds, reference, language, now, timezone, day, options);
+  const extras: MatchExtras = {
+    open: options.openReminders ? await openReminderCandidates(user, now, timezone) : [],
+    wantsReminder: asksForReminder(`${options.request ?? ''} ${reference.description ?? ''}`),
+    eligible: options.eligible,
+  };
+  const narrowed = await matchInRange(user, calendarIds, reference, language, now, timezone, day, extras);
 
   // A day taken from a weekday name or the model's own date is a guess the old search never
   // made: it looked three weeks around today. When that guess finds nothing, look there
@@ -301,9 +360,91 @@ export async function findMatchingEvent(
   const guessedDay = day !== undefined && !/today|tomorrow|היום|מחר|сегодня|завтра/i.test(reference.timeHint ?? '');
   if (guessedDay && 'error' in narrowed && (narrowed.error === 'no_events_found' || narrowed.error === 'no_match')) {
     const wide = { ...reference, originalDate: undefined, timeHint: undefined };
-    return matchInRange(user, calendarIds, wide, language, now, timezone, undefined, options);
+    return matchInRange(user, calendarIds, wide, language, now, timezone, undefined, extras);
   }
   return narrowed;
+}
+
+/**
+ * The user's open reminders, however old: an undone one stays in their digests ("open
+ * since Monday") until it is done, so it must stay reachable by voice after the search's
+ * week back. Only the built-in calendar has reminders. A failed lookup costs only these.
+ */
+async function openReminderCandidates(user: UserConfig, now: Date, timezone: string): Promise<CalendarEvent[]> {
+  if (user.calendarSource !== 'NATIVE') return [];
+  try {
+    const ctx = await loadViewerContext({ id: user.id, pairingId: user.pairingId ?? null });
+    const { events } = await fetchOpenReminders(user, ctx, now, localDate(now, timezone), timezone, Infinity);
+    return events;
+  } catch (error) {
+    captureError(error, 'voice-event-resolution', { user_id: user.id }, 'warning');
+    return [];
+  }
+}
+
+/** The open reminders the search's range did not already bring, ahead of its events. */
+function withOpenReminders(events: CalendarEvent[], open: CalendarEvent[]): CalendarEvent[] {
+  const fetched = new Set(events.map(e => e.eventId));
+  const added = open.filter(e => !fetched.has(e.eventId));
+  return added.length > 0 ? [...added, ...events] : events;
+}
+
+/** yyyy-MM-dd HH:mm on the user's clock, which orders one series' occurrences. */
+function startKey(event: CalendarEvent, timezone: string): string {
+  const span = localSpan(event, timezone);
+  return `${span.startDate} ${span.startTime}`;
+}
+
+/** Whether an occurrence is still ahead: a date-only one all through its day. */
+function isUpcoming(event: CalendarEvent, now: Date, timezone: string): boolean {
+  return isAllDayEvent(event) ? event.start >= localDate(now, timezone) : new Date(event.start) >= now;
+}
+
+/**
+ * One candidate per repeating reminder: its nearest occurrence from now on, else its
+ * latest one before now. A daily reminder would otherwise put three weeks of identical
+ * lines before the matcher, which could only answer "multiple". Events, one-off
+ * reminders and the order are left as they are.
+ */
+export function collapseReminderSeries(events: CalendarEvent[], now: Date, timezone: string): CalendarEvent[] {
+  const seriesOf = (e: CalendarEvent) => (isReminderEvent(e) ? e.recurringEventId : undefined);
+  const chosen = new Map<string, CalendarEvent>();
+  for (const event of events) {
+    const series = seriesOf(event);
+    if (!series) continue;
+    const current = chosen.get(series);
+    if (!current) {
+      chosen.set(series, event);
+      continue;
+    }
+    const ahead = isUpcoming(event, now, timezone);
+    if (ahead !== isUpcoming(current, now, timezone)) {
+      if (ahead) chosen.set(series, event);
+      continue;
+    }
+    const earlier = startKey(event, timezone) < startKey(current, timezone);
+    // Ahead: the soonest. Behind: the latest.
+    if (ahead === earlier) chosen.set(series, event);
+  }
+  return events.filter(e => {
+    const series = seriesOf(e);
+    return !series || chosen.get(series) === e;
+  });
+}
+
+/**
+ * When the matcher cannot choose between events and reminders, the event wins, unless the
+ * user asked about a reminder (spec §7). A tie among events alone, or among reminders
+ * alone, stays "multiple".
+ */
+function settleKindTie(result: MatchResult, wantsReminder: boolean): MatchResult {
+  if (!('error' in result) || result.error !== 'multiple_matches' || !result.multiple) return result;
+  const reminders = result.multiple.filter(isReminderEvent);
+  if (reminders.length === 0 || reminders.length === result.multiple.length) return result;
+  const preferred = wantsReminder ? reminders : result.multiple.filter(e => !isReminderEvent(e));
+  return preferred.length === 1
+    ? { event: preferred[0], calendarId: preferred[0].calendarId }
+    : { error: 'multiple_matches', multiple: preferred };
 }
 
 /** The match within the range `reference` names, its own day's events tried first. */
@@ -315,14 +456,15 @@ async function matchInRange(
   now: Date,
   timezone: string,
   day: string | undefined,
-  options: MatchOptions = {},
+  extras: MatchExtras,
 ): Promise<MatchResult> {
   const { startDate, endDate } = matchSearchRange(reference, now, timezone);
 
   // Fetch events from all calendars
   const provider = getProviderForUser(user);
   const fetched = await provider.fetchEventsInRange(user, calendarIds, startDate, endDate);
-  const events = options.eligible ? options.eligible(fetched) : fetched;
+  const merged = withOpenReminders(fetched, extras.open);
+  const events = collapseReminderSeries(extras.eligible ? extras.eligible(merged) : merged, now, timezone);
 
   if (events.length === 0) {
     return { error: 'no_events_found' };
@@ -343,7 +485,11 @@ async function matchInRange(
   let result: MatchResult = { error: 'no_match' };
   for (const candidates of rounds) {
     const eventList = candidates.map((e, i) => describeEventForMatching(e, i, timezone)).join('\n');
-    result = await askMatcher(buildMatchPrompt(reference, language, eventList, now, timezone), candidates);
+    const rule: ReminderRule | undefined = candidates.some(isReminderEvent)
+      ? extras.wantsReminder ? 'preferReminders' : 'preferEvents'
+      : undefined;
+    const prompt = buildMatchPrompt(reference, language, eventList, now, timezone, rule);
+    result = settleKindTie(await askMatcher(prompt, candidates), extras.wantsReminder);
     if (!('error' in result) || result.error !== 'no_match') break;
   }
   return result;
@@ -437,6 +583,9 @@ function endAfter(start: Date, day: string, time: string, timezone: string): Dat
 /** How long an all-day event made timed lasts when not given an end. */
 const DEFAULT_TIMED_LENGTH_MS = 60 * 60 * 1000;
 
+/** When a date-only reminder made timed with no time given rings: the hour it pings at. */
+const REMINDER_DEFAULT_TIME = `${String(REMINDER_MORNING_HOUR).padStart(2, '0')}:00`;
+
 /**
  * An all-day event from `firstDay` to `lastDay` as creation saves one, for either
  * calendar: 00:00 local on the first day (startOfLocalDay) to 23:59 local on the last.
@@ -515,6 +664,7 @@ export function convertEditRequestToUpdates(
   const updates: UpdateEventData = {};
 
   if (!editRequest) return updates;
+  if (isReminderEvent(originalEvent)) return reminderUpdates(editRequest, originalEvent, timezone);
 
   if (editRequest.newTitle) {
     updates.title = editRequest.newTitle;
@@ -591,5 +741,36 @@ export function convertEditRequestToUpdates(
     updates.allDay = newAllDay;
   }
 
+  return updates;
+}
+
+/**
+ * A reminder's edit. A reminder has one time and no length (spec §7): its end is its
+ * start, a date-only one stays at 00:00 of its day, and an end the model sends out of
+ * habit (an hour after the new start) is dropped. Given a time, a date-only reminder
+ * becomes a timed one; made timed with no time, it rings at the reminder morning hour.
+ */
+function reminderUpdates(editRequest: EditRequest, originalEvent: CalendarEvent, timezone: string): UpdateEventData {
+  const updates: UpdateEventData = {};
+  if (editRequest.newTitle) updates.title = editRequest.newTitle;
+  if (editRequest.newLocation) updates.location = editRequest.newLocation;
+
+  const original = localSpan(originalEvent, timezone);
+  const wasAllDay = isAllDayEvent(originalEvent);
+  // The model sends null for what it leaves alone, and allDay is a required Boolean
+  const newAllDay = typeof editRequest.newAllDay === 'boolean' ? editRequest.newAllDay : undefined;
+  const allDay = newAllDay ?? (wasAllDay && !editRequest.newStartTime);
+  const day = editRequest.newStartDate || original.startDate;
+
+  if (allDay) {
+    if (editRequest.newStartDate || !wasAllDay) {
+      updates.startTime = startOfLocalDay(day, allDayZone(originalEvent, timezone));
+    }
+  } else if (wasAllDay || editRequest.newStartDate || editRequest.newStartTime) {
+    const time = editRequest.newStartTime || (wasAllDay ? REMINDER_DEFAULT_TIME : original.startTime);
+    updates.startTime = fromZonedTime(`${day}T${time}:00`, timezone);
+  }
+  if (updates.startTime) updates.endTime = updates.startTime;
+  if (newAllDay !== undefined || allDay !== wasAllDay) updates.allDay = allDay;
   return updates;
 }

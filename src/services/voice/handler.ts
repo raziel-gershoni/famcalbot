@@ -16,7 +16,7 @@ import { UserConfig } from '../../types';
 import { getBotMessages } from '../../lib/bot-messages';
 import { trackActivityAsync, addBreadcrumb, setUserContext } from '../analytics-service';
 import { checkFeatureAccess } from '../subscription-service';
-import { downloadVoiceFile, getLastCreatedEvent, findMatchingEvent, convertEditRequestToUpdates } from './event-resolution';
+import { downloadVoiceFile, getLastCreatedEvent, findMatchingEvent, convertEditRequestToUpdates, isLastCreatedEvent } from './event-resolution';
 import { sendAnchorQuestions, showEventConfirmation, showEditConfirmation, showDeleteConfirmation } from './confirmations';
 import { getReminderSupport } from '../native-reminders/support';
 import { reminderPromptContext, resolveReminderIntents } from '../native-reminders/resolve';
@@ -83,7 +83,7 @@ export async function handleEditIntent(
       new Date(lastEvent.endTime.getTime() + 60000)
     );
 
-    targetEvent = events.find(e => e.eventId === lastEvent.eventId);
+    targetEvent = events.find(e => isLastCreatedEvent(e, lastEvent));
     targetCalendarId = lastEvent.calendarId;
 
   } else if (intentResult.eventReference?.type === 'by_description') {
@@ -92,7 +92,9 @@ export async function handleEditIntent(
       user,
       calendarIds,
       intentResult.eventReference,
-      user.language || 'en'
+      user.language || 'en',
+      undefined,
+      { request: transcription, openReminders: true }
     );
 
     if ('error' in matchResult) {
@@ -176,7 +178,7 @@ export async function handleDeleteIntent(
       new Date(lastEvent.endTime.getTime() + 60000)
     );
 
-    targetEvent = events.find(e => e.eventId === lastEvent.eventId);
+    targetEvent = events.find(e => isLastCreatedEvent(e, lastEvent));
     targetCalendarId = lastEvent.calendarId;
 
   } else if (intentResult.eventReference?.type === 'by_description') {
@@ -185,7 +187,9 @@ export async function handleDeleteIntent(
       user,
       calendarIds,
       intentResult.eventReference,
-      user.language || 'en'
+      user.language || 'en',
+      undefined,
+      { request: transcription, openReminders: true }
     );
 
     if ('error' in matchResult) {

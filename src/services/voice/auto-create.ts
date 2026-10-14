@@ -25,6 +25,8 @@ import { resolveUserTimezone } from '../../lib/timezone';
 import { escapeHtml, formatEventDateTime, formatReminderCreated } from './confirmations';
 import { reminderCreateFields } from '../native-reminders/resolve';
 import { trackActivityAsync } from '../analytics-service';
+import { trackCreatedEvent } from './event-resolution';
+import { captureError } from '../../lib/error-capture';
 
 const UNDO_TTL_SECONDS = 30;
 
@@ -107,6 +109,12 @@ export async function autoCreateEvent(
     ...reminderCreateFields(event),
   });
   if (!result.success || !result.eventId) return false;
+
+  // "Cancel that" reaches a reminder made without a card too (spec §11.3)
+  if (event.kind === 'reminder' && user.telegramId != null) {
+    trackCreatedEvent(user.telegramId, result.eventId, calendarId, event)
+      .catch(err => captureError(err, 'voice-track-event', { user_id: user.id }, 'warning'));
+  }
 
   const token = await storeUndoToken({
     userId: user.id,
