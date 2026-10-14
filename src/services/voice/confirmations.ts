@@ -340,7 +340,8 @@ export function formatReminderWhen(
 /**
  * When a reminder fires, as the created reply says it (plan ruling 6): "today at 17:00",
  * "tomorrow at 10:00" or "on Fri, Oct 16 at 10:00", and "today", "tomorrow" or "Fri,
- * Oct 16" for a date-only one, from the when.* copy. Today is the user's own day
+ * Oct 16" for a date-only one, from the when.* copy (Russian says the day plus the long
+ * month: "16 октября"). Today is the user's own day
  * (`timezone`), not the server's. `{date}` is formatReminderWhen's short date.
  */
 export async function formatReminderRelativeWhen(

@@ -141,7 +141,7 @@ export function reminderTimeFromAnchor(
 ): { ok: true; startTime: Date; allDay: boolean } | { ok: false; error: 'anchor_needs_time' } {
   const offset = Number.isFinite(offsetMinutes) ? offsetMinutes : 0;
   if (!isAllDayEvent(anchorEvent)) {
-    if (offset % MINUTES_PER_DAY === 0) {
+    if (offset !== 0 && offset % MINUTES_PER_DAY === 0) {
       // Whole days move on the calendar at the same wall-clock time, so a DST change
       // in between doesn't land the reminder an hour off
       const wall = formatInTimeZone(new Date(anchorEvent.start), timezone, "yyyy-MM-dd'T'HH:mm:ss");

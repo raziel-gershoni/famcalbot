@@ -357,8 +357,8 @@ export async function handleVoiceMessage(
     if (support.supported) {
       const resolved = await resolveReminderIntents(user, intentResults ?? [intentResult], timezone);
       intentResults = resolved.intents;
-      // Keep a valid item beside one that failed: the failures are asked about after its card
-      intentResult = resolved.intents.find(i => i.event && !i.error) ?? resolved.intents[0];
+      // Skip only an item resolution failed (not an edit or delete): the failures are asked about after its card
+      intentResult = resolved.intents.find(i => !(i.intent === 'create' && !i.event && i.error && resolved.failures.some(x => x.error === i.error))) ?? resolved.intents[0];
       reminderFailures = resolved.failures;
     }
 

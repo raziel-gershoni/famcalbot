@@ -329,7 +329,7 @@ const pendingIdOf = (call: Sent, prefix: string) =>
 async function main() {
   const { getBotMessage, getBotMessages } = await import('../src/lib/bot-messages');
   const resolve = await import('../src/services/native-reminders/resolve');
-  const { resolveReminderForCreate, resolveReminderIntents, reminderCreateFields, anchorCandidates } = resolve;
+  const { resolveReminderForCreate, resolveReminderIntents, reminderCreateFields, anchorCandidates, reminderTimeFromAnchor } = resolve;
   const confirmations = await import('../src/services/voice/confirmations');
   const { showEventConfirmation, formatEventDateTime, formatReminderWhen, formatReminderRelativeWhen, reminderCreatedLine } = confirmations;
   const { handleEventCallback } = await import('../src/services/voice/callbacks');
@@ -767,7 +767,7 @@ async function main() {
     const en = await reminderCreatedLine(event, 'en', IL);
     assert(en === '⏰ Reminder for Raziel set for Fri, Oct 16.', en);
     const ru = await reminderCreatedLine(event, 'ru', IL);
-    assert(ru === '⏰ Напоминание для Raziel поставлено на 16 октября', ru);
+    assert(ru === '⏰ Напоминание для Raziel поставлено на 16 октября.', ru);
     const he = await reminderCreatedLine(event, 'he', IL);
     assert(he.includes('Raziel') && !he.includes('{'), he);
   });
@@ -780,6 +780,19 @@ async function main() {
   });
 
   const questionText = await getBotMessage('en', 'nativeReminders.anchor.notFound', { description: 'the dentist' });
+  await check('anchor: an offset of 0 returns the anchor instant exactly (ambiguous fall-back hour)', async () => {
+    const start = new RealDate('2026-10-24T22:30:00Z');
+    const r = reminderTimeFromAnchor(calendarEvent('Dentist', start.toISOString(), new RealDate('2026-10-24T23:30:00Z').toISOString()), 0, IL);
+    assert(r.ok && r.startTime.getTime() === start.getTime(), JSON.stringify(r));
+  });
+
+  await check('voice: [edit, create] still routes the edit, as before', async () => {
+    const edit: VoiceIntentResult = { intent: 'edit', confidence: 'high', eventReference: { type: 'last_created' } };
+    extracted = [edit, createIntent(parsedReminder({ title: 'Buy milk' }))];
+    await handleVoiceMessage(555, 1001, voice, from);
+    assert(!botCalls.some(b => b.text.includes('Buy milk')) && created.length === 0, JSON.stringify(botCalls));
+  });
+
   for (const order of ['failed first', 'valid first'] as const) {
     const list = () => {
       const bad = createIntent(anchored('the dentist', -60));
