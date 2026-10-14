@@ -759,11 +759,16 @@
         "partnerNotOnTelegram": "{name} isn't on Telegram, so I can't ping them. Keep it as yours?",
         "keepAsMine": "Keep as mine"
       },
+      "bulk": {
+        "timePassed": "already passed, won't ping",
+        "noTimeSet": "no time set, won't ping"
+      },
       "created": {
         "self": "⏰ I'll remind you {when}.",
         "partner": "⏰ I'll remind {name} {when}.",
         "dateOnly": "⏰ Reminder set for {when}.",
-        "partnerDateOnly": "⏰ Reminder for {name} set for {when}."
+        "partnerDateOnly": "⏰ Reminder for {name} set for {when}.",
+        "passed": "⏰ Saved. That time has already passed, so it'll show in your summaries until it's done."
       },
       "when": {
         "todayAt": "today at {time}",

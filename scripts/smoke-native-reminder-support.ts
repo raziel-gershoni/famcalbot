@@ -145,7 +145,7 @@ const COPY_KEYS = [
   'ping.from', 'buttons.done', 'buttons.snooze15', 'buttons.snooze60', 'buttons.snoozeTomorrow',
   'done', 'snoozedUntil', 'alreadyDone', 'notYours', 'changed', 'doneBy', 'moved',
   'card.title', 'card.forPartner', 'card.noTimeSet', 'card.timePassed', 'card.partnerNotOnTelegram', 'card.keepAsMine',
-  'created.self', 'created.partner', 'created.dateOnly',
+  'created.self', 'created.partner', 'created.dateOnly', 'created.passed', 'bulk.timePassed', 'bulk.noTimeSet',
   'when.todayAt', 'when.tomorrowAt', 'when.dateAt', 'when.today', 'when.tomorrow', 'when.date',
   'typed.processing', 'typed.notUnderstood',
   'anchor.notFound', 'anchor.ambiguous', 'anchor.needsTime', 'permissionDenied',

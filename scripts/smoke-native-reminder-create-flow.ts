@@ -680,6 +680,24 @@ async function main() {
     assert(spoken === `${(await reminderCreatedLine(forPartner, 'en', IL)).replace('⏰ ', '')} Call the plumber.`, spoken);
   });
 
+  await check('replies: a passed reminder\'s reply promises no ping, for the partner too, spoken or shown, in three languages', async () => {
+    rangeEvents = [calendarEvent('Dentist', iso('2026-10-14 11:00'), iso('2026-10-14 12:00'))];
+    const event = await resolved(anchored('the dentist', -150)); // 08:30; it's 10:30
+    assert(event.reminderNotice === 'time_passed', `notice ${event.reminderNotice}`);
+    await showEventConfirmation(555, undefined, event, 'x', dana);
+    await handleEventCallback(555, 701, 'q1', 'create', pendingIdOf(lastBot(), 'event_create:'));
+    const passed = await getBotMessage('en', 'nativeReminders.created.passed');
+    assert(created.length === 1 && lastBot().text === `${passed}\n\n<b>Call the plumber</b>`, lastBot().text);
+    const forPartner = await resolved({ ...anchored('the dentist', -150), forPerson: 'partner' });
+    assert(forPartner.forUserId === 2 && await reminderCreatedLine(forPartner, 'en', IL) === passed, await reminderCreatedLine(forPartner, 'en', IL));
+    const spoken = await formatReminderOutcomeLine(event, 'en', IL);
+    assert(spoken === `${passed.replace('⏰ ', '')} Call the plumber.`, spoken);
+    for (const language of ['he', 'ru']) {
+      const line = await reminderCreatedLine(event, language, IL, false);
+      assert(line === await getBotMessage(language, 'nativeReminders.created.passed') && !line.includes('08:30'), `${language}: ${line}`);
+    }
+  });
+
   // ---- Bulk ----
 
   await check('bulk: two reminders show as reminders and "Confirm all" creates both (dates revived from Redis)', async () => {
@@ -694,6 +712,24 @@ async function main() {
     assert(result.successCount === 2 && result.failureCount === 0, JSON.stringify(result));
     assert(created.every(c => c.input.kind === 'reminder' && sameInstant(c.input.endTime, c.input.startTime as Date)), JSON.stringify(created));
     assert(created[0].input.forUserId === 2 && created[1].input.forUserId === null, JSON.stringify(created));
+  });
+
+  await check('bulk: a reminder that won\'t ping says so on its own line, so "Confirm all" creates nothing silently', async () => {
+    rangeEvents = [calendarEvent('Dentist', iso('2026-10-14 11:00'), iso('2026-10-14 12:00'))];
+    const passed = await resolved({ ...anchored('the dentist', -150), title: 'Pack the bag' }); // 08:30; it's 10:30
+    const noTime = await resolved(parsedReminder({ title: 'Buy milk', ...dateOnly('2026-10-14') }));
+    const fine = await resolved(parsedReminder());
+    await showBulkConfirmation(555, [createIntent(passed), createIntent(noTime), createIntent(fine)], dana, 'x', t, fakeService as never, IL);
+    const text = serviceCalls[0].text;
+    const short = t.nativeReminders.bulk;
+    assert(text.includes(`1. ⏰ <b>Pack the bag</b> — Wed, Oct 14, 08:30 · <i>${short.timePassed}</i>\n`), text);
+    assert(text.includes(`2. ⏰ <b>Buy milk</b> — Wed, Oct 14 · <i>${short.noTimeSet}</i>\n`), text);
+    assert(text.includes('3. ⏰ <b>Call the plumber</b> — Thu, Oct 15, 10:00') && !text.split('3. ')[1].includes('<i>'), text);
+    serviceCalls = [];
+    const he = { ...dana, language: 'he' } as UserConfig;
+    await showBulkConfirmation(555, [createIntent(passed), createIntent(fine)], he, 'x', await getBotMessages('he'), fakeService as never, IL);
+    const heShort = await getBotMessage('he', 'nativeReminders.bulk.timePassed');
+    assert(serviceCalls[0].text.includes(` · <i>${heShort}</i>\n`), serviceCalls[0].text);
   });
 
   await check('bulk: a partner who can\'t be pinged is noted once under the list', async () => {

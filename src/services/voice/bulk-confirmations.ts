@@ -110,7 +110,11 @@ export async function showBulkConfirmation(
       const forPartner = ev.forUserId != null && ev.forName
         ? ` · ${await getBotMessage(language, 'nativeReminders.card.forPartner', { name: escapeHtml(ev.forName) })}`
         : '';
-      return `${i + 1}. ${title}${recurringMark} — ${formatReminderWhen(ev, language, timezone)}${forPartner}`;
+      // "Confirm all" must not create one that won't ping without saying so
+      const notice = ev.reminderNotice === 'time_passed' || ev.reminderNotice === 'no_time_set'
+        ? ` · <i>${await getBotMessage(language, `nativeReminders.bulk.${ev.reminderNotice === 'time_passed' ? 'timePassed' : 'noTimeSet'}`)}</i>`
+        : '';
+      return `${i + 1}. ${title}${recurringMark} — ${formatReminderWhen(ev, language, timezone)}${forPartner}${notice}`;
     }
     const when = formatEventDateTime(ev, language, t.voice?.allDay || 'All day', timezone);
     return `${i + 1}. <b>${escapeHtml(ev.title)}</b>${recurringMark} — ${when}`;

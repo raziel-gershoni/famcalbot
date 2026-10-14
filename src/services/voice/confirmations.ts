@@ -407,8 +407,9 @@ export async function formatReminderCard(
 
 /**
  * The line saying a reminder is set: for whom and when ("tomorrow at 10:00"), or just the
- * day for a date-only one. `html` escapes the partner's name for Telegram; WhatsApp and
- * speech take it as is.
+ * day for a date-only one. One whose time had already passed promises no ping, whoever
+ * it is for. `html` escapes the partner's name for Telegram; WhatsApp and speech take it
+ * as is.
  */
 export async function reminderCreatedLine(
   event: ParsedEvent,
@@ -416,6 +417,7 @@ export async function reminderCreatedLine(
   timezone: string,
   html = true
 ): Promise<string> {
+  if (event.reminderNotice === 'time_passed') return getBotMessage(language, 'nativeReminders.created.passed');
   const when = await formatReminderRelativeWhen(event, language, timezone);
   const forPartner = event.forUserId != null && !!event.forName;
   const name = forPartner ? (html ? escapeHtml(event.forName!) : event.forName!) : '';

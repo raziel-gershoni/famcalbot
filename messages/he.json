@@ -759,11 +759,16 @@
         "partnerNotOnTelegram": "{name} לא בטלגרם, אז אין לי איך לשלוח תזכורת. להשאיר אותה אצלך?",
         "keepAsMine": "להשאיר אצלי"
       },
+      "bulk": {
+        "timePassed": "המועד עבר, לא תישלח התראה",
+        "noTimeSet": "בלי שעה, לא תישלח התראה"
+      },
       "created": {
         "self": "⏰ אזכיר לך {when}.",
         "partner": "⏰ התזכורת בשביל {name} תישלח {when}.",
         "dateOnly": "⏰ התזכורת נקבעה ל{when}.",
-        "partnerDateOnly": "⏰ התזכורת בשביל {name} נקבעה ל{when}."
+        "partnerDateOnly": "⏰ התזכורת בשביל {name} נקבעה ל{when}.",
+        "passed": "⏰ נשמר. המועד כבר עבר, אז התזכורת תופיע בסיכומים עד שתסומן כבוצעה."
       },
       "when": {
         "todayAt": "היום ב-{time}",
