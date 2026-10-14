@@ -272,6 +272,12 @@ RESPOND IN JSON:
 
 type MatchResult = { event: CalendarEvent; calendarId: string } | { error: string; multiple?: CalendarEvent[] };
 
+/** What a caller adds to the search. */
+export interface MatchOptions {
+  /** Which of the events in range may match (a reminder's anchor: upcoming events only, never reminders). */
+  eligible?: (events: CalendarEvent[]) => CalendarEvent[];
+}
+
 /**
  * Find a matching event based on description and time hint
  * Uses AI to match event titles and returns the best match
@@ -281,11 +287,12 @@ export async function findMatchingEvent(
   calendarIds: string[],
   reference: EventReference,
   language: string,
-  now: Date = new Date()
+  now: Date = new Date(),
+  options: MatchOptions = {}
 ): Promise<MatchResult> {
   const timezone = await resolveUserTimezone(user);
   const day = hintedDay(reference, now, timezone);
-  const narrowed = await matchInRange(user, calendarIds, reference, language, now, timezone, day);
+  const narrowed = await matchInRange(user, calendarIds, reference, language, now, timezone, day, options);
 
   // A day taken from a weekday name or the model's own date is a guess the old search never
   // made: it looked three weeks around today. When that guess finds nothing, look there
@@ -294,7 +301,7 @@ export async function findMatchingEvent(
   const guessedDay = day !== undefined && !/today|tomorrow|היום|מחר|сегодня|завтра/i.test(reference.timeHint ?? '');
   if (guessedDay && 'error' in narrowed && (narrowed.error === 'no_events_found' || narrowed.error === 'no_match')) {
     const wide = { ...reference, originalDate: undefined, timeHint: undefined };
-    return matchInRange(user, calendarIds, wide, language, now, timezone, undefined);
+    return matchInRange(user, calendarIds, wide, language, now, timezone, undefined, options);
   }
   return narrowed;
 }
@@ -308,12 +315,14 @@ async function matchInRange(
   now: Date,
   timezone: string,
   day: string | undefined,
+  options: MatchOptions = {},
 ): Promise<MatchResult> {
   const { startDate, endDate } = matchSearchRange(reference, now, timezone);
 
   // Fetch events from all calendars
   const provider = getProviderForUser(user);
-  const events = await provider.fetchEventsInRange(user, calendarIds, startDate, endDate);
+  const fetched = await provider.fetchEventsInRange(user, calendarIds, startDate, endDate);
+  const events = options.eligible ? options.eligible(fetched) : fetched;
 
   if (events.length === 0) {
     return { error: 'no_events_found' };

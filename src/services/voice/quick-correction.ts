@@ -43,6 +43,7 @@ export async function clearQuickCorrection(chatId: number): Promise<void> {
 export interface FieldPatch {
   startTime?: Date;
   endTime?: Date;
+  allDay?: boolean; // a date-only reminder given a time becomes timed
   calendarId?: string;
   calendarName?: string;
 }
@@ -79,7 +80,9 @@ function buildFieldPrompt(
   const eventCtx = `Current event: "${current.title}" — ${current.startTime.toISOString()} to ${current.endTime.toISOString()}`;
 
   let fieldHint = '';
-  if (field === 'time') {
+  if (field === 'time' && current.kind === 'reminder') {
+    fieldHint = `The user is correcting just the TIME of a reminder, which has one time and no end. Return JSON: { "startTime": "HH:MM" }. The date stays the same as the current reminder.`;
+  } else if (field === 'time') {
     fieldHint = `The user is correcting just the START TIME (and end time = start + duration). Return JSON: { "startTime": "HH:MM", "endTime": "HH:MM" }. The date stays the same as the current event.`;
   } else if (field === 'day') {
     fieldHint = `The user is correcting just the DATE. Return JSON: { "startDate": "YYYY-MM-DD", "endDate": "YYYY-MM-DD" }. The time stays the same as the current event.`;
@@ -135,7 +138,16 @@ export async function extractFieldPatch(
     const parsed = JSON.parse(jsonMatch[0]);
 
     const out: FieldPatch = {};
-    if (field === 'time' && parsed.startTime && parsed.endTime) {
+    if (field === 'time' && current.kind === 'reminder') {
+      // One time on the reminder's own day, which a date-only reminder gets for the first time
+      const datePart = formatInTimeZone(current.startTime, timezone, 'yyyy-MM-dd');
+      const at = parsed.startTime ? fromZonedTime(`${datePart}T${parsed.startTime}:00`, timezone) : null;
+      if (at && !isNaN(at.getTime())) {
+        out.startTime = at;
+        out.endTime = at;
+        out.allDay = false;
+      }
+    } else if (field === 'time' && parsed.startTime && parsed.endTime) {
       // Reuse existing date from current event — IN THE USER'S TIMEZONE,
       // not UTC, so an event near local midnight doesn't slip a day.
       const datePart = formatInTimeZone(current.startTime, timezone, 'yyyy-MM-dd');

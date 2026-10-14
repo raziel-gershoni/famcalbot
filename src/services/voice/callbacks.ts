@@ -14,6 +14,7 @@ import { captureError } from '../../lib/error-capture';
 import { incrementUsage } from '../subscription-service';
 import { trackCreatedEvent } from './event-resolution';
 import { resolveUserTimezone } from '../../lib/timezone';
+import { reminderCreateFields } from '../native-reminders/resolve';
 import {
   getPendingEvent,
   removePendingEvent,
@@ -21,7 +22,9 @@ import {
   removePendingEdit,
   getPendingDelete,
   removePendingDelete,
+  escapeHtml,
   formatEventDateTime,
+  formatReminderCreated,
 } from './confirmations';
 
 /**
@@ -96,11 +99,14 @@ export async function handleEventCallback(
         location: event.location,
         description: event.description,
         allDay: event.allDay,
-        recurrence: buildRecurrenceRule(event.recurrence)
+        recurrence: buildRecurrenceRule(event.recurrence),
+        ...reminderCreateFields(event),
       }
     );
 
     if (result.success) {
+      const reminder = event.kind === 'reminder';
+      const timezone = await resolveUserTimezone(user);
       if (result.eventId) {
         trackCreatedEvent(user.telegramId!, result.eventId, event.calendarId || 'primary', event)
           .catch(err => captureError(err, 'voice-track-event', { user_id: user.id }, 'warning'));
@@ -122,29 +128,39 @@ export async function handleEventCallback(
 
       // PR 12: voice-in → voice-out. Mirror modality on the success outcome.
       if (pending.inputModality === 'voice') {
-        const { speakOutcome, formatOutcomeLine } = await import('./tts-outcome');
+        const { speakOutcome, formatOutcomeLine, formatReminderOutcomeLine } = await import('./tts-outcome');
         const { getMessagingService } = await import('../telegram/bot');
-        const line = formatOutcomeLine('created', event.title, user.language || 'en');
+        const line = reminder
+          ? await formatReminderOutcomeLine(event, user.language || 'en', timezone)
+          : formatOutcomeLine('created', event.title, user.language || 'en');
         speakOutcome(chatId, line, user, getMessagingService()).catch(() => {});
       }
 
       trackActivityAsync(user.id, 'voice_event_created', {
         calendar_id: event.calendarId || 'primary',
       });
+      if (reminder) {
+        trackActivityAsync(user.id, 'native_reminder_created', {
+          for_partner: event.forUserId != null,
+          all_day: event.allDay,
+          recurring: !!event.recurrence,
+        });
+      }
       incrementUsage(user.id, 'voiceEvents').catch(err =>
         console.error('[Subscription] Failed to increment voice events:', err)
       );
 
-      const timezone = await resolveUserTimezone(user);
       const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay, timezone);
       const linkButton = result.eventLink
         ? `\n\n<a href="${result.eventLink}">${t.voice.openInCalendar}</a>`
         : '';
 
       await bot.editMessageText(
-        `${t.voice.created}\n\n` +
-        `<b>${event.title}</b>\n` +
-        `${dateTimeStr}${linkButton}`,
+        reminder
+          ? await formatReminderCreated(event, user.language || 'en', timezone)
+          : `${t.voice.created}\n\n` +
+            `<b>${escapeHtml(event.title)}</b>\n` +
+            `${dateTimeStr}${linkButton}`,
         {
           chat_id: chatId,
           message_id: messageId,

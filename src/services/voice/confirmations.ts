@@ -10,7 +10,13 @@ import { ParsedEvent, RecurrenceScope } from '../event-parser';
 import { CalendarEvent, UpdateEventData } from '../calendar';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { UserConfig } from '../../types';
-import { getBotMessages } from '../../lib/bot-messages';
+import { getBotMessage, getBotMessages } from '../../lib/bot-messages';
+import { formatInTimeZone } from 'date-fns-tz';
+import { addDaysToDate, localDate } from '../../utils/day-events';
+import { MessageFormat } from '../messaging/types';
+import type { IMessagingService } from '../messaging/types';
+import { refreshReminderNotice } from '../native-reminders/resolve';
+import type { ReminderFailure } from '../native-reminders/resolve';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { captureError } from '../../lib/error-capture';
 import { daysBetween, describeEdit, EditSpan } from './event-resolution';
@@ -314,6 +320,130 @@ export function formatEventDateTime(event: ParsedEvent, language: string, allDay
 }
 
 /**
+ * When a reminder fires, as its card and the bulk card list it: the short date and time
+ * in the user's language ("Thu, Oct 15, 10:00"), or the date alone for a date-only one.
+ * No end: a reminder has no length. Never relative: "📆 on Thu, Oct 15 at 10:00" reads
+ * wrong on a card. The created reply uses formatReminderRelativeWhen instead.
+ */
+export function formatReminderWhen(
+  event: Pick<ParsedEvent, 'startTime' | 'allDay'>,
+  language: string,
+  timezone: string
+): string {
+  const locale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
+  const date: Intl.DateTimeFormatOptions = { weekday: 'short', month: 'short', day: 'numeric', timeZone: timezone };
+  return event.allDay
+    ? event.startTime.toLocaleDateString(locale, date)
+    : event.startTime.toLocaleString(locale, { ...date, hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+/**
+ * When a reminder fires, as the created reply says it (plan ruling 6): "today at 17:00",
+ * "tomorrow at 10:00" or "on Fri, Oct 16 at 10:00", and "today", "tomorrow" or "Fri,
+ * Oct 16" for a date-only one, from the when.* copy. Today is the user's own day
+ * (`timezone`), not the server's. `{date}` is formatReminderWhen's short date.
+ */
+export async function formatReminderRelativeWhen(
+  event: Pick<ParsedEvent, 'startTime' | 'allDay'>,
+  language: string,
+  timezone: string
+): Promise<string> {
+  const day = localDate(event.startTime, timezone);
+  const today = localDate(new Date(), timezone);
+  const relative = day === today ? 'today' : day === addDaysToDate(today, 1) ? 'tomorrow' : 'date';
+  const date = formatReminderWhen({ startTime: event.startTime, allDay: true }, language, timezone);
+  if (event.allDay) return getBotMessage(language, `nativeReminders.when.${relative}`, { date });
+  const time = formatInTimeZone(event.startTime, timezone, 'HH:mm');
+  return getBotMessage(language, `nativeReminders.when.${relative}At`, { date, time });
+}
+
+/** Telegram's HTML or WhatsApp's own markup, for text both platforms show. */
+const MARKUP = {
+  html: { bold: (s: string) => `<b>${s}</b>`, italic: (s: string) => `<i>${s}</i>`, text: escapeHtml },
+  whatsapp: { bold: (s: string) => `*${s}*`, italic: (s: string) => `_${s}_`, text: (s: string) => s },
+};
+
+/**
+ * A reminder's card (spec §3.3): its title, when it fires and for whom, and anything
+ * that keeps it from pinging. No end time and no calendar: a reminder has no length and
+ * always goes on its creator's main calendar.
+ */
+export async function formatReminderCard(
+  event: ParsedEvent,
+  language: string,
+  timezone: string,
+  markup: keyof typeof MARKUP = 'html'
+): Promise<string> {
+  const m = MARKUP[markup];
+  const t = await getBotMessages(language);
+  const forPartner = event.forUserId != null && event.forName
+    ? ` · ${await getBotMessage(language, 'nativeReminders.card.forPartner', { name: m.text(event.forName) })}`
+    : '';
+  const lines = [
+    await getBotMessage(language, 'nativeReminders.card.title', { title: m.bold(m.text(event.title)) }),
+    `📆 ${formatReminderWhen(event, language, timezone)}${forPartner}`,
+  ];
+  const recurrence = formatRecurrence(event.recurrence, language);
+  if (recurrence) lines.push(recurrence);
+  if (event.location) lines.push(`📍 ${m.text(event.location)}`);
+  if (event.reminderNotice === 'no_time_set') {
+    lines.push('', m.italic(t.nativeReminders.card.noTimeSet));
+  } else if (event.reminderNotice === 'partner_not_on_telegram') {
+    const name = m.text(event.forName || '');
+    lines.push('', m.italic(await getBotMessage(language, 'nativeReminders.card.partnerNotOnTelegram', { name })));
+  }
+  return lines.join('\n');
+}
+
+/**
+ * The line saying a reminder is set: for whom and when ("tomorrow at 10:00"), or just the
+ * day for a date-only one. `html` escapes the partner's name for Telegram; WhatsApp and
+ * speech take it as is.
+ */
+export async function reminderCreatedLine(
+  event: ParsedEvent,
+  language: string,
+  timezone: string,
+  html = true
+): Promise<string> {
+  const when = await formatReminderRelativeWhen(event, language, timezone);
+  if (event.allDay) return getBotMessage(language, 'nativeReminders.created.dateOnly', { when });
+  if (event.forUserId != null && event.forName) {
+    const name = html ? escapeHtml(event.forName) : event.forName;
+    return getBotMessage(language, 'nativeReminders.created.partner', { name, when });
+  }
+  return getBotMessage(language, 'nativeReminders.created.self', { when });
+}
+
+/** What a reminder's card says once the reminder is created (confirmed or auto-created). */
+export async function formatReminderCreated(event: ParsedEvent, language: string, timezone: string): Promise<string> {
+  const recurrence = formatRecurrence(event.recurrence, language);
+  return `${await reminderCreatedLine(event, language, timezone)}\n\n<b>${escapeHtml(event.title)}</b>` +
+    (recurrence ? `\n${recurrence}` : '');
+}
+
+const ANCHOR_QUESTIONS = { anchor_not_found: 'notFound', anchor_ambiguous: 'ambiguous', anchor_needs_time: 'needsTime' } as const;
+
+/** What to ask when a reminder set relative to an event ("an hour before the dentist") can't be placed. */
+export function anchorQuestion(failure: ReminderFailure, language: string, html = true): Promise<string> {
+  return getBotMessage(language, `nativeReminders.anchor.${ANCHOR_QUESTIONS[failure.error]}`, {
+    description: html ? escapeHtml(failure.description) : failure.description,
+  });
+}
+
+/** Ask about each reminder in a message that couldn't be placed (Telegram). */
+export async function sendAnchorQuestions(
+  chatId: number | string,
+  failures: ReminderFailure[],
+  language: string,
+  service: IMessagingService
+): Promise<void> {
+  for (const failure of failures) {
+    await service.sendMessage(chatId, await anchorQuestion(failure, language), { format: MessageFormat.HTML });
+  }
+}
+
+/**
  * Show event creation confirmation with inline keyboard
  */
 export async function showEventConfirmation(
@@ -331,38 +461,53 @@ export async function showEventConfirmation(
 
   const pendingId = `${chatId}:${Date.now()}`;
 
+  // A reminder's notice is worked out again on every showing: a quick fix or a reply may
+  // have given it a time since it was resolved.
+  const reminder = event.kind === 'reminder';
+  const shown = reminder ? refreshReminderNotice(event, timezone) : event;
+
   // Store in Redis with TTL (survives serverless cold starts).
   // PR 12: inputModality threads through so callbacks know whether to voice
   // the outcome (preserves voice-in/voice-out for the same conversation).
-  await redis.set(REDIS_KEYS.pendingEvent(pendingId), { event, user, transcription, inputModality }, { ex: PENDING_TTL_SECONDS });
+  await redis.set(REDIS_KEYS.pendingEvent(pendingId), { event: shown, user, transcription, inputModality }, { ex: PENDING_TTL_SECONDS });
 
-  const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay, timezone);
-  const locationStr = event.location ? `\n📍 ${event.location}` : '';
-  const calendarStr = event.calendarName ? `\n📁 ${event.calendarName}` : '';
+  let body: string;
+  if (reminder) {
+    body = await formatReminderCard(shown, user.language || 'en', timezone);
+  } else {
+    const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay, timezone);
+    const locationStr = event.location ? `\n📍 ${escapeHtml(event.location)}` : '';
+    const calendarStr = event.calendarName ? `\n📁 ${escapeHtml(event.calendarName)}` : '';
+    body = `${t.voice.confirmTitle}\n\n<b>${escapeHtml(event.title)}</b>\n${dateTimeStr}${locationStr}${calendarStr}`;
+  }
 
   const confirmationMessage =
-    `${t.voice.confirmTitle}\n\n` +
-    `<b>${event.title}</b>\n` +
-    `${dateTimeStr}${locationStr}${calendarStr}\n\n` +
+    `${body}\n\n` +
     `<i>${t.voice.from} "${escapeHtml(transcription)}"</i>` +
     (adminFooter || '');
 
   // Quick-correction shortcut row (PR 10 polish): one tap re-prompts for just
   // one field of the pending event. Only show "Cal" when user has multiple
-  // calendars to pick from — otherwise the button is meaningless.
+  // calendars to pick from — otherwise the button is meaningless. A reminder
+  // never offers it: it always goes on the creator's main calendar.
   const calendarCount = (user.calendarAssignments?.length ?? 0);
   const quickRow: Array<{ text: string; callback_data: string }> = [
     { text: t.voice?.fixTime || '⏰ Time', callback_data: `event_fix:time:${pendingId}` },
     { text: t.voice?.fixDay || '📅 Day', callback_data: `event_fix:day:${pendingId}` },
   ];
-  if (calendarCount > 1) {
+  if (calendarCount > 1 && !reminder) {
     quickRow.push({ text: t.voice?.fixCal || '📁 Cal', callback_data: `event_fix:cal:${pendingId}` });
   }
+
+  // A partner who can't be pinged: confirming keeps the reminder as the creator's
+  const createLabel = shown.reminderNotice === 'partner_not_on_telegram'
+    ? t.nativeReminders.card.keepAsMine
+    : t.voice.createButton;
 
   const replyMarkup = {
     inline_keyboard: [
       [
-        { text: t.voice.createButton, callback_data: `event_create:${pendingId}` },
+        { text: createLabel, callback_data: `event_create:${pendingId}` },
         { text: t.voice.cancelButton, callback_data: `event_cancel:${pendingId}` }
       ],
       quickRow,

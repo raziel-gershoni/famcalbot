@@ -16,6 +16,7 @@ import { AI_MODEL_ID } from '../../config/ai-models';
 import { formatInTimeZone } from 'date-fns-tz';
 import { getPendingEvent, removePendingEvent, showEventConfirmation } from './confirmations';
 import { buildEventTimes } from './gemini-voice';
+import { normalizeReminderTimes } from '../native-calendar/event-store';
 import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { startTypingInterval } from '../telegram/command-pipeline';
@@ -38,6 +39,10 @@ function buildCorrectionPrompt(
   const startTimeStr = formatInTimeZone(event.startTime, timezone, 'HH:mm');
   const endDateStr = formatInTimeZone(event.endTime, timezone, 'yyyy-MM-dd');
   const endTimeStr = formatInTimeZone(event.endTime, timezone, 'HH:mm');
+  // A reminder has one time: without this the model gives it the usual hour
+  const reminderNote = event.kind === 'reminder'
+    ? '\nThis is a REMINDER: it has one time and no end. Return endDate and endTime equal to startDate and startTime.\n'
+    : '';
 
   return `You are correcting a calendar event based on user feedback.
 The user will provide their correction as text or voice.
@@ -51,7 +56,7 @@ CURRENT EVENT:
 - Location: ${event.location || 'none'}
 - Calendar: ${event.calendarName || 'Primary'} (ID: ${event.calendarId || 'primary'})
 - All day: ${event.allDay}
-
+${reminderNote}
 USER'S CALENDARS:
 ${calendarList || '- Primary calendar (ID: primary)'}
 
@@ -158,9 +163,15 @@ export async function handleEventCorrection(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const parsed: any = JSON.parse(jsonMatch[0]);
 
-    // Build corrected ParsedEvent
+    // Build corrected ParsedEvent. A reminder's end is its start, whatever the model sent.
+    const reminder = event.kind === 'reminder';
     const { start: startDateTime, end: endDateTime } = buildEventTimes(
-      parsed.startDate, parsed.startTime, parsed.endDate, parsed.endTime, !!parsed.allDay, timezone
+      parsed.startDate,
+      parsed.startTime,
+      reminder ? parsed.startDate : parsed.endDate,
+      reminder ? parsed.startTime : parsed.endTime,
+      !!parsed.allDay,
+      timezone
     );
 
     if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
@@ -186,6 +197,23 @@ export async function handleEventCorrection(
       confidence: 'high',
       recurrence: event.recurrence,
     };
+    if (reminder) {
+      // A reminder keeps who it is for and its main calendar, and stays zero-length.
+      // The card works its notice out again from the corrected time.
+      const times = normalizeReminderTimes(startDateTime, correctedEvent.allDay, timezone);
+      Object.assign(correctedEvent, {
+        startTime: times.startsAt,
+        endTime: times.endsAt,
+        calendarId: event.calendarId,
+        calendarName: event.calendarName,
+        kind: event.kind,
+        forPerson: event.forPerson,
+        anchor: event.anchor,
+        forUserId: event.forUserId,
+        forName: event.forName,
+        reminderNotice: event.reminderNotice,
+      });
+    }
 
     // Clean up old pending event + reverse mapping
     await removePendingEvent(pendingId);

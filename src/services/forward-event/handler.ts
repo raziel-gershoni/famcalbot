@@ -12,7 +12,10 @@ import { buildUrl } from '../../config/urls';
 import { getBotMessages } from '../../lib/bot-messages';
 import { trackActivityAsync, addBreadcrumb, setUserContext } from '../analytics-service';
 import { checkFeatureAccess } from '../subscription-service';
-import { showEventConfirmation } from '../voice/confirmations';
+import { sendAnchorQuestions, showEventConfirmation } from '../voice/confirmations';
+import { getReminderSupport } from '../native-reminders/support';
+import { reminderPromptContext, resolveReminderIntents } from '../native-reminders/resolve';
+import type { ReminderFailure } from '../native-reminders/resolve';
 import { handleEditIntent, handleDeleteIntent } from '../voice';
 import { captureError } from '../../lib/error-capture';
 import { startTypingInterval } from '../telegram/command-pipeline';
@@ -117,12 +120,25 @@ export async function handleForwardedMessage(
     stopTyping = startTypingInterval(chatId, messagingService);
 
     const timezone = await resolveUserTimezone(user);
-    const { intentResult, intentResults, metrics } = await processTextWithGemini(
+    // Native reminders (spec R3). In forwarded text "me" is whoever forwarded it, so the
+    // prompt names no partner and every reminder is the forwarder's own (spec §3.1).
+    const support = await getReminderSupport(user);
+    const extraction = await processTextWithGemini(
       messageText,
       user.language || 'en',
       userCalendars,
-      timezone
+      timezone,
+      support.supported ? await reminderPromptContext(user, { withPartner: false }) : undefined
     );
+    const { metrics } = extraction;
+    let { intentResult, intentResults } = extraction;
+    let reminderFailures: ReminderFailure[] = [];
+    if (support.supported) {
+      const resolved = await resolveReminderIntents(user, intentResults ?? [intentResult], timezone, { selfOnly: true });
+      intentResults = resolved.intents;
+      intentResult = resolved.intents[0];
+      reminderFailures = resolved.failures;
+    }
 
     // Build admin footer from processing metrics
     const adminFooter = user.isAdmin
@@ -140,21 +156,28 @@ export async function handleForwardedMessage(
     // Stop typing before sending confirmation UI
     stopTyping();
 
-    // Several events in one message: one bulk card, as for voice notes and photos.
-    const validBulk = intentResults.filter(r => r.intent === 'create' && r.event && !r.error);
+    // Several events in one message: one card for all of them, as for voice
+    const validBulk = (intentResults || []).filter(r => r.intent === 'create' && r.event && !r.error);
     if (validBulk.length > 1) {
       const { showBulkConfirmation } = await import('../voice/bulk-confirmations');
       await showBulkConfirmation(chatId, validBulk, user, messageText, t, messagingService, timezone);
+      await sendAnchorQuestions(chatId, reminderFailures, user.language || 'en', messagingService);
       return;
     }
 
     if (intentResult.intent === 'create') {
       if (!intentResult.event) {
+        // A reminder anchored to an event that couldn't be found asks for a time instead
+        if (reminderFailures.length > 0) {
+          await sendAnchorQuestions(chatId, reminderFailures, user.language || 'en', messagingService);
+          return;
+        }
         // No event found or low confidence
         await messagingService.sendMessage(chatId, t.voice.forwardNotUnderstood, { format: MessageFormat.HTML });
         return;
       }
       await showEventConfirmation(chatId, undefined, intentResult.event, messageText, user, adminFooter);
+      await sendAnchorQuestions(chatId, reminderFailures, user.language || 'en', messagingService);
 
     } else if (intentResult.intent === 'edit') {
       await handleEditIntent(chatId, undefined, intentResult, messageText, user, t, adminFooter);

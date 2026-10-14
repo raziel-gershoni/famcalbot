@@ -17,7 +17,10 @@ import { getBotMessages } from '../../lib/bot-messages';
 import { trackActivityAsync, addBreadcrumb, setUserContext } from '../analytics-service';
 import { checkFeatureAccess } from '../subscription-service';
 import { downloadVoiceFile, getLastCreatedEvent, findMatchingEvent, convertEditRequestToUpdates } from './event-resolution';
-import { showEventConfirmation, showEditConfirmation, showDeleteConfirmation } from './confirmations';
+import { sendAnchorQuestions, showEventConfirmation, showEditConfirmation, showDeleteConfirmation } from './confirmations';
+import { getReminderSupport } from '../native-reminders/support';
+import { reminderPromptContext, resolveReminderIntents } from '../native-reminders/resolve';
+import type { ReminderFailure } from '../native-reminders/resolve';
 import { NO_SPEECH } from './speech-presence';
 import { captureError } from '../../lib/error-capture';
 import { startTypingInterval } from '../telegram/command-pipeline';
@@ -335,14 +338,28 @@ export async function handleVoiceMessage(
     const { getRecentEvents, formatRecentEventsBlock } = await import('./recent-events-store');
     const recentEvents = await getRecentEvents(user.id);
     const recentBlock = formatRecentEventsBlock(recentEvents, timezone);
-    const { intentResult, intentResults, transcription, metrics } = await processVoiceWithGemini(
+    // Native reminders (spec R3), checked once per message. Without support the prompt
+    // has no reminder rules and everything below runs as before.
+    const support = await getReminderSupport(user);
+    const extraction = await processVoiceWithGemini(
       audioBuffer,
       user.language || 'en',
       userCalendars,
       timezone,
       recentBlock,
-      priorAudio ?? undefined
+      priorAudio ?? undefined,
+      support.supported ? await reminderPromptContext(user) : undefined
     );
+    const { transcription, metrics } = extraction;
+    let { intentResult, intentResults } = extraction;
+    // Each reminder gets its calendar, target and time before any card shows it
+    let reminderFailures: ReminderFailure[] = [];
+    if (support.supported) {
+      const resolved = await resolveReminderIntents(user, intentResults ?? [intentResult], timezone);
+      intentResults = resolved.intents;
+      intentResult = resolved.intents[0];
+      reminderFailures = resolved.failures;
+    }
 
     // Build admin footer from voice processing metrics
     const adminFooter = user.isAdmin
@@ -374,6 +391,7 @@ export async function handleVoiceMessage(
     if (validBulk.length > 1) {
       const { showBulkConfirmation } = await import('./bulk-confirmations');
       await showBulkConfirmation(chatId, validBulk, user, transcription, t, messagingService, timezone);
+      await sendAnchorQuestions(chatId, reminderFailures, user.language || 'en', messagingService);
       return;
     }
 
@@ -395,6 +413,11 @@ export async function handleVoiceMessage(
         return;
       }
       if (!intentResult.event) {
+        // A reminder anchored to an event that couldn't be found asks for a time instead
+        if (reminderFailures.length > 0) {
+          await sendAnchorQuestions(chatId, reminderFailures, user.language || 'en', messagingService);
+          return;
+        }
         const safeTranscription = transcription.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         await messagingService.sendMessage(chatId,
           `${t.voice.notUnderstood}\n\n` +
@@ -415,12 +438,18 @@ export async function handleVoiceMessage(
       if (
         intentResult.confidence === 'high' &&
         !intentResult.event.recurrence &&
+        // A reminder for a partner who can't be pinged waits for "keep as mine"
+        intentResult.event.reminderNotice !== 'partner_not_on_telegram' &&
         (await isAutoCreateEnabled())
       ) {
         const handled = await autoCreateEvent(user, intentResult.event, t, messagingService, chatId);
-        if (handled) return;
+        if (handled) {
+          await sendAnchorQuestions(chatId, reminderFailures, user.language || 'en', messagingService);
+          return;
+        }
       }
       await showEventConfirmation(chatId, undefined, intentResult.event, transcription, user, adminFooter, 'voice');
+      await sendAnchorQuestions(chatId, reminderFailures, user.language || 'en', messagingService);
 
     } else if (intentResult.intent === 'edit') {
       await handleEditIntent(chatId, undefined, intentResult, transcription, user, t, adminFooter);

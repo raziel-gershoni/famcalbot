@@ -22,7 +22,9 @@ import type { IMessagingService } from '../messaging/types';
 import { MessageFormat } from '../messaging/types';
 import { pushRecentEvent } from './recent-events-store';
 import { resolveUserTimezone } from '../../lib/timezone';
-import { formatEventDateTime } from './confirmations';
+import { escapeHtml, formatEventDateTime, formatReminderCreated } from './confirmations';
+import { reminderCreateFields } from '../native-reminders/resolve';
+import { trackActivityAsync } from '../analytics-service';
 
 const UNDO_TTL_SECONDS = 30;
 
@@ -102,6 +104,7 @@ export async function autoCreateEvent(
     description: event.description,
     allDay: event.allDay,
     recurrence: buildRecurrenceRule(event.recurrence),
+    ...reminderCreateFields(event),
   });
   if (!result.success || !result.eventId) return false;
 
@@ -124,11 +127,17 @@ export async function autoCreateEvent(
   });
 
   const timezone = await resolveUserTimezone(user);
-  const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice?.allDay || 'All day', timezone);
-  const locationStr = event.location ? `\n📍 ${event.location}` : '';
-  const summary =
-    `${t.voice?.created || '✅ Event created!'}` +
-    `\n\n📅 <b>${event.title}</b>\n${dateTimeStr}${locationStr}`;
+  const reminder = event.kind === 'reminder';
+  let summary: string;
+  if (reminder) {
+    summary = await formatReminderCreated(event, user.language || 'en', timezone);
+  } else {
+    const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice?.allDay || 'All day', timezone);
+    const locationStr = event.location ? `\n📍 ${escapeHtml(event.location)}` : '';
+    summary =
+      `${t.voice?.created || '✅ Event created!'}` +
+      `\n\n📅 <b>${escapeHtml(event.title)}</b>\n${dateTimeStr}${locationStr}`;
+  }
   const undoLabel = t.voice?.undo || '↩️ Undo (30s)';
 
   try {
@@ -152,6 +161,13 @@ export async function autoCreateEvent(
     return false;
   }
 
+  if (reminder) {
+    trackActivityAsync(user.id, 'native_reminder_created', {
+      auto: true,
+      for_partner: event.forUserId != null,
+      all_day: event.allDay,
+    });
+  }
   return true;
 }
 

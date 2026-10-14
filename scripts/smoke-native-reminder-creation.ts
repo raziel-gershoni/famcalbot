@@ -170,7 +170,10 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   },
   [`${SRC}/services/voice/confirmations.ts`]: {
     showEventConfirmation: async (...args: unknown[]) => { cardCalls.push(args); },
+    sendAnchorQuestions: async () => {},
   },
+  // Reminders off: these checks pin the forwarded flow without reminder support (Task 11)
+  [`${SRC}/services/native-reminders/support.ts`]: { getReminderSupport: async () => ({ supported: false, reason: 'disabled' }) },
   [`${SRC}/services/voice/bulk-confirmations.ts`]: {
     showBulkConfirmation: async (...args: unknown[]) => {
       bulkCalls.push(args);

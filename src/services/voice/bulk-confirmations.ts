@@ -15,7 +15,10 @@ import { REDIS_KEYS } from '../../config/redis-keys';
 import { getProviderForUser } from '../calendar-provider';
 import { buildRecurrenceRule } from '../calendar';
 import { pushRecentEvent } from './recent-events-store';
-import { formatEventDateTime } from './confirmations';
+import { escapeHtml, formatEventDateTime, formatReminderWhen } from './confirmations';
+import { reminderCreateFields } from '../native-reminders/resolve';
+import { trackActivityAsync } from '../analytics-service';
+import { getBotMessage } from '../../lib/bot-messages';
 import type { ParsedEvent, VoiceIntentResult } from '../event-parser';
 import type { UserConfig } from '../../types';
 import type { IMessagingService } from '../messaging/types';
@@ -42,7 +45,16 @@ export async function setPendingBatch(
 
 export async function getPendingBatch(pendingId: string): Promise<BulkPendingPayload | null> {
   const data = await redis.get<BulkPendingPayload>(REDIS_KEYS.pendingBatch(pendingId));
-  return data ?? null;
+  if (!data) return null;
+  // Redis hands the batch back as JSON, its times as strings: confirming called
+  // toISOString() on them after the first create and threw (spec §11.1).
+  for (const intent of data.intents) {
+    if (intent.event) {
+      intent.event.startTime = new Date(intent.event.startTime);
+      intent.event.endTime = new Date(intent.event.endTime);
+    }
+  }
+  return data;
 }
 
 export async function removePendingBatch(pendingId: string): Promise<void> {
@@ -87,15 +99,29 @@ export async function showBulkConfirmation(
     transcription,
   });
 
-  const lines = creates.map((it, i) => {
+  const language = user.language || 'en';
+  const lines = await Promise.all(creates.map(async (it, i) => {
     const ev = it.event as ParsedEvent;
-    const when = formatEventDateTime(ev, user.language || 'en', t.voice?.allDay || 'All day', timezone);
     const recurringMark = ev.recurrence ? ' 🔁' : '';
-    return `${i + 1}. <b>${ev.title}</b>${recurringMark} — ${when}`;
-  });
+    if (ev.kind === 'reminder') {
+      const title = await getBotMessage(language, 'nativeReminders.card.title', { title: `<b>${escapeHtml(ev.title)}</b>` });
+      const forPartner = ev.forUserId != null && ev.forName
+        ? ` · ${await getBotMessage(language, 'nativeReminders.card.forPartner', { name: escapeHtml(ev.forName) })}`
+        : '';
+      return `${i + 1}. ${title}${recurringMark} — ${formatReminderWhen(ev, language, timezone)}${forPartner}`;
+    }
+    const when = formatEventDateTime(ev, language, t.voice?.allDay || 'All day', timezone);
+    return `${i + 1}. <b>${escapeHtml(ev.title)}</b>${recurringMark} — ${when}`;
+  }));
+
+  // "Confirm all" keeps a reminder for a partner who can't be pinged as the creator's: say so
+  const unreachable = await Promise.all(creates
+    .filter((it) => it.event?.reminderNotice === 'partner_not_on_telegram')
+    .map((it) => getBotMessage(language, 'nativeReminders.card.partnerNotOnTelegram', { name: escapeHtml(it.event?.forName || '') })));
+  const notices = [...new Set(unreachable)].map((notice) => `<i>${notice}</i>`);
 
   const heading = (t.voice?.bulkFound || '📋 Found {count} events. Confirm all?').replace('{count}', String(creates.length));
-  const body = `${heading}\n\n${lines.join('\n')}`;
+  const body = `${heading}\n\n${lines.join('\n')}${notices.length > 0 ? `\n\n${notices.join('\n')}` : ''}`;
 
   const confirmLabel = t.voice?.bulkConfirmAll || '✅ Confirm all';
   const cancelLabel = t.voice?.bulkCancelAll || '❌ Cancel all';
@@ -185,9 +211,13 @@ export async function handleBulkConfirmAll(pendingId: string): Promise<{
       description: ev.description,
       allDay: ev.allDay,
       recurrence: buildRecurrenceRule(ev.recurrence),
+      ...reminderCreateFields(ev),
     });
     if (result.success && result.eventId) {
       success++;
+      if (ev.kind === 'reminder') {
+        trackActivityAsync(pending.user.id, 'native_reminder_created', { bulk: true, for_partner: ev.forUserId != null, all_day: ev.allDay });
+      }
       const calId = ev.calendarId || 'primary';
       await pushRecentEvent(pending.user.id, {
         provider: calId.startsWith('native:') ? 'native' : 'google',

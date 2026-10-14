@@ -25,6 +25,7 @@ import { handlePreCheckoutQuery, handleSuccessfulPayment } from './payment-handl
 import { setUserContext, addBreadcrumb } from './analytics-service';
 import { captureError } from '../lib/error-capture';
 import { isIdentifierBlocked, isUserSuspended } from '../lib/user-moderation';
+import type { ReminderFailure } from './native-reminders/resolve';
 
 /**
  * Handle Telegram webhook updates
@@ -301,6 +302,7 @@ export async function handleTelegramWebhook(
             // card in place via showEventConfirmation(messageId=...).
             if (patch.startTime) pending.event.startTime = patch.startTime;
             if (patch.endTime) pending.event.endTime = patch.endTime;
+            if (patch.allDay !== undefined) pending.event.allDay = patch.allDay;
             if (patch.calendarId) pending.event.calendarId = patch.calendarId;
             if (patch.calendarName) pending.event.calendarName = patch.calendarName;
             await removePendingEvent(quickState.pendingId);
@@ -923,13 +925,36 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     const { getRecentEvents, formatRecentEventsBlock } = await import('./voice/recent-events-store');
     const recentEvents = await getRecentEvents(user.id);
     const recentBlock = formatRecentEventsBlock(recentEvents, timezone);
-    const { intentResult, intentResults, transcription } = await processVoiceWithGemini(
+    // Native reminders (spec R3): only users linked to Telegram, where the ping goes
+    const { getReminderSupport } = await import('./native-reminders/support');
+    const { reminderPromptContext, resolveReminderIntents, reminderCreateFields, refreshReminderNotice } =
+      await import('./native-reminders/resolve');
+    const support = await getReminderSupport(user);
+    const extraction = await processVoiceWithGemini(
       audioBuffer,
       user.language || 'en',
       userCalendars,
       timezone,
-      recentBlock
+      recentBlock,
+      undefined,
+      support.supported ? await reminderPromptContext(user) : undefined
     );
+    const { transcription } = extraction;
+    let { intentResult, intentResults } = extraction;
+    let reminderFailures: ReminderFailure[] = [];
+    if (support.supported) {
+      const resolved = await resolveReminderIntents(user, intentResults ?? [intentResult], timezone);
+      intentResults = resolved.intents;
+      intentResult = resolved.intents[0];
+      reminderFailures = resolved.failures;
+    }
+    const askAboutReminders = async () => {
+      if (reminderFailures.length === 0) return;
+      const { anchorQuestion } = await import('./voice/confirmations');
+      for (const failure of reminderFailures) {
+        await waService.sendMessage(phone, await anchorQuestion(failure, user.language || 'en', false));
+      }
+    };
 
     console.log(`[WhatsApp Voice] Intent: ${intentResult.intent}, confidence: ${intentResult.confidence}`);
 
@@ -940,8 +965,9 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     // surface, and recurring events need scope decisions per event.
     const validBulkWa = (intentResults || []).filter((r) => r.intent === 'create' && r.event && !r.error);
     if (validBulkWa.length > 1) {
+      // A reminder for a partner who can't be pinged needs "keep as mine" first
       const allHigh = validBulkWa.every(
-        (r) => r.confidence === 'high' && !r.event!.recurrence
+        (r) => r.confidence === 'high' && !r.event!.recurrence && r.event!.reminderNotice !== 'partner_not_on_telegram'
       );
       if (!allHigh) {
         await waService.sendMessage(
@@ -975,10 +1001,14 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
           description: ev.description,
           allDay: ev.allDay,
           recurrence: buildRecurrenceRule(ev.recurrence),
+          ...reminderCreateFields(ev),
         });
         if (result.success && result.eventId) {
           successCount++;
           successTitles.push(ev.title);
+          if (ev.kind === 'reminder') {
+            trackActivityAsync(user.id, 'native_reminder_created', { platform: 'whatsapp', auto: true, bulk: true });
+          }
           const calId = ev.calendarId || 'primary';
           await pushRecentEvent(user.id, {
             provider: calId.startsWith('native:') ? 'native' : 'google',
@@ -1018,6 +1048,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
           .replace('{errors}', failures.map((e) => `• ${e}`).join('\n'));
       }
       await waService.sendMessage(phone, summary);
+      await askAboutReminders();
       return;
     }
 
@@ -1037,7 +1068,12 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
         return;
       }
 
-      if (intentResult.confidence === 'high' && !intentResult.event.recurrence) {
+      const reminder = intentResult.event.kind === 'reminder';
+      if (
+        intentResult.confidence === 'high' &&
+        !intentResult.event.recurrence &&
+        intentResult.event.reminderNotice !== 'partner_not_on_telegram'
+      ) {
         // Auto-create directly. No confirmation, no Undo button (WhatsApp
         // template/button surface is constrained — see TG flow for full Undo).
         const { getProviderForUser } = await import('./calendar-provider');
@@ -1051,6 +1087,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
           description: intentResult.event.description,
           allDay: intentResult.event.allDay,
           recurrence: buildRecurrenceRule(intentResult.event.recurrence),
+          ...reminderCreateFields(intentResult.event),
         });
         if (result.success) {
           if (result.eventId) {
@@ -1069,13 +1106,15 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
           const { incrementUsage } = await import('./subscription-service');
           const { trackActivityAsync } = await import('./analytics-service');
           trackActivityAsync(user.id, 'voice_event_created', { platform: 'whatsapp', auto: true });
+          if (reminder) trackActivityAsync(user.id, 'native_reminder_created', { platform: 'whatsapp', auto: true });
           incrementUsage(user.id, 'voiceEvents').catch((e) =>
             captureError(e, 'usage-increment', { user_id: user.id }, 'warning')
           );
-          await waService.sendMessage(
-            phone,
-            `✅ ${t.voice?.created || 'Event created!'}\n\n*${intentResult.event.title}*`
-          );
+          const { reminderCreatedLine } = await import('./voice/confirmations');
+          const createdLine = reminder
+            ? await reminderCreatedLine(intentResult.event, user.language || 'en', timezone, false)
+            : `✅ ${t.voice?.created || 'Event created!'}`;
+          await waService.sendMessage(phone, `${createdLine}\n\n*${intentResult.event.title}*`);
         } else {
           await waService.sendMessage(
             phone,
@@ -1090,21 +1129,35 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
       const { redis } = await import('../utils/redis');
 
       const pendingId = `wa:${phone}:${Date.now()}`;
-      await redis.set(REDIS_KEYS.pendingEvent(pendingId), { event: intentResult.event, user, transcription }, { ex: 600 });
+      const pendingEvent = reminder ? refreshReminderNotice(intentResult.event, timezone) : intentResult.event;
+      await redis.set(REDIS_KEYS.pendingEvent(pendingId), { event: pendingEvent, user, transcription }, { ex: 600 });
 
-      const { formatEventDateTime } = await import('./voice/confirmations');
-      const dateTimeStr = formatEventDateTime(intentResult.event, user.language || 'en', t.voice?.allDay || 'All day', timezone);
-      const locationStr = intentResult.event.location ? `\n📍 ${intentResult.event.location}` : '';
+      const { formatEventDateTime, formatReminderCard } = await import('./voice/confirmations');
+      let card: string;
+      if (reminder) {
+        card = await formatReminderCard(pendingEvent, user.language || 'en', timezone, 'whatsapp');
+      } else {
+        const dateTimeStr = formatEventDateTime(intentResult.event, user.language || 'en', t.voice?.allDay || 'All day', timezone);
+        const locationStr = intentResult.event.location ? `\n📍 ${intentResult.event.location}` : '';
+        card = `*${wa.createEvent || 'Create event?'}*\n\n*${intentResult.event.title}*\n${dateTimeStr}${locationStr}`;
+      }
+      // A partner who can't be pinged: confirming keeps the reminder as the creator's
+      const createTitle = pendingEvent.reminderNotice === 'partner_not_on_telegram'
+        ? t.nativeReminders.card.keepAsMine
+        : wa.createButton || '✅ Create';
 
       await waService.sendMessage(phone,
-        `*${wa.createEvent || 'Create event?'}*\n\n*${intentResult.event.title}*\n${dateTimeStr}${locationStr}\n\n_"${transcription}"_`,
+        `${card}\n\n_"${transcription}"_`,
         {
           whatsappButtons: [
-            { id: `event_create:${pendingId}`, title: wa.createButton || '✅ Create' },
+            { id: `event_create:${pendingId}`, title: createTitle },
             { id: `event_cancel:${pendingId}`, title: wa.cancelButton || '❌ Cancel' },
           ],
         }
       );
+    } else if (reminderFailures.length > 0) {
+      // A reminder anchored to an event that couldn't be found asks for a time instead
+      await askAboutReminders();
     } else if (intentResult.error === NO_SPEECH) {
       // Silence or noise - there is no transcript to quote back.
       await waService.sendMessage(phone, t.voice?.noSpeech || "🎤 I didn't hear anything in that voice message. Please try again.");
@@ -1149,6 +1202,7 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
 
       const { buildRecurrenceRule } = await import('./calendar');
       const { getProviderForUser } = await import('./calendar-provider');
+      const { reminderCreateFields } = await import('./native-reminders/resolve');
       const provider = getProviderForUser(pending.user);
       const result = await provider.createEvent(
         pending.user,
@@ -1160,17 +1214,27 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
           location: pending.event.location,
           allDay: pending.event.allDay,
           recurrence: buildRecurrenceRule(pending.event.recurrence),
+          ...reminderCreateFields(pending.event),
         }
       );
 
       await removePendingEvent(pendingId);
 
       if (result.success) {
-        await waService.sendMessage(phone, `✅ ${t.voice?.created || 'Event created!'}\n\n*${pending.event.title}*`);
+        const reminder = pending.event.kind === 'reminder';
+        let createdLine = `✅ ${t.voice?.created || 'Event created!'}`;
+        if (reminder) {
+          const { reminderCreatedLine } = await import('./voice/confirmations');
+          const { resolveUserTimezone } = await import('../lib/timezone');
+          const timezone = await resolveUserTimezone(pending.user);
+          createdLine = await reminderCreatedLine(pending.event, pending.user.language || 'en', timezone, false);
+        }
+        await waService.sendMessage(phone, `${createdLine}\n\n*${pending.event.title}*`);
 
         const { incrementUsage } = await import('./subscription-service');
         const { trackActivityAsync } = await import('./analytics-service');
         trackActivityAsync(pending.user.id, 'voice_event_created', { platform: 'whatsapp' });
+        if (reminder) trackActivityAsync(pending.user.id, 'native_reminder_created', { platform: 'whatsapp' });
         incrementUsage(pending.user.id, 'voiceEvents').catch(e => captureError(e, 'usage-increment', { user_id: pending.user.id }, 'warning'));
 
         // Recent-events: feed the sliding window so follow-ups resolve via context (PR 9).

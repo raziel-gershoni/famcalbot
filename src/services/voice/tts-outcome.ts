@@ -11,7 +11,9 @@
 
 import { UserConfig } from '../../types';
 import type { IMessagingService } from '../messaging/types';
+import type { ParsedEvent } from '../event-parser';
 import { captureError } from '../../lib/error-capture';
+import { reminderCreatedLine } from './confirmations';
 
 /**
  * Read-through cached AdminSettings flag (voiceTtsOutcome). Admin can flip
@@ -88,4 +90,13 @@ export function formatOutcomeLine(
       }
   }
   return `Done.`;
+}
+
+/**
+ * The spoken outcome for a created reminder: the reply's own line ("I'll remind Dana
+ * tomorrow at 10:00"), read without its emoji, then what it is about.
+ */
+export async function formatReminderOutcomeLine(event: ParsedEvent, language: string, timezone: string): Promise<string> {
+  const line = await reminderCreatedLine(event, language, timezone, false);
+  return `${line.replace(/^⏰\s*/u, '')} ${event.title}.`;
 }
