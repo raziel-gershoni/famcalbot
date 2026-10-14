@@ -755,6 +755,7 @@
         "title": "⏰ {title}",
         "forPartner": "for {name}",
         "noTimeSet": "No time set; it'll be in your summaries.",
+        "timePassed": "That time has already passed, so I won't ping. It'll show in your summaries until it's done.",
         "partnerNotOnTelegram": "{name} isn't on Telegram, so I can't ping them. Keep it as yours?",
         "keepAsMine": "Keep as mine"
       },
@@ -777,9 +778,9 @@
         "notUnderstood": "I couldn't find a reminder in that. Try: “remind me to call mom tomorrow at 5”."
       },
       "anchor": {
-        "notFound": "I couldn't find “{description}” in your calendar. When should I remind you?",
-        "ambiguous": "I found more than one “{description}”. Which one, or what time?",
-        "needsTime": "“{description}” is all day. What time should I remind you?"
+        "notFound": "I couldn't find “{description}” in your calendar. Send it again with a time, like “remind me at 16:00 to …”.",
+        "ambiguous": "I found more than one “{description}”. Send it again with a time, like “remind me at 16:00 to …”.",
+        "needsTime": "“{description}” is all day. Send it again with a time, like “remind me at 16:00 to …”."
       },
       "permissionDenied": "You can't change this one."
     }

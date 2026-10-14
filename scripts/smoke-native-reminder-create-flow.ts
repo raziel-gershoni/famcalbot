@@ -384,10 +384,15 @@ async function main() {
 
   // ---- resolveReminderForCreate: the no-time note ----
 
-  await check('resolve: a date-only reminder for today notes "no time set" only after 09:00', async () => {
+  await check('resolve: a date-only reminder for today notes "no time set" only once its 09:00 ping is past the 15-minute grace', async () => {
     const today = parsedReminder(dateOnly('2026-10-14'));
     const before = await resolveReminderForCreate(dana, today, IL, at('2026-10-14 08:59'));
     assert(before.ok && before.notice === undefined, `08:59: ${JSON.stringify(before)}`);
+    // The pass still pings it at 09:05 (within the grace), so the card mustn't say it has no time
+    const inGrace = await resolveReminderForCreate(dana, today, IL, at('2026-10-14 09:05'));
+    assert(inGrace.ok && inGrace.notice === undefined, `09:05: ${JSON.stringify(inGrace)}`);
+    const pastGrace = await resolveReminderForCreate(dana, today, IL, at('2026-10-14 09:20'));
+    assert(pastGrace.ok && pastGrace.notice === 'no_time_set', `09:20: ${JSON.stringify(pastGrace)}`);
     const after = await resolveReminderForCreate(dana, today, IL, at('2026-10-14 09:30'));
     assert(after.ok && after.notice === 'no_time_set', `09:30: ${JSON.stringify(after)}`);
     assert(after.allDay && sameInstant(after.startTime, at('2026-10-14 00:00')) && sameInstant(after.endTime, after.startTime), `times ${after.startTime.toISOString()} ${after.endTime.toISOString()}`);
@@ -402,6 +407,25 @@ async function main() {
     assert(before.ok && before.notice === undefined, `08:30 NY: ${JSON.stringify(before)}`);
     const after = await resolveReminderForCreate(nyUser, today, NY, at('2026-10-14 09:30', NY));
     assert(after.ok && after.notice === 'no_time_set', `09:30 NY: ${JSON.stringify(after)}`);
+  });
+
+  await check('resolve: a one-off whose time passed over 15 minutes ago notes "time passed"; a repeating one doesn\'t', async () => {
+    // Wednesday 10:30 in Israel
+    const timed = (local: string, over: Partial<ParsedEvent> = {}) =>
+      resolveReminderForCreate(dana, parsedReminder({ startTime: at(local), endTime: at(local), ...over }), IL);
+    const inGrace = await timed('2026-10-14 10:20'); // still pings
+    assert(inGrace.ok && inGrace.notice === undefined, `10:20: ${JSON.stringify(inGrace)}`);
+    const passed = await timed('2026-10-14 10:10');
+    assert(passed.ok && passed.notice === 'time_passed', `10:10: ${JSON.stringify(passed)}`);
+    const yesterday = await resolveReminderForCreate(dana, parsedReminder(dateOnly('2026-10-13')), IL);
+    assert(yesterday.ok && yesterday.notice === 'time_passed', `date-only yesterday: ${JSON.stringify(yesterday)}`);
+    // Its next occurrence pings, so nothing to say
+    const daily = await timed('2026-10-14 08:00', { recurrence: { frequency: 'daily' } });
+    assert(daily.ok && daily.notice === undefined, `daily: ${JSON.stringify(daily)}`);
+    // One notice only: a partner who can't be pinged comes first
+    partner = { ...raziel, telegramId: null };
+    const unreachable = await timed('2026-10-14 08:00', { forPerson: 'partner' });
+    assert(unreachable.ok && unreachable.notice === 'partner_not_on_telegram', `partner: ${JSON.stringify(unreachable)}`);
   });
 
   // ---- resolveReminderForCreate: anchors ----
@@ -589,6 +613,22 @@ async function main() {
     await showEventConfirmation(555, undefined, fixed, 'x', dana);
     const noTime = await getBotMessage('en', 'nativeReminders.card.noTimeSet');
     assert(lastBot().text.startsWith('⏰ <b>Call the plumber</b>\n📆 Wed, Oct 14, 17:00\n\n') && !lastBot().text.includes(noTime), lastBot().text);
+    const pending = await fakeRedis.get(`voice:pending:event:${pendingIdOf(lastBot(), 'event_create:')}`);
+    assert(pending.event.reminderNotice === undefined, `pending notice ${pending.event.reminderNotice}`);
+  });
+
+  await check('card: a ⏰ quick fix to a later time clears "time passed"', async () => {
+    rangeEvents = [calendarEvent('Dentist', iso('2026-10-14 11:00'), iso('2026-10-14 12:00'))];
+    const event = await resolved(anchored('the dentist', -150)); // 08:30, two hours ago
+    assert(event.reminderNotice === 'time_passed', `notice ${event.reminderNotice}`);
+    const timePassed = await getBotMessage('en', 'nativeReminders.card.timePassed');
+    await showEventConfirmation(555, undefined, event, 'x', dana);
+    assert(lastBot().text.startsWith(`⏰ <b>Call the plumber</b>\n📆 Wed, Oct 14, 08:30\n\n<i>${timePassed}</i>`), lastBot().text);
+    geminiText = '{"startTime": "17:00"}';
+    const patch = await extractFieldPatch('time', null, '5pm', event, CALENDARS, 'en', IL);
+    assert(!!patch, 'no patch');
+    await showEventConfirmation(555, 701, { ...event, ...patch }, 'x', dana);
+    assert(lastBot().text.includes('📆 Wed, Oct 14, 17:00') && !lastBot().text.includes(timePassed), lastBot().text);
     const pending = await fakeRedis.get(`voice:pending:event:${pendingIdOf(lastBot(), 'event_create:')}`);
     assert(pending.event.reminderNotice === undefined, `pending notice ${pending.event.reminderNotice}`);
   });
@@ -812,6 +852,18 @@ async function main() {
       assert(serviceCalls.some(s => s.text === questionText), JSON.stringify(serviceCalls));
     });
   }
+
+  await check('voice: an anchor that lands 2 hours in the past notes "time passed" on its card and never auto-creates', async () => {
+    flags.autoCreate = true;
+    rangeEvents = [calendarEvent('Dentist', iso('2026-10-14 11:00'), iso('2026-10-14 12:00'))];
+    extracted = [createIntent(anchored('the dentist', -150), 'high')]; // 08:30; it's 10:30
+    await handleVoiceMessage(555, 1001, voice, from);
+    const timePassed = await getBotMessage('en', 'nativeReminders.card.timePassed');
+    assert(created.length === 0, `auto-created ${JSON.stringify(created)}`);
+    assert(lastBot()?.text.includes(`📆 Wed, Oct 14, 08:30\n\n<i>${timePassed}</i>`), JSON.stringify(botCalls));
+    const pending = await fakeRedis.get(`voice:pending:event:${pendingIdOf(lastBot(), 'event_create:')}`);
+    assert(pending.event.reminderNotice === 'time_passed', `pending notice ${pending.event.reminderNotice}`);
+  });
 
   await check('voice: a date-only reminder for today after 09:00 never auto-creates; its card says no time was set', async () => {
     flags.autoCreate = true;

@@ -992,7 +992,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     // surface, and recurring events need scope decisions per event.
     const validBulkWa = (intentResults || []).filter((r) => r.intent === 'create' && r.event && !r.error);
     if (validBulkWa.length > 1) {
-      // A reminder with a notice (partner not on Telegram, no time set) needs its card first
+      // A reminder with a notice (partner not on Telegram, time passed, no time set) needs its card first
       const allHigh = validBulkWa.every(
         (r) => r.confidence === 'high' && !r.event!.recurrence && !r.event!.reminderNotice
       );

@@ -144,7 +144,7 @@ const FLAG = 'nrem:enabled';
 const COPY_KEYS = [
   'ping.from', 'buttons.done', 'buttons.snooze15', 'buttons.snooze60', 'buttons.snoozeTomorrow',
   'done', 'snoozedUntil', 'alreadyDone', 'notYours', 'changed', 'doneBy', 'moved',
-  'card.title', 'card.forPartner', 'card.noTimeSet', 'card.partnerNotOnTelegram', 'card.keepAsMine',
+  'card.title', 'card.forPartner', 'card.noTimeSet', 'card.timePassed', 'card.partnerNotOnTelegram', 'card.keepAsMine',
   'created.self', 'created.partner', 'created.dateOnly',
   'when.todayAt', 'when.tomorrowAt', 'when.dateAt', 'when.today', 'when.tomorrow', 'when.date',
   'typed.processing', 'typed.notUnderstood',
@@ -490,6 +490,26 @@ async function main() {
         assert(!old.test(settings[key]), `${locale}: settings.${key} still says "${settings[key]}"`);
       }
     }
+  });
+
+  await check('an anchor that can\'t be placed asks for the reminder again with a time, not a question no reply reaches', async () => {
+    const en = {
+      notFound: "I couldn't find “dentist” in your calendar. Send it again with a time, like “remind me at 16:00 to …”.",
+      ambiguous: 'I found more than one “dentist”. Send it again with a time, like “remind me at 16:00 to …”.',
+      needsTime: '“dentist” is all day. Send it again with a time, like “remind me at 16:00 to …”.',
+    };
+    const bad: string[] = [];
+    for (const [key, want] of Object.entries(en)) {
+      const got = await getBotMessage('en', `nativeReminders.anchor.${key}`, PARAMS);
+      if (got !== want) bad.push(`en:${key} → ${got}`);
+    }
+    for (const locale of ['he', 'ru']) {
+      for (const key of Object.keys(en)) {
+        const got = await getBotMessage(locale, `nativeReminders.anchor.${key}`, PARAMS);
+        if (got.includes('?') || !got.includes('16:00') || !got.includes('dentist')) bad.push(`${locale}:${key} → ${got}`);
+      }
+    }
+    assert(bad.length === 0, bad.join('\n     '));
   });
 
   await check('the admin panel has a label and a description for the switch in every locale', () => {

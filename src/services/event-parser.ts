@@ -82,7 +82,7 @@ export interface ParsedEvent {
   // The pending card keeps them, so its confirm creates exactly what the card showed.
   forUserId?: number | null; // the partner it is for; null = the creator
   forName?: string; // that partner's name, for the card and the reply
-  reminderNotice?: 'partner_not_on_telegram' | 'no_time_set';
+  reminderNotice?: 'partner_not_on_telegram' | 'time_passed' | 'no_time_set';
   /** 'reminder' for a reminder: one moment, so endTime equals startTime. Unset on an event. */
   kind?: 'event' | 'reminder';
   /** Reminders only: who it is for, as a role. Resolution maps 'partner' to the user's partner. */

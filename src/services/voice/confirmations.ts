@@ -396,6 +396,8 @@ export async function formatReminderCard(
   if (event.location) lines.push(`📍 ${m.text(event.location)}`);
   if (event.reminderNotice === 'no_time_set') {
     lines.push('', m.italic(t.nativeReminders.card.noTimeSet));
+  } else if (event.reminderNotice === 'time_passed') {
+    lines.push('', m.italic(t.nativeReminders.card.timePassed));
   } else if (event.reminderNotice === 'partner_not_on_telegram') {
     const name = m.text(event.forName || '');
     lines.push('', m.italic(await getBotMessage(language, 'nativeReminders.card.partnerNotOnTelegram', { name })));

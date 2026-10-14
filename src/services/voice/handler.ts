@@ -443,7 +443,7 @@ export async function handleVoiceMessage(
       if (
         intentResult.confidence === 'high' &&
         !intentResult.event.recurrence &&
-        // A reminder with a notice (partner not on Telegram, no time set) waits for its card
+        // A reminder with a notice (partner not on Telegram, time passed, no time set) waits for its card
         !intentResult.event.reminderNotice &&
         (await isAutoCreateEnabled())
       ) {

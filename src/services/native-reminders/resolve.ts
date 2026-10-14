@@ -15,13 +15,13 @@ import type { ReminderPromptContext } from '../voice/gemini-voice';
 import type { CalendarEvent, UserConfig } from '../../types';
 import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
 import { isAllDayEvent, isReminderEvent } from '../../utils/event-formatter';
-import { dueAtForOccurrence } from './due';
+import { ARMED_GRACE_MS, dueAtForOccurrence } from './due';
 import { getActivePartnerSummary } from './ownership';
 import type { PartnerSummary } from './ownership';
 
 export type ResolvedReminder =
   | { ok: true; calendarId: string; forUserId: number | null; startTime: Date; endTime: Date; allDay: boolean;
-      notice?: 'partner_not_on_telegram' | 'no_time_set' }
+      notice?: 'partner_not_on_telegram' | 'time_passed' | 'no_time_set' }
   | { ok: false; error: 'anchor_not_found' | 'anchor_ambiguous' | 'anchor_needs_time' };
 
 type ReminderError = Extract<ResolvedReminder, { ok: false }>['error'];
@@ -66,7 +66,7 @@ async function resolveWithPartner(
   const calendar = await getMainNativeCalendar(user.id);
   const target = targetFor(event, partner);
   const times = normalizeReminderTimes(startTime, allDay, timezone);
-  const notice = target.notice ?? (missedMorning(times.startsAt, allDay, timezone, now) ? 'no_time_set' : undefined);
+  const notice = target.notice ?? timeNotice(times.startsAt, allDay, event.recurrence, timezone, now);
   return {
     ok: true,
     calendarId: encodeCalendarId(calendar.id),
@@ -89,23 +89,34 @@ function targetFor(
 }
 
 /**
- * A date-only reminder for today made after its 09:00 ping: it won't ping, but it stays
- * in the summaries (spec §3.3).
+ * Why a reminder made now won't ping, if it won't (spec §3.3). The pass still pings one
+ * whose time passed less than ARMED_GRACE_MS ago (due.ts isEligible), so only an older
+ * one gets a notice. A date-only reminder for today past its 09:00: "no time set". Any
+ * other one-off: "time passed"; it stays in the summaries until done. A repeating one
+ * gets none, since its later occurrences ping.
  */
-function missedMorning(startsAt: Date, allDay: boolean, timezone: string, now: Date): boolean {
-  if (!allDay || localDate(startsAt, timezone) !== localDate(now, timezone)) return false;
-  return now > dueAtForOccurrence({ startsAt, allDay: true, timeZone: timezone }, timezone);
+function timeNotice(
+  startsAt: Date,
+  allDay: boolean,
+  recurrence: ParsedEvent['recurrence'],
+  timezone: string,
+  now: Date
+): 'time_passed' | 'no_time_set' | undefined {
+  const due = dueAtForOccurrence({ startsAt, allDay, timeZone: timezone }, timezone);
+  if (due.getTime() >= now.getTime() - ARMED_GRACE_MS) return undefined;
+  if (allDay && localDate(startsAt, timezone) === localDate(now, timezone)) return 'no_time_set';
+  return recurrence ? undefined : 'time_passed';
 }
 
 /**
  * A resolved reminder with its card notice as of now. A quick fix or a reply can give a
- * date-only reminder a time, or move it to another day, so the card works the notice
- * out again each time it is shown. A partner who can't be pinged stays noted.
+ * reminder a time, or move it to another day, so the card works the notice out again
+ * each time it is shown. A partner who can't be pinged stays noted, ahead of the time.
  */
 export function refreshReminderNotice(event: ParsedEvent, timezone: string, now: Date = new Date()): ParsedEvent {
   const notice = event.reminderNotice === 'partner_not_on_telegram'
     ? event.reminderNotice
-    : missedMorning(event.startTime, event.allDay, timezone, now) ? 'no_time_set' : undefined;
+    : timeNotice(event.startTime, event.allDay, event.recurrence, timezone, now);
   return { ...event, reminderNotice: notice };
 }
 

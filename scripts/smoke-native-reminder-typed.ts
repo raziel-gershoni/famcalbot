@@ -418,6 +418,19 @@ async function main() {
     assert(missed.length === 0, `not matched: ${JSON.stringify(missed)}`);
   });
 
+  await check('keywords: the example an unplaced anchor suggests sending is itself typed-reminder text, in every language', async () => {
+    const missed: string[] = [];
+    for (const locale of ['en', 'he', 'ru']) {
+      for (const key of ['notFound', 'ambiguous', 'needsTime']) {
+        const text = await copy(locale, `anchor.${key}`, { description: 'dentist' });
+        // The last quoted phrase is the example: “…”, "…" or «…»
+        const example = [...text.matchAll(/[“"«]([^“”"«»]+)[”"»]/g)].pop()?.[1] ?? '';
+        if (!example.includes('16:00') || !hasReminderKeyword(example)) missed.push(`${locale}:${key} → ${example || text}`);
+      }
+    }
+    assert(missed.length === 0, missed.join('\n     '));
+  });
+
   await check('keywords: ordinary chat does not match', () => {
     const negatives = ['hello', 'Can you remember the milk?', 'forget it', 'what time is the dentist?', 'מה נשמע', 'שכחתי', 'привет', 'я забыл', ''];
     const matched = negatives.filter(text => hasReminderKeyword(text));
