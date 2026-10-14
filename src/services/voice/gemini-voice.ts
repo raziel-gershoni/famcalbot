@@ -802,14 +802,21 @@ export async function processVoiceWithGemini(
 
       const metrics = { model: AI_MODEL_ID, inputTokens, outputTokens, durationMs: duration };
 
-      // A TV promo naming a day and a time came back as a medium-confidence create.
-      // Only parses below "high" can be dropped: every real command in the benchmark
-      // came back "high" (84 of 84 runs), so a wrong NO can't cost a real command.
+      // A TV promo naming a day and a time came back as a create, at "medium" or "high".
+      // Only parses below "high" are dropped: every real command in the benchmark came
+      // back "high" (84 of 84 runs), so a wrong NO can't cost a real command. A "high"
+      // parse is kept but flagged so it never auto-creates: a wrong NO costs one tap,
+      // and background speech can't create or change anything unseen.
       const actionable = intentResults.filter(r => r.event || r.eventReference);
-      if (actionable.length > 0 && actionable.every(r => r.confidence !== 'high') && !(await addressedCheck)) {
-        console.log(`[Voice Gemini] Speech not addressed to the device; dropped ${actionable.length} below-high action(s)`);
-        const notAddressed: VoiceIntentResult = { intent: 'create', confidence: 'low', error: 'not_addressed' };
-        return { intentResult: notAddressed, intentResults: [notAddressed], transcription, metrics };
+      if (actionable.length > 0 && !(await addressedCheck)) {
+        if (actionable.every(r => r.confidence !== 'high')) {
+          console.log(`[Voice Gemini] Speech not addressed to the device; dropped ${actionable.length} below-high action(s)`);
+          const notAddressed: VoiceIntentResult = { intent: 'create', confidence: 'low', error: 'not_addressed' };
+          return { intentResult: notAddressed, intentResults: [notAddressed], transcription, metrics };
+        }
+        console.log('[Voice Gemini] Speech not addressed to the device; kept a high-confidence parse for confirmation only');
+        const flagged = intentResults.map(r => ({ ...r, notAddressed: true as const }));
+        return { intentResult: flagged[0], intentResults: flagged, transcription, metrics };
       }
 
       return { intentResult, intentResults, transcription, metrics };

@@ -445,6 +445,8 @@ export async function handleVoiceMessage(
         !intentResult.event.recurrence &&
         // A reminder with a notice (partner not on Telegram, time passed, no time set) waits for its card
         !intentResult.event.reminderNotice &&
+        // Speech that seemed not meant for the device (TV, radio) waits for a tap
+        !intentResult.notAddressed &&
         (await isAutoCreateEnabled())
       ) {
         const handled = await autoCreateEvent(user, intentResult.event, t, messagingService, chatId);

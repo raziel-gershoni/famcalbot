@@ -5,7 +5,8 @@
 // "tomorrow" / "on Fri, Oct 16 at 10:00" in three languages, the card, the confirm,
 // auto-create, the bulk card (whose confirm threw after the first create: Redis hands
 // its times back as strings), reply-to-correct and the quick time fix, and the voice
-// and forwarded-text handlers that wire them.
+// and forwarded-text handlers that wire them. The Telegram and WhatsApp voice handlers
+// also never auto-create a parse of speech that seemed not meant for the device.
 // Events and Google users must come out as before.
 //
 // Telegram, Redis, Prisma, the AI, the calendar provider and the partner lookup are
@@ -96,6 +97,15 @@ const fakeService = {
   sendTypingIndicator: async () => {},
   sendVoice: async () => {},
 };
+/** What WhatsApp was asked to send. */
+let waCalls: Sent[] = [];
+const fakeWhatsApp = {
+  sendMessage: async (chatId: string, text: string, opts?: Record<string, unknown>) => {
+    waCalls.push({ method: 'sendMessage', chatId, text, opts });
+    return { messageId: `wamid.${waCalls.length}` };
+  },
+  downloadMedia: async () => Buffer.from('OggS'),
+};
 
 const tracked: Array<{ userId: number; action: string; metadata?: Record<string, unknown> }> = [];
 const flags = { autoCreate: false };
@@ -183,6 +193,7 @@ function reset() {
   store.clear();
   botCalls = [];
   serviceCalls = [];
+  waCalls = [];
   tracked.length = 0;
   created = [];
   rangeEvents = [];
@@ -223,7 +234,8 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
     setUserContext: () => {},
   },
   [`${SRC}/services/subscription-service.ts`]: { checkFeatureAccess: async () => ({ allowed: true }), incrementUsage: async () => {} },
-  [`${SRC}/services/user-service.ts`]: { getUserByTelegramId: async () => currentUser },
+  [`${SRC}/services/user-service.ts`]: { getUserByTelegramId: async () => currentUser, getUserByWhatsAppId: async () => currentUser },
+  [`${SRC}/services/messaging/factory.ts`]: real => fakeOver(real, { getWhatsAppService: () => fakeWhatsApp }),
   [`${SRC}/services/reminder-cache.ts`]: { getVoiceAutoCreateHighConf: async () => flags.autoCreate, getVoiceTtsOutcome: async () => false },
   [`${SRC}/services/voice/recent-events-store.ts`]: {
     pushRecentEvent: async () => {}, removeRecentEvent: async () => {}, getRecentEvents: async () => [], formatRecentEventsBlock: () => '',
@@ -340,7 +352,13 @@ async function main() {
   const { formatReminderOutcomeLine } = await import('../src/services/voice/tts-outcome');
   const { handleVoiceMessage } = await import('../src/services/voice/handler');
   const { handleForwardedMessage } = await import('../src/services/forward-event/handler');
+  const { handleWhatsAppWebhook } = await import('../src/services/webhook-handlers');
   const t = await getBotMessages('en');
+  /** A WhatsApp voice note from Dana, through the webhook. */
+  const whatsappVoice = () => handleWhatsAppWebhook(
+    { body: { entry: [{ changes: [{ value: { messages: [{ from: '972501234567', id: 'wamid.in', type: 'audio', audio: { id: 'media-1' } }] } }] }] } },
+    { status: () => ({ json: () => {} }) }
+  );
 
   /** A reminder resolved as the handlers resolve it, for the tests of what comes after. */
   const resolved = async (event: ParsedEvent) => {
@@ -839,6 +857,42 @@ async function main() {
     extracted = [createIntent(parsedReminder(), 'high')];
     await handleVoiceMessage(555, 1001, voice, from);
     assert(created.length === 1 && created[0].input.kind === 'reminder' && created[0].calendarId === 'native:main-1', JSON.stringify(created));
+  });
+
+  /** A HIGH event as the voice parser returns it for a TV promo. */
+  const promo: ParsedEvent = { title: 'Season Finale', startTime: at('2026-10-15 21:00'), endTime: at('2026-10-15 22:00'), allDay: false, calendarId: 'native:main-1', calendarName: 'Dana', confidence: 'high' };
+  const notAddressed = (event: ParsedEvent): VoiceIntentResult => ({ ...createIntent(event, 'high'), notAddressed: true });
+
+  await check('voice: a HIGH event from speech not meant for the device shows its card instead of auto-creating', async () => {
+    flags.autoCreate = true;
+    // Unflagged, the same parse auto-creates: the flag is what holds it back
+    extracted = [createIntent(promo, 'high')];
+    await handleVoiceMessage(555, 1001, voice, from);
+    assert(created.length === 1, `created ${JSON.stringify(created)}`);
+    created = [];
+    extracted = [notAddressed(promo)];
+    await handleVoiceMessage(555, 1001, voice, from);
+    assert(created.length === 0, `auto-created ${JSON.stringify(created)}`);
+    assert(lastBot()?.text.startsWith(t.voice.confirmTitle), JSON.stringify(botCalls));
+  });
+
+  await check('whatsapp voice: speech not meant for the device never auto-creates - one event gets its card, a batch the Telegram hint', async () => {
+    // Unflagged, a HIGH event auto-creates on WhatsApp: the flag is what holds it back
+    extracted = [createIntent(promo, 'high')];
+    await whatsappVoice();
+    assert(created.length === 1, `created ${JSON.stringify(created)}`);
+    created = [];
+    waCalls = [];
+    extracted = [notAddressed(promo)];
+    await whatsappVoice();
+    assert(created.length === 0, `auto-created ${JSON.stringify(created)}`);
+    const buttons = waCalls[waCalls.length - 1]?.opts?.whatsappButtons as Array<{ id: string }> | undefined;
+    assert(!!buttons && buttons[0].id.startsWith('event_create:'), JSON.stringify(waCalls));
+    waCalls = [];
+    extracted = [notAddressed(promo), notAddressed({ ...promo, title: 'News at Ten' })];
+    await whatsappVoice();
+    assert(created.length === 0, `auto-created ${JSON.stringify(created)}`);
+    assert(waCalls[waCalls.length - 1]?.text === t.whatsapp.bulkUseTelegram, JSON.stringify(waCalls));
   });
 
   await check('forwarded text: no partner in the prompt, and "remind my husband" stays the forwarder\'s', async () => {

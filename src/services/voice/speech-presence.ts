@@ -21,7 +21,8 @@
  *
  * Speech from a TV or radio passes both, and a promo naming a day and a time became a
  * medium-confidence create. So whether the speech was meant for the device is asked
- * the same way; gemini-voice drops only actions parsed below "high" on a NO.
+ * the same way. On a NO gemini-voice drops actions parsed below "high", and a "high"
+ * one is kept only for the user to confirm.
  *
  * All fail open: if a check cannot run, its answer is taken as YES. Dropping a
  * real command because a gate broke would be worse than the bug.

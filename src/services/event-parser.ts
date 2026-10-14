@@ -50,6 +50,9 @@ export interface VoiceIntentResult {
   error?: string;
   needsClarification?: boolean;
   clarificationQuestion?: string;
+  // A voice parse kept although the speech seemed not meant for the device (TV, radio):
+  // it is never auto-created, so the user always confirms it on the card.
+  notAddressed?: true;
 }
 
 /**

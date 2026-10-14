@@ -992,9 +992,10 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     // surface, and recurring events need scope decisions per event.
     const validBulkWa = (intentResults || []).filter((r) => r.intent === 'create' && r.event && !r.error);
     if (validBulkWa.length > 1) {
-      // A reminder with a notice (partner not on Telegram, time passed, no time set) needs its card first
+      // A reminder with a notice (partner not on Telegram, time passed, no time set) needs its card first,
+      // and so does speech that seemed not meant for the device (TV, radio)
       const allHigh = validBulkWa.every(
-        (r) => r.confidence === 'high' && !r.event!.recurrence && !r.event!.reminderNotice
+        (r) => r.confidence === 'high' && !r.event!.recurrence && !r.event!.reminderNotice && !r.notAddressed
       );
       if (!allHigh) {
         await waService.sendMessage(
@@ -1100,7 +1101,9 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
       if (
         intentResult.confidence === 'high' &&
         !intentResult.event.recurrence &&
-        !intentResult.event.reminderNotice
+        !intentResult.event.reminderNotice &&
+        // Speech that seemed not meant for the device (TV, radio) waits for a tap
+        !intentResult.notAddressed
       ) {
         // Auto-create directly. No confirmation, no Undo button (WhatsApp
         // template/button surface is constrained — see TG flow for full Undo).

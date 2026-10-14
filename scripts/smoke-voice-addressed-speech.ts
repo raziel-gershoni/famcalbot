@@ -1,9 +1,10 @@
 // Smoke test for the addressed-speech gate in processVoiceWithGemini. TV or radio is
 // speech, so the speech-presence check passes it, and the calendar-primed extraction
 // turned a promo ("Don't miss the season finale, this Thursday at 9...") into a create
-// card at confidence "medium". A second context-free check asks whether the speech was
-// meant for the device; a NO drops an action only when every action parsed below
-// "high", since real commands come back "high".
+// at confidence "medium" or "high". A second context-free check asks whether the speech
+// was meant for the device. On a NO, a parse whose actions are all below "high" is
+// dropped; real commands come back "high", so a "high" parse is kept but flagged
+// notAddressed, which the handlers read as "never auto-create".
 //
 // The Gemini client is faked with the replies measured live, and the clip is a loud
 // tone made with the repo's own encoder, so it clears the acoustic gate and the model
@@ -135,15 +136,25 @@ async function main() {
     assert(addressedAsked === 1, `asked ${addressedAsked} times`);
   });
 
-  await check('a high-confidence create is kept even when the check says NO', async () => {
+  await check('a high-confidence create the check says NO to is kept, flagged so it never auto-creates', async () => {
     const r = await run({ addressed: 'NO', extraction: promoCreate('high') });
     assert(r.intentResult.event?.title === 'Season Finale', `event ${r.intentResult.event?.title}, error ${r.intentResult.error}`);
     assert(r.intentResult.confidence === 'high', `confidence ${r.intentResult.confidence}`);
+    assert(r.intentResult.notAddressed === true, `notAddressed ${r.intentResult.notAddressed}`);
+    assert(r.intentResults?.length === 1 && r.intentResults[0] === r.intentResult, `intentResults ${JSON.stringify(r.intentResults)}`);
+    assert(r.transcription === PROMO, `transcription "${r.transcription}"`);
+  });
+
+  await check('a high-confidence create the check says was addressed is not flagged', async () => {
+    const r = await run({ addressed: 'YES', extraction: promoCreate('high') });
+    assert(r.intentResult.event?.title === 'Season Finale', `event ${r.intentResult.event?.title}, error ${r.intentResult.error}`);
+    assert(r.intentResult.notAddressed === undefined, `notAddressed ${r.intentResult.notAddressed}`);
   });
 
   await check('a medium-confidence create the check says was addressed is kept', async () => {
     const r = await run({ addressed: 'YES', extraction: promoCreate('medium') });
     assert(r.intentResult.event?.title === 'Season Finale', `event ${r.intentResult.event?.title}, error ${r.intentResult.error}`);
+    assert(r.intentResult.notAddressed === undefined, `notAddressed ${r.intentResult.notAddressed}`);
     assert(addressedAsked === 1, `asked ${addressedAsked} times`);
   });
 
@@ -167,13 +178,14 @@ async function main() {
     assert(r.intentResult.error === 'not_addressed', `error ${r.intentResult.error}`);
   });
 
-  await check('several actions are kept when any one of them is high, even when the check says NO', async () => {
+  await check('several actions are kept, all flagged, when any one is high and the check says NO', async () => {
     const r = await run({
       addressed: 'NO',
       extraction: { transcription: PROMO, intents: [promoCreate('high'), promoCreate('medium')] },
     });
     const kept = (r.intentResults ?? []).filter(i => i.event);
     assert(kept.length === 2, `kept ${kept.length} of 2: ${JSON.stringify(r.intentResults?.map(i => i.error ?? i.confidence))}`);
+    assert(kept.every(i => i.notAddressed === true) && r.intentResult.notAddressed === true, `flags ${JSON.stringify(r.intentResults?.map(i => i.notAddressed))}`);
   });
 
   await check('a parse with no action is returned as it was, whatever the check says', async () => {
