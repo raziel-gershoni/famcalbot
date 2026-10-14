@@ -246,7 +246,7 @@ export function formatEditChanges(
 
   if (updates.location) {
     const originalLoc = originalEvent.location || '(none)';
-    changes.push(`📍 ${originalLoc} → ${updates.location}`);
+    changes.push(`📍 ${escapeHtml(originalLoc)} → ${escapeHtml(updates.location)}`);
   }
 
   return changes.length > 0 ? changes.join('\n') : '(no changes detected)';

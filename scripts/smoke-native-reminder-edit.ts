@@ -536,6 +536,14 @@ async function main() {
       && !card.includes('<mom>') && !card.includes('<grandma>'), `edit card: ${JSON.stringify(card)}`);
   });
 
+  await check('the edit card escapes a location change, old and new', async () => {
+    reset();
+    const coffee = event('Coffee', '2026-10-15T07:00:00.000Z', '2026-10-15T08:00:00.000Z', { location: 'Mom & Dad\'s <home>' });
+    await showEditConfirmation(1001, undefined, coffee, 'native:c1', { location: 'Barnes & Noble' }, 'move it to Barnes & Noble', raziel);
+    const card = sent[sent.length - 1]?.text ?? '';
+    assert(card.includes('📍 Mom &amp; Dad\'s &lt;home&gt; → Barnes &amp; Noble') && !card.includes('<home>'), `edit card: ${JSON.stringify(card)}`);
+  });
+
   await check('the delete card escapes the title', async () => {
     reset();
     await showDeleteConfirmation(1001, undefined, reminder('Call <mom> & dad', '2026-10-15T07:00:00.000Z'), 'native:c1', 'delete it', raziel);
