@@ -15,9 +15,13 @@
 // through now and then (measured ~1 run in 6-16 on both 3.7 and 3.8). Anything else
 // failing is a regression.
 //
-// COSTS MONEY: it calls the Gemini API (clips x runs, each with a second
-// small gate call). Needs macOS `say` (with the Carmit and Milena voices) and ffmpeg
-// to build the corpus.
+// COSTS MONEY: it calls the Gemini API (clips x runs), and each voice note makes up to
+// three calls: the extraction, the speech gate and the addressed check. Needs macOS
+// `say` (with the Carmit and Milena voices) and ffmpeg to build the corpus.
+//
+// An outcome marked "(held)" was flagged notAddressed: the addressed check said NO, so
+// the action waits for a tap and never auto-creates. On a real command that is a wrong
+// NO, counted in the summary line.
 //
 // Run:
 //   NODE_OPTIONS='--conditions=import' npx tsx -r dotenv/config scripts/eval-voice-no-speech.ts
@@ -132,19 +136,25 @@ async function main() {
 
   let failures = 0;
   console.log(`\n=== ${AI_MODEL} (${RUNS} runs per clip)`);
-  let noiseActions = 0, noiseRuns = 0, speechOk = 0, speechRuns = 0;
+  let noiseActions = 0, noiseRuns = 0, speechOk = 0, speechRuns = 0, speechHeld = 0;
 
   for (const clip of CLIPS) {
     const audio = readFileSync(join(dir, `${clip.name}.ogg`));
     const outcomes: string[] = [];
+    // The outcomes as printed, with the notAddressed flag shown
+    const shown: string[] = [];
     for (let r = 0; r < RUNS; r++) {
       try {
         const { intentResult } = await processVoiceWithGemini(audio, clip.language, calendars, 'Asia/Jerusalem', recent);
         const it = intentResult;
         const acts = it.intent === 'create' ? !!it.event : !!it.eventReference;
-        outcomes.push(it.error === 'no_speech' ? 'no_speech' : acts ? it.intent : 'no_action');
+        const outcome = it.error === 'no_speech' ? 'no_speech' : acts ? it.intent : 'no_action';
+        outcomes.push(outcome);
+        shown.push(it.notAddressed ? `${outcome}(held)` : outcome);
+        if (clip.expect !== 'none' && it.notAddressed) speechHeld++;
       } catch {
         outcomes.push('error');
+        shown.push('error');
       }
     }
     const ok = clip.expect === 'none'
@@ -158,9 +168,9 @@ async function main() {
       speechOk += outcomes.filter(o => o === clip.expect).length;
     }
     if (!ok) failures++;
-    console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${clip.name.padEnd(16)} expect=${clip.expect.padEnd(6)} got=[${outcomes.join(',')}]`);
+    console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${clip.name.padEnd(16)} expect=${clip.expect.padEnd(6)} got=[${shown.join(',')}]`);
   }
-  console.log(`  -> non-speech produced an action ${noiseActions}/${noiseRuns}; real commands correct ${speechOk}/${speechRuns}`);
+  console.log(`  -> non-speech produced an action ${noiseActions}/${noiseRuns}; real commands correct ${speechOk}/${speechRuns}, held for a tap ${speechHeld}/${speechRuns}`);
 
   console.log(failures === 0 ? '\nALL CLIPS PASSED' : `\n${failures} clip result(s) failed`);
   process.exit(failures === 0 ? 0 : 1);
