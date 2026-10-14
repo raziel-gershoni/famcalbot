@@ -5,11 +5,13 @@
 
 import { HDate, Locale } from '@hebcal/core';
 import { gematriya } from '@hebcal/hdate';
+import { formatInTimeZone } from 'date-fns-tz';
 import '@hebcal/locales';
 import { AirQualityData, WeatherData } from '../../types';
 import { detectDustStorm } from './dust-storm';
 import { getWeatherDescription, getWeatherEmoji, getWindDirectionLabel } from './open-meteo';
 import { detectSharav } from './sharav';
+import { timeOfDayGreeting } from '../../utils/greeting';
 import type { InfographicConfig } from './infographic';
 
 interface RainHours {
@@ -202,6 +204,13 @@ const LANGUAGE_NAMES: Record<string, string> = {
   ru: 'Russian',
 };
 
+/** The one name per language the model may use for each hazard; naming all three made it echo them all. */
+const HAZARD_TERMS: Record<string, { sharav: string; dustStorm: string }> = {
+  en: { sharav: 'sharav', dustStorm: 'dust storm' },
+  he: { sharav: 'שרב', dustStorm: 'סופת אבק' },
+  ru: { sharav: 'хамсин', dustStorm: 'пылевая буря' },
+};
+
 const SECTION_HEADERS: Record<string, { todayTomorrow: string; thisWeek: string; extended: string }> = {
   en: { todayTomorrow: 'Today & Tomorrow', thisWeek: 'This Week', extended: 'Extended Outlook' },
   he: { todayTomorrow: 'היום ומחר', thisWeek: 'השבוע', extended: 'תחזית מורחבת' },
@@ -267,12 +276,12 @@ export async function formatWeatherAI(
   isAdmin?: boolean,
   generateInfographic?: boolean,
   airQuality?: AirQualityData | null,
+  now: Date = new Date(),
 ): Promise<WeatherFormatResult> {
   const payload = buildWeatherAIPayload(weather, airQuality);
   const langName = LANGUAGE_NAMES[language] || 'English';
   const headers = SECTION_HEADERS[language] || SECTION_HEADERS.en;
 
-  const now = new Date();
   const dateStr = weatherDateLine(now, language, timezone);
 
   // Hebrew date for Jewish culture users
@@ -292,6 +301,10 @@ export async function formatWeatherAI(
     { timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false }
   );
 
+  const greeting = timeOfDayGreeting(Number(formatInTimeZone(now, timezone, 'H')), language);
+  const terms = HAZARD_TERMS[language] || HAZARD_TERMS.en;
+  const sharavRule = `Call it "${terms.sharav}"${language === 'en' ? ' (say once that it is a desert heatwave)' : ''}, and never add another language's word for it.`;
+
   const infographicConfig = generateInfographic
     ? buildInfographicConfig(weather, language, timezone, culture, airQuality, now)
     : undefined;
@@ -300,7 +313,7 @@ export async function formatWeatherAI(
 
 **Rules:**
 - Respond ENTIRELY in ${langName}
-- Start with a short, warm greeting using the person's name: ${userName}
+- Open with "${greeting}" and the person's name (${userName}), short and warm
 - Include the current date (${dateStr}${hebrewDateStr}) right after the greeting
 ${culture === 'jewish' ? (language === 'he' ? '- השתמש בגימטריה לתאריך העברי (כ"ח כסלו תשפ"ה)' : language === 'ru' ? '- Отображайте еврейскую дату стандартными цифрами (например: "28 Кислев 5785")' : '- Display Hebrew date using standard numerals (e.g., "28 Kislev 5785")') : ''}
 - The current local time is ${localTimeStr}. For today's section, focus on current conditions and what's ahead — don't describe weather from earlier in the day. Weave the current state naturally (e.g. "still sunny", "already cooling down to 15°C").
@@ -309,8 +322,8 @@ ${culture === 'jewish' ? (language === 'he' ? '- השתמש בגימטריה ל�
 - Mention UV warnings when UV index ≥ 6
 - Mention wind (direction + speed) only when > 20 km/h
 - Mention rain timing when relevant (use rainHours data if available)
-- When sharav data is present in the weather data, warn about it prominently with severity and practical advice (stay hydrated, avoid outdoor exertion, keep windows closed). Use "שרב" in Hebrew, "хамсин" in Russian, "sharav/heatwave" in English.
-- When dustStorm data is present, warn about it prominently with health advice (close windows, avoid outdoor activity, use air purifier if available, N95 mask outdoors). Use "סופת אבק" in Hebrew, "пылевая буря" in Russian, "dust storm" in English. Dust storms can occur in cool, humid weather — they are NOT the same as sharav.
+- When sharav data is present in the weather data, warn about it prominently with severity and practical advice (stay hydrated, avoid outdoor exertion, keep windows closed). ${sharavRule}
+- When dustStorm data is present, warn about it prominently with health advice (close windows, avoid outdoor activity, use air purifier if available, N95 mask outdoors). Call it "${terms.dustStorm}", and never add another language's word for it. It can occur in cool, humid weather — it is NOT the same as ${terms.sharav}.
 - Write in flowing paragraphs, NOT bullet lists or one-line-per-day format
 - Group days with similar weather together (e.g. "Wednesday through Friday stays warm and dry around 22–24°C") rather than listing each day separately
 - Transition naturally between sections — no numbered lists

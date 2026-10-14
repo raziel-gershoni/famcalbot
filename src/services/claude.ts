@@ -6,30 +6,12 @@ import { buildCalendarSummaryPrompt, SummaryPromptData } from '../prompts/calend
 import { buildWeekLookaheadPrompt, WeekLookaheadPromptData, LookaheadDayData, LookaheadEventData } from '../prompts/week-lookahead';
 import { formatEventList, isReminderEvent, reminderAttribution } from '../utils/event-formatter';
 import { localDate, startOfLocalDay } from '../utils/day-events';
+import { timeOfDayGreeting } from '../utils/greeting';
 import { generateAICompletion, streamAICompletion } from './ai-provider';
 import { captureError } from '../lib/error-capture';
 import { formatAdminFooter } from '../utils/ai-footer';
 import { getHolidaysForDate } from './hebrew-holidays';
 import type { WeekLookahead, LookaheadEvent } from './week-lookahead';
-
-/**
- * Localized greetings by language and time of day
- */
-const GREETINGS: Record<string, { morning: string; afternoon: string; evening: string }> = {
-  he: { morning: 'בוקר טוב!', afternoon: 'צהריים טובים!', evening: 'ערב טוב!' },
-  en: { morning: 'Good morning!', afternoon: 'Good afternoon!', evening: 'Good evening!' },
-  ru: { morning: 'Доброе утро!', afternoon: 'Добрый день!', evening: 'Добрый вечер!' },
-};
-
-/**
- * Get localized greeting based on time of day and language
- */
-function getLocalizedGreeting(hour: number, language: string = 'en'): string {
-  const greetings = GREETINGS[language] || GREETINGS.en;
-  if (hour < 12) return greetings.morning;
-  if (hour < 18) return greetings.afternoon;
-  return greetings.evening;
-}
 
 /**
  * Format date header for voice-only delivery
@@ -43,7 +25,7 @@ export function formatDateHeader(
   timezone: string = TIMEZONE
 ): string {
   const currentHour = parseInt(new Date().toLocaleString('en-US', { timeZone: timezone, hour: '2-digit', hour12: false }));
-  const greeting = getLocalizedGreeting(currentHour, language);
+  const greeting = `${timeOfDayGreeting(currentHour, language)}!`;
 
   // Format gregorian date based on locale
   const intlLocale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
@@ -135,7 +117,7 @@ function buildPromptData(
     hour: '2-digit',
     hour12: false
   }));
-  const greeting = getLocalizedGreeting(currentHour, language);
+  const greeting = `${timeOfDayGreeting(currentHour, language)}!`;
 
   // Get summary date and Hebrew date information
   const { hebrewDateFormatted } = getHebrewDateInfo(date, timezone);
