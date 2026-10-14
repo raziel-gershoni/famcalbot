@@ -243,6 +243,17 @@ export async function resolveReminderIntents(
 }
 
 /**
+ * The intent a message's single-card flow answers: the first that isn't a reminder
+ * resolution couldn't place (those are asked about after the card), so an edit or a
+ * delete still counts. Falls back to the first intent; undefined only when there are none.
+ */
+export function primaryIntent(resolved: { intents: VoiceIntentResult[]; failures: ReminderFailure[] }): VoiceIntentResult | undefined {
+  const unplaced = (i: VoiceIntentResult) =>
+    i.intent === 'create' && !i.event && !!i.error && resolved.failures.some(x => x.error === i.error);
+  return resolved.intents.find(i => !unplaced(i)) ?? resolved.intents[0];
+}
+
+/**
  * The names the extraction prompt's reminder rules use to tell "remind me" from "remind
  * Dana": the user's and the ACTIVE partner's. `withPartner: false` leaves the partner
  * out, for forwarded text.

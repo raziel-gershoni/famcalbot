@@ -14,7 +14,7 @@ import { trackActivityAsync, addBreadcrumb, setUserContext } from '../analytics-
 import { checkFeatureAccess } from '../subscription-service';
 import { sendAnchorQuestions, showEventConfirmation } from '../voice/confirmations';
 import { getReminderSupport } from '../native-reminders/support';
-import { reminderPromptContext, resolveReminderIntents } from '../native-reminders/resolve';
+import { primaryIntent, reminderPromptContext, resolveReminderIntents } from '../native-reminders/resolve';
 import type { ReminderFailure } from '../native-reminders/resolve';
 import { handleEditIntent, handleDeleteIntent } from '../voice';
 import { captureError } from '../../lib/error-capture';
@@ -137,7 +137,7 @@ export async function handleForwardedMessage(
       const resolved = await resolveReminderIntents(user, intentResults ?? [intentResult], timezone, { selfOnly: true });
       intentResults = resolved.intents;
       // Skip only an item resolution failed (not an edit or delete): the failures are asked about after its card
-      intentResult = resolved.intents.find(i => !(i.intent === 'create' && !i.event && i.error && resolved.failures.some(x => x.error === i.error))) ?? resolved.intents[0];
+      intentResult = primaryIntent(resolved) ?? intentResult;
       reminderFailures = resolved.failures;
     }
 

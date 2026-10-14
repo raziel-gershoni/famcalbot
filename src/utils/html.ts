@@ -6,7 +6,7 @@
  * pings) can escape text without loading the voice confirmation chain.
  */
 
-/** Escapes &, < and > for parse_mode 'HTML'. */
-export function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+/** Escapes &, < and > for parse_mode 'HTML'. A missing value (a create with no title) is ''. */
+export function escapeHtml(text: string | null | undefined): string {
+  return String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

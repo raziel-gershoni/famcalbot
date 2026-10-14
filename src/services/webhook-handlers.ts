@@ -953,7 +953,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     const recentBlock = formatRecentEventsBlock(recentEvents, timezone);
     // Native reminders (spec R3): only users linked to Telegram, where the ping goes
     const { getReminderSupport } = await import('./native-reminders/support');
-    const { reminderPromptContext, resolveReminderIntents, reminderCreateFields, refreshReminderNotice } =
+    const { reminderPromptContext, resolveReminderIntents, reminderCreateFields, refreshReminderNotice, primaryIntent } =
       await import('./native-reminders/resolve');
     const support = await getReminderSupport(user);
     const extraction = await processVoiceWithGemini(
@@ -972,7 +972,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
       const resolved = await resolveReminderIntents(user, intentResults ?? [intentResult], timezone);
       intentResults = resolved.intents;
       // Skip only an item resolution failed (not an edit or delete): the failures are asked about after its card
-      intentResult = resolved.intents.find(i => !(i.intent === 'create' && !i.event && i.error && resolved.failures.some(x => x.error === i.error))) ?? resolved.intents[0];
+      intentResult = primaryIntent(resolved) ?? intentResult;
       reminderFailures = resolved.failures;
     }
     const askAboutReminders = async () => {

@@ -314,7 +314,7 @@ async function main() {
 
   const { TelegramAdapter } = await import('../src/services/messaging/telegram-adapter');
   adapter = new TelegramAdapter(fakeBot as unknown as TelegramBot);
-  const { handleNativeReminderCallback, parseNativeReminderCallback, NATIVE_REMINDER_CALLBACK_PREFIX } =
+  const { handleNativeReminderCallback, parseNativeReminderCallback } =
     await import('../src/services/native-reminders/callbacks');
   const { buildPingKeyboard } = await import('../src/services/native-reminders/ping');
   const { getBotMessage } = await import('../src/lib/bot-messages');
@@ -329,7 +329,6 @@ async function main() {
     for (const op of ['d', 's15', 's60', 'st'] as const) {
       assert(show(parseNativeReminderCallback(`nr:${op}:${MILK}`)) === show({ op, stateId: MILK }), `nr:${op}`);
     }
-    assert(NATIVE_REMINDER_CALLBACK_PREFIX === 'nr:', `prefix ${NATIVE_REMINDER_CALLBACK_PREFIX}`);
   });
 
   await check('parse: anything else is not a reminder button', () => {

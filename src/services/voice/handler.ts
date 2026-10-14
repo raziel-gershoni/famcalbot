@@ -19,7 +19,7 @@ import { checkFeatureAccess } from '../subscription-service';
 import { downloadVoiceFile, getLastCreatedEvent, findMatchingEvent, convertEditRequestToUpdates, isLastCreatedEvent } from './event-resolution';
 import { sendAnchorQuestions, showEventConfirmation, showEditConfirmation, showDeleteConfirmation } from './confirmations';
 import { getReminderSupport } from '../native-reminders/support';
-import { reminderPromptContext, resolveReminderIntents } from '../native-reminders/resolve';
+import { primaryIntent, reminderPromptContext, resolveReminderIntents } from '../native-reminders/resolve';
 import type { ReminderFailure } from '../native-reminders/resolve';
 import { NO_SPEECH } from './speech-presence';
 import { captureError } from '../../lib/error-capture';
@@ -362,7 +362,7 @@ export async function handleVoiceMessage(
       const resolved = await resolveReminderIntents(user, intentResults ?? [intentResult], timezone);
       intentResults = resolved.intents;
       // Skip only an item resolution failed (not an edit or delete): the failures are asked about after its card
-      intentResult = resolved.intents.find(i => !(i.intent === 'create' && !i.event && i.error && resolved.failures.some(x => x.error === i.error))) ?? resolved.intents[0];
+      intentResult = primaryIntent(resolved) ?? intentResult;
       reminderFailures = resolved.failures;
     }
 

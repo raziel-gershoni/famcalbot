@@ -373,6 +373,8 @@ async function main() {
     assert(escapeHtml('<b>Tom & Jerry</b>') === '&lt;b&gt;Tom &amp; Jerry&lt;/b&gt;', escapeHtml('<b>Tom & Jerry</b>'));
     assert(escapeHtml('תור <רופא> & בדיקה') === 'תור &lt;רופא&gt; &amp; בדיקה', escapeHtml('תור <רופא> & בדיקה'));
     assert(escapeHtml('Купить <молоко> & хлеб') === 'Купить &lt;молоко&gt; &amp; хлеб', escapeHtml('Купить <молоко> & хлеб'));
+    // A create the parser left with no title: the card prints nothing there instead of throwing
+    assert(escapeHtml(undefined) === '' && escapeHtml(null) === '', `${escapeHtml(undefined)} / ${escapeHtml(null)}`);
   });
 
   await check('escapeHtml lives in the leaf src/utils/html.ts, and confirmations.ts re-exports it', () => {

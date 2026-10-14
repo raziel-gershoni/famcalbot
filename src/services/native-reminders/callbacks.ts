@@ -25,13 +25,12 @@ import { effectiveOwnerId, getActivePartnerSummary } from './ownership';
 import { stripPingButtons } from './ping';
 import type { UserConfig } from '../../types';
 
-export const NATIVE_REMINDER_CALLBACK_PREFIX = 'nr:';
-
 type NativeReminderOp = 'd' | 's15' | 's60' | 'st';
 type SnoozeOp = Exclude<NativeReminderOp, 'd'>;
 
-// nr:<op>:<state row id>. Telegram caps callback data at 64 bytes, and `nr:s15:` leaves 57.
-const CALLBACK_DATA = new RegExp(`^${NATIVE_REMINDER_CALLBACK_PREFIX}(d|s15|s60|st):([A-Za-z0-9_-]{1,57})$`);
+// nr:<op>:<state row id>, as ping.ts builds it; the webhook routes on the same `nr:`.
+// Telegram caps callback data at 64 bytes, and `nr:s15:` leaves 57.
+const CALLBACK_DATA = /^nr:(d|s15|s60|st):([A-Za-z0-9_-]{1,57})$/;
 
 const SNOOZE_MS = { s15: 15 * 60 * 1000, s60: 60 * 60 * 1000 } as const;
 
