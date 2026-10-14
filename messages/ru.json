@@ -762,7 +762,7 @@
         "self": "⏰ Напомню тебе {when}.",
         "partner": "⏰ {name} получит напоминание {when}.",
         "dateOnly": "⏰ Напоминание на {when} поставлено.",
-        "partnerDateOnly": "⏰ Напоминание для {name} поставлено на {when}."
+        "partnerDateOnly": "⏰ {name} получит напоминание {when}."
       },
       "when": {
         "todayAt": "сегодня в {time}",

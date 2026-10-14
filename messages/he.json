@@ -760,9 +760,9 @@
       },
       "created": {
         "self": "⏰ אזכיר לך {when}.",
-        "partner": "⏰ אזכיר ל-{name} {when}.",
+        "partner": "⏰ התזכורת בשביל {name} תישלח {when}.",
         "dateOnly": "⏰ התזכורת נקבעה ל{when}.",
-        "partnerDateOnly": "⏰ התזכורת ל-{name} נקבעה ל{when}."
+        "partnerDateOnly": "⏰ התזכורת בשביל {name} נקבעה ל{when}."
       },
       "when": {
         "todayAt": "היום ב-{time}",

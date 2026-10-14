@@ -767,9 +767,9 @@ async function main() {
     const en = await reminderCreatedLine(event, 'en', IL);
     assert(en === '⏰ Reminder for Raziel set for Fri, Oct 16.', en);
     const ru = await reminderCreatedLine(event, 'ru', IL);
-    assert(ru === '⏰ Напоминание для Raziel поставлено на 16 октября.', ru);
+    assert(ru === '⏰ Raziel получит напоминание 16 октября.', ru);
     const he = await reminderCreatedLine(event, 'he', IL);
-    assert(he.includes('Raziel') && !he.includes('{'), he);
+    assert(he.includes('בשביל Raziel') && !he.includes('ל-') && !he.includes('{'), he);
   });
 
   await check('anchor: "the day before" keeps the wall-clock time across a DST change', async () => {
