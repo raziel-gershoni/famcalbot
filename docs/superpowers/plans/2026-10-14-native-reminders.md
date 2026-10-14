@@ -215,7 +215,7 @@ export function isEligible(a: { due: Date; now: Date; armedAt: Date | null; snoo
 export interface Claim { id: string; claimedAt: Date; previousLastPingedAt: Date | null; pingAttempts: number }
 export async function claimOccurrence(seriesEventId: string, originalStartsAt: Date, due: Date, now?: Date): Promise<Claim | null>;
 export async function releaseClaim(claim: Claim): Promise<void>;
-// A snooze writes only snoozedUntil (never lastPingedAt).
+// A snooze writes snoozedUntil and resets pingAttempts to 0 (each re-ping gets its own retry budget); never lastPingedAt.
 
 // src/services/native-reminders/ping.ts — Task 8
 export function buildPingText(a: { title: string; creatorName?: string; language: string }): Promise<string>;
@@ -8605,7 +8605,7 @@ EOF
   export interface Claim { id: string; claimedAt: Date; previousLastPingedAt: Date | null; pingAttempts: number }
   export async function claimOccurrence(seriesEventId: string, originalStartsAt: Date, due: Date, now: Date = new Date()): Promise<Claim | null>;
   export async function releaseClaim(claim: Claim): Promise<void>;
-  // A snooze writes only snoozedUntil (never lastPingedAt).
+  // A snooze writes snoozedUntil and resets pingAttempts to 0 (each re-ping gets its own retry budget); never lastPingedAt.
 
   // src/services/native-reminders/ping.ts
   export async function buildPingText(a: { title: string; creatorName?: string; language: string }): Promise<string>;

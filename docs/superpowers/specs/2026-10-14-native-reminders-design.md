@@ -241,7 +241,7 @@ Only the process that gets a row back sends. That covers overlapping ticks and R
 
 | Failure | Handling |
 |---|---|
-| Transient (5xx, 429 including `retry_after`, network) | Release the claim: restore the previous `lastPingedAt`, conditional on the claimed value. Retry on later passes, up to 3 attempts in total (`pingAttempts`). |
+| Transient (5xx, 429 including `retry_after`, network) | Release the claim: restore the previous `lastPingedAt`, conditional on the claimed value. Retry on later passes, up to 3 attempts per ping (`pingAttempts`; a snooze resets it to 0, so a re-ping gets its own budget). |
 | 403 the codebase's `isUnreachableError` recognises (blocked, deactivated, chat not found) | `markUserUnreachable`, keep the claim. |
 | Any other 403 | Keep the claim and `captureError`. |
 | Other 4xx | Keep the claim and `captureError`. |
