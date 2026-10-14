@@ -253,7 +253,7 @@ Only the process that gets a row back sends. That covers overlapping ticks and R
   - `nr:s15:<stateId>`, `nr:s60:<stateId>` (snooze 15 or 60 minutes)
   - `nr:st:<stateId>` (snooze to tomorrow morning)
 
-  Each is 40 bytes or fewer, and the prefix doesn't collide with existing ones.
+  Each is at most 43 bytes (the claim writes UUID state ids), within Telegram's 64, and the prefix doesn't collide with existing ones.
 - **Handler:** `handleNativeReminderCallback`, routed in `webhook-handlers.ts`. It:
   1. answers the callback first;
   2. wraps everything in try/catch, so no 500 reaches Telegram and no redelivery follows;
