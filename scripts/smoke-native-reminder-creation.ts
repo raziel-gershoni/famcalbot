@@ -156,7 +156,7 @@ const SRC = path.resolve(__dirname, '../src');
 const stubs: Record<string, object | ((real: Record<string, unknown>) => object)> = {
   [`${SRC}/services/ai-provider.ts`]: { getGemini: () => fakeGemini, extractionConfig: () => ({}) },
   [`${SRC}/services/voice/audio-level.ts`]: { isSilent: () => false },
-  [`${SRC}/services/voice/speech-presence.ts`]: { NO_SPEECH: 'no_speech', detectSpeech: async () => true },
+  [`${SRC}/services/voice/speech-presence.ts`]: { NO_SPEECH: 'no_speech', detectSpeech: async () => true, detectAddressedSpeech: async () => true },
   [`${SRC}/services/telegram/index.ts`]: { getBot: () => fakeBot, getMessagingService: () => telegram },
   [`${SRC}/services/telegram/command-pipeline.ts`]: { startTypingInterval: () => () => {} },
   [`${SRC}/services/user-service.ts`]: { getUserByTelegramId: async () => user },

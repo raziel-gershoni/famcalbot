@@ -7,7 +7,7 @@
 
 import { getGemini, extractionConfig } from '../ai-provider';
 import { isSilent } from './audio-level';
-import { detectSpeech, NO_SPEECH } from './speech-presence';
+import { detectAddressedSpeech, detectSpeech, NO_SPEECH } from './speech-presence';
 import { VoiceIntentResult, VoiceIntent, ParsedEvent } from '../event-parser';
 import { CalendarAssignment } from '../../types';
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
@@ -727,6 +727,9 @@ export async function processVoiceWithGemini(
   const speechCheck = detectSpeech(audioBuffer, AI_MODEL_ID);
   let speechVerdict: boolean | undefined;
   void speechCheck.then(v => { speechVerdict = v; });
+  // TV or radio is speech, so it passes the check above; whether it was meant for the
+  // device is asked the same way. Never rejects, so it can sit unawaited.
+  const addressedCheck = detectAddressedSpeech(audioBuffer, AI_MODEL_ID);
 
   for (let attempt = 0; attempt <= VOICE_RETRY_CONFIG.maxRetries; attempt++) {
     try {
@@ -797,12 +800,19 @@ export async function processVoiceWithGemini(
       // counts if the context-free check agrees there was speech at all.
       if (!(await speechCheck)) return noSpeechResult('speech gate');
 
-      return {
-        intentResult,
-        intentResults,
-        transcription,
-        metrics: { model: AI_MODEL_ID, inputTokens, outputTokens, durationMs: duration },
-      };
+      const metrics = { model: AI_MODEL_ID, inputTokens, outputTokens, durationMs: duration };
+
+      // A TV promo naming a day and a time came back as a medium-confidence create.
+      // Only parses below "high" can be dropped: every real command in the benchmark
+      // came back "high" (84 of 84 runs), so a wrong NO can't cost a real command.
+      const actionable = intentResults.filter(r => r.event || r.eventReference);
+      if (actionable.length > 0 && actionable.every(r => r.confidence !== 'high') && !(await addressedCheck)) {
+        console.log(`[Voice Gemini] Speech not addressed to the device; dropped ${actionable.length} below-high action(s)`);
+        const notAddressed: VoiceIntentResult = { intent: 'create', confidence: 'low', error: 'not_addressed' };
+        return { intentResult: notAddressed, intentResults: [notAddressed], transcription, metrics };
+      }
+
+      return { intentResult, intentResults, transcription, metrics };
 
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
