@@ -22,6 +22,18 @@ process.env.TELEGRAM_BOT_TOKEN ??= 'test';
 
 import fs from 'fs';
 import path from 'path';
+import Module from 'module';
+
+// @hebcal/core is ESM-only and tsx loads src/ as CommonJS (see smoke-weather-command.ts);
+// the formatter and claude.ts import it, so point it at its ESM build.
+const ModuleInternals = Module as unknown as {
+  _resolveFilename: (request: string, parent: unknown, isMain: boolean) => string;
+};
+const resolveFilename = ModuleInternals._resolveFilename;
+ModuleInternals._resolveFilename = function (request, parent, isMain) {
+  if (request === '@hebcal/core') return path.resolve(__dirname, '../node_modules/@hebcal/core/dist/esm/index.js');
+  return resolveFilename.call(this, request, parent, isMain);
+};
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
