@@ -71,6 +71,10 @@ export function daySpanOf(event: CalendarEvent, day: string, timezone: string): 
   const dayEnd = startOfLocalDay(nextDate(day), timezone);
   const start = new Date(event.start);
   const end = new Date(event.end || event.start);
+  // A zero-length item (a reminder) is an instant, so it belongs to the day it falls
+  // in. The overlap test below would put one at exactly 00:00 on no day: it ends
+  // where its own day begins.
+  if (end.getTime() === start.getTime()) return start >= dayStart && start < dayEnd ? undefined : null;
   if (end <= dayStart || start >= dayEnd) return null;
   const startsBefore = start < dayStart;
   const endsAfter = end > dayEnd;

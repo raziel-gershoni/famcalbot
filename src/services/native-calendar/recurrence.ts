@@ -38,6 +38,17 @@ export interface VirtualInstance {
 }
 
 /**
+ * Read a date-only UNTIL as the end of that day. The bot writes "until the 20th"
+ * as UNTIL=20261020 (calendar.ts buildRecurrenceRule), which rrule takes as 00:00
+ * on the 20th in the floating time expansion runs in, so a timed series lost its
+ * last day. Done when the rule is read, so rules already stored are fixed too. A
+ * date-time UNTIL, as truncateRruleBefore writes it, is left alone.
+ */
+function withInclusiveUntil(rule: string): string {
+  return rule.replace(/(^|;)UNTIL=(\d{8})(?=;|$)/, '$1UNTIL=$2T235959');
+}
+
+/**
  * Parse an RRULE string into an RRuleSet, anchored at a dtstart.
  * Accepts either a bare rule like "FREQ=WEEKLY;BYDAY=MO" or one with the
  * "RRULE:" prefix. Building via RRule.parseString + the constructor (rather
@@ -47,7 +58,7 @@ export interface VirtualInstance {
  */
 function buildRuleSet(rrule: string, dtstart: Date): RRuleSet {
   const trimmed = rrule.startsWith('RRULE:') ? rrule.slice('RRULE:'.length) : rrule;
-  const opts = RRule.parseString(trimmed);
+  const opts = RRule.parseString(withInclusiveUntil(trimmed));
   const rule = new RRule({ ...opts, dtstart });
   const set = new RRuleSet();
   set.rrule(rule);
@@ -231,6 +242,44 @@ export function expandSeries(
   // Sort by effective start time
   instances.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
   return instances;
+}
+
+/**
+ * How far back latestOccurrenceBefore looks, in days, widening a step at a time:
+ * a daily series is found in the first window, a yearly one by the fourth, and
+ * one that ended years ago by the last.
+ */
+const LOOKBACK_STEPS_DAYS = [2, 14, 62, 400, 4000];
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The occurrence with the latest effective start strictly before `at`, or null.
+ * Exdates, CANCELLED and moved OVERRIDEs apply as in expandSeries: an occurrence
+ * moved past `at` doesn't count, and a later one moved before it does, keyed by
+ * its original slot. A digest uses it for a repeating reminder's last occurrence
+ * before its cutoff ("open since").
+ */
+export function latestOccurrenceBefore(
+  event: NativeEvent,
+  overrides: NativeEventInstance[],
+  at: Date
+): VirtualInstance | null {
+  if (!event.rrule) {
+    // A one-off has one occurrence; its effective start decides, as for a series.
+    const [only] = expandSeries(event, { from: event.startsAt, to: at }, overrides);
+    return only && only.startsAt < at ? only : null;
+  }
+
+  for (const days of LOOKBACK_STEPS_DAYS) {
+    const from = new Date(at.getTime() - days * DAY_MS);
+    // Only occurrences that start in [from, at). One that started earlier and is
+    // still running at `from` may not be the latest; a wider window decides it.
+    const started = expandSeries(event, { from, to: at }, overrides).filter((i) => i.startsAt >= from);
+    if (started.length > 0) return started[started.length - 1];
+    // The window already reaches the series' first occurrence.
+    if (from <= event.startsAt) break;
+  }
+  return null;
 }
 
 /**

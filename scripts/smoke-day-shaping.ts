@@ -8,7 +8,7 @@
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-day-shaping.ts
 
 import { formatEventForPrompt } from '../src/utils/event-formatter';
-import { localDate, OVERNIGHT_CUTOFF_HOUR, shapeEventsForDay } from '../src/utils/day-events';
+import { daySpanOf, localDate, OVERNIGHT_CUTOFF_HOUR, shapeEventsForDay } from '../src/utils/day-events';
 import { toUnifiedEvent } from '../src/services/calendar-provider/native-provider';
 import type { CalendarEvent } from '../src/types';
 
@@ -215,6 +215,48 @@ check('native all-day event: dated in its own timezone, so a UTC server keeps it
   });
   assert(unified.start === '2026-10-12' && unified.end === '2026-10-13', `dates ${unified.start}..${unified.end}`);
   assert(onDay(unified as CalendarEvent, '2026-10-12') === '1. Holiday (All day) [Calendar: Family]', `line ${onDay(unified as CalendarEvent, '2026-10-12')}`);
+});
+
+// Reminders are saved with no length. One at exactly 00:00 ended where its day began,
+// so the overlap test put it on no day at all.
+check('a zero-length item at 00:00 belongs to its own day, not the day before', () => {
+  const pills = ev('Pills', '2026-10-13T00:00:00+03:00', '2026-10-13T00:00:00+03:00');
+  assert(daySpanOf(pills, '2026-10-13', TZ) === undefined, `Tue ${daySpanOf(pills, '2026-10-13', TZ)}`);
+  assert(daySpanOf(pills, '2026-10-12', TZ) === null, `Mon ${daySpanOf(pills, '2026-10-12', TZ)}`);
+  assert(shapeEventsForDay([pills], '2026-10-13', TZ).length === 1, 'dropped from Tuesday');
+  assert(shapeEventsForDay([pills], '2026-10-12', TZ).length === 0, 'kept on Monday');
+  // The 25-hour DST day in Israel, and another timezone.
+  const dst = ev('Pills', '2026-10-25T00:00:00+03:00', '2026-10-25T00:00:00+03:00');
+  assert(daySpanOf(dst, '2026-10-25', TZ) === undefined && daySpanOf(dst, '2026-10-24', TZ) === null, 'DST day');
+  const ny = ev('Pills', '2026-11-01T00:00:00-04:00', '2026-11-01T00:00:00-04:00');
+  const nyDays = [daySpanOf(ny, '2026-10-31', 'America/New_York'), daySpanOf(ny, '2026-11-01', 'America/New_York')];
+  assert(nyDays[0] === null && nyDays[1] === undefined, `New York ${nyDays.join(',')}`);
+});
+
+check('a zero-length item at 23:59 stays on its day', () => {
+  const lock = ev('Lock the door', '2026-10-13T23:59:00+03:00', '2026-10-13T23:59:00+03:00');
+  assert(daySpanOf(lock, '2026-10-13', TZ) === undefined, `Tue ${daySpanOf(lock, '2026-10-13', TZ)}`);
+  assert(daySpanOf(lock, '2026-10-14', TZ) === null, `Wed ${daySpanOf(lock, '2026-10-14', TZ)}`);
+});
+
+check('a native zero-length occurrence at 00:00, as the store saves a reminder, is on its day', () => {
+  // 2026-10-13 00:00 in Israel is 2026-10-12T21:00Z.
+  const midnight = new Date('2026-10-12T21:00:00Z');
+  const native = toUnifiedEvent({ id: 'cal1', name: 'Family' }, {
+    title: 'Pills', startsAt: midnight, endsAt: midnight, allDay: false, timeZone: TZ,
+    seriesEventId: 'e1', instanceStartsAt: midnight, isRecurringInstance: false,
+  }) as CalendarEvent;
+  assert(shapeEventsForDay([native], '2026-10-13', TZ).length === 1, 'dropped from Tuesday');
+  assert(shapeEventsForDay([native], '2026-10-12', TZ).length === 0, 'kept on Monday');
+});
+
+check('events with a length keep their spans', () => {
+  assert(daySpanOf(party, '2026-10-12', TZ) === 'endsLater', `party Mon ${daySpanOf(party, '2026-10-12', TZ)}`);
+  assert(daySpanOf(party, '2026-10-13', TZ) === null, `party Tue ${daySpanOf(party, '2026-10-13', TZ)}`);
+  const dinner = ev('Dinner', '2026-10-12T20:00:00+03:00', '2026-10-13T00:00:00+03:00');
+  assert(daySpanOf(dinner, '2026-10-12', TZ) === undefined && daySpanOf(dinner, '2026-10-13', TZ) === null, 'dinner until midnight');
+  const flight = ev('Flight', '2026-10-13T00:00:00+03:00', '2026-10-13T03:00:00+03:00');
+  assert(daySpanOf(flight, '2026-10-13', TZ) === undefined && daySpanOf(flight, '2026-10-12', TZ) === null, 'flight from midnight');
 });
 
 let failed = 0;

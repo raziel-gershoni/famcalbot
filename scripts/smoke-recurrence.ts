@@ -9,8 +9,8 @@
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-recurrence.ts
 
 import { fromZonedTime } from 'date-fns-tz';
-import { expandSeries, truncateRruleBefore, VirtualInstance } from '../src/services/native-calendar/recurrence';
-import { nextDate, startOfLocalDay } from '../src/utils/day-events';
+import { expandSeries, latestOccurrenceBefore, truncateRruleBefore, VirtualInstance } from '../src/services/native-calendar/recurrence';
+import { localDate, nextDate, startOfLocalDay } from '../src/utils/day-events';
 import type { NativeEvent, NativeEventInstance } from '@prisma/client';
 
 type Result = { name: string; ok: boolean; reason?: string };
@@ -419,6 +419,128 @@ check('overlap: an occurrence an override lengthens reaches every day it covers'
   assert(thu.length === 1, `expected the lengthened occurrence on Thursday, got ${thu.length}`);
   assert(thu[0].startsAt.getTime() === night.getTime(), 'starts at its original slot');
   assert(expandSeries(overnightWeekly(), dayOf('2026-11-13'), long).length === 0, 'not past its end');
+});
+
+// --- latestOccurrenceBefore: the last occurrence before a cutoff -------------
+// A digest carries an undone repeating reminder over as "open since <day>", so it
+// needs the occurrence that came last before the cutoff, as expandSeries shows it:
+// exdates and CANCELLED gone, a moved occurrence counted where it moved to.
+
+/** The effective start of the latest occurrence before `cutoff`, or 'none'. */
+const latestStart = (series: NativeEvent, cutoff: Date, overrides: NativeEventInstance[] = []) =>
+  latestOccurrenceBefore(series, overrides, cutoff)?.startsAt.toISOString() ?? 'none';
+const iso = (local: string) => at(local).toISOString();
+
+// A daily 08:00 reminder in Jerusalem from Monday 2026-11-02, saved the way
+// reminders are: zero length. 2026-11-10 is a Tuesday.
+const dailyPills = (fields: Partial<NativeEvent> = {}) => jlm({
+  title: 'Pills', startsAt: at('2026-11-02 08:00'), endsAt: at('2026-11-02 08:00'), rrule: 'FREQ=DAILY', ...fields,
+});
+
+check('latest before: a one-off counts only when it starts before the cutoff', () => {
+  const call = jlm({ title: 'Call the plumber', startsAt: at('2026-11-10 10:00'), endsAt: at('2026-11-10 10:00') });
+  const found = latestOccurrenceBefore(call, [], at('2026-11-10 12:00'));
+  assert(found !== null && found.startsAt.toISOString() === iso('2026-11-10 10:00'), `got ${found?.startsAt.toISOString()}`);
+  assert(!found.isRecurringInstance && found.instanceStartsAt.getTime() === call.startsAt.getTime(), 'keyed as a one-off');
+  assert(latestStart(call, at('2026-11-10 10:00')) === 'none', 'one starting exactly at the cutoff is not before it');
+  assert(latestStart(call, at('2026-11-09 12:00')) === 'none', 'one still to come is not before it');
+});
+
+check('latest before: a daily series gives its last occurrence strictly before the cutoff', () => {
+  const found = latestOccurrenceBefore(dailyPills(), [], at('2026-11-10 12:00'));
+  assert(found !== null && found.startsAt.toISOString() === iso('2026-11-10 08:00'), `got ${found?.startsAt.toISOString()}`);
+  assert(found.isRecurringInstance && found.instanceStartsAt.getTime() === found.startsAt.getTime(), 'keyed by its own slot');
+  const atEight = latestStart(dailyPills(), at('2026-11-10 08:00'));
+  assert(atEight === iso('2026-11-09 08:00'), `an occurrence at the cutoff is not before it: got ${atEight}`);
+  assert(latestStart(dailyPills(), at('2026-11-02 08:00')) === 'none', 'nothing comes before the first occurrence');
+});
+
+check('latest before: an exdated latest occurrence gives the one before it', () => {
+  const got = latestStart(dailyPills({ exdates: [at('2026-11-10 08:00')] }), at('2026-11-10 12:00'));
+  assert(got === iso('2026-11-09 08:00'), `got ${got}`);
+});
+
+check('latest before: a CANCELLED latest occurrence gives the one before it', () => {
+  const cancelled = [makeOverride('series-1', at('2026-11-10 08:00'), { status: 'CANCELLED' })];
+  const got = latestStart(dailyPills(), at('2026-11-10 12:00'), cancelled);
+  assert(got === iso('2026-11-09 08:00'), `got ${got}`);
+});
+
+check('latest before: an occurrence moved past the cutoff no longer counts', () => {
+  const moved = [makeOverride('series-1', at('2026-11-10 08:00'), { startsAt: at('2026-11-10 18:00'), endsAt: at('2026-11-10 18:00') })];
+  const got = latestStart(dailyPills(), at('2026-11-10 12:00'), moved);
+  assert(got === iso('2026-11-09 08:00'), `got ${got}`);
+});
+
+check('latest before: a later occurrence moved before the cutoff counts, keyed by its own slot', () => {
+  // Friday's occurrence, three days past the cutoff, moved to Tuesday 10:00.
+  const moved = [makeOverride('series-1', at('2026-11-13 08:00'), { startsAt: at('2026-11-10 10:00'), endsAt: at('2026-11-10 10:00') })];
+  const found = latestOccurrenceBefore(dailyPills(), moved, at('2026-11-10 12:00'));
+  assert(found !== null && found.startsAt.toISOString() === iso('2026-11-10 10:00'), `got ${found?.startsAt.toISOString()}`);
+  assert(found.isOverridden && found.instanceStartsAt.toISOString() === iso('2026-11-13 08:00'), `key ${found.instanceStartsAt.toISOString()}`);
+});
+
+check('latest before: it reaches back as far as the series needs', () => {
+  // Weekly on Tuesdays, ended on Tuesday 2026-03-10: eight months back.
+  const ended = dailyPills({ startsAt: at('2026-01-06 08:00'), endsAt: at('2026-01-06 08:00'), rrule: 'FREQ=WEEKLY;BYDAY=TU;UNTIL=20260310T235959' });
+  assert(latestStart(ended, at('2026-11-10 12:00')) === iso('2026-03-10 08:00'), `ended weekly got ${latestStart(ended, at('2026-11-10 12:00'))}`);
+  const yearly = dailyPills({ startsAt: at('2024-03-01 08:00'), endsAt: at('2024-03-01 08:00'), rrule: 'FREQ=YEARLY' });
+  assert(latestStart(yearly, at('2026-11-10 12:00')) === iso('2026-03-01 08:00'), `yearly got ${latestStart(yearly, at('2026-11-10 12:00'))}`);
+  const longGone = dailyPills({ startsAt: at('2021-05-01 08:00'), endsAt: at('2021-05-01 08:00'), rrule: 'FREQ=DAILY;COUNT=3' });
+  assert(latestStart(longGone, at('2026-11-10 12:00')) === iso('2021-05-03 08:00'), `five years back got ${latestStart(longGone, at('2026-11-10 12:00'))}`);
+});
+
+check('latest before: a daily 08:00 stays 08:00 local across the DST change (Jerusalem)', () => {
+  const series = dailyPills({ startsAt: at('2026-10-19 08:00'), endsAt: at('2026-10-19 08:00') });
+  // Sunday 2026-10-25 is the first day on winter time. A rule held in UTC would put
+  // that morning's occurrence at 07:00, before a 07:59 cutoff.
+  const early = latestStart(series, at('2026-10-25 07:59'));
+  assert(early === iso('2026-10-24 08:00'), `Sun 07:59 got ${early}`);
+  const late = latestStart(series, at('2026-10-25 08:01'));
+  assert(late === iso('2026-10-25 08:00'), `Sun 08:01 got ${late}`);
+  // A weekly date-only reminder sits at local midnight, which moves an hour in UTC.
+  const weekly = jlm({ title: 'Pay the nanny', allDay: true, startsAt: at('2026-10-04 00:00'), endsAt: at('2026-10-04 00:00'), rrule: 'FREQ=WEEKLY;BYDAY=SU' });
+  const afterMidnight = latestStart(weekly, at('2026-11-01 00:30'));
+  assert(afterMidnight === iso('2026-11-01 00:00'), `Sun 00:30 got ${afterMidnight}`);
+  const atMidnight = latestStart(weekly, at('2026-11-01 00:00'));
+  assert(atMidnight === iso('2026-10-25 00:00'), `Sun 00:00 got ${atMidnight}`);
+});
+
+check('latest before: a daily 08:00 stays 08:00 local across the DST change (New York)', () => {
+  const NY = 'America/New_York';
+  const atNY = (local: string) => fromZonedTime(`${local}:00`, NY);
+  // Sunday 2026-11-01 is New York's first day on winter time.
+  const series = makeSeries({ title: 'Walk the dog', timeZone: NY, startsAt: atNY('2026-10-26 08:00'), endsAt: atNY('2026-10-26 08:00'), rrule: 'FREQ=DAILY' });
+  const early = latestStart(series, atNY('2026-11-01 07:59'));
+  assert(early === atNY('2026-10-31 08:00').toISOString(), `Sun 07:59 got ${early}`);
+  const late = latestStart(series, atNY('2026-11-01 08:01'));
+  assert(late === atNY('2026-11-01 08:00').toISOString(), `Sun 08:01 got ${late}`);
+});
+
+// --- UNTIL as a bare date: the whole last day ---------------------------------
+// The bot writes "until the 20th" as UNTIL=20261020 (calendar.ts
+// buildRecurrenceRule). rrule reads that as 00:00 on the 20th, so a timed series
+// lost its last day.
+
+/** The local days a series occurs on, 2026-10-01 to 2026-11-01. */
+const occurrenceDays = (series: NativeEvent) =>
+  expandSeries(series, { from: at('2026-10-01 00:00'), to: at('2026-11-01 00:00') }).map((i) => localDate(i.startsAt, JLM)).join(',');
+
+check('UNTIL as a bare date keeps the last day, wherever it sits in the rule', () => {
+  const daily = jlm({ title: 'Pills', startsAt: at('2026-10-17 08:00'), endsAt: at('2026-10-17 08:00'), rrule: 'FREQ=DAILY;UNTIL=20261020' });
+  assert(occurrenceDays(daily) === '2026-10-17,2026-10-18,2026-10-19,2026-10-20', `daily got [${occurrenceDays(daily)}]`);
+  // 2026-10-06 and 2026-10-20 are Tuesdays.
+  const weekly = jlm({ title: 'Swim', startsAt: at('2026-10-06 18:00'), endsAt: at('2026-10-06 19:00'), rrule: 'RRULE:FREQ=WEEKLY;UNTIL=20261020;BYDAY=TU' });
+  assert(occurrenceDays(weekly) === '2026-10-06,2026-10-13,2026-10-20', `weekly got [${occurrenceDays(weekly)}]`);
+});
+
+check('UNTIL with a time, and all-day series, are unchanged', () => {
+  // A floating date-time UNTIL, as truncateRruleBefore writes it, is inclusive as written.
+  const cut = jlm({ title: 'Pills', startsAt: at('2026-10-17 08:00'), endsAt: at('2026-10-17 08:00'), rrule: 'FREQ=DAILY;UNTIL=20261019T080000' });
+  assert(occurrenceDays(cut) === '2026-10-17,2026-10-18,2026-10-19', `date-time UNTIL got [${occurrenceDays(cut)}]`);
+  // An all-day series starts at 00:00, so a bare-date UNTIL always kept its last day.
+  const allDay = jlm({ title: 'Pay bills', allDay: true, startsAt: at('2026-10-17 00:00'), endsAt: at('2026-10-17 00:00'), rrule: 'FREQ=DAILY;UNTIL=20261020' });
+  assert(occurrenceDays(allDay) === '2026-10-17,2026-10-18,2026-10-19,2026-10-20', `all-day got [${occurrenceDays(allDay)}]`);
 });
 
 // --- fetchEventsInCalendars: the SQL filter must take overlap too ------------
