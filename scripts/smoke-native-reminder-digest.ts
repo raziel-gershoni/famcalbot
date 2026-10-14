@@ -498,6 +498,22 @@ async function main() {
     }
   });
 
+  await check('prompt: the "N more open" line is built word for word, in every language', () => {
+    const build = (language: string, openRemindersMore: number) => buildCalendarSummaryPrompt({
+      userName: 'Raziel', userEnglishName: 'Raziel', userGender: 'male' as const, hasSpouseCalendar: false,
+      currentGregorianDate: 'Wednesday, October 14, 2026', summaryGregorianDate: 'Wednesday, October 14, 2026',
+      summaryHebrewDate: '', greeting: 'Hi', userEventsText: 'None', spouseEventsText: 'None', otherEventsText: 'None',
+      language, hasReminders: true, openRemindersMore,
+    });
+    assert(build('en', 2).includes('"and 2 more open reminders"'), 'en');
+    assert(build('en', 1).includes('"and 1 more open reminder"'), 'en 1');
+    assert(build('he', 2).includes('"ועוד 2 תזכורות פתוחות"'), 'he');
+    assert(build('he', 1).includes('"ועוד תזכורת פתוחה אחת"'), 'he 1');
+    const ru: Record<number, string> = { 1: 'и ещё 1 открытое напоминание', 2: 'и ещё 2 открытых напоминания', 5: 'и ещё 5 открытых напоминаний', 21: 'и ещё 21 открытое напоминание', 22: 'и ещё 22 открытых напоминания' };
+    for (const [k, line] of Object.entries(ru)) assert(build('ru', Number(k)).includes(`"${line}"`), `ru ${k}`);
+    assert(!build('ru', 2).includes('не сделано"'), 'ru old example');
+  });
+
   // ---- The voice show reads the finished summary ----
 
   await check('voice show: a summary with ⏰ reminders gets the reminders rule, in he/en/ru; one without is unchanged', () => {
