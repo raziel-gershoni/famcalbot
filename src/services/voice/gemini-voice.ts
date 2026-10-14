@@ -436,9 +436,10 @@ export function extractIntents(
  * read: the native calendar counts an all-day event's days from its length, so a camp
  * ending at an 11:00 pickup lost its last day there while Google kept it.
  * An end date that is not yyyy-MM-dd is a slip of the model's, mostly after a 20:00 start
- * ("20:26-10-23": the year's "20" took the hour's colon). Its start and end time are still
- * right, so the event ends on its start date, as with no end date at all, or on the next day
- * when that would end it at or before its start.
+ * ("20:26-10-23": the year's "20" took the hour's colon), and that slip is read back as the
+ * date it was. For any other, the start and end time are still right, so the event ends on
+ * its start date, as with no end date at all, or on the next day when that would end it
+ * before its start. An end time equal to the start time stays a zero-length event.
  * Any other unreadable date or time gives an Invalid Date.
  */
 export function buildEventTimes(
@@ -449,14 +450,17 @@ export function buildEventTimes(
   allDay: boolean,
   timezone: string
 ): { start: Date; end: Date } {
-  const garbledEnd = !!endDate && !/^\d{4}-\d{2}-\d{2}$/.test(endDate);
-  const lastDate = endDate && !garbledEnd ? endDate : startDate;
+  const isDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d);
+  // "20:26-10-25" back to "2026-10-25"
+  const recovered = endDate && !isDate(endDate) ? endDate.replace(/^(\d{2}):(\d{2})-/, '$1$2-') : endDate;
+  const garbledEnd = !!recovered && !isDate(recovered);
+  const lastDate = recovered && !garbledEnd ? recovered : startDate;
   if (!allDay) {
     const start = fromZonedTime(`${startDate}T${startTime}:00`, timezone);
     const end = fromZonedTime(`${lastDate}T${endTime}:00`, timezone);
     return {
       start,
-      end: garbledEnd && end.getTime() <= start.getTime() ? fromZonedTime(`${nextDate(startDate)}T${endTime}:00`, timezone) : end,
+      end: garbledEnd && end.getTime() < start.getTime() ? fromZonedTime(`${nextDate(startDate)}T${endTime}:00`, timezone) : end,
     };
   }
   const midnight = fromZonedTime(`${startDate}T00:00:00`, timezone);
@@ -838,4 +842,24 @@ export async function processVoiceWithGemini(
 
   console.error(`[Voice Gemini] Failed after ${VOICE_RETRY_CONFIG.maxRetries + 1} attempts:`, lastError);
   throw new Error(`Voice processing failed: ${lastError?.message || 'Unknown error'}`);
+}
+
+/**
+ * What the voice_not_addressed activity records when the addressed check said NO to a
+ * parse that would have acted: the highest confidence among its actions and how many
+ * there were. Every intent of such a parse is flagged notAddressed. Null when the check
+ * said YES or failed, or there was nothing to act on. Recorded so the rate of wrong NOs
+ * on real commands can be read in production.
+ */
+export function notAddressedTelemetry(
+  results: VoiceIntentResult[]
+): { maxConfidence: VoiceIntentResult['confidence']; intentCount: number } | null {
+  const held = results.filter(r => r.notAddressed && (r.event || r.eventReference));
+  if (held.length === 0) return null;
+  const rank = { low: 0, medium: 1, high: 2 } as const;
+  const maxConfidence = held.reduce<VoiceIntentResult['confidence']>(
+    (max, r) => (rank[r.confidence] > rank[max] ? r.confidence : max),
+    'low'
+  );
+  return { maxConfidence, intentCount: held.length };
 }

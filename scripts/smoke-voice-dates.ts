@@ -682,9 +682,27 @@ async function main() {
     assert(at(corrected.end, IL) === '2026-10-23 21:00', `correction ${at(corrected.end, IL)}`);
   });
 
+  check('the slip "20:26-10-25" is read back as 2026-10-25: a three-day event keeps its last day', () => {
+    const { event, error } = create({ startDate: '2026-10-23', startTime: '09:00', endDate: '20:26-10-25', endTime: '17:00', allDay: false }, IL);
+    assert(!!event, `no event (${error})`);
+    assert(at(event.startTime, IL) === '2026-10-23 09:00' && at(event.endTime, IL) === '2026-10-25 17:00', `${at(event.startTime, IL)}..${at(event.endTime, IL)}`);
+    const corrected = buildEventTimes('2026-10-23', '09:00', '20:26-10-25', '17:00', false, IL);
+    assert(at(corrected.end, IL) === '2026-10-25 17:00', `correction ${at(corrected.end, IL)}`);
+  });
+
+  check('a garbled end date with the end time equal to the start time stays zero-length, not 24 hours', () => {
+    for (const endDate of ['20:26', '20:26-10-23']) {
+      const { start, end } = buildEventTimes('2026-10-23', '20:00', endDate, '20:00', false, IL);
+      assert(at(start, IL) === '2026-10-23 20:00' && at(end, IL) === '2026-10-23 20:00', `${endDate}: ${at(start, IL)}..${at(end, IL)}`);
+    }
+  });
+
   check('a garbled end date on an evening that crosses midnight ends the next day; an all-day one keeps its day', () => {
-    const late = create({ startDate: '2026-10-23', startTime: '20:00', endDate: '20:26-10-24', endTime: '01:00', allDay: false }, IL).event;
-    assert(!!late && at(late.endTime, IL) === '2026-10-24 01:00', `overnight ${at(late?.startTime, IL)}..${at(late?.endTime, IL)}`);
+    // Read back ("20:26-10-24") or not ("20:26"), it ends at 01:00 the next morning
+    for (const endDate of ['20:26-10-24', '20:26']) {
+      const late = create({ startDate: '2026-10-23', startTime: '20:00', endDate, endTime: '01:00', allDay: false }, IL).event;
+      assert(!!late && at(late.endTime, IL) === '2026-10-24 01:00', `${endDate}: overnight ${at(late?.startTime, IL)}..${at(late?.endTime, IL)}`);
+    }
     const day = create({ startDate: '2026-10-23', endDate: '20:26-10-23', allDay: true }, IL).event;
     assert(!!day && at(day.startTime, IL) === '2026-10-23 00:00' && at(day.endTime, IL) === '2026-10-23 23:59', `all-day ${at(day?.startTime, IL)}..${at(day?.endTime, IL)}`);
   });

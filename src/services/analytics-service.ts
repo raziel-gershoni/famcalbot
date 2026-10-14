@@ -24,6 +24,8 @@ export type ActivityAction =
   | 'voice_event_started'
   | 'voice_event_created'
   | 'voice_event_failed'
+  // The addressed check said NO (TV, radio, a forwarded note): the parse is held for a tap
+  | 'voice_not_addressed'
   // Forward event actions
   | 'forward_event_started'
   | 'forward_event_created'

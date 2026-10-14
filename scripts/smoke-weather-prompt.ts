@@ -11,14 +11,14 @@
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-weather-prompt.ts
 
 // Fake credentials so importing the services needs no real environment.
-process.env.DATABASE_URL ??= 'postgresql://test@db.invalid/test';
-process.env.DIRECT_URL ??= 'postgresql://test@db.invalid/test';
-process.env.GEMINI_API_KEY ??= 'test';
-process.env.OPENAI_API_KEY ??= 'test';
-process.env.ANTHROPIC_API_KEY ??= 'test';
-process.env.UPSTASH_REDIS_REST_URL ??= 'https://redis.invalid';
-process.env.UPSTASH_REDIS_REST_TOKEN ??= 'test';
-process.env.TELEGRAM_BOT_TOKEN ??= 'test';
+process.env.DATABASE_URL = 'postgresql://test@db.invalid/test';
+process.env.DIRECT_URL = 'postgresql://test@db.invalid/test';
+process.env.GEMINI_API_KEY = 'test';
+process.env.OPENAI_API_KEY = 'test';
+process.env.ANTHROPIC_API_KEY = 'test';
+process.env.UPSTASH_REDIS_REST_URL = 'https://redis.invalid';
+process.env.UPSTASH_REDIS_REST_TOKEN = 'test';
+process.env.TELEGRAM_BOT_TOKEN = 'test';
 
 import fs from 'fs';
 import path from 'path';

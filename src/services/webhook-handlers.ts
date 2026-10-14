@@ -947,7 +947,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     // Process with Gemini (same pipeline as Telegram)
     const { resolveUserTimezone } = await import('../lib/timezone');
     const timezone = await resolveUserTimezone(user);
-    const { processVoiceWithGemini } = await import('./voice/gemini-voice');
+    const { processVoiceWithGemini, notAddressedTelemetry } = await import('./voice/gemini-voice');
     const { getRecentEvents, formatRecentEventsBlock } = await import('./voice/recent-events-store');
     const recentEvents = await getRecentEvents(user.id);
     const recentBlock = formatRecentEventsBlock(recentEvents, timezone);
@@ -967,6 +967,12 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     );
     const { transcription } = extraction;
     let { intentResult, intentResults } = extraction;
+    // How often the addressed check holds back what may be a real command
+    const unaddressed = notAddressedTelemetry(intentResults ?? [intentResult]);
+    if (unaddressed) {
+      const { trackActivityAsync } = await import('./analytics-service');
+      trackActivityAsync(user.id, 'voice_not_addressed', { ...unaddressed, platform: 'whatsapp' });
+    }
     let reminderFailures: ReminderFailure[] = [];
     if (support.supported) {
       const resolved = await resolveReminderIntents(user, intentResults ?? [intentResult], timezone);

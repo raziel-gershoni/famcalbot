@@ -17,6 +17,7 @@
 import Module from 'node:module';
 import path from 'node:path';
 import type { CalendarAssignment } from '../src/types';
+import type { VoiceIntentResult } from '../src/services/event-parser';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -108,7 +109,7 @@ ModuleInternals._load = function (request, parent, isMain) {
 };
 
 async function main() {
-  const { processVoiceWithGemini } = await import('../src/services/voice/gemini-voice');
+  const { processVoiceWithGemini, notAddressedTelemetry } = await import('../src/services/voice/gemini-voice');
   const { encodePcmToOggOpus } = await import('../src/utils/pcm-to-ogg-opus');
 
   // 2 s of a loud 220 Hz tone at the encoder's 24 kHz.
@@ -189,6 +190,24 @@ async function main() {
       assert(kept.length === 2, `${confidences}: kept ${kept.length} of 2: ${JSON.stringify(r.intentResults?.map(i => i.error ?? i.confidence))}`);
       assert(kept.every(i => i.notAddressed === true) && r.intentResult.notAddressed === true, `${confidences}: flags ${JSON.stringify(r.intentResults?.map(i => i.notAddressed))}`);
     }
+  });
+
+  await check('telemetry: a NO on an actionable parse reports its highest confidence and how many actions it held', async () => {
+    const show = (r: { intentResult: VoiceIntentResult; intentResults?: VoiceIntentResult[] }) =>
+      JSON.stringify(notAddressedTelemetry(r.intentResults ?? [r.intentResult]));
+    const medium = show(await run({ addressed: 'NO', extraction: promoCreate('medium') }));
+    assert(medium === '{"maxConfidence":"medium","intentCount":1}', `medium ${medium}`);
+    const pair = show(await run({ addressed: 'NO', extraction: { transcription: PROMO, intents: [promoCreate('medium'), promoCreate('high')] } }));
+    assert(pair === '{"maxConfidence":"high","intentCount":2}', `pair ${pair}`);
+    for (const addressed of ['YES', 'THROW'] as const) {
+      const none = show(await run({ addressed, extraction: promoCreate('high') }));
+      assert(none === 'null', `${addressed}: ${none}`);
+    }
+    const noAction = show(await run({
+      addressed: 'NO',
+      extraction: { transcription: 'And now the weather.', intent: 'create', confidence: 'low', event: null, error: 'No calendar event detected.' },
+    }));
+    assert(noAction === 'null', `no action: ${noAction}`);
   });
 
   await check('a parse with no action is returned as it was, whatever the check says', async () => {

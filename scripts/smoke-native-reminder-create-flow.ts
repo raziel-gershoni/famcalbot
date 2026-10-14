@@ -356,7 +356,7 @@ async function main() {
   const t = await getBotMessages('en');
   /** A WhatsApp voice note from Dana, through the webhook. */
   const whatsappVoice = () => handleWhatsAppWebhook(
-    { body: { entry: [{ changes: [{ value: { messages: [{ from: '972501234567', id: 'wamid.in', type: 'audio', audio: { id: 'media-1' } }] } }] }] } },
+    { body: { entry: [{ changes: [{ value: { messages: [{ from: '972500000008', id: 'wamid.in', type: 'audio', audio: { id: 'media-1' } }] } }] }] } },
     { status: () => ({ json: () => {} }) }
   );
 
@@ -869,11 +869,15 @@ async function main() {
     extracted = [createIntent(promo, 'high')];
     await handleVoiceMessage(555, 1001, voice, from);
     assert(created.length === 1, `created ${JSON.stringify(created)}`);
+    assert(!tracked.some(e => e.action === 'voice_not_addressed'), `tracked ${JSON.stringify(tracked)}`);
     created = [];
     extracted = [notAddressed(promo)];
     await handleVoiceMessage(555, 1001, voice, from);
     assert(created.length === 0, `auto-created ${JSON.stringify(created)}`);
     assert(lastBot()?.text.startsWith(t.voice.confirmTitle), JSON.stringify(botCalls));
+    // Recorded against the user's id, so the rate of wrong NOs shows in production
+    const held = tracked.filter(e => e.action === 'voice_not_addressed');
+    assert(JSON.stringify(held) === JSON.stringify([{ userId: 1, action: 'voice_not_addressed', metadata: { maxConfidence: 'high', intentCount: 1 } }]), `tracked ${JSON.stringify(held)}`);
   });
 
   await check('whatsapp voice: speech not meant for the device never auto-creates - one event gets its card, a batch the Telegram hint', async () => {
@@ -893,6 +897,12 @@ async function main() {
     await whatsappVoice();
     assert(created.length === 0, `auto-created ${JSON.stringify(created)}`);
     assert(waCalls[waCalls.length - 1]?.text === t.whatsapp.bulkUseTelegram, JSON.stringify(waCalls));
+    const held = tracked.filter(e => e.action === 'voice_not_addressed').map(e => ({ userId: e.userId, ...e.metadata }));
+    const expected = [
+      { userId: 1, maxConfidence: 'high', intentCount: 1, platform: 'whatsapp' },
+      { userId: 1, maxConfidence: 'high', intentCount: 2, platform: 'whatsapp' },
+    ];
+    assert(JSON.stringify(held) === JSON.stringify(expected), `tracked ${JSON.stringify(held)}`);
   });
 
   await check('forwarded text: no partner in the prompt, and "remind my husband" stays the forwarder\'s', async () => {

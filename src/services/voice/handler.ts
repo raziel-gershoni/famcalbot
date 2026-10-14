@@ -7,7 +7,7 @@ import { getBot, getMessagingService } from '../telegram';
 import { getUserByTelegramId } from '../user-service';
 import { MessageFormat } from '../messaging/types';
 import { VoiceIntentResult } from '../event-parser';
-import { processVoiceWithGemini } from './gemini-voice';
+import { notAddressedTelemetry, processVoiceWithGemini } from './gemini-voice';
 import { CalendarEvent } from '../calendar';
 import { getProviderForUser } from '../calendar-provider';
 import { resolveUserTimezone } from '../../lib/timezone';
@@ -356,6 +356,9 @@ export async function handleVoiceMessage(
     );
     const { transcription, metrics } = extraction;
     let { intentResult, intentResults } = extraction;
+    // How often the addressed check holds back what may be a real command
+    const unaddressed = notAddressedTelemetry(intentResults ?? [intentResult]);
+    if (unaddressed) trackActivityAsync(user.id, 'voice_not_addressed', unaddressed);
     // Each reminder gets its calendar, target and time before any card shows it
     let reminderFailures: ReminderFailure[] = [];
     if (support.supported) {
