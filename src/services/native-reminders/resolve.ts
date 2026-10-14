@@ -91,9 +91,9 @@ function targetFor(
 /**
  * Why a reminder made now won't ping, if it won't (spec §3.3). The pass still pings one
  * whose time passed less than ARMED_GRACE_MS ago (due.ts isEligible), so only an older
- * one gets a notice. A date-only reminder for today past its 09:00: "no time set". Any
- * other one-off: "time passed"; it stays in the summaries until done. A repeating one
- * gets none, since its later occurrences ping.
+ * one gets a notice. A repeating one gets none, since its later occurrences ping. A
+ * date-only one for today past its 09:00: "no time set". Any other: "time passed"; it
+ * stays in the summaries until done.
  */
 function timeNotice(
   startsAt: Date,
@@ -103,9 +103,8 @@ function timeNotice(
   now: Date
 ): 'time_passed' | 'no_time_set' | undefined {
   const due = dueAtForOccurrence({ startsAt, allDay, timeZone: timezone }, timezone);
-  if (due.getTime() >= now.getTime() - ARMED_GRACE_MS) return undefined;
-  if (allDay && localDate(startsAt, timezone) === localDate(now, timezone)) return 'no_time_set';
-  return recurrence ? undefined : 'time_passed';
+  if (due.getTime() >= now.getTime() - ARMED_GRACE_MS || recurrence) return undefined;
+  return allDay && localDate(startsAt, timezone) === localDate(now, timezone) ? 'no_time_set' : 'time_passed';
 }
 
 /**

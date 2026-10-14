@@ -428,6 +428,17 @@ async function main() {
     assert(unreachable.ok && unreachable.notice === 'partner_not_on_telegram', `partner: ${JSON.stringify(unreachable)}`);
   });
 
+  await check('resolve: a repeating date-only reminder for today past 09:15 has no notice, and its bulk line says nothing (tomorrow\'s 09:00 pings)', async () => {
+    // Wednesday 10:30 in Israel
+    const daily = parsedReminder({ ...dateOnly('2026-10-14'), recurrence: { frequency: 'daily' } });
+    const r = await resolveReminderForCreate(dana, daily, IL);
+    assert(r.ok && r.notice === undefined, JSON.stringify(r));
+    const event = await resolved(daily);
+    assert(event.reminderNotice === undefined, `notice ${event.reminderNotice}`);
+    await showBulkConfirmation(555, [createIntent(event), createIntent(await resolved(parsedReminder()))], dana, 'x', t, fakeService as never, IL);
+    assert(!serviceCalls[0].text.includes('<i>'), serviceCalls[0].text);
+  });
+
   // ---- resolveReminderForCreate: anchors ----
 
   await check('anchor: "an hour before the dentist" is the dentist\'s start minus an hour', async () => {

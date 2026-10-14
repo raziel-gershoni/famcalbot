@@ -236,7 +236,8 @@ export async function handleNativeReminders(): Promise<void> {
     if (!shouldRunPass(now)) return;
     const { runNativeReminderPass } = await import('../services/native-reminders/pass');
     const result = await runNativeReminderPass(now);
-    setNextDue(result.nextDue, now); // only after a pass that succeeded
+    // Only after a pass that succeeded, and not from one taken for dead: its view is older than its replacement's
+    if (nativeRemindersCron.startedAt === startedAt) setNextDue(result.nextDue, now);
     if (result.sent || result.skipped || result.failed) {
       console.log(`[NativeReminders] Sent ${result.sent}, skipped ${result.skipped}, failed ${result.failed}`);
     }

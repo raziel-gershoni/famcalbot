@@ -912,6 +912,32 @@ async function main() {
     });
   });
 
+  await check('handler: a replaced pass that finishes late does not move the gate', async () => {
+    reset();
+    gate.__resetDueGateForTests();
+    await quiet(async () => {
+      const run = (when: Date) => {
+        clock = when.getTime();
+        return handleNativeReminders();
+      };
+      let releaseDead = () => {};
+      holdFind = new Promise<void>((resolve) => (releaseDead = resolve));
+      const dead = run(today('10:00'));
+      for (let i = 0; i < 1000 && holdFind; i++) await new Promise((resolve) => setImmediate(resolve));
+      assert(!holdFind, 'the dead pass never reached the database');
+      // Written after the dead pass read: its replacement sees it and sleeps until 10:20
+      const later = reminder({ startsAt: today('10:20') });
+      await run(today('10:06'));
+      db.events.splice(db.events.indexOf(later), 1); // the dead pass's older view: nothing due
+      releaseDead();
+      await dead; // would close the gate until 11:00
+      db.events.push(later);
+      queries.length = 0;
+      await run(today('10:20'));
+      assert(queries.includes('nativeEvent.findMany') && sent.length === 1, `the gate slept past 10:20: ${queries.join(', ')} ${sentLines()}`);
+    });
+  });
+
   await check('handler: a failing pass throws nothing, leaves the gate open, and tells the admin at most once an hour', async () => {
     reset();
     gate.__resetDueGateForTests();
