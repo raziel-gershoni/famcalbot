@@ -262,6 +262,8 @@ const recorder = (platform: string, prefix: string): Row =>
 // ---- Boundaries: stubs in require's cache, served to import() by a load hook ----
 
 const googleCalls: string[] = [];
+/** When set, the stubbed Google calendar list throws this message (#10). */
+let googleListError: string | null = null;
 const Module = nodeRequire('module');
 const stubs: Record<string, Row> = {};
 (globalThis as Row).__smokeStubs = stubs;
@@ -321,6 +323,7 @@ function installStubs() {
     ...nodeRequire(path.join(ROOT, 'src/services/calendar.ts')),
     listUserCalendars: async (refreshToken: string) => {
       googleCalls.push(`listUserCalendars(${refreshToken})`);
+      if (googleListError) throw new Error(googleListError);
       return [{ id: 'CAL-SECRET-google@group.calendar.google.com', name: 'CAL-SECRET-google', description: '', primary: false, accessRole: 'writer', backgroundColor: '#123456' }];
     },
   });
@@ -364,6 +367,7 @@ function seed() {
   redisStore.clear();
   prismaCalls.length = 0;
   googleCalls.length = 0;
+  googleListError = null;
   sent.length = 0;
   captured.length = 0;
   DB.user = [
@@ -582,6 +586,19 @@ async function main() {
     const el = await page({ searchParams: Promise.resolve({ user_id: '5550001' }) });
     const out = `${serialize(el)} ${renderHtml(el, 'en')}`;
     assert(!out.includes('Dana'), 'the page shows the name of Telegram user 5550001 (Dana)');
+  });
+
+  // ---- Missing Google scopes: the re-connect page has no locale prefix ----
+
+  await check('#10 select-calendars with missing Google scopes (Hebrew user): redirect to /refresh-token with no locale prefix', async () => {
+    seed();
+    const gina = DB.user.find((u: Row) => u.id === 4) as Row;
+    gina.language = 'he';
+    googleListError = 'GOOGLE_INSUFFICIENT_SCOPES';
+    const res = await pageData({ page: 'select-calendars', user_id: 8880004, locale: 'he', initData: initDataFor(8880004) });
+    const body = await fullBody(res);
+    assert(body.includes('redirect'), `no redirect: status ${res.status} ${await bodyOf(res)}`);
+    assert(body.includes('"/refresh-token?user_id=8880004"'), `the redirect is not to /refresh-token?user_id=8880004: ${await bodyOf(res)}`);
   });
 
   let failed = 0;

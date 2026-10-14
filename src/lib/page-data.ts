@@ -283,7 +283,8 @@ async function selectCalendars(user: UserConfig, userId: number, userLocale: str
     // Handle insufficient scopes - clear token and redirect to re-authorize
     if (error instanceof Error && error.message === 'GOOGLE_INSUFFICIENT_SCOPES') {
       await updateUserById(user.id, { googleRefreshToken: '' });
-      return { kind: 'redirect', to: `/${userLocale}/refresh-token?user_id=${userId}` };
+      // /refresh-token lives outside [locale] and picks the language itself; a /he or /ru prefix 404s.
+      return { kind: 'redirect', to: `/refresh-token?user_id=${userId}` };
     }
 
     // Generic error fallback
