@@ -10,7 +10,9 @@
 // reminder that read as starting now (a pickup too), dropped the 30-minute popup next to
 // it, and fetched calendars one after another, slowing the 5-minute run past its window.
 // Capping every lead at two hours then dropped the "3 hours before" sent on the event's
-// own day while the run fetched today. No network.
+// own day while the run fetched today. A built-in calendar reminder got an alert as well
+// as its own ping, a "<" or "&" in a title made Telegram refuse the alert, and a user who
+// blocked the bot was retried every five minutes. No network.
 //
 // Run under both clocks; the output must not depend on the server's timezone:
 //   TZ=UTC npx tsx scripts/smoke-reminders.ts
@@ -79,13 +81,19 @@ const fakePrisma = {
       userRows
         .filter(row => Object.keys(where).every(k => where[k] !== null || row[k] == null))
         .map(row => Object.fromEntries(Object.keys(select).filter(k => select[k]).map(k => [k, row[k]]))),
+    // markUserUnreachable: the id, and the columns it requires to be null.
+    updateMany: async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+      const rows = userRows.filter(row => Object.keys(where).every(k => (where[k] === null ? row[k] == null : row[k] === where[k])));
+      for (const row of rows) Object.assign(row, data);
+      return { count: rows.length };
+    },
   },
   adminSettings: { findUnique: async () => ({ remindersEnabled: true }) },
   oAuthState: { deleteMany: async () => ({ count: 0 }) },
 };
 
 /** A Google calendar event, as events.list returns it with singleEvents; `reminder` is its own popup lead(s). */
-type GoogleEvent = { calendarId: string; id: string; summary: string; start: Date; end: Date; reminder?: number | number[] };
+type GoogleEvent = { calendarId: string; id: string; summary: string; start: Date; end: Date; location?: string; reminder?: number | number[] };
 let googleEvents: GoogleEvent[] = [];
 /** Real milliseconds each Google request takes, the requests in flight, and calendars whose requests fail. */
 const googleCalls = { latencyMs: 0, inFlight: 0, maxInFlight: 0, failing: {} as Record<string, Error> };
@@ -113,7 +121,7 @@ const fakeGoogle = {
           items: googleEvents
             .filter(e => e.calendarId === calendarId && e.end > new RealDate(timeMin) && e.start < new RealDate(timeMax))
             .map(e => ({
-              id: e.id, summary: e.summary, start: { dateTime: e.start.toISOString() }, end: { dateTime: e.end.toISOString() },
+              id: e.id, summary: e.summary, start: { dateTime: e.start.toISOString() }, end: { dateTime: e.end.toISOString() }, location: e.location,
               reminders: e.reminder === undefined ? undefined : {
                 useDefault: false,
                 overrides: [e.reminder].flat().map(minutes => ({ method: 'popup', minutes })),
@@ -128,8 +136,8 @@ const fakeGoogle = {
   auth: { OAuth2: class { setCredentials() {} } },
 };
 
-/** A native calendar event (one-off), as the event store hands it to the native provider. */
-type NativeRow = { calendarId: string; id: string; title: string; startsAt: Date; endsAt: Date; timeZone: string };
+/** A native calendar event (one-off), as the event store hands it to the native provider; a REMINDER has no length. */
+type NativeRow = { calendarId: string; id: string; title: string; startsAt: Date; endsAt: Date; timeZone: string; kind?: 'EVENT' | 'REMINDER' };
 let nativeCalendars: { id: string; name: string; labels: string[] }[] = [];
 let nativeEvents: NativeRow[] = [];
 
@@ -137,7 +145,18 @@ const geocodedTimezones: Record<string, string> = { 'Tel Aviv': 'Asia/Jerusalem'
 
 type Sent = { at: number; chatId: number; text: string };
 let sent: Sent[] = [];
-const recorder = { sendMessage: async (chatId: number, text: string) => { sent.push({ at: clock, chatId, text }); } };
+/** When set, every Telegram send fails with it, as for a user who blocked the bot. */
+let sendError: Error | null = null;
+let sendAttempts = 0;
+const recorder = {
+  sendMessage: async (chatId: number, text: string) => {
+    sendAttempts++;
+    if (sendError) throw sendError;
+    sent.push({ at: clock, chatId, text });
+  },
+};
+/** The contexts captureError was called with. */
+let captured: string[] = [];
 
 const SRC = path.resolve(__dirname, '../src');
 
@@ -170,7 +189,11 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   [`${SRC}/lib/rate-limit.ts`]: { settingsRateLimiter: {} },
   [`${SRC}/utils/redis.ts`]: { redis: fakeRedis },
   [`${SRC}/utils/prisma.ts`]: { prisma: fakePrisma },
-  [`${SRC}/lib/error-capture.ts`]: { captureError: () => {}, captureWarning: () => {}, captureInfo: () => {} },
+  [`${SRC}/lib/error-capture.ts`]: {
+    captureError: (_error: unknown, context: string) => { captured.push(context); },
+    captureWarning: () => {},
+    captureInfo: () => {},
+  },
   [`${SRC}/services/weather/geocoding.ts`]: {
     geocodeLocation: async (location: string) => ({ timezone: geocodedTimezones[location] }),
   },
@@ -198,11 +221,14 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
         .filter(e => cuids.includes(e.calendarId) && e.startsAt < range.to && (e.startsAt >= range.from || e.endsAt > range.from))
         .map(e => ({
           calendar: nativeCalendars.find(c => c.id === e.calendarId)!,
+          series: { id: e.id, kind: e.kind ?? 'EVENT', creatorUserId: 0, forUserId: null },
           instance: {
             title: e.title, startsAt: e.startsAt, endsAt: e.endsAt, allDay: false, timeZone: e.timeZone,
             seriesEventId: e.id, instanceStartsAt: e.startsAt, isRecurringInstance: false,
           },
         })),
+    // Nothing done or snoozed.
+    fetchReminderStates: async () => [],
   }),
 };
 
@@ -246,6 +272,9 @@ const at = (local: string, tz: string) => fromZonedTime(local, tz);
 function reset(row: Partial<UserRow> & { id: number }) {
   store.clear();
   sent = [];
+  sendError = null;
+  sendAttempts = 0;
+  captured = [];
   googleEvents = [];
   nativeCalendars = [];
   nativeEvents = [];
@@ -543,6 +572,52 @@ async function main() {
       assert(sent.length === 0, `got ${sentLines(IL).join(' | ')}`);
     });
   }
+
+  await check('a built-in calendar reminder gets no event alert, neither a start nor a pickup one', async () => {
+    reset({ id: 17, calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: null });
+    nativeCalendars = [{ id: 'cal17', name: 'Leo', labels: ['kids'] }];
+    nativeEvents = [
+      // It pings through its own pass; here it would get a start alert and, on a kids calendar, a pickup one.
+      { calendarId: 'cal17', id: 'r17', kind: 'REMINDER', title: 'Call the plumber', startsAt: at('2026-10-13 08:00', IL), endsAt: at('2026-10-13 08:00', IL), timeZone: IL },
+      { calendarId: 'cal17', id: 'n17', title: 'Swim', startsAt: at('2026-10-13 10:00', IL), endsAt: at('2026-10-13 11:00', IL), timeZone: IL },
+    ];
+    await syncCache(handlers, at('2026-10-13 07:00', IL));
+    await runTicks(handlers, at('2026-10-13 07:00', IL), at('2026-10-13 12:00', IL));
+    const lines = sentLines(IL);
+    assert(lines.join(' | ') === '09:45 🤖 Auto-Reminder: Swim | 10:45 🤖🚗 Auto-Pickup Reminder: Leo', `got ${lines.join(' | ') || '(nothing)'}`);
+  });
+
+  await check('titles, calendar names and places are escaped for Telegram\'s HTML', async () => {
+    reset({ id: 18, calendarAssignments: [{ calendarId: kidsCal, labels: ['kids'], name: 'Noa & Leo', color: '#f00' }] });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(18), IL);
+    googleEvents = [{
+      calendarId: kidsCal, id: 'k18', summary: 'Tom & Jerry <live>', location: 'Hall <B>',
+      start: at('2026-10-13 10:00', IL), end: at('2026-10-13 11:00', IL),
+    }];
+    await syncCache(handlers, at('2026-10-13 09:00', IL));
+    await runTicks(handlers, at('2026-10-13 09:00', IL), at('2026-10-13 12:00', IL));
+    assert(sent.length === 2, `sent ${sent.length}: ${sentLines(IL).join(' | ')}`);
+    assert(sent[0].text === '🤖 <b>Auto-Reminder: Tom &amp; Jerry &lt;live&gt;</b>\n📅 Noa &amp; Leo\n⏰ Starting at 10:00\n📍 Hall &lt;B&gt;', `start ${JSON.stringify(sent[0].text)}`);
+    assert(sent[1].text.startsWith('🤖🚗 <b>Auto-Pickup Reminder: Noa &amp; Leo</b>'), `pickup ${JSON.stringify(sent[1].text)}`);
+  });
+
+  await check('a user who blocked the bot is marked unreachable, quietly, and the next sync leaves them out', async () => {
+    reset({ id: 19 });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(19), IL);
+    googleEvents = [{ calendarId: kidsCal, id: 'k19', summary: 'Kindergarten', start: at('2026-10-13 08:00', IL), end: at('2026-10-13 16:00', IL) }];
+    sendError = Object.assign(new Error('ETELEGRAM: 403 Forbidden: bot was blocked by the user'), {
+      code: 'ETELEGRAM',
+      response: { body: { error_code: 403, description: 'Forbidden: bot was blocked by the user' } },
+    });
+    await syncCache(handlers, at('2026-10-13 07:00', IL));
+    await runTicks(handlers, at('2026-10-13 07:40', IL), at('2026-10-13 07:50', IL));
+    assert(sendAttempts === 1, `${sendAttempts} send attempts`);
+    assert(userRows[0].unreachableSince instanceof RealDate, `unreachableSince ${String(userRows[0].unreachableSince)}`);
+    assert(!captured.includes('reminders-send'), `captured ${captured.join(', ')}`);
+    await syncCache(handlers, at('2026-10-13 08:00', IL));
+    await runTicks(handlers, at('2026-10-13 08:00', IL), at('2026-10-13 17:00', IL));
+    assert(sendAttempts === 1, `tried again: ${sendAttempts} send attempts`);
+  });
 
   let failed = 0;
   for (const r of results) {

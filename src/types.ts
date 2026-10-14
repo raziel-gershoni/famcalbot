@@ -81,7 +81,7 @@ export interface CalendarEvent {
   calendarName: string;
   calendarId: string;
   // For recurrence detection
-  eventType?: string;         // 'default' | 'birthday' | etc
+  eventType?: string;         // 'default' | 'birthday' | 'reminder' (native) | etc
   recurringEventId?: string;  // ID of master event if this is a recurring instance
   // For reminders
   eventId?: string;           // Unique event ID for tracking reminders
@@ -92,6 +92,23 @@ export interface CalendarEvent {
   // How the event sits on the summary day when it is not wholly inside it. Set by
   // shapeEventsForDay (src/utils/day-events.ts); unset means within the day.
   daySpan?: DaySpan;
+  // A built-in calendar reminder as the viewer sees it. Present iff eventType === 'reminder'.
+  reminder?: ReminderInfo;
+}
+
+/**
+ * A reminder (a NativeEvent of kind REMINDER) from the viewer's side. The owner is the
+ * person it is for, worked out on every read (see src/services/native-reminders/ownership.ts).
+ */
+export interface ReminderInfo {
+  ownerIsViewer: boolean;   // the reminder is for the viewer (effective owner === viewer)
+  creatorIsViewer: boolean; // the viewer created it
+  ownerName?: string;       // effective owner's display name, set when the owner is not the viewer
+  creatorName?: string;     // creator's display name, set when the creator is not the viewer
+  done?: boolean;           // this occurrence has doneAt set
+  snoozed?: boolean;        // this occurrence has snoozedUntil in the future
+  open?: boolean;           // set by the summary: due earlier on the summary day, still undone
+  openSince?: string;       // 'yyyy-MM-dd' in the viewer's tz, set only on carried-over items
 }
 
 /**

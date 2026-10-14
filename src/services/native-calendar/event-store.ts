@@ -152,50 +152,43 @@ export interface FetchRange {
   to: Date;
 }
 
+/** One occurrence as the store reads it: its calendar, its series row and the expanded instance. */
+export interface NativeEventRow {
+  calendar: NativeCalendar;
+  series: NativeEvent;
+  instance: VirtualInstance;
+}
+
 /**
- * Fetch all events (single + recurring expanded) across a set of calendars
- * that overlap a date range, the way Google's events.list returns them: a
- * Monday 22:00 to Tuesday 02:00 event comes back for both days, and the summary
- * shaping (src/utils/day-events.ts) decides how each day shows it. The caller
- * is responsible for permission filtering (typically by passing in calendars
- * from listVisibleCalendars).
+ * The SQL candidate filter for a range. Recurring series (rrule != null) get
+ * filtered later by expansion; one-offs are filtered cheaply at the SQL level
+ * by overlap, with the same rule expandSeries applies.
  */
-export async function fetchEventsInCalendars(
-  calendarCuids: string[],
-  range: FetchRange
-): Promise<Array<{ calendar: NativeCalendar; series: NativeEvent; instance: VirtualInstance }>> {
-  if (calendarCuids.length === 0) return [];
-
-  const calendars = await prisma.nativeCalendar.findMany({
-    where: { id: { in: calendarCuids }, isDeleted: false },
-  });
-  const calendarsById = new Map(calendars.map((c) => [c.id, c]));
-
-  // Pull all candidate series — recurring (rrule != null) get filtered later by
-  // expansion; one-offs are filtered cheaply at the SQL level by overlap, with
-  // the same rule expandSeries applies.
-  const series = await prisma.nativeEvent.findMany({
-    where: {
-      calendarId: { in: calendarCuids },
-      isDeleted: false,
-      OR: [
-        // single-event: overlaps the range - starts before it ends and is still
-        // running when it opens. One starting inside the range always counts,
-        // whatever its end says.
-        {
-          rrule: null,
-          startsAt: { lt: range.to },
-          OR: [{ startsAt: { gte: range.from } }, { endsAt: { gt: range.from } }],
-        },
-        // recurring: include all whose dtstart is before range.to and (no UNTIL
-        // filter at SQL level — rrule expansion handles bounded series).
-        { rrule: { not: null }, startsAt: { lt: range.to } },
-      ],
+function rangeCandidates(range: FetchRange): Prisma.NativeEventWhereInput[] {
+  return [
+    // single-event: overlaps the range - starts before it ends and is still
+    // running when it opens. One starting inside the range always counts,
+    // whatever its end says.
+    {
+      rrule: null,
+      startsAt: { lt: range.to },
+      OR: [{ startsAt: { gte: range.from } }, { endsAt: { gt: range.from } }],
     },
-  });
+    // recurring: include all whose dtstart is before range.to and (no UNTIL
+    // filter at SQL level — rrule expansion handles bounded series).
+    { rrule: { not: null }, startsAt: { lt: range.to } },
+  ];
+}
 
-  if (series.length === 0) return [];
-
+/**
+ * Expand candidate series over a range with their overrides, keeping those whose
+ * calendar is in `calendarsById` (the non-deleted ones), sorted by start.
+ */
+async function expandCandidates(
+  series: NativeEvent[],
+  calendarsById: Map<string, NativeCalendar>,
+  range: FetchRange
+): Promise<NativeEventRow[]> {
   const seriesIds = series.map((s) => s.id);
   const instances = await prisma.nativeEventInstance.findMany({
     where: { seriesEventId: { in: seriesIds } },
@@ -207,7 +200,7 @@ export async function fetchEventsInCalendars(
     instancesBySeries.set(inst.seriesEventId, arr);
   }
 
-  const out: Array<{ calendar: NativeCalendar; series: NativeEvent; instance: VirtualInstance }> = [];
+  const out: NativeEventRow[] = [];
   for (const s of series) {
     const calendar = calendarsById.get(s.calendarId);
     if (!calendar) continue;
@@ -220,6 +213,79 @@ export async function fetchEventsInCalendars(
 
   out.sort((a, b) => a.instance.startsAt.getTime() - b.instance.startsAt.getTime());
   return out;
+}
+
+/**
+ * Fetch all events (single + recurring expanded) across a set of calendars
+ * that overlap a date range, the way Google's events.list returns them: a
+ * Monday 22:00 to Tuesday 02:00 event comes back for both days, and the summary
+ * shaping (src/utils/day-events.ts) decides how each day shows it. The caller
+ * is responsible for permission filtering (typically by passing in calendars
+ * from listVisibleCalendars).
+ */
+export async function fetchEventsInCalendars(calendarCuids: string[], range: FetchRange): Promise<NativeEventRow[]> {
+  if (calendarCuids.length === 0) return [];
+
+  const calendars = await prisma.nativeCalendar.findMany({
+    where: { id: { in: calendarCuids }, isDeleted: false },
+  });
+  const calendarsById = new Map(calendars.map((c) => [c.id, c]));
+
+  const series = await prisma.nativeEvent.findMany({
+    where: { calendarId: { in: calendarCuids }, isDeleted: false, OR: rangeCandidates(range) },
+  });
+
+  if (series.length === 0) return [];
+  return expandCandidates(series, calendarsById, range);
+}
+
+/**
+ * The reminders `creatorUserId` set for `forUserId` that occur in a range, on any
+ * non-deleted calendar whatever its privacy: the person a reminder is for sees it on
+ * its day even when it sits on the creator's PRIVATE calendar (spec §2). Same candidate
+ * filter and row shape as fetchEventsInCalendars. Like it, no permission check: the
+ * caller passes an active pair.
+ */
+export async function fetchRemindersForUserInRange(
+  forUserId: number,
+  creatorUserId: number,
+  range: FetchRange
+): Promise<NativeEventRow[]> {
+  const series = await prisma.nativeEvent.findMany({
+    where: { kind: 'REMINDER', forUserId, creatorUserId, isDeleted: false, OR: rangeCandidates(range) },
+  });
+  if (series.length === 0) return [];
+
+  const calendars = await prisma.nativeCalendar.findMany({
+    where: { id: { in: [...new Set(series.map((s) => s.calendarId))] }, isDeleted: false },
+  });
+  return expandCandidates(series, new Map(calendars.map((c) => [c.id, c])), range);
+}
+
+/** What the readers need of a reminder occurrence's NativeReminderState row. */
+export interface ReminderStateRow {
+  seriesEventId: string;
+  originalStartsAt: Date;
+  doneAt: Date | null;
+  snoozedUntil: Date | null;
+}
+
+/**
+ * The state rows of these reminder occurrences, in one query. An occurrence without
+ * a row is still pending. A few extra rows can come back (another series' occurrence
+ * at one of the same times), so callers look rows up by their exact key.
+ */
+export async function fetchReminderStates(
+  occurrences: Array<{ seriesEventId: string; originalStartsAt: Date }>
+): Promise<ReminderStateRow[]> {
+  if (occurrences.length === 0) return [];
+  return prisma.nativeReminderState.findMany({
+    where: {
+      seriesEventId: { in: [...new Set(occurrences.map((o) => o.seriesEventId))] },
+      originalStartsAt: { in: occurrences.map((o) => o.originalStartsAt) },
+    },
+    select: { seriesEventId: true, originalStartsAt: true, doneAt: true, snoozedUntil: true },
+  });
 }
 
 // --- Events: create ---------------------------------------------------------

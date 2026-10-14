@@ -4,6 +4,7 @@
 // PR 3 wires this internally only; getProviderForUser still returns the Google
 // provider for everyone. PR 4 will branch on user.calendarSource.
 
+import type { NativeEvent } from '@prisma/client';
 import { format } from 'date-fns';
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import {
@@ -17,10 +18,13 @@ import {
   UpdateEventInput,
   UpdateEventResult,
 } from './types';
-import { UserConfig } from '../../types';
+import { ReminderInfo, UserConfig } from '../../types';
 import {
+  FetchRange,
+  NativeEventRow,
   NativePermissionDeniedError,
   NativeNotFoundError,
+  ReminderStateRow,
   createNativeEvent,
   decodeCalendarId,
   decodeEventId,
@@ -28,11 +32,14 @@ import {
   encodeCalendarId,
   encodeEventId,
   fetchEventsInCalendars,
+  fetchReminderStates,
+  fetchRemindersForUserInRange,
   isNativeCalendarId,
   listVisibleCalendars,
   updateNativeEvent,
   UpdateScope,
 } from '../native-calendar/event-store';
+import { effectiveOwnerForViewer, loadViewerContext, ViewerContext } from '../native-reminders/ownership';
 import { TIMEZONE } from '../../config/constants';
 import { addDaysToDate } from '../../utils/day-events';
 
@@ -53,6 +60,9 @@ function ownDayBoundaries(daysOffset: number, tz: string): { from: Date; to: Dat
  * Translate stored NativeCalendar + VirtualInstance into the UnifiedEvent shape
  * downstream code already knows how to render. Date strings mirror GCal's
  * format: `YYYY-MM-DD` for all-day, ISO8601 for timed.
+ *
+ * Given a REMINDER series, the event is a reminder: eventType 'reminder', and `info`,
+ * the viewer's side of it. Without `info` it reads as the viewer's own.
  */
 export function toUnifiedEvent(
   calendar: { id: string; name: string },
@@ -67,19 +77,23 @@ export function toUnifiedEvent(
     seriesEventId: string;
     instanceStartsAt: Date;
     isRecurringInstance: boolean;
-  }
+  },
+  series?: Pick<NativeEvent, 'kind'>,
+  info?: ReminderInfo
 ): UnifiedEvent {
+  const isReminder = series?.kind === 'REMINDER';
   // All-day dates follow Google: the start date and an exclusive end date, both in the
   // event's own timezone (on the server's clock a UTC server would shift them a day).
   // The bot saves an all-day event as 00:00 to 23:59 local on its last day, and a
   // recurring one keeps that duration, so count whole days rather than reading the
-  // end's date: a DST day is 23 or 25 hours long.
+  // end's date: a DST day is 23 or 25 hours long. A date-only reminder has no length
+  // and still counts as its one day. A timed reminder ends where it starts.
   const start = instance.allDay
     ? formatInTimeZone(instance.startsAt, instance.timeZone, 'yyyy-MM-dd')
     : instance.startsAt.toISOString();
   const end = instance.allDay
     ? addDaysToDate(start, Math.max(1, Math.round((instance.endsAt.getTime() - instance.startsAt.getTime()) / 86_400_000)))
-    : instance.endsAt.toISOString();
+    : isReminder ? start : instance.endsAt.toISOString();
 
   return {
     summary: instance.title,
@@ -89,14 +103,93 @@ export function toUnifiedEvent(
     location: instance.location,
     calendarName: calendar.name,
     calendarId: encodeCalendarId(calendar.id),
-    eventType: undefined,
+    eventType: isReminder ? 'reminder' : undefined,
     recurringEventId: instance.isRecurringInstance ? instance.seriesEventId : undefined,
     eventId: encodeEventId(instance.seriesEventId, instance.isRecurringInstance ? instance.instanceStartsAt : undefined),
     reminders: undefined,
     provider: PROVIDER_NAME,
     instanceStartsAt: instance.isRecurringInstance ? instance.instanceStartsAt.toISOString() : undefined,
     timeZone: instance.timeZone,
+    ...(isReminder ? { reminder: info ?? { ownerIsViewer: true, creatorIsViewer: true } } : {}),
   };
+}
+
+/**
+ * A reminder occurrence from the viewer's side: whose it is, who set it, and whether
+ * it is done or snoozed. Names come from the pairing: a reminder the viewer can see
+ * was set by the viewer or their partner, and is for one of the two.
+ */
+export function reminderInfoFor(
+  series: { creatorUserId: number; forUserId: number | null },
+  state: Pick<ReminderStateRow, 'doneAt' | 'snoozedUntil'> | undefined,
+  ctx: ViewerContext,
+  now: Date
+): ReminderInfo {
+  const ownerId = effectiveOwnerForViewer(series, ctx);
+  const partnerName = (userId: number) => (ctx.partner?.id === userId ? ctx.partner.name : undefined);
+  const info: ReminderInfo = {
+    ownerIsViewer: ownerId === ctx.viewerId,
+    creatorIsViewer: series.creatorUserId === ctx.viewerId,
+    done: !!state?.doneAt,
+    snoozed: !!state?.snoozedUntil && state.snoozedUntil > now,
+  };
+  const ownerName = info.ownerIsViewer ? undefined : partnerName(ownerId);
+  const creatorName = info.creatorIsViewer ? undefined : partnerName(series.creatorUserId);
+  if (ownerName) info.ownerName = ownerName;
+  if (creatorName) info.creatorName = creatorName;
+  return info;
+}
+
+/** The key a reminder occurrence's state is stored under: its series and original start. */
+function occurrenceKey(seriesEventId: string, originalStartsAt: Date): string {
+  return `${seriesEventId}|${originalStartsAt.getTime()}`;
+}
+
+/** The event id a row is listed under, as toUnifiedEvent encodes it. */
+function rowEventId(instance: NativeEventRow['instance']): string {
+  return encodeEventId(instance.seriesEventId, instance.isRecurringInstance ? instance.instanceStartsAt : undefined);
+}
+
+/**
+ * Add the reminders fetched for the viewer to the calendar rows, skipping any already
+ * there: a partner's reminder on a calendar the viewer can see comes back from both.
+ */
+function mergeRows(rows: NativeEventRow[], forViewer: NativeEventRow[]): NativeEventRow[] {
+  const seen = new Set(rows.map((r) => rowEventId(r.instance)));
+  const added = forViewer.filter((r) => !seen.has(rowEventId(r.instance)));
+  if (added.length === 0) return rows;
+  return [...rows, ...added].sort((a, b) => a.instance.startsAt.getTime() - b.instance.startsAt.getTime());
+}
+
+/** Store rows as the viewer's events. The reminders' states are read in one query. */
+async function toViewerEvents(rows: NativeEventRow[], ctx: ViewerContext): Promise<UnifiedEvent[]> {
+  const reminderRows = rows.filter((r) => r.series.kind === 'REMINDER');
+  if (reminderRows.length === 0) return rows.map((r) => toUnifiedEvent(r.calendar, r.instance));
+
+  const states = await fetchReminderStates(
+    reminderRows.map((r) => ({ seriesEventId: r.series.id, originalStartsAt: r.instance.instanceStartsAt }))
+  );
+  const stateByKey = new Map(states.map((s) => [occurrenceKey(s.seriesEventId, s.originalStartsAt), s]));
+  const now = new Date();
+  return rows.map((r) => {
+    if (r.series.kind !== 'REMINDER') return toUnifiedEvent(r.calendar, r.instance);
+    const state = stateByKey.get(occurrenceKey(r.series.id, r.instance.instanceStartsAt));
+    return toUnifiedEvent(r.calendar, r.instance, r.series, reminderInfoFor(r.series, state, ctx, now));
+  });
+}
+
+/**
+ * The viewer's events in a range: those on the given calendars, plus the reminders
+ * their partner set for them, which they see on its day whatever the privacy of the
+ * partner's calendar (spec §2).
+ */
+async function fetchForViewer(user: UserConfig, cuids: string[], range: FetchRange): Promise<UnifiedEvent[]> {
+  const [ctx, rows] = await Promise.all([
+    loadViewerContext({ id: user.id, pairingId: user.pairingId ?? null }),
+    fetchEventsInCalendars(cuids, range),
+  ]);
+  const forViewer = ctx.partner ? await fetchRemindersForUserInRange(user.id, ctx.partner.id, range) : [];
+  return toViewerEvents(mergeRows(rows, forViewer), ctx);
 }
 
 function filterCalendarCuids(calendarIds: string[]): string[] {
@@ -144,8 +237,7 @@ export const nativeProvider: CalendarProvider = {
     const cuids = filterCalendarCuids(calendarIds);
     if (cuids.length === 0) return [];
     const range = ownDayBoundaries(0, tz);
-    const rows = await fetchEventsInCalendars(cuids, range);
-    return rows.map((r) => toUnifiedEvent(r.calendar, r.instance));
+    return fetchForViewer(user, cuids, range);
   },
 
   async fetchTomorrowEvents(user: UserConfig, calendarIds: string[], timezone?: string): Promise<UnifiedEvent[]> {
@@ -153,8 +245,7 @@ export const nativeProvider: CalendarProvider = {
     const cuids = filterCalendarCuids(calendarIds);
     if (cuids.length === 0) return [];
     const range = ownDayBoundaries(1, tz);
-    const rows = await fetchEventsInCalendars(cuids, range);
-    return rows.map((r) => toUnifiedEvent(r.calendar, r.instance));
+    return fetchForViewer(user, cuids, range);
   },
 
   async fetchEventsInRange(
@@ -165,8 +256,7 @@ export const nativeProvider: CalendarProvider = {
   ): Promise<UnifiedEvent[]> {
     const cuids = filterCalendarCuids(calendarIds);
     if (cuids.length === 0) return [];
-    const rows = await fetchEventsInCalendars(cuids, { from: startDate, to: endDate });
-    return rows.map((r) => toUnifiedEvent(r.calendar, r.instance));
+    return fetchForViewer(user, cuids, { from: startDate, to: endDate });
   },
 
   async listCalendars(user: UserConfig): Promise<UnifiedCalendar[]> {
@@ -207,6 +297,8 @@ export const nativeProvider: CalendarProvider = {
         rrule: data.recurrence && data.recurrence.length > 0
           ? data.recurrence[0].replace(/^RRULE:/, '')
           : null,
+        kind: data.kind === 'reminder' ? 'REMINDER' : 'EVENT',
+        forUserId: data.forUserId ?? null,
       });
       return {
         success: true,

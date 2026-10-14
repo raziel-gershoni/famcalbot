@@ -16,8 +16,11 @@ import { checkFeatureAccess, incrementUsage } from './subscription-service';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { resolveUserTimezone } from '../lib/timezone';
 import { captureError } from '../lib/error-capture';
+import { describeDeliveryError, isUnreachableError } from '../lib/delivery-errors';
+import { markUserUnreachable } from '../lib/user-reachability';
 import { isAllDayEvent } from '../utils/event-formatter';
 import { localDate, nextDate, startOfLocalDay } from '../utils/day-events';
+import { escapeHtml } from '../utils/html';
 
 
 const REMINDER_TTL_SECONDS = 86400; // 24 hours
@@ -171,6 +174,9 @@ export async function getDueReminders(
 
   for (const event of events) {
     if (!event.eventId) continue;
+    // A built-in calendar reminder pings through its own pass (src/services/native-reminders).
+    // An alert here would ping it again, a pickup one on a kids calendar too, and for both partners.
+    if (event.eventType === 'reminder') continue;
     // An all-day event has no start or pickup time; its date alone would become a
     // reminder at midnight UTC (3 AM in Israel).
     if (isAllDayEvent(event)) continue;
@@ -249,18 +255,21 @@ function formatReminderMessage(
     hour12: false,
     timeZone: timezone || 'UTC',
   });
-  const location = event.location ? `\n📍 ${event.location}` : '';
+  // Titles and names are the user's own text inside HTML: a "<" or "&" in one made
+  // Telegram refuse the whole message, and the alert was lost.
+  const title = escapeHtml(event.summary);
+  const location = event.location ? `\n📍 ${escapeHtml(event.location)}` : '';
 
   // Get calendar name for start reminders
-  const calendarName = reminder.calendarAssignment?.name || event.calendarName;
+  const calendarName = escapeHtml(reminder.calendarAssignment?.name || event.calendarName);
   // Get child name from calendar name for kids events (pickup reminders)
   const childName = calendarName;
 
   const messages: Record<string, Record<ReminderType, { event: string; auto: string }>> = {
     en: {
       start: {
-        event: `🔔 <b>Reminder: ${event.summary}</b>\n📅 ${calendarName}\n⏰ Starting at ${timeStr}${location}`,
-        auto: `🤖 <b>Auto-Reminder: ${event.summary}</b>\n📅 ${calendarName}\n⏰ Starting at ${timeStr}${location}`,
+        event: `🔔 <b>Reminder: ${title}</b>\n📅 ${calendarName}\n⏰ Starting at ${timeStr}${location}`,
+        auto: `🤖 <b>Auto-Reminder: ${title}</b>\n📅 ${calendarName}\n⏰ Starting at ${timeStr}${location}`,
       },
       pickup: {
         event: `🚗 <b>Pickup Reminder: ${childName}</b>\n⏰ Pickup at ${timeStr}${location}`,
@@ -269,8 +278,8 @@ function formatReminderMessage(
     },
     he: {
       start: {
-        event: `🔔 <b>תזכורת: ${event.summary}</b>\n📅 ${calendarName}\n⏰ מתחיל ב-${timeStr}${location}`,
-        auto: `🤖 <b>תזכורת אוטומטית: ${event.summary}</b>\n📅 ${calendarName}\n⏰ מתחיל ב-${timeStr}${location}`,
+        event: `🔔 <b>תזכורת: ${title}</b>\n📅 ${calendarName}\n⏰ מתחיל ב-${timeStr}${location}`,
+        auto: `🤖 <b>תזכורת אוטומטית: ${title}</b>\n📅 ${calendarName}\n⏰ מתחיל ב-${timeStr}${location}`,
       },
       pickup: {
         event: `🚗 <b>תזכורת איסוף: ${childName}</b>\n⏰ איסוף ב-${timeStr}${location}`,
@@ -279,8 +288,8 @@ function formatReminderMessage(
     },
     ru: {
       start: {
-        event: `🔔 <b>Напоминание: ${event.summary}</b>\n📅 ${calendarName}\n⏰ Начало в ${timeStr}${location}`,
-        auto: `🤖 <b>Авто-напоминание: ${event.summary}</b>\n📅 ${calendarName}\n⏰ Начало в ${timeStr}${location}`,
+        event: `🔔 <b>Напоминание: ${title}</b>\n📅 ${calendarName}\n⏰ Начало в ${timeStr}${location}`,
+        auto: `🤖 <b>Авто-напоминание: ${title}</b>\n📅 ${calendarName}\n⏰ Начало в ${timeStr}${location}`,
       },
       pickup: {
         event: `🚗 <b>Напоминание о заборе: ${childName}</b>\n⏰ Забрать в ${timeStr}${location}`,
@@ -344,6 +353,12 @@ export async function sendReminder(
     console.log(`[Reminders] Sent ${reminder.type} reminder to user ${user.id} for event: ${reminder.event.summary}`);
     return true;
   } catch (error) {
+    // A 403 means the chat will never take our messages again. Record it, so the hourly
+    // sync leaves the user out, instead of failing here every five minutes.
+    if (isUnreachableError(error)) {
+      await markUserUnreachable(user.id, describeDeliveryError(error));
+      return false;
+    }
     console.error(`[Reminders] Error sending reminder to user ${user.id}:`, error);
     captureError(error, 'reminders-send', { user_id: user.id });
     return false;

@@ -42,6 +42,10 @@ export interface CreateEventInput {
   location?: string;
   allDay?: boolean;
   recurrence?: string[]; // RFC-5545 RRULE strings
+  // Native only; the Google provider ignores both. A reminder has no length
+  // (startTime === endTime), and forUserId is the partner it is for (null: the creator).
+  kind?: 'event' | 'reminder';
+  forUserId?: number | null;
 }
 
 export interface UpdateEventInput {
