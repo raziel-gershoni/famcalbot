@@ -858,7 +858,7 @@
       "textSummaries": "סיכומי טקסט",
       "voiceSummaries": "סיכומים קוליים",
       "calendars": "יומנים",
-      "reminders": "תזכורות אירועים",
+      "reminders": "תזכורות והתראות על אירועים",
       "voiceEvents": "יצירת אירועים בקול"
     },
     "usageDisplay": "{used} / {limit}",
@@ -869,8 +869,8 @@
       "voiceSummariesUnlimited": "סיכומים קוליים ללא הגבלה",
       "calendarsLimit": "{count} יומנים",
       "calendarsUnlimited": "יומנים ללא הגבלה",
-      "remindersIncluded": "תזכורות אירועים",
-      "remindersExcluded": "תזכורות אירועים",
+      "remindersIncluded": "תזכורות והתראות על אירועים",
+      "remindersExcluded": "תזכורות והתראות על אירועים",
       "voiceEventsIncluded": "יצירת אירועים בקול",
       "voiceEventsExcluded": "יצירת אירועים בקול",
       "perMonth": "לחודש"

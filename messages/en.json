@@ -858,7 +858,7 @@
       "textSummaries": "Text Summaries",
       "voiceSummaries": "Voice Summaries",
       "calendars": "Calendars",
-      "reminders": "Event Reminders",
+      "reminders": "Reminders and Event Alerts",
       "voiceEvents": "Voice Event Creation"
     },
     "usageDisplay": "{used} / {limit}",
@@ -869,8 +869,8 @@
       "voiceSummariesUnlimited": "Unlimited voice summaries",
       "calendarsLimit": "{count} calendars",
       "calendarsUnlimited": "Unlimited calendars",
-      "remindersIncluded": "Event reminders",
-      "remindersExcluded": "Event reminders",
+      "remindersIncluded": "Reminders and event alerts",
+      "remindersExcluded": "Reminders and event alerts",
       "voiceEventsIncluded": "Voice event creation",
       "voiceEventsExcluded": "Voice event creation",
       "perMonth": "/mo"

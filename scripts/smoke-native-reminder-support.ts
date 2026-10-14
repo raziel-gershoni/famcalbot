@@ -514,6 +514,22 @@ async function main() {
     assert(bad.length === 0, bad.join('\n     '));
   });
 
+  await check('the plans name both things the \'reminders\' feature gates: reminders and event alerts', () => {
+    const want: Record<string, RegExp[]> = {
+      en: [/remind/i, /alert/i],
+      he: [/תזכורות/, /התראות/],
+      ru: [/Напоминания/, /уведомления/],
+    };
+    for (const [locale, words] of Object.entries(want)) {
+      const subscription = JSON.parse(readFileSync(path.resolve(__dirname, '../messages', `${locale}.json`), 'utf8')).subscription;
+      for (const text of [subscription.features.reminders, subscription.planFeatures.remindersIncluded, subscription.planFeatures.remindersExcluded]) {
+        assert(words.every(w => w.test(text)), `${locale}: "${text}"`);
+      }
+      // The payment-success message puts subscription.features into HTML unescaped
+      assert(!/[&<>]/.test(subscription.features.reminders), `${locale}: "${subscription.features.reminders}" breaks HTML`);
+    }
+  });
+
   await check('the admin panel has a label and a description for the switch in every locale', () => {
     for (const locale of ['en', 'he', 'ru']) {
       const features = JSON.parse(readFileSync(path.resolve(__dirname, '../messages', `${locale}.json`), 'utf8')).admin.features;

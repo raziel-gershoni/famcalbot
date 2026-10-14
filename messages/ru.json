@@ -858,7 +858,7 @@
       "textSummaries": "Текстовые сводки",
       "voiceSummaries": "Голосовые сводки",
       "calendars": "Календари",
-      "reminders": "Напоминания о событиях",
+      "reminders": "Напоминания и уведомления о событиях",
       "voiceEvents": "Создание событий голосом"
     },
     "usageDisplay": "{used} / {limit}",
@@ -869,8 +869,8 @@
       "voiceSummariesUnlimited": "Безлимитные голосовые сводки",
       "calendarsLimit": "{count} календарей",
       "calendarsUnlimited": "Безлимитные календари",
-      "remindersIncluded": "Напоминания о событиях",
-      "remindersExcluded": "Напоминания о событиях",
+      "remindersIncluded": "Напоминания и уведомления о событиях",
+      "remindersExcluded": "Напоминания и уведомления о событиях",
       "voiceEventsIncluded": "Создание событий голосом",
       "voiceEventsExcluded": "Создание событий голосом",
       "perMonth": "/мес"
