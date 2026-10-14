@@ -1,8 +1,5 @@
 import { notFound } from 'next/navigation';
-import { getUserByTelegramId, getUserById } from '@/src/services/user-service';
-import { getSubscriptionWithUsage, getTrialStatus, checkEarlyAdopterAccess } from '@/src/services/subscription-service';
-import { normalizeLocale } from '@/src/utils/locale';
-import SubscriptionClient from './SubscriptionClient';
+import PageGate from '../PageGate';
 
 interface PageProps {
   params: Promise<{ locale: string }>;
@@ -18,54 +15,7 @@ export default async function SubscriptionPage({ params, searchParams }: PagePro
     notFound();
   }
 
-  const user = await getUserByTelegramId(userId) ?? await getUserById(userId);
-
-  if (!user) {
-    notFound();
-  }
-
-  // Check if URL locale matches user's language preference
-  const userLocale = normalizeLocale(user.language);
-  if (locale !== userLocale) {
-    const { redirect } = await import('next/navigation');
-    redirect(`/${userLocale}/subscription?user_id=${userId}`);
-  }
-
-  // Get subscription data (use internal DB user.id, not Telegram userId)
-  const [subWithUsage, trialStatus, isEarlyAdopter] = await Promise.all([
-    getSubscriptionWithUsage(user.id),
-    getTrialStatus(user.id),
-    checkEarlyAdopterAccess(user.id),
-  ]);
-
-  if (!subWithUsage) {
-    notFound();
-  }
-
-  return (
-    <SubscriptionClient
-      userId={userId}
-      locale={locale}
-      subscription={{
-        plan: subWithUsage.subscription.plan,
-        status: subWithUsage.subscription.status,
-        effectivePlan: subWithUsage.effectivePlan,
-        currentPeriodEnd: subWithUsage.subscription.currentPeriodEnd?.toISOString() || null,
-        cancelAtPeriodEnd: subWithUsage.subscription.cancelAtPeriodEnd,
-      }}
-      usage={{
-        textSummaries: subWithUsage.usage.textSummariesUsed,
-        voiceSummaries: subWithUsage.usage.voiceSummariesUsed,
-        voiceEvents: subWithUsage.usage.voiceEventsCreated,
-        reminders: subWithUsage.usage.remindersTriggered,
-        cycleStartDate: subWithUsage.usage.cycleStartDate.toISOString(),
-      }}
-      trial={{
-        isTrialing: trialStatus.isTrialing,
-        daysRemaining: trialStatus.daysRemaining,
-        trialEndsAt: trialStatus.trialEndsAt?.toISOString() || null,
-      }}
-      isEarlyAdopter={isEarlyAdopter}
-    />
-  );
+  // No user data in the server HTML: PageGate loads it through /api/page-data
+  // (src/lib/page-data.ts), which proves the user first.
+  return <PageGate page="subscription" userId={userId} locale={locale} />;
 }

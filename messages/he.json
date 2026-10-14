@@ -420,6 +420,17 @@
     "sessionExpired": "תוקף הקישור פג. שלחו \"settings\" ל-FamCal בוואטסאפ ונשלח לכם קישור חדש.",
     "startFailed": "לא הצלחנו להתחבר ל-Google כרגע. כדאי לנסות שוב בעוד דקה."
   },
+  "pageGate": {
+    "loading": "בטעינה…",
+    "telegramTitle": "את הדף הזה פותחים מהבוט",
+    "telegramBody": "כדי לשמור על הפרטיות שלכם, הדף נפתח רק מהבוט של FamCal בטלגרם. לחצו על הכפתור בצ׳אט והוא ייפתח שוב.",
+    "browserTitle": "תוקף הקישור פג",
+    "browserBody": "שלחו \"settings\" ל-FamCal בוואטסאפ ונשלח לכם קישור חדש.",
+    "browserTelegramHint": "בטלגרם? אפשר פשוט לפתוח את הדף מהבוט.",
+    "errorTitle": "משהו השתבש",
+    "errorBody": "לא הצלחנו לטעון את הדף. כדאי לנסות שוב.",
+    "retry": "לנסות שוב"
+  },
   "oauthComplete": {
     "title": "התחברות הצליחה!",
     "subtitle": "יומן Google שלך מחובר כעת ל-FamCalBot.",

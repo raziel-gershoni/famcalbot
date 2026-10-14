@@ -1,0 +1,301 @@
+'use client';
+
+// The [locale] Mini App pages render no user data on the server. This gate loads it
+// with one authenticated POST to /api/page-data (Telegram initData first; a WhatsApp
+// magic-link session rides along as the same-origin cookie), then renders the page's
+// own client component with the same props it always had. A locale mismatch becomes a
+// router.replace, a notice renders the page's static notice, and 401/403/404 show the
+// pageGate text instead of anyone's data.
+
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import dynamic from 'next/dynamic';
+import { notFound, useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
+import { AlertTriangle, Loader2 } from 'lucide-react';
+import type { PageDataResult, PageName, PageNotice, PagePropsMap } from '@/src/lib/page-data';
+
+/** The look each page already has: the purple Telegram gradient, or the light Tailwind one. */
+type Look = 'telegram' | 'light';
+const LOOK: Record<PageName, Look> = {
+  dashboard: 'telegram',
+  settings: 'telegram',
+  'select-calendars': 'telegram',
+  subscription: 'telegram',
+  calendars: 'light',
+  pair: 'light',
+};
+
+function PageLoader({ look, label }: { look: Look; label?: string }) {
+  if (look === 'light') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 p-6">
+        <Loader2 size={40} className="animate-spin text-indigo-400" aria-label={label} />
+      </div>
+    );
+  }
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    }}>
+      <div style={{ color: 'white', animation: 'pagegate-spin 1s linear infinite', display: 'flex' }}>
+        <Loader2 size={48} aria-label={label} />
+      </div>
+      <style>{`
+        @keyframes pagegate-spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+const telegramLoader = () => <PageLoader look="telegram" />;
+const lightLoader = () => <PageLoader look="light" />;
+
+// Each page's existing client component, loaded only once its data has arrived.
+const Dashboard = dynamic(() => import('./dashboard/DashboardClient'), { loading: telegramLoader });
+const Settings = dynamic(() => import('./settings/SettingsClient'), { loading: telegramLoader });
+const SelectCalendars = dynamic(() => import('./select-calendars/SelectCalendarsClient'), { loading: telegramLoader });
+const Subscription = dynamic(() => import('./subscription/SubscriptionClient'), { loading: telegramLoader });
+const Calendars = dynamic(() => import('./calendars/CalendarsClient'), { loading: lightLoader });
+const Pair = dynamic(() => import('./pair/PairClient'), { loading: lightLoader });
+
+/** Starts fetching a page's chunk while its data is in flight. */
+const PRELOAD: Record<PageName, () => Promise<unknown>> = {
+  dashboard: () => import('./dashboard/DashboardClient'),
+  settings: () => import('./settings/SettingsClient'),
+  'select-calendars': () => import('./select-calendars/SelectCalendarsClient'),
+  subscription: () => import('./subscription/SubscriptionClient'),
+  calendars: () => import('./calendars/CalendarsClient'),
+  pair: () => import('./pair/PairClient'),
+};
+
+/** The JSON props back in the shapes the client components take (Date, Set, Map). */
+function renderPage(page: PageName, props: PagePropsMap[PageName]) {
+  switch (page) {
+    case 'dashboard': {
+      const p = props as PagePropsMap['dashboard'];
+      return <Dashboard {...p} trial={{ ...p.trial, trialEndsAt: p.trial.trialEndsAt ? new Date(p.trial.trialEndsAt) : null }} />;
+    }
+    case 'settings':
+      return <Settings {...(props as PagePropsMap['settings'])} />;
+    case 'select-calendars': {
+      const p = props as PagePropsMap['select-calendars'];
+      const sel = p.currentSelections;
+      return (
+        <SelectCalendars
+          {...p}
+          currentSelections={{
+            ...sel,
+            selectedCalendars: new Set(sel.selectedCalendars),
+            calendarLabels: new Map(sel.calendarLabels.map(([id, labels]) => [id, new Set(labels)])),
+            calendarRules: new Map(sel.calendarRules),
+          }}
+        />
+      );
+    }
+    case 'subscription':
+      return <Subscription {...(props as PagePropsMap['subscription'])} />;
+    case 'calendars':
+      return <Calendars {...(props as PagePropsMap['calendars'])} />;
+    case 'pair':
+      return <Pair {...(props as PagePropsMap['pair'])} />;
+  }
+}
+
+/**
+ * The Mini App's signed initData: from the Telegram SDK, else from the launch URL's hash
+ * (tgWebAppData). '' in a plain browser, where the session cookie is the credential.
+ */
+function readInitData(): string {
+  if (typeof window === 'undefined') return '';
+  const fromSdk = window.Telegram?.WebApp?.initData;
+  if (fromSdk) return fromSdk;
+  try {
+    return new URLSearchParams(window.location.hash.slice(1)).get('tgWebAppData') ?? '';
+  } catch {
+    return '';
+  }
+}
+
+const NoticeDetailContext = createContext<string | null>(null);
+
+/** Inside a page's static notice: the server's detail for it (the error message), else `fallback`. */
+export function NoticeDetail({ fallback }: { fallback: string }) {
+  return <>{useContext(NoticeDetailContext) ?? fallback}</>;
+}
+
+function GateCard({ look, title, lines, action }: { look: Look; title: string; lines: string[]; action?: ReactNode }) {
+  if (look === 'light') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 p-6">
+        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md text-center">
+          <div className="mb-4 flex justify-center"><AlertTriangle size={48} className="text-amber-500" /></div>
+          <h1 className="text-xl font-bold text-gray-800 mb-2">{title}</h1>
+          {lines.map((line) => (
+            <p key={line} className="text-gray-600 text-sm mt-2">{line}</p>
+          ))}
+          {action}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      padding: '20px'
+    }}>
+      <div style={{
+        background: 'white',
+        padding: '40px',
+        borderRadius: '15px',
+        boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+        textAlign: 'center',
+        maxWidth: '400px'
+      }}>
+        <div style={{ marginBottom: '20px' }}><AlertTriangle size={64} color="#f59e0b" /></div>
+        <h1 style={{ color: '#333', margin: '0 0 10px 0', fontSize: '22px' }}>{title}</h1>
+        {lines.map((line) => (
+          <p key={line} style={{ color: '#666', marginTop: '10px' }}>{line}</p>
+        ))}
+        {action}
+      </div>
+    </div>
+  );
+}
+
+type Outcome =
+  | { key: string; kind: 'data'; data: PageDataResult }
+  | { key: string; kind: 'gate'; inTelegram: boolean }
+  | { key: string; kind: 'error' };
+
+interface PageGateProps {
+  page: PageName;
+  /** The page's ?user_id, as the client components have always received it. */
+  userId: number;
+  locale: string;
+  /** The page's static notices (no user data), shown when the server picks one. */
+  notices?: Partial<Record<PageNotice, ReactNode>>;
+}
+
+export default function PageGate({ page, userId, locale, notices = {} }: PageGateProps) {
+  const t = useTranslations('pageGate');
+  const router = useRouter();
+  const [attempt, setAttempt] = useState(0);
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  // A result belongs to one request; a new page, user, locale or retry shows the loader.
+  const key = `${page}|${userId}|${locale}|${attempt}`;
+
+  useEffect(() => {
+    let cancelled = false;
+    const initData = readInitData();
+    PRELOAD[page]().catch(() => undefined);
+
+    (async () => {
+      let next: Outcome;
+      try {
+        const res = await fetch('/api/page-data', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ page, user_id: userId, locale, initData }),
+        });
+        if (res.ok) {
+          next = { key, kind: 'data', data: (await res.json()) as PageDataResult };
+        } else if (res.status === 401 || res.status === 403 || res.status === 404) {
+          next = { key, kind: 'gate', inTelegram: Boolean(initData) };
+        } else {
+          next = { key, kind: 'error' };
+        }
+      } catch (error) {
+        console.error(`[PageGate] ${page}:`, error);
+        next = { key, kind: 'error' };
+      }
+      if (cancelled) return;
+
+      if (next.kind === 'data' && next.data.kind === 'redirect') {
+        const to = next.data.to;
+        // Only an app path; the loader stays up while the router moves on
+        if (to.startsWith('/') && !to.startsWith('//')) {
+          router.replace(to);
+          return;
+        }
+        next = { key, kind: 'error' };
+      }
+      setOutcome(next);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [key, page, userId, locale, router]);
+
+  const look = LOOK[page];
+
+  if (!outcome || outcome.key !== key) {
+    return <PageLoader look={look} label={t('loading')} />;
+  }
+
+  const errorCard = (
+    <GateCard
+      look={look}
+      title={t('errorTitle')}
+      lines={[t('errorBody')]}
+      action={
+        <button
+          type="button"
+          onClick={() => setAttempt((n) => n + 1)}
+          className={look === 'light' ? 'mt-6 w-full bg-indigo-600 text-white font-medium py-3 rounded-xl' : undefined}
+          style={look === 'light' ? undefined : {
+            marginTop: '20px',
+            width: '100%',
+            padding: '12px',
+            border: 'none',
+            borderRadius: '12px',
+            background: '#667eea',
+            color: 'white',
+            fontSize: '16px',
+            fontWeight: 500,
+            cursor: 'pointer',
+          }}
+        >
+          {t('retry')}
+        </button>
+      }
+    />
+  );
+
+  if (outcome.kind === 'error') return errorCard;
+
+  if (outcome.kind === 'gate') {
+    return outcome.inTelegram
+      ? <GateCard look={look} title={t('telegramTitle')} lines={[t('telegramBody')]} />
+      : <GateCard look={look} title={t('browserTitle')} lines={[t('browserBody'), t('browserTelegramHint')]} />;
+  }
+
+  const data = outcome.data;
+  switch (data.kind) {
+    case 'props':
+      return renderPage(page, data.props);
+    case 'notice': {
+      const notice = notices[data.notice];
+      if (notice === undefined) return errorCard;
+      return <NoticeDetailContext.Provider value={data.detail ?? null}>{notice}</NoticeDetailContext.Provider>;
+    }
+    case 'notFound':
+      // As the page's own notFound() did: the app's 404
+      return notFound();
+    case 'redirect':
+      // Handled in the effect; the router is already moving on
+      return <PageLoader look={look} label={t('loading')} />;
+  }
+}

@@ -1,62 +1,9 @@
-import { notFound } from 'next/navigation';
-import { getUserByTelegramId, getUserById, clearGoogleRefreshToken } from '@/src/services/user-service';
-import { normalizeLocale } from '@/src/utils/locale';
-import { listUserCalendars } from '@/src/services/calendar';
-import { CalendarAssignment, CalendarLabel } from '@/src/types';
 import { AlertTriangle, XCircle } from 'lucide-react';
-import SelectCalendarsClient from './SelectCalendarsClient';
-import { getSubscriptionWithUsage } from '@/src/services/subscription-service';
-import { getPlanLimits } from '@/src/config/plans';
+import PageGate, { NoticeDetail } from '../PageGate';
 
 interface PageProps {
   params: Promise<{ locale: string }>;
   searchParams: Promise<{ user_id?: string }>;
-}
-
-// Spouse metadata (single, applies to all spouse calendars)
-interface SpouseInfo {
-  personName?: string;
-  personEnglishName?: string;
-  personGender?: 'male' | 'female';
-}
-
-// Convert calendarAssignments to state format
-function convertAssignmentsToSelections(assignments: CalendarAssignment[], userGlobalRules?: string[]): {
-  selectedCalendars: Set<string>;
-  calendarLabels: Map<string, Set<CalendarLabel>>;
-  spouseInfo: SpouseInfo | null;
-  calendarRules: Map<string, string>;
-  globalRules: string[];
-} {
-  const selectedCalendars = new Set<string>();
-  const calendarLabels = new Map<string, Set<CalendarLabel>>();
-  const calendarRules = new Map<string, string>();
-
-  // Find spouse info from any spouse calendar that has it
-  let spouseInfo: SpouseInfo | null = null;
-
-  for (const assignment of assignments) {
-    selectedCalendars.add(assignment.calendarId);
-    calendarLabels.set(assignment.calendarId, new Set(assignment.labels));
-
-    // Extract spouse info from any spouse calendar (single source of truth)
-    if (assignment.labels.includes('spouse') && !spouseInfo) {
-      if (assignment.personName || assignment.personEnglishName || assignment.personGender) {
-        spouseInfo = {
-          personName: assignment.personName,
-          personEnglishName: assignment.personEnglishName,
-          personGender: assignment.personGender,
-        };
-      }
-    }
-
-    // Store calendar rule if present
-    if (assignment.rules && assignment.rules.length > 0) {
-      calendarRules.set(assignment.calendarId, assignment.rules[0]);
-    }
-  }
-
-  return { selectedCalendars, calendarLabels, spouseInfo, calendarRules, globalRules: userGlobalRules || [] };
 }
 
 export default async function SelectCalendarsPage({ params, searchParams }: PageProps) {
@@ -90,109 +37,67 @@ export default async function SelectCalendarsPage({ params, searchParams }: Page
     );
   }
 
-  const user = await getUserByTelegramId(userId) ?? await getUserById(userId);
-
-  if (!user) {
-    notFound();
-  }
-
-  // Check if URL locale matches user's language preference
-  // normalizeLocale handles legacy values like 'Hebrew' -> 'he'
-  const userLocale = normalizeLocale(user.language);
-  if (locale !== userLocale) {
-    const { redirect } = await import('next/navigation');
-    redirect(`/${userLocale}/select-calendars?user_id=${userId}`);
-  }
-
-  if (!user.googleRefreshToken) {
-    return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        padding: '20px'
-      }}>
-        <div style={{
-          background: 'white',
-          padding: '40px',
-          borderRadius: '15px',
-          boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
-          textAlign: 'center',
-          maxWidth: '400px'
-        }}>
-          <div style={{ marginBottom: '20px' }}><AlertTriangle size={64} color="#f59e0b" /></div>
-          <h1 style={{ color: '#ef4444', margin: '0 0 10px 0' }}>No Google Token</h1>
-          <p style={{ color: '#666' }}>Please refresh your token first.</p>
-        </div>
-      </div>
-    );
-  }
-
-  try {
-    const [availableCalendars, subWithUsage] = await Promise.all([
-      listUserCalendars(user.googleRefreshToken),
-      getSubscriptionWithUsage(user.id).catch(() => null),
-    ]);
-
-    const effectivePlan = subWithUsage?.effectivePlan || 'FREE';
-    const limits = getPlanLimits(effectivePlan);
-    const calendarLimit = limits.calendars === Infinity ? -1 : limits.calendars;
-
-    // Convert user's current selections to new state format
-    const currentSelections = user.calendarAssignments && user.calendarAssignments.length > 0
-      ? convertAssignmentsToSelections(user.calendarAssignments, user.globalRules)
-      : { selectedCalendars: new Set<string>(), calendarLabels: new Map(), spouseInfo: null, calendarRules: new Map(), globalRules: user.globalRules || [] };
-
-    return (
-      <SelectCalendarsClient
-        userId={userId}
-        userName={user.name}
-        availableCalendars={availableCalendars}
-        currentSelections={currentSelections}
-        locale={userLocale}
-        calendarLimit={calendarLimit}
-      />
-    );
-  } catch (error) {
-    console.error('Error listing calendars:', error);
-
-    // Handle insufficient scopes - clear token and redirect to re-authorize
-    if (error instanceof Error && error.message === 'GOOGLE_INSUFFICIENT_SCOPES') {
-      await clearGoogleRefreshToken(user.telegramId!);
-      const { redirect } = await import('next/navigation');
-      redirect(`/${userLocale}/refresh-token?user_id=${userId}`);
-    }
-
-    // Generic error fallback
-    return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        padding: '20px'
-      }}>
-        <div style={{
-          background: 'white',
-          padding: '40px',
-          borderRadius: '15px',
-          boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
-          textAlign: 'center',
-          maxWidth: '400px'
-        }}>
-          <div style={{ marginBottom: '20px' }}><XCircle size={64} color="#ef4444" /></div>
-          <h1 style={{ color: '#ef4444', margin: '0 0 10px 0' }}>Error</h1>
-          <p style={{ color: '#666' }}>
-            {error instanceof Error ? error.message : 'Unknown error'}
-          </p>
-          <a href={`/select-calendars?user_id=${userId}`} style={{ color: '#667eea' }}>
-            Try Again
-          </a>
-        </div>
-      </div>
-    );
-  }
+  // No user data in the server HTML: PageGate loads it through /api/page-data
+  // (src/lib/page-data.ts), which proves the user first. The notices are static.
+  return (
+    <PageGate
+      page="select-calendars"
+      userId={userId}
+      locale={locale}
+      notices={{
+        noGoogleToken: (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: '100vh',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            padding: '20px'
+          }}>
+            <div style={{
+              background: 'white',
+              padding: '40px',
+              borderRadius: '15px',
+              boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+              textAlign: 'center',
+              maxWidth: '400px'
+            }}>
+              <div style={{ marginBottom: '20px' }}><AlertTriangle size={64} color="#f59e0b" /></div>
+              <h1 style={{ color: '#ef4444', margin: '0 0 10px 0' }}>No Google Token</h1>
+              <p style={{ color: '#666' }}>Please refresh your token first.</p>
+            </div>
+          </div>
+        ),
+        // Generic error fallback; the message comes from the server
+        error: (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: '100vh',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            padding: '20px'
+          }}>
+            <div style={{
+              background: 'white',
+              padding: '40px',
+              borderRadius: '15px',
+              boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+              textAlign: 'center',
+              maxWidth: '400px'
+            }}>
+              <div style={{ marginBottom: '20px' }}><XCircle size={64} color="#ef4444" /></div>
+              <h1 style={{ color: '#ef4444', margin: '0 0 10px 0' }}>Error</h1>
+              <p style={{ color: '#666' }}>
+                <NoticeDetail fallback="Unknown error" />
+              </p>
+              <a href={`/select-calendars?user_id=${userId}`} style={{ color: '#667eea' }}>
+                Try Again
+              </a>
+            </div>
+          </div>
+        ),
+      }}
+    />
+  );
 }

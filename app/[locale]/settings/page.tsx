@@ -1,11 +1,5 @@
-import { notFound } from 'next/navigation';
-import { getUserByTelegramId, getUserById } from '@/src/services/user-service';
-import { normalizeLocale } from '@/src/utils/locale';
-import { prisma } from '@/src/utils/prisma';
 import { AlertTriangle } from 'lucide-react';
-import SettingsClient from './SettingsClient';
-import { getSubscriptionWithUsage } from '@/src/services/subscription-service';
-import { getPlanLimits } from '@/src/config/plans';
+import PageGate from '../PageGate';
 
 interface PageProps {
   params: Promise<{ locale: string }>;
@@ -43,68 +37,7 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
     );
   }
 
-  const user = await getUserByTelegramId(userId) ?? await getUserById(userId);
-
-  if (!user) {
-    notFound();
-  }
-
-  // Check if URL locale matches user's language preference
-  // normalizeLocale handles legacy values like 'Hebrew' -> 'he'
-  const userLocale = normalizeLocale(user.language);
-  if (locale !== userLocale) {
-    const { redirect } = await import('next/navigation');
-    redirect(`/${userLocale}/settings?user_id=${userId}`);
-  }
-
-  // Fetch admin settings and subscription data in parallel
-  const [adminSettings, subWithUsage] = await Promise.all([
-    prisma.adminSettings.findUnique({
-      where: { id: 'global' }
-    }).catch(() => null),
-    getSubscriptionWithUsage(user.id).catch(() => null),
-  ]);
-
-  // Build subscription info for the client
-  const effectivePlan = subWithUsage?.effectivePlan || 'FREE';
-  const limits = getPlanLimits(effectivePlan);
-  const isTrialing = subWithUsage?.subscription.status === 'TRIALING'
-    && new Date() < subWithUsage.subscription.trialEndsAt;
-
-  const subscriptionInfo = {
-    effectivePlan,
-    textSummariesUsed: subWithUsage?.usage.textSummariesUsed ?? 0,
-    textSummariesLimit: limits.textSummaries === Infinity ? -1 : limits.textSummaries,
-    voiceSummariesUsed: subWithUsage?.usage.voiceSummariesUsed ?? 0,
-    voiceSummariesLimit: limits.voiceSummaries === Infinity ? -1 : limits.voiceSummaries,
-    remindersAllowed: limits.reminders,
-    isTrialing,
-  };
-
-  return (
-    <SettingsClient
-      userId={userId}
-      currentSettings={{
-        language: userLocale,  // Pass normalized locale
-        location: user.location,
-        messagingPlatform: user.messagingPlatform,
-        culture: user.culture || 'default',
-        textSummaryEnabled: user.textSummaryEnabled,
-        voiceSummaryEnabled: user.voiceSummaryEnabled,
-        weatherEnabled: user.weatherEnabled,
-        includeLookaheadInTomorrow: user.includeLookaheadInTomorrow,
-        lookaheadAlways7Days: user.lookaheadAlways7Days,
-        preferredMorningHour: user.preferredMorningHour,
-        preferredEveningHour: user.preferredEveningHour,
-        dailySummaryDays: user.dailySummaryDays,
-        tomorrowSummaryDays: user.tomorrowSummaryDays,
-        remindersEnabled: user.remindersEnabled,
-        defaultReminderMinutes: user.defaultReminderMinutes ?? null,
-        pickupRemindersEnabled: user.pickupRemindersEnabled ?? true,
-        voiceInputEnabled: user.voiceInputEnabled
-      }}
-      remindersGloballyEnabled={adminSettings?.remindersEnabled ?? false}
-      subscriptionInfo={subscriptionInfo}
-    />
-  );
+  // No user data in the server HTML: PageGate loads it through /api/page-data
+  // (src/lib/page-data.ts), which proves the user first.
+  return <PageGate page="settings" userId={userId} locale={locale} />;
 }

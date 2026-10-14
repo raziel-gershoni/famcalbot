@@ -420,6 +420,17 @@
     "sessionExpired": "This link has expired. Send “settings” to FamCal on WhatsApp and we’ll send you a fresh one.",
     "startFailed": "We couldn’t reach Google just now. Please try again in a minute."
   },
+  "pageGate": {
+    "loading": "Loading…",
+    "telegramTitle": "Please open this from the bot",
+    "telegramBody": "To keep your details private, this page only opens from the FamCal bot in Telegram. Tap the button in the chat to open it again.",
+    "browserTitle": "This link has expired",
+    "browserBody": "Send “settings” to FamCal on WhatsApp and we’ll send you a fresh link.",
+    "browserTelegramHint": "On Telegram? Just open this page from the bot.",
+    "errorTitle": "Something went wrong",
+    "errorBody": "We couldn’t load this page. Please try again.",
+    "retry": "Try again"
+  },
   "oauthComplete": {
     "title": "Successfully Connected!",
     "subtitle": "Your Google Calendar is now connected to FamCalBot.",
