@@ -204,9 +204,13 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
 // manual route (app/api/native-reminders) load this file in separate bundles, and a
 // module-level flag would let a manual run overlap a scheduled one.
 const NATIVE_REMINDERS_ALERT_INTERVAL_MS = 60 * 60 * 1000;
-type NativeRemindersCronState = { running: boolean; alertedAt: number };
+// A pass still running after this is taken for dead. node-telegram-bot-api sets no
+// request timeout, so one hung send would otherwise hold every ping until TCP gives up.
+const NATIVE_REMINDERS_STUCK_MS = 5 * 60 * 1000;
+type NativeRemindersCronState = { running: boolean; startedAt: number; alertedAt: number };
 const nativeRemindersCron = ((globalThis as { __nativeRemindersCron?: NativeRemindersCronState }).__nativeRemindersCron ??= {
   running: false,
+  startedAt: 0,
   alertedAt: 0,
 });
 
@@ -217,10 +221,16 @@ const nativeRemindersCron = ((globalThis as { __nativeRemindersCron?: NativeRemi
  * next tick tries again.
  */
 export async function handleNativeReminders(): Promise<void> {
-  // The running flag first: shouldRunPass marks the start of a pass (due-gate.ts).
-  if (nativeRemindersCron.running) return;
-  nativeRemindersCron.running = true;
   const now = new Date();
+  // The running flag first: shouldRunPass marks the start of a pass (due-gate.ts).
+  if (nativeRemindersCron.running) {
+    if (now.getTime() - nativeRemindersCron.startedAt <= NATIVE_REMINDERS_STUCK_MS) return;
+    captureError(new Error('native reminders pass stuck >5m'), 'native-reminders-stuck', {}, 'warning');
+    nativeRemindersCron.running = false;
+  }
+  const startedAt = now.getTime();
+  nativeRemindersCron.running = true;
+  nativeRemindersCron.startedAt = startedAt;
   try {
     const { shouldRunPass, setNextDue } = await import('../services/native-reminders/due-gate');
     if (!shouldRunPass(now)) return;
@@ -242,7 +252,8 @@ export async function handleNativeReminders(): Promise<void> {
       }
     }
   } finally {
-    nativeRemindersCron.running = false;
+    // A pass taken for dead may still finish: it leaves the flag of the pass that replaced it
+    if (nativeRemindersCron.startedAt === startedAt) nativeRemindersCron.running = false;
   }
 }
 

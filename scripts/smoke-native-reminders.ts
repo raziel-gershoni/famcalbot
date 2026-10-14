@@ -861,6 +861,57 @@ async function main() {
     assert(queries.filter((q) => q === 'nativeEvent.findMany').length === 1 && sent.length === 1, `${queries.join(', ')} ${sentLines()}`);
   });
 
+  type CronState = { running: boolean; startedAt: number };
+  const cron = () => (globalThis as { __nativeRemindersCron?: CronState }).__nativeRemindersCron!;
+
+  await check('handler: a pass running over 5 minutes is taken for dead; one running 1 minute still blocks the tick', async () => {
+    reset();
+    gate.__resetDueGateForTests();
+    reminder({ startsAt: today('10:00') });
+    Object.assign(cron(), { running: true, startedAt: today('09:59').getTime() });
+    await tick(today('10:00'));
+    assert(queries.length === 0 && sent.length === 0, `a 1-minute-old pass did not block: ${queries.join(', ')} ${sentLines()}`);
+    assert(!captured.some((c) => c.context === 'native-reminders-stuck'), show(captured));
+    Object.assign(cron(), { running: true, startedAt: today('09:54').getTime() });
+    await tick(today('10:00'));
+    assert(queries.includes('nativeEvent.findMany') && sent.length === 1, `a 6-minute-old pass blocked: ${queries.join(', ')} ${sentLines()}`);
+    assert(captured.some((c) => c.context === 'native-reminders-stuck' && c.severity === 'warning'), show(captured));
+    assert(!cron().running, 'the flag stayed set');
+  });
+
+  await check('handler: a pass taken for dead that finishes late leaves the flag of the pass that replaced it', async () => {
+    reset();
+    gate.__resetDueGateForTests();
+    // Both passes overlap, so one quiet() around them all (nested ones would restore console out of order)
+    await quiet(async () => {
+      const run = (when: Date) => {
+        clock = when.getTime();
+        return handleNativeReminders();
+      };
+      const inFind = async () => {
+        for (let i = 0; i < 1000 && holdFind; i++) await new Promise((resolve) => setImmediate(resolve));
+        assert(!holdFind, 'the pass never reached the database');
+      };
+      let releaseDead = () => {};
+      holdFind = new Promise<void>((resolve) => (releaseDead = resolve));
+      const dead = run(today('10:00'));
+      await inFind();
+      let releaseNew = () => {};
+      holdFind = new Promise<void>((resolve) => (releaseNew = resolve));
+      const replacement = run(today('10:06'));
+      await inFind();
+      releaseDead();
+      await dead;
+      assert(cron().running, 'the dead pass cleared the running flag of its replacement');
+      queries.length = 0;
+      await run(today('10:07'));
+      assert(queries.length === 0, `a tick ran beside the replacement: ${queries.join(', ')}`);
+      releaseNew();
+      await replacement;
+      assert(!cron().running, 'the replacement left the flag set');
+    });
+  });
+
   await check('handler: a failing pass throws nothing, leaves the gate open, and tells the admin at most once an hour', async () => {
     reset();
     gate.__resetDueGateForTests();
