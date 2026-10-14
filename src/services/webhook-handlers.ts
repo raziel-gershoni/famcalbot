@@ -201,6 +201,17 @@ export async function handleTelegramWebhook(
             await handleQuickFixCallback(chatId, messageId, queryId, field, pendingId);
           }
         }
+      } else if (data.startsWith('nr:')) {
+        // Native reminder ping: ✅ Done / 💤 Snooze. The handler answers the tap itself.
+        const { handleNativeReminderCallback } = await import('./native-reminders/callbacks');
+        await handleNativeReminderCallback(callbackQuery);
+      } else {
+        // A button nothing here handles (a retired prefix): answer it, or its spinner hangs.
+        try {
+          await getBot().answerCallbackQuery(queryId);
+        } catch {
+          // The spinner times out by itself
+        }
       }
     }
 

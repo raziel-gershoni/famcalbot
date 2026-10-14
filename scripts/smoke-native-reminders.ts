@@ -734,6 +734,28 @@ async function main() {
     assert(sent.length === 1 && row.pingAttempts === 2 && row.pingMessageId === sent[0].messageId, show(row));
   });
 
+  await check('send failure: a re-ping after two snoozes (the budget reset) gives the claim back on a 502, and the next tick sends it', async () => {
+    reset();
+    const r = reminder({ startsAt: today('10:00') });
+    await pass(today('10:00'));
+    const row = stateOf(r.id, today('10:00'))!;
+    // 💤 tapped twice: the snooze writes snoozedUntil and resets pingAttempts, never lastPingedAt.
+    row.snoozedUntil = today('10:15');
+    row.pingAttempts = 0;
+    await pass(today('10:15'));
+    row.snoozedUntil = today('10:30');
+    row.pingAttempts = 0;
+    const pinged = row.lastPingedAt as Date;
+    assert(sent.length === 2, sentLines());
+    sendFailures = [telegramError(502, 'Bad Gateway')];
+    const failed = await pass(today('10:30'));
+    assert(failed.failed === 1 && sent.length === 2 && row.pingAttempts === 1, `${show(failed)} ${show(row)}`);
+    assertTime(row.lastPingedAt as Date, pinged, 'claim given back');
+    await pass(today('10:31'));
+    assert(sent.length === 3 && row.pingAttempts === 2 && row.pingMessageId === sent[2].messageId, `${sentLines()} ${show(row)}`);
+    assertTime(row.lastPingedAt as Date, today('10:31'), 're-ping claimed');
+  });
+
   await check('send failure: a user who blocked the bot is marked unreachable, and not retried', async () => {
     reset();
     const r = reminder({ startsAt: today('10:00') });
