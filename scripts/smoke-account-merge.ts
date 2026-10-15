@@ -759,6 +759,25 @@ async function main() {
     assert(subs.length === 1 && subs[0].id === 'sub-w' && subs[0].userId === T && subs[0].plan === 'PRO', `subscriptions ${show(subs)}`);
   });
 
+  await check('#21 a canceled plan still counts as paid until its period ends: T canceled PRO (5 days left), W on a 13-day trial; T keeps its row', async () => {
+    seed();
+    DB.subscription = [{ ...paid('sub-t', T, 5), status: 'CANCELED' }, trial('sub-w', W, 13)];
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const subs = DB.subscription;
+    assert(subs.length === 1 && subs[0].id === 'sub-t' && subs[0].status === 'CANCELED', `subscriptions ${show(subs)}`);
+  });
+
+  await check('#22 a tie keeps T\'s row: both paid, ending at the same moment', async () => {
+    seed();
+    const tSub = paid('sub-t', T, 7);
+    DB.subscription = [tSub, { ...paid('sub-w', W, 7), currentPeriodEnd: tSub.currentPeriodEnd }];
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const subs = DB.subscription;
+    assert(subs.length === 1 && subs[0].id === 'sub-t', `subscriptions ${show(subs)}`);
+  });
+
   // ---- Link without a merge ----
 
   await check('#11 [guard] no WhatsApp-only user: the phone is set on the Telegram user and the code is spent', async () => {
