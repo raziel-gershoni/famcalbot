@@ -124,9 +124,10 @@ function inviteUnavailableCode(
 
 /**
  * True when the inviter's ACTIVE pairing is with the acceptor: the other half of
- * a mutual accept won, or the invite is a stale one between two people already
- * paired. `exceptPairingId` is the pairing this accept just created, which its
- * own reads see. Plain reads, so no new lock is taken.
+ * a mutual accept won, the invite is a stale one between two people already
+ * paired, or the acceptor is re-tapping this invite. `exceptPairingId` is the
+ * pairing this accept just created, which its own reads see. Plain reads, so no
+ * new lock is taken.
  */
 async function pairedWithEachOther(
   tx: Prisma.TransactionClient,
@@ -140,6 +141,21 @@ async function pairedWithEachOther(
   if (pairing?.status !== 'ACTIVE') return false;
   const members = [pairing.inviterUserId, pairing.inviteeUserId];
   return members.includes(inviterUserId) && members.includes(acceptingUserId);
+}
+
+/**
+ * inviteUnavailableCode, except that an invite this acceptor already accepted,
+ * with the two still paired, gives ALREADY_PAIRED_TOGETHER: re-tapping it later,
+ * or twice at once. Anyone else keeps INVITE_ALREADY_USED.
+ */
+async function unavailableFor(
+  tx: Prisma.TransactionClient,
+  invite: PairingInvite | null,
+  acceptingUserId: number
+): Promise<PairingErrorCode | null> {
+  const code = inviteUnavailableCode(invite);
+  if (code !== 'INVITE_ALREADY_USED' || invite?.acceptedByUserId !== acceptingUserId) return code;
+  return (await pairedWithEachOther(tx, invite.inviterUserId, acceptingUserId)) ? 'ALREADY_PAIRED_TOGETHER' : code;
 }
 
 /**
@@ -158,17 +174,19 @@ async function pairedWithEachOther(
  *
  * Throws PairingError on any constraint violation. Two people already paired
  * with each other (the loser of a mutual accept, or a stale invite) get
- * ALREADY_PAIRED_TOGETHER instead of INVITER_/INVITEE_ALREADY_PAIRED.
+ * ALREADY_PAIRED_TOGETHER instead of INVITER_/INVITEE_ALREADY_PAIRED, and so
+ * does the acceptor re-tapping this invite instead of INVITE_ALREADY_USED.
  */
 export async function acceptInvite(token: string, acceptingUserId: number): Promise<AcceptResult> {
   return prisma.$transaction(async (tx) => {
     const invite = await tx.pairingInvite.findUnique({ where: { token } });
     if (!invite) throw new PairingError('INVITE_NOT_FOUND');
-    const unavailable = inviteUnavailableCode(invite);
+    const unavailable = await unavailableFor(tx, invite, acceptingUserId);
     if (unavailable) throw new PairingError(unavailable);
     if (invite.inviterUserId === acceptingUserId) throw new PairingError('CANNOT_ACCEPT_OWN_INVITE');
 
-    // Claim the invite. Count 0 means another accept (or a revoke) got there first.
+    // Claim the invite. Count 0 means another accept (or a revoke) got there first;
+    // it has committed by then (the UPDATE waits for it), so the reads below see it.
     const now = new Date();
     const claimed = await tx.pairingInvite.updateMany({
       where: { id: invite.id, acceptedAt: null, revokedAt: null, expiresAt: { gt: now } },
@@ -176,7 +194,7 @@ export async function acceptInvite(token: string, acceptingUserId: number): Prom
     });
     if (claimed.count !== 1) {
       const current = await tx.pairingInvite.findUnique({ where: { id: invite.id } });
-      throw new PairingError(inviteUnavailableCode(current) ?? 'INVITE_ALREADY_USED');
+      throw new PairingError((await unavailableFor(tx, current, acceptingUserId)) ?? 'INVITE_ALREADY_USED');
     }
 
     const [inviter, invitee] = await Promise.all([
