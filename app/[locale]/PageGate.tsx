@@ -252,7 +252,7 @@ export function NoCredentialCard({ look, inTelegram, links }: { look: Look; inTe
       lines={[t('browserBody')]}
       action={
         <GateActions look={look}>
-          {links.whatsapp && <GateAction look={look} primary href={links.whatsapp}>{t('openWhatsApp')}</GateAction>}
+          <GateAction look={look} primary href={links.whatsapp}>{t('openWhatsApp')}</GateAction>
           <GateAction look={look} href={links.telegram}>{t('openTelegram')}</GateAction>
         </GateActions>
       }

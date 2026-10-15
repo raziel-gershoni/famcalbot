@@ -8,8 +8,8 @@
 // share-story keeps ready() alone: it opens the story composer and closes.
 //
 // Ways back: the "open this from the bot" cards offered nothing to tap. In a browser the
-// card now leads with a WhatsApp link that asks for a fresh magic link ("settings"), then
-// the bot for Telegram users (a WhatsApp-only user who taps that would get a second,
+// card now leads with a WhatsApp link that asks for a fresh magic link ("settings"; the
+// landing pages' public number when the env names none), then the bot for Telegram users (a WhatsApp-only user who taps that would get a second,
 // unlinked account, so it comes second and says who it is for). Inside Telegram it closes
 // the Mini App, back to the chat whose buttons reopen it. A stale or used magic link used
 // to land on /en/dashboard and a hard-coded English card with no link; it now gets the
@@ -268,7 +268,7 @@ async function main() {
 
   // ---- Ways back from the "open this from the bot" cards ----
 
-  await check('#5 gateLinks: wa.me with "settings" and t.me/<bot>?start=dashboard from env; no WhatsApp link without a number; the bot name falls back', async () => {
+  await check('#5 gateLinks: wa.me with "settings" and t.me/<bot>?start=dashboard from env; both fall back to the public number and bot the landing pages use', async () => {
     const { gateLinks } = await load('src/lib/gate-links.ts');
     process.env.TELEGRAM_BOT_USERNAME = 'test_bot';
     process.env.WHATSAPP_PHONE_NUMBER = '972500000000';
@@ -277,7 +277,10 @@ async function main() {
     delete process.env.TELEGRAM_BOT_USERNAME;
     delete process.env.WHATSAPP_PHONE_NUMBER;
     const unset = gateLinks();
-    assert(unset.whatsapp === null, `no WA number: ${show(unset)}`);
+    // Without a WhatsApp line the card's only action would be the account-splitting Telegram one
+    const landingNumber = readSource('app/[locale]/page.tsx').match(/const WA_PHONE = '(\d+)'/)?.[1];
+    assert(landingNumber, 'the landing page no longer names its WhatsApp number');
+    assert(unset.whatsapp === `https://wa.me/${landingNumber}?text=settings`, `no WA number: ${show(unset)}`);
     assert(unset.telegram === 'https://t.me/family_calendar_telegram_bot?start=dashboard', `no bot username: ${show(unset)}`);
   });
 
@@ -296,7 +299,7 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
-  await check('#7 the browser card (he): the WhatsApp link first, then the Telegram one labelled for Telegram users; no WhatsApp link without a number', async () => {
+  await check('#7 the browser card (he): the WhatsApp link first, then the Telegram one labelled for Telegram users', async () => {
     const React = nodeRequire('react');
     const { NoCredentialCard } = await load('app/[locale]/PageGate.tsx');
     assert(typeof NoCredentialCard === 'function', 'PageGate exports no NoCredentialCard');
@@ -309,8 +312,6 @@ async function main() {
       for (const key of ['browserTitle', 'browserBody', 'openWhatsApp', 'openTelegram']) {
         if (!he.pageGate[key] || !html.includes(asHtml(he.pageGate[key]))) problems.push(`${look}: no pageGate.${key}`);
       }
-      const noWa = renderHtml(React.createElement(NoCredentialCard, { look, inTelegram: false, links: { ...LINKS, whatsapp: null } }), 'he');
-      if (noWa.includes('wa.me') || !noWa.includes(`href="${LINKS.telegram}"`)) problems.push(`${look} with no WA number: ${noWa.slice(0, 200)}`);
     }
     assert(problems.length === 0, problems.join('; '));
   });
@@ -402,6 +403,7 @@ async function main() {
     assert(!effect.includes('window.Telegram'), 'the banner still checks window.Telegram');
     assert(src.includes("from '@/src/lib/read-init-data'"), 'DashboardClient does not import readInitData');
   });
+
 
   let failed = 0;
   for (const r of results) {
