@@ -1,6 +1,3 @@
-import { notFound } from 'next/navigation';
-import { getUserByTelegramId, getUserById } from '@/src/services/user-service';
-import { normalizeLocale } from '@/src/utils/locale';
 import { AlertTriangle } from 'lucide-react';
 import FeedbackClient from './FeedbackClient';
 
@@ -40,24 +37,13 @@ export default async function FeedbackPage({ params, searchParams }: PageProps) 
     );
   }
 
-  const user = await getUserByTelegramId(userId) ?? await getUserById(userId);
-
-  if (!user) {
-    notFound();
-  }
-
-  // Check if URL locale matches user's language preference
-  // normalizeLocale handles legacy values like 'Hebrew' -> 'he'
-  const userLocale = normalizeLocale(user.language);
-  if (locale !== userLocale) {
-    const { redirect } = await import('next/navigation');
-    redirect(`/${userLocale}/feedback?user_id=${userId}`);
-  }
-
+  // No lookup of the URL's user_id: with no credential it told anyone whether that user
+  // exists and their language. Both entry points (/start feedback, the dashboard) put the
+  // user's locale in the URL, and /api/feedback proves the user before saving.
   return (
     <FeedbackClient
       userId={userId}
-      locale={userLocale}
+      locale={locale}
     />
   );
 }

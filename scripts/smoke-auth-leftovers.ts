@@ -214,6 +214,30 @@ async function main() {
 
   // ---- The feedback page renders from the URL alone ----
 
+  await check('#7 /ru/feedback?user_id=5550001 renders FeedbackClient for the URL\'s id and locale, with no DB lookup and no redirect', async () => {
+    dataCalls.length = 0;
+    const page = (await load('app/[locale]/feedback/page.tsx')).default;
+    let el: Row | undefined;
+    let thrown: string | undefined;
+    try {
+      el = await page({ params: Promise.resolve({ locale: 'ru' }), searchParams: Promise.resolve({ user_id: '5550001' }) });
+    } catch (err) {
+      thrown = String((err as Row)?.digest ?? (err instanceof Error ? err.message : err));
+    }
+    assert(dataCalls.length === 0, `the page looked the user up: ${show(dataCalls)}`);
+    assert(!thrown, `the page threw (redirect or 404): ${thrown}`);
+    assert(el?.type?.name === 'FeedbackClient', `renders ${el?.type?.name ?? show(el)}`);
+    assert(el.props.userId === 5550001 && el.props.locale === 'ru', `props: ${show(el.props)}`);
+  });
+
+  await check('#8 [guard] /en/feedback with no user_id still shows the missing-parameter card', async () => {
+    const page = (await load('app/[locale]/feedback/page.tsx')).default;
+    const el = await page({ params: Promise.resolve({ locale: 'en' }), searchParams: Promise.resolve({}) });
+    assert(show(el).includes('user_id parameter is required'), `renders ${show(el).slice(0, 200)}`);
+  });
+
+  // ---- Docs ----
+
   await check('#9 README\'s env table and .env.example name SESSION_SECRET and WHATSAPP_APP_SECRET (placeholders only)', () => {
     const readme = readSource('README.md');
     const example = readSource('.env.example');
