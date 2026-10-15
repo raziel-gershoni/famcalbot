@@ -18,6 +18,7 @@ import { encrypt, decrypt } from '../utils/encryption';
 import { buildUrl } from '../config/urls';
 import { captureError } from '../lib/error-capture';
 import { DEFAULT_BOT_USERNAME } from '../lib/gate-links';
+import { escapeHtml } from '../utils/html';
 import { normalizeLocale, type Locale } from '../utils/locale';
 import { getUserById, getUserByTelegramId, updateUserById } from './user-service';
 import { updateUserInCache } from './reminder-cache';
@@ -152,11 +153,12 @@ export async function commitGoogleToken(ownerUserId: number, refreshToken: strin
     });
   }
 
-  // Notify admin of successful token refresh
+  // Notify admin of successful token refresh. It is sent with parse_mode HTML, and the
+  // name is the user's own text
   const { notifyAdminWarning } = await import('../utils/error-notifier');
   await notifyAdminWarning(
     'Token Refreshed',
-    `User ${user.telegramId ?? user.id} (${user.name || 'Unknown'}) successfully refreshed their Google Calendar token`
+    `User ${user.telegramId ?? user.id} (${escapeHtml(user.name) || 'Unknown'}) successfully refreshed their Google Calendar token`
   ).catch(err => captureError(err, 'oauth-admin-notify', {}, 'warning'));
 
   // The token is saved; a lost flag only means the Mini App waits for the bot's button.

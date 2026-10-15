@@ -15,6 +15,15 @@
 // commit doesn't fail the webhook (a redelivered /start would say "expired"); and the
 // "failed" reply doesn't claim nothing was saved, since the commit can fail half-way.
 //
+// Follow-ups (#24-#30): an unset TELEGRAM_BOT_USERNAME or WHATSAPP_PHONE_NUMBER falls back
+// to gate-links' public bot and number, so it can't hide the only finish button; the
+// finish page tells a WhatsApp owner to send the prefilled message; a second tap says the
+// link was already used; the poll's since is the server's clock (oauth/start's
+// serverTime), so a phone whose clock runs ahead still sees the commit; the signature is
+// checked over Meta's raw bytes, not re-serialized JSON; /start connect from an account
+// already linked to WhatsApp gets the usual dashboard reply; and the admin notice escapes
+// the user's name.
+//
 // The callback page, the finish page's helpers, google-connect, the webhook route, the
 // Telegram and WhatsApp webhook handlers, /start (webhook and polling), magic-link,
 // check-token-refresh and user-service run for real. Faked at the boundaries: Prisma (in
@@ -1121,6 +1130,14 @@ async function main() {
       const tal = sentTo(TAL_TG).at(-1)?.options?.replyMarkup?.inline_keyboard?.[0]?.[0];
       assert(String(tal?.url).startsWith('https://wa.me/15550001111?text=link%20'), `${via} unlinked: ${show(sentTo(TAL_TG))}`);
     }
+  });
+
+  await check('#30 the admin "Token Refreshed" notice escapes the user\'s name for parse_mode HTML', async () => {
+    seed();
+    userRow(9).name = '<a href="https://evil.example">Open admin panel</a> & co';
+    await tgWebhook(tgText(TAL_TG, `/start gc_${await pendingFor(9)}`));
+    const note = adminNotes.find(n => n.startsWith('Token Refreshed')) ?? '';
+    assert(note.includes('(&lt;a href="https://evil.example"&gt;Open admin panel&lt;/a&gt; &amp; co)') && !note.includes('<a'), `note ${show(note)}`);
   });
 
   let failed = 0;
