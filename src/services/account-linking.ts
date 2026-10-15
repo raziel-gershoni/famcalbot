@@ -91,8 +91,8 @@ function runsLonger(a: Subscription, b: Subscription): boolean {
  * W's profile and setup, as a new account starts them (the schema defaults, and what
  * getOrCreateUser sets). T takes W's value for each field where T's is still the starting
  * one, so a T that /start connect made seconds ago ends up with W's setup and an
- * established T keeps what it chose. Name (getOrCreateUser's 'User'), location with
- * locationForced, and language have their own rules (setupFromW).
+ * established T keeps what it chose. Name and language (Telegram's on a fresh T), and
+ * location with locationForced, have their own rules (setupFromW).
  * Never copied: ids and bookkeeping (id, telegramId, createdAt, updatedAt,
  * reminderStartAt), admin and moderation state (isAdmin, suspendedAt/By/Reason) and
  * Telegram delivery state (unreachableSince). Set by the merge itself: the WhatsApp ids,
@@ -121,14 +121,18 @@ function setupFromW(w: User, t: User): Partial<Pick<User, SetupField>> {
     const start = NEW_ACCOUNT[field];
     if (t[field] == null || JSON.stringify(t[field]) === JSON.stringify(start)) data[field] = w[field];
   }
-  if (!t.name.trim() || t.name === 'User') data.name = w.name;
+  // A fresh T's name and language are Telegram's from seconds ago (the profile's,
+  // the client's); the user chose W's. 'User' is getOrCreateUser's stand-in for
+  // no name, so it never replaces one.
+  const fresh = isFresh(t);
+  const wNamed = !!w.name.trim() && w.name !== 'User';
+  if ((fresh && wNamed) || !t.name.trim() || t.name === 'User') data.name = w.name;
   // The location and whether the user confirmed it go together.
   if (!t.location) {
     data.location = w.location;
     data.locationForced = w.locationForced;
   }
-  // T's language is the Telegram client's; the user chose W's.
-  if (isFresh(t)) data.language = w.language;
+  if (fresh) data.language = w.language;
   return data as Partial<Pick<User, SetupField>>;
 }
 

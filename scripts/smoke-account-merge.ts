@@ -15,6 +15,11 @@
 // unlink by P after the merge read W's pairing left T on an UNLINKED pairing, and W's admin
 // grants were dropped whenever T had an override row of its own.
 //
+// Second follow-up (#32-#37, #39): W's Google connection replaced an established T's native
+// calendars and events without a word; folding the two primary calendars dropped W's rules,
+// color and name; an unlink racing the merge (either order) left T on an UNLINKED pairing or
+// let T's partner see W's calendars; a fresh T kept its Telegram name.
+//
 // account-linking, user-moderation, user-service, subscription-service, the reminder
 // cache and event-store run for real. Faked at the boundaries: Prisma (in memory, and it
 // enforces the schema: a delete hits ON DELETE RESTRICT / CASCADE / SET NULL as the
@@ -915,7 +920,7 @@ async function main() {
 
   // ---- Merge: W's own setup ----
 
-  await check('#23 a fresh T (/start connect made it a minute ago) takes W\'s setup: location, gender, language, summary hours and days, reminder, voice and weather settings', async () => {
+  await check('#23 a fresh T (/start connect made it a minute ago) takes W\'s setup: name, location, gender, language, summary hours and days, reminder, voice and weather settings', async () => {
     seed();
     freshT();
     Object.assign(userRow(W), W_SETUP, { reminderStartAt: days(-3) });
@@ -926,8 +931,8 @@ async function main() {
     const t = userRow(T);
     const differ = Object.keys(W_SETUP).filter(k => show(t[k]) !== show(W_SETUP[k]));
     assert(differ.length === 0, `not carried over: ${show(Object.fromEntries(differ.map(k => [k, t[k]])))}`);
-    // Never copied: T's own name (Telegram's, not a default), ids and bookkeeping
-    assert(t.name === 'Dana Cohen' && String(t.telegramId) === '5550010' && same(t.createdAt, tBefore.createdAt) && t.reminderStartAt === null,
+    // The name too: T's came from the Telegram profile seconds ago. Never copied: ids and bookkeeping
+    assert(t.name === 'Dana' && String(t.telegramId) === '5550010' && same(t.createdAt, tBefore.createdAt) && t.reminderStartAt === null,
       `T ${show({ name: t.name, telegramId: t.telegramId, createdAt: t.createdAt, reminderStartAt: t.reminderStartAt })}`);
     assert(!redisStore.has(`tz:user:${T}`), 'T\'s timezone cache was kept (it came from no location)');
     const cached = JSON.parse(redisStore.get('reminders:users') ?? '[]').find((u: Row) => u.id === T);
@@ -947,7 +952,17 @@ async function main() {
     const t = userRow(T);
     const changed = Object.keys(T_SETUP).filter(k => show(t[k]) !== show(T_SETUP[k]));
     assert(changed.length === 0, `overwritten: ${show(Object.fromEntries(changed.map(k => [k, t[k]])))}`);
+    assert(t.name === 'Dana Cohen', `T's name ${show(t.name)}`);
     assert(show(t.globalRules) === show(W_SETUP.globalRules), `T's rules ${show(t.globalRules)}`);
+  });
+
+  await check('#39 [guard] a fresh T keeps its Telegram name when W has none (WhatsApp\'s stand-in \'User\')', async () => {
+    seed();
+    freshT();
+    userRow(W).name = 'User';
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    assert(userRow(T).name === 'Dana Cohen', `T's name ${show(userRow(T).name)}`);
   });
 
   await check('#25 W on Google, fresh T: T moves to Google with W\'s stored (encrypted) token and calendar choices, T\'s native calendars are soft-deleted, and T\'s reminder-cache entry reads Google', async () => {
