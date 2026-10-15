@@ -496,7 +496,7 @@ async function main() {
     assert(hits.length === 0, `still read from a query: ${hits.join(', ')}`);
   });
 
-  await check('#8 no browser or bot code builds a URL with initData= or a URLSearchParams with an initData key', () => {
+  await check('#8 no browser or bot code builds a URL with initData=, a URLSearchParams with an initData key, or .append/.set(\'initData\')', () => {
     // The Sentry scrubber names the pattern it removes.
     const allowed = new Set(['src/lib/sentry-scrub.ts']);
     const files = [
@@ -508,7 +508,9 @@ async function main() {
     for (const f of files) {
       const src = readSource(f);
       if (/initData=/.test(src)) hits.push(`${f} (initData=)`);
-      if (/new URLSearchParams\(\s*\{[^}]*\binitData\s*:/.test(src)) hits.push(`${f} (URLSearchParams initData)`);
+      // A key, quoted or not, or the shorthand { initData, ... }.
+      if (/new URLSearchParams\(\s*\{[^}]*\binitData\b['"`]?\s*[,}:]/.test(src)) hits.push(`${f} (URLSearchParams initData)`);
+      if (/\.(append|set)\(\s*['"`]initData['"`]/.test(src)) hits.push(`${f} (.append/.set initData)`);
     }
     assert(hits.length === 0, hits.join(', '));
   });
