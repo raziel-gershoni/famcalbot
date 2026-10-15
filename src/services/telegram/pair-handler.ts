@@ -7,52 +7,94 @@
 // the same underlying pairing-service.acceptInvite — this file is the
 // chat-side adapter.
 
-import { acceptInvite, PairingError } from '../pairing-service';
+import { acceptInvite, PairingError, type PairingErrorCode } from '../pairing-service';
 import { prisma } from '../../utils/prisma';
 import { getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from '../messaging';
-import { getBotMessages } from '../../lib/bot-messages';
+import { normalizeLocale, type Locale } from '../../utils/locale';
 import { captureError } from '../../lib/error-capture';
 import { escapeHtml } from '../../utils/html';
 
+type PairCopy = {
+  errors: Record<Exclude<PairingErrorCode, 'NOT_PAIRED'>, string>;
+  /** To the acceptor. The inviter's name comes in HTML-escaped, '' when there is none. */
+  accepted: (inviterName: string) => string;
+  /** To the inviter. The acceptor's name comes in HTML-escaped, '' when there is none. */
+  acceptedNotification: (acceptorName: string) => string;
+};
+
 /**
- * Map a PairingError code to a user-facing message in the recipient's language.
- * Errors are intentionally specific so users can self-correct (expired vs already
- * paired vs invalid token).
+ * Chat pairing text per language. Errors are intentionally specific so users can
+ * self-correct (expired vs already paired vs invalid token).
  */
-function pairingErrorMessage(
-  code: PairingError['code'],
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  t: any
-): string {
-  const p = t.pair || {};
-  switch (code) {
-    case 'INVITE_NOT_FOUND':
-      return p.errorInviteNotFound || '❌ Invite link is invalid.';
-    case 'INVITE_EXPIRED':
-      return p.errorInviteExpired || '⌛ This invite link has expired. Ask for a new one.';
-    case 'INVITE_ALREADY_USED':
-      return p.errorInviteUsed || '⚠️ This invite has already been used.';
-    case 'INVITE_REVOKED':
-      return p.errorInviteRevoked || '⚠️ This invite was revoked.';
-    case 'CANNOT_ACCEPT_OWN_INVITE':
-      return p.errorOwnInvite || '🪞 You cannot accept your own invite.';
-    case 'INVITER_NOT_NATIVE':
-      return p.errorInviterNotNative || '❌ The inviter is using Google Calendar, not the in-bot calendar — pairing is not available.';
-    case 'INVITEE_NOT_NATIVE':
-      return p.errorInviteeNotNative || '❌ Pairing requires the in-bot calendar. You are currently using Google Calendar.';
-    case 'INVITER_ALREADY_PAIRED':
-      return p.errorInviterPaired || '⚠️ The inviter is already paired with someone else.';
-    case 'INVITEE_ALREADY_PAIRED':
-      return p.errorInviteePaired || '⚠️ You are already paired with someone. Unlink first to switch.';
-    default:
-      return p.errorUnknown || '❌ Could not accept the invite.';
-  }
+const PAIR_COPY: Record<Locale, PairCopy> = {
+  en: {
+    errors: {
+      INVITE_NOT_FOUND: '❌ Invite link is invalid.',
+      INVITE_EXPIRED: '⌛ This invite link has expired. Ask for a new one.',
+      INVITE_ALREADY_USED: '⚠️ This invite has already been used.',
+      INVITE_REVOKED: '⚠️ This invite was revoked.',
+      CANNOT_ACCEPT_OWN_INVITE: '🪞 You cannot accept your own invite.',
+      INVITER_NOT_NATIVE: '❌ The inviter is using Google Calendar, not the in-bot calendar — pairing is not available.',
+      INVITEE_NOT_NATIVE: '❌ Pairing requires the in-bot calendar. You are currently using Google Calendar.',
+      INVITER_ALREADY_PAIRED: '⚠️ The inviter is already paired with someone else.',
+      INVITEE_ALREADY_PAIRED: '⚠️ You are already paired with someone. Unlink first to switch.',
+      UNKNOWN_ERROR: '❌ Could not accept the invite.',
+    },
+    accepted: name => (name ? `🎉 You are now paired with ${name}!` : '🎉 You are now paired!'),
+    acceptedNotification: name =>
+      name ? `🎉 ${name} accepted your invite. You are now paired.` : '🎉 Your invite was accepted. You are now paired.',
+  },
+  he: {
+    errors: {
+      INVITE_NOT_FOUND: '❌ קישור ההזמנה לא תקין.',
+      INVITE_EXPIRED: '⌛ תוקף ההזמנה פג. בקשו קישור חדש.',
+      INVITE_ALREADY_USED: '⚠️ כבר השתמשו בהזמנה הזו.',
+      INVITE_REVOKED: '⚠️ ההזמנה הזו בוטלה.',
+      CANNOT_ACCEPT_OWN_INVITE: '🪞 זו ההזמנה שלכם, אי אפשר לאשר אותה בעצמכם.',
+      INVITER_NOT_NATIVE: '❌ הצד השני משתמש ביומן גוגל ולא ביומן של הבוט, אז אי אפשר להתחבר.',
+      INVITEE_NOT_NATIVE: '❌ אפשר להתחבר רק עם היומן של הבוט, ואצלכם מחובר כרגע יומן גוגל.',
+      INVITER_ALREADY_PAIRED: '⚠️ הצד השני כבר מחובר למישהו אחר.',
+      INVITEE_ALREADY_PAIRED: '⚠️ אתם כבר מחוברים למישהו. כדי להחליף, בטלו קודם את החיבור הנוכחי.',
+      UNKNOWN_ERROR: '❌ לא הצלחנו לאשר את ההזמנה.',
+    },
+    accepted: name => (name ? `🎉 מעולה, אתם מחוברים עכשיו עם ${name}!` : '🎉 מעולה, אתם מחוברים עכשיו!'),
+    acceptedNotification: name =>
+      name ? `🎉 ההזמנה שלכם התקבלה! אתם מחוברים עכשיו עם ${name}.` : '🎉 ההזמנה שלכם התקבלה! אתם מחוברים עכשיו.',
+  },
+  ru: {
+    errors: {
+      INVITE_NOT_FOUND: '❌ Ссылка-приглашение недействительна.',
+      INVITE_EXPIRED: '⌛ Срок действия приглашения истёк. Попросите прислать новое.',
+      INVITE_ALREADY_USED: '⚠️ Этим приглашением уже воспользовались.',
+      INVITE_REVOKED: '⚠️ Это приглашение отменили.',
+      CANNOT_ACCEPT_OWN_INVITE: '🪞 Это ваше же приглашение, принять его не получится.',
+      INVITER_NOT_NATIVE: '❌ У отправителя подключён Google Календарь, а связать можно только аккаунты со встроенным календарём бота.',
+      INVITEE_NOT_NATIVE: '❌ Связать можно только аккаунты со встроенным календарём бота, а у вас сейчас подключён Google Календарь.',
+      INVITER_ALREADY_PAIRED: '⚠️ У отправителя уже есть связь с кем-то другим.',
+      INVITEE_ALREADY_PAIRED: '⚠️ Вы уже связаны с кем-то. Чтобы сменить связь, сначала отключите текущую.',
+      UNKNOWN_ERROR: '❌ Не получилось принять приглашение.',
+    },
+    accepted: name => (name ? `🎉 Готово! Вы и ${name} теперь связаны.` : '🎉 Готово! Теперь вы связаны.'),
+    acceptedNotification: name =>
+      name ? `🎉 Ваше приглашение приняли! Теперь вы и ${name} связаны.` : '🎉 Ваше приглашение приняли! Теперь вы связаны.',
+  },
+};
+
+/** The recipient's copy: their User.language, English when it is unset or unknown. */
+const pairCopy = (language: string | null | undefined): PairCopy => PAIR_COPY[normalizeLocale(language)];
+
+/** Map a PairingError code to a user-facing message in the recipient's language. */
+function pairingErrorMessage(code: PairingErrorCode, locale: string): string {
+  const { errors } = pairCopy(locale);
+  // NOT_PAIRED comes only from unlink, never from an accept.
+  return code === 'NOT_PAIRED' ? errors.UNKNOWN_ERROR : errors[code];
 }
 
 /**
  * Notify the inviter that their invite was accepted. Best-effort — failures
  * are logged but never block the success message to the acceptor. Used by
- * the chat accept below and by POST /api/pair/accept.
+ * the chat accept below and by POST /api/pair/accept. Written in the inviter's
+ * language; an empty acceptorName gets a message without a name.
  */
 export async function notifyInviterOfAccept(inviterUserId: number, acceptorName: string): Promise<void> {
   try {
@@ -61,8 +103,7 @@ export async function notifyInviterOfAccept(inviterUserId: number, acceptorName:
       select: { telegramId: true, whatsappPhone: true, whatsappBsuid: true, language: true, messagingPlatform: true },
     });
     if (!inviter) return;
-    const t = await getBotMessages(inviter.language || 'en');
-    const message = (t.pair?.acceptedNotification || '🎉 {name} accepted your invite. You are now paired.').replace('{name}', () => escapeHtml(acceptorName));
+    const message = pairCopy(inviter.language).acceptedNotification(escapeHtml(acceptorName));
     const platform =
       inviter.messagingPlatform === 'whatsapp' && (inviter.whatsappPhone || inviter.whatsappBsuid)
         ? MessagingPlatform.WHATSAPP
@@ -83,7 +124,7 @@ export async function notifyInviterOfAccept(inviterUserId: number, acceptorName:
  * Handle invite acceptance by an authenticated user (either via /start deep
  * link or via free-text accept command). chatId is the conversation's chat
  * id on the platform. acceptingUserId is the DB User.id (already resolved
- * by the caller).
+ * by the caller). locale is the acceptor's User.language.
  */
 export async function handlePairAccept(
   chatId: number | string,
@@ -92,11 +133,10 @@ export async function handlePairAccept(
   locale: string,
   platform: MessagingPlatform
 ): Promise<void> {
-  const t = await getBotMessages(locale);
   const service = getMessagingServiceByPlatform(platform);
 
   if (!token || token.length < 8) {
-    await service.sendMessage(chatId, pairingErrorMessage('INVITE_NOT_FOUND', t), { format: MessageFormat.HTML });
+    await service.sendMessage(chatId, pairingErrorMessage('INVITE_NOT_FOUND', locale), { format: MessageFormat.HTML });
     return;
   }
 
@@ -109,21 +149,19 @@ export async function handlePairAccept(
       prisma.user.findUnique({ where: { id: result.inviteeUserId }, select: { name: true, englishName: true } }),
     ]);
 
-    const inviterName = inviter?.name || 'your partner';
-    const acceptorName = acceptor?.name || 'partner';
-    const successMessage = (t.pair?.acceptedSuccess || '🎉 You are now paired with {name}!').replace('{name}', () => escapeHtml(inviterName));
+    const successMessage = pairCopy(locale).accepted(escapeHtml(inviter?.name));
 
     await service.sendMessage(chatId, successMessage, { format: MessageFormat.HTML });
 
     // Best-effort notification — does not block the success message above.
-    notifyInviterOfAccept(result.inviterUserId, acceptorName).catch(() => {});
+    notifyInviterOfAccept(result.inviterUserId, acceptor?.name ?? '').catch(() => {});
   } catch (err) {
     if (err instanceof PairingError) {
-      await service.sendMessage(chatId, pairingErrorMessage(err.code, t), { format: MessageFormat.HTML });
+      await service.sendMessage(chatId, pairingErrorMessage(err.code, locale), { format: MessageFormat.HTML });
       return;
     }
     captureError(err, 'pair-accept-handler', { acceptingUserId });
-    await service.sendMessage(chatId, pairingErrorMessage('UNKNOWN_ERROR', t), { format: MessageFormat.HTML });
+    await service.sendMessage(chatId, pairingErrorMessage('UNKNOWN_ERROR', locale), { format: MessageFormat.HTML });
   }
 }
 

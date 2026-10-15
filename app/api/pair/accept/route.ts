@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     const result = await acceptInvite(token, user.id);
 
     // Tell the inviter (best effort: the helper catches and logs its own errors)
-    await notifyInviterOfAccept(result.inviterUserId, user.name || 'partner');
+    await notifyInviterOfAccept(result.inviterUserId, user.name);
 
     // Inviter side: pull their name for the success response so the UI can
     // confirm "paired with X" without an extra round-trip.

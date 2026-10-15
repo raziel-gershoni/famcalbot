@@ -565,6 +565,63 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
+  // ---- Chat pairing text in the recipient's language ----
+
+  await check('#10 he and ru users read the accept reply, an error and the inviter\'s notice in their own language, on Telegram and WhatsApp and from the API accept', async () => {
+    const { WhatsAppAdapter } = await load('src/services/messaging/whatsapp-adapter.ts');
+    const { MessageFormat } = await load('src/services/messaging/types.ts');
+    const { handlePairAccept } = await load('src/services/telegram/pair-handler.ts');
+    const { POST } = await load('app/api/pair/accept/route.ts');
+    const shownOnWhatsApp = (text: string): string => new WhatsAppAdapter('test', 'test').formatText(text, MessageFormat.HTML);
+    const script: Record<string, RegExp> = { he: /[֐-׿]/, ru: /[Ѐ-ӿ]/ };
+    const problems: string[] = [];
+
+    // The acceptor's language differs from the inviter's, so each message must follow its own reader.
+    for (const r of [
+      { platform: 'telegram', acceptorLang: 'he', inviterLang: 'ru', acceptorChat: '7770002', inviterChat: '5550001' },
+      { platform: 'whatsapp', acceptorLang: 'ru', inviterLang: 'he', acceptorChat: '972500000002', inviterChat: '972500000001' },
+    ]) {
+      seed();
+      Object.assign(userRow(1), { language: r.inviterLang, name: 'Dana & Roy' });
+      Object.assign(userRow(2), { language: r.acceptorLang, name: 'Noam & Co' });
+      if (r.platform === 'whatsapp') {
+        Object.assign(userRow(1), { messagingPlatform: 'whatsapp', whatsappPhone: r.inviterChat });
+        Object.assign(userRow(2), { messagingPlatform: 'whatsapp', whatsappPhone: r.acceptorChat });
+      }
+      const amp = r.platform === 'whatsapp' ? '&' : '&amp;';
+      const read = (chat: string) => sent.filter(m => String(m.chatId) === chat)
+        .map(m => (r.platform === 'whatsapp' ? shownOnWhatsApp(m.text ?? '') : m.text ?? ''));
+      const chatId = r.platform === 'whatsapp' ? r.acceptorChat : Number(r.acceptorChat);
+      await handlePairAccept(chatId, 2, TOKEN_1, r.acceptorLang, r.platform);
+      await settle();
+      await handlePairAccept(chatId, 2, TOKEN_1, r.acceptorLang, r.platform); // used by now
+      await settle();
+      const [success, error] = read(r.acceptorChat);
+      const notices = read(r.inviterChat);
+      const where = `${r.platform}, acceptor ${r.acceptorLang}, inviter ${r.inviterLang}`;
+      if (!success || !script[r.acceptorLang].test(success) || !success.includes(`Dana ${amp} Roy`)) problems.push(`${where}: accept reply ${show(success)}`);
+      if (!error || !script[r.acceptorLang].test(error) || error === success) problems.push(`${where}: error ${show(error)}`);
+      if (notices.length !== 1 || !script[r.inviterLang].test(notices[0]) || !notices[0].includes(`Noam ${amp} Co`)) problems.push(`${where}: inviter notice ${show(notices)}`);
+    }
+
+    // API accept by a user with no name: the Russian inviter's notice has no English stand-in
+    seed();
+    userRow(1).language = 'ru';
+    userRow(2).name = '';
+    const res: Response = await POST(new NextRequest('http://localhost/api/pair/accept?user_id=7770002', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: TOKEN_1, initData: initDataFor(7770002) }),
+    }));
+    await settle();
+    const notice = toChat(5550001).map(m => m.text ?? '');
+    if (res.status !== 200 || notice.length !== 1 || !script.ru.test(notice[0]) || /[A-Za-z]/.test(notice[0])) {
+      problems.push(`API accept, nameless acceptor: status ${res.status}, notice ${show(notice)}`);
+    }
+
+    assert(problems.length === 0, problems.join('; '));
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);
