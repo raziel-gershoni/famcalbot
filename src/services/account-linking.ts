@@ -159,8 +159,9 @@ function isSameCalendar(a: NativeCalendar, b: NativeCalendar): boolean {
  * pairings, the per-user rows); T takes W's setup (setupFromW) and, when T can
  * take it, W's Google connection. A moved pairing shares T's calendars, as
  * accepting an invite does. Otherwise a moved calendar keeps its privacy (W's
- * go PRIVATE when the merge unpairs W) and a fold needs the same privacy on
- * both sides, so the merge shows nobody an event their pairing did not share.
+ * go PRIVATE when W's pairing ends, by the merge or by P meanwhile) and a fold
+ * needs the same privacy on both sides, so the merge shows nobody an event
+ * their pairing did not share.
  * Returns T's pairingId after the merge, and whether W's Google connection
  * stayed behind.
  */
@@ -181,7 +182,6 @@ async function mergeWhatsAppUser(
   // accepted an invite or switched to Google after the read above.
   let pairingId = t.pairingId;
   let moved = false;
-  let unpairedW = false;
   const wPairing = w.pairingId ? await tx.pairing.findUnique({ where: { id: w.pairingId } }) : null;
   const wInvited = wPairing?.inviterUserId === w.id;
   const taken = wPairing?.status === 'ACTIVE' && (await tx.pairing.updateMany({
@@ -196,7 +196,6 @@ async function mergeWhatsAppUser(
     if (moved) {
       pairingId = wPairing.id;
     } else {
-      unpairedW = true;
       await tx.pairing.update({
         where: { id: wPairing.id },
         data: { status: 'UNLINKED', unlinkedAt: new Date(), unlinkedByUserId: w.id },
@@ -216,7 +215,8 @@ async function mergeWhatsAppUser(
   // A moved pairing shares T's calendars at the default permission, as
   // acceptInvite does, before the fold: T's primary and W's shared one are then
   // one calendar, so what 'primary' resolves to stays the couple's. A pairing
-  // the merge ended shared W's calendars with P only: they come over PRIVATE and
+  // that was ACTIVE when read and did not move (the merge ended it, or P did
+  // meanwhile) shared W's calendars with P only: they come over PRIVATE and
   // fold only into private ones, so nothing in them (P's events too) reaches
   // T's partner.
   if (moved) {
@@ -224,7 +224,7 @@ async function mergeWhatsAppUser(
       where: { ownerUserId: t.id, privacy: 'PRIVATE', isDeleted: false },
       data: { privacy: 'SHARED_EDITOR' },
     });
-  } else if (unpairedW) {
+  } else if (wPairing?.status === 'ACTIVE') {
     await tx.nativeCalendar.updateMany({ where: { ownerUserId: w.id }, data: { privacy: 'PRIVATE' } });
   }
 

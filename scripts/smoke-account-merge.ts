@@ -868,6 +868,28 @@ async function main() {
     assert(pr?.unlinkedByUserId === W && same(pr.unlinkedAt, unlinkedAt), `pairing ${show(pr)}`);
   });
 
+  await check('#37 both paired, and P unlinks after the merge read W\'s pairing: W\'s calendars still come over private, so Q sees none of them or P\'s events', async () => {
+    seed();
+    pairWithP();
+    pairTWithQ();
+    concurrent = (name, method, args) => {
+      if (name !== 'pairing' || method !== 'findUnique' || args.where?.id !== 'pair-wp') return;
+      concurrent = null;
+      Object.assign(rowOf('pairing', 'pair-wp')!, { status: 'UNLINKED', unlinkedAt: new Date(), unlinkedByUserId: P });
+      userRow(W).pairingId = null;
+      userRow(P).pairingId = null;
+    };
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    assert(userRow(T).pairingId === 'pair-tq' && rowOf('pairing', 'pair-wp')?.unlinkedByUserId === P, `T=${userRow(T).pairingId}; W's pairing ${show(rowOf('pairing', 'pair-wp'))}`);
+    const { listVisibleCalendars } = await load('src/services/native-calendar/event-store.ts');
+    const visible = (await listVisibleCalendars(Q, 'pair-tq')).map((c: Row) => c.id);
+    const wCalendars = visible.filter((id: string) => id.startsWith('cal-w'));
+    const pEvents = DB.nativeEvent.filter(e => e.creatorUserId === P && visible.includes(e.calendarId)).map(e => e.id);
+    assert(wCalendars.length === 0 && pEvents.length === 0, `Q sees ${show(visible)}; P's events among them ${show(pEvents)}`);
+    assert(!userRow(W) && referencesTo(W).length === 0, `still pointing at W: ${show(referencesTo(W))}`);
+  });
+
   // ---- Merge: W's own setup ----
 
   await check('#23 a fresh T (/start connect made it a minute ago) takes W\'s setup: location, gender, language, summary hours and days, reminder, voice and weather settings', async () => {
