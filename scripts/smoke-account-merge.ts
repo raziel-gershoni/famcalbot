@@ -970,11 +970,15 @@ async function main() {
     let result = await link();
     assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
     assert(show(menuButtons) === show([[5550010, 'he']]), `menu button calls ${show(menuButtons)}`);
-    seed();
-    Object.assign(userRow(W), W_SETUP);
-    result = await link();
-    assert(result.success === true && userRow(T).language === 'en', `result ${show(result)}; T's language ${userRow(T).language}`);
-    assert(menuButtons.length === 0, `menu button calls ${show(menuButtons)}`);
+    for (const sameLanguage of [false, true]) {
+      // An established T keeps its language; a fresh one takes W's, here the one it had
+      seed();
+      Object.assign(userRow(W), W_SETUP);
+      if (sameLanguage) { freshT(); userRow(W).language = 'ru'; }
+      result = await link();
+      assert(result.success === true && userRow(T).language === (sameLanguage ? 'ru' : 'en'), `result ${show(result)}; T's language ${userRow(T).language}`);
+      assert(menuButtons.length === 0, `menu button calls ${show(menuButtons)}`);
+    }
   });
 
   await check('#39 [guard] a fresh T keeps its Telegram name when W has none (WhatsApp\'s stand-in \'User\')', async () => {
@@ -1040,16 +1044,25 @@ async function main() {
     assert(result.reconnectGoogle === true, `reconnectGoogle ${show(result.reconnectGoogle)}`);
   });
 
-  await check('#33 [guard] W on Google, an established unpaired T with no live events (a deleted one only): T moves to Google with W\'s token', async () => {
-    seed();
-    googleW();
-    rowOf('nativeEvent', 'ev-t')!.isDeleted = true;
-    const result = await link();
-    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
-    const t = userRow(T);
-    assert(t.calendarSource === 'GOOGLE' && t.googleRefreshToken === TOKENS.w && show(t.calendarAssignments) === show(W_ASSIGNMENTS),
-      `T ${show({ calendarSource: t.calendarSource, token: t.googleRefreshToken === TOKENS.w ? 'W\'s' : t.googleRefreshToken })}`);
-    assert(rowOf('nativeCalendar', 'cal-t')?.isDeleted === true && !result.reconnectGoogle, `T's calendar ${show(rowOf('nativeCalendar', 'cal-t'))}; reconnectGoogle ${show(result.reconnectGoogle)}`);
+  await check('#33 [guard] W on Google, an unpaired T with nothing to lose moves to Google with W\'s token: an established T with no live events (a deleted one, one in a deleted calendar), or a fresh T that already added one', async () => {
+    for (const fresh of [false, true]) {
+      seed();
+      googleW();
+      if (fresh) {
+        freshT();
+        DB.nativeEvent.push(event('ev-t-new', 'cal-t', T));
+      } else {
+        rowOf('nativeEvent', 'ev-t')!.isDeleted = true;
+        DB.nativeCalendar.push(calendar('cal-t-old', T, 'Old', { isDeleted: true }));
+        DB.nativeEvent.push(event('ev-t-old', 'cal-t-old', T));
+      }
+      const result = await link();
+      assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+      const t = userRow(T);
+      assert(t.calendarSource === 'GOOGLE' && t.googleRefreshToken === TOKENS.w && show(t.calendarAssignments) === show(W_ASSIGNMENTS),
+        `${fresh ? 'fresh' : 'established'} T ${show({ calendarSource: t.calendarSource, token: t.googleRefreshToken === TOKENS.w ? 'W\'s' : t.googleRefreshToken })}`);
+      assert(rowOf('nativeCalendar', 'cal-t')?.isDeleted === true && !result.reconnectGoogle, `T's calendar ${show(rowOf('nativeCalendar', 'cal-t'))}; reconnectGoogle ${show(result.reconnectGoogle)}`);
+    }
   });
 
   // ---- Merge: subscription ----
