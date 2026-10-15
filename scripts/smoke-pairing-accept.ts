@@ -13,6 +13,11 @@
 // Review fix (#6): the names are escaped for Telegram's HTML, so the WhatsApp adapter,
 // which turns that HTML into WhatsApp text, decodes the entities again.
 //
+// Follow-ups: an accept links the two users lowest id first, so A taking B's invite while
+// B takes A's no longer locks the two User rows in opposite orders and deadlocks (#7-#9;
+// the fake has no locks, so with the old order both sides of #8 lose instead); and the
+// chat replies and the inviter's notice are in the recipient's language (#10).
+//
 // The check named [guard] already passes before the fix and must keep passing. The
 // others fail until the fix lands. Numbers follow the design's smoke list.
 //
@@ -326,6 +331,7 @@ function installStubs() {
 
 const DAY = 86_400_000;
 const TOKEN_1 = crypto.randomBytes(32).toString('hex');
+const TOKEN_2 = crypto.randomBytes(32).toString('hex');
 const TOKEN_3 = crypto.randomBytes(32).toString('hex');
 
 function baseUser(o: Row): Row {
@@ -341,7 +347,8 @@ function baseUser(o: Row): Row {
 
 /**
  * Inviters 1 (Dana, Telegram 5550001) and 3 (Ari, Telegram 5550003) each hold an open
- * invite. 2 (Telegram 7770002) and 5 (Telegram 7770005) accept. All NATIVE, unpaired.
+ * invite. 2 (Telegram 7770002) and 5 (Telegram 7770005) accept. 2 also holds an open
+ * invite, for the mutual accept. All NATIVE, unpaired, English.
  */
 function seed() {
   for (const k of Object.keys(DB)) delete DB[k];
@@ -360,7 +367,7 @@ function seed() {
     id, token, inviterUserId, expiresAt: new Date(Date.now() + 6 * DAY),
     acceptedAt: null, acceptedByUserId: null, revokedAt: null, createdAt: new Date(Date.now() - DAY),
   });
-  DB.pairingInvite = [invite('inv-1', TOKEN_1, 1), invite('inv-3', TOKEN_3, 3)];
+  DB.pairingInvite = [invite('inv-1', TOKEN_1, 1), invite('inv-2', TOKEN_2, 2), invite('inv-3', TOKEN_3, 3)];
   DB.pairing = [];
   DB.nativeCalendar = [
     { id: 'cal-1', ownerUserId: 1, name: 'Dana private', color: '#336699', labels: ['primary'], privacy: 'PRIVATE', isDeleted: false, createdAt: new Date(Date.now() - 9 * DAY) },
@@ -497,6 +504,64 @@ async function main() {
     const toAcceptor = sent.filter(m => m.platform === 'whatsapp' && String(m.chatId) === '972500000002').map(m => shownOnWhatsApp(m.text ?? ''));
     if (!toAcceptor.some(t => t.includes(NAME))) problems.push(`the WhatsApp acceptor reads ${show(toAcceptor)}`);
 
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  // ---- Mutual accept: users are linked lowest id first ----
+
+  await check('#7 both directions (2 takes 1\'s invite; 1 takes 2\'s) link user 1 first, then 2, each only while unpaired and NATIVE', async () => {
+    const { acceptInvite } = await load('src/services/pairing-service.ts');
+    const problems: string[] = [];
+    for (const [token, acceptor] of [[TOKEN_1, 2], [TOKEN_2, 1]] as const) {
+      seed();
+      await acceptInvite(token, acceptor);
+      const links = userWrites.filter(w => w.method === 'updateMany');
+      const order = links.flatMap(w => w.hit);
+      if (show(order) !== show([1, 2])) problems.push(`user ${acceptor} accepting linked ${show(order)}`);
+      const loose = links.filter(w => w.where.pairingId !== null || w.where.calendarSource !== 'NATIVE');
+      if (loose.length) problems.push(`user ${acceptor} accepting linked with ${show(loose.map(w => w.where))}`);
+    }
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#8 mutual accept at once (2 takes 1\'s invite while 1 takes 2\'s): one pairs, the other gets a PairingError, and 1 and 2 share one pairing', async () => {
+    seed();
+    const { acceptInvite, PairingError } = await load('src/services/pairing-service.ts');
+    const settled = await Promise.allSettled([acceptInvite(TOKEN_1, 2), acceptInvite(TOKEN_2, 1)]);
+    const got = settled.map(outcome);
+    const strays = settled.filter(r => r.status === 'rejected' && !(r.reason instanceof PairingError));
+    assert(got.filter(g => g === 'ok').length === 1 && strays.length === 0
+      && userRow(1).pairingId != null && userRow(1).pairingId === userRow(2).pairingId,
+    `outcomes ${show(got)}; pairingId of 1 ${userRow(1).pairingId}, of 2 ${userRow(2).pairingId}`);
+  });
+
+  await check('#9 [guard] a user someone else paired between the read and the link gets the error for their role, in both directions', async () => {
+    const { acceptInvite } = await load('src/services/pairing-service.ts');
+    const cases = [
+      { token: TOKEN_1, acceptor: 2, pairedMeanwhile: 1, want: 'INVITER_ALREADY_PAIRED' },
+      { token: TOKEN_1, acceptor: 2, pairedMeanwhile: 2, want: 'INVITEE_ALREADY_PAIRED' },
+      { token: TOKEN_2, acceptor: 1, pairedMeanwhile: 2, want: 'INVITER_ALREADY_PAIRED' },
+      { token: TOKEN_2, acceptor: 1, pairedMeanwhile: 1, want: 'INVITEE_ALREADY_PAIRED' },
+    ];
+    const users = fakePrisma.user as Row;
+    const realUpdateMany = users.updateMany;
+    const problems: string[] = [];
+    try {
+      for (const c of cases) {
+        seed();
+        // Another accept commits just as this one starts linking: its first link sees
+        // the user already paired.
+        let fired = false;
+        users.updateMany = (a: Row) => {
+          if (!fired) { fired = true; userRow(c.pairedMeanwhile).pairingId = 'pairing-elsewhere'; }
+          return realUpdateMany(a);
+        };
+        const got = outcome((await Promise.allSettled([acceptInvite(c.token, c.acceptor)]))[0]);
+        if (got !== c.want) problems.push(`user ${c.acceptor} accepting, ${c.pairedMeanwhile} paired meanwhile: ${got}, want ${c.want}`);
+      }
+    } finally {
+      users.updateMany = realUpdateMany;
+    }
     assert(problems.length === 0, problems.join('; '));
   });
 

@@ -183,18 +183,19 @@ export async function acceptInvite(token: string, acceptingUserId: number): Prom
       },
     });
 
-    // Link each side only while it is still unpaired; a concurrent accept that
-    // paired either user first leaves count 0 and this one rolls back.
-    const linkedInviter = await tx.user.updateMany({
-      where: { id: inviter.id, pairingId: null },
-      data: { pairingId: pairing.id },
-    });
-    if (linkedInviter.count !== 1) throw new PairingError('INVITER_ALREADY_PAIRED');
-    const linkedInvitee = await tx.user.updateMany({
-      where: { id: invitee.id, pairingId: null },
-      data: { pairingId: pairing.id },
-    });
-    if (linkedInvitee.count !== 1) throw new PairingError('INVITEE_ALREADY_PAIRED');
+    // Link each side only while it is still unpaired and NATIVE; a concurrent accept
+    // that paired either user first leaves count 0 and this one rolls back. Lowest
+    // user id first: with inviter-then-invitee, A taking B's invite while B took A's
+    // locked the two User rows in opposite orders and deadlocked.
+    for (const userId of [inviter.id, invitee.id].sort((a, b) => a - b)) {
+      const linked = await tx.user.updateMany({
+        where: { id: userId, pairingId: null, calendarSource: 'NATIVE' },
+        data: { pairingId: pairing.id },
+      });
+      if (linked.count !== 1) {
+        throw new PairingError(userId === inviter.id ? 'INVITER_ALREADY_PAIRED' : 'INVITEE_ALREADY_PAIRED');
+      }
+    }
 
     // Auto-share PRIVATE calendars on both sides at the default permission.
     // Owner can later flip any back to PRIVATE or to SHARED_VIEWER.
