@@ -7,7 +7,7 @@
  * 2. User sends "link CODE" on WhatsApp → redeemLinkCode() → accounts merged
  */
 
-import type { NativeCalendar, Prisma, Subscription, User } from '@prisma/client';
+import type { NativeCalendar, Prisma, Subscription } from '@prisma/client';
 import { redis } from '../utils/redis';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { prisma } from '../utils/prisma';
@@ -82,16 +82,17 @@ function isSameCalendar(a: NativeCalendar, b: NativeCalendar): boolean {
  * Fold the WhatsApp-only user W into the Telegram user T and delete W, inside
  * the caller's transaction. Everything W has moves to T, so the delete clears
  * the schema's ON DELETE RESTRICT relations (calendars, created events,
- * pairings, the per-user rows). Nobody's calendar visibility changes: a moved
- * calendar keeps its privacy, and a fold needs the same privacy on both sides.
- * Returns T's pairingId after the merge.
+ * pairings, the per-user rows). A moved calendar keeps its privacy and a fold
+ * needs the same privacy on both sides, so the merge shows nobody an event
+ * they could not see before. Returns T's pairingId after the merge.
  */
 async function mergeWhatsAppUser(
   tx: Prisma.TransactionClient,
-  w: User,
+  waOnlyUserId: number,
   telegramUserId: number,
   whatsappPhone: string
 ): Promise<string | null> {
+  const w = await tx.user.findUniqueOrThrow({ where: { id: waOnlyUserId } });
   const t = await tx.user.findUniqueOrThrow({ where: { id: telegramUserId } });
   const tIsNative = t.calendarSource === 'NATIVE';
 
@@ -124,8 +125,10 @@ async function mergeWhatsAppUser(
   // too. T keeps one primary calendar. A Google user has no live native
   // calendars (oauth-callback soft-deletes them), so for one W's arrive deleted.
   if (tIsNative) {
-    const tCalendars = await tx.nativeCalendar.findMany({ where: { ownerUserId: t.id, isDeleted: false }, orderBy: { createdAt: 'asc' } });
-    const wCalendars = await tx.nativeCalendar.findMany({ where: { ownerUserId: w.id, isDeleted: false }, orderBy: { createdAt: 'asc' } });
+    const live = (ownerUserId: number) =>
+      tx.nativeCalendar.findMany({ where: { ownerUserId, isDeleted: false }, orderBy: { createdAt: 'asc' } });
+    const tCalendars = await live(t.id);
+    const wCalendars = await live(w.id);
     const folded = new Set<string>();
     let tHasPrimary = tCalendars.some(c => c.labels.includes('primary'));
     for (const wCalendar of wCalendars) {
@@ -202,10 +205,11 @@ async function mergeWhatsAppUser(
 }
 
 /**
- * After a merge commits: W's caches go, T's feature access is recomputed, T's
- * reminder-cache entry gets the pairing it now has (the reminder run reads it
- * from there until the hourly sync), and the reminder pass wakes for the
- * reminders T took over. Best effort: the merge has already happened.
+ * After a merge commits: W's caches go, T's reminder-cache entry gets the
+ * pairing it now has (the reminder run reads it from there until the hourly
+ * sync), and the reminder pass wakes for the reminders T took over. Best
+ * effort: the merge has already happened. T's feature access is invalidated
+ * by the caller, as for a plain link.
  */
 async function afterMerge(wUserId: number, tUserId: number, pairingId: string | null): Promise<void> {
   await clearDeletedUserCaches(wUserId);
@@ -260,7 +264,7 @@ export async function redeemLinkCode(code: string, whatsappPhone: string): Promi
 
     if (waOnlyUser && waOnlyUser.id !== telegramUser.id) {
       const pairingId = await prisma.$transaction((tx) =>
-        mergeWhatsAppUser(tx, waOnlyUser, telegramUser.id, whatsappPhone)
+        mergeWhatsAppUser(tx, waOnlyUser.id, telegramUser.id, whatsappPhone)
       );
       await afterMerge(waOnlyUser.id, telegramUser.id, pairingId);
 
