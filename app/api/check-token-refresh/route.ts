@@ -8,8 +8,8 @@ import { tokenPollRateLimiter } from '@/src/lib/rate-limit';
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const userId = searchParams.get('user_id');
-  // When this attempt began (ms), on this server's clock: oauth/start's serverTime, as the
-  // flag is. A flag from an earlier connect doesn't count
+  // When the owner tapped Connect (ms), on this server's clock as the flag is (the page
+  // offsets its own by oauth/start's serverTime). A flag from an earlier connect doesn't count
   const sinceParam = searchParams.get('since');
   const since = Number(sinceParam);
   // In a header, never the query string: initData is a credential for 24 hours, and URLs

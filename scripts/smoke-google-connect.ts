@@ -18,19 +18,23 @@
 // Follow-ups (#24-#30): an unset TELEGRAM_BOT_USERNAME or WHATSAPP_PHONE_NUMBER falls back
 // to gate-links' public bot and number, so it can't hide the only finish button; the
 // finish page tells a WhatsApp owner to send the prefilled message; a second tap says the
-// link was already used; the poll's since is the server's clock (oauth/start's
-// serverTime), so a phone whose clock runs ahead still sees the commit; the signature is
+// link was already used; the poll's since is the tap on Connect on the server's clock
+// (oauth/start's serverTime gives the offset), so a phone whose clock runs ahead still sees
+// the commit, and one that runs behind or a connect since the page opened doesn't skip the
+// consent; the signature is
 // checked over Meta's raw bytes, not re-serialized JSON; /start connect from an account
 // already linked to WhatsApp gets the usual dashboard reply; and the admin notice escapes
 // the user's name.
 //
 // The callback page, the finish page's helpers, google-connect, the webhook route, the
 // Telegram and WhatsApp webhook handlers, /start (webhook and polling), magic-link,
-// check-token-refresh and user-service run for real. Faked at the boundaries: Prisma (in
-// memory), Redis (in memory), the rate limiter (always allows), the Telegram bot and
-// messaging (record every send), the admin notifier (records), error capture, and fetch
-// (Google's token endpoint answers with a test token; anything else is blocked). No
-// network, no DB.
+// oauth/start, check-token-refresh and user-service run for real, and so does
+// RefreshTokenClient (#27: its hooks on a small dispatcher, no DOM). Faked at the
+// boundaries: Prisma (in memory), Redis (in memory), the rate limiter (always allows), the
+// Telegram bot and messaging (record every send), the admin notifier (records), error
+// capture, fetch (Google's token endpoint answers with a test token; anything else is
+// blocked), and in #27 the phone (webview, localStorage, a clock off the server's, the
+// poll's interval). No network, no DB.
 //
 // Checks named [guard] already pass before the fix and must keep passing. The others
 // fail until the fix lands.
@@ -492,6 +496,78 @@ function elementsOf(node: unknown, out: Row[] = []): Row[] {
 const textOf = (els: Row[]) => els.flatMap(e => ([] as unknown[]).concat(e.props?.children ?? []))
   .filter(c => typeof c === 'string' || typeof c === 'number').join(' ');
 
+/**
+ * Runs a client component's own code with no DOM: React's hook dispatcher is swapped for a
+ * small one (useState, useRef, useCallback, useEffect), so its render, effects and handlers
+ * run as they do on the phone. A state update renders again and runs the effects whose deps
+ * changed. tree() is the latest render.
+ */
+function runClient(component: (props: Row) => unknown, props: Row): { tree: () => unknown } {
+  const internals = nodeRequire('react').__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE as Row;
+  const slots: Row[] = [];
+  let cursor = 0;
+  let output: unknown;
+  let effects: Array<() => void> = [];
+  let dirty = false;
+  let busy = false;
+  const changed = (a?: unknown[], b?: unknown[]) => !a || !b || a.length !== b.length || a.some((v, k) => !Object.is(v, b[k]));
+  const dispatcher = {
+    useState(init: unknown) {
+      const slot = (slots[cursor++] ??= { value: typeof init === 'function' ? (init as () => unknown)() : init });
+      slot.set ??= (next: unknown) => {
+        const value = typeof next === 'function' ? (next as (v: unknown) => unknown)(slot.value) : next;
+        if (Object.is(value, slot.value)) return;
+        slot.value = value;
+        update();
+      };
+      return [slot.value, slot.set];
+    },
+    useRef: (init: unknown) => (slots[cursor++] ??= { current: init }),
+    useCallback(fn: unknown, deps: unknown[]) {
+      const k = cursor++;
+      if (!slots[k] || changed(slots[k].deps, deps)) slots[k] = { fn, deps };
+      return slots[k].fn;
+    },
+    useEffect(fn: () => unknown, deps?: unknown[]) {
+      const k = cursor++;
+      const prev = slots[k];
+      if (prev && !changed(prev.deps, deps)) return;
+      const slot: Row = { deps, cleanup: prev?.cleanup };
+      slots[k] = slot;
+      effects.push(() => {
+        slot.cleanup?.();
+        const cleanup = fn();
+        slot.cleanup = typeof cleanup === 'function' ? cleanup : undefined;
+      });
+    },
+  };
+  function update() {
+    dirty = true;
+    if (busy) return;
+    busy = true;
+    try {
+      while (dirty) {
+        dirty = false;
+        cursor = 0;
+        const saved = internals.H;
+        internals.H = dispatcher;
+        try {
+          output = component(props);
+        } finally {
+          internals.H = saved;
+        }
+        const run = effects;
+        effects = [];
+        run.forEach(effect => effect());
+      }
+    } finally {
+      busy = false;
+    }
+  }
+  update();
+  return { tree: () => output };
+}
+
 /** The finish page's fragment, parsed: p, n, b. */
 function fragmentOf(redirect: string): URLSearchParams {
   return new URLSearchParams(redirect.split('#')[1] ?? '');
@@ -894,6 +970,89 @@ async function main() {
     return { status: res.status, body: await res.json() };
   };
 
+  /**
+   * The phone around a client component: a Telegram webview (initData, MainButton,
+   * openLink), localStorage, and a clock `skew` ms off the server's. fetch to our API is
+   * answered by the real route, on the server's clock; asServer runs anything else there
+   * (a commit, a direct ask). setInterval only records: tick() runs the poll once, then
+   * waits for what it fetched.
+   */
+  const onPhone = async <T,>(skew: number, initData: string, fn: (phone: Row) => Promise<T>): Promise<T> => {
+    const realNow = Date.now;
+    const { fetch: serverFetch, setInterval: realSetInterval, clearInterval: realClearInterval } = globalThis;
+    const saved = ['window', 'document', 'localStorage'].map(k => [k, Object.getOwnPropertyDescriptor(globalThis, k)] as const);
+    const routes: Record<string, string> = {
+      '/api/oauth/start': 'app/api/oauth/start/route.ts',
+      '/api/check-token-refresh': 'app/api/check-token-refresh/route.ts',
+    };
+    let offset = skew;
+    const storage = new Map<string, string>();
+    const intervals = new Map<number, () => void>();
+    const inflight: Promise<unknown>[] = [];
+    const phone: Row = { storage, opened: [] as string[], location: { href: 'http://localhost/en/refresh-token', hash: '' } };
+    phone.serverNow = () => realNow();
+    phone.asServer = async <R,>(run: () => Promise<R>): Promise<R> => {
+      const was = offset;
+      offset = 0;
+      try {
+        return await run();
+      } finally {
+        offset = was;
+      }
+    };
+    phone.settle = async () => {
+      for (let idle = 0; idle < 3;) {
+        const count = inflight.length;
+        await Promise.allSettled(inflight);
+        await new Promise(resolve => setImmediate(resolve));
+        idle = inflight.length === count ? idle + 1 : 0;
+      }
+    };
+    phone.tick = async () => {
+      [...intervals.values()].forEach(run => run());
+      await phone.settle();
+    };
+    const define = (key: string, value: unknown) => Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
+    const noop = () => undefined;
+    Date.now = () => realNow() + offset;
+    define('window', {
+      Telegram: { WebApp: { initData, ready: noop, expand: noop, openLink: (u: string) => phone.opened.push(u), MainButton: { setText: noop, onClick: noop, offClick: noop, show: noop } } },
+      location: phone.location,
+      open: (u: string) => phone.opened.push(u),
+      sessionStorage: { getItem: () => null },
+    });
+    define('document', { hidden: false, addEventListener: noop, removeEventListener: noop });
+    define('localStorage', {
+      getItem: (k: string) => storage.get(k) ?? null,
+      setItem: (k: string, v: string) => storage.set(k, String(v)),
+      removeItem: (k: string) => storage.delete(k),
+    });
+    let nextTimer = 0;
+    globalThis.setInterval = ((run: () => void) => { intervals.set(++nextTimer, run); return nextTimer; }) as unknown as typeof setInterval;
+    globalThis.clearInterval = ((id: number) => { intervals.delete(id); }) as typeof clearInterval;
+    globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+      const url = String(input);
+      const file = routes[url.split('?')[0]];
+      if (!file) return serverFetch(input as string, init);
+      const call = phone.asServer(async () => {
+        const mod = await load(file);
+        return mod[(init?.method ?? 'GET').toUpperCase()](new NextRequest(`http://localhost${url}`, init));
+      });
+      inflight.push(call);
+      return call;
+    }) as typeof fetch;
+    try {
+      return await fn(phone);
+    } finally {
+      Date.now = realNow;
+      Object.assign(globalThis, { fetch: serverFetch, setInterval: realSetInterval, clearInterval: realClearInterval });
+      for (const [key, desc] of saved) {
+        if (desc) Object.defineProperty(globalThis, key, desc);
+        else delete (globalThis as Row)[key];
+      }
+    }
+  };
+
   await check('#20 check-token-refresh: a flag from a connect before this attempt (since) is not success; a commit after it is', async () => {
     seed();
     // An earlier connect left its flag; then the user taps Connect again (since)
@@ -1045,14 +1204,52 @@ async function main() {
     }
   });
 
-  await check('#27 the poll\'s since is the server\'s clock (oauth/start\'s serverTime): a phone 5 min ahead still sees the commit; an earlier connect still doesn\'t count', async () => {
-    seed();
+  await check('#27 the poll\'s since is the tap on Connect on the server\'s clock: with the phone 5 min ahead or behind, a commit after the tap is reported, an earlier one or one since the page opened is not', async () => {
     const client = await load('app/refresh-token/RefreshTokenClient.tsx');
-    assert(typeof client.attemptSince === 'function', 'RefreshTokenClient exports no attemptSince');
-    // An earlier connect left its flag
-    await tgWebhook(tgText(TAL_TG, `/start gc_${await pendingFor(9)}`));
-    assert(redisStore.has('googleConnected:9'), `the earlier commit set no flag; ${captured.join(' | ')}`);
-    await pause(5);
+    const TRANSLATIONS = new Proxy({}, { get: (_t, key) => (key === 'gate' ? new Proxy({}, { get: (_g, k) => String(k) }) : String(key)) });
+    for (const skew of [5 * 60_000, -5 * 60_000]) {
+      const label = skew > 0 ? 'phone 5 min ahead' : 'phone 5 min behind';
+      seed();
+      // An earlier connect left its flag
+      await tgWebhook(tgText(TAL_TG, `/start gc_${await pendingFor(9)}`));
+      assert(redisStore.has('googleConnected:9'), `the earlier commit set no flag; ${captured.join(' | ')}`);
+      await pause(5);
+      await onPhone(skew, initDataFor(TAL_TG), async phone => {
+        // The page, run as on the phone: oauth/start on mount, then the tap, then the poll
+        const app = runClient(client.default, { userId: String(TAL_TG), locale: 'en', translations: TRANSLATIONS });
+        await phone.settle();
+        const connect = () => elementsOf(app.tree()).find(e => e.type === 'button' && e.props?.className === 'btn');
+        assert(connect()?.props.disabled === false, `${label}: no Google URL from oauth/start: ${show(connect()?.props ?? null)}`);
+        // Another connect lands while the page is open (another tab, an earlier consent's finish button)
+        await phone.asServer(async () => {
+          await pause(5);
+          await tgWebhook(tgText(TAL_TG, `/start gc_${await pendingFor(9)}`));
+          await pause(20);
+        });
+        const tappedAt = phone.serverNow();
+        connect()!.props.onClick();
+        const since = JSON.parse(phone.storage.get('famcalbot_oauth_pending') ?? 'null')?.startTime;
+        assert(phone.opened.length === 1 && String(phone.opened[0]).startsWith('https://accounts.google.com/'), `${label}: opened ${show(phone.opened)}`);
+        await phone.tick();
+        assert(!phone.location.href.includes('select-calendars'), `${label}: a connect from before the tap counted (since ${since}, tapped at ${tappedAt})`);
+        if (skew < 0) {
+          // What the phone's clock alone would have asked: the earlier connects count
+          assert((await phone.asServer(() => askRefreshed(tappedAt + skew))).body.refreshed === true, `${label}: the case has no skew to catch`);
+        }
+        await phone.asServer(async () => {
+          await pause(5);
+          await tgWebhook(tgText(TAL_TG, `/start gc_${await pendingFor(9)}`));
+        });
+        await phone.tick();
+        assert(phone.location.href === `/en/select-calendars?user_id=${TAL_TG}`, `${label}: the commit after the tap was not reported (since ${since}, tapped at ${tappedAt}); at ${phone.location.href}`);
+        if (skew > 0) {
+          // What the phone's clock alone would have asked: no commit counts
+          assert((await phone.asServer(() => askRefreshed(tappedAt + skew))).body.refreshed === false, `${label}: the case has no skew to catch`);
+        }
+      });
+    }
+    // oauth/start sends its clock; with none (or not a number) the phone's clock stands
+    seed();
     const { POST } = await load('app/api/oauth/start/route.ts');
     const before = Date.now();
     const res: Response = await POST(new NextRequest('http://localhost/api/oauth/start', {
@@ -1061,22 +1258,13 @@ async function main() {
       body: JSON.stringify({ user_id: String(TAL_TG) }),
     }));
     const body = await res.json();
-    assert(res.status === 200 && typeof body.oauthUrl === 'string', `oauth/start ${res.status} ${show(body)}`);
-    assert(typeof body.serverTime === 'number' && body.serverTime >= before && body.serverTime <= Date.now(), `serverTime ${show(body.serverTime)}`);
-    const phoneNow = Date.now() + 5 * 60_000; // the phone's clock runs 5 minutes ahead
-    const since = client.attemptSince(body.serverTime, phoneNow);
-    assert(since === body.serverTime, `since ${since}, serverTime ${body.serverTime}`);
-    assert(client.attemptSince(undefined, phoneNow) === phoneNow && client.attemptSince('soon', phoneNow) === phoneNow, 'no fallback to the client clock');
-    const stale = await askRefreshed(since);
-    assert(stale.status === 200 && stale.body.refreshed === false, `the earlier connect counted: ${show(stale)}`);
-    await pause(5);
-    await tgWebhook(tgText(TAL_TG, `/start gc_${await pendingFor(9)}`));
-    const fresh = await askRefreshed(since);
-    assert(fresh.status === 200 && fresh.body.refreshed === true, `the commit was not reported: ${show(fresh)}`);
-    // What the phone's clock alone would have asked
-    assert((await askRefreshed(phoneNow)).body.refreshed === false, 'the case has no skew to catch');
-    const src = fs.readFileSync(path.join(ROOT, 'app/refresh-token/RefreshTokenClient.tsx'), 'utf8');
-    assert(/startTime:\s*attemptSince\(/.test(src), 'the pending attempt does not store attemptSince(...) as its startTime');
+    assert(res.status === 200 && typeof body.serverTime === 'number' && body.serverTime >= before && body.serverTime <= Date.now(), `oauth/start ${res.status} ${show(body)}`);
+    assert(typeof client.attemptFromStart === 'function' && typeof client.attemptSince === 'function', 'RefreshTokenClient exports no attemptFromStart / attemptSince');
+    for (const serverTime of [undefined, 'soon', NaN]) {
+      const start = client.attemptFromStart({ oauthUrl: 'https://accounts.google.com/x', serverTime }, 1000);
+      assert(start?.oauthUrl === 'https://accounts.google.com/x' && client.attemptSince(start.clockOffset, 5000) === 5000, `serverTime ${show(serverTime)}: ${show(start)}`);
+    }
+    assert(client.attemptFromStart({ error: 'x' }, 1000) === null, 'an answer with no oauthUrl starts an attempt');
   });
 
   await check('#28 [guard] the signature covers Meta\'s raw bytes: \\u-escaped Hebrew, an escaped slash and a space after a colon still verify', async () => {

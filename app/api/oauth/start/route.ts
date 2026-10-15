@@ -61,8 +61,8 @@ export async function POST(request: NextRequest) {
       state: stateToken,
     });
 
-    // serverTime: the attempt's start on this server's clock, which the commit flag uses
-    // too. The phone's clock can be minutes off (check-token-refresh's since).
+    // serverTime: this server's clock, which the commit flag uses too. The phone's clock can
+    // be minutes off, so the page puts its tap on this one (check-token-refresh's since).
     return NextResponse.json({
       oauthUrl: `https://accounts.google.com/o/oauth2/v2/auth?${urlParams.toString()}`,
       serverTime: Date.now(),

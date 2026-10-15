@@ -60,24 +60,38 @@ export function startErrorLines(status: number, initData: string, t: Translation
 }
 
 /**
- * When this attempt began, for check-token-refresh's since: the server's clock from
- * oauth/start, because the commit flag is stamped with it and a phone's clock can run
- * minutes ahead (no commit would ever count) or behind (an earlier connect would). The
- * client clock only when the field is missing.
+ * What oauth/start's answer gives the attempt: the Google URL, and how far the server's
+ * clock is from this phone's (serverTime minus the phone's clock when the answer came).
+ * check-token-refresh compares since with the commit flag, which the server stamps with
+ * its own clock, and a phone's clock can run minutes ahead (no commit would ever count) or
+ * behind (an earlier connect would). Offset 0 when the answer has no serverTime: the
+ * phone's clock as it is. null when there is no URL.
  */
-export function attemptSince(serverTime: unknown, clientNow: number): number {
-  return typeof serverTime === 'number' && Number.isFinite(serverTime) ? serverTime : clientNow;
+export function attemptFromStart(data: unknown, clientNow: number): { oauthUrl: string; clockOffset: number } | null {
+  const { oauthUrl, serverTime } = (data ?? {}) as { oauthUrl?: unknown; serverTime?: unknown };
+  if (typeof oauthUrl !== 'string') return null;
+  const clockOffset = typeof serverTime === 'number' && Number.isFinite(serverTime) ? serverTime - clientNow : 0;
+  return { oauthUrl, clockOffset };
+}
+
+/**
+ * check-token-refresh's since: the tap on Connect, on the server's clock. Not the time the
+ * page opened, so a connect that lands in between (another tab, an earlier consent's
+ * finish button) can't skip the consent that's still open.
+ */
+export function attemptSince(clockOffset: number, tapNow: number): number {
+  return tapNow + clockOffset;
 }
 
 export default function RefreshTokenClient({ userId, locale, translations: t }: RefreshTokenClientProps) {
   const isRTL = locale === 'he';
   const [isChecking, setIsChecking] = useState(false);
   // The Google URL comes from POST /api/oauth/start, which creates the OAuth state for
-  // the user our credential proves. Until it arrives the button stays disabled.
-  const [oauthUrl, setOauthUrl] = useState<string | null>(null);
+  // the user our credential proves, with the server's clock offset (attemptFromStart).
+  // Until it arrives the button stays disabled.
+  const [start, setStart] = useState<{ oauthUrl: string; clockOffset: number } | null>(null);
+  const oauthUrl = start?.oauthUrl ?? null;
   const [startError, setStartError] = useState<string[] | null>(null);
-  // oauth/start's serverTime, which becomes the attempt's since (attemptSince)
-  const serverTime = useRef<unknown>(undefined);
   // Set when Google opens: when, and whether the finish is in Telegram or WhatsApp
   const [waiting, setWaiting] = useState<{ since: number; telegram: boolean } | null>(null);
   const checkInFlight = useRef(false);
@@ -95,9 +109,9 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
         });
         const data = await response.json().catch(() => ({}));
         if (cancelled) return;
-        if (response.ok && typeof data.oauthUrl === 'string') {
-          serverTime.current = data.serverTime;
-          setOauthUrl(data.oauthUrl);
+        const attempt = response.ok ? attemptFromStart(data, Date.now()) : null;
+        if (attempt) {
+          setStart(attempt);
         } else {
           setStartError(startErrorLines(response.status, initData, t));
         }
@@ -148,23 +162,23 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
   }, [locale]);
 
   const startOAuth = useCallback(() => {
-    if (!oauthUrl) return;
+    if (!start) return;
 
     // Save pending OAuth flag
     localStorage.setItem(OAUTH_PENDING_KEY, JSON.stringify({
       userId,
-      startTime: attemptSince(serverTime.current, Date.now())
+      startTime: attemptSince(start.clockOffset, Date.now())
     }));
 
     // Open OAuth in external browser
     if (window.Telegram?.WebApp) {
-      window.Telegram.WebApp.openLink(oauthUrl);
+      window.Telegram.WebApp.openLink(start.oauthUrl);
     } else {
-      window.open(oauthUrl, '_blank');
+      window.open(start.oauthUrl, '_blank');
     }
     // With initData the finish is in Telegram; on the WhatsApp session, in WhatsApp
     setWaiting({ since: Date.now(), telegram: readInitData() !== '' });
-  }, [oauthUrl, userId]);
+  }, [start, userId]);
 
   useEffect(() => {
     // Initialize Telegram WebApp if available
