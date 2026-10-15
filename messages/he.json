@@ -442,6 +442,7 @@
     "telegramButton": "לסיים בטלגרם",
     "whatsappButton": "לסיים בוואטסאפ",
     "whatsappText": "לסיים את החיבור ליומן Google: {code}",
+    "whatsappHint": "וואטסאפ ייפתח עם הודעה מוכנה. נשאר רק לשלוח אותה.",
     "incompleteTitle": "הקישור הזה לא שלם",
     "incompleteBody": "התחילו מחדש מהבוט של FamCal וחברו את Google משם."
   },

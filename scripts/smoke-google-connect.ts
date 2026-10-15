@@ -994,6 +994,24 @@ async function main() {
     }
   });
 
+  await check('#25 the finish page tells a WhatsApp owner to send the prefilled message (en/he/ru); a Telegram-only one gets no hint', async () => {
+    const mod = await load('app/oauth-complete/OAuthCompleteClient.tsx');
+    assert(typeof mod.FinishButtons === 'function', 'OAuthCompleteClient exports no FinishButtons');
+    const SEND = { en: /send it/i, he: /לשלוח/, ru: /отправьте/ };
+    for (const locale of ['en', 'he', 'ru'] as const) {
+      const t = JSON.parse(fs.readFileSync(path.join(ROOT, `messages/${locale}.json`), 'utf8')).oauthComplete;
+      assert(SEND[locale].test(t.whatsappHint ?? ''), `${locale} oauthComplete.whatsappHint: ${show(t.whatsappHint)}`);
+      const both = elementsOf(mod.FinishButtons({ links: { telegram: 'https://t.me/x', whatsapp: 'https://wa.me/1?text=x' }, translations: t, arrow: null }));
+      const waAt = both.findIndex(e => e.type === 'a' && e.props?.href === 'https://wa.me/1?text=x');
+      const hintAt = both.findIndex(e => textOf([e]) === t.whatsappHint);
+      assert(waAt >= 0 && hintAt > waAt, `${locale}: the hint is not under the WhatsApp button (${waAt}, ${hintAt})`);
+      const tgOnly = elementsOf(mod.FinishButtons({ links: { telegram: 'https://t.me/x' }, translations: t, arrow: null }));
+      assert(tgOnly.some(e => e.type === 'a') && !textOf(tgOnly).includes(t.whatsappHint), `${locale}: Telegram-only shows the WhatsApp hint`);
+    }
+    const src = fs.readFileSync(path.join(ROOT, 'app/oauth-complete/OAuthCompleteClient.tsx'), 'utf8');
+    assert(/<FinishButtons\b/.test(src), 'the page does not render FinishButtons');
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

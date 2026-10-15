@@ -1,6 +1,6 @@
 'use client';
 
-import { useSyncExternalStore } from 'react';
+import { useSyncExternalStore, type ReactNode } from 'react';
 import { CheckCircle2, ArrowRight } from 'lucide-react';
 
 interface Translations {
@@ -13,6 +13,8 @@ interface Translations {
   whatsappButton: string;
   /** The prefilled WhatsApp message; {code} is gc_<pendingId> */
   whatsappText: string;
+  /** Under the WhatsApp button: nothing is connected until that message is sent */
+  whatsappHint: string;
   incompleteTitle: string;
   incompleteBody: string;
 }
@@ -59,6 +61,33 @@ export function finishLinks(
       ? { whatsapp: `https://wa.me/${waNumber}?text=${encodeURIComponent(waText.replace('{code}', code))}` }
       : {}),
   };
+}
+
+/** The claim buttons. WhatsApp only prefills the message, so its button says to send it. */
+export function FinishButtons({ links, translations: t, arrow }: {
+  links: { telegram?: string; whatsapp?: string };
+  translations: Translations;
+  arrow: ReactNode;
+}) {
+  return (
+    <>
+      {links.telegram && (
+        <a href={links.telegram} className="btn">
+          {t.telegramButton}
+          {arrow}
+        </a>
+      )}
+      {links.whatsapp && (
+        <>
+          <a href={links.whatsapp} className="btn">
+            {t.whatsappButton}
+            {arrow}
+          </a>
+          <p className="hint">{t.whatsappHint}</p>
+        </>
+      )}
+    </>
+  );
 }
 
 const subscribeToHash = (onChange: () => void) => {
@@ -173,6 +202,12 @@ export default function OAuthCompleteClient({ locale, botUsername, waNumber, tra
           .btn + .btn {
             margin-top: 12px;
           }
+          .hint {
+            color: #6b7280;
+            font-size: 14px;
+            margin-top: 10px;
+            line-height: 1.5;
+          }
           .owner {
             color: #374151;
             font-size: 15px;
@@ -200,18 +235,7 @@ export default function OAuthCompleteClient({ locale, botUsername, waNumber, tra
                 {params.ownerName ? t.owner.replace('{name}', () => params.ownerName) : t.ownerUnnamed}
               </p>
 
-              {links.telegram && (
-                <a href={links.telegram} className="btn">
-                  {t.telegramButton}
-                  {arrow}
-                </a>
-              )}
-              {links.whatsapp && (
-                <a href={links.whatsapp} className="btn">
-                  {t.whatsappButton}
-                  {arrow}
-                </a>
-              )}
+              <FinishButtons links={links} translations={t} arrow={arrow} />
             </>
           )}
         </div>

@@ -442,6 +442,7 @@
     "telegramButton": "Завершить в Telegram",
     "whatsappButton": "Завершить в WhatsApp",
     "whatsappText": "Завершить подключение Google Календаря: {code}",
+    "whatsappHint": "WhatsApp откроется с готовым сообщением — просто отправьте его.",
     "incompleteTitle": "Ссылка неполная",
     "incompleteBody": "Начните заново в боте FamCal и подключите Google оттуда."
   },

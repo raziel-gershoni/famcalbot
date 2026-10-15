@@ -442,6 +442,7 @@
     "telegramButton": "Finish in Telegram",
     "whatsappButton": "Finish in WhatsApp",
     "whatsappText": "Finish connecting my Google Calendar: {code}",
+    "whatsappHint": "WhatsApp opens with the message already written. Just send it.",
     "incompleteTitle": "This link is incomplete",
     "incompleteBody": "Start again from the FamCal bot and connect Google from there."
   },
