@@ -7,6 +7,14 @@
 // paired user. The merge also threw away the WhatsApp user's subscription, activity,
 // feedback, usage counter and overrides. Owner decision: move everything over.
 //
+// Follow-up (#23-#31, and #5/#6 extended): the merge then kept only W's WhatsApp ids from
+// W's own row, so a WhatsApp user who linked the Telegram account /start connect had just
+// created lost their Google connection, location, language and summary settings. A pairing that moved left
+// T's private calendar as the primary one, so the partner stopped seeing new events, and
+// with both users paired W's shared calendars (P's events in them) reached T's partner. An
+// unlink by P after the merge read W's pairing left T on an UNLINKED pairing, and W's admin
+// grants were dropped whenever T had an override row of its own.
+//
 // account-linking, user-moderation, user-service, subscription-service, the reminder
 // cache and event-store run for real. Faked at the boundaries: Prisma (in memory, and it
 // enforces the schema: a delete hits ON DELETE RESTRICT / CASCADE / SET NULL as the
@@ -21,6 +29,7 @@
 // Run with the fake env from the task brief (no dotenv):
 //   npx tsx scripts/smoke-account-merge.ts
 
+import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
@@ -148,7 +157,8 @@ function sorted(rows: Row[], orderBy?: Row | Row[]): Row[] {
 function applyData(row: Row, data: Row) {
   for (const [k, v] of Object.entries(data)) {
     if (v === undefined) continue;
-    if (isPlain(v) && 'increment' in v) row[k] = (row[k] ?? 0) + v.increment;
+    if (isPlain(v) && ['DbNull', 'JsonNull'].includes(v.constructor?.name)) row[k] = null; // Prisma.DbNull writes SQL NULL
+    else if (isPlain(v) && 'increment' in v) row[k] = (row[k] ?? 0) + v.increment;
     else if (isPlain(v) && 'set' in v) row[k] = v.set;
     else row[k] = v;
   }
@@ -343,14 +353,14 @@ const fakeRedis = new Proxy(redisImpl, {
 
 // ---- Telegram / messaging: every send is recorded ----
 
-const sent: { via: string; chatId: unknown }[] = [];
+const sent: { via: string; chatId: unknown; text?: unknown }[] = [];
 const captured: string[] = [];
 const recorder = (prefix: string): Row =>
   new Proxy({} as Row, {
     get: (_t, p) =>
       typeof p !== 'string' || p === 'then'
         ? undefined
-        : async (chatId: unknown) => { sent.push({ via: `${prefix}.${p}`, chatId }); return { message_id: 1 }; },
+        : async (chatId: unknown, text?: unknown) => { sent.push({ via: `${prefix}.${p}`, chatId, text }); return { message_id: 1 }; },
   });
 
 // ---- Boundaries: stubs in require's cache, served to import() by a load hook ----
@@ -373,6 +383,14 @@ Module.registerHooks({
   },
 });
 
+// @hebcal/core is ESM-only and tsx loads src/ as CommonJS (see smoke-google-connect.ts); the
+// webhook handlers (#31) reach it through the Telegram command modules.
+const resolveFilename = Module._resolveFilename;
+Module._resolveFilename = function (request: string, ...rest: unknown[]) {
+  if (request === '@hebcal/core') return path.join(ROOT, 'node_modules/@hebcal/core/dist/esm/index.js');
+  return resolveFilename.call(this, request, ...rest);
+};
+
 function stub(rel: string, exports: Row) {
   const filename = path.join(ROOT, rel);
   stubs[filename] = exports;
@@ -386,6 +404,10 @@ function installStubs() {
   stub('src/utils/redis.ts', { redis: fakeRedis });
   const capture = (e: unknown, ctx: string) => { captured.push(`${ctx}: ${e instanceof Error ? e.message : String(e)}`); };
   stub('src/lib/error-capture.ts', { captureError: capture, captureWarning: capture, captureInfo: () => undefined });
+  stub('src/utils/error-notifier.ts', {
+    notifyAdminWarning: async () => undefined, notifyAdminError: async () => undefined, notifyAdminFeedback: async () => undefined,
+    getAdminUserIds: async () => [],
+  });
   const bot = recorder('bot');
   const telegram = { getBot: () => bot, initBot: () => bot, getMessagingService: () => recorder('tg'), setUserMenuButton: async () => undefined };
   stub('src/services/telegram/index.ts', telegram);
@@ -554,6 +576,20 @@ const W_SETUP: Row = {
   tomorrowSummaryDays: [6, 0, 1, 2, 3], remindersEnabled: true, defaultReminderMinutes: 30, pickupRemindersEnabled: false,
 };
 
+/** Google refresh tokens as the user row stores them (encrypted); set in main. */
+const TOKENS = { w: '', t: '' };
+const W_ASSIGNMENTS = [
+  { calendarId: 'dana@example.com', labels: ['yours'], name: 'Dana' },
+  { calendarId: 'kids@group.calendar.google.com', labels: ['kids'], name: 'Kids' },
+];
+
+/** W connected Google from the WhatsApp magic link: commitGoogleToken stored the token,
+ *  switched W to GOOGLE and soft-deleted W's native calendars; W then chose calendars. */
+function googleW() {
+  Object.assign(userRow(W), { calendarSource: 'GOOGLE', googleRefreshToken: TOKENS.w, calendarAssignments: W_ASSIGNMENTS, remindersEnabled: true });
+  for (const c of DB.nativeCalendar) if (c.ownerUserId === W) c.isDeleted = true;
+}
+
 const userRow = (id: number) => DB.user.find(u => u.id === id) as Row;
 const rowOf = (name: string, id: string) => table(name).find(r => r.id === id);
 
@@ -578,6 +614,9 @@ async function link(): Promise<Row> {
 
 async function main() {
   installStubs();
+  const { encrypt } = await load('src/utils/encryption.ts');
+  TOKENS.w = encrypt('google-rt-w');
+  TOKENS.t = encrypt('google-rt-t');
 
   // ---- The fake keeps the schema ----
 
@@ -613,6 +652,7 @@ async function main() {
     const t = userRow(T);
     assert(t.whatsappPhone === PHONE && t.messagingPlatform === 'all', `T ${show({ whatsappPhone: t.whatsappPhone, messagingPlatform: t.messagingPlatform })}`);
     assert(result.user?.whatsappPhone === PHONE && String(result.user?.telegramId) === '5550010', `returned user ${show(result.user)}`);
+    assert(!result.reconnectGoogle, `a NATIVE W asks for a Google reconnect: ${show(result.reconnectGoogle)}`);
   });
 
   await check('#2 after the merge no row anywhere still holds W\'s id; W\'s other calendars (soft-deleted too) belong to T, and T still has exactly one primary calendar', async () => {
@@ -816,6 +856,48 @@ async function main() {
     assert(show(t.globalRules) === show(W_SETUP.globalRules), `T's rules ${show(t.globalRules)}`);
   });
 
+  await check('#25 W on Google, fresh T: T moves to Google with W\'s stored (encrypted) token and calendar choices, T\'s native calendars are soft-deleted, and T\'s reminder-cache entry reads Google', async () => {
+    seed();
+    freshT();
+    googleW();
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const t = userRow(T);
+    assert(t.calendarSource === 'GOOGLE' && t.googleRefreshToken === TOKENS.w && show(t.calendarAssignments) === show(W_ASSIGNMENTS),
+      `T ${show({ calendarSource: t.calendarSource, token: t.googleRefreshToken === TOKENS.w ? 'W\'s' : t.googleRefreshToken, calendarAssignments: t.calendarAssignments })}`);
+    const live = DB.nativeCalendar.filter(c => c.ownerUserId === T && !c.isDeleted).map(c => c.id);
+    assert(live.length === 0, `T still has live native calendars ${show(live)}`);
+    assert(!result.reconnectGoogle, 'the result asks for a Google reconnect');
+    const cached = JSON.parse(redisStore.get('reminders:users') ?? '[]').find((u: Row) => u.id === T);
+    assert(cached?.calendarSource === 'GOOGLE' && cached.googleRefreshToken === 'google-rt-w' && show(cached.calendarAssignments) === show(W_ASSIGNMENTS),
+      `reminder cache entry for T ${show(cached)}`);
+  });
+
+  await check('#26 W on Google, T paired with Q: T stays NATIVE with its calendars, and the result asks the user to reconnect Google', async () => {
+    seed();
+    googleW();
+    pairTWithQ();
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const t = userRow(T);
+    assert(t.calendarSource === 'NATIVE' && t.googleRefreshToken === '' && t.pairingId === 'pair-tq', `T ${show({ calendarSource: t.calendarSource, token: t.googleRefreshToken, pairingId: t.pairingId })}`);
+    assert(rowOf('nativeCalendar', 'cal-t')?.isDeleted === false, 'T\'s calendar was soft-deleted');
+    assert(result.reconnectGoogle === true, `reconnectGoogle ${show(result.reconnectGoogle)}`);
+  });
+
+  await check('#27 W on Google, T has its own Google token: T keeps its token and choices, and the result asks the user to reconnect Google', async () => {
+    seed();
+    googleW();
+    const tAssignments = [{ calendarId: 'dana.cohen@example.com', labels: ['yours'], name: 'Dana Cohen' }];
+    Object.assign(userRow(T), { calendarSource: 'GOOGLE', googleRefreshToken: TOKENS.t, calendarAssignments: tAssignments });
+    rowOf('nativeCalendar', 'cal-t')!.isDeleted = true;
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const t = userRow(T);
+    assert(t.googleRefreshToken === TOKENS.t && show(t.calendarAssignments) === show(tAssignments), `T ${show({ token: t.googleRefreshToken === TOKENS.w ? 'W\'s' : t.googleRefreshToken, calendarAssignments: t.calendarAssignments })}`);
+    assert(result.reconnectGoogle === true, `reconnectGoogle ${show(result.reconnectGoogle)}`);
+  });
+
   // ---- Merge: subscription ----
 
   await check('#8 W\'s subscription runs longer (paid, 20 days left; T is on a 3-day trial): T ends up with W\'s', async () => {
@@ -943,6 +1025,27 @@ async function main() {
     const t = userRow(T);
     assert(t.whatsappBsuid === 'IL.99' && t.whatsappPhone === null && t.messagingPlatform === 'all', `T ${show({ whatsappPhone: t.whatsappPhone, whatsappBsuid: t.whatsappBsuid })}`);
     assert(userRow(W)?.whatsappPhone === PHONE, 'W changed');
+  });
+
+  await check('#31 the WhatsApp reply to "link CODE" adds the reconnect-Google sentence when W\'s Google connection stayed behind, and only then', async () => {
+    const { handleWhatsAppWebhook } = await load('src/services/webhook-handlers.ts');
+    const linkSuccess = JSON.parse(fs.readFileSync(path.join(ROOT, 'messages/he.json'), 'utf8')).bot.whatsapp.linkSuccess;
+    const replies: string[] = [];
+    for (const googleStaysBehind of [false, true]) {
+      seed();
+      Object.assign(userRow(W), { whatsappPhone: `+${PHONE}`, language: 'he' });
+      if (googleStaysBehind) { googleW(); pairTWithQ(); }
+      const message = { from: PHONE, id: `wamid.link-${googleStaysBehind}`, timestamp: '0', type: 'text', text: { body: `link ${CODE}` } };
+      const body = { object: 'whatsapp_business_account', entry: [{ changes: [{ field: 'messages', value: { contacts: [{ profile: { name: 'Dana' }, wa_id: PHONE }], messages: [message] } }] }] };
+      await handleWhatsAppWebhook({ body }, { status: () => ({ json: () => undefined }) });
+      assert(!userRow(W), `W was not merged; captured ${show(captured)}`);
+      const reply = sent.find(m => m.via === 'whatsapp.sendMessage' && m.chatId === `+${PHONE}`);
+      replies.push(String(reply?.text));
+      sent.length = 0;
+    }
+    assert(replies[0] === linkSuccess, `the plain reply ${show(replies[0])}`);
+    const extra = replies[1].startsWith(linkSuccess) ? replies[1].slice(linkSuccess.length) : '';
+    assert(/Google/.test(extra), `the reply when Google stays behind ${show(replies[1])}`);
   });
 
   // ---- Admin hard delete ----

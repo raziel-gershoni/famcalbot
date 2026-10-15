@@ -7,7 +7,8 @@
  * 2. User sends "link CODE" on WhatsApp → redeemLinkCode() → accounts merged
  */
 
-import type { NativeCalendar, Prisma, Subscription, User, UserFeatureOverride } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import type { NativeCalendar, Subscription, User, UserFeatureOverride } from '@prisma/client';
 import { redis } from '../utils/redis';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { prisma } from '../utils/prisma';
@@ -57,6 +58,8 @@ export interface LinkResult {
   success: boolean;
   error?: 'invalid_or_expired' | 'telegram_user_not_found' | 'already_linked' | 'phone_in_use' | 'unknown';
   user?: UserConfig;
+  /** The WhatsApp account's Google connection did not move (the Telegram account is paired or has its own): reconnect it from the dashboard */
+  reconnectGoogle?: boolean;
 }
 
 /**
@@ -92,10 +95,10 @@ function runsLonger(a: Subscription, b: Subscription): boolean {
  * locationForced, and language have their own rules (setupFromW).
  * Never copied: ids and bookkeeping (id, telegramId, createdAt, updatedAt,
  * reminderStartAt), admin and moderation state (isAdmin, suspendedAt/By/Reason) and
- * Telegram delivery state (unreachableSince), and the calendar setup (calendarSource,
- * googleRefreshToken, calendarAssignments). Set by the merge itself: the WhatsApp ids,
- * messagingPlatform and pairingId. There is no timezone column: it is resolved from
- * location.
+ * Telegram delivery state (unreachableSince). Set by the merge itself: the WhatsApp ids,
+ * messagingPlatform, pairingId, and the calendar setup (calendarSource,
+ * googleRefreshToken, calendarAssignments). There is no timezone column: it is resolved
+ * from location.
  */
 const NEW_ACCOUNT = {
   englishName: '', gender: 'male', culture: 'default', globalRules: [] as string[],
@@ -153,17 +156,19 @@ function isSameCalendar(a: NativeCalendar, b: NativeCalendar): boolean {
  * Fold the WhatsApp-only user W into the Telegram user T and delete W, inside
  * the caller's transaction. Everything W has moves to T, so the delete clears
  * the schema's ON DELETE RESTRICT relations (calendars, created events,
- * pairings, the per-user rows), and T takes W's setup (setupFromW). A moved
- * pairing shares T's calendars, as accepting an invite does. Otherwise a moved
- * calendar keeps its privacy (W's go PRIVATE when the merge unpairs W) and a
- * fold needs the same privacy on both sides, so the merge shows nobody an event
- * their pairing did not share. Returns T's pairingId after the merge.
+ * pairings, the per-user rows); T takes W's setup (setupFromW) and, when T can
+ * take it, W's Google connection. A moved pairing shares T's calendars, as
+ * accepting an invite does. Otherwise a moved calendar keeps its privacy (W's
+ * go PRIVATE when the merge unpairs W) and a fold needs the same privacy on
+ * both sides, so the merge shows nobody an event their pairing did not share.
+ * Returns T's pairingId after the merge, and whether W's Google connection
+ * stayed behind.
  */
 async function mergeWhatsAppUser(
   tx: Prisma.TransactionClient,
   waOnlyUserId: number,
   telegramUserId: number
-): Promise<string | null> {
+): Promise<{ pairingId: string | null; reconnectGoogle: boolean }> {
   const w = await tx.user.findUniqueOrThrow({ where: { id: waOnlyUserId } });
   const t = await tx.user.findUniqueOrThrow({ where: { id: telegramUserId } });
   const tIsNative = t.calendarSource === 'NATIVE';
@@ -291,6 +296,29 @@ async function mergeWhatsAppUser(
   // A Google sign-in W left half-done is minutes old; it is restarted from T.
   await tx.oAuthState.deleteMany({ where: { userId: BigInt(w.id) } });
 
+  // W's Google connection moves when T has none and is unpaired (only NATIVE
+  // users pair): the stored token, still encrypted, and W's calendar choices.
+  // T is then on Google, so its native calendars, W's moved ones included, are
+  // soft-deleted as commitGoogleToken does (either/or per user). The write
+  // re-checks both conditions, as the pairing move does. Otherwise T keeps its
+  // setup, and the user is told to reconnect Google.
+  let reconnectGoogle = false;
+  if (w.calendarSource === 'GOOGLE' && w.googleRefreshToken) {
+    const tookGoogle = !pairingId && !t.googleRefreshToken && (await tx.user.updateMany({
+      where: { id: t.id, pairingId: null, googleRefreshToken: '' },
+      data: {
+        calendarSource: 'GOOGLE',
+        googleRefreshToken: w.googleRefreshToken,
+        calendarAssignments: w.calendarAssignments ?? Prisma.DbNull,
+      },
+    })).count === 1;
+    if (tookGoogle) {
+      await tx.nativeCalendar.updateMany({ where: { ownerUserId: t.id, isDeleted: false }, data: { isDeleted: true } });
+    } else {
+      reconnectGoogle = true;
+    }
+  }
+
   // W goes before T takes its WhatsApp ids: they are unique. W was found by the
   // id the link came from, so W's ids are the ones to take; a BSUID-only W has
   // no phone to give.
@@ -305,7 +333,7 @@ async function mergeWhatsAppUser(
     },
   });
 
-  return pairingId;
+  return { pairingId, reconnectGoogle };
 }
 
 /**
@@ -392,10 +420,11 @@ export async function redeemLinkCode(code: string, whatsappPhone: string): Promi
       return { success: false, error: 'phone_in_use' };
     }
 
+    let reconnectGoogle = false;
     if (waOnlyUser && waOnlyUser.id !== telegramUser.id) {
-      await prisma.$transaction((tx) =>
+      ({ reconnectGoogle } = await prisma.$transaction((tx) =>
         mergeWhatsAppUser(tx, waOnlyUser.id, telegramUser.id)
-      );
+      ));
       await afterMerge(waOnlyUser.id, telegramUser.id);
 
       console.log(`[AccountLink] Merged WA-only user ${waOnlyUser.id} into TG user ${telegramUser.id}`);
@@ -425,6 +454,7 @@ export async function redeemLinkCode(code: string, whatsappPhone: string): Promi
     return {
       success: true,
       user: updatedUser ? convertPrismaUserToConfig(updatedUser) : undefined,
+      ...(reconnectGoogle ? { reconnectGoogle } : {}),
     };
   } catch (error) {
     console.error('[AccountLink] Error redeeming link code:', error);

@@ -785,7 +785,16 @@ export async function handleWhatsAppWebhook(
         const result = await redeemLinkCode(code, from);
 
         if (result.success) {
-          await waService.sendMessage(from, wa.linkSuccess || 'Accounts linked!');
+          // The WhatsApp account's Google connection stayed behind (see redeemLinkCode)
+          const reconnectGoogle: Record<string, string> = {
+            en: 'Only your Google Calendar connection didn\'t carry over. You can reconnect it from your dashboard.',
+            he: 'רק החיבור ליומן Google לא עבר. אפשר לחבר אותו מחדש מלוח הבקרה.',
+            ru: 'Не перенеслось только подключение к Google Календарю. Подключить его заново можно в панели.',
+          };
+          const linked = wa.linkSuccess || 'Accounts linked!';
+          await waService.sendMessage(from, result.reconnectGoogle
+            ? `${linked}\n\n${reconnectGoogle[locale] ?? reconnectGoogle.en}`
+            : linked);
           if (result.user?.telegramId) {
             await notifyTelegramAboutWhatsApp(result.user.telegramId, 'accounts linked');
           }
