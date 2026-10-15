@@ -21,6 +21,10 @@
 // let T's partner see W's calendars; a fresh T kept its Telegram name, and its menu button
 // stayed in the Telegram client's language.
 //
+// Third follow-up (#40-#42): a fresh T's empty primary calendar stayed the main one whenever
+// the two primaries did not fold (W's shared from an old unlink, or set back to PRIVATE in a
+// moved pairing), and a fold renamed T's calendar to W's default name.
+//
 // account-linking, user-moderation, user-service, subscription-service, the reminder
 // cache and event-store run for real. Faked at the boundaries: Prisma (in memory, and it
 // enforces the schema: a delete hits ON DELETE RESTRICT / CASCADE / SET NULL as the
@@ -710,6 +714,66 @@ async function main() {
     assert(result.success === true, `result ${show(result)}`);
     const main = await getMainNativeCalendar(T);
     assert(main.color === '#00AA00' && show(main.rules) === show(W_CALENDAR.rules), `T's main calendar ${show(main)}`);
+  });
+
+  /** T's live primary calendars after the merge. */
+  const tPrimaries = () => DB.nativeCalendar.filter(c => c.ownerUserId === T && !c.isDeleted && c.labels.includes('primary')).map(c => c.id);
+
+  await check('#40 a fresh T\'s empty primary calendar gives way to W\'s, SHARED_EDITOR from an old unlink: W\'s row comes over as it is, with its events, and T has exactly one primary', async () => {
+    const { getMainNativeCalendar } = await load('src/services/native-calendar/event-store.ts');
+    seed();
+    freshT();
+    DB.pairing.push(pairing('pair-old', W, P, { status: 'UNLINKED', unlinkedAt: days(-12), unlinkedByUserId: P }));
+    for (const c of DB.nativeCalendar) if (c.ownerUserId === W && !c.isDeleted) c.privacy = 'SHARED_EDITOR';
+    Object.assign(rowOf('nativeCalendar', 'cal-w')!, { rules: ['gym is mine'], color: '#FF0000', personName: 'Dana', personEnglishName: 'Dana', personGender: 'female' });
+    // T's empty calendar goes, and the event T deleted from it with it (cascade)
+    DB.nativeEvent.push(event('ev-t-deleted', 'cal-t', T, { isDeleted: true }));
+    const { id: _id, ownerUserId: _owner, updatedAt: _updated, ...wSetup } = rowOf('nativeCalendar', 'cal-w')!;
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const main = await getMainNativeCalendar(T);
+    const differ = Object.keys(wSetup).filter(k => show(main[k]) !== show(wSetup[k]));
+    assert(main.id === 'cal-w' && differ.length === 0, `T's main calendar ${show(main)}; changed ${show(differ)}`);
+    const moved = ['ev-w', 'rem-w'].map(id => rowOf('nativeEvent', id));
+    assert(moved.every(e => e?.calendarId === 'cal-w' && e.creatorUserId === T), `W's events ${show(moved)}`);
+    assert(!rowOf('nativeCalendar', 'cal-t') && !rowOf('nativeEvent', 'ev-t-deleted'), `T's calendar ${show(rowOf('nativeCalendar', 'cal-t'))}`);
+    assert(show(tPrimaries()) === show(['cal-w']), `T's primary calendars ${show(tPrimaries())}`);
+    assert(referencesTo(W).length === 0, `still pointing at W: ${show(referencesTo(W))}`);
+  });
+
+  await check('#41 a moved pairing, W\'s primary calendar set back to PRIVATE: it stays PRIVATE and main over a fresh T\'s empty one, and T\'s other calendars are shared with P', async () => {
+    const { getMainNativeCalendar } = await load('src/services/native-calendar/event-store.ts');
+    seed();
+    freshT();
+    pairWithP();
+    rowOf('nativeCalendar', 'cal-w')!.privacy = 'PRIVATE';
+    DB.nativeCalendar.push(calendar('cal-t-work', T, 'Work', { labels: ['yours'] }));
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    assert(userRow(T).pairingId === 'pair-wp', `T.pairingId ${userRow(T).pairingId}`);
+    const main = await getMainNativeCalendar(T);
+    assert(main.id === 'cal-w' && main.privacy === 'PRIVATE', `T's main calendar ${show(main)}`);
+    const privacy = Object.fromEntries(['cal-t-work', 'cal-w-kids'].map(id => [id, rowOf('nativeCalendar', id)?.privacy]));
+    assert(privacy['cal-t-work'] === 'SHARED_EDITOR' && privacy['cal-w-kids'] === 'SHARED_EDITOR', `privacy ${show(privacy)}`);
+    assert(!rowOf('nativeCalendar', 'cal-t') && show(tPrimaries()) === show(['cal-w']), `T's primary calendars ${show(tPrimaries())}`);
+  });
+
+  await check('#42 T\'s primary calendar has events: W\'s folds into it, and a default calendar name follows T\'s name (an established T keeps its own, a fresh T takes W\'s)', async () => {
+    const { getMainNativeCalendar } = await load('src/services/native-calendar/event-store.ts');
+    for (const fresh of [false, true]) {
+      seed();
+      if (fresh) {
+        freshT();
+        DB.nativeEvent.push(event('ev-t-new', 'cal-t', T));
+      }
+      const result = await link();
+      assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+      const main = await getMainNativeCalendar(T);
+      const name = fresh ? 'Dana' : 'Dana Cohen';
+      assert(main.id === 'cal-t' && main.name === name && userRow(T).name === name, `${fresh ? 'fresh' : 'established'} T ${show(userRow(T).name)}; main calendar ${show(main)}`);
+      assert(rowOf('nativeEvent', 'ev-w')?.calendarId === 'cal-t' && !rowOf('nativeCalendar', 'cal-w'), `ev-w ${show(rowOf('nativeEvent', 'ev-w'))}`);
+      assert(show(tPrimaries()) === show(['cal-t']), `T's primary calendars ${show(tPrimaries())}`);
+    }
   });
 
   await check('#3 W\'s usage counter moves (T had none), T\'s override is kept with W\'s early-adopter flag, and W\'s activity and feedback move to T', async () => {

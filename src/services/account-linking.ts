@@ -155,10 +155,12 @@ function mergeOverrides(t: UserFeatureOverride, w: UserFeatureOverride) {
 /**
  * A calendar's setup as it starts (the schema defaults). When W's calendar folds
  * into T's, T's row takes W's value of each field where T's is still the
- * starting one; so does its name where it is still T's (the default calendar is
- * named after its owner), and its labels where they are still the default
- * calendar's primary + yours, or none (ensurePrimaryNativeCalendar). T's
- * 'primary' stays as it is. Privacy is not setup here: a fold needs it equal.
+ * starting one, and its labels where they are still the default calendar's
+ * primary + yours, or none (ensurePrimaryNativeCalendar). The default calendar
+ * is named after its owner, so a T calendar still named after T takes a name W
+ * chose for W's (one that is not W's own name) and otherwise follows T's name
+ * after the merge. T's 'primary' stays as it is. Privacy is not setup here: a
+ * fold needs it equal.
  */
 const NEW_CALENDAR = {
   color: '#039BE5', rules: [] as string[], personName: null as string | null,
@@ -170,13 +172,13 @@ type CalendarSetupField = keyof typeof NEW_CALENDAR | 'name' | 'labels';
 function calendarSetupFromW(
   from: NativeCalendar,
   into: NativeCalendar,
-  ownerName: string
+  names: { t: string; w: string; merged: string }
 ): Partial<Pick<NativeCalendar, CalendarSetupField>> {
   const data: Partial<Record<CalendarSetupField, unknown>> = {};
   for (const field of Object.keys(NEW_CALENDAR) as (keyof typeof NEW_CALENDAR)[]) {
     if (into[field] == null || JSON.stringify(into[field]) === JSON.stringify(NEW_CALENDAR[field])) data[field] = from[field];
   }
-  if (into.name === ownerName.trim()) data.name = from.name;
+  if (into.name === names.t.trim()) data.name = from.name === names.w.trim() ? names.merged.trim() : from.name;
   const primary = into.labels.includes('primary');
   if (JSON.stringify(into.labels) === JSON.stringify(primary ? ['primary', 'yours'] : [])) {
     data.labels = [...(primary ? ['primary'] : []), ...from.labels.filter(l => l !== 'primary')];
@@ -195,11 +197,12 @@ function isSameCalendar(a: NativeCalendar, b: NativeCalendar): boolean {
  * the caller's transaction. Everything W has moves to T, so the delete clears
  * the schema's ON DELETE RESTRICT relations (calendars, created events,
  * pairings, the per-user rows); T takes W's setup (setupFromW) and, when T can
- * take it, W's Google connection. A moved pairing shares T's calendars, as
- * accepting an invite does. Otherwise a moved calendar keeps its privacy (W's
- * go PRIVATE when W's pairing ends, by the merge or by P meanwhile) and a fold
- * needs the same privacy on both sides, so the merge shows nobody an event
- * their pairing did not share.
+ * take it, W's Google connection. T's primary calendar gives way to W's when
+ * it holds no live events, and otherwise W's folds into it. A moved pairing
+ * shares T's own calendars, as accepting an invite does. Otherwise a moved
+ * calendar keeps its privacy (W's go PRIVATE when W's pairing ends, by the
+ * merge or by P meanwhile) and a fold needs the same privacy on both sides, so
+ * the merge shows nobody an event their pairing did not share.
  * Returns T's pairingId after the merge, whether W's Google connection stayed
  * behind, and whether T's language changed.
  */
@@ -211,13 +214,21 @@ async function mergeWhatsAppUser(
   const w = await tx.user.findUniqueOrThrow({ where: { id: waOnlyUserId } });
   const t = await tx.user.findUniqueOrThrow({ where: { id: telegramUserId } });
   const tIsNative = t.calendarSource === 'NATIVE';
-  // Whether T's own calendars hold live events, read before W's arrive (the Google step).
+  // What T takes from W's setup (written last; the calendar fold names T's calendar by it).
+  const setup = setupFromW(w, t);
+  // Read before W's arrive: T's live calendars, its primary (the one
+  // getMainNativeCalendar picks), and whether they hold live events (the
+  // primary step, the Google step).
   const wHasGoogle = w.calendarSource === 'GOOGLE' && !!w.googleRefreshToken;
-  const tCalendarIds = wHasGoogle
-    ? (await tx.nativeCalendar.findMany({ where: { ownerUserId: t.id, isDeleted: false }, select: { id: true } })).map(c => c.id)
-    : [];
-  const tHasEvents = tCalendarIds.length > 0 &&
-    (await tx.nativeEvent.count({ where: { calendarId: { in: tCalendarIds }, isDeleted: false } })) > 0;
+  const tCalendarsBefore = await tx.nativeCalendar.findMany({
+    where: { ownerUserId: t.id, isDeleted: false },
+    orderBy: { createdAt: 'asc' },
+  });
+  const tPrimary = tCalendarsBefore.find(c => c.labels.includes('primary'));
+  const liveEvents = async (calendarIds: string[]) =>
+    calendarIds.length ? tx.nativeEvent.count({ where: { calendarId: { in: calendarIds }, isDeleted: false } }) : 0;
+  const tPrimaryEmpty = !!tPrimary && (await liveEvents([tPrimary.id])) === 0;
+  const tHasEvents = wHasGoogle && (await liveEvents(tCalendarsBefore.map(c => c.id))) > 0;
 
   // Pairing: only NATIVE users pair, one partner each. W's pairing moves to T
   // when T can take it; otherwise W is unpaired with unlink()'s writes. Each
@@ -257,40 +268,51 @@ async function mergeWhatsAppUser(
   await tx.pairingInvite.updateMany({ where: { acceptedByUserId: w.id }, data: { acceptedByUserId: t.id } });
   // W's own invites cascade with W.
 
-  // A moved pairing shares T's calendars at the default permission, as
-  // acceptInvite does, before the fold: T's primary and W's shared one are then
-  // one calendar, so what 'primary' resolves to stays the couple's. A pairing
-  // that was ACTIVE when read and did not move (the merge ended it, or P did
-  // meanwhile) shared W's calendars with P only: they come over PRIVATE and
-  // fold only into private ones, so nothing in them (P's events too) reaches
-  // T's partner.
+  // A pairing that was ACTIVE when read and did not move (the merge ended it,
+  // or P did meanwhile) shared W's calendars with P only: they come over
+  // PRIVATE and fold only into private ones, so nothing in them (P's events
+  // too) reaches T's partner.
+  if (!moved && wPairing?.status === 'ACTIVE') {
+    await tx.nativeCalendar.updateMany({ where: { ownerUserId: w.id }, data: { privacy: 'PRIVATE' } });
+  }
+
+  // Calendars. A Google user has no live native calendars (oauth-callback
+  // soft-deletes them), so for one W's arrive deleted. T's primary calendar,
+  // if it held no live events before W's arrived (a fresh T's empty default),
+  // gives way to W's: T's goes (its soft-deleted events cascade) and W's comes
+  // over as it is, privacy and setup, as the main calendar.
+  const live = (ownerUserId: number) =>
+    tx.nativeCalendar.findMany({ where: { ownerUserId, isDeleted: false }, orderBy: { createdAt: 'asc' } });
+  const wCalendars = tIsNative ? await live(w.id) : [];
+  const wPrimary = tPrimaryEmpty ? wCalendars.find(c => c.labels.includes('primary')) : undefined;
+  if (tPrimary && wPrimary) await tx.nativeCalendar.delete({ where: { id: tPrimary.id } });
+
+  // Then a moved pairing shares T's own calendars at the default permission,
+  // as acceptInvite does (W's keep what W chose with P). A primary T kept is
+  // then shared like W's, so the two fold and what 'primary' resolves to
+  // stays the couple's.
   if (moved) {
     await tx.nativeCalendar.updateMany({
       where: { ownerUserId: t.id, privacy: 'PRIVATE', isDeleted: false },
       data: { privacy: 'SHARED_EDITOR' },
     });
-  } else if (wPairing?.status === 'ACTIVE') {
-    await tx.nativeCalendar.updateMany({ where: { ownerUserId: w.id }, data: { privacy: 'PRIVATE' } });
   }
 
-  // Calendars. W's default calendar folds into T's (they are named after each
-  // profile, so the names rarely match), and T's row takes W's calendar setup
-  // where T's is as it started (calendarSetupFromW); the rest move over,
-  // soft-deleted ones too. T keeps one primary calendar. A Google user has no live native
-  // calendars (oauth-callback soft-deletes them), so for one W's arrive deleted.
+  // W's default calendar folds into a primary T kept (they are named after
+  // each profile, so the names rarely match), and T's row takes W's calendar
+  // setup where T's is as it started (calendarSetupFromW); the rest move over,
+  // soft-deleted ones too. T keeps one primary calendar.
   if (tIsNative) {
-    const live = (ownerUserId: number) =>
-      tx.nativeCalendar.findMany({ where: { ownerUserId, isDeleted: false }, orderBy: { createdAt: 'asc' } });
     const tCalendars = await live(t.id);
-    const wCalendars = await live(w.id);
+    const names = { t: t.name, w: w.name, merged: setup.name ?? t.name };
     const folded = new Set<string>();
     let tHasPrimary = tCalendars.some(c => c.labels.includes('primary'));
     for (const wCalendar of wCalendars) {
-      const into = tCalendars.find(c => !folded.has(c.id) && isSameCalendar(c, wCalendar));
+      const into = wCalendar === wPrimary ? undefined : tCalendars.find(c => !folded.has(c.id) && isSameCalendar(c, wCalendar));
       if (into) {
         folded.add(into.id);
         await tx.nativeEvent.updateMany({ where: { calendarId: wCalendar.id }, data: { calendarId: into.id } });
-        await tx.nativeCalendar.update({ where: { id: into.id }, data: calendarSetupFromW(wCalendar, into, t.name) });
+        await tx.nativeCalendar.update({ where: { id: into.id }, data: calendarSetupFromW(wCalendar, into, names) });
         await tx.nativeCalendar.delete({ where: { id: wCalendar.id } });
       } else if (wCalendar.labels.includes('primary')) {
         if (tHasPrimary) {
@@ -371,7 +393,6 @@ async function mergeWhatsAppUser(
   // W goes before T takes its WhatsApp ids: they are unique. W was found by the
   // id the link came from, so W's ids are the ones to take; a BSUID-only W has
   // no phone to give.
-  const setup = setupFromW(w, t);
   await tx.user.delete({ where: { id: w.id } });
   await tx.user.update({
     where: { id: t.id },
