@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
+import { requestInitData } from '@/src/lib/request-init-data';
 import { captureError } from '@/src/lib/error-capture';
 
 export const dynamic = 'force-dynamic';
@@ -14,14 +15,14 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const initData = searchParams.get('initData');
+    const initData = requestInitData(request);
     const targetUserId = searchParams.get('user_id');
     const action = searchParams.get('action');
     const limitParam = searchParams.get('limit');
     const offsetParam = searchParams.get('offset');
 
     // Verify admin access
-    const auth = await verifyAdminAccess(initData || undefined);
+    const auth = await verifyAdminAccess(initData);
     if (!auth.authorized) {
       return NextResponse.json(
         { error: auth.error },

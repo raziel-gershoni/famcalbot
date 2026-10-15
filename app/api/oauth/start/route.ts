@@ -10,6 +10,7 @@
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
+import { requestInitData } from '@/src/lib/request-init-data';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { prisma } from '@/src/utils/prisma';
 import { buildUrl } from '@/src/config/urls';
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const body = await request.json().catch(() => ({}));
     const rawUserId = body.user_id ?? searchParams.get('user_id');
-    const initData = body.initData ?? searchParams.get('initData');
+    const initData = requestInitData(request, body);
 
     const auth = await verifyUserAuth(
       request,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
+import { requestInitData } from '@/src/lib/request-init-data';
 import { generalRateLimiter } from '@/src/lib/rate-limit';
 import {
   getSubscriptionWithUsage,
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
-    const initData = searchParams.get('initData');
+    const initData = requestInitData(request);
 
     // Mandatory: Telegram initData or the WhatsApp session cookie (400 without user_id)
     const auth = await verifyUserAuth(request, userId, initData, generalRateLimiter, 'subscription');

@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { Activity, Crown, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock, RefreshCw, ChevronDown, MessageSquare } from 'lucide-react';
+import { initDataHeaders } from '@/src/lib/read-init-data';
 
 interface AdminPanelClientProps {
   userId: number;
@@ -349,8 +350,7 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   const fetchUserList = useCallback(async () => {
     setIsLoadingUsers(true);
     try {
-      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
-      const response = await fetch(`/api/admin/user-overrides?initData=${encodeURIComponent(initData || '')}&list=all`);
+      const response = await fetch('/api/admin/user-overrides?list=all', { headers: initDataHeaders() });
       const data = await response.json();
       if (data.success) {
         setUserList(data.users || []);
@@ -366,17 +366,15 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   const fetchActivity = useCallback(async (reset: boolean = false) => {
     setIsLoadingActivity(true);
     try {
-      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
       const newOffset = reset ? 0 : activityOffset;
       const params = new URLSearchParams({
-        initData: initData || '',
         limit: '20',
         offset: String(newOffset),
       });
       if (activityFilter) params.append('action', activityFilter);
       if (activityUserFilter) params.append('user_id', activityUserFilter);
 
-      const response = await fetch(`/api/admin/user-activity?${params}`);
+      const response = await fetch(`/api/admin/user-activity?${params}`, { headers: initDataHeaders() });
       const data = await response.json();
       if (data.success) {
         if (reset) {
@@ -401,16 +399,14 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
     const seq = ++userActivityReqRef.current;
     setIsLoadingUserActivity(true);
     try {
-      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
       const newOffset = reset ? 0 : userActivityOffset;
       const params = new URLSearchParams({
-        initData: initData || '',
         user_id: String(userId),
         limit: '20',
         offset: String(newOffset),
       });
 
-      const response = await fetch(`/api/admin/user-activity?${params}`);
+      const response = await fetch(`/api/admin/user-activity?${params}`, { headers: initDataHeaders() });
       const data = await response.json();
       if (seq !== userActivityReqRef.current) return; // superseded by a newer request
       if (data.success) {
@@ -429,8 +425,7 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
   const fetchFeedback = useCallback(async () => {
     setIsLoadingFeedback(true);
     try {
-      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
-      const response = await fetch(`/api/admin/feedback?initData=${encodeURIComponent(initData || '')}&limit=50`);
+      const response = await fetch('/api/admin/feedback?limit=50', { headers: initDataHeaders() });
       const data = await response.json();
       if (data.success) {
         setFeedbacks(data.feedbacks || []);
@@ -537,10 +532,7 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
     setIsLoadingUser(true);
     setSelectedUser(null);
     try {
-      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
-      const response = await fetch(
-        `/api/admin/user-overrides?initData=${encodeURIComponent(initData || '')}&user_id=${userId}`
-      );
+      const response = await fetch(`/api/admin/user-overrides?user_id=${userId}`, { headers: initDataHeaders() });
       const data = await response.json();
       if (data.success && data.user) {
         setSelectedUser(data.user);
@@ -612,10 +604,10 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ initData, user_id: selectedUser.id, reason: compReason || null }),
           })
-        : await fetch(
-            `/api/admin/subscription?initData=${encodeURIComponent(initData || '')}&user_id=${selectedUser.id}`,
-            { method: 'DELETE' }
-          );
+        : await fetch(`/api/admin/subscription?user_id=${selectedUser.id}`, {
+            method: 'DELETE',
+            headers: initDataHeaders(),
+          });
 
       const data = await response.json();
       if (data.success) {
@@ -860,9 +852,8 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
 
   const fetchBlocklist = useCallback(async () => {
     setIsLoadingBlocklist(true);
-    const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
     try {
-      const response = await fetch(`/api/admin/users/blocklist?initData=${encodeURIComponent(initData || '')}`);
+      const response = await fetch('/api/admin/users/blocklist', { headers: initDataHeaders() });
       const data = await response.json();
       if (data.success) setBlocklist(data.blocklist);
     } catch (err) {

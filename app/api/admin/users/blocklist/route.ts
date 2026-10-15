@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
+import { requestInitData } from '@/src/lib/request-init-data';
 import { captureError } from '@/src/lib/error-capture';
 import { banIdentifier, unbanIdentifier, listBlockedIdentifiers } from '@/src/lib/user-moderation';
 
@@ -16,8 +17,8 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
-    const initData = request.nextUrl.searchParams.get('initData');
-    const auth = await verifyAdminAccess(initData || undefined);
+    const initData = requestInitData(request);
+    const auth = await verifyAdminAccess(initData);
     if (!auth.authorized) {
       return NextResponse.json(
         { error: auth.error },

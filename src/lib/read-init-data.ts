@@ -30,3 +30,12 @@ export function readInitData(): string {
   }
   return '';
 }
+
+/** The header that carries initData to our API. initData never goes in a URL. */
+export const INIT_DATA_HEADER = 'X-Telegram-Init-Data';
+
+/** fetch headers for our API: the initData header inside Telegram, none outside it. */
+export function initDataHeaders(): Record<string, string> {
+  const initData = readInitData();
+  return initData ? { [INIT_DATA_HEADER]: initData } : {};
+}

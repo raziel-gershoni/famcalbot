@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
+import { requestInitData } from '@/src/lib/request-init-data';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { prisma } from '@/src/utils/prisma';
 import { captureError } from '@/src/lib/error-capture';
@@ -24,7 +25,7 @@ export async function PATCH(request: NextRequest, { params }: PathProps) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
     const body = await request.json();
-    const initData = body.initData ?? searchParams.get('initData');
+    const initData = requestInitData(request, body);
 
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'native-calendar-patch');
     if (!auth.success) return auth.response;
@@ -109,7 +110,7 @@ export async function DELETE(request: NextRequest, { params }: PathProps) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
     const body = await request.json().catch(() => ({}));
-    const initData = body.initData ?? searchParams.get('initData');
+    const initData = requestInitData(request, body);
 
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'native-calendar-delete');
     if (!auth.success) return auth.response;

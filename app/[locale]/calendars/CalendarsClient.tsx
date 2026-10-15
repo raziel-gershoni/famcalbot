@@ -10,6 +10,7 @@
 
 import { useState } from 'react';
 import { Lock, Eye, Edit3, Trash2, Plus, Check } from 'lucide-react';
+import { initDataHeaders, readInitData } from '@/src/lib/read-init-data';
 
 interface Calendar {
   rawId: string;
@@ -127,8 +128,8 @@ const COPY: Record<string, Record<string, string>> = {
   },
 };
 
-function getInitData(): string | undefined {
-  return typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+function getInitData(): string {
+  return readInitData();
 }
 
 export default function CalendarsClient(props: Props) {
@@ -147,9 +148,7 @@ export default function CalendarsClient(props: Props) {
   const shared = calendars.filter((c) => !c.isOwner);
 
   const reload = async () => {
-    const initData = getInitData();
-    const url = `/api/native-calendars?user_id=${userId}${initData ? `&initData=${encodeURIComponent(initData)}` : ''}`;
-    const res = await fetch(url);
+    const res = await fetch(`/api/native-calendars?user_id=${userId}`, { headers: initDataHeaders() });
     if (res.ok) {
       const data = await res.json();
       setCalendars(data.calendars);

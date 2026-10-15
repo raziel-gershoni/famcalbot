@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
+import { requestInitData } from '@/src/lib/request-init-data';
 import {
   getActivityStats,
   getDailyActivityCounts,
@@ -19,7 +20,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const initData = searchParams.get('initData');
+    const initData = requestInitData(request);
     const days = parseInt(searchParams.get('days') || '30');
     const reportType = searchParams.get('type') || 'overview';
 
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
     // was enough to read the full analytics. Now it uses the same unconditional
     // gate as every other admin route, and no longer takes an identity from the
     // query string at all.
-    const auth = await verifyAdminAccess(initData || undefined);
+    const auth = await verifyAdminAccess(initData);
     if (!auth.authorized) {
       return NextResponse.json(
         { success: false, error: auth.error },

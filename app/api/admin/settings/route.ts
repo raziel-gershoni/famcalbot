@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
+import { requestInitData } from '@/src/lib/request-init-data';
 import { captureError } from '@/src/lib/error-capture';
 import { setGlobalRemindersEnabled, setEarlyAdoptionMode, setVoiceAutoCreateHighConf, setVoiceTtsOutcome } from '@/src/services/reminder-cache';
 import { invalidateAllFeatureAccessCaches } from '@/src/services/subscription-service';
@@ -16,7 +17,7 @@ export const dynamic = 'force-dynamic';
 
 // GET: Fetch admin settings (admin-only)
 export async function GET(request: NextRequest) {
-  const auth = await verifyAdminAccess(request.nextUrl.searchParams.get('initData') || undefined);
+  const auth = await verifyAdminAccess(requestInitData(request));
   if (!auth.authorized) {
     return NextResponse.json(
       { error: auth.error },

@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
+import { requestInitData } from '@/src/lib/request-init-data';
 import { captureError } from '@/src/lib/error-capture';
 import { getSubscriptionWithUsage, invalidateFeatureAccessCache } from '@/src/services/subscription-service';
 import { getPlanLimits } from '@/src/config/plans';
@@ -152,12 +153,12 @@ function mapUserToResponse(user: {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const initData = searchParams.get('initData');
+    const initData = requestInitData(request);
     const targetUserId = searchParams.get('user_id');
     const searchQuery = searchParams.get('search');
 
     // Verify admin access
-    const auth = await verifyAdminAccess(initData || undefined);
+    const auth = await verifyAdminAccess(initData);
     if (!auth.authorized) {
       return NextResponse.json(
         { error: auth.error },
@@ -515,11 +516,11 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const initData = searchParams.get('initData');
+    const initData = requestInitData(request);
     const targetUserId = searchParams.get('user_id');
 
     // Verify admin access
-    const auth = await verifyAdminAccess(initData || undefined);
+    const auth = await verifyAdminAccess(initData);
     if (!auth.authorized) {
       return NextResponse.json(
         { error: auth.error },

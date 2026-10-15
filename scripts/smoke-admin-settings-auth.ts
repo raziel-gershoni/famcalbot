@@ -12,7 +12,7 @@ async function main() {
   const noAuth = await GET(new NextRequest('http://localhost/api/admin/settings'));
   results.push({ name: 'no initData -> 401', ok: noAuth.status === 401, reason: `status ${noAuth.status}` });
 
-  const forged = await GET(new NextRequest('http://localhost/api/admin/settings?initData=' + encodeURIComponent('user=%7B%22id%22%3A1%7D&hash=deadbeef')));
+  const forged = await GET(new NextRequest('http://localhost/api/admin/settings', { headers: { 'x-telegram-init-data': 'user=%7B%22id%22%3A1%7D&hash=deadbeef' } }));
   results.push({ name: 'forged initData -> 401', ok: forged.status === 401, reason: `status ${forged.status}` });
 
   const body = await noAuth.json().catch(() => ({}));

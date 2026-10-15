@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
+import { requestInitData } from '@/src/lib/request-init-data';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { listVisibleCalendars, encodeCalendarId } from '@/src/services/native-calendar/event-store';
 import { checkCalendarLimit } from '@/src/services/subscription-service';
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
-    const initData = searchParams.get('initData');
+    const initData = requestInitData(request);
 
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'native-calendars-list');
     if (!auth.success) return auth.response;
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
     const body = await request.json();
-    const initData = body.initData ?? searchParams.get('initData');
+    const initData = requestInitData(request, body);
 
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'native-calendars-create');
     if (!auth.success) return auth.response;

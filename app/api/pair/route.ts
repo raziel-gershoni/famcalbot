@@ -3,6 +3,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
+import { requestInitData } from '@/src/lib/request-init-data';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { getActivePartner, unlink, PairingError } from '@/src/services/pairing-service';
 import { captureError } from '@/src/lib/error-capture';
@@ -11,7 +12,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
-    const initData = searchParams.get('initData');
+    const initData = requestInitData(request);
 
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'pair-get');
     if (!auth.success) return auth.response;
@@ -44,7 +45,7 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
     const body = await request.json().catch(() => ({}));
-    const initData = body.initData ?? searchParams.get('initData');
+    const initData = requestInitData(request, body);
 
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'pair-unlink');
     if (!auth.success) return auth.response;

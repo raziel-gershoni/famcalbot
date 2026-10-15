@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
+import { requestInitData } from '@/src/lib/request-init-data';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { acceptInvite, PairingError } from '@/src/services/pairing-service';
 import { notifyInviterOfAccept } from '@/src/services/telegram/pair-handler';
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
     const body = await request.json().catch(() => ({}));
-    const initData = body.initData ?? searchParams.get('initData');
+    const initData = requestInitData(request, body);
     const token: string | undefined = body.token;
 
     if (!token || typeof token !== 'string') {

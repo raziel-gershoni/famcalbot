@@ -434,9 +434,12 @@ async function main() {
     const { POST } = await load('app/api/oauth/start/route.ts');
     return POST(req('/api/oauth/start', { body, cookie }));
   };
-  const sign = async (query: string): Promise<Response> => {
+  /** initData goes in the X-Telegram-Init-Data header, as share-story sends it. */
+  const sign = async (query: string, initData?: string): Promise<Response> => {
     const { GET } = await load('app/api/weather-image/sign/route.ts');
-    return GET(req(`/api/weather-image/sign?${query}`));
+    const request = req(`/api/weather-image/sign?${query}`);
+    if (initData) request.headers.set('x-telegram-init-data', initData);
+    return GET(request);
   };
 
   // ---- Google OAuth state ----
@@ -493,14 +496,14 @@ async function main() {
 
   await check('#6 sign ?user_id=42 with initData for Telegram 111111111 (DB 9) is 401', async () => {
     seed();
-    const res = await sign(`user_id=42&source=summary&initData=${encodeURIComponent(initDataFor(111111111))}`);
+    const res = await sign('user_id=42&source=summary', initDataFor(111111111));
     assert(res.status === 401, `status ${res.status} ${await bodyOf(res)}`);
   });
 
   let signedUrl = '';
   await check('#7 [guard] sign ?user_id=9 with the user\'s own initData is 200', async () => {
     seed();
-    const res = await sign(`user_id=9&source=summary&msg=5&initData=${encodeURIComponent(initDataFor(111111111))}`);
+    const res = await sign('user_id=9&source=summary&msg=5', initDataFor(111111111));
     assert(res.status === 200, `status ${res.status} ${await bodyOf(res)}`);
     const { url } = await res.clone().json();
     assert(typeof url === 'string' && url.includes('sig='), `url ${url}`);
@@ -525,6 +528,12 @@ async function main() {
     assert(msg.status === 401, `msg changed to 7: status ${msg.status}`);
     const source = await fetchImage(u => u.searchParams.set('source', 'cached'));
     assert(source.status === 401, `source changed to cached: status ${source.status}`);
+  });
+
+  await check('#8b sign takes initData from the X-Telegram-Init-Data header, never the URL: the user\'s own initData in the query is 401', async () => {
+    seed();
+    const res = await sign(`user_id=9&source=summary&msg=5&initData=${encodeURIComponent(initDataFor(111111111))}`);
+    assert(res.status === 401, `initData in the query string: status ${res.status} (want 401)`);
   });
 
   // ---- check-token-refresh ----

@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { initDataHeaders } from '@/src/lib/read-init-data';
 
 /**
  * Minimal Mini App page that calls shareToStory and closes.
@@ -28,10 +29,9 @@ export default function ShareStoryPage() {
       return;
     }
 
-    const initData = tg.initData;
-    const signUrl = `/api/weather-image/sign?user_id=${userId}&initData=${encodeURIComponent(initData)}&source=${source}${msg ? `&msg=${msg}` : ''}`;
+    const signUrl = `/api/weather-image/sign?user_id=${userId}&source=${source}${msg ? `&msg=${msg}` : ''}`;
 
-    fetch(signUrl)
+    fetch(signUrl, { headers: initDataHeaders() })
       .then(async res => {
         const data = await res.json();
         if (res.ok && data.url) {

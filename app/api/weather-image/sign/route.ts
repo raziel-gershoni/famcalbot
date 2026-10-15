@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
+import { requestInitData } from '@/src/lib/request-init-data';
 import { generalRateLimiter } from '@/src/lib/rate-limit';
 import { redis } from '@/src/utils/redis';
 import crypto from 'crypto';
@@ -7,7 +8,7 @@ import crypto from 'crypto';
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/weather-image/sign?user_id=X&initData=...&source=...&msg=...
+ * GET /api/weather-image/sign?user_id=X&source=...&msg=... (initData in the X-Telegram-Init-Data header)
  * Returns a signed URL for the cached weather image or the summary card.
  * Image must already be cached from the /weather command.
  *
@@ -17,7 +18,7 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
-  const initData = request.nextUrl.searchParams.get('initData');
+  const initData = requestInitData(request);
 
   const auth = await verifyUserAuth(request, userId, initData, generalRateLimiter, 'weather-image-sign');
   if (!auth.success) {

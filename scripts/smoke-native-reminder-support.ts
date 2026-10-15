@@ -172,7 +172,7 @@ async function main() {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     }));
-  const get = () => GET(new NextRequest('http://localhost/api/admin/settings?initData=admin'));
+  const get = () => GET(new NextRequest('http://localhost/api/admin/settings', { headers: { 'x-telegram-init-data': 'admin' } }));
 
   // ---- getReminderSupport: the reasons, in order ----
 

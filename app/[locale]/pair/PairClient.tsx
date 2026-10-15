@@ -4,6 +4,7 @@
 
 import { useState } from 'react';
 import { Copy, Check, X, Link as LinkIcon, AlertTriangle } from 'lucide-react';
+import { readInitData } from '@/src/lib/read-init-data';
 
 interface Props {
   userId: number;
@@ -78,8 +79,8 @@ function fmt(template: string, vars: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
 }
 
-function getInitData(): string | undefined {
-  return typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+function getInitData(): string {
+  return readInitData();
 }
 
 export default function PairClient({ userId, locale, initial }: Props) {
