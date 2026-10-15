@@ -21,7 +21,7 @@
 // let T's partner see W's calendars; a fresh T kept its Telegram name, and its menu button
 // stayed in the Telegram client's language.
 //
-// Third follow-up (#40-#44, #33 changed): a fresh T's empty primary calendar stayed the main
+// Third follow-up (#40-#45, #33 changed): a fresh T's empty primary calendar stayed the main
 // one whenever the two primaries did not fold (W's shared from an old unlink, or set back to
 // PRIVATE in a moved pairing), a fold renamed T's calendar to W's default name, W's Google
 // connection replaced the native events a T under a day old had already added, and an unlink
@@ -757,6 +757,20 @@ async function main() {
     assert(main.id === 'cal-w' && main.privacy === 'PRIVATE', `T's main calendar ${show(main)}`);
     const privacy = Object.fromEntries(['cal-t-work', 'cal-w-kids'].map(id => [id, rowOf('nativeCalendar', id)?.privacy]));
     assert(privacy['cal-t-work'] === 'SHARED_EDITOR' && privacy['cal-w-kids'] === 'SHARED_EDITOR', `privacy ${show(privacy)}`);
+    assert(!rowOf('nativeCalendar', 'cal-t') && show(tPrimaries()) === show(['cal-w']), `T's primary calendars ${show(tPrimaries())}`);
+  });
+
+  await check('#45 an established T\'s primary is empty, its events in a calendar named like W\'s primary: T\'s primary still gives way, W\'s does not fold into the namesake, and T has exactly one primary', async () => {
+    const { getMainNativeCalendar } = await load('src/services/native-calendar/event-store.ts');
+    seed();
+    DB.nativeCalendar.push(calendar('cal-t-dana', T, 'Dana', { labels: ['yours'] }));
+    rowOf('nativeEvent', 'ev-t')!.calendarId = 'cal-t-dana';
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const main = await getMainNativeCalendar(T);
+    assert(main.id === 'cal-w' && rowOf('nativeEvent', 'ev-w')?.calendarId === 'cal-w', `T's main calendar ${show(main)}; ev-w ${show(rowOf('nativeEvent', 'ev-w'))}`);
+    const namesake = rowOf('nativeCalendar', 'cal-t-dana');
+    assert(show(namesake?.labels) === show(['yours']) && rowOf('nativeEvent', 'ev-t')?.calendarId === 'cal-t-dana', `T's calendar ${show(namesake)}`);
     assert(!rowOf('nativeCalendar', 'cal-t') && show(tPrimaries()) === show(['cal-w']), `T's primary calendars ${show(tPrimaries())}`);
   });
 
