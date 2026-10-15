@@ -18,6 +18,15 @@
 // the fake has no locks, so with the old order both sides of #8 lose instead); and the
 // chat replies and the inviter's notice are in the recipient's language (#10).
 //
+// Pairing leftovers: a WhatsApp inviter is told by the famcal_notify template, whose
+// button opens the dashboard link, since free-form text outside their 24h window never
+// arrives (#6, #10, #11); the loser of a mutual accept, or someone tapping a stale invite
+// from their own partner, hears they two are already paired (#12, #13); and unlinking
+// sets both people's calendars back to PRIVATE (#14). For #12 the fake now holds a user
+// row a transaction wrote until that transaction ends: another transaction's write to it
+// waits, then re-checks its where, as an UPDATE waits on a row lock under READ COMMITTED.
+// The fake still has no rollback, so the loser's half-made pairing stays behind.
+//
 // The check named [guard] already passes before the fix and must keep passing. The
 // others fail until the fix lands. Numbers follow the design's smoke list.
 //
@@ -26,6 +35,7 @@
 
 import path from 'path';
 import crypto from 'crypto';
+import { AsyncLocalStorage } from 'async_hooks';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 
@@ -66,6 +76,24 @@ const DB: Record<string, Row[]> = {};
 const prismaCalls: string[] = [];
 /** Every write to the user table: the where it used and the row ids it hit. */
 const userWrites: { method: string; where: Row; data: Row; hit: number[] }[] = [];
+
+/** The open transaction a call runs in, and when each one ends. */
+const currentTx = new AsyncLocalStorage<number>();
+const txEnds = new Map<number, Promise<void>>();
+let txSeq = 0;
+/** User row id -> the open transaction that wrote it. */
+const userRowLocks = new Map<number, number>();
+
+/** Wait until no other open transaction holds these user rows, then hold them for this one. */
+async function lockUserRows(ids: number[]) {
+  const tx = currentTx.getStore();
+  if (tx === undefined) return;
+  for (const id of ids) {
+    let holder: number | undefined;
+    while ((holder = userRowLocks.get(id)) !== undefined && holder !== tx) await txEnds.get(holder);
+    userRowLocks.set(id, tx);
+  }
+}
 
 const num = (x: unknown) => (x instanceof Date ? x.getTime() : Number(x));
 function same(a: unknown, b: unknown): boolean {
@@ -172,8 +200,13 @@ function model(name: string): Row {
     create: async (a: Row) => pick(create(a.data), a.select),
     createMany: async (a: Row) => ({ count: ([] as Row[]).concat(a.data).map(create).length }),
     update: async (a: Row) => pick(updateOne(a.where, a.data, 'update'), a.select),
-    // Checks and sets in one tick, as a single UPDATE ... WHERE does.
+    // Checks and sets in one tick, as a single UPDATE ... WHERE does. A user row another
+    // open transaction wrote is waited for first, then the where is checked against it.
     updateMany: async (a: Row) => {
+      if (name === 'user') {
+        const byId = typeof a.where?.id === 'number' ? t().filter(r => r.id === a.where.id) : t().filter(r => matches(r, a.where));
+        await lockUserRows(byId.map(r => r.id));
+      }
       const rows = t().filter(r => matches(r, a.where));
       recordUser('updateMany', a.where ?? {}, a.data, rows);
       rows.forEach(r => applyData(r, a.data));
@@ -210,7 +243,17 @@ const fakePrisma: Row = new Proxy({} as Row, {
     if (prop === '$transaction') {
       return async (arg: unknown) => {
         prismaCalls.push('$transaction');
-        return typeof arg === 'function' ? arg(fakePrisma) : Promise.all(arg as Promise<unknown>[]);
+        if (typeof arg !== 'function') return Promise.all(arg as Promise<unknown>[]);
+        const tx = ++txSeq;
+        let end = () => {};
+        txEnds.set(tx, new Promise<void>(r => { end = r; }));
+        try {
+          return await currentTx.run(tx, () => arg(fakePrisma));
+        } finally {
+          for (const [id, holder] of userRowLocks) if (holder === tx) userRowLocks.delete(id);
+          txEnds.delete(tx);
+          end();
+        }
       };
     }
     if (prop.startsWith('$')) return async () => undefined;
@@ -249,7 +292,7 @@ const fakeRedis = new Proxy(redisImpl, {
 
 // ---- Telegram / messaging: every send is recorded ----
 
-type Sent = { via: string; platform: string; chatId: unknown; text?: string };
+type Sent = { via: string; platform: string; chatId: unknown; text?: string; options?: Row };
 const sent: Sent[] = [];
 const captured: string[] = [];
 
@@ -259,7 +302,11 @@ const recorder = (platform: string, prefix: string): Row =>
       typeof p !== 'string' || p === 'then'
         ? undefined
         : async (chatId: unknown, ...rest: unknown[]) => {
-            sent.push({ via: `${prefix}.${p}`, platform, chatId, text: typeof rest[0] === 'string' ? rest[0] : undefined });
+            sent.push({
+              via: `${prefix}.${p}`, platform, chatId,
+              text: typeof rest[0] === 'string' ? rest[0] : undefined,
+              options: isPlain(rest[1]) ? rest[1] : undefined,
+            });
             if (p === 'streamMessage') return { finalize: async () => 1, cancel: async () => undefined, update: async () => undefined };
             return { message_id: 1 };
           },
@@ -476,14 +523,14 @@ async function main() {
 
   // ---- WhatsApp recipients (review fix) ----
 
-  await check('#6 WhatsApp reads names as typed: "Dana & Roy <3" reaches a WhatsApp inviter (API accept) and acceptor (chat accept) with no &amp;', async () => {
+  await check('#6 WhatsApp reads names as typed: "Dana & Roy <3" reaches a WhatsApp acceptor (chat accept) with no &amp;; the WhatsApp inviter (API accept) gets the notify template, not text', async () => {
     const { WhatsAppAdapter } = await load('src/services/messaging/whatsapp-adapter.ts');
     const { MessageFormat } = await load('src/services/messaging/types.ts');
     const shownOnWhatsApp = (text: string): string => new WhatsAppAdapter('test', 'test').formatText(text, MessageFormat.HTML);
     const NAME = 'Dana & Roy <3';
     const problems: string[] = [];
 
-    // API accept: the WhatsApp inviter (1) is told the acceptor's name
+    // API accept: the WhatsApp inviter (1) is told by the template, which carries no name
     seed();
     Object.assign(userRow(1), { messagingPlatform: 'whatsapp', whatsappPhone: '972500000001' });
     userRow(2).name = NAME;
@@ -495,8 +542,10 @@ async function main() {
     }));
     await settle();
     if (res.status !== 200) problems.push(`API accept: status ${res.status}`);
-    const toInviter = sent.filter(m => m.platform === 'whatsapp' && String(m.chatId) === '972500000001').map(m => shownOnWhatsApp(m.text ?? ''));
-    if (toInviter.length !== 1 || !toInviter[0].includes(NAME)) problems.push(`the WhatsApp inviter reads ${show(toInviter)}`);
+    const toInviter = sent.filter(m => m.platform === 'whatsapp' && String(m.chatId) === '972500000001');
+    if (toInviter.length !== 1 || toInviter[0].text || toInviter[0].options?.whatsappTemplate?.name !== 'famcal_notify_en') {
+      problems.push(`the WhatsApp inviter got ${show(toInviter)}`);
+    }
 
     // Chat accept on WhatsApp: the acceptor (2) is told the inviter's name
     seed();
@@ -571,7 +620,7 @@ async function main() {
 
   // ---- Chat pairing text in the recipient's language ----
 
-  await check('#10 he and ru users read the accept reply, an error and the inviter\'s notice in their own language, on Telegram and WhatsApp and from the API accept', async () => {
+  await check('#10 he and ru users read the accept reply, an error and the inviter\'s notice (on WhatsApp the template) in their own language, on Telegram and WhatsApp and from the API accept', async () => {
     const { WhatsAppAdapter } = await load('src/services/messaging/whatsapp-adapter.ts');
     const { MessageFormat } = await load('src/services/messaging/types.ts');
     const { handlePairAccept } = await load('src/services/telegram/pair-handler.ts');
@@ -601,11 +650,19 @@ async function main() {
       await handlePairAccept(chatId, 2, TOKEN_1, r.acceptorLang, r.platform); // used by now
       await settle();
       const [success, error] = read(r.acceptorChat);
-      const notices = read(r.inviterChat);
       const where = `${r.platform}, acceptor ${r.acceptorLang}, inviter ${r.inviterLang}`;
       if (!success || !script[r.acceptorLang].test(success) || !success.includes(`Dana ${amp} Roy`)) problems.push(`${where}: accept reply ${show(success)}`);
       if (!error || !script[r.acceptorLang].test(error) || error === success) problems.push(`${where}: error ${show(error)}`);
-      if (notices.length !== 1 || !script[r.inviterLang].test(notices[0]) || !notices[0].includes(`Noam ${amp} Co`)) problems.push(`${where}: inviter notice ${show(notices)}`);
+      if (r.platform === 'whatsapp') {
+        const notices = sent.filter(m => String(m.chatId) === r.inviterChat);
+        const template = notices[0]?.options?.whatsappTemplate;
+        if (notices.length !== 1 || notices[0].text || template?.name !== `famcal_notify_${r.inviterLang}` || template?.language !== r.inviterLang) {
+          problems.push(`${where}: inviter notice ${show(notices)}`);
+        }
+      } else {
+        const notices = read(r.inviterChat);
+        if (notices.length !== 1 || !script[r.inviterLang].test(notices[0]) || !notices[0].includes(`Noam ${amp} Co`)) problems.push(`${where}: inviter notice ${show(notices)}`);
+      }
     }
 
     // API accept by a user with no name: the Russian inviter's notice has no English stand-in
@@ -623,6 +680,184 @@ async function main() {
       problems.push(`API accept, nameless acceptor: status ${res.status}, notice ${show(notice)}`);
     }
 
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  // ---- Pairing leftovers ----
+
+  await check('#11 a WhatsApp inviter gets only the famcal_notify template, in their language, its button carrying "settings", which a tap answers with the dashboard link; a Telegram inviter still gets the text', async () => {
+    const { notifyInviterOfAccept } = await load('src/services/telegram/pair-handler.ts');
+    const problems: string[] = [];
+    for (const [language, want] of [['en', 'en'], ['he', 'he'], ['ru', 'ru'], ['fr', 'en']] as const) {
+      seed();
+      Object.assign(userRow(1), { messagingPlatform: 'whatsapp', whatsappPhone: '+972500000001', language });
+      await notifyInviterOfAccept(1, 'Noam');
+      const got = sent.filter(m => String(m.chatId) === '+972500000001');
+      if (got.length !== 1 || got[0].platform !== 'whatsapp' || got[0].text
+        || show(got[0].options?.whatsappTemplate) !== show({ name: `famcal_notify_${want}`, language: want, buttonPayload: 'settings' })) {
+        problems.push(`WhatsApp inviter in ${language}: ${show(got)}`);
+      }
+    }
+
+    // The tap: WhatsApp sends the button's payload back as a message from the inviter
+    const { handleWhatsAppWebhook } = await load('src/services/webhook-handlers.ts');
+    sent.length = 0;
+    const tap = {
+      object: 'whatsapp_business_account',
+      entry: [{ changes: [{ value: {
+        contacts: [{ profile: { name: 'Dana' }, wa_id: '972500000001' }],
+        messages: [{ from: '972500000001', id: 'wamid.tap-1', timestamp: '0', type: 'button', button: { payload: 'settings', text: 'Open' } }],
+      } }] }],
+    };
+    const quiet = console.log;
+    console.log = () => undefined;
+    try {
+      await handleWhatsAppWebhook({ body: tap }, { status: () => ({ json: () => undefined }) });
+    } finally {
+      console.log = quiet;
+    }
+    const answer = sent.filter(m => String(m.chatId) === '+972500000001');
+    if (answer.length !== 1 || !String(answer[0].options?.whatsappUrlButton?.url ?? '').includes('/api/auth/magic?token=')) {
+      problems.push(`the tap was answered with ${show(answer)}`);
+    }
+
+    seed();
+    await notifyInviterOfAccept(1, 'Noam');
+    const tg = toChat(5550001);
+    if (tg.length !== 1 || tg[0].options?.whatsappTemplate || !tg[0].text?.includes('Noam accepted your invite')) problems.push(`Telegram inviter: ${show(tg)}`);
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#12 mutual accept at once: the loser gets ALREADY_PAIRED_TOGETHER (service, chat and API), and only the winner\'s inviter is told', async () => {
+    const { acceptInvite } = await load('src/services/pairing-service.ts');
+    const { handlePairAccept } = await load('src/services/telegram/pair-handler.ts');
+    const { POST } = await load('app/api/pair/accept/route.ts');
+    const problems: string[] = [];
+    const isNotice = (m: Sent) => /accepted your invite/.test(m.text ?? '');
+
+    seed();
+    const got = (await Promise.allSettled([acceptInvite(TOKEN_1, 2), acceptInvite(TOKEN_2, 1)])).map(outcome);
+    if (show([...got].sort()) !== show(['ALREADY_PAIRED_TOGETHER', 'ok']) || !userRow(1).pairingId || userRow(1).pairingId !== userRow(2).pairingId) {
+      problems.push(`service: outcomes ${show(got)}, pairingId of 1 ${userRow(1).pairingId}, of 2 ${userRow(2).pairingId}`);
+    }
+
+    seed();
+    await Promise.all([handlePairAccept(7770002, 2, TOKEN_1, 'en', 'telegram'), handlePairAccept(5550001, 1, TOKEN_2, 'en', 'telegram')]);
+    await settle();
+    const together = sent.filter(m => /You two are already paired/.test(m.text ?? ''));
+    if (together.length !== 1 || sent.filter(isNotice).length !== 1) problems.push(`chat: ${show(sent.map(m => [m.chatId, m.text]))}`);
+
+    seed();
+    const post = (tgId: number, token: string) => POST(new NextRequest(`http://localhost/api/pair/accept?user_id=${tgId}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token, initData: initDataFor(tgId) }),
+    })) as Promise<Response>;
+    const responses = await Promise.all([post(7770002, TOKEN_1), post(5550001, TOKEN_2)]);
+    await settle();
+    const answers = await Promise.all(responses.map(async r => `${r.status} ${(await r.json()).error ?? 'ok'}`));
+    if (show([...answers].sort()) !== show(['200 ok', '400 ALREADY_PAIRED_TOGETHER']) || sent.filter(isNotice).length !== 1) {
+      problems.push(`API: ${show(answers)}, notices ${show(sent.filter(isNotice))}`);
+    }
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#13 a stale invite between two people already paired gives ALREADY_PAIRED_TOGETHER both ways (in en/he/ru, unlike "paired with someone"), and tells the inviter nothing; a third party still gets the old codes', async () => {
+    const { acceptInvite } = await load('src/services/pairing-service.ts');
+    const { handlePairAccept } = await load('src/services/telegram/pair-handler.ts');
+    const { POST } = await load('app/api/pair/accept/route.ts');
+    const problems: string[] = [];
+    /** 1 and 2 paired before; their old invites (and 3's) are still open. */
+    const pairedSeed = () => {
+      seed();
+      DB.pairing.push({ id: 'pairing-12', status: 'ACTIVE', inviterUserId: 1, inviteeUserId: 2, acceptedAt: new Date(Date.now() - DAY), unlinkedAt: null, unlinkedByUserId: null });
+      userRow(1).pairingId = 'pairing-12';
+      userRow(2).pairingId = 'pairing-12';
+    };
+
+    for (const c of [
+      { token: TOKEN_2, acceptor: 1, want: 'ALREADY_PAIRED_TOGETHER' },
+      { token: TOKEN_1, acceptor: 2, want: 'ALREADY_PAIRED_TOGETHER' },
+      { token: TOKEN_1, acceptor: 5, want: 'INVITER_ALREADY_PAIRED' },
+      { token: TOKEN_3, acceptor: 2, want: 'INVITEE_ALREADY_PAIRED' },
+    ]) {
+      pairedSeed();
+      const got = outcome((await Promise.allSettled([acceptInvite(c.token, c.acceptor)]))[0]);
+      if (got !== c.want || DB.pairing.length !== 1) problems.push(`user ${c.acceptor} taking ${c.token === TOKEN_1 ? 1 : c.token === TOKEN_2 ? 2 : 3}'s invite: ${got}, want ${c.want}; pairings ${DB.pairing.length}`);
+    }
+
+    // The chat reply, on Telegram and WhatsApp: user 1 taps 2's invite (together), then 3's
+    // (1 is paired with someone); 5 taps 1's (the inviter is paired with someone)
+    const script: Record<string, RegExp> = { en: /You two are already paired/, he: /[֐-׿]/, ru: /[Ѐ-ӿ]/ };
+    for (const platform of ['telegram', 'whatsapp']) {
+      for (const lang of ['en', 'he', 'ru']) {
+        const [chat1, chat5] = platform === 'whatsapp' ? ['+972500000001', '+972500000005'] : [5550001, 7770005];
+        pairedSeed();
+        await handlePairAccept(chat1, 1, TOKEN_2, lang, platform);
+        await handlePairAccept(chat1, 1, TOKEN_3, lang, platform);
+        await handlePairAccept(chat5, 5, TOKEN_1, lang, platform);
+        await settle();
+        const [together, inviteeElsewhere] = sent.filter(m => String(m.chatId) === String(chat1)).map(m => m.text ?? '');
+        const inviterElsewhere = sent.filter(m => String(m.chatId) === String(chat5)).map(m => m.text ?? '');
+        if (sent.length !== 3 || !together || !script[lang].test(together) || together === inviteeElsewhere || together === inviterElsewhere[0]) {
+          problems.push(`${platform} ${lang}: ${show(sent.map(m => [m.chatId, m.text]))}`);
+        }
+      }
+    }
+
+    pairedSeed();
+    const res: Response = await POST(new NextRequest('http://localhost/api/pair/accept?user_id=7770002', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: TOKEN_1, initData: initDataFor(7770002) }),
+    }));
+    await settle();
+    const body = await res.json();
+    if (res.status !== 400 || body.error !== 'ALREADY_PAIRED_TOGETHER' || toChat(5550001).length) problems.push(`API: ${res.status} ${show(body)}, to the inviter ${show(toChat(5550001))}`);
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#14 unlink sets every calendar of both people back to PRIVATE, after the users as accept does; neither sees the other\'s calendars; others\' calendars and a failed unlink change nothing', async () => {
+    seed();
+    const at = new Date(Date.now() - 7 * DAY);
+    DB.nativeCalendar.push(
+      { id: 'cal-2b', ownerUserId: 2, name: 'Noam work', color: '#000000', labels: [], privacy: 'SHARED_VIEWER', isDeleted: false, createdAt: at },
+      { id: 'cal-2c', ownerUserId: 2, name: 'Noam old', color: '#000000', labels: [], privacy: 'SHARED_EDITOR', isDeleted: true, createdAt: at },
+      { id: 'cal-3', ownerUserId: 3, name: 'Ari', color: '#000000', labels: ['primary'], privacy: 'SHARED_EDITOR', isDeleted: false, createdAt: at },
+    );
+    const { acceptInvite, unlink } = await load('src/services/pairing-service.ts');
+    const { listVisibleCalendars } = await load('src/services/native-calendar/event-store.ts');
+    const problems: string[] = [];
+    const usersThenCalendars = (calls: string[]) => {
+      const lastUser = calls.lastIndexOf('user.updateMany');
+      const calendars = calls.indexOf('nativeCalendar.updateMany');
+      return lastUser >= 0 && calendars > lastUser;
+    };
+
+    prismaCalls.length = 0;
+    await acceptInvite(TOKEN_1, 2);
+    if (!usersThenCalendars(prismaCalls)) problems.push(`accept wrote ${show(prismaCalls)}`);
+    const pairingId = userRow(1).pairingId;
+    if (!(await listVisibleCalendars(2, pairingId)).some((c: Row) => c.id === 'cal-1')) problems.push('while paired 2 does not see cal-1');
+
+    prismaCalls.length = 0;
+    const result = await unlink(2);
+    if (show(result) !== show({ partnerUserId: 1 })) problems.push(`unlink returned ${show(result)}`);
+    if (!usersThenCalendars(prismaCalls)) problems.push(`unlink wrote ${show(prismaCalls)}`);
+    const privacy = Object.fromEntries(DB.nativeCalendar.map(c => [c.id, c.privacy]));
+    const want = { 'cal-1': 'PRIVATE', 'cal-2': 'PRIVATE', 'cal-2b': 'PRIVATE', 'cal-2c': 'PRIVATE', 'cal-3': 'SHARED_EDITOR' };
+    if (show(privacy) !== show(want)) problems.push(`after unlink ${show(privacy)}`);
+    for (const [viewer, other] of [[1, 2], [2, 1]]) {
+      for (const pid of [userRow(viewer).pairingId, pairingId]) {
+        const seen = (await listVisibleCalendars(viewer, pid)).filter((c: Row) => c.ownerUserId === other);
+        if (seen.length) problems.push(`${viewer} (pairingId ${pid}) still sees ${show(seen.map((c: Row) => c.id))}`);
+      }
+    }
+
+    const notPaired = outcome((await Promise.allSettled([unlink(3)]))[0]);
+    if (notPaired !== 'NOT_PAIRED' || DB.nativeCalendar.find(c => c.id === 'cal-3')?.privacy !== 'SHARED_EDITOR') {
+      problems.push(`unlink of unpaired 3: ${notPaired}, cal-3 ${DB.nativeCalendar.find(c => c.id === 'cal-3')?.privacy}`);
+    }
     assert(problems.length === 0, problems.join('; '));
   });
 
