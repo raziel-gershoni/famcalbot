@@ -97,20 +97,26 @@ async function mergeWhatsAppUser(
   const tIsNative = t.calendarSource === 'NATIVE';
 
   // Pairing: only NATIVE users pair, one partner each. W's pairing moves to T
-  // when T can take it; otherwise W is unpaired with unlink()'s writes.
+  // when T can take it; otherwise W is unpaired with unlink()'s writes. The move
+  // is conditional, as acceptInvite's is, so an invite T accepts after the read
+  // above is not overwritten.
   let pairingId = t.pairingId;
   const wPairing = w.pairingId ? await tx.pairing.findUnique({ where: { id: w.pairingId } }) : null;
   if (wPairing?.status === 'ACTIVE') {
-    if (!t.pairingId && tIsNative) {
+    const moved = !t.pairingId && tIsNative && (await tx.user.updateMany({
+      where: { id: t.id, pairingId: null },
+      data: { pairingId: wPairing.id },
+    })).count === 1;
+    if (moved) {
       pairingId = wPairing.id;
-      await tx.user.update({ where: { id: t.id }, data: { pairingId } });
     } else {
       await tx.pairing.update({
         where: { id: wPairing.id },
         data: { status: 'UNLINKED', unlinkedAt: new Date(), unlinkedByUserId: w.id },
       });
       await tx.user.updateMany({ where: { pairingId: wPairing.id }, data: { pairingId: null } });
-      if (pairingId === wPairing.id) pairingId = null; // T and W were paired with each other
+      // T's pairing as it is now: none if T and W were paired with each other.
+      pairingId = (await tx.user.findUniqueOrThrow({ where: { id: t.id }, select: { pairingId: true } })).pairingId;
     }
   }
   // The moved pairing, and W's pairing history, now name T.

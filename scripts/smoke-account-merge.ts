@@ -263,8 +263,15 @@ function model(name: string): Row {
       return { count: rows.length };
     },
   };
-  return Object.fromEntries(Object.entries(impl).map(([k, fn]) => [k, (a: Row) => lazy(() => fn(a))]));
+  return Object.fromEntries(Object.entries(impl).map(([k, fn]) => [k, (a: Row) => lazy(() => {
+    const out = fn(a);
+    concurrent?.(name, k, a);
+    return out;
+  })]));
 }
+
+/** Another request's write that commits while a query of ours is in flight, set by a check. */
+let concurrent: ((name: string, method: string, args: Row) => void) | null = null;
 
 const models: Record<string, Row> = {};
 /** Root-client calls made while an interactive transaction was open: Prisma runs those
@@ -454,6 +461,7 @@ function seed() {
   redisStore.clear();
   sent.length = 0;
   captured.length = 0;
+  concurrent = null;
   DB.user = [
     baseUser({ id: 1, name: 'Admin', telegramId: BigInt(5550001), isAdmin: true }),
     baseUser({ id: T, name: 'Dana Cohen', telegramId: BigInt(5550010) }),
@@ -684,6 +692,26 @@ async function main() {
     const rem = rowOf('nativeEvent', 'rem-p-for-w');
     assert(rem?.forUserId === T && rem.creatorUserId === P && rem.calendarId === 'cal-p', `P's reminder ${show(rem)}`);
     assert(referencesTo(W).length === 0, `still pointing at W: ${show(referencesTo(W))}`);
+  });
+
+  await check('#16 T accepts Q\'s invite while the merge runs (after it read T): T keeps Q, and W\'s pairing is unlinked instead of overwriting T\'s', async () => {
+    seed();
+    pairWithP();
+    concurrent = (name, method, args) => {
+      if (name !== 'user' || !method.startsWith('findUnique') || args.where?.id !== T) return;
+      concurrent = null;
+      DB.pairing.push(pairing('pair-tq', Q, T));
+      userRow(T).pairingId = 'pair-tq';
+      userRow(Q).pairingId = 'pair-tq';
+    };
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    assert(userRow(T).pairingId === 'pair-tq' && userRow(Q).pairingId === 'pair-tq', `T=${userRow(T).pairingId} Q=${userRow(Q).pairingId}`);
+    const wp = rowOf('pairing', 'pair-wp');
+    assert(wp?.status === 'UNLINKED' && userRow(P).pairingId === null, `W's pairing ${show(wp)}; P.pairingId ${userRow(P).pairingId}`);
+    const cached = JSON.parse(redisStore.get('reminders:users') ?? '[]').find((u: Row) => u.id === T);
+    assert(cached?.pairingId === 'pair-tq', `reminder cache entry for T ${show(cached)}`);
+    assert(!userRow(W) && referencesTo(W).length === 0, `still pointing at W: ${show(referencesTo(W))}`);
   });
 
   // ---- Merge: subscription ----
