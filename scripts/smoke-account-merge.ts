@@ -11,8 +11,9 @@
 // cache and event-store run for real. Faked at the boundaries: Prisma (in memory, and it
 // enforces the schema: a delete hits ON DELETE RESTRICT / CASCADE / SET NULL as the
 // migrations declare them, unique columns stay unique, a foreign key must point at a row,
-// and a failed transaction rolls back), Redis (in memory), Telegram and messaging (record
-// every send), error capture, and fetch (blocked). No network, no DB.
+// a failed transaction rolls back, and inside an interactive transaction only its tx client
+// works), Redis (in memory), Telegram and messaging (record every send), error capture, and
+// fetch (blocked). No network, no DB.
 //
 // Checks named [guard] already pass before the fix and must keep passing. The others
 // fail until the fix lands.
@@ -266,28 +267,49 @@ function model(name: string): Row {
 }
 
 const models: Record<string, Row> = {};
-const fakePrisma: Row = new Proxy({} as Row, {
-  get(_t, prop) {
-    if (typeof prop !== 'string' || prop === 'then') return undefined;
-    if (prop === '$transaction') {
-      // All or nothing: a throw restores the tables as they were when it began.
-      return async (arg: unknown) => {
-        const before = structuredClone(DB);
-        try {
-          if (typeof arg === 'function') return await arg(fakePrisma);
-          const out: unknown[] = [];
-          for (const op of arg as Row[]) out.push(await op.run());
-          return out;
-        } catch (err) {
-          DB = before;
-          throw err;
-        }
-      };
-    }
-    if (prop.startsWith('$')) return async () => undefined;
-    return (models[prop] ??= model(prop));
-  },
-});
+/** Root-client calls made while an interactive transaction was open: Prisma runs those
+ *  outside the transaction, so the fake refuses them and the run reports them. */
+const strayCalls: string[] = [];
+let interactiveTx = false;
+
+/** The root client, or (isTx) the client an interactive transaction hands its callback. */
+function client(isTx: boolean): Row {
+  return new Proxy({} as Row, {
+    get(_t, prop) {
+      if (typeof prop !== 'string' || prop === 'then') return undefined;
+      if (!isTx && interactiveTx) {
+        strayCalls.push(`prisma.${prop}`);
+        throw new Error(`prisma.${prop} used inside an interactive transaction (use tx)`);
+      }
+      if (prop === '$transaction' && !isTx) {
+        // All or nothing: a throw restores the tables as they were when it began.
+        return async (arg: unknown) => {
+          const before = structuredClone(DB);
+          try {
+            if (typeof arg !== 'function') {
+              const out: unknown[] = [];
+              for (const op of arg as Row[]) out.push(await op.run());
+              return out;
+            }
+            interactiveTx = true;
+            try {
+              return await arg(txClient);
+            } finally {
+              interactiveTx = false;
+            }
+          } catch (err) {
+            DB = before;
+            throw err;
+          }
+        };
+      }
+      if (prop.startsWith('$')) return prop === '$transaction' ? undefined : async () => undefined;
+      return (models[prop] ??= model(prop));
+    },
+  });
+}
+const fakePrisma = client(false);
+const txClient = client(true);
 
 // ---- Fake Redis (Upstash parses JSON on read) ----
 
@@ -649,6 +671,21 @@ async function main() {
     assert(userRow(T).pairingId === null && rowOf('pairing', 'pair-wp')?.status === 'UNLINKED', `T.pairingId ${userRow(T).pairingId}; pairing ${show(rowOf('pairing', 'pair-wp'))}`);
   });
 
+  await check('#15 P invited W, and P set a reminder for W: the pairing moves with T as the invitee, and the reminder is now for T', async () => {
+    seed();
+    pairWithP();
+    Object.assign(rowOf('pairing', 'pair-wp')!, { inviterUserId: P, inviteeUserId: W });
+    DB.nativeEvent.push(event('rem-p-for-w', 'cal-p', P, { kind: 'REMINDER', forUserId: W, armedAt: days(-1) }));
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const pr = rowOf('pairing', 'pair-wp');
+    assert(pr?.status === 'ACTIVE' && pr.inviterUserId === P && pr.inviteeUserId === T, `pairing ${show(pr)}`);
+    assert(userRow(T).pairingId === 'pair-wp' && userRow(P).pairingId === 'pair-wp', `pairingIds T=${userRow(T).pairingId} P=${userRow(P).pairingId}`);
+    const rem = rowOf('nativeEvent', 'rem-p-for-w');
+    assert(rem?.forUserId === T && rem.creatorUserId === P && rem.calendarId === 'cal-p', `P's reminder ${show(rem)}`);
+    assert(referencesTo(W).length === 0, `still pointing at W: ${show(referencesTo(W))}`);
+  });
+
   // ---- Merge: subscription ----
 
   await check('#8 W\'s subscription runs longer (paid, 20 days left; T is on a 3-day trial): T ends up with W\'s', async () => {
@@ -742,6 +779,7 @@ async function main() {
   });
 
   if (sent.length) results.push({ name: 'nothing is sent to Telegram or WhatsApp', ok: false, reason: show(sent) });
+  if (strayCalls.length) results.push({ name: 'inside an interactive transaction only tx is used', ok: false, reason: show(strayCalls) });
 
   let failed = 0;
   for (const r of results) {
