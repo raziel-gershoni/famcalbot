@@ -677,6 +677,29 @@ async function main() {
     assert(primaries.length === 1, `T's primary calendars ${show(primaries.map(c => c.id))}`);
   });
 
+  await check('#34 the two primary calendars fold into T\'s row with W\'s calendar setup (rules, color, name, person, labels) where T\'s is as it started, with the pairing moved or not; a color T chose stays', async () => {
+    const { getMainNativeCalendar } = await load('src/services/native-calendar/event-store.ts');
+    const W_CALENDAR = { rules: ['gym is mine'], color: '#FF0000', name: 'Dana stuff', personName: 'Dana', personGender: 'female', labels: ['primary', 'yours', 'spouse'] };
+    for (const movedPairing of [false, true]) {
+      seed();
+      if (movedPairing) pairWithP();
+      Object.assign(rowOf('nativeCalendar', 'cal-w')!, W_CALENDAR);
+      const result = await link();
+      assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+      const main = await getMainNativeCalendar(T);
+      const differ = Object.keys(W_CALENDAR).filter(k => show(main[k]) !== show((W_CALENDAR as Row)[k]));
+      assert(main.id === 'cal-t' && differ.length === 0, `${movedPairing ? 'moved' : 'plain'} fold: T's main calendar ${show(main)}`);
+      assert(rowOf('nativeEvent', 'ev-w')?.calendarId === 'cal-t', `ev-w ${show(rowOf('nativeEvent', 'ev-w'))}`);
+    }
+    seed();
+    rowOf('nativeCalendar', 'cal-t')!.color = '#00AA00';
+    Object.assign(rowOf('nativeCalendar', 'cal-w')!, W_CALENDAR);
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}`);
+    const main = await getMainNativeCalendar(T);
+    assert(main.color === '#00AA00' && show(main.rules) === show(W_CALENDAR.rules), `T's main calendar ${show(main)}`);
+  });
+
   await check('#3 W\'s usage counter moves (T had none), T\'s override is kept with W\'s early-adopter flag, and W\'s activity and feedback move to T', async () => {
     seed();
     const result = await link();

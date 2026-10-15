@@ -147,6 +147,38 @@ function mergeOverrides(t: UserFeatureOverride, w: UserFeatureOverride) {
   };
 }
 
+/**
+ * A calendar's setup as it starts (the schema defaults). When W's calendar folds
+ * into T's, T's row takes W's value of each field where T's is still the
+ * starting one; so does its name where it is still T's (the default calendar is
+ * named after its owner), and its labels where they are still the default
+ * calendar's primary + yours, or none (ensurePrimaryNativeCalendar). T's
+ * 'primary' stays as it is. Privacy is not setup here: a fold needs it equal.
+ */
+const NEW_CALENDAR = {
+  color: '#039BE5', rules: [] as string[], personName: null as string | null,
+  personEnglishName: null as string | null, personGender: null as string | null,
+} satisfies Partial<NativeCalendar>;
+type CalendarSetupField = keyof typeof NEW_CALENDAR | 'name' | 'labels';
+
+/** The setup T's calendar takes from W's calendar folding into it (see NEW_CALENDAR). */
+function calendarSetupFromW(
+  from: NativeCalendar,
+  into: NativeCalendar,
+  ownerName: string
+): Partial<Pick<NativeCalendar, CalendarSetupField>> {
+  const data: Partial<Record<CalendarSetupField, unknown>> = {};
+  for (const field of Object.keys(NEW_CALENDAR) as (keyof typeof NEW_CALENDAR)[]) {
+    if (into[field] == null || JSON.stringify(into[field]) === JSON.stringify(NEW_CALENDAR[field])) data[field] = from[field];
+  }
+  if (into.name === ownerName.trim()) data.name = from.name;
+  const primary = into.labels.includes('primary');
+  if (JSON.stringify(into.labels) === JSON.stringify(primary ? ['primary', 'yours'] : [])) {
+    data.labels = [...(primary ? ['primary'] : []), ...from.labels.filter(l => l !== 'primary')];
+  }
+  return data as Partial<Pick<NativeCalendar, CalendarSetupField>>;
+}
+
 /** Two default calendars (both primary), or two the user named alike, with the same privacy, are one calendar. */
 function isSameCalendar(a: NativeCalendar, b: NativeCalendar): boolean {
   if (a.privacy !== b.privacy) return false;
@@ -237,8 +269,9 @@ async function mergeWhatsAppUser(
   }
 
   // Calendars. W's default calendar folds into T's (they are named after each
-  // profile, so the names rarely match); the rest move over, soft-deleted ones
-  // too. T keeps one primary calendar. A Google user has no live native
+  // profile, so the names rarely match), and T's row takes W's calendar setup
+  // where T's is as it started (calendarSetupFromW); the rest move over,
+  // soft-deleted ones too. T keeps one primary calendar. A Google user has no live native
   // calendars (oauth-callback soft-deletes them), so for one W's arrive deleted.
   if (tIsNative) {
     const live = (ownerUserId: number) =>
@@ -252,6 +285,7 @@ async function mergeWhatsAppUser(
       if (into) {
         folded.add(into.id);
         await tx.nativeEvent.updateMany({ where: { calendarId: wCalendar.id }, data: { calendarId: into.id } });
+        await tx.nativeCalendar.update({ where: { id: into.id }, data: calendarSetupFromW(wCalendar, into, t.name) });
         await tx.nativeCalendar.delete({ where: { id: wCalendar.id } });
       } else if (wCalendar.labels.includes('primary')) {
         if (tHasPrimary) {
