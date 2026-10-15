@@ -266,14 +266,12 @@ function model(name: string): Row {
 }
 
 const models: Record<string, Row> = {};
-let transactions = 0;
 const fakePrisma: Row = new Proxy({} as Row, {
   get(_t, prop) {
     if (typeof prop !== 'string' || prop === 'then') return undefined;
     if (prop === '$transaction') {
       // All or nothing: a throw restores the tables as they were when it began.
       return async (arg: unknown) => {
-        transactions++;
         const before = structuredClone(DB);
         try {
           if (typeof arg === 'function') return await arg(fakePrisma);
@@ -434,7 +432,6 @@ function seed() {
   redisStore.clear();
   sent.length = 0;
   captured.length = 0;
-  transactions = 0;
   DB.user = [
     baseUser({ id: 1, name: 'Admin', telegramId: BigInt(5550001), isAdmin: true }),
     baseUser({ id: T, name: 'Dana Cohen', telegramId: BigInt(5550010) }),
