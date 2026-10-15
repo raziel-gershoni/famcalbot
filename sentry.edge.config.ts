@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/nextjs';
+import { scrubServerEvent, scrubServerTransaction } from './src/lib/sentry-scrub';
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
@@ -8,4 +9,8 @@ Sentry.init({
 
   // Performance monitoring
   tracesSampleRate: 0.01,
+
+  // No Telegram initData or WhatsApp session cookie in events (both are 24h credentials)
+  beforeSend: (event) => scrubServerEvent(event),
+  beforeSendTransaction: (event) => scrubServerTransaction(event),
 });

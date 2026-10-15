@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/nextjs';
+import { scrubBreadcrumb, scrubBrowserEvent } from './src/lib/sentry-scrub';
 
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
@@ -18,4 +19,9 @@ Sentry.init({
     'ResizeObserver loop limit exceeded',
     'Non-Error promise rejection captured',
   ],
+
+  // No launch fragment (#tgWebAppData=<initData>) in URLs
+  beforeSend: (event) => scrubBrowserEvent(event),
+  beforeSendTransaction: (event) => scrubBrowserEvent(event),
+  beforeBreadcrumb: (breadcrumb) => scrubBreadcrumb(breadcrumb),
 });
