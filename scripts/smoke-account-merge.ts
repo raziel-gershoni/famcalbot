@@ -275,13 +275,19 @@ function model(name: string): Row {
   };
   return Object.fromEntries(Object.entries(impl).map(([k, fn]) => [k, (a: Row) => lazy(() => {
     const out = fn(a);
-    concurrent?.(name, k, a);
+    const other = concurrent;
+    if (other) {
+      other(name, k, a);
+      if (interactiveTx) committedMeanwhile.push(() => other(name, k, a));
+    }
     return out;
   })]));
 }
 
 /** Another request's write that commits while a query of ours is in flight, set by a check. */
 let concurrent: ((name: string, method: string, args: Row) => void) | null = null;
+/** That write committed on its own: a rollback of our transaction keeps it (replayed after the restore). */
+const committedMeanwhile: (() => void)[] = [];
 
 const models: Record<string, Row> = {};
 /** Root-client calls made while an interactive transaction was open: Prisma runs those
@@ -309,6 +315,7 @@ function client(isTx: boolean): Row {
               return out;
             }
             interactiveTx = true;
+            committedMeanwhile.length = 0;
             try {
               return await arg(txClient);
             } finally {
@@ -316,6 +323,7 @@ function client(isTx: boolean): Row {
             }
           } catch (err) {
             DB = before;
+            for (const replay of committedMeanwhile.splice(0)) replay();
             throw err;
           }
         };
@@ -817,6 +825,47 @@ async function main() {
     assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
     assert(userRow(T).pairingId === null && userRow(P).pairingId === null, `T=${userRow(T).pairingId} P=${userRow(P).pairingId}`);
     assert(rowOf('pairing', 'pair-wp')?.status === 'UNLINKED', `W's pairing ${show(rowOf('pairing', 'pair-wp'))}`);
+  });
+
+  await check('#35 P unlinks while the merge moves the pairing to T (after unlink read it): the pairing ends UNLINKED by P and T is not left on it', async () => {
+    seed();
+    pairWithP();
+    concurrent = (name, method) => {
+      if (name !== 'pairing' || method !== 'findUnique') return;
+      concurrent = null;
+      // The merge commits: the pairing names T, T is on it, W is gone.
+      rowOf('pairing', 'pair-wp')!.inviterUserId = T;
+      userRow(T).pairingId = 'pair-wp';
+      DB.user = DB.user.filter(u => u.id !== W);
+    };
+    const { unlink } = await load('src/services/pairing-service.ts');
+    await unlink(P);
+    const pr = rowOf('pairing', 'pair-wp');
+    assert(pr?.status === 'UNLINKED' && pr.unlinkedByUserId === P, `pairing ${show(pr)}`);
+    assert(userRow(T).pairingId === null && userRow(P).pairingId === null, `T=${userRow(T).pairingId} P=${userRow(P).pairingId}`);
+  });
+
+  await check('#36 both partners unlink at once (W after P read the pairing): P gets NOT_PAIRED and W\'s unlink stands', async () => {
+    seed();
+    pairWithP();
+    const unlinkedAt = new Date(Date.now() - 1000);
+    concurrent = (name, method) => {
+      if (name !== 'pairing' || method !== 'findUnique') return;
+      concurrent = null;
+      Object.assign(rowOf('pairing', 'pair-wp')!, { status: 'UNLINKED', unlinkedAt, unlinkedByUserId: W });
+      userRow(W).pairingId = null;
+      userRow(P).pairingId = null;
+    };
+    const { unlink } = await load('src/services/pairing-service.ts');
+    let code = '';
+    try {
+      await unlink(P);
+    } catch (err) {
+      code = String((err as Row).code);
+    }
+    const pr = rowOf('pairing', 'pair-wp');
+    assert(code === 'NOT_PAIRED', `P's unlink: ${code || 'succeeded'}`);
+    assert(pr?.unlinkedByUserId === W && same(pr.unlinkedAt, unlinkedAt), `pairing ${show(pr)}`);
   });
 
   // ---- Merge: W's own setup ----
