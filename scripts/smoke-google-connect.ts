@@ -1068,6 +1068,31 @@ async function main() {
     assert(/startTime:\s*attemptSince\(/.test(src), 'the pending attempt does not store attemptSince(...) as its startTime');
   });
 
+  await check('#28 [guard] the signature covers Meta\'s raw bytes: \\u-escaped Hebrew, an escaped slash and a space after a colon still verify', async () => {
+    seed();
+    process.env.WHATSAPP_APP_SECRET = APP_SECRET;
+    try {
+      const id = await pendingFor(42);
+      const canonical = JSON.stringify(waText(WA_BSUID, `gc_${id} https://famcal.bot`, { bsuid: WA_BSUID }));
+      // As Meta writes it: non-ASCII as \uXXXX, '/' as '\/', and a space after a colon
+      const raw = canonical
+        .replace('"name":"Sender"', '"name": "\\u05e0\\u05d5\\u05e2\\u05d4"')
+        .replace('https://famcal.bot', 'https:\\/\\/famcal.bot');
+      const parsed = JSON.parse(raw);
+      assert(parsed.entry[0].changes[0].value.contacts[0].profile.name === 'נועה'
+        && parsed.entry[0].changes[0].value.messages[0].text.body.endsWith(' https://famcal.bot'), `raw ${raw}`);
+      assert(JSON.stringify(parsed) !== raw, 'the raw body is canonical JSON');
+      // A route that verified the re-serialized body would refuse Meta's real signature
+      const { isValidWhatsAppSignature } = await load('src/lib/whatsapp-signature.ts');
+      assert(!isValidWhatsAppSignature(JSON.stringify(parsed), signWa(raw), APP_SECRET), 'the signature also fits the re-serialized body');
+      const good = await postWebhook(raw, { 'x-hub-signature-256': signWa(raw) });
+      assert(good.status === 200, `status ${good.status}`);
+      assert(await savedToken(42) === 'google-rt-new', `not committed; ${captured.join(' | ')}`);
+    } finally {
+      process.env.WHATSAPP_APP_SECRET = '';
+    }
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);
