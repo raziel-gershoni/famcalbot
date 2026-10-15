@@ -39,6 +39,7 @@ const OAUTH_PENDING_KEY = 'famcalbot_oauth_pending';
  * After Google opens, ask every 2 s for up to 3 minutes whether the connection landed.
  * It lands only when the owner taps the finish page's button and the bot commits it, often
  * while this page is already visible again, so visibilitychange alone would miss it.
+ * check-token-refresh has a rate limit of its own for this (tokenPollRateLimiter).
  */
 const POLL_INTERVAL_MS = 2000;
 const POLL_WINDOW_MS = 3 * 60_000;
@@ -105,11 +106,12 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     checkInFlight.current = true;
     if (!quiet) setIsChecking(true);
     try {
-      const { userId: pendingUserId } = JSON.parse(pending);
+      const { userId: pendingUserId, startTime } = JSON.parse(pending);
       // initData goes in a header, never the URL: it is a credential for 24 hours, and
-      // URLs end up in logs and traces
+      // URLs end up in logs and traces. since: only a commit after this attempt counts, so
+      // a connect from minutes ago can't skip the consent that's still open
       const initData = readInitData();
-      const response = await fetch(`/api/check-token-refresh?user_id=${pendingUserId}`, {
+      const response = await fetch(`/api/check-token-refresh?user_id=${pendingUserId}&since=${startTime}`, {
         credentials: 'same-origin',
         headers: initData ? { 'X-Telegram-Init-Data': initData } : undefined,
       });

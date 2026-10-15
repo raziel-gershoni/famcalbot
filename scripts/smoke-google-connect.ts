@@ -9,6 +9,10 @@
 // WHATSAPP_APP_SECRET is set, and entries with no phone_number_id are dropped once
 // WHATSAPP_PHONE_NUMBER_ID is set.
 //
+// Review fixes (#20-#21): the poll counts only a commit after the attempt began (since),
+// so a flag from an earlier connect can't skip the consent; and the poll has a rate limit
+// of its own, apart from the general one page-data shares.
+//
 // The callback page, the finish page's helpers, google-connect, the webhook route, the
 // Telegram and WhatsApp webhook handlers, /start (webhook and polling), magic-link,
 // check-token-refresh and user-service run for real. Faked at the boundaries: Prisma (in
@@ -235,6 +239,8 @@ type Sent = { via: string; platform: string; chatId: unknown; text?: string; opt
 const sent: Sent[] = [];
 const captured: string[] = [];
 const adminNotes: string[] = [];
+/** Which limiter each rate-limit check used. */
+const limiterUses: string[] = [];
 
 const recorder = (platform: string, prefix: string): Row =>
   new Proxy({} as Row, {
@@ -296,8 +302,12 @@ function installStubs() {
   stub('src/utils/prisma.ts', { prisma: fakePrisma, withRetry: (fn: () => unknown) => fn() });
   stub('src/utils/redis.ts', { redis: fakeRedis });
   stub('src/lib/rate-limit.ts', {
-    settingsRateLimiter: {}, commandRateLimiter: {}, generalRateLimiter: {},
-    checkRateLimit: async () => ({ success: true, limit: 99, remaining: 99, reset: 0 }),
+    settingsRateLimiter: { name: 'settings' }, commandRateLimiter: { name: 'command' }, generalRateLimiter: { name: 'general' },
+    tokenPollRateLimiter: { name: 'token-poll' },
+    checkRateLimit: async (limiter: Row) => {
+      limiterUses.push(String(limiter?.name));
+      return { success: true, limit: 99, remaining: 99, reset: 0 };
+    },
     getRateLimitHeaders: () => ({}),
   });
   const capture = (e: unknown, ctx: string) => { captured.push(`${ctx}: ${e instanceof Error ? e.message : String(e)}`); };
@@ -381,6 +391,7 @@ function seed() {
   sent.length = 0;
   captured.length = 0;
   adminNotes.length = 0;
+  limiterUses.length = 0;
   googleAnswer = { refresh_token: 'google-rt-new', scope: BOTH_SCOPES, access_token: 'test' };
   DB.user = [
     baseUser({ id: 9, name: 'Tal Cohen', telegramId: BigInt(TAL_TG), remindersEnabled: true }),
@@ -854,6 +865,50 @@ async function main() {
     } finally {
       process.env.WHATSAPP_PHONE_NUMBER_ID = '';
     }
+  });
+
+  // ---- Review fixes ----
+
+  const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+  const askRefreshed = async (since?: number) => {
+    const { GET } = await load('app/api/check-token-refresh/route.ts');
+    const query = `user_id=${TAL_TG}${since === undefined ? '' : `&since=${since}`}`;
+    const res: Response = await GET(new NextRequest(`http://localhost/api/check-token-refresh?${query}`, {
+      headers: { 'x-telegram-init-data': initDataFor(TAL_TG) },
+    }));
+    return { status: res.status, body: await res.json() };
+  };
+
+  await check('#20 check-token-refresh: a flag from a connect before this attempt (since) is not success; a commit after it is', async () => {
+    seed();
+    // An earlier connect left its flag; then the user taps Connect again (since)
+    await tgWebhook(tgText(TAL_TG, `/start gc_${await pendingFor(9)}`));
+    assert(redisStore.has('googleConnected:9'), `the first commit set no flag; ${captured.join(' | ')}`);
+    await pause(5);
+    const since = Date.now();
+    const stale = await askRefreshed(since);
+    assert(stale.status === 200 && stale.body.refreshed === false, `while still at Google: ${show(stale)}`);
+    await pause(5);
+    await tgWebhook(tgText(TAL_TG, `/start gc_${await pendingFor(9)}`));
+    const fresh = await askRefreshed(since);
+    assert(fresh.status === 200 && fresh.body.refreshed === true, `after the new commit: ${show(fresh)}`);
+    const noSince = await askRefreshed();
+    assert(noSince.status === 400, `no since: ${show(noSince)}`);
+    const src = fs.readFileSync(path.join(ROOT, 'app/refresh-token/RefreshTokenClient.tsx'), 'utf8');
+    const poll = src.match(/fetch\(`\/api\/check-token-refresh[^`]*`/)?.[0] ?? '';
+    assert(/&since=\$\{/.test(poll), `the client's poll URL sends no since: ${poll || '(not found)'}`);
+  });
+
+  await check('#21 check-token-refresh has a rate limit of its own, not the general one page-data shares', async () => {
+    seed();
+    const res = await askRefreshed(Date.now());
+    assert(res.status === 200, `status ${show(res)}`);
+    assert(limiterUses.length === 1 && limiterUses[0] === 'token-poll', `limiters used: ${show(limiterUses)}`);
+    const src = fs.readFileSync(path.join(ROOT, 'src/lib/rate-limit.ts'), 'utf8');
+    const def = src.match(/export const tokenPollRateLimiter = new Ratelimit\(\{[\s\S]*?slidingWindow\((\d+), '1 m'\)[\s\S]*?prefix: '([^']+)'/);
+    assert(def, 'rate-limit.ts defines no tokenPollRateLimiter');
+    // 30 a minute from the 2 s poll, plus visibilitychange checks
+    assert(Number(def[1]) >= 60 && def[2] !== 'ratelimit:general', `limit ${def[1]}, prefix ${def[2]}`);
   });
 
   let failed = 0;

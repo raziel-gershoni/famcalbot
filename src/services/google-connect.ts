@@ -158,7 +158,8 @@ export async function commitGoogleToken(ownerUserId: number, refreshToken: strin
     `User ${user.telegramId ?? user.id} (${user.name || 'Unknown'}) successfully refreshed their Google Calendar token`
   ).catch(err => captureError(err, 'oauth-admin-notify', {}, 'warning'));
 
-  // The token is saved; a lost flag only means the Mini App waits for the bot's button
+  // The token is saved; a lost flag only means the Mini App waits for the bot's button.
+  // Its value is when: the poll counts only a commit after its own attempt opened Google.
   try {
     await redis.set(REDIS_KEYS.googleConnected(user.id), Date.now(), { ex: CONNECTED_FLAG_TTL_SECONDS });
   } catch (err) {

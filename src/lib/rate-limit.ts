@@ -27,6 +27,15 @@ export const generalRateLimiter = new Ratelimit({
   prefix: 'ratelimit:general',
 });
 
+// check-token-refresh: 60 requests per minute, on a budget of its own. /refresh-token polls
+// it every 2 s while Google is open, which alone would use up the general limit, and with it
+// the select-calendars page-data load that follows the commit
+export const tokenPollRateLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(60, '1 m'),
+  prefix: 'ratelimit:token-poll',
+});
+
 export interface RateLimitResult {
   success: boolean;
   remaining: number;
