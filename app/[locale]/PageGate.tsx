@@ -55,6 +55,29 @@ function PageLoader({ look, label }: { look: Look; label?: string }) {
   );
 }
 
+/**
+ * Full height and the page's Telegram chrome at once, not after the data round trip.
+ * The page's TelegramLayout repeats these later; ready() and expand() are idempotent.
+ * Some WebApp versions throw on a hex colour, and a throw here would replace the gate.
+ */
+export function startMiniApp(look: Look) {
+  const tg = window.Telegram?.WebApp;
+  if (!tg) return;
+  tg.ready();
+  tg.expand();
+  if (look !== 'telegram') return;
+  try {
+    tg.setHeaderColor('#667eea');
+  } catch (e) {
+    console.error('[PageGate] Could not set the header colour:', e);
+  }
+  try {
+    tg.setBackgroundColor('#ffffff');
+  } catch (e) {
+    console.error('[PageGate] Could not set the background colour:', e);
+  }
+}
+
 const telegramLoader = () => <PageLoader look="telegram" />;
 const lightLoader = () => <PageLoader look="light" />;
 
@@ -180,6 +203,11 @@ export default function PageGate({ page, userId, locale, notices = {} }: PageGat
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   // A result belongs to one request; a new page, user, locale or retry shows the loader.
   const key = `${page}|${userId}|${locale}|${attempt}`;
+
+  // Declared before the data effect, so it runs in the hydration commit, before the fetch
+  useEffect(() => {
+    startMiniApp(LOOK[page]);
+  }, [page]);
 
   useEffect(() => {
     let cancelled = false;

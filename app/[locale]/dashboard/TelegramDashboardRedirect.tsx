@@ -17,12 +17,13 @@ export default function TelegramDashboardRedirect({ locale }: TelegramDashboardR
     if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
       const tg = window.Telegram.WebApp;
 
-      // MUST call ready() first thing
+      // MUST call ready() first thing; full height before the dashboard loads
       tg.ready();
+      tg.expand();
 
-      // Set theme colors
+      // Set theme colors (the dashboard's purple header from the first frame)
       try {
-        tg.setHeaderColor('secondary_bg_color');
+        tg.setHeaderColor('#667eea');
         tg.setBackgroundColor('#ffffff');
       } catch (e) {
         console.error('Could not set Telegram colors:', e);
