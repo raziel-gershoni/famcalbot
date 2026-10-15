@@ -7,14 +7,14 @@
  * 2. User sends "link CODE" on WhatsApp → redeemLinkCode() → accounts merged
  */
 
-import type { NativeCalendar, Prisma, Subscription, UserFeatureOverride } from '@prisma/client';
+import type { NativeCalendar, Prisma, Subscription, User, UserFeatureOverride } from '@prisma/client';
 import { redis } from '../utils/redis';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { prisma } from '../utils/prisma';
-import { getUserByTelegramId } from './user-service';
+import { getUserById, getUserByTelegramId } from './user-service';
 import { convertPrismaUserToConfig, UserConfig } from '../types';
 import { invalidateFeatureAccessCache } from './subscription-service';
-import { getCachedReminderUsers, updateUserInCache } from './reminder-cache';
+import { removeUserFromCache, updateUserInCache } from './reminder-cache';
 import { invalidateDueGate } from './native-reminders/due-gate';
 import { clearDeletedUserCaches } from '../lib/user-moderation';
 
@@ -84,6 +84,50 @@ function runsLonger(a: Subscription, b: Subscription): boolean {
   return aKind !== bKind ? aKind > bKind : aEnds > bEnds;
 }
 
+/**
+ * W's profile and setup, as a new account starts them (the schema defaults, and what
+ * getOrCreateUser sets). T takes W's value for each field where T's is still the starting
+ * one, so a T that /start connect made seconds ago ends up with W's setup and an
+ * established T keeps what it chose. Name (getOrCreateUser's 'User'), location with
+ * locationForced, and language have their own rules (setupFromW).
+ * Never copied: ids and bookkeeping (id, telegramId, createdAt, updatedAt,
+ * reminderStartAt), admin and moderation state (isAdmin, suspendedAt/By/Reason) and
+ * Telegram delivery state (unreachableSince), and the calendar setup (calendarSource,
+ * googleRefreshToken, calendarAssignments). Set by the merge itself: the WhatsApp ids,
+ * messagingPlatform and pairingId. There is no timezone column: it is resolved from
+ * location.
+ */
+const NEW_ACCOUNT = {
+  englishName: '', gender: 'male', culture: 'default', globalRules: [] as string[],
+  textSummaryEnabled: true, voiceSummaryEnabled: true, voiceInputEnabled: false, voicePreference: 'default',
+  voiceStyle: 'natural', weatherEnabled: true, includeWeeklyInLookahead: false, includeLookaheadInTomorrow: false,
+  lookaheadAlways7Days: false, preferredMorningHour: 7, preferredEveningHour: 19,
+  dailySummaryDays: [0, 1, 2, 3, 4, 5, 6], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6],
+  remindersEnabled: false, defaultReminderMinutes: null as number | null, pickupRemindersEnabled: true,
+} satisfies Partial<User>;
+type SetupField = keyof typeof NEW_ACCOUNT | 'name' | 'location' | 'locationForced' | 'language';
+
+/** A Telegram account this young was made by the /start connect that sent the link code. */
+const FRESH_ACCOUNT_MS = 24 * 60 * 60 * 1000;
+
+/** The setup fields T takes from W (see NEW_ACCOUNT). */
+function setupFromW(w: User, t: User): Partial<Pick<User, SetupField>> {
+  const data: Partial<Record<SetupField, unknown>> = {};
+  for (const field of Object.keys(NEW_ACCOUNT) as (keyof typeof NEW_ACCOUNT)[]) {
+    const start = NEW_ACCOUNT[field];
+    if (t[field] == null || JSON.stringify(t[field]) === JSON.stringify(start)) data[field] = w[field];
+  }
+  if (!t.name.trim() || t.name === 'User') data.name = w.name;
+  // The location and whether the user confirmed it go together.
+  if (!t.location) {
+    data.location = w.location;
+    data.locationForced = w.locationForced;
+  }
+  // T's language is the Telegram client's; the user chose W's.
+  if (Date.now() - t.createdAt.getTime() < FRESH_ACCOUNT_MS) data.language = w.language;
+  return data as Partial<Pick<User, SetupField>>;
+}
+
 /** Override grants only ever grant: a grant set on either side survives, else T's value, else W's. */
 function mergeOverrides(t: UserFeatureOverride, w: UserFeatureOverride) {
   const grant = (a: boolean | null, b: boolean | null) => (a === true || b === true ? true : a ?? b);
@@ -109,11 +153,11 @@ function isSameCalendar(a: NativeCalendar, b: NativeCalendar): boolean {
  * Fold the WhatsApp-only user W into the Telegram user T and delete W, inside
  * the caller's transaction. Everything W has moves to T, so the delete clears
  * the schema's ON DELETE RESTRICT relations (calendars, created events,
- * pairings, the per-user rows). A moved pairing shares T's calendars, as
- * accepting an invite does. Otherwise a moved calendar keeps its privacy (W's
- * go PRIVATE when the merge unpairs W) and a fold needs the same privacy on
- * both sides, so the merge shows nobody an event their pairing did not share.
- * Returns T's pairingId after the merge.
+ * pairings, the per-user rows), and T takes W's setup (setupFromW). A moved
+ * pairing shares T's calendars, as accepting an invite does. Otherwise a moved
+ * calendar keeps its privacy (W's go PRIVATE when the merge unpairs W) and a
+ * fold needs the same privacy on both sides, so the merge shows nobody an event
+ * their pairing did not share. Returns T's pairingId after the merge.
  */
 async function mergeWhatsAppUser(
   tx: Prisma.TransactionClient,
@@ -254,6 +298,7 @@ async function mergeWhatsAppUser(
   await tx.user.update({
     where: { id: t.id },
     data: {
+      ...setupFromW(w, t),
       whatsappPhone: w.whatsappPhone || null,
       whatsappBsuid: w.whatsappBsuid || null,
       messagingPlatform: 'all',
@@ -264,18 +309,42 @@ async function mergeWhatsAppUser(
 }
 
 /**
- * After a merge commits: W's caches go, T's reminder-cache entry gets the
- * pairing it now has (the reminder run reads it from there until the hourly
- * sync), and the reminder pass wakes for the reminders T took over. Best
- * effort: the merge has already happened. T's feature access is invalidated
- * by the caller, as for a plain link.
+ * After a merge commits: W's caches go, T's timezone is resolved again (from
+ * the location T may have taken from W), T's reminder-cache entry is rebuilt
+ * from T as it is now (the reminder run reads the pairing, calendar source,
+ * token and language from there until the hourly sync), and the reminder pass
+ * wakes for the reminders T took over. Best effort: the merge has already
+ * happened. T's feature access is invalidated by the caller, as for a plain link.
  */
-async function afterMerge(wUserId: number, tUserId: number, pairingId: string | null): Promise<void> {
+async function afterMerge(wUserId: number, tUserId: number): Promise<void> {
   await clearDeletedUserCaches(wUserId);
   invalidateDueGate();
-  const cached = (await getCachedReminderUsers())?.find(u => u.id === tUserId);
-  if (cached && (cached.pairingId ?? null) !== pairingId) {
-    await updateUserInCache({ ...cached, pairingId });
+  try {
+    await redis.del(REDIS_KEYS.userTimezone(tUserId));
+    const t = await getUserById(tUserId);
+    if (!t) return;
+    // Who belongs in the cache is the hourly sync's rule, as in the settings route.
+    const remindable = t.remindersEnabled && t.telegramId !== null && !t.suspendedAt && !t.unreachableSince &&
+      (!!t.googleRefreshToken || t.calendarSource === 'NATIVE');
+    if (!remindable) {
+      await removeUserFromCache(t.id);
+      return;
+    }
+    await updateUserInCache({
+      id: t.id,
+      telegramId: t.telegramId?.toString() ?? '',
+      googleRefreshToken: t.googleRefreshToken, // Decrypted by convertPrismaUserToConfig
+      calendarAssignments: t.calendarAssignments,
+      calendarSource: t.calendarSource,
+      pairingId: t.pairingId,
+      defaultReminderMinutes: t.defaultReminderMinutes ?? null,
+      language: t.language,
+      name: t.name,
+      pickupRemindersEnabled: t.pickupRemindersEnabled ?? true,
+      location: t.location,
+    });
+  } catch (err) {
+    console.warn(`[AccountLink] Cache refresh after merging into ${tUserId} failed:`, err);
   }
 }
 
@@ -324,10 +393,10 @@ export async function redeemLinkCode(code: string, whatsappPhone: string): Promi
     }
 
     if (waOnlyUser && waOnlyUser.id !== telegramUser.id) {
-      const pairingId = await prisma.$transaction((tx) =>
+      await prisma.$transaction((tx) =>
         mergeWhatsAppUser(tx, waOnlyUser.id, telegramUser.id)
       );
-      await afterMerge(waOnlyUser.id, telegramUser.id, pairingId);
+      await afterMerge(waOnlyUser.id, telegramUser.id);
 
       console.log(`[AccountLink] Merged WA-only user ${waOnlyUser.id} into TG user ${telegramUser.id}`);
     } else if (!waOnlyUser) {

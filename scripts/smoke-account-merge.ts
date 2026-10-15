@@ -415,12 +415,18 @@ const Q = 40; // T's partner
 const PHONE = '972500000020';
 const CODE = 'ABC234';
 
+/** Every User column, at the schema's defaults where it has one. */
 function baseUser(o: Row): Row {
   return {
     name: 'x', englishName: '', gender: 'male', language: 'en', location: 'Tel Aviv', culture: 'default',
-    messagingPlatform: 'telegram', googleRefreshToken: '', calendarAssignments: null, calendarSource: 'NATIVE',
-    pairingId: null, remindersEnabled: true, suspendedAt: null, unreachableSince: null, whatsappPhone: null,
-    whatsappBsuid: null, telegramId: null, isAdmin: false, globalRules: [],
+    locationForced: false, messagingPlatform: 'telegram', googleRefreshToken: '', calendarAssignments: null,
+    calendarSource: 'NATIVE', pairingId: null, remindersEnabled: true, suspendedAt: null, suspendedBy: null,
+    suspendedReason: null, unreachableSince: null, whatsappPhone: null, whatsappBsuid: null, telegramId: null,
+    isAdmin: false, globalRules: [], textSummaryEnabled: true, voiceSummaryEnabled: true, voiceInputEnabled: false,
+    voicePreference: 'default', voiceStyle: 'natural', weatherEnabled: true, includeWeeklyInLookahead: false,
+    includeLookaheadInTomorrow: false, lookaheadAlways7Days: false, preferredMorningHour: 7, preferredEveningHour: 19,
+    dailySummaryDays: [0, 1, 2, 3, 4, 5, 6], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6], defaultReminderMinutes: null,
+    pickupRemindersEnabled: true, reminderStartAt: null,
     createdAt: days(-30), updatedAt: days(-1),
     ...o,
   };
@@ -530,6 +536,23 @@ function pairTWithQ() {
   userRow(Q).pairingId = 'pair-tq';
   for (const c of DB.nativeCalendar) if ([T, Q].includes(c.ownerUserId) && !c.isDeleted) c.privacy = 'SHARED_EDITOR';
 }
+
+/** T as /start connect leaves it a minute before 'link CODE': getOrCreateUser's values (no
+ *  location, Telegram's language) and the schema defaults, an empty PRIVATE primary calendar. */
+function freshT() {
+  const minuteAgo = new Date(Date.now() - 60_000);
+  Object.assign(userRow(T), { location: '', language: 'ru', remindersEnabled: false, createdAt: minuteAgo, updatedAt: minuteAgo });
+  DB.nativeEvent = DB.nativeEvent.filter(e => e.calendarId !== 'cal-t');
+}
+
+/** W's setup, made on WhatsApp over months: no value is a default. */
+const W_SETUP: Row = {
+  englishName: 'Dana', gender: 'female', language: 'he', location: 'Haifa', locationForced: true, culture: 'jewish',
+  globalRules: ['Noa is my daughter'], voiceSummaryEnabled: false, voiceInputEnabled: true, voicePreference: 'Algieba',
+  voiceStyle: 'calm', weatherEnabled: false, includeWeeklyInLookahead: true, includeLookaheadInTomorrow: true,
+  lookaheadAlways7Days: true, preferredMorningHour: 6, preferredEveningHour: 21, dailySummaryDays: [0, 1, 2, 3, 4],
+  tomorrowSummaryDays: [6, 0, 1, 2, 3], remindersEnabled: true, defaultReminderMinutes: 30, pickupRemindersEnabled: false,
+};
 
 const userRow = (id: number) => DB.user.find(u => u.id === id) as Row;
 const rowOf = (name: string, id: string) => table(name).find(r => r.id === id);
@@ -754,6 +777,43 @@ async function main() {
     assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
     assert(userRow(T).pairingId === null && userRow(P).pairingId === null, `T=${userRow(T).pairingId} P=${userRow(P).pairingId}`);
     assert(rowOf('pairing', 'pair-wp')?.status === 'UNLINKED', `W's pairing ${show(rowOf('pairing', 'pair-wp'))}`);
+  });
+
+  // ---- Merge: W's own setup ----
+
+  await check('#23 a fresh T (/start connect made it a minute ago) takes W\'s setup: location, gender, language, summary hours and days, reminder, voice and weather settings', async () => {
+    seed();
+    freshT();
+    Object.assign(userRow(W), W_SETUP, { reminderStartAt: days(-3) });
+    redisStore.set(`tz:user:${T}`, 'Asia/Jerusalem');
+    const tBefore = { ...userRow(T) };
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const t = userRow(T);
+    const differ = Object.keys(W_SETUP).filter(k => show(t[k]) !== show(W_SETUP[k]));
+    assert(differ.length === 0, `not carried over: ${show(Object.fromEntries(differ.map(k => [k, t[k]])))}`);
+    // Never copied: T's own name (Telegram's, not a default), ids and bookkeeping
+    assert(t.name === 'Dana Cohen' && String(t.telegramId) === '5550010' && same(t.createdAt, tBefore.createdAt) && t.reminderStartAt === null,
+      `T ${show({ name: t.name, telegramId: t.telegramId, createdAt: t.createdAt, reminderStartAt: t.reminderStartAt })}`);
+    assert(!redisStore.has(`tz:user:${T}`), 'T\'s timezone cache was kept (it came from no location)');
+    const cached = JSON.parse(redisStore.get('reminders:users') ?? '[]').find((u: Row) => u.id === T);
+    assert(cached?.language === 'he' && cached.location === 'Haifa' && cached.defaultReminderMinutes === 30, `reminder cache entry for T ${show(cached)}`);
+  });
+
+  await check('#24 an established T (a month old) keeps its own settings, its language included; a setting it never changed takes W\'s', async () => {
+    seed();
+    const T_SETUP: Row = {
+      englishName: 'Dana C', language: 'en', location: 'Tel Aviv', locationForced: false, voicePreference: 'Kore', voiceStyle: 'cheerful',
+      preferredMorningHour: 8, preferredEveningHour: 20, dailySummaryDays: [1, 3, 5], tomorrowSummaryDays: [0], defaultReminderMinutes: 15,
+    };
+    Object.assign(userRow(T), T_SETUP);
+    Object.assign(userRow(W), W_SETUP);
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const t = userRow(T);
+    const changed = Object.keys(T_SETUP).filter(k => show(t[k]) !== show(T_SETUP[k]));
+    assert(changed.length === 0, `overwritten: ${show(Object.fromEntries(changed.map(k => [k, t[k]])))}`);
+    assert(show(t.globalRules) === show(W_SETUP.globalRules), `T's rules ${show(t.globalRules)}`);
   });
 
   // ---- Merge: subscription ----
