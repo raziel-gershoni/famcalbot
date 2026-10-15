@@ -10,6 +10,7 @@
 import { acceptInvite, PairingError, type PairingErrorCode } from '../pairing-service';
 import { prisma } from '../../utils/prisma';
 import { getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat, type IMessagingService } from '../messaging';
+import { buildWhatsAppTemplate } from '../messaging/whatsapp-template';
 import { getMessagingService } from './bot';
 import { normalizeLocale, type Locale } from '../../utils/locale';
 import { captureError } from '../../lib/error-capture';
@@ -24,7 +25,7 @@ type PairCopy = {
   errors: Record<Exclude<PairingErrorCode, 'NOT_PAIRED'>, string>;
   /** To the acceptor. The inviter's name comes in HTML-escaped, '' when there is none. */
   accepted: (inviterName: string) => string;
-  /** To the inviter. The acceptor's name comes in HTML-escaped, '' when there is none. */
+  /** To a Telegram inviter (a WhatsApp one gets the template). The acceptor's name comes in HTML-escaped, '' when there is none. */
   acceptedNotification: (acceptorName: string) => string;
 };
 
@@ -101,6 +102,11 @@ function pairingErrorMessage(code: PairingErrorCode, locale: string): string {
  * are logged but never block the success message to the acceptor. Used by
  * the chat accept below and by POST /api/pair/accept. Written in the inviter's
  * language; an empty acceptorName gets a message without a name.
+ *
+ * A WhatsApp inviter gets the famcal_notify template instead: free-form text
+ * outside their 24h window is rejected (131047), and only later, by a status
+ * callback. Its button sends "settings", answered with the dashboard link,
+ * where the pairing shows.
  */
 export async function notifyInviterOfAccept(inviterUserId: number, acceptorName: string): Promise<void> {
   try {
@@ -109,7 +115,6 @@ export async function notifyInviterOfAccept(inviterUserId: number, acceptorName:
       select: { telegramId: true, whatsappPhone: true, whatsappBsuid: true, language: true, messagingPlatform: true },
     });
     if (!inviter) return;
-    const message = pairCopy(inviter.language).acceptedNotification(escapeHtml(acceptorName));
     const platform =
       inviter.messagingPlatform === 'whatsapp' && (inviter.whatsappPhone || inviter.whatsappBsuid)
         ? MessagingPlatform.WHATSAPP
@@ -120,6 +125,12 @@ export async function notifyInviterOfAccept(inviterUserId: number, acceptorName:
         ? Number(inviter.telegramId)
         : inviter.whatsappPhone ?? inviter.whatsappBsuid ?? '';
     if (!inviterChatId) return;
+    if (platform === MessagingPlatform.WHATSAPP) {
+      const whatsappTemplate = buildWhatsAppTemplate(normalizeLocale(inviter.language), 'settings');
+      await service.sendMessage(inviterChatId, '', { whatsappTemplate });
+      return;
+    }
+    const message = pairCopy(inviter.language).acceptedNotification(escapeHtml(acceptorName));
     await service.sendMessage(inviterChatId, message, { format: MessageFormat.HTML });
   } catch (err) {
     captureError(err, 'pair-notify-inviter', undefined, 'warning');
