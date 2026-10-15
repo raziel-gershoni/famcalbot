@@ -21,10 +21,11 @@
 // let T's partner see W's calendars; a fresh T kept its Telegram name, and its menu button
 // stayed in the Telegram client's language.
 //
-// Third follow-up (#40-#43, #33 changed): a fresh T's empty primary calendar stayed the main
+// Third follow-up (#40-#44, #33 changed): a fresh T's empty primary calendar stayed the main
 // one whenever the two primaries did not fold (W's shared from an old unlink, or set back to
-// PRIVATE in a moved pairing), a fold renamed T's calendar to W's default name, and W's Google
-// connection replaced the native events a T under a day old had already added.
+// PRIVATE in a moved pairing), a fold renamed T's calendar to W's default name, W's Google
+// connection replaced the native events a T under a day old had already added, and an unlink
+// by W that read the pairing before the merge moved it ended T's pairing.
 //
 // account-linking, user-moderation, user-service, subscription-service, the reminder
 // cache and event-store run for real. Faked at the boundaries: Prisma (in memory, and it
@@ -976,6 +977,30 @@ async function main() {
     const pr = rowOf('pairing', 'pair-wp');
     assert(code === 'NOT_PAIRED', `P's unlink: ${code || 'succeeded'}`);
     assert(pr?.unlinkedByUserId === W && same(pr.unlinkedAt, unlinkedAt), `pairing ${show(pr)}`);
+  });
+
+  await check('#44 W unlinks while the merge moves the pairing to T (after unlink read it): W gets NOT_PAIRED, and T and P stay paired', async () => {
+    seed();
+    pairWithP();
+    concurrent = (name, method) => {
+      if (name !== 'pairing' || method !== 'findUnique') return;
+      concurrent = null;
+      // The merge commits: the pairing names T, T is on it, W is gone.
+      rowOf('pairing', 'pair-wp')!.inviterUserId = T;
+      userRow(T).pairingId = 'pair-wp';
+      DB.user = DB.user.filter(u => u.id !== W);
+    };
+    const { unlink } = await load('src/services/pairing-service.ts');
+    let code = '';
+    try {
+      await unlink(W);
+    } catch (err) {
+      code = String((err as Row).code);
+    }
+    const pr = rowOf('pairing', 'pair-wp');
+    assert(code === 'NOT_PAIRED', `W's unlink: ${code || 'succeeded'}`);
+    assert(pr?.status === 'ACTIVE' && pr.unlinkedByUserId === null, `pairing ${show(pr)}`);
+    assert(userRow(T).pairingId === 'pair-wp' && userRow(P).pairingId === 'pair-wp', `T=${userRow(T).pairingId} P=${userRow(P).pairingId}`);
   });
 
   await check('#37 both paired, and P unlinks after the merge read W\'s pairing: W\'s calendars still come over private, so Q sees none of them or P\'s events', async () => {

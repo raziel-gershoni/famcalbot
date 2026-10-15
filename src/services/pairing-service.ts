@@ -217,9 +217,10 @@ export async function acceptInvite(token: string, acceptingUserId: number): Prom
  * partner on the next read.
  *
  * The UNLINKED write is conditional, as acceptInvite's are: count 0 means the
- * partner unlinked first. The members are cleared by pairingId, not by the ids
- * read above, since an account merge may have moved the pairing to another
- * user in between.
+ * partner unlinked first, or an account merge moved the requester's side of the
+ * pairing to another user in between. The members are cleared by pairingId,
+ * not by the ids read above, for the same reason (the merge may have moved the
+ * partner's side).
  */
 export async function unlink(actingUserId: number): Promise<{ partnerUserId: number }> {
   return prisma.$transaction(async (tx) => {
@@ -236,7 +237,11 @@ export async function unlink(actingUserId: number): Promise<{ partnerUserId: num
       pairing.inviterUserId === actingUserId ? pairing.inviteeUserId! : pairing.inviterUserId;
 
     const ended = await tx.pairing.updateMany({
-      where: { id: pairing.id, status: 'ACTIVE' },
+      where: {
+        id: pairing.id,
+        status: 'ACTIVE',
+        OR: [{ inviterUserId: actingUserId }, { inviteeUserId: actingUserId }],
+      },
       data: { status: 'UNLINKED', unlinkedAt: new Date(), unlinkedByUserId: actingUserId },
     });
     if (ended.count !== 1) throw new PairingError('NOT_PAIRED');
