@@ -820,6 +820,27 @@ async function main() {
     assert(subs.length === 1 && subs[0].id === 'sub-t', `subscriptions ${show(subs)}`);
   });
 
+  await check('#30 both have an override: each grant survives from either side (T\'s false does not drop W\'s true), and T\'s audit fields stay unless empty', async () => {
+    seed();
+    const ovr = (id: string, userId: number, o: Row): Row => ({
+      id, userId, unlimitedSummaries: null, remindersEnabled: null, voiceEventsEnabled: null, unlimitedCalendars: null, earlyAdopter: false,
+      grantedBy: null, grantedAt: null, reason: null, createdAt: days(-9), updatedAt: days(-9), ...o,
+    });
+    const grantedAt = days(-4);
+    DB.userFeatureOverride = [
+      ovr('ovr-t', T, { unlimitedSummaries: true, remindersEnabled: false, reason: 'support ticket' }),
+      ovr('ovr-w', W, { remindersEnabled: true, voiceEventsEnabled: true, earlyAdopter: true, grantedBy: 1, grantedAt, reason: 'beta tester' }),
+    ];
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const rows = DB.userFeatureOverride;
+    const o = rows[0];
+    assert(rows.length === 1 && o.id === 'ovr-t' && o.userId === T, `overrides ${show(rows)}`);
+    assert(o.unlimitedSummaries === true && o.remindersEnabled === true && o.voiceEventsEnabled === true && o.unlimitedCalendars === null && o.earlyAdopter === true,
+      `grants ${show(o)}`);
+    assert(o.grantedBy === 1 && same(o.grantedAt, grantedAt) && o.reason === 'support ticket', `audit fields ${show(o)}`);
+  });
+
   // ---- Link without a merge ----
 
   await check('#11 [guard] no WhatsApp-only user: the phone is set on the Telegram user and the code is spent', async () => {

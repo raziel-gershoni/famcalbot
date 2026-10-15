@@ -7,7 +7,7 @@
  * 2. User sends "link CODE" on WhatsApp → redeemLinkCode() → accounts merged
  */
 
-import type { NativeCalendar, Prisma, Subscription } from '@prisma/client';
+import type { NativeCalendar, Prisma, Subscription, UserFeatureOverride } from '@prisma/client';
 import { redis } from '../utils/redis';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { prisma } from '../utils/prisma';
@@ -82,6 +82,21 @@ function runsLonger(a: Subscription, b: Subscription): boolean {
   const [aKind, aEnds] = accessRank(a);
   const [bKind, bEnds] = accessRank(b);
   return aKind !== bKind ? aKind > bKind : aEnds > bEnds;
+}
+
+/** Override grants only ever grant: a grant set on either side survives, else T's value, else W's. */
+function mergeOverrides(t: UserFeatureOverride, w: UserFeatureOverride) {
+  const grant = (a: boolean | null, b: boolean | null) => (a === true || b === true ? true : a ?? b);
+  return {
+    unlimitedSummaries: grant(t.unlimitedSummaries, w.unlimitedSummaries),
+    remindersEnabled: grant(t.remindersEnabled, w.remindersEnabled),
+    voiceEventsEnabled: grant(t.voiceEventsEnabled, w.voiceEventsEnabled),
+    unlimitedCalendars: grant(t.unlimitedCalendars, w.unlimitedCalendars),
+    earlyAdopter: t.earlyAdopter || w.earlyAdopter,
+    grantedBy: t.grantedBy ?? w.grantedBy,
+    grantedAt: t.grantedAt ?? w.grantedAt,
+    reason: t.reason ?? w.reason,
+  };
 }
 
 /** Two default calendars (both primary), or two the user named alike, with the same privacy, are one calendar. */
@@ -213,7 +228,7 @@ async function mergeWhatsAppUser(
   }
 
   // Usage counter and override are one per user: T's stays, W's moves only into
-  // a gap. The early-adopter flag survives from either side.
+  // a gap. With an override on both sides their grants merge (mergeOverrides).
   const tUsage = await tx.usageCounter.findUnique({ where: { userId: t.id } });
   if (tUsage) await tx.usageCounter.deleteMany({ where: { userId: w.id } });
   else await tx.usageCounter.updateMany({ where: { userId: w.id }, data: { userId: t.id } });
@@ -223,9 +238,7 @@ async function mergeWhatsAppUser(
   if (wOverride && !tOverride) {
     await tx.userFeatureOverride.update({ where: { id: wOverride.id }, data: { userId: t.id } });
   } else if (wOverride && tOverride) {
-    if (wOverride.earlyAdopter && !tOverride.earlyAdopter) {
-      await tx.userFeatureOverride.update({ where: { id: tOverride.id }, data: { earlyAdopter: true } });
-    }
+    await tx.userFeatureOverride.update({ where: { id: tOverride.id }, data: mergeOverrides(tOverride, wOverride) });
     await tx.userFeatureOverride.delete({ where: { id: wOverride.id } });
   }
 
