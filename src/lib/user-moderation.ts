@@ -9,6 +9,7 @@ import { prisma } from '../utils/prisma';
 import { redis } from '../utils/redis';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { invalidateFeatureAccessCache } from '../services/subscription-service';
+import { removeUserFromCache } from '../services/reminder-cache';
 
 const BLOCK_CACHE_TTL = 3600; // 1 hour — primed on ban, cleared on unban
 
@@ -53,33 +54,87 @@ export async function unsuspendUser(userId: number, adminId: number): Promise<vo
 // ============================================
 
 /**
- * Cascade-delete a user and all related rows.
- * Order matches src/services/account-linking.ts to satisfy FK constraints.
+ * Delete a user and every row that points at them, in one transaction. The
+ * schema refuses the delete (ON DELETE RESTRICT) while a calendar, an event
+ * they created, a pairing, or any of the per-user rows below still holds the
+ * id, so those go first:
+ *   1. Unpair, with unlink()'s writes: the pairing stays as UNLINKED history
+ *      and both partners' pairingId is cleared.
+ *   2. Their own calendars; the events in them cascade.
+ *   3. Events they created in someone else's calendar go to that calendar's
+ *      owner, so the partner keeps them.
+ *   4. Pairing history: a row needs its inviter, so the pairings they started
+ *      go; where they were the invitee the row stays with no invitee.
+ * NativeEvent.forUserId, NativeReminderState.doneByUserId and
+ * PairingInvite.acceptedByUserId are SET NULL and their invites CASCADE in the
+ * database. Admin ids they left in compedBy, grantedBy, suspendedBy and
+ * bannedBy stay: they are plain audit columns, and compedBy != null is what
+ * marks a comp.
  * Also clears Redis caches keyed by userId.
  */
 export async function hardDeleteUser(userId: number, adminId: number): Promise<void> {
-  await prisma.$transaction([
-    prisma.userActivity.deleteMany({ where: { userId } }),
-    prisma.userFeedback.deleteMany({ where: { userId } }),
-    prisma.usageCounter.deleteMany({ where: { userId } }),
-    prisma.subscription.deleteMany({ where: { userId } }),
-    prisma.userFeatureOverride.deleteMany({ where: { userId } }),
-    prisma.user.delete({ where: { id: userId } }),
-  ]);
+  await prisma.$transaction(async (tx) => {
+    const user = await tx.user.findUnique({ where: { id: userId }, select: { pairingId: true } });
 
-  // Best-effort Redis cleanup
+    if (user?.pairingId) {
+      await tx.pairing.updateMany({
+        where: { id: user.pairingId, status: 'ACTIVE' },
+        data: { status: 'UNLINKED', unlinkedAt: new Date(), unlinkedByUserId: adminId },
+      });
+      await tx.user.updateMany({ where: { pairingId: user.pairingId }, data: { pairingId: null } });
+    }
+
+    await tx.nativeCalendar.deleteMany({ where: { ownerUserId: userId } });
+
+    const elsewhere = await tx.nativeEvent.findMany({ where: { creatorUserId: userId }, select: { calendarId: true } });
+    const calendars = await tx.nativeCalendar.findMany({
+      where: { id: { in: [...new Set(elsewhere.map(e => e.calendarId))] } },
+      select: { id: true, ownerUserId: true },
+    });
+    for (const calendar of calendars) {
+      await tx.nativeEvent.updateMany({
+        where: { creatorUserId: userId, calendarId: calendar.id },
+        data: { creatorUserId: calendar.ownerUserId },
+      });
+    }
+
+    await tx.pairing.deleteMany({ where: { inviterUserId: userId } });
+    await tx.pairing.updateMany({ where: { inviteeUserId: userId }, data: { inviteeUserId: null } });
+    await tx.pairing.updateMany({ where: { unlinkedByUserId: userId }, data: { unlinkedByUserId: null } });
+
+    await tx.userActivity.deleteMany({ where: { userId } });
+    await tx.userFeedback.deleteMany({ where: { userId } });
+    await tx.usageCounter.deleteMany({ where: { userId } });
+    await tx.subscription.deleteMany({ where: { userId } });
+    await tx.userFeatureOverride.deleteMany({ where: { userId } });
+    await tx.oAuthState.deleteMany({ where: { userId: BigInt(userId) } });
+    await tx.user.delete({ where: { id: userId } });
+  });
+
+  await clearDeletedUserCaches(userId);
+
+  console.log(`[Moderation] Admin ${adminId} hard-deleted user ${userId}`);
+}
+
+/**
+ * Best-effort cleanup of the Redis state keyed by a user id that no longer
+ * exists: after a hard delete, and for the WhatsApp-only half of an account
+ * merge. Drops them from the reminder cache too, so the reminder run stops
+ * reading a user that is gone before the next hourly sync.
+ */
+export async function clearDeletedUserCaches(userId: number): Promise<void> {
   try {
     await Promise.all([
       invalidateFeatureAccessCache(userId),
+      removeUserFromCache(userId),
       redis.del(REDIS_KEYS.userTimezone(userId)),
       redis.del(REDIS_KEYS.lastCreatedEvent(userId)),
       redis.del(REDIS_KEYS.storyImage(userId)),
+      redis.del(REDIS_KEYS.recentEvents(userId)),
     ]);
   } catch (err) {
     console.warn(`[Moderation] Redis cleanup failed for deleted user ${userId}:`, err);
   }
-
-  console.log(`[Moderation] Admin ${adminId} hard-deleted user ${userId}`);
 }
 
 // ============================================
