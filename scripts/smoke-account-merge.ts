@@ -15,10 +15,11 @@
 // unlink by P after the merge read W's pairing left T on an UNLINKED pairing, and W's admin
 // grants were dropped whenever T had an override row of its own.
 //
-// Second follow-up (#32-#37, #39): W's Google connection replaced an established T's native
+// Second follow-up (#32-#39): W's Google connection replaced an established T's native
 // calendars and events without a word; folding the two primary calendars dropped W's rules,
 // color and name; an unlink racing the merge (either order) left T on an UNLINKED pairing or
-// let T's partner see W's calendars; a fresh T kept its Telegram name.
+// let T's partner see W's calendars; a fresh T kept its Telegram name, and its menu button
+// stayed in the Telegram client's language.
 //
 // account-linking, user-moderation, user-service, subscription-service, the reminder
 // cache and event-store run for real. Faked at the boundaries: Prisma (in memory, and it
@@ -368,6 +369,8 @@ const fakeRedis = new Proxy(redisImpl, {
 
 const sent: { via: string; chatId: unknown; text?: unknown }[] = [];
 const captured: string[] = [];
+/** setUserMenuButton calls (chat id, locale): the menu button is not a message. */
+const menuButtons: [unknown, unknown][] = [];
 const recorder = (prefix: string): Row =>
   new Proxy({} as Row, {
     get: (_t, p) =>
@@ -422,7 +425,10 @@ function installStubs() {
     getAdminUserIds: async () => [],
   });
   const bot = recorder('bot');
-  const telegram = { getBot: () => bot, initBot: () => bot, getMessagingService: () => recorder('tg'), setUserMenuButton: async () => undefined };
+  const telegram = {
+    getBot: () => bot, initBot: () => bot, getMessagingService: () => recorder('tg'),
+    setUserMenuButton: async (chatId: unknown, locale: unknown) => { menuButtons.push([chatId, locale]); },
+  };
   stub('src/services/telegram/index.ts', telegram);
   stub('src/services/telegram/bot.ts', telegram);
   const messaging = {
@@ -502,6 +508,7 @@ function seed() {
   redisStore.clear();
   sent.length = 0;
   captured.length = 0;
+  menuButtons.length = 0;
   concurrent = null;
   DB.user = [
     baseUser({ id: 1, name: 'Admin', telegramId: BigInt(5550001), isAdmin: true }),
@@ -954,6 +961,20 @@ async function main() {
     assert(changed.length === 0, `overwritten: ${show(Object.fromEntries(changed.map(k => [k, t[k]])))}`);
     assert(t.name === 'Dana Cohen', `T's name ${show(t.name)}`);
     assert(show(t.globalRules) === show(W_SETUP.globalRules), `T's rules ${show(t.globalRules)}`);
+  });
+
+  await check('#38 the merge changes T\'s language: T\'s Telegram menu button is set again in it; a merge that keeps T\'s language leaves the button alone', async () => {
+    seed();
+    freshT();
+    Object.assign(userRow(W), W_SETUP);
+    let result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    assert(show(menuButtons) === show([[5550010, 'he']]), `menu button calls ${show(menuButtons)}`);
+    seed();
+    Object.assign(userRow(W), W_SETUP);
+    result = await link();
+    assert(result.success === true && userRow(T).language === 'en', `result ${show(result)}; T's language ${userRow(T).language}`);
+    assert(menuButtons.length === 0, `menu button calls ${show(menuButtons)}`);
   });
 
   await check('#39 [guard] a fresh T keeps its Telegram name when W has none (WhatsApp\'s stand-in \'User\')', async () => {

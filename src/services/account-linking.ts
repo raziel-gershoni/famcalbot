@@ -18,6 +18,7 @@ import { invalidateFeatureAccessCache } from './subscription-service';
 import { removeUserFromCache, updateUserInCache } from './reminder-cache';
 import { invalidateDueGate } from './native-reminders/due-gate';
 import { clearDeletedUserCaches } from '../lib/user-moderation';
+import { setUserMenuButton } from './telegram/bot';
 
 const LINK_CODE_TTL = 300; // 5 minutes
 
@@ -199,14 +200,14 @@ function isSameCalendar(a: NativeCalendar, b: NativeCalendar): boolean {
  * go PRIVATE when W's pairing ends, by the merge or by P meanwhile) and a fold
  * needs the same privacy on both sides, so the merge shows nobody an event
  * their pairing did not share.
- * Returns T's pairingId after the merge, and whether W's Google connection
- * stayed behind.
+ * Returns T's pairingId after the merge, whether W's Google connection stayed
+ * behind, and whether T's language changed.
  */
 async function mergeWhatsAppUser(
   tx: Prisma.TransactionClient,
   waOnlyUserId: number,
   telegramUserId: number
-): Promise<{ pairingId: string | null; reconnectGoogle: boolean }> {
+): Promise<{ pairingId: string | null; reconnectGoogle: boolean; languageChanged: boolean }> {
   const w = await tx.user.findUniqueOrThrow({ where: { id: waOnlyUserId } });
   const t = await tx.user.findUniqueOrThrow({ where: { id: telegramUserId } });
   const tIsNative = t.calendarSource === 'NATIVE';
@@ -370,35 +371,40 @@ async function mergeWhatsAppUser(
   // W goes before T takes its WhatsApp ids: they are unique. W was found by the
   // id the link came from, so W's ids are the ones to take; a BSUID-only W has
   // no phone to give.
+  const setup = setupFromW(w, t);
   await tx.user.delete({ where: { id: w.id } });
   await tx.user.update({
     where: { id: t.id },
     data: {
-      ...setupFromW(w, t),
+      ...setup,
       whatsappPhone: w.whatsappPhone || null,
       whatsappBsuid: w.whatsappBsuid || null,
       messagingPlatform: 'all',
     },
   });
 
-  return { pairingId, reconnectGoogle };
+  const languageChanged = setup.language !== undefined && setup.language !== t.language;
+  return { pairingId, reconnectGoogle, languageChanged };
 }
 
 /**
  * After a merge commits: W's caches go, T's timezone is resolved again (from
  * the location T may have taken from W), T's reminder-cache entry is rebuilt
  * from T as it is now (the reminder run reads the pairing, calendar source,
- * token and language from there until the hourly sync), and the reminder pass
- * wakes for the reminders T took over. Best effort: the merge has already
- * happened. T's feature access is invalidated by the caller, as for a plain link.
+ * token and language from there until the hourly sync), the reminder pass
+ * wakes for the reminders T took over, and a language T took from W relabels
+ * T's Telegram menu button, as a settings change does. Best effort: the merge
+ * has already happened. T's feature access is invalidated by the caller, as for
+ * a plain link.
  */
-async function afterMerge(wUserId: number, tUserId: number): Promise<void> {
+async function afterMerge(wUserId: number, tUserId: number, languageChanged: boolean): Promise<void> {
   await clearDeletedUserCaches(wUserId);
   invalidateDueGate();
   try {
     await redis.del(REDIS_KEYS.userTimezone(tUserId));
     const t = await getUserById(tUserId);
     if (!t) return;
+    if (languageChanged && t.telegramId) await setUserMenuButton(t.telegramId, t.language);
     // Who belongs in the cache is the hourly sync's rule, as in the settings route.
     const remindable = t.remindersEnabled && t.telegramId !== null && !t.suspendedAt && !t.unreachableSince &&
       (!!t.googleRefreshToken || t.calendarSource === 'NATIVE');
@@ -470,10 +476,11 @@ export async function redeemLinkCode(code: string, whatsappPhone: string): Promi
 
     let reconnectGoogle = false;
     if (waOnlyUser && waOnlyUser.id !== telegramUser.id) {
-      ({ reconnectGoogle } = await prisma.$transaction((tx) =>
+      const merged = await prisma.$transaction((tx) =>
         mergeWhatsAppUser(tx, waOnlyUser.id, telegramUser.id)
-      ));
-      await afterMerge(waOnlyUser.id, telegramUser.id);
+      );
+      reconnectGoogle = merged.reconnectGoogle;
+      await afterMerge(waOnlyUser.id, telegramUser.id, merged.languageChanged);
 
       console.log(`[AccountLink] Merged WA-only user ${waOnlyUser.id} into TG user ${telegramUser.id}`);
     } else if (!waOnlyUser) {
