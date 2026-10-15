@@ -22,6 +22,7 @@ export type PairingErrorCode =
   | 'INVITER_ALREADY_PAIRED'
   | 'INVITEE_NOT_NATIVE'
   | 'INVITEE_ALREADY_PAIRED'
+  | 'ALREADY_PAIRED_TOGETHER'
   | 'CANNOT_ACCEPT_OWN_INVITE'
   | 'NOT_PAIRED'
   | 'UNKNOWN_ERROR';
@@ -122,6 +123,26 @@ function inviteUnavailableCode(
 }
 
 /**
+ * True when the inviter's ACTIVE pairing is with the acceptor: the other half of
+ * a mutual accept won, or the invite is a stale one between two people already
+ * paired. `exceptPairingId` is the pairing this accept just created, which its
+ * own reads see. Plain reads, so no new lock is taken.
+ */
+async function pairedWithEachOther(
+  tx: Prisma.TransactionClient,
+  inviterUserId: number,
+  acceptingUserId: number,
+  exceptPairingId?: string
+): Promise<boolean> {
+  const inviter = await tx.user.findUnique({ where: { id: inviterUserId }, select: { pairingId: true } });
+  if (!inviter?.pairingId || inviter.pairingId === exceptPairingId) return false;
+  const pairing = await tx.pairing.findUnique({ where: { id: inviter.pairingId } });
+  if (pairing?.status !== 'ACTIVE') return false;
+  const members = [pairing.inviterUserId, pairing.inviteeUserId];
+  return members.includes(inviterUserId) && members.includes(acceptingUserId);
+}
+
+/**
  * Accept an invite and link both users. Reuses constraints transactionally:
  *   - inviter still NATIVE, still unpaired
  *   - invitee NATIVE, unpaired, not the inviter themselves
@@ -135,7 +156,9 @@ function inviteUnavailableCode(
  * (and one user) can be claimed only once. A plain read-then-write let two
  * concurrent accepts both pass the checks.
  *
- * Throws PairingError on any constraint violation.
+ * Throws PairingError on any constraint violation. Two people already paired
+ * with each other (the loser of a mutual accept, or a stale invite) get
+ * ALREADY_PAIRED_TOGETHER instead of INVITER_/INVITEE_ALREADY_PAIRED.
  */
 export async function acceptInvite(token: string, acceptingUserId: number): Promise<AcceptResult> {
   return prisma.$transaction(async (tx) => {
@@ -171,8 +194,10 @@ export async function acceptInvite(token: string, acceptingUserId: number): Prom
 
     if (inviter.calendarSource !== 'NATIVE') throw new PairingError('INVITER_NOT_NATIVE');
     if (invitee.calendarSource !== 'NATIVE') throw new PairingError('INVITEE_NOT_NATIVE');
-    if (inviter.pairingId) throw new PairingError('INVITER_ALREADY_PAIRED');
-    if (invitee.pairingId) throw new PairingError('INVITEE_ALREADY_PAIRED');
+    if (inviter.pairingId || invitee.pairingId) {
+      if (await pairedWithEachOther(tx, inviter.id, invitee.id)) throw new PairingError('ALREADY_PAIRED_TOGETHER');
+      throw new PairingError(inviter.pairingId ? 'INVITER_ALREADY_PAIRED' : 'INVITEE_ALREADY_PAIRED');
+    }
 
     const pairing = await tx.pairing.create({
       data: {
@@ -186,13 +211,16 @@ export async function acceptInvite(token: string, acceptingUserId: number): Prom
     // Link each side only while it is still unpaired and NATIVE; a concurrent accept
     // that paired either user first leaves count 0 and this one rolls back. Lowest
     // user id first: with inviter-then-invitee, A taking B's invite while B took A's
-    // locked the two User rows in opposite orders and deadlocked.
+    // locked the two User rows in opposite orders and deadlocked. Count 0 comes only
+    // once the other write has committed (the UPDATE waits for it), so the reads in
+    // pairedWithEachOther see it.
     for (const userId of [inviter.id, invitee.id].sort((a, b) => a - b)) {
       const linked = await tx.user.updateMany({
         where: { id: userId, pairingId: null, calendarSource: 'NATIVE' },
         data: { pairingId: pairing.id },
       });
       if (linked.count !== 1) {
+        if (await pairedWithEachOther(tx, inviter.id, invitee.id, pairing.id)) throw new PairingError('ALREADY_PAIRED_TOGETHER');
         throw new PairingError(userId === inviter.id ? 'INVITER_ALREADY_PAIRED' : 'INVITEE_ALREADY_PAIRED');
       }
     }

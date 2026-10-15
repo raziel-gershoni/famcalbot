@@ -204,6 +204,7 @@ function mapError(code: string | undefined, locale: string): string {
       INVITEE_NOT_NATIVE: 'You are using Google Calendar. Pairing only works with the in-bot calendar.',
       INVITER_ALREADY_PAIRED: 'The inviter is already paired with someone else.',
       INVITEE_ALREADY_PAIRED: 'You are already paired. Unlink first.',
+      ALREADY_PAIRED_TOGETHER: 'You two are already paired 🎉',
     },
     he: {
       INVITE_NOT_FOUND: 'הקישור לא תקף.',
@@ -215,6 +216,7 @@ function mapError(code: string | undefined, locale: string): string {
       INVITEE_NOT_NATIVE: 'את/ה ביומן גוגל. חיבור עובד רק עם היומן בתוך הבוט.',
       INVITER_ALREADY_PAIRED: 'השולח/ת כבר מחובר/ת עם מישהו אחר.',
       INVITEE_ALREADY_PAIRED: 'את/ה כבר מחובר/ת. בטלו את החיבור הקיים קודם.',
+      ALREADY_PAIRED_TOGETHER: 'שניכם כבר מחוברים 🎉',
     },
     ru: {
       INVITE_NOT_FOUND: 'Ссылка недействительна.',
@@ -226,6 +228,7 @@ function mapError(code: string | undefined, locale: string): string {
       INVITEE_NOT_NATIVE: 'Вы на Google Calendar. Привязка работает только с внутренним календарём.',
       INVITER_ALREADY_PAIRED: 'Отправитель уже связан с кем-то другим.',
       INVITEE_ALREADY_PAIRED: 'Вы уже связаны. Сначала отмените существующую связь.',
+      ALREADY_PAIRED_TOGETHER: 'Вы уже связаны друг с другом 🎉',
     },
   };
   const m = map[locale] || map.en;
