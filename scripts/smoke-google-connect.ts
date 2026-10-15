@@ -1093,6 +1093,36 @@ async function main() {
     }
   });
 
+  await check('#29 /start connect from an account already linked to WhatsApp (phone or BSUID only) gets the usual dashboard reply and no link code (webhook and polling)', async () => {
+    const handlers: { re: RegExp; fn: (msg: Row, match: RegExpExecArray | null) => Promise<void> }[] = [];
+    const { setupHandlers } = await load('src/services/telegram/commands.ts');
+    setupHandlers({ onText: (re: RegExp, fn: (msg: Row, match: RegExpExecArray | null) => Promise<void>) => handlers.push({ re, fn }) });
+    const startConnect = async (via: 'webhook' | 'polling', tgId: number) => {
+      const text = '/start connect';
+      if (via === 'webhook') return tgWebhook(tgText(tgId, text));
+      const start = handlers.find(h => h.re.test(text));
+      assert(start, 'no polling /start handler');
+      await quietly(() => start.fn({ chat: { id: tgId }, from: { id: tgId, first_name: 'Test', language_code: 'en' }, text }, start.re.exec(text)));
+    };
+    const BSUID_TG = 5050;
+    for (const via of ['webhook', 'polling'] as const) {
+      seed();
+      DB.user.push(baseUser({ id: 50, name: 'Dana', telegramId: BigInt(BSUID_TG), whatsappBsuid: 'IL.555', messagingPlatform: 'all' }));
+      for (const tgId of [VICTIM_TG, BSUID_TG]) {
+        await startConnect(via, tgId);
+        const replies = sentTo(tgId);
+        const button = replies.at(-1)?.options?.replyMarkup?.inline_keyboard?.[0]?.[0];
+        assert(String(button?.web_app?.url).endsWith(`/en/dashboard?user_id=${tgId}`), `${via} ${tgId}: ${show(replies)}`);
+        assert(!replies.some(r => /already linked|link code/i.test(r.text ?? '')), `${via} ${tgId}: ${show(replies)}`);
+      }
+      assert(![...redisStore.keys()].some(k => k.startsWith('link:code:')), `${via}: a link code was made`);
+      // An account with no WhatsApp still gets the button that links it
+      await startConnect(via, TAL_TG);
+      const tal = sentTo(TAL_TG).at(-1)?.options?.replyMarkup?.inline_keyboard?.[0]?.[0];
+      assert(String(tal?.url).startsWith('https://wa.me/15550001111?text=link%20'), `${via} unlinked: ${show(sentTo(TAL_TG))}`);
+    }
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

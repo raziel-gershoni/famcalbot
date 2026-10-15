@@ -160,7 +160,10 @@ export async function handleStartCommand(
     return;
   }
 
-  if (args === 'connect') {
+  // ?start=connect is on the WhatsApp summary button and the dashboard banner, which linked
+  // accounts see too. Linked already (by phone or BSUID): the usual reply below, with the
+  // dashboard button. The polling /start lands here as well.
+  if (args === 'connect' && !user.whatsappPhone && !user.whatsappBsuid) {
     await handleConnectCommand(Number(chatId), userIdNum, platform, true);
     return;
   }
