@@ -241,8 +241,8 @@ export async function acceptInvite(token: string, acceptingUserId: number): Prom
 /**
  * Unlink the requester's pairing. Both partners' pairingId is cleared and the
  * Pairing row is marked UNLINKED for audit. Calendars stay with their owners
- * (no data movement); previously-shared calendars become invisible to the
- * partner on the next read.
+ * (no data movement) and all of them go back to PRIVATE, so none still reads
+ * "shared"; they are invisible to the partner on the next read.
  *
  * The UNLINKED write is conditional, as acceptInvite's are: count 0 means the
  * partner unlinked first, or an account merge moved the requester's side of the
@@ -273,9 +273,18 @@ export async function unlink(actingUserId: number): Promise<{ partnerUserId: num
       data: { status: 'UNLINKED', unlinkedAt: new Date(), unlinkedByUserId: actingUserId },
     });
     if (ended.count !== 1) throw new PairingError('NOT_PAIRED');
+    // The members as they are now: the UNLINKED write holds the pairing row, so no
+    // merge can move a side after it.
+    const members = await tx.user.findMany({ where: { pairingId: pairing.id }, select: { id: true } });
     await tx.user.updateMany({
       where: { pairingId: pairing.id },
       data: { pairingId: null },
+    });
+    // Both people's calendars go back to PRIVATE. Users first, then calendars: the
+    // order acceptInvite locks them in.
+    await tx.nativeCalendar.updateMany({
+      where: { ownerUserId: { in: members.map(m => m.id) }, privacy: { not: 'PRIVATE' } },
+      data: { privacy: 'PRIVATE' },
     });
 
     return { partnerUserId };
