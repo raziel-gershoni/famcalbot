@@ -163,7 +163,7 @@ function fakeWebApp(throwOn: string[] = []) {
   const calls: string[] = [];
   const method = (name: string) => (...args: unknown[]) => {
     calls.push(args.length ? `${name}(${args.map(a => String(a)).join(',')})` : `${name}()`);
-    if (throwOn.includes(name)) throw new Error(`WebAppHeaderColorKeyInvalid (${name})`);
+    if (throwOn.includes(name)) throw new Error(`${name}: this WebApp version rejects a hex colour`);
   };
   const webApp: Row = {
     initData: '',
