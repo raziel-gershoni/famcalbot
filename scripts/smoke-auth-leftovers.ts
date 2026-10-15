@@ -238,13 +238,15 @@ async function main() {
 
   // ---- Docs ----
 
-  await check('#9 README\'s env table and .env.example name SESSION_SECRET and WHATSAPP_APP_SECRET (placeholders only)', () => {
+  await check('#9 README\'s env table and .env.example name SESSION_SECRET and WHATSAPP_APP_SECRET (commented placeholders only)', () => {
     const readme = readSource('README.md');
     const example = readSource('.env.example');
     for (const name of ['SESSION_SECRET', 'WHATSAPP_APP_SECRET']) {
       assert(new RegExp(`^\\|[^\\n]*\`${name}\``, 'm').test(readme), `README's table has no ${name} row`);
-      const line = example.split('\n').find(l => l.startsWith(`${name}=`));
-      assert(line && /^[A-Z_]+=your_[a-z_]+_here$/.test(line), `.env.example has no placeholder line for ${name}`);
+      // Commented out: a copied placeholder must not become a real key (a wrong app secret 401s every WhatsApp webhook).
+      const line = example.split('\n').find(l => l.startsWith(`# ${name}=`));
+      assert(line && /^# [A-Z_]+=your_[a-z_]+_here$/.test(line), `.env.example has no commented placeholder line for ${name}`);
+      assert(!example.split('\n').some(l => l.startsWith(`${name}=`)), `.env.example sets ${name} uncommented`);
     }
   });
 
