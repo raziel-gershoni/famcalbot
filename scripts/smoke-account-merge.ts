@@ -21,9 +21,10 @@
 // let T's partner see W's calendars; a fresh T kept its Telegram name, and its menu button
 // stayed in the Telegram client's language.
 //
-// Third follow-up (#40-#42): a fresh T's empty primary calendar stayed the main one whenever
-// the two primaries did not fold (W's shared from an old unlink, or set back to PRIVATE in a
-// moved pairing), and a fold renamed T's calendar to W's default name.
+// Third follow-up (#40-#42, #33 changed): a fresh T's empty primary calendar stayed the main
+// one whenever the two primaries did not fold (W's shared from an old unlink, or set back to
+// PRIVATE in a moved pairing), a fold renamed T's calendar to W's default name, and W's Google
+// connection replaced the native events a T under a day old had already added.
 //
 // account-linking, user-moderation, user-service, subscription-service, the reminder
 // cache and event-store run for real. Faked at the boundaries: Prisma (in memory, and it
@@ -1108,7 +1109,7 @@ async function main() {
     assert(result.reconnectGoogle === true, `reconnectGoogle ${show(result.reconnectGoogle)}`);
   });
 
-  await check('#33 [guard] W on Google, an unpaired T with nothing to lose moves to Google with W\'s token: an established T with no live events (a deleted one, one in a deleted calendar), or a fresh T that already added one', async () => {
+  await check('#33 W on Google: an unpaired T with no live events (a deleted one, one in a deleted calendar) moves to Google with W\'s token; a fresh T that already added one keeps it, and the result asks the user to reconnect Google', async () => {
     for (const fresh of [false, true]) {
       seed();
       googleW();
@@ -1123,9 +1124,13 @@ async function main() {
       const result = await link();
       assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
       const t = userRow(T);
-      assert(t.calendarSource === 'GOOGLE' && t.googleRefreshToken === TOKENS.w && show(t.calendarAssignments) === show(W_ASSIGNMENTS),
+      const tookGoogle = !fresh;
+      assert(t.calendarSource === (tookGoogle ? 'GOOGLE' : 'NATIVE') && t.googleRefreshToken === (tookGoogle ? TOKENS.w : '') &&
+        show(t.calendarAssignments) === show(tookGoogle ? W_ASSIGNMENTS : null),
         `${fresh ? 'fresh' : 'established'} T ${show({ calendarSource: t.calendarSource, token: t.googleRefreshToken === TOKENS.w ? 'W\'s' : t.googleRefreshToken })}`);
-      assert(rowOf('nativeCalendar', 'cal-t')?.isDeleted === true && !result.reconnectGoogle, `T's calendar ${show(rowOf('nativeCalendar', 'cal-t'))}; reconnectGoogle ${show(result.reconnectGoogle)}`);
+      assert(rowOf('nativeCalendar', 'cal-t')?.isDeleted === tookGoogle && !!result.reconnectGoogle === !tookGoogle,
+        `${fresh ? 'fresh' : 'established'} T's calendar ${show(rowOf('nativeCalendar', 'cal-t'))}; reconnectGoogle ${show(result.reconnectGoogle)}`);
+      if (fresh) assert(rowOf('nativeEvent', 'ev-t-new')?.isDeleted === false, `T's event ${show(rowOf('nativeEvent', 'ev-t-new'))}`);
     }
   });
 

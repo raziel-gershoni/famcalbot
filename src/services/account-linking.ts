@@ -366,8 +366,8 @@ async function mergeWhatsAppUser(
   await tx.oAuthState.deleteMany({ where: { userId: BigInt(w.id) } });
 
   // W's Google connection moves when T has none, is unpaired (only NATIVE users
-  // pair) and has no native setup of its own to lose: T is fresh, or its
-  // calendars held no live events. It moves as stored: the token, still
+  // pair) and has no native setup of its own to lose: T's calendars held no
+  // live events (however young T is). It moves as stored: the token, still
   // encrypted, and W's calendar choices. T is then on Google, so its native
   // calendars, W's moved ones included, are soft-deleted as commitGoogleToken
   // does (either/or per user). The write re-checks the pairing and the token, as
@@ -375,7 +375,7 @@ async function mergeWhatsAppUser(
   // reconnect Google.
   let reconnectGoogle = false;
   if (wHasGoogle) {
-    const tookGoogle = !pairingId && !t.googleRefreshToken && (isFresh(t) || !tHasEvents) && (await tx.user.updateMany({
+    const tookGoogle = !pairingId && !t.googleRefreshToken && !tHasEvents && (await tx.user.updateMany({
       where: { id: t.id, pairingId: null, googleRefreshToken: '' },
       data: {
         calendarSource: 'GOOGLE',
