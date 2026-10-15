@@ -108,6 +108,16 @@ export async function handleStartCommand(
   telegramUser?: TelegramUserInfo,
   args?: string
 ): Promise<void> {
+  // Google connect claim: t.me/<bot>?start=gc_<pendingId> from the OAuth finish page.
+  // Both the webhook and polling /start land here. It runs before auto-registration, so a
+  // stranger tapping someone else's link gets no account, and before the breadcrumb,
+  // which would record the id.
+  if (args?.startsWith('gc_') && platform === MessagingPlatform.TELEGRAM) {
+    const { handleGoogleConnectTelegram } = await import('../google-connect');
+    await handleGoogleConnectTelegram(chatId, Number(userId), args.slice('gc_'.length), telegramUser?.language_code);
+    return;
+  }
+
   addBreadcrumb('command_started', {
     command: '/start',
     user_id: userId,

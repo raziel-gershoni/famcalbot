@@ -1,26 +1,79 @@
 'use client';
 
+import { useSyncExternalStore } from 'react';
 import { CheckCircle2, ArrowRight } from 'lucide-react';
 
 interface Translations {
   title: string;
   subtitle: string;
-  button: string;
+  /** {name} is the owner's first name */
+  owner: string;
+  ownerUnnamed: string;
+  telegramButton: string;
+  whatsappButton: string;
+  /** The prefilled WhatsApp message; {code} is gc_<pendingId> */
+  whatsappText: string;
+  incompleteTitle: string;
+  incompleteBody: string;
 }
 
 interface OAuthCompleteClientProps {
   locale: string;
   botUsername: string;
+  waNumber: string;
   translations: Translations;
 }
 
-export default function OAuthCompleteClient({ locale, botUsername, translations: t }: OAuthCompleteClientProps) {
-  const isRTL = locale === 'he';
+/** What the OAuth callback put in the fragment: #p=<pendingId>&n=<first name>&b=tg,wa */
+export interface FinishParams {
+  pendingId: string;
+  ownerName: string;
+  telegram: boolean;
+  whatsapp: boolean;
+}
 
-  const redirectToTelegram = () => {
-    // Deep link to open Telegram bot
-    window.location.href = `https://t.me/${botUsername}`;
+const PENDING_ID = /^[A-Za-z0-9_-]{32}$/;
+
+export function parseFinishFragment(hash: string): FinishParams | null {
+  const params = new URLSearchParams(hash.replace(/^#/, ''));
+  const pendingId = params.get('p') ?? '';
+  if (!PENDING_ID.test(pendingId)) return null;
+  const buttons = (params.get('b') ?? '').split(',');
+  return { pendingId, ownerName: params.get('n') ?? '', telegram: buttons.includes('tg'), whatsapp: buttons.includes('wa') };
+}
+
+/**
+ * The claim links: the bot's /start gc_<id>, and a WhatsApp message that contains gc_<id>.
+ * A button shows only when the owner has that channel and it is configured.
+ */
+export function finishLinks(
+  params: FinishParams,
+  botUsername: string,
+  waNumber: string,
+  waText: string,
+): { telegram?: string; whatsapp?: string } {
+  const code = `gc_${params.pendingId}`;
+  return {
+    ...(params.telegram && botUsername ? { telegram: `https://t.me/${botUsername}?start=${code}` } : {}),
+    ...(params.whatsapp && waNumber
+      ? { whatsapp: `https://wa.me/${waNumber}?text=${encodeURIComponent(waText.replace('{code}', code))}` }
+      : {}),
   };
+}
+
+const subscribeToHash = (onChange: () => void) => {
+  window.addEventListener('hashchange', onChange);
+  return () => window.removeEventListener('hashchange', onChange);
+};
+
+export default function OAuthCompleteClient({ locale, botUsername, waNumber, translations: t }: OAuthCompleteClientProps) {
+  const isRTL = locale === 'he';
+  // The fragment exists only in the browser; the server render has none (null)
+  const hash = useSyncExternalStore(subscribeToHash, () => window.location.hash, () => null);
+  const params = hash === null ? null : parseFinishFragment(hash);
+  const links = params ? finishLinks(params, botUsername, waNumber, t.whatsappText) : {};
+  const incomplete = hash !== null && !links.telegram && !links.whatsapp;
+  const arrow = <ArrowRight size={20} style={isRTL ? { transform: 'scaleX(-1)' } : undefined} />;
 
   return (
     <html lang={locale} dir={isRTL ? 'rtl' : 'ltr'}>
@@ -117,21 +170,50 @@ export default function OAuthCompleteClient({ locale, botUsername, translations:
           .btn:active {
             transform: translateY(0);
           }
+          .btn + .btn {
+            margin-top: 12px;
+          }
+          .owner {
+            color: #374151;
+            font-size: 15px;
+            margin-bottom: 30px;
+            line-height: 1.6;
+          }
         `}</style>
       </head>
       <body>
         <div className="container">
-          <div className="success-icon">
-            <CheckCircle2 size={48} color="white" />
-          </div>
+          {incomplete ? (
+            <>
+              <h1>{t.incompleteTitle}</h1>
+              <p className="subtitle">{t.incompleteBody}</p>
+            </>
+          ) : params && (
+            <>
+              <div className="success-icon">
+                <CheckCircle2 size={48} color="white" />
+              </div>
 
-          <h1>{t.title}</h1>
-          <p className="subtitle">{t.subtitle}</p>
+              <h1>{t.title}</h1>
+              <p className="subtitle">{t.subtitle}</p>
+              <p className="owner">
+                {params.ownerName ? t.owner.replace('{name}', () => params.ownerName) : t.ownerUnnamed}
+              </p>
 
-          <button onClick={redirectToTelegram} className="btn">
-            {t.button}
-            <ArrowRight size={20} style={isRTL ? { transform: 'scaleX(-1)' } : undefined} />
-          </button>
+              {links.telegram && (
+                <a href={links.telegram} className="btn">
+                  {t.telegramButton}
+                  {arrow}
+                </a>
+              )}
+              {links.whatsapp && (
+                <a href={links.whatsapp} className="btn">
+                  {t.whatsappButton}
+                  {arrow}
+                </a>
+              )}
+            </>
+          )}
         </div>
       </body>
     </html>

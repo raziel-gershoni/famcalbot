@@ -1,13 +1,14 @@
 import { redirect } from 'next/navigation';
 import { prisma } from '@/src/utils/prisma';
-import { getUserById, updateUserById } from '@/src/services/user-service';
+import { getUserById } from '@/src/services/user-service';
 import { normalizeLocale } from '@/src/utils/locale';
 import { XCircle, AlertTriangle } from 'lucide-react';
 import { buildUrl } from '@/src/config/urls';
-import { updateUserInCache } from '@/src/services/reminder-cache';
 import { getTranslations } from 'next-intl/server';
 import { captureError } from '@/src/lib/error-capture';
 import { OAUTH_STATE_PREFIX } from '@/src/lib/oauth-state';
+import { createPendingGoogleToken, finishPageUrl } from '@/src/services/google-connect';
+import type { UserConfig } from '@/src/types';
 
 interface PageProps {
   searchParams: Promise<{
@@ -16,8 +17,19 @@ interface PageProps {
   }>;
 }
 
-// Error page component. retryUserId is the user_id for the retry link (telegramId ?? DB id).
-function ErrorPage({ message, retryUserId }: { message: string; retryUserId?: number }) {
+/**
+ * Where "Try again" goes from the consent browser. That browser has no Telegram initData,
+ * so /refresh-token would only show its gate to a Telegram user: send them back to the
+ * bot. A WhatsApp-only user may have their session cookie here.
+ */
+function retryHrefFor(user: UserConfig): string {
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME;
+  if (user.telegramId && botUsername) return `https://t.me/${botUsername}?start=dashboard`;
+  return `/refresh-token?user_id=${user.telegramId ?? user.id}`;
+}
+
+// Error page component. retryHref is the "Try again" link (retryHrefFor).
+function ErrorPage({ message, retryHref }: { message: string; retryHref?: string }) {
   return (
     <html>
       <head>
@@ -62,8 +74,8 @@ function ErrorPage({ message, retryUserId }: { message: string; retryUserId?: nu
           <div className="icon"><XCircle size={64} color="#ef4444" /></div>
           <h2>Error</h2>
           <p>{message}</p>
-          {retryUserId !== undefined && (
-            <a href={`/refresh-token?user_id=${retryUserId}`} className="btn">
+          {retryHref !== undefined && (
+            <a href={retryHref} className="btn">
               Try Again
             </a>
           )}
@@ -74,7 +86,7 @@ function ErrorPage({ message, retryUserId }: { message: string; retryUserId?: nu
 }
 
 // No refresh token error page
-function NoRefreshTokenPage({ retryUserId }: { retryUserId: number }) {
+function NoRefreshTokenPage({ retryHref }: { retryHref: string }) {
   return (
     <html>
       <head>
@@ -123,7 +135,7 @@ function NoRefreshTokenPage({ retryUserId }: { retryUserId: number }) {
           <p>1. Go to <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer">Google Permissions</a></p>
           <p>2. Remove &quot;FamCalBot&quot;</p>
           <p>3. Come back and try again</p>
-          <a href={`/refresh-token?user_id=${retryUserId}`} className="btn">
+          <a href={retryHref} className="btn">
             Try Again
           </a>
         </div>
@@ -133,7 +145,7 @@ function NoRefreshTokenPage({ retryUserId }: { retryUserId: number }) {
 }
 
 // Insufficient scopes error page - shown when user deselects permissions on Google consent screen
-async function InsufficientScopesPage({ retryUserId, missingScopes, locale }: { retryUserId: number; missingScopes: string[]; locale: string }) {
+async function InsufficientScopesPage({ retryHref, missingScopes, locale }: { retryHref: string; missingScopes: string[]; locale: string }) {
   const t = await getTranslations({ locale, namespace: 'oauth.insufficientScopes' });
   const missingRead = missingScopes.some(s => s.includes('readonly'));
   const missingWrite = missingScopes.some(s => s.includes('events'));
@@ -218,7 +230,7 @@ async function InsufficientScopesPage({ retryUserId, missingScopes, locale }: { 
             {t('footnote')}
           </p>
 
-          <a href={`/refresh-token?user_id=${retryUserId}`} className="btn">
+          <a href={retryHref} className="btn">
             {t('tryAgain')}
           </a>
         </div>
@@ -250,22 +262,26 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
     return <ErrorPage message="Invalid or expired state token. Please try again." />;
   }
 
+  // Use the state up (one-time use only). deleteMany checks and deletes in one statement,
+  // so of two callbacks with the same state only one gets count 1; the other is refused
+  // here instead of failing on a row that is already gone.
+  const { count } = await prisma.oAuthState.deleteMany({ where: { id: stateRecord.id } });
+  if (count !== 1) {
+    return <ErrorPage message="Invalid or expired state token. Please try again." />;
+  }
+
   // Validate state hasn't expired
   if (stateRecord.expiresAt < new Date()) {
-    await prisma.oAuthState.delete({ where: { id: stateRecord.id } });
     return <ErrorPage message="State token expired. Please try again." />;
   }
 
-  // Delete used state token (one-time use only)
-  await prisma.oAuthState.delete({ where: { id: stateRecord.id } });
-
   // The state holds the DB id of the user oauth/start authenticated. Resolve it before
-  // talking to Google: the token is saved on this user and no other.
+  // talking to Google: the token can be committed on this user and no other.
   const user = await getUserById(Number(stateRecord.userId));
   if (!user) {
     return <ErrorPage message="User not found" />;
   }
-  const retryUserId = user.telegramId ?? user.id;
+  const retryHref = retryHrefFor(user);
 
   // Exchange code for tokens
   const redirectUri = buildUrl('/api/refresh-token');
@@ -288,7 +304,7 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
     return (
       <ErrorPage
         message={`Error exchanging authorization code: ${error instanceof Error ? error.message : 'Unknown error'}`}
-        retryUserId={retryUserId}
+        retryHref={retryHref}
       />
     );
   }
@@ -307,70 +323,32 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   const missingScopes = REQUIRED_SCOPES.filter(s => !grantedScopes.includes(s));
 
   if (missingScopes.length > 0) {
-    return <InsufficientScopesPage retryUserId={retryUserId} missingScopes={missingScopes} locale={userLocale} />;
+    return <InsufficientScopesPage retryHref={retryHref} missingScopes={missingScopes} locale={userLocale} />;
   }
 
   if (!tokens.refresh_token) {
     // No refresh token - need to revoke and retry
-    return <NoRefreshTokenPage retryUserId={retryUserId} />;
+    return <NoRefreshTokenPage retryHref={retryHref} />;
   }
 
-  // Save new refresh token on the authenticated owner, by DB id (updateUserById encrypts it)
+  // Nothing is saved here. This browser finished Google's consent, but the state only says
+  // who started it, and anyone can start one and send the Google URL to someone else. So
+  // the token waits in Redis until the state's owner claims it from their own Telegram or
+  // WhatsApp (src/services/google-connect.ts).
+  let pendingId: string;
   try {
-    await updateUserById(user.id, { googleRefreshToken: tokens.refresh_token });
-
-    // If the user was previously on NATIVE, completing OAuth is an explicit
-    // opt-in to GOOGLE. Flip calendarSource and soft-delete the auto-created
-    // native calendar so the model stays "either/or per user" (locked
-    // product decision). The native calendar row is preserved (isDeleted=true)
-    // in case the user ever switches back; the in-bot calendar UI hides it.
-    if (user.calendarSource === 'NATIVE') {
-      const { prisma } = await import('@/src/utils/prisma');
-      await prisma.$transaction(async (tx) => {
-        await tx.user.update({
-          where: { id: user.id },
-          data: { calendarSource: 'GOOGLE' },
-        });
-        await tx.nativeCalendar.updateMany({
-          where: { ownerUserId: user.id, isDeleted: false },
-          data: { isDeleted: true },
-        });
-      });
-    }
-
-    // Update reminder cache if user has reminders enabled
-    if (user.remindersEnabled) {
-      await updateUserInCache({
-        id: user.id,
-        telegramId: user.telegramId?.toString() ?? '',
-        googleRefreshToken: tokens.refresh_token, // Fresh token (not encrypted)
-        calendarAssignments: user.calendarAssignments,
-        calendarSource: 'GOOGLE', // Completing OAuth switches a NATIVE user to Google (above)
-        pairingId: user.pairingId,
-        defaultReminderMinutes: user.defaultReminderMinutes ?? null,
-        language: user.language,
-        name: user.name,
-        pickupRemindersEnabled: user.pickupRemindersEnabled ?? true,
-        location: user.location,
-      });
-    }
-
-    // Notify admin of successful token refresh
-    const { notifyAdminWarning } = await import('@/src/utils/error-notifier');
-    await notifyAdminWarning(
-      'Token Refreshed',
-      `User ${retryUserId} (${user.name || 'Unknown'}) successfully refreshed their Google Calendar token`
-    ).catch(err => captureError(err, 'oauth-admin-notify', {}, 'warning'));
+    pendingId = await createPendingGoogleToken(user.id, tokens.refresh_token);
   } catch (error) {
     captureError(error, 'oauth-save-token');
     return (
       <ErrorPage
         message={`Error saving token: ${error instanceof Error ? error.message : 'Unknown error'}`}
-        retryUserId={retryUserId}
+        retryHref={retryHref}
       />
     );
   }
 
-  // Redirect to success page which will guide user back to Telegram
-  redirect(`/oauth-complete?user_id=${retryUserId}&locale=${userLocale}`);
+  // The finish page, with the pendingId in the URL fragment: a reload keeps it, and it
+  // never reaches a server or a Referer
+  redirect(finishPageUrl(userLocale, pendingId, user));
 }

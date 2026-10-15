@@ -48,6 +48,11 @@ export const REDIS_KEYS = {
   // Magic link tokens (WhatsApp web app auth)
   magicLink: (token: string) => `magic:${token}`,
 
+  // Google consent waiting for its owner's tap (keyed by sha256 of the pendingId), and the
+  // flag that tells the Mini App the owner committed it (google-connect.ts)
+  oauthPending: (pendingIdHash: string) => `oauth:pending:${pendingIdHash}`,
+  googleConnected: (userId: number) => `googleConnected:${userId}`,
+
   // Account linking (Telegram ↔ WhatsApp)
   linkCode: (code: string) => `link:code:${code}`,
   linkUser: (telegramId: number) => `link:user:${telegramId}`,

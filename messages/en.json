@@ -433,9 +433,15 @@
     "retry": "Try again"
   },
   "oauthComplete": {
-    "title": "Successfully Connected!",
-    "subtitle": "Your Google Calendar is now connected to FamCalBot.",
-    "button": "Return to Telegram"
+    "title": "One more tap",
+    "subtitle": "Google said yes. Tap below and your calendar is connected.",
+    "owner": "This connects Google to {name}’s FamCal. Only continue if that’s you.",
+    "ownerUnnamed": "Only continue if you started this from your own FamCal.",
+    "telegramButton": "Finish in Telegram",
+    "whatsappButton": "Finish in WhatsApp",
+    "whatsappText": "Finish connecting my Google Calendar: {code}",
+    "incompleteTitle": "This link is incomplete",
+    "incompleteBody": "Start again from the FamCal bot and connect Google from there."
   },
   "errors": {
     "unauthorized": "You are not authorized to use this bot",

@@ -433,9 +433,15 @@
     "retry": "Попробовать ещё раз"
   },
   "oauthComplete": {
-    "title": "Успешно подключено!",
-    "subtitle": "Ваш Google Календарь теперь подключён к FamCalBot.",
-    "button": "Вернуться в Telegram"
+    "title": "Осталось одно нажатие",
+    "subtitle": "Google дал добро. Нажмите кнопку ниже — и календарь подключён.",
+    "owner": "Google подключится к аккаунту FamCal «{name}». Продолжайте, только если это вы.",
+    "ownerUnnamed": "Продолжайте, только если вы начали подключение из своего аккаунта FamCal.",
+    "telegramButton": "Завершить в Telegram",
+    "whatsappButton": "Завершить в WhatsApp",
+    "whatsappText": "Завершить подключение Google Календаря: {code}",
+    "incompleteTitle": "Ссылка неполная",
+    "incompleteBody": "Начните заново в боте FamCal и подключите Google оттуда."
   },
   "errors": {
     "unauthorized": "Вы не авторизованы для использования этого бота",

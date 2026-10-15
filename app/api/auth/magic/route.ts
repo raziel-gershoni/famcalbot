@@ -7,7 +7,8 @@ import { VALID_LOCALES, localeFromAcceptLanguage } from '@/src/utils/locale';
 
 /**
  * Magic link auth handler
- * Validates token, sets session cookie, redirects to dashboard
+ * Validates token, sets session cookie, redirects to the link's page (the dashboard,
+ * or select-calendars right after a Google connect)
  */
 export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get('token');
@@ -40,11 +41,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL('/', getBaseUrl()));
   }
 
-  // Create session cookie and redirect to dashboard with user_id (DB primary key)
+  // Create session cookie and redirect to the link's page with user_id (DB primary key)
   const sessionToken = createSessionToken(data.userId);
-  const dashboardUrl = new URL(`/${data.locale}/dashboard?user_id=${data.userId}`, getBaseUrl());
+  const page = data.page === 'select-calendars' ? 'select-calendars' : 'dashboard';
+  const pageUrl = new URL(`/${data.locale}/${page}?user_id=${data.userId}`, getBaseUrl());
 
-  const response = NextResponse.redirect(dashboardUrl);
+  const response = NextResponse.redirect(pageUrl);
   response.cookies.set(SESSION_COOKIE.name, sessionToken, SESSION_COOKIE.options);
 
   return response;

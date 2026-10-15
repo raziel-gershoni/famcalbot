@@ -473,15 +473,16 @@ async function main() {
     startedState = st.token;
   });
 
-  await check('#4 the callback with a u1_ state for user 42 saves the Google token where {id:42}, never on row 7', async () => {
+  await check('#4 the callback with a u1_ state for user 42 parks the Google token for owner 42, never row 7, and writes no user', async () => {
     seed();
     // The state #3 created, or the same shape when oauth/start is missing.
     const token = startedState ?? `u1_${crypto.randomBytes(32).toString('hex')}`;
     DB.oAuthState.push({ id: 'st-42', userId: BigInt(42), token, createdAt: new Date(), expiresAt: new Date(Date.now() + 10 * 60_000) });
     const ended = await runCallback(token);
-    const saved = userWrites.find(w => w.where.id === 42 && w.data.googleRefreshToken);
-    assert(saved, `ended with ${ended}; user writes: ${show(userWrites.map(w => ({ where: w.where, hit: w.hit })))}; ${captured.join(' | ')}`);
-    assert(writesHitting(7).length === 0, `row 7 written: ${show(writesHitting(7))}`);
+    // The token waits for the owner's claim (smoke-google-connect.ts covers the claim)
+    const parked = [...redisStore.entries()].filter(([k]) => k.startsWith('oauth:pending:')).map(([, v]) => JSON.parse(v));
+    assert(parked.length === 1 && parked[0].ownerUserId === 42, `ended with ${ended}; parked: ${show(parked)}; ${captured.join(' | ')}`);
+    assert(writesHitting(7).length === 0 && userWrites.length === 0, `user writes: ${show(userWrites.map(w => ({ where: w.where, hit: w.hit })))}`);
   });
 
   await check('#5 the callback with a legacy state (no u1_ prefix) writes no user', async () => {

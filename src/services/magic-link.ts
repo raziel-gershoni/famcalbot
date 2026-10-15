@@ -11,21 +11,26 @@ import { buildUrl } from '../config/urls';
 
 const MAGIC_LINK_TTL = 300; // 5 minutes
 
+/** The pages a magic link can land on */
+export type MagicLinkPage = 'dashboard' | 'select-calendars';
+
 interface MagicLinkData {
   userId: number;
   locale: string;
+  /** Missing on links made before it existed: the dashboard */
+  page?: MagicLinkPage;
 }
 
 /**
  * Generate a magic link URL for a user
  * Token is stored in Redis with 5-minute TTL, one-time use
  */
-export async function generateMagicLink(userId: number, locale: string): Promise<string> {
+export async function generateMagicLink(userId: number, locale: string, page: MagicLinkPage = 'dashboard'): Promise<string> {
   const token = crypto.randomBytes(32).toString('hex');
 
   await redis.set(
     REDIS_KEYS.magicLink(token),
-    JSON.stringify({ userId, locale } satisfies MagicLinkData),
+    JSON.stringify({ userId, locale, page } satisfies MagicLinkData),
     { ex: MAGIC_LINK_TTL }
   );
 

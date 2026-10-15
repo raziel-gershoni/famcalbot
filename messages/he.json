@@ -433,9 +433,15 @@
     "retry": "לנסות שוב"
   },
   "oauthComplete": {
-    "title": "התחברות הצליחה!",
-    "subtitle": "יומן Google שלך מחובר כעת ל-FamCalBot.",
-    "button": "חזור לטלגרם"
+    "title": "עוד לחיצה אחת",
+    "subtitle": "Google אישר. נשאר רק ללחוץ למטה, והיומן מחובר.",
+    "owner": "זה יחבר את Google ל-FamCal של {name}. ממשיכים רק אם זה אתם.",
+    "ownerUnnamed": "ממשיכים רק אם התחלתם את זה מה-FamCal שלכם.",
+    "telegramButton": "לסיים בטלגרם",
+    "whatsappButton": "לסיים בוואטסאפ",
+    "whatsappText": "לסיים את החיבור ליומן Google: {code}",
+    "incompleteTitle": "הקישור הזה לא שלם",
+    "incompleteBody": "התחילו מחדש מהבוט של FamCal וחברו את Google משם."
   },
   "errors": {
     "unauthorized": "אינך מורשה להשתמש בבוט זה",

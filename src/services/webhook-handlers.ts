@@ -665,6 +665,26 @@ export async function handleWhatsAppWebhook(
     return;
   }
 
+  // Google connect claim: a message with gc_<pendingId> from the OAuth finish page's
+  // wa.me link. Before auto-registration: the sender is only looked up, never created, and
+  // the token is committed only if they are the account that started the consent.
+  if (text.includes('gc_')) {
+    const { findGoogleConnectId, handleGoogleConnectWhatsApp } = await import('./google-connect');
+    const pendingId = findGoogleConnectId(text);
+    if (pendingId) {
+      const { getUserByWhatsAppId, getUserByWhatsAppBsuid } = await import('./user-service');
+      let sender = await getUserByWhatsAppId(from);
+      if (!sender && externalUserId) sender = await getUserByWhatsAppBsuid(externalUserId);
+      if (sender && isUserSuspended(sender)) {
+        console.log(`[Moderation] Dropped WhatsApp message from suspended user ${sender.id}`);
+      } else {
+        await handleGoogleConnectWhatsApp(from, sender, pendingId, text);
+      }
+      res.status(200).json({ ok: true });
+      return;
+    }
+  }
+
   // Auto-register: get existing user or create new one (BSUID-aware)
   const { getUserByWhatsAppId, updateWhatsAppBsuid } = await import('./user-service');
   let isNewUser = false;
