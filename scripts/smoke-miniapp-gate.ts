@@ -350,6 +350,41 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
+  await check('#11 a stale or used magic link lands on /<locale>/dashboard (the link\'s locale, else Accept-Language among en/he/ru), with no user_id and no cookie', async () => {
+    const { NextRequest } = nodeRequire('next/server');
+    const { GET } = await load('app/api/auth/magic/route.ts');
+    const cases: [string, string | null, string][] = [
+      ['token=stale&locale=he', 'ru-RU,ru;q=0.9', '/he/dashboard'],
+      ['token=stale', 'ru-RU,ru;q=0.9,en;q=0.8', '/ru/dashboard'],
+      ['token=stale', 'fr-FR,fr;q=0.9,he;q=0.5', '/he/dashboard'],
+      ['token=stale', 'en;q=0.5, he', '/he/dashboard'],
+      ['token=stale&locale=xx', 'de-DE', '/en/dashboard'],
+      ['token=stale', null, '/en/dashboard'],
+    ];
+    const problems: string[] = [];
+    for (const [query, acceptLanguage, want] of cases) {
+      const res: Response = await GET(new NextRequest(`http://localhost/api/auth/magic?${query}`, {
+        headers: acceptLanguage ? { 'accept-language': acceptLanguage } : {},
+      }));
+      const to = new URL(res.headers.get('location') ?? 'http://x/none');
+      if (to.pathname !== want || to.search) problems.push(`${query} + ${acceptLanguage}: ${to.pathname}${to.search} (want ${want})`);
+      if (res.headers.get('set-cookie')) problems.push(`${query}: sets a cookie`);
+    }
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#12 a fresh magic link carries its locale, and still signs in: /<its locale>/dashboard?user_id=<id> with the session cookie', async () => {
+    const { NextRequest } = nodeRequire('next/server');
+    const { generateMagicLink } = await load('src/services/magic-link.ts');
+    const { GET } = await load('app/api/auth/magic/route.ts');
+    const link = new URL(await generateMagicLink(42, 'ru'));
+    assert(link.searchParams.get('token') && link.searchParams.get('locale') === 'ru', `the link: ${link.pathname}${link.search.replace(/token=\w+/, 'token=…')}`);
+    const res: Response = await GET(new NextRequest(`http://localhost${link.pathname}${link.search}`, { headers: { 'accept-language': 'he' } }));
+    const to = new URL(res.headers.get('location') ?? 'http://x/none');
+    assert(`${to.pathname}${to.search}` === '/ru/dashboard?user_id=42', `redirect: ${to.pathname}${to.search}`);
+    assert((res.headers.get('set-cookie') ?? '').includes('famcal_session='), 'no session cookie');
+  });
+
   await check('#13 TelegramDashboardRedirect shows the shared card when there is no Telegram user (no hard-coded English), and keeps pushing Telegram users on', () => {
     const src = readSource('app/[locale]/dashboard/TelegramDashboardRedirect.tsx');
     assert(src.includes('<NoCredentialCard'), 'it does not render NoCredentialCard');

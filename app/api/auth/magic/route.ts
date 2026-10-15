@@ -3,6 +3,7 @@ import { validateMagicToken } from '@/src/services/magic-link';
 import { createSessionToken, SESSION_COOKIE } from '@/src/lib/session-auth';
 import { getBaseUrl } from '@/src/config/urls';
 import { prisma } from '@/src/utils/prisma';
+import { VALID_LOCALES, localeFromAcceptLanguage } from '@/src/utils/locale';
 
 /**
  * Magic link auth handler
@@ -18,8 +19,13 @@ export async function GET(request: NextRequest) {
   const data = await validateMagicToken(token);
 
   if (!data) {
-    // Token invalid or expired — redirect to home
-    return NextResponse.redirect(new URL('/en/dashboard', getBaseUrl()));
+    // Invalid, expired or already used: the dashboard with no user_id shows the card that
+    // offers a fresh link, in the language the link carries, else the browser's.
+    const linkLocale = request.nextUrl.searchParams.get('locale') ?? '';
+    const locale = (VALID_LOCALES as readonly string[]).includes(linkLocale)
+      ? linkLocale
+      : localeFromAcceptLanguage(request.headers.get('accept-language'));
+    return NextResponse.redirect(new URL(`/${locale}/dashboard`, getBaseUrl()));
   }
 
   // Refuse to grant a session to a suspended user.

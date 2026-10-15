@@ -16,6 +16,27 @@ export function normalizeLocale(locale: string | undefined | null): Locale {
 }
 
 /**
+ * The first app locale a browser asks for in its Accept-Language header, by q-value
+ * ('he-IL' counts as 'he'; 'iw' is the old code for Hebrew), else 'en'.
+ */
+export function localeFromAcceptLanguage(header: string | null | undefined): Locale {
+  const ranked = (header ?? '')
+    .split(',')
+    .map((part, i) => {
+      const [tag, ...params] = part.trim().split(';');
+      const q = params.map(p => p.trim()).find(p => p.startsWith('q='));
+      return { lang: tag.trim().toLowerCase().split('-')[0], q: q ? Number(q.slice(2)) : 1, i };
+    })
+    .filter(r => r.lang && r.q > 0)
+    .sort((a, b) => b.q - a.q || a.i - b.i);
+  for (const { lang } of ranked) {
+    const code = lang === 'iw' ? 'he' : lang;
+    if (VALID_LOCALES.includes(code as Locale)) return code as Locale;
+  }
+  return 'en';
+}
+
+/**
  * Check if a locale uses right-to-left text direction
  */
 export function isRtlLocale(locale: string): boolean {

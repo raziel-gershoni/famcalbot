@@ -29,7 +29,8 @@ export async function generateMagicLink(userId: number, locale: string): Promise
     { ex: MAGIC_LINK_TTL }
   );
 
-  return buildUrl(`/api/auth/magic?token=${token}`);
+  // The locale grants nothing; it lets a stale or used link still answer in the user's language
+  return buildUrl(`/api/auth/magic?token=${token}&locale=${encodeURIComponent(locale)}`);
 }
 
 /**
