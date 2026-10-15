@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import { RefreshCw, KeyRound, ArrowLeft, Loader2 } from 'lucide-react';
 import { readInitData } from '@/src/lib/read-init-data';
 
@@ -14,6 +14,9 @@ interface Translations {
   button: string;
   checking: string;
   startFailed: string;
+  /** Shown after Google opens: finish there, then tap the finish page's button */
+  waitingTelegram: string;
+  waitingWhatsApp: string;
   /** pageGate's strings: what to do when there is no credential for this page */
   gate: {
     telegramTitle: string;
@@ -31,6 +34,14 @@ interface RefreshTokenClientProps {
 }
 
 const OAUTH_PENDING_KEY = 'famcalbot_oauth_pending';
+
+/**
+ * After Google opens, ask every 2 s for up to 3 minutes whether the connection landed.
+ * It lands only when the owner taps the finish page's button and the bot commits it, often
+ * while this page is already visible again, so visibilitychange alone would miss it.
+ */
+const POLL_INTERVAL_MS = 2000;
+const POLL_WINDOW_MS = 3 * 60_000;
 
 /**
  * What the page says when oauth/start gives no Google URL. With no credential it says
@@ -54,6 +65,9 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
   // the user our credential proves. Until it arrives the button stays disabled.
   const [oauthUrl, setOauthUrl] = useState<string | null>(null);
   const [startError, setStartError] = useState<string[] | null>(null);
+  // Set when Google opens: when, and whether the finish is in Telegram or WhatsApp
+  const [waiting, setWaiting] = useState<{ since: number; telegram: boolean } | null>(null);
+  const checkInFlight = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,23 +97,26 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     };
   }, [userId, t]);
 
-  const checkTokenRefresh = useCallback(async () => {
+  // quiet: the interval poll, which shows no overlay unless the connection landed
+  const checkTokenRefresh = useCallback(async (quiet = false) => {
     const pending = localStorage.getItem(OAUTH_PENDING_KEY);
-    if (!pending) return;
+    if (!pending || checkInFlight.current) return;
 
-    setIsChecking(true);
+    checkInFlight.current = true;
+    if (!quiet) setIsChecking(true);
     try {
-      const { userId: pendingUserId, startTime } = JSON.parse(pending);
+      const { userId: pendingUserId } = JSON.parse(pending);
       // initData goes in a header, never the URL: it is a credential for 24 hours, and
       // URLs end up in logs and traces
       const initData = readInitData();
-      const response = await fetch(`/api/check-token-refresh?user_id=${pendingUserId}&since=${startTime}`, {
+      const response = await fetch(`/api/check-token-refresh?user_id=${pendingUserId}`, {
         credentials: 'same-origin',
         headers: initData ? { 'X-Telegram-Init-Data': initData } : undefined,
       });
       const data = await response.json();
 
       if (data.refreshed) {
+        setIsChecking(true);
         // Clear the pending flag
         localStorage.removeItem(OAUTH_PENDING_KEY);
         // Navigate to calendar selection with user's locale
@@ -110,6 +127,8 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     } catch (error) {
       console.error('Error checking token refresh:', error);
       setIsChecking(false);
+    } finally {
+      checkInFlight.current = false;
     }
   }, [locale]);
 
@@ -128,11 +147,14 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     } else {
       window.open(oauthUrl, '_blank');
     }
+    // With initData the finish is in Telegram; on the WhatsApp session, in WhatsApp
+    setWaiting({ since: Date.now(), telegram: readInitData() !== '' });
   }, [oauthUrl, userId]);
 
   useEffect(() => {
     // Initialize Telegram WebApp if available
     if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+      window.Telegram.WebApp.ready();
       window.Telegram.WebApp.expand();
     }
 
@@ -140,20 +162,32 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         // Small delay to ensure OAuth callback has completed
-        setTimeout(checkTokenRefresh, 500);
+        setTimeout(() => checkTokenRefresh(), 500);
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // Also check on mount in case user already completed OAuth
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reads localStorage, which exists only on the client, so the check must run after mount
+    // Also check on mount in case user already completed OAuth. It reads localStorage,
+    // which exists only on the client, so the check must run after mount.
     checkTokenRefresh();
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [checkTokenRefresh]);
+
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = setInterval(() => {
+      if (Date.now() - waiting.since > POLL_WINDOW_MS) {
+        clearInterval(timer);
+        return;
+      }
+      checkTokenRefresh(true);
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [waiting, checkTokenRefresh]);
 
   useEffect(() => {
     // The Telegram MainButton appears once the Google URL is ready
@@ -353,6 +387,13 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
           font-size: 16px;
           font-weight: 500;
         }
+
+        .waiting {
+          margin-top: 20px;
+          color: #4b5563;
+          font-size: 15px;
+          line-height: 1.6;
+        }
       `}</style>
 
       {isChecking && (
@@ -403,6 +444,12 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
             {oauthUrl ? <KeyRound size={20} /> : <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />}
             {t.button}
           </button>
+        )}
+
+        {waiting && (
+          <p className="waiting" role="status">
+            {waiting.telegram ? t.waitingTelegram : t.waitingWhatsApp}
+          </p>
         )}
       </div>
     </>

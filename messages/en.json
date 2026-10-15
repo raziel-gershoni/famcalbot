@@ -416,7 +416,9 @@
     "step3": "Your bot will work again!",
     "button": "Connect Google Calendar",
     "checking": "Checking authentication...",
-    "startFailed": "We couldn’t reach Google just now. Please try again in a minute."
+    "startFailed": "We couldn’t reach Google just now. Please try again in a minute.",
+    "waitingTelegram": "Finish signing in to Google in the browser, then tap “Finish in Telegram”. This page moves on by itself once you’re done.",
+    "waitingWhatsApp": "Finish signing in to Google in the new tab, then tap “Finish in WhatsApp” and send the message. This page moves on by itself once you’re done."
   },
   "pageGate": {
     "loading": "Loading…",

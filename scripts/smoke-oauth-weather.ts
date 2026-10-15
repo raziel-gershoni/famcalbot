@@ -541,10 +541,8 @@ async function main() {
 
   await check('#9 check-token-refresh on the WA cookie is 200 and reads row 42 (refreshed), not row 7', async () => {
     seed();
-    // Row 42 just got a token; row 7 (telegramId 42) has none.
-    const row42 = DB.user.find(u => u.id === 42) as Row;
-    row42.googleRefreshToken = 'google-rt-42';
-    row42.updatedAt = new Date();
+    // Row 42 just committed a token; row 7 (telegramId 42) has none.
+    redisStore.set('googleConnected:42', String(Date.now()));
     const { GET } = await load('app/api/check-token-refresh/route.ts');
     const res = await GET(req(`/api/check-token-refresh?user_id=42&since=${Date.now() - 60_000}`, { cookie: waCookie }));
     assert(res.status === 200, `status ${res.status} ${await bodyOf(res)}`);
@@ -615,9 +613,7 @@ async function main() {
 
   await check('#12 check-token-refresh takes initData from the X-Telegram-Init-Data header, not the URL', async () => {
     seed();
-    const row9 = DB.user.find(u => u.id === 9) as Row;
-    row9.googleRefreshToken = 'google-rt-9';
-    row9.updatedAt = new Date();
+    redisStore.set('googleConnected:9', String(Date.now()));
     const { GET } = await load('app/api/check-token-refresh/route.ts');
     const url = `http://localhost/api/check-token-refresh?user_id=111111111&since=${Date.now() - 60_000}`;
     const viaHeader: Response = await GET(new NextRequest(url, { headers: { 'x-telegram-init-data': initDataFor(111111111) } }));
