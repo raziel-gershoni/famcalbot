@@ -532,9 +532,10 @@ export async function handleWhatsAppWebhook(
   const changes = entry?.changes?.[0];
   const value = changes?.value;
 
-  // Ignore messages for other phone numbers (same Meta app, different bots)
+  // Ignore messages for other phone numbers (same Meta app, different bots). With our
+  // number's id set, an entry that names no phone_number_id isn't ours either.
   const incomingPhoneId = value?.metadata?.phone_number_id;
-  if (incomingPhoneId && process.env.WHATSAPP_PHONE_NUMBER_ID && incomingPhoneId !== process.env.WHATSAPP_PHONE_NUMBER_ID) {
+  if (process.env.WHATSAPP_PHONE_NUMBER_ID && incomingPhoneId !== process.env.WHATSAPP_PHONE_NUMBER_ID) {
     res.status(200).json({ ok: true });
     return;
   }

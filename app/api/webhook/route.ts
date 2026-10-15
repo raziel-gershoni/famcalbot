@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { detectPlatform, MessagingPlatform } from '@/src/services/messaging';
 import { captureError } from '@/src/lib/error-capture';
+import { checkWhatsAppSignature } from '@/src/lib/whatsapp-signature';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -19,13 +20,26 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    // The raw text, not request.json(): Meta's signature covers the exact bytes
+    const rawBody = await request.text();
+    const body = JSON.parse(rawBody);
 
     // Detect platform from webhook structure
     const platform = detectPlatform({ body } as { body: Record<string, unknown> });
 
-    // Verify Telegram webhook secret token (mandatory)
-    if (platform !== MessagingPlatform.WHATSAPP) {
+    if (platform === MessagingPlatform.WHATSAPP) {
+      // Verify Meta's signature (X-Hub-Signature-256) before a handler acts on the body
+      const signature = checkWhatsAppSignature(rawBody, request.headers.get('X-Hub-Signature-256'));
+      if (signature === 'rejected') {
+        console.warn('[Webhook] Invalid or missing WhatsApp signature');
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      if (signature === 'unconfigured') {
+        console.error('[Webhook] WHATSAPP_APP_SECRET not configured');
+        return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 });
+      }
+    } else {
+      // Verify Telegram webhook secret token (mandatory)
       const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
       if (!webhookSecret) {
         console.error('[Webhook] TELEGRAM_WEBHOOK_SECRET not configured');
