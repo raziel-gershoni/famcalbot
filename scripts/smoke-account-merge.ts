@@ -969,6 +969,30 @@ async function main() {
     assert(result.reconnectGoogle === true, `reconnectGoogle ${show(result.reconnectGoogle)}`);
   });
 
+  await check('#32 W on Google, an established unpaired T with events of its own: T keeps its native calendars and events, and the result asks the user to reconnect Google', async () => {
+    seed();
+    googleW();
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const t = userRow(T);
+    assert(t.calendarSource === 'NATIVE' && t.googleRefreshToken === '' && t.calendarAssignments === null,
+      `T ${show({ calendarSource: t.calendarSource, token: t.googleRefreshToken === TOKENS.w ? 'W\'s' : t.googleRefreshToken, calendarAssignments: t.calendarAssignments })}`);
+    assert(rowOf('nativeCalendar', 'cal-t')?.isDeleted === false && rowOf('nativeEvent', 'ev-t')?.isDeleted === false, `T's calendar ${show(rowOf('nativeCalendar', 'cal-t'))}`);
+    assert(result.reconnectGoogle === true, `reconnectGoogle ${show(result.reconnectGoogle)}`);
+  });
+
+  await check('#33 [guard] W on Google, an established unpaired T with no live events (a deleted one only): T moves to Google with W\'s token', async () => {
+    seed();
+    googleW();
+    rowOf('nativeEvent', 'ev-t')!.isDeleted = true;
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const t = userRow(T);
+    assert(t.calendarSource === 'GOOGLE' && t.googleRefreshToken === TOKENS.w && show(t.calendarAssignments) === show(W_ASSIGNMENTS),
+      `T ${show({ calendarSource: t.calendarSource, token: t.googleRefreshToken === TOKENS.w ? 'W\'s' : t.googleRefreshToken })}`);
+    assert(rowOf('nativeCalendar', 'cal-t')?.isDeleted === true && !result.reconnectGoogle, `T's calendar ${show(rowOf('nativeCalendar', 'cal-t'))}; reconnectGoogle ${show(result.reconnectGoogle)}`);
+  });
+
   // ---- Merge: subscription ----
 
   await check('#8 W\'s subscription runs longer (paid, 20 days left; T is on a 3-day trial): T ends up with W\'s', async () => {

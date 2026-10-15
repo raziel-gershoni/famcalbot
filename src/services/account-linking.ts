@@ -58,7 +58,7 @@ export interface LinkResult {
   success: boolean;
   error?: 'invalid_or_expired' | 'telegram_user_not_found' | 'already_linked' | 'phone_in_use' | 'unknown';
   user?: UserConfig;
-  /** The WhatsApp account's Google connection did not move (the Telegram account is paired or has its own): reconnect it from the dashboard */
+  /** The WhatsApp account's Google connection did not move (the Telegram account is paired, has its own, or has its own calendar in use): reconnect it from the dashboard */
   reconnectGoogle?: boolean;
 }
 
@@ -112,6 +112,7 @@ type SetupField = keyof typeof NEW_ACCOUNT | 'name' | 'location' | 'locationForc
 
 /** A Telegram account this young was made by the /start connect that sent the link code. */
 const FRESH_ACCOUNT_MS = 24 * 60 * 60 * 1000;
+const isFresh = (t: User) => Date.now() - t.createdAt.getTime() < FRESH_ACCOUNT_MS;
 
 /** The setup fields T takes from W (see NEW_ACCOUNT). */
 function setupFromW(w: User, t: User): Partial<Pick<User, SetupField>> {
@@ -127,7 +128,7 @@ function setupFromW(w: User, t: User): Partial<Pick<User, SetupField>> {
     data.locationForced = w.locationForced;
   }
   // T's language is the Telegram client's; the user chose W's.
-  if (Date.now() - t.createdAt.getTime() < FRESH_ACCOUNT_MS) data.language = w.language;
+  if (isFresh(t)) data.language = w.language;
   return data as Partial<Pick<User, SetupField>>;
 }
 
@@ -173,6 +174,13 @@ async function mergeWhatsAppUser(
   const w = await tx.user.findUniqueOrThrow({ where: { id: waOnlyUserId } });
   const t = await tx.user.findUniqueOrThrow({ where: { id: telegramUserId } });
   const tIsNative = t.calendarSource === 'NATIVE';
+  // Whether T's own calendars hold live events, read before W's arrive (the Google step).
+  const wHasGoogle = w.calendarSource === 'GOOGLE' && !!w.googleRefreshToken;
+  const tCalendarIds = wHasGoogle
+    ? (await tx.nativeCalendar.findMany({ where: { ownerUserId: t.id, isDeleted: false }, select: { id: true } })).map(c => c.id)
+    : [];
+  const tHasEvents = tCalendarIds.length > 0 &&
+    (await tx.nativeEvent.count({ where: { calendarId: { in: tCalendarIds }, isDeleted: false } })) > 0;
 
   // Pairing: only NATIVE users pair, one partner each. W's pairing moves to T
   // when T can take it; otherwise W is unpaired with unlink()'s writes. Each
@@ -296,15 +304,17 @@ async function mergeWhatsAppUser(
   // A Google sign-in W left half-done is minutes old; it is restarted from T.
   await tx.oAuthState.deleteMany({ where: { userId: BigInt(w.id) } });
 
-  // W's Google connection moves when T has none and is unpaired (only NATIVE
-  // users pair): the stored token, still encrypted, and W's calendar choices.
-  // T is then on Google, so its native calendars, W's moved ones included, are
-  // soft-deleted as commitGoogleToken does (either/or per user). The write
-  // re-checks both conditions, as the pairing move does. Otherwise T keeps its
-  // setup, and the user is told to reconnect Google.
+  // W's Google connection moves when T has none, is unpaired (only NATIVE users
+  // pair) and has no native setup of its own to lose: T is fresh, or its
+  // calendars held no live events. It moves as stored: the token, still
+  // encrypted, and W's calendar choices. T is then on Google, so its native
+  // calendars, W's moved ones included, are soft-deleted as commitGoogleToken
+  // does (either/or per user). The write re-checks the pairing and the token, as
+  // the pairing move does. Otherwise T keeps its setup, and the user is told to
+  // reconnect Google.
   let reconnectGoogle = false;
-  if (w.calendarSource === 'GOOGLE' && w.googleRefreshToken) {
-    const tookGoogle = !pairingId && !t.googleRefreshToken && (await tx.user.updateMany({
+  if (wHasGoogle) {
+    const tookGoogle = !pairingId && !t.googleRefreshToken && (isFresh(t) || !tHasEvents) && (await tx.user.updateMany({
       where: { id: t.id, pairingId: null, googleRefreshToken: '' },
       data: {
         calendarSource: 'GOOGLE',
