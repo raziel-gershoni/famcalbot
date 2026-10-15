@@ -13,7 +13,8 @@
 // unlinked account, so it comes second and says who it is for). Inside Telegram it closes
 // the Mini App, back to the chat whose buttons reopen it. A stale or used magic link used
 // to land on /en/dashboard and a hard-coded English card with no link; it now gets the
-// same card, in the link's language or the browser's. The dashboard's "open in Telegram"
+// same card, in the link's language or the browser's, or that browser's own dashboard
+// while its session cookie is still valid. The dashboard's "open in Telegram"
 // banner never showed, since the SDK defines Telegram.WebApp in any browser.
 //
 // The pages, PageGate's cards, the magic-link route and its service run for real. Faked
@@ -404,6 +405,24 @@ async function main() {
     assert(src.includes("from '@/src/lib/read-init-data'"), 'DashboardClient does not import readInitData');
   });
 
+  await check('#15 a stale or used magic link in a browser still signed in (valid famcal_session) goes to that user\'s dashboard; a bad cookie still gets the card', async () => {
+    const { NextRequest } = nodeRequire('next/server');
+    const { createSessionToken } = await load('src/lib/session-auth.ts');
+    const { GET } = await load('app/api/auth/magic/route.ts');
+    const call = async (cookie: string) => {
+      const res: Response = await GET(new NextRequest('http://localhost/api/auth/magic?token=stale&locale=he', {
+        headers: { 'accept-language': 'ru', cookie: `famcal_session=${cookie}` },
+      }));
+      const to = new URL(res.headers.get('location') ?? 'http://x/none');
+      return { to: `${to.pathname}${to.search}`, setCookie: res.headers.get('set-cookie') };
+    };
+    const signedIn = await call(createSessionToken(7));
+    assert(signedIn.to === '/he/dashboard?user_id=7', `valid session: ${signedIn.to}`);
+    assert(!signedIn.setCookie, 'a stale link must not mint or touch a cookie');
+    const [payload] = createSessionToken(7).split('.');
+    const forged = await call(`${payload}.forged`);
+    assert(forged.to === '/he/dashboard', `forged session: ${forged.to}`);
+  });
 
   let failed = 0;
   for (const r of results) {

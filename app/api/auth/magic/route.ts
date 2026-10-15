@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateMagicToken } from '@/src/services/magic-link';
-import { createSessionToken, SESSION_COOKIE } from '@/src/lib/session-auth';
+import { createSessionToken, SESSION_COOKIE, validateSessionFromRequest } from '@/src/lib/session-auth';
 import { getBaseUrl } from '@/src/config/urls';
 import { prisma } from '@/src/utils/prisma';
 import { VALID_LOCALES, localeFromAcceptLanguage } from '@/src/utils/locale';
@@ -20,12 +20,15 @@ export async function GET(request: NextRequest) {
 
   if (!data) {
     // Invalid, expired or already used: the dashboard with no user_id shows the card that
-    // offers a fresh link, in the language the link carries, else the browser's.
+    // offers a fresh link, in the language the link carries, else the browser's. A browser
+    // still signed in goes to its own dashboard instead (page-data re-checks the cookie).
     const linkLocale = request.nextUrl.searchParams.get('locale') ?? '';
     const locale = (VALID_LOCALES as readonly string[]).includes(linkLocale)
       ? linkLocale
       : localeFromAcceptLanguage(request.headers.get('accept-language'));
-    return NextResponse.redirect(new URL(`/${locale}/dashboard`, getBaseUrl()));
+    const sessionUserId = validateSessionFromRequest(request);
+    const to = sessionUserId !== null ? `/${locale}/dashboard?user_id=${sessionUserId}` : `/${locale}/dashboard`;
+    return NextResponse.redirect(new URL(to, getBaseUrl()));
   }
 
   // Refuse to grant a session to a suspended user.
