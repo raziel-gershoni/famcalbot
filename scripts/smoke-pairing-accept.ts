@@ -27,6 +27,11 @@
 // waits, then re-checks its where, as an UPDATE waits on a row lock under READ COMMITTED.
 // The fake still has no rollback, so the loser's half-made pairing stays behind.
 //
+// Review fixes: re-tapping the invite you already accepted, later or twice at once, hears
+// the same "already paired" (#15); a pairingId left on an UNLINKED pairing is not "paired
+// together" (#16); and on the invite page that news no longer shows as an error next to a
+// live Accept button (#17, the page's own code run with a stand-in hook dispatcher).
+//
 // The check named [guard] already passes before the fix and must keep passing. The
 // others fail until the fix lands. Numbers follow the design's smoke list.
 //
@@ -426,6 +431,14 @@ function seed() {
   ];
 }
 
+/** seed(), with 1 and 2 paired before (status ACTIVE unless given); their old invites (and 3's) are still open. */
+function pairedSeed(status = 'ACTIVE') {
+  seed();
+  DB.pairing.push({ id: 'pairing-12', status, inviterUserId: 1, inviteeUserId: 2, acceptedAt: new Date(Date.now() - DAY), unlinkedAt: null, unlinkedByUserId: null });
+  userRow(1).pairingId = 'pairing-12';
+  userRow(2).pairingId = 'pairing-12';
+}
+
 const userRow = (id: number) => DB.user.find(u => u.id === id) as Row;
 const toChat = (chatId: number) => sent.filter(s => Number(s.chatId) === chatId);
 const settle = () => new Promise(r => setTimeout(r, 25));
@@ -448,6 +461,76 @@ const load = (rel: string): Promise<Row> => import(path.join(ROOT, rel));
 /** 'ok' for a fulfilled accept, else the PairingError code (or the message). */
 const outcome = (r: PromiseSettledResult<unknown>) =>
   r.status === 'fulfilled' ? 'ok' : String((r.reason as Row)?.code ?? (r.reason as Error)?.message ?? r.reason);
+
+/**
+ * Runs a client component's own code with no DOM, as smoke-google-connect.ts does: React's
+ * hook dispatcher is swapped for a small one (useState, useEffect), so its render, effects
+ * and handlers run as on the phone. A state update renders again. tree() is the latest render.
+ */
+function runClient(component: (props: Row) => unknown, props: Row): { tree: () => unknown } {
+  const internals = nodeRequire('react').__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE as Row;
+  const slots: Row[] = [];
+  let cursor = 0;
+  let output: unknown;
+  let effects: Array<() => void> = [];
+  let dirty = false;
+  let busy = false;
+  const dispatcher = {
+    useState(init: unknown) {
+      const slot = (slots[cursor++] ??= { value: typeof init === 'function' ? (init as () => unknown)() : init });
+      slot.set ??= (next: unknown) => {
+        const value = typeof next === 'function' ? (next as (v: unknown) => unknown)(slot.value) : next;
+        if (Object.is(value, slot.value)) return;
+        slot.value = value;
+        update();
+      };
+      return [slot.value, slot.set];
+    },
+    useEffect(fn: () => unknown, deps?: unknown[]) {
+      const k = cursor++;
+      const prev = slots[k];
+      if (prev && deps && deps.length === prev.deps.length && deps.every((v, i) => Object.is(v, prev.deps[i]))) return;
+      slots[k] = { deps };
+      effects.push(() => { fn(); });
+    },
+  };
+  function update() {
+    dirty = true;
+    if (busy) return;
+    busy = true;
+    try {
+      while (dirty) {
+        dirty = false;
+        cursor = 0;
+        const saved = internals.H;
+        internals.H = dispatcher;
+        try {
+          output = component(props);
+        } finally {
+          internals.H = saved;
+        }
+        const run = effects;
+        effects = [];
+        run.forEach(effect => effect());
+      }
+    } finally {
+      busy = false;
+    }
+  }
+  update();
+  return { tree: () => output };
+}
+
+/** Every element of a rendered tree. */
+function elementsOf(node: unknown, out: Row[] = []): Row[] {
+  if (Array.isArray(node)) { node.forEach(n => elementsOf(n, out)); return out; }
+  if (!node || typeof node !== 'object') return out;
+  out.push(node as Row);
+  elementsOf((node as Row).props?.children, out);
+  return out;
+}
+/** The text an element holds directly. */
+const ownText = (el: Row) => ([] as unknown[]).concat(el.props?.children ?? []).filter(c => typeof c === 'string').join('');
 
 async function main() {
   installStubs();
@@ -767,13 +850,6 @@ async function main() {
     const { handlePairAccept } = await load('src/services/telegram/pair-handler.ts');
     const { POST } = await load('app/api/pair/accept/route.ts');
     const problems: string[] = [];
-    /** 1 and 2 paired before; their old invites (and 3's) are still open. */
-    const pairedSeed = () => {
-      seed();
-      DB.pairing.push({ id: 'pairing-12', status: 'ACTIVE', inviterUserId: 1, inviteeUserId: 2, acceptedAt: new Date(Date.now() - DAY), unlinkedAt: null, unlinkedByUserId: null });
-      userRow(1).pairingId = 'pairing-12';
-      userRow(2).pairingId = 'pairing-12';
-    };
 
     for (const c of [
       { token: TOKEN_2, acceptor: 1, want: 'ALREADY_PAIRED_TOGETHER' },
@@ -857,6 +933,138 @@ async function main() {
     const notPaired = outcome((await Promise.allSettled([unlink(3)]))[0]);
     if (notPaired !== 'NOT_PAIRED' || DB.nativeCalendar.find(c => c.id === 'cal-3')?.privacy !== 'SHARED_EDITOR') {
       problems.push(`unlink of unpaired 3: ${notPaired}, cal-3 ${DB.nativeCalendar.find(c => c.id === 'cal-3')?.privacy}`);
+    }
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#15 re-tapping the invite you already accepted gives ALREADY_PAIRED_TOGETHER, tapped again later or twice at once (service, chat, API), with no second inviter notice; anyone else, or the acceptor no longer paired with the inviter, still gets INVITE_ALREADY_USED', async () => {
+    const { acceptInvite, unlink } = await load('src/services/pairing-service.ts');
+    const { handlePairAccept } = await load('src/services/telegram/pair-handler.ts');
+    const { POST } = await load('app/api/pair/accept/route.ts');
+    const problems: string[] = [];
+    const tap = async (token: string, acceptor: number) => outcome((await Promise.allSettled([acceptInvite(token, acceptor)]))[0]);
+
+    // Later: 2 accepted 1's invite and taps it again; 5 taps it too; then 1 and 2 unlink
+    seed();
+    await acceptInvite(TOKEN_1, 2);
+    for (const [acceptor, want] of [[2, 'ALREADY_PAIRED_TOGETHER'], [5, 'INVITE_ALREADY_USED']] as const) {
+      const got = await tap(TOKEN_1, acceptor);
+      if (got !== want) problems.push(`later, user ${acceptor}: ${got}, want ${want}`);
+    }
+    await unlink(1);
+    const unlinked = await tap(TOKEN_1, 2);
+    if (unlinked !== 'INVITE_ALREADY_USED') problems.push(`after unlink, user 2: ${unlinked}`);
+
+    // 5 used 1's invite long ago; 1 and 2 are paired now (1 took 2's): 2 tapping 1's old one did not accept it
+    seed();
+    await acceptInvite(TOKEN_1, 5);
+    await unlink(5);
+    await acceptInvite(TOKEN_2, 1);
+    const notTheirs = await tap(TOKEN_1, 2);
+    if (notTheirs !== 'INVITE_ALREADY_USED') problems.push(`2 tapping 1's invite that 5 used: ${notTheirs}`);
+
+    // At once: the other tap commits while this one claims the invite (the claim waits for
+    // it, then updates nothing). The fake has no row lock on invites, so that commit is run
+    // inside the claim, as #9 does for the links.
+    const invites = fakePrisma.pairingInvite as Row;
+    const realUpdateMany = invites.updateMany;
+    for (const [first, want] of [[2, 'ALREADY_PAIRED_TOGETHER'], [5, 'INVITE_ALREADY_USED']] as const) {
+      seed();
+      invites.updateMany = async (a: Row) => {
+        invites.updateMany = realUpdateMany;
+        await acceptInvite(TOKEN_1, first);
+        return realUpdateMany(a);
+      };
+      try {
+        const got = await tap(TOKEN_1, 2);
+        if (got !== want) problems.push(`at once, user ${first}'s tap first: ${got}, want ${want}`);
+      } finally {
+        invites.updateMany = realUpdateMany;
+      }
+    }
+
+    // Chat and API: the second tap hears they are already paired, and the inviter is told once
+    seed();
+    await handlePairAccept(7770002, 2, TOKEN_1, 'en', 'telegram');
+    await handlePairAccept(7770002, 2, TOKEN_1, 'en', 'telegram');
+    await settle();
+    const replies = toChat(7770002).map(m => m.text ?? '');
+    if (replies.length !== 2 || !/You two are already paired/.test(replies[1]) || toChat(5550001).length !== 1) {
+      problems.push(`chat: to 2 ${show(replies)}, to the inviter ${show(toChat(5550001).map(m => m.text))}`);
+    }
+    seed();
+    const post = () => POST(new NextRequest('http://localhost/api/pair/accept?user_id=7770002', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: TOKEN_1, initData: initDataFor(7770002) }),
+    })) as Promise<Response>;
+    const answers: string[] = [];
+    for (const res of [await post(), await post()]) answers.push(`${res.status} ${(await res.json()).error ?? 'ok'}`);
+    await settle();
+    if (show(answers) !== show(['200 ok', '400 ALREADY_PAIRED_TOGETHER']) || toChat(5550001).length !== 1) {
+      problems.push(`API: ${show(answers)}, to the inviter ${show(toChat(5550001).map(m => m.text))}`);
+    }
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#16 [guard] the inviter\'s pairingId still points at an UNLINKED pairing with the acceptor: that is not "already paired together", on a new accept or on re-tapping one', async () => {
+    const { acceptInvite } = await load('src/services/pairing-service.ts');
+    const problems: string[] = [];
+    pairedSeed('UNLINKED');
+    const fresh = outcome((await Promise.allSettled([acceptInvite(TOKEN_1, 2)]))[0]);
+    if (fresh !== 'INVITER_ALREADY_PAIRED') problems.push(`2 taking 1's open invite: ${fresh}`);
+    pairedSeed('UNLINKED');
+    Object.assign(DB.pairingInvite.find(i => i.id === 'inv-1') as Row, { acceptedAt: new Date(Date.now() - DAY), acceptedByUserId: 2 });
+    const again = outcome((await Promise.allSettled([acceptInvite(TOKEN_1, 2)]))[0]);
+    if (again !== 'INVITE_ALREADY_USED') problems.push(`2 re-tapping 1's invite it accepted: ${again}`);
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#17 the invite page: an accept answered ALREADY_PAIRED_TOGETHER shows the news outside the rose error box and drops the Accept button, in en/he/ru; another error keeps the rose box and the button', async () => {
+    const InviteClient = (await load('app/[locale]/invite/[token]/InviteClient.tsx')).default;
+    const { POST } = await load('app/api/pair/accept/route.ts');
+    const g = globalThis as Row;
+    const blocked = g.fetch;
+    const problems: string[] = [];
+    // The phone's fetch reaches the real accept route; the server has no window
+    g.fetch = async (url: string, init: RequestInit) => {
+      const phone = g.window;
+      delete g.window;
+      try {
+        return await POST(new NextRequest(`http://localhost${url}`, init));
+      } finally {
+        g.window = phone;
+      }
+    };
+    try {
+      for (const c of [
+        { locale: 'en', tgId: 7770002, together: true, news: 'You two are already paired' },
+        { locale: 'he', tgId: 7770002, together: true, news: 'שניכם כבר מחוברים' },
+        { locale: 'ru', tgId: 7770002, together: true, news: 'Вы уже связаны друг с другом' },
+        { locale: 'en', tgId: 7770005, together: false, news: 'The inviter is already paired with someone else.' },
+      ]) {
+        pairedSeed();
+        const noop = () => undefined;
+        g.window = { Telegram: { WebApp: { initData: initDataFor(c.tgId), initDataUnsafe: { user: { id: c.tgId } }, ready: noop, expand: noop, close: noop } } };
+        const app = runClient(InviteClient, {
+          token: TOKEN_1, inviterName: 'Dana', locale: c.locale, tgDeepLink: '', waDeepLink: '', expiresAt: new Date(Date.now() + 6 * DAY).toISOString(),
+        });
+        const buttons = () => elementsOf(app.tree()).filter(e => e.type === 'button');
+        const tapped = buttons()[0];
+        if (!tapped) { problems.push(`${c.locale} ${c.tgId}: no Accept button before the tap`); continue; }
+        await tapped.props.onClick();
+        await settle();
+        const els = elementsOf(app.tree());
+        const box = els.find(e => ownText(e).includes(c.news));
+        const rose = /rose/.test(String(box?.props?.className ?? ''));
+        const where = `${c.locale}, user ${c.tgId}`;
+        if (!box) problems.push(`${where}: no "${c.news}" on the page: ${show(els.map(ownText).filter(Boolean))}`);
+        else if (c.together && (rose || buttons().length)) problems.push(`${where}: shown in ${show(box.props.className)}, buttons ${show(buttons().map(ownText))}`);
+        else if (!c.together && (!rose || buttons().length !== 1)) problems.push(`${where}: shown in ${show(box.props.className)}, buttons ${show(buttons().map(ownText))}`);
+      }
+    } finally {
+      g.fetch = blocked;
+      delete g.window;
     }
     assert(problems.length === 0, problems.join('; '));
   });

@@ -27,6 +27,11 @@
 // connection replaced the native events a T under a day old had already added, and an unlink
 // by W that read the pairing before the merge moved it ended T's pairing.
 //
+// Pairing leftovers (#48, #49): unlink now sets both people's calendars back to PRIVATE,
+// but the two other paths that end a pairing left the surviving partner's shared: the
+// merge ending W's pairing left P's (and T's, when T and W were paired with each other),
+// and the hard delete left the partner's.
+//
 // account-linking, user-moderation, user-service, subscription-service, the reminder
 // cache and event-store run for real. Faked at the boundaries: Prisma (in memory, and it
 // enforces the schema: a delete hits ON DELETE RESTRICT / CASCADE / SET NULL as the
@@ -618,6 +623,19 @@ function googleW() {
 
 const userRow = (id: number) => DB.user.find(u => u.id === id) as Row;
 const rowOf = (name: string, id: string) => table(name).find(r => r.id === id);
+const privacyOf = (ids: string[]) => Object.fromEntries(ids.map(id => [id, rowOf('nativeCalendar', id)?.privacy]));
+
+/** Records every write from now on, in order: 'user.unpair' for a user write that clears
+ *  pairingId, else the table written. The caller sets concurrent back to null. */
+function recordWrites(): string[] {
+  const writes: string[] = [];
+  concurrent = (name, method, args) => {
+    if (/^(create|update|upsert|delete)/.test(method)) writes.push(name === 'user' && args.data?.pairingId === null ? 'user.unpair' : name);
+  };
+  return writes;
+}
+/** The users were unpaired before any calendar was written: the order acceptInvite locks them in. */
+const usersFirst = (writes: string[]) => writes.includes('user.unpair') && writes.indexOf('nativeCalendar') > writes.indexOf('user.unpair');
 
 /** Every row, in any table, that still holds this user id. */
 function referencesTo(userId: number): string[] {
@@ -1075,6 +1093,31 @@ async function main() {
     assert(!userRow(W) && referencesTo(W).length === 0, `still pointing at W: ${show(referencesTo(W))}`);
   });
 
+  await check('#48 both paired: the merge ends W\'s pairing, so P\'s calendars go back to PRIVATE as on unlink (a soft-deleted one too), after the users are written, and T\'s and Q\'s stay shared; T and W paired with each other leaves T\'s PRIVATE', async () => {
+    const problems: string[] = [];
+    seed();
+    pairWithP();
+    pairTWithQ();
+    DB.nativeCalendar.push(calendar('cal-p-old', P, 'Old', { isDeleted: true, privacy: 'SHARED_VIEWER' }));
+    const writes = recordWrites();
+    const result = await link();
+    concurrent = null;
+    const privacy = privacyOf(['cal-p', 'cal-p-old', 'cal-t', 'cal-q']);
+    const want = { 'cal-p': 'PRIVATE', 'cal-p-old': 'PRIVATE', 'cal-t': 'SHARED_EDITOR', 'cal-q': 'SHARED_EDITOR' };
+    if (result.success !== true || show(privacy) !== show(want)) problems.push(`both paired: success ${result.success} (${show(result.error)}), privacy ${show(privacy)}`);
+    if (!usersFirst(writes)) problems.push(`both paired: writes ${show(writes)}`);
+
+    seed();
+    DB.pairing.push(pairing('pair-tw', W, T));
+    userRow(T).pairingId = 'pair-tw';
+    userRow(W).pairingId = 'pair-tw';
+    for (const c of DB.nativeCalendar) if ([T, W].includes(c.ownerUserId) && !c.isDeleted) c.privacy = 'SHARED_EDITOR';
+    const together = await link();
+    const shared = DB.nativeCalendar.filter(c => c.ownerUserId === T && c.privacy !== 'PRIVATE').map(c => c.id);
+    if (together.success !== true || shared.length) problems.push(`T and W paired: success ${together.success} (${show(together.error)}), T's shared calendars ${show(shared)}`);
+    assert(problems.length === 0, problems.join('; '));
+  });
+
   // ---- Merge: W's own setup ----
 
   await check('#23 a fresh T (/start connect made it a minute ago) takes W\'s setup: name, location, gender, language, summary hours and days, reminder, voice and weather settings', async () => {
@@ -1410,6 +1453,27 @@ async function main() {
     const after = rowOf('pairing', 'pair-wp');
     assert(after?.status === 'UNLINKED' && after.inviterUserId === P && after.inviteeUserId === null, `pairing ${show(after)}`);
     assert(userRow(P).pairingId === null, `P.pairingId ${userRow(P).pairingId}`);
+  });
+
+  await check('#49 hardDeleteUser on a paired user, inviter or invitee: the partner\'s calendars go back to PRIVATE as on unlink (a soft-deleted one too), after the users are written; another couple\'s stay shared', async () => {
+    const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
+    const problems: string[] = [];
+    for (const wInvited of [true, false]) {
+      seed();
+      pairWithP();
+      pairTWithQ();
+      if (!wInvited) Object.assign(rowOf('pairing', 'pair-wp')!, { inviterUserId: P, inviteeUserId: W });
+      DB.nativeCalendar.push(calendar('cal-p-old', P, 'Old', { isDeleted: true, privacy: 'SHARED_VIEWER' }));
+      const writes = recordWrites();
+      await hardDeleteUser(W, 1);
+      concurrent = null;
+      const privacy = privacyOf(['cal-p', 'cal-p-old', 'cal-t', 'cal-q']);
+      const want = { 'cal-p': 'PRIVATE', 'cal-p-old': 'PRIVATE', 'cal-t': 'SHARED_EDITOR', 'cal-q': 'SHARED_EDITOR' };
+      const role = wInvited ? 'W invited' : 'P invited';
+      if (userRow(W) || show(privacy) !== show(want)) problems.push(`${role}: W ${userRow(W) ? 'still exists' : 'gone'}, privacy ${show(privacy)}`);
+      if (!usersFirst(writes)) problems.push(`${role}: writes ${show(writes)}`);
+    }
+    assert(problems.length === 0, problems.join('; '));
   });
 
   if (sent.length) results.push({ name: 'nothing is sent to Telegram or WhatsApp', ok: false, reason: show(sent) });
