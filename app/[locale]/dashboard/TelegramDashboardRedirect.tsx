@@ -2,15 +2,21 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+import { NoCredentialCard } from '../PageGate';
+import type { GateLinks } from '@/src/lib/gate-links';
+import { readInitData } from '@/src/lib/read-init-data';
 
 interface TelegramDashboardRedirectProps {
   locale: string;
+  /** Where the no-credential card sends someone (gateLinks(), from the server's env). */
+  links: GateLinks;
 }
 
-export default function TelegramDashboardRedirect({ locale }: TelegramDashboardRedirectProps) {
+export default function TelegramDashboardRedirect({ locale, links }: TelegramDashboardRedirectProps) {
   const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
+  // No Telegram user to send on: PageGate's card, in a browser or inside Telegram
+  const [gate, setGate] = useState<'browser' | 'telegram' | null>(null);
 
   useEffect(() => {
     // Call ready() IMMEDIATELY to remove Telegram's loading screen
@@ -36,9 +42,9 @@ export default function TelegramDashboardRedirect({ locale }: TelegramDashboardR
         // Redirect to dashboard with user ID
         router.push(`/${locale}/dashboard?user_id=${userId}`);
       } else {
-        // Fallback: User ID not available
-        console.error('User ID not found in Telegram initDataUnsafe');
-        setError('Please open this app from Telegram');
+        // No Telegram user: a browser (a stale or used WhatsApp magic link lands here),
+        // or a launch without one. The SDK defines Telegram.WebApp in any browser.
+        setGate(readInitData() ? 'telegram' : 'browser');
       }
     } else {
       // Not opened from Telegram - wait for SDK to load
@@ -51,7 +57,7 @@ export default function TelegramDashboardRedirect({ locale }: TelegramDashboardR
           window.location.reload(); // Reload to re-run useEffect with SDK available
         } else if (attempts >= 10) {
           clearInterval(checkInterval);
-          setError('Please open this app from Telegram or use a magic link from WhatsApp');
+          setGate('browser');
         }
       }, 200);
 
@@ -59,32 +65,8 @@ export default function TelegramDashboardRedirect({ locale }: TelegramDashboardR
     }
   }, [router, locale]);
 
-  if (error) {
-    return (
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        padding: '20px',
-        textAlign: 'center',
-        fontFamily: 'Rubik, -apple-system, BlinkMacSystemFont, sans-serif'
-      }}>
-        <div style={{
-          background: 'rgba(255, 255, 255, 0.95)',
-          padding: '30px',
-          borderRadius: '16px',
-          maxWidth: '400px',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)'
-        }}>
-          <div style={{ marginBottom: '20px' }}><AlertTriangle size={48} color="#f59e0b" /></div>
-          <h2 style={{ color: '#333', marginBottom: '10px', fontSize: '20px' }}>{error}</h2>
-          <p style={{ color: '#666', fontSize: '14px' }}>Type /start in Telegram or send &quot;settings&quot; on WhatsApp</p>
-        </div>
-      </div>
-    );
+  if (gate) {
+    return <NoCredentialCard look="telegram" inTelegram={gate === 'telegram'} links={links} />;
   }
 
   return (

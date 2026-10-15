@@ -422,9 +422,12 @@
     "loading": "Loading…",
     "telegramTitle": "Please open this from the bot",
     "telegramBody": "To keep your details private, this page only opens from the FamCal bot in Telegram. Tap the button in the chat to open it again.",
-    "browserTitle": "This link has expired",
+    "browserTitle": "Open this page from your FamCal chat",
     "browserBody": "Send “settings” to FamCal on WhatsApp and we’ll send you a fresh link.",
     "browserTelegramHint": "On Telegram? Just open this page from the bot.",
+    "openWhatsApp": "Get a new link on WhatsApp",
+    "openTelegram": "Using Telegram? Open the bot",
+    "close": "Back to the chat",
     "errorTitle": "Something went wrong",
     "errorBody": "We couldn’t load this page. Please try again.",
     "retry": "Try again"

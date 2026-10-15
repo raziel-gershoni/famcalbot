@@ -1,5 +1,6 @@
 import { AlertTriangle } from 'lucide-react';
 import PageGate from '../PageGate';
+import { gateLinks } from '@/src/lib/gate-links';
 
 interface PageProps {
   params: Promise<{ locale: string }>;
@@ -39,5 +40,5 @@ export default async function SettingsPage({ params, searchParams }: PageProps) 
 
   // No user data in the server HTML: PageGate loads it through /api/page-data
   // (src/lib/page-data.ts), which proves the user first.
-  return <PageGate page="settings" userId={userId} locale={locale} />;
+  return <PageGate page="settings" userId={userId} locale={locale} links={gateLinks()} />;
 }

@@ -7,6 +7,20 @@
 // whole request. PageGate now calls them on its first mount, before the fetch starts.
 // share-story keeps ready() alone: it opens the story composer and closes.
 //
+// Ways back: the "open this from the bot" cards offered nothing to tap. In a browser the
+// card now leads with a WhatsApp link that asks for a fresh magic link ("settings"), then
+// the bot for Telegram users (a WhatsApp-only user who taps that would get a second,
+// unlinked account, so it comes second and says who it is for). Inside Telegram it closes
+// the Mini App, back to the chat whose buttons reopen it. A stale or used magic link used
+// to land on /en/dashboard and a hard-coded English card with no link; it now gets the
+// same card, in the link's language or the browser's. The dashboard's "open in Telegram"
+// banner never showed, since the SDK defines Telegram.WebApp in any browser.
+//
+// The pages, PageGate's cards, the magic-link route and its service run for real. Faked
+// at the boundaries: Redis (in memory), Prisma (the one user lookup the magic route
+// makes), the dashboard client (it cannot load under tsx), and the browser window. No
+// network, no DB.
+//
 // Run with the fake env from the task brief (no dotenv):
 //   npx tsx scripts/smoke-miniapp-gate.ts
 
@@ -74,10 +88,74 @@ function stub(rel: string, exports: Row) {
   Module._cache[filename] = mod;
 }
 
+// ---- Fake Redis (Upstash parses JSON on read) ----
+
+const redisStore = new Map<string, string>();
+const decode = (raw: string | undefined) => {
+  if (raw === undefined) return null;
+  try { return JSON.parse(raw); } catch { return raw; }
+};
+const redisImpl: Row = {
+  get: async (k: string) => decode(redisStore.get(k)),
+  set: async (k: string, v: unknown) => { redisStore.set(k, typeof v === 'string' ? v : JSON.stringify(v)); return 'OK'; },
+  // Reads and deletes in one tick, as GETDEL does.
+  getdel: async (k: string) => { const raw = redisStore.get(k); redisStore.delete(k); return decode(raw); },
+  del: async (k: string) => (redisStore.delete(k) ? 1 : 0),
+};
+const fakeRedis = new Proxy(redisImpl, {
+  get: (t, p) => (typeof p !== 'string' || p === 'then' ? undefined : t[p] ?? (async () => null)),
+});
+
 function installStubs() {
   // DashboardClient imports @hebcal/core, which ships ESM only with no require entry, so
   // it cannot load under tsx. Nothing here renders it.
   stub('app/[locale]/dashboard/DashboardClient.tsx', { __esModule: true, default: () => null });
+  stub('src/utils/redis.ts', { redis: fakeRedis });
+  // The magic route's only DB read: is the user suspended?
+  stub('src/utils/prisma.ts', { prisma: { user: { findUnique: async () => ({ suspendedAt: null }) } } });
+}
+
+const he = JSON.parse(readSource('messages/he.json'));
+
+/** Every element in a tree, with the elements inside its props (children, action). */
+function elementsIn(node: unknown, out: Row[] = []): Row[] {
+  if (Array.isArray(node)) {
+    node.forEach(n => elementsIn(n, out));
+  } else if (node && typeof node === 'object' && 'props' in node) {
+    out.push(node as Row);
+    for (const v of Object.values((node as Row).props ?? {})) elementsIn(v, out);
+  }
+  return out;
+}
+
+/** Server-render an element inside the providers the [locale] layout gives a client page. */
+function renderHtml(el: unknown, locale: string): string {
+  const React = nodeRequire('react');
+  const { renderToString } = nodeRequire('react-dom/server');
+  const { NextIntlClientProvider } = nodeRequire('next-intl');
+  const messages = JSON.parse(readSource(`messages/${locale}.json`));
+  return renderToString(React.createElement(NextIntlClientProvider, { locale, messages, timeZone: 'Asia/Jerusalem' }, el));
+}
+
+/** What a component returns (its hooks run inside a render), for reaching its handlers. */
+function treeOf(component: (props: Row) => unknown, props: Row, locale: string): unknown {
+  const React = nodeRequire('react');
+  let tree: unknown;
+  const Capture = () => { tree = component(props); return null; };
+  renderHtml(React.createElement(Capture), locale);
+  return tree;
+}
+
+/** Text as React writes it into HTML. */
+const asHtml = (text: string) =>
+  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
+
+const LINKS = { whatsapp: 'https://wa.me/972500000000?text=settings', telegram: 'https://t.me/test_bot?start=dashboard' };
+
+/** Call a page server component as Next does. */
+async function callPage(rel: string, locale: string, userId?: string): Promise<Row> {
+  const page = (await load(rel)).default;
+  return page({ params: Promise.resolve({ locale }), searchParams: Promise.resolve(userId ? { user_id: userId } : {}) });
 }
 
 /** A fake Telegram.WebApp that records every call; `throwOn` methods throw as old SDKs do. */
@@ -186,6 +264,98 @@ async function main() {
     assert(ready >= 0 && expand > ready, `ready() at ${ready}, expand() at ${expand}`);
     assert(src.includes("tg.setHeaderColor('#667eea')"), 'the header is not set to #667eea');
     assert(!src.includes("'secondary_bg_color'"), 'the header is still set to the theme colour first');
+  });
+
+  // ---- Ways back from the "open this from the bot" cards ----
+
+  await check('#5 gateLinks: wa.me with "settings" and t.me/<bot>?start=dashboard from env; no WhatsApp link without a number; the bot name falls back', async () => {
+    const { gateLinks } = await load('src/lib/gate-links.ts');
+    process.env.TELEGRAM_BOT_USERNAME = 'test_bot';
+    process.env.WHATSAPP_PHONE_NUMBER = '972500000000';
+    const set = gateLinks();
+    assert(show(set) === show(LINKS), `with env: ${show(set)}`);
+    delete process.env.TELEGRAM_BOT_USERNAME;
+    delete process.env.WHATSAPP_PHONE_NUMBER;
+    const unset = gateLinks();
+    assert(unset.whatsapp === null, `no WA number: ${show(unset)}`);
+    assert(unset.telegram === 'https://t.me/family_calendar_telegram_bot?start=dashboard', `no bot username: ${show(unset)}`);
+  });
+
+  await check('#6 every gated page hands PageGate the links from the server, and /dashboard with no user_id hands them to TelegramDashboardRedirect', async () => {
+    process.env.TELEGRAM_BOT_USERNAME = 'test_bot';
+    process.env.WHATSAPP_PHONE_NUMBER = '972500000000';
+    const problems: string[] = [];
+    for (const name of ['dashboard', 'settings', 'select-calendars', 'subscription', 'calendars', 'pair']) {
+      const el = await callPage(`app/[locale]/${name}/page.tsx`, 'he', '5550001');
+      if (el?.type?.name !== 'PageGate') problems.push(`${name} renders ${el?.type?.name ?? show(el)}`);
+      else if (show(el.props.links) !== show(LINKS)) problems.push(`${name} links: ${show(el.props.links)}`);
+    }
+    const redirect = await callPage('app/[locale]/dashboard/page.tsx', 'he');
+    if (redirect?.type?.name !== 'TelegramDashboardRedirect') problems.push(`dashboard without user_id renders ${redirect?.type?.name}`);
+    else if (show(redirect.props.links) !== show(LINKS)) problems.push(`TelegramDashboardRedirect links: ${show(redirect.props.links)}`);
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#7 the browser card (he): the WhatsApp link first, then the Telegram one labelled for Telegram users; no WhatsApp link without a number', async () => {
+    const React = nodeRequire('react');
+    const { NoCredentialCard } = await load('app/[locale]/PageGate.tsx');
+    assert(typeof NoCredentialCard === 'function', 'PageGate exports no NoCredentialCard');
+    const problems: string[] = [];
+    for (const look of ['telegram', 'light']) {
+      const html = renderHtml(React.createElement(NoCredentialCard, { look, inTelegram: false, links: LINKS }), 'he');
+      const wa = html.indexOf(`href="${LINKS.whatsapp}"`);
+      const tg = html.indexOf(`href="${LINKS.telegram}"`);
+      if (wa < 0 || tg < 0 || wa > tg) problems.push(`${look}: WhatsApp link at ${wa}, Telegram link at ${tg}`);
+      for (const key of ['browserTitle', 'browserBody', 'openWhatsApp', 'openTelegram']) {
+        if (!he.pageGate[key] || !html.includes(asHtml(he.pageGate[key]))) problems.push(`${look}: no pageGate.${key}`);
+      }
+      const noWa = renderHtml(React.createElement(NoCredentialCard, { look, inTelegram: false, links: { ...LINKS, whatsapp: null } }), 'he');
+      if (noWa.includes('wa.me') || !noWa.includes(`href="${LINKS.telegram}"`)) problems.push(`${look} with no WA number: ${noWa.slice(0, 200)}`);
+    }
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#8 the in-Telegram card: its action closes the Mini App (back to the chat), and it links nowhere', async () => {
+    const React = nodeRequire('react');
+    const { NoCredentialCard } = await load('app/[locale]/PageGate.tsx');
+    assert(typeof NoCredentialCard === 'function', 'PageGate exports no NoCredentialCard');
+    const html = renderHtml(React.createElement(NoCredentialCard, { look: 'telegram', inTelegram: true, links: LINKS }), 'he');
+    assert(html.includes(asHtml(he.pageGate.telegramBody)) && he.pageGate.close && html.includes(asHtml(he.pageGate.close)),
+      `the card: ${html.slice(0, 300)}`);
+    assert(!html.includes('wa.me') && !html.includes('t.me/'), 'the in-Telegram card links out');
+    const clicks = elementsIn(treeOf(NoCredentialCard, { look: 'telegram', inTelegram: true, links: LINKS }, 'he'))
+      .map(e => e.props.onClick).filter((f): f is () => void => typeof f === 'function');
+    assert(clicks.length === 1, `${clicks.length} click handlers`);
+    const tg = fakeWebApp();
+    await withWindow(tg.webApp, () => clicks[0]());
+    assert(show(tg.calls) === show(['close()']), `the click called ${show(tg.calls)}`);
+  });
+
+  await check('#9 PageGate\'s gate outcome renders the shared card with the page\'s links', () => {
+    const src = readSource('app/[locale]/PageGate.tsx');
+    const gate = src.slice(src.indexOf("if (outcome.kind === 'gate')"), src.indexOf('const data = outcome.data'));
+    assert(/<NoCredentialCard[^>]*inTelegram=\{outcome\.inTelegram\}[^>]*links=\{links\}/.test(gate), `the gate branch: ${gate.trim()}`);
+  });
+
+  await check('#10 the browser title no longer says the link expired (en/he/ru), and the new labels exist in all three', () => {
+    const titles: Record<string, RegExp> = { en: /expired/i, he: /פג/, ru: /устарел|истек/i };
+    const problems: string[] = [];
+    for (const [locale, expired] of Object.entries(titles)) {
+      const gate = JSON.parse(readSource(`messages/${locale}.json`)).pageGate;
+      if (expired.test(gate.browserTitle)) problems.push(`${locale} title: ${gate.browserTitle}`);
+      for (const key of ['openWhatsApp', 'openTelegram', 'close']) {
+        if (typeof gate[key] !== 'string' || !gate[key].trim()) problems.push(`${locale} has no pageGate.${key}`);
+      }
+    }
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#13 TelegramDashboardRedirect shows the shared card when there is no Telegram user (no hard-coded English), and keeps pushing Telegram users on', () => {
+    const src = readSource('app/[locale]/dashboard/TelegramDashboardRedirect.tsx');
+    assert(src.includes('<NoCredentialCard'), 'it does not render NoCredentialCard');
+    assert(src.includes('readInitData()'), 'it does not read initData to tell a browser from Telegram');
+    assert(!/Please open this app|Type \/start in Telegram/.test(src), 'the hard-coded English card is still there');
+    assert(src.includes('router.push(`/${locale}/dashboard?user_id=${userId}`)'), 'Telegram users are no longer pushed to their dashboard');
   });
 
   let failed = 0;

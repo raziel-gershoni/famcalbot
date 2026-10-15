@@ -1,5 +1,6 @@
 import { AlertTriangle, XCircle } from 'lucide-react';
 import PageGate, { NoticeDetail } from '../PageGate';
+import { gateLinks } from '@/src/lib/gate-links';
 
 interface PageProps {
   params: Promise<{ locale: string }>;
@@ -44,6 +45,7 @@ export default async function SelectCalendarsPage({ params, searchParams }: Page
       page="select-calendars"
       userId={userId}
       locale={locale}
+      links={gateLinks()}
       notices={{
         noGoogleToken: (
           <div style={{

@@ -1,5 +1,6 @@
 import { AlertTriangle } from 'lucide-react';
 import PageGate from '../PageGate';
+import { gateLinks } from '@/src/lib/gate-links';
 
 interface PageProps {
   params: Promise<{ locale: string }>;
@@ -33,6 +34,7 @@ export default async function CalendarsPage({ params, searchParams }: PageProps)
       page="calendars"
       userId={userId}
       locale={locale}
+      links={gateLinks()}
       notices={{
         notNative: (
           <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 p-6">

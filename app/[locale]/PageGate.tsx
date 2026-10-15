@@ -5,7 +5,7 @@
 // magic-link session rides along as the same-origin cookie), then renders the page's
 // own client component with the same props it always had. A locale mismatch becomes a
 // router.replace, a notice renders the page's static notice, and 401/403/404 show the
-// pageGate text instead of anyone's data.
+// pageGate card instead of anyone's data, with a way back to the chat.
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
@@ -13,10 +13,11 @@ import { notFound, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import type { PageDataResult, PageName, PageNotice, PagePropsMap } from '@/src/lib/page-data';
+import type { GateLinks } from '@/src/lib/gate-links';
 import { readInitData } from '@/src/lib/read-init-data';
 
 /** The look each page already has: the purple Telegram gradient, or the light Tailwind one. */
-type Look = 'telegram' | 'light';
+export type Look = 'telegram' | 'light';
 const LOOK: Record<PageName, Look> = {
   dashboard: 'telegram',
   settings: 'telegram',
@@ -182,6 +183,83 @@ function GateCard({ look, title, lines, action }: { look: Look; title: string; l
   );
 }
 
+/** A gate card's actions, stacked under its text. */
+function GateActions({ look, children }: { look: Look; children: ReactNode }) {
+  return look === 'light'
+    ? <div className="mt-6 space-y-3">{children}</div>
+    : <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>{children}</div>;
+}
+
+/** One action: a link when it has an href, else a button. The primary one is filled. */
+function GateAction({ look, primary = false, href, onClick, children }: {
+  look: Look;
+  primary?: boolean;
+  href?: string;
+  onClick?: () => void;
+  children: ReactNode;
+}) {
+  const className = look === 'light'
+    ? `block w-full font-medium py-3 rounded-xl ${primary ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-700 border border-indigo-200'}`
+    : undefined;
+  const style = look === 'light' ? undefined : {
+    display: 'block',
+    boxSizing: 'border-box' as const,
+    width: '100%',
+    padding: '12px',
+    border: primary ? 'none' : '1px solid #667eea',
+    borderRadius: '12px',
+    background: primary ? '#667eea' : 'white',
+    color: primary ? 'white' : '#667eea',
+    fontSize: '16px',
+    fontWeight: 500,
+    textAlign: 'center' as const,
+    textDecoration: 'none',
+    cursor: 'pointer',
+  };
+  if (href) {
+    return <a href={href} className={className} style={style}>{children}</a>;
+  }
+  return <button type="button" onClick={onClick} className={className} style={style}>{children}</button>;
+}
+
+/**
+ * The card for a page nobody has proved they may see. Inside Telegram the chat's buttons
+ * reopen it with fresh initData, so it closes the Mini App. In a browser it leads with
+ * WhatsApp ("settings" brings a fresh magic link); a WhatsApp-only user who tapped the
+ * Telegram link would get a second, unlinked account from /start, so that link comes
+ * second and says who it is for.
+ */
+export function NoCredentialCard({ look, inTelegram, links }: { look: Look; inTelegram: boolean; links: GateLinks }) {
+  const t = useTranslations('pageGate');
+  if (inTelegram) {
+    return (
+      <GateCard
+        look={look}
+        title={t('telegramTitle')}
+        lines={[t('telegramBody')]}
+        action={
+          <GateActions look={look}>
+            <GateAction look={look} primary onClick={() => window.Telegram?.WebApp?.close()}>{t('close')}</GateAction>
+          </GateActions>
+        }
+      />
+    );
+  }
+  return (
+    <GateCard
+      look={look}
+      title={t('browserTitle')}
+      lines={[t('browserBody')]}
+      action={
+        <GateActions look={look}>
+          {links.whatsapp && <GateAction look={look} primary href={links.whatsapp}>{t('openWhatsApp')}</GateAction>}
+          <GateAction look={look} href={links.telegram}>{t('openTelegram')}</GateAction>
+        </GateActions>
+      }
+    />
+  );
+}
+
 type Outcome =
   | { key: string; kind: 'data'; data: PageDataResult }
   | { key: string; kind: 'gate'; inTelegram: boolean }
@@ -194,9 +272,11 @@ interface PageGateProps {
   locale: string;
   /** The page's static notices (no user data), shown when the server picks one. */
   notices?: Partial<Record<PageNotice, ReactNode>>;
+  /** Where the no-credential card sends someone (gateLinks(), from the server's env). */
+  links: GateLinks;
 }
 
-export default function PageGate({ page, userId, locale, notices = {} }: PageGateProps) {
+export default function PageGate({ page, userId, locale, notices = {}, links }: PageGateProps) {
   const t = useTranslations('pageGate');
   const router = useRouter();
   const [attempt, setAttempt] = useState(0);
@@ -265,25 +345,9 @@ export default function PageGate({ page, userId, locale, notices = {} }: PageGat
       title={t('errorTitle')}
       lines={[t('errorBody')]}
       action={
-        <button
-          type="button"
-          onClick={() => setAttempt((n) => n + 1)}
-          className={look === 'light' ? 'mt-6 w-full bg-indigo-600 text-white font-medium py-3 rounded-xl' : undefined}
-          style={look === 'light' ? undefined : {
-            marginTop: '20px',
-            width: '100%',
-            padding: '12px',
-            border: 'none',
-            borderRadius: '12px',
-            background: '#667eea',
-            color: 'white',
-            fontSize: '16px',
-            fontWeight: 500,
-            cursor: 'pointer',
-          }}
-        >
-          {t('retry')}
-        </button>
+        <GateActions look={look}>
+          <GateAction look={look} primary onClick={() => setAttempt((n) => n + 1)}>{t('retry')}</GateAction>
+        </GateActions>
       }
     />
   );
@@ -291,9 +355,7 @@ export default function PageGate({ page, userId, locale, notices = {} }: PageGat
   if (outcome.kind === 'error') return errorCard;
 
   if (outcome.kind === 'gate') {
-    return outcome.inTelegram
-      ? <GateCard look={look} title={t('telegramTitle')} lines={[t('telegramBody')]} />
-      : <GateCard look={look} title={t('browserTitle')} lines={[t('browserBody'), t('browserTelegramHint')]} />;
+    return <NoCredentialCard look={look} inTelegram={outcome.inTelegram} links={links} />;
   }
 
   const data = outcome.data;
