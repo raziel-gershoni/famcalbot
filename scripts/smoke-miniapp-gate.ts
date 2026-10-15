@@ -393,6 +393,16 @@ async function main() {
     assert(src.includes('router.push(`/${locale}/dashboard?user_id=${userId}`)'), 'Telegram users are no longer pushed to their dashboard');
   });
 
+  await check('#14 the dashboard\'s "open in Telegram" banner keys on readInitData() === \'\', not on window.Telegram.WebApp', () => {
+    const src = readSource('app/[locale]/dashboard/DashboardClient.tsx');
+    const at = src.indexOf('setShowTelegramBanner(true)');
+    assert(at >= 0, 'no banner effect');
+    const effect = src.slice(src.lastIndexOf('useEffect(', at), at);
+    assert(effect.includes("readInitData() === ''"), `the banner effect: ${effect.trim()}`);
+    assert(!effect.includes('window.Telegram'), 'the banner still checks window.Telegram');
+    assert(src.includes("from '@/src/lib/read-init-data'"), 'DashboardClient does not import readInitData');
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

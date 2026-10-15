@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import CategoryIcon from '@/components/Forms/CategoryIcon';
 import { CalendarAssignment, CalendarLabel } from '@/src/types';
+import { readInitData } from '@/src/lib/read-init-data';
 import { KeyRound, Calendar, CloudSun, RefreshCw, PencilLine, ClipboardList, Loader2, Crown, Sparkles, MessageSquare, ChevronRight, Send } from 'lucide-react';
 import { HDate, Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
@@ -89,10 +90,11 @@ export default function DashboardClient({
     };
   }, [locale, intlLocale]);
 
-  // Detect if opened outside Telegram (e.g. via WA magic link)
+  // Detect if opened outside Telegram (e.g. via WA magic link). The SDK defines
+  // Telegram.WebApp in any browser, so only the missing initData tells.
   const [showTelegramBanner, setShowTelegramBanner] = useState(false);
   useEffect(() => {
-    if (typeof window !== 'undefined' && !window.Telegram?.WebApp) {
+    if (readInitData() === '') {
       setShowTelegramBanner(true);
     }
   }, []);
