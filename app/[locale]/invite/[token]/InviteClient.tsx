@@ -2,10 +2,11 @@
 
 // Client-side invite landing.
 //
-// Three states:
+// Four states:
 //  1. Inside Telegram WebApp → one-tap accept via /api/pair/accept (uses initData)
 //  2. Outside any app → "Open in Telegram" + "Open in WhatsApp" deep links
 //  3. After successful accept → confirmation screen
+//  4. The two are already paired with each other → that news in place of the button
 //
 // We intentionally keep this minimal: no design library, just Tailwind, matching
 // the rest of the miniapp's plain-but-polished aesthetic.
@@ -23,7 +24,7 @@ interface Props {
 
 // Window.Telegram.WebApp is already typed in src/types/telegram-webapp.d.ts
 
-type AcceptState = 'idle' | 'pending' | 'success' | 'error';
+type AcceptState = 'idle' | 'pending' | 'success' | 'alreadyPaired' | 'error';
 
 const COPY: Record<string, Record<string, string>> = {
   en: {
@@ -103,7 +104,7 @@ export default function InviteClient(props: Props) {
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        setState('error');
+        setState(data?.error === 'ALREADY_PAIRED_TOGETHER' ? 'alreadyPaired' : 'error');
         setErrorMessage(mapError(data?.error, locale));
         return;
       }
@@ -152,7 +153,11 @@ export default function InviteClient(props: Props) {
           </div>
         )}
 
-        {tgUser ? (
+        {state === 'alreadyPaired' ? (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-emerald-700 text-sm text-center">
+            {errorMessage}
+          </div>
+        ) : tgUser ? (
           <button
             onClick={accept}
             disabled={state === 'pending'}
