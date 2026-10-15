@@ -17,6 +17,7 @@ import { prisma } from '../utils/prisma';
 import { encrypt, decrypt } from '../utils/encryption';
 import { buildUrl } from '../config/urls';
 import { captureError } from '../lib/error-capture';
+import { DEFAULT_BOT_USERNAME } from '../lib/gate-links';
 import { normalizeLocale, type Locale } from '../utils/locale';
 import { getUserById, getUserByTelegramId, updateUserById } from './user-service';
 import { updateUserInCache } from './reminder-cache';
@@ -286,9 +287,9 @@ export async function handleGoogleConnectWhatsApp(
   const service = getWhatsAppService();
   const claim = await tryClaim(pendingId, sender ? { userId: sender.id } : {});
   // Every WhatsApp message points to Telegram, where FamCal does more
-  const botUsername = process.env.TELEGRAM_BOT_USERNAME;
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME || DEFAULT_BOT_USERNAME;
   const withTip = (copy: ConnectCopy, text: string) =>
-    botUsername ? `${text}\n\n${copy.telegramTip.replace('{link}', `https://t.me/${botUsername}?start=connect`)}` : text;
+    `${text}\n\n${copy.telegramTip.replace('{link}', `https://t.me/${botUsername}?start=connect`)}`;
 
   if (claim?.status === 'connected') {
     const { owner } = claim;

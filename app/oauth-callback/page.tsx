@@ -8,6 +8,7 @@ import { getTranslations } from 'next-intl/server';
 import { captureError } from '@/src/lib/error-capture';
 import { OAUTH_STATE_PREFIX } from '@/src/lib/oauth-state';
 import { createPendingGoogleToken, finishPageUrl } from '@/src/services/google-connect';
+import { DEFAULT_BOT_USERNAME } from '@/src/lib/gate-links';
 import type { UserConfig } from '@/src/types';
 
 interface PageProps {
@@ -23,8 +24,8 @@ interface PageProps {
  * bot. A WhatsApp-only user may have their session cookie here.
  */
 function retryHrefFor(user: UserConfig): string {
-  const botUsername = process.env.TELEGRAM_BOT_USERNAME;
-  if (user.telegramId && botUsername) return `https://t.me/${botUsername}?start=dashboard`;
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME || DEFAULT_BOT_USERNAME;
+  if (user.telegramId) return `https://t.me/${botUsername}?start=dashboard`;
   return `/refresh-token?user_id=${user.telegramId ?? user.id}`;
 }
 

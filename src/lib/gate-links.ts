@@ -8,10 +8,12 @@ export interface GateLinks {
   telegram: string;
 }
 
-const DEFAULT_BOT_USERNAME = 'family_calendar_telegram_bot';
+// The fallbacks for an unset TELEGRAM_BOT_USERNAME / WHATSAPP_PHONE_NUMBER, also used by
+// the Google-connect finish flow, where a missing link would leave no way to finish.
+export const DEFAULT_BOT_USERNAME = 'family_calendar_telegram_bot';
 // The public number the landing, how-it-works and share pages link to. Without a WhatsApp
 // line the card's only action is the Telegram one, which splits a WhatsApp-only account.
-const DEFAULT_WA_NUMBER = '972548524687';
+export const DEFAULT_WA_NUMBER = '972548524687';
 
 export function gateLinks(): GateLinks {
   const botUsername = process.env.TELEGRAM_BOT_USERNAME || DEFAULT_BOT_USERNAME;

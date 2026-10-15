@@ -955,6 +955,45 @@ async function main() {
     }
   });
 
+  // ---- Follow-ups ----
+
+  await check('#24 with TELEGRAM_BOT_USERNAME and WHATSAPP_PHONE_NUMBER unset, the finish page, "Try again" and the Telegram tip use gate-links\' defaults', async () => {
+    const gate = await load('src/lib/gate-links.ts');
+    assert(gate.DEFAULT_BOT_USERNAME === 'family_calendar_telegram_bot' && gate.DEFAULT_WA_NUMBER === '972548524687',
+      `gate-links exports ${show([gate.DEFAULT_BOT_USERNAME, gate.DEFAULT_WA_NUMBER])}`);
+    // Empty, not deleted: @prisma/client loads a .env file into every variable that is unset
+    process.env.TELEGRAM_BOT_USERNAME = '';
+    process.env.WHATSAPP_PHONE_NUMBER = '';
+    try {
+      const page = (await load('app/oauth-complete/page.tsx')).default;
+      const el = (await page({ searchParams: Promise.resolve({ locale: 'en' }) })) as Row;
+      assert(el.props.botUsername === 'family_calendar_telegram_bot' && el.props.waNumber === '972548524687', `props ${show(el.props)}`);
+      // A WhatsApp-only owner still gets the only button that can finish
+      const mod = await load('app/oauth-complete/OAuthCompleteClient.tsx');
+      const links = mod.finishLinks(mod.parseFinishFragment(`#p=${'A'.repeat(32)}&b=wa`), el.props.botUsername, el.props.waNumber, en.oauthComplete.whatsappText);
+      assert(String(links.whatsapp).startsWith('https://wa.me/972548524687?text='), `WhatsApp-only links ${show(links)}`);
+      seed();
+      googleAnswer = { scope: BOTH_SCOPES, access_token: 'test' }; // no refresh_token: the NoRefreshToken page
+      const { value: end } = await quietly(() => runCallback(addState(9)));
+      const btn = end.element ? elementsOf(end.element).find(e => e.type === 'a' && e.props?.className === 'btn') : undefined;
+      assert(btn?.props?.href === 'https://t.me/family_calendar_telegram_bot?start=dashboard', `Try again: ${show(btn?.props?.href ?? end)}`);
+      seed();
+      await waWebhook(waText(WA_BSUID, `gc_${await pendingFor(42)}`, { bsuid: WA_BSUID }));
+      const reply = sentTo(WA_BSUID).at(-1)?.text ?? '';
+      assert(reply.includes('https://t.me/family_calendar_telegram_bot?start=connect'), `no Telegram tip in the WhatsApp reply: ${show(reply)}`);
+    } finally {
+      process.env.TELEGRAM_BOT_USERNAME = 'famcal_test_bot';
+      process.env.WHATSAPP_PHONE_NUMBER = '15550001111';
+    }
+    const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+    const example = fs.readFileSync(path.join(ROOT, '.env.example'), 'utf8');
+    for (const name of ['TELEGRAM_BOT_USERNAME', 'WHATSAPP_PHONE_NUMBER']) {
+      assert(new RegExp(`^\\|[^\\n]*\`${name}\``, 'm').test(readme), `README's table has no ${name} row`);
+      const line = example.split('\n').find(l => l.startsWith(`${name}=`));
+      assert(line && /^[A-Z_]+=your_[a-z_]+_here$/.test(line), `.env.example has no placeholder line for ${name}`);
+    }
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

@@ -72,7 +72,8 @@ Copy `.env.example` (production) or `.env.local.example` (local dev) and fill in
 
 | Variable | Purpose |
 | --- | --- |
-| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_BOT_USERNAME` | Telegram bot auth and webhook verification (username used in local dev) |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` | Telegram bot auth and webhook verification |
+| `TELEGRAM_BOT_USERNAME`, `WHATSAPP_PHONE_NUMBER` | The bot's username and the WhatsApp number (digits only) behind the t.me and wa.me links, such as the Google connect finish buttons; unset, they fall back to the public bot and number in `src/lib/gate-links.ts` |
 | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | WhatsApp Business Cloud API (optional) |
 | `WHATSAPP_APP_SECRET` | The Meta app secret, which verifies WhatsApp webhook signatures (`X-Hub-Signature-256`); production logs a warning when it is unset |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, `GOOGLE_REDIRECT_URI` | Google Calendar OAuth |
