@@ -59,6 +59,16 @@ export function startErrorLines(status: number, initData: string, t: Translation
   return [t.startFailed];
 }
 
+/**
+ * When this attempt began, for check-token-refresh's since: the server's clock from
+ * oauth/start, because the commit flag is stamped with it and a phone's clock can run
+ * minutes ahead (no commit would ever count) or behind (an earlier connect would). The
+ * client clock only when the field is missing.
+ */
+export function attemptSince(serverTime: unknown, clientNow: number): number {
+  return typeof serverTime === 'number' && Number.isFinite(serverTime) ? serverTime : clientNow;
+}
+
 export default function RefreshTokenClient({ userId, locale, translations: t }: RefreshTokenClientProps) {
   const isRTL = locale === 'he';
   const [isChecking, setIsChecking] = useState(false);
@@ -66,6 +76,8 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
   // the user our credential proves. Until it arrives the button stays disabled.
   const [oauthUrl, setOauthUrl] = useState<string | null>(null);
   const [startError, setStartError] = useState<string[] | null>(null);
+  // oauth/start's serverTime, which becomes the attempt's since (attemptSince)
+  const serverTime = useRef<unknown>(undefined);
   // Set when Google opens: when, and whether the finish is in Telegram or WhatsApp
   const [waiting, setWaiting] = useState<{ since: number; telegram: boolean } | null>(null);
   const checkInFlight = useRef(false);
@@ -84,6 +96,7 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
         const data = await response.json().catch(() => ({}));
         if (cancelled) return;
         if (response.ok && typeof data.oauthUrl === 'string') {
+          serverTime.current = data.serverTime;
           setOauthUrl(data.oauthUrl);
         } else {
           setStartError(startErrorLines(response.status, initData, t));
@@ -140,7 +153,7 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     // Save pending OAuth flag
     localStorage.setItem(OAUTH_PENDING_KEY, JSON.stringify({
       userId,
-      startTime: Date.now()
+      startTime: attemptSince(serverTime.current, Date.now())
     }));
 
     // Open OAuth in external browser

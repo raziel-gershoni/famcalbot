@@ -1034,6 +1034,40 @@ async function main() {
     }
   });
 
+  await check('#27 the poll\'s since is the server\'s clock (oauth/start\'s serverTime): a phone 5 min ahead still sees the commit; an earlier connect still doesn\'t count', async () => {
+    seed();
+    const client = await load('app/refresh-token/RefreshTokenClient.tsx');
+    assert(typeof client.attemptSince === 'function', 'RefreshTokenClient exports no attemptSince');
+    // An earlier connect left its flag
+    await tgWebhook(tgText(TAL_TG, `/start gc_${await pendingFor(9)}`));
+    assert(redisStore.has('googleConnected:9'), `the earlier commit set no flag; ${captured.join(' | ')}`);
+    await pause(5);
+    const { POST } = await load('app/api/oauth/start/route.ts');
+    const before = Date.now();
+    const res: Response = await POST(new NextRequest('http://localhost/api/oauth/start', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-telegram-init-data': initDataFor(TAL_TG) },
+      body: JSON.stringify({ user_id: String(TAL_TG) }),
+    }));
+    const body = await res.json();
+    assert(res.status === 200 && typeof body.oauthUrl === 'string', `oauth/start ${res.status} ${show(body)}`);
+    assert(typeof body.serverTime === 'number' && body.serverTime >= before && body.serverTime <= Date.now(), `serverTime ${show(body.serverTime)}`);
+    const phoneNow = Date.now() + 5 * 60_000; // the phone's clock runs 5 minutes ahead
+    const since = client.attemptSince(body.serverTime, phoneNow);
+    assert(since === body.serverTime, `since ${since}, serverTime ${body.serverTime}`);
+    assert(client.attemptSince(undefined, phoneNow) === phoneNow && client.attemptSince('soon', phoneNow) === phoneNow, 'no fallback to the client clock');
+    const stale = await askRefreshed(since);
+    assert(stale.status === 200 && stale.body.refreshed === false, `the earlier connect counted: ${show(stale)}`);
+    await pause(5);
+    await tgWebhook(tgText(TAL_TG, `/start gc_${await pendingFor(9)}`));
+    const fresh = await askRefreshed(since);
+    assert(fresh.status === 200 && fresh.body.refreshed === true, `the commit was not reported: ${show(fresh)}`);
+    // What the phone's clock alone would have asked
+    assert((await askRefreshed(phoneNow)).body.refreshed === false, 'the case has no skew to catch');
+    const src = fs.readFileSync(path.join(ROOT, 'app/refresh-token/RefreshTokenClient.tsx'), 'utf8');
+    assert(/startTime:\s*attemptSince\(/.test(src), 'the pending attempt does not store attemptSince(...) as its startTime');
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

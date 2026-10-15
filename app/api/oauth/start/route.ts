@@ -1,5 +1,5 @@
 // POST /api/oauth/start — begin the Google Calendar OAuth flow for the proved user.
-// Body: { user_id, initData? }. Returns { oauthUrl }.
+// Body: { user_id, initData? }. Returns { oauthUrl, serverTime }.
 //
 // The OAuth state used to be created by the /refresh-token page for whatever user_id
 // was in its URL, with no credential, and the callback saved the Google token on that
@@ -61,7 +61,12 @@ export async function POST(request: NextRequest) {
       state: stateToken,
     });
 
-    return NextResponse.json({ oauthUrl: `https://accounts.google.com/o/oauth2/v2/auth?${urlParams.toString()}` });
+    // serverTime: the attempt's start on this server's clock, which the commit flag uses
+    // too. The phone's clock can be minutes off (check-token-refresh's since).
+    return NextResponse.json({
+      oauthUrl: `https://accounts.google.com/o/oauth2/v2/auth?${urlParams.toString()}`,
+      serverTime: Date.now(),
+    });
   } catch (error) {
     captureError(error, 'oauth-start', { api_route: '/api/oauth/start' });
     return NextResponse.json({ error: 'Failed to start Google sign-in' }, { status: 500 });
