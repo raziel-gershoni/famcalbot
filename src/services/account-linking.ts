@@ -202,8 +202,9 @@ function isSameCalendar(a: NativeCalendar, b: NativeCalendar): boolean {
  * W's folds into it or comes over as another calendar. A moved pairing
  * shares T's own calendars, as accepting an invite does. Otherwise a moved
  * calendar keeps its privacy (W's go PRIVATE when W's pairing ends, by the
- * merge or by P meanwhile) and a fold needs the same privacy on both sides, so
- * the merge shows nobody an event their pairing did not share.
+ * merge or by P meanwhile, and P's too when the merge ends it) and a fold
+ * needs the same privacy on both sides, so the merge shows nobody an event
+ * their pairing did not share.
  * Returns T's pairingId after the merge, whether W's Google connection stayed
  * behind, and whether T's language changed.
  */
@@ -257,7 +258,15 @@ async function mergeWhatsAppUser(
         where: { id: wPairing.id },
         data: { status: 'UNLINKED', unlinkedAt: new Date(), unlinkedByUserId: w.id },
       });
+      // W's partner: P, or T when T and W were paired with each other.
+      const partners = await tx.user.findMany({ where: { pairingId: wPairing.id, id: { not: w.id } }, select: { id: true } });
       await tx.user.updateMany({ where: { pairingId: wPairing.id }, data: { pairingId: null } });
+      // The partner's calendars go back to PRIVATE, as on unlink (W's below). Users
+      // first, then calendars: the order acceptInvite locks them in.
+      await tx.nativeCalendar.updateMany({
+        where: { ownerUserId: { in: partners.map(p => p.id) }, privacy: { not: 'PRIVATE' } },
+        data: { privacy: 'PRIVATE' },
+      });
       // T's pairing as it is now: none if T and W were paired with each other.
       pairingId = (await tx.user.findUniqueOrThrow({ where: { id: t.id }, select: { pairingId: true } })).pairingId;
     }

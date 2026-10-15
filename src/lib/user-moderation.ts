@@ -58,8 +58,9 @@ export async function unsuspendUser(userId: number, adminId: number): Promise<vo
  * schema refuses the delete (ON DELETE RESTRICT) while a calendar, an event
  * they created, a pairing, or any of the per-user rows below still holds the
  * id, so those go first:
- *   1. Unpair, with unlink()'s writes: the pairing stays as UNLINKED history
- *      and both partners' pairingId is cleared.
+ *   1. Unpair, with unlink()'s writes: the pairing stays as UNLINKED history,
+ *      both partners' pairingId is cleared and the partner's calendars go back
+ *      to PRIVATE (users first, then calendars, as acceptInvite locks them).
  *   2. Their own calendars; the events in them cascade.
  *   3. Events they created in someone else's calendar go to that calendar's
  *      owner, so the partner keeps them.
@@ -81,7 +82,12 @@ export async function hardDeleteUser(userId: number, adminId: number): Promise<v
         where: { id: user.pairingId, status: 'ACTIVE' },
         data: { status: 'UNLINKED', unlinkedAt: new Date(), unlinkedByUserId: adminId },
       });
+      const partners = await tx.user.findMany({ where: { pairingId: user.pairingId, id: { not: userId } }, select: { id: true } });
       await tx.user.updateMany({ where: { pairingId: user.pairingId }, data: { pairingId: null } });
+      await tx.nativeCalendar.updateMany({
+        where: { ownerUserId: { in: partners.map(p => p.id) }, privacy: { not: 'PRIVATE' } },
+        data: { privacy: 'PRIVATE' },
+      });
     }
 
     await tx.nativeCalendar.deleteMany({ where: { ownerUserId: userId } });
