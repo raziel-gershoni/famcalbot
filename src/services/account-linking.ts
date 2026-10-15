@@ -94,9 +94,11 @@ function isSameCalendar(a: NativeCalendar, b: NativeCalendar): boolean {
  * Fold the WhatsApp-only user W into the Telegram user T and delete W, inside
  * the caller's transaction. Everything W has moves to T, so the delete clears
  * the schema's ON DELETE RESTRICT relations (calendars, created events,
- * pairings, the per-user rows). A moved calendar keeps its privacy and a fold
- * needs the same privacy on both sides, so the merge shows nobody an event
- * they could not see before. Returns T's pairingId after the merge.
+ * pairings, the per-user rows). A moved pairing shares T's calendars, as
+ * accepting an invite does. Otherwise a moved calendar keeps its privacy (W's
+ * go PRIVATE when the merge unpairs W) and a fold needs the same privacy on
+ * both sides, so the merge shows nobody an event their pairing did not share.
+ * Returns T's pairingId after the merge.
  */
 async function mergeWhatsAppUser(
   tx: Prisma.TransactionClient,
@@ -115,6 +117,7 @@ async function mergeWhatsAppUser(
   // accepted an invite or switched to Google after the read above.
   let pairingId = t.pairingId;
   let moved = false;
+  let unpairedW = false;
   const wPairing = w.pairingId ? await tx.pairing.findUnique({ where: { id: w.pairingId } }) : null;
   const wInvited = wPairing?.inviterUserId === w.id;
   const taken = wPairing?.status === 'ACTIVE' && (await tx.pairing.updateMany({
@@ -129,6 +132,7 @@ async function mergeWhatsAppUser(
     if (moved) {
       pairingId = wPairing.id;
     } else {
+      unpairedW = true;
       await tx.pairing.update({
         where: { id: wPairing.id },
         data: { status: 'UNLINKED', unlinkedAt: new Date(), unlinkedByUserId: w.id },
@@ -144,6 +148,21 @@ async function mergeWhatsAppUser(
   await tx.pairing.updateMany({ where: { unlinkedByUserId: w.id }, data: { unlinkedByUserId: t.id } });
   await tx.pairingInvite.updateMany({ where: { acceptedByUserId: w.id }, data: { acceptedByUserId: t.id } });
   // W's own invites cascade with W.
+
+  // A moved pairing shares T's calendars at the default permission, as
+  // acceptInvite does, before the fold: T's primary and W's shared one are then
+  // one calendar, so what 'primary' resolves to stays the couple's. A pairing
+  // the merge ended shared W's calendars with P only: they come over PRIVATE and
+  // fold only into private ones, so nothing in them (P's events too) reaches
+  // T's partner.
+  if (moved) {
+    await tx.nativeCalendar.updateMany({
+      where: { ownerUserId: t.id, privacy: 'PRIVATE', isDeleted: false },
+      data: { privacy: 'SHARED_EDITOR' },
+    });
+  } else if (unpairedW) {
+    await tx.nativeCalendar.updateMany({ where: { ownerUserId: w.id }, data: { privacy: 'PRIVATE' } });
+  }
 
   // Calendars. W's default calendar folds into T's (they are named after each
   // profile, so the names rarely match); the rest move over, soft-deleted ones

@@ -628,7 +628,7 @@ async function main() {
 
   // ---- Merge: pairing ----
 
-  await check('#5 W paired, T not: the pairing moves to T, and P still sees and edits everything P saw, its own event included', async () => {
+  await check('#5 W paired, T not: the pairing moves to T, T\'s calendars are shared with P as on accepting an invite, and P still sees and edits everything P saw, its own event included', async () => {
     seed();
     pairWithP();
     const result = await link();
@@ -636,7 +636,7 @@ async function main() {
     const pr = rowOf('pairing', 'pair-wp');
     assert(pr?.status === 'ACTIVE' && pr.inviterUserId === T && pr.inviteeUserId === P, `pairing ${show(pr)}`);
     assert(userRow(T).pairingId === 'pair-wp' && userRow(P).pairingId === 'pair-wp', `pairingIds T=${userRow(T).pairingId} P=${userRow(P).pairingId}`);
-    const { getCalendarAccess, listVisibleCalendars } = await load('src/services/native-calendar/event-store.ts');
+    const { getCalendarAccess, listVisibleCalendars, getMainNativeCalendar } = await load('src/services/native-calendar/event-store.ts');
     const ev = rowOf('nativeEvent', 'ev-p-in-w');
     const cal = rowOf('nativeCalendar', ev?.calendarId);
     assert(cal?.ownerUserId === T, `P's event is in ${show(cal)}`);
@@ -644,7 +644,11 @@ async function main() {
     assert(access === 'editor', `P's access to the calendar holding P's event: ${access}`);
     const visible = (await listVisibleCalendars(P, 'pair-wp')).map((c: Row) => c.id);
     assert(visible.includes(cal.id), `P sees ${show(visible)}`);
-    assert(rowOf('nativeCalendar', 'cal-t')?.privacy === 'PRIVATE', 'T\'s private calendar was shared with P');
+    assert(rowOf('nativeCalendar', 'cal-t')?.privacy === 'SHARED_EDITOR', `T's calendar ${show(rowOf('nativeCalendar', 'cal-t'))}`);
+    // What 'primary' and new reminders resolve to is the couple's shared calendar
+    const main = await getMainNativeCalendar(T);
+    const mainAccess = await getCalendarAccess({ id: P, pairingId: 'pair-wp' }, main);
+    assert(mainAccess === 'editor', `T's main calendar ${show(main)}; P's access ${mainAccess}`);
     const primaries = DB.nativeCalendar.filter(c => c.ownerUserId === T && !c.isDeleted && c.labels.includes('primary'));
     assert(primaries.length === 1, `T's primary calendars ${show(primaries.map(c => c.id))}`);
     const cached = JSON.parse(redisStore.get('reminders:users') ?? '[]').find((u: Row) => u.id === T);
@@ -652,7 +656,7 @@ async function main() {
     assert(referencesTo(W).length === 0, `still pointing at W: ${show(referencesTo(W))}`);
   });
 
-  await check('#6 both paired: W is unpaired (P too), T keeps Q, and the merge succeeds', async () => {
+  await check('#6 both paired: W is unpaired (P too), T keeps Q, the merge succeeds, and Q sees none of W\'s calendars or P\'s events', async () => {
     seed();
     pairWithP();
     pairTWithQ();
@@ -664,6 +668,11 @@ async function main() {
     assert(userRow(T).pairingId === 'pair-tq' && userRow(Q).pairingId === 'pair-tq', `T=${userRow(T).pairingId} Q=${userRow(Q).pairingId}`);
     assert(rowOf('pairing', 'pair-tq')?.status === 'ACTIVE', 'T\'s pairing changed');
     assert(!userRow(W) && referencesTo(W).length === 0, `still pointing at W: ${show(referencesTo(W))}`);
+    const { listVisibleCalendars } = await load('src/services/native-calendar/event-store.ts');
+    const visible = (await listVisibleCalendars(Q, 'pair-tq')).map((c: Row) => c.id);
+    const wCalendars = visible.filter((id: string) => id.startsWith('cal-w'));
+    const pEvents = DB.nativeEvent.filter(e => e.creatorUserId === P && visible.includes(e.calendarId)).map(e => e.id);
+    assert(wCalendars.length === 0 && pEvents.length === 0, `Q sees ${show(visible)}; P's events among them ${show(pEvents)}`);
   });
 
   await check('#7 T on Google: W\'s calendars move soft-deleted (either/or per user) and W\'s pairing is unlinked, not moved', async () => {
