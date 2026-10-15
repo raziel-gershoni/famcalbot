@@ -21,7 +21,7 @@
 // let T's partner see W's calendars; a fresh T kept its Telegram name, and its menu button
 // stayed in the Telegram client's language.
 //
-// Third follow-up (#40-#42, #33 changed): a fresh T's empty primary calendar stayed the main
+// Third follow-up (#40-#43, #33 changed): a fresh T's empty primary calendar stayed the main
 // one whenever the two primaries did not fold (W's shared from an old unlink, or set back to
 // PRIVATE in a moved pairing), a fold renamed T's calendar to W's default name, and W's Google
 // connection replaced the native events a T under a day old had already added.
@@ -696,7 +696,7 @@ async function main() {
 
   await check('#34 the two primary calendars fold into T\'s row with W\'s calendar setup (rules, color, name, person, labels) where T\'s is as it started, with the pairing moved or not; a color T chose stays', async () => {
     const { getMainNativeCalendar } = await load('src/services/native-calendar/event-store.ts');
-    const W_CALENDAR = { rules: ['gym is mine'], color: '#FF0000', name: 'Dana stuff', personName: 'Dana', personGender: 'female', labels: ['primary', 'yours', 'spouse'] };
+    const W_CALENDAR = { rules: ['gym is mine'], color: '#FF0000', name: 'Dana stuff', personName: 'Dana', personEnglishName: 'Dana', personGender: 'female', labels: ['primary', 'yours', 'spouse'] };
     for (const movedPairing of [false, true]) {
       seed();
       if (movedPairing) pairWithP();
@@ -775,6 +775,16 @@ async function main() {
       assert(rowOf('nativeEvent', 'ev-w')?.calendarId === 'cal-t' && !rowOf('nativeCalendar', 'cal-w'), `ev-w ${show(rowOf('nativeEvent', 'ev-w'))}`);
       assert(show(tPrimaries()) === show(['cal-t']), `T's primary calendars ${show(tPrimaries())}`);
     }
+  });
+
+  await check('#43 [guard] W\'s primary calendar folds into a T calendar of the same name that is not primary: that one takes W\'s other labels, and T keeps exactly one primary', async () => {
+    seed();
+    DB.nativeCalendar.push(calendar('cal-t-dana', T, 'Dana', { createdAt: days(-25) }));
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const into = rowOf('nativeCalendar', 'cal-t-dana');
+    assert(rowOf('nativeEvent', 'ev-w')?.calendarId === 'cal-t-dana' && show(into?.labels) === show(['yours']), `ev-w ${show(rowOf('nativeEvent', 'ev-w'))}; folded into ${show(into)}`);
+    assert(show(tPrimaries()) === show(['cal-t']), `T's primary calendars ${show(tPrimaries())}`);
   });
 
   await check('#3 W\'s usage counter moves (T had none), T\'s override is kept with W\'s early-adopter flag, and W\'s activity and feedback move to T', async () => {
