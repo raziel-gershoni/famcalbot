@@ -1,6 +1,6 @@
 /**
  * Admin Settings API
- * GET: Fetch admin settings (admin-only; pages read AdminSettings server-side)
+ * GET: Fetch admin settings (admin-only; the admin panel loads its toggles here)
  * POST: Update admin settings (admin-only)
  */
 

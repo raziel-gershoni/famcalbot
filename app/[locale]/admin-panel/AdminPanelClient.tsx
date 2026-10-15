@@ -1,11 +1,17 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
-import { Activity, Crown, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock, RefreshCw, ChevronDown, MessageSquare } from 'lucide-react';
+import { Activity, AlertTriangle, Crown, Lock, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock, RefreshCw, ChevronDown, MessageSquare } from 'lucide-react';
 import { initDataHeaders } from '@/src/lib/read-init-data';
 
 interface AdminPanelClientProps {
+  /** The page's ?user_id, for the link back to the dashboard. */
+  userId: number;
+  locale: string;
+}
+
+interface AdminPanelProps {
   userId: number;
   locale: string;
   stats: {
@@ -138,7 +144,170 @@ interface FeedbackItem {
   createdAt: string;
 }
 
-export default function AdminPanelClient({ userId, locale, stats, remindersEnabled: initialRemindersEnabled, earlyAdoptionMode: initialEarlyAdoptionMode, voiceAutoCreateHighConf: initialVoiceAutoCreateHighConf, voiceTtsOutcome: initialVoiceTtsOutcome, nativeRemindersEnabled: initialNativeRemindersEnabled }: AdminPanelClientProps) {
+/** What the panel starts from: the toggles and the user counts. */
+type AdminPanelInitial = Omit<AdminPanelProps, 'userId' | 'locale'>;
+
+export type AdminPanelLoad =
+  | { kind: 'ready'; initial: AdminPanelInitial }
+  | { kind: 'denied' }
+  | { kind: 'error' };
+
+/**
+ * The panel's starting data, from the admin-only APIs with initData in the header. The
+ * server HTML carries none of it: the page renders this same shell for every user_id.
+ * 401/403 (no initData, or not an admin) is 'denied'.
+ */
+export async function loadAdminPanel(): Promise<AdminPanelLoad> {
+  try {
+    const headers = initDataHeaders();
+    const [settingsRes, statsRes] = await Promise.all([
+      fetch('/api/admin/settings', { headers }),
+      fetch('/api/admin/stats', { headers }),
+    ]);
+    if ([settingsRes, statsRes].some((res) => res.status === 401 || res.status === 403)) {
+      return { kind: 'denied' };
+    }
+    if (!settingsRes.ok || !statsRes.ok) return { kind: 'error' };
+    const settings = await settingsRes.json();
+    const { stats } = await statsRes.json();
+    return {
+      kind: 'ready',
+      initial: {
+        stats,
+        remindersEnabled: settings.remindersEnabled ?? false,
+        earlyAdoptionMode: settings.earlyAdoptionMode ?? false,
+        voiceAutoCreateHighConf: settings.voiceAutoCreateHighConf ?? false,
+        voiceTtsOutcome: settings.voiceTtsOutcome ?? false,
+        nativeRemindersEnabled: settings.nativeRemindersEnabled ?? true,
+      },
+    };
+  } catch (error) {
+    console.error('[AdminPanel] load failed:', error);
+    return { kind: 'error' };
+  }
+}
+
+/** The white card on the purple gradient, as the page's own notices look. */
+function AdminCard({ children }: { children: ReactNode }) {
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      padding: '20px'
+    }}>
+      <div style={{
+        background: 'white',
+        padding: '40px',
+        borderRadius: '15px',
+        boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+        textAlign: 'center',
+        maxWidth: '400px'
+      }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** What the page used to show a non-admin. */
+export function AdminUnauthorized() {
+  return (
+    <AdminCard>
+      <div style={{ marginBottom: '20px' }}><Lock size={64} color="#ef4444" /></div>
+      <h1 style={{ color: '#ef4444', margin: '0 0 10px 0' }}>Unauthorized</h1>
+      <p style={{ color: '#666' }}>This area is restricted to administrators only.</p>
+    </AdminCard>
+  );
+}
+
+export default function AdminPanelClient({ userId, locale }: AdminPanelClientProps) {
+  const t = useTranslations('pageGate');
+  const [load, setLoad] = useState<AdminPanelLoad | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  // The admin panel's only expand()/ready(), at mount while its data loads
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+      const tg = window.Telegram.WebApp;
+      tg.expand();
+      tg.ready();
+      tg.setHeaderColor('#667eea');
+      tg.setBackgroundColor('#ffffff');
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadAdminPanel().then((next) => {
+      if (!cancelled) setLoad(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt]);
+
+  if (!load) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      }}>
+        <div style={{ color: 'white', animation: 'admin-panel-spin 1s linear infinite', display: 'flex' }}>
+          <Loader2 size={48} aria-label={t('loading')} />
+        </div>
+        <style>{`
+          @keyframes admin-panel-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  if (load.kind === 'denied') return <AdminUnauthorized />;
+
+  if (load.kind === 'error') {
+    return (
+      <AdminCard>
+        <div style={{ marginBottom: '20px' }}><AlertTriangle size={64} color="#f59e0b" /></div>
+        <h1 style={{ color: '#333', margin: '0 0 10px 0', fontSize: '22px' }}>{t('errorTitle')}</h1>
+        <p style={{ color: '#666', marginTop: '10px' }}>{t('errorBody')}</p>
+        <button
+          type="button"
+          onClick={() => {
+            setLoad(null);
+            setAttempt((n) => n + 1);
+          }}
+          style={{
+            marginTop: '20px',
+            width: '100%',
+            padding: '12px',
+            border: 'none',
+            borderRadius: '12px',
+            background: '#667eea',
+            color: 'white',
+            fontSize: '16px',
+            fontWeight: 500,
+            cursor: 'pointer',
+          }}
+        >
+          {t('retry')}
+        </button>
+      </AdminCard>
+    );
+  }
+
+  return <AdminPanel userId={userId} locale={locale} {...load.initial} />;
+}
+
+function AdminPanel({ userId, locale, stats, remindersEnabled: initialRemindersEnabled, earlyAdoptionMode: initialEarlyAdoptionMode, voiceAutoCreateHighConf: initialVoiceAutoCreateHighConf, voiceTtsOutcome: initialVoiceTtsOutcome, nativeRemindersEnabled: initialNativeRemindersEnabled }: AdminPanelProps) {
   const t = useTranslations('admin');
   const [remindersEnabled, setRemindersEnabled] = useState(initialRemindersEnabled);
   const [remindersSaving, setRemindersSaving] = useState(false);
@@ -245,17 +414,6 @@ export default function AdminPanelClient({ userId, locale, stats, remindersEnabl
 
   // Map app locale to Intl locale
   const intlLocale = { he: 'he-IL', ru: 'ru-RU', en: 'en-US' }[locale] ?? 'en-US';
-
-  // Format dates for today and tomorrow buttons
-  useEffect(() => {
-    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-      const tg = window.Telegram.WebApp;
-      tg.expand();
-      tg.ready();
-      tg.setHeaderColor('#667eea');
-      tg.setBackgroundColor('#ffffff');
-    }
-  }, []);
 
   const openUserDashboard = () => {
     window.location.href = `/dashboard?user_id=${userId}`;
