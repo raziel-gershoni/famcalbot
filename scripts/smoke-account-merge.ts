@@ -741,6 +741,24 @@ async function main() {
     assert(DB.subscription.length === 1 && DB.subscription[0].id === 'sub-w' && DB.subscription[0].userId === T, `subscriptions ${show(DB.subscription)}`);
   });
 
+  await check('#17 a payment outranks a trial that ends later: T pays for PRO (10 days left), W is 1 day into its trial; T keeps its paid row', async () => {
+    seed();
+    DB.subscription = [paid('sub-t', T, 10), trial('sub-w', W, 13)];
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const subs = DB.subscription;
+    assert(subs.length === 1 && subs[0].id === 'sub-t' && subs[0].plan === 'PRO' && subs[0].telegramPaymentChargeId === 'charge-sub-t', `subscriptions ${show(subs)}`);
+  });
+
+  await check('#18 the other way round: W pays (5 days left), T is on a 13-day trial; W\'s paid row moves to T', async () => {
+    seed();
+    DB.subscription = [trial('sub-t', T, 13), paid('sub-w', W, 5)];
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const subs = DB.subscription;
+    assert(subs.length === 1 && subs[0].id === 'sub-w' && subs[0].userId === T && subs[0].plan === 'PRO', `subscriptions ${show(subs)}`);
+  });
+
   // ---- Link without a merge ----
 
   await check('#11 [guard] no WhatsApp-only user: the phone is set on the Telegram user and the code is spent', async () => {

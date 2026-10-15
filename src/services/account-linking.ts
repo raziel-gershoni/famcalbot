@@ -60,16 +60,28 @@ export interface LinkResult {
 }
 
 /**
- * When the access a subscription gives runs out, in epoch ms, by the rules in
- * subscription-service: a comp never does (no period end, the expiry cron skips
- * it), a trial at trialEndsAt, a paid plan (ACTIVE, or CANCELED until the period
- * ends) at currentPeriodEnd, and EXPIRED already has.
+ * A subscription's kind, then when the access it gives runs out (epoch ms), by
+ * the rules in subscription-service: a comp never runs out (no period end, the
+ * expiry cron skips it), a paid plan (ACTIVE, or CANCELED until the period ends)
+ * at currentPeriodEnd, a trial at trialEndsAt, and EXPIRED already has.
  */
-function accessEndsAt(sub: Subscription): number {
-  if (sub.status === 'EXPIRED') return -Infinity;
-  if (sub.compedBy != null) return Infinity;
-  if (sub.status === 'TRIALING') return sub.trialEndsAt.getTime();
-  return sub.plan !== 'FREE' && sub.currentPeriodEnd ? sub.currentPeriodEnd.getTime() : -Infinity;
+function accessRank(sub: Subscription): [kind: number, endsAt: number] {
+  if (sub.status === 'EXPIRED') return [0, 0];
+  if (sub.compedBy != null) return [3, 0];
+  if (sub.status === 'TRIALING') return [1, sub.trialEndsAt.getTime()];
+  return sub.plan !== 'FREE' && sub.currentPeriodEnd ? [2, sub.currentPeriodEnd.getTime()] : [0, 0];
+}
+
+/**
+ * Whether subscription a runs longer than b. Kind first: a paid row beats a trial
+ * that ends later, since it carries the plan a renewal keeps (renewSubscription
+ * leaves plan as it is, and an old renew invoice can still be paid). Within a
+ * kind, the later end wins.
+ */
+function runsLonger(a: Subscription, b: Subscription): boolean {
+  const [aKind, aEnds] = accessRank(a);
+  const [bKind, bEnds] = accessRank(b);
+  return aKind !== bKind ? aKind > bKind : aEnds > bEnds;
 }
 
 /** Two default calendars (both primary), or two the user named alike, with the same privacy, are one calendar. */
@@ -167,7 +179,7 @@ async function mergeWhatsAppUser(
   // Subscription (userId is unique): the one that runs longer stays; a tie keeps T's.
   const tSub = await tx.subscription.findUnique({ where: { userId: t.id } });
   const wSub = await tx.subscription.findUnique({ where: { userId: w.id } });
-  if (wSub && (!tSub || accessEndsAt(wSub) > accessEndsAt(tSub))) {
+  if (wSub && (!tSub || runsLonger(wSub, tSub))) {
     if (tSub) await tx.subscription.delete({ where: { id: tSub.id } });
     await tx.subscription.update({ where: { id: wSub.id }, data: { userId: t.id } });
   } else if (wSub) {
