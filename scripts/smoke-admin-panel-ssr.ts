@@ -12,8 +12,8 @@
 // Telegram and messaging (record every send), error capture, and any other fetch
 // (blocked). No network, no DB.
 //
-// The check named [guard] already passes before the fix and must keep passing. The
-// others fail until the fix lands.
+// Every check fails until the fix lands, #3 too: the old GET /api/admin/settings read
+// initData only from the query, so the header got 401.
 //
 // Run with the fake env from the task brief (no dotenv):
 //   npx tsx scripts/smoke-admin-panel-ssr.ts
@@ -485,7 +485,7 @@ async function main() {
     assert(show(Object.keys(s).sort()) === show(['nativeUsers', 'needSetup', 'totalUsers', 'usersWithCalendars', 'usersWithOAuth']), `keys ${show(Object.keys(s))}`);
   });
 
-  await check('#3 [guard] GET /api/admin/settings with the header: a user\'s initData 403, the admin\'s 200 with the toggles', async () => {
+  await check('#3 GET /api/admin/settings with the header: a user\'s initData 403, the admin\'s 200 with the toggles', async () => {
     seed();
     const user = await get('settings', { header: initDataFor(USER_TG) });
     const admin = await get('settings', { header: initDataFor(ADMIN_TG) });
