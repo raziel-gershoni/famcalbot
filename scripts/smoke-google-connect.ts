@@ -9,9 +9,11 @@
 // WHATSAPP_APP_SECRET is set, and entries with no phone_number_id are dropped once
 // WHATSAPP_PHONE_NUMBER_ID is set.
 //
-// Review fixes (#20-#21): the poll counts only a commit after the attempt began (since),
-// so a flag from an earlier connect can't skip the consent; and the poll has a rate limit
-// of its own, apart from the general one page-data shares.
+// Review fixes (#20-#23): the poll counts only a commit after the attempt began (since),
+// so a flag from an earlier connect can't skip the consent; the poll has a rate limit of
+// its own, apart from the general one page-data shares; a reply that fails after the
+// commit doesn't fail the webhook (a redelivered /start would say "expired"); and the
+// "failed" reply doesn't claim nothing was saved, since the commit can fail half-way.
 //
 // The callback page, the finish page's helpers, google-connect, the webhook route, the
 // Telegram and WhatsApp webhook handlers, /start (webhook and polling), magic-link,
@@ -239,6 +241,8 @@ type Sent = { via: string; platform: string; chatId: unknown; text?: string; opt
 const sent: Sent[] = [];
 const captured: string[] = [];
 const adminNotes: string[] = [];
+/** Send methods that throw while listed, as a Telegram or Meta outage does. */
+const failingSends = new Set<string>();
 /** Which limiter each rate-limit check used. */
 const limiterUses: string[] = [];
 
@@ -248,6 +252,7 @@ const recorder = (platform: string, prefix: string): Row =>
       typeof p !== 'string' || p === 'then'
         ? undefined
         : async (chatId: unknown, ...rest: unknown[]) => {
+            if (failingSends.has(p)) throw new Error(`${prefix}.${p} failed (smoke)`);
             sent.push({
               via: `${prefix}.${p}`, platform, chatId,
               text: typeof rest[0] === 'string' ? rest[0] : undefined,
@@ -391,6 +396,7 @@ function seed() {
   sent.length = 0;
   captured.length = 0;
   adminNotes.length = 0;
+  failingSends.clear();
   limiterUses.length = 0;
   googleAnswer = { refresh_token: 'google-rt-new', scope: BOTH_SCOPES, access_token: 'test' };
   DB.user = [
@@ -909,6 +915,44 @@ async function main() {
     assert(def, 'rate-limit.ts defines no tokenPollRateLimiter');
     // 30 a minute from the 2 s poll, plus visibilitychange checks
     assert(Number(def[1]) >= 60 && def[2] !== 'ratelimit:general', `limit ${def[1]}, prefix ${def[2]}`);
+  });
+
+  await check('#22 a reply that fails after the commit doesn\'t fail the webhook (Telegram and WhatsApp)', async () => {
+    seed();
+    const id = await pendingFor(9);
+    const raw = JSON.stringify(tgText(TAL_TG, `/start gc_${id}`));
+    failingSends.add('sendMessage');
+    const tg = await postWebhook(raw, { 'x-telegram-bot-api-secret-token': 'test-tg-secret' });
+    failingSends.clear();
+    assert(await savedToken(9) === 'google-rt-new', `no commit; ${captured.join(' | ')}`);
+    assert(tg.status === 200, `Telegram webhook ${tg.status}: a redelivered /start would find the entry gone and say "expired"`);
+    assert(captured.some(c => c.includes('failed (smoke)')), `the failed reply was not captured: ${show(captured)}`);
+    const waId = await pendingFor(42);
+    failingSends.add('sendMessage');
+    const wa = await postWebhook(JSON.stringify(waText(WA_BSUID, `gc_${waId}`, { bsuid: WA_BSUID })));
+    failingSends.clear();
+    assert(await savedToken(42) === 'google-rt-new', `no WhatsApp commit; ${captured.join(' | ')}`);
+    assert(wa.status === 200, `WhatsApp webhook ${wa.status}`);
+  });
+
+  await check('#23 a commit that fails half-way (token saved, NATIVE→GOOGLE switch throws) doesn\'t say nothing was connected', async () => {
+    const calendars = fakePrisma.nativeCalendar as Row;
+    const updateMany = calendars.updateMany;
+    const NOTHING_SAVED = { en: /nothing was connected/i, he: /לא חיברנו כלום/, ru: /ничего не подключено/i };
+    const DASHBOARD = { en: /dashboard/i, he: /לוח הבקרה/, ru: /панел/i };
+    for (const locale of ['en', 'he', 'ru'] as const) {
+      seed();
+      userRow(9).language = locale;
+      calendars.updateMany = async () => { throw new Error('db down (smoke)'); };
+      try {
+        await tgWebhook(tgText(TAL_TG, `/start gc_${await pendingFor(9)}`));
+      } finally {
+        calendars.updateMany = updateMany;
+      }
+      assert(await savedToken(9) === 'google-rt-new', `${locale}: the token was not saved before the switch failed`);
+      const reply = sentTo(TAL_TG).at(-1)?.text ?? '';
+      assert(reply && !NOTHING_SAVED[locale].test(reply) && DASHBOARD[locale].test(reply), `${locale} reply: ${show(reply)}`);
+    }
   });
 
   let failed = 0;

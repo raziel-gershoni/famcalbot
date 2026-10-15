@@ -185,7 +185,7 @@ const COPY: Record<Locale, ConnectCopy> = {
     chooseCalendars: 'Choose calendars',
     notOwner: 'This Google connection was started from a different FamCal account, so nothing was connected. Want to connect your own calendar? Start again from your dashboard.',
     expired: 'This link has expired. You can connect Google again from your dashboard.',
-    failed: 'Something went wrong while saving the connection, so nothing was connected. Please try again from your dashboard.',
+    failed: 'Something went wrong while finishing the connection. Check your dashboard: if Google isn\'t connected there, connect it again.',
     telegramTip: 'FamCal does even more on Telegram, reminders included: {link}',
   },
   he: {
@@ -193,7 +193,7 @@ const COPY: Record<Locale, ConnectCopy> = {
     chooseCalendars: 'בחירת יומנים',
     notOwner: 'החיבור ל-Google הזה התחיל מחשבון FamCal אחר, אז לא חיברנו כלום. רוצים לחבר את היומן שלכם? אפשר להתחיל מחדש מלוח הבקרה.',
     expired: 'תוקף הקישור פג. אפשר לחבר את Google מחדש מלוח הבקרה.',
-    failed: 'משהו השתבש בשמירת החיבור, אז לא חיברנו כלום. כדאי לנסות שוב מלוח הבקרה.',
+    failed: 'משהו השתבש בסיום החיבור. כדאי להציץ בלוח הבקרה: אם Google לא מחובר שם, אפשר לחבר אותו מחדש.',
     telegramTip: 'בטלגרם FamCal עושה אפילו יותר, כולל תזכורות: {link}',
   },
   ru: {
@@ -201,7 +201,7 @@ const COPY: Record<Locale, ConnectCopy> = {
     chooseCalendars: 'Выбрать календари',
     notOwner: 'Это подключение Google начали из другого аккаунта FamCal, поэтому ничего не подключено. Хотите подключить свой календарь? Начните заново из панели.',
     expired: 'Ссылка устарела. Google можно подключить заново из панели.',
-    failed: 'Не получилось сохранить подключение, поэтому ничего не подключено. Попробуйте ещё раз из панели.',
+    failed: 'Что-то пошло не так при завершении подключения. Загляните в панель: если Google там не подключён, подключите его заново.',
     telegramTip: 'В Telegram FamCal умеет ещё больше, например напоминания: {link}',
   },
 };
@@ -214,13 +214,29 @@ function replyLocale(sender: UserConfig | null, hint = ''): Locale {
   return 'en';
 }
 
-/** Claim, or null when the commit itself failed (already captured) */
+/**
+ * Claim, or null when the commit failed (already captured). It can fail half-way, after
+ * the token is saved, so the "failed" reply doesn't say nothing was connected.
+ */
 async function tryClaim(pendingId: string, sender: { telegramId?: number; userId?: number }): Promise<GoogleConnectClaim | null> {
   try {
     return await claimPendingGoogleToken(pendingId, sender);
   } catch (err) {
     captureError(err, 'google-connect-claim', { telegram_id: sender.telegramId, user_id: sender.userId });
     return null;
+  }
+}
+
+/**
+ * Send a reply once the claim ran. The claim used the entry up, so a redelivered update
+ * could only say "expired": a failed send is captured, never thrown into a webhook 500
+ * that makes Telegram or Meta retry.
+ */
+async function replyAfterClaim(send: () => Promise<unknown>, context: { telegram_id?: number; user_id?: number }): Promise<void> {
+  try {
+    await send();
+  } catch (err) {
+    captureError(err, 'google-connect-reply', context);
   }
 }
 
@@ -244,16 +260,16 @@ export async function handleGoogleConnectTelegram(
     const locale = normalizeLocale(owner.language);
     const copy = COPY[locale];
     const calendarsUrl = buildUrl(`/${locale}/select-calendars?user_id=${owner.telegramId ?? owner.id}`);
-    await service.sendMessage(chatId, copy.connected, {
+    await replyAfterClaim(() => service.sendMessage(chatId, copy.connected, {
       format: MessageFormat.HTML,
       replyMarkup: { inline_keyboard: [[{ text: copy.chooseCalendars, web_app: { url: calendarsUrl } }]] },
-    });
+    }), { telegram_id: telegramId });
     return;
   }
 
   const copy = COPY[replyLocale(sender, languageCode)];
   const text = claim === null ? copy.failed : claim.status === 'not_owner' ? copy.notOwner : copy.expired;
-  await service.sendMessage(chatId, text, { format: MessageFormat.HTML });
+  await replyAfterClaim(() => service.sendMessage(chatId, text, { format: MessageFormat.HTML }), { telegram_id: telegramId });
 }
 
 /**
@@ -278,15 +294,17 @@ export async function handleGoogleConnectWhatsApp(
     const { owner } = claim;
     const locale = normalizeLocale(owner.language);
     const copy = COPY[locale];
-    const { generateMagicLink } = await import('./magic-link');
-    const link = await generateMagicLink(owner.id, locale, 'select-calendars');
-    await service.sendMessage(chatId, withTip(copy, copy.connected), {
-      whatsappUrlButton: { text: copy.chooseCalendars, url: link },
-    });
+    await replyAfterClaim(async () => {
+      const { generateMagicLink } = await import('./magic-link');
+      const link = await generateMagicLink(owner.id, locale, 'select-calendars');
+      await service.sendMessage(chatId, withTip(copy, copy.connected), {
+        whatsappUrlButton: { text: copy.chooseCalendars, url: link },
+      });
+    }, { user_id: owner.id });
     return;
   }
 
   const copy = COPY[replyLocale(sender, messageText)];
   const text = claim === null ? copy.failed : claim.status === 'not_owner' ? copy.notOwner : copy.expired;
-  await service.sendMessage(chatId, withTip(copy, text));
+  await replyAfterClaim(() => service.sendMessage(chatId, withTip(copy, text)), { user_id: sender?.id });
 }
