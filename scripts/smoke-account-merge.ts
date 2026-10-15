@@ -781,6 +781,28 @@ async function main() {
     assert(show(DB) === before, 'the database changed');
   });
 
+  await check('#19 a WhatsApp-only user known only by a BSUID (no phone) links from that BSUID: W merges into T, which takes the BSUID and no phone', async () => {
+    seed();
+    Object.assign(userRow(W), { whatsappPhone: null, whatsappBsuid: 'IL.20' });
+    const { redeemLinkCode } = await load('src/services/account-linking.ts');
+    const result = await redeemLinkCode(CODE, 'IL.20');
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const t = userRow(T);
+    assert(!userRow(W) && referencesTo(W).length === 0, `W ${show(userRow(W))}; still pointing at W: ${show(referencesTo(W))}`);
+    assert(t.whatsappBsuid === 'IL.20' && t.whatsappPhone === null && t.messagingPlatform === 'all', `T ${show({ whatsappPhone: t.whatsappPhone, whatsappBsuid: t.whatsappBsuid, messagingPlatform: t.messagingPlatform })}`);
+    assert(rowOf('nativeEvent', 'ev-w')?.calendarId === 'cal-t', `ev-w ${show(rowOf('nativeEvent', 'ev-w'))}`);
+  });
+
+  await check('#20 [guard] a BSUID nobody has: it is set on the Telegram user as its BSUID, and W is left alone', async () => {
+    seed();
+    const { redeemLinkCode } = await load('src/services/account-linking.ts');
+    const result = await redeemLinkCode(CODE, 'IL.99');
+    assert(result.success === true, `result ${show(result)}`);
+    const t = userRow(T);
+    assert(t.whatsappBsuid === 'IL.99' && t.whatsappPhone === null && t.messagingPlatform === 'all', `T ${show({ whatsappPhone: t.whatsappPhone, whatsappBsuid: t.whatsappBsuid })}`);
+    assert(userRow(W)?.whatsappPhone === PHONE, 'W changed');
+  });
+
   // ---- Admin hard delete ----
 
   await check('#13 hardDeleteUser on a paired NATIVE user who also added an event to the partner\'s calendar: it succeeds, and the partner keeps the calendar and both events', async () => {

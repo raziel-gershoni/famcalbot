@@ -101,8 +101,7 @@ function isSameCalendar(a: NativeCalendar, b: NativeCalendar): boolean {
 async function mergeWhatsAppUser(
   tx: Prisma.TransactionClient,
   waOnlyUserId: number,
-  telegramUserId: number,
-  whatsappPhone: string
+  telegramUserId: number
 ): Promise<string | null> {
   const w = await tx.user.findUniqueOrThrow({ where: { id: waOnlyUserId } });
   const t = await tx.user.findUniqueOrThrow({ where: { id: telegramUserId } });
@@ -208,12 +207,14 @@ async function mergeWhatsAppUser(
   // A Google sign-in W left half-done is minutes old; it is restarted from T.
   await tx.oAuthState.deleteMany({ where: { userId: BigInt(w.id) } });
 
-  // W goes before T takes its WhatsApp ids: they are unique.
+  // W goes before T takes its WhatsApp ids: they are unique. W was found by the
+  // id the link came from, so W's ids are the ones to take; a BSUID-only W has
+  // no phone to give.
   await tx.user.delete({ where: { id: w.id } });
   await tx.user.update({
     where: { id: t.id },
     data: {
-      whatsappPhone: w.whatsappPhone || whatsappPhone,
+      whatsappPhone: w.whatsappPhone || null,
       whatsappBsuid: w.whatsappBsuid || null,
       messagingPlatform: 'all',
     },
@@ -270,9 +271,11 @@ export async function redeemLinkCode(code: string, whatsappPhone: string): Promi
   }
 
   try {
-    // Check if a WA-only user exists with this phone
+    // Check if a WA-only user exists with this phone, or with this BSUID when
+    // WhatsApp sends one instead (a user known by username only)
+    const isBsuid = !whatsappPhone.match(/^\+?\d+$/);
     const waOnlyUser = await prisma.user.findUnique({
-      where: { whatsappPhone: whatsappPhone }
+      where: isBsuid ? { whatsappBsuid: whatsappPhone } : { whatsappPhone: whatsappPhone }
     });
 
     if (waOnlyUser && waOnlyUser.id !== telegramUser.id && waOnlyUser.telegramId !== null) {
@@ -282,14 +285,13 @@ export async function redeemLinkCode(code: string, whatsappPhone: string): Promi
 
     if (waOnlyUser && waOnlyUser.id !== telegramUser.id) {
       const pairingId = await prisma.$transaction((tx) =>
-        mergeWhatsAppUser(tx, waOnlyUser.id, telegramUser.id, whatsappPhone)
+        mergeWhatsAppUser(tx, waOnlyUser.id, telegramUser.id)
       );
       await afterMerge(waOnlyUser.id, telegramUser.id, pairingId);
 
       console.log(`[AccountLink] Merged WA-only user ${waOnlyUser.id} into TG user ${telegramUser.id}`);
     } else if (!waOnlyUser) {
       // No WA-only user — just update TG user
-      const isBsuid = !whatsappPhone.match(/^\+?\d+$/);
       await prisma.user.update({
         where: { id: telegramUser.id },
         data: {
