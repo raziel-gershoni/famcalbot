@@ -315,7 +315,11 @@ function installStubs() {
   stub('src/services/telegram/bot.ts', telegram);
   const messaging = {
     ...nodeRequire(path.join(ROOT, 'src/services/messaging/types.ts')),
-    getMessagingService: (platform: unknown) => recorder(String(platform), String(platform)),
+    // Like the real factory: Telegram needs the bot instance, which callers get from ./bot.
+    getMessagingService: (platform: unknown, botArg?: unknown) => {
+      if (platform === 'telegram' && !botArg) throw new Error('Telegram bot instance required for Telegram adapter');
+      return recorder(String(platform), String(platform));
+    },
     getTelegramService: () => recorder('telegram', 'telegram'),
     getWhatsAppService: () => recorder('whatsapp', 'whatsapp'),
     detectPlatform: () => 'telegram',

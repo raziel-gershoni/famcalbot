@@ -9,10 +9,16 @@
 
 import { acceptInvite, PairingError, type PairingErrorCode } from '../pairing-service';
 import { prisma } from '../../utils/prisma';
-import { getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from '../messaging';
+import { getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat, type IMessagingService } from '../messaging';
+import { getMessagingService } from './bot';
 import { normalizeLocale, type Locale } from '../../utils/locale';
 import { captureError } from '../../lib/error-capture';
 import { escapeHtml } from '../../utils/html';
+
+/** The factory needs the bot instance for Telegram; ./bot supplies it. */
+function messagingFor(platform: MessagingPlatform): IMessagingService {
+  return platform === MessagingPlatform.TELEGRAM ? getMessagingService() : getMessagingServiceByPlatform(platform);
+}
 
 type PairCopy = {
   errors: Record<Exclude<PairingErrorCode, 'NOT_PAIRED'>, string>;
@@ -108,7 +114,7 @@ export async function notifyInviterOfAccept(inviterUserId: number, acceptorName:
       inviter.messagingPlatform === 'whatsapp' && (inviter.whatsappPhone || inviter.whatsappBsuid)
         ? MessagingPlatform.WHATSAPP
         : MessagingPlatform.TELEGRAM;
-    const service = getMessagingServiceByPlatform(platform);
+    const service = messagingFor(platform);
     const inviterChatId =
       platform === MessagingPlatform.TELEGRAM
         ? Number(inviter.telegramId)
@@ -133,7 +139,7 @@ export async function handlePairAccept(
   locale: string,
   platform: MessagingPlatform
 ): Promise<void> {
-  const service = getMessagingServiceByPlatform(platform);
+  const service = messagingFor(platform);
 
   if (!token || token.length < 8) {
     await service.sendMessage(chatId, pairingErrorMessage('INVITE_NOT_FOUND', locale), { format: MessageFormat.HTML });
