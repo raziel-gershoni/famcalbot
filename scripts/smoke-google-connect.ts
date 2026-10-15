@@ -998,8 +998,10 @@ async function main() {
     const example = fs.readFileSync(path.join(ROOT, '.env.example'), 'utf8');
     for (const name of ['TELEGRAM_BOT_USERNAME', 'WHATSAPP_PHONE_NUMBER']) {
       assert(new RegExp(`^\\|[^\\n]*\`${name}\``, 'm').test(readme), `README's table has no ${name} row`);
-      const line = example.split('\n').find(l => l.startsWith(`${name}=`));
-      assert(line && /^[A-Z_]+=your_[a-z_]+_here$/.test(line), `.env.example has no placeholder line for ${name}`);
+      // Commented out: a copied placeholder would override the fallback with a bot or
+      // number that doesn't exist
+      const line = example.split('\n').find(l => l.includes(`${name}=`));
+      assert(line && /^# [A-Z_]+=your_[a-z_]+_here$/.test(line), `.env.example has no commented-out placeholder for ${name}: ${show(line)}`);
     }
   });
 
