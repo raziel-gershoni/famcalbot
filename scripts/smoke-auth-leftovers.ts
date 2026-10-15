@@ -195,6 +195,35 @@ async function main() {
 
   // ---- Startup: name a missing secret ----
 
+  await check('#5 production startup logs one line per missing SESSION_SECRET / WHATSAPP_APP_SECRET, naming the variable', async () => {
+    const logged = await registerWith({ NODE_ENV: 'production' });
+    const session = logged.filter(l => l.includes('SESSION_SECRET'));
+    const app = logged.filter(l => l.includes('WHATSAPP_APP_SECRET'));
+    assert(session.length === 1 && /signed with CRON_SECRET/.test(session[0]), `SESSION_SECRET lines: ${show(session)}`);
+    assert(app.length === 1 && /signatures are not verified/.test(app[0]), `WHATSAPP_APP_SECRET lines: ${show(app)}`);
+    assert(schedulerStarts.length > 0, 'register() did not start the scheduler');
+  });
+
+  await check('#6 [guard] with both secrets set, or outside production, startup names neither; no line ever carries a value', async () => {
+    const set = await registerWith({ NODE_ENV: 'production', SESSION_SECRET: 'VALUE-SESSION-x1', WHATSAPP_APP_SECRET: 'VALUE-APP-x2' });
+    const dev = await registerWith({ NODE_ENV: 'development' });
+    const named = [...set, ...dev].filter(l => /SESSION_SECRET|WHATSAPP_APP_SECRET/.test(l));
+    assert(named.length === 0, `logged: ${show(named)}`);
+    assert(![...set, ...dev].some(l => l.includes('VALUE-')), 'a secret value was logged');
+  });
+
+  // ---- The feedback page renders from the URL alone ----
+
+  await check('#9 README\'s env table and .env.example name SESSION_SECRET and WHATSAPP_APP_SECRET (placeholders only)', () => {
+    const readme = readSource('README.md');
+    const example = readSource('.env.example');
+    for (const name of ['SESSION_SECRET', 'WHATSAPP_APP_SECRET']) {
+      assert(new RegExp(`^\\|[^\\n]*\`${name}\``, 'm').test(readme), `README's table has no ${name} row`);
+      const line = example.split('\n').find(l => l.startsWith(`${name}=`));
+      assert(line && /^[A-Z_]+=your_[a-z_]+_here$/.test(line), `.env.example has no placeholder line for ${name}`);
+    }
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

@@ -8,6 +8,16 @@ export async function register() {
     const { startScheduler } = await import('./src/cron/scheduler');
     startScheduler();
 
+    // Name a missing secret in the deploy log (production only), never its value
+    if (process.env.NODE_ENV === 'production') {
+      if (!process.env.SESSION_SECRET) {
+        console.warn('[startup] SESSION_SECRET is not set: WhatsApp session cookies are signed with CRON_SECRET');
+      }
+      if (!process.env.WHATSAPP_APP_SECRET) {
+        console.warn('[startup] WHATSAPP_APP_SECRET is not set: WhatsApp webhook signatures are not verified');
+      }
+    }
+
     // Notify admins of deploy (production only)
     if (process.env.NODE_ENV === 'production' && process.env.RAILWAY_GIT_COMMIT_SHA) {
       const commitSha = process.env.RAILWAY_GIT_COMMIT_SHA.slice(0, 7);

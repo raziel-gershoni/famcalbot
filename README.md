@@ -74,6 +74,7 @@ Copy `.env.example` (production) or `.env.local.example` (local dev) and fill in
 | --- | --- |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_BOT_USERNAME` | Telegram bot auth and webhook verification (username used in local dev) |
 | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | WhatsApp Business Cloud API (optional) |
+| `WHATSAPP_APP_SECRET` | The Meta app secret, which verifies WhatsApp webhook signatures (`X-Hub-Signature-256`); production logs a warning when it is unset |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, `GOOGLE_REDIRECT_URI` | Google Calendar OAuth |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` | AI provider keys (the fixed models need only `GEMINI_API_KEY`) |
 | `AI_MAX_TOKENS`, `AI_MAX_RETRIES` | Optional output-token and retry overrides |
@@ -81,6 +82,7 @@ Copy `.env.example` (production) or `.env.local.example` (local dev) and fill in
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Redis for locks, caching, rate limiting |
 | `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY` | Scheduled job triggering / signature verification |
 | `CRON_SECRET` | Shared secret guarding internal cron/usage endpoints |
+| `SESSION_SECRET` | Signs the WhatsApp session cookie set by magic links; use its own random value (unset, `CRON_SECRET` signs it and production logs a warning) |
 | `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT` | Error tracking |
 | `NODE_ENV` | Runtime environment |
 
