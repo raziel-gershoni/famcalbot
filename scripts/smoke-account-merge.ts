@@ -714,6 +714,39 @@ async function main() {
     assert(!userRow(W) && referencesTo(W).length === 0, `still pointing at W: ${show(referencesTo(W))}`);
   });
 
+  await check('#28 P unlinks W\'s pairing after the merge read it: T is not attached to the UNLINKED pairing, so T can pair again', async () => {
+    seed();
+    pairWithP();
+    concurrent = (name, method) => {
+      if (name !== 'pairing' || method !== 'findUnique') return;
+      concurrent = null;
+      Object.assign(rowOf('pairing', 'pair-wp')!, { status: 'UNLINKED', unlinkedAt: new Date(), unlinkedByUserId: P });
+      userRow(W).pairingId = null;
+      userRow(P).pairingId = null;
+    };
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const wp = rowOf('pairing', 'pair-wp');
+    assert(userRow(T).pairingId === null && wp?.status === 'UNLINKED' && wp.unlinkedByUserId === P, `T.pairingId ${userRow(T).pairingId}; pairing ${show(wp)}`);
+    assert(rowOf('nativeCalendar', 'cal-t')?.privacy === 'PRIVATE', `T's calendar was shared: ${show(rowOf('nativeCalendar', 'cal-t'))}`);
+    assert(referencesTo(W).length === 0, `still pointing at W: ${show(referencesTo(W))}`);
+  });
+
+  await check('#29 T switches to Google after the merge read T: the pairing does not move to a Google user, W\'s is unlinked', async () => {
+    seed();
+    pairWithP();
+    concurrent = (name, method, args) => {
+      if (name !== 'user' || !method.startsWith('findUnique') || args.where?.id !== T) return;
+      concurrent = null;
+      userRow(T).calendarSource = 'GOOGLE';
+      rowOf('nativeCalendar', 'cal-t')!.isDeleted = true;
+    };
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    assert(userRow(T).pairingId === null && userRow(P).pairingId === null, `T=${userRow(T).pairingId} P=${userRow(P).pairingId}`);
+    assert(rowOf('pairing', 'pair-wp')?.status === 'UNLINKED', `W's pairing ${show(rowOf('pairing', 'pair-wp'))}`);
+  });
+
   // ---- Merge: subscription ----
 
   await check('#8 W\'s subscription runs longer (paid, 20 days left; T is on a 3-day trial): T ends up with W\'s', async () => {

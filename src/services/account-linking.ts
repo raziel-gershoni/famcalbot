@@ -108,14 +108,22 @@ async function mergeWhatsAppUser(
   const tIsNative = t.calendarSource === 'NATIVE';
 
   // Pairing: only NATIVE users pair, one partner each. W's pairing moves to T
-  // when T can take it; otherwise W is unpaired with unlink()'s writes. The move
-  // is conditional, as acceptInvite's is, so an invite T accepts after the read
-  // above is not overwritten.
+  // when T can take it; otherwise W is unpaired with unlink()'s writes. Each
+  // step is a conditional write, as acceptInvite's are. Taking the pairing row
+  // waits for an unlink of it in flight and re-checks it is still ACTIVE (count
+  // 0: P unlinked after the read, so W is unpaired). T's write refuses a T that
+  // accepted an invite or switched to Google after the read above.
   let pairingId = t.pairingId;
+  let moved = false;
   const wPairing = w.pairingId ? await tx.pairing.findUnique({ where: { id: w.pairingId } }) : null;
-  if (wPairing?.status === 'ACTIVE') {
-    const moved = !t.pairingId && tIsNative && (await tx.user.updateMany({
-      where: { id: t.id, pairingId: null },
+  const wInvited = wPairing?.inviterUserId === w.id;
+  const taken = wPairing?.status === 'ACTIVE' && (await tx.pairing.updateMany({
+    where: { id: wPairing.id, status: 'ACTIVE', ...(wInvited ? { inviterUserId: w.id } : { inviteeUserId: w.id }) },
+    data: wInvited ? { inviterUserId: t.id } : { inviteeUserId: t.id },
+  })).count === 1;
+  if (wPairing && taken) {
+    moved = !t.pairingId && tIsNative && (await tx.user.updateMany({
+      where: { id: t.id, pairingId: null, calendarSource: 'NATIVE' },
       data: { pairingId: wPairing.id },
     })).count === 1;
     if (moved) {
@@ -130,7 +138,7 @@ async function mergeWhatsAppUser(
       pairingId = (await tx.user.findUniqueOrThrow({ where: { id: t.id }, select: { pairingId: true } })).pairingId;
     }
   }
-  // The moved pairing, and W's pairing history, now name T.
+  // W's pairing history now names T too.
   await tx.pairing.updateMany({ where: { inviterUserId: w.id }, data: { inviterUserId: t.id } });
   await tx.pairing.updateMany({ where: { inviteeUserId: w.id }, data: { inviteeUserId: t.id } });
   await tx.pairing.updateMany({ where: { unlinkedByUserId: w.id }, data: { unlinkedByUserId: t.id } });
