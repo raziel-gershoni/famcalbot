@@ -770,7 +770,7 @@ export default function DashboardClient({
               {/* Telegram CTA — only when opened outside Telegram (e.g. WA magic link) */}
               {showTelegramBanner && (
                 <a
-                  href="https://t.me/family_calendar_telegram_bot"
+                  href="https://t.me/family_calendar_telegram_bot?start=connect"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="telegram-banner"

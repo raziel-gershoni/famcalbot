@@ -288,7 +288,7 @@ export async function handleGoogleConnectWhatsApp(
   // Every WhatsApp message points to Telegram, where FamCal does more
   const botUsername = process.env.TELEGRAM_BOT_USERNAME;
   const withTip = (copy: ConnectCopy, text: string) =>
-    botUsername ? `${text}\n\n${copy.telegramTip.replace('{link}', `https://t.me/${botUsername}`)}` : text;
+    botUsername ? `${text}\n\n${copy.telegramTip.replace('{link}', `https://t.me/${botUsername}?start=connect`)}` : text;
 
   if (claim?.status === 'connected') {
     const { owner } = claim;

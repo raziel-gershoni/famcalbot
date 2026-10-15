@@ -134,7 +134,7 @@ export class WhatsAppAdapter implements IMessagingService {
             name: 'cta_url',
             parameters: {
               display_text: options.telegramCta,
-              url: 'https://t.me/family_calendar_telegram_bot',
+              url: 'https://t.me/family_calendar_telegram_bot?start=connect',
             },
           },
         },
