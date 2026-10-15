@@ -174,6 +174,7 @@ interface ConnectCopy {
   connected: string;
   chooseCalendars: string;
   notOwner: string;
+  /** Also the reply to a second tap after a successful connect: GETDEL used the entry */
   expired: string;
   failed: string;
   /** WhatsApp only: {link} is the bot's t.me link */
@@ -185,7 +186,7 @@ const COPY: Record<Locale, ConnectCopy> = {
     connected: '✅ Google Calendar is connected! Now pick which calendars FamCal should follow.',
     chooseCalendars: 'Choose calendars',
     notOwner: 'This Google connection was started from a different FamCal account, so nothing was connected. Want to connect your own calendar? Start again from your dashboard.',
-    expired: 'This link has expired. You can connect Google again from your dashboard.',
+    expired: 'This link was already used or has expired. If Google isn\'t connected on your dashboard, you can connect it again from there.',
     failed: 'Something went wrong while finishing the connection. Check your dashboard: if Google isn\'t connected there, connect it again.',
     telegramTip: 'FamCal does even more on Telegram, reminders included: {link}',
   },
@@ -193,7 +194,7 @@ const COPY: Record<Locale, ConnectCopy> = {
     connected: '✅ יומן Google מחובר! נשאר רק לבחור אילו יומנים FamCal יקרא.',
     chooseCalendars: 'בחירת יומנים',
     notOwner: 'החיבור ל-Google הזה התחיל מחשבון FamCal אחר, אז לא חיברנו כלום. רוצים לחבר את היומן שלכם? אפשר להתחיל מחדש מלוח הבקרה.',
-    expired: 'תוקף הקישור פג. אפשר לחבר את Google מחדש מלוח הבקרה.',
+    expired: 'הקישור הזה כבר נוצל או שפג תוקפו. אם Google לא מחובר בלוח הבקרה, אפשר לחבר אותו מחדש משם.',
     failed: 'משהו השתבש בסיום החיבור. כדאי להציץ בלוח הבקרה: אם Google לא מחובר שם, אפשר לחבר אותו מחדש.',
     telegramTip: 'בטלגרם FamCal עושה אפילו יותר, כולל תזכורות: {link}',
   },
@@ -201,7 +202,7 @@ const COPY: Record<Locale, ConnectCopy> = {
     connected: '✅ Google Календарь подключён! Осталось выбрать, какие календари будет читать FamCal.',
     chooseCalendars: 'Выбрать календари',
     notOwner: 'Это подключение Google начали из другого аккаунта FamCal, поэтому ничего не подключено. Хотите подключить свой календарь? Начните заново из панели.',
-    expired: 'Ссылка устарела. Google можно подключить заново из панели.',
+    expired: 'Эта ссылка уже использована или устарела. Если в панели Google не подключён, подключите его заново оттуда.',
     failed: 'Что-то пошло не так при завершении подключения. Загляните в панель: если Google там не подключён, подключите его заново.',
     telegramTip: 'В Telegram FamCal умеет ещё больше, например напоминания: {link}',
   },

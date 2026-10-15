@@ -1012,6 +1012,28 @@ async function main() {
     assert(/<FinishButtons\b/.test(src), 'the page does not render FinishButtons');
   });
 
+  await check('#26 a second tap after a successful connect says the link was already used (Telegram and WhatsApp, en/he/ru)', async () => {
+    const USED = { en: /already used/i, he: /כבר נוצל/, ru: /уже использована/i };
+    const DASHBOARD = { en: /dashboard/i, he: /לוח הבקרה/, ru: /панел/i };
+    for (const locale of ['en', 'he', 'ru'] as const) {
+      seed();
+      userRow(9).language = locale;
+      userRow(42).language = locale;
+      const tgId = await pendingFor(9);
+      await tgWebhook(tgText(TAL_TG, `/start gc_${tgId}`));
+      assert(await savedToken(9) === 'google-rt-new', `${locale}: the first Telegram tap committed nothing; ${captured.join(' | ')}`);
+      await tgWebhook(tgText(TAL_TG, `/start gc_${tgId}`));
+      const tg = sentTo(TAL_TG).at(-1)?.text ?? '';
+      assert(USED[locale].test(tg) && DASHBOARD[locale].test(tg), `${locale} Telegram second tap: ${show(tg)}`);
+      const waId = await pendingFor(42);
+      await waWebhook(waText(WA_BSUID, `gc_${waId}`, { bsuid: WA_BSUID }));
+      assert(await savedToken(42) === 'google-rt-new', `${locale}: the first WhatsApp message committed nothing`);
+      await waWebhook(waText(WA_BSUID, `gc_${waId}`, { bsuid: WA_BSUID }));
+      const wa = sentTo(WA_BSUID).at(-1)?.text ?? '';
+      assert(USED[locale].test(wa) && DASHBOARD[locale].test(wa), `${locale} WhatsApp second message: ${show(wa)}`);
+    }
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);
