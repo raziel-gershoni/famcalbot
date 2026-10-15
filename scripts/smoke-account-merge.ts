@@ -774,6 +774,42 @@ async function main() {
     assert(!rowOf('nativeCalendar', 'cal-t') && show(tPrimaries()) === show(['cal-w']), `T's primary calendars ${show(tPrimaries())}`);
   });
 
+  await check('#46 T paired with Q, its primary empty and shared with Q, W unpaired or paired with P: T\'s primary stays main and shared with Q, and Q sees none of W\'s calendars or P\'s events', async () => {
+    const { getMainNativeCalendar, listVisibleCalendars } = await load('src/services/native-calendar/event-store.ts');
+    for (const wPaired of [false, true]) {
+      seed();
+      if (wPaired) pairWithP();
+      pairTWithQ();
+      DB.nativeEvent = DB.nativeEvent.filter(e => e.calendarId !== 'cal-t');
+      const result = await link();
+      assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+      assert(userRow(T).pairingId === 'pair-tq', `T.pairingId ${userRow(T).pairingId}`);
+      const main = await getMainNativeCalendar(T);
+      const visible = (await listVisibleCalendars(Q, 'pair-tq')).map((c: Row) => c.id);
+      const label = wPaired ? 'W paired' : 'W unpaired';
+      assert(main.id === 'cal-t' && main.privacy === 'SHARED_EDITOR' && visible.includes('cal-t'), `${label}: T's main calendar ${show(main)}; Q sees ${show(visible)}`);
+      const wCalendars = visible.filter((id: string) => id.startsWith('cal-w'));
+      const pEvents = DB.nativeEvent.filter(e => e.creatorUserId === P && visible.includes(e.calendarId)).map(e => e.id);
+      assert(wCalendars.length === 0 && pEvents.length === 0, `${label}: Q sees ${show(visible)}; P's events among them ${show(pEvents)}`);
+      assert(rowOf('nativeEvent', 'ev-w')?.calendarId === 'cal-w' && show(tPrimaries()) === show(['cal-t']), `${label}: T's primary calendars ${show(tPrimaries())}`);
+    }
+  });
+
+  await check('#47 [guard] T and W paired with each other, T\'s primary empty: the merge ends that pairing, so T has no partner and its empty primary still gives way to W\'s', async () => {
+    const { getMainNativeCalendar } = await load('src/services/native-calendar/event-store.ts');
+    seed();
+    DB.pairing.push(pairing('pair-tw', W, T));
+    userRow(T).pairingId = 'pair-tw';
+    userRow(W).pairingId = 'pair-tw';
+    for (const c of DB.nativeCalendar) if ([T, W].includes(c.ownerUserId) && !c.isDeleted) c.privacy = 'SHARED_EDITOR';
+    DB.nativeEvent = DB.nativeEvent.filter(e => e.calendarId !== 'cal-t');
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    assert(userRow(T).pairingId === null && rowOf('pairing', 'pair-tw')?.status === 'UNLINKED', `T.pairingId ${userRow(T).pairingId}; pairing ${show(rowOf('pairing', 'pair-tw'))}`);
+    const main = await getMainNativeCalendar(T);
+    assert(main.id === 'cal-w' && !rowOf('nativeCalendar', 'cal-t') && show(tPrimaries()) === show(['cal-w']), `T's main calendar ${show(main)}; T's primary calendars ${show(tPrimaries())}`);
+  });
+
   await check('#42 T\'s primary calendar has events: W\'s folds into it, and a default calendar name follows T\'s name (an established T keeps its own, a fresh T takes W\'s)', async () => {
     const { getMainNativeCalendar } = await load('src/services/native-calendar/event-store.ts');
     for (const fresh of [false, true]) {

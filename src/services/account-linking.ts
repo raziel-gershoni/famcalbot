@@ -198,7 +198,8 @@ function isSameCalendar(a: NativeCalendar, b: NativeCalendar): boolean {
  * the schema's ON DELETE RESTRICT relations (calendars, created events,
  * pairings, the per-user rows); T takes W's setup (setupFromW) and, when T can
  * take it, W's Google connection. T's primary calendar gives way to W's when
- * it holds no live events, and otherwise W's folds into it. A moved pairing
+ * it holds no live events and T keeps no partner of its own, and otherwise
+ * W's folds into it or comes over as another calendar. A moved pairing
  * shares T's own calendars, as accepting an invite does. Otherwise a moved
  * calendar keeps its privacy (W's go PRIVATE when W's pairing ends, by the
  * merge or by P meanwhile) and a fold needs the same privacy on both sides, so
@@ -280,11 +281,15 @@ async function mergeWhatsAppUser(
   // soft-deletes them), so for one W's arrive deleted. T's primary calendar,
   // if it held no live events before W's arrived (a fresh T's empty default),
   // gives way to W's: T's goes (its soft-deleted events cascade) and W's comes
-  // over as it is, privacy and setup, as the main calendar.
+  // over as it is, privacy and setup, as the main calendar. Not while T stays
+  // paired with a partner of its own: T's primary is shared with them and W's
+  // never was (W was unpaired, or W's pairing ended), so T's stays main and
+  // what T adds stays where the partner sees it.
   const live = (ownerUserId: number) =>
     tx.nativeCalendar.findMany({ where: { ownerUserId, isDeleted: false }, orderBy: { createdAt: 'asc' } });
   const wCalendars = tIsNative ? await live(w.id) : [];
-  const wPrimary = tPrimaryEmpty ? wCalendars.find(c => c.labels.includes('primary')) : undefined;
+  const tKeepsPartner = !!pairingId && !moved;
+  const wPrimary = tPrimaryEmpty && !tKeepsPartner ? wCalendars.find(c => c.labels.includes('primary')) : undefined;
   if (tPrimary && wPrimary) await tx.nativeCalendar.delete({ where: { id: tPrimary.id } });
 
   // Then a moved pairing shares T's own calendars at the default permission,
