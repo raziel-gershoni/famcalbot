@@ -6,7 +6,6 @@
 
 import crypto from 'crypto';
 import { NextRequest } from 'next/server';
-import { cookies } from 'next/headers';
 
 const COOKIE_NAME = 'famcal_session';
 const SESSION_TTL = 24 * 60 * 60; // 24 hours in seconds
@@ -84,19 +83,6 @@ export function validateSessionToken(token: string): SessionPayload | null {
  */
 export function validateSessionFromRequest(request: NextRequest): number | null {
   const cookie = request.cookies.get(COOKIE_NAME);
-  if (!cookie?.value) return null;
-
-  const payload = validateSessionToken(cookie.value);
-  return payload?.userId ?? null;
-}
-
-/**
- * Get session userId from server component cookies
- * For use in Next.js server components (pages)
- */
-export async function getSessionUserId(): Promise<number | null> {
-  const cookieStore = await cookies();
-  const cookie = cookieStore.get(COOKIE_NAME);
   if (!cookie?.value) return null;
 
   const payload = validateSessionToken(cookie.value);
