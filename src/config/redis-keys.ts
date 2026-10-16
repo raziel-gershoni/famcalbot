@@ -102,6 +102,9 @@ export const REDIS_KEYS = {
   // "reminder:" and "reminders:" belong to event alerts.
   NATIVE_REMINDERS_ENABLED: 'nrem:enabled',
 
+  // Calendar home — the rollout switch (OFF / ADMINS / ALL) cached from AdminSettings, EX 60
+  CALENDAR_HOME_ROLLOUT: 'chome:rollout',
+
   // Voice frictionlessness — quick-correction "awaiting field reply" state (PR 10 polish)
   quickCorrection: (chatId: number) => `voice:quick:${chatId}`,
 

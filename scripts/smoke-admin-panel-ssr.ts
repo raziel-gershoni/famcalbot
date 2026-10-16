@@ -15,6 +15,11 @@
 // Every check fails until the fix lands, #3 too: the old GET /api/admin/settings read
 // initData only from the query, so the header got 401.
 //
+// #7-#10 cover the calendar home's rollout control (calendar-home spec §1): the loader's
+// mapping, saves through the real POST route (a bad value refused, a propagated: false
+// answer that still shows the new value with its note, a failed save keeping the old one),
+// and a tap on the shown choice, which still sends it (OFF after a failed settings read).
+//
 // Run with the fake env from the task brief (no dotenv):
 //   npx tsx scripts/smoke-admin-panel-ssr.ts
 
@@ -183,9 +188,9 @@ function model(name: string): Row {
   };
 }
 
-/** Every Prisma call, as model.method. `dbDown` makes every call fail, as an outage does. */
+/** Every Prisma call, as model.method. `down` makes every call fail, as an outage does; `failing` only one model's. */
 const prismaCalls: string[] = [];
-const dbState = { down: false };
+const dbState = { down: false, failing: '' };
 const models: Record<string, Row> = {};
 const fakePrisma: Row = new Proxy({} as Row, {
   get(_t, prop) {
@@ -198,7 +203,7 @@ const fakePrisma: Row = new Proxy({} as Row, {
     return new Proxy(m, {
       get: (target, method) => (typeof method !== 'string' ? undefined : (...args: unknown[]) => {
         prismaCalls.push(`${prop}.${method}`);
-        if (dbState.down) return Promise.reject(new Error('database is down'));
+        if (dbState.down || dbState.failing === prop) return Promise.reject(new Error('database is down'));
         return target[method](...args);
       }),
     });
@@ -213,9 +218,12 @@ const decode = (raw: string | undefined) => {
   try { return JSON.parse(raw); } catch { return raw; }
 };
 const encode = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
+/** `failSet` makes every SET throw, as a Redis blip during a save does. */
+const redisState = { failSet: false };
 const redisImpl: Row = {
   get: async (k: string) => decode(redisStore.get(k)),
   set: async (k: string, v: unknown, o?: Row) => {
+    if (redisState.failSet) throw new Error('redis write failed');
     if (o?.nx && redisStore.has(k)) return null;
     redisStore.set(k, encode(v));
     return 'OK';
@@ -342,6 +350,8 @@ function seed() {
   sent.length = 0;
   captured.length = 0;
   dbState.down = false;
+  dbState.failing = '';
+  redisState.failSet = false;
   DB.user = [
     baseUser({ id: 9, name: 'Admin', telegramId: BigInt(ADMIN_TG), isAdmin: true }),
     baseUser({ id: 42, name: 'Google', telegramId: BigInt(USER_TG), calendarSource: 'GOOGLE', googleRefreshToken: 'rt', calendarAssignments: [{ id: 'c' }], location: 'Haifa' }),
@@ -351,11 +361,12 @@ function seed() {
   ];
   DB.adminSettings = [{
     id: 'global', remindersEnabled: true, earlyAdoptionMode: true, voiceAutoCreateHighConf: true,
-    voiceTtsOutcome: true, nativeRemindersEnabled: false,
+    voiceTtsOutcome: true, nativeRemindersEnabled: false, calendarHomeRollout: 'ADMINS',
   }];
 }
 
-const TOGGLES = { remindersEnabled: true, earlyAdoptionMode: true, voiceAutoCreateHighConf: true, voiceTtsOutcome: true, nativeRemindersEnabled: false };
+const TOGGLES = { remindersEnabled: true, earlyAdoptionMode: true, voiceAutoCreateHighConf: true, voiceTtsOutcome: true, nativeRemindersEnabled: false, calendarHomeRollout: 'ADMINS' };
+const ROLLOUT_KEY = 'chome:rollout';
 
 /** Valid Telegram initData for a Telegram user id, signed with the bot token. */
 function initDataFor(tgId: number): string {
@@ -413,13 +424,13 @@ async function main() {
   };
   const json = async (res: Response): Promise<Row> => res.clone().json().catch(() => ({}));
 
-  // The client's loader, run against the real routes. Records what each request carried.
-  const requests: { url: string; headers: Record<string, string> }[] = [];
+  // The client's code, run against the real routes. Records what each request carried and its status.
+  const requests: { url: string; method: string; headers: Record<string, string>; status?: number }[] = [];
   const ROUTES: Record<string, string> = {
     '/api/admin/settings': 'app/api/admin/settings/route.ts',
     '/api/admin/stats': 'app/api/admin/stats/route.ts',
   };
-  const runLoader = async (initData: string): Promise<Row> => {
+  const asClient = async <T>(initData: string, fn: (client: Row) => Promise<T>): Promise<T> => {
     const g = globalThis as Row;
     const blocked = globalThis.fetch;
     requests.length = 0;
@@ -427,21 +438,39 @@ async function main() {
     globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
       const url = new URL(String(input), 'http://localhost');
       const headers = Object.fromEntries(new Headers(init?.headers).entries());
-      requests.push({ url: url.pathname + url.search, headers });
+      const method = init?.method ?? 'GET';
+      const request: (typeof requests)[number] = { url: url.pathname + url.search, method, headers };
+      requests.push(request);
       const route = ROUTES[url.pathname];
       if (!route) throw new Error(`blocked in smoke: ${url.pathname}`);
-      const { GET } = await load(route);
-      return GET(new NextRequest(url.href, { headers }));
+      const handler = (await load(route))[method];
+      if (typeof handler !== 'function') throw new Error(`blocked in smoke: ${method} ${url.pathname}`);
+      const res: Response = await handler(new NextRequest(url.href, { method, headers, body: init?.body ?? undefined }));
+      request.status = res.status;
+      return res;
     }) as typeof fetch;
     try {
-      const { loadAdminPanel } = await load('app/[locale]/admin-panel/AdminPanelClient.tsx');
-      assert(typeof loadAdminPanel === 'function', 'AdminPanelClient exports no loadAdminPanel');
-      return await loadAdminPanel();
+      return await fn(await load('app/[locale]/admin-panel/AdminPanelClient.tsx'));
     } finally {
       globalThis.fetch = blocked;
       delete g.window;
     }
   };
+  const runLoader = (initData: string): Promise<Row> => asClient(initData, async ({ loadAdminPanel }) => {
+    assert(typeof loadAdminPanel === 'function', 'AdminPanelClient exports no loadAdminPanel');
+    return loadAdminPanel();
+  });
+  const saveRollout = (initData: string, previous: string, next: string): Promise<Row> => asClient(initData, async ({ saveCalendarHomeRollout }) => {
+    assert(typeof saveCalendarHomeRollout === 'function', 'AdminPanelClient exports no saveCalendarHomeRollout');
+    return saveCalendarHomeRollout(previous, next);
+  });
+  const rolloutCopy = (locale: string): Row =>
+    JSON.parse(fs.readFileSync(path.join(ROOT, 'messages', `${locale}.json`), 'utf8')).admin.features;
+  /** The status of the request the last client call made (a call, so no narrowing sticks to it). */
+  const lastStatus = (): number | undefined => requests[requests.length - 1]?.status;
+  /** The labels of the rendered radio buttons that are checked. */
+  const checkedLabels = (html: string) =>
+    [...html.matchAll(/<button[^>]*aria-checked="true"[^>]*>([^<]*)<\/button>/g)].map(m => m[1]);
 
   await check('#1 the page for an admin\'s id, a user\'s id and an unknown id: no lookup, only userId and locale as props, no stats or toggles, the same HTML', async () => {
     const outputs: { id: string; props: string; html: string; calls: number }[] = [];
@@ -529,6 +558,117 @@ async function main() {
     assert(typeof AdminUnauthorized === 'function', 'AdminPanelClient exports no AdminUnauthorized');
     const html = renderHtml(React.createElement(AdminUnauthorized), 'he');
     assert(html.includes('>Unauthorized</h1>') && html.includes('This area is restricted to administrators only.'), html);
+  });
+
+  await check('#7 the loader maps the rollout: the DB\'s value, and OFF when the settings carry none', async () => {
+    seed();
+    (DB.adminSettings[0] as Row).calendarHomeRollout = 'ALL';
+    const all = await runLoader(initDataFor(ADMIN_TG));
+    seed();
+    delete (DB.adminSettings[0] as Row).calendarHomeRollout;
+    const none = await runLoader(initDataFor(ADMIN_TG));
+    assert(all.initial?.calendarHomeRollout === 'ALL', `ALL row: ${show(all)}`);
+    assert(none.initial?.calendarHomeRollout === 'OFF', `no value: ${show(none)}`);
+  });
+
+  await check('#8 the rollout control saves through the real route: ADMINS to ALL shows ALL; a bad value or a non-admin is refused and the old value stays', async () => {
+    seed();
+    const admin = initDataFor(ADMIN_TG);
+    const saved = await saveRollout(admin, 'ADMINS', 'ALL');
+    const sent = requests[requests.length - 1];
+    assert(show(saved) === show({ value: 'ALL', delayed: false }), `saved ${show(saved)} ${captured.join(' | ')}`);
+    assert(sent?.method === 'POST' && sent.status === 200 && !/initData/i.test(sent.url), `request ${show(sent)}`);
+    assert(DB.adminSettings[0].calendarHomeRollout === 'ALL' && redisStore.get(ROLLOUT_KEY) === 'ALL',
+      `DB ${DB.adminSettings[0].calendarHomeRollout}, Redis ${redisStore.get(ROLLOUT_KEY)}`);
+    const bad = await saveRollout(admin, 'ALL', 'EVERYONE');
+    assert(lastStatus() === 400, `bad value answered ${lastStatus()}`);
+    assert(show(bad) === show({ value: 'ALL', delayed: false }), `bad value shows ${show(bad)}`);
+    const user = await saveRollout(initDataFor(USER_TG), 'ALL', 'OFF');
+    assert(lastStatus() === 403 && user.value === 'ALL', `a user: ${lastStatus()} ${show(user)}`);
+    assert(DB.adminSettings[0].calendarHomeRollout === 'ALL', `DB now ${DB.adminSettings[0].calendarHomeRollout}`);
+  });
+
+  await check('#9 a propagated: false answer still shows the new value with the note; a 503 keeps the old value', async () => {
+    seed();
+    const admin = initDataFor(ADMIN_TG);
+    redisState.failSet = true;
+    const delayed = await saveRollout(admin, 'ADMINS', 'OFF');
+    redisState.failSet = false;
+    assert(lastStatus() === 200 && show(delayed) === show({ value: 'OFF', delayed: true }), `saved ${lastStatus()} ${show(delayed)}`);
+    assert(DB.adminSettings[0].calendarHomeRollout === 'OFF' && !redisStore.has(ROLLOUT_KEY),
+      `DB ${DB.adminSettings[0].calendarHomeRollout}, Redis ${redisStore.get(ROLLOUT_KEY)}`);
+
+    const React = nodeRequire('react');
+    const { CalendarHomeRolloutControl } = await load('app/[locale]/admin-panel/AdminPanelClient.tsx');
+    assert(typeof CalendarHomeRolloutControl === 'function', 'AdminPanelClient exports no CalendarHomeRolloutControl');
+    const problems: string[] = [];
+    for (const locale of ['en', 'he', 'ru']) {
+      const copy = rolloutCopy(locale);
+      const html = renderHtml(React.createElement(CalendarHomeRolloutControl, { ...delayed, saving: false, onChange: () => undefined }), locale);
+      if (show(checkedLabels(html)) !== show([copy.calendarHomeOff])) problems.push(`${locale}: checked ${show(checkedLabels(html))}`);
+      if (!html.includes(copy.calendarHomeDelayed)) problems.push(`${locale}: no note in ${html}`);
+      for (const label of [copy.calendarHomeOff, copy.calendarHomeAdmins, copy.calendarHomeAll]) {
+        if (!html.includes(`>${label}</button>`)) problems.push(`${locale}: no ${label} button`);
+      }
+    }
+    const en = rolloutCopy('en');
+    const plain = renderHtml(React.createElement(CalendarHomeRolloutControl, { value: 'ADMINS', delayed: false, saving: false, onChange: () => undefined }), 'en');
+    if (plain.includes(en.calendarHomeDelayed)) problems.push('the note shows after a save Redis took');
+    if (show(checkedLabels(plain)) !== show([en.calendarHomeAdmins])) problems.push(`ADMINS: checked ${show(checkedLabels(plain))}`);
+    assert(problems.length === 0, problems.join('; '));
+
+    seed();
+    dbState.failing = 'adminSettings';
+    const kept = await saveRollout(admin, 'ADMINS', 'ALL');
+    dbState.failing = '';
+    assert(lastStatus() === 503 && show(kept) === show({ value: 'ADMINS', delayed: false }), `DB write failed: ${lastStatus()} ${show(kept)}`);
+    assert(DB.adminSettings[0].calendarHomeRollout === 'ADMINS' && !redisStore.has(ROLLOUT_KEY), 'something was saved');
+  });
+
+  await check('#10 a DB blip on the settings read shows OFF while the switch is ALL; a tap on the shown OFF still sends it, through the real route', async () => {
+    seed();
+    const admin = initDataFor(ADMIN_TG);
+    (DB.adminSettings[0] as Row).calendarHomeRollout = 'ALL';
+    dbState.failing = 'adminSettings';
+    const blip = await runLoader(admin);
+    dbState.failing = '';
+    assert(blip.kind === 'ready' && blip.initial?.calendarHomeRollout === 'OFF', `the premise: ${show(blip)}`);
+
+    const React = nodeRequire('react');
+    const { CalendarHomeRolloutControl } = await load('app/[locale]/admin-panel/AdminPanelClient.tsx');
+    /** The control's buttons as it renders them, onClick included (called inside a render, so its hooks run). */
+    const buttons = (props: Row): Row[] => {
+      let tree: unknown = null;
+      const Capture = () => {
+        tree = CalendarHomeRolloutControl(props);
+        return null;
+      };
+      renderHtml(React.createElement(Capture), 'en');
+      const found: Row[] = [];
+      const walk = (node: unknown): void => {
+        if (Array.isArray(node)) {
+          node.forEach(walk);
+          return;
+        }
+        if (!node || typeof node !== 'object') return;
+        const el = node as Row;
+        if (el.type === 'button') found.push(el.props);
+        walk(el.props?.children);
+      };
+      walk(tree);
+      return found;
+    };
+    const taps: string[] = [];
+    const shown = buttons({ value: 'OFF', saving: false, delayed: false, onChange: (v: string) => taps.push(v) });
+    assert(shown.length === 3, `${shown.length} buttons`);
+    for (const b of shown) b.onClick();
+    for (const b of buttons({ value: 'OFF', saving: true, delayed: false, onChange: (v: string) => taps.push(`while saving: ${v}`) })) b.onClick();
+    assert(show(taps) === show(['OFF', 'ADMINS', 'ALL']), `taps sent ${show(taps)}`);
+
+    const resent = await saveRollout(admin, 'OFF', 'OFF');
+    assert(lastStatus() === 200 && show(resent) === show({ value: 'OFF', delayed: false }), `resend: ${lastStatus()} ${show(resent)}`);
+    assert(DB.adminSettings[0].calendarHomeRollout === 'OFF' && redisStore.get(ROLLOUT_KEY) === 'OFF',
+      `DB ${DB.adminSettings[0].calendarHomeRollout}, Redis ${redisStore.get(ROLLOUT_KEY)}`);
   });
 
   Object.assign(console, quiet);

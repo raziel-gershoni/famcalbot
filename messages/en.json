@@ -99,6 +99,12 @@
       "remindersDescription": "Turn event alerts (the heads-up before an event starts) on or off for everyone",
       "nativeReminders": "Reminders (built-in calendar)",
       "nativeRemindersDescription": "“Remind me…” for built-in calendar users on Telegram: made by voice or text, pinged with Done/Snooze, kept in summaries until done. Off: no new reminders and no pings.",
+      "calendarHome": "Calendar home",
+      "calendarHomeDescription": "The new home that shows the calendar, with the daily and weekly summaries read the same way. Admins first, then everyone. Off: the current home and summaries.",
+      "calendarHomeOff": "Off",
+      "calendarHomeAdmins": "Admins",
+      "calendarHomeAll": "Everyone",
+      "calendarHomeDelayed": "Saved; takes effect within a minute",
       "earlyAdoption": "Early Adoption Mode",
       "earlyAdoptionDescription": "Give all users PRO access. Hides payment UI."
     },

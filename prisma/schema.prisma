@@ -123,18 +123,26 @@ model OAuthState {
 }
 
 model AdminSettings {
-  id                      String   @id @default("global")
-  remindersEnabled        Boolean  @default(false)
-  earlyAdoptionMode       Boolean  @default(true)
+  id                      String              @id @default("global")
+  remindersEnabled        Boolean             @default(false)
+  earlyAdoptionMode       Boolean             @default(true)
   // Unused: the AI and TTS models are fixed in src/config/ai-models.ts and
   // src/config/tts-models.ts. These three columns are kept only to avoid a migration.
   defaultAiModel          String?
   geminiThinkingLevel     String?
   ttsModel                String?
-  voiceAutoCreateHighConf Boolean  @default(false) // Auto-create on HIGH-confidence voice CRUD (skip confirmation)
-  voiceTtsOutcome         Boolean  @default(false) // Speak the outcome line back when input was voice
-  nativeRemindersEnabled  Boolean  @default(true) // Built-in calendar reminders: the extraction rules and the 1-minute ping pass
-  updatedAt               DateTime @updatedAt
+  voiceAutoCreateHighConf Boolean             @default(false) // Auto-create on HIGH-confidence voice CRUD (skip confirmation)
+  voiceTtsOutcome         Boolean             @default(false) // Speak the outcome line back when input was voice
+  nativeRemindersEnabled  Boolean             @default(true) // Built-in calendar reminders: the extraction rules and the 1-minute ping pass
+  calendarHomeRollout     CalendarHomeRollout @default(OFF) // The calendar home and the summary reader: off, admins only, or everyone
+  updatedAt               DateTime            @updatedAt
+}
+
+// Who gets the calendar home and the summary reader (docs/superpowers/specs/2026-10-16-calendar-home-design.md §1)
+enum CalendarHomeRollout {
+  OFF // Nobody: the old home and today's summary path
+  ADMINS // Users with isAdmin only
+  ALL // Everyone
 }
 
 // ============================================
