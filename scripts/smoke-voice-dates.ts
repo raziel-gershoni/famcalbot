@@ -58,6 +58,9 @@ const timezoneModule = path.resolve(__dirname, '../src/lib/timezone.ts');
 const aiProviderModule = path.resolve(__dirname, '../src/services/ai-provider.ts');
 const fakeTimezone = { resolveUserTimezone: async (user: { id: number }) => USER_TIMEZONES[user.id] };
 let fakeAiProvider: object | undefined;
+// Every Google write stamps the user's cached reads on Upstash; no smoke touches Redis.
+const calendarReadGoogleModule = path.resolve(__dirname, '../src/services/calendar-read/google.ts');
+let fakeCalendarReadGoogle: object | undefined;
 type Loader = (request: string, parent: unknown, ...rest: unknown[]) => unknown;
 const loader = Module as unknown as { _load: Loader; _resolveFilename: (request: string, parent: unknown) => string };
 const load = loader._load;
@@ -70,6 +73,11 @@ loader._load = function (this: unknown, request: string, parent: unknown, ...res
     const real = load.call(this, request, parent, ...rest) as object;
     fakeAiProvider ??= new Proxy(real, { get: (target, key) => (key === 'generateAICompletion' ? fakeMatcher : Reflect.get(target, key)) });
     return fakeAiProvider;
+  }
+  if (request.endsWith('/calendar-read/google') && loader._resolveFilename(request, parent) === calendarReadGoogleModule) {
+    const real = load.call(this, request, parent, ...rest) as object;
+    fakeCalendarReadGoogle ??= new Proxy(real, { get: (target, key) => (key === 'stampGoogleCache' ? async () => {} : Reflect.get(target, key)) });
+    return fakeCalendarReadGoogle;
   }
   return load.call(this, request, parent, ...rest);
 };
