@@ -12,9 +12,12 @@ export { TIMEZONE };
 export type { CalendarEvent };
 
 /**
- * Create a Google Calendar API client with OAuth credentials
+ * The OAuth2 client for a user's refresh token, as getCalendarClient has always built it.
+ * A fresh client holds no access token, so its first request refreshes one. The calendar
+ * home's reader (calendar-read/google.ts) runs that refresh itself first, inside its
+ * deadline, so a dead token or a stuck token server is one outcome for the whole read.
  */
-export function getCalendarClient(refreshToken: string): calendar_v3.Calendar {
+export function getGoogleAuth(refreshToken: string): InstanceType<typeof auth.OAuth2> {
   const oauth2Client = new auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET
@@ -24,7 +27,14 @@ export function getCalendarClient(refreshToken: string): calendar_v3.Calendar {
     refresh_token: refreshToken,
   });
 
-  return googleCalendar({ version: 'v3', auth: oauth2Client });
+  return oauth2Client;
+}
+
+/**
+ * Create a Google Calendar API client with OAuth credentials
+ */
+export function getCalendarClient(refreshToken: string): calendar_v3.Calendar {
+  return googleCalendar({ version: 'v3', auth: getGoogleAuth(refreshToken) });
 }
 
 /**

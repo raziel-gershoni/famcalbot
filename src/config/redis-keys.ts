@@ -81,6 +81,18 @@ export const REDIS_KEYS = {
   // Holiday cache (CalBrew API responses, 24h TTL)
   holidays: (date: string, lang: string) => `holidays:${date}:${lang}`,
 
+  // Calendar home, Google reader (src/services/calendar-read/google.ts): the route's range
+  // cache, the per-user stamp that invalidates it after a write, the once-a-day "chosen
+  // calendars are gone" warning, the per-window fresh=1 limit, and the once-an-hour admin
+  // alert for an OAuth client Google rejects. from and to are the window's bounds as the
+  // cache keys them.
+  gcalRange: (userId: number, setHash: string, tz: string, from: string, to: string) =>
+    `gcal:range:v1:${userId}:${setHash}:${tz}:${from}:${to}`,
+  gcalStamp: (userId: number) => `gcal:stamp:${userId}`,
+  gcalGoneWarned: (userId: number) => `gcal:gone_warned:${userId}`,
+  gcalFresh: (userId: number, from: string, to: string) => `gcal:fresh:${userId}:${from}:${to}`,
+  gcalConfigAlert: () => 'gcal:config_alert',
+
   // Identifier blocklist cache (admin moderation; banned telegramId / whatsappPhone)
   blockedTelegramId: (telegramId: number | bigint | string) => `blocked:tg:${telegramId}`,
   blockedWhatsAppPhone: (phone: string) => `blocked:wa:${phone}`,
