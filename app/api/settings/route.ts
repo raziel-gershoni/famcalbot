@@ -1,10 +1,30 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { updateUserById } from '@/src/services/user-service';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { setUserMenuButton } from '@/src/services/telegram';
 import { updateUserInCache, removeUserFromCache } from '@/src/services/reminder-cache';
+import { resolveTimezoneForLocation } from '@/src/lib/timezone';
+import { redis } from '@/src/utils/redis';
+import { prisma } from '@/src/utils/prisma';
+import { REDIS_KEYS } from '@/src/config/redis-keys';
+
+const TIMEZONE_CACHE_TTL = 24 * 60 * 60; // as resolveUserTimezone caches it
+
+/**
+ * Caches the zone of a newly saved location (`location` is trimmed). A failed lookup
+ * leaves the cached zone as it is. So does a location that changed again while the lookup
+ * ran: two quick saves each schedule a lookup, and the older one can land last.
+ */
+async function refreshTimezone(userId: number, location: string): Promise<void> {
+  const tz = await resolveTimezoneForLocation(location);
+  if (!tz) return;
+  // Compared trimmed, as the save compares it. A row that is gone reads as ''.
+  const stored = await prisma.user.findUnique({ where: { id: userId }, select: { location: true } });
+  if ((stored?.location ?? '').trim() !== location) return;
+  await redis.set(REDIS_KEYS.userTimezone(userId), tz, { ex: TIMEZONE_CACHE_TTL });
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -43,6 +63,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid tomorrowSummaryDays' }, { status: 400 });
     }
 
+    // A changed location moves the cached timezone with it (else the old zone stays up to 24 h).
+    // Compared trimmed, so spaces alone are no change; an empty location is not saved
+    // (`location || undefined` below), so it changes nothing here either.
+    const newLocation = typeof location === 'string' ? location.trim() : '';
+    const locationChanged = newLocation !== '' && newLocation !== (auth.user.location ?? '').trim();
+
     // auth.user is the row the credential proved (a Telegram user, or a WhatsApp session's DB id)
     const updatedUser = await updateUserById(auth.user.id, {
       language: language || undefined,  // Locale code: 'he', 'en', 'ru'
@@ -64,6 +90,16 @@ export async function POST(request: NextRequest) {
       pickupRemindersEnabled: typeof pickupRemindersEnabled === 'boolean' ? pickupRemindersEnabled : undefined,
       voiceInputEnabled: typeof voiceInputEnabled === 'boolean' ? voiceInputEnabled : undefined
     });
+
+    // The lookup runs after the response, so the save answers at once.
+    if (locationChanged) {
+      const id = auth.user.id;
+      after(() =>
+        refreshTimezone(id, newLocation).catch(error =>
+          captureError(error, 'settings-timezone', { api_route: '/api/settings', user_id: id }, 'warning')
+        )
+      );
+    }
 
     // Update reminder cache (no extra DB query - uses data from updateUserById). Who belongs
     // in it is the hourly sync's rule (handleDailySummary): a NATIVE user has no Google
