@@ -99,7 +99,7 @@ The switch goes to `ADMINS` after C and D land; `ALL` after E and the device che
 - `app/api/admin/settings/route.ts`: GET returns `calendarHomeRollout ?? 'OFF'`. POST accepts it only when it is `'OFF'`, `'ADMINS'` or `'ALL'` (anything else is a 400), counts it in the at-least-one-field check, and calls the setter.
   - When Redis didn't take the value, it answers 200 `{ success: true, calendarHomeRollout, propagated: false }`. The control shows the new value with the note "Saved; takes effect within a minute".
   - 503 keeps its existing meaning (`route.ts:137-143`): the DB write failed and nothing was saved. The control then keeps the old value.
-- Admin panel: a three-way control in `AdminPanelClient.tsx` next to the native-reminders toggle. `loadAdminPanel` maps `settings.calendarHomeRollout ?? 'OFF'` into the initial props. Labels and the note go under `admin.features` in `messages/{en,he,ru}.json` (Plan B). `scripts/smoke-admin-panel-ssr.ts`'s fixture uses `'ADMINS'`.
+- Admin panel: a three-way control in `AdminPanelClient.tsx` next to the native-reminders toggle. `loadAdminPanel` maps `settings.calendarHomeRollout ?? 'OFF'` into the initial props. A tap on the choice already shown sends it again: during a DB blip the panel shows `OFF` whatever the switch is, and the rollback tap must still go through. Labels and the note go under `admin.features` in `messages/{en,he,ru}.json` (Plan B). `scripts/smoke-admin-panel-ssr.ts`'s fixture uses `'ADMINS'`.
 - The switch covers the home **and** the summary path. Every call site asks `await isCalendarHomeOn(user)` with a fresh DB user row.
 
 ---
@@ -136,7 +136,7 @@ Edits to existing files:
 3. `src/services/calendar-provider/google-provider.ts:85-126`: after each `createEvent` / `updateEvent` / `deleteEvent`, success or failure, `await stampGoogleCache(user.id)`. The write's own result or error is returned unchanged (§2.6).
 4. `src/services/google-connect.ts:114-150`: `stampGoogleCache(user.id)` after the transaction and the reminder-cache update.
 5. `src/services/telegram/summary.ts` (§3.1): the fetch wrappers (`:11-14`) become switch-aware and take `(user, calendarIds, tz, day, read)`; `prepareSummaryForUser` (`:79-86`) gains a trailing `opts?: { day?, read?, googleUnavailable? }`, with `modelId` still 4th; `sendSummaryToUser`'s `onError` (`:297-334`) gains `GOOGLE_FETCH_FAILED`; `sendSummaryToAll` (`:389-505`) gains the C5 retry queue.
-6. `src/services/week-lookahead.ts`: the switch-aware fetch at `fetchEventsInRange` (`:202`); a trailing `read?: DigestRead` on `getWeekLookahead` and `getNextWeekLookahead`; `:80-99` and `:435-451` replaced by calls to `nextWeekBoundary` / `nextWeekBoundaries` with a `weekStart` (§6); the recurrence-cache fix (§8.3, Plan A).
+6. `src/services/week-lookahead.ts`: the switch-aware fetch at `fetchEventsInRange` (`:247` after Plan A); a trailing `read?: DigestRead` on `getWeekLookahead` and `getNextWeekLookahead`; `:91-110` and `:483-499` (after Plan A) replaced by calls to `nextWeekBoundary` / `nextWeekBoundaries` with a `weekStart` (§6); the recurrence-cache fix (§8.3, Plan A).
 7. `src/services/telegram/commands.ts:553-595, :654-692`: `/week` and `/nextweek` get an `onError` (Ruling R14).
 8. `src/services/claude.ts` (`SummaryUserContext`, `:57-63`, and its pass-through `:147-173`) and `src/prompts/calendar-summary/{types,en,he,ru}.ts`: an optional `googleUnavailable` flag adds the C5 guideline line. Without it, prompts are byte-identical.
 9. `src/services/native-reminders/open-reminders.ts`: move `reminderDueAt` into the leaf module `due.ts` and re-export it, so `dto.ts` stays free of Prisma imports. Add `fetchOpenReminderItems(...)`, a variant of `fetchOpenReminders` that also returns each carry-over's state row and occurrence `instanceStartsAt`. The summary's `fetchOpenReminders` is unchanged.
@@ -322,7 +322,7 @@ Applies only when `calendarSource === 'GOOGLE'`. The calendar set is `user.calen
    - other tags are stripped; named and numeric entities are decoded;
    - runs of blank lines collapse; the result is cut at 500 code points.
 
-   Plain text passes through unchanged.
+   A tag is a known HTML element name (plus Google's `<html-blob>` and Word's `<o:p>`) ended by a space, `/` or `>`. Plain-text Teams, Outlook and Zoom invites put links and addresses in angle brackets (`Join<https://teams.microsoft.com/…>`, `Dana Levi <dana@corp.com>`); those are text. Plain text (no tag and no known entity) passes through unchanged, apart from the 500 code-point cut.
 
 **Error classifier** `classifyGoogleError(e)`, pure. The old `isTokenError` (`src/utils/errors.ts:46-66`) stays for every other path.
 
@@ -381,7 +381,7 @@ Only when the token step hasn't finished, or no calendar has settled or received
 - **Who stamps:**
   - `stampGoogleCache`, after every Google write in `google-provider.ts`. Every bot write goes through it, including `'primary'` and "this and following" edits;
   - `commitGoogleToken`, because a reconnect may be a different account;
-  - any read that ends in `reconnect` or `error('calendars_gone')`, so a stale entry never hides a dead token or revoked access.
+  - any cached read (`'use'`, `'refresh'` or the background refresh) that ends in `reconnect` or `error('calendars_gone')`, so a stale entry never hides a dead token or revoked access. Summary reads (`'bypass'`) never touch Redis, the stamp included: a dead token a summary finds reaches the home at the next stale refresh, within 3 minutes.
 - **`stampGoogleCache` never throws or rejects.**
   - It uses a separate Upstash client with retries off, is raced against 750 ms, catches everything and records a warning.
   - It is awaited after the write's result is computed, not in a bare `finally`, so it can never replace a write's result. A lost stamp means at worst 3 minutes of pre-write data on the home.
@@ -508,9 +508,9 @@ X-Telegram-Init-Data: <initData>        (or the famcal_session cookie in a brows
 1. **Auth:** `requestInitData(request)` (the header only, for a GET), then `verifyUserAuth(request, user_id, initData, calendarRateLimiter, 'calendar-range')`. It answers 400, 401, 403 (suspended), 404 or 429 as today.
 2. **Switch:** `if (!(await isCalendarHomeOn(user)))` → 404 `{ error: 'not_enabled' }`.
 3. **Facts, computed on the server:**
-   - `tz = await resolveUserTimezone(user)`;
+   - `tz = await resolveUserTimezone(user)`, raced against 2,000 ms. Past that the route answers in `TIMEZONE` (Asia/Jerusalem) with `tzKnown` false, so the language rule decides (Ruling R15), logs `calendar-range-timezone` and writes no zone; the lookup carries on and caches its own answer for the next open. A lookup that fails inside the bound is a 500, as before;
    - `today = localDate(now, tz)`;
-   - `tzKnown = tzKnownFor(user)`;
+   - `tzKnown = tzKnownFor(user)` (false after the timeout above);
    - `weekStart` and `hebrewDates` (§6).
 4. **Validation** → 400:
    - `from` and `to` come both or neither, in strict `yyyy-MM-dd` with a round-trip check;
@@ -640,7 +640,7 @@ An error boundary wraps the home; a chunk-load error reloads once.
 
 ## 6. Week start and Hebrew dates
 
-`src/utils/locale-rules.ts` (pure, server-only by import discipline; the client receives a number and a boolean):
+`src/utils/locale-rules.ts` (pure, server-only by import discipline; the client receives a number and a boolean). The `WeekStart` type (`0|1|2|3|4|5|6`) is defined once, in the client-safe `src/lib/calendar-view/types.ts`; `locale-rules.ts` re-exports it, and client code imports it only from `calendar-view/types`, so the zone table never reaches a client bundle:
 
 ```ts
 type Facts = { culture?: string; language?: string; tz: string; tzKnown: boolean };
@@ -676,8 +676,8 @@ export function nextWeekBoundaries(ws: 0|1|2|3|4|5|6, today: DayKey): { first: D
 **Where they apply**
 - **Home:** the Month grid's columns and weekday row; Hebrew dates in the header, the Agenda day labels and the Month cells.
 - **Bot**, for switch-covered users:
-  - `nextWeekBoundary(ws, always7, today)`, with `daysUntilBoundary = always7 ? 7 : ((((ws + 6) % 7) - dow) + 7) % 7`. Plan B adds it; Plan C replaces `week-lookahead.ts:80-99` with a call to it;
-  - `nextWeekBoundaries(ws, today)`, with a first day `((ws - dow + 7) % 7) || 7` and a last day 6 days later. Plan B adds it; Plan C replaces `:435-451` with a call to it;
+  - `nextWeekBoundary(ws, always7, today)`, with `daysUntilBoundary = always7 ? 7 : ((((ws + 6) % 7) - dow) + 7) % 7`. Plan B adds it; Plan C replaces `week-lookahead.ts:91-110` (line numbers after Plan A) with a call to it;
+  - `nextWeekBoundaries(ws, today)`, with a first day `((ws - dow + 7) % 7) || 7` and a last day 6 days later. Plan B adds it; Plan C replaces `:483-499` with a call to it;
   - callers compute `ws = homeOn ? weekStartFor(...) : legacyWeekStart(user.culture)`. For ws 0 and 1 the formulas give today's results on every weekday.
 - **Not adopted now:** the Settings day-picker order, voice "next week", the extraction prompts, RRULE `WKST`. Bot Hebrew dates and holidays: Ruling R16.
 
@@ -922,11 +922,11 @@ There's no test runner: these are `npx tsx` smoke scripts.
 - Every env name is faked before imports.
 - New smokes must type-check, because `next build` checks `scripts/**`.
 
-**`smoke-calendar-read.ts`** (pure):
+**The pure checks** (Plan B splits them by module: `smoke-google-map.ts` for the classifier, the filter, the mapper and `htmlToText`; `smoke-calendar-dto.ts` for `toRangeDays` and the DTO; `smoke-locale-rules.ts` for the week and Hebrew-date rules):
 - `classifyGoogleError` on real error shapes: token-endpoint `invalid_grant`; a bare 401 (→ token); 403 rate and quota; 403 insufficient permissions; 404; 410; 429; 500; `ECONNRESET`; a network error on a `/token` URL (→ transient); a node-fetch `request-timeout`; `AbortError`.
   - `unauthorized_client` and `invalid_client` carry `status: 401` and `response.status: 401` with the string `response.data.error`, as Google's token endpoint sends them. Both → `config`.
 - `keepGoogleEvent` over every eventType: unknown types kept, birthday kept, cancelled, no start, declined by self, declined by another attendee.
-- `htmlToText`: entities, line tags, links, plain text unchanged, the 500 code-point cut with emoji.
+- `htmlToText`: entities, line tags, links, plain text unchanged (a plain-text Teams invite with `<https://…>` and `<name@corp.com>` included), the 500 code-point cut with emoji.
 - `toRangeDays` equals `shapeEventsForDay` for every day, on these fixtures:
   - overnight 22:00–02:00, and a sleepover until 10:00;
   - a multi-day all-day event, and an all-day event from New York seen in Israel;
@@ -941,7 +941,7 @@ There's no test runner: these are `npx tsx` smoke scripts.
   - `Asia/Hebron` → 1; `Etc/UTC` → the language rule; an unknown language → 1;
   - `tzKnown: false`.
 - `nextWeekBoundary` and `nextWeekBoundaries` (pure, in `locale-rules.ts`):
-  - equal to today's formulas (`week-lookahead.ts:80-99, :435-451`, copied into the smoke as the reference) for ws 0/1 on every weekday, with and without `lookaheadAlways7Days`;
+  - equal to today's formulas (`week-lookahead.ts:91-110, :483-499` after Plan A, copied into the smoke as the reference) for ws 0/1 on every weekday, with and without `lookaheadAlways7Days`;
   - ws 6 and ws 5 give Saturday and Friday weeks.
 - `hebrewDatesFor` table.
 - On Node ≥ 24, rebuild `NON_MONDAY_ZONES` from `Intl` and diff it with the committed table; otherwise print SKIP.
@@ -1069,6 +1069,7 @@ There's no test runner: these are `npx tsx` smoke scripts.
 
 - Nobody sees FamCal and Google together in step 1 (Owner decision 2).
 - **Users with no location and no Google token** fall back to Asia/Jerusalem with `tzKnown` false, so the language rule decides.
+- **A slow timezone lookup on the home** (once a day per user, on a `tz:user` miss): past 2,000 ms that one answer uses Asia/Jerusalem with `tzKnown` false; the next open gets the real zone (§4 step 3).
 - **A user whose timezone lookup fails** (location or Google settings) gets the cached Asia/Jerusalem fallback for 24 h, with `tzKnown` true. That means Sunday weeks and Hebrew dates until the cache expires.
 - **Large UTC-offset gaps:** an all-day item created 24 h or more of UTC offset away from the viewer may land a day off. The summaries have the same gap today.
 - **`Asia/Hebron` and `Asia/Gaza`** count as Palestine: Monday weeks and no Israel signal, unless the culture is Jewish.
