@@ -161,35 +161,58 @@ function mergeRows(rows: NativeEventRow[], forViewer: NativeEventRow[]): NativeE
   return [...rows, ...added].sort((a, b) => a.instance.startsAt.getTime() - b.instance.startsAt.getTime());
 }
 
-/** Store rows as the viewer's events. The reminders' states are read in one query. */
-async function toViewerEvents(rows: NativeEventRow[], ctx: ViewerContext): Promise<UnifiedEvent[]> {
+/**
+ * One occurrence the viewer sees: its store row, the event the provider hands on for
+ * it, and, for a reminder, the occurrence's state row when it has one (no row: pending).
+ */
+export interface ViewerItem {
+  row: NativeEventRow;
+  state?: ReminderStateRow;
+  event: UnifiedEvent;
+}
+
+/** Store rows as the viewer's items. The reminders' states are read in one query. */
+async function toViewerItems(rows: NativeEventRow[], ctx: ViewerContext): Promise<ViewerItem[]> {
   const reminderRows = rows.filter((r) => r.series.kind === 'REMINDER');
-  if (reminderRows.length === 0) return rows.map((r) => toUnifiedEvent(r.calendar, r.instance));
+  if (reminderRows.length === 0) return rows.map((row) => ({ row, event: toUnifiedEvent(row.calendar, row.instance) }));
 
   const states = await fetchReminderStates(
     reminderRows.map((r) => ({ seriesEventId: r.series.id, originalStartsAt: r.instance.instanceStartsAt }))
   );
   const stateByKey = new Map(states.map((s) => [occurrenceKey(s.seriesEventId, s.originalStartsAt), s]));
   const now = new Date();
-  return rows.map((r) => {
-    if (r.series.kind !== 'REMINDER') return toUnifiedEvent(r.calendar, r.instance);
-    const state = stateByKey.get(occurrenceKey(r.series.id, r.instance.instanceStartsAt));
-    return toUnifiedEvent(r.calendar, r.instance, r.series, reminderInfoFor(r.series, state, ctx, now));
+  return rows.map((row) => {
+    if (row.series.kind !== 'REMINDER') return { row, event: toUnifiedEvent(row.calendar, row.instance) };
+    const state = stateByKey.get(occurrenceKey(row.series.id, row.instance.instanceStartsAt));
+    const event = toUnifiedEvent(row.calendar, row.instance, row.series, reminderInfoFor(row.series, state, ctx, now));
+    return state ? { row, state, event } : { row, event };
   });
 }
 
 /**
- * The viewer's events in a range: those on the given calendars, plus the reminders
+ * The viewer's occurrences in a range: those on the given calendars, plus the reminders
  * their partner set for them, which they see on its day whatever the privacy of the
- * partner's calendar (spec §2).
+ * partner's calendar (spec §2). Each comes with its row and state row beside its event,
+ * with the viewer context they were read under: the calendar reader
+ * (src/services/calendar-read/famcal.ts) builds its items from them.
  */
-async function fetchForViewer(user: UserConfig, cuids: string[], range: FetchRange): Promise<UnifiedEvent[]> {
+export async function fetchViewerItems(
+  user: UserConfig,
+  cuids: string[],
+  range: FetchRange
+): Promise<{ ctx: ViewerContext; items: ViewerItem[] }> {
   const [ctx, rows] = await Promise.all([
     loadViewerContext({ id: user.id, pairingId: user.pairingId ?? null }),
     fetchEventsInCalendars(cuids, range),
   ]);
   const forViewer = ctx.partner ? await fetchRemindersForUserInRange(user.id, ctx.partner.id, range) : [];
-  return toViewerEvents(mergeRows(rows, forViewer), ctx);
+  return { ctx, items: await toViewerItems(mergeRows(rows, forViewer), ctx) };
+}
+
+/** The viewer's events in a range: fetchViewerItems' events, in its order. */
+async function fetchForViewer(user: UserConfig, cuids: string[], range: FetchRange): Promise<UnifiedEvent[]> {
+  const { items } = await fetchViewerItems(user, cuids, range);
+  return items.map((i) => i.event);
 }
 
 function filterCalendarCuids(calendarIds: string[]): string[] {

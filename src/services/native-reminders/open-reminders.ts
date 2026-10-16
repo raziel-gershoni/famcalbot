@@ -17,6 +17,7 @@ import { localDate, nextDate, startOfLocalDay } from '../../utils/day-events';
 import { isReminderEvent } from '../../utils/event-formatter';
 import { expandSeries, latestOccurrenceBefore } from '../native-calendar/recurrence';
 import { reminderInfoFor, toUnifiedEvent } from '../calendar-provider/native-provider';
+import type { UnifiedEvent } from '../calendar-provider/types';
 import { effectiveOwnerForViewer, loadViewerContext, type ViewerContext } from './ownership';
 import { ARMED_GRACE_MS, reminderDueAt } from './due';
 
@@ -67,6 +68,22 @@ export interface OpenReminderCandidate {
 }
 
 /**
+ * A carried-over reminder with what the home needs beside its event (calendar home
+ * spec §4 step 6): its series, its calendar, the occurrence's original start and its
+ * state row. The calendar carries its real name: never hand it to the client.
+ */
+export interface OpenReminderItem {
+  /** Exactly the event fetchOpenReminders lists for it: eventType 'reminder', with openSince. */
+  event: UnifiedEvent;
+  series: NativeEvent;
+  calendar: { id: string; name: string };
+  /** The occurrence's original start, which its state row is keyed by; a one-off's own start. */
+  instanceStartsAt: Date;
+  /** The occurrence's state row, when it has one (a snoozed one). Never a done one: those are not carried. */
+  state?: Pick<NativeReminderState, 'originalStartsAt' | 'doneAt' | 'snoozedUntil'>;
+}
+
+/**
  * Which reminders a digest carries over, without the database. Each series offers its
  * latest occurrence before `cutoff`; it is carried when it is due before the cutoff,
  * not done, the viewer is its effective owner or its creator (R1), and, for a
@@ -84,8 +101,22 @@ export function selectOpenReminders(
   now: Date,
   cap: number = OPEN_REMINDERS_DIGEST_CAP
 ): { events: CalendarEvent[]; moreCount: number } {
+  const { items, moreCount } = selectOpenReminderItems(candidates, ctx, cutoff, summaryDay, timezone, now, cap);
+  return { events: items.map(i => i.event), moreCount };
+}
+
+/** selectOpenReminders with each carry-over's OpenReminderItem: the same rules, order and cap. */
+function selectOpenReminderItems(
+  candidates: OpenReminderCandidate[],
+  ctx: ViewerContext,
+  cutoff: Date,
+  summaryDay: string,
+  timezone: string,
+  now: Date,
+  cap: number
+): { items: OpenReminderItem[]; moreCount: number } {
   const summaryRange = { from: startOfLocalDay(summaryDay, timezone), to: startOfLocalDay(nextDate(summaryDay), timezone) };
-  const open: Array<{ due: Date; event: CalendarEvent }> = [];
+  const open: Array<{ due: Date; item: OpenReminderItem }> = [];
   for (const { series, calendar, overrides, states } of candidates) {
     // R1: carried over only to its effective owner and its creator
     if (effectiveOwnerForViewer(series, ctx) !== ctx.viewerId && series.creatorUserId !== ctx.viewerId) continue;
@@ -103,10 +134,19 @@ export function selectOpenReminders(
     if (state?.doneAt) continue;
     const info = reminderInfoFor(series, state, ctx, now);
     info.openSince = localDate(due, timezone);
-    open.push({ due, event: { ...event, eventType: 'reminder', reminder: info } });
+    open.push({
+      due,
+      item: {
+        event: { ...event, eventType: 'reminder', reminder: info },
+        series,
+        calendar,
+        instanceStartsAt: occurrence.instanceStartsAt,
+        ...(state ? { state } : {}),
+      },
+    });
   }
   open.sort((a, b) => b.due.getTime() - a.due.getTime());
-  return { events: open.slice(0, cap).map(o => o.event), moreCount: Math.max(0, open.length - cap) };
+  return { items: open.slice(0, cap).map(o => o.item), moreCount: Math.max(0, open.length - cap) };
 }
 
 /**
@@ -124,6 +164,30 @@ export async function fetchOpenReminders(
   cap: number = OPEN_REMINDERS_DIGEST_CAP
 ): Promise<{ events: CalendarEvent[]; moreCount: number }> {
   if (user.calendarSource !== 'NATIVE') return { events: [], moreCount: 0 };
+  const candidates = await loadOpenReminderCandidates(ctx, cutoff);
+  return selectOpenReminders(candidates, ctx, cutoff, summaryDay, timezone, new Date(), cap);
+}
+
+/**
+ * fetchOpenReminders' carry-overs as OpenReminderItems: the same read, rules, order and
+ * cap, with each one's series, calendar, occurrence and state row. The calendar home's
+ * range route passes Infinity.
+ */
+export async function fetchOpenReminderItems(
+  user: UserConfig,
+  ctx: ViewerContext,
+  cutoff: Date,
+  summaryDay: string,
+  timezone: string,
+  cap: number = OPEN_REMINDERS_DIGEST_CAP
+): Promise<{ items: OpenReminderItem[]; moreCount: number }> {
+  if (user.calendarSource !== 'NATIVE') return { items: [], moreCount: 0 };
+  const candidates = await loadOpenReminderCandidates(ctx, cutoff);
+  return selectOpenReminderItems(candidates, ctx, cutoff, summaryDay, timezone, new Date(), cap);
+}
+
+/** The one read behind fetchOpenReminders and fetchOpenReminderItems: each series with its calendar, overrides and state rows. */
+async function loadOpenReminderCandidates(ctx: ViewerContext, cutoff: Date): Promise<OpenReminderCandidate[]> {
   const rows = await prisma.nativeEvent.findMany({
     where: {
       kind: 'REMINDER',
@@ -148,8 +212,7 @@ export async function fetchOpenReminders(
     },
     include: { calendar: true, instances: true, states: true },
   });
-  const candidates = rows.map(row => ({ series: row, calendar: row.calendar, overrides: row.instances, states: row.states }));
-  return selectOpenReminders(candidates, ctx, cutoff, summaryDay, timezone, new Date(), cap);
+  return rows.map(row => ({ series: row, calendar: row.calendar, overrides: row.instances, states: row.states }));
 }
 
 /**
