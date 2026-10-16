@@ -469,6 +469,38 @@ async function main() {
     assert(ms < 50, `took ${ms.toFixed(1)} ms`);
   });
 
+  await check('mapGoogleEvent: each crafted 32,768-character description (opens with no end after them) maps in well under 50 ms', () => {
+    const size = 32768;
+    /** head, then unit repeated, then tail: `size` characters. */
+    const fill = (unit: string, tail = '', head = '') =>
+      head + unit.repeat(Math.ceil(size / unit.length)).slice(0, size - head.length - tail.length) + tail;
+    const shapes: Record<string, string> = {
+      '"<b " repeated': fill('<b '),
+      '"<br " repeated': fill('<br '),
+      '"<li " repeated': fill('<li '),
+      '"<a " repeated, one ">", no </a>': fill('<a ', '>' + 'x'.repeat(size / 2 - 1)),
+      '"<a>" repeated, no </a>': fill('<a>'),
+      '"<a href=x>" repeated, then text': fill('<a href=x>', 'x'.repeat(size / 2)),
+      '"<script>" repeated, no closer': fill('<script>'),
+      '"<style " repeated': fill('<style '),
+      '"<!--" repeated': fill('<!--'),
+      '"<!-- <script>" repeated': fill('<!-- <script>'),
+      '"</a " repeated': fill('</a '),
+      '"href=\\"" repeated in one <a>': fill('href="', '>x</a>', '<a '),
+      '"<b " repeated inside a link': fill('<b ', '</a>', '<a href=x>'),
+      '<b>, then spaces': '<b>' + ' '.repeat(size - 4) + '.',
+    };
+    const slow: string[] = [];
+    for (const [name, description] of Object.entries(shapes)) {
+      assertEq(description.length, size, `${name}: length`);
+      const started = performance.now();
+      mapGoogleEvent({ id: 'crafted', summary: 'Call', start: timed, description }, FAMILY, 'Family');
+      const ms = performance.now() - started;
+      if (ms >= 50) slow.push(`${name} took ${ms.toFixed(1)} ms`);
+    }
+    assert(slow.length === 0, slow.join('; '));
+  });
+
   await check('the fake answered every request (nothing went past it)', () => {
     assert(calls.length > 0 && calls.every((u) => u === TOKEN_URL || u.startsWith('https://www.googleapis.com/calendar/v3/') || u === 'http://127.0.0.1:9/'), `calls ${JSON.stringify(calls)}`);
   });

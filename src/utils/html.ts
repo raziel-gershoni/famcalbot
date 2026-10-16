@@ -34,7 +34,7 @@ const TAG_NAMES = [
 ].join('|');
 /** One tag, opening or closing, any case: a TAG_NAMES name, then its attributes up to ">". */
 const TAG = `</?(?:${TAG_NAMES})(?=[\\s/>])[^>]*>`;
-const HAS_TAG = new RegExp(`${TAG}|<!--`, 'i');
+const HAS_TAG = new RegExp(TAG, 'i');
 const HAS_ENTITY = new RegExp(`&(?:#\\d{1,7}|#[xX][0-9a-fA-F]{1,6}|${[...NAMED_ENTITIES.keys()].join('|')});`);
 const ANY_TAG = new RegExp(TAG, 'gi');
 
@@ -51,7 +51,7 @@ function decodeEntities(text: string): string {
 function linkText(attrs: string, inner: string): string {
   const href = attrs.match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i);
   const url = (href?.[1] ?? href?.[2] ?? href?.[3] ?? '').trim();
-  const text = inner.replace(ANY_TAG, '').trim();
+  const text = replaceTag(inner, ANY_TAG, '').trim();
   if (!url) return text;
   const shownText = decodeEntities(text);
   const shownUrl = decodeEntities(url);
@@ -77,17 +77,108 @@ function trimLines(text: string): string {
   );
 }
 
+/**
+ * text.replace(pattern, by) for a tag pattern (a name, then [^>]*>). A match ends at the
+ * first ">" after its start, so only the text through the last ">" can match; the rest is
+ * kept as is. On the whole text, every "<b " with no ">" after it read to the end again
+ * (a 32K description of them took 160 ms).
+ */
+function replaceTag(text: string, pattern: RegExp, by: string): string {
+  const end = text.lastIndexOf('>') + 1;
+  return text.slice(0, end).replace(pattern, by) + text.slice(end);
+}
+
+/**
+ * Whether there is a comment or a tag to read. A tag ends at a ">", so only the text
+ * through the last one is tested. The value is read as text once, as a regex test reads
+ * it, so a value cast past the string type (a number) is read as before, not thrown on.
+ */
+function hasTag(value: string): boolean {
+  const s = `${value}`;
+  return s.includes('<!--') || HAS_TAG.test(s.slice(0, s.lastIndexOf('>') + 1));
+}
+
+/**
+ * Drops each <!--…-->, which the first "-->" after it ends. Once one has no "-->" after
+ * it, no later one has either, so the scan stops there; /<!--[\s\S]*?-->/g read to the
+ * end again from every later "<!--".
+ */
+function dropComments(text: string): string {
+  let out = '';
+  let from = 0;
+  for (let open = text.indexOf('<!--'); open >= 0; open = text.indexOf('<!--', from)) {
+    const close = text.indexOf('-->', open + 4);
+    if (close < 0) break;
+    out += text.slice(from, open);
+    from = close + 3;
+  }
+  return out + text.slice(from);
+}
+
+/**
+ * Drops each <script> and <style> block with its content: from the open to the first
+ * closer of its name (any case) after the open's ">". Once a name has no closer there, no
+ * later open of it can close, so those are skipped; the regex this replaces,
+ * /<(script|style)(?=[\s/>])[^>]*>[\s\S]*?<\/\1\s*>/gi, read to the end from each.
+ */
+function dropBlocks(text: string): string {
+  const opens = /<(script|style)(?=[\s/>])/gi;
+  const closers: Record<string, RegExp> = { script: /<\/script\s*>/gi, style: /<\/style\s*>/gi };
+  const unclosed = new Set<string>();
+  let out = '';
+  let from = 0;
+  for (let open = opens.exec(text); open; open = opens.exec(text)) {
+    const name = open[1].toLowerCase();
+    if (unclosed.has(name)) continue;
+    const gt = text.indexOf('>', opens.lastIndex);
+    if (gt < 0) break; // no ">" after it, nor after any later open
+    const closer = closers[name];
+    closer.lastIndex = gt + 1;
+    if (!closer.exec(text)) {
+      unclosed.add(name);
+      continue;
+    }
+    out += text.slice(from, open.index);
+    from = opens.lastIndex = closer.lastIndex;
+  }
+  return out + text.slice(from);
+}
+
+/**
+ * Replaces each <a …>…</a> with its linkText. A link's text may not cross an "<a" or
+ * "</a" (then a space or ">"), and its closer is one, so the link closes only if the first
+ * of these edges after the open's ">" is a closer. Every open before that ">" ends at it
+ * too and fails the same way, so the scan resumes past it; the regex this replaces,
+ * /<a(?=[\s>])([^>]*)>((?:(?!<\/?a[\s>])[\s\S])*?)<\/a\s*>/gi, read to the edge from each.
+ */
+function replaceLinks(text: string): string {
+  const opens = /<a(?=[\s>])/gi;
+  const edges = /<\/?a[\s>]/gi;
+  const closer = /<\/a\s*>/iy;
+  let out = '';
+  let from = 0;
+  for (let open = opens.exec(text); open; open = opens.exec(text)) {
+    const gt = text.indexOf('>', open.index + 2);
+    if (gt < 0) break; // no ">" after it, nor after any later open
+    edges.lastIndex = gt + 1;
+    const edge = edges.exec(text);
+    if (!edge) break; // an open is an edge too, so no open follows
+    closer.lastIndex = edge.index;
+    if (!closer.test(text)) {
+      opens.lastIndex = gt + 1;
+      continue;
+    }
+    out += text.slice(from, open.index) + linkText(text.slice(open.index + 2, gt), text.slice(gt + 1, edge.index));
+    from = opens.lastIndex = closer.lastIndex;
+  }
+  return out + text.slice(from);
+}
+
 function htmlToPlain(html: string): string {
-  const text = html
-    .replace(/\r\n?/g, '\n')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<(script|style)(?=[\s/>])[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
-    .replace(/<a(?=[\s>])([^>]*)>((?:(?!<\/?a[\s>])[\s\S])*?)<\/a\s*>/gi, (_whole, attrs: string, inner: string) => linkText(attrs, inner))
-    .replace(/<br(?=[\s/>])[^>]*>/gi, '\n')
-    .replace(/<\/(?:p|div|li)\s*>/gi, '\n')
-    .replace(/<li(?=[\s/>])[^>]*>/gi, '• ')
-    .replace(ANY_TAG, '');
-  return trimLines(decodeEntities(text).replace(/ /g, ' '))
+  const linked = replaceLinks(dropBlocks(dropComments(html.replace(/\r\n?/g, '\n'))));
+  const lined = replaceTag(linked, /<br(?=[\s/>])[^>]*>/gi, '\n').replace(/<\/(?:p|div|li)\s*>/gi, '\n');
+  const text = replaceTag(replaceTag(lined, /<li(?=[\s/>])[^>]*>/gi, '• '), ANY_TAG, '');
+  return trimLines(decodeEntities(text).replace(/\u00a0/g, ' '))
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -106,7 +197,7 @@ function htmlToPlain(html: string): string {
  */
 export function htmlToText(s: string | null | undefined, max = 500): string {
   if (!s) return '';
-  const text = HAS_TAG.test(s) || HAS_ENTITY.test(s) ? htmlToPlain(s) : s;
+  const text = hasTag(s) || HAS_ENTITY.test(s) ? htmlToPlain(s) : s;
   const points = Array.from(text);
   return points.length > max ? points.slice(0, max).join('') : text;
 }
