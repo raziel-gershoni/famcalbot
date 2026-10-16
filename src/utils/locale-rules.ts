@@ -11,9 +11,14 @@
 
 import { NON_MONDAY_ZONES } from '../config/week-start-zones';
 import { addDaysToDate } from './day-events';
+import type { WeekStart } from '../lib/calendar-view/types';
 
-/** A week's first day: 0 = Sunday ... 6 = Saturday, as Date.getUTCDay counts. */
-export type WeekStart = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+/**
+ * A week's first day: 0 = Sunday ... 6 = Saturday, as Date.getUTCDay counts. Defined once,
+ * in the client-safe src/lib/calendar-view/types.ts: client code imports it from there,
+ * never from here, which would pull the zone table into the client bundle.
+ */
+export type { WeekStart };
 
 /**
  * What the rules decide from: the user's culture and language, the timezone from

@@ -9,7 +9,6 @@
 // that occurrence speaks for it. Nor when that occurrence came before the series was
 // armed (created or re-timed): it was never pinged, so it is not open.
 
-import { fromZonedTime } from 'date-fns-tz';
 import type { NativeEvent, NativeEventInstance, NativeReminderState } from '@prisma/client';
 import type { CalendarEvent, ReminderInfo, UserConfig } from '../../types';
 import { prisma } from '../../utils/prisma';
@@ -19,22 +18,16 @@ import { isReminderEvent } from '../../utils/event-formatter';
 import { expandSeries, latestOccurrenceBefore } from '../native-calendar/recurrence';
 import { reminderInfoFor, toUnifiedEvent } from '../calendar-provider/native-provider';
 import { effectiveOwnerForViewer, loadViewerContext, type ViewerContext } from './ownership';
-import { ARMED_GRACE_MS, REMINDER_MORNING_HOUR } from './due';
+import { ARMED_GRACE_MS, reminderDueAt } from './due';
+
+// reminderDueAt moved to the leaf due.ts (the calendar home's DTO code reads it); its
+// callers keep importing it from here.
+export { reminderDueAt };
 
 export const OPEN_REMINDERS_DIGEST_CAP = 5;
 
 /** Stands in for a reminder whose info is missing: the viewer's own. */
 const OWN_REMINDER: ReminderInfo = { ownerIsViewer: true, creatorIsViewer: true };
-
-/**
- * When a reminder on a digest is due, in the viewer's timezone: its time, or
- * REMINDER_MORNING_HOUR (the ping's, due.ts) on its date (an all-day start is already
- * the event's own date).
- */
-export function reminderDueAt(event: Pick<CalendarEvent, 'start'>, timezone: string): Date {
-  if (event.start.includes('T')) return new Date(event.start);
-  return fromZonedTime(`${event.start} ${String(REMINDER_MORNING_HOUR).padStart(2, '0')}:00:00`, timezone);
-}
 
 /**
  * Where the carry-over ends: the start of the summary day, or now when that comes

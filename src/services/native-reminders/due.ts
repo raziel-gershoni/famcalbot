@@ -2,6 +2,7 @@
 // ruling R6). Pure: no database, and no clock of its own.
 
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
+import type { CalendarEvent } from '../../types';
 import { TIMEZONE } from '../../config/constants';
 import { localDate, nextDate } from '../../utils/day-events';
 
@@ -30,6 +31,17 @@ function morningOf(day: string, tz: string): Date {
 export function dueAtForOccurrence(occ: { startsAt: Date; allDay: boolean; timeZone: string }, recipientTz: string): Date {
   if (!occ.allDay) return occ.startsAt;
   return morningOf(localDate(occ.startsAt, occ.timeZone || TIMEZONE), recipientTz);
+}
+
+/**
+ * When a reminder on a digest or the calendar home is due, in the viewer's timezone:
+ * its time, or REMINDER_MORNING_HOUR (the ping's) on its date (an all-day start is
+ * already the event's own date). Lives here, in this leaf, so the calendar home's pure
+ * DTO code can use it without loading Prisma; open-reminders.ts re-exports it.
+ */
+export function reminderDueAt(event: Pick<CalendarEvent, 'start'>, timezone: string): Date {
+  if (event.start.includes('T')) return new Date(event.start);
+  return morningOf(event.start, timezone);
 }
 
 /** 💤 Tomorrow: 09:00 tomorrow in `tz`, or 09:00 today when tapped between 00:00 and 04:00. */
