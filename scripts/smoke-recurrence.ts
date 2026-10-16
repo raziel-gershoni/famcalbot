@@ -480,6 +480,18 @@ check('latest before: a later occurrence moved before the cutoff counts, keyed b
   assert(found.isOverridden && found.instanceStartsAt.toISOString() === iso('2026-11-13 08:00'), `key ${found.instanceStartsAt.toISOString()}`);
 });
 
+check('latest before: a first occurrence moved before the series start counts, however far back', () => {
+  // The series' first occurrence, Monday 2026-11-02 08:00, moved a week earlier.
+  const moved = [makeOverride('series-1', at('2026-11-02 08:00'), { startsAt: at('2026-10-26 18:00'), endsAt: at('2026-10-26 18:00') })];
+  // Thursday, three days on and still before the series start.
+  const found = latestOccurrenceBefore(dailyPills(), moved, at('2026-10-29 12:00'));
+  assert(found !== null && found.startsAt.toISOString() === iso('2026-10-26 18:00'), `Thursday got ${found?.startsAt.toISOString() ?? 'none'}`);
+  assert(found.instanceStartsAt.toISOString() === iso('2026-11-02 08:00'), `key ${found.instanceStartsAt.toISOString()}`);
+  // Monday noon: that morning's slot is the one that moved, so the moved one is still the latest.
+  const monday = latestStart(dailyPills(), at('2026-11-02 12:00'), moved);
+  assert(monday === iso('2026-10-26 18:00'), `Monday noon got ${monday}`);
+});
+
 check('latest before: it reaches back as far as the series needs', () => {
   // Weekly on Tuesdays, ended on Tuesday 2026-03-10: eight months back.
   const ended = dailyPills({ startsAt: at('2026-01-06 08:00'), endsAt: at('2026-01-06 08:00'), rrule: 'FREQ=WEEKLY;BYDAY=TU;UNTIL=20260310T235959' });
@@ -549,13 +561,21 @@ check('UNTIL with a time, and all-day series, are unchanged', () => {
 
 type Row = Record<string, unknown>;
 type Where = Record<string, unknown>;
+/** The relations a stand-in table can filter through: a row's rows in another table. */
+type Relations = Record<string, (row: Row) => Row[]>;
 
 const same = (a: unknown, b: unknown) => (a instanceof Date && b instanceof Date ? a.getTime() === b.getTime() : a === b);
 
-function matches(row: Row, where: Where): boolean {
+function matches(row: Row, where: Where, relations: Relations = {}): boolean {
   return Object.entries(where).every(([key, cond]) => {
-    if (key === 'OR') return (cond as Where[]).some((w) => matches(row, w));
-    if (key === 'AND') return (cond as Where[]).every((w) => matches(row, w));
+    if (key === 'OR') return (cond as Where[]).some((w) => matches(row, w, relations));
+    if (key === 'AND') return (cond as Where[]).every((w) => matches(row, w, relations));
+    if (Object.hasOwn(relations, key)) {
+      // A relation filter, e.g. { instances: { some: { status: 'OVERRIDE' } } }.
+      const { some, ...rest } = cond as { some?: Where };
+      if (!some || Object.keys(rest).length > 0) throw new Error(`stand-in Prisma only knows '${key}: { some }'`);
+      return relations[key](row).some((r) => matches(r, some));
+    }
     const value = row[key];
     if (cond === null || typeof cond !== 'object' || cond instanceof Date) return same(value, cond);
     return Object.entries(cond as Where).every(([op, arg]) => {
@@ -572,6 +592,22 @@ function matches(row: Row, where: Where): boolean {
   });
 }
 
+/** A stand-in table: findMany filters its rows, following `relations`. */
+const table = <T extends Row>(rows: T[], relations: Relations = {}) => ({
+  findMany: async ({ where }: { where: Where }) => rows.filter((r) => matches(r, where, relations)),
+});
+
+/**
+ * The event store, reading through a stand-in Prisma made of these tables.
+ * src/utils/prisma takes global.prisma once, when the store first loads, so a
+ * later call swaps the tables on that same object.
+ */
+async function storeOver(tables: Record<string, unknown>) {
+  const g = globalThis as { prisma?: unknown };
+  g.prisma = Object.assign((g.prisma as Record<string, unknown> | undefined) ?? {}, tables);
+  return import('../src/services/native-calendar/event-store');
+}
+
 async function checkStore() {
   const calendar = { id: 'cal-1', name: 'Family', isDeleted: false };
   const series = (id: string, fields: Partial<NativeEvent>) => jlm({ id, calendarId: 'cal-1', ...fields });
@@ -586,14 +622,11 @@ async function checkStore() {
     overnightWeekly({ id: 'shift', calendarId: 'cal-1' }),
     weekendCamp({ id: 'camp', calendarId: 'cal-1' }),
   ];
-  const table = <T extends Row>(rows: T[]) => ({ findMany: async ({ where }: { where: Where }) => rows.filter((r) => matches(r, where)) });
-  // src/utils/prisma reuses global.prisma when set; it must be in place before the store loads.
-  (globalThis as { prisma?: unknown }).prisma = {
+  const { fetchEventsInCalendars } = await storeOver({
     nativeCalendar: table([calendar]),
     nativeEvent: table(events as unknown as Row[]),
     nativeEventInstance: table([] as Row[]),
-  };
-  const { fetchEventsInCalendars } = await import('../src/services/native-calendar/event-store');
+  });
   const titlesOn = async (day: string) =>
     (await fetchEventsInCalendars(['cal-1'], dayOf(day))).map((r) => r.instance.title).sort().join(', ');
 
@@ -610,8 +643,93 @@ async function checkStore() {
   assert(sun === 'Camp', `Sunday got [${sun}]`);
 }
 
+// --- A first occurrence moved before the series start -----------------------
+// Moving a repeating event's first time earlier leaves the series row starting
+// after that occurrence. The store loaded a series only once its start was
+// before the window's end, so the moved occurrence never reached any window
+// before the series start: no view, summary or alert had it.
+
+// 2026-11-15 is a Sunday, 2026-11-17 a Tuesday.
+const swimFirst = at('2026-11-17 17:00');
+const swimSeries = (fields: Partial<NativeEvent> = {}) => jlm({
+  title: 'Swim', startsAt: swimFirst, endsAt: at('2026-11-17 18:00'), rrule: 'FREQ=WEEKLY;BYDAY=TU', ...fields,
+});
+/** The series' first occurrence, moved to Sunday 16:00-17:00. */
+const movedToSunday = (seriesId: string) =>
+  makeOverride(seriesId, swimFirst, { startsAt: at('2026-11-15 16:00'), endsAt: at('2026-11-15 17:00') });
+
+check('moved earlier: expandSeries renders a first occurrence moved before the series start', () => {
+  const series = swimSeries();
+  const sun = expandSeries(series, dayOf('2026-11-15'), [movedToSunday(series.id)]);
+  assert(sun.length === 1, `expected the moved occurrence on Sunday, got ${sun.length}`);
+  assert(sun[0].startsAt.getTime() === at('2026-11-15 16:00').getTime(), `wrong start: ${sun[0].startsAt.toISOString()}`);
+  assert(sun[0].instanceStartsAt.getTime() === swimFirst.getTime(), 'keyed by its original slot');
+  assert(expandSeries(series, dayOf('2026-11-17'), [movedToSunday(series.id)]).length === 0, 'gone from its Tuesday');
+});
+
+async function checkMovedFirstOccurrence() {
+  const calendar = { id: 'cal-1', name: 'Family', isDeleted: false };
+  const events: NativeEvent[] = [
+    swimSeries({ id: 'swim', calendarId: 'cal-1' }),
+    // A daily 08:00 reminder the partner (user 1) set for the viewer (user 2).
+    jlm({
+      id: 'pills', calendarId: 'cal-1', kind: 'REMINDER', creatorUserId: 1, forUserId: 2, title: 'Pills',
+      startsAt: at('2026-11-17 08:00'), endsAt: at('2026-11-17 08:00'), rrule: 'FREQ=DAILY',
+    }),
+    // These start after Sunday and have nothing on it.
+    swimSeries({ id: 'piano', calendarId: 'cal-1', title: 'Piano' }),
+    swimSeries({ id: 'choir', calendarId: 'cal-1', title: 'Choir' }),
+    swimSeries({ id: 'chess', calendarId: 'cal-1', title: 'Chess' }),
+    swimSeries({ id: 'drama', calendarId: 'cal-1', title: 'Drama' }),
+  ];
+  const instances: NativeEventInstance[] = [
+    movedToSunday('swim'),
+    // Its first time moved to Sunday 20:00.
+    makeOverride('pills', at('2026-11-17 08:00'), { startsAt: at('2026-11-15 20:00'), endsAt: at('2026-11-15 20:00') }),
+    // Retitled only: an OVERRIDE with no time of its own.
+    makeOverride('choir', swimFirst, { title: 'Choir (hall B)' }),
+    // Moved later, to Wednesday.
+    makeOverride('chess', swimFirst, { startsAt: at('2026-11-18 17:00'), endsAt: at('2026-11-18 18:00') }),
+    // Moved to Sunday, then deleted: the row keeps its times and turns CANCELLED.
+    { ...movedToSunday('drama'), status: 'CANCELLED' },
+  ];
+  const instanceRows = instances as unknown as Row[];
+  const eventTable = table(events as unknown as Row[], {
+    instances: (row) => instanceRows.filter((i) => i.seriesEventId === row.id),
+  });
+  // The series the query returned, before expansion drops any.
+  let loaded: string[] = [];
+  const store = await storeOver({
+    nativeCalendar: table([calendar]),
+    nativeEvent: {
+      findMany: async (args: { where: Where }) => {
+        const rows = await eventTable.findMany(args);
+        loaded.push(...rows.map((r) => String(r.id)));
+        return rows;
+      },
+    },
+    nativeEventInstance: table(instanceRows),
+  });
+  const sunday = dayOf('2026-11-15');
+  const titles = (rows: Array<{ instance: VirtualInstance }>) => rows.map((r) => r.instance.title).sort().join(', ');
+  const loadedIds = () => [...loaded].sort().join(', ');
+
+  const onCalendar = await store.fetchEventsInCalendars(['cal-1'], sunday);
+  assert(titles(onCalendar) === 'Pills, Swim', `Sunday got [${titles(onCalendar)}], loaded [${loadedIds()}]`);
+  const swim = onCalendar.find((r) => r.series.id === 'swim');
+  assert(swim?.instance.startsAt.getTime() === at('2026-11-15 16:00').getTime(), 'Swim shows at the time it moved to');
+  // A series that starts after the window, with nothing moved into it, still stays out of the query.
+  assert(loadedIds() === 'pills, swim', `loaded [${loadedIds()}]`);
+
+  // The reminders a partner set for the viewer read through the same filter.
+  loaded = [];
+  const forViewer = await store.fetchRemindersForUserInRange(2, 1, sunday);
+  assert(titles(forViewer) === 'Pills', `the viewer's reminders got [${titles(forViewer)}], loaded [${loadedIds()}]`);
+}
+
 async function main() {
   await checkAsync('overlap: fetchEventsInCalendars takes everything running into the window', checkStore);
+  await checkAsync('moved earlier: a series whose first occurrence moved before its start loads for that window', checkMovedFirstOccurrence);
 
   // Print results
   let failed = 0;

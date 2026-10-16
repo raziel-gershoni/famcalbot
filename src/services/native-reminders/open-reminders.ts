@@ -135,8 +135,19 @@ export async function fetchOpenReminders(
     where: {
       kind: 'REMINDER',
       isDeleted: false,
-      startsAt: { lt: cutoff },
       calendar: { isDeleted: false },
+      // Due before the cutoff: a one-off by its own time, a repeating one once it has
+      // begun or when an occurrence was moved to before the cutoff (a first occurrence
+      // moved earlier than the series start). In AND because the OR below is taken: it
+      // says whose reminders these are.
+      AND: [
+        {
+          OR: [
+            { startsAt: { lt: cutoff } },
+            { rrule: { not: null }, instances: { some: { status: 'OVERRIDE', startsAt: { lt: cutoff } } } },
+          ],
+        },
+      ],
       OR: [
         { creatorUserId: ctx.viewerId },
         ...(ctx.partner ? [{ creatorUserId: ctx.partner.id, forUserId: ctx.viewerId }] : []),

@@ -270,14 +270,20 @@ export function latestOccurrenceBefore(
     return only && only.startsAt < at ? only : null;
   }
 
+  // Nothing starts before the series except an occurrence moved there, such as a
+  // first occurrence moved earlier: the search goes back to that too.
+  const earliest = overrides.reduce(
+    (min, o) => (o.status === 'OVERRIDE' && o.startsAt && o.startsAt < min ? o.startsAt : min),
+    event.startsAt
+  );
   for (const days of LOOKBACK_STEPS_DAYS) {
     const from = new Date(at.getTime() - days * DAY_MS);
     // Only occurrences that start in [from, at). One that started earlier and is
     // still running at `from` may not be the latest; a wider window decides it.
     const started = expandSeries(event, { from, to: at }, overrides).filter((i) => i.startsAt >= from);
     if (started.length > 0) return started[started.length - 1];
-    // The window already reaches the series' first occurrence.
-    if (from <= event.startsAt) break;
+    // The window already reaches the series' first occurrence, and any moved before it.
+    if (from <= earliest) break;
   }
   return null;
 }

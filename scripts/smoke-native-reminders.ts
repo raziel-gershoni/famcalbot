@@ -82,10 +82,13 @@ let holdFind: Promise<void> | null = null;
 /** Thrown by the next claim: a database blip in the middle of a pass. */
 let failNextClaim: Error | null = null;
 
-// The filters the pass and the claim use: equality, null, in, not, ranges, OR, and the
-// event's calendar relation.
+// The filters the pass and the claim use: equality, null, in, not, ranges, OR, the
+// event's calendar relation, and `some` over its instances.
 const relations: Record<string, (row: Row) => Row | undefined> = {
   calendar: (row) => db.calendars.find((c) => c.id === row.calendarId),
+};
+const listRelations: Record<string, (row: Row) => Row[]> = {
+  instances: (row) => db.instances.filter((i) => i.seriesEventId === row.id),
 };
 
 function fieldMatches(value: unknown, cond: unknown): boolean {
@@ -110,6 +113,11 @@ function matches(row: Row, where: Row = {}): boolean {
     if (key in relations) {
       const related = relations[key](row);
       return !!related && matches(related, cond as Row);
+    }
+    if (key in listRelations) {
+      const { some, ...rest } = cond as { some?: Row };
+      if (!some || Object.keys(rest).length > 0) throw new Error(`fake prisma: only '${key}: { some }'`);
+      return listRelations[key](row).some((r) => matches(r, some));
     }
     return fieldMatches(row[key], cond);
   });
@@ -633,6 +641,46 @@ async function main() {
       await pass(today(movedAt === '10:58' ? '11:00' : '11:30'));
       assert(sent.length === (pings ? 1 : 0), `moved at ${movedAt}: ${sentLines()}`);
       if (pings) assert(!!stateOf(daily.id, today('08:00')), 'not keyed by its original slot');
+    }
+  });
+
+  await check('pass: a first occurrence moved before the series start pings at the time it moved to', async () => {
+    reset();
+    // Daily at 08:00 from Monday 19 Oct, set yesterday at noon. An hour later its first
+    // time, Monday's, moved to today 10:00: four days before the series starts.
+    const daily = (id: string, title: string) =>
+      reminder({ id, title, startsAt: at('2026-10-19 08:00'), rrule: 'FREQ=DAILY', armedAt: at('2026-10-14 12:00') });
+    const moveFirst = (seriesEventId: string, fields: Row) => db.instances.push({
+      id: `ov-${seriesEventId}`, seriesEventId, originalStartsAt: at('2026-10-19 08:00'), status: 'OVERRIDE', title: null,
+      description: null, location: null, startsAt: null, endsAt: null, allDay: null,
+      createdAt: at('2026-10-14 13:00'), updatedAt: at('2026-10-14 13:00'), ...fields,
+    });
+    daily('pills', 'Pills');
+    moveFirst('pills', { startsAt: today('10:00'), endsAt: today('10:00') });
+    // These don't load: renamed only, moved later, and moved to today then deleted.
+    daily('renamed', 'Renamed');
+    moveFirst('renamed', { title: 'Pills (blue box)' });
+    daily('later', 'Later');
+    moveFirst('later', { startsAt: at('2026-10-20 10:00'), endsAt: at('2026-10-20 10:00') });
+    daily('dropped', 'Dropped');
+    moveFirst('dropped', { status: 'CANCELLED', startsAt: today('10:00'), endsAt: today('10:00') });
+
+    // The series the query returned, before expansion drops any.
+    const findSeries = fakePrisma.nativeEvent.findMany;
+    const loaded: string[] = [];
+    fakePrisma.nativeEvent.findMany = async (args: Args) => {
+      const rows = await findSeries(args);
+      loaded.push(...rows.map((r) => String(r.id)));
+      return rows;
+    };
+    try {
+      const result = await pass(today('10:00'));
+      assert(sentLines() === '1001: ⏰ <b>Pills</b>', `${sentLines()}, loaded [${loaded}]`);
+      assert(result.sent === 1, show(result));
+      assert(!!stateOf('pills', at('2026-10-19 08:00')), `not keyed by its original slot: ${show(db.states)}`);
+      assert(loaded.join(', ') === 'pills', `loaded [${loaded}]`);
+    } finally {
+      fakePrisma.nativeEvent.findMany = findSeries;
     }
   });
 

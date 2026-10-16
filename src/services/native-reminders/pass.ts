@@ -88,8 +88,9 @@ function groupBy<T>(items: T[], keyOf: (item: T) => string): Map<string, T[]> {
 
 /**
  * Reminder series that may have an occurrence due in the window: one-offs starting in
- * it, every repeating series that has begun by its end, and any series with an undone
- * snooze waking in it, whenever its occurrence was.
+ * it, every repeating series that has begun by its end or has an occurrence moved to
+ * before its end, and any series with an undone snooze waking in it, whenever its
+ * occurrence was.
  */
 async function loadCandidateSeries(now: Date, range: { from: Date; to: Date }) {
   const snoozes = await prisma.nativeReminderState.findMany({
@@ -105,6 +106,9 @@ async function loadCandidateSeries(now: Date, range: { from: Date; to: Date }) {
       OR: [
         { rrule: null, startsAt: { gte: range.from, lt: range.to } },
         { rrule: { not: null }, startsAt: { lt: range.to } },
+        // A first occurrence moved earlier than the series start: the series row keeps
+        // its own start, so only the moved instance says it is due.
+        { rrule: { not: null }, instances: { some: { status: 'OVERRIDE', startsAt: { lt: range.to } } } },
         ...(snoozedSeriesIds.length ? [{ id: { in: snoozedSeriesIds } }] : []),
       ],
     },

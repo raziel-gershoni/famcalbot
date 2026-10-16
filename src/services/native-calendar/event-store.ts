@@ -174,9 +174,18 @@ function rangeCandidates(range: FetchRange): Prisma.NativeEventWhereInput[] {
       startsAt: { lt: range.to },
       OR: [{ startsAt: { gte: range.from } }, { endsAt: { gt: range.from } }],
     },
-    // recurring: include all whose dtstart is before range.to and (no UNTIL
-    // filter at SQL level — rrule expansion handles bounded series).
-    { rrule: { not: null }, startsAt: { lt: range.to } },
+    // recurring: every series that has begun by range.to, and any with an
+    // occurrence moved to before it - a first occurrence moved earlier than the
+    // series start would otherwise never load. No UNTIL filter at SQL level:
+    // expandSeries handles bounded series and puts a moved occurrence where it
+    // landed.
+    {
+      rrule: { not: null },
+      OR: [
+        { startsAt: { lt: range.to } },
+        { instances: { some: { status: 'OVERRIDE', startsAt: { lt: range.to } } } },
+      ],
+    },
   ];
 }
 

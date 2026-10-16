@@ -130,7 +130,33 @@ const PAIRINGS: Row[] = [{ id: 'pair-1', status: 'ACTIVE', inviterUserId: 1, inv
 const pick = (row: Row | undefined, select?: Record<string, boolean>) =>
   !row ? null : !select ? row : Object.fromEntries(Object.keys(select).filter(k => select[k]).map(k => [k, row[k]]));
 
-/** What nativeEvent.findMany hands back, and every query it was asked. */
+const same = (a: unknown, b: unknown) => (a instanceof Date && b instanceof Date ? a.getTime() === b.getTime() : a === b);
+
+// The filters fetchOpenReminders uses: equality, not, lt, AND, OR, the calendar, and
+// `some` over the instances. A row carries both, as asRow includes them.
+function matches(row: Row, where: Row): boolean {
+  return Object.entries(where).every(([key, cond]) => {
+    if (key === 'OR') return (cond as Row[]).some(w => matches(row, w));
+    if (key === 'AND') return (cond as Row[]).every(w => matches(row, w));
+    if (key === 'calendar') return matches(row.calendar as Row, cond as Row);
+    if (key === 'instances') {
+      const { some, ...rest } = cond as { some?: Row };
+      if (!some || Object.keys(rest).length > 0) throw new Error("fake prisma: only 'instances: { some }'");
+      return (row.instances as Row[]).some(i => matches(i, some));
+    }
+    const value = row[key];
+    if (cond === null || typeof cond !== 'object' || cond instanceof Date) return same(value, cond);
+    return Object.entries(cond as Row).every(([op, arg]) => {
+      switch (op) {
+        case 'not': return !same(value, arg);
+        case 'lt': return value != null && (value as Date) < (arg as Date);
+        default: throw new Error(`fake prisma: no operator ${op}`);
+      }
+    });
+  });
+}
+
+/** The rows nativeEvent.findMany filters, and every query it was asked. */
 let reminderRows: Row[] = [];
 let findManyError: Error | null = null;
 const findManyCalls: Row[] = [];
@@ -141,12 +167,13 @@ const fakePrisma = {
     findMany: async (args: Row) => {
       findManyCalls.push(args);
       if (findManyError) throw findManyError;
-      return reminderRows;
+      return reminderRows.filter(r => matches(r, args.where as Row));
     },
   },
 };
 /** A row as findMany returns it with its calendar, overrides and states included. */
-const asRow = (c: OpenReminderCandidate): Row => ({ ...c.series, calendar: c.calendar, instances: c.overrides, states: c.states });
+const asRow = (c: OpenReminderCandidate): Row =>
+  ({ ...c.series, calendar: { ...c.calendar, isDeleted: false }, instances: c.overrides, states: c.states });
 
 const captured: Array<{ context: string; severity?: string }> = [];
 const prompts: string[] = [];
@@ -362,8 +389,13 @@ async function main() {
       where: {
         kind: 'REMINDER',
         isDeleted: false,
-        startsAt: { lt: cutoff },
         calendar: { isDeleted: false },
+        AND: [{
+          OR: [
+            { startsAt: { lt: cutoff } },
+            { rrule: { not: null }, instances: { some: { status: 'OVERRIDE', startsAt: { lt: cutoff } } } },
+          ],
+        }],
         OR: [{ creatorUserId: 1 }, { creatorUserId: 2, forUserId: 1 }],
       },
       include: { calendar: true, instances: true, states: true },
@@ -378,6 +410,32 @@ async function main() {
     findManyCalls.length = 0;
     const none = await fetchOpenReminders(googleUser, { viewerId: 7, partner: null }, cutoff, WEDNESDAY, IL);
     assert(none.events.length === 0 && findManyCalls.length === 0, 'read for a Google user');
+  });
+
+  // Daily at 08:00 from Thursday 15 Oct, the day after the summary day, set at `setAt`.
+  // Moving its first time earlier leaves the series row starting Thursday, after the cutoff.
+  const fromThursday = (title: string, setAt: Date) =>
+    series(title, il('2026-10-15 08:00:00'), { rrule: 'FREQ=DAILY', armedAt: setAt, createdAt: setAt, updatedAt: setAt });
+  /** The series with its first occurrence, Thursday's, moved to `to` when the series was set. */
+  const firstMovedTo = (s: NativeEvent, to: Date): OpenReminderCandidate => candidate(s, [], [{
+    id: `ov-${s.id}`, seriesEventId: s.id, originalStartsAt: s.startsAt, status: 'OVERRIDE', title: null, description: null,
+    location: null, startsAt: to, endsAt: to, allDay: null, createdAt: s.createdAt, updatedAt: s.createdAt,
+  }]);
+
+  await check('fetch: a first occurrence moved before the series start is read and carried, however far back', async () => {
+    reminderRows = [
+      firstMovedTo(fromThursday('Pills', il('2026-10-12 12:00:00')), il('2026-10-13 20:00:00')),
+      // Moved to Sunday, three days before the cutoff.
+      firstMovedTo(fromThursday('Vitamins', il('2026-10-09 12:00:00')), il('2026-10-11 20:00:00')),
+      // Set Tuesday at 21:00 with its first time moved to 20:00, already past: never
+      // armed, so never pinged, and not open (Planning Ruling 4).
+      firstMovedTo(fromThursday('Stretch', il('2026-10-13 21:00:00')), il('2026-10-13 20:00:00')),
+    ].map(asRow);
+    const { events } = await fetchOpenReminders(raziel, razielCtx, cutoff, WEDNESDAY, IL);
+    assertList(linesOf(events, WEDNESDAY), [
+      'Pills (Reminder (open since Tue 13 Oct)) [Calendar: Raziel]',
+      'Vitamins (Reminder (open since Sun 11 Oct)) [Calendar: Raziel]',
+    ]);
   });
 
   // ---- The summary day's own reminders ----
