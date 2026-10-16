@@ -875,14 +875,16 @@ Each gets its own before/after smoke and a line in the PR.
    - It returns null when either request fails, when Nominatim finds nothing, or when Open-Meteo returns no `timezone`.
    - In `app/api/settings/route.ts`, when the saved location differs from the stored one, run it in `after()` from `next/server`, after the DB update, with a `.catch` that records a warning. The save responds at once.
    - `redis.set(REDIS_KEYS.userTimezone(id), tz, { ex: 86400 })` runs only for a non-null zone. On null the old key is left as it is.
+   - Before writing, it reads the user's location again and writes only if it is unchanged, so of two quick saves the older lookup can never land last.
    - Today the old timezone stays for up to 24 h.
 2. **A repeating event whose first time moved earlier.**
    - Today a recurring series loads only when `series.startsAt < range.to` (`rangeCandidates`, `event-store.ts:167-181`). Moving the first occurrence before the original start hides it from every view and summary.
    - Widen the recurring candidate: `{ rrule: { not: null }, OR: [{ startsAt: { lt: to } }, { instances: { some: { status: 'OVERRIDE', startsAt: { lt: to } } } }] }`.
    - This also reaches the alert pass and the voice matcher, which share the function.
+   - The reminder ping pass (`pass.ts` `loadCandidateSeries`) and the carry-over read (`open-reminders.ts` `fetchOpenReminders`) filter repeating reminders the same way and get the same widening; `latestOccurrenceBefore` also searches back to the earliest `OVERRIDE` start.
 3. **Weekly recurrence lookup cache** (`week-lookahead.ts:59, :121-171`).
    - Today it caches `null` on any error, forever, under a key with no user. One Google hiccup hides a monthly series from `/week` until the next deploy.
-   - Re-key it `${userId}:${calendarId}:${recurringEventId}` in `globalThis.__recurrenceCache` as `{ value, at }`.
+   - Re-key it `${userId}:${calendarId}:${recurringEventId}` in `globalThis.__recurrenceCache` as `{ value, at, ttlMs }`, in a new leaf module `src/services/recurrence-cache.ts` with no imports. `week-lookahead.ts` re-exports its clear functions, and `stampGoogleCache` imports from the leaf, which avoids an import cycle through `google-provider.ts`.
    - Successes live 6 h; failures 10 minutes (404/410: 6 h).
    - Each series is looked up once per lookahead run.
    - `stampGoogleCache(userId)` deletes that user's keys. `clearRecurrenceCache()` keeps clearing everything, for the smokes.
