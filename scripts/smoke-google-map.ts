@@ -353,6 +353,12 @@ async function main() {
     assertEq(htmlToText('<br>'), '', 'nothing left');
   });
 
+  await check('htmlToText: spaces and tabs go at the edges of each line and stay inside it', () => {
+    assertEq(htmlToText('<p>  one  </p>\t two \t<br> \t <br>three'), 'one\ntwo\n\nthree', 'line edges');
+    assertEq(htmlToText('<b>a   b</b>\t\tc'), 'a   b\t\tc', 'inside a line');
+    assertEq(htmlToText('<b>a</b> &#13; b &#8232; c'), 'a\rb\u2028c', 'a decoded line break is a line edge too');
+  });
+
   await check('htmlToText: a Google Calendar description reads as text', () => {
     const html = '<b>Agenda</b><br><ul><li>Budget</li><li>Trip</li></ul><br>Join: <a href="https://meet.google.com/abc-defg-hij">https://meet.google.com/abc-defg-hij</a>';
     assertEq(htmlToText(html), 'Agenda\n• Budget\n• Trip\n\nJoin: https://meet.google.com/abc-defg-hij', 'description');
@@ -451,6 +457,16 @@ async function main() {
     assertEq(html.event.description, 'Dial in:\nMeet (https://meet.google.com/x)', 'description');
     const empty = mapGoogleEvent({ id: 'h2', summary: 'Call', start: timed, description: '<br>' }, FAMILY, 'Family');
     assert(empty.event.description === undefined, `got ${JSON.stringify(empty.event.description)}`);
+  });
+
+  await check('mapGoogleEvent: an 8,192-character description with one long space run maps in well under 50 ms', () => {
+    const description = '<b>x</b>' + ' '.repeat(8192 - 9) + '.';
+    assertEq(description.length, 8192, 'length');
+    const started = performance.now();
+    const long = mapGoogleEvent({ id: 'long', summary: 'Call', start: timed, description }, FAMILY, 'Family');
+    const ms = performance.now() - started;
+    assertEq(long.event.description, 'x' + ' '.repeat(499), 'the run is inside the line, so it stays (cut at 500)');
+    assert(ms < 50, `took ${ms.toFixed(1)} ms`);
   });
 
   await check('the fake answered every request (nothing went past it)', () => {

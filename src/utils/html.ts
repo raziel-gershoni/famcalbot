@@ -61,6 +61,22 @@ function linkText(attrs: string, inner: string): string {
   return `${text} (${url})`;
 }
 
+/** The start or end of the text, or one of JavaScript's line breaks (the m flag's ^ and $). */
+function isLineEdge(c: string | undefined): boolean {
+  return c === undefined || c === '\n' || c === '\r' || c === '\u2028' || c === '\u2029';
+}
+
+/**
+ * Drops each run of spaces and tabs that starts or ends a line, keeps the rest. One
+ * linear pass: /[ \t]+$/gm retries every start inside a run, so one long run inside a
+ * line cost the square of its length (8,192 spaces took 140 ms).
+ */
+function trimLines(text: string): string {
+  return text.replace(/[ \t]+/g, (run: string, at: number) =>
+    isLineEdge(text[at - 1]) || isLineEdge(text[at + run.length]) ? '' : run,
+  );
+}
+
 function htmlToPlain(html: string): string {
   const text = html
     .replace(/\r\n?/g, '\n')
@@ -71,10 +87,7 @@ function htmlToPlain(html: string): string {
     .replace(/<\/(?:p|div|li)\s*>/gi, '\n')
     .replace(/<li(?=[\s/>])[^>]*>/gi, '• ')
     .replace(ANY_TAG, '');
-  return decodeEntities(text)
-    .replace(/ /g, ' ')
-    .replace(/[ \t]+$/gm, '')
-    .replace(/^[ \t]+/gm, '')
+  return trimLines(decodeEntities(text).replace(/ /g, ' '))
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
