@@ -1,6 +1,6 @@
 # Calendar home: design
 
-**Date:** 2026-10-16 · **Branch:** `feat/calendar-home` · **Status:** approved in conversation, section by section (reader, summaries, loading and errors, week start and Hebrew dates, screens). The owner delegated the smaller choices ("go with your defaults"). They are listed under *Rulings* so they can be reviewed.
+**Date:** 2026-10-16 · **Branch:** `feat/calendar-home` · **Status:** approved in conversation, section by section (reader, summaries, loading and errors, week start and Hebrew dates, screens). The owner delegated the smaller choices ("go with your defaults"); they are listed under *Rulings* so they can be reviewed. The owner also delegated the review of this written spec. It was reviewed twice against the code, and the confirmed findings are applied.
 
 Line references are to `main` at 858886c. "Ruling Rn" refers to the table below; "A-n" refers to the summary regression contract in Appendix A.
 
@@ -52,7 +52,7 @@ The daily, tomorrow and weekly summaries move onto the **same server-side reader
 | R7 | Partner items carry the partner's name; the calendar colour is only an accent. | Works even when colours collide (every default calendar is `#039BE5`). |
 | R8 | Agenda covers today + 6 days. Today and tomorrow always show; later empty days fold into one line; "Show next week" extends by 7 days. | Matches the bot's week. |
 | R9 | Russian Hebrew months: genitive in day labels ("4 хешвана"), nominative in headers ("Тишрей – Хешван 5787"). | Natural Russian. |
-| R10 | Empty calendar: "Nothing planned", plus a how-to-add hint naming only the ways the user's plan allows. | Never promise what the plan lacks. |
+| R10 | Empty calendar: "Nothing planned", plus a how-to-add hint naming only the ways this user can use (§7.3). | Never promise what the plan lacks. |
 | R11 | Daily-repeating reminders are not drawn in Month cells; they are listed for the selected day. | Otherwise every cell carries the same marker. |
 | R12 | Month fetches each month's own days (`[1st, 1st of next month)`); cells outside the month stay blank. | Same as iOS, and one fetch per month. |
 | R13 | On-demand summaries during a Google outage: one quick retry, then "Couldn't reach Google Calendar, try again in a minute", with no admin page. | The user is waiting; a 30 s retry is too long there. |
@@ -61,6 +61,8 @@ The daily, tomorrow and weekly summaries move onto the **same server-side reader
 | R16 | In the bot, Hebrew dates and holidays stay tied to `culture === 'jewish'`. | Switching would, for example, make Hebrew voice summaries drop the Gregorian date (`voice-condenser/he.ts:21`). |
 | R17 | Horizontal swipe between months is left out; the chevrons do that. | Avoids a gesture fight with Android's back edge. |
 | R18 | When all of a Google user's chosen calendars are gone (deleted, unshared, another account), summaries stay empty as today, with a Sentry warning; the home asks them to choose again. | A retry can't help, and "couldn't be reached" would be wrong. |
+| R19 | Plan D ships the home with the Agenda only and no tab bar. Plan E adds the tab bar, the Month tab, the tab memory and §7.6's swipe rules. | Admins get D before E. An empty or disabled Month tab would be a dead end. |
+| R20 | The timezone update after a location change is best-effort and asynchronous: one strict lookup after the save. When it fails, the old timezone stays (§8.1). | A guessed Asia/Jerusalem is worse than the old zone, and the save shouldn't wait on two outside services. |
 
 ---
 
@@ -71,12 +73,19 @@ The work ships as five plans, in this order. Each leaves `main` working.
 | Plan | Contents | Depends on | Visible to users |
 |---|---|---|---|
 | **A. Fixes** | §8.1–§8.4 (the §8.3 stamp hook comes with B) | — | Yes, for everyone: the fixes only |
-| **B. Reader and route** | §1 switch and admin control, §2 reader, §6's pure rules and zone table, §4 route, the stamp hook | A | No (switch `OFF`) |
-| **C. Summaries** | §3, the bot part of §6, the parity smoke | B | Admins once the switch is `ADMINS` |
-| **D. Home and Agenda** | §5, §7.1–§7.3, §7.5–§7.7, §9 | B (parallel with C) | Admins once the switch is `ADMINS` |
-| **E. Month** | §7.4, §7.8, their smokes, the device check | D | Admins once the switch is `ADMINS` |
+| **B. Reader and route** | §1 switch, admin control and its `admin` labels, §2 reader, §6's pure rules (with the week-boundary functions) and zone table, §4 route, the stamp hook | A | No (switch `OFF`) |
+| **C. Summaries** | §3, the bot part of §6, the bot texts and the C5 guideline (§9), the parity smoke | B | Admins once the switch is `ADMINS` |
+| **D. Home and Agenda** | §5, §7.1–§7.3, §7.5–§7.7 with the Agenda only and no tab bar (Ruling R19), §7.8's library and day format, §9's home copy and string fixes | B (parallel with C) | Admins once the switch is `ADMINS`. For everyone: §9's translated strings on the old home, the Header (also on Subscription and Select calendars) and the dashboard loader |
+| **E. Month** | §7.4, the tab bar and tab memory (§7.1, §7.7), §7.6's swipe rules, §7.8's Month cell Hebrew day and month-header ranges, their smokes, the device check | D | Admins once the switch is `ADMINS` |
 
 The switch goes to `ADMINS` after C and D land; `ALL` after E and the device check (§10).
+
+§2.1 is the whole feature's file list. Each plan takes the parts its sections describe:
+- **A:** §8's changes, including edit 6's §8.3 part. The stamp hook into it comes with B.
+- **B:** `src/services/calendar-read/*` except `digest.ts`; `locale-rules.ts`, with the pure `nextWeekBoundary` and `nextWeekBoundaries`; `week-start-zones.ts`; `htmlToText`; `src/lib/calendar-view/types.ts`; the route; edits 1–4 and 9–12.
+- **C:** `src/services/calendar-read/digest.ts` (`DigestRead`, `readDigestDay`, `readLookaheadEvents`, the quick retry, `throwForDigest`); edits 5–8 (edit 6 without its §8.3 part), and the calls to B's week-boundary functions.
+- **D:** `command-client.ts`, `agenda.ts`, edits 13–14. From §7.8: `hebrew-date.ts`, the `@hebcal/hdate` dependency, the day-key rule, the per-language day format used by the header and the Agenda day labels, the Russian genitive list, and that part of the hebrew-date smoke.
+- **E:** `grid.ts`, the Month cell Hebrew day and the month-header ranges ("Elul 5786 – Tishrei 5787"), with their smokes.
 
 ---
 
@@ -87,8 +96,10 @@ The switch goes to `ADMINS` after C and D land; `ALL` after E and the device che
   - `getCalendarHomeRollout(): Promise<'OFF' | 'ADMINS' | 'ALL'>`: an in-process memo on `globalThis` for 30 s, then Redis `chome:rollout`, then the DB (also when the Redis read fails). Any other value, both stores failing, or no row → `OFF`. The read-through populate writes `EX 60`.
   - `isCalendarHomeOn(user: { isAdmin?: boolean }): Promise<boolean>`: `ALL`, or `ADMINS` and `user.isAdmin === true`. **Always awaited.**
   - `setCalendarHomeRollout(v)`: DB upsert, then Redis `SET … EX 60`, `DEL` if that fails, and clear this process's memo. It returns whether Redis took the value. So the DB value always wins within about a minute.
-- `app/api/admin/settings/route.ts`: GET returns `calendarHomeRollout ?? 'OFF'`. POST accepts it only when it is `'OFF'`, `'ADMINS'` or `'ALL'` (anything else is a 400), counts it in the at-least-one-field check, and calls the setter. When Redis didn't take the value it answers 503 "Saved; takes effect within a minute".
-- Admin panel: a three-way control in `AdminPanelClient.tsx` next to the native-reminders toggle. `loadAdminPanel` maps `settings.calendarHomeRollout ?? 'OFF'` into the initial props. Labels in `messages/{en,he,ru}.json`. `scripts/smoke-admin-panel-ssr.ts`'s fixture uses `'ADMINS'`.
+- `app/api/admin/settings/route.ts`: GET returns `calendarHomeRollout ?? 'OFF'`. POST accepts it only when it is `'OFF'`, `'ADMINS'` or `'ALL'` (anything else is a 400), counts it in the at-least-one-field check, and calls the setter.
+  - When Redis didn't take the value, it answers 200 `{ success: true, calendarHomeRollout, propagated: false }`. The control shows the new value with the note "Saved; takes effect within a minute".
+  - 503 keeps its existing meaning (`route.ts:137-143`): the DB write failed and nothing was saved. The control then keeps the old value.
+- Admin panel: a three-way control in `AdminPanelClient.tsx` next to the native-reminders toggle. `loadAdminPanel` maps `settings.calendarHomeRollout ?? 'OFF'` into the initial props. Labels and the note go under `admin.features` in `messages/{en,he,ru}.json` (Plan B). `scripts/smoke-admin-panel-ssr.ts`'s fixture uses `'ADMINS'`.
 - The switch covers the home **and** the summary path. Every call site asks `await isCalendarHomeOn(user)` with a fresh DB user row.
 
 ---
@@ -107,16 +118,16 @@ New folder `src/services/calendar-read/`:
 | `google.ts` | Google half: auth, paging, outcome → status, deadline, cache, single-flight (§2.5, §2.6) | `readGoogle`, `stampGoogleCache` |
 | `google-map.ts` | Pure Google rules | `classifyGoogleError`, `keepGoogleEvent`, `mapGoogleEvent` |
 | `dto.ts` | Pure: bucket into days, mark open, build DTOs (§4) | `toRangeDays`, `toItemDto`, `toCalendarDto` |
-| `digest.ts` | Summary adapters (§3) | `readDigestDay`, `readLookaheadEvents` |
+| `digest.ts` | Summary adapters (§3; Plan C) | `readDigestDay`, `readLookaheadEvents`, `DigestRead` |
 | `rollout.ts` | The switch (§1) | see §1 |
 
 Also new:
-- `src/utils/locale-rules.ts` (pure): `weekStartFor`, `legacyWeekStart`, `hebrewDatesFor`, `tzKnownFor` (§6).
+- `src/utils/locale-rules.ts` (pure): `weekStartFor`, `legacyWeekStart`, `hebrewDatesFor`, `tzKnownFor`, `nextWeekBoundary`, `nextWeekBoundaries` (§6).
 - `src/config/week-start-zones.ts`: a generated table (§6).
 - `htmlToText` added to `src/utils/html.ts`, which stays a leaf module.
 - `src/lib/calendar-view/types.ts`: `DayKey`, `SourceName`, the DTO types and `compareItems` (client-safe).
 - `src/lib/calendar-view/{grid,hebrew-date,agenda}.ts`: pure view helpers (§7).
-- `src/lib/command-client.ts`: the send-to-chat call, pulled out of `DashboardClient.tsx:105-137` and used by both homes.
+- `src/lib/command-client.ts`: the send-to-chat call, based on `DashboardClient.tsx:105-137` and used by `CalendarHome` only. `DashboardClient`'s own send call stays as it is.
 - `app/api/calendar/range/route.ts` (§4).
 
 Edits to existing files:
@@ -124,15 +135,15 @@ Edits to existing files:
 2. `src/services/calendar.ts`: a new export `getGoogleAuth(token)` returns the OAuth2 client that `getCalendarClient` builds today (`:17-28`); `getCalendarClient` calls it. No behaviour change. Nothing else in `calendar.ts` changes.
 3. `src/services/calendar-provider/google-provider.ts:85-126`: after each `createEvent` / `updateEvent` / `deleteEvent`, success or failure, `await stampGoogleCache(user.id)`. The write's own result or error is returned unchanged (§2.6).
 4. `src/services/google-connect.ts:114-150`: `stampGoogleCache(user.id)` after the transaction and the reminder-cache update.
-5. `src/services/telegram/summary.ts` (§3.1): switch-aware fetch wrappers (`:11-14`) for scheduled and on-demand runs; `sendSummaryToUser`'s `onError` (`:297-334`) gains `GOOGLE_FETCH_FAILED`; `sendSummaryToAll` (`:389-505`) gains the C5 retry queue; `prepareSummaryForUser` takes an optional `{ googleUnavailable, summaryDate }`.
-6. `src/services/week-lookahead.ts`: the switch-aware fetch at `fetchEventsInRange` (`:202`); week boundaries take a `weekStart` (§6); the recurrence-cache fix (§8.3).
+5. `src/services/telegram/summary.ts` (§3.1): the fetch wrappers (`:11-14`) become switch-aware and take `(user, calendarIds, tz, day, read)`; `prepareSummaryForUser` (`:79-86`) gains a trailing `opts?: { day?, read?, googleUnavailable? }`, with `modelId` still 4th; `sendSummaryToUser`'s `onError` (`:297-334`) gains `GOOGLE_FETCH_FAILED`; `sendSummaryToAll` (`:389-505`) gains the C5 retry queue.
+6. `src/services/week-lookahead.ts`: the switch-aware fetch at `fetchEventsInRange` (`:202`); a trailing `read?: DigestRead` on `getWeekLookahead` and `getNextWeekLookahead`; `:80-99` and `:435-451` replaced by calls to `nextWeekBoundary` / `nextWeekBoundaries` with a `weekStart` (§6); the recurrence-cache fix (§8.3, Plan A).
 7. `src/services/telegram/commands.ts:553-595, :654-692`: `/week` and `/nextweek` get an `onError` (Ruling R14).
 8. `src/services/claude.ts` (`SummaryUserContext`, `:57-63`, and its pass-through `:147-173`) and `src/prompts/calendar-summary/{types,en,he,ru}.ts`: an optional `googleUnavailable` flag adds the C5 guideline line. Without it, prompts are byte-identical.
 9. `src/services/native-reminders/open-reminders.ts`: move `reminderDueAt` into the leaf module `due.ts` and re-export it, so `dto.ts` stays free of Prisma imports. Add `fetchOpenReminderItems(...)`, a variant of `fetchOpenReminders` that also returns each carry-over's state row and occurrence `instanceStartsAt`. The summary's `fetchOpenReminders` is unchanged.
 10. `src/lib/rate-limit.ts`: `calendarRateLimiter`, 60 per minute, prefix `ratelimit:calendar`.
-11. `src/config/redis-keys.ts`: `gcalRange`, `gcalStamp`, `gcalGoneWarned`, `gcalFresh`, `gcalConfigAlert`, `CALENDAR_HOME_ROLLOUT`.
+11. `src/config/redis-keys.ts`: `gcalRange`, `gcalStamp`, `gcalGoneWarned`, `gcalFresh` (per user and window), `gcalConfigAlert`, `CALENDAR_HOME_ROLLOUT`.
 12. `app/api/execute-command/route.ts:17, :38`: read init data with `requestInitData(request, body)`, so the header works (today it reads only the JSON body).
-13. `src/lib/page-data.ts:113-151` (dashboard): adds `calendarHome`, and fires `webapp_opened` (§7.1).
+13. `src/lib/page-data.ts:113-151` (dashboard): adds `calendarHome` and, when it is true, `hints` (§7.3); fires `webapp_opened` (§7.1).
 14. `app/[locale]/PageGate.tsx`: renders `CalendarHome` when `calendarHome` is true (§7.1).
 
 Not touched: `day-events.ts`, `event-formatter.ts`, the alert pass (`reminders.ts`), the voice matcher.
@@ -141,7 +152,7 @@ Not touched: `day-events.ts`, `event-formatter.ts`, the alert pass (`reminders.t
 
 ```ts
 // src/services/calendar-read/types.ts
-export type { DayKey, SourceName } from '@/lib/calendar-view/types';   // 'yyyy-MM-dd' in the viewer's tz; 'famcal' | 'google'
+export type { DayKey, SourceName } from '@/src/lib/calendar-view/types';   // 'yyyy-MM-dd' in the viewer's tz; 'famcal' | 'google'
 
 export interface CalendarRef {                       // what the UI may show about an item's calendar
   id: string | null;                                 // 'native:<cuid>' or the Google id; null when masked
@@ -176,6 +187,7 @@ export interface ReadRangeOptions {
   notBefore?: Date;                                  // clip the start to an instant (This week starts now)
   googleCache?: 'use' | 'refresh' | 'bypass';        // default 'bypass'; only the route uses the cache
   deadlineMs: number;                                // see "Deadlines" below
+  defer?: (task: () => Promise<void>) => void;       // runs the stale-entry refresh (§2.6); the route passes after()
 }
 
 export type FamcalRead =
@@ -208,11 +220,12 @@ export function readRange(user: UserConfig, fromKey: DayKey, toKey: DayKey, opts
 | Caller | Deadline |
 |---|---|
 | The range route | 6,000 ms |
-| Scheduled summaries (first attempt) | 30,000 ms |
-| Scheduled summaries (C5 retry) | 15,000 ms |
-| On-demand summaries, `/week`, `/nextweek`, the on-demand tomorrow block | 10,000 ms; R13's retry 8,000 ms |
+| Scheduled summaries: the day read and the week block | 30,000 ms |
+| The C5 retry: the day read and the week block | 15,000 ms |
+| On demand: daily, tomorrow and its week block, `/week`, `/nextweek` | 10,000 ms |
+| The on-demand quick retry (§3.1 Adapters) | 8,000 ms |
 
-On demand, Google time stays under 30 s of `executeCommand`'s 50 s limit (`command-pipeline.ts:10`), leaving room for the timezone lookup and the AI call.
+On demand, one read takes at most about 14 s of Google time: a failure within 5 s, a 1 s pause, then 8 s. So the tomorrow summary's day read plus its week block stay under 30 s of `executeCommand`'s 50 s limit (`command-pipeline.ts:10`), leaving room for the timezone lookup and the AI call.
 
 ### 2.3 Windows and days
 
@@ -316,17 +329,20 @@ Applies only when `calendarSource === 'GOOGLE'`. The calendar set is `user.calen
 | Order | Condition | Outcome |
 |---|---|---|
 | 1 | `isInsufficientScopesError(e)` (`errors.ts:30-44`) | `scopes` |
-| 2 | `response.data.error` is `invalid_grant` or `admin_policy_enforced`, or HTTP 401 | `token` |
+| 2 | `response.data.error` is `invalid_grant` or `admin_policy_enforced` | `token` |
 | 3 | `response.data.error` is `invalid_client` or `unauthorized_client` | `config` |
-| 4 | HTTP 404 or 410 | `gone` |
-| 5 | Any of: a 403 with reason `rateLimitExceeded` / `userRateLimitExceeded` / `quotaExceeded` / `dailyLimitExceeded`; 408; 429; ≥ 500; no response and a string `code`; no response and `error.type === 'request-timeout'`; `name === 'AbortError'` | `transient` |
-| 6 | anything else | `unknown` |
+| 4 | any other HTTP 401 | `token` |
+| 5 | HTTP 404 or 410 | `gone` |
+| 6 | Any of: a 403 with reason `rateLimitExceeded` / `userRateLimitExceeded` / `quotaExceeded` / `dailyLimitExceeded`; 408; 429; ≥ 500; no response and a string `code`; no response and `error.type === 'request-timeout'`; `name === 'AbortError'` | `transient` |
+| 7 | anything else | `unknown` |
+
+The OAuth string checks come before the status check. Google's token endpoint sends `invalid_client`, and often `unauthorized_client`, with HTTP 401, and the auth library keeps that status on the error (`google-auth-library/build/src/transporters.js:81-85`).
 
 **Source status:**
 1. If the token step fails, its class decides the whole half:
    - `scopes` → `reconnect('scopes')`;
    - `token` → `reconnect('token')`;
-   - anything else → `error(<that class>)`.
+   - anything else → `error(<that class>)`, with a token-step `gone` reported as `unknown`.
 
    No calendar is listed.
 2. Otherwise, any calendar `scopes` → `reconnect('scopes')`; else any `token` → `reconnect('token')`.
@@ -342,10 +358,10 @@ Applies only when `calendarSource === 'GOOGLE'`. The calendar set is `user.calen
 
 **Deadline:** one timer (`deadlineMs`) covers the token step, the lists and paging. When it fires:
 - calendars that already settled keep their outcome;
-- a calendar that has received at least one page counts as **truncated**;
+- a calendar that has received at least one page counts as **truncated**, and a truncated calendar counts as settled;
 - a calendar with no page yet counts as failed (`transient`).
 
-The status is then computed as above. Only when the token step hasn't finished, or no calendar settled, is the result `error('timeout')`. The single-flight entry always settles and is deleted in `finally`.
+Only when the token step hasn't finished, or no calendar has settled or received a page, is the result `error('timeout')`. Otherwise the status is computed as above. The single-flight entry always settles; its `finally` deletes it only if it is still that read's own (§2.6).
 
 **Token refresh:** the library refreshes from the refresh token; nothing is saved back (Google does not rotate refresh tokens). No access-token cache in step 1.
 
@@ -357,7 +373,7 @@ The status is then computed as above. Only when the token step hasn't finished, 
 - **Value:** `{ startedAt, items, goneIds }` (ReadItems without `calendar`). Values over 512 KB are not written.
 - **Freshness:**
   - under 3 minutes old: served as is;
-  - 3 to 30 minutes old: served with `stale: true`, and a background refresh starts (single-flight) in `after()` from `next/server`, with its own `.catch` and a 6,000 ms deadline. The client asks again about 3 s later (§5);
+  - 3 to 30 minutes old: served with `stale: true`, and a background refresh starts (single-flight) through `opts.defer`, with its own `.catch` and a 6,000 ms deadline. The route passes `after` from `next/server`; without `defer`, `google.ts` runs it fire-and-forget with a `.catch`; the smokes pass a recorder. The client asks again once, about 3 s later (§5);
   - entries expire after 30 minutes (`EX 1800`).
 - **Stamp** `gcal:stamp:{userId}` = `Date.now()`, `EX 3600`, longer than any entry lives.
   - An entry is valid only if `startedAt > stamp`.
@@ -372,11 +388,13 @@ The status is then computed as above. Only when the token step hasn't finished, 
   - It also drops the user's §8.3 recurrence-cache entries.
 - **Read:** one `MGET [stamp, key]`.
 - **Write:** only `ok` results whose `partial` is null. Gone calendars don't block the write.
-  - A read writes only when no read of the same key with a later `startedAt` is in flight.
+  - A read writes only when its `startedAt` is later than every in-flight read's for that key and than the last write's.
+  - `globalThis.__gcalWritten: Map<key, startedAt>`, next to `__gcalInflight`, keeps the last write's `startedAt`. Entries are dropped after 30 minutes.
 - **Single-flight:** `globalThis.__gcalInflight: Map<key, { startedAt, promise }>`, because the scheduler and the routes are separate bundles.
   - A request joins an in-flight read only if that read's `startedAt > stamp`.
   - `refresh` joins only a read that started after the request arrived.
-- **`fresh=1`** is honoured at most once per 30 s per user (`gcalFresh(userId)`, `SET NX EX 30`); otherwise it is read as `use`.
+  - A read's `finally` deletes the in-flight entry only if it is still that read's own.
+- **`fresh=1`** is honoured at most once per 30 s per user and window (`gcalFresh(userId, from, to)`, `SET NX EX 30`); otherwise it is read as `use`.
 - **Redis errors** fail open: treated as a miss, no write, a warning.
 - **Privacy:** Google titles and descriptions sit in Upstash for at most 30 minutes. Redis already holds decrypted refresh tokens in the reminder cache.
 - The summaries never read or write the cache.
@@ -389,34 +407,51 @@ The status is then computed as above. Only when the token step hasn't finished, 
 
 All of this applies only to users with `await isCalendarHomeOn(user)`.
 
+**The seam.** One shape carries the run's mode and deadline from the caller to the reader:
+
+```ts
+// src/services/calendar-read/digest.ts
+export type DigestRead = { mode: 'scheduled' | 'onDemand'; deadlineMs: number };
+
+// src/services/telegram/summary.ts:79-86 — modelId stays 4th
+prepareSummaryForUser(user, fetchFunction, summaryDate, modelId?, onTextDelta?, onStageChange?,
+  opts?: { day?: DayKey; read?: DigestRead; googleUnavailable?: boolean })
+```
+
+- The day is `opts.day ?? (summaryDate ? nextDate(today) : today)`; without `opts.day` that is today's rule (`:115-116`). The fetch, `shapeEventsForDay`, `dayNoon` and the week block all use it. `summaryDate` stays the tomorrow flag.
+- It calls `fetchFunction(user, ids, tz, day, opts.read)` and passes `opts.read` to the week block's `getWeekLookahead` (`:153`).
+- Callers pass the §2.2 deadlines: `sendSummaryToUser` passes `{ read: { mode: 'onDemand', deadlineMs: 10000 } }`, `sendSummaryToAll` passes `{ read: { mode: 'scheduled', deadlineMs: 30000 } }`, and the C5 retry is step 6.
+- With `googleUnavailable` (the C5 outage run only), a Google user's day is `[]` with no read, and the week block makes no Google read either. A user has one source in this first sub-project, so a Google user then gets no week block.
+
 1. **Fetch wrappers** (`summary.ts:11-14`):
-   - Scheduled and on-demand runs get separate wrappers. Today one wrapper serves both (`:532, :655, :671, :687`).
-   - Both call `readDigestDay(user, offset, tz, ids, mode)` with `mode: 'scheduled' | 'onDemand'`.
-   - Users the switch doesn't cover keep `getProviderForUser(user).fetch…`.
+   - They take `(user, calendarIds, tz, day, read)`. For a switch-covered user they call `readDigestDay(user, day, tz, ids, read)`; `read` defaults to `{ mode: 'onDemand', deadlineMs: 10000 }`.
+   - Users the switch doesn't cover keep `getProviderForUser(user).fetch…`, which ignores `day` and `read`, so the wrappers stay assignable to the fetch type. One wrapper still serves both run kinds (`:532, :655, :671, :687`): the mode comes with `read`.
 2. **Week block, `/week`, `/nextweek`** (`src/services/week-lookahead.ts`):
-   - `getWeekLookahead` and `getNextWeekLookahead` compute `homeOn` once and pass it, with the mode, to `fetchEventsInRange` (`:202`).
-   - Its first line becomes `if (homeOn) return readLookaheadEvents(user, start, end, timezone, calendarIds, mode)`.
-   - This covers `/week` (`commands.ts:571-574`), `/nextweek` (`:672-675`) and the tomorrow summary's week block (`summary.ts:147-160`).
-3. **Week boundaries** take a `weekStart` (§6).
-4. **On-demand daily and tomorrow** (`sendSummaryToUser`'s `onError`, `summary.ts:297-334`): a new branch for `GOOGLE_FETCH_FAILED`.
-   - When the first attempt failed in under 5 s, re-run once after about 1 s with the 8,000 ms deadline.
-   - If it fails again, or the first attempt timed out: R13's text, return `true`, no admin notice.
+   - `getWeekLookahead(user, calendars, referenceDate?, read?: DigestRead)` and `getNextWeekLookahead` likewise. `read` defaults to `{ mode: 'onDemand', deadlineMs: 10000 }`.
+   - They compute `homeOn` once and pass it and `read` to `fetchEventsInRange` (`:202`). Its first line becomes `if (homeOn) return readLookaheadEvents(user, start, end, timezone, calendarIds, read)`.
+   - This covers `/week` (`commands.ts:571-574`) and `/nextweek` (`:672-675`), both on the default, and the tomorrow summary's week block (`summary.ts:147-160`), which gets `opts.read`.
+3. **Week boundaries** call `nextWeekBoundary` / `nextWeekBoundaries` with a `weekStart` (§6).
+4. **On-demand daily and tomorrow** (`sendSummaryToUser`, `summary.ts:263-335`):
+   - R13's quick retry runs inside the adapters (see Adapters). So it stays under `executeCommand`'s 50 s race, and `onSuccess` still delivers a summary the retry saved.
+   - `onError` (`:297-334`) gains one branch: `GOOGLE_FETCH_FAILED` → R13's text, through `streamHandle.cancel(text)` when a draft is open, else `sendMessage`. It returns `true` and sends no admin notice.
    - Token and scopes branches unchanged.
 5. **`/week` and `/nextweek`** (`commands.ts:553-595, :654-692`): a new `onError`.
    - `GOOGLE_TOKEN_EXPIRED` and `GOOGLE_INSUFFICIENT_SCOPES` are answered as `sendSummaryToUser` answers them, including clearing the token on scopes.
-   - `GOOGLE_FETCH_FAILED` gets R13's text, returning `true`.
+   - `GOOGLE_FETCH_FAILED` gets R13's text as in step 4, returning `true`, with no admin notice. The quick retry has already run in the adapter.
 6. **Scheduled** (`sendSummaryToAll`, `summary.ts:389-505`), C5:
-   1. A user whose read throws `GOOGLE_FETCH_FAILED` is set aside, with the summary day of that first attempt, and the loop moves on.
+   1. A user whose attempt throws `GOOGLE_FETCH_FAILED` is set aside with the error's `day` (the first attempt's summary day), and the loop moves on.
    2. After the loop, wait until 30 s have passed since the first such failure.
-   3. Retry the set-aside users once, in order, each with the 15,000 ms deadline and their original summary day passed in (not recomputed).
-   4. If a retry fails, run `prepareSummaryForUser(user, fetch, date, { googleUnavailable: true })`. That uses `[]` for the Google day, sets `SummaryUserContext.googleUnavailable` (the guideline line), appends the localized outage line to the delivered text (and the voice text), and sets the dedup mark.
+   3. Retry the set-aside users once, in order, with `opts = { day, read: { mode: 'scheduled', deadlineMs: 15000 } }`. The day read and the week block both use it.
+   4. Only a retry that throws `GOOGLE_FETCH_FAILED` again takes the outage run: `prepareSummaryForUser(user, fetchFunction, summaryDate, undefined, undefined, undefined, { day, read: { mode: 'scheduled', deadlineMs: 15000 }, googleUnavailable: true })`. That run uses `[]` for the Google day and skips the week block's Google read. It sets `SummaryUserContext.googleUnavailable` (the guideline line), appends the localized outage line to the delivered text (and the voice text), and sets the dedup mark.
+   5. Any other error from the retry, or from the outage run, goes through the loop's existing catch (`:467-505`). A dead token gets the token text with the refresh button and no dedup mark (A-24).
 7. **`calendars_gone`** (Ruling R18): the adapters return `[]` for Google and send a Sentry warning. No retry, no outage line.
 
 **Adapters** (`digest.ts`):
-- `readDigestDay(user, offset, tz, ids, mode)`:
+- `readDigestDay(user, day: DayKey, tz, ids, read: DigestRead)`:
   - an empty-token Google user → `[]`;
-  - otherwise `readRange(user, day, nextDate(day), { tz, calendarIds: ids, googleCache: 'bypass', deadlineMs })`, then `throwForDigest`, then `items.map(i => i.event)`.
-- `readLookaheadEvents(user, start, end, tz, ids, mode)`: the same, with `notBefore: start`.
+  - otherwise `readRange(user, day, nextDate(day), { tz, calendarIds: ids, googleCache: 'bypass', deadlineMs: read.deadlineMs })`, then `throwForDigest`, then `items.map(i => i.event)`.
+- `readLookaheadEvents(user, start, end, tz, ids, read: DigestRead)`: `readRange(user, localDate(start, tz), nextDate(localDate(end, tz)), { tz, calendarIds: ids, notBefore: start, googleCache: 'bypass', deadlineMs: read.deadlineMs })`, then the same. `end` is `endOfLocalDay`'s inclusive last instant (`week-lookahead.ts:67-69`).
+- **Quick retry**, `onDemand` only: when a read ends in a Google `error` other than `calendars_gone`, with `reason !== 'timeout'`, within 5,000 ms of its start, wait about 1 s and read once more with `deadlineMs: 8000`. `throwForDigest` then applies to the second result. `scheduled` never retries in the adapter; C5 does that.
 - `throwForDigest`:
 
   | Read result | Result |
@@ -425,7 +460,7 @@ All of this applies only to users with `await isCalendarHomeOn(user)`.
   | `reconnect('scopes')` | `GOOGLE_INSUFFICIENT_SCOPES` |
   | `reconnect('token')` | `GOOGLE_TOKEN_EXPIRED` |
   | `error('calendars_gone')` | `[]` plus a warning |
-  | any other `error` | `GOOGLE_FETCH_FAILED` |
+  | any other `error` | `Object.assign(new Error('GOOGLE_FETCH_FAILED'), { day })`, with the read's first day |
   | `ok` (with or without `partial`) | continue with what loaded, as today |
 
 ### 3.2 What must not change
@@ -439,7 +474,7 @@ Appendix A lists 33 behaviours. The core of it:
   - carry-overs keep the cap of 5, newest first, with "and N more";
   - the reminders guideline appears only when reminders are present.
 - Errors:
-  - a dead token still sends no summary, sends the token text (with the refresh button on scheduled runs) and sets no dedup mark;
+  - a dead token still sends no summary, sends the token text (with the refresh button on scheduled runs) and sets no dedup mark, also when it shows up only on the C5 retry;
   - missing scopes still clears the token on demand;
   - one failing calendar still lets the rest through;
   - FamCal/DB errors still produce the pipeline's error texts and admin notice.
@@ -485,7 +520,7 @@ X-Telegram-Init-Data: <initData>        (or the famcal_session cookie in a brows
    - `sources` ⊆ {famcal, google}.
 
    With neither `from` nor `to`, the window is `[today, today+7)`. An absent `sources` means every applicable source.
-5. **Read:** `requested = sources ∩ sourcesFor(user)`, then `readRange(user, from, to, { tz, sources: requested, googleCache: fresh ? 'refresh' : 'use', deadlineMs: 6000 })`.
+5. **Read:** `requested = sources ∩ sourcesFor(user)`, then `readRange(user, from, to, { tz, sources: requested, googleCache: fresh ? 'refresh' : 'use', deadlineMs: 6000, defer: after })`, with `after` from `next/server`. `fresh` is subject to §2.6's per-window limit.
 6. **Carry-overs**, when FamCal was requested, is `ok`, and `from ≤ today < to`:
    - call `fetchOpenReminderItems(user, ctx, openRemindersCutoff(today, tz, now), today, tz, Infinity)`;
    - each carry-over's `CalendarRef` follows the legend rule for rows: masked when not in the legend, and `event.calendarName` is never read;
@@ -547,7 +582,8 @@ export function compareItems(a: ItemDTO, b: ItemDTO): number;   // all-day first
   - A FamCal user never gets a `google` key, so can never be shown "Reconnect Google". That flow would switch them to Google and hide their calendars.
 - **Reminder state:**
   - done items are kept, with `doneAt`;
-  - `open` only in the `today` bucket: `kind === 'reminder' && !doneAt && reminderDueAt(event, tz) < now`;
+  - inside `days`, `open` is set only on today's items: `kind === 'reminder' && !doneAt && reminderDueAt(event, tz) < now`;
+  - every carry-over has `reminder.open: true` and `openSince` set, snoozed ones too;
   - snoozed still counts as open, with `snoozedUntil`;
   - past days are never "open".
 - **Times:**
@@ -562,7 +598,7 @@ export function compareItems(a: ItemDTO, b: ItemDTO): number;   // all-day first
 
 **Loading.** PageGate loads page-data as today. When the dashboard props carry `calendarHome: true`, PageGate renders `CalendarHome`. On mount it sends one range request per applicable source (from `calendarSource`), in parallel, with no dates. Each response carries the facts, so whichever answers first paints. In step 1 that is one request. Users the switch doesn't cover make no range call.
 
-**Month windows.** Each month's own days, `[1st, 1st of next month)`, are fetched when the month is on screen or next to it (IntersectionObserver, as `AdminPanelClient.tsx:628-644`). At most 2 requests are in flight, deduped by `YYYY-MM` and source.
+**Month windows** (Plan E). Each month's own days, `[1st, 1st of next month)`, are fetched when the month is on screen or next to it (IntersectionObserver, as `AdminPanelClient.tsx:628-644`). At most 2 requests are in flight, deduped by `YYYY-MM` and source.
 
 **The store.** One client store of days is shared by Agenda and Month.
 - A response **replaces**, for each source whose status in it is `ok`, that source's items on every day in its `[from, to)`. Other days, and sources with any other status, keep what they had.
@@ -572,11 +608,14 @@ export function compareItems(a: ItemDTO, b: ItemDTO): number;   // all-day first
 
 **Freshness.**
 - Refetch the visible windows on every return to the foreground (`visibilitychange`, Telegram `activated`). That's cheap: FamCal is one query, and a Google cache hit is one `MGET`.
-- A response with `google.stale` triggers one re-request after about 3 s.
-- ⋯ → Refresh sends `fresh=1`.
+- A response with `google.stale` triggers one re-request of that window after about 3 s. If that one is stale too, the window waits for the next return to the foreground or ⋯ → Refresh.
+- ⋯ → Refresh sends `fresh=1` on every visible window.
 - No pull-to-refresh: in Telegram that gesture minimizes the app.
 
-**Empty means answered.** "Nothing planned", the fold lines and free-looking Month cells appear for a day only once every applicable source has answered for it (`ok`, partial, or an error state). Until then the day shows placeholders.
+**Empty means answered.** "Nothing planned", the fold lines and free-looking Month cells appear for a day only once every applicable source has answered `ok` for it (partial included), now or in an earlier response still in the store. An `error` or `reconnect` answer does not count.
+- For a day that no `ok` answer covers, the Agenda shows no empty line and no fold. It shows that source's States row once, above the days.
+- A Month in that window shows "Couldn't load · Retry" (for `reconnect`, the Reconnect banner) with dimmed cells, never free days.
+- Until a source answers, the day shows placeholders.
 
 **States**
 
@@ -609,6 +648,8 @@ export function tzKnownFor(u: { location?: string | null; googleRefreshToken?: s
 export function weekStartFor(f: Facts): 0|1|2|3|4|5|6;     // 0 = Sunday
 export function legacyWeekStart(culture?: string): 0 | 1;   // today's rule: jewish → 0, else 1
 export function hebrewDatesFor(f: Facts): boolean;
+export function nextWeekBoundary(ws: 0|1|2|3|4|5|6, always7: boolean | undefined, today: DayKey): DayKey;   // This week's last day
+export function nextWeekBoundaries(ws: 0|1|2|3|4|5|6, today: DayKey): { first: DayKey; last: DayKey };     // Next week
 ```
 
 **`weekStartFor`**, in order:
@@ -635,8 +676,8 @@ export function hebrewDatesFor(f: Facts): boolean;
 **Where they apply**
 - **Home:** the Month grid's columns and weekday row; Hebrew dates in the header, the Agenda day labels and the Month cells.
 - **Bot**, for switch-covered users:
-  - `getNextWeekBoundary(weekStart, always7, today)` replaces `week-lookahead.ts:80-99`, with `daysUntilBoundary = always7 ? 7 : ((((ws + 6) % 7) - dow) + 7) % 7`;
-  - `getNextWeekBoundaries(weekStart, today)` replaces `:435-451`, with a first day `((ws - dow + 7) % 7) || 7`;
+  - `nextWeekBoundary(ws, always7, today)`, with `daysUntilBoundary = always7 ? 7 : ((((ws + 6) % 7) - dow) + 7) % 7`. Plan B adds it; Plan C replaces `week-lookahead.ts:80-99` with a call to it;
+  - `nextWeekBoundaries(ws, today)`, with a first day `((ws - dow + 7) % 7) || 7` and a last day 6 days later. Plan B adds it; Plan C replaces `:435-451` with a call to it;
   - callers compute `ws = homeOn ? weekStartFor(...) : legacyWeekStart(user.culture)`. For ws 0 and 1 the formulas give today's results on every weekday.
 - **Not adopted now:** the Settings day-picker order, voice "next week", the extraction prompts, RRULE `WKST`. Bot Hebrew dates and holidays: Ruling R16.
 
@@ -660,8 +701,9 @@ export function hebrewDatesFor(f: Facts): boolean;
   - presentational `AgendaView`, `MonthView`, `MonthGrid`, `DayList`, `ItemRow`, `ItemSheet`, `SendSheet`, `MenuSheet`;
   - pure helpers in `src/lib/calendar-view/`: `grid.ts` (`grid(firstKey, lastKey, weekStart) → dayKey[][]`, date-fns only), `hebrew-date.ts`, `agenda.ts`.
 - **State:**
+  - Plan D has the Agenda only, with no tab bar (Ruling R19). Plan E adds the tabs.
   - Tabs and the Month layout are in-page React state. Navigating with `router.push` would remount PageGate and refetch.
-  - The last tab is kept in `sessionStorage`. Month state survives tab switches for the session.
+  - The last tab is kept in `sessionStorage` (Plan E). Month state survives tab switches for the session.
   - All storage access is wrapped in try/catch.
 - **Look:**
   - Telegram theme tokens are mapped onto the `globals.css` tokens, with fallbacks;
@@ -688,6 +730,7 @@ export function hebrewDatesFor(f: Facts): boolean;
 - **Header:** "Thursday, 15 October" and, when `hebrewDates`, "4 Cheshvan 5787", from the server's `today`.
 - **Send icon** → a sheet with Today, Tomorrow, This week, Next week and Weather.
   - It goes through `src/lib/command-client.ts`, which sends the init-data header and the body fallback, checks `res.status`, and closes the app only per Ruling R5.
+  - command-client treats a call as Telegram only when `readInitData()` (`src/lib/read-init-data.ts`) is non-empty. The SDK defines `Telegram.WebApp` in any browser (`layout.tsx:102-104`). Otherwise it takes the browser branch: the app stays open, the spinner resets, and a 2xx shows "Sent to WhatsApp".
 - **⋯ menu:** Ruling R6. Refresh sends `fresh=1`.
 - **Banners**, non-blocking and stacked under the header:
   - trial days left, during a trial;
@@ -720,10 +763,11 @@ export function hebrewDatesFor(f: Facts): boolean;
   - an event goes by `calendar.mine`;
   - this decides filled or outlined chips, filled or ring dots, the person chip and a cell's "N from <partner>" label;
   - a reminder the viewer set for the partner reads "for <partner>"; one the partner set reads "from <partner>".
-- **Empty:** Ruling R10. The hint is derived from the `subscription.effectivePlan`, trial and early-adopter fields page-data already sends, with no new plan read:
-  - voice, forward and photo need `voice_events`;
-  - reminders need Pro;
-  - no allowed way → no hint.
+- **Empty:** Ruling R10. When `calendarHome` is true, page-data's dashboard branch adds `hints: { reminders: (await getReminderSupport(user)).supported, voiceEvents: (await checkFeatureAccess(user.id, 'voice_events')).allowed }` to its existing `Promise.all`.
+  - Reminders need more than the plan: a FamCal calendar, Telegram and the native-reminders switch (`support.ts:87-105`). Admin overrides count.
+  - Both are cached: the feature checks for 24 h in Redis, the switch through Redis. `feature_blocked` is logged only on a cache miss, inside `computeFeatureAccess` (`subscription-service.ts:690`, `:744-805`), so at most once per 24 h per feature.
+  - Voice, forward and photo are named only when `voiceEvents` is true; reminders only when `reminders` is true.
+  - Both false → no hint.
 
 ### 7.4 Month
 
@@ -777,19 +821,19 @@ Google items add "Open in Google Calendar", via Telegram `openLink(htmlLink)`.
   - the `themeParams.section_*` colours.
 
   `BackButton` and `openLink` are already typed (`:105-111`, `:62`).
-- **Swipes (Bot API 7.7+):**
+- **Swipes (Bot API 7.7+, Plan E):**
   - `disableVerticalSwipes()` in browse layout only;
   - `enableVerticalSwipes()` in picked layout, on the Agenda and on unmount;
   - never read `isVerticalSwipesEnabled`: it is wrong after a reload.
 - **BackButton (6.1+):** one hook, `useTelegramBackButton(active, onBack)`.
   - It calls `hide()` on mount, because the client keeps the button across reloads.
-  - It shows the button only in picked layout and while the item sheet is open.
+  - It is shown while the item sheet is open or the Month tab is in picked layout. A tap closes the sheet if it is open, else returns to browse. Plan D uses it for the item sheet only.
   - Whenever the button stops being needed, it calls `offClick(handler)` and `hide()`: leaving picked, closing the sheet, a tab switch, a navigation from the ⋯ menu, unmount.
 - Every call is gated with `isVersionAtLeast` and wrapped in try/catch. In a browser none of this exists; the in-page buttons do the same jobs.
 
 ### 7.7 Accessibility
 
-- **Tabs:** `role="tablist"`.
+- **Tabs** (Plan E): `role="tablist"`.
 - **Month cells:**
   - one button per cell, with a translated label, e.g. "Thursday 15 October, 4 Cheshvan, 3 items, 1 from Noa";
   - chips and blank cells are `aria-hidden`;
@@ -803,13 +847,18 @@ Google items add "Open in Google Calendar", via Telegram `openLink(htmlLink)`.
 
 ### 7.8 Hebrew dates
 
-- **Library:** `src/lib/calendar-view/hebrew-date.ts` on `@hebcal/hdate` (a new direct dependency) and `@hebcal/locales/ru`. No `@hebcal/core` on the home.
+The library, the day-key rule and the day format ship with Plan D: the header and the Agenda day labels need them. Plan E adds the Month cell Hebrew day and the month headers.
+
+- **Library:** `src/lib/calendar-view/hebrew-date.ts` on `@hebcal/hdate` and `@hebcal/locales/ru`. No `@hebcal/core` on the home.
+  - `@hebcal/hdate` becomes a direct dependency pinned to `^0.21.1`. That is the range `@hebcal/core` 6.0.6 declares (`@hebcal/locales` 6.3.0 declares `^0.21.0`), and both resolve to the installed 0.21.1.
+  - A plain `npm i @hebcal/hdate` would take 0.23.x and nest separate 0.21.1 copies under core and locales. `@hebcal/locales/ru` would then register Russian on a different `Locale`, and the bot's Russian Hebrew month names (`claude.ts:46`) would fall back to English.
+  - `npm ls @hebcal/hdate` must show a single deduped copy.
 - **Dates:** each `HDate` is built from `new Date(y, m - 1, d)` of a day key, never from an instant. Every date is the daytime Hebrew date, with no sunset shift.
 - **Per language:**
   - he: gematriya day, month without nikud, gematriya year;
   - en: numeric day and month name;
-  - ru: Ruling R9, with a 14-entry genitive list in `messages/ru.json`.
-- **Month headers:**
+  - ru: Ruling R9, with a 14-entry genitive list, `calendarHome.hebrewMonthGenitive`. The key is in en, he and ru so the parity check passes; only ru reads it.
+- **Month headers** (Plan E):
   - show the first and last Hebrew months the Gregorian month touches (one can touch three);
   - the year appears on both sides only when it differs, e.g. "Elul 5786 – Tishrei 5787";
   - the Hebrew text is smaller and muted.
@@ -820,9 +869,12 @@ Google items add "Open in Google Calendar", via Telegram `openLink(htmlLink)`.
 
 Each gets its own before/after smoke and a line in the PR.
 
-1. **Timezone after a location change.**
-   - Add `resolveTimezoneForLocation(location): Promise<string | null>` to `src/lib/timezone.ts`: `geocodeLocation` with the existing retry, no cache read, no fallback.
-   - In `app/api/settings/route.ts`, when the saved location differs from the stored one, call it and run `redis.set(REDIS_KEYS.userTimezone(id), tz, { ex: 86400 })` only when it returns a zone.
+1. **Timezone after a location change** (Ruling R20).
+   - Add `resolveTimezoneForLocation(location): Promise<string | null>` to `src/lib/timezone.ts`. It makes one Nominatim request and one Open-Meteo request, each `fetchWithTimeout(url, opts, 3000, 0)` (`geocoding.ts:14`), with no retry.
+   - It never reads or writes `geocodeCache` and never calls `getTimezoneFromCoords`, whose `'Asia/Jerusalem'` default (`geocoding.ts:100-116`) it must not inherit. `geocodeLocation` can't be reused: it has that fallback and caches it for 24 h.
+   - It returns null when either request fails, when Nominatim finds nothing, or when Open-Meteo returns no `timezone`.
+   - In `app/api/settings/route.ts`, when the saved location differs from the stored one, run it in `after()` from `next/server`, after the DB update, with a `.catch` that records a warning. The save responds at once.
+   - `redis.set(REDIS_KEYS.userTimezone(id), tz, { ex: 86400 })` runs only for a non-null zone. On null the old key is left as it is.
    - Today the old timezone stays for up to 24 h.
 2. **A repeating event whose first time moved earlier.**
    - Today a recurring series loads only when `series.startsAt < range.to` (`rangeCandidates`, `event-store.ts:167-181`). Moving the first occurrence before the original start hides it from every view and summary.
@@ -842,19 +894,22 @@ Each gets its own before/after smoke and a line in the PR.
 
 ## 9. Copy and i18n
 
-- A new `calendarHome` namespace in `messages/{en,he,ru}.json`. It is natural in each language and gender-neutral where it names a person. Counts use ICU plurals ("3 items", "N more").
+- The home's copy goes in a new `calendarHome` namespace in `messages/{en,he,ru}.json` (Plan D). It is natural in each language and gender-neutral where it names a person. Counts use ICU plurals ("3 items", "N more").
+- Other copy goes where its readers look:
+  - Plan B: the rollout control's labels and its "Saved; takes effect within a minute" note under `admin.features` (the panel reads `useTranslations('admin')`);
+  - Plan C: R13's text as `bot.errors.googleUnreachable` and the outage line as `bot.errors.googleOutageNote`, read through `getBotMessages`, which returns only the `bot` subtree (`src/lib/bot-messages.ts:26`);
+  - Plan C: the C5 guideline as a line in `src/prompts/calendar-summary/{en,he,ru}.ts`, emitted only with `googleUnavailable` (edit 8).
 - `scripts/check-i18n-parity.ts` also checks that ICU arguments match.
-- Copy needed:
-  - tabs and the header aria-labels;
+- Copy needed in `calendarHome`:
+  - the header aria-labels, and the tabs (Plan E);
   - the send sheet and the menu;
   - every state in §5, and the banners;
   - the Agenda fold lines and "Show next week";
-  - the Month bar, nav and cell labels;
+  - the Month bar, nav and cell labels (Plan E);
   - the item sheet;
   - the empty state with its plan-aware hints;
-  - the summary outage line and its guideline (C5), and R13's text;
-  - the admin rollout control and its 503 note.
-- Fix hardcoded English on the surfaces the home touches: the Header aria-labels, "ADMIN", "Free", and the redirect loader's "Loading Dashboard...".
+  - `hebrewMonthGenitive` (§7.8).
+- Fix hardcoded English: the Header's aria-labels and "ADMIN" (`components/Layout/Header.tsx`, also used by the Subscription and Select-calendars pages), "Free" on the old home (`DashboardClient.tsx:752`), and the dashboard loader's "Loading Dashboard..." (`TelegramDashboardRedirect.tsx:91`). These surfaces are not the new home, so the fixes are visible to everyone whatever the switch says (Plan D's Delivery row).
 
 ---
 
@@ -866,10 +921,10 @@ There's no test runner: these are `npx tsx` smoke scripts.
 - New smokes must type-check, because `next build` checks `scripts/**`.
 
 **`smoke-calendar-read.ts`** (pure):
-- `classifyGoogleError` on real error shapes: token-endpoint `invalid_grant`; 401; 403 rate and quota; 403 insufficient permissions; 404; 410; 429; 500; `ECONNRESET`; a network error on a `/token` URL (→ transient); a node-fetch `request-timeout`; `AbortError`; `unauthorized_client`; `invalid_client`.
+- `classifyGoogleError` on real error shapes: token-endpoint `invalid_grant`; a bare 401 (→ token); 403 rate and quota; 403 insufficient permissions; 404; 410; 429; 500; `ECONNRESET`; a network error on a `/token` URL (→ transient); a node-fetch `request-timeout`; `AbortError`.
+  - `unauthorized_client` and `invalid_client` carry `status: 401` and `response.status: 401` with the string `response.data.error`, as Google's token endpoint sends them. Both → `config`.
 - `keepGoogleEvent` over every eventType: unknown types kept, birthday kept, cancelled, no start, declined by self, declined by another attendee.
 - `htmlToText`: entities, line tags, links, plain text unchanged, the 500 code-point cut with emoji.
-- `mapGoogleEvent` equals today's day mapper on non-HTML fixtures, minus `reminders`.
 - `toRangeDays` equals `shapeEventsForDay` for every day, on these fixtures:
   - overnight 22:00–02:00, and a sleepover until 10:00;
   - a multi-day all-day event, and an all-day event from New York seen in Israel;
@@ -877,42 +932,47 @@ There's no test runner: these are `npx tsx` smoke scripts.
   - the IL DST end on 2026-10-25, the US DST end on 2026-11-01, and Chile's midnight DST.
 
   Also: open only on today; done kept; snoozed open.
-- DTO field sources: `repeatsDaily`, `readOnly`, `tz`, and carry-over `originalStart`.
+- DTO field sources: `repeatsDaily`, `readOnly`, `tz`, and carry-over `originalStart`; every carry-over has `open: true` and `openSince`.
 - `weekStartFor` table:
   - Cairo → 6; the Maldives → 5;
   - both Kolkata spellings; `Asia/Tel_Aviv` via `canon`;
   - `Asia/Hebron` → 1; `Etc/UTC` → the language rule; an unknown language → 1;
   - `tzKnown: false`.
-- Boundary formulas:
-  - equal to the legacy ones for ws 0/1 on every weekday, with and without `lookaheadAlways7Days`;
+- `nextWeekBoundary` and `nextWeekBoundaries` (pure, in `locale-rules.ts`):
+  - equal to today's formulas (`week-lookahead.ts:80-99, :435-451`, copied into the smoke as the reference) for ws 0/1 on every weekday, with and without `lookaheadAlways7Days`;
   - ws 6 and ws 5 give Saturday and Friday weeks.
 - `hebrewDatesFor` table.
 - On Node ≥ 24, rebuild `NON_MONDAY_ZONES` from `Intl` and diff it with the committed table; otherwise print SKIP.
 
 **`smoke-calendar-read-google.ts`** (fake `@googleapis/calendar` and `getGoogleAuth`, in-memory Redis, frozen clock):
 - **Request shape:** `fields`, `maxAttendees: 1`, `singleEvents`, `orderBy`, the user's `timeZone`, the timeout, `retryConfig`, and no `eventTypes`.
+- **Mapping:** `mapGoogleEvent` equals today's day mapper on non-HTML fixtures, minus `reminders`. `calendar.ts`'s `fetchTodayEvents` and `readGoogle` run against the same fake list (today's mapper is an inline arrow, `calendar.ts:116-134`).
 - **Paging:** follows pages until done; the 5,000-item cap marks the calendar truncated, and the result is not cached.
 - **Outcomes:**
   - one 404 plus one ok → ok with `goneIds`, and it is cached;
   - all 404 → `calendars_gone`, and the user's entries are stamped;
   - scopes on one calendar → `reconnect('scopes')`;
   - `invalid_grant` on the token step → `reconnect('token')`, with no list calls;
+  - `invalid_client` (HTTP 401) on the token step → `error('config')`;
+  - a 404 on the token step → `error('unknown')`;
   - 500 on all → `error`;
   - 500 on one → `partial.failed: 1`, not cached;
   - `config` → one admin notice per hour.
 - **Deadline:**
   - a token server that never answers → `error('timeout')` within the deadline, and the single-flight entry is gone afterwards;
   - one calendar stalls while another answers → ok with `partial.failed: 1`;
-  - a calendar mid-paging at the deadline → truncated.
+  - a calendar mid-paging at the deadline → truncated, also when it is the only calendar (ok with `partial.truncated: 1`, not `timeout`);
+  - several calendars, none with a page by the deadline → `error('timeout')`.
 - **Cache:**
   - a hit makes no Google call;
-  - 3–30 minutes old → `stale` plus one background refresh;
+  - 3–30 minutes old → `stale` plus one background refresh, handed to the `defer` recorder;
   - a stale entry whose refresh gets `invalid_grant` → the re-request returns `reconnect`;
   - a stamp after `startedAt` invalidates;
   - a stamp during an in-flight read invalidates it, and new requests don't join it;
-  - an older read never overwrites a newer one;
+  - an older read never overwrites a newer one, also when the newer read has already finished and written;
+  - an older read's `finally` never deletes a newer read's in-flight entry;
   - two concurrent reads → one list call per calendar;
-  - `fresh=1` twice within 30 s → the second is read as `use`;
+  - `fresh=1` twice within 30 s on the same window → the second is read as `use`; on another window it is honoured;
   - a Redis throw fails open.
 - **Stamp:**
   - `stampGoogleCache` runs on every google-provider write, including a failed one;
@@ -953,9 +1013,12 @@ There's no test runner: these are `npx tsx` smoke scripts.
    - `invalid_grant` → the token text, the refresh button on scheduled runs, no dedup mark;
    - scopes → the token cleared on demand;
    - a rate-limit 403 on every calendar:
-     - scheduled: set aside, one retry, then the summary with the outage line, its guideline and the dedup mark;
-     - on demand: R13's text, with no `notifyAdminError`;
-     - `/week`: R13's text;
+     - scheduled: set aside, one retry with the first attempt's day and 15,000 ms, then the summary with the outage line, its guideline and the dedup mark, and no week-block Google read;
+     - on demand: one quick retry at 8,000 ms inside the operation, then R13's text, with no `notifyAdminError`;
+     - `/week`: the same;
+   - a fast 500 on demand that succeeds on the quick retry → the summary, delivered by `onSuccess`; a `timeout` → no quick retry;
+   - scheduled, a retry that gets `invalid_grant` → the token text with the refresh button, no outage line, no dedup mark;
+   - scheduled, a retry that crosses local midnight reads and shapes the first attempt's day;
    - a hanging token server on demand → R13's text within 50 s;
    - one 404 → a summary from the rest;
    - all 404 → an empty summary plus a warning.
@@ -965,20 +1028,22 @@ There's no test runner: these are `npx tsx` smoke scripts.
    - clocks: 07:00, 19:00, 00:30, 2026-10-25, Saturday and Sunday.
 
 **Fixes for everyone (§8):**
-- the location save sets the timezone only on a successful lookup;
+- the location save sets the timezone only on a successful lookup; an Open-Meteo failure leaves `tz:user:{id}` untouched; the save responds before the lookup ends (`after()` queued, as `smoke-auth-identity.ts:333-337` does);
 - the moved-first-occurrence fixture appears in a window that ends before the series start;
 - the recurrence cache keeps failures for 10 minutes only, and keys per user;
 - one shared rate-limit bucket per user.
 
 **UI smokes:**
-- pure `grid`: 5- and 6-row months, every week start;
-- `hebrew-date`: Adar I/II in 5787, 29- and 30-day Cheshvan and Kislev, the Tishrei year boundary, a month touching three Hebrew months, Russian genitive;
-- `agenda`: folding, today and tomorrow always shown, nothing "empty" before every source answered;
+- pure `grid`: 5- and 6-row months, every week start (Plan E);
+- `hebrew-date` (Plan D): Adar I/II in 5787, 29- and 30-day Cheshvan and Kislev, the Tishrei year boundary, Russian genitive;
+  - `Locale` identity: after `import '@hebcal/locales/ru'`, `Locale.lookupTranslation('Cheshvan', 'ru') === 'Хешван'`, with `Locale` imported once from `@hebcal/hdate` and once from `@hebcal/core`;
+  - Plan E adds a month touching three Hebrew months and the month-header ranges;
+- `agenda`: folding, today and tomorrow always shown, nothing "empty" before every source answered, and nothing "empty" while a source is in `error` or `reconnect` with no earlier `ok` data;
 - en/he/ru render of `CalendarHome` with fixture data.
 
 **Existing smokes updated:**
 - `smoke-week-lookahead.ts`: the switch-off assertions are kept; switch-on cases add `calendarAssignments` on the fixtures, a top-level `summary` from the fake list, and stubs for the reader's imports, including `getGoogleAuth`;
-- `smoke-admin-panel-ssr.ts`: the rollout control, with `'ADMINS'` and a rejected bad value;
+- `smoke-admin-panel-ssr.ts`: the rollout control, with `'ADMINS'`, a rejected bad value, and a `propagated: false` answer that still shows the new value;
 - `smoke-page-auth.ts` and `smoke-miniapp-gate.ts`: the dashboard branch;
 - `smoke-initdata-header.ts`: the new route, and `execute-command` reading the header.
 
@@ -989,7 +1054,7 @@ There's no test runner: these are `npx tsx` smoke scripts.
 **Device check, before `ALL`:** an iPhone and an Android phone with gesture navigation, in Telegram.
 - Drag down at the top of browse, with swipes off, and on a client older than Bot API 7.7.
 - Android back: in picked it goes to browse; in browse it closes.
-- The BackButton after a reload in picked, and after opening Settings from the ⋯ menu.
+- The BackButton after a reload in picked, and after opening Settings from the ⋯ menu. With the item sheet open over picked, one tap closes only the sheet.
 - The sticky bar during momentum scroll and the top bounce.
 - Send-to-chat closes on a 2xx and stays open on a 429.
 - The Hebrew RTL layout.
@@ -1005,7 +1070,8 @@ There's no test runner: these are `npx tsx` smoke scripts.
 - **A user whose timezone lookup fails** (location or Google settings) gets the cached Asia/Jerusalem fallback for 24 h, with `tzKnown` true. That means Sunday weeks and Hebrew dates until the cache expires.
 - **Large UTC-offset gaps:** an all-day item created 24 h or more of UTC offset away from the viewer may land a day off. The summaries have the same gap today.
 - **`Asia/Hebron` and `Asia/Gaza`** count as Palestine: Monday weeks and no Israel signal, unless the culture is Jewish.
-- **Edits made directly in Google** show on the home within about 3 minutes; bot edits show at once.
+- **Edits made directly in Google** show on the home within about 3 minutes; bot edits show at once. When a background refresh is slow or fails, the stale window waits for the next return to the app or ⋯ → Refresh (§5).
+- **A location change during a geocoding outage** keeps the old timezone for up to 24 h (Ruling R20).
 - **WhatsApp-only users** see a partner's reminders as open, with no way to tick them. That's acceptable while the home is view-only.
 - **Upstash plan** (console check): Free allows 500K commands a month.
   - A range call costs about 4–5 commands: limiter, rollout (memoized 30 s), timezone, cache `MGET`, and a `SET` on a miss.
@@ -1027,7 +1093,7 @@ These are hard requirements for users whose summaries move onto the reader.
 | A-4 | The FamCal set is `listVisibleCalendars`, plus the partner's reminders-for-me on any calendar, deduped. |
 | A-5 | `calendarId` stays raw: the Google id or `native:<cuid>`. |
 | A-6 | `calendarName` stays the Google calendar title or `NativeCalendar.name`, with no source marker. |
-| A-7 | The summary day is `localDate(now, resolveUserTimezone)`; tomorrow is `nextDate`. |
+| A-7 | The summary day is `localDate(now, resolveUserTimezone)`; tomorrow is `nextDate`. A C5 retry keeps the first attempt's day. |
 | A-8 | Membership uses overlap plus `daySpanOf`, including the 06:00 rule and DST days. |
 | A-9 | Span marks drive "next day", "until … (started …)" and "All day (began …, through …)". |
 | A-10 | This week starts at the current instant. Next week is whole days. The tomorrow block lists from tomorrow. |
@@ -1044,7 +1110,7 @@ These are hard requirements for users whose summaries move onto the reader.
 | A-21 | There is no plan gate on reading reminders. |
 | A-22 | Spouse section rules: daily, when spouse events exist; weekly, when a spouse calendar exists. |
 | A-23 | The kid-name follow-up gets the same "other" events. |
-| A-24 | A dead token: no summary; the token text, with the refresh button on scheduled runs; an admin warning; no dedup mark. |
+| A-24 | A dead token: no summary; the token text, with the refresh button on scheduled runs; an admin warning; no dedup mark. This holds also when the token fails only on the C5 retry. |
 | A-25 | Missing scopes: on demand, the scopes text, the token cleared and an admin warning; on scheduled runs, Sentry only. |
 | A-26 | One failing Google calendar: continue with the rest. |
 | A-27 | Weekly Google errors are replaced by Ruling R14 (deliberate). |
