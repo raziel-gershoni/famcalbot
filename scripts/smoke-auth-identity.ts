@@ -3,12 +3,13 @@
 // that user's own DB id), or the WhatsApp magic-link cookie, where user_id is the DB id.
 // The route must act on the row that credential proved, never on a row that only shares
 // the number. Also covers the 24h initData window, suspended users, the one-use magic
-// token and the Telegram link builders.
+// token, the Telegram link builders, and the rate-limit bucket (one per proved user).
 //
 // The routes, user-service, pairing-service, subscription-service, session-auth,
 // telegram-auth and magic-link run for real. Faked at the boundaries: Prisma (in memory),
-// Redis (in memory), the rate limiter (always allows), Telegram and messaging (record
-// every send), error capture, Next's after() (queued, then run), and fetch (blocked).
+// Redis (in memory), the rate limiter (records each key; allows unless a check says no),
+// Telegram and messaging (record every send), error capture, Next's after() (queued, then
+// run), and fetch (blocked).
 // No network, no DB.
 //
 // Checks named [guard] already pass before the fix and must keep passing. The others
@@ -247,6 +248,10 @@ type Sent = { via: string; platform: string; chatId: unknown; text?: string };
 const sent: Sent[] = [];
 const commandRuns: { command: string; chatId: unknown; platform: unknown }[] = [];
 const captured: string[] = [];
+/** Every rate-limit check: the limiter's name and the key it was given. */
+const rateChecks: { limiter: string; key: string }[] = [];
+/** When false the fake limiter says no, as a spent bucket does. */
+let rateAllow = true;
 
 const recorder = (platform: string, prefix: string): Row =>
   new Proxy({} as Row, {
@@ -295,8 +300,12 @@ function installStubs(messagingTypes: Row) {
   stub('src/utils/prisma.ts', { prisma: fakePrisma, withRetry: (fn: () => unknown) => fn() });
   stub('src/utils/redis.ts', { redis: fakeRedis });
   stub('src/lib/rate-limit.ts', {
-    settingsRateLimiter: {}, commandRateLimiter: {}, generalRateLimiter: {},
-    checkRateLimit: async () => ({ success: true, limit: 99, remaining: 99, reset: 0 }),
+    settingsRateLimiter: { name: 'settings' }, commandRateLimiter: { name: 'command' }, generalRateLimiter: { name: 'general' },
+    // The real checkRateLimit hands String(identifier) to limiter.limit(): record that key.
+    checkRateLimit: async (limiter: Row, identifier: string | number) => {
+      rateChecks.push({ limiter: String(limiter?.name), key: String(identifier) });
+      return { success: rateAllow, limit: 99, remaining: rateAllow ? 99 : 0, reset: 0 };
+    },
     getRateLimitHeaders: () => ({}),
   });
   const capture = (e: unknown, ctx: string) => { captured.push(`${ctx}: ${e instanceof Error ? e.message : String(e)}`); };
@@ -372,6 +381,8 @@ function seed(opts: { collision?: boolean } = {}) {
   commandRuns.length = 0;
   captured.length = 0;
   afterQueue.length = 0;
+  rateChecks.length = 0;
+  rateAllow = true;
   DB.user = [
     baseUser({ id: 9, name: 'Tal', telegramId: BigInt(111111111) }),
     baseUser({ id: 42, name: 'WA-User', messagingPlatform: 'whatsapp', whatsappBsuid: 'IL.123' }),
@@ -646,6 +657,78 @@ async function main() {
       lines.forEach((l, i) => { if (bad.test(l)) found.push(`${f}:${i + 1}`); });
     }
     assert(found.length === 0, `DB id in a Telegram link at ${found.join(', ')}`);
+  });
+
+  // ---- Rate limit: one bucket per proved user ----
+
+  const keysOf = (limiter: string) => rateChecks.filter(c => c.limiter === limiter).map(c => c.key);
+
+  await check('#23 rate limit: TG initData 111111111 with user_id 111111111, 0111111111, 9 and 09 all use bucket u9', async () => {
+    seed();
+    for (const userId of ['111111111', '0111111111', '9', '09']) {
+      const res = await postSettings(userId, { initData: initDataFor(111111111) });
+      assert(res.status === 200, `user_id=${userId}: status ${res.status} ${await bodyOf(res)}`);
+    }
+    assert(show(keysOf('settings')) === show(['u9', 'u9', 'u9', 'u9']), `rate checks: ${show(rateChecks)}`);
+  });
+
+  await check('#24 rate limit: WA cookie 42 with user_id 42 and 042 uses bucket u42, on settings and on execute-command', async () => {
+    seed();
+    for (const userId of ['42', '042']) {
+      const res = await postSettings(userId, { cookie: waCookie });
+      assert(res.status === 200, `user_id=${userId}: status ${res.status} ${await bodyOf(res)}`);
+    }
+    const { POST } = await load('app/api/execute-command/route.ts');
+    const res = await POST(req('/api/execute-command', { body: { user_id: 42, command: 'summary' }, cookie: waCookie }));
+    await drainAfter();
+    assert(res.status === 200, `execute-command: status ${res.status} ${await bodyOf(res)}`);
+    assert(show(keysOf('settings')) === show(['u42', 'u42']), `rate checks: ${show(rateChecks)}`);
+    assert(show(keysOf('command')) === show(['u42']), `rate checks: ${show(rateChecks)}`);
+  });
+
+  await check('#25 rate limit: TG user 7 (telegramId 42) and WA user 42, both sending user_id=42, get separate buckets', async () => {
+    seed({ collision: true });
+    const tg = await postSettings(42, { initData: initDataFor(42) });
+    assert(tg.status === 200, `TG: status ${tg.status} ${await bodyOf(tg)}`);
+    const wa = await postSettings(42, { cookie: waCookie });
+    assert(wa.status === 200, `WA: status ${wa.status} ${await bodyOf(wa)}`);
+    assert(show(keysOf('settings')) === show(['u7', 'u42']), `rate checks: ${show(rateChecks)}`);
+  });
+
+  await check('#26 [guard] the limiter sees only proved users: 400, 401, 404 and 403 come first; a spent bucket is 429', async () => {
+    seed();
+    rateAllow = false;
+    const { POST } = await load('app/api/settings/route.ts');
+    const noId = await POST(req('/api/settings', { body: settingsBody, cookie: waCookie }));
+    assert(noId.status === 400, `no user_id: status ${noId.status} ${await bodyOf(noId)}`);
+    const wrongId = await postSettings(7, { cookie: waCookie });
+    assert(wrongId.status === 401, `WA cookie 42 with user_id=7: status ${wrongId.status} ${await bodyOf(wrongId)}`);
+    const noRow = await postSettings(222222222, { initData: initDataFor(222222222) });
+    assert(noRow.status === 404, `TG user with no row: status ${noRow.status} ${await bodyOf(noRow)}`);
+    userRow(9).suspendedAt = new Date(Date.now() - DAY);
+    const suspended = await postSettings(111111111, { initData: initDataFor(111111111) });
+    assert(suspended.status === 403, `suspended: status ${suspended.status} ${await bodyOf(suspended)}`);
+    assert(rateChecks.length === 0, `the limiter was asked about a refused request: ${show(rateChecks)}`);
+    const spent = await postSettings(42, { cookie: waCookie });
+    assert(spent.status === 429, `spent bucket: status ${spent.status} ${await bodyOf(spent)}`);
+    assert(userWrites.length === 0, `a refused save was written: ${show(userWrites)}`);
+  });
+
+  await check('#27 [guard] only src/lib/api-auth.ts calls a limiter, so no other key shares a bucket', () => {
+    const callers: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+        const rel = path.join(dir, e.name);
+        if (e.isDirectory()) walk(rel);
+        else if (/\.tsx?$/.test(e.name) && /\bcheckRateLimit\(|RateLimiter\.limit\(/.test(fs.readFileSync(path.join(ROOT, rel), 'utf8'))) {
+          callers.push(rel);
+        }
+      }
+    };
+    walk('app');
+    walk('src');
+    const others = callers.filter(f => f !== path.join('src', 'lib', 'rate-limit.ts') && f !== path.join('src', 'lib', 'api-auth.ts'));
+    assert(others.length === 0, `a limiter is also called from ${others.join(', ')}`);
   });
 
   let failed = 0;

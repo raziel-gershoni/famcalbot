@@ -42,7 +42,8 @@ function fail(error: string, status: number, headers?: Record<string, string>): 
  * @param rateLimiter - Rate limiter instance to use
  * @param endpointName - Name for logging (e.g., 'settings', 'select-calendars')
  * @returns 400 without user_id, 401 when no credential matches it, 404 when the proved
- *   user has no row, 403 when that user is suspended, 429 when rate limited
+ *   user has no row, 403 when that user is suspended, 429 when that user's bucket
+ *   (keyed `u<user.id>` in rateLimiter) is spent
  */
 export async function verifyUserAuth(
   request: NextRequest,
@@ -93,8 +94,9 @@ export async function verifyUserAuth(
     return fail('Account suspended', 403);
   }
 
-  // Check rate limits
-  const rateLimitResult = await checkRateLimit(rateLimiter, userId);
+  // Rate limit the proved row, not the raw user_id: '123', '0123' and the DB id of one
+  // user share a bucket, and two users who send the same number never do.
+  const rateLimitResult = await checkRateLimit(rateLimiter, `u${user.id}`);
   if (!rateLimitResult.success) {
     return fail('Too many requests. Please wait a minute.', 429, getRateLimitHeaders(rateLimitResult));
   }
