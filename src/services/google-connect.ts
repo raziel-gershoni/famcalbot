@@ -22,6 +22,7 @@ import { escapeHtml } from '../utils/html';
 import { normalizeLocale, type Locale } from '../utils/locale';
 import { getUserById, getUserByTelegramId, updateUserById } from './user-service';
 import { updateUserInCache } from './reminder-cache';
+import { stampGoogleCache } from './calendar-read/google';
 import { getWhatsAppService, MessageFormat } from './messaging';
 import type { UserConfig } from '../types';
 
@@ -152,6 +153,10 @@ export async function commitGoogleToken(ownerUserId: number, refreshToken: strin
       location: user.location,
     });
   }
+
+  // The calendar home's cached Google reads may be of the account this token replaced.
+  // The stamp never throws.
+  await stampGoogleCache(user.id);
 
   // Notify admin of successful token refresh. It is sent with parse_mode HTML, and the
   // name is the user's own text

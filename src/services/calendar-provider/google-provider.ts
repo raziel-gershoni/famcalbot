@@ -1,6 +1,7 @@
 // Google Calendar provider — adapter over the existing src/services/calendar.ts
-// surface. Behavior is identical to the pre-abstraction direct calls; the only
-// addition is the `provider: 'google'` tag on every returned event/calendar.
+// surface. Behavior is identical to the pre-abstraction direct calls; the additions
+// are the `provider: 'google'` tag on every returned event/calendar, and the calendar
+// home's cache stamp after every write.
 
 import {
   fetchTodayEvents as gcalFetchToday,
@@ -23,6 +24,7 @@ import {
   DeleteEventResult,
 } from './types';
 import { UserConfig } from '../../types';
+import { stampGoogleCache } from '../calendar-read/google';
 
 const PROVIDER_NAME = 'google' as const;
 
@@ -33,6 +35,24 @@ const PROVIDER_NAME = 'google' as const;
 async function allDayTimezone(user: UserConfig): Promise<string> {
   const { resolveUserTimezone } = await import('../../lib/timezone');
   return resolveUserTimezone(user);
+}
+
+/**
+ * Runs a write to Google, then stamps the user's calendar-home cache (spec §2.6) whatever
+ * happened: a failed write may still have changed Google ("this and following" is two
+ * calls). The stamp never throws and runs once the write's outcome is in hand, so the
+ * caller gets the write's own result or error.
+ */
+async function writeThenStamp<T>(userId: number, write: () => Promise<T>): Promise<T> {
+  let result: T;
+  try {
+    result = await write();
+  } catch (err) {
+    await stampGoogleCache(userId);
+    throw err;
+  }
+  await stampGoogleCache(userId);
+  return result;
 }
 
 function notConnected(action: string): {
@@ -84,7 +104,7 @@ export const googleProvider: CalendarProvider = {
 
   async createEvent(user: UserConfig, calendarId: string, data: CreateEventInput): Promise<CreateEventResult> {
     if (!user.googleRefreshToken) return notConnected('create event');
-    const result = await gcalCreate(user.googleRefreshToken, calendarId, {
+    const result = await writeThenStamp(user.id, async () => gcalCreate(user.googleRefreshToken, calendarId, {
       title: data.title,
       startTime: data.startTime,
       endTime: data.endTime,
@@ -93,13 +113,13 @@ export const googleProvider: CalendarProvider = {
       allDay: data.allDay,
       recurrence: data.recurrence,
       timeZone: data.allDay ? await allDayTimezone(user) : undefined,
-    });
+    }));
     return result;
   },
 
   async updateEvent(user: UserConfig, calendarId: string, eventId: string, data: UpdateEventInput): Promise<UpdateEventResult> {
     if (!user.googleRefreshToken) return notConnected('update event');
-    const result = await gcalUpdate(user.googleRefreshToken, calendarId, eventId, {
+    const result = await writeThenStamp(user.id, async () => gcalUpdate(user.googleRefreshToken, calendarId, eventId, {
       title: data.title,
       startTime: data.startTime,
       endTime: data.endTime,
@@ -112,16 +132,16 @@ export const googleProvider: CalendarProvider = {
       // Whether the event is all-day may only show once calendar.ts reads it, so any
       // new time takes the timezone along.
       timeZone: data.startTime || data.endTime || data.allDay ? await allDayTimezone(user) : undefined,
-    });
+    }));
     return result;
   },
 
   async deleteEvent(user: UserConfig, calendarId: string, eventId: string, options?: DeleteEventOptions): Promise<DeleteEventResult> {
     if (!user.googleRefreshToken) return notConnected('delete event');
-    const result = await gcalDelete(user.googleRefreshToken, calendarId, eventId, {
+    const result = await writeThenStamp(user.id, async () => gcalDelete(user.googleRefreshToken, calendarId, eventId, {
       scope: options?.scope,
       recurringEventId: options?.recurringEventId,
-    });
+    }));
     return result;
   },
 };

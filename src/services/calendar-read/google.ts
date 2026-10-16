@@ -15,19 +15,23 @@
  *   page by then is truncated, one that got none failed.
  *
  * readGoogleUncached is the live read. readGoogle is what readRange calls: the live read
- * here, with Task B7's route cache put in front of it later. Nothing here stamps the
- * cache; B7's wrapper does that for reads that end in reconnect or calendars_gone.
+ * for the summaries ('bypass'), and for the range route the cache in front of it (spec
+ * §2.6, at the end of this file). stampGoogleCache invalidates a user's cached reads after
+ * a write to Google, a reconnect, or a read that ends in reconnect or calendars_gone.
  */
 
+import crypto from 'crypto';
 import { calendar as googleCalendar } from '@googleapis/calendar';
 import type { calendar_v3 } from '@googleapis/calendar';
+import { Redis } from '@upstash/redis';
 import { getGoogleAuth } from '../calendar';
+import { clearRecurrenceCacheForUser } from '../recurrence-cache';
 import { classifyGoogleError, keepGoogleEvent, mapGoogleEvent } from './google-map';
 import { captureError, captureWarning } from '../../lib/error-capture';
 import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import type { CalendarAssignment, UserConfig } from '../../types';
-import type { CalendarRef, GoogleRead, ReadItem } from './types';
+import type { CalendarRef, GoogleRead, ReadItem, ReadRangeOptions } from './types';
 
 /** A Google item before its calendar is joined. This is what B7's cache stores. */
 export type GoogleItem = Omit<ReadItem, 'calendar'>;
@@ -384,14 +388,284 @@ export async function readGoogleUncached(
   }
 }
 
+// ---- The range route's cache (spec §2.6) ----
+//
+// One entry per user, calendar set, timezone and window: { startedAt, items, goneIds },
+// the items without their calendar, which is joined from the user's choices on every
+// read, so a relabel shows at once. An entry is valid only while its startedAt is later
+// than the user's stamp. startedAt is taken before Google is asked, so a read that began
+// before a write and landed after it is never served.
+//
+// The reads in flight and the last write per key live on globalThis: the scheduler and
+// the routes are separate bundles (Next 16), each with its own module instances.
+//
+// Redis errors fail open: a miss, no write, a warning. The summaries never come here.
+
+const CACHE_LOG_CONTEXT = 'calendar-read-google-cache';
+const STAMP_LOG_CONTEXT = 'calendar-read-google-stamp';
+/** An entry younger than this is served as it is. */
+const FRESH_MS = 3 * 60_000;
+/** Older than FRESH_MS and younger than this: served stale, with one background refresh. */
+const STALE_MS = 30 * 60_000;
+const ENTRY_TTL_S = 1_800;
+/** Longer than any entry lives. */
+const STAMP_TTL_S = 3_600;
+const MAX_ENTRY_BYTES = 512 * 1024;
+/** fresh=1 is honoured once per this, per user and window. */
+const FRESH_LIMIT_S = 30;
+const REFRESH_DEADLINE_MS = 6_000;
+const STAMP_TIMEOUT_MS = 750;
+
+/** readGoogle's options: the live read's, plus the cache's (ReadRangeOptions, spec §2.2). */
+export interface GoogleHalfOptions extends GoogleReadOptions {
+  googleCache?: ReadRangeOptions['googleCache'];   // default 'bypass'; only the range route passes 'use' or 'refresh'
+  defer?: ReadRangeOptions['defer'];               // runs a stale entry's refresh; the route passes after()
+}
+
+/** What the cache keeps under a key. */
+interface CacheEntry {
+  startedAt: number;
+  items: GoogleItem[];
+  goneIds: string[];
+}
+
+/** A live read in flight for a key. */
+interface Flight {
+  startedAt: number;
+  promise: Promise<GoogleReadResult>;
+}
+
+/** One cached read: who, which window, which calendars, under which key. */
+interface CachedRead {
+  user: UserConfig;
+  window: { from: Date; to: Date };
+  live: GoogleReadOptions;
+  set: CalendarAssignment[];
+  key: string;
+  defer?: ReadRangeOptions['defer'];
+}
+
+const cacheState = globalThis as { __gcalInflight?: Map<string, Flight>; __gcalWritten?: Map<string, number> };
+/** The newest read in flight per key. */
+const inflight: Map<string, Flight> = (cacheState.__gcalInflight ??= new Map());
+/** The startedAt of the last write per key, kept 30 minutes. */
+const lastWrite: Map<string, number> = (cacheState.__gcalWritten ??= new Map());
+
+/** The first 16 hex digits of sha256 over the sorted calendar ids, which are often email addresses. */
+function calendarSetHash(calendarIds: readonly string[]): string {
+  return crypto.createHash('sha256').update([...calendarIds].sort().join('\n')).digest('hex').slice(0, 16);
+}
+
+/** The stamp as Upstash returns it (a number, or a string). Unreadable invalidates everything. */
+function stampValue(raw: unknown): number {
+  if (raw === null || raw === undefined) return 0;
+  const at = typeof raw === 'number' ? raw : Number(raw);
+  return Number.isFinite(at) ? at : Number.POSITIVE_INFINITY;
+}
+
+/** An entry as Upstash returns it (parsed JSON, or a string); anything else is a miss. */
+function entryValue(raw: unknown): CacheEntry | null {
+  let value = raw;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (!value || typeof value !== 'object') return null;
+  const e = value as Partial<CacheEntry>;
+  return typeof e.startedAt === 'number' && Array.isArray(e.items) && Array.isArray(e.goneIds) ? (e as CacheEntry) : null;
+}
+
+/** A valid entry as a read, its calendars joined from today's choices. */
+function fromEntry(entry: CacheEntry, set: readonly CalendarAssignment[], stale: boolean): GoogleReadResult {
+  return {
+    read: {
+      status: 'ok',
+      calendars: set.map(a => googleCalendarRef(a, entry.goneIds)),
+      goneIds: entry.goneIds,
+      partial: null,
+      stale,
+    },
+    items: attachGoogleCalendars(entry.items, set, entry.goneIds),
+  };
+}
+
+function withoutCalendar({ calendar: _calendar, ...item }: ReadItem): GoogleItem {
+  return item;
+}
+
+function rememberWrite(key: string, startedAt: number): void {
+  const cutoff = Date.now() - STALE_MS;
+  for (const [k, at] of lastWrite) if (at < cutoff) lastWrite.delete(k);
+  lastWrite.set(key, startedAt);
+}
+
 /**
- * The Google half for readRange (spec §2.5). In this task it is the live read; Task B7 puts
- * the route's cache in front of it and adds opts.googleCache and opts.defer.
+ * After a live read: a dead token or no calendar left stamps the user's entries, so a
+ * stale entry never hides it; a whole ok read (partial null) is written, gone calendars
+ * and all. Only the newest read writes: none that started later may still be in flight
+ * or have written already.
  */
-export function readGoogle(
+async function afterRead(r: CachedRead, flight: Flight, result: GoogleReadResult): Promise<void> {
+  const { read } = result;
+  if (read.status === 'reconnect' || (read.status === 'error' && read.reason === 'calendars_gone')) {
+    await stampGoogleCache(r.user.id);
+    return;
+  }
+  if (read.status !== 'ok' || read.partial) return;
+  const current = inflight.get(r.key);
+  if (current && current !== flight && current.startedAt > flight.startedAt) return;
+  const last = lastWrite.get(r.key);
+  if (last !== undefined && last >= flight.startedAt) return;
+  const entry: CacheEntry = { startedAt: flight.startedAt, items: result.items.map(withoutCalendar), goneIds: read.goneIds };
+  const value = JSON.stringify(entry);
+  if (Buffer.byteLength(value, 'utf8') > MAX_ENTRY_BYTES) return;
+  rememberWrite(r.key, flight.startedAt);
+  try {
+    await redis.set(r.key, value, { ex: ENTRY_TTL_S });
+  } catch (err) {
+    captureError(err, CACHE_LOG_CONTEXT, { user_id: r.user.id }, 'warning');
+  }
+}
+
+async function runFlight(r: CachedRead, flight: Flight, deadlineMs: number): Promise<GoogleReadResult> {
+  try {
+    const result = await readGoogleUncached(r.user, r.window, { ...r.live, deadlineMs });
+    await afterRead(r, flight, result);
+    return result;
+  } finally {
+    // A newer read for the key may have taken the slot; it is not this read's to remove.
+    if (inflight.get(r.key) === flight) inflight.delete(r.key);
+  }
+}
+
+/** Starts a live read and puts it in flight. Its first step awaits Google, so it is in the map before its finally runs. */
+function startRead(r: CachedRead, deadlineMs: number): Promise<GoogleReadResult> {
+  const flight = { startedAt: Date.now() } as Flight;
+  flight.promise = runFlight(r, flight, deadlineMs);
+  inflight.set(r.key, flight);
+  return flight.promise;
+}
+
+/**
+ * A stale entry's refresh, after the response when the caller can defer it. One at a time
+ * per key: a read already in flight since the stamp will write. It never rejects.
+ */
+function refreshInBackground(r: CachedRead, stamp: number): void {
+  const task = async () => {
+    const flight = inflight.get(r.key);
+    if (flight && flight.startedAt > stamp) return;
+    await startRead(r, REFRESH_DEADLINE_MS);
+  };
+  const run = () => task().catch(err => captureError(err, CACHE_LOG_CONTEXT, { user_id: r.user.id }, 'warning'));
+  if (!r.defer) {
+    void run();
+    return;
+  }
+  try {
+    r.defer(run);
+  } catch (err) {
+    captureError(err, CACHE_LOG_CONTEXT, { user_id: r.user.id }, 'warning');
+    void run();
+  }
+}
+
+/**
+ * The Google half for readRange (spec §2.5, §2.6). 'bypass', the default and every
+ * summary's, is the live read. The range route passes 'use', or 'refresh' for fresh=1,
+ * and reads through the cache. An empty token or no chosen calendar never reaches Google,
+ * so it never reads the cache either (§2.5 steps 1 and 2).
+ */
+export async function readGoogle(
   user: UserConfig,
   window: { from: Date; to: Date },
-  opts: GoogleReadOptions,
+  opts: GoogleHalfOptions,
 ): Promise<GoogleReadResult> {
-  return readGoogleUncached(user, window, opts);
+  const live: GoogleReadOptions = { tz: opts.tz, calendarIds: opts.calendarIds, deadlineMs: opts.deadlineMs };
+  const mode = opts.googleCache ?? 'bypass';
+  const set = googleCalendarSet(user, opts.calendarIds);
+  if (mode === 'bypass' || !user.googleRefreshToken || set.length === 0) return readGoogleUncached(user, window, live);
+
+  const arrivedAt = Date.now();
+  const from = window.from.toISOString();
+  const to = window.to.toISOString();
+  const key = REDIS_KEYS.gcalRange(user.id, calendarSetHash(set.map(a => a.calendarId)), opts.tz, from, to);
+  const r: CachedRead = { user, window, live, set, key, defer: opts.defer };
+
+  let refresh: boolean;
+  let stamp: number;
+  let entry: CacheEntry | null;
+  try {
+    // fresh=1 once per 30 s per user and window; past that it reads as 'use'.
+    refresh = mode === 'refresh'
+      && (await redis.set(REDIS_KEYS.gcalFresh(user.id, from, to), 1, { nx: true, ex: FRESH_LIMIT_S })) === 'OK';
+    const [rawStamp, rawEntry] = await redis.mget<[unknown, unknown]>(REDIS_KEYS.gcalStamp(user.id), key);
+    stamp = stampValue(rawStamp);
+    entry = entryValue(rawEntry);
+  } catch (err) {
+    captureError(err, CACHE_LOG_CONTEXT, { user_id: user.id }, 'warning');
+    return readGoogleUncached(user, window, live);
+  }
+
+  if (!refresh && entry && entry.startedAt > stamp) {
+    const age = arrivedAt - entry.startedAt;
+    if (age < FRESH_MS) return fromEntry(entry, set, false);
+    if (age < STALE_MS) {
+      refreshInBackground(r, stamp);
+      return fromEntry(entry, set, true);
+    }
+  }
+
+  // Join the read in flight unless a stamp came after it started; a refresh joins only a
+  // read that started once it had arrived.
+  const flight = inflight.get(key);
+  if (flight && flight.startedAt > stamp && (!refresh || flight.startedAt >= arrivedAt)) return flight.promise;
+  return startRead(r, opts.deadlineMs);
+}
+
+// ---- The stamp ----
+
+let stampClient: Redis | undefined;
+
+/**
+ * The stamp's own client: one attempt per command (in @upstash/redis 1.35, `retry: false`
+ * still makes two) and each request aborted at 750 ms, so a slow Redis can't hold up a
+ * write to Google.
+ */
+function stampRedis(): Redis {
+  stampClient ??= new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL!,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    retry: { retries: 0 },
+    signal: () => AbortSignal.timeout(STAMP_TIMEOUT_MS),
+  });
+  return stampClient;
+}
+
+/**
+ * Invalidates every cached Google read of the user (spec §2.6) and drops their weekly
+ * recurrence answers (§8.3). Called after each bot write to Google (google-provider.ts),
+ * after a reconnect (google-connect.ts), and by a cached read ('use', 'refresh' or a
+ * stale entry's refresh) that ends in reconnect or calendars_gone. A 'bypass' read, every
+ * summary's, never stamps. It never throws or rejects, and takes at most 750 ms: a lost
+ * stamp means at worst three minutes of pre-write data on the home.
+ */
+export async function stampGoogleCache(userId: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    clearRecurrenceCacheForUser(userId);
+    const write = stampRedis().set(REDIS_KEYS.gcalStamp(userId), Date.now(), { ex: STAMP_TTL_S });
+    const late = new Promise<'late'>(resolve => {
+      timer = setTimeout(() => resolve('late'), STAMP_TIMEOUT_MS);
+    });
+    if ((await Promise.race([write, late])) === 'late') {
+      captureError(new Error(`The Google cache stamp took over ${STAMP_TIMEOUT_MS} ms`), STAMP_LOG_CONTEXT, { user_id: userId }, 'warning');
+    }
+  } catch (err) {
+    captureError(err, STAMP_LOG_CONTEXT, { user_id: userId }, 'warning');
+  } finally {
+    clearTimeout(timer);
+  }
 }
