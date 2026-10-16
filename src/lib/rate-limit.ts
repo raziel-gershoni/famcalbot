@@ -36,6 +36,16 @@ export const tokenPollRateLimiter = new Ratelimit({
   prefix: 'ratelimit:token-poll',
 });
 
+// calendar/range: 60 requests per minute, on a budget of its own. The calendar home asks
+// for each source's days on every open and every return to the foreground, and the Month
+// tab fetches the month on screen and the ones next to it, which would soon use up the
+// general limit
+export const calendarRateLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(60, '1 m'),
+  prefix: 'ratelimit:calendar',
+});
+
 export interface RateLimitResult {
   success: boolean;
   remaining: number;

@@ -6,6 +6,10 @@
 // the header, then a string initData in the JSON body, and never the query
 // (requestInitData).
 //
+// The calendar home's GET /api/calendar/range reads the header only, and
+// /api/execute-command now reads the header too, then the body (it used to read only the
+// body's initData).
+//
 // The routes, admin-auth, api-auth, telegram-auth and the services behind them run for
 // real. Faked at the boundaries: Prisma (in memory), Redis (in memory), the rate limiter
 // (always allows), Telegram and messaging (record every send), error capture, and fetch
@@ -272,7 +276,7 @@ function installStubs() {
   stub('src/utils/prisma.ts', { prisma: fakePrisma, withRetry: (fn: () => unknown) => fn() });
   stub('src/utils/redis.ts', { redis: fakeRedis });
   stub('src/lib/rate-limit.ts', {
-    settingsRateLimiter: {}, commandRateLimiter: {}, generalRateLimiter: {},
+    settingsRateLimiter: {}, commandRateLimiter: {}, generalRateLimiter: {}, calendarRateLimiter: {},
     checkRateLimit: async () => ({ success: true, limit: 99, remaining: 99, reset: 0 }),
     getRateLimitHeaders: () => ({}),
   });
@@ -296,6 +300,9 @@ function installStubs() {
   };
   stub('src/services/messaging/index.ts', messaging);
   stub('src/services/messaging/factory.ts', messaging);
+  // Next's after() needs a live request scope. execute-command queues its command there;
+  // the command itself is not what this smoke checks, so drop it.
+  nodeRequire('next/server').after = () => undefined;
   globalThis.fetch = (async (input: unknown) => {
     throw new Error(`network blocked in smoke: ${String(input instanceof Request ? input.url : input)}`);
   }) as typeof fetch;
@@ -364,7 +371,10 @@ function sourceFiles(dir: string): string[] {
   return out;
 }
 
-/** Every route read of initData before the fix: 13 query-only, 8 body-then-query. */
+/**
+ * Every route read of initData before the fix (13 query-only, 8 body-then-query), the
+ * calendar range route (header only) and execute-command (header, then body).
+ */
 type Case = { route: string; method: string; url: string; body?: Row; params?: Row };
 const CASES: Case[] = [
   { route: 'app/api/admin/settings/route.ts', method: 'GET', url: '/api/admin/settings' },
@@ -388,6 +398,8 @@ const CASES: Case[] = [
   { route: 'app/api/oauth/start/route.ts', method: 'POST', url: '/api/oauth/start', body: { user_id: String(TG_ID) } },
   { route: 'app/api/subscription/route.ts', method: 'GET', url: `/api/subscription?user_id=${TG_ID}` },
   { route: 'app/api/weather-image/sign/route.ts', method: 'GET', url: `/api/weather-image/sign?user_id=${TG_ID}&source=summary` },
+  { route: 'app/api/calendar/range/route.ts', method: 'GET', url: `/api/calendar/range?user_id=${TG_ID}` },
+  { route: 'app/api/execute-command/route.ts', method: 'POST', url: '/api/execute-command', body: { user_id: String(TG_ID), command: 'weather' } },
 ];
 
 async function main() {

@@ -3,6 +3,7 @@ import { after } from 'next/server';
 import { getUserByTelegramId, getUserById } from '@/src/services/user-service';
 import { MessagingPlatform, getMessagingService as getPlatformService } from '@/src/services/messaging';
 import { verifyUserAuth, type AuthVia } from '@/src/lib/api-auth';
+import { requestInitData } from '@/src/lib/request-init-data';
 import { resolveCommandTarget } from '@/src/lib/command-target';
 import { commandRateLimiter } from '@/src/lib/rate-limit';
 import { captureError } from '@/src/lib/error-capture';
@@ -14,7 +15,9 @@ export const runtime = 'nodejs';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { user_id, command, args, secret, initData } = body;
+    const { user_id, command, args, secret } = body;
+    // The X-Telegram-Init-Data header, else a string initData in the body
+    const initData = requestInitData(request, body);
 
     // Validate required parameters
     if (!user_id || !command) {
