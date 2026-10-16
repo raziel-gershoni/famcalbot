@@ -15,7 +15,8 @@
 //
 // An answer is kept 6 hours. A failed lookup is kept 10 minutes: kept for good, one
 // Google hiccup hid a monthly series from /week until the next deploy. A series that is
-// gone (404, 410) is an answer.
+// gone (404, 410) is an answer. At most 5,000 entries are kept: past that, a write drops
+// the entries that have run out, then the oldest written.
 
 /** How long an answer is kept: the master's rules, or none. */
 export const RECURRENCE_ANSWER_TTL_MS = 6 * 60 * 60 * 1000;
@@ -23,6 +24,8 @@ export const RECURRENCE_ANSWER_TTL_MS = 6 * 60 * 60 * 1000;
 export const RECURRENCE_GONE_TTL_MS = RECURRENCE_ANSWER_TTL_MS;
 /** How long a failed lookup is kept, so a hiccup is asked about again soon. */
 export const RECURRENCE_FAILURE_TTL_MS = 10 * 60 * 1000;
+/** The most entries kept: past it, a write makes room (writeRecurrenceCache). */
+export const RECURRENCE_CACHE_MAX_ENTRIES = 5000;
 
 /**
  * A kept lookup: the rules (null for none, or none known), when it was asked (epoch ms)
@@ -45,9 +48,24 @@ export function readRecurrenceCache(key: string, now: number): RecurrenceEntry |
   return entry && now - entry.at < entry.ttlMs ? entry : undefined;
 }
 
-/** Keeps `entry` under `key`, replacing what was there. */
+/**
+ * Keeps `entry` under `key`, replacing what was there, as the newest entry. Past
+ * RECURRENCE_CACHE_MAX_ENTRIES it makes room: first every entry that has run out by
+ * `entry.at`, then the oldest written, until the cache is back at the cap.
+ */
 export function writeRecurrenceCache(key: string, entry: RecurrenceEntry): void {
+  // A Map iterates in the order its keys were first set. Deleted first, a refreshed
+  // answer moves to the end, so it is not the first to go.
+  cache.delete(key);
   cache.set(key, entry);
+  if (cache.size <= RECURRENCE_CACHE_MAX_ENTRIES) return;
+  for (const [k, e] of cache) {
+    if (entry.at - e.at >= e.ttlMs) cache.delete(k);
+  }
+  for (const k of cache.keys()) {
+    if (cache.size <= RECURRENCE_CACHE_MAX_ENTRIES) break;
+    cache.delete(k);
+  }
 }
 
 /**

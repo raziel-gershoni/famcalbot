@@ -9,7 +9,8 @@
 //
 // The series lookup behind the daily/weekly filter kept a failed lookup forever, under a
 // key every user shared: one Google hiccup hid a monthly series from /week until the
-// next deploy, for everyone with that calendar.
+// next deploy, for everyone with that calendar. Nor did it ever let an entry go: in
+// Railway's one long-lived process it grew without end.
 //
 // Google, the native calendar, the timezone lookup and the AI are stubbed. No network.
 //
@@ -139,6 +140,10 @@ const masterCalls: string[] = [];
 const masterErrors: Record<string, Error> = {};
 /** How far the cache's clock moves while events.get answers. */
 let masterTookMs = 0;
+/** Every native series read (getNativeSeriesRrule), by series id. */
+const nativeCalls: string[] = [];
+/** What getNativeSeriesRrule throws, while set: the database is out of reach. */
+let nativeError: Error | undefined;
 /** The cache's clock: Date.now returns it during the (g) checks. */
 let clock = 0;
 
@@ -237,7 +242,13 @@ async function main() {
     getProviderForUser: (u: { id: number }) => ({ fetchEventsInRange: async () => NATIVE_BY_USER[u.id] ?? NATIVE_EVENTS }),
     getCalendarAssignmentsForUser: async () => calendars,
   });
-  stub('services/native-calendar/event-store.ts', { getNativeSeriesRrule: async (id: string) => RRULES[id] ?? null });
+  stub('services/native-calendar/event-store.ts', {
+    getNativeSeriesRrule: async (id: string) => {
+      nativeCalls.push(id);
+      if (nativeError) throw nativeError;
+      return RRULES[id] ?? null;
+    },
+  });
   stub('lib/timezone.ts', { resolveUserTimezone: async (u: { id: number }) => TIMEZONES[u.id] });
   stub('services/ai-provider.ts', {
     generateAICompletion: async (prompt: string) => {
@@ -251,6 +262,8 @@ async function main() {
 
   const { getWeekLookahead, getNextWeekLookahead, formatTomorrowLookahead, clearRecurrenceCache, clearRecurrenceCacheForUser } =
     await import('../src/services/week-lookahead');
+  const { RECURRENCE_CACHE_MAX_ENTRIES, RECURRENCE_ANSWER_TTL_MS, RECURRENCE_FAILURE_TTL_MS, writeRecurrenceCache } =
+    await import('../src/services/recurrence-cache');
   const { generateWeekLookahead, generateNextWeekSummary } = await import('../src/services/claude');
 
   /** The prompt claude.ts builds for a lookahead. */
@@ -486,9 +499,17 @@ async function main() {
     const lookahead = await getWeekLookahead(u, calendars, seriesTuesday);
     return `${lookahead.events.map(e => e.summary).join(', ') || 'nothing'} | asked ${masterCalls.join(', ') || 'nothing'}`;
   };
+  /** The same for the native New York user: what it lists | the native series it read. */
+  const nativeWeek = async (at: number) => {
+    clock = at;
+    nativeCalls.length = 0;
+    const lookahead = await getWeekLookahead(nativeNewYorker, calendars, seriesTuesday);
+    return `${lookahead.events.map(e => e.summary).join(', ') || 'nothing'} | read ${nativeCalls.join(', ') || 'nothing'}`;
+  };
   const freshCache = () => {
     clearRecurrenceCache();
     for (const token of Object.keys(masterErrors)) delete masterErrors[token];
+    nativeError = undefined;
     masterTookMs = 0;
   };
 
@@ -546,6 +567,48 @@ async function main() {
       ]));
     });
 
+    await check('(g) a lookup cut off with no HTTP status (ECONNRESET) is kept 10 minutes, then asked again', async () => {
+      freshCache();
+      masterErrors['token-series-6'] = Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
+      const got = [`0:00:00: ${await seriesWeek(seriesUser, T0)}`];
+      delete masterErrors['token-series-6'];
+      got.push(`0:09:59: ${await seriesWeek(seriesUser, T0 + 10 * MIN - 1000)}`);
+      got.push(`0:10:00: ${await seriesWeek(seriesUser, T0 + 10 * MIN)}`);
+      assertList(got, [
+        `0:00:00: nothing | ${BOTH('token-series-6')}`,
+        '0:09:59: nothing | asked nothing',
+        `0:10:00: Book club | ${BOTH('token-series-6')}`,
+      ]);
+    });
+
+    await check('(g) native: a failed series read is kept 10 minutes, then read again', async () => {
+      freshCache();
+      nativeError = new Error("Can't reach database server");
+      const got = [`0:00:00: ${await nativeWeek(T0)}`];
+      nativeError = undefined;
+      got.push(`0:09:59: ${await nativeWeek(T0 + 10 * MIN - 1000)}`);
+      got.push(`0:10:00: ${await nativeWeek(T0 + 10 * MIN)}`);
+      assertList(got, [
+        '0:00:00: Teacher day | read standup, anniv',
+        '0:09:59: Teacher day | read nothing',
+        '0:10:00: Teacher day, Anniversary | read standup, anniv',
+      ]);
+    });
+
+    await check('(g) native: an answer is kept 6 hours, then read again', async () => {
+      freshCache();
+      const got = [`0:00:00: ${await nativeWeek(T0)}`];
+      // Read again now, the series would fail: what shows is the kept answer.
+      nativeError = new Error("Can't reach database server");
+      got.push(`5:59:59: ${await nativeWeek(T0 + 6 * HOUR - 1000)}`);
+      got.push(`6:00:00: ${await nativeWeek(T0 + 6 * HOUR)}`);
+      assertList(got, [
+        '0:00:00: Teacher day, Anniversary | read standup, anniv',
+        '5:59:59: Teacher day, Anniversary | read nothing',
+        '6:00:00: Teacher day | read standup, anniv',
+      ]);
+    });
+
     await check('(g) two users with the same calendar and series ids each get their own answer', async () => {
       freshCache();
       masterErrors['token-series-6'] = googleError(503);
@@ -573,6 +636,53 @@ async function main() {
         `Book club | ${BOTH('token-series-6')}`,
         'Book club | asked nothing',
       ]);
+    });
+    // The bound, written to directly. The cap is written out (5,000, as the review asked), so
+    // a changed constant fails the first check instead of moving the checks with it.
+    const CAP = 5000;
+    const answerAt = (at: number) => ({ value: ['RRULE:FREQ=MONTHLY'], at, ttlMs: RECURRENCE_ANSWER_TTL_MS });
+    const failureAt = (at: number) => ({ value: null, at, ttlMs: RECURRENCE_FAILURE_TTL_MS });
+    /** How many entries the cache's Map holds, then whether it still holds each of `keys`. */
+    const holds = (keys: string[]) => {
+      const map = (globalThis as { __recurrenceCache?: Map<string, unknown> }).__recurrenceCache;
+      assert(!!map, 'no cache on globalThis.__recurrenceCache');
+      return [`${map.size} held`, ...keys.map(key => `${key} ${map.has(key) ? 'kept' : 'gone'}`)];
+    };
+
+    await check('(g) past 5,000 entries, the ones that ran out go first; a live one stays, the oldest included', async () => {
+      freshCache();
+      writeRecurrenceCache('answer', answerAt(T0));
+      for (let i = 1; i <= CAP - 2; i++) writeRecurrenceCache(`failed:${i}`, failureAt(T0));
+      // A second younger: one second short of its 10 minutes when 'new' is written.
+      writeRecurrenceCache('failed:late', failureAt(T0 + 1000));
+      const atCap = holds(['answer']);
+      writeRecurrenceCache('new', failureAt(T0 + 10 * MIN));
+      assertList([`cap ${RECURRENCE_CACHE_MAX_ENTRIES}`, ...atCap, ...holds(['answer', 'failed:1', `failed:${CAP - 2}`, 'failed:late', 'new'])], [
+        'cap 5000',
+        '5000 held', 'answer kept',
+        '3 held', 'answer kept', 'failed:1 gone', 'failed:4998 gone', 'failed:late kept', 'new kept',
+      ]);
+    });
+
+    await check('(g) past 5,000 live entries, the oldest written goes, one per write', async () => {
+      freshCache();
+      for (let i = 1; i <= CAP + 1; i++) writeRecurrenceCache(`answer:${i}`, answerAt(T0 + i));
+      const first = holds(['answer:1', 'answer:2', `answer:${CAP + 1}`]);
+      writeRecurrenceCache(`answer:${CAP + 2}`, answerAt(T0 + CAP + 2));
+      assertList([...first, ...holds(['answer:2', 'answer:3', `answer:${CAP + 2}`])], [
+        '5000 held', 'answer:1 gone', 'answer:2 kept', 'answer:5001 kept',
+        '5000 held', 'answer:2 gone', 'answer:3 kept', 'answer:5002 kept',
+      ]);
+    });
+
+    await check('(g) a key written again counts as newest: a refreshed answer is not the first to go', async () => {
+      freshCache();
+      writeRecurrenceCache('answer:1', answerAt(T0));
+      for (let i = 2; i <= CAP; i++) writeRecurrenceCache(`answer:${i}`, answerAt(T0 + HOUR));
+      // Six hours on, answer:1 has run out and is asked again; then a new series comes.
+      writeRecurrenceCache('answer:1', answerAt(T0 + 6 * HOUR));
+      writeRecurrenceCache('new', answerAt(T0 + 6 * HOUR));
+      assertList(holds(['answer:1', 'answer:2', 'answer:3', 'new']), ['5000 held', 'answer:1 kept', 'answer:2 gone', 'answer:3 kept', 'new kept']);
     });
   } finally {
     Date.now = realNow;
