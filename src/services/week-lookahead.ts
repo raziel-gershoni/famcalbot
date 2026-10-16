@@ -7,6 +7,14 @@ import { CalendarEvent, CalendarAssignment, CalendarLabel, ReminderInfo, UserCon
 import { getCalendarClient } from './calendar';
 import { getProviderForUser } from './calendar-provider';
 import { getNativeSeriesRrule } from './native-calendar/event-store';
+import {
+  RECURRENCE_ANSWER_TTL_MS,
+  RECURRENCE_FAILURE_TTL_MS,
+  RECURRENCE_GONE_TTL_MS,
+  readRecurrenceCache,
+  recurrenceCacheKey,
+  writeRecurrenceCache,
+} from './recurrence-cache';
 import { eventTimeLabel, isAllDayEvent, isBirthdayEvent, isReminderEvent, reminderAttribution } from '../utils/event-formatter';
 import { addDaysToDate, daySpanOf, localDate, nextDate, startOfLocalDay } from '../utils/day-events';
 import { resolveUserTimezone } from '../lib/timezone';
@@ -55,8 +63,11 @@ interface LookaheadDays {
   last: string;
 }
 
-// Cache for master event recurrence rules to avoid repeated API calls
-const recurrenceCache = new Map<string, string[] | null>();
+/**
+ * One lookahead run's series lookups, by cache key: each series is asked about once per
+ * run. ./recurrence-cache keeps the answers across runs.
+ */
+type SeriesLookups = Map<string, Promise<string[] | null>>;
 
 /** Day of the week of yyyy-MM-dd, 0 = Sunday. */
 function weekdayOf(day: string): number {
@@ -114,21 +125,58 @@ function parseRecurrence(rrule?: string[]): RecurrenceType {
   return 'single';
 }
 
+/** The HTTP status of a Google API error, if it has one (gaxios sets status and response.status). */
+function googleErrorStatus(error: unknown): number | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const e = error as { status?: unknown; code?: unknown; response?: { status?: unknown } };
+  for (const status of [e.status, e.response?.status, e.code]) {
+    if (typeof status === 'number') return status;
+  }
+  return undefined;
+}
+
 /**
  * Fetch recurrence rules from master event
- * Uses caching to avoid repeated API calls for the same recurring event
+ * Kept per user (./recurrence-cache), and asked once per lookahead run (`lookups`)
  */
 async function getMasterEventRecurrence(
   user: UserConfig,
   calendarId: string,
-  recurringEventId: string
+  recurringEventId: string,
+  lookups: SeriesLookups
 ): Promise<string[] | null> {
-  const cacheKey = `${calendarId}:${recurringEventId}`;
-
-  if (recurrenceCache.has(cacheKey)) {
-    return recurrenceCache.get(cacheKey) || null;
+  const cacheKey = recurrenceCacheKey(user.id, calendarId, recurringEventId);
+  let lookup = lookups.get(cacheKey);
+  if (!lookup) {
+    lookup = lookUpRecurrence(user, calendarId, recurringEventId, cacheKey);
+    lookups.set(cacheKey, lookup);
   }
+  return lookup;
+}
 
+/** The kept answer while it holds; otherwise ask, and keep the answer. */
+async function lookUpRecurrence(
+  user: UserConfig,
+  calendarId: string,
+  recurringEventId: string,
+  cacheKey: string
+): Promise<string[] | null> {
+  // An answer is as old as its question.
+  const at = Date.now();
+  const cached = readRecurrenceCache(cacheKey, at);
+  if (cached) return cached.value;
+
+  const { value, ttlMs } = await fetchMasterEventRecurrence(user, calendarId, recurringEventId);
+  writeRecurrenceCache(cacheKey, { value, at, ttlMs });
+  return value;
+}
+
+/** A series' rules from its master event, and how long that answer holds. Never rejects. */
+async function fetchMasterEventRecurrence(
+  user: UserConfig,
+  calendarId: string,
+  recurringEventId: string
+): Promise<{ value: string[] | null; ttlMs: number }> {
   // NATIVE: the series rule lives in our own table. Falling through to the
   // Google client here would authenticate with an empty refresh token, fail,
   // and land in the catch below - which classifies the event as 'daily' and
@@ -144,12 +192,10 @@ async function getMasterEventRecurrence(
       const recurrence = rrule
         ? [rrule.startsWith('RRULE:') ? rrule : `RRULE:${rrule}`]
         : null;
-      recurrenceCache.set(cacheKey, recurrence);
-      return recurrence;
+      return { value: recurrence, ttlMs: RECURRENCE_ANSWER_TTL_MS };
     } catch (error) {
       console.warn(`Failed to read native series ${recurringEventId}:`, error);
-      recurrenceCache.set(cacheKey, null);
-      return null;
+      return { value: null, ttlMs: RECURRENCE_FAILURE_TTL_MS };
     }
   }
 
@@ -160,13 +206,12 @@ async function getMasterEventRecurrence(
       eventId: recurringEventId,
     });
 
-    const recurrence = master.data.recurrence || null;
-    recurrenceCache.set(cacheKey, recurrence);
-    return recurrence;
+    return { value: master.data.recurrence || null, ttlMs: RECURRENCE_ANSWER_TTL_MS };
   } catch (error) {
     console.warn(`Failed to fetch master event ${recurringEventId}:`, error);
-    recurrenceCache.set(cacheKey, null);
-    return null;
+    // A 404 or 410 is an answer: the series is gone. Anything else may pass in a moment.
+    const status = googleErrorStatus(error);
+    return { value: null, ttlMs: status === 404 || status === 410 ? RECURRENCE_GONE_TTL_MS : RECURRENCE_FAILURE_TTL_MS };
   }
 }
 
@@ -263,6 +308,8 @@ async function filterAndBuildLookaheadEvents(
   days: LookaheadDays
 ): Promise<LookaheadEvent[]> {
   const lookaheadEvents: LookaheadEvent[] = [];
+  // Each series is asked about once per run, even if its kept answer runs out mid-run.
+  const seriesLookups: SeriesLookups = new Map();
 
   for (const event of events) {
     const birthday = isBirthdayEvent(event);
@@ -298,7 +345,8 @@ async function filterAndBuildLookaheadEvents(
       const rrule = await getMasterEventRecurrence(
         user,
         event.calendarId,
-        event.recurringEventId
+        event.recurringEventId,
+        seriesLookups
       );
       if (rrule && rrule.length > 0) {
         recurrenceType = parseRecurrence(rrule);
@@ -493,9 +541,7 @@ export async function getNextWeekLookahead(
   };
 }
 
-/**
- * Clear recurrence cache (useful for testing or memory management)
- */
-export function clearRecurrenceCache(): void {
-  recurrenceCache.clear();
-}
+// The clear functions live in ./recurrence-cache, which imports nothing, so a calendar
+// write path can call them without importing this module and the calendar providers
+// behind it. Re-exported for the callers that import them from here.
+export { clearRecurrenceCache, clearRecurrenceCacheForUser } from './recurrence-cache';

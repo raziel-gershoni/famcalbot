@@ -7,12 +7,18 @@
 // server's clock, and the tomorrow summary's lookahead skipped the day after it. A
 // week-long visit already running read "Sat 15:00 - Sat 12:00", which Saturday unsaid.
 //
+// The series lookup behind the daily/weekly filter kept a failed lookup forever, under a
+// key every user shared: one Google hiccup hid a monthly series from /week until the
+// next deploy, for everyone with that calendar.
+//
 // Google, the native calendar, the timezone lookup and the AI are stubbed. No network.
 //
 // Run under both clocks; the output must not depend on the server's timezone:
 //   TZ=UTC npx tsx scripts/smoke-week-lookahead.ts
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-week-lookahead.ts
 
+import { execFileSync } from 'child_process';
+import { existsSync } from 'fs';
 import path from 'path';
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import { startOfLocalDay } from '../src/utils/day-events';
@@ -80,8 +86,23 @@ const RUNNING_EVENTS: Fixture[] = [
   { summary: 'Fall break', start: '2026-10-24', end: '2026-10-28' },
 ];
 
-const GOOGLE_EVENTS: Record<string, Fixture[]> = { 'token-il': ISRAEL_EVENTS, 'token-ny': NEW_YORK_EVENTS, 'token-running': RUNNING_EVENTS };
-const RRULES: Record<string, string> = { gym: 'RRULE:FREQ=DAILY', anniv: 'FREQ=YEARLY', standup: 'FREQ=DAILY', vitamins: 'FREQ=DAILY' };
+// Two series for the lookup-cache checks, in Israel: a monthly book club, listed once its
+// rule is known, and a daily carpool on three days, never listed.
+const SERIES_EVENTS: Fixture[] = [
+  { summary: 'Carpool', start: '2026-10-13T16:00:00+03:00', end: '2026-10-13T16:30:00+03:00', recurringEventId: 'carpool' },
+  { summary: 'Carpool', start: '2026-10-14T16:00:00+03:00', end: '2026-10-14T16:30:00+03:00', recurringEventId: 'carpool' },
+  { summary: 'Carpool', start: '2026-10-15T16:00:00+03:00', end: '2026-10-15T16:30:00+03:00', recurringEventId: 'carpool' },
+  { summary: 'Book club', start: '2026-10-15T19:00:00+03:00', end: '2026-10-15T21:00:00+03:00', recurringEventId: 'bookclub' },
+];
+
+const GOOGLE_EVENTS: Record<string, Fixture[]> = {
+  'token-il': ISRAEL_EVENTS, 'token-ny': NEW_YORK_EVENTS, 'token-running': RUNNING_EVENTS,
+  'token-series-6': SERIES_EVENTS, 'token-series-66': SERIES_EVENTS,
+};
+const RRULES: Record<string, string> = {
+  gym: 'RRULE:FREQ=DAILY', anniv: 'FREQ=YEARLY', standup: 'FREQ=DAILY', vitamins: 'FREQ=DAILY',
+  bookclub: 'RRULE:FREQ=MONTHLY', carpool: 'RRULE:FREQ=DAILY',
+};
 
 // Native events as the provider hands them over: all-day as dates in the event's own
 // timezone, timed as UTC instants.
@@ -106,12 +127,23 @@ const NATIVE_REMINDERS: CalendarEvent[] = [
 ];
 const NATIVE_BY_USER: Record<number, CalendarEvent[]> = { 5: NATIVE_REMINDERS };
 
-const TIMEZONES: Record<number, string> = { 1: IL, 2: NY, 3: NY, 4: NY, 5: IL };
+const TIMEZONES: Record<number, string> = { 1: IL, 2: NY, 3: NY, 4: NY, 5: IL, 6: IL, 66: IL };
 
 /** Every events.list request, to see which timezone it asked for. */
 const googleCalls: Array<{ token: string; timeMin: string; timeMax: string; timeZone?: string }> = [];
 /** Every prompt sent to the AI. */
 const prompts: string[] = [];
+/** Every events.get request (a series' master event), as token:eventId. */
+const masterCalls: string[] = [];
+/** What events.get throws for a token, while set. */
+const masterErrors: Record<string, Error> = {};
+/** How far the cache's clock moves while events.get answers. */
+let masterTookMs = 0;
+/** The cache's clock: Date.now returns it during the (g) checks. */
+let clock = 0;
+
+/** A Google API error as gaxios throws it: the HTTP status on the error and on its response. */
+const googleError = (status: number) => Object.assign(new Error(`HTTP ${status}`), { status, response: { status } });
 
 /**
  * A Google client over the fixtures. Like events.list it returns what overlaps
@@ -122,7 +154,12 @@ function fakeGoogleClient(token: string) {
   return {
     calendars: { get: async () => ({ data: { summary: 'Family' } }) },
     events: {
-      get: async ({ eventId }: { eventId: string }) => ({ data: { recurrence: [RRULES[eventId]] } }),
+      get: async ({ eventId }: { eventId: string }) => {
+        masterCalls.push(`${token}:${eventId}`);
+        clock += masterTookMs;
+        if (masterErrors[token]) throw masterErrors[token];
+        return { data: { recurrence: [RRULES[eventId]] } };
+      },
       list: async (params: { timeMin: string; timeMax: string; timeZone?: string }) => {
         googleCalls.push({ token, ...params });
         const tz = params.timeZone || 'UTC';
@@ -159,6 +196,9 @@ const newYorker = user(2, { culture: 'default', googleRefreshToken: 'token-ny' }
 const nativeNewYorker = user(3, { culture: 'default', googleRefreshToken: '', calendarSource: 'NATIVE' });
 const runningNewYorker = user(4, { culture: 'default', googleRefreshToken: 'token-running' });
 const nativeIsraeli = user(5, { culture: 'default', googleRefreshToken: '', calendarSource: 'NATIVE' });
+// Two Israeli Google users with the same calendar and series ids; 66 starts with 6.
+const seriesUser = user(6, { culture: 'default', googleRefreshToken: 'token-series-6' });
+const otherSeriesUser = user(66, { culture: 'default', googleRefreshToken: 'token-series-66' });
 const calendars: CalendarAssignment[] = [{ calendarId: 'family', labels: ['primary'], name: 'Family', color: '#000' }];
 
 /** The prompt's EVENTS BY DAY section, one line per day: header | event | event. */
@@ -209,7 +249,8 @@ async function main() {
     },
   });
 
-  const { getWeekLookahead, getNextWeekLookahead, formatTomorrowLookahead } = await import('../src/services/week-lookahead');
+  const { getWeekLookahead, getNextWeekLookahead, formatTomorrowLookahead, clearRecurrenceCache, clearRecurrenceCacheForUser } =
+    await import('../src/services/week-lookahead');
   const { generateWeekLookahead, generateNextWeekSummary } = await import('../src/services/claude');
 
   /** The prompt claude.ts builds for a lookahead. */
@@ -430,6 +471,133 @@ async function main() {
       'Friday: Buy milk (Reminder 17:00) (for Dana, you asked)',
       'Saturday: Pick up the cake (Reminder (all day)) (from Dana)',
     ]);
+  });
+
+  // (g) the series lookup cache
+  const seriesTuesday = new Date('2026-10-13T09:00:00+03:00');
+  const T0 = seriesTuesday.getTime();
+  const MIN = 60_000;
+  const HOUR = 60 * MIN;
+  const BOTH = (token: string) => `asked ${token}:carpool, ${token}:bookclub`;
+  /** One /week run at `at` on the cache's clock: what it lists | the lookups it made. */
+  const seriesWeek = async (u: UserConfig, at: number) => {
+    clock = at;
+    masterCalls.length = 0;
+    const lookahead = await getWeekLookahead(u, calendars, seriesTuesday);
+    return `${lookahead.events.map(e => e.summary).join(', ') || 'nothing'} | asked ${masterCalls.join(', ') || 'nothing'}`;
+  };
+  const freshCache = () => {
+    clearRecurrenceCache();
+    for (const token of Object.keys(masterErrors)) delete masterErrors[token];
+    masterTookMs = 0;
+  };
+
+  // The cache reads Date.now; nothing else in a lookahead given a reference date does.
+  // The failed lookups' warnings are expected.
+  const realNow = Date.now;
+  const realWarn = console.warn;
+  Date.now = () => clock;
+  console.warn = () => undefined;
+  try {
+    await check('(g) a failed lookup is kept 10 minutes, then asked again', async () => {
+      freshCache();
+      masterErrors['token-series-6'] = googleError(503);
+      const got = [`0:00:00: ${await seriesWeek(seriesUser, T0)}`];
+      delete masterErrors['token-series-6'];
+      got.push(`0:09:59: ${await seriesWeek(seriesUser, T0 + 10 * MIN - 1000)}`);
+      got.push(`0:10:00: ${await seriesWeek(seriesUser, T0 + 10 * MIN)}`);
+      assertList(got, [
+        `0:00:00: nothing | ${BOTH('token-series-6')}`,
+        '0:09:59: nothing | asked nothing',
+        `0:10:00: Book club | ${BOTH('token-series-6')}`,
+      ]);
+    });
+
+    await check('(g) an answer is kept 6 hours, then asked again', async () => {
+      freshCache();
+      const got = [`0:00:00: ${await seriesWeek(seriesUser, T0)}`];
+      // Asked again now, the lookup would fail: what shows is the kept answer.
+      masterErrors['token-series-6'] = googleError(503);
+      got.push(`5:59:59: ${await seriesWeek(seriesUser, T0 + 6 * HOUR - 1000)}`);
+      got.push(`6:00:00: ${await seriesWeek(seriesUser, T0 + 6 * HOUR)}`);
+      assertList(got, [
+        `0:00:00: Book club | ${BOTH('token-series-6')}`,
+        '5:59:59: Book club | asked nothing',
+        `6:00:00: nothing | ${BOTH('token-series-6')}`,
+      ]);
+    });
+
+    await check('(g) a series that is gone (404, 410) is kept 6 hours, not asked again after 10 minutes', async () => {
+      const got: string[] = [];
+      for (const status of [404, 410]) {
+        freshCache();
+        masterErrors['token-series-6'] = googleError(status);
+        got.push(`${status} 0:00:00: ${await seriesWeek(seriesUser, T0)}`);
+        delete masterErrors['token-series-6'];
+        got.push(`${status} 0:10:00: ${await seriesWeek(seriesUser, T0 + 10 * MIN)}`);
+        got.push(`${status} 5:59:59: ${await seriesWeek(seriesUser, T0 + 6 * HOUR - 1000)}`);
+        got.push(`${status} 6:00:00: ${await seriesWeek(seriesUser, T0 + 6 * HOUR)}`);
+      }
+      assertList(got, [404, 410].flatMap(status => [
+        `${status} 0:00:00: nothing | ${BOTH('token-series-6')}`,
+        `${status} 0:10:00: nothing | asked nothing`,
+        `${status} 5:59:59: nothing | asked nothing`,
+        `${status} 6:00:00: Book club | ${BOTH('token-series-6')}`,
+      ]));
+    });
+
+    await check('(g) two users with the same calendar and series ids each get their own answer', async () => {
+      freshCache();
+      masterErrors['token-series-6'] = googleError(503);
+      assertList([await seriesWeek(seriesUser, T0), await seriesWeek(otherSeriesUser, T0)], [
+        `nothing | ${BOTH('token-series-6')}`,
+        `Book club | ${BOTH('token-series-66')}`,
+      ]);
+    });
+
+    await check('(g) each series is looked up once per run, even when its answer runs out mid-run', async () => {
+      freshCache();
+      masterErrors['token-series-6'] = googleError(503);
+      // Each lookup takes 11 minutes on the cache's clock, so a failure is stale before the
+      // next Carpool. The run still asks about each series once.
+      masterTookMs = 11 * MIN;
+      assertList([await seriesWeek(seriesUser, T0)], [`nothing | ${BOTH('token-series-6')}`]);
+    });
+
+    await check('(g) clearRecurrenceCacheForUser drops that user\'s answers only', async () => {
+      freshCache();
+      await seriesWeek(seriesUser, T0);
+      await seriesWeek(otherSeriesUser, T0);
+      clearRecurrenceCacheForUser(6);
+      assertList([await seriesWeek(seriesUser, T0 + MIN), await seriesWeek(otherSeriesUser, T0 + MIN)], [
+        `Book club | ${BOTH('token-series-6')}`,
+        'Book club | asked nothing',
+      ]);
+    });
+  } finally {
+    Date.now = realNow;
+    console.warn = realWarn;
+    freshCache();
+  }
+
+  await check('(g) recurrence-cache.ts loads on its own: no Google client, Prisma or calendar provider', () => {
+    // Calendar write paths clear the cache through this module, so it must stay a leaf.
+    // Asked in a fresh process with this one's tsx loader: this process has week-lookahead
+    // and the stubs loaded already.
+    const root = path.resolve(__dirname, '..');
+    const leaf = path.join(root, 'src/services/recurrence-cache.ts');
+    assert(existsSync(leaf), 'src/services/recurrence-cache.ts does not exist');
+    const probe = `require(${JSON.stringify(leaf)}); console.log(JSON.stringify(Object.keys(require.cache)));`;
+    const loaded = JSON.parse(execFileSync(process.execPath, [...process.execArgv, '-e', probe], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })) as string[];
+    const appModules = loaded
+      .filter(file => file.startsWith(root + path.sep) && !file.includes(`${path.sep}node_modules${path.sep}`))
+      .map(file => path.relative(root, file));
+    assertList(appModules, ['src/services/recurrence-cache.ts']);
+    const packages = loaded.filter(file => /[\\/]node_modules[\\/](@googleapis|googleapis|@prisma|\.prisma|@upstash)[\\/]/.test(file));
+    assert(packages.length === 0, `it loaded ${packages.join(', ')}`);
   });
 
   let failed = 0;
