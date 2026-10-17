@@ -47,6 +47,8 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
   const t = useTranslations('settings');
   const router = useRouter();
   const [formState, setFormState] = useState<FormState>('idle');
+  // Stays up after the form unlocks again, until the next save.
+  const [saveFailed, setSaveFailed] = useState(false);
   const [language, setLanguage] = useState(currentSettings.language);
   const [location, setLocation] = useState(currentSettings.location);
   const [messagingPlatform, setMessagingPlatform] = useState(currentSettings.messagingPlatform);
@@ -285,6 +287,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
       }
     }
 
+    setSaveFailed(false);
     setFormState('saving');
 
     try {
@@ -330,6 +333,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
     } catch (error) {
       console.error('Error saving settings:', error);
       setFormState('error');
+      setSaveFailed(true);
 
       // Reset after 3 seconds
       setTimeout(() => {
@@ -765,6 +769,16 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
           padding-bottom: 8px;
           border-bottom: 2px solid #667eea;
         }
+
+        .save-error {
+          margin: 0 0 16px;
+          padding: 12px 14px;
+          border-radius: 12px;
+          background: #fef2f2;
+          color: #b91c1c;
+          font-size: 14px;
+          line-height: 1.4;
+        }
       `}</style>
 
       <div className="container">
@@ -789,6 +803,9 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
         </div>
 
         <div className="content">
+          {saveFailed && (
+            <p className="save-error" role="alert">{t('saveFailed')}</p>
+          )}
           <form ref={formRef} onSubmit={handleSubmit}>
             <div className="form-group">
               <label htmlFor="language">{t('preferences.language')}</label>

@@ -399,6 +399,7 @@
   },
   "settings": {
     "title": "Settings",
+    "saveFailed": "Couldn't save your settings. Please try again.",
     "personal": {
       "title": "Personal Information",
       "name": "Name",
