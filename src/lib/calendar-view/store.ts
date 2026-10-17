@@ -1,0 +1,325 @@
+// The calendar home's client store (spec §5): one store of days, fed by the answers of
+// GET /api/calendar/range and shared by the Agenda (Plan D) and the Month (Plan E).
+// A reducer for React's useReducer: pure, no fetch, no clock, no storage. It imports
+// only the DTO types, so it is client-safe and the smoke runs it as it is.
+//
+// - An answer replaces, for each source whose status in it is `ok`, that source's items
+//   on every day of its [from, to). Other days, and sources with any other status,
+//   keep what they had. Within a day, items are deduped by key and sorted with
+//   compareItems.
+// - The first answer pins tz, today, week start and the sources that apply. A later
+//   answer with other values drops the store and starts over; so does `reset` (the
+//   midnight timer). Each drop bumps `epoch`, and an answer to a request sent under an
+//   older epoch is kept only while its facts still match.
+// - Each day remembers, per source, whether an ok answer covered it ("answered", spec
+//   §5 "Empty means answered") and whether a failed one did. Only answered days may
+//   read as empty.
+
+import {
+  compareItems,
+  type CalendarDTO,
+  type DayKey,
+  type GoogleStatusReason,
+  type ItemDTO,
+  type RangeResponse,
+  type SourceName,
+  type WeekStart,
+} from './types';
+
+/** The order sources are listed in: FamCal before Google, as compareItems does. */
+export const SOURCE_ORDER: readonly SourceName[] = ['famcal', 'google'];
+
+export type FamcalStatus = NonNullable<RangeResponse['sources']['famcal']>;
+export type GoogleStatus = NonNullable<RangeResponse['sources']['google']>;
+
+/** What the server worked out for this user. Every answer carries them. */
+export interface StoreFacts {
+  tz: string;
+  today: DayKey;
+  weekStart: WeekStart;
+  /** Not pinned: it follows the latest answer (no stored data depends on it). */
+  hebrewDates: boolean;
+  /** The sources that apply to this user (the keys of an answer's `sources`), in SOURCE_ORDER. */
+  sources: SourceName[];
+}
+
+/** One source on one day. */
+export interface DayCoverage {
+  /** An ok answer covered the day: the source's items on it are the latest ok answer's. */
+  ok: boolean;
+  /** An error or reconnect answer, or a failed request, covered it while no ok answer had. */
+  failed: boolean;
+  /** The latest ok answer was partial (Google calendars that failed or were cut short). */
+  partial: boolean;
+}
+
+export interface StoreDay {
+  /** Every applicable source's items on the day, deduped by key, sorted with compareItems. */
+  items: ItemDTO[];
+  coverage: Partial<Record<SourceName, DayCoverage>>;
+}
+
+/** Why a source has no data for a day: what its state row says (spec §5 States). */
+export type SourceFailure =
+  | { kind: 'error'; source: SourceName; reason: GoogleStatusReason | null }
+  | { kind: 'calendarsGone'; source: 'google' }
+  | { kind: 'reconnect'; source: 'google'; reason: 'token' | 'scopes' }
+  | { kind: 'busy'; source: SourceName };
+
+export interface CalendarStore {
+  /** Bumped by every drop. Stamp each request with it and pass it back with the answer. */
+  epoch: number;
+  /** null until the first answer, and after a drop by `reset`. */
+  facts: StoreFacts | null;
+  days: Readonly<Record<DayKey, StoreDay>>;
+  /** Each source's status in the latest answer that asked for it (a `pending` one never overwrites it). */
+  status: { famcal?: FamcalStatus; google?: GoogleStatus };
+  /** Each source's latest failure, kept after a later ok answer for another window: the state row's copy. */
+  lastFailure: Partial<Record<SourceName, SourceFailure>>;
+  /** The legend from each source's latest ok answer, FamCal first. */
+  calendars: CalendarDTO[];
+  /** From the latest answer with FamCal ok. */
+  partner: { name: string } | null;
+  /** From the latest answer that carried them (FamCal ok and a window holding today), newest first; null before. */
+  carryOvers: ItemDTO[] | null;
+}
+
+export type StoreAction =
+  /** An answer (HTTP 200). `epoch` is the store's epoch when the request was sent. */
+  | { type: 'response'; response: RangeResponse; epoch: number }
+  /**
+   * A request that got no answer to store: 429 (`busy`), 500 or a network error
+   * (`error`). Its days that no ok answer covers read as failed, not loading. Needs
+   * pinned facts: before the first answer the container shows its own retry card.
+   */
+  | { type: 'windowFailed'; from: DayKey; to: DayKey; sources: readonly SourceName[]; kind: 'busy' | 'error'; epoch: number }
+  /** The midnight timer in tz: drop everything and start over. */
+  | { type: 'reset' };
+
+/** A day as the screens see it: every source answered ok, one still to answer, or none will. */
+export type DayStatus = 'answered' | 'loading' | 'failed';
+
+/** What the banners need from the store (spec §5 States, §7.2 Banners). */
+export interface HomeNotices {
+  /** Google asked for a reconnect in its latest answer. Never set for a FamCal user. */
+  reconnect: 'token' | 'scopes' | null;
+  /** Chosen Google calendars that are gone: "N calendars aren't available · Choose again". */
+  unavailableCalendars: number;
+}
+
+const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
+/** A guard for the day loops: the route answers at most 42 days. */
+const MAX_WINDOW_DAYS = 366;
+const NO_ITEMS: readonly ItemDTO[] = Object.freeze([]);
+
+/** Plus `days` calendar days to a yyyy-MM-dd key, in UTC arithmetic: the same as the server's addDaysToDate. */
+export function addDaysToKey(day: DayKey, days: number): DayKey {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+/** The day keys in [from, to); none for a malformed window. */
+export function daysInWindow(from: DayKey, to: DayKey): DayKey[] {
+  if (!DAY_KEY.test(from) || !DAY_KEY.test(to)) return [];
+  const out: DayKey[] = [];
+  for (let d = from; d < to && out.length < MAX_WINDOW_DAYS; d = addDaysToKey(d, 1)) out.push(d);
+  return out;
+}
+
+export function emptyStore(epoch = 0): CalendarStore {
+  return { epoch, facts: null, days: {}, status: {}, lastFailure: {}, calendars: [], partner: null, carryOvers: null };
+}
+
+function factsOf(r: RangeResponse): StoreFacts {
+  return {
+    tz: r.tz,
+    today: r.today,
+    weekStart: r.weekStart,
+    hebrewDates: r.hebrewDates,
+    sources: SOURCE_ORDER.filter((s) => r.sources[s] !== undefined),
+  };
+}
+
+/** The pinned facts: tz, today, week start and the sources. hebrewDates is not one of them. */
+function samePinnedFacts(a: StoreFacts, b: StoreFacts): boolean {
+  return a.tz === b.tz && a.today === b.today && a.weekStart === b.weekStart && a.sources.join() === b.sources.join();
+}
+
+function famcalFailure(s: FamcalStatus): SourceFailure | null {
+  return s.status === 'error' ? { kind: 'error', source: 'famcal', reason: null } : null;
+}
+
+function googleFailure(s: GoogleStatus): SourceFailure | null {
+  if (s.status === 'reconnect') return { kind: 'reconnect', source: 'google', reason: s.reason === 'scopes' ? 'scopes' : 'token' };
+  if (s.status !== 'error') return null;
+  if (s.reason === 'calendars_gone') return { kind: 'calendarsGone', source: 'google' };
+  return { kind: 'error', source: 'google', reason: s.reason ?? null };
+}
+
+function isPartial(s: GoogleStatus): boolean {
+  return s.status === 'ok' && !!s.partial && (s.partial.failed > 0 || s.partial.truncated > 0);
+}
+
+/** Deduped by key (the first one stays), then sorted with compareItems. A new array. */
+function dedupeSorted(items: readonly ItemDTO[]): ItemDTO[] {
+  const seen = new Set<string>();
+  const out: ItemDTO[] = [];
+  for (const item of items) {
+    if (seen.has(item.key)) continue;
+    seen.add(item.key);
+    out.push(item);
+  }
+  return out.sort(compareItems);
+}
+
+const failedCoverage = (): DayCoverage => ({ ok: false, failed: true, partial: false });
+
+/** Merges an answer whose facts match `state.facts` (already pinned). */
+function merge(state: CalendarStore, r: RangeResponse): CalendarStore {
+  const ok: SourceName[] = [];
+  const failures: SourceFailure[] = [];
+  const status = { ...state.status };
+  let partial = false;
+  const famcal = r.sources.famcal;
+  if (famcal && famcal.status !== 'pending') {
+    status.famcal = famcal;
+    if (famcal.status === 'ok') ok.push('famcal');
+    const f = famcalFailure(famcal);
+    if (f) failures.push(f);
+  }
+  const google = r.sources.google;
+  if (google && google.status !== 'pending') {
+    status.google = google;
+    if (google.status === 'ok') ok.push('google');
+    partial = isPartial(google);
+    const f = googleFailure(google);
+    if (f) failures.push(f);
+  }
+  if (ok.length === 0 && failures.length === 0) {
+    // Only pending sources: nothing to store (hebrewDates may still have moved).
+    return state;
+  }
+
+  const lastFailure = { ...state.lastFailure };
+  for (const f of failures) lastFailure[f.source] = f;
+
+  const incoming = new Map<DayKey, readonly ItemDTO[]>();
+  for (const d of r.days) incoming.set(d.date, d.items);
+  const days: Record<DayKey, StoreDay> = { ...state.days };
+  for (const date of daysInWindow(r.from, r.to)) {
+    const prev = state.days[date];
+    const coverage = { ...prev?.coverage };
+    let items = prev ? prev.items : [];
+    if (ok.length > 0) {
+      // Only the ok sources' items are read from the answer, and only theirs are replaced.
+      const kept = items.filter((i) => !ok.includes(i.source));
+      const fresh = (incoming.get(date) ?? NO_ITEMS).filter((i) => ok.includes(i.source));
+      items = dedupeSorted([...kept, ...fresh]);
+      for (const s of ok) coverage[s] = { ok: true, failed: false, partial: s === 'google' && partial };
+    }
+    for (const f of failures) {
+      if (!coverage[f.source]?.ok) coverage[f.source] = failedCoverage();
+    }
+    days[date] = { items, coverage };
+  }
+
+  const calendars =
+    ok.length > 0
+      ? SOURCE_ORDER.flatMap((s) => (ok.includes(s) ? r.calendars : state.calendars).filter((c) => c.source === s))
+      : state.calendars;
+  const partner = ok.includes('famcal') ? (r.partner ? { name: r.partner.name } : null) : state.partner;
+  const carryOvers = r.carryOvers ? [...r.carryOvers] : state.carryOvers;
+  return { ...state, days, status, lastFailure, calendars, partner, carryOvers };
+}
+
+function receive(state: CalendarStore, r: RangeResponse, epoch: number): CalendarStore {
+  const facts = factsOf(r);
+  let base: CalendarStore;
+  if (state.facts && samePinnedFacts(state.facts, facts)) {
+    base = state.facts.hebrewDates === facts.hebrewDates ? state : { ...state, facts: { ...state.facts, hebrewDates: facts.hebrewDates } };
+  } else if (epoch < state.epoch) {
+    // Asked before the last drop, and its facts are not the store's: it is stale.
+    return state;
+  } else {
+    // The first answer pins the facts; a mismatch drops the store and pins the new ones.
+    base = { ...emptyStore(state.facts ? state.epoch + 1 : state.epoch), facts };
+  }
+  return merge(base, r);
+}
+
+function markFailed(state: CalendarStore, a: Extract<StoreAction, { type: 'windowFailed' }>): CalendarStore {
+  if (!state.facts || a.epoch < state.epoch) return state;
+  const sources = state.facts.sources.filter((s) => a.sources.includes(s));
+  if (sources.length === 0) return state;
+  const lastFailure = { ...state.lastFailure };
+  for (const s of sources) lastFailure[s] = a.kind === 'busy' ? { kind: 'busy', source: s } : { kind: 'error', source: s, reason: null };
+  const days: Record<DayKey, StoreDay> = { ...state.days };
+  for (const date of daysInWindow(a.from, a.to)) {
+    const prev = state.days[date];
+    const coverage = { ...prev?.coverage };
+    for (const s of sources) {
+      if (!coverage[s]?.ok) coverage[s] = failedCoverage();
+    }
+    days[date] = { items: prev ? prev.items : [], coverage };
+  }
+  return { ...state, days, lastFailure };
+}
+
+/** The reducer. It never changes `state` or the answer; an action that changes nothing returns `state` itself. */
+export function reduceStore(state: CalendarStore, action: StoreAction): CalendarStore {
+  switch (action.type) {
+    case 'reset':
+      return emptyStore(state.epoch + 1);
+    case 'response':
+      return receive(state, action.response, action.epoch);
+    case 'windowFailed':
+      return markFailed(state, action);
+  }
+}
+
+/** A day's items, every applicable source's, sorted with compareItems. */
+export function dayItems(state: CalendarStore, day: DayKey): readonly ItemDTO[] {
+  return state.days[day]?.items ?? NO_ITEMS;
+}
+
+/**
+ * Whether a day may read as empty: `answered` once every applicable source answered ok
+ * for it (partial included), now or earlier; `loading` while one has not answered yet;
+ * `failed` when the rest failed (error, reconnect, a failed request) with no ok data.
+ */
+export function dayStatus(state: CalendarStore, day: DayKey): DayStatus {
+  if (!state.facts) return 'loading';
+  const coverage = state.days[day]?.coverage ?? {};
+  let failed = false;
+  for (const s of state.facts.sources) {
+    const c = coverage[s];
+    if (c?.ok) continue;
+    if (c?.failed) {
+      failed = true;
+      continue;
+    }
+    return 'loading';
+  }
+  return failed ? 'failed' : 'answered';
+}
+
+/** The applicable sources that failed on a day with no ok data, in SOURCE_ORDER. */
+export function failedSources(state: CalendarStore, day: DayKey): SourceName[] {
+  if (!state.facts) return [];
+  const coverage = state.days[day]?.coverage ?? {};
+  return state.facts.sources.filter((s) => !coverage[s]?.ok && coverage[s]?.failed === true);
+}
+
+/** Whether the day's Google data came from a partial answer. */
+export function isPartialDay(state: CalendarStore, day: DayKey): boolean {
+  const c = state.days[day]?.coverage.google;
+  return !!c?.ok && c.partial;
+}
+
+export function homeNotices(state: CalendarStore): HomeNotices {
+  const g = state.status.google;
+  return {
+    reconnect: g?.status === 'reconnect' ? (g.reason === 'scopes' ? 'scopes' : 'token') : null,
+    unavailableCalendars: state.calendars.filter((c) => c.source === 'google' && c.unavailable === true).length,
+  };
+}
