@@ -213,7 +213,7 @@ export function zoneLabel(tz: string, locale: string): string {
       const name = new Intl.DateTimeFormat(intlLocale(locale), { timeZone: tz, timeZoneName: style })
         .formatToParts(new Date())
         .find((p) => p.type === 'timeZoneName')?.value;
-      if (name && !/^(GMT|UTC)\b/.test(name.replace(/‎/g, ''))) return name;
+      if (name && !/^(GMT|UTC)\b/.test(name.replace(/\u200e/g, ''))) return name;
     } catch {
       // Not supported by this Intl: try the next style, then the city.
     }
