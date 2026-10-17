@@ -1,4 +1,4 @@
-// Smoke test for the calendar home's Hebrew dates (spec §7.8, Plan D):
+// Smoke test for the calendar home's Hebrew dates (spec §7.8, Plans D and E):
 // src/lib/calendar-view/hebrew-date.ts, on @hebcal/hdate.
 //
 // The home shows the Hebrew date under its header ("4 Cheshvan 5787") and beside each
@@ -7,6 +7,13 @@
 // name. Russian uses the genitive from calendarHome.hebrewMonthGenitive ("4 хешвана",
 // Ruling R9). A day key is a calendar day, so its Hebrew date never depends on the
 // device's clock, and it is the daytime date (no sunset shift).
+//
+// The Month (Plan E) adds two things. Each month's header names the first and last
+// Hebrew months it touches, with the year on both sides only when it differs ("Elul
+// 5786 – Tishrei 5787", "Tishrei – Cheshvan 5787"; Russian in the nominative, R9). Each
+// cell shows the Hebrew day ("16", "ט״ז"), with a short month name on Hebrew day 1 and
+// on the month's first cell ("1 Chesh.", "א׳ חשון", "1 хешв.", from
+// calendarHome.hebrewMonthShort).
 //
 // It also guards the dependency. @hebcal/hdate is a direct dependency pinned to ^0.21.1,
 // the one copy @hebcal/core and @hebcal/locales share. A second copy would register
@@ -23,7 +30,16 @@ import fs from 'fs';
 import path from 'path';
 import Module from 'module';
 import { HDate, Locale } from '@hebcal/hdate';
-import { HEBREW_MONTHS, hebrewDayLabel, hebrewFullDate } from '../src/lib/calendar-view/hebrew-date';
+import {
+  HEBREW_MONTHS,
+  hebrewCellLabel,
+  hebrewCellMonth,
+  hebrewDayLabel,
+  hebrewFullDate,
+  hebrewMonthHeader,
+  hebrewMonthRange,
+  isHebrewMonthStart,
+} from '../src/lib/calendar-view/hebrew-date';
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -56,6 +72,11 @@ const RU_GENITIVE = [
   'тишрея', 'хешвана', 'кислева', 'тевета', 'швата', 'адара', 'адара I',
   'адара II', 'нисана', 'ияра', 'сивана', 'тамуза', 'ава', 'элула',
 ];
+
+/** Short month names for the Month's cells, in HEBREW_MONTHS order, so the checks don't depend on messages/*.json. */
+const EN_SHORT = ['Tish.', 'Chesh.', 'Kis.', 'Tev.', "Sh'vat", 'Adar', 'Adar I', 'Adar II', 'Nis.', 'Iyar', 'Siv.', 'Tam.', 'Av', 'Elul'];
+const HE_SHORT = ['תשרי', 'חשון', 'כסלו', 'טבת', 'שבט', 'אדר', 'אדר א׳', 'אדר ב׳', 'ניסן', 'אייר', 'סיון', 'תמוז', 'אב', 'אלול'];
+const RU_SHORT = ['тишр.', 'хешв.', 'кисл.', 'тев.', 'шват', 'адар', 'адар I', 'адар II', 'нис.', 'ияр', 'сив.', 'там.', 'ав', 'элул'];
 
 /** [day key, en, he, ru]: the day label in each language. */
 type Row = [string, string, string, string];
@@ -206,6 +227,209 @@ async function main() {
     }
   });
 
+  await check('Month headers (Plan E): the first and last Hebrew months a month touches, the year on both sides only when it differs; he gematriya, ru nominative (R9)', () => {
+    // [month, en, he, ru]
+    const rows: Row[] = [
+      ['2026-09', 'Elul 5786 – Tishrei 5787', 'אלול תשפ״ו – תשרי תשפ״ז', 'Элул 5786 – Тишрей 5787'],
+      ['2026-10', 'Tishrei – Cheshvan 5787', 'תשרי – חשון תשפ״ז', 'Тишрей – Хешван 5787'],
+      // July 2030 runs from 30 Sivan through all of Tamuz to 1 Av: the middle month is skipped.
+      ['2030-07', 'Sivan – Av 5790', 'סיון – אב תש״צ', 'Сиван – Ав 5790'],
+      ['2027-11', 'Cheshvan 5788', 'חשון תשפ״ח', 'Хешван 5788'],
+      ['2025-02', "Sh'vat 5785", 'שבט תשפ״ה', 'Шват 5785'],
+      // 5787 is a leap year: Adar I, then Adar II.
+      ['2027-02', "Sh'vat – Adar I 5787", 'שבט – אדר א׳ תשפ״ז', 'Шват – Адар I 5787'],
+      ['2027-03', 'Adar I – Adar II 5787', 'אדר א׳ – אדר ב׳ תשפ״ז', 'Адар I – Адар II 5787'],
+    ];
+    for (const [month, en, he, ru] of rows) {
+      assertEqual(hebrewMonthHeader(month, 'en'), en, `${month} en`);
+      assertEqual(hebrewMonthHeader(month, 'he'), he, `${month} he`);
+      assertEqual(hebrewMonthHeader(month, 'ru'), ru, `${month} ru`);
+    }
+    assertEqual(
+      ['2030-07-01', '2030-07-15', '2030-07-31'].map(k => hebrewFullDate(k, 'en')),
+      ['30 Sivan 5790', '14 Tamuz 5790', '1 Av 5790'],
+      'fixture: July 2030 touches three Hebrew months'
+    );
+  });
+
+  await check("hebrewMonthRange on any run of days; '' for a bad key or a backwards run; an unknown language reads English", () => {
+    assertEqual(hebrewMonthRange('2026-10-15', '2026-10-15', 'en'), 'Cheshvan 5787', 'one day');
+    assertEqual(hebrewMonthRange('2026-09-11', '2026-09-12', 'en'), 'Elul 5786 – Tishrei 5787', 'across the Tishrei year boundary');
+    assertEqual(hebrewMonthRange('2026-09-12', '2026-10-12', 'he'), 'תשרי – חשון תשפ״ז', '1 Tishrei to 1 Cheshvan');
+    assertEqual(hebrewMonthRange('2026-10-01', '2026-10-31', 'de'), 'Tishrei – Cheshvan 5787', 'de');
+    const bad: [string, string][] = [
+      ['2026-10-15', '2026-10-14'],
+      ['', '2026-10-31'],
+      ['2026-10-01', '2026-02-30'],
+      ['2026-10-01', '2026-10'],
+    ];
+    for (const [a, b] of bad) assertEqual(hebrewMonthRange(a, b, 'en'), '', `hebrewMonthRange(${JSON.stringify(a)}, ${JSON.stringify(b)})`);
+    for (const month of ['2026-13', '2026-00', '2026-1', '', '2026-10-01']) {
+      assertEqual(hebrewMonthHeader(month, 'he'), '', `hebrewMonthHeader(${JSON.stringify(month)})`);
+    }
+  });
+
+  await check("every month from 2025-01 to 2030-12 against hebcal's own calendar, three-month ones included", () => {
+    let three = 0;
+    for (let y = 2025; y <= 2030; y++) {
+      for (let m = 1; m <= 12; m++) {
+        const month = `${y}-${String(m).padStart(2, '0')}`;
+        const days = new Date(y, m, 0, 12).getDate();
+        const touched: HDate[] = [];
+        for (let d = 1; d <= days; d++) {
+          const hd = new HDate(new Date(y, m - 1, d, 12));
+          const prev = touched[touched.length - 1];
+          if (!prev || prev.getMonth() !== hd.getMonth() || prev.getFullYear() !== hd.getFullYear()) touched.push(hd);
+        }
+        if (touched.length === 3) three++;
+        const a = touched[0];
+        const b = touched[touched.length - 1];
+        const want =
+          touched.length === 1
+            ? `${a.getMonthName()} ${a.getFullYear()}`
+            : a.getFullYear() !== b.getFullYear()
+              ? `${a.getMonthName()} ${a.getFullYear()} – ${b.getMonthName()} ${b.getFullYear()}`
+              : `${a.getMonthName()} – ${b.getMonthName()} ${b.getFullYear()}`;
+        assertEqual(hebrewMonthHeader(month, 'en'), want, month);
+      }
+    }
+    assert(three > 0, 'fixture: no month from 2025 to 2030 touches three Hebrew months');
+  });
+
+  await check('isHebrewMonthStart is Hebrew day 1, on every day from 1 Tishrei 5786 to 29 Elul 5788', () => {
+    assertEqual(
+      ['2026-10-12', '2026-10-11', '2026-09-12', '2027-02-08', '2027-03-10', '2026-10-15'].map(isHebrewMonthStart),
+      [true, false, true, true, true, false],
+      '1 Cheshvan, 30 Tishrei, 1 Tishrei, 1 Adar I, 1 Adar II, 4 Cheshvan'
+    );
+    let hd = new HDate(1, 7, 5786);
+    while (hd.getFullYear() <= 5788) {
+      const key = keyOf(hd);
+      assert(isHebrewMonthStart(key) === (hd.getDate() === 1), `${key} (${hd.toString()})`);
+      hd = hd.next();
+    }
+    for (const bad of ['', '2026-13-01', '2026-02-30']) assertEqual(isHebrewMonthStart(bad), false, `isHebrewMonthStart(${JSON.stringify(bad)})`);
+  });
+
+  await check("hebrewCellLabel without the month: the day alone, '16' / 'ט״ז' / '16' (and ט״ו for 15)", () => {
+    // [day key, en and ru, he]
+    const rows: [string, string, string][] = [
+      ['2026-10-27', '16', 'ט״ז'],
+      ['2026-10-26', '15', 'ט״ו'],
+      ['2026-10-12', '1', 'א׳'],
+      ['2026-10-15', '4', 'ד׳'],
+      ['2026-11-10', '30', 'ל׳'],
+    ];
+    for (const [key, digits, he] of rows) {
+      assertEqual(hebrewCellLabel(key, 'en', false, EN_SHORT), digits, `${key} en`);
+      assertEqual(hebrewCellLabel(key, 'he', false, HE_SHORT), he, `${key} he`);
+      assertEqual(hebrewCellLabel(key, 'ru', false, RU_SHORT), digits, `${key} ru`);
+      assertEqual(hebrewCellLabel(key, 'he', false), he, `${key} he without a list`);
+    }
+  });
+
+  await check("hebrewCellLabel with the month, and hebrewCellMonth alone, read the short list ('1 Chesh.' / 'א׳ חשון' / '1 хешв.'); a missing or broken list falls back to hebrewDayLabel's month names", () => {
+    const rows: Row[] = [
+      ['2026-10-12', '1 Chesh.', 'א׳ חשון', '1 хешв.'],
+      ['2026-09-12', '1 Tish.', 'א׳ תשרי', '1 тишр.'],
+      ['2027-02-08', '1 Adar I', 'א׳ אדר א׳', '1 адар I'],
+      ['2027-03-10', '1 Adar II', 'א׳ אדר ב׳', '1 адар II'],
+      ['2026-02-18', '1 Adar', 'א׳ אדר', '1 адар'],
+      // A month's first cell names the month too (Ruling 3), whatever its Hebrew day.
+      ['2026-10-01', '20 Tish.', 'כ׳ תשרי', '20 тишр.'],
+    ];
+    for (const [key, en, he, ru] of rows) {
+      assertEqual(hebrewCellLabel(key, 'en', true, EN_SHORT), en, `${key} en`);
+      assertEqual(hebrewCellLabel(key, 'he', true, HE_SHORT), he, `${key} he`);
+      assertEqual(hebrewCellLabel(key, 'ru', true, RU_SHORT), ru, `${key} ru`);
+      // Ruling 3's browse cell: the day number on the head line, the month alone on the second.
+      const lists: [string, string[]][] = [['en', EN_SHORT], ['he', HE_SHORT], ['ru', RU_SHORT]];
+      for (const [lang, list] of lists) {
+        assertEqual(`${hebrewCellLabel(key, lang, false, list)} ${hebrewCellMonth(key, lang, list)}`, hebrewCellLabel(key, lang, true, list), `${key} ${lang}: the day, then hebrewCellMonth`);
+      }
+    }
+    assertEqual(['en', 'he', 'ru'].map((l, i) => hebrewCellMonth('2026-10-12', l, [EN_SHORT, HE_SHORT, RU_SHORT][i])), ['Chesh.', 'חשון', 'хешв.'], 'hebrewCellMonth on 1 Cheshvan');
+    // The fallback is the month as hebrewDayLabel names it without a genitive list: hebcal's
+    // English name, the Hebrew without nikud (and without "ב"), the Russian nominative.
+    const broken: unknown[] = [
+      undefined,
+      RU_SHORT.slice(0, 13),
+      RU_SHORT.map((s, i) => (i === 1 ? ' ' : s)),
+      RU_SHORT.map((s, i) => (i === 1 ? 7 : s)),
+      'хешв.',
+      {},
+      null,
+    ];
+    for (const list of broken) {
+      const l = list as string[] | undefined;
+      assertEqual(hebrewCellLabel('2026-10-12', 'en', true, l), '1 Cheshvan', `en with ${JSON.stringify(list)}`);
+      assertEqual(hebrewCellLabel('2026-10-12', 'he', true, l), 'א׳ חשון', `he with ${JSON.stringify(list)}`);
+      assertEqual(hebrewCellLabel('2026-10-12', 'ru', true, l), '1 Хешван', `ru with ${JSON.stringify(list)}`);
+      assertEqual(['en', 'he', 'ru'].map(lang => hebrewCellMonth('2026-10-12', lang, l)), ['Cheshvan', 'חשון', 'Хешван'], `hebrewCellMonth with ${JSON.stringify(list)}`);
+    }
+    assertEqual(hebrewCellLabel('2026-10-12', 'ru', true), hebrewDayLabel('2026-10-12', 'ru'), "ru's fallback is hebrewDayLabel's month");
+    assertEqual(hebrewCellLabel('2026-10-12', 'de', true, EN_SHORT), '1 Chesh.', 'an unknown language reads English');
+    for (const bad of ['', '2026-13-01', '2026-02-30', '0026-10-15']) {
+      assertEqual(hebrewCellLabel(bad, 'he', true, HE_SHORT), '', `hebrewCellLabel(${JSON.stringify(bad)}) with the month`);
+      assertEqual(hebrewCellLabel(bad, 'en', false), '', `hebrewCellLabel(${JSON.stringify(bad)}) without it`);
+      assertEqual(hebrewCellMonth(bad, 'ru', RU_SHORT), '', `hebrewCellMonth(${JSON.stringify(bad)})`);
+    }
+  });
+
+  await check("the Month's headers and cell labels on five device clocks", () => {
+    const months = ['2026-09', '2026-10', '2030-07', '2027-02', '2027-03', '2026-04'];
+    // Santiago changes at midnight on 2026-04-05 and 2026-09-06; Jerusalem on 2026-10-25.
+    const keys = ['2026-10-12', '2026-10-27', '2026-09-06', '2026-04-05', '2026-10-25', '2026-10-01'];
+    const labelsNow = () =>
+      JSON.stringify([
+        months.flatMap(m => ['en', 'he', 'ru'].map(l => hebrewMonthHeader(m, l))),
+        keys.flatMap(k => [
+          hebrewCellLabel(k, 'en', true, EN_SHORT),
+          hebrewCellLabel(k, 'he', false),
+          hebrewCellLabel(k, 'ru', true, RU_SHORT),
+          hebrewCellMonth(k, 'he', HE_SHORT),
+          isHebrewMonthStart(k),
+        ]),
+      ]);
+    const saved = process.env.TZ;
+    try {
+      process.env.TZ = 'UTC';
+      const reference = labelsNow();
+      assert(reference.startsWith('[["Elul 5786 – Tishrei 5787","אלול תשפ״ו – תשרי תשפ״ז"'), `reference under UTC: ${reference.slice(0, 80)}`);
+      for (const tz of ['Asia/Jerusalem', 'Pacific/Kiritimati', 'America/Los_Angeles', 'America/Santiago']) {
+        process.env.TZ = tz;
+        assertEqual(labelsNow(), reference, `with the clock in ${tz}`);
+      }
+    } finally {
+      if (saved === undefined) delete process.env.TZ;
+      else process.env.TZ = saved;
+    }
+  });
+
+  await check("messages' calendarHome.hebrewMonthShort lines up with HEBREW_MONTHS in en, he and ru (Task E1)", () => {
+    for (const lang of ['en', 'he', 'ru']) {
+      const messages = readJson(`messages/${lang}.json`) as { calendarHome?: { hebrewMonthShort?: unknown } };
+      const list = messages.calendarHome?.hebrewMonthShort;
+      assert(Array.isArray(list), `messages/${lang}.json has no calendarHome.hebrewMonthShort array (Task E1 adds it)`);
+      assert(list.length === 14, `${lang}: the list has ${list.length} entries, want 14`);
+      HEBREW_MONTHS.forEach((name, i) => {
+        const entry = list[i];
+        assert(typeof entry === 'string' && entry.trim() !== '', `${lang} entry ${i} (${name}) is empty`);
+        const full = lang === 'en' ? name : (Locale.lookupTranslation(name, lang === 'he' ? 'he-x-NoNikud' : 'ru') ?? '');
+        // A short form starts as the name does: "Chesh." / "חשון" / "хешв." for Cheshvan.
+        assert(
+          full !== '' && entry.charAt(0).toLowerCase() === full.charAt(0).toLowerCase(),
+          `${lang} entry ${i} is ${JSON.stringify(entry)}, not a short form of ${full} (${name})`
+        );
+      });
+      assert(new Set(list.slice(5, 8)).size === 3, `${lang}: Adar, Adar I and Adar II must differ: ${JSON.stringify(list.slice(5, 8))}`);
+      if (lang === 'he') assert(!list.some(e => /[֑-ׇ]/.test(String(e))), 'he: no nikud in the short names');
+      // Read as it is, never the fallback.
+      const day = lang === 'he' ? 'א׳' : '1';
+      assertEqual(hebrewCellLabel('2026-10-12', lang, true, list as string[]), `${day} ${list[1]}`, `${lang}: 1 Cheshvan with the shipped list`);
+    }
+  });
+
   await check("messages/ru.json's calendarHome.hebrewMonthGenitive lines up with HEBREW_MONTHS (Task D1)", () => {
     const ru = readJson('messages/ru.json') as { calendarHome?: { hebrewMonthGenitive?: unknown } };
     const list = ru.calendarHome?.hebrewMonthGenitive;
@@ -263,10 +487,11 @@ async function main() {
     }
   });
 
-  await check('hebrew-date.ts imports only @hebcal/hdate, @hebcal/locales/ru and the DTO types (no @hebcal/core on the home)', () => {
+  await check("hebrew-date.ts imports only @hebcal/hdate, @hebcal/locales/ru, the Month's grid and the DTO types (no @hebcal/core on the home)", () => {
     const source = fs.readFileSync(path.join(ROOT, 'src/lib/calendar-view/hebrew-date.ts'), 'utf8');
     const imports = [...source.matchAll(/^import\s+(type\s+)?(?:[^'"]*?\s+from\s+)?'([^']+)';/gm)].map(m => `${m[1] ? 'type ' : ''}${m[2]}`);
-    assertEqual(imports.sort(), ['@hebcal/hdate', '@hebcal/locales/ru', 'type ./types'], 'imports');
+    // grid.ts imports only the DTO types (smoke-calendar-grid.ts checks it), so this pulls in nothing else.
+    assertEqual(imports.sort(), ['./grid', '@hebcal/hdate', '@hebcal/locales/ru', 'type ./types'], 'imports');
     assert(!/require\(|import\(/.test(source), 'no require() or import() in hebrew-date.ts');
   });
 

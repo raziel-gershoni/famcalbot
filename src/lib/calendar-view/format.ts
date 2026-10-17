@@ -1,5 +1,6 @@
-// Dates and times on the calendar home (spec §7.1 Times, §7.3). Intl only; client-safe
-// and pure (it imports only the store's day arithmetic and the DTO types).
+// Dates and times on the calendar home (spec §7.1 Times, §7.3, §7.4). Intl only;
+// client-safe and pure (it imports only the store's day arithmetic and the DTO and
+// month-key types).
 //
 // - Times are in the viewer's timezone (the route's `tz`), 24-hour with two-digit hours
 //   (hourCycle 'h23'): "09:30", never "9:30 AM".
@@ -10,11 +11,15 @@
 //   he-IL's short "יום ה׳, 15 באוק׳"; the long header keeps Intl's "יום חמישי, 15 באוקטובר".
 // - A range of days in one month names the month once, as spec §7.3 and the mockups do:
 //   "Sat 17 – Sun 18 Oct", "שבת 17 – ראשון 18 באוק׳", "сб, 17 – вс, 18 окт.".
+// - The Month's titles are the standalone month name ("October 2026", "Октябрь 2026"),
+//   and its weekday row is one letter in English and Hebrew, two in Russian (Plan E
+//   Ruling 8).
 // - Nothing here throws during a render: a bad value gives '' (or null), and a timezone
 //   the device's Intl doesn't know falls back to the device's own zone.
 
+import type { MonthKey } from './grid';
 import { addDaysToKey } from './store';
-import type { DayKey, ItemDTO } from './types';
+import type { DayKey, ItemDTO, WeekStart } from './types';
 
 /** The weekday of a day key, as calendarHome.stillOpen.sinceWeekday's select names it. */
 export type WeekdayId = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
@@ -180,4 +185,41 @@ export function daysBetween(from: DayKey, to: DayKey): number {
 /** An all-day item's last day: its end date is exclusive; a missing or non-advancing end means one day (as daySpanOf). */
 export function allDayLastDay(item: Pick<ItemDTO, 'start' | 'end'>): DayKey {
   return DAY_KEY.test(item.end) && item.end > item.start ? addDaysToKey(item.end, -1) : item.start;
+}
+
+const MONTH_NAME: Intl.DateTimeFormatOptions = { month: 'long', timeZone: 'UTC' };
+
+/** The first letter upper-cased: Intl writes Russian month and weekday names in lower case. */
+function capitalise(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * A month's title (Plan E Ruling 8): "October 2026" / "אוקטובר 2026" / "Октябрь 2026",
+ * or the month alone without the year ("October"). It is built from the standalone month
+ * name and the key's year, so Russian reads the nominative, capitalised, without the
+ * "г." of ru-RU's month-and-year pattern ("октябрь 2026 г."). '' for a key that isn't a
+ * real 'yyyy-MM' month.
+ */
+export function formatMonthTitle(month: MonthKey, locale: string, withYear: boolean): string {
+  const d = /^\d{4}-\d{2}$/.test(month) ? keyDate(`${month}-01`) : null;
+  if (!d) return '';
+  const name = capitalise(formatter(locale, MONTH_NAME).format(d));
+  return withYear ? `${name} ${month.slice(0, 4)}` : name;
+}
+
+/**
+ * A weekday column's header in the Month (Plan E Ruling 8): one letter in English
+ * ("S M T W T F S") and Hebrew ("א׳ ב׳ ג׳ ד׳ ה׳ ו׳ ש׳"), two in Russian ("Пн Вт Ср Чт
+ * Пт Сб Вс"), whose one-letter forms repeat (П for both Monday and Friday). `weekday` is
+ * 0 = Sunday … 6 = Saturday; '' for anything else.
+ */
+export function formatWeekdayHeader(weekday: WeekStart, locale: string): string {
+  if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) return '';
+  // 18 October 2026 is a Sunday.
+  const d = new Date(Date.UTC(2026, 9, 18 + weekday, 12));
+  if (intlLocale(locale) === INTL_LOCALES.ru) {
+    return capitalise(formatter(locale, { weekday: 'short', timeZone: 'UTC' }).format(d).replace(/\.$/, ''));
+  }
+  return formatter(locale, { weekday: 'narrow', timeZone: 'UTC' }).format(d);
 }
