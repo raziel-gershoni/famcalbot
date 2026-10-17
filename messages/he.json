@@ -991,6 +991,7 @@
     "textSummaries": "סיכומי טקסט",
     "voiceSummaries": "סיכומים קוליים",
     "voiceEvents": "אירועים קוליים",
+    "usageReminders": "תזכורות",
     "reminders": {
       "expiringSoon": {
         "title": "🌟 שים לב! המנוי {plan} שלך מתחדש בעוד {days} ימים",

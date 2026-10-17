@@ -8,6 +8,9 @@ import { useState } from 'react';
 import { Star, Check, X, Crown, Sparkles, Clock } from 'lucide-react';
 import { PLAN_CONFIGS, PlanId, PlanConfig } from '@/src/config/plans';
 
+/** The plans from lowest to highest. */
+const PLAN_ORDER: PlanId[] = ['FREE', 'BASIC', 'PRO'];
+
 interface SubscriptionProps {
   plan: string;
   status: string;
@@ -503,7 +506,7 @@ export default function SubscriptionClient({
                 )}
                 {limits.reminders && (
                   <UsageItem
-                    label={t('reminders')}
+                    label={t('usageReminders')}
                     used={usage.reminders}
                     limit={Infinity}
                     unlimited={t('unlimited')}
@@ -517,12 +520,13 @@ export default function SubscriptionClient({
           {!isEarlyAdopter && (
             <Section title={t('page.comparePlans')}>
               <div className="plans-grid">
-                {(['FREE', 'BASIC', 'PRO'] as PlanId[]).map((planId) => {
+                {PLAN_ORDER.map((planId) => {
                   const plan = PLAN_CONFIGS[planId];
                   const isCurrent = planId === subscription.plan ||
                     (trial.isTrialing && planId === 'FREE');
+                  // Only a higher plan is an upgrade; a Pro user is never offered Basic.
                   const canUpgrade = !isCurrent &&
-                    ['FREE', 'BASIC'].indexOf(subscription.plan) < ['FREE', 'BASIC', 'PRO'].indexOf(planId);
+                    PLAN_ORDER.indexOf(subscription.plan as PlanId) < PLAN_ORDER.indexOf(planId);
 
                   return (
                     <PlanCard

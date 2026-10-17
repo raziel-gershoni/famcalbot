@@ -991,6 +991,7 @@
     "textSummaries": "Text Summaries",
     "voiceSummaries": "Voice Summaries",
     "voiceEvents": "Voice Events",
+    "usageReminders": "Reminders",
     "reminders": {
       "expiringSoon": {
         "title": "🌟 Heads up! Your FamCal {plan} renews in {days} days",

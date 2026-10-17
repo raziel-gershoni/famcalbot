@@ -991,6 +991,7 @@
     "textSummaries": "Текстовые сводки",
     "voiceSummaries": "Голосовые сводки",
     "voiceEvents": "Голосовые события",
+    "usageReminders": "Напоминания",
     "reminders": {
       "expiringSoon": {
         "title": "🌟 Внимание! Подписка {plan} продлевается через {days} дня",
