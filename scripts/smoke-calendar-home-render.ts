@@ -52,6 +52,20 @@
 // The midnight reset with a refetch in flight (Plan E, Task E3, #42): when that refetch
 // fails after the reset, no retry card flashes before the new day's answer.
 //
+// The tabs and the Month through the container (Plan E, Task E8, #43-#60), in real React
+// on a laid-out fake page (a fake scroll, frames, matchMedia, IntersectionObserver and
+// localStorage): the Month's views in a chunk of their own; the tab bar under the header
+// and above the banners, its tab kept for the session, and the header and tab bar
+// sticking above browse; the Month opening on today's month with a peek; its windows, a month's own
+// days, at most 2 in flight and each asked once; Telegram's swipes off in browse on a 7.7
+// client and never touched on a 7.0 one; picked and its BackButton, with the item sheet
+// over it closing first; the layout kept on the device, a restored picked opening on
+// today; the foreground and Refresh asking the Month's windows; a failed month's Retry;
+// midnight on the Month; no tab bar while a Google user sets up; not_enabled letting
+// both controls go; no clipping ancestor above the Month; the unavailable-calendars row
+// once above the Month; a tab switch from picked and back; Telegram's activated on the
+// Month; the item sheet keeping focus over picked.
+//
 // React must log no warning. No network, no DB, no Redis.
 //
 // Run with the fake env from the task brief (no dotenv), under three clocks:
@@ -60,7 +74,7 @@
 //   TZ=Pacific/Kiritimati npx tsx scripts/smoke-calendar-home-render.ts
 
 // The views first: the import-rule checks walk what these load.
-import CalendarHome, { CalendarHomeContainer, NOT_ENABLED_RELOAD_KEY, type HomeDeps } from '../app/[locale]/dashboard/CalendarHome';
+import CalendarHome, { CalendarHomeContainer, HOME_TOP_CSS, NOT_ENABLED_RELOAD_KEY, type HomeDeps } from '../app/[locale]/dashboard/CalendarHome';
 import { AgendaView, AGENDA_CSS, type AgendaViewProps } from '../app/[locale]/dashboard/AgendaView';
 import { ItemSheet } from '../app/[locale]/dashboard/ItemSheet';
 import { HOME_THEME_CSS } from '../app/[locale]/dashboard/home-theme';
@@ -83,7 +97,13 @@ import { homeBanners, type BannerFacts } from '../app/[locale]/dashboard/HomeBan
 import { HOME_SHELL_CSS } from '../app/[locale]/dashboard/home-shell';
 import { menuEntries } from '../app/[locale]/dashboard/MenuSheet';
 import { isChunkLoadError, isPastDay, msUntilAheadCheck, msUntilDayCheck, zoneDiffers } from '../src/lib/calendar-view/home-client';
-import { ERROR_RETRY_MS, RANGE_TIMEOUT_MS, STALE_RETRY_MS } from '../src/lib/calendar-view/home-loader';
+import { ERROR_RETRY_MS, MONTH_INFLIGHT_MAX, RANGE_TIMEOUT_MS, STALE_RETRY_MS } from '../src/lib/calendar-view/home-loader';
+import { PANEL_IDS, TAB_IDS } from '../app/[locale]/dashboard/HomeTabs';
+import { MONTH_BROWSE_CSS } from '../app/[locale]/dashboard/MonthBrowse';
+import { homeTabKey, monthLayoutKey } from '../src/lib/calendar-view/home-storage';
+import { monthSpan, monthWindow, type MonthKey } from '../src/lib/calendar-view/grid';
+import { BROWSE_CELL_PX, monthBarPx, monthOffsets } from '../src/lib/calendar-view/month';
+import { formatDayLong } from '../src/lib/calendar-view/format';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -491,6 +511,50 @@ class FakeElement extends FakeNode {
   blur() {
     if (fakeDocument.activeElement === this) fakeDocument.activeElement = fakeDocument.body;
   }
+  getBoundingClientRect() {
+    return layoutRect(this);
+  }
+}
+
+// The Month's page (Task E8): MonthBrowse measures it. The list of months starts
+// LAYOUT.listTop px down the document (under the header, the tab bar and the sticky
+// bar); the bar sticks at the top once the page scrolls past it (no safe area here);
+// each month's title sits at its block's top, from the block sizes the view rendered.
+// The header and tab bar's wrapper is LAYOUT.topH tall (0 unless a check says so).
+// Everything else sits at the document's top, 0 px tall.
+const LAYOUT = { listTop: 400, width: 390, topH: 0 };
+const px = (value: unknown) => Number.parseFloat(String(value ?? '')) || 0;
+function closestClass(el: FakeNode | null, cls: string): FakeElement | null {
+  for (let n = el; n; n = n.parentNode) if (n instanceof FakeElement && n.className.split(' ').includes(cls)) return n;
+  return null;
+}
+function rectAt(top: number, height: number) {
+  return { top, bottom: top + height, left: 0, right: LAYOUT.width, width: LAYOUT.width, height, x: 0, y: top };
+}
+/** A month block's top in the list: the blocks rendered above it. */
+function blockTop(section: FakeNode): number {
+  let y = 0;
+  for (const sibling of section.parentNode?.childNodes ?? []) {
+    if (sibling === section) break;
+    y += px((sibling as FakeElement).style?.blockSize);
+  }
+  return y;
+}
+function layoutRect(el: FakeElement) {
+  const scrollY = Number(fakeWindow.scrollY) || 0;
+  const classes = el.className.split(' ');
+  if (classes.includes('ch-mb-months')) {
+    return rectAt(LAYOUT.listTop - scrollY, el.childNodes.reduce((sum, s) => sum + px((s as FakeElement).style?.blockSize), 0));
+  }
+  if (classes.includes('ch-mb-bar')) {
+    const bar = px(closestClass(el, 'ch-mb')?.style['--ch-mb-bar']);
+    return rectAt(Math.max(0, LAYOUT.listTop - bar - scrollY), bar);
+  }
+  if (classes.includes('ch-mb-title') && el.parentNode) {
+    return rectAt(LAYOUT.listTop + blockTop(el.parentNode) - scrollY, px(closestClass(el, 'ch-mb')?.style['--ch-mb-title']));
+  }
+  if (classes.includes('ch-home-top')) return rectAt(classes.includes('is-sticky') ? 0 : -scrollY, LAYOUT.topH);
+  return rectAt(-scrollY, 0);
 }
 
 const fakeDocument: Row = {
@@ -506,14 +570,102 @@ const fakeDocument: Row = {
 fakeDocument.body = new FakeElement('body', HTML_NS);
 fakeDocument.activeElement = fakeDocument.body;
 
+/** window.addEventListener's listeners (MonthBrowse's scroll and resize), with their options. */
+const windowListeners: { type: string; fn: () => void; options: unknown }[] = [];
+/** Every window.scrollTo: the top and the behaviour ('plain' for the two-number form). */
+const scrollCalls: { top: number; behavior: string }[] = [];
+/** The animation frames requested and not run yet. */
+const frames = new Map<number, () => void>();
+let nextFrameId = 1;
+/** The media queries' answers (none match unless a check says so), and their listeners. */
+const media = new Map<string, boolean>();
+const mediaListeners = new Map<string, Set<() => void>>();
+
+function fakeMediaList(query: string): Row {
+  const set = () => {
+    if (!mediaListeners.has(query)) mediaListeners.set(query, new Set());
+    return mediaListeners.get(query) as Set<() => void>;
+  };
+  return {
+    media: query,
+    get matches() {
+      return media.get(query) === true;
+    },
+    addEventListener: (_type: string, fn: () => void) => void set().add(fn),
+    removeEventListener: (_type: string, fn: () => void) => void set().delete(fn),
+    addListener: (fn: () => void) => void set().add(fn),
+    removeListener: (fn: () => void) => void set().delete(fn),
+  };
+}
+
+/** A fake IntersectionObserver: it records what it observes; a check fires its entries. */
+class FakeIO {
+  static all: FakeIO[] = [];
+  observed = new Set<FakeElement>();
+  constructor(
+    public callback: (entries: Row[], observer: FakeIO) => void,
+    public options: Row = {},
+  ) {
+    FakeIO.all.push(this);
+  }
+  observe(el: FakeElement) {
+    this.observed.add(el);
+  }
+  unobserve(el: FakeElement) {
+    this.observed.delete(el);
+  }
+  disconnect() {
+    this.observed.clear();
+  }
+  takeRecords() {
+    return [];
+  }
+  /** One callback with an entry for each observed month named in `states`. */
+  fire(states: Record<MonthKey, boolean>) {
+    const entries = [...this.observed]
+      .filter((el) => (el.getAttribute('data-month') ?? '') in states)
+      .map((el) => ({ target: el, isIntersecting: states[el.getAttribute('data-month') ?? ''] }));
+    React.act(() => this.callback(entries, this));
+  }
+}
+
+/** A Storage over a Map (sessionStorage, localStorage). */
+function fakeStorage(): Row {
+  const saved = new Map<string, string>();
+  return {
+    getItem: (k: string) => saved.get(k) ?? null,
+    setItem: (k: string, v: string) => void saved.set(k, String(v)),
+    removeItem: (k: string) => void saved.delete(k),
+  };
+}
+
 const openedWindows: string[] = [];
 const fakeWindow: Row = {
   document: fakeDocument,
   HTMLIFrameElement: class {},
-  addEventListener: noop,
-  removeEventListener: noop,
+  addEventListener: (type: string, fn: () => void, options?: unknown) => void windowListeners.push({ type, fn, options }),
+  removeEventListener: (type: string, fn: () => void) => {
+    const i = windowListeners.findIndex((l) => l.type === type && l.fn === fn);
+    if (i >= 0) windowListeners.splice(i, 1);
+  },
   location: { hash: '' },
   sessionStorage: { getItem: () => null, setItem: noop },
+  localStorage: fakeStorage(),
+  scrollY: 0,
+  innerHeight: 800,
+  scrollTo: (a: Row | number, b?: number) => {
+    const call = typeof a === 'number' ? { top: b ?? 0, behavior: 'plain' } : { top: Number(a.top), behavior: String(a.behavior ?? 'auto') };
+    scrollCalls.push(call);
+    fakeWindow.scrollY = Math.max(0, call.top);
+  },
+  matchMedia: (query: string) => fakeMediaList(query),
+  requestAnimationFrame: (fn: () => void) => {
+    const id = nextFrameId++;
+    frames.set(id, fn);
+    return id;
+  },
+  cancelAnimationFrame: (id: number) => void frames.delete(id),
+  IntersectionObserver: FakeIO,
   open: (url: string) => {
     openedWindows.push(url);
     return null;
@@ -566,7 +718,7 @@ type Mounted = {
   container: FakeElement;
   render: (el: ReactElement) => void;
   click: (el: FakeNode) => void;
-  key: (el: FakeNode, key: string) => void;
+  key: (el: FakeNode, key: string, extra?: Row) => void;
   unmount: () => void;
 };
 
@@ -607,7 +759,7 @@ function mount(el: ReactElement, rootOptions?: Row): Mounted {
     container,
     render: (next) => React.act(() => root.render(next)),
     click: (target) => dispatch(target, 'click', {}),
-    key: (target, key) => dispatch(target, 'keydown', { key }),
+    key: (target, key, extra = {}) => dispatch(target, 'keydown', { key, ...extra }),
     unmount: () => React.act(() => root.unmount()),
   };
 }
@@ -728,7 +880,7 @@ function fakeClock(startIso: string, deviceZone: string | null = TZ) {
   };
 }
 
-/** A fake Telegram.WebApp for the home (Bot API 8.0 by default, so `activated` exists). BackButton handlers ride on backButtonClicked, as the SDK's do. */
+/** A fake Telegram.WebApp for the home (Bot API 8.0 by default, so `activated` exists). BackButton handlers ride on backButtonClicked, as the SDK's do; the vertical swipes are recorded. */
 function fakeTelegramHome(o: { version?: string; scheme?: 'light' | 'dark'; closeThrows?: boolean } = {}) {
   const calls: string[] = [];
   const events = new Map<string, Set<() => void>>();
@@ -754,6 +906,9 @@ function fakeTelegramHome(o: { version?: string; scheme?: 'light' | 'dark'; clos
       calls.push('close()');
       if (o.closeThrows) throw new Error('close() failed in the smoke');
     },
+    // Bot API 7.7 (Task E8): recorded on every fake, called only where isVersionAtLeast('7.7') holds.
+    enableVerticalSwipes: () => calls.push('enableVerticalSwipes()'),
+    disableVerticalSwipes: () => calls.push('disableVerticalSwipes()'),
     BackButton: {
       onClick: (h: () => void) => {
         calls.push('BackButton.onClick');
@@ -842,21 +997,27 @@ fakeDocument.removeEventListener = (type: string, fn: (event: Row) => void) => {
 const fireDocument = (type: string) => React.act(() => docListeners.filter((l) => l.type === type).forEach((l) => l.fn({ type })));
 
 const reloads: string[] = [];
-/** A fresh slate for a home check: the fake fetch, no calls or pushes, an empty sessionStorage, reload() recorded, no Telegram. */
+/**
+ * A fresh slate for a home check: the fake fetch, no calls or pushes, an empty
+ * sessionStorage and localStorage, reload() recorded, no Telegram; the page at the top,
+ * no scroll call, no frame, no media query matching, a fresh observer class.
+ */
 function resetHome() {
   (globalThis as Row).fetch = fakeFetch;
   fetchCalls.length = 0;
   pushes.length = 0;
   reloads.length = 0;
-  const saved = new Map<string, string>();
-  fakeWindow.sessionStorage = {
-    getItem: (k: string) => saved.get(k) ?? null,
-    setItem: (k: string, v: string) => void saved.set(k, String(v)),
-    removeItem: (k: string) => void saved.delete(k),
-  };
+  fakeWindow.sessionStorage = fakeStorage();
+  fakeWindow.localStorage = fakeStorage();
   fakeWindow.location = { hash: '', reload: () => reloads.push('reload') };
   fakeWindow.Telegram = undefined;
+  fakeWindow.scrollY = 0;
+  fakeWindow.IntersectionObserver = FakeIO;
   fakeDocument.visibilityState = 'visible';
+  scrollCalls.length = 0;
+  frames.clear();
+  media.clear();
+  FakeIO.all = [];
 }
 
 // ---- The checks ----
@@ -1384,7 +1545,7 @@ async function main() {
     assert(forbidden.length === 0, `server modules in the home's graph: ${show(forbidden.map((p) => path.relative(ROOT, p)))}`);
   });
 
-  await check('#22 CalendarHome (en, FamCal, in Telegram): one range request, no dates, the init data in the header only; placeholders, then the server\'s today, its Hebrew date and the Agenda; Telegram\'s theme and a hidden BackButton on mount; no tab bar', async () => {
+  await check('#22 CalendarHome (en, FamCal, in Telegram): one range request, no dates, the init data in the header only; placeholders, then the server\'s today, its Hebrew date and the Agenda; Telegram\'s theme and a hidden BackButton on mount; the tab bar (Plan E), with the Agenda selected', async () => {
     resetHome();
     const tg = fakeTelegramHome({ scheme: 'dark' });
     fakeWindow.Telegram = { WebApp: tg.webApp };
@@ -1409,8 +1570,15 @@ async function main() {
       const after = m.html();
       assert(after.includes('<h1 class="ch-head-title">Thursday, 15 October</h1><p class="ch-head-sub">4 Cheshvan 5787</p>'), `the header: ${textOf(after).slice(0, 120)}`);
       assertHas(textOf(after), [`Today ${ref.dayShort('en-GB', day(0))} 4 Cheshvan`, 'Still open 5 reminders', '09:30 10:30 Dentist', 'Show next week'], 'the Agenda');
-      assertLacks(after, ['role="tablist"', 'role="tab"', 'calendarHome.'], 'Plan D\'s shape (R19)');
-      assertLacks(textOf(after), ['Month', 'Agenda', 'Open FamCal in Telegram'], 'no tabs; inside Telegram, no Telegram banner');
+      // Plan E: the tab bar under the header, the Agenda selected and its panel shown.
+      assert(/<div class="ch-tabs" role="tablist" aria-label="Calendar view" dir="ltr">/.test(after), 'the tablist, named');
+      const tabs = byRole(m.container, 'tab').map((e) => [e.getAttribute('id'), e.getAttribute('aria-selected'), e.textContent]);
+      assert(show(tabs) === show([['ch-tab-agenda', 'true', 'Agenda'], ['ch-tab-month', 'false', 'Month']]), `the tabs: ${show(tabs)}`);
+      const panels = byRole(m.container, 'tabpanel').map((e) => [e.getAttribute('id'), e.hasAttribute('hidden')]);
+      assert(show(panels) === show([['ch-panel-agenda', false], ['ch-panel-month', true]]), `the panels: ${show(panels)}`);
+      assert(after.indexOf('class="ch-head"') < after.indexOf('role="tablist"') && after.indexOf('role="tablist"') < after.indexOf('class="ch-agenda"'), 'the header, the tab bar, then the Agenda');
+      assertLacks(after, ['calendarHome.'], 'no untranslated key');
+      assertLacks(textOf(after), ['Open FamCal in Telegram'], 'inside Telegram, no Telegram banner');
       assert(show(ranges()) === show(['famcal default']), `one request in all: ${show(ranges())}`);
     } finally {
       m.unmount();
@@ -2281,6 +2449,850 @@ async function main() {
       m.unmount();
     }
     assert(reactWarnings.length === warned, `warnings: ${show(reactWarnings.slice(warned, warned + 5))}`);
+  });
+
+  // ---- The tabs and the Month through the container (Plan E, Task E8) ----
+
+  const warnedBeforeMonth = reactWarnings.length;
+  /** The fixtures' window and each month's top in the browse list (Hebrew dates on, Sunday weeks). */
+  const WINDOW = monthSpan(TODAY);
+  const OFFSETS = monthOffsets(WINDOW, 0, true);
+  const topOfMonth = (month: MonthKey) => OFFSETS[WINDOW.indexOf(month)];
+  /** The page offset that puts `month`'s title just under the stuck bar, less `peek`. */
+  const underBar = (month: MonthKey, peek = 0) => LAYOUT.listTop + topOfMonth(month) - monthBarPx(true) - peek;
+  /** A scroll that reads `month` as the one in view (browse reads it half a week row under the bar). */
+  const inViewAt = (month: MonthKey) => underBar(month, BROWSE_CELL_PX / 2) + 10;
+  /** A month's window as ranges() writes it: "famcal 2026-10-01→2026-11-01". */
+  const monthAsk = (month: MonthKey, o: { fresh?: boolean } = {}) => `famcal ${monthWindow(month).from}→${monthWindow(month).to}${o.fresh ? ' fresh' : ''}`;
+  /** Runs the frames requested so far (and any they request), inside act. */
+  const flushFrames = () =>
+    React.act(() => {
+      for (let round = 0; round < 5 && frames.size > 0; round++) {
+        const batch = [...frames.values()];
+        frames.clear();
+        for (const run of batch) run();
+      }
+    });
+  /** The user scrolls the page to `top`: the window gets a scroll event, and the next frame measures. */
+  const scrollPageTo = (top: number) => {
+    fakeWindow.scrollY = top;
+    React.act(() => windowListeners.filter((l) => l.type === 'scroll').forEach((l) => l.fn()));
+    flushFrames();
+  };
+  type Home = Awaited<ReturnType<typeof mountHome>>;
+  const tabButton = (m: Home, id: 'agenda' | 'month') => {
+    const found = elements(m.container).find((e) => e.getAttribute('id') === TAB_IDS[id]);
+    assert(found, `no ${id} tab`);
+    return found;
+  };
+  const panel = (m: Home, id: 'agenda' | 'month') => {
+    const found = elements(m.container).find((e) => e.getAttribute('id') === PANEL_IDS[id]);
+    assert(found, `no ${id} panel`);
+    return found;
+  };
+  const browseShown = (m: Home) => byClass(m.container, 'ch-mb').length === 1;
+  const pickedShown = (m: Home) => byClass(m.container, 'ch-mp').length === 1;
+  const barMonth = (m: Home) => byClass(m.container, 'ch-mb-bar-month')[0]?.textContent ?? null;
+  /** A day's button in browse (inside its month's block) or in picked, by its label's start. */
+  const dayButton = (m: Home, dayKey: DayKey) => {
+    const where = browseShown(m) ? byClass(byData(m.container, 'month', dayKey.slice(0, 7)), 'ch-mb-cell') : byClass(m.container, 'ch-mp-cell');
+    const found = where.filter((e) => (e.getAttribute('aria-label') ?? '').startsWith(formatDayLong(dayKey, 'en')));
+    assert(found.length === 1, `no day button for ${dayKey}`);
+    return found[0];
+  };
+  /** A tap on the Month tab, then what follows: the answers, the first frame's measure, their effects. */
+  const openMonth = async (m: Home) => {
+    m.click(tabButton(m, 'month'));
+    await settle();
+    flushFrames();
+    await settle();
+  };
+  const tap = async (m: Home, el: FakeNode) => {
+    m.click(el);
+    await settle();
+    flushFrames();
+    await settle();
+  };
+  const swipeCalls = (calls: string[]) => calls.filter((c) => /VerticalSwipes/.test(c));
+  const backCalls = (calls: string[]) => calls.filter((c) => c.startsWith('BackButton'));
+
+  await check('#43 the Month\'s parts are client-safe, and its views are a chunk of their own (every /dashboard open preloads CalendarHome\'s chunk, the users the switch doesn\'t cover included): CalendarHome loads HomeTabs, month.ts, grid.ts, home-storage.ts and hebrew-date.ts, and reaches MonthView only through one import(), never MonthBrowse or MonthPicked; MonthView loads both; neither graph has a server module or @hebcal/core', () => {
+    const graph = (id: string) => {
+      const loaded = new Set<string>();
+      const walk = (at: string) => {
+        for (const child of require.cache[at]?.children ?? []) {
+          if (loaded.has(child.id)) continue;
+          loaded.add(child.id);
+          walk(child.id);
+        }
+      };
+      walk(id);
+      return loaded;
+    };
+    const dashboard = (f: string) => path.join(ROOT, 'app/[locale]/dashboard', f);
+    const root = dashboard('CalendarHome.tsx');
+    const home = graph(root);
+    for (const want of [dashboard('HomeTabs.tsx'), ...['month.ts', 'grid.ts', 'home-storage.ts', 'hebrew-date.ts'].map((f) => path.join(ROOT, 'src/lib/calendar-view', f))]) {
+      assert(home.has(want), `${path.relative(ROOT, want)} not among CalendarHome's modules`);
+    }
+    const views = ['MonthView.tsx', 'MonthBrowse.tsx', 'MonthPicked.tsx'].map(dashboard);
+    assert(views.every((v) => !home.has(v)), `in CalendarHome's own chunk: ${show(views.filter((v) => home.has(v)).map((v) => path.relative(ROOT, v)))}`);
+    const source = fs.readFileSync(root, 'utf8');
+    assert((source.match(/import\('\.\/MonthView'\)/g) ?? []).length === 1, 'one import() of ./MonthView');
+    assert(!/^import (?!type )[^;]*from '\.\/Month(?:View|Browse|Picked)';/m.test(source), 'a static import of a Month view');
+    nodeRequire(views[0]);
+    const view = graph(views[0]);
+    assert(view.has(views[1]) && view.has(views[2]), 'MonthView loads MonthBrowse and MonthPicked');
+    const forbidden = [...home, ...view].filter((p) =>
+      /[\\/](src[\\/](services|utils|config)|@prisma|\.prisma|@upstash|date-fns-tz|@hebcal[\\/]core|googleapis|@googleapis)[\\/]|src[\\/]lib[\\/](page-data|api-auth|prisma)/.test(p),
+    );
+    assert(forbidden.length === 0, `server modules in the home's graph: ${show(forbidden.map((p) => path.relative(ROOT, p)))}`);
+  });
+
+  await check('#44 the tab bar (Rulings 1 and 2): under the header and above the banners; a tap on Month shows the Month panel, closes the item sheet and is kept for the session; back on the Agenda the page goes to the top; a remount in the session opens on the Month, a new session or another user on the Agenda; in Hebrew the bar runs right to left', async () => {
+    resetHome();
+    const tg = fakeTelegramHome();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const clock = fakeClock('2026-10-15T07:00:00Z');
+    const m = await mountHome('en', { trialDaysLeft: 5, hasLocation: true }, clock);
+    try {
+      const html = m.html();
+      const order = ['class="ch-head"', 'role="tablist"', 'data-banner="trial"', 'role="tabpanel"'].map((s) => html.indexOf(s));
+      assert(order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1])), `the header, the tab bar, the banners, then the panel: ${show(order)}`);
+      assert(panel(m, 'agenda').getAttribute('aria-labelledby') === TAB_IDS.agenda && panel(m, 'month').getAttribute('aria-labelledby') === TAB_IDS.month, 'each panel is labelled by its tab');
+      assert(panel(m, 'month').hasAttribute('hidden') && panel(m, 'month').childNodes.length === 0, 'the Month panel is there for aria-controls, hidden and empty');
+      m.click(button(m.container, 'Dentist'));
+      assert(byRole(m.container, 'dialog').length === 1, 'the item sheet is open');
+      await openMonth(m);
+      assert(byRole(m.container, 'dialog').length === 0, 'the switch closed the item sheet');
+      assert(tabButton(m, 'month').getAttribute('aria-selected') === 'true' && tabButton(m, 'agenda').getAttribute('aria-selected') === 'false', 'Month is selected');
+      assert(!panel(m, 'month').hasAttribute('hidden') && panel(m, 'agenda').hasAttribute('hidden') && panel(m, 'agenda').childNodes.length === 0, 'the Month panel shows; the Agenda is unmounted');
+      assert(browseShown(m) && byClass(m.container, 'ch-agenda').length === 0, 'MonthBrowse in the Month panel');
+      assert(fakeWindow.sessionStorage.getItem(homeTabKey(5550001)) === 'month', 'the tab is kept for the session');
+      assert(tg.backHandlers() === 0, `no BackButton in browse: ${show(backCalls(tg.calls))}`);
+      m.click(byLabel(m.container, 'Menu'));
+      assert(byRole(m.container, 'dialog').length === 1, 'the menu is open');
+      scrollCalls.length = 0;
+      m.click(tabButton(m, 'agenda'));
+      await settle();
+      assert(byRole(m.container, 'dialog').length === 0, 'the switch closed the menu');
+      assert(show(scrollCalls) === show([{ top: 0, behavior: 'plain' }]), `the Agenda opens at the top: ${show(scrollCalls)}`);
+      assertHas(m.text(), [`Today ${ref.dayShort('en-GB', day(0))} 4 Cheshvan`, 'Show next week'], 'the Agenda again');
+      assert(fakeWindow.sessionStorage.getItem(homeTabKey(5550001)) === 'agenda', 'the Agenda is kept');
+      m.click(tabButton(m, 'month'));
+      await settle();
+    } finally {
+      m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+    const again = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      assert(tabButton(again, 'month').getAttribute('aria-selected') === 'true' && browseShown(again), 'a remount in the same session opens on the Month');
+    } finally {
+      again.unmount();
+    }
+    const other = await mountHome('en', GOOGLE_HOME, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      assert(tabButton(other, 'agenda').getAttribute('aria-selected') === 'true', 'another user on the device keeps their own tab');
+    } finally {
+      other.unmount();
+    }
+    resetHome();
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const fresh = await mountHome('he', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      assert(tabButton(fresh, 'agenda').getAttribute('aria-selected') === 'true' && !browseShown(fresh), 'a new session opens on the Agenda');
+      assert(/<div class="ch-tabs" role="tablist" aria-label="תצוגת היומן" dir="rtl">/.test(fresh.html()), 'he: the tablist reads right to left');
+      assertHas(textOf(htmlOf(byRole(fresh.container, 'tablist')[0])), ['סדר יום חודש'], 'he: the tab labels');
+    } finally {
+      fresh.unmount();
+    }
+  });
+
+  await check('#45 the Month opens on today\'s month with a peek: placeholders and swipes off before the first answer; then one instant scroll puts October\'s title under the bar with half a week row of September above it; its windows are a month\'s own days ([2026-10-01, 2026-11-01) first), at most 2 in flight, each asked once; a month coming near is asked at once', async () => {
+    resetHome();
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    const tg = fakeTelegramHome({ version: '7.7' });
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    const held: { call: FetchCall; resolve: (a: FetchAnswer) => void }[] = [];
+    let first: (a: FetchAnswer) => void = noop;
+    answerFetch = (c) =>
+      new Promise<FetchAnswer>((resolve) => {
+        if (c.query.has('from')) held.push({ call: c, resolve });
+        else first = resolve;
+      });
+    const answerOne = async (month: MonthKey) => {
+      const at = held.findIndex((h) => h.call.query.get('from') === monthWindow(month).from);
+      assert(at >= 0, `${month} is not in flight: ${show(held.map((h) => h.call.query.get('from')))}`);
+      const [h] = held.splice(at, 1);
+      await React.act(async () => h.resolve(answerFor(h.call, { items: WEEK })));
+      await settle();
+      flushFrames();
+      await settle();
+    };
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      assertHas(textOf(htmlOf(panel(m, 'month'))), ['Loading your calendar…'], 'before the first answer: the Month\'s placeholders');
+      assert(!browseShown(m) && !/class="ch-mb-cell/.test(m.html()), 'no grid, so no free-looking day, before the facts');
+      assert(show(swipeCalls(tg.calls)) === show(['disableVerticalSwipes()']), `swipes off while browse loads: ${show(swipeCalls(tg.calls))}`);
+      await React.act(async () => first(answerFor({ query: new URLSearchParams() } as FetchCall, { items: WEEK })));
+      await settle();
+      assert(browseShown(m), 'the Month tab, kept for the session, opens in browse');
+      assert(show(scrollCalls) === show([{ top: underBar('2026-10', BROWSE_CELL_PX / 2), behavior: 'instant' }]), `the opening scroll: ${show(scrollCalls)} (want ${underBar('2026-10', BROWSE_CELL_PX / 2)})`);
+      assert(show(ranges()) === show(['famcal default', monthAsk('2026-10'), monthAsk('2026-11')]), `October, then November; September waits: ${show(ranges())}`);
+      flushFrames();
+      await settle();
+      assert(barMonth(m) === 'October 2026', `the bar: ${barMonth(m)}`);
+      assert(dayButton(m, TODAY).getAttribute('aria-current') === 'date', 'today\'s cell');
+      FakeIO.all[0].fire({ '2026-08': false, '2026-09': true, '2026-10': true, '2026-11': true, '2026-12': true });
+      flushFrames();
+      await settle();
+      assert(ranges().length === 3 && held.length === MONTH_INFLIGHT_MAX, `still 2 in flight: ${show(ranges())}`);
+      await answerOne('2026-10');
+      assert(show(ranges().slice(3)) === show([monthAsk('2026-09')]), `a slot frees: September, the nearest one waiting: ${show(ranges())}`);
+      assert(held.length <= MONTH_INFLIGHT_MAX, `in flight: ${held.length}`);
+      await answerOne('2026-11');
+      assert(show(ranges().slice(3)) === show([monthAsk('2026-09'), monthAsk('2026-12')]), `then December: ${show(ranges())}`);
+      await answerOne('2026-09');
+      await answerOne('2026-12');
+      FakeIO.all[0].fire({ '2026-09': true, '2026-12': false });
+      flushFrames();
+      await settle();
+      scrollPageTo(fakeWindow.scrollY + 30);
+      await settle();
+      const asked = ranges();
+      assert(new Set(asked).size === asked.length && asked.length === 5, `each window once: ${show(asked)}`);
+      assert(!asked.some((r) => r.startsWith(`famcal ${day(0)}`)), 'the Agenda\'s week isn\'t asked again on the Month');
+      const october = textOf(htmlOf(byData(m.container, 'month', '2026-10')));
+      assertHas(october, ['October', 'Dentist', 'Grandma visits', 'Trip to Eilat'], 'October\'s chips');
+      assert(!/loading/.test(dayButton(m, '2026-10-02').getAttribute('aria-label') ?? ''), 'an answered day reads answered');
+      // January comes near (no answer has changed the store): it is asked at once.
+      FakeIO.all[0].fire({ '2027-01': true });
+      flushFrames();
+      await settle();
+      assert(show(ranges().slice(5)) === show([monthAsk('2027-01')]), `a month coming near: ${show(ranges())}`);
+    } finally {
+      m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+  });
+
+  await check('#46 swipes (Ruling 9): on a 7.7 client they go off in browse and on in picked, on the Agenda and on unmount, enabled on mount, isVerticalSwipesEnabled never read; a 7.0 client gets no swipe call', async () => {
+    for (const version of ['7.7', '7.0']) {
+      resetHome();
+      const tg = fakeTelegramHome({ version });
+      let reads = 0;
+      Object.defineProperty(tg.webApp, 'isVerticalSwipesEnabled', {
+        get() {
+          reads++;
+          throw new Error('isVerticalSwipesEnabled must never be read');
+        },
+      });
+      fakeWindow.Telegram = { WebApp: tg.webApp };
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+      const steps: string[][] = [];
+      const step = () => {
+        steps.push(swipeCalls(tg.calls));
+        tg.calls.length = 0;
+      };
+      try {
+        step(); // mount, on the Agenda
+        await openMonth(m);
+        step(); // browse
+        await tap(m, dayButton(m, '2026-10-20'));
+        assert(pickedShown(m), `${version}: picked`);
+        step(); // picked
+        React.act(() => tg.fire('backButtonClicked'));
+        await settle();
+        flushFrames();
+        step(); // back in browse
+        m.click(tabButton(m, 'agenda'));
+        await settle();
+        step(); // the Agenda
+        await openMonth(m);
+        tg.calls.length = 0;
+      } finally {
+        m.unmount();
+        fakeWindow.Telegram = undefined;
+      }
+      step(); // unmount
+      const want =
+        version === '7.7'
+          ? [['enableVerticalSwipes()'], ['disableVerticalSwipes()'], ['enableVerticalSwipes()'], ['disableVerticalSwipes()'], ['enableVerticalSwipes()'], ['enableVerticalSwipes()']]
+          : [[], [], [], [], [], []];
+      assert(show(steps) === show(want), `${version}: ${show(steps)}`);
+      assert(reads === 0, `${version}: isVerticalSwipesEnabled was read ${reads} times`);
+    }
+  });
+
+  await check('#47 picked (spec §7.4, §7.6): a tap on a day opens it, shows the BackButton and keeps "picked" on the device; with the item sheet over it one tap closes only the sheet, the next goes back to browse with the picked month under the bar; a tab switch brings browse back on the month that was in view', async () => {
+    resetHome();
+    const tg = fakeTelegramHome();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      await openMonth(m);
+      tg.calls.length = 0;
+      scrollCalls.length = 0;
+      await tap(m, dayButton(m, TODAY));
+      assert(pickedShown(m) && !browseShown(m), 'picked');
+      assert(show(backCalls(tg.calls)) === show(['BackButton.onClick', 'BackButton.show()']), `the BackButton shows: ${show(backCalls(tg.calls))}`);
+      assert(fakeWindow.localStorage.getItem(monthLayoutKey(5550001)) === 'picked', 'the layout is kept on the device');
+      assert(show(scrollCalls) === show([{ top: 0, behavior: 'plain' }]), `picked starts at the top: ${show(scrollCalls)}`);
+      assertHas(m.text(), ['All months', 'October 2026', 'Today · Thursday, 15 October', '09:30 10:30 Dentist'], 'the picked day and its rows');
+      // The item sheet over picked: the button stays; one tap closes only the sheet.
+      tg.calls.length = 0;
+      m.click(button(m.container, 'Dentist'));
+      assert(byRole(m.container, 'dialog').length === 1 && dialogText(m.container).includes('Clinic on Herzl St'), 'the item sheet over picked');
+      assert(backCalls(tg.calls).length === 0 && tg.backHandlers() === 1, `the button was already there: ${show(backCalls(tg.calls))}`);
+      // A refetch meanwhile: the sheet shows the row as the latest answer has it.
+      const moved = item('dentist', { ...DENTIST, location: 'Clinic on Jaffa Rd' });
+      answerFetch = (c) => answerFor(c, { items: { ...WEEK, [day(0)]: [VITAMINS, moved, FORM, SNOOZED, FOOTBALL, CONCERT] } });
+      fireDocument('visibilitychange');
+      await settle();
+      assert(dialogText(m.container).includes('Clinic on Jaffa Rd'), `the sheet after a refetch: ${dialogText(m.container).slice(0, 200)}`);
+      React.act(() => tg.fire('backButtonClicked'));
+      await settle();
+      assert(byRole(m.container, 'dialog').length === 0 && pickedShown(m), 'one tap closed only the sheet');
+      assert(backCalls(tg.calls).length === 0 && tg.backHandlers() === 1, `the button stays for picked: ${show(backCalls(tg.calls))}`);
+      // The next tap: browse, on the picked month. A chevron moves it to November first: the
+      // same MonthPicked (no scroll to the top), December asked at once, and an item sheet
+      // still open when the day changes (the check taps the chevron behind it; the sheet keeps
+      // a keyboard's focus, #59) closes with the day it showed.
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      assert(!ranges().includes(monthAsk('2026-12')), 'December not asked yet');
+      m.click(button(m.container, 'Dentist'));
+      assert(byRole(m.container, 'dialog').length === 1, 'the sheet again');
+      const picked = byClass(m.container, 'ch-mp')[0];
+      scrollCalls.length = 0;
+      m.click(byLabel(m.container, 'Next month'));
+      await settle();
+      assertHas(m.text(), ['November 2026'], 'the next month');
+      assert(byClass(m.container, 'ch-mp')[0] === picked && scrollCalls.length === 0, `one MonthPicked, not keyed by month: ${show(scrollCalls)}`);
+      assert(byRole(m.container, 'dialog').length === 0, 'the sheet closed with its day');
+      assert(ranges().includes(monthAsk('2026-12')), `the chevron asks the month after November: ${show(ranges())}`);
+      tg.calls.length = 0;
+      React.act(() => tg.fire('backButtonClicked'));
+      await settle();
+      assert(browseShown(m) && !pickedShown(m), 'back in browse');
+      assert(show(backCalls(tg.calls)) === show(['BackButton.offClick', 'BackButton.hide()']) && tg.backHandlers() === 0, `the button goes: ${show(backCalls(tg.calls))}`);
+      assert(fakeWindow.localStorage.getItem(monthLayoutKey(5550001)) === 'browse', 'browse is kept');
+      assert(show(scrollCalls) === show([{ top: underBar('2026-11'), behavior: 'instant' }]), `November under the bar, no peek: ${show(scrollCalls)}`);
+      // Before browse's first frame reports, the Month's windows centre on November, not on what was in view before picked.
+      const held: { call: FetchCall; resolve: (a: FetchAnswer) => void }[] = [];
+      answerFetch = (c) => new Promise<FetchAnswer>((resolve) => held.push({ call: c, resolve }));
+      fetchCalls.length = 0;
+      fireDocument('visibilitychange');
+      await settle();
+      assert(show(ranges()) === show([monthAsk('2026-11'), monthAsk('2026-12')]), `centred on November: ${show(ranges())}`);
+      for (const h of held.splice(0)) await React.act(async () => h.resolve(answerFor(h.call, { items: WEEK })));
+      await settle();
+      for (const h of held.splice(0)) await React.act(async () => h.resolve(answerFor(h.call, { items: WEEK })));
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      await settle();
+      flushFrames();
+      await settle();
+      assert(barMonth(m) === 'November 2026', `the bar: ${barMonth(m)}`);
+      // "All months" does the same.
+      await tap(m, dayButton(m, '2026-11-03'));
+      m.click(button(m.container, 'All months'));
+      await settle();
+      flushFrames();
+      assert(browseShown(m) && barMonth(m) === 'November 2026', 'All months: browse on November');
+      // The month in view is kept across a tab switch.
+      scrollPageTo(inViewAt('2027-01'));
+      await settle();
+      assert(barMonth(m) === 'January 2027', `scrolled to January: ${barMonth(m)}`);
+      m.click(tabButton(m, 'agenda'));
+      await settle();
+      scrollCalls.length = 0;
+      await openMonth(m);
+      assert(show(scrollCalls) === show([{ top: underBar('2027-01'), behavior: 'instant' }]), `browse comes back on January, no peek: ${show(scrollCalls)}`);
+      assert(barMonth(m) === 'January 2027', `the bar: ${barMonth(m)}`);
+    } finally {
+      m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+  });
+
+  await check('#48 a restored picked layout opens on today with the BackButton shown, and asks the picked month, the one after, then the one before; its BackButton goes to browse on October', async () => {
+    resetHome();
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    fakeWindow.localStorage.setItem(monthLayoutKey(5550001), 'picked');
+    const tg = fakeTelegramHome();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      assert(pickedShown(m), 'picked');
+      assert(dayButton(m, TODAY).getAttribute('aria-pressed') === 'true', 'today is the selected day');
+      assertHas(m.text(), ['Today · Thursday, 15 October', 'Dentist'], 'today\'s list');
+      assert(show(backCalls(tg.calls)) === show(['BackButton.hide()', 'BackButton.onClick', 'BackButton.show()']), `hidden on mount, then shown for picked: ${show(backCalls(tg.calls))}`);
+      assert(show(ranges()) === show(['famcal default', monthAsk('2026-10'), monthAsk('2026-11'), monthAsk('2026-09')]), `the picked month, then its neighbours: ${show(ranges())}`);
+      React.act(() => tg.fire('backButtonClicked'));
+      await settle();
+      flushFrames();
+      assert(browseShown(m) && barMonth(m) === 'October 2026', `browse on October: ${barMonth(m)}`);
+    } finally {
+      m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+    // Opened on the Agenda, with the Month not seen yet when midnight passes: it still opens on the new today.
+    resetHome();
+    fakeWindow.localStorage.setItem(monthLayoutKey(5550001), 'picked');
+    const clock = fakeClock('2026-10-15T20:59:30Z'); // 23:59:30 in Israel, Thursday 15 October
+    let serverToday = TODAY;
+    answerFetch = (c) => (serverToday === TODAY ? answerFor(c, { items: WEEK }) : answerFor(c, { today: day(1), from: c.query.get('from') ?? day(1), to: c.query.get('to') ?? day(8), items: { [day(1)]: [GRANDMA] } }));
+    const n = await mountHome('en', {}, clock);
+    try {
+      serverToday = day(1);
+      await clock.advance(31_000);
+      assert(n.html().includes('<h1 class="ch-head-title">Friday, 16 October</h1>'), 'the new day');
+      await openMonth(n);
+      assert(pickedShown(n) && dayButton(n, day(1)).getAttribute('aria-pressed') === 'true', 'picked opens on the new today');
+      assertHas(n.text(), ['Today · Friday, 16 October', 'Grandma visits'], 'the new today\'s list');
+    } finally {
+      n.unmount();
+    }
+  });
+
+  await check('#49 on the Month, a return to the foreground asks its windows again, not the Agenda\'s week, two at a time; ⋯ → Refresh sends fresh=1 on each; on the Agenda the same return asks only its week', async () => {
+    resetHome();
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      flushFrames();
+      await settle();
+      assert(show(ranges()) === show(['famcal default', monthAsk('2026-10'), monthAsk('2026-11'), monthAsk('2026-09')]), `the first asks: ${show(ranges())}`);
+      const held: { call: FetchCall; resolve: (a: FetchAnswer) => void }[] = [];
+      answerFetch = (c) => new Promise<FetchAnswer>((resolve) => held.push({ call: c, resolve }));
+      const releaseAll = async () => {
+        while (held.length > 0) {
+          const h = held.shift() as (typeof held)[number];
+          await React.act(async () => h.resolve(answerFor(h.call, { items: WEEK })));
+          await settle();
+        }
+      };
+      fetchCalls.length = 0;
+      fireDocument('visibilitychange');
+      await settle();
+      assert(show(ranges()) === show([monthAsk('2026-10'), monthAsk('2026-11')]) && held.length === 2, `the foreground: the Month's windows, two in flight: ${show(ranges())}`);
+      await releaseAll();
+      assert(show(ranges()) === show([monthAsk('2026-10'), monthAsk('2026-11'), monthAsk('2026-09')]), `then the third: ${show(ranges())}`);
+      fetchCalls.length = 0;
+      m.click(byLabel(m.container, 'Menu'));
+      m.click(byData(m.container, 'menu', 'refresh'));
+      await settle();
+      assert(byRole(m.container, 'dialog').length === 0, 'the menu closed');
+      await releaseAll();
+      assert(show(ranges()) === show(['2026-10', '2026-11', '2026-09'].map((mo) => monthAsk(mo, { fresh: true }))), `Refresh: fresh=1 on each: ${show(ranges())}`);
+      fetchCalls.length = 0;
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      m.click(tabButton(m, 'agenda'));
+      await settle();
+      fetchCalls.length = 0;
+      fireDocument('visibilitychange');
+      await settle();
+      assert(show(ranges()) === show([`famcal ${day(0)}→${day(7)}`]), `on the Agenda, only its week: ${show(ranges())}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#50 a month that fails (500) shows "Couldn\'t load this month · Retry" over dimmed cells that never look free; Retry asks that month\'s window again, and the answer clears it', async () => {
+    resetHome();
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    let october: FetchAnswer = { status: 500, body: { error: 'internal_error' } };
+    answerFetch = (c) => (c.query.get('from') === '2026-10-01' ? october : answerFor(c, { items: WEEK }));
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      flushFrames();
+      await settle();
+      const block = () => byData(m.container, 'month', '2026-10');
+      assertHas(textOf(htmlOf(block())), ['Couldn’t load this month Retry'], 'the pill');
+      assert(/couldn’t load/.test(dayButton(m, '2026-10-02').getAttribute('aria-label') ?? '') && dayButton(m, '2026-10-02').className.includes('is-failed'), 'a failed day reads failed, dimmed');
+      assert(!/nothing planned/.test(dayButton(m, '2026-10-02').getAttribute('aria-label') ?? ''), 'never free');
+      assert(/nothing planned/.test(dayButton(m, '2026-10-17').getAttribute('aria-label') ?? ''), 'the Agenda\'s answered week stays answered');
+      october = answerFor({ query: new URLSearchParams('from=2026-10-01&to=2026-11-01') } as FetchCall, { items: WEEK });
+      fetchCalls.length = 0;
+      await tap(m, button(block(), 'Retry'));
+      assert(show(ranges()) === show([monthAsk('2026-10')]), `Retry: ${show(ranges())}`);
+      assertLacks(textOf(htmlOf(block())), ['Couldn’t load this month'], 'the pill goes');
+      assert(/nothing planned/.test(dayButton(m, '2026-10-02').getAttribute('aria-label') ?? ''), 'then the day is answered');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#51 midnight on the Month: browse stays where it is (no new opening scroll), its cells loading and never free until the new day\'s answer; then today moves to the 16th and the windows are asked again in the new epoch', async () => {
+    resetHome();
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    const clock = fakeClock('2026-10-15T20:59:30Z'); // 23:59:30 in Israel, Thursday 15 October
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const m = await mountHome('en', {}, clock);
+    try {
+      flushFrames();
+      await settle();
+      const browse = byClass(m.container, 'ch-mb')[0];
+      assert(browse && scrollCalls.length === 1, `browse, opened once: ${show(scrollCalls)}`);
+      let release: (a: FetchAnswer) => void = noop;
+      answerFetch = (c) =>
+        c.query.has('from') ? answerFor(c, { today: day(1), items: { [day(1)]: [GRANDMA] } }) : new Promise<FetchAnswer>((resolve) => (release = resolve));
+      fetchCalls.length = 0;
+      await clock.advance(31_000);
+      flushFrames();
+      assert(show(ranges()) === show(['famcal default']), `the new day's no-dates request: ${show(ranges())}`);
+      assert(byClass(m.container, 'ch-mb')[0] === browse && scrollCalls.length === 1, 'browse stayed mounted, no new opening scroll');
+      assert(/loading/.test(dayButton(m, '2026-10-17').getAttribute('aria-label') ?? ''), 'the cells read loading');
+      assertLacks(textOf(htmlOf(byData(m.container, 'month', '2026-10'))), ['Dentist', 'nothing planned'], 'nothing of Thursday\'s, no free day');
+      await React.act(async () => release(answerFor({ query: new URLSearchParams() } as FetchCall, { today: day(1), from: day(1), to: day(8), items: { [day(1)]: [GRANDMA] } })));
+      await settle();
+      flushFrames();
+      await settle();
+      assert(m.html().includes('<h1 class="ch-head-title">Friday, 16 October</h1>'), `the header: ${m.text().slice(0, 80)}`);
+      assert(dayButton(m, day(1)).getAttribute('aria-current') === 'date' && dayButton(m, TODAY).getAttribute('aria-current') === null, 'today moved to the 16th');
+      assert(show(ranges()) === show(['famcal default', monthAsk('2026-10'), monthAsk('2026-11'), monthAsk('2026-09')]), `the windows again: ${show(ranges())}`);
+      assert(byClass(m.container, 'ch-mb')[0] === browse && scrollCalls.length === 1, 'still the same browse, still one opening scroll');
+    } finally {
+      m.unmount();
+    }
+    // Picked on Tuesday 20 October at midnight: picked stays on that day (clampMonthUi), mounted, loading, then answered.
+    resetHome();
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    const late = fakeClock('2026-10-15T20:59:30Z');
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const p = await mountHome('en', {}, late);
+    try {
+      flushFrames();
+      await tap(p, dayButton(p, '2026-10-20'));
+      const picked = byClass(p.container, 'ch-mp')[0];
+      assert(picked && dayButton(p, '2026-10-20').getAttribute('aria-pressed') === 'true', 'picked on the 20th');
+      let release: (a: FetchAnswer) => void = noop;
+      answerFetch = (c) =>
+        c.query.has('from') ? answerFor(c, { today: day(1), items: { [day(1)]: [GRANDMA] } }) : new Promise<FetchAnswer>((resolve) => (release = resolve));
+      scrollCalls.length = 0;
+      await late.advance(31_000);
+      assert(byClass(p.container, 'ch-mp')[0] === picked && scrollCalls.length === 0, 'picked stayed mounted, no scroll to the top');
+      assert(/loading/.test(dayButton(p, '2026-10-21').getAttribute('aria-label') ?? '') && dayButton(p, '2026-10-20').getAttribute('aria-pressed') === 'true', 'loading, the 20th still picked');
+      assertLacks(textOf(htmlOf(picked)), ['Nothing planned'], 'never free while loading');
+      await React.act(async () => release(answerFor({ query: new URLSearchParams() } as FetchCall, { today: day(1), from: day(1), to: day(8), items: { [day(1)]: [GRANDMA] } })));
+      await settle();
+      assert(dayButton(p, '2026-10-20').getAttribute('aria-pressed') === 'true' && dayButton(p, day(1)).getAttribute('aria-current') === 'date', 'the 20th stays picked; today is the 16th');
+      assertHas(p.text(), ['Tuesday, 20 October', 'Nothing planned', 'Today'], 'the 20th answered, and the Today pill');
+    } finally {
+      p.unmount();
+    }
+  });
+
+  await check('#52 a Google user still setting up (Ruling 1): no tab bar and no tab panel even with the Month remembered, which is left as it is; the Agenda\'s setup shape as in D, no month request, and swipes stay on', async () => {
+    resetHome();
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550002), 'month');
+    const tg = fakeTelegramHome({ version: '7.7' });
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    answerFetch = () => ok200(googleAnswer({ calendars: [] }));
+    const m = await mountHome('en', { ...GOOGLE_HOME, needsCalendars: true });
+    try {
+      assertLacks(m.html(), ['role="tablist"', 'role="tab"', 'role="tabpanel"', 'class="ch-mb', 'class="ch-mp'], 'no tabs, no Month');
+      assert(m.html().includes('data-banner="chooseCalendars"') && byClass(m.container, 'ch-agenda').length === 1, 'the banner and the (empty) Agenda');
+      assert(show(ranges()) === show(['google default']), `one request: ${show(ranges())}`);
+      assert(fakeWindow.sessionStorage.getItem(homeTabKey(5550002)) === 'month', 'the stored tab is left as it is');
+      assert(show(swipeCalls(tg.calls)) === show(['enableVerticalSwipes()']), `swipes on: ${show(swipeCalls(tg.calls))}`);
+    } finally {
+      m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+    // The busy card before any answer: no tab bar either.
+    resetHome();
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    answerFetch = () => ({ status: 429, body: {} });
+    const b = await mountHome('en');
+    try {
+      assertHas(b.text(), ['Busy right now, try again in a minute Retry'], 'the busy card');
+      assertLacks(b.html(), ['role="tablist"', 'role="tabpanel"', 'Loading your calendar'], 'no tab bar over a card');
+    } finally {
+      b.unmount();
+    }
+  });
+
+  await check('#53 404 not_enabled on the Month lets both of Telegram\'s controls go before the reload: the BackButton (offClick, hide), then swipes back on, then the reload', async () => {
+    resetHome();
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    const tg = fakeTelegramHome({ version: '7.7' });
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    fakeWindow.location = { hash: '', reload: () => void tg.calls.push('location.reload()') };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      flushFrames();
+      assert(swipeCalls(tg.calls).at(-1) === 'disableVerticalSwipes()', `browse locked the swipes: ${show(swipeCalls(tg.calls))}`);
+      m.click(byLabel(m.container, 'Menu'));
+      assert(tg.backHandlers() === 1, 'the menu shows the BackButton');
+      tg.calls.length = 0;
+      answerFetch = () => ({ status: 404, body: { error: 'not_enabled' } });
+      fireDocument('visibilitychange');
+      await settle();
+      const steps = tg.calls.filter((c) => c.startsWith('BackButton') || /VerticalSwipes/.test(c) || c === 'location.reload()');
+      assert(show(steps.slice(0, 4)) === show(['BackButton.offClick', 'BackButton.hide()', 'enableVerticalSwipes()', 'location.reload()']), `before the reload: ${show(steps)}`);
+      assert(tg.backHandlers() === 0, 'no handler left');
+    } finally {
+      m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+  });
+
+  await check('#54 no ancestor of the Month clips or transforms (spec §7.1): from the sticky bar and from picked up to the root, no rule or style sets overflow hidden, auto or scroll, a transform or a filter', async () => {
+    resetHome();
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const m = await mountHome('en', { trialDaysLeft: 5 }, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      flushFrames();
+      const css = elements(m.container)
+        .filter((e) => e.localName === 'style')
+        .map((e) => e.textContent)
+        .join('\n');
+      const bad = /(?:^|;|\{)\s*(?:overflow(?:-[xy])?\s*:\s*(?:hidden|auto|scroll)|transform\s*:|filter\s*:)/;
+      // The last compound of each selector (".ch-home[dir='rtl'] .ch-flip" → ".ch-flip"), as tag and classes.
+      const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+        .filter((r) => bad.test(`{${r[2]}`))
+        .flatMap((r) => r[1].split(',').map((sel) => sel.trim().split(/[\s>+~]+/).pop() ?? ''))
+        .map((last) => ({ last, tag: /^[a-z][\w-]*/.exec(last)?.[0] ?? null, classes: [...last.matchAll(/\.([\w-]+)/g)].map((x) => x[1]) }))
+        .filter((r) => r.tag !== null || r.classes.length > 0);
+      assert(rules.some((r) => r.classes.includes('ch-visually-hidden')), `the rule scan reads the sheets: ${show(rules.map((r) => r.last).slice(0, 8))}`);
+      const ancestorsOf = (el: FakeElement) => {
+        const out: FakeElement[] = [];
+        for (let n = el.parentNode; n && n !== m.container; n = n.parentNode) if (n instanceof FakeElement) out.push(n);
+        return out;
+      };
+      const offenders = (el: FakeElement) =>
+        ancestorsOf(el).flatMap((a) => {
+          const classes = a.className.split(' ').filter(Boolean);
+          const byRule = rules.filter((r) => (r.tag === null || r.tag === a.localName) && r.classes.every((c) => classes.includes(c)) && (r.classes.length > 0 || r.tag === a.localName));
+          const inline = ['overflow', 'overflowX', 'overflowY', 'transform', 'filter'].filter((k) => a.style[k] && !(k.startsWith('overflow') && a.style[k] === 'clip'));
+          return [...byRule.map((r) => `${a.localName}.${classes.join('.')} ← ${r.last}`), ...inline.map((k) => `${a.localName}.${classes.join('.')} style.${k}`)];
+        });
+      const bar = byClass(m.container, 'ch-mb-bar')[0];
+      assert(bar && ancestorsOf(bar).some((a) => a.className.includes('ch-home')) && ancestorsOf(bar).some((a) => a.getAttribute('role') === 'tabpanel'), 'the bar sits in the tab panel, in the home');
+      assert(offenders(bar).length === 0, `browse: ${show(offenders(bar))}`);
+      await tap(m, dayButton(m, '2026-10-20'));
+      const picked = byClass(m.container, 'ch-mp')[0];
+      assert(picked && offenders(picked).length === 0, `picked: ${show(picked ? offenders(picked) : 'no picked')}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#55 a Google user\'s calendars that are gone (Ruling 4): "2 calendars aren\'t available · Choose again" once, above the Month, in browse and in picked; Choose again opens select-calendars; the Month asks Google for its windows', async () => {
+    resetHome();
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550002), 'month');
+    const calendars: CalendarDTO[] = [
+      { id: G_FAMILY.id as string, source: 'google', name: 'Family', color: '#7986CB', mine: true },
+      { id: 'gone-1@group.calendar.google.com', source: 'google', name: 'Old', color: null, mine: true, unavailable: true },
+      { id: 'gone-2@group.calendar.google.com', source: 'google', name: 'Older', color: null, mine: true, unavailable: true },
+    ];
+    answerFetch = (c) => ok200(googleAnswer({ from: c.query.get('from') ?? TODAY, to: c.query.get('to') ?? day(7), items: { [day(0)]: [DINNER] }, calendars }));
+    const m = await mountHome('en', GOOGLE_HOME, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      flushFrames();
+      await settle();
+      const once = (where: string) => {
+        const html = m.html();
+        assert((textOf(html).match(/2 calendars aren’t available Choose again/g) ?? []).length === 1, `${where}: the row once: ${textOf(html).slice(0, 300)}`);
+        assert(html.indexOf('2 calendars aren’t available') < html.indexOf(where === 'browse' ? 'class="ch-mb"' : 'class="ch-mp"'), `${where}: above the Month`);
+      };
+      assert(browseShown(m), 'browse');
+      once('browse');
+      assert(show(ranges()) === show(['google default', 'google 2026-10-01→2026-11-01', 'google 2026-11-01→2026-12-01', 'google 2026-09-01→2026-10-01']), `Google's month windows: ${show(ranges())}`);
+      await tap(m, dayButton(m, TODAY));
+      assert(pickedShown(m), 'picked');
+      once('picked');
+      m.click(button(m.container, 'Choose again'));
+      assert(show(pushes) === show(['/en/select-calendars?user_id=5550002']), `Choose again: ${show(pushes)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#56 browse keeps the header and the tab bar on screen, as the approved MonthFlow does: they sit in .ch-home-top, which sticks under the safe areas in browse only, above the Month\'s bar and under the sheets, and whose height goes on .ch-home as --ch-top-h for the bar\'s top and the titles\' scroll-margin-top; 6,400 px down at today\'s month, ⋯ → Refresh is a tap away and asks the months near October; on the Agenda and in picked it scrolls with the page', async () => {
+    resetHome();
+    const topH = LAYOUT.topH;
+    LAYOUT.topH = 126;
+    const tg = fakeTelegramHome();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const m = await mountHome('en', { trialDaysLeft: 5 }, fakeClock('2026-10-15T07:00:00Z'));
+    const top = () => {
+      const found = closestClass(byRole(m.container, 'tablist')[0] ?? null, 'ch-home-top');
+      assert(found, 'the tab bar is not in .ch-home-top');
+      return found;
+    };
+    const sticky = () => top().className.split(' ').includes('is-sticky');
+    const rule = (css: string, selector: string) => {
+      const found = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((r) => r[1].trim() === selector);
+      assert(found.length === 1, `${found.length} ${selector} rules`);
+      return found[0][2];
+    };
+    const decl = (body: string, prop: string) => new RegExp(`(?:^|[\\s;])${prop}\\s*:\\s*([^;]+);`).exec(body)?.[1].trim() ?? null;
+    try {
+      assert(byClass(top(), 'ch-head').length === 1 && byRole(top(), 'tablist').length === 1 && byClass(top(), 'ch-banners').length === 0, 'the header and the tab bar, not the banners');
+      assert(!sticky(), 'on the Agenda it scrolls with the page');
+      await openMonth(m);
+      assert(sticky(), 'browse: it sticks');
+      const home = byClass(m.container, 'ch-home')[0];
+      assert(home.style['--ch-top-h'] === '126px', `--ch-top-h on .ch-home: ${home.style['--ch-top-h']}`);
+      const stuck = rule(HOME_TOP_CSS, '.ch-home-top.is-sticky');
+      assert(decl(stuck, 'position') === 'sticky' && decl(stuck, 'top') === 'calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px))' && decl(stuck, 'background') === 'var(--ch-bg)', `the sticky rule: ${stuck}`);
+      const z = Number(decl(stuck, 'z-index'));
+      assert(z > Number(decl(rule(MONTH_BROWSE_CSS, '.ch-mb-bar'), 'z-index')) && z < Number(decl(rule(HOME_THEME_CSS, '.ch-sheet-layer'), 'z-index')), `z-index ${z}: above the Month's bar, under the sheets`);
+      assert((decl(rule(MONTH_BROWSE_CSS, '.ch-mb-bar'), 'top') ?? '').includes('var(--ch-top-h, 0px)') && (decl(rule(MONTH_BROWSE_CSS, '.ch-mb-title'), 'scroll-margin-top') ?? '').includes('var(--ch-top-h, 0px)'), 'the bar\'s top and the titles\' scroll margin add --ch-top-h');
+      assert(elements(m.container).some((e) => e.localName === 'style' && e.textContent === HOME_TOP_CSS), 'its styles are rendered');
+      scrollPageTo(inViewAt('2026-10'));
+      await settle();
+      assert(barMonth(m) === 'October 2026' && Number(fakeWindow.scrollY) > 6000, `October, ${fakeWindow.scrollY} px down`);
+      fetchCalls.length = 0;
+      m.click(byLabel(m.container, 'Menu'));
+      m.click(byData(m.container, 'menu', 'refresh'));
+      await settle();
+      assert(show(ranges()) === show(['2026-10', '2026-11', '2026-09'].map((mo) => monthAsk(mo, { fresh: true }))), `Refresh at October: ${show(ranges())}`);
+      await tap(m, dayButton(m, '2026-10-20'));
+      assert(pickedShown(m) && !sticky(), 'picked: it scrolls with the page');
+      React.act(() => tg.fire('backButtonClicked'));
+      await settle();
+      flushFrames();
+      assert(browseShown(m) && sticky(), 'back in browse: it sticks again');
+      m.click(tabButton(m, 'agenda'));
+      await settle();
+      assert(!sticky(), 'the Agenda: in the page again');
+    } finally {
+      m.unmount();
+      LAYOUT.topH = topH;
+      fakeWindow.Telegram = undefined;
+    }
+  });
+
+  await check('#57 a tab switch from picked and back (spec §7.1, §7.6): the Agenda lets the BackButton go (offClick, hide) and leaves swipes on; back on the Month, picked on the same day, the button again (onClick, show), one scroll to the top and focus on the selected day; its BackButton still goes to browse', async () => {
+    resetHome();
+    const tg = fakeTelegramHome({ version: '7.7' });
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      await openMonth(m);
+      await tap(m, dayButton(m, '2026-10-20'));
+      assert(pickedShown(m) && tg.backHandlers() === 1 && swipeCalls(tg.calls).at(-1) === 'enableVerticalSwipes()', `picked: ${show(backCalls(tg.calls))} ${show(swipeCalls(tg.calls))}`);
+      tg.calls.length = 0;
+      m.click(tabButton(m, 'agenda'));
+      await settle();
+      assert(show(backCalls(tg.calls)) === show(['BackButton.offClick', 'BackButton.hide()']) && tg.backHandlers() === 0, `the Agenda: ${show(backCalls(tg.calls))}`);
+      assert(!swipeCalls(tg.calls).includes('disableVerticalSwipes()'), `swipes stay on: ${show(swipeCalls(tg.calls))}`);
+      tg.calls.length = 0;
+      scrollCalls.length = 0;
+      await openMonth(m);
+      assert(pickedShown(m) && dayButton(m, '2026-10-20').getAttribute('aria-pressed') === 'true', 'picked on the 20th again');
+      assert(show(backCalls(tg.calls)) === show(['BackButton.onClick', 'BackButton.show()']) && tg.backHandlers() === 1, `back on the Month: ${show(backCalls(tg.calls))}`);
+      assert(!swipeCalls(tg.calls).includes('disableVerticalSwipes()'), `swipes stay on in picked: ${show(swipeCalls(tg.calls))}`);
+      assert(show(scrollCalls) === show([{ top: 0, behavior: 'plain' }]), `one scroll to the top: ${show(scrollCalls)}`);
+      assert(fakeDocument.activeElement === dayButton(m, '2026-10-20'), 'focus on the selected day');
+      React.act(() => tg.fire('backButtonClicked'));
+      await settle();
+      flushFrames();
+      assert(browseShown(m) && barMonth(m) === 'October 2026', `the BackButton goes to browse: ${barMonth(m)}`);
+    } finally {
+      m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+  });
+
+  await check('#58 Telegram\'s activated on an 8.0 client, as visibilitychange in #49 (spec §5 lists both): on the Month a return asks its windows again, not the Agenda\'s week, two at a time, then the third; on the Agenda only its week', async () => {
+    resetHome();
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    const tg = fakeTelegramHome({ version: '8.0' });
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      flushFrames();
+      await settle();
+      assert(tg.calls.includes('onEvent(activated)'), `listening for activated: ${show(tg.calls.filter((c) => c.startsWith('onEvent')))}`);
+      assert(show(ranges()) === show(['famcal default', monthAsk('2026-10'), monthAsk('2026-11'), monthAsk('2026-09')]), `the first asks: ${show(ranges())}`);
+      const held: { call: FetchCall; resolve: (a: FetchAnswer) => void }[] = [];
+      answerFetch = (c) => new Promise<FetchAnswer>((resolve) => held.push({ call: c, resolve }));
+      fetchCalls.length = 0;
+      React.act(() => tg.fire('activated'));
+      await settle();
+      assert(show(ranges()) === show([monthAsk('2026-10'), monthAsk('2026-11')]) && held.length === 2, `activated: the Month's windows, two in flight: ${show(ranges())}`);
+      while (held.length > 0) {
+        const h = held.shift() as (typeof held)[number];
+        await React.act(async () => h.resolve(answerFor(h.call, { items: WEEK })));
+        await settle();
+      }
+      assert(show(ranges()) === show([monthAsk('2026-10'), monthAsk('2026-11'), monthAsk('2026-09')]), `then the third: ${show(ranges())}`);
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      m.click(tabButton(m, 'agenda'));
+      await settle();
+      fetchCalls.length = 0;
+      React.act(() => tg.fire('activated'));
+      await settle();
+      assert(show(ranges()) === show([`famcal ${day(0)}→${day(7)}`]), `on the Agenda, only its week: ${show(ranges())}`);
+    } finally {
+      m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+  });
+
+  await check('#59 the item sheet over picked keeps focus (aria-modal, spec §7.7): Tab from its last control (Close) goes to its first ("Open in Google Calendar"), Shift+Tab from its first (or the panel) to its last; focus that lands behind it, on a day of the month, comes back to the sheet and picks nothing; Escape closes it wherever focus is; then focus goes back to the row and the trap lets go', async () => {
+    resetHome();
+    const tg = fakeTelegramHome();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    answerFetch = (c) => ok200(googleAnswer({ from: c.query.get('from') ?? TODAY, to: c.query.get('to') ?? day(7), items: { [day(0)]: [DINNER] } }));
+    const m = await mountHome('en', GOOGLE_HOME, fakeClock('2026-10-15T07:00:00Z'));
+    const trap = () => docListeners.filter((l) => l.type === 'focusin' || l.type === 'keydown');
+    const focusIn = (target: FakeNode) => React.act(() => docListeners.filter((l) => l.type === 'focusin').forEach((l) => l.fn({ type: 'focusin', target })));
+    const docKey = (key: string, target: FakeNode) => React.act(() => docListeners.filter((l) => l.type === 'keydown').forEach((l) => l.fn({ type: 'keydown', key, target, preventDefault: noop })));
+    const name = (n: unknown) => (n instanceof FakeElement ? `${n.localName}.${n.className} ${n.textContent.slice(0, 40)}` : String(n));
+    try {
+      await openMonth(m);
+      await tap(m, dayButton(m, TODAY));
+      assert(trap().length === 0, `listeners before any sheet: ${trap().length}`);
+      const row = button(m.container, 'Dinner with the Cohens');
+      row.focus();
+      m.click(row);
+      const dialog = byRole(m.container, 'dialog')[0];
+      assert(dialog && fakeDocument.activeElement === dialog, `the sheet has focus: ${name(fakeDocument.activeElement)}`);
+      const controls = elements(dialog).filter((e) => (e.localName === 'button' && !e.hasAttribute('disabled')) || (e.localName === 'a' && e.hasAttribute('href')));
+      assert(controls.length >= 2 && controls[0].textContent === 'Open in Google Calendar' && controls[controls.length - 1].textContent === 'Close', `the sheet's controls: ${show(controls.map((c) => c.textContent))}`);
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      last.focus();
+      m.key(last, 'Tab');
+      assert(fakeDocument.activeElement === first, `Tab from the last control: ${name(fakeDocument.activeElement)}`);
+      m.key(first, 'Tab', { shiftKey: true });
+      assert(fakeDocument.activeElement === last, `Shift+Tab from the first control: ${name(fakeDocument.activeElement)}`);
+      dialog.focus();
+      m.key(dialog, 'Tab', { shiftKey: true });
+      assert(fakeDocument.activeElement === last, `Shift+Tab from the panel: ${name(fakeDocument.activeElement)}`);
+      const behind = dayButton(m, '2026-10-20');
+      behind.focus();
+      focusIn(behind);
+      assert(fakeDocument.activeElement === dialog, `focus behind the sheet: ${name(fakeDocument.activeElement)}`);
+      assert(byRole(m.container, 'dialog').length === 1 && dayButton(m, TODAY).getAttribute('aria-pressed') === 'true', 'the sheet and the picked day stay');
+      docKey('Escape', fakeDocument.body);
+      await settle();
+      assert(byRole(m.container, 'dialog').length === 0 && pickedShown(m), 'Escape from outside closed only the sheet');
+      assert(fakeDocument.activeElement === row, `focus back on the row: ${name(fakeDocument.activeElement)}`);
+      assert(trap().length === 0, `the trap's listeners left: ${trap().length}`);
+    } finally {
+      m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+  });
+
+  await check('#60 React logged no warning in #43-#59 (keys, nesting, attributes, act)', () => {
+    assert(reactWarnings.length === warnedBeforeMonth, `warnings: ${show(reactWarnings.slice(warnedBeforeMonth, warnedBeforeMonth + 5))}`);
   });
 
   let failed = 0;
