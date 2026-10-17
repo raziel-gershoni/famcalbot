@@ -12,11 +12,20 @@
 // next deploy, for everyone with that calendar. Nor did it ever let an entry go: in
 // Railway's one long-lived process it grew without end.
 //
-// Google, the native calendar, the timezone lookup and the AI are stubbed. No network.
+// With the calendar home's switch on (section (h)), the same lookaheads read through the
+// shared reader (src/services/calendar-read): a token step first, one events.list per
+// chosen calendar named by the list itself, the read's deadline, an exclusive midnight at
+// the end, and Google's failures thrown for /week and /nextweek to answer. The weeks
+// start by country (spec §6): New York and Israel on Sunday, London on Monday, Cairo on
+// Saturday. Sections (a)-(g) run with the switch off and hold as they were.
 //
-// Run under both clocks; the output must not depend on the server's timezone:
+// Google (today's client, and the reader's OAuth client and list), the native calendar,
+// the rollout switch, the timezone lookup and the AI are stubbed. No network.
+//
+// Run under these clocks; the output must not depend on the server's timezone:
 //   TZ=UTC npx tsx scripts/smoke-week-lookahead.ts
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-week-lookahead.ts
+//   TZ=Pacific/Kiritimati npx tsx scripts/smoke-week-lookahead.ts
 
 import { execFileSync } from 'child_process';
 import { existsSync } from 'fs';
@@ -25,6 +34,7 @@ import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import { startOfLocalDay } from '../src/utils/day-events';
 import type { CalendarAssignment, CalendarEvent, ReminderInfo, UserConfig } from '../src/types';
 import type { WeekLookahead } from '../src/services/week-lookahead';
+import type { DigestRead } from '../src/services/calendar-read/digest';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -48,6 +58,8 @@ function assertList(got: string[], want: string[]) {
 
 const IL = 'Asia/Jerusalem';
 const NY = 'America/New_York';
+const LONDON = 'Europe/London';
+const CAIRO = 'Africa/Cairo';
 
 // A Google event as the fixture holds it: ISO instants for timed, dates for all-day
 // (end exclusive, as Google sends them).
@@ -126,12 +138,16 @@ const NATIVE_REMINDERS: CalendarEvent[] = [
   nativeReminder('Buy milk', '2026-10-16T14:00:00.000Z', '2026-10-16T14:00:00.000Z', { ownerIsViewer: false, creatorIsViewer: true, ownerName: 'Dana' }),
   nativeReminder('Pick up the cake', '2026-10-17', '2026-10-18', { ownerIsViewer: true, creatorIsViewer: false, creatorName: 'Dana' }),
 ];
-const NATIVE_BY_USER: Record<number, CalendarEvent[]> = { 5: NATIVE_REMINDERS };
+const NATIVE_BY_USER: Record<number, CalendarEvent[]> = { 5: NATIVE_REMINDERS, 7: NATIVE_REMINDERS };
 
-const TIMEZONES: Record<number, string> = { 1: IL, 2: NY, 3: NY, 4: NY, 5: IL, 6: IL, 66: IL };
+const TIMEZONES: Record<number, string> = {
+  1: IL, 2: NY, 3: NY, 4: NY, 5: IL, 6: IL, 66: IL,
+  7: IL, 9: LONDON, 10: CAIRO, 11: IL, 12: IL, 13: IL, 14: IL, 15: IL,
+  16: IL, 17: IL, 18: IL, 19: IL,
+};
 
-/** Every events.list request, to see which timezone it asked for. */
-const googleCalls: Array<{ token: string; timeMin: string; timeMax: string; timeZone?: string }> = [];
+/** Every events.list request, to see which timezone, window, fields and timeout it asked for. */
+const googleCalls: Array<{ token: string; timeMin: string; timeMax: string; timeZone?: string; fields?: string; timeout?: number }> = [];
 /** Every prompt sent to the AI. */
 const prompts: string[] = [];
 /** Every events.get request (a series' master event), as token:eventId. */
@@ -146,9 +162,35 @@ const nativeCalls: string[] = [];
 let nativeError: Error | undefined;
 /** The cache's clock: Date.now returns it during the (g) checks. */
 let clock = 0;
+/** The rollout switch as isCalendarHomeOn reads it: OFF for (a)-(g). */
+let rollout: 'OFF' | 'ADMINS' | 'ALL' = 'OFF';
+/** Every isCalendarHomeOn question, by user id. */
+const homeOnCalls: number[] = [];
+/** Every token step of the reader (getAccessToken), by refresh token. */
+const tokenSteps: string[] = [];
+/** What the token step throws for a refresh token, while set. */
+const tokenErrors: Record<string, Error> = {};
+/** What events.list throws for a refresh token, while set: today's read and the reader alike. */
+const listErrors: Record<string, Error> = {};
+/** Every calendars.get request (today's read asks it for the calendar's name), by token. */
+const calendarGets: string[] = [];
+/** Every fetchViewerItems call (the reader's FamCal half): user, calendars, window. */
+const viewerCalls: string[] = [];
 
 /** A Google API error as gaxios throws it: the HTTP status on the error and on its response. */
 const googleError = (status: number) => Object.assign(new Error(`HTTP ${status}`), { status, response: { status } });
+/** The token endpoint's answer to a revoked refresh token. */
+const invalidGrant = () => Object.assign(new Error('invalid_grant'), {
+  status: 400, response: { status: 400, data: { error: 'invalid_grant', error_description: 'Token has been expired or revoked.' } },
+});
+/** A list refused for a permission the user unticked. */
+const insufficientScopes = () => Object.assign(new Error('Request had insufficient authentication scopes.'), {
+  code: 403, status: 403, response: { status: 403, data: { error: { code: 403, errors: [{ reason: 'insufficientPermissions' }] } } },
+});
+/** A list refused by Google's rate limit. */
+const rateLimited = () => Object.assign(new Error('Rate Limit Exceeded'), {
+  code: 403, status: 403, response: { status: 403, data: { error: { code: 403, errors: [{ reason: 'rateLimitExceeded' }] } } },
+});
 
 /**
  * A Google client over the fixtures. Like events.list it returns what overlaps
@@ -157,7 +199,12 @@ const googleError = (status: number) => Object.assign(new Error(`HTTP ${status}`
  */
 function fakeGoogleClient(token: string) {
   return {
-    calendars: { get: async () => ({ data: { summary: 'Family' } }) },
+    calendars: {
+      get: async () => {
+        calendarGets.push(token);
+        return { data: { summary: 'Family' } };
+      },
+    },
     events: {
       get: async ({ eventId }: { eventId: string }) => {
         masterCalls.push(`${token}:${eventId}`);
@@ -165,8 +212,9 @@ function fakeGoogleClient(token: string) {
         if (masterErrors[token]) throw masterErrors[token];
         return { data: { recurrence: [RRULES[eventId]] } };
       },
-      list: async (params: { timeMin: string; timeMax: string; timeZone?: string }) => {
-        googleCalls.push({ token, ...params });
+      list: async (params: { timeMin: string; timeMax: string; timeZone?: string; fields?: string }, options?: { timeout?: number }) => {
+        googleCalls.push({ token, ...params, timeout: options?.timeout });
+        if (listErrors[token]) throw listErrors[token];
         const tz = params.timeZone || 'UTC';
         const stamp = (f: string) => f.includes('T')
           ? { dateTime: formatInTimeZone(new Date(f), tz, "yyyy-MM-dd'T'HH:mm:ssXXX") }
@@ -178,10 +226,42 @@ function fakeGoogleClient(token: string) {
             return end > new Date(params.timeMin) && start < new Date(params.timeMax);
           })
           .map(f => ({ summary: f.summary, start: stamp(f.start), end: stamp(f.end), recurringEventId: f.recurringEventId }));
-        return { data: { items } };
+        // The calendar's title comes on the list too; the reader reads it there.
+        return { data: { summary: 'Family', items } };
       },
     },
   };
+}
+
+/** The reader's OAuth client (calendar.ts getGoogleAuth): its token step, then the list client above. */
+function fakeGoogleAuth(token: string) {
+  return {
+    token,
+    getAccessToken: async () => {
+      tokenSteps.push(token);
+      if (tokenErrors[token]) throw tokenErrors[token];
+      return { token: `access-${token}` };
+    },
+  };
+}
+
+/**
+ * The native provider's rows for the reader's FamCal half (fetchViewerItems): the events
+ * the provider stub hands over, each on calendar fam1, with its series and instance.
+ */
+function viewerItemsFor(u: { id: number }) {
+  return (NATIVE_BY_USER[u.id] ?? NATIVE_EVENTS).map((event, i) => ({
+    row: {
+      series: {
+        id: event.recurringEventId ?? `single-${i}`,
+        kind: event.eventType === 'reminder' ? 'REMINDER' : 'EVENT',
+        rrule: event.recurringEventId ? RRULES[event.recurringEventId] ?? null : null,
+      },
+      instance: { title: event.summary, instanceStartsAt: new Date(event.start.includes('T') ? event.start : `${event.start}T00:00:00Z`) },
+      calendar: { id: 'fam1' },
+    },
+    event: { ...event, provider: 'native' },
+  }));
 }
 
 const user = (id: number, extra: Record<string, unknown>) => ({
@@ -205,6 +285,32 @@ const nativeIsraeli = user(5, { culture: 'default', googleRefreshToken: '', cale
 const seriesUser = user(6, { culture: 'default', googleRefreshToken: 'token-series-6' });
 const otherSeriesUser = user(66, { culture: 'default', googleRefreshToken: 'token-series-66' });
 const calendars: CalendarAssignment[] = [{ calendarId: 'family', labels: ['primary'], name: 'Family', color: '#000' }];
+
+// For (h): admins, so the ADMINS switch covers them, carrying their choices, which the
+// reader reads (A-3). Jewish culture keeps Sunday weeks either way, so the switch changes
+// only how they are read.
+const homeUser = (u: UserConfig, extra: Record<string, unknown> = {}) =>
+  ({ ...u, isAdmin: true, calendarAssignments: calendars, ...extra }) as UserConfig;
+const onIsraeli = homeUser(israeli);
+const onNewYorker = homeUser(newYorker);
+const nativeJewish = homeUser(user(7, { culture: 'jewish', googleRefreshToken: '', calendarSource: 'NATIVE' }), { calendarAssignments: undefined });
+const londoner = homeUser(user(9, { culture: 'default', googleRefreshToken: 'token-london' }));
+const cairene = homeUser(user(10, { culture: 'default', googleRefreshToken: 'token-cairo' }));
+const defaultIsraeli = homeUser(user(11, { culture: 'default', googleRefreshToken: 'token-il-default' }));
+const deadToken = homeUser(user(12, { culture: 'jewish', googleRefreshToken: 'token-dead' }));
+const noScopes = homeUser(user(13, { culture: 'jewish', googleRefreshToken: 'token-scopes' }));
+const rateLimitedUser = homeUser(user(14, { culture: 'jewish', googleRefreshToken: 'token-busy' }));
+const brokenNative = homeUser(user(15, { culture: 'jewish', googleRefreshToken: '', calendarSource: 'NATIVE' }), { calendarAssignments: undefined });
+/**
+ * Built-in calendar users with no location and no Google token: resolveUserTimezone falls
+ * back to Asia/Jerusalem for them, with tzKnown false, so the week start comes from the
+ * language (R15).
+ */
+const placeless = (id: number, language: string) =>
+  homeUser(user(id, { culture: 'default', language, location: null, googleRefreshToken: '', calendarSource: 'NATIVE' }), { calendarAssignments: undefined });
+const placelessByLanguage = [placeless(16, 'en'), placeless(17, 'he'), placeless(18, 'ru'), placeless(19, 'fr')];
+/** A built-in calendar user's calendars, as getCalendarAssignmentsForUser gives them; the reader keeps the legend's. */
+const nativeCalendars: CalendarAssignment[] = [{ calendarId: 'native:fam1', labels: ['primary'], name: 'Family', color: '#000' }];
 
 /** The prompt's EVENTS BY DAY section, one line per day: header | event | event. */
 function daysOf(prompt: string): string[] {
@@ -231,13 +337,33 @@ async function main() {
     if (request === '@hebcal/core') return path.resolve(__dirname, '../node_modules/@hebcal/core/dist/esm/index.js');
     return resolveFilename.call(this, request, ...rest);
   };
-  const stub = (file: string, exports: Record<string, unknown>) => {
-    const filename = path.resolve(__dirname, '../src', file);
+  const stubFile = (filename: string, exports: Record<string, unknown>) => {
     const mod = new Module(filename);
     Object.assign(mod, { filename, loaded: true, exports });
     Module._cache[filename] = mod;
   };
-  stub('services/calendar.ts', { TIMEZONE: IL, getCalendarClient: fakeGoogleClient });
+  const stub = (file: string, exports: Record<string, unknown>) => stubFile(path.resolve(__dirname, '../src', file), exports);
+  stub('services/calendar.ts', { TIMEZONE: IL, getCalendarClient: fakeGoogleClient, getGoogleAuth: fakeGoogleAuth });
+  // The reader builds its list client from the OAuth client (google.ts), here keyed by its token.
+  stubFile(require.resolve('@googleapis/calendar'), {
+    __esModule: true,
+    calendar: ({ auth }: { auth: { token: string } }) => fakeGoogleClient(auth.token),
+  });
+  stub('services/calendar-read/rollout.ts', {
+    isCalendarHomeOn: async (u: { id: number; isAdmin?: boolean | null }) => {
+      homeOnCalls.push(u.id);
+      return rollout === 'ALL' || (rollout === 'ADMINS' && u.isAdmin === true);
+    },
+  });
+  // The reader's FamCal half (famcal.ts): the legend, the rows and the viewer.
+  stub('services/calendar-provider/native-provider.ts', {
+    fetchViewerItems: async (u: { id: number }, cuids: string[], range: { from: Date; to: Date }) => {
+      viewerCalls.push(`${u.id} ${cuids.join(',')} ${range.from.toISOString()} ${range.to.toISOString()}`);
+      if (u.id === brokenNative.id) throw new Error("Can't reach database server");
+      return { ctx: { viewerId: u.id, partner: null }, items: viewerItemsFor(u) };
+    },
+  });
+  stub('services/native-reminders/ownership.ts', { loadViewerContext: async (u: { id: number }) => ({ viewerId: u.id, partner: null }) });
   stub('services/calendar-provider/index.ts', {
     getProviderForUser: (u: { id: number }) => ({ fetchEventsInRange: async () => NATIVE_BY_USER[u.id] ?? NATIVE_EVENTS }),
     getCalendarAssignmentsForUser: async () => calendars,
@@ -248,6 +374,8 @@ async function main() {
       if (nativeError) throw nativeError;
       return RRULES[id] ?? null;
     },
+    listVisibleCalendars: async (userId: number) => [{ id: 'fam1', ownerUserId: userId, name: 'Family', color: '#000' }],
+    encodeCalendarId: (cuid: string) => `native:${cuid}`,
   });
   stub('lib/timezone.ts', { resolveUserTimezone: async (u: { id: number }) => TIMEZONES[u.id] });
   stub('services/ai-provider.ts', {
@@ -264,6 +392,7 @@ async function main() {
     await import('../src/services/week-lookahead');
   const { RECURRENCE_CACHE_MAX_ENTRIES, RECURRENCE_ANSWER_TTL_MS, RECURRENCE_FAILURE_TTL_MS, writeRecurrenceCache } =
     await import('../src/services/recurrence-cache');
+  const { SCHEDULED_READ } = await import('../src/services/calendar-read/digest');
   const { generateWeekLookahead, generateNextWeekSummary } = await import('../src/services/claude');
 
   /** The prompt claude.ts builds for a lookahead. */
@@ -708,6 +837,184 @@ async function main() {
     assertList(appModules, ['src/services/recurrence-cache.ts']);
     const packages = loaded.filter(file => /[\\/]node_modules[\\/](@googleapis|googleapis|@prisma|\.prisma|@upstash)[\\/]/.test(file));
     assert(packages.length === 0, `it loaded ${packages.join(', ')}`);
+  });
+
+  // (h) the calendar home's switch on
+  const FIELDS =
+    'summary,nextPageToken,items(id,status,summary,description,location,start,end,recurringEventId,originalStartTime,eventType,attendees(self,responseStatus),htmlLink)';
+
+  await check('(h) with the switch off, (a)-(g) asked the switch and read as before: no token step, no reader read', () => {
+    assert(homeOnCalls.length > 0, 'no lookahead asked the switch');
+    assert(tokenSteps.length === 0, `token steps: ${tokenSteps.join(', ')}`);
+    assert(viewerCalls.length === 0, `reader reads: ${viewerCalls.join('; ')}`);
+  });
+
+  await check('(h) switch on, Israel: the same /week and /nextweek prompts, read through the reader with its own request', async () => {
+    const saturdayNight = new Date('2026-10-17T23:30:00+03:00');
+    rollout = 'OFF';
+    const offWeek = await promptFor(await getWeekLookahead(onIsraeli, calendars, ilTuesdayNight), onIsraeli);
+    const offNext = await promptFor(await getNextWeekLookahead(onIsraeli, calendars, saturdayNight), onIsraeli, true);
+    rollout = 'ADMINS';
+    googleCalls.length = 0;
+    calendarGets.length = 0;
+    tokenSteps.length = 0;
+    homeOnCalls.length = 0;
+    const onWeek = await promptFor(await getWeekLookahead(onIsraeli, calendars, ilTuesdayNight), onIsraeli);
+    const onNext = await promptFor(await getNextWeekLookahead(onIsraeli, calendars, saturdayNight), onIsraeli, true);
+    rollout = 'OFF';
+    assert(onWeek === offWeek, `/week prompt changed:\n${onWeek}\n--- with the switch off ---\n${offWeek}`);
+    assert(onNext === offNext, `/nextweek prompt changed:\n${onNext}\n--- with the switch off ---\n${offNext}`);
+    assertList([
+      `switch asked for ${homeOnCalls.join(', ')}`,
+      `token steps ${tokenSteps.join(', ')}`,
+      `calendars.get ${calendarGets.length}`,
+      ...googleCalls.map(c => `list ${c.timeMin} to ${c.timeMax} in ${c.timeZone}, timeout ${c.timeout}, ${c.fields === FIELDS ? "the reader's fields" : `fields ${c.fields}`}`),
+    ], [
+      'switch asked for 1, 1',
+      'token steps token-il, token-il',
+      'calendars.get 0',
+      `list ${ilTuesdayNight.toISOString()} to ${startOfLocalDay('2026-10-18', IL).toISOString()} in ${IL}, timeout 9500, the reader's fields`,
+      `list ${startOfLocalDay('2026-10-18', IL).toISOString()} to ${startOfLocalDay('2026-10-25', IL).toISOString()} in ${IL}, timeout 9500, the reader's fields`,
+    ]);
+  });
+
+  await check('(h) switch on, built-in calendar: /week and /nextweek list the same, through the reader\'s FamCal half', async () => {
+    const tuesday = new Date('2026-10-13T09:00:00+03:00');
+    const listing = (l: WeekLookahead) => [
+      `${l.dateRange.start.toISOString()} to ${l.dateRange.end.toISOString()}`,
+      ...l.events.map(e => `${e.day} ${e.summary} ${e.recurrenceType}${e.reminder ? ' reminder' : ''}`),
+    ];
+    const both = async () => [
+      ...listing(await getWeekLookahead(nativeJewish, nativeCalendars, tuesday)),
+      ...listing(await getNextWeekLookahead(nativeJewish, nativeCalendars, tuesday)),
+    ];
+    rollout = 'OFF';
+    const off = await both();
+    rollout = 'ALL';
+    viewerCalls.length = 0;
+    const on = await both();
+    rollout = 'OFF';
+    assertList(on, off);
+    assert(on.some(line => line.endsWith('Call the plumber single reminder')), `nothing listed: ${on.join(' | ')}`);
+    assertList(viewerCalls, [
+      `7 fam1 ${tuesday.toISOString()} ${startOfLocalDay('2026-10-18', IL).toISOString()}`,
+      `7 fam1 ${startOfLocalDay('2026-10-18', IL).toISOString()} ${startOfLocalDay('2026-10-25', IL).toISOString()}`,
+    ]);
+  });
+
+  await check('(h) switch on, the week starts by country: New York and Israel on Sunday, London on Monday, Cairo on Saturday', async () => {
+    const day = (d: Date, tz: string) => formatInTimeZone(d, tz, 'EEE d');
+    /** /week's last day and /nextweek's days, from Tuesday noon on the user's clock. */
+    const weeks = async (u: UserConfig, tz: string) => {
+      const tuesdayNoon = fromZonedTime('2026-10-13 12:00:00', tz);
+      const week = await getWeekLookahead(u, calendars, tuesdayNoon);
+      const next = await getNextWeekLookahead(u, calendars, tuesdayNoon);
+      return `/week to ${day(week.dateRange.end, tz)}, /nextweek ${day(next.dateRange.start, tz)} to ${day(next.dateRange.end, tz)}`;
+    };
+    const got: string[] = [];
+    for (const [name, u, tz] of [['New York', onNewYorker, NY], ['Israel', defaultIsraeli, IL], ['London', londoner, LONDON], ['Cairo', cairene, CAIRO]] as const) {
+      rollout = 'OFF';
+      const off = await weeks(u, tz);
+      rollout = 'ALL';
+      got.push(`${name}: on ${await weeks(u, tz)} | off ${off}`);
+    }
+    rollout = 'OFF';
+    assertList(got, [
+      'New York: on /week to Sat 17, /nextweek Sun 18 to Sat 24 | off /week to Sun 18, /nextweek Mon 19 to Sun 25',
+      'Israel: on /week to Sat 17, /nextweek Sun 18 to Sat 24 | off /week to Sun 18, /nextweek Mon 19 to Sun 25',
+      'London: on /week to Sun 18, /nextweek Mon 19 to Sun 25 | off /week to Sun 18, /nextweek Mon 19 to Sun 25',
+      'Cairo: on /week to Fri 16, /nextweek Sat 17 to Fri 23 | off /week to Sun 18, /nextweek Mon 19 to Sun 25',
+    ]);
+  });
+
+  await check('(h) switch on, no location and no Google token (tzKnown false): the week starts by language, en and he on Sunday, ru and anything else on Monday; off, Monday', async () => {
+    const day = (d: Date) => formatInTimeZone(d, IL, 'EEE d');
+    const thursdayNoon = fromZonedTime('2026-10-22 12:00:00', IL);
+    const weeks = async (u: UserConfig) => {
+      const week = await getWeekLookahead(u, nativeCalendars, thursdayNoon);
+      const next = await getNextWeekLookahead(u, nativeCalendars, thursdayNoon);
+      return `/week to ${day(week.dateRange.end)}, /nextweek ${day(next.dateRange.start)} to ${day(next.dateRange.end)}`;
+    };
+    const got: string[] = [];
+    for (const u of placelessByLanguage) {
+      rollout = 'OFF';
+      const off = await weeks(u);
+      rollout = 'ALL';
+      got.push(`${u.language}: on ${await weeks(u)} | off ${off}`);
+    }
+    rollout = 'OFF';
+    assertList(got, [
+      'en: on /week to Sat 24, /nextweek Sun 25 to Sat 31 | off /week to Sun 25, /nextweek Mon 26 to Sun 1',
+      'he: on /week to Sat 24, /nextweek Sun 25 to Sat 31 | off /week to Sun 25, /nextweek Mon 26 to Sun 1',
+      'ru: on /week to Sun 25, /nextweek Mon 26 to Sun 1 | off /week to Sun 25, /nextweek Mon 26 to Sun 1',
+      'fr: on /week to Sun 25, /nextweek Mon 26 to Sun 1 | off /week to Sun 25, /nextweek Mon 26 to Sun 1',
+    ]);
+  });
+
+  await check('(h) switch on, New York /nextweek on Saturday evening is Sunday to Saturday, the coming Sunday included', async () => {
+    const saturdayEvening = new Date('2026-10-17T19:00:00-04:00');
+    rollout = 'ALL';
+    googleCalls.length = 0;
+    const lookahead = await getNextWeekLookahead(onNewYorker, calendars, saturdayEvening);
+    rollout = 'OFF';
+    const prompt = await promptFor(lookahead, onNewYorker, true);
+    assert(rangeOf(prompt) === 'Sunday, Oct 18 to Saturday, Oct 24', `range ${rangeOf(prompt)}`);
+    assert(googleCalls[0]?.timeMax === startOfLocalDay('2026-10-25', NY).toISOString(), `timeMax ${googleCalls[0]?.timeMax}`);
+    // Saturday night's sleepover ends by 02:00, so it stays Saturday's; Gym is daily.
+    assertList(daysOf(prompt), [
+      'Sunday, Oct 18 - Tomorrow | 20:00 - Movie night (Family) | 22:00 - Late sleepover (Family)',
+      'Monday, Oct 19 - In 2 days | 10:00 - Brunch (Family)',
+      'Friday, Oct 23 - In 6 days | All day - Book fair (Family)',
+    ]);
+  });
+
+  await check('(h) switch on: a dead token, missing permissions, an outage and a database error reach /week; off, Google\'s give an empty week as before', async () => {
+    tokenErrors['token-dead'] = invalidGrant();
+    listErrors['token-dead'] = invalidGrant();
+    listErrors['token-scopes'] = insufficientScopes();
+    listErrors['token-busy'] = rateLimited();
+    /** What /week's lookahead does: its events, or its error (with the day it carries), then the lists it asked for by timeout. */
+    const outcome = async (u: UserConfig, read?: DigestRead) => {
+      googleCalls.length = 0;
+      let result: string;
+      try {
+        const chosen = u.calendarSource === 'NATIVE' ? nativeCalendars : calendars;
+        result = `${(await getWeekLookahead(u, chosen, ilTuesdayNight, read)).events.length} events`;
+      } catch (err) {
+        const carried = (err as { day?: string }).day;
+        result = `${err instanceof Error ? err.message : String(err)}${carried ? ` (day ${carried})` : ''}`;
+      }
+      return `${result} | lists ${googleCalls.map(c => c.timeout ?? 'untimed').join(', ') || 'none'}`;
+    };
+    const quietWarn = console.warn;
+    console.warn = () => undefined;
+    const got: string[] = [];
+    try {
+      for (const setting of ['OFF', 'ALL'] as const) {
+        rollout = setting;
+        got.push(`${setting} dead token: ${await outcome(deadToken)}`);
+        got.push(`${setting} missing permissions: ${await outcome(noScopes)}`);
+        got.push(`${setting} rate limit: ${await outcome(rateLimitedUser)}`);
+      }
+      got.push(`ALL rate limit, scheduled: ${await outcome(rateLimitedUser, SCHEDULED_READ)}`);
+      got.push(`ALL built-in calendar, database down: ${await outcome(brokenNative)}`);
+    } finally {
+      rollout = 'OFF';
+      console.warn = quietWarn;
+      for (const errors of [tokenErrors, listErrors]) for (const token of Object.keys(errors)) delete errors[token];
+    }
+    // Off, today's read asks each calendar and lets a failing one go. On, the token step
+    // comes first; an outage gets one quick retry on demand (8,000 ms), none when scheduled.
+    assertList(got, [
+      'OFF dead token: 0 events | lists untimed',
+      'OFF missing permissions: 0 events | lists untimed',
+      'OFF rate limit: 0 events | lists untimed',
+      'ALL dead token: GOOGLE_TOKEN_EXPIRED | lists none',
+      'ALL missing permissions: GOOGLE_INSUFFICIENT_SCOPES | lists 9500',
+      'ALL rate limit: GOOGLE_FETCH_FAILED (day 2026-10-13) | lists 9500, 7500',
+      'ALL rate limit, scheduled: GOOGLE_FETCH_FAILED (day 2026-10-13) | lists 10000',
+      "ALL built-in calendar, database down: Can't reach database server | lists none",
+    ]);
   });
 
   let failed = 0;

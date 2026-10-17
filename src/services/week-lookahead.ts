@@ -6,6 +6,8 @@
 import { CalendarEvent, CalendarAssignment, CalendarLabel, ReminderInfo, UserConfig } from '../types';
 import { getCalendarClient } from './calendar';
 import { getProviderForUser } from './calendar-provider';
+import { DEFAULT_ON_DEMAND_READ, readLookaheadEvents, type DigestRead } from './calendar-read/digest';
+import { isCalendarHomeOn } from './calendar-read/rollout';
 import { getNativeSeriesRrule } from './native-calendar/event-store';
 import {
   RECURRENCE_ANSWER_TTL_MS,
@@ -16,7 +18,8 @@ import {
   writeRecurrenceCache,
 } from './recurrence-cache';
 import { eventTimeLabel, isAllDayEvent, isBirthdayEvent, isReminderEvent, reminderAttribution } from '../utils/event-formatter';
-import { addDaysToDate, daySpanOf, localDate, nextDate, startOfLocalDay } from '../utils/day-events';
+import { daySpanOf, localDate, nextDate, startOfLocalDay } from '../utils/day-events';
+import { legacyWeekStart, nextWeekBoundaries, nextWeekBoundary, tzKnownFor, weekStartFor, type WeekStart } from '../utils/locale-rules';
 import { resolveUserTimezone } from '../lib/timezone';
 
 // Recurrence frequency types
@@ -69,44 +72,21 @@ interface LookaheadDays {
  */
 type SeriesLookups = Map<string, Promise<string[] | null>>;
 
-/** Day of the week of yyyy-MM-dd, 0 = Sunday. */
-function weekdayOf(day: string): number {
-  return new Date(`${day}T00:00:00Z`).getUTCDay();
-}
-
 /** The last instant of yyyy-MM-dd in `timezone`. */
 function endOfLocalDay(day: string, timezone: string): Date {
   return new Date(startOfLocalDay(nextDate(day), timezone).getTime() - 1);
 }
 
 /**
- * Get the last day of the week based on user settings, as yyyy-MM-dd
- * - If lookaheadAlways7Days: always 7 days from reference date
- * - Jewish culture: through Saturday (week ends Saturday, Sunday is next week)
- * - Default culture: through Sunday (week ends Sunday, Monday is next week)
- * @param culture - User's culture setting
- * @param always7Days - Whether to always show 7 days
- * @param today - The reference day in the user's timezone
+ * The first day of the user's week (0 = Sunday), which sets This week's last day and Next
+ * week's days. With the calendar home on (spec §6): Sunday for Jewish culture, else the
+ * country of the user's own timezone (from their location or Google), else the language.
+ * Otherwise today's rule: Sunday for Jewish culture, Monday for everyone else.
  */
-function getNextWeekBoundary(culture: string | undefined, always7Days: boolean | undefined, today: string): string {
-  let daysUntilBoundary: number;
-
-  if (always7Days) {
-    // Always 7 days
-    daysUntilBoundary = 7;
-  } else {
-    const dayOfWeek = weekdayOf(today); // 0=Sun, 1=Mon, ...
-
-    if (culture === 'jewish') {
-      // Through Saturday (dayOfWeek 6) - Sunday is already next week
-      daysUntilBoundary = (6 - dayOfWeek + 7) % 7;
-    } else {
-      // Through Sunday (dayOfWeek 0) - Monday is next week
-      daysUntilBoundary = (7 - dayOfWeek) % 7;
-    }
-  }
-
-  return addDaysToDate(today, daysUntilBoundary);
+function weekStartOf(user: UserConfig, timezone: string, homeOn: boolean): WeekStart {
+  return homeOn
+    ? weekStartFor({ culture: user.culture, language: user.language, tz: timezone, tzKnown: tzKnownFor(user) })
+    : legacyWeekStart(user.culture);
 }
 
 /**
@@ -242,15 +222,21 @@ function getDaysFromReference(eventDay: string, referenceDay: string): number {
 }
 
 /**
- * Fetch events for date range from all assigned calendars
+ * Fetch events for date range from all assigned calendars. With the calendar home on,
+ * the shared reader (spec §3.1): the user's own source over [start, the end of the last
+ * day), Google's clean-up, and Google's failures thrown for the command to answer.
  */
 async function fetchEventsInRange(
   user: UserConfig,
   calendarIds: string[],
   start: Date,
   end: Date,
-  timezone: string
+  timezone: string,
+  homeOn: boolean,
+  read: DigestRead
 ): Promise<CalendarEvent[]> {
+  if (homeOn) return readLookaheadEvents(user, start, end, timezone, calendarIds, read);
+
   // NATIVE users go through the provider, which reads the in-bot calendar.
   // This function's Google path below talks to the API directly, so without
   // this branch /week and /nextweek returned nothing for them.
@@ -402,17 +388,21 @@ async function filterAndBuildLookaheadEvents(
  * @param user - User configuration
  * @param calendars - Calendar assignments
  * @param referenceDate - The date to calculate lookahead from (defaults to now, use tomorrow for tomorrow's summary)
+ * @param read - With the calendar home on, the read's mode and deadline (defaults to on demand)
  */
 export async function getWeekLookahead(
   user: UserConfig,
   calendars: CalendarAssignment[],
-  referenceDate?: Date
+  referenceDate?: Date,
+  read: DigestRead = DEFAULT_ON_DEMAND_READ
 ): Promise<WeekLookahead> {
   const startDate = referenceDate || new Date();
   // The week is made of the user's days, from the reference day to the end of the last.
   const timezone = await resolveUserTimezone(user);
+  // Asked once: the switch decides both the week's days and the read.
+  const homeOn = await isCalendarHomeOn(user);
   const today = localDate(startDate, timezone);
-  const lastDay = getNextWeekBoundary(user.culture, user.lookaheadAlways7Days, today);
+  const lastDay = nextWeekBoundary(weekStartOf(user, timezone, homeOn), user.lookaheadAlways7Days, today);
   const endDate = endOfLocalDay(lastDay, timezone);
 
   // Get all calendar IDs (including birthdays)
@@ -428,7 +418,9 @@ export async function getWeekLookahead(
     calendarIds,
     startDate,
     endDate,
-    timezone
+    timezone,
+    homeOn,
+    read
   );
 
   const lookaheadEvents = await filterAndBuildLookaheadEvents(events, user, calendars, {
@@ -474,45 +466,24 @@ export function formatTomorrowLookahead(lookahead: WeekLookahead): string {
 }
 
 /**
- * Get next week's first and last days (yyyy-MM-dd) based on culture
- * - Jewish: Sunday to Saturday
- * - Default: Monday to Sunday
- * @param culture - User's culture setting
- * @param today - The reference day in the user's timezone
- */
-function getNextWeekBoundaries(culture: string | undefined, today: string): { first: string; last: string } {
-  const dayOfWeek = weekdayOf(today); // 0=Sun, 1=Mon, ...
-
-  let daysUntilNextWeekStart: number;
-  const weekLength: number = 7;
-
-  if (culture === 'jewish') {
-    // Next Sunday (start of next week for Jewish)
-    daysUntilNextWeekStart = (7 - dayOfWeek) % 7 || 7;
-  } else {
-    // Next Monday (start of next week for default)
-    daysUntilNextWeekStart = ((8 - dayOfWeek) % 7) || 7;
-  }
-
-  const first = addDaysToDate(today, daysUntilNextWeekStart);
-  return { first, last: addDaysToDate(first, weekLength - 1) };
-}
-
-/**
  * Get next week lookahead with notable events
  * @param user - User configuration
  * @param calendars - Calendar assignments
  * @param referenceDate - The date to calculate from (defaults to now)
+ * @param read - With the calendar home on, the read's mode and deadline (defaults to on demand)
  */
 export async function getNextWeekLookahead(
   user: UserConfig,
   calendars: CalendarAssignment[],
-  referenceDate?: Date
+  referenceDate?: Date,
+  read: DigestRead = DEFAULT_ON_DEMAND_READ
 ): Promise<WeekLookahead> {
   // Next week's days run from the user's midnight to the end of their last day.
   const timezone = await resolveUserTimezone(user);
+  // Asked once: the switch decides both the week's days and the read.
+  const homeOn = await isCalendarHomeOn(user);
   const today = localDate(referenceDate || new Date(), timezone);
-  const { first, last } = getNextWeekBoundaries(user.culture, today);
+  const { first, last } = nextWeekBoundaries(weekStartOf(user, timezone, homeOn), today);
   const start = startOfLocalDay(first, timezone);
   const end = endOfLocalDay(last, timezone);
 
@@ -529,7 +500,9 @@ export async function getNextWeekLookahead(
     calendarIds,
     start,
     end,
-    timezone
+    timezone,
+    homeOn,
+    read
   );
 
   const lookaheadEvents = await filterAndBuildLookaheadEvents(events, user, calendars, { timezone, today, first, last });
