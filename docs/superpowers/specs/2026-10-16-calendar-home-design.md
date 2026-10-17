@@ -600,6 +600,8 @@ export function compareItems(a: ItemDTO, b: ItemDTO): number;   // all-day first
 **Loading.** PageGate loads page-data as today. When the dashboard props carry `calendarHome: true`, PageGate renders `CalendarHome`. On mount it sends one range request per applicable source (from `calendarSource`), in parallel, with no dates. Each response carries the facts, so whichever answers first paints. In step 1 that is one request. Users the switch doesn't cover make no range call.
 
 **Month windows** (Plan E). Each month's own days, `[1st, 1st of next month)`, are fetched when the month is on screen or next to it (IntersectionObserver, as `AdminPanelClient.tsx:628-644`). At most 2 requests are in flight, deduped by `YYYY-MM` and source.
+- The cap counts Month windows only; the Agenda's weeks keep their own flow. Every send for a month goes through it: the first ask, a refetch, Retry, and the stale and error follow-ups. A queued month no longer wanted when its turn comes is dropped, and a follow-up for a month no longer wanted is skipped (Plan E Rulings 7, 16).
+- A return to the foreground and ⋯ → Refresh ask again for the tab on screen: the Agenda's weeks, or the months near the viewport in browse, or the picked month and its neighbours in picked.
 
 **The store.** One client store of days is shared by Agenda and Month.
 - A response **replaces**, for each source whose status in it is `ok`, that source's items on every day in its `[from, to)`. Other days, and sources with any other status, keep what they had.
@@ -704,7 +706,8 @@ export function nextWeekBoundaries(ws: 0|1|2|3|4|5|6, today: DayKey): { first: D
 - **State:**
   - Plan D has the Agenda only, with no tab bar (Ruling R19). Plan E adds the tabs.
   - Tabs and the Month layout are in-page React state. Navigating with `router.push` would remount PageGate and refetch.
-  - The last tab is kept in `sessionStorage` (Plan E). Month state survives tab switches for the session.
+  - The last tab is kept in `sessionStorage` under `famcal:homeTab:v1:{userId}` (Plan E Ruling 2). A new session opens on the Agenda. Month state survives tab switches for the session.
+  - The tab bar sits under the header and above the banners. It shows only when a tab panel can: not while a Google user is still being set up (Plan E Ruling 1). While the Month shows browse, the header and the tab bar stick (Plan E Ruling 11).
   - All storage access is wrapped in try/catch.
 - **Look:**
   - Telegram theme tokens are mapped onto the `globals.css` tokens, with fallbacks;
@@ -799,6 +802,14 @@ export function nextWeekBoundaries(ws: 0|1|2|3|4|5|6, today: DayKey): { first: D
 - **Back:** "All months", Telegram's BackButton and Android's back gesture all return to browse, scrolled to the month picked was showing.
 
 **Memory:** the layout (browse or picked) is stored per device under `famcal:monthLayout:v1:{userId}`, in try/catch. A restored picked layout opens on today.
+
+**Plan E's readings of this section** (its Planning Rulings):
+- A browse cell has four parts: a head line (the Gregorian day, the Hebrew day at its end); a second line, which carries the Hebrew month name on Hebrew day 1 and on the month's first cell and is kept for holidays otherwise; 3 slots; and, when more items than fit, 2 chips and "+N" in the third slot. An overflowing day first fills a bar's empty lanes, then moves its bars up (each one named), then shows "+N" (Rulings 3, 13).
+- Failed, busy, calendars-gone and partial notices overlay the grid and never change a month's height. The Reconnect banner and the unavailable-calendars row hold for the store's epoch once shown (Rulings 4, 14).
+- R11 also leaves daily-repeating reminders out of the dots, "+N" and the cell's label count; the picked day lists them (Ruling 5).
+- Entering picked shows the day's header and first row: the page's top while they fit, else just far enough, never past picked's bar (Rulings 6, 12).
+- Titles carry the year when it isn't today's (the sticky bar and picked always do); Russian titles use the standalone nominative without "г." (Ruling 8).
+- The Month's views load lazily after the first answer (Ruling 15).
 
 ### 7.5 Item details
 
