@@ -165,6 +165,16 @@ export function msUntilDayCheck(nowMs: number, tz: string): number {
   return Math.min(HOUR_MS, Math.max(1000, 24 * HOUR_MS - sinceMidnight + 500));
 }
 
+/**
+ * The device's day is already past the server's today: its clock runs ahead. The check
+ * asks the server again after a minute, then two, four... but never more than 15
+ * minutes apart, so a clock that is far ahead costs a few requests an hour.
+ * `attempt` counts from 0.
+ */
+export function msUntilAheadCheck(attempt: number): number {
+  return Math.min(15 * 60_000, 60_000 * 2 ** Math.max(0, attempt));
+}
+
 /** Whether the day in `tz` is already later than `today` (the server's). */
 export function isPastDay(nowMs: number, tz: string, today: DayKey): boolean {
   const day = instantDay(new Date(nowMs).toISOString(), tz);

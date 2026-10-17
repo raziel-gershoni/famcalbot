@@ -37,8 +37,9 @@
 // (the server's today, its Hebrew date, "Times in <zone>" only when the device is
 // elsewhere); RTL; "Show next week", the foreground refetch, ⋯ → Refresh with fresh=1,
 // the stale re-request and the Google error retry; midnight, also when the app comes
-// back after a night with its timers suspended; a range request that never settles
-// timing out; 404 not_enabled reloading once, with Telegram's BackButton let go first;
+// back after a night with its timers suspended, and with a device clock that runs ahead;
+// a range request that never settles timing out; 404 not_enabled reloading once, with
+// Telegram's BackButton let go first;
 // 401/403/404 on PageGate's card; the busy and retry cards; the send sheet's answers
 // (R5); the menu (R6); the banners (§7.2), with no Agenda under a Google setup banner;
 // Telegram's BackButton for the item, send and menu sheets; the shell's CSS; the error
@@ -77,7 +78,7 @@ import { HomeChunkBoundary } from '../app/[locale]/PageGate';
 import { homeBanners, type BannerFacts } from '../app/[locale]/dashboard/HomeBanners';
 import { HOME_SHELL_CSS } from '../app/[locale]/dashboard/home-shell';
 import { menuEntries } from '../app/[locale]/dashboard/MenuSheet';
-import { isChunkLoadError, isPastDay, msUntilDayCheck, zoneDiffers } from '../src/lib/calendar-view/home-client';
+import { isChunkLoadError, isPastDay, msUntilAheadCheck, msUntilDayCheck, zoneDiffers } from '../src/lib/calendar-view/home-client';
 import { ERROR_RETRY_MS, RANGE_TIMEOUT_MS, STALE_RETRY_MS } from '../src/lib/calendar-view/home-loader';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1570,7 +1571,7 @@ async function main() {
     assert(tg.calls.includes('offEvent(activated)'), 'activated is let go on unmount');
   });
 
-  await check('#27 midnight in the user\'s timezone: the store starts over with a no-dates request and the header moves to the new day; a stale re-request for the day that ended is dropped; the day check never waits more than an hour, and lands after a midnight that DST skips', async () => {
+  await check('#27 midnight in the user\'s timezone: the store starts over with a no-dates request and the header moves to the new day; a stale re-request for the day that ended is dropped; a device clock that runs ahead resets once, then the timer refetches (after 1, 2, 4... minutes, at most 15) until the server\'s new day moves the header on; the day check never waits more than an hour, and lands after a midnight that DST skips', async () => {
     resetHome();
     const clock = fakeClock('2026-10-15T20:59:30Z'); // 23:59:30 in Israel, Thursday 15 October
     let serverToday = TODAY;
@@ -1603,7 +1604,54 @@ async function main() {
     } finally {
       g.unmount();
     }
+    // A device clock that runs ahead of the server's: the reset's no-dates request still gets Thursday,
+    // so the timer asks the visible windows again a minute later, then two, four... (at most 15), and the
+    // server's Friday moves the header on. The store drops once, never in a loop.
+    const fast = async (aheadMs: number) => {
+      resetHome();
+      const clock = fakeClock('2026-10-15T20:59:30Z'); // the device's 23:59:30, Thursday
+      answerFetch = (c) => {
+        const today = isPastDay(clock.deps.now() - aheadMs, TZ, TODAY) ? day(1) : TODAY;
+        const from = c.query.get('from') ?? today;
+        return ok200(answer({ today, from, to: c.query.get('to') ?? addDaysToKey(from, 7), items: today === TODAY ? WEEK : { [day(1)]: [GRANDMA] } }));
+      };
+      const m = await mountHome('en', {}, clock);
+      await clock.advance(31_000); // the device's midnight: the reset
+      return { clock, m };
+    };
+    const a = await fast(10_000);
+    try {
+      assert(show(ranges()) === show(['famcal default', 'famcal default']), `the reset: ${show(ranges())}`);
+      assertHas(a.m.text(), ['Thursday, 15 October', 'Dentist'], 'the server\'s Thursday stands for now');
+      assert(a.clock.pending()[0] <= 60_000, `the next check within a minute, not an hour: ${show(a.clock.pending())}`);
+      await a.clock.advance(60_000);
+      assert(show(ranges().slice(0, 3)) === show(['famcal default', 'famcal default', `famcal ${day(0)}→${day(7)}`]), `then a plain refetch, no second reset: ${show(ranges())}`);
+      assert(a.m.html().includes('<h1 class="ch-head-title">Friday, 16 October</h1>'), `the header reached Friday: ${a.m.text().slice(0, 80)}`);
+      assertHas(a.m.text(), [`Today ${ref.dayShort('en-GB', day(1))}`, 'All day Grandma visits'], 'the new Today');
+      assertLacks(a.m.text(), ['Dentist'], 'nothing of Thursday\'s as Today');
+      const asked = ranges().length;
+      await a.clock.advance(3 * 3_600_000);
+      assert(ranges().length === asked, `then nothing more is asked: ${show(ranges())}`);
+      assert(a.clock.pending().length === 1 && a.clock.pending()[0] <= 3_600_000, `one day check, an hour at most: ${show(a.clock.pending())}`);
+    } finally {
+      a.m.unmount();
+    }
+    const b = await fast(10 * 60_000);
+    try {
+      const waits: number[] = [];
+      while (b.m.text().includes('Thursday, 15 October') && waits.length < 10) {
+        const wait = b.clock.pending()[0];
+        waits.push(Math.round(wait / 1000));
+        await b.clock.advance(wait);
+      }
+      assert(show(waits) === show([60, 120, 240, 480]), `ten minutes ahead: re-checks after ${show(waits)} s`);
+      assert(b.m.html().includes('<h1 class="ch-head-title">Friday, 16 October</h1>'), `Friday at last: ${b.m.text().slice(0, 80)}`);
+      assert(ranges().filter((r) => r === 'famcal default').length === 2, `one reset only: ${show(ranges())}`);
+    } finally {
+      b.m.unmount();
+    }
     assert(msUntilDayCheck(Date.parse('2026-10-15T07:00:00Z'), TZ) === 3_600_000, 'at 10:00 the check waits an hour');
+    assert(msUntilAheadCheck(0) === 60_000 && msUntilAheadCheck(3) === 480_000 && msUntilAheadCheck(4) === 900_000 && msUntilAheadCheck(60) === 900_000, 'the ahead re-check: a minute, doubling, at most 15');
     assert(isPastDay(Date.parse('2026-10-15T21:00:01Z'), TZ, TODAY) && !isPastDay(Date.parse('2026-10-15T20:59:59Z'), TZ, TODAY), 'midnight in Israel');
     // Chile skips 00:00 on 6 September 2026: from 23:30 the check lands at 01:00, the new day.
     const santiago = Date.parse('2026-09-06T03:30:00Z');

@@ -38,7 +38,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncE
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { buildAgenda, type AgendaRow } from '@/src/lib/calendar-view/agenda';
-import { deviceTimeZone, homeSources, isPastDay, msUntilDayCheck, reloadOnce, zoneDiffers } from '@/src/lib/calendar-view/home-client';
+import { deviceTimeZone, homeSources, isPastDay, msUntilAheadCheck, msUntilDayCheck, reloadOnce, zoneDiffers } from '@/src/lib/calendar-view/home-client';
 import { createHomeLoader, type HomeLoader } from '@/src/lib/calendar-view/home-loader';
 import type { CalendarHomeProps } from '@/src/lib/calendar-view/home-props';
 import { emptyStore, homeNotices, reduceStore } from '@/src/lib/calendar-view/store';
@@ -208,21 +208,30 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   }, [deps]);
 
   // Midnight in the user's timezone drops the store (D3's reset), once per day the
-  // server named; the loader then starts over.
+  // server named; the loader then starts over. A device clock that runs ahead gets the
+  // same today back from that reset: from then on the check only asks the visible
+  // windows again, soon rather than in an hour, and the server's new today drops the
+  // store as any other mismatch does.
   const tz = store.facts?.tz ?? null;
   const today = store.facts?.today ?? null;
   useEffect(() => {
     if (!tz || !today) return;
     let cancel = () => {};
+    let ahead = 0;
     const arm = () => {
+      const now = deps.now();
+      const ms = isPastDay(now, tz, today) ? msUntilAheadCheck(ahead++) : msUntilDayCheck(now, tz);
       cancel = deps.setTimer(() => {
-        if (isPastDay(deps.now(), tz, today) && resetFor.current !== today) {
-          resetFor.current = today;
-          dispatch({ type: 'reset' });
-          return;
+        if (isPastDay(deps.now(), tz, today)) {
+          if (resetFor.current !== today) {
+            resetFor.current = today;
+            dispatch({ type: 'reset' });
+            return;
+          }
+          loaderRef.current?.refetchVisible();
         }
         arm();
-      }, msUntilDayCheck(deps.now(), tz));
+      }, ms);
     };
     arm();
     return () => cancel();
