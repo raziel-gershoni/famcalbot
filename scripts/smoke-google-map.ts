@@ -487,7 +487,7 @@ async function main() {
     const shapes: Record<string, string> = {
       '"<b " repeated': fill('<b '),
       '"<br " repeated': fill('<br '),
-      '"<li " repeated': fill('<li '),
+      '"<li " repeated': fill('<li ', '', '<b>x</b>'),
       '"<a " repeated, one ">", no </a>': fill('<a ', '>' + 'x'.repeat(size / 2 - 1)),
       '"<a>" repeated, no </a>': fill('<a>'),
       '"<a href=x>" repeated, then text': fill('<a href=x>', 'x'.repeat(size / 2)),
@@ -499,9 +499,9 @@ async function main() {
       '"href=\\"" repeated in one <a>': fill('href="', '>x</a>', '<a '),
       '"<b " repeated inside a link': fill('<b ', '</a>', '<a href=x>'),
       '<b>, then spaces': '<b>' + ' '.repeat(size - 4) + '.',
-      '"<h1 " repeated': fill('<h1 '),
-      '"<td " repeated': fill('<td '),
-      '"<p " repeated': fill('<p '),
+      '"<h1 " repeated': fill('<h1 ', '', '<b>x</b>'),
+      '"<td " repeated': fill('<td ', '', '<b>x</b>'),
+      '"<p " repeated': fill('<p ', '', '<b>x</b>'),
     };
     const slow: string[] = [];
     for (const [name, description] of Object.entries(shapes)) {
