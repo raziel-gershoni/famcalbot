@@ -4,14 +4,37 @@
 
 import { getUserByIdentifier, getAllUsers, getWhatsAppChatId } from '../user-service';
 import { getProviderForUser, getCalendarAssignmentsForUser } from '../calendar-provider';
+import { isCalendarHomeOn } from '../calendar-read/rollout';
+import { DEFAULT_ON_DEMAND_READ, readDigestDay, type DigestRead } from '../calendar-read/digest';
+import type { DayKey } from '../calendar-read/types';
 
-// Provider-aware fetchers that match the fetchFunction signature in summary callers.
-// These are stable wrappers around getProviderForUser(user) so PR 4 can change
-// provider dispatch without re-touching summary call sites.
-const fetchTodayEvents = (user: UserConfig, calendarIds: string[], tz?: string): Promise<CalendarEvent[]> =>
-  getProviderForUser(user).fetchTodayEvents(user, calendarIds, tz);
-const fetchTomorrowEvents = (user: UserConfig, calendarIds: string[], tz?: string): Promise<CalendarEvent[]> =>
-  getProviderForUser(user).fetchTomorrowEvents(user, calendarIds, tz);
+/**
+ * How a summary reads its day: the user, their resolved calendar ids, their timezone,
+ * the summary day (prepareSummaryForUser decides it) and the run's mode and deadline.
+ */
+export type SummaryFetch = (
+  user: UserConfig,
+  calendarIds: string[],
+  timezone: string,
+  day: DayKey,
+  read?: DigestRead
+) => Promise<CalendarEvent[]>;
+
+// The summaries' day reads (calendar home spec §3.1). A user the rollout switch covers
+// reads the summary day through the shared reader, with the run's mode and deadline (on
+// demand unless the caller says otherwise). Its Google failures come back as
+// GOOGLE_TOKEN_EXPIRED, GOOGLE_INSUFFICIENT_SCOPES or GOOGLE_FETCH_FAILED. Everyone else
+// keeps the provider's read, which ignores `day` and `read` and picks the same day
+// itself, so their summaries stay as they are today (A-33). One wrapper serves on-demand
+// and scheduled runs alike: the mode comes with `read`.
+export const fetchTodayEvents: SummaryFetch = async (user, calendarIds, tz, day, read = DEFAULT_ON_DEMAND_READ) =>
+  (await isCalendarHomeOn(user))
+    ? readDigestDay(user, day, tz, calendarIds, read)
+    : getProviderForUser(user).fetchTodayEvents(user, calendarIds, tz);
+export const fetchTomorrowEvents: SummaryFetch = async (user, calendarIds, tz, day, read = DEFAULT_ON_DEMAND_READ) =>
+  (await isCalendarHomeOn(user))
+    ? readDigestDay(user, day, tz, calendarIds, read)
+    : getProviderForUser(user).fetchTomorrowEvents(user, calendarIds, tz);
 import { generateSummary, SummaryUserContext, formatDateHeader } from '../claude';
 import { CalendarEvent, UserConfig, CalendarAssignment } from '../../types';
 import { getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from '../messaging';
@@ -76,13 +99,26 @@ interface PreparedSummary {
  */
 type StreamStage = 'fetchingCalendar' | 'lookingAhead' | 'fetchingWeather' | 'composing';
 
-async function prepareSummaryForUser(
+/**
+ * Builds one user's summary. `summaryDate` is the tomorrow flag (set: tomorrow). `opts`
+ * comes from the callers (calendar home spec §3.1):
+ * - `day`: the summary day. Unset, it is today's rule: the user's local date, plus one
+ *   calendar day for tomorrow. The scheduled retry passes the first attempt's day, so a
+ *   retry that crosses midnight still reads, shapes and dates that day (A-7).
+ * - `read`: the run's mode and deadline, handed to the fetch. Only the shared reader
+ *   (switch-covered users) uses it.
+ * - `googleUnavailable`: the outage run, after Google failed the first attempt and the
+ *   retry. A Google user's day is then empty, with no read and no week block; the prompt
+ *   is told why, and the outage line goes under the summary.
+ */
+export async function prepareSummaryForUser(
   user: UserConfig,
-  fetchFunction: (user: UserConfig, calendarIds: string[], timezone?: string) => Promise<CalendarEvent[]>,
+  fetchFunction: SummaryFetch,
   summaryDate: Date | undefined,
   modelId?: string,
   onTextDelta?: (delta: string, accumulated: string) => void | Promise<void>,
-  onStageChange?: (stage: StreamStage) => void
+  onStageChange?: (stage: StreamStage) => void,
+  opts?: { day?: DayKey; read?: DigestRead; googleUnavailable?: boolean }
 ): Promise<PreparedSummary> {
   const t0 = Date.now();
 
@@ -113,9 +149,13 @@ async function prepareSummaryForUser(
   const { localDate, nextDate, shapeEventsForDay } = await import('../../utils/day-events');
   const { fromZonedTime } = await import('date-fns-tz');
   const today = localDate(new Date(), userTimezone);
-  const day = summaryDate ? nextDate(today) : today;
+  const day = opts?.day ?? (summaryDate ? nextDate(today) : today);
   const dayNoon = fromZonedTime(`${day} 12:00:00`, userTimezone);
-  const dayEvents = shapeEventsForDay(await fetchFunction(user, allCalendarIds, userTimezone), day, userTimezone);
+  // The outage run: Google failed this summary twice. A user reads one source in this
+  // first step, so a Google user's day is empty, with no read.
+  const googleOut = opts?.googleUnavailable === true && user.calendarSource === 'GOOGLE';
+  const fetched = googleOut ? [] : await fetchFunction(user, allCalendarIds, userTimezone, day, opts?.read);
+  const dayEvents = shapeEventsForDay(fetched, day, userTimezone);
   // Built-in calendar reminders: done ones leave the day, past-due ones are marked
   // open, and older open ones join after the day's own (shaping would drop them).
   // Anyone else's events pass through as they are.
@@ -139,12 +179,15 @@ async function prepareSummaryForUser(
     globalRules: user.globalRules,
     calendarAssignments: assignments,
     openRemindersMore,
+    // Only on the outage run, so every other prompt stays as it is (A-19).
+    ...(googleOut ? { googleUnavailable: true } : {}),
   };
 
-  // Fetch week lookahead if enabled for tomorrow summary
+  // Fetch week lookahead if enabled for tomorrow summary. The outage run has none: a
+  // Google user's week block is all Google, and Google couldn't be reached.
   let weekLookaheadText: string | undefined;
   let lookaheadMs = 0;
-  if (summaryDate && user.includeLookaheadInTomorrow) {
+  if (summaryDate && user.includeLookaheadInTomorrow && !googleOut) {
     onStageChange?.('lookingAhead');
     const tLookahead = Date.now();
     try {
@@ -172,7 +215,7 @@ async function prepareSummaryForUser(
     onStageChange?.('composing');
   }
   const tAI = Date.now();
-  const summary = await generateSummary(
+  const generated = await generateSummary(
     categorized.userEvents,
     categorized.spouseEvents,
     categorized.otherEvents,
@@ -197,6 +240,15 @@ async function prepareSummaryForUser(
   );
   const aiMs = Date.now() - tAI;
 
+  // The outage run says so under the summary. deliverSummary sends this text and voices
+  // it, so the line reaches both (A-32). An empty answer stays empty, so deliverSummary
+  // still answers it with "could not generate".
+  let summary = generated;
+  if (googleOut && generated.trim() !== '') {
+    const t = await getBotMessages(user.language || 'en');
+    summary = `${generated}\n\n<i>${t.errors.googleOutageNote}</i>`;
+  }
+
   // Generate date header for voice-only delivery
   const dateHeader = formatDateHeader(
     dayNoon,
@@ -217,7 +269,7 @@ async function prepareSummaryForUser(
  */
 export async function sendSummaryToUser(
   chatId: number | string,
-  fetchFunction: (user: UserConfig, calendarIds: string[], timezone?: string) => Promise<CalendarEvent[]>,
+  fetchFunction: SummaryFetch,
   summaryDate: Date | undefined,
   errorKey: string,
   modelId?: string,
@@ -280,7 +332,9 @@ export async function sendSummaryToUser(
           if (text) streamHandle.pushStage(text);
         };
       }
-      return prepareSummaryForUser(user, fetchFunction, summaryDate, modelId, onTextDelta, onStageChange);
+      return prepareSummaryForUser(user, fetchFunction, summaryDate, modelId, onTextDelta, onStageChange, {
+        read: DEFAULT_ON_DEMAND_READ,
+      });
     },
     onSuccess: async (result) => {
       await deliverSummary({
@@ -330,6 +384,20 @@ export async function sendSummaryToUser(
         return true;
       }
 
+      // Ruling R13: Google couldn't be reached, even after the reader's quick retry. It
+      // isn't the user's token, so they're told to try again in a minute, and no admin
+      // is paged.
+      if (error.message === 'GOOGLE_FETCH_FAILED') {
+        const t = await getBotMessages(userLanguage);
+        const unreachable = t.errors.googleUnreachable;
+        if (streamHandle) {
+          await streamHandle.cancel(unreachable, { format: MessageFormat.HTML });
+        } else {
+          await messagingService.sendMessage(chatId, unreachable, { format: MessageFormat.HTML });
+        }
+        return true;
+      }
+
       return false;
     },
   });
@@ -347,7 +415,7 @@ export interface SummaryBatchResult {
  * Generic function to send summary to all users
  */
 async function sendSummaryToAll(
-  fetchFunction: (user: UserConfig, calendarIds: string[], timezone?: string) => Promise<CalendarEvent[]>,
+  fetchFunction: SummaryFetch,
   summaryDate: Date | undefined,
   options?: { filterByHour?: boolean }
 ): Promise<SummaryBatchResult> {

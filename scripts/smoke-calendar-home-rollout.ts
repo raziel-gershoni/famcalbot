@@ -4,7 +4,9 @@
 // chome:rollout, then the DB, and answers OFF for anything else. isCalendarHomeOn lets
 // admins in under ADMINS and everyone under ALL. setCalendarHomeRollout writes the DB,
 // then Redis with EX 60, deletes the key when that SET fails, clears the memo, and says
-// whether Redis took the value. The admin settings route accepts only the three values,
+// whether Redis took the value. When neither store answers, the OFF is kept 5 s with one
+// warning, so a summary batch asking per user doesn't hit both stores for each of them.
+// The admin settings route accepts only the three values,
 // answers propagated: false when Redis missed, and 503 when the DB write failed. Also: the
 // schema, the hand-written migration, the Redis key and the admin copy.
 //
@@ -251,15 +253,47 @@ async function main() {
     assert(captured.includes('calendar-home-rollout:warning'), `captured ${captured}`);
   });
 
-  await check('Redis and the DB both down: OFF, not remembered, so the next read after recovery sees the DB', async () => {
+  await check('Redis and the DB both down: OFF with one warning, kept for 5 s, then the next read after recovery sees the DB', async () => {
     reset();
     redisState.getDown = true;
     db.down = true;
     assert((await getCalendarHomeRollout()) === 'OFF', 'not OFF');
+    assert(captured.join(' | ') === 'calendar-home-rollout:warning', `captured ${captured.join(' | ')}`);
     redisState.getDown = false;
     db.down = false;
     db.row = { ...COLUMN_DEFAULTS, calendarHomeRollout: 'ADMINS' };
-    assert((await getCalendarHomeRollout()) === 'ADMINS', 'the fallback was remembered');
+    clock += 4_999;
+    assert((await getCalendarHomeRollout()) === 'OFF', 'the fallback was not kept for 5 s');
+    clock += 1;
+    assert((await getCalendarHomeRollout()) === 'ADMINS', 'the fallback outlived 5 s');
+    assert(reads('redis get') === 2 && reads('db find') === 2, `log ${log.join(' | ')}`);
+  });
+
+  await check('Redis has nothing and the DB is down: OFF kept for 5 s too, with one warning', async () => {
+    reset();
+    db.down = true;
+    assert((await getCalendarHomeRollout()) === 'OFF', 'not OFF');
+    clock += 4_999;
+    assert((await getCalendarHomeRollout()) === 'OFF', 'second read');
+    assert(log.join(' | ') === `redis get ${KEY} | db find`, `log ${log.join(' | ')}`);
+    assert(captured.length === 1, `captured ${captured.join(' | ')}`);
+  });
+
+  await check('a 20-user batch with both stores down, each user asking twice a second apart: one Redis and one DB attempt and one warning per 5 s', async () => {
+    reset();
+    redisState.getDown = true;
+    db.down = true;
+    const answers: boolean[] = [];
+    for (let i = 0; i < 20; i++) {
+      const user = { isAdmin: i % 2 === 0 };
+      answers.push(await isCalendarHomeOn(user)); // the day read
+      answers.push(await isCalendarHomeOn(user)); // the tomorrow summary's week block
+      clock += 1_000;
+    }
+    assert(answers.length === 40 && answers.every(a => a === false), `answers ${JSON.stringify(answers)}`);
+    // The users read at 0 to 19 s, so the stores are asked at 0, 5, 10 and 15 s.
+    assert(reads('redis get') === 4 && reads('db find') === 4, `redis ${reads('redis get')}, db ${reads('db find')}`);
+    assert(captured.length === 4, `${captured.length} warnings`);
   });
 
   await check('the DB holds a value outside the enum, or no column: OFF', async () => {

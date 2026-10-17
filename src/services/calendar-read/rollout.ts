@@ -11,6 +11,10 @@
  * in 60 s and a failed one deletes the key, so the DB value always wins within about a
  * minute. Anything that is not one of the three values, both stores failing, or no row
  * reads as OFF: the old home and today's summary path.
+ *
+ * When neither store answers, that OFF is kept for 5 s, with one warning. The summaries
+ * ask the switch once or twice per user, so during a Redis and DB outage a batch would
+ * otherwise retry both stores, and warn twice, for every user it reaches.
  */
 
 import { redis } from '../../utils/redis';
@@ -23,10 +27,12 @@ export type CalendarHomeRolloutValue = 'OFF' | 'ADMINS' | 'ALL';
 const VALUES: readonly CalendarHomeRolloutValue[] = ['OFF', 'ADMINS', 'ALL'];
 const KEY = REDIS_KEYS.CALENDAR_HOME_ROLLOUT;
 const MEMO_MS = 30_000;
+/** How long the OFF of a read that neither store answered is kept. */
+const FALLBACK_MEMO_MS = 5_000;
 const REDIS_TTL_S = 60;
 const CONTEXT = 'calendar-home-rollout';
 
-type Memo = { value: CalendarHomeRolloutValue; at: number };
+type Memo = { value: CalendarHomeRolloutValue; at: number; fallback?: true };
 const shared = globalThis as typeof globalThis & { __calendarHomeRolloutMemo?: Memo | null };
 
 export function isCalendarHomeRolloutValue(value: unknown): value is CalendarHomeRolloutValue {
@@ -38,8 +44,8 @@ function remember(value: CalendarHomeRolloutValue): CalendarHomeRolloutValue {
   return value;
 }
 
-function warn(error: unknown): void {
-  captureError(error, CONTEXT, {}, 'warning');
+function warn(error: unknown, extra: Record<string, unknown> = {}): void {
+  captureError(error, CONTEXT, extra, 'warning');
 }
 
 /** The switch as this process sees it: the memo, then Redis, then the DB; OFF when nothing answers. */
@@ -47,17 +53,18 @@ export async function getCalendarHomeRollout(): Promise<CalendarHomeRolloutValue
   const memo = shared.__calendarHomeRolloutMemo;
   if (memo) {
     const age = Date.now() - memo.at;
-    if (age >= 0 && age < MEMO_MS) return memo.value;
+    if (age >= 0 && age < (memo.fallback ? FALLBACK_MEMO_MS : MEMO_MS)) return memo.value;
   }
 
   let redisUp = true;
+  let redisError: unknown;
   let cached: unknown = null;
   try {
     cached = await redis.get<string>(KEY);
     if (isCalendarHomeRolloutValue(cached)) return remember(cached);
   } catch (error) {
     redisUp = false;
-    warn(error);
+    redisError = error;
   }
 
   try {
@@ -65,6 +72,8 @@ export async function getCalendarHomeRollout(): Promise<CalendarHomeRolloutValue
       where: { id: 'global' },
       select: { calendarHomeRollout: true },
     });
+    // Redis failed but the DB answered: one warning, and the value is kept 30 s.
+    if (!redisUp) warn(redisError);
     const stored: unknown = settings?.calendarHomeRollout;
     const value = isCalendarHomeRolloutValue(stored) ? stored : 'OFF';
     if (redisUp) {
@@ -79,7 +88,9 @@ export async function getCalendarHomeRollout(): Promise<CalendarHomeRolloutValue
     }
     return remember(value);
   } catch (error) {
-    warn(error);
+    // Neither store answered: OFF for the next 5 s, with this one warning for both.
+    warn(error, { stage: redisUp ? 'db' : 'redis and db' });
+    shared.__calendarHomeRolloutMemo = { value: 'OFF', at: Date.now(), fallback: true };
     return 'OFF';
   }
 }
