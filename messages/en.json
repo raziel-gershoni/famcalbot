@@ -507,7 +507,9 @@
       "generatingSummary": "Sorry, there was an error generating the summary.",
       "timeout": "Sorry, the request took too long. Please try again.",
       "aiBusy": "The AI service is currently busy. Please try again in a few minutes.",
-      "voiceGenerationFailed": "Voice message unavailable — your text summary is above."
+      "voiceGenerationFailed": "Voice message unavailable — your text summary is above.",
+      "googleUnreachable": "Couldn't reach Google Calendar. Please try again in a minute.",
+      "googleOutageNote": "⚠️ Couldn't reach Google Calendar, so your Google events aren't in this summary. You can ask for a new one in a few minutes."
     },
     "buttons": {
       "openSettings": "⚙️ Open Settings",

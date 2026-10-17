@@ -28,4 +28,5 @@ export interface SummaryPromptData {
   hasKidsCalendars?: boolean;  // Whether user has kids calendars configured
   hasReminders?: boolean;      // Built-in calendar reminders are in the lists (adds the reminders guideline)
   openRemindersMore?: number;  // Open reminders past the digest's cap, not in the lists
+  googleUnavailable?: boolean; // Google Calendar couldn't be reached at send time (the scheduled outage run): adds the outage guideline
 }

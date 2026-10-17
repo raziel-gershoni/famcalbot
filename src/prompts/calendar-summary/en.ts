@@ -74,6 +74,14 @@ function buildRemindersGuideline(data: SummaryPromptData): string {
 `;
 }
 
+// Only the outage run gets this (Google Calendar couldn't be reached at send time), so
+// every other prompt stays as it was.
+function buildGoogleUnavailableGuideline(data: SummaryPromptData): string {
+  if (!data.googleUnavailable) return '';
+  return `- **Google Calendar**: Google Calendar couldn't be reached for this summary, so the lists hold only what loaded. Don't invent events or guess what's missing, and don't say nothing is planned just because a list is empty. A note about this is added after your summary, so don't mention it yourself.
+`;
+}
+
 export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
   const spouseContext = buildSpouseContext(data);
   const kidsContext = buildKidsContext(data);
@@ -198,7 +206,7 @@ ${data.weekLookahead ? `
 - **CRITICAL: Always use HH:MM format (24-hour, no AM/PM) - e.g., 08:00, 13:45, 20:15**
 - **Birthdays**: Events marked "(Birthday)" — show without any time. Extract the person's name from the event title (e.g., "John Doe's Birthday" → mention "John Doe's birthday"). Present naturally.
 - **Events crossing midnight are marked in the event list.** "22:00 - 02:00 next day" ends after midnight: show it as "22:00-02:00 (past midnight)". "until 10:00 (started yesterday 18:00)" began the day before: show it as "until 10:00", first in the list, and never present it as starting on this day. A multi-day event shows its span: say which day of it this is. A "next day" end time is not a time on this day, also in the pickup order.
-${buildRemindersGuideline(data)}${data.hasKidsCalendars ? `- **CRITICAL: Pickup Order MUST be sorted chronologically by time (earliest first)**
+${buildRemindersGuideline(data)}${buildGoogleUnavailableGuideline(data)}${data.hasKidsCalendars ? `- **CRITICAL: Pickup Order MUST be sorted chronologically by time (earliest first)**
 - **CRITICAL: Pickup Order: Group kids with SAME pickup time on ONE line together**
 ` : ''}- Use Telegram HTML tags for formatting: <b>bold</b>, <i>italic</i>, <u>underline</u>
 

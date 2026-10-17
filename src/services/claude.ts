@@ -60,6 +60,12 @@ export interface SummaryUserContext {
   calendarAssignments?: CalendarAssignment[];
   /** Open reminders past the digest's cap, left out of the event lists. */
   openRemindersMore?: number;
+  /**
+   * Google Calendar couldn't be reached when the summary was sent, so the lists hold
+   * only what loaded (the scheduled outage run, spec §3.1 step 6). Adds one guideline
+   * line; unset or false, the prompt is unchanged.
+   */
+  googleUnavailable?: boolean;
 }
 
 /**
@@ -170,6 +176,7 @@ function buildPromptData(
     hasKidsCalendars,
     hasReminders: [userEvents, spouseEvents, otherEvents].some(list => list.some(isReminderEvent)),
     openRemindersMore: userContext?.openRemindersMore,
+    googleUnavailable: userContext?.googleUnavailable,
   };
 }
 

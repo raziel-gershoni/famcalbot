@@ -75,6 +75,14 @@ function buildRemindersGuideline(data: SummaryPromptData): string {
 `;
 }
 
+// Only the outage run gets this (Google Calendar couldn't be reached at send time), so
+// every other prompt stays as it was.
+function buildGoogleUnavailableGuideline(data: SummaryPromptData): string {
+  if (!data.googleUnavailable) return '';
+  return `- **יומן Google**: לא ניתן היה להתחבר ליומן Google בזמן הכנת הסיכום, ולכן ברשימות יש רק את מה שנטען. אל תמציא אירועים ואל תנחש מה חסר, ואל תכתוב שאין אירועים רק כי רשימה ריקה. הערה על כך תתווסף אחרי הסיכום, אז אל תזכיר את זה בעצמך.
+`;
+}
+
 export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
   const spouseContext = buildSpouseContext(data);
   const kidsContext = buildKidsContext(data);
@@ -200,7 +208,7 @@ ${data.weekLookahead ? `
 - **קריטי: תמיד השתמש בפורמט HH:MM (24 שעות, בלי AM/PM) - לדוגמה: 08:00, 13:45, 20:15**
 - **ימי הולדת**: אירועים מסומנים "(Birthday)" — הצג בלי שעה. חלץ את שם האדם מכותרת האירוע (לדוגמה: "יום ההולדת של יוחנן" → ציין "יום הולדת של יוחנן"). הצג בצורה טבעית.
 - **אירועים שחוצים חצות מסומנים ברשימת האירועים.** "22:00 - 02:00 next day" מסתיים אחרי חצות: הצג אותו כ"22:00-02:00 (עד אחרי חצות)". "until 10:00 (started yesterday 18:00)" התחיל ביום הקודם: הצג אותו כ"עד 10:00", ראשון ברשימה, ולעולם אל תציג אותו כאילו הוא מתחיל ביום הזה. אירוע של כמה ימים מוצג עם הטווח שלו: ציין איזה יום שלו זה. שעת סיום "next day" אינה שעה ביום הזה, גם בסדר האיסוף.
-${buildRemindersGuideline(data)}${data.hasKidsCalendars ? `- **קריטי: סדר האיסוף חייב להיות ממוין כרונולוגית לפי שעה (הכי מוקדם קודם)**
+${buildRemindersGuideline(data)}${buildGoogleUnavailableGuideline(data)}${data.hasKidsCalendars ? `- **קריטי: סדר האיסוף חייב להיות ממוין כרונולוגית לפי שעה (הכי מוקדם קודם)**
 - **קריטי: סדר איסוף: קבץ ילדים עם אותה שעת איסוף בשורה אחת**
 ` : ''}- השתמש בתגיות HTML של טלגרם לעיצוב: <b>מודגש</b>, <i>נטוי</i>, <u>קו תחתון</u>
 

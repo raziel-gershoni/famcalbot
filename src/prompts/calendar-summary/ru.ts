@@ -76,6 +76,14 @@ function buildRemindersGuideline(data: SummaryPromptData): string {
 `;
 }
 
+// Only the outage run gets this (Google Calendar couldn't be reached at send time), so
+// every other prompt stays as it was.
+function buildGoogleUnavailableGuideline(data: SummaryPromptData): string {
+  if (!data.googleUnavailable) return '';
+  return `- **Google Календарь**: К Google Календарю не удалось подключиться, поэтому в списках только то, что успело загрузиться. Не придумывайте события и не гадайте, чего не хватает, и не пишите, что ничего не запланировано, только потому, что список пуст. Заметка об этом будет добавлена после сводки, так что сами о сбое не пишите.
+`;
+}
+
 export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
   const spouseContext = buildSpouseContext(data);
   const kidsContext = buildKidsContext(data);
@@ -203,7 +211,7 @@ ${data.weekLookahead ? `
 - **КРИТИЧНО: Всегда используйте формат HH:MM (24 часа, без AM/PM) - например: 08:00, 13:45, 20:15**
 - **Дни рождения**: События с пометкой "(Birthday)" — показывай без времени. Извлеки имя человека из названия события (например: "День рождения Ивана Петрова" → упомяни "день рождения Ивана Петрова"). Представляй естественно.
 - **События, переходящие через полночь, помечены в списке событий.** "22:00 - 02:00 next day" заканчивается после полуночи: показывай его как "22:00-02:00 (за полночь)". "until 10:00 (started yesterday 18:00)" началось накануне: показывай его как "до 10:00", первым в списке, и никогда не подавай как начинающееся в этот день. Многодневное событие показывай с его периодом: укажи, какой это день. Время окончания "next day" — не время этого дня, в том числе в порядке забора.
-${buildRemindersGuideline(data)}${data.hasKidsCalendars ? `- **КРИТИЧНО: Порядок забора ДОЛЖЕН быть отсортирован хронологически (сначала самое раннее время)**
+${buildRemindersGuideline(data)}${buildGoogleUnavailableGuideline(data)}${data.hasKidsCalendars ? `- **КРИТИЧНО: Порядок забора ДОЛЖЕН быть отсортирован хронологически (сначала самое раннее время)**
 - **КРИТИЧНО: Порядок забора: Группируйте детей с ОДИНАКОВЫМ временем забора в ОДНУ строку**
 ` : ''}- Используйте HTML-теги Telegram для форматирования: <b>жирный</b>, <i>курсив</i>, <u>подчёркнутый</u>
 
