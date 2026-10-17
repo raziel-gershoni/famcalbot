@@ -18,8 +18,28 @@ export interface CronResult {
  */
 export async function handleDailySummary(): Promise<CronResult> {
   const { sendDailySummaryToAll } = await import('../services/telegram');
+  // The reminder-cache sync and the OAuth clean-up run beside the summaries, not after
+  // them: a scheduled batch can wait about 30 s and then retry the users whose Google read
+  // failed (calendar home spec §3.1 step 6), and the alert pass must not wait for that.
+  const housekeeping = syncRemindersAndCleanUp();
   const summaryResult = await sendDailySummaryToAll({ filterByHour: true });
+  await housekeeping;
 
+  return {
+    success: true,
+    message: 'Daily summaries sent successfully',
+    processed: summaryResult.processed,
+    skippedHour: summaryResult.skippedHour,
+    skippedDay: summaryResult.skippedDay,
+    skippedDedup: summaryResult.skippedDedup,
+  };
+}
+
+/**
+ * The daily run's housekeeping: the reminder-cache sync and, at 04:00 UTC, the clean-up of
+ * expired OAuth state tokens. Each step catches its own failure, so this never rejects.
+ */
+async function syncRemindersAndCleanUp(): Promise<void> {
   // Sync reminder cache from DB (piggyback on existing run)
   try {
     const { syncReminderCache, setGlobalRemindersEnabled } = await import('../services/reminder-cache');
@@ -94,15 +114,6 @@ export async function handleDailySummary(): Promise<CronResult> {
       captureError(cleanupError, 'cron-daily-summary-oauth-cleanup', undefined, 'warning');
     }
   }
-
-  return {
-    success: true,
-    message: 'Daily summaries sent successfully',
-    processed: summaryResult.processed,
-    skippedHour: summaryResult.skippedHour,
-    skippedDay: summaryResult.skippedDay,
-    skippedDedup: summaryResult.skippedDedup,
-  };
 }
 
 /**

@@ -49,7 +49,8 @@ import { executeCommand } from './command-pipeline';
 import { getBotMessages } from '../../lib/bot-messages';
 import { trackActivityAsync } from '../analytics-service';
 import { checkFeatureAccess, incrementUsage } from '../subscription-service';
-import { captureError } from '../../lib/error-capture';
+import { SCHEDULED_READ, SCHEDULED_RETRY_READ } from '../calendar-read/digest';
+import { captureError, captureWarning } from '../../lib/error-capture';
 import { getMessagingService } from './bot';
 import { sendVoiceMessage } from './voice';
 import { sendSetupNudgeIfNeeded } from './commands';
@@ -403,6 +404,25 @@ export async function sendSummaryToUser(
   });
 }
 
+/** prepareSummaryForUser's last argument (spec §3.1): the summary day, the read, the outage flag. */
+type SummaryRunOptions = NonNullable<Parameters<typeof prepareSummaryForUser>[6]>;
+
+/** The digest adapters' outage error (spec §3.1): Google couldn't be read for `day`, the read's first day. */
+function isGoogleFetchFailed(error: unknown): error is Error & { day?: SummaryRunOptions['day'] } {
+  return error instanceof Error && error.message === 'GOOGLE_FETCH_FAILED';
+}
+
+/** C5: the scheduled retry runs this long after the batch's first Google failure. */
+const SCHEDULED_RETRY_AFTER_MS = 30_000;
+
+const realSleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+let scheduledRetrySleep: (ms: number) => Promise<void> = realSleep;
+
+/** Smoke scripts only: replaces the wait before the scheduled retry; null puts the real one back. */
+export function __setScheduledRetrySleepForTests(sleep: ((ms: number) => Promise<void>) | null): void {
+  scheduledRetrySleep = sleep ?? realSleep;
+}
+
 /** Result counts from batch summary delivery */
 export interface SummaryBatchResult {
   processed: number;
@@ -421,6 +441,9 @@ async function sendSummaryToAll(
 ): Promise<SummaryBatchResult> {
   const messagingService = getMessagingService();
   const result: SummaryBatchResult = { processed: 0, skippedHour: 0, skippedDay: 0, skippedDedup: 0 };
+  // When the batch chose its users. The scheduled retry's summaries are marked sent under
+  // this local date, the date the batch chose them for, also when they go out past midnight.
+  const batchStartedAt = new Date();
 
   try {
     // Skip users Telegram refuses to deliver to. Without this a blocked user is
@@ -454,7 +477,119 @@ async function sendSummaryToAll(
       console.log(`[Summary] Hourly filter: ${users.length} eligible, ${filtered.skippedHour} skipped (hour), ${filtered.skippedDay} skipped (day), ${filtered.skippedDedup} skipped (dedup)`);
     }
 
+    // Users the calendar home doesn't cover go first, in their own order, then the users it
+    // covers. A covered user's Google read can take up to 30 s for the day and 30 s more for
+    // the week block before it is set aside (spec §2.2), and nobody the switch doesn't cover
+    // should wait on that. With the switch OFF (or ALL) the order is the batch's own.
+    const covered = new Set<UserConfig>();
     for (const user of users) {
+      if (await isCalendarHomeOn(user)) covered.add(user);
+    }
+    const ordered = [...users.filter(u => !covered.has(u)), ...users.filter(u => covered.has(u))];
+
+    // C5 (spec §3.1 step 6): a user whose Google read fails is set aside here and retried
+    // after the loop, so the rest of the batch never waits on Google.
+    const googleRetries: { user: UserConfig; platform: DeliveryPlatform; day: SummaryRunOptions['day'] }[] = [];
+    let firstGoogleFailureAt = 0;
+
+    // One user's summary, prepared and delivered, then counted and marked sent: the same
+    // on the first attempt, the retry and the outage run. `markedFor` dates the dedup mark
+    // (the retry passes the batch's start); unset, it is the time of the mark, as before.
+    const deliverToUser = async (user: UserConfig, platform: DeliveryPlatform, runOptions: SummaryRunOptions, markedFor?: Date) => {
+      const tUser = Date.now();
+      const { summary, dateHeader, otherEvents } = await prepareSummaryForUser(
+        user, fetchFunction, summaryDate, undefined, undefined, undefined, runOptions
+      );
+
+      // Use telegramId for TG delivery, whatsappPhone for WA, or user.id as fallback
+      const deliveryUserId = user.telegramId ?? getWhatsAppChatId(user) ?? user.id;
+      await deliverSummary({
+        userId: deliveryUserId,
+        summary,
+        user,
+        platform,
+        dateHeader,
+        waButtonPayload: summaryDate ? 'summary tmrw' : 'summary',
+        otherEvents,
+        summaryDate,
+      });
+
+      console.log(`[Batch Summary] user=${user.id} platform=${platform} total=${Date.now() - tUser}ms`);
+      result.processed++;
+
+      // Mark as sent for dedup
+      if (options?.filterByHour) {
+        const { markSummarySent } = await import('../../lib/summary-scheduling');
+        const { resolveUserTimezone } = await import('../../lib/timezone');
+        const tz = await resolveUserTimezone(user);
+        await markSummarySent(user.id, summaryDate ? 'tomorrow' : 'daily', tz, markedFor);
+      }
+    };
+
+    // A failed summary: logged, and a dead token gets the token text with the refresh
+    // button. No dedup mark.
+    const reportFailure = async (user: UserConfig, platform: DeliveryPlatform, error: unknown) => {
+      console.error(`Failed to send summary to user ${user.id}:`, error);
+      captureError(error, 'summary-batch-user', { user_id: user.id });
+
+      if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
+        const t = await getBotMessages(user.language || 'en');
+        const refreshUrl = buildUrl(`/refresh-token?user_id=${user.telegramId ?? user.id}`);
+        const expiredMessage = `${t.tokenExpired.title}\n\n${t.tokenExpired.message}`;
+
+        try {
+          if ((platform === 'telegram' || platform === 'all') && user.telegramId) {
+            await messagingService.sendMessage(user.telegramId, expiredMessage, {
+              format: MessageFormat.HTML,
+              replyMarkup: {
+                inline_keyboard: [[
+                  { text: t.buttons.refreshGoogle, web_app: { url: refreshUrl } }
+                ]]
+              }
+            });
+          }
+          if ((platform === 'whatsapp' || platform === 'all') && getWhatsAppChatId(user)) {
+            const waChatId = getWhatsAppChatId(user)!;
+            const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
+            const { buildWhatsAppTemplate } = await import('../messaging/whatsapp-template');
+            const template = buildWhatsAppTemplate(user.language || 'en');
+            await whatsappService.sendMessage(waChatId, '', { whatsappTemplate: template });
+          }
+        } catch (msgError) {
+          console.error(`Failed to send token expired message to user ${user.id}:`, msgError);
+          captureError(msgError, 'summary-token-expired-notify', { user_id: user.id }, 'warning');
+        }
+
+        const { notifyAdminWarning } = await import('../../utils/error-notifier');
+        await notifyAdminWarning(
+          'Token Expired',
+          `User ${user.id} (${user.name}) needs to refresh their Google Calendar token`
+        );
+      }
+    };
+
+    // The one retry: on the first attempt's day, with the retry's deadline for the day
+    // read and the week block. Only a second outage sends the summary without Google,
+    // with the outage guideline and line; it counts as sent. Anything else it throws is
+    // the caller's to report. Every summary it sends is marked for the batch's date.
+    const retryOnce = async (user: UserConfig, platform: DeliveryPlatform, day: SummaryRunOptions['day']) => {
+      // The switch turned back meanwhile (a rollback during the outage): today's path, as
+      // for everyone the switch doesn't cover, so the read and the shaping agree on the day.
+      if (!(await isCalendarHomeOn(user))) {
+        await deliverToUser(user, platform, { read: SCHEDULED_READ }, batchStartedAt);
+        return;
+      }
+      const retry: SummaryRunOptions = { day, read: SCHEDULED_RETRY_READ };
+      try {
+        await deliverToUser(user, platform, retry, batchStartedAt);
+      } catch (error) {
+        if (!isGoogleFetchFailed(error)) throw error;
+        captureError(error, 'summary-google-outage', { user_id: user.id }, 'warning');
+        await deliverToUser(user, platform, { ...retry, googleUnavailable: true }, batchStartedAt);
+      }
+    };
+
+    for (const user of ordered) {
       const platform = user.messagingPlatform || 'telegram';
 
       // Diagnostic: log WA delivery details for dual-platform users
@@ -506,72 +641,38 @@ async function sendSummaryToAll(
       }
 
       try {
-        const tUser = Date.now();
-        const { summary, dateHeader, otherEvents } = await prepareSummaryForUser(user, fetchFunction, summaryDate);
-
-        // Use telegramId for TG delivery, whatsappPhone for WA, or user.id as fallback
-        const deliveryUserId = user.telegramId ?? getWhatsAppChatId(user) ?? user.id;
-        await deliverSummary({
-          userId: deliveryUserId,
-          summary,
-          user,
-          platform,
-          dateHeader,
-          waButtonPayload: summaryDate ? 'summary tmrw' : 'summary',
-          otherEvents,
-          summaryDate,
-        });
-
-        console.log(`[Batch Summary] user=${user.id} platform=${platform} total=${Date.now() - tUser}ms`);
-        result.processed++;
-
-        // Mark as sent for dedup
-        if (options?.filterByHour) {
-          const { markSummarySent } = await import('../../lib/summary-scheduling');
-          const { resolveUserTimezone } = await import('../../lib/timezone');
-          const tz = await resolveUserTimezone(user);
-          await markSummarySent(user.id, summaryDate ? 'tomorrow' : 'daily', tz);
-        }
+        await deliverToUser(user, platform, { read: SCHEDULED_READ });
       } catch (error) {
-        console.error(`Failed to send summary to user ${user.id}:`, error);
-        captureError(error, 'summary-batch-user', { user_id: user.id });
-
-        if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
-          const t = await getBotMessages(user.language || 'en');
-          const refreshUrl = buildUrl(`/refresh-token?user_id=${user.telegramId ?? user.id}`);
-          const expiredMessage = `${t.tokenExpired.title}\n\n${t.tokenExpired.message}`;
-
-          try {
-            if ((platform === 'telegram' || platform === 'all') && user.telegramId) {
-              await messagingService.sendMessage(user.telegramId, expiredMessage, {
-                format: MessageFormat.HTML,
-                replyMarkup: {
-                  inline_keyboard: [[
-                    { text: t.buttons.refreshGoogle, web_app: { url: refreshUrl } }
-                  ]]
-                }
-              });
-            }
-            if ((platform === 'whatsapp' || platform === 'all') && getWhatsAppChatId(user)) {
-              const waChatId = getWhatsAppChatId(user)!;
-              const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
-              const { buildWhatsAppTemplate } = await import('../messaging/whatsapp-template');
-              const template = buildWhatsAppTemplate(user.language || 'en');
-              await whatsappService.sendMessage(waChatId, '', { whatsappTemplate: template });
-            }
-          } catch (msgError) {
-            console.error(`Failed to send token expired message to user ${user.id}:`, msgError);
-            captureError(msgError, 'summary-token-expired-notify', { user_id: user.id }, 'warning');
-          }
-
-          const { notifyAdminWarning } = await import('../../utils/error-notifier');
-          await notifyAdminWarning(
-            'Token Expired',
-            `User ${user.id} (${user.name}) needs to refresh their Google Calendar token`
-          );
+        if (isGoogleFetchFailed(error)) {
+          console.warn(`[Summary] Google unreachable for user ${user.id}; retrying after the batch`);
+          if (googleRetries.length === 0) firstGoogleFailureAt = Date.now();
+          googleRetries.push({ user, platform, day: error.day });
+        } else {
+          await reportFailure(user, platform, error);
         }
       }
     }
+
+    // C5: 30 s after the first failure, each set-aside user gets one retry, in order.
+    if (googleRetries.length > 0) {
+      // Said once per batch, before the wait: if the process stops during it (a deploy),
+      // these users get no summary and no dedup mark this hour, and Sentry has the count.
+      captureWarning(`${googleRetries.length} scheduled summaries set aside for a Google retry`, 'summary-google-retry', {
+        set_aside: googleRetries.length,
+        summary_type: summaryDate ? 'tomorrow' : 'daily',
+      });
+      const waitMs = firstGoogleFailureAt + SCHEDULED_RETRY_AFTER_MS - Date.now();
+      if (waitMs > 0) await scheduledRetrySleep(waitMs);
+      for (const { user, platform, day } of googleRetries) {
+        try {
+          await retryOnce(user, platform, day);
+        } catch (error) {
+          await reportFailure(user, platform, error);
+        }
+      }
+    }
+
+    console.log(`[Batch Summary] ${summaryDate ? 'tomorrow' : 'daily'} done: processed=${result.processed} set aside=${googleRetries.length} total=${Date.now() - batchStartedAt.getTime()}ms`);
   } catch (error) {
     console.error('Failed to generate summary for all users:', error);
     captureError(error, 'summary-batch-all');

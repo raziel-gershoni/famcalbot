@@ -80,13 +80,17 @@ export async function filterUsersForSummary(
 /**
  * Mark a summary as sent for a user (sets Redis dedup key with 23h TTL).
  * 23h TTL ensures key expires before the next day's scheduled run.
+ * @param sentFor - The moment whose local date the mark is for; defaults to now. The
+ *   scheduled retry passes its batch's start, so a summary that goes out past midnight
+ *   is still marked for the day the batch chose it, and the next day's run isn't skipped.
  */
 export async function markSummarySent(
   userId: number,
   summaryType: SummaryType,
-  timezone: string
+  timezone: string,
+  sentFor: Date = new Date()
 ): Promise<void> {
-  const localDate = formatInTimeZone(new Date(), timezone, 'yyyy-MM-dd');
+  const localDate = formatInTimeZone(sentFor, timezone, 'yyyy-MM-dd');
   const dedupKey = REDIS_KEYS.summaryDedup(userId, summaryType, localDate);
   await redis.set(dedupKey, '1', { ex: 23 * 60 * 60 }); // 23h TTL
 }
