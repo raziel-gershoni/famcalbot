@@ -13,7 +13,13 @@
     "next": "הבא",
     "done": "סיום",
     "yes": "כן",
-    "no": "לא"
+    "no": "לא",
+    "header": {
+      "back": "חזרה",
+      "settings": "הגדרות",
+      "adminPanel": "פאנל ניהול",
+      "adminBadge": "אדמין"
+    }
   },
   "dashboard": {
     "title": "בוט לוח שנה משפחתי",
@@ -67,6 +73,141 @@
       "tooShort": "המשוב חייב להיות לפחות 10 תווים.",
       "tooLong": "המשוב חייב להיות פחות מ-1000 תווים."
     }
+  },
+  "calendarHome": {
+    "header": {
+      "send": "שליחה לצ׳אט",
+      "menu": "תפריט"
+    },
+    "send": {
+      "title": "שליחה לצ׳אט",
+      "subtitle": "FamCal ישלח לך את זה בצ׳אט",
+      "today": "הסיכום של היום",
+      "todayHint": "האירועים והתזכורות של היום",
+      "tomorrow": "הסיכום של מחר",
+      "tomorrowHint": "מה מחכה מחר",
+      "thisWeek": "השבוע",
+      "thisWeekHint": "מה עוד מחכה השבוע",
+      "nextWeek": "השבוע הבא",
+      "nextWeekHint": "מה מתוכנן לשבוע הבא",
+      "weather": "מזג אוויר",
+      "weatherHint": "התחזית להיום",
+      "sending": "שולחים…",
+      "sent": "נשלח. אפשר להציץ בצ׳אט",
+      "sentWhatsApp": "נשלח לוואטסאפ",
+      "busy": "יש עומס כרגע. כדאי לנסות שוב בעוד דקה.",
+      "failed": "השליחה לא הצליחה. כדאי לנסות שוב.",
+      "signedOut": "צריך לפתוח את FamCal מחדש מהצ׳אט ולנסות שוב.",
+      "offline": "אין חיבור לאינטרנט. כדאי לבדוק את החיבור ולנסות שוב."
+    },
+    "menu": {
+      "settings": "הגדרות",
+      "calendars": "יומנים",
+      "partner": "שיתוף עם פרטנר",
+      "chooseCalendars": "בחירת יומנים",
+      "reconnectGoogle": "חיבור מחדש ל-Google",
+      "subscription": "מנוי",
+      "refresh": "רענון",
+      "feedback": "משוב",
+      "admin": "פאנל ניהול"
+    },
+    "banner": {
+      "trial": "{count, plural, one {נשאר יום אחד לתקופת הניסיון} two {נשארו יומיים לתקופת הניסיון} other {נשארו # ימים לתקופת הניסיון}}",
+      "trialAction": "לתוכניות",
+      "location": "כדאי להגדיר מיקום כדי שהשעות יהיו נכונות",
+      "locationAction": "להגדרת מיקום",
+      "connectGoogle": "חיבור ליומן Google",
+      "connectGoogleBody": "אחרי החיבור, היומן יופיע כאן.",
+      "chooseCalendars": "בחירת יומנים",
+      "chooseCalendarsBody": "אילו יומני Google להציג כאן ובסיכומים?",
+      "reconnect": "פג התוקף של החיבור ל-Google",
+      "reconnectBody": "צריך להתחבר מחדש כדי לראות כאן שוב את היומן של Google.",
+      "reconnectScopes": "FamCal צריך הרשאה לקרוא את היומן",
+      "reconnectScopesBody": "צריך להתחבר מחדש ל-Google ולאשר גישה ליומן.",
+      "reconnectAction": "חיבור מחדש ל-Google",
+      "openInTelegram": "לפתוח את FamCal בטלגרם",
+      "openInTelegramBody": "שם מחכים תזכורות, סיכומים קוליים ועוד."
+    },
+    "state": {
+      "partial": "חלק מהיומנים לא נטענו",
+      "unavailable": "{count, plural, one {יומן אחד לא זמין} two {שני יומנים לא זמינים} other {# יומנים לא זמינים}}",
+      "googleError": "לא הצלחנו לטעון את יומן Google",
+      "calendarsGone": "היומנים שלך לא זמינים",
+      "famcalError": "לא הצלחנו לטעון את היומן",
+      "busy": "יש עומס כרגע, כדאי לנסות שוב בעוד דקה",
+      "errorTitle": "משהו השתבש",
+      "errorBody": "היומן לא נטען. כדאי לנסות שוב."
+    },
+    "actions": {
+      "retry": "לנסות שוב",
+      "chooseAgain": "לבחור שוב",
+      "close": "סגירה",
+      "reload": "לטעון מחדש"
+    },
+    "errorBoundary": {
+      "title": "משהו השתבש",
+      "body": "היומן נתקע. טעינה מחדש בדרך כלל עוזרת."
+    },
+    "shell": {
+      "loading": "היומן נטען…",
+      "timesIn": "השעות לפי {zone}"
+    },
+    "agenda": {
+      "today": "היום",
+      "tomorrow": "מחר",
+      "nothingPlanned": "אין אירועים",
+      "nothingPlannedRange": "אין אירועים ב{range}",
+      "showNextWeek": "להציג את השבוע הבא"
+    },
+    "stillOpen": {
+      "title": "עדיין פתוחות",
+      "count": "{count, plural, one {תזכורת אחת} two {שתי תזכורות} other {# תזכורות}}",
+      "more": "{count, plural, one {ועוד אחת} two {ועוד שתיים} other {ועוד #}}",
+      "sinceTime": "מהשעה {time}",
+      "sinceYesterday": "מאתמול",
+      "sinceWeekday": "{weekday, select, sun {מיום ראשון} mon {מיום שני} tue {מיום שלישי} wed {מיום רביעי} thu {מיום חמישי} fri {מיום שישי} sat {משבת} other {}}",
+      "sinceDate": "מ-{date}"
+    },
+    "row": {
+      "allDay": "כל היום",
+      "until": "עד {when}",
+      "continues": "נמשך",
+      "noTitle": "(ללא כותרת)",
+      "reminder": "תזכורת",
+      "open": "פתוחה",
+      "done": "בוצעה",
+      "everyDay": "כל יום",
+      "repeats": "קבועה",
+      "snoozedUntil": "עד {time}",
+      "snoozedLabel": "נדחתה עד {time}",
+      "birthday": "יום הולדת",
+      "googleCalendar": "Google · {calendar}"
+    },
+    "person": {
+      "from": "מאת {name}",
+      "for": "בשביל {name}"
+    },
+    "sheet": {
+      "label": "פרטים",
+      "calendar": "יומן",
+      "partnerCalendar": "היומן של {name}",
+      "location": "מיקום",
+      "notes": "הערות",
+      "repeats": "חלק מסדרה",
+      "everyDay": "בכל יום",
+      "stateOpen": "עדיין לא בוצעה",
+      "stateDone": "בוצעה",
+      "stateDoneAt": "בוצעה ב-{time}",
+      "stateSnoozed": "נדחתה עד {time}",
+      "stateLater": "עוד לא הגיע הזמן",
+      "openInGoogle": "פתיחה ביומן Google"
+    },
+    "empty": {
+      "title": "אין אירועים",
+      "hintEvents": "כדי להוסיף אירוע, אפשר לשלוח לבוט הודעה קולית, להעביר אליו הודעה או לשתף צילום של הזמנה.",
+      "hintReminders": "לתזכורת, פשוט כותבים לבוט, למשל: \"תזכיר לי להתקשר לסבתא בשש\"."
+    },
+    "hebrewMonthGenitive": ["תשרי", "חשון", "כסלו", "טבת", "שבט", "אדר", "אדר א׳", "אדר ב׳", "ניסן", "אייר", "סיון", "תמוז", "אב", "אלול"]
   },
   "admin": {
     "title": "פאנל ניהול",

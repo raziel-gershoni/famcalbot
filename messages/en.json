@@ -13,7 +13,13 @@
     "next": "Next",
     "done": "Done",
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "header": {
+      "back": "Back",
+      "settings": "Settings",
+      "adminPanel": "Admin panel",
+      "adminBadge": "Admin"
+    }
   },
   "dashboard": {
     "title": "FamCalBot",
@@ -67,6 +73,141 @@
       "tooShort": "Feedback must be at least 10 characters.",
       "tooLong": "Feedback must be less than 1000 characters."
     }
+  },
+  "calendarHome": {
+    "header": {
+      "send": "Send to chat",
+      "menu": "Menu"
+    },
+    "send": {
+      "title": "Send to chat",
+      "subtitle": "FamCal sends it to your chat",
+      "today": "Today’s summary",
+      "todayHint": "Events and reminders for today",
+      "tomorrow": "Tomorrow’s summary",
+      "tomorrowHint": "What’s coming up tomorrow",
+      "thisWeek": "This week",
+      "thisWeekHint": "Coming up this week",
+      "nextWeek": "Next week",
+      "nextWeekHint": "Coming up next week",
+      "weather": "Weather",
+      "weatherHint": "Today’s forecast",
+      "sending": "Sending…",
+      "sent": "Sent. Check your chat",
+      "sentWhatsApp": "Sent to WhatsApp",
+      "busy": "Lots of requests right now. Try again in a minute.",
+      "failed": "Couldn’t send it. Try again.",
+      "signedOut": "Please reopen FamCal from the chat and try again.",
+      "offline": "No connection. Check your internet and try again."
+    },
+    "menu": {
+      "settings": "Settings",
+      "calendars": "Calendars",
+      "partner": "Partner",
+      "chooseCalendars": "Choose calendars",
+      "reconnectGoogle": "Reconnect Google",
+      "subscription": "Subscription",
+      "refresh": "Refresh",
+      "feedback": "Feedback",
+      "admin": "Admin panel"
+    },
+    "banner": {
+      "trial": "{count, plural, one {# day left in your trial} other {# days left in your trial}}",
+      "trialAction": "See plans",
+      "location": "Set your location for the right times",
+      "locationAction": "Set location",
+      "connectGoogle": "Connect Google Calendar",
+      "connectGoogleBody": "Your calendar shows up here once it’s connected.",
+      "chooseCalendars": "Choose your calendars",
+      "chooseCalendarsBody": "Pick the Google calendars to show here and in your summaries.",
+      "reconnect": "Your Google connection expired",
+      "reconnectBody": "Reconnect to see your Google calendar here again.",
+      "reconnectScopes": "FamCal needs permission to read your calendar",
+      "reconnectScopesBody": "Reconnect Google and allow access to your calendar.",
+      "reconnectAction": "Reconnect Google",
+      "openInTelegram": "Open FamCal in Telegram",
+      "openInTelegramBody": "Reminders, voice summaries and more are waiting there."
+    },
+    "state": {
+      "partial": "Some calendars didn’t load",
+      "unavailable": "{count, plural, one {# calendar isn’t available} other {# calendars aren’t available}}",
+      "googleError": "Couldn’t load Google Calendar",
+      "calendarsGone": "Your calendars aren’t available",
+      "famcalError": "Couldn’t load your calendar",
+      "busy": "Busy right now, try again in a minute",
+      "errorTitle": "Something went wrong",
+      "errorBody": "Your calendar didn’t load. Try again."
+    },
+    "actions": {
+      "retry": "Retry",
+      "chooseAgain": "Choose again",
+      "close": "Close",
+      "reload": "Reload"
+    },
+    "errorBoundary": {
+      "title": "Something went wrong",
+      "body": "The calendar ran into a problem. Reloading usually fixes it."
+    },
+    "shell": {
+      "loading": "Loading your calendar…",
+      "timesIn": "Times in {zone}"
+    },
+    "agenda": {
+      "today": "Today",
+      "tomorrow": "Tomorrow",
+      "nothingPlanned": "Nothing planned",
+      "nothingPlannedRange": "Nothing planned {range}",
+      "showNextWeek": "Show next week"
+    },
+    "stillOpen": {
+      "title": "Still open",
+      "count": "{count, plural, one {# reminder} other {# reminders}}",
+      "more": "{count} more",
+      "sinceTime": "Since {time}",
+      "sinceYesterday": "Since yesterday",
+      "sinceWeekday": "{weekday, select, sun {Since Sunday} mon {Since Monday} tue {Since Tuesday} wed {Since Wednesday} thu {Since Thursday} fri {Since Friday} sat {Since Saturday} other {}}",
+      "sinceDate": "Since {date}"
+    },
+    "row": {
+      "allDay": "All day",
+      "until": "until {when}",
+      "continues": "continues",
+      "noTitle": "(No title)",
+      "reminder": "Reminder",
+      "open": "Open",
+      "done": "done",
+      "everyDay": "every day",
+      "repeats": "repeats",
+      "snoozedUntil": "until {time}",
+      "snoozedLabel": "Snoozed until {time}",
+      "birthday": "Birthday",
+      "googleCalendar": "Google · {calendar}"
+    },
+    "person": {
+      "from": "From {name}",
+      "for": "For {name}"
+    },
+    "sheet": {
+      "label": "Details",
+      "calendar": "Calendar",
+      "partnerCalendar": "{name}’s calendar",
+      "location": "Location",
+      "notes": "Notes",
+      "repeats": "Repeats",
+      "everyDay": "Every day",
+      "stateOpen": "Not done yet",
+      "stateDone": "Done",
+      "stateDoneAt": "Done at {time}",
+      "stateSnoozed": "Snoozed until {time}",
+      "stateLater": "Not due yet",
+      "openInGoogle": "Open in Google Calendar"
+    },
+    "empty": {
+      "title": "Nothing planned",
+      "hintEvents": "To add an event, send the bot a voice message, forward it a message, or share a photo of an invitation.",
+      "hintReminders": "For a reminder, just tell the bot, like “Remind me to call Grandma at 6”."
+    },
+    "hebrewMonthGenitive": ["Tishrei", "Cheshvan", "Kislev", "Tevet", "Sh'vat", "Adar", "Adar I", "Adar II", "Nisan", "Iyyar", "Sivan", "Tamuz", "Av", "Elul"]
   },
   "admin": {
     "title": "Admin Panel",

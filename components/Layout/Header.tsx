@@ -1,3 +1,4 @@
+import { useTranslations } from 'next-intl';
 import { Crown, Settings, ArrowLeft } from 'lucide-react';
 
 interface HeaderProps {
@@ -22,6 +23,7 @@ export default function Header({
   onBackClick,
   isAdmin = false,
 }: HeaderProps) {
+  const t = useTranslations('common.header');
   const bgGradient = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
 
   return (
@@ -79,6 +81,7 @@ export default function Header({
           font-size: 12px;
           font-weight: 700;
           letter-spacing: 1px;
+          text-transform: uppercase;
         }
 
         .settings-icon {
@@ -106,7 +109,7 @@ export default function Header({
           <button
             className="back-button"
             onClick={onBackClick}
-            aria-label="Go Back"
+            aria-label={t('back')}
           >
             <ArrowLeft size={20} color="white" />
           </button>
@@ -115,13 +118,13 @@ export default function Header({
       </div>
 
       <div className="user-info">
-        {isAdmin && <div className="admin-badge">ADMIN</div>}
+        {isAdmin && <div className="admin-badge">{t('adminBadge')}</div>}
         {userName && <span>{userName}</span>}
         {isAdmin && onAdminClick && (
           <button
             className="settings-icon"
             onClick={onAdminClick}
-            aria-label="Admin Panel"
+            aria-label={t('adminPanel')}
           >
             <Crown size={20} color="white" />
           </button>
@@ -130,7 +133,7 @@ export default function Header({
           <button
             className="settings-icon"
             onClick={onSettingsClick}
-            aria-label="Settings"
+            aria-label={t('settings')}
           >
             <Settings size={20} color="white" />
           </button>

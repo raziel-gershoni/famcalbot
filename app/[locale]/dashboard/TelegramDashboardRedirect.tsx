@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { Loader2 } from 'lucide-react';
 import { NoCredentialCard } from '../PageGate';
 import type { GateLinks } from '@/src/lib/gate-links';
@@ -15,6 +16,7 @@ interface TelegramDashboardRedirectProps {
 
 export default function TelegramDashboardRedirect({ locale, links }: TelegramDashboardRedirectProps) {
   const router = useRouter();
+  const t = useTranslations('pageGate');
   // No Telegram user to send on: PageGate's card, in a browser or inside Telegram
   const [gate, setGate] = useState<'browser' | 'telegram' | null>(null);
 
@@ -88,7 +90,7 @@ export default function TelegramDashboardRedirect({ locale, links }: TelegramDas
         }}>
           <Loader2 size={48} />
         </div>
-        <h2 style={{ fontSize: '24px', fontWeight: '500' }}>Loading Dashboard...</h2>
+        <h2 style={{ fontSize: '24px', fontWeight: '500' }}>{t('loading')}</h2>
       </div>
       <style>{`
         @keyframes spin {

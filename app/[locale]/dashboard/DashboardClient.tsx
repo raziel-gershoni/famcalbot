@@ -749,7 +749,7 @@ export default function DashboardClient({
                       ) : subscription?.status === 'ACTIVE' && subscription?.plan !== 'FREE' ? (
                         <span className="subscription-badge active">{tSub('page.currentPlanBadge')}</span>
                       ) : (
-                        <span className="subscription-badge free">Free</span>
+                        <span className="subscription-badge free">{tSub('plans.free.name')}</span>
                       )}
                     </div>
                     {!isEarlyAdopter && (
