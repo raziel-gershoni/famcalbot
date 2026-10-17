@@ -735,8 +735,8 @@ export function nextWeekBoundaries(ws: 0|1|2|3|4|5|6, today: DayKey): { first: D
 - **⋯ menu:** Ruling R6. Refresh sends `fresh=1`.
 - **Banners**, non-blocking and stacked under the header:
   - trial days left, during a trial;
-  - "Set your location for the right times", when no location is set;
-  - the existing Google setup card, when a Google user has no calendars chosen;
+  - "Set your location for the right times", when no location is set and the server has no other way to know the timezone (no Google token; Plan D Ruling 3);
+  - for a Google user still being set up, one banner in the setup card's place: "Connect Google Calendar" while there is no token, "Choose your calendars" while none is chosen. While it shows, the Agenda shows nothing under it: no "Nothing planned", hints, fold line or placeholders (Plan D Ruling 2);
   - Reconnect Google (§5);
   - in a browser, "Open FamCal in Telegram".
 - FamCal users never see a renew-token or select-calendars entry on the home.
@@ -828,7 +828,7 @@ Google items add "Open in Google Calendar", via Telegram `openLink(htmlLink)`.
   - never read `isVerticalSwipesEnabled`: it is wrong after a reload.
 - **BackButton (6.1+):** one hook, `useTelegramBackButton(active, onBack)`.
   - It calls `hide()` on mount, because the client keeps the button across reloads.
-  - It is shown while the item sheet is open or the Month tab is in picked layout. A tap closes the sheet if it is open, else returns to browse. Plan D uses it for the item sheet only.
+  - It is shown while a sheet is open (the item sheet, the Send sheet or the ⋯ menu) or the Month tab is in picked layout. A tap closes the sheet on top if one is open, else returns to browse. Plan D uses it for the sheets (Plan D Ruling 1), so Android's back gesture closes a sheet, not the app.
   - Whenever the button stops being needed, it calls `offClick(handler)` and `hide()`: leaving picked, closing the sheet, a tab switch, a navigation from the ⋯ menu, unmount.
 - Every call is gated with `isVersionAtLeast` and wrapped in try/catch. In a browser none of this exists; the in-page buttons do the same jobs.
 
