@@ -3972,6 +3972,7 @@ OK  googleUnavailable, Google user: no read, an empty day, the prompt flagged, n
 OK  googleUnavailable: the outage line is in the user's language
 OK  googleUnavailable with an empty AI answer: nothing is added, so delivery still answers "could not generate"
 OK  googleUnavailable leaves a FamCal user's read, prompt and text alone
+OK  [guard] the week block's own Google outage degrades the tomorrow summary: it goes out without the block and with no outage line, and Sentry gets a warning (A-28)
 OK  [guard] without the outage flag the prompt context has today's four keys, and nothing goes under the text (A-19)
 OK  on demand, Google outage with a draft open: R13's text replaces the draft, and no admin is paged
 OK  on demand, Google outage, no draft: R13's text as a message, daily and tomorrow, in the user's language
@@ -3982,7 +3983,7 @@ OK  [guard] on demand, any other read error: the pipeline's fetch texts and the 
 OK  [guard] scheduled, switch off: the provider's read, the text and the voice note as before
 OK  nothing left over: no unhandled rejection, no network
 
-22/22 passed (process TZ=UTC)
+23/23 passed (process TZ=UTC)
 smoke-summary-seam UTC exit=0
 ```
 Then the same under `Asia/Jerusalem` and `Pacific/Kiritimati`, with that zone in the count line.
