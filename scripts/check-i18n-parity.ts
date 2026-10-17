@@ -9,8 +9,15 @@
 // {count} in one language and a plural in another. Each message must also be one ICU can
 // parse (next-intl formats every web message with it), every select needs an `other`
 // form, and every plural gives exactly the forms its language uses (Intl.PluralRules:
-// en one/other, he one/two/other, ru one/few/many/other; `=N` forms are extra). A Russian
-// plural with no `few` form would print "2 напоминаний".
+// en one/other, he one/two/other, ru one/few/many/other). A Russian plural with no `few`
+// form would print "2 напоминаний". An `=N` form is extra, and it stands in for a form
+// whose category holds N alone among whole counts: =1 for en and he `one`, =2 for he
+// `two`. Nothing stands in for ru `one`, which also holds 21, 31, …
+//
+// The bot's strings (bot.*) are read the way getBotMessage fills them
+// (src/lib/bot-messages.ts): every {word} is an argument and nothing else is special, so
+// there is no ICU quoting, plural or select there. getBotMessage fills {word} in
+// "Reply '{word}'", which ICU would quote away.
 //
 // Run: npx tsx scripts/check-i18n-parity.ts [messages-dir]
 // The directory defaults to messages/; scripts/smoke-calendar-home-copy.ts passes fixtures.
@@ -48,9 +55,22 @@ function icuArguments(message: string): IcuArgument[] {
     return match[0];
   };
 
+  // Just past the quote that opens at i ("'{…'"): its end is the next apostrophe that isn't
+  // one of a pair, because '' inside a quote is one apostrophe too ("'{it''s}'" is {it's}).
+  const quoteEnd = (): number => {
+    let at = i + 2;
+    for (;;) {
+      const close = message.indexOf("'", at);
+      if (close < 0) return fail('a quote that never closes');
+      if (message[close + 1] !== "'") return close + 1;
+      at = close + 2;
+    }
+  };
+
   // Literal text up to the "}" that closes the enclosing form, or to the end at the top.
   // ICU's quoting: '' is one apostrophe; an apostrophe before { or } (or # in a plural)
-  // quotes up to the next apostrophe; any other apostrophe is plain text ("don't").
+  // quotes up to the next lone apostrophe (see quoteEnd); any other apostrophe is plain
+  // text ("don't").
   const text = (inForm: boolean, inPlural: boolean): void => {
     while (i < message.length) {
       const c = message[i];
@@ -59,9 +79,7 @@ function icuArguments(message: string): IcuArgument[] {
         if (next === "'") {
           i += 2;
         } else if (next === '{' || next === '}' || (inPlural && next === '#')) {
-          const close = message.indexOf("'", i + 1);
-          if (close < 0) fail('a quote that never closes');
-          i = close + 1;
+          i = quoteEnd();
         } else {
           i++;
         }
@@ -131,6 +149,39 @@ function icuArguments(message: string): IcuArgument[] {
   return found;
 }
 
+/** getBotMessage's rule (src/lib/bot-messages.ts): it fills every {word} and nothing else. */
+function botArguments(message: string): IcuArgument[] {
+  return [...message.matchAll(/\{(\w+)\}/g)].map(match => ({ name: match[1], type: null, forms: [] }));
+}
+
+/** The keys getBotMessage reads: getBotMessages returns the bot subtree. */
+const isBotKey = (key: string): boolean => key.startsWith('bot.');
+
+/** Whole counts 0–1000: enough for en, he and ru, whose rules look at n % 10 and n % 100. */
+const WHOLE_COUNTS = 1000;
+const loneCountCache = new Map<string, Map<string, number>>();
+
+/**
+ * The categories that hold one whole count alone, each with that count: en one → 1;
+ * he one → 1, two → 2; none in ru, whose `one` also holds 21, 31, … Only whole counts:
+ * a fraction can fall in one too (he 0.5), and these messages count whole things.
+ */
+function loneCounts(locale: Locale, type: 'cardinal' | 'ordinal'): Map<string, number> {
+  const cacheKey = `${locale} ${type}`;
+  const cached = loneCountCache.get(cacheKey);
+  if (cached) return cached;
+  const rules = new Intl.PluralRules(locale, { type });
+  const first = new Map<string, number | null>(); // its one count, or null once it holds two
+  for (let n = 0; n <= WHOLE_COUNTS; n++) {
+    const category = rules.select(n);
+    first.set(category, first.has(category) ? null : n);
+  }
+  const lone = new Map<string, number>();
+  for (const [category, n] of first) if (n !== null) lone.set(category, n);
+  loneCountCache.set(cacheKey, lone);
+  return lone;
+}
+
 /** What a locale's plural and select forms get wrong in one message. */
 function formProblems(locale: Locale, key: string, args: IcuArgument[]): string[] {
   const problems: string[] = [];
@@ -139,11 +190,16 @@ function formProblems(locale: Locale, key: string, args: IcuArgument[]): string[
       problems.push(`${locale}: ${key} {${arg.name}, select} has no "other" form`);
     }
     if (arg.type && PLURAL_TYPES.has(arg.type)) {
-      const rules = new Intl.PluralRules(locale, { type: arg.type === 'plural' ? 'cardinal' : 'ordinal' });
+      const type = arg.type === 'plural' ? 'cardinal' : 'ordinal';
+      const rules = new Intl.PluralRules(locale, { type });
       const uses: string[] = [...rules.resolvedOptions().pluralCategories];
       const named = arg.forms.filter(form => !/^=\d+$/.test(form));
+      const exact = new Set(arg.forms.filter(form => /^=\d+$/.test(form)).map(form => Number(form.slice(1))));
+      const lone = loneCounts(locale, type);
       for (const form of uses) {
-        if (!named.includes(form)) problems.push(`${locale}: ${key} {${arg.name}, ${arg.type}} lacks the "${form}" form`);
+        const standIn = lone.get(form);
+        if (named.includes(form) || (standIn !== undefined && exact.has(standIn))) continue;
+        problems.push(`${locale}: ${key} {${arg.name}, ${arg.type}} lacks the "${form}" form`);
       }
       for (const form of named) {
         if (!uses.includes(form)) problems.push(`${locale}: ${key} {${arg.name}, ${arg.type}} has a "${form}" form, which ${locale} never uses`);
@@ -192,7 +248,7 @@ for (const key of allKeys) {
       continue;
     }
     try {
-      const args = icuArguments(value);
+      const args = isBotKey(key) ? botArguments(value) : icuArguments(value);
       problems.push(...formProblems(locale, key, args));
       names[locale] = [...new Set(args.map(arg => arg.name))].sort().join(' ');
     } catch (err) {

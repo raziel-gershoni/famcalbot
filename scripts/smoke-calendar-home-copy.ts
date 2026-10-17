@@ -1,19 +1,23 @@
 // Smoke test for the calendar home's copy (calendar-home spec §9, §7.8 and Ruling R9;
-// Plan D, Task D1).
+// Plan D, Task D1; the tabs and the Month, Plan E, Task E1).
 //
 // The calendarHome namespace in messages/{en,he,ru}.json holds every string the new home
-// shows. Its key names are a contract: Tasks D2-D7 use them verbatim. So this smoke lists
-// them (KEYS, the task's Keys table) and checks that the three files carry exactly those
-// keys, each formatting through next-intl with exactly its arguments. It also pins:
+// shows. Its key names are a contract: Tasks D2-D7 and E2-E8 use them verbatim. So this
+// smoke lists them (KEYS, the tasks' Keys tables) and checks that the three files carry
+// exactly those keys, each formatting through next-intl with exactly its arguments. It
+// also pins:
 //  - the plurals (Russian one/few/many, Hebrew one/two/other) and the weekday select;
-//  - the 14 Hebrew month names in Task D2's order (from Tishrei), genitive in Russian (R9);
+//  - the 14 Hebrew month names in Task D2's order (from Tishrei), genitive in Russian (R9),
+//    and their short forms for the Month's cells (hebrewMonthShort);
 //  - no slash or bracket gender forms in the Hebrew or Russian copy;
 //  - calendarHome as its own top-level object between dashboard and admin, away from the
 //    bot.errors keys Plan C adds;
 //  - spec §9's fixes on the old screens: the Header's aria-labels and admin badge (also
 //    on Subscription and Select calendars), the dashboard loader's "Loading Dashboard...",
 //    and the old home's "Free" plan badge;
-//  - scripts/check-i18n-parity.ts's ICU check, run on fixture files in a temp directory.
+//  - scripts/check-i18n-parity.ts's ICU check, run on fixture files in a temp directory,
+//    with E1's three fixes: bot.* read as getBotMessage fills it, '' inside a quoted
+//    literal, and =N forms standing in for a category that holds N alone.
 //
 // Faked at the boundaries: the dashboard client (it imports @hebcal/core, which has no
 // require entry, so it can't load under tsx; nothing here renders it). No DB, Redis or
@@ -181,9 +185,27 @@ const KEYS: Record<string, readonly string[]> = {
   'empty.title': [],
   'empty.hintEvents': [],
   'empty.hintReminders': [],
+  // The tab bar (E4), spec §7.1 and §7.7
+  'tabs.label': [],
+  'tabs.agenda': [],
+  'tabs.month': [],
+  // The Month (E6 browse, E7 picked), spec §7.4 and §7.7
+  'month.today': [],
+  'month.allMonths': [],
+  'month.previous': [],
+  'month.next': [],
+  'month.dayToday': ['date'],
+  'month.more': ['count'],
+  'month.moreShort': ['count'],
+  'month.cellItems': ['count'],
+  'month.cellFromPartner': ['count', 'name'],
+  'month.cellNothing': [],
+  'month.cellLoading': [],
+  'month.cellFailed': [],
+  'month.failed': [],
 };
 /** Keys whose value is an array (read with t.raw). */
-const ARRAY_KEYS = ['hebrewMonthGenitive'];
+const ARRAY_KEYS = ['hebrewMonthGenitive', 'hebrewMonthShort'];
 
 /** A sample value per argument. count and weekday also run over several values. */
 const SAMPLES: Record<string, string | number> = {
@@ -207,6 +229,16 @@ const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const HEBREW_MONTHS = ['Tishrei', 'Cheshvan', 'Kislev', 'Tevet', "Sh'vat", 'Adar', 'Adar I', 'Adar II', 'Nisan', 'Iyyar', 'Sivan', 'Tamuz', 'Av', 'Elul'];
 /** Ruling R9: "4 хешвана". The genitive of @hebcal/locales' ru names (Тишрей, Хешван, …), in that order. */
 const RU_GENITIVE = ['тишрея', 'хешвана', 'кислева', 'тевета', 'швата', 'адара', 'адара I', 'адара II', 'нисана', 'ияра', 'сивана', 'тамуза', 'ава', 'элула'];
+/**
+ * calendarHome.hebrewMonthShort, the Month cell's month after the Hebrew day ("1 Chesh.",
+ * "א׳ חשון", "1 хешв."), in HEBREW_MONTHS order. English and Russian cut the four long
+ * names the approved mockup cuts (Tish., Chesh., Kis., Tev.) and keep the rest whole;
+ * Russian is the genitive, to read after a number. Hebrew is the plain name, the one the
+ * Agenda's day labels use.
+ */
+const EN_SHORT = ['Tish.', 'Chesh.', 'Kis.', 'Tev.', "Sh'vat", 'Adar', 'Adar I', 'Adar II', 'Nisan', 'Iyyar', 'Sivan', 'Tamuz', 'Av', 'Elul'];
+const HE_SHORT = ['תשרי', 'חשון', 'כסלו', 'טבת', 'שבט', 'אדר', 'אדר א׳', 'אדר ב׳', 'ניסן', 'אייר', 'סיון', 'תמוז', 'אב', 'אלול'];
+const RU_SHORT = ['тишр.', 'хешв.', 'кисл.', 'тев.', 'швата', 'адара', 'адара I', 'адара II', 'нисана', 'ияра', 'сивана', 'тамуза', 'ава', 'элула'];
 
 /** Every leaf under a node, by its dot path; an array is one leaf. */
 function leavesOf(node: unknown, prefix = '', out = new Map<string, unknown>()): Map<string, unknown> {
@@ -404,6 +436,28 @@ async function main() {
       ['ru', 'person.from', { name: 'Маша' }, 'От: Маша'],
       ['ru', 'person.for', { name: 'Маша' }, 'Кому: Маша'],
       ['he', 'agenda.nothingPlannedRange', { range: 'שבת, 17 באוק׳' }, 'אין אירועים בשבת, 17 באוק׳'],
+      // The Month (E1): a cell's label parts, its "+N" and the picked day's header
+      ['en', 'month.cellItems', { count: 1 }, '1 item'],
+      ['en', 'month.cellItems', { count: 3 }, '3 items'],
+      ['he', 'month.cellItems', { count: 1 }, 'אירוע אחד'],
+      ['he', 'month.cellItems', { count: 2 }, 'שני אירועים'],
+      ['he', 'month.cellItems', { count: 3 }, '3 אירועים'],
+      ['ru', 'month.cellItems', { count: 1 }, '1 событие'],
+      ['ru', 'month.cellItems', { count: 3 }, '3 события'],
+      ['ru', 'month.cellItems', { count: 5 }, '5 событий'],
+      ['ru', 'month.cellItems', { count: 21 }, '21 событие'],
+      ['en', 'month.cellFromPartner', { count: 1, name: 'Noa' }, '1 from Noa'],
+      ['he', 'month.cellFromPartner', { count: 1, name: 'נועה' }, '1 של נועה'],
+      ['ru', 'month.cellFromPartner', { count: 1, name: 'Маша' }, 'Маша: 1'],
+      ['en', 'month.more', { count: 2 }, '+2 more'],
+      ['he', 'month.more', { count: 2 }, 'עוד 2'],
+      ['ru', 'month.more', { count: 2 }, 'Ещё 2'],
+      ['en', 'month.moreShort', { count: 4 }, '+4'],
+      ['he', 'month.moreShort', { count: 4 }, '+4'],
+      ['ru', 'month.moreShort', { count: 4 }, '+4'],
+      ['en', 'month.dayToday', { date: 'Thursday, 15 October' }, 'Today · Thursday, 15 October'],
+      ['he', 'month.dayToday', { date: 'יום חמישי, 15 באוקטובר' }, 'היום · יום חמישי, 15 באוקטובר'],
+      ['ru', 'month.dayToday', { date: 'четверг, 15 октября' }, 'Сегодня · четверг, 15 октября'],
     ];
     const problems: string[] = [];
     for (const [locale, key, values, want] of cases) {
@@ -556,6 +610,100 @@ async function main() {
       assert(res.out.includes(line), `no "${line}" in: ${res.out.trim().slice(-300)}`);
     }
     assert(!/he: x\.n has arguments/.test(res.out), `an unparsable message was also compared: ${res.out.trim()}`);
+  });
+
+  await check('#15 hebrewMonthShort: 14 short names in each language in HEBREW_MONTHS order, read whole by t.raw; en and ru each the whole name or its start with a period, ru genitive, he hebcal\'s plain name', () => {
+    const want: Record<Locale, readonly string[]> = { en: EN_SHORT, he: HE_SHORT, ru: RU_SHORT };
+    const problems: string[] = [];
+    const lists = {} as Record<Locale, unknown>;
+    for (const locale of LOCALES) {
+      const errors: string[] = [];
+      lists[locale] = translator(locale, errors).raw('hebrewMonthShort');
+      if (errors.length || show(lists[locale]) !== show(want[locale])) problems.push(`${locale}: ${show(lists[locale])} ${errors[0] ?? ''}`);
+    }
+    // "Chesh." cuts "Cheshvan", "хешв." cuts "хешвана"; a name short enough stays whole.
+    const cutOf = (short: unknown, full: string) =>
+      typeof short === 'string' && (short === full || (short.length > 1 && short.endsWith('.') && full.startsWith(short.slice(0, -1))));
+    const fullNames: [Locale, readonly string[]][] = [['en', HEBREW_MONTHS], ['ru', RU_GENITIVE]];
+    for (const [locale, full] of fullNames) {
+      const list = lists[locale];
+      if (!Array.isArray(list) || list.length !== 14) continue;
+      list.forEach((short: unknown, i: number) => {
+        if (!cutOf(short, full[i])) problems.push(`${locale}: ${show(short)} is neither ${full[i]} nor a cut of it`);
+      });
+    }
+    // Hebrew: the name the Agenda's day labels use (D2's monthLabel), without nikud.
+    const { Locale: HebcalLocale } = nodeRequire('@hebcal/hdate');
+    const plain = HEBREW_MONTHS.map(name => HebcalLocale.lookupTranslation(name, 'he-x-NoNikud'));
+    if (show(lists.he) !== show(plain)) problems.push(`he is not hebcal's plain names ${show(plain)}`);
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#16 check-i18n-parity reads bot.* the way getBotMessage fills it: each {word} is an argument, with no ICU quoting or syntax; elsewhere ICU stands', () => {
+    // getBotMessage fills both {word} and {name} in "Reply '{word}' to {name}"; ICU would
+    // quote {word} away. "{a, b}" isn't ICU, but getBotMessage just leaves it as it is.
+    const bot = runParity(fixture({
+      en: { bot: { q: "Reply '{word}' to {name}", j: 'Send {name} a list like {a, b}' } },
+      he: { bot: { q: 'אפשר לענות {word} ל{name}', j: 'אפשר לשלוח ל{name} רשימה כמו {a, b}' } },
+      ru: { bot: { q: 'Ответьте {word}, {name}', j: 'Отправьте {name} список вроде {a, b}' } },
+    }));
+    assert(bot.code === 0 && bot.out.includes('i18n parity OK (2 keys)'), `bot.*: exit ${bot.code}: ${bot.out.trim().slice(-300)}`);
+    // A bot argument renamed in one language is still caught, and outside bot.* the quote holds.
+    const res = runParity(fixture({
+      en: { bot: { s: 'Hi {name}' }, x: { q: "Reply '{word}' to {name}" } },
+      he: { bot: { s: 'היי {name}' }, x: { q: 'אפשר לענות {word} ל{name}' } },
+      ru: { bot: { s: 'Привет, {nmae}' }, x: { q: 'Ответьте {word}, {name}' } },
+    }));
+    assert(res.code === 1, `exit ${res.code}: ${res.out.trim().slice(-300)}`);
+    for (const line of ['ru: bot.s has arguments [nmae], en has [name]', 'he: x.q has arguments [name word], en has [name]']) {
+      assert(res.out.includes(line), `no "${line}" in: ${res.out.trim().slice(-300)}`);
+    }
+  });
+
+  await check("#17 check-i18n-parity reads '' inside a quoted literal as one apostrophe that leaves the quote open, as next-intl does", () => {
+    const quoted = "Say '{it''s}' to {name}";
+    const inForm = "{count, plural, one {# note: '{it''s}'} other {# notes: '{it''s}'}}";
+    const errors: string[] = [];
+    const { createTranslator } = nodeRequire('next-intl');
+    const t = createTranslator({ locale: 'en', messages: { q: quoted, p: inForm }, onError: (err: Error) => errors.push(err.message) });
+    const shown = [t('q', { name: 'Noa' }), t('p', { count: 2 })];
+    assert(!errors.length && show(shown) === show(["Say {it's} to Noa", "2 notes: {it's}"]), `next-intl: ${show(shown)} ${errors[0] ?? ''}`);
+    const good = runParity(fixture({
+      en: { x: { q: quoted, p: inForm } },
+      he: { x: { q: 'אפשר להגיד ל{name}', p: GOOD_PLURALS.he } },
+      ru: { x: { q: 'Скажите {name}', p: GOOD_PLURALS.ru } },
+    }));
+    assert(good.code === 0 && good.out.includes('i18n parity OK (2 keys)'), `fixture: exit ${good.code}: ${good.out.trim().slice(-300)}`);
+    // A quote that never closes still fails, '' or not.
+    const open = runParity(fixture({
+      en: { x: { q: "Say '{it''s} to {name}" } },
+      he: { x: { q: 'אפשר להגיד ל{name}' } },
+      ru: { x: { q: 'Скажите {name}' } },
+    }));
+    assert(open.code === 1 && open.out.includes('en: x.q is not valid ICU: a quote that never closes'), `unclosed: exit ${open.code}: ${open.out.trim().slice(-300)}`);
+  });
+
+  await check('#18 check-i18n-parity lets an =N form stand in for a category that holds N alone (=1 for en and he one, =2 for he two), never for ru one', () => {
+    const good = runParity(fixture({
+      en: { x: { n: '{count, plural, =1 {One item} other {# items}}', d: '{count, plural, =1 {Tomorrow} other {In # days}}' } },
+      he: { x: { n: '{count, plural, =1 {פריט אחד} =2 {שני פריטים} other {# פריטים}}', d: '{count, plural, =1 {מחר} =2 {מחרתיים} other {בעוד # ימים}}' } },
+      ru: { x: {
+        n: '{count, plural, =1 {Один пункт} one {# пункт} few {# пункта} many {# пунктов} other {# пункта}}',
+        d: '{count, plural, =1 {Завтра} one {Через # день} few {Через # дня} many {Через # дней} other {Через # дня}}',
+      } },
+    }));
+    assert(good.code === 0 && good.out.includes('i18n parity OK (2 keys)'), `fixture: exit ${good.code}: ${good.out.trim().slice(-300)}`);
+    // =2 is not en one; =1 alone leaves he two; ru one also holds 21, 31, …
+    const res = runParity(fixture({
+      en: { x: { n: '{count, plural, =2 {Two items} other {# items}}' } },
+      he: { x: { n: '{count, plural, =1 {פריט אחד} other {# פריטים}}' } },
+      ru: { x: { n: '{count, plural, =1 {Один пункт} few {# пункта} many {# пунктов} other {# пункта}}' } },
+    }));
+    assert(res.code === 1, `exit ${res.code}: ${res.out.trim().slice(-300)}`);
+    for (const line of ['en: x.n {count, plural} lacks the "one" form', 'he: x.n {count, plural} lacks the "two" form', 'ru: x.n {count, plural} lacks the "one" form']) {
+      assert(res.out.includes(line), `no "${line}" in: ${res.out.trim().slice(-300)}`);
+    }
+    assert(!res.out.includes('he: x.n {count, plural} lacks the "one" form'), `=1 did not stand in for he one: ${res.out.trim()}`);
   });
 
   for (const dir of tempDirs) fs.rmSync(dir, { recursive: true, force: true });

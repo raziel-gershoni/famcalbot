@@ -159,6 +159,26 @@
       "nothingPlannedRange": "Nothing planned {range}",
       "showNextWeek": "Show next week"
     },
+    "tabs": {
+      "label": "Calendar view",
+      "agenda": "Agenda",
+      "month": "Month"
+    },
+    "month": {
+      "today": "Today",
+      "allMonths": "All months",
+      "previous": "Previous month",
+      "next": "Next month",
+      "dayToday": "Today · {date}",
+      "more": "+{count} more",
+      "moreShort": "+{count}",
+      "cellItems": "{count, plural, one {# item} other {# items}}",
+      "cellFromPartner": "{count} from {name}",
+      "cellNothing": "nothing planned",
+      "cellLoading": "loading",
+      "cellFailed": "couldn’t load",
+      "failed": "Couldn’t load this month"
+    },
     "stillOpen": {
       "title": "Still open",
       "count": "{count, plural, one {# reminder} other {# reminders}}",
@@ -207,7 +227,8 @@
       "hintEvents": "To add an event, send the bot a voice message, forward it a message, or share a photo of an invitation.",
       "hintReminders": "For a reminder, just tell the bot, like “Remind me to call Grandma at 6”."
     },
-    "hebrewMonthGenitive": ["Tishrei", "Cheshvan", "Kislev", "Tevet", "Sh'vat", "Adar", "Adar I", "Adar II", "Nisan", "Iyyar", "Sivan", "Tamuz", "Av", "Elul"]
+    "hebrewMonthGenitive": ["Tishrei", "Cheshvan", "Kislev", "Tevet", "Sh'vat", "Adar", "Adar I", "Adar II", "Nisan", "Iyyar", "Sivan", "Tamuz", "Av", "Elul"],
+    "hebrewMonthShort": ["Tish.", "Chesh.", "Kis.", "Tev.", "Sh'vat", "Adar", "Adar I", "Adar II", "Nisan", "Iyyar", "Sivan", "Tamuz", "Av", "Elul"]
   },
   "admin": {
     "title": "Admin Panel",
