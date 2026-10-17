@@ -9,8 +9,10 @@
 // one as private) where typed UI is faster than dictating.
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Lock, Eye, Edit3, Trash2, Plus, Check } from 'lucide-react';
 import { initDataHeaders, readInitData } from '@/src/lib/read-init-data';
+import { useTelegramBackButton } from '@/src/lib/telegram-ui';
 
 interface Calendar {
   rawId: string;
@@ -136,6 +138,9 @@ export default function CalendarsClient(props: Props) {
   const { userId, locale, initialCalendars } = props;
   const t = COPY[locale] || COPY.en;
   const isRTL = locale === 'he';
+  const router = useRouter();
+  // These pages open from the home's ⋯ menu: Telegram's back button (and Android's back) returns there.
+  useTelegramBackButton(true, () => router.push(`/${locale}/dashboard?user_id=${userId}`));
 
   const [calendars, setCalendars] = useState<Calendar[]>(initialCalendars);
   const [editingId, setEditingId] = useState<string | null>(null);

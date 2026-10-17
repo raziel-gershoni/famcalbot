@@ -3,8 +3,10 @@
 // Pair management — generate / show / revoke invite, view active partner, unlink.
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Copy, Check, X, Link as LinkIcon, AlertTriangle } from 'lucide-react';
 import { readInitData } from '@/src/lib/read-init-data';
+import { useTelegramBackButton } from '@/src/lib/telegram-ui';
 
 interface Props {
   userId: number;
@@ -86,6 +88,9 @@ function getInitData(): string {
 export default function PairClient({ userId, locale, initial }: Props) {
   const t = COPY[locale] || COPY.en;
   const isRTL = locale === 'he';
+  const router = useRouter();
+  // These pages open from the home's ⋯ menu: Telegram's back button (and Android's back) returns there.
+  useTelegramBackButton(true, () => router.push(`/${locale}/dashboard?user_id=${userId}`));
 
   const [partner, setPartner] = useState(initial.partner);
   const [invite, setInvite] = useState(initial.invite);
