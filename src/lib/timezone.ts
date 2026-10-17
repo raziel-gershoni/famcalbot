@@ -51,14 +51,52 @@ export async function resolveTimezoneForLocation(location: string): Promise<stri
   }
 }
 
+type TimezoneUser = { id: number; location?: string; googleRefreshToken?: string; telegramId?: number | null };
+
+/**
+ * The lookups in flight, one per user, location and whether a Google token is there:
+ * `${id}|${location}|g` (or no `g`), each with when it started. The range route waits
+ * at most 2 s for a zone and lets the lookup go on, and the Month opens several windows
+ * at once, so an open within JOIN_MS of a lookup's start joins it rather than starting
+ * another Nominatim request. On globalThis: Next 16 gives the scheduler and the routes
+ * separate module instances. The keys hold a location: they are never logged.
+ */
+/** A lookup and when it started, on the process's monotonic clock (performance.now(): no wall-clock jumps). */
+type InflightLookup = { lookup: Promise<string>; startedAt: number };
+const shared = globalThis as { __tzInflight?: Map<string, InflightLookup> };
+const inflight: Map<string, InflightLookup> = (shared.__tzInflight ??= new Map());
+
+/**
+ * How long a lookup takes callers in: under the range route's 2 s wait. An older one is
+ * slower than any open waits for, or stuck on a call with no time limit of its own (a
+ * Redis read, Google's settings call), so it holds no later caller: the next one starts
+ * its own lookup, which takes callers in from then on. At most one lookup per key starts
+ * in any 1.5 s.
+ */
+const JOIN_MS = 1500;
+
 /**
  * Resolve user's timezone dynamically
  * Priority: Redis cache → Geocoding → Google Calendar → UTC
- * Caches successful result for 24h to avoid repeated API calls
+ * Caches successful result for 24h to avoid repeated API calls.
+ * Calls made within JOIN_MS of the start of a lookup for the same user, location and
+ * token presence share it: one answer, or one rejection, for all of them. The entry goes
+ * when it settles, unless a newer lookup has taken its place.
  */
-export async function resolveUserTimezone(
-  user: { id: number; location?: string; googleRefreshToken?: string; telegramId?: number | null }
-): Promise<string> {
+export async function resolveUserTimezone(user: TimezoneUser): Promise<string> {
+  const key = `${user.id}|${user.location ?? ''}|${user.googleRefreshToken ? 'g' : ''}`;
+  const now = performance.now();
+  const running = inflight.get(key);
+  if (running && now - running.startedAt < JOIN_MS) return running.lookup;
+  const lookup = lookUpUserTimezone(user).finally(() => {
+    if (inflight.get(key)?.lookup === lookup) inflight.delete(key);
+  });
+  inflight.set(key, { lookup, startedAt: now });
+  return lookup;
+}
+
+/** One lookup: Redis cache → Geocoding → Google Calendar → the default (resolveUserTimezone's order). */
+async function lookUpUserTimezone(user: TimezoneUser): Promise<string> {
   const cacheKey = REDIS_KEYS.userTimezone(user.id);
 
   // 1. Check Redis cache

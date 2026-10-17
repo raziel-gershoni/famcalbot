@@ -9,6 +9,9 @@
 // failed with no earlier data shows its state row instead of empty lines. The
 // "Still open" card holds today's open reminders and the carry-overs, 5 then the rest.
 // Whose an item is follows the summaries' rules. Pure: no network, no DB, no React.
+// Each failed day keeps the failure that marked it (Plan E): a state row gives the
+// earliest shown failed day's reason, so a 429 on a later week never turns an earlier
+// week's "Choose again" into "Busy".
 //
 // Run under three clocks; the output must not depend on the process timezone:
 //   TZ=UTC npx tsx scripts/smoke-calendar-agenda.ts
@@ -18,6 +21,7 @@
 import path from 'path';
 import {
   addDaysToKey,
+  dayFailure,
   dayItems,
   dayStatus,
   emptyStore,
@@ -399,6 +403,42 @@ async function main() {
     assert(other === s0, 'a failure of a source that does not apply changed the store');
   });
 
+  await check('a failed day keeps the failure that marked it (DayCoverage.failure, set exactly when failed); an ok answer clears it, and a failure over ok data marks nothing', () => {
+    const TIMEOUT = { kind: 'error', source: 'google', reason: 'timeout' } as const;
+    let s = run([answer(googleAnswer({ sources: { google: { status: 'error', reason: 'timeout' } }, calendars: [] }))]);
+    assertJson(s.days[TODAY]?.coverage.google, { ok: false, failed: true, partial: false, failure: TIMEOUT }, 'today after a timeout');
+    assertJson(dayFailure(s, day(6), 'google'), TIMEOUT, 'dayFailure on day 6');
+    assert(dayFailure(s, day(7), 'google') === null, 'a day nothing covered has a failure');
+    assert(dayFailure(s, TODAY, 'famcal') === null, 'a source that does not apply has a failure');
+    s = reduceStore(s, answer(googleAnswer()));
+    assertJson(s.days[TODAY]?.coverage.google, { ok: true, failed: false, partial: false, failure: null }, 'today after an ok answer');
+    assert(dayFailure(s, TODAY, 'google') === null, 'the failure outlived an ok answer');
+    s = reduceStore(s, { type: 'windowFailed', from: TODAY, to: day(14), sources: ['google'], kind: 'busy', epoch: 0 });
+    assert(dayFailure(s, TODAY, 'google') === null, 'a busy over ok data marked the day');
+    assertJson(dayFailure(s, day(7), 'google'), { kind: 'busy', source: 'google' }, 'dayFailure on day 7');
+    for (const [date, d] of Object.entries(s.days)) {
+      const c = d.coverage.google;
+      assert(c !== undefined && (c.failure !== null) === c.failed && c.failed !== c.ok, `${date}: ${JSON.stringify(c)}`);
+    }
+  });
+
+  await check('a newer failure replaces an older one on its own days only', () => {
+    const TRANSIENT = { kind: 'error', source: 'google', reason: 'transient' } as const;
+    const BUSY = { kind: 'busy', source: 'google' } as const;
+    const GONE = { kind: 'calendarsGone', source: 'google' } as const;
+    const failures = (st: CalendarStore) => [0, 6, 7, 13, 14, 20, 21].map((n) => dayFailure(st, day(n), 'google'));
+    let s = run([answer(googleAnswer({ sources: { google: { status: 'error', reason: 'transient' } }, calendars: [] }))]);
+    s = reduceStore(s, { type: 'windowFailed', from: day(7), to: day(21), sources: ['google'], kind: 'busy', epoch: 0 });
+    assertJson(failures(s), [TRANSIENT, TRANSIENT, BUSY, BUSY, BUSY, BUSY, null], 'a busy on weeks 1 and 2');
+    assertJson(buildAgenda(s, 3)?.stateRows, [{ source: 'google', failure: TRANSIENT }], 'the state row: week 0\'s reason');
+    s = reduceStore(s, answer(googleAnswer({ sources: { google: { status: 'error', reason: 'calendars_gone' } }, calendars: [] })));
+    assertJson(failures(s), [GONE, GONE, BUSY, BUSY, BUSY, BUSY, null], 'calendars_gone on week 0');
+    s = reduceStore(s, answer(googleAnswer({ ...agendaWeekWindow(TODAY, 2), sources: { google: { status: 'error', reason: 'timeout' } }, calendars: [] })));
+    assertJson(failures(s).slice(4), [{ kind: 'error', source: 'google', reason: 'timeout' }, { kind: 'error', source: 'google', reason: 'timeout' }, null], 'a timeout on week 2');
+    assertJson(failures(s).slice(0, 4), [GONE, GONE, BUSY, BUSY], 'weeks 0 and 1 keep theirs');
+    assertJson(buildAgenda(s, 3)?.stateRows, [{ source: 'google', failure: GONE }], 'the state row: week 0\'s reason');
+  });
+
   await check('addDaysToKey matches the server\'s addDaysToDate across DST and year ends', async () => {
     const { addDaysToDate } = await import('../src/utils/day-events');
     for (const start of ['2026-10-24', '2026-03-27', '2026-12-30', '2028-02-28', '2026-10-31']) {
@@ -474,7 +514,7 @@ async function main() {
     const famcal = run([answer(famcalAnswer({ sources: { famcal: { status: 'error' } } }))]);
     assertJson(homeNotices(famcal), { reconnect: null, unavailableCalendars: 0 }, 'a FamCal user\'s notices');
     const back = reduceStore(s, answer(googleAnswer()));
-    assert(homeNotices(back).reconnect === null, 'the banner outlived an ok answer');
+    assert(homeNotices(back).reconnect === 'scopes', 'a later ok answer (a cache hit) took the banner away');
   });
 
   await check('calendars_gone, a FamCal error and a busy request each give their own state row', () => {
@@ -497,6 +537,21 @@ async function main() {
     ], 'weeks 0 and 2 answered, week 1 failed');
   });
 
+  await check('a busy week 1 keeps week 0\'s calendars-gone row: a state row gives the earliest shown failed day\'s reason, then lastFailure, then a generic error', () => {
+    const GONE_ROW = [{ source: 'google', failure: { kind: 'calendarsGone', source: 'google' } }];
+    const gone = run([answer(googleAnswer({ sources: { google: { status: 'error', reason: 'calendars_gone' } }, calendars: [] }))]);
+    const s = reduceStore(gone, { type: 'windowFailed', ...agendaWeekWindow(TODAY, 1), sources: ['google'], kind: 'busy', epoch: 0 });
+    assertJson(s.lastFailure.google, { kind: 'busy', source: 'google' }, 'lastFailure is still the latest');
+    assertJson(buildAgenda(s, 1)?.stateRows, GONE_ROW, 'week 0');
+    assertJson(buildAgenda(s, 2)?.stateRows, GONE_ROW, 'weeks 0 and 1: Choose again, not Busy');
+    const back = reduceStore(s, answer(googleAnswer()));
+    assertJson(buildAgenda(back, 2)?.stateRows, [{ source: 'google', failure: { kind: 'busy', source: 'google' } }], 'week 0 answered: week 1\'s busy');
+    // A failed day without a failure of its own (the reducer never makes one) reads lastFailure, then a generic error.
+    const bare: CalendarStore = { ...back, days: { ...back.days, [day(7)]: { items: [], coverage: { google: { ok: false, failed: true, partial: false, failure: null } } } } };
+    assertJson(buildAgenda(bare, 2)?.stateRows, [{ source: 'google', failure: { kind: 'busy', source: 'google' } }], 'no failure of its own: lastFailure');
+    assertJson(buildAgenda({ ...bare, lastFailure: {} }, 2)?.stateRows, [{ source: 'google', failure: { kind: 'error', source: 'google', reason: null } }], 'no lastFailure either: a generic error');
+  });
+
   await check('a partial Google answer counts as answered and sets partial; unavailable calendars are counted', () => {
     const s = run([
       answer(googleAnswer({
@@ -512,6 +567,34 @@ async function main() {
     assertJson(shape(model), [`D ${TODAY} today answered []`, `D ${day(1)} tomorrow answered []`, `F ${day(2)}..${day(6)}`], 'entries');
     assert(homeNotices(s).unavailableCalendars === 1 && model?.unavailableCalendars === 1, 'unavailable');
     assert(buildAgenda(reduceStore(s, answer(googleAnswer())))?.partial === false, 'partial after a whole answer');
+  });
+
+  await check('the Reconnect banner and the unavailable calendars hold for the whole epoch, so a row above the Month never comes and goes with each month\'s answer (iOS has no scroll anchoring): ok, reconnect, ok keep reconnect at "token"; a calendar once listed unavailable stays counted; a store drop clears both', () => {
+    const GONE = { id: 'gone@group.calendar.google.com', source: 'google' as const, name: 'Old', color: null, mine: true };
+    const legend = (gone: boolean, more: RangeResponse['calendars'] = []) => [
+      { id: FAMILY_G.id, source: 'google' as const, name: 'Family', color: null, mine: true },
+      { ...GONE, unavailable: gone },
+      ...more,
+    ];
+    // A dead token: a window with a cache entry answers ok, one without answers reconnect.
+    let s = run([answer(googleAnswer())]);
+    assertJson(homeNotices(s), { reconnect: null, unavailableCalendars: 0 }, 'the first answer, a cache hit');
+    s = reduceStore(s, answer(googleAnswer({ from: '2026-11-01', to: '2026-12-01', sources: { google: { status: 'reconnect', reason: 'token' } }, calendars: [] })));
+    assertJson(homeNotices(s), { reconnect: 'token', unavailableCalendars: 0 }, 'November, no cache entry');
+    s = reduceStore(s, answer(googleAnswer({ from: '2026-12-01', to: '2027-01-01' })));
+    assertJson(homeNotices(s), { reconnect: 'token', unavailableCalendars: 0 }, 'December, a cache hit');
+    // A chosen calendar gone: listed unavailable in one month's answer, not in an older cache entry's.
+    s = reduceStore(s, answer(googleAnswer({ from: '2027-02-01', to: '2027-03-01', calendars: legend(true) })));
+    assertJson(homeNotices(s), { reconnect: 'token', unavailableCalendars: 1 }, 'February');
+    s = reduceStore(s, answer(googleAnswer({ from: '2027-03-01', to: '2027-04-01', calendars: legend(false) })));
+    assertJson(homeNotices(s), { reconnect: 'token', unavailableCalendars: 1 }, 'March, from an older cache entry');
+    s = reduceStore(s, answer(googleAnswer({ from: '2027-04-01', to: '2027-05-01', calendars: legend(true, [{ id: 'x@group.calendar.google.com', source: 'google', name: 'X', color: null, mine: true, unavailable: true }]) })));
+    assertJson(homeNotices(s), { reconnect: 'token', unavailableCalendars: 2 }, 'April, a second one gone');
+    assert(buildAgenda(s)?.unavailableCalendars === 2, `the Agenda's row: ${buildAgenda(s)?.unavailableCalendars}`);
+    s = reduceStore(s, { type: 'reset' });
+    assertJson(homeNotices(s), { reconnect: null, unavailableCalendars: 0 }, 'after the midnight drop');
+    s = reduceStore(s, answer(googleAnswer(), 1));
+    assertJson(homeNotices(s), { reconnect: null, unavailableCalendars: 0 }, 'the new epoch\'s first answer');
   });
 
   await check('agendaWeekWindow: week 0 is the route\'s no-dates window, each later week the next 7 days', () => {

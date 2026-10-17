@@ -12,8 +12,13 @@
 //   midnight timer). Each drop bumps `epoch`, and an answer to a request sent under an
 //   older epoch is kept only while its facts still match.
 // - Each day remembers, per source, whether an ok answer covered it ("answered", spec
-//   §5 "Empty means answered") and whether a failed one did. Only answered days may
-//   read as empty.
+//   §5 "Empty means answered") and whether a failed one did, with that failure: a state
+//   row says why for its own days, whatever another window got later. Only answered
+//   days may read as empty.
+// - A Google reconnect, and the chosen calendars an ok answer lists as unavailable, hold
+//   for the epoch: a later answer from Google's cache (ok with a dead token, or a legend
+//   from before a calendar went) never takes the banner or the row away, so nothing above
+//   the Month comes and goes as its months answer (Plan E, iOS has no scroll anchoring).
 
 import {
   compareItems,
@@ -51,6 +56,8 @@ export interface DayCoverage {
   failed: boolean;
   /** The latest ok answer was partial (Google calendars that failed or were cut short). */
   partial: boolean;
+  /** The failure that marked the day (set exactly when failed); null when ok or untouched. */
+  failure: SourceFailure | null;
 }
 
 export interface StoreDay {
@@ -74,10 +81,14 @@ export interface CalendarStore {
   days: Readonly<Record<DayKey, StoreDay>>;
   /** Each source's status in the latest answer that asked for it (a `pending` one never overwrites it). */
   status: { famcal?: FamcalStatus; google?: GoogleStatus };
-  /** Each source's latest failure, kept after a later ok answer for another window: the state row's copy. */
+  /** Each source's latest failure, kept after a later ok answer for another window. A state row reads its day's own (dayFailure) first. */
   lastFailure: Partial<Record<SourceName, SourceFailure>>;
   /** The legend from each source's latest ok answer, FamCal first. */
   calendars: CalendarDTO[];
+  /** Google asked for a reconnect in this epoch (the latest such answer's reason); null until it does. */
+  reconnect: 'token' | 'scopes' | null;
+  /** The ids of the Google calendars any ok answer in this epoch listed as unavailable, in the order first seen. */
+  unavailable: string[];
   /** From the latest answer with FamCal ok. */
   partner: { name: string } | null;
   /** From the latest answer that carried them (FamCal ok and a window holding today), newest first; null before. */
@@ -101,9 +112,9 @@ export type DayStatus = 'answered' | 'loading' | 'failed';
 
 /** What the banners need from the store (spec §5 States, §7.2 Banners). */
 export interface HomeNotices {
-  /** Google asked for a reconnect in its latest answer. Never set for a FamCal user. */
+  /** Google asked for a reconnect in this epoch: kept until the store drops. Never set for a FamCal user. */
   reconnect: 'token' | 'scopes' | null;
-  /** Chosen Google calendars that are gone: "N calendars aren't available · Choose again". */
+  /** Chosen Google calendars seen gone in this epoch: "N calendars aren't available · Choose again". */
   unavailableCalendars: number;
 }
 
@@ -127,7 +138,7 @@ export function daysInWindow(from: DayKey, to: DayKey): DayKey[] {
 }
 
 export function emptyStore(epoch = 0): CalendarStore {
-  return { epoch, facts: null, days: {}, status: {}, lastFailure: {}, calendars: [], partner: null, carryOvers: null };
+  return { epoch, facts: null, days: {}, status: {}, lastFailure: {}, calendars: [], reconnect: null, unavailable: [], partner: null, carryOvers: null };
 }
 
 function factsOf(r: RangeResponse): StoreFacts {
@@ -172,7 +183,7 @@ function dedupeSorted(items: readonly ItemDTO[]): ItemDTO[] {
   return out.sort(compareItems);
 }
 
-const failedCoverage = (): DayCoverage => ({ ok: false, failed: true, partial: false });
+const failedCoverage = (failure: SourceFailure): DayCoverage => ({ ok: false, failed: true, partial: false, failure });
 
 /** Merges an answer whose facts match `state.facts` (already pinned). */
 function merge(state: CalendarStore, r: RangeResponse): CalendarStore {
@@ -215,10 +226,10 @@ function merge(state: CalendarStore, r: RangeResponse): CalendarStore {
       const kept = items.filter((i) => !ok.includes(i.source));
       const fresh = (incoming.get(date) ?? NO_ITEMS).filter((i) => ok.includes(i.source));
       items = dedupeSorted([...kept, ...fresh]);
-      for (const s of ok) coverage[s] = { ok: true, failed: false, partial: s === 'google' && partial };
+      for (const s of ok) coverage[s] = { ok: true, failed: false, partial: s === 'google' && partial, failure: null };
     }
     for (const f of failures) {
-      if (!coverage[f.source]?.ok) coverage[f.source] = failedCoverage();
+      if (!coverage[f.source]?.ok) coverage[f.source] = failedCoverage(f);
     }
     days[date] = { items, coverage };
   }
@@ -229,7 +240,11 @@ function merge(state: CalendarStore, r: RangeResponse): CalendarStore {
       : state.calendars;
   const partner = ok.includes('famcal') ? (r.partner ? { name: r.partner.name } : null) : state.partner;
   const carryOvers = r.carryOvers ? [...r.carryOvers] : state.carryOvers;
-  return { ...state, days, status, lastFailure, calendars, partner, carryOvers };
+  const reconnect = google?.status === 'reconnect' ? (google.reason === 'scopes' ? 'scopes' : 'token') : state.reconnect;
+  const gone = ok.includes('google') ? r.calendars.filter((c) => c.source === 'google' && c.unavailable === true).map((c) => c.id) : [];
+  const added = gone.filter((id, i) => !state.unavailable.includes(id) && gone.indexOf(id) === i);
+  const unavailable = added.length > 0 ? [...state.unavailable, ...added] : state.unavailable;
+  return { ...state, days, status, lastFailure, calendars, reconnect, unavailable, partner, carryOvers };
 }
 
 function receive(state: CalendarStore, r: RangeResponse, epoch: number): CalendarStore {
@@ -251,14 +266,15 @@ function markFailed(state: CalendarStore, a: Extract<StoreAction, { type: 'windo
   if (!state.facts || a.epoch < state.epoch) return state;
   const sources = state.facts.sources.filter((s) => a.sources.includes(s));
   if (sources.length === 0) return state;
+  const failures = sources.map((s): SourceFailure => (a.kind === 'busy' ? { kind: 'busy', source: s } : { kind: 'error', source: s, reason: null }));
   const lastFailure = { ...state.lastFailure };
-  for (const s of sources) lastFailure[s] = a.kind === 'busy' ? { kind: 'busy', source: s } : { kind: 'error', source: s, reason: null };
+  for (const f of failures) lastFailure[f.source] = f;
   const days: Record<DayKey, StoreDay> = { ...state.days };
   for (const date of daysInWindow(a.from, a.to)) {
     const prev = state.days[date];
     const coverage = { ...prev?.coverage };
-    for (const s of sources) {
-      if (!coverage[s]?.ok) coverage[s] = failedCoverage();
+    for (const f of failures) {
+      if (!coverage[f.source]?.ok) coverage[f.source] = failedCoverage(f);
     }
     days[date] = { items: prev ? prev.items : [], coverage };
   }
@@ -310,16 +326,21 @@ export function failedSources(state: CalendarStore, day: DayKey): SourceName[] {
   return state.facts.sources.filter((s) => !coverage[s]?.ok && coverage[s]?.failed === true);
 }
 
+/**
+ * Why `source` has no data for `day`: the failure that marked the day, the latest one
+ * that covered it. null when the source answered ok for it or nothing has covered it.
+ */
+export function dayFailure(state: CalendarStore, day: DayKey, source: SourceName): SourceFailure | null {
+  return state.days[day]?.coverage[source]?.failure ?? null;
+}
+
 /** Whether the day's Google data came from a partial answer. */
 export function isPartialDay(state: CalendarStore, day: DayKey): boolean {
   const c = state.days[day]?.coverage.google;
   return !!c?.ok && c.partial;
 }
 
+/** The banners' inputs. Both hold for the epoch (see the header): a store drop clears them. */
 export function homeNotices(state: CalendarStore): HomeNotices {
-  const g = state.status.google;
-  return {
-    reconnect: g?.status === 'reconnect' ? (g.reason === 'scopes' ? 'scopes' : 'token') : null,
-    unavailableCalendars: state.calendars.filter((c) => c.source === 'google' && c.unavailable === true).length,
-  };
+  return { reconnect: state.reconnect, unavailableCalendars: state.unavailable.length };
 }

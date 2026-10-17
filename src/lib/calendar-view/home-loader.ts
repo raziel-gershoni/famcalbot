@@ -5,21 +5,34 @@
 //
 // - First load: one request per applicable source, in parallel, with no dates (the
 //   server's [today, today+7)). Whichever answers first pins the facts and paints.
-// - ensure(): every visible window (week 0 … weeks-1 of the Agenda) whose days a source
-//   hasn't covered in this epoch gets one request. That covers "Show next week" (one
-//   more week) and a store drop (midnight, other facts: the epoch moves on and the days
+// - ensure(): every visible window (week 0 … weeks-1 of the Agenda, and the Month
+//   windows the host wants now) whose days a source hasn't covered in this epoch gets
+//   one request. That covers "Show next week" (one more week), a month coming near the
+//   viewport, and a store drop (midnight, other facts: the epoch moves on and the days
 //   are gone). A window is asked at most once per epoch this way.
 // - refetchVisible(): every visible window again: a return to the foreground, a Retry,
-//   or ⋯ → Refresh (fresh=1). A request already in flight is not sent twice.
+//   or ⋯ → Refresh (fresh=1). The Agenda's weeks only while the Agenda is on screen,
+//   and the wanted months. A request already in flight is not sent twice.
+// - retryWindow(): one window again (the Month's Retry).
 // - An answer with google.stale asks that window once more after about 3 s; if that is
 //   stale too, the window waits for the next foreground or Refresh. A Google error
 //   (not calendars_gone) gets one automatic retry after about 5 s.
+// - Month windows (spec §5, Plan E Ruling 7) are a month's own days, [1st, 1st of the
+//   next month) (R12). At most MONTH_INFLIGHT_MAX of them are in flight; every send for
+//   one waits its turn (the first ask, a refetch, Retry, the stale and error follow-ups),
+//   and the Agenda's weeks never do. When a slot frees, the queued months the host no
+//   longer wants are dropped without being marked asked, so ensure() asks them again if
+//   they come back; then the most wanted goes. A month's stale or error follow-up that
+//   falls due once the month is no longer wanted is dropped too, slot or no slot.
+// - Windows are keyed by both ends, `from..to`: on the 1st of a month the Agenda's week 0
+//   and that month share a start, never a key.
 // - Every request has a time limit (about 15 s, on the host's timer): one that never
-//   settles reads as no answer, so it leaves the in-flight set and the next foreground
-//   or Retry asks again instead of being deduped behind it forever.
+//   settles reads as no answer, so it leaves the in-flight set (and frees its month slot)
+//   and the next foreground or Retry asks again instead of being deduped behind it forever.
 // - 404 not_enabled → the host reloads once; 401, 403, any other 404 → the host's
 //   no-credential card; 429 → busy, a 500 or no answer → error: a state row for the
-//   window once the facts are pinned, else the host's busy or retry card.
+//   window once the facts are pinned, else the host's busy or retry card. A failure
+//   from before the last store drop changes nothing: the loader asks again anyway.
 
 import { agendaWeekWindow } from './agenda';
 import { daysInWindow, type CalendarStore, type StoreAction } from './store';
@@ -32,6 +45,8 @@ export const STALE_RETRY_MS = 3000;
 export const ERROR_RETRY_MS = 5000;
 /** A range request's time limit: past it, the request is aborted and reads as no answer. */
 export const RANGE_TIMEOUT_MS = 15_000;
+/** Month windows in flight at once (spec §5); the Agenda's weeks don't count. */
+export const MONTH_INFLIGHT_MAX = 2;
 
 export interface LoaderHost {
   /** The page's own user_id, exactly as CalendarHomeProps carries it. */
@@ -52,15 +67,23 @@ export interface LoaderHost {
   onNoCredential(): void;
   onNotEnabled(): void;
   setTimer(run: () => void, ms: number): () => void;
+  /** Month windows wanted now (on screen or next to it), most wanted first; absent or [] = none. */
+  getMonths?(): readonly RangeWindow[];
+  /** Whether the Agenda is on screen: refetchVisible asks its weeks only then. Absent = true. */
+  agendaShowing?(): boolean;
 }
 
 export interface HomeLoader {
   ensure(): void;
   refetchVisible(o?: { fresh?: boolean; only?: SourceName }): void;
+  /** One window again, for each applicable source or only `only` (the Month's Retry). */
+  retryWindow(window: RangeWindow, only?: SourceName): void;
   dispose(): void;
 }
 
 type Ask = { source: SourceName; window: RangeWindow | null; fresh?: boolean; followUp?: 'stale' | 'retry' };
+/** A month send waiting for a slot: its in-flight key and the epoch it was asked in. */
+type Queued = { key: string; ask: Ask; epoch: number };
 
 /** Whether some day of the window has no answer (ok or failed) from `source` yet. */
 function uncovered(store: CalendarStore, source: SourceName, window: RangeWindow): boolean {
@@ -70,11 +93,26 @@ function uncovered(store: CalendarStore, source: SourceName, window: RangeWindow
   });
 }
 
+/** A window's key, both ends: `from..to`; 'default' for the no-dates request. */
+function windowKey(window: RangeWindow | null): string {
+  return window ? `${window.from}..${window.to}` : 'default';
+}
+
+/** A month's own days, [1st, 1st of the next month) (R12). An Agenda week (7 days) never is one. */
+function isMonthWindow(window: RangeWindow | null): boolean {
+  if (!window || !/^\d{4}-\d{2}-01$/.test(window.from)) return false;
+  const [y, m] = window.from.split('-').map(Number);
+  return window.to === new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
+}
+
 export function createHomeLoader(host: LoaderHost): HomeLoader {
-  /** `${epoch}|${source}|${from or 'default'}`: asked by ensure() in that epoch. */
+  /** `${epoch}|${source}|${windowKey}`: asked in that epoch. */
   const issued = new Set<string>();
   /** The same plus `|fresh` or `|plain`: on its way now. */
   const inflight = new Set<string>();
+  /** Month sends waiting for a slot, in the order they were asked. */
+  const queue: Queued[] = [];
+  let monthsInFlight = 0;
   const timers = new Set<() => void>();
   let live = true;
 
@@ -88,6 +126,7 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
 
   const visibleWindows = (today: string): RangeWindow[] =>
     Array.from({ length: Math.max(1, Math.floor(host.getWeeks())) }, (_, week) => agendaWeekWindow(today, week));
+  const wantedMonths = (): readonly RangeWindow[] => host.getMonths?.() ?? [];
 
   function handle(outcome: RangeOutcome, ask: Ask, epoch: number, where: string) {
     const { source, window } = ask;
@@ -98,9 +137,13 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
         host.dispatch({ type: 'response', response, epoch });
         const google = response.sources.google;
         const answered: RangeWindow = { from: response.from, to: response.to };
-        // A follow-up is for this epoch's window only: after a drop the loader starts over anyway.
+        // A follow-up is for this epoch's window only: after a drop the loader starts over
+        // anyway. A month's goes only while the host still wants the month: after a fast
+        // scroll the months passed are not asked again (each is a request off the rate limit).
         const again = (followUp: 'stale' | 'retry') => {
-          if (host.getStore().epoch === epoch) send({ source, window: answered, followUp });
+          if (host.getStore().epoch !== epoch) return;
+          if (isMonthWindow(answered) && !wantedMonths().some((w) => windowKey(w) === windowKey(answered))) return;
+          send({ source, window: answered, followUp });
         };
         if (source === 'google' && google?.status === 'ok' && google.stale && ask.followUp === undefined) {
           later(() => again('stale'), STALE_RETRY_MS);
@@ -118,6 +161,9 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
         return;
       case 'busy':
       case 'error': {
+        if (epoch !== host.getStore().epoch) return;
+        // Sent before the last store drop: the loader asks the new epoch's windows anyway,
+        // and a card or a state row now would only flash until they answer.
         const facts = host.getStore().facts;
         const failed = window ?? (facts ? agendaWeekWindow(facts.today, 0) : null);
         if (facts && failed) {
@@ -131,22 +177,64 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
     }
   }
 
-  /** The one place a request leaves; nothing leaves once the home is blocked. */
+  /** The one place a request leaves; nothing leaves once the home is blocked. A month waits for a slot. */
   function send(ask: Ask) {
     if (!live || host.isBlocked()) return;
     const epoch = host.getStore().epoch;
-    const where = ask.window ? ask.window.from : 'default';
-    const key = `${epoch}|${ask.source}|${where}|${ask.fresh ? 'fresh' : 'plain'}`;
+    const key = `${epoch}|${ask.source}|${windowKey(ask.window)}|${ask.fresh ? 'fresh' : 'plain'}`;
     if (inflight.has(key)) return;
+    if (isMonthWindow(ask.window)) {
+      if (queue.some((q) => q.key === key)) return;
+      if (monthsInFlight >= MONTH_INFLIGHT_MAX) {
+        queue.push({ key, ask, epoch });
+        return;
+      }
+    }
+    start(ask, epoch, key);
+  }
+
+  function start(ask: Ask, epoch: number, key: string) {
+    const where = windowKey(ask.window);
+    const month = isMonthWindow(ask.window);
     inflight.add(key);
     issued.add(`${epoch}|${ask.source}|${where}`);
+    if (month) monthsInFlight++;
     void fetchRange(host.userId, ask.source, ask.window, ask.fresh === true, { ms: RANGE_TIMEOUT_MS, setTimer: host.setTimer })
       .catch((): RangeOutcome => ({ kind: 'error', status: null }))
       .then((outcome) => {
         inflight.delete(key);
-        if (live) handle(outcome, ask, epoch, where);
+        if (month) monthsInFlight--;
+        try {
+          if (live) handle(outcome, ask, epoch, where);
+        } finally {
+          if (month) nextMonth();
+        }
       })
       .catch((err: unknown) => console.error('[calendar-home] A range answer could not be applied:', err));
+  }
+
+  /**
+   * A month slot is free: drop the queued months the host no longer wants (or that were
+   * asked before the last store drop), none of them marked asked; then send the most wanted.
+   */
+  function nextMonth() {
+    while (live && monthsInFlight < MONTH_INFLIGHT_MAX && queue.length > 0) {
+      if (host.isBlocked()) {
+        queue.length = 0;
+        return;
+      }
+      const epoch = host.getStore().epoch;
+      const wanted = wantedMonths().map(windowKey);
+      const rank = (q: Queued) => wanted.indexOf(windowKey(q.ask.window));
+      for (let i = queue.length - 1; i >= 0; i--) {
+        if (queue[i].epoch !== epoch || rank(queue[i]) < 0 || inflight.has(queue[i].key)) queue.splice(i, 1);
+      }
+      if (queue.length === 0) return;
+      let best = 0;
+      for (let i = 1; i < queue.length; i++) if (rank(queue[i]) < rank(queue[best])) best = i;
+      const [q] = queue.splice(best, 1);
+      start(q.ask, epoch, q.key);
+    }
   }
 
   return {
@@ -163,10 +251,15 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
       }
       visibleWindows(facts.today).forEach((window, week) => {
         for (const source of facts.sources) {
-          const asked = issued.has(`${store.epoch}|${source}|${window.from}`) || (week === 0 && issued.has(`${store.epoch}|${source}|default`));
+          const asked = issued.has(`${store.epoch}|${source}|${windowKey(window)}`) || (week === 0 && issued.has(`${store.epoch}|${source}|default`));
           if (!asked && uncovered(store, source, window)) send({ source, window });
         }
       });
+      for (const window of wantedMonths()) {
+        for (const source of facts.sources) {
+          if (!issued.has(`${store.epoch}|${source}|${windowKey(window)}`) && uncovered(store, source, window)) send({ source, window });
+        }
+      }
     },
 
     refetchVisible({ fresh = false, only }: { fresh?: boolean; only?: SourceName } = {}) {
@@ -177,13 +270,27 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
         for (const source of sources) send({ source, window: null, fresh });
         return;
       }
-      for (const window of visibleWindows(facts.today)) {
+      if (host.agendaShowing?.() !== false) {
+        for (const window of visibleWindows(facts.today)) {
+          for (const source of sources) send({ source, window, fresh });
+        }
+      }
+      for (const window of wantedMonths()) {
         for (const source of sources) send({ source, window, fresh });
+      }
+    },
+
+    retryWindow(window: RangeWindow, only?: SourceName) {
+      if (!live) return;
+      const facts = host.getStore().facts;
+      for (const source of (facts ? facts.sources : host.sources).filter((s) => only === undefined || s === only)) {
+        send({ source, window });
       }
     },
 
     dispose() {
       live = false;
+      queue.length = 0;
       for (const cancel of timers) cancel();
       timers.clear();
     },

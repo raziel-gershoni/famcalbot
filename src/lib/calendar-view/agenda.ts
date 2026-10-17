@@ -8,8 +8,9 @@
 // - Today and tomorrow always show. A later empty day folds into one line with its
 //   empty neighbours, but only once every applicable source answered ok for it (§5).
 // - A day a source failed for, with no earlier ok data, shows no empty line and no
-//   fold; the source's state row shows once, above the days. A reconnect is the
-//   Reconnect banner's (homeNotices, in the container), never a state row.
+//   fold; the source's state row shows once, above the days, with the reason of the
+//   earliest such day (dayFailure), so a later window's failure never rewrites it. A
+//   reconnect is the Reconnect banner's (homeNotices, in the container), never a state row.
 // - Still open: today's open reminders by time, then the carry-overs newest first;
 //   5 shown, then the rest.
 
@@ -17,6 +18,7 @@ import type { DayKey, ItemDTO, SourceName, WeekStart } from './types';
 import {
   SOURCE_ORDER,
   addDaysToKey,
+  dayFailure,
   dayItems,
   dayStatus,
   failedSources,
@@ -196,7 +198,8 @@ export function buildAgenda(state: CalendarStore, weeks = 1): AgendaModel | null
   const { today } = facts;
 
   const entries: AgendaEntry[] = [];
-  const failing = new Set<SourceName>();
+  /** Each source that failed for a shown day, with its earliest such day's failure. */
+  const failing = new Map<SourceName, SourceFailure | null>();
   let fold: AgendaFold | null = null;
   let partial = false;
   let nothing = true;
@@ -204,7 +207,9 @@ export function buildAgenda(state: CalendarStore, weeks = 1): AgendaModel | null
     const date = addDaysToKey(today, i);
     const status = dayStatus(state, date);
     const rows = dayItems(state, date).map((item) => toRow(item, partnerName));
-    for (const s of failedSources(state, date)) failing.add(s);
+    for (const s of failedSources(state, date)) {
+      if (!failing.has(s)) failing.set(s, dayFailure(state, date, s));
+    }
     if (isPartialDay(state, date)) partial = true;
     if (status !== 'answered' || rows.length > 0) nothing = false;
     const relative = i === 0 ? 'today' : i === 1 ? 'tomorrow' : null;
@@ -228,7 +233,7 @@ export function buildAgenda(state: CalendarStore, weeks = 1): AgendaModel | null
   const stateRows: AgendaStateRow[] = [];
   for (const source of SOURCE_ORDER) {
     if (!failing.has(source)) continue;
-    const failure: SourceFailure = state.lastFailure[source] ?? { kind: 'error', source, reason: null };
+    const failure: SourceFailure = failing.get(source) ?? state.lastFailure[source] ?? { kind: 'error', source, reason: null };
     if (failure.kind === 'reconnect') continue;
     stateRows.push({ source, failure });
   }

@@ -48,6 +48,10 @@
 // PageGate's boundary around the home's chunk (Task D7, #40), in real React: an import
 // that rejects with a ChunkLoadError, as after a deploy, reloads once behind the loader;
 // within the guard, or for any other error, the gate's error card.
+//
+// The midnight reset with a refetch in flight (Plan E, Task E3, #42): when that refetch
+// fails after the reset, no retry card flashes before the new day's answer.
+//
 // React must log no warning. No network, no DB, no Redis.
 //
 // Run with the fake env from the task brief (no dotenv), under three clocks:
@@ -2244,6 +2248,39 @@ async function main() {
 
   await check('#41 React logged no warning in any render, CalendarHome\'s included (keys, nesting, attributes, act)', () => {
     assert(reactWarnings.length === 0, `warnings: ${show(reactWarnings.slice(0, 5))}`);
+  });
+
+  await check('#42 the midnight reset with a refetch in flight that then fails (500): no retry card, only the placeholders until the new day\'s answer, which then shows; React logs no warning', async () => {
+    resetHome();
+    const warned = reactWarnings.length;
+    const clock = fakeClock('2026-10-15T20:59:30Z'); // 23:59:30 in Israel, Thursday 15 October
+    answerFetch = () => ok200(answer({ items: WEEK }));
+    const m = await mountHome('en', {}, clock);
+    try {
+      await clock.advance(25_000); // 23:59:55: the day check is still 5.5 s away
+      let failOld: (a: FetchAnswer) => void = noop;
+      answerFetch = () => new Promise<FetchAnswer>((resolve) => (failOld = resolve));
+      fireDocument('visibilitychange');
+      await settle();
+      assert(show(ranges()) === show(['famcal default', `famcal ${day(0)}→${day(7)}`]), `the refetch is in flight: ${show(ranges())}`);
+      let answerNew: (a: FetchAnswer) => void = noop;
+      answerFetch = () => new Promise<FetchAnswer>((resolve) => (answerNew = resolve));
+      await clock.advance(6_000); // past midnight: the store starts over
+      assert(show(ranges().slice(2)) === show(['famcal default']), `the new day's no-dates request: ${show(ranges())}`);
+      await React.act(async () => failOld({ status: 500, body: { error: 'internal_error' } }));
+      await settle();
+      assertLacks(m.text(), ['Something went wrong', 'Retry'], 'the old refetch\'s 500');
+      assertHas(m.text(), ['Loading your calendar…'], 'the placeholders until the new answer');
+      await React.act(async () => answerNew(ok200(answer({ today: day(1), from: day(1), to: day(8), items: { [day(1)]: [GRANDMA] } }))));
+      await settle();
+      assert(m.html().includes('<h1 class="ch-head-title">Friday, 16 October</h1>'), `the header: ${m.text().slice(0, 80)}`);
+      assertHas(m.text(), [`Today ${ref.dayShort('en-GB', day(1))}`, 'All day Grandma visits'], 'the new Today');
+      assertLacks(m.text(), ['Something went wrong'], 'no card after the answer');
+      assert(ranges().length === 3, `nothing more was asked: ${show(ranges())}`);
+    } finally {
+      m.unmount();
+    }
+    assert(reactWarnings.length === warned, `warnings: ${show(reactWarnings.slice(warned, warned + 5))}`);
   });
 
   let failed = 0;

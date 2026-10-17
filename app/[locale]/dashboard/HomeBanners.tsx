@@ -7,8 +7,9 @@
 //   timezone: no location, and no Google connection to read it from (→ Settings);
 // - the Google setup card: Connect Google Calendar (no token), else Choose your
 //   calendars (none chosen); Google users only;
-// - Reconnect Google, when the latest Google answer asked for it: a dead token, or
-//   missing permission (the scopes copy); never with the Connect card, never for FamCal;
+// - Reconnect Google, once a Google answer in this epoch asked for it (it holds until the
+//   store drops): a dead token, or missing permission (the scopes copy); never with the
+//   Connect card, never for FamCal;
 // - in a browser, "Open FamCal in Telegram" (WhatsApp stays secondary to Telegram).
 // Each banner is one button (or, for Telegram, a link) with a 44 px or taller target.
 // FamCal users never see a Google entry.
@@ -26,7 +27,7 @@ export interface BannerFacts {
   trialDaysLeft?: number | null;
   /** false: no location set; absent: unknown, no location banner. */
   hasLocation?: boolean;
-  /** The store's latest Google answer asked for a reconnect (homeNotices). */
+  /** A Google answer in this epoch asked for a reconnect (homeNotices: it holds until the store drops). */
   reconnect: 'token' | 'scopes' | null;
   /** readInitData() is non-empty. */
   inTelegram: boolean;
