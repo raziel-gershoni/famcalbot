@@ -31,12 +31,35 @@ interface TelegramWebAppInitData {
   hash: string;
 }
 
+/** Mini App events (activated, deactivated and the two safe-area events need Bot API 8.0). */
+type TelegramWebAppEventType =
+  | 'themeChanged'
+  | 'viewportChanged'
+  | 'backButtonClicked'
+  | 'mainButtonClicked'
+  | 'settingsButtonClicked'
+  | 'popupClosed'
+  | 'invoiceClosed'
+  | 'activated'
+  | 'deactivated'
+  | 'safeAreaChanged'
+  | 'contentSafeAreaChanged';
+
+/** Insets in px (Bot API 8.0); the SDK also sets them as --tg-safe-area-inset-* and --tg-content-safe-area-inset-*. */
+interface TelegramWebAppSafeAreaInset {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
 interface TelegramWebApp {
   initDataUnsafe: TelegramWebAppInitData;
   initData: string;
   version: string;
   platform: string;
   colorScheme: 'light' | 'dark';
+  /** The colours newer clients add (header, accent, section, subtitle, destructive) may be missing on older ones. */
   themeParams: {
     bg_color?: string;
     text_color?: string;
@@ -45,10 +68,19 @@ interface TelegramWebApp {
     button_color?: string;
     button_text_color?: string;
     secondary_bg_color?: string;
+    header_bg_color?: string;
+    accent_text_color?: string;
+    section_bg_color?: string;
+    section_header_text_color?: string;
+    section_separator_color?: string;
+    subtitle_text_color?: string;
+    destructive_text_color?: string;
   };
   isExpanded: boolean;
   viewportHeight: number;
   viewportStableHeight: number;
+  safeAreaInset: TelegramWebAppSafeAreaInset;
+  contentSafeAreaInset: TelegramWebAppSafeAreaInset;
   headerColor: string;
   backgroundColor: string;
   isClosingConfirmationEnabled: boolean;
@@ -59,6 +91,13 @@ interface TelegramWebApp {
   setBackgroundColor: (color: string) => void;
   enableClosingConfirmation: () => void;
   disableClosingConfirmation: () => void;
+  /** Whether the client supports Bot API `version`. The SDK reports 6.0 in a plain browser. */
+  isVersionAtLeast: (version: string) => boolean;
+  /** Bot API 7.7+. Never read isVerticalSwipesEnabled: it is wrong after a reload. */
+  enableVerticalSwipes: () => void;
+  disableVerticalSwipes: () => void;
+  onEvent: (eventType: TelegramWebAppEventType, eventHandler: (...args: never[]) => void) => void;
+  offEvent: (eventType: TelegramWebAppEventType, eventHandler: (...args: never[]) => void) => void;
   openLink: (url: string, options?: { try_instant_view?: boolean }) => void;
   openTelegramLink: (url: string) => void;
   openInvoice: (url: string, callback?: (status: string) => void) => void;
