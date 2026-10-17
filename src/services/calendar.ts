@@ -16,12 +16,25 @@ export type { CalendarEvent };
  * A fresh client holds no access token, so its first request refreshes one. The calendar
  * home's reader (calendar-read/google.ts) runs that refresh itself first, inside its
  * deadline, so a dead token or a stuck token server is one outcome for the whole read.
+ *
+ * The reader also passes `transport`: every request of this client, the token refresh
+ * included, gets that timeout unless it sets its own, and is cancelled when the signal is
+ * aborted. Without it (getCalendarClient), the client is built exactly as before.
  */
-export function getGoogleAuth(refreshToken: string): InstanceType<typeof auth.OAuth2> {
-  const oauth2Client = new auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET
-  );
+export function getGoogleAuth(
+  refreshToken: string,
+  transport?: { timeout: number; signal: AbortSignal }
+): InstanceType<typeof auth.OAuth2> {
+  const oauth2Client = transport
+    ? new auth.OAuth2({
+        clientId: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        transporterOptions: { timeout: transport.timeout, signal: transport.signal },
+      })
+    : new auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET
+      );
 
   oauth2Client.setCredentials({
     refresh_token: refreshToken,

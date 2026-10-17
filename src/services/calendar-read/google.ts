@@ -12,7 +12,9 @@
  * - Items go through keepGoogleEvent and mapGoogleEvent (google-map.ts). The legend
  *   (CalendarRef) is joined from the user's choices at read time and is never cached.
  * - One deadline covers all of it. What settled keeps its outcome; a calendar that got a
- *   page by then is truncated, one that got none failed.
+ *   page by then is truncated, one that got none failed. When the read answers, whatever
+ *   is still running is cancelled (a stuck token server's request, lists past the
+ *   deadline), so nothing outlives the answer.
  *
  * readGoogleUncached is the live read. readGoogle is what readRange calls: the live read
  * for the summaries ('bypass'), and for the range route the cache in front of it (spec
@@ -55,6 +57,8 @@ const FIELDS =
 const PAGE_SIZE = 2500;
 const MAX_ITEMS_PER_CALENDAR = 5000;
 const MAX_REQUEST_TIMEOUT_MS = 10_000;
+/** No request is given less than this, however short the deadline; the deadline still cuts it off. */
+const MIN_REQUEST_TIMEOUT_MS = 1_000;
 const DEADLINE_MARGIN_MS = 500;
 const GONE_WARNING_TTL_S = 86_400;
 const CONFIG_ALERT_TTL_S = 3_600;
@@ -333,8 +337,13 @@ export async function readGoogleUncached(
   }
 
   const deadline = startDeadline(opts.deadlineMs);
+  // Aborted when the read answers (the finally below). Every request of this read carries
+  // it: a token request a stuck token server never answers, or a list still waiting at the
+  // deadline, is cancelled then and not retried, so nothing keeps running after the read
+  // has answered. The token request's own timeout is the deadline (the lists set theirs).
+  const cancel = new AbortController();
   try {
-    const auth = getGoogleAuth(token);
+    const auth = getGoogleAuth(token, { timeout: opts.deadlineMs, signal: cancel.signal });
     type Step = { kind: 'ok' } | { kind: 'failed'; error: unknown } | { kind: 'deadline' };
     const step: Step = await Promise.race([
       auth.getAccessToken().then(
@@ -352,7 +361,7 @@ export async function readGoogleUncached(
     }
 
     const cal = googleCalendar({ version: 'v3', auth });
-    const timeoutMs = Math.min(MAX_REQUEST_TIMEOUT_MS, opts.deadlineMs - DEADLINE_MARGIN_MS);
+    const timeoutMs = Math.max(MIN_REQUEST_TIMEOUT_MS, Math.min(MAX_REQUEST_TIMEOUT_MS, opts.deadlineMs - DEADLINE_MARGIN_MS));
     const progress: CalendarProgress[] = set.map(a => ({
       calendarId: a.calendarId,
       pages: 0,
@@ -385,6 +394,7 @@ export async function readGoogleUncached(
     return { read: { status: 'error', reason: 'unknown', cause: error }, items: [] };
   } finally {
     deadline.clear();
+    cancel.abort();
   }
 }
 
