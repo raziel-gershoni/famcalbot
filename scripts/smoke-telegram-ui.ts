@@ -9,6 +9,10 @@
 //   Telegram and prefers-color-scheme in a browser.
 // - onTelegramEvent and openExternalLink, for the home's foreground refetch and
 //   "Open in Google Calendar".
+// - useTelegramVerticalSwipes(locked) (Plan E Ruling 9, Bot API 7.7): disable while
+//   locked, enable when not, on an unlocked mount and on unmount; one call per change;
+//   never a read of isVerticalSwipesEnabled. releaseTelegramControls(), before a reload:
+//   the BackButton let go, then swipes enabled.
 // Every SDK call is gated with isVersionAtLeast and wrapped in try/catch: a 6.0 client,
 // a browser (the SDK defines Telegram.WebApp there too, at 6.0) or a throwing method
 // never breaks the page.
@@ -146,10 +150,14 @@ function versionAtLeast(have: string, want: string): boolean {
 /**
  * A fake Telegram.WebApp that records every call (handlers as fn1, fn2… so offClick can
  * be matched to its onClick) and keeps event handlers in a set per event, as the SDK
- * does. Methods named in `throwOn` throw after recording.
+ * does. Methods named in `throwOn` throw after recording. Its isVerticalSwipesEnabled is
+ * a getter that counts the read and throws: the home must never read it (spec §7.6).
+ * `swipes()` is what the calls left them at (null before any call).
  */
 function fakeTelegram(o: { version: string; initData?: string; colorScheme?: 'light' | 'dark'; throwOn?: string[] }) {
   const calls: string[] = [];
+  let swipes: boolean | null = null;
+  let flagReads = 0;
   const handlers = new Map<string, Set<() => void>>();
   const ids = new Map<unknown, string>();
   const label = (a: unknown) => {
@@ -178,6 +186,8 @@ function fakeTelegram(o: { version: string; initData?: string; colorScheme?: 'li
     onEvent: rec('onEvent', (type, h) => on(String(type), h as unknown as () => void)),
     offEvent: rec('offEvent', (type, h) => off(String(type), h as unknown as () => void)),
     openLink: rec('openLink'),
+    enableVerticalSwipes: rec('enableVerticalSwipes', () => { swipes = true; }),
+    disableVerticalSwipes: rec('disableVerticalSwipes', () => { swipes = false; }),
     BackButton: {
       isVisible: false,
       onClick: rec('BackButton.onClick', h => on('backButtonClicked', h as unknown as () => void)),
@@ -186,11 +196,19 @@ function fakeTelegram(o: { version: string; initData?: string; colorScheme?: 'li
       hide: rec('BackButton.hide', () => { webApp.BackButton.isVisible = false; }),
     },
   };
+  Object.defineProperty(webApp, 'isVerticalSwipesEnabled', {
+    get() {
+      flagReads++;
+      throw new Error('isVerticalSwipesEnabled was read');
+    },
+  });
   return {
     webApp,
     calls,
     fire: (type: string) => [...(handlers.get(type) ?? [])].forEach(h => h()),
     count: (type: string) => handlers.get(type)?.size ?? 0,
+    swipes: () => swipes,
+    flagReads: () => flagReads,
   };
 }
 
@@ -243,13 +261,26 @@ async function withEnv(
 }
 
 async function main() {
-  const { useTelegramBackButton, useTelegramTheme } = await ui().catch(() => ({} as Row));
+  const { useTelegramBackButton, useTelegramTheme, useTelegramVerticalSwipes, releaseTelegramControls } = await ui().catch(() => ({} as Row));
 
   function BackProbe(props: { active: boolean; onBack: () => void }) {
     useTelegramBackButton(props.active, props.onBack);
     return null;
   }
   const back = (active: boolean, onBack: () => void) => React.createElement(BackProbe, { active, onBack });
+
+  function SwipeProbe(props: { locked: boolean }) {
+    useTelegramVerticalSwipes(props.locked);
+    return null;
+  }
+  const swipes = (locked: boolean) => React.createElement(SwipeProbe, { locked });
+  const strict = (locked: boolean) => React.createElement(React.StrictMode, null, swipes(locked));
+  /** The E4 exports exist (before Task E4 they don't, and a probe calling one would throw while rendering). */
+  const swipesExported = () => {
+    assert(typeof useTelegramVerticalSwipes === 'function', 'useTelegramVerticalSwipes is not exported');
+    assert(typeof releaseTelegramControls === 'function', 'releaseTelegramControls is not exported');
+  };
+  const swipeCalls = (calls: string[]) => calls.filter(c => c.includes('VerticalSwipes'));
 
   function ThemeProbe(props: { seen: string[] }) {
     props.seen.push(useTelegramTheme());
@@ -494,6 +525,138 @@ async function main() {
     await withEnv({ webApp: fakeTelegram({ version: '8.0' }).webApp }, () => { got.sdk = isInTelegram(); });
     await withEnv({ webApp: null, hash: `#tgWebAppData=${encodeURIComponent(INIT_DATA)}` }, () => { got.hash = isInTelegram(); });
     assert(show(got) === show({ browserSdk: false, noSdk: false, sdk: true, hash: true }), show(got));
+  });
+
+  await check('#15 vertical swipes on a 7.6 client and in a browser (SDK at 6.0, no initData): no swipe call, locked or not, mounted or not; none during a server render; with no SDK nothing throws', async () => {
+    await ui();
+    swipesExported();
+    for (const tg of [fakeTelegram({ version: '7.6' }), fakeTelegram({ version: '6.0', initData: '' })]) {
+      await withEnv({ webApp: tg.webApp }, () => {
+        const view = mount(swipes(false));
+        view.render(swipes(true));
+        view.render(swipes(false));
+        view.render(swipes(true));
+        view.unmount();
+        releaseTelegramControls();
+        assert(swipeCalls(tg.calls).length === 0, `${tg.webApp.initData ? '7.6 client' : 'browser'}: ${show(tg.calls)}`);
+      });
+    }
+    const tg = fakeTelegram({ version: '8.0' });
+    await withEnv({ webApp: tg.webApp }, () => {
+      renderToString(React.createElement(React.Fragment, null, swipes(true), swipes(false)));
+      assert(tg.calls.length === 0, `calls during a server render: ${show(tg.calls)}`);
+    });
+    await withEnv({ webApp: null }, () => {
+      const view = mount(swipes(true));
+      view.render(swipes(false));
+      view.unmount();
+      releaseTelegramControls();
+    });
+  });
+
+  await check('#16 vertical swipes on 7.7, 7.10 and 8.0: an unlocked mount enables (a reload can leave them off); lock → disable, unlock → enable, one call per change and none on a re-render; a locked mount only disables; unmount enables; under StrictMode the state still ends as asked', async () => {
+    await ui();
+    swipesExported();
+    for (const version of ['7.7', '7.10', '8.0']) {
+      const tg = fakeTelegram({ version });
+      await withEnv({ webApp: tg.webApp }, () => {
+        const view = mount(swipes(false));
+        assert(show(tg.calls) === show(['enableVerticalSwipes()']), `${version} unlocked mount: ${show(tg.calls)}`);
+        view.render(swipes(true));
+        view.render(swipes(true));
+        assert(show(tg.calls.slice(1)) === show(['disableVerticalSwipes()']) && tg.swipes() === false, `${version} lock: ${show(tg.calls)}`);
+        view.render(swipes(false));
+        view.render(swipes(false));
+        assert(show(tg.calls.slice(2)) === show(['enableVerticalSwipes()']) && tg.swipes() === true, `${version} unlock: ${show(tg.calls)}`);
+        view.render(swipes(true));
+        view.unmount();
+        assert(show(tg.calls.slice(3)) === show(['disableVerticalSwipes()', 'enableVerticalSwipes()']) && tg.swipes() === true, `${version} lock, then unmount: ${show(tg.calls)}`);
+      });
+    }
+    const locked = fakeTelegram({ version: '7.7' });
+    await withEnv({ webApp: locked.webApp }, () => {
+      const view = mount(swipes(true));
+      assert(show(locked.calls) === show(['disableVerticalSwipes()']), `locked mount: ${show(locked.calls)}`);
+      view.unmount();
+      assert(show(locked.calls) === show(['disableVerticalSwipes()', 'enableVerticalSwipes()']), `locked unmount: ${show(locked.calls)}`);
+    });
+    const twice = fakeTelegram({ version: '7.7' });
+    await withEnv({ webApp: twice.webApp }, () => {
+      const view = mount(strict(true));
+      assert(twice.swipes() === false, `StrictMode locked mount: ${show(twice.calls)}`);
+      view.render(strict(false));
+      assert(twice.swipes() === true, `StrictMode unlock: ${show(twice.calls)}`);
+      view.render(strict(true));
+      assert(twice.swipes() === false, `StrictMode lock: ${show(twice.calls)}`);
+      view.unmount();
+      assert(twice.swipes() === true, `StrictMode unmount: ${show(twice.calls)}`);
+    });
+  });
+
+  await check('#17 isVerticalSwipesEnabled is never read (it is wrong after a reload): a getter that throws is never touched through mount, lock, unlock, unmount and releaseTelegramControls', async () => {
+    await ui();
+    swipesExported();
+    const tg = fakeTelegram({ version: '8.0' });
+    await withEnv({ webApp: tg.webApp }, warnings => {
+      const view = mount(swipes(true));
+      view.render(swipes(false));
+      view.render(swipes(true));
+      view.unmount();
+      releaseTelegramControls();
+      assert(tg.flagReads() === 0, `isVerticalSwipesEnabled read ${tg.flagReads()} times`);
+      assert(warnings.length === 0, `warnings ${show(warnings)}`);
+      assert(
+        show(swipeCalls(tg.calls)) === show(['disableVerticalSwipes()', 'enableVerticalSwipes()', 'disableVerticalSwipes()', 'enableVerticalSwipes()', 'enableVerticalSwipes()']),
+        `calls ${show(tg.calls)}`,
+      );
+    });
+  });
+
+  await check('#18 a swipe call that throws is logged, never raised: a throwing disableVerticalSwipes on a locked mount still lets an unlock enable; a throwing enableVerticalSwipes on mount and on unmount is logged each time', async () => {
+    await ui();
+    swipesExported();
+    const disables = fakeTelegram({ version: '7.7', throwOn: ['disableVerticalSwipes'] });
+    await withEnv({ webApp: disables.webApp }, warnings => {
+      const view = mount(swipes(true));
+      assert(warnings.some(w => w.startsWith('[telegram-ui] disableVerticalSwipes failed:') && w.includes('disableVerticalSwipes threw')), `warnings ${show(warnings)}`);
+      view.render(swipes(false));
+      assert(disables.swipes() === true, `after the unlock: ${show(disables.calls)}`);
+      view.unmount();
+    });
+    const enables = fakeTelegram({ version: '7.7', throwOn: ['enableVerticalSwipes'] });
+    await withEnv({ webApp: enables.webApp }, warnings => {
+      const view = mount(swipes(false));
+      view.render(swipes(true));
+      view.unmount();
+      assert(show(enables.calls) === show(['enableVerticalSwipes()', 'disableVerticalSwipes()', 'enableVerticalSwipes()']), `calls ${show(enables.calls)}`);
+      assert(warnings.filter(w => w.includes('enableVerticalSwipes threw')).length === 2, `warnings ${show(warnings)}`);
+    });
+  });
+
+  await check('#19 releaseTelegramControls, before a reload (outside React): offClick(the live handler) and hide(), then enableVerticalSwipes(); a 7.6 client gets the BackButton calls only; a throwing hide() still enables; with no SDK nothing throws', async () => {
+    await ui();
+    assert(typeof releaseTelegramControls === 'function', 'releaseTelegramControls is not exported');
+    const tg = fakeTelegram({ version: '8.0' });
+    await withEnv({ webApp: tg.webApp }, () => {
+      const view = mount(back(true, noop));
+      const before = tg.calls.length;
+      releaseTelegramControls();
+      assert(show(tg.calls.slice(before)) === show(['BackButton.offClick(fn1)', 'BackButton.hide()', 'enableVerticalSwipes()']), `release: ${show(tg.calls)}`);
+      assert(!tg.webApp.BackButton.isVisible && tg.count('backButtonClicked') === 0 && tg.swipes() === true, 'the button still shown or registered, or swipes not enabled');
+      view.unmount();
+    });
+    const old = fakeTelegram({ version: '7.6' });
+    await withEnv({ webApp: old.webApp }, () => {
+      releaseTelegramControls();
+      assert(show(old.calls) === show(['BackButton.hide()']), `7.6: ${show(old.calls)}`);
+    });
+    const hides = fakeTelegram({ version: '7.7', throwOn: ['BackButton.hide'] });
+    await withEnv({ webApp: hides.webApp }, warnings => {
+      releaseTelegramControls();
+      assert(show(hides.calls) === show(['BackButton.hide()', 'enableVerticalSwipes()']) && hides.swipes() === true, `after a throwing hide(): ${show(hides.calls)}`);
+      assert(warnings.some(w => w.includes('BackButton.hide threw')), `warnings ${show(warnings)}`);
+    });
+    await withEnv({ webApp: null }, () => releaseTelegramControls());
   });
 
   let failed = 0;

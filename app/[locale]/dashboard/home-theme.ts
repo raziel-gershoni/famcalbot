@@ -22,6 +22,34 @@
 //
 // Rules: nothing smaller than 11 px; every tap target at least 44 px; logical
 // properties only, so RTL needs no overrides; no hover styles (touch only).
+//
+// Plan E's tokens, for the tab bar and the Month (E6 and E7 read only these and the ones
+// above). Each is set in light and dark, on Telegram's theme params where one fits; the
+// fallbacks are the approved mockups' shades (MonthFlow, MonthPicked, Dark).
+// - The tabs: --ch-tab-track behind both; --ch-tab-on, --ch-tab-on-text and
+//   --ch-tab-shadow for the selected one (Telegram's section colour on its secondary
+//   background, the pairing it uses for a card on a grouped list).
+// - Whose an item is (spec §7.3), never told by colour alone:
+//   - the viewer's items are filled: a timed one is --ch-mine-soft under
+//     --ch-mine-soft-text; all-day items and bars are --ch-mine-solid under
+//     --ch-mine-solid-text;
+//   - the partner's are outlined: a timed one is a 1 px --ch-partner-line border on the
+//     page's background with --ch-partner-line-text; all-day items and bars are
+//     --ch-partner-soft under --ch-partner-soft-text, with the same 1 px --ch-partner-line
+//     border;
+//   - picked's dots: a filled --ch-dot-mine, or a 1.5 px --ch-dot-partner ring.
+//   Telegram has no colour for a partner, so those shades are fixed (orange, as D's person
+//   chip). The marks (the lines, rings, dots and the solid fill) keep 3:1 against what
+//   they sit on, and every text colour 4.5:1.
+// - Today's number on --ch-today with --ch-today-text, Telegram's button pair. As plain
+//   text on the page (picked, when today isn't selected) it reads --ch-accent.
+// - The selected day: --ch-selected with --ch-selected-text (the theme's text and
+//   background, swapped).
+// - The Today pill: --ch-pill-bg, --ch-pill-line and --ch-pill-text. Month titles:
+//   --ch-month-title. Both are the accent pulled a fifth towards the text.
+// - A disabled chevron: --ch-disabled, faint on purpose (the button is also disabled). It
+//   is the only new colour that reads the hint straight. Every text colour keeps D's
+//   floor: an unselected tab's label reads --ch-muted.
 
 export const HOME_THEME_CSS = `
 .ch-home {
@@ -44,6 +72,29 @@ export const HOME_THEME_CSS = `
   --ch-outline: #d4d2e0;
   --ch-scrim: rgba(18, 18, 32, 0.45);
   --ch-sheet-shadow: 0 -8px 24px rgba(18, 18, 32, 0.18);
+  --ch-tab-track: var(--ch-surface);
+  --ch-tab-on: var(--ch-section);
+  --ch-tab-on-text: var(--ch-text);
+  --ch-tab-shadow: 0 1px 2px rgba(26, 26, 46, 0.14);
+  --ch-mine-soft: #eee9ff;
+  --ch-mine-soft-text: #2e1a87;
+  --ch-mine-solid: var(--ch-button);
+  --ch-mine-solid-text: var(--ch-button-text);
+  --ch-partner-soft: #ffd9b8;
+  --ch-partner-soft-text: #6b2c00;
+  --ch-partner-line: #b05f22;
+  --ch-partner-line-text: #7a3500;
+  --ch-dot-mine: var(--ch-accent);
+  --ch-dot-partner: #b4540b;
+  --ch-today: var(--ch-button);
+  --ch-today-text: var(--ch-button-text);
+  --ch-selected: var(--ch-text);
+  --ch-selected-text: var(--ch-bg);
+  --ch-pill-bg: var(--ch-card);
+  --ch-pill-line: #d9d2fa;
+  --ch-pill-text: var(--tg-theme-accent-text-color, var(--tg-theme-link-color, #4b2fc9));
+  --ch-disabled: #c9c8d6;
+  --ch-month-title: var(--tg-theme-accent-text-color, var(--tg-theme-link-color, #4b2fc9));
   color-scheme: light;
   background: var(--ch-bg);
   color: var(--ch-text);
@@ -72,6 +123,29 @@ export const HOME_THEME_CSS = `
   --ch-outline: #3e3e52;
   --ch-scrim: rgba(0, 0, 0, 0.6);
   --ch-sheet-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
+  --ch-tab-track: var(--ch-surface);
+  --ch-tab-on: var(--tg-theme-section-bg-color, #33334a);
+  --ch-tab-on-text: var(--ch-text);
+  --ch-tab-shadow: none;
+  --ch-mine-soft: #2c2550;
+  --ch-mine-soft-text: #d9cfff;
+  --ch-mine-solid: var(--tg-theme-button-color, #6d4ff0);
+  --ch-mine-solid-text: var(--ch-button-text);
+  --ch-partner-soft: #4a2b12;
+  --ch-partner-soft-text: #ffd2a8;
+  --ch-partner-line: #d98b4a;
+  --ch-partner-line-text: #ffb877;
+  --ch-dot-mine: var(--ch-accent);
+  --ch-dot-partner: #f0924a;
+  --ch-today: var(--tg-theme-button-color, #6d4ff0);
+  --ch-today-text: var(--ch-button-text);
+  --ch-selected: var(--ch-text);
+  --ch-selected-text: var(--ch-bg);
+  --ch-pill-bg: var(--ch-card);
+  --ch-pill-line: #3a3166;
+  --ch-pill-text: var(--ch-accent);
+  --ch-disabled: #4a4a5e;
+  --ch-month-title: var(--ch-accent);
   color-scheme: dark;
 }
 @supports (color: color-mix(in srgb, red 50%, blue)) {
@@ -83,6 +157,19 @@ export const HOME_THEME_CSS = `
     --ch-card-separator: color-mix(in srgb, var(--ch-accent) 18%, var(--ch-bg));
     --ch-done: color-mix(in srgb, var(--ch-hint) 80%, var(--ch-bg));
     --ch-outline: color-mix(in srgb, var(--ch-hint) 45%, var(--ch-bg));
+    /* Plan E: text in the accent, pulled towards the text so it reads on any theme's background; a faint disabled chevron. */
+    --ch-mine-soft-text: color-mix(in srgb, var(--ch-accent) 55%, var(--ch-text));
+    --ch-pill-text: color-mix(in srgb, var(--ch-accent) 80%, var(--ch-text));
+    --ch-month-title: color-mix(in srgb, var(--ch-accent) 80%, var(--ch-text));
+    --ch-disabled: color-mix(in srgb, var(--ch-hint) 35%, var(--ch-bg));
+  }
+  .ch-home {
+    --ch-mine-soft: color-mix(in srgb, var(--ch-accent) 12%, var(--ch-bg));
+    --ch-pill-line: color-mix(in srgb, var(--ch-accent) 25%, var(--ch-bg));
+  }
+  .ch-home[data-theme='dark'] {
+    --ch-mine-soft: color-mix(in srgb, var(--ch-accent) 22%, var(--ch-bg));
+    --ch-pill-line: color-mix(in srgb, var(--ch-accent) 30%, var(--ch-bg));
   }
 }
 html:has(.ch-home) {

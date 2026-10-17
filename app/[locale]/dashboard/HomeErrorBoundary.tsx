@@ -3,15 +3,17 @@
 // The error boundary around the calendar home (spec §5): a render error shows a calm
 // card with Reload instead of a blank Mini App. A failed chunk load (a deploy replaced
 // the files while the app was open) reloads the page once by itself, letting Telegram's
-// BackButton go first; the guard in sessionStorage keeps that from looping. The fallback
-// carries the home's own look and hides a Telegram BackButton the client kept from
-// before. The home's own chunk failing to load is PageGate's boundary's (D7): this one
-// lives inside that chunk.
+// BackButton and vertical swipes go first (releaseTelegramControls); the guard in
+// sessionStorage keeps that from looping. The fallback carries the home's own look,
+// hides a Telegram BackButton the client kept from before and turns vertical swipes back
+// on, which a reload in the Month's browse can leave off (Plan E Ruling 9). The home's
+// own chunk failing to load is PageGate's boundary's (D7): this one lives inside that
+// chunk.
 
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { CHUNK_RELOAD_KEY, isChunkLoadError, reloadOnce } from '@/src/lib/calendar-view/reload-guard';
-import { releaseTelegramBackButton, useTelegramBackButton, useTelegramTheme } from '@/src/lib/telegram-ui';
+import { releaseTelegramControls, useTelegramBackButton, useTelegramTheme, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
 import { HOME_SHELL_CSS } from './home-shell';
 import { HOME_THEME_CSS } from './home-theme';
 
@@ -34,6 +36,7 @@ export function HomeCrash() {
   const locale = useLocale();
   const scheme = useTelegramTheme();
   useTelegramBackButton(false, noop);
+  useTelegramVerticalSwipes(false);
   return (
     <div className="ch-home" data-theme={scheme} dir={locale === 'he' ? 'rtl' : 'ltr'} lang={locale}>
       <style>{HOME_THEME_CSS}</style>
@@ -62,7 +65,7 @@ export class HomeErrorBoundary extends Component<{ children: ReactNode }, State>
 
   componentDidCatch(error: unknown, info: ErrorInfo) {
     console.error('[calendar-home] The home failed to render:', error, info.componentStack);
-    if (isChunkLoadError(error)) reloadOnce(CHUNK_RELOAD_KEY, Date.now(), releaseTelegramBackButton);
+    if (isChunkLoadError(error)) reloadOnce(CHUNK_RELOAD_KEY, Date.now(), releaseTelegramControls);
   }
 
   render() {

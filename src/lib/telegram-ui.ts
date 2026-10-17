@@ -1,8 +1,9 @@
 /**
- * The Telegram Mini App calls the calendar home makes (spec §7.1 Look, §7.6). Every SDK
- * call is gated with isVersionAtLeast and wrapped in try/catch, so a 6.0 client, a plain
- * browser (the SDK defines Telegram.WebApp there too, at version 6.0) or a method that
- * throws never breaks the page; in a browser the in-page buttons do the same jobs.
+ * The Telegram Mini App calls the calendar home makes (spec §7.1 Look, §7.6; the vertical
+ * swipes follow Plan E Ruling 9). Every SDK call is gated with isVersionAtLeast and
+ * wrapped in try/catch, so a 6.0 client, a plain browser (the SDK defines Telegram.WebApp
+ * there too, at version 6.0) or a method that throws never breaks the page; in a browser
+ * the in-page buttons do the same jobs.
  *
  * Client components only. Nothing here touches window at import, and while rendering on
  * the server the hooks make no call (the theme is 'light').
@@ -15,6 +16,7 @@ import { readInitData } from './read-init-data';
 const BACK_BUTTON = '6.1';
 const COLOURS = '6.1';
 const OPEN_LINK = '6.1';
+const VERTICAL_SWIPES = '7.7';
 
 /** Events newer than the first SDK (6.0). */
 const EVENT_VERSION: Partial<Record<TelegramWebAppEventType, string>> = {
@@ -118,6 +120,45 @@ export function releaseTelegramBackButton(): void {
   liveBackHandler = null;
   if (handler) tgCall(BACK_BUTTON, 'BackButton.offClick', (tg) => tg.BackButton.offClick(handler));
   tgCall(BACK_BUTTON, 'BackButton.hide', (tg) => tg.BackButton.hide());
+}
+
+/** enableVerticalSwipes() or disableVerticalSwipes() on a 7.7+ client; a throw is logged. */
+function setVerticalSwipes(enabled: boolean): void {
+  if (enabled) tgCall(VERTICAL_SWIPES, 'enableVerticalSwipes', (tg) => tg.enableVerticalSwipes());
+  else tgCall(VERTICAL_SWIPES, 'disableVerticalSwipes', (tg) => tg.disableVerticalSwipes());
+}
+
+/**
+ * Telegram's swipe down to minimize or close (Bot API 7.7+; spec §7.6, Plan E Ruling 9):
+ * off while `locked`, on otherwise. The home locks it while the Month shows browse, where
+ * a drag down at the top would take the app away instead of scrolling the months.
+ * - Each change of `locked` makes one call: disableVerticalSwipes() when it locks,
+ *   enableVerticalSwipes() when it unlocks. A re-render with the same value makes none.
+ * - On mount it makes the call for its `locked`, so an unlocked mount enables: a reload
+ *   can leave swipes off.
+ * - On unmount it enables.
+ * - It only sets, never reads isVerticalSwipesEnabled, which is wrong after a reload.
+ * One mounted component owns it at a time (the home's container, or the error card in its
+ * place): another one's unmount would turn swipes back on under the first one's lock.
+ */
+export function useTelegramVerticalSwipes(locked: boolean): void {
+  useEffect(() => {
+    setVerticalSwipes(!locked);
+  }, [locked]);
+
+  useEffect(() => () => setVerticalSwipes(true), []);
+}
+
+/**
+ * Lets Telegram's controls go at once, outside React, before a page reload (spec §5: 404
+ * not_enabled, a chunk-load error): releaseTelegramBackButton(), then
+ * enableVerticalSwipes(). A reload runs no React cleanup, and the client can keep both
+ * across it, so the page after it could otherwise show a back button that does nothing,
+ * or keep swipes off where nothing locks them.
+ */
+export function releaseTelegramControls(): void {
+  releaseTelegramBackButton();
+  setVerticalSwipes(true);
 }
 
 export type ColorScheme = 'light' | 'dark';
