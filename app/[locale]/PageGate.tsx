@@ -5,16 +5,20 @@
 // magic-link session rides along as the same-origin cookie), then renders the page's
 // own client component with the same props it always had. A locale mismatch becomes a
 // router.replace, a notice renders the page's static notice, and 401/403/404 show the
-// pageGate card instead of anyone's data, with a way back to the chat.
+// pageGate card instead of anyone's data, with a way back to the chat. The dashboard has
+// two homes: the props' calendarHome picks CalendarHome (the users the calendar home's
+// rollout switch covers), inside its own chunk-load boundary, or today's DashboardClient.
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { Component, createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { notFound, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import type { PageDataResult, PageName, PageNotice, PagePropsMap } from '@/src/lib/page-data';
+import type { CalendarHomeProps, HomeHints } from '@/src/lib/calendar-view/home-props';
 import type { GateLinks } from '@/src/lib/gate-links';
 import { readInitData } from '@/src/lib/read-init-data';
+import { CHUNK_RELOAD_KEY, isChunkLoadError, reloadOnce } from '@/src/lib/calendar-view/reload-guard';
 
 /** The look each page already has: the purple Telegram gradient, or the light Tailwind one. */
 export type Look = 'telegram' | 'light';
@@ -84,6 +88,8 @@ const lightLoader = () => <PageLoader look="light" />;
 
 // Each page's existing client component, loaded only once its data has arrived.
 const Dashboard = dynamic(() => import('./dashboard/DashboardClient'), { loading: telegramLoader });
+// The calendar home (spec §7.1), behind the dashboard's own loader; it applies its look on mount.
+const CalendarHome = dynamic(() => import('./dashboard/CalendarHome'), { loading: telegramLoader });
 const Settings = dynamic(() => import('./settings/SettingsClient'), { loading: telegramLoader });
 const SelectCalendars = dynamic(() => import('./select-calendars/SelectCalendarsClient'), { loading: telegramLoader });
 const Subscription = dynamic(() => import('./subscription/SubscriptionClient'), { loading: telegramLoader });
@@ -92,7 +98,8 @@ const Pair = dynamic(() => import('./pair/PairClient'), { loading: lightLoader }
 
 /** Starts fetching a page's chunk while its data is in flight. */
 const PRELOAD: Record<PageName, () => Promise<unknown>> = {
-  dashboard: () => import('./dashboard/DashboardClient'),
+  // Only the data says which home the dashboard shows, so both start loading
+  dashboard: () => Promise.all([import('./dashboard/DashboardClient'), import('./dashboard/CalendarHome')]),
   settings: () => import('./settings/SettingsClient'),
   'select-calendars': () => import('./select-calendars/SelectCalendarsClient'),
   subscription: () => import('./subscription/SubscriptionClient'),
@@ -100,11 +107,41 @@ const PRELOAD: Record<PageName, () => Promise<unknown>> = {
   pair: () => import('./pair/PairClient'),
 };
 
-/** The JSON props back in the shapes the client components take (Date, Set, Map). */
-function renderPage(page: PageName, props: PagePropsMap[PageName]) {
+/**
+ * The calendar home's props from the dashboard's (spec §7.1). user.id stays the page's
+ * ?user_id, exactly as DashboardClient gets it. page-data always sends hints with
+ * calendarHome; without them no hint is promised (Ruling R10). The trial's days left follow
+ * the old home's trial line, and hasLocation feeds the location banner (spec §7.2).
+ */
+function calendarHomeProps(
+  p: Omit<PagePropsMap['dashboard'], 'calendarHome' | 'hints'>,
+  hints: HomeHints | undefined
+): CalendarHomeProps {
+  return {
+    user: { id: p.user.id, name: p.user.name, isAdmin: p.user.isAdmin },
+    locale: p.locale,
+    calendarSource: p.calendarSource ?? 'NATIVE',
+    needsOAuth: p.needsOAuth,
+    needsCalendars: p.needsCalendars,
+    hints: hints ?? { reminders: false, voiceEvents: false },
+    trialDaysLeft: !p.isEarlyAdopter && p.trial.isTrialing && p.trial.daysRemaining > 0 ? p.trial.daysRemaining : null,
+    hasLocation: Boolean(p.user.location),
+  };
+}
+
+/** The JSON props back in the shapes the client components take (Date, Set, Map). Exported for the smokes. */
+export function renderPage(page: PageName, props: PagePropsMap[PageName]) {
   switch (page) {
     case 'dashboard': {
-      const p = props as PagePropsMap['dashboard'];
+      // calendarHome picks the home; DashboardClient gets exactly the props it always had
+      const { calendarHome, hints, ...p } = props as PagePropsMap['dashboard'];
+      if (calendarHome) {
+        return (
+          <HomeChunkBoundary>
+            <CalendarHome {...calendarHomeProps(p, hints)} />
+          </HomeChunkBoundary>
+        );
+      }
       return <Dashboard {...p} trial={{ ...p.trial, trialEndsAt: p.trial.trialEndsAt ? new Date(p.trial.trialEndsAt) : null }} />;
     }
     case 'settings':
@@ -130,6 +167,58 @@ function renderPage(page: PageName, props: PagePropsMap[PageName]) {
       return <Calendars {...(props as PagePropsMap['calendars'])} />;
     case 'pair':
       return <Pair {...(props as PagePropsMap['pair'])} />;
+  }
+}
+
+function reloadPage() {
+  try {
+    window.location.reload();
+  } catch {
+    // The card stays.
+  }
+}
+
+/** A calendar home that didn't load: the gate's error card, whose button reloads the page. */
+function HomeLoadFailed() {
+  const t = useTranslations('pageGate');
+  return (
+    <GateCard
+      look="telegram"
+      title={t('errorTitle')}
+      lines={[t('errorBody')]}
+      action={
+        <GateActions look="telegram">
+          <GateAction look="telegram" primary onClick={reloadPage}>{t('retry')}</GateAction>
+        </GateActions>
+      }
+    />
+  );
+}
+
+/**
+ * Around the calendar home's chunk (spec §5). The home's own boundary lives inside that
+ * chunk, so it can't catch the chunk itself failing to load, for example after a deploy
+ * lands between the HTML and the chunk's fetch. A chunk-load error reloads the page once,
+ * with the home's guard key (so the two boundaries reload once between them), behind the
+ * loader; within the guard, or for any other error, the gate's error card, whose button
+ * reloads. Never an empty tree. Only the users the switch covers render it. Exported for
+ * the smokes.
+ */
+export class HomeChunkBoundary extends Component<{ children: ReactNode }, { failed: boolean; reloading: boolean }> {
+  state = { failed: false, reloading: false };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { failed: true, reloading: isChunkLoadError(error) };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error('[calendar-home] The home did not load:', error);
+    if (isChunkLoadError(error) && !reloadOnce(CHUNK_RELOAD_KEY)) this.setState({ reloading: false });
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return this.state.reloading ? <PageLoader look="telegram" /> : <HomeLoadFailed />;
   }
 }
 

@@ -43,6 +43,10 @@
 // (R5); the menu (R6); the banners (§7.2), with no Agenda under a Google setup banner;
 // Telegram's BackButton for the item, send and menu sheets; the shell's CSS; the error
 // boundary.
+//
+// PageGate's boundary around the home's chunk (Task D7, #40), in real React: an import
+// that rejects with a ChunkLoadError, as after a deploy, reloads once behind the loader;
+// within the guard, or for any other error, the gate's error card.
 // React must log no warning. No network, no DB, no Redis.
 //
 // Run with the fake env from the task brief (no dotenv), under three clocks:
@@ -69,6 +73,7 @@ import { compareItems, type CalendarDTO, type DayKey, type ItemCalendarDTO, type
 import type { CalendarHomeProps, HomeHints } from '../src/lib/calendar-view/home-props';
 import { formatDayRange, formatDayShort } from '../src/lib/calendar-view/format';
 import { CHUNK_RELOAD_KEY, HomeErrorBoundary } from '../app/[locale]/dashboard/HomeErrorBoundary';
+import { HomeChunkBoundary } from '../app/[locale]/PageGate';
 import { homeBanners, type BannerFacts } from '../app/[locale]/dashboard/HomeBanners';
 import { HOME_SHELL_CSS } from '../app/[locale]/dashboard/home-shell';
 import { menuEntries } from '../app/[locale]/dashboard/MenuSheet';
@@ -2145,7 +2150,51 @@ async function main() {
     }
   });
 
-  await check('#40 React logged no warning in any render, CalendarHome\'s included (keys, nesting, attributes, act)', () => {
+  await check('#40 PageGate\'s boundary around the home\'s chunk (spec §5): an import that rejects with a ChunkLoadError reloads the page once, with the home\'s guard, behind the loader; within the guard, the gate\'s error card, whose button reloads; any other error, the card and no reload; never an empty tree', async () => {
+    assert(typeof HomeChunkBoundary === 'function', 'PageGate exports no HomeChunkBoundary');
+    const gate = messages.he.pageGate;
+    /** What next/dynamic is in the app router: React.lazy inside Suspense, here with an import that rejects. */
+    const failing = (error: Error) => {
+      const Home = React.lazy(() => Promise.reject(error));
+      const loading = createElement('p', null, 'loading the chunk');
+      const el = inApp('he', createElement(HomeChunkBoundary, null, createElement(React.Suspense, { fallback: loading }, createElement(Home))));
+      return mount(el, { onCaughtError: noop, onUncaughtError: noop });
+    };
+    const chunkError = () => Object.assign(new Error('Loading chunk 4471 failed.'), { name: 'ChunkLoadError' });
+    resetHome();
+    appLogs.length = 0;
+    const a = failing(chunkError());
+    await settle();
+    try {
+      assert(show(reloads) === show(['reload']) && fakeWindow.sessionStorage.getItem(CHUNK_RELOAD_KEY) !== null, `one reload, with the home's guard key: ${show(reloads)}`);
+      assert(innerHtml(a.container).includes('pagegate-spin'), `the loader while the page reloads: ${textOf(innerHtml(a.container)).slice(0, 120)}`);
+      assert(appLogs.some((l) => l.startsWith('[calendar-home] The home did not load')), `logged: ${show(appLogs)}`);
+    } finally {
+      a.unmount();
+    }
+    const b = failing(chunkError());
+    await settle();
+    try {
+      assert(show(reloads) === show(['reload']), `not twice within a minute: ${show(reloads)}`);
+      assertHas(textOf(innerHtml(b.container)), [gate.errorTitle, gate.errorBody, gate.retry], 'within the guard, the gate\'s error card');
+      b.click(button(b.container, gate.retry));
+      assert(show(reloads) === show(['reload', 'reload']), 'its button reloads');
+    } finally {
+      b.unmount();
+    }
+    resetHome();
+    const c = failing(new TypeError('x is undefined'));
+    await settle();
+    try {
+      assert(reloads.length === 0, 'another error never reloads by itself');
+      assertHas(textOf(innerHtml(c.container)), [gate.errorTitle, gate.retry], 'the card');
+    } finally {
+      c.unmount();
+    }
+    appLogs.length = 0;
+  });
+
+  await check('#41 React logged no warning in any render, CalendarHome\'s included (keys, nesting, attributes, act)', () => {
     assert(reactWarnings.length === 0, `warnings: ${show(reactWarnings.slice(0, 5))}`);
   });
 

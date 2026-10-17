@@ -9,7 +9,9 @@
  * The bodies below moved here unchanged from the six page.tsx files, except:
  * - select-calendars hands its Sets and Maps over as arrays (JSON); PageGate revives them;
  * - its insufficient-scopes path clears the Google token by DB id, not by telegramId;
- * - dashboard's trial end date travels as an ISO string; PageGate revives the Date.
+ * - dashboard's trial end date travels as an ISO string; PageGate revives the Date;
+ * - dashboard adds calendarHome and, when it is on, the calendar home's hints. PageGate
+ *   picks the home with them and hands DashboardClient the rest.
  * The props are otherwise exactly what each page passed to its client component.
  */
 
@@ -21,7 +23,11 @@ import type CalendarsClient from '@/app/[locale]/calendars/CalendarsClient';
 import type PairClient from '@/app/[locale]/pair/PairClient';
 import type SubscriptionClient from '@/app/[locale]/subscription/SubscriptionClient';
 import { updateUserById } from '@/src/services/user-service';
-import { getSubscriptionWithUsage, getTrialStatus, checkEarlyAdopterAccess } from '@/src/services/subscription-service';
+import { getSubscriptionWithUsage, getTrialStatus, checkEarlyAdopterAccess, checkFeatureAccess } from '@/src/services/subscription-service';
+import { isCalendarHomeOn } from '@/src/services/calendar-read/rollout';
+import { getReminderSupport } from '@/src/services/native-reminders/support';
+import { trackActivityAsync } from '@/src/services/analytics-service';
+import { captureError } from '@/src/lib/error-capture';
 import { listUserCalendars } from '@/src/services/calendar';
 import { listVisibleCalendars } from '@/src/services/native-calendar/event-store';
 import { getActivePartner, getActiveInvite } from '@/src/services/pairing-service';
@@ -30,6 +36,7 @@ import { buildUrl } from '@/src/config/urls';
 import { normalizeLocale } from '@/src/utils/locale';
 import { prisma } from '@/src/utils/prisma';
 import type { CalendarAssignment, CalendarLabel, UserConfig } from '@/src/types';
+import type { HomeHints } from '@/src/lib/calendar-view/home-props';
 
 export const PAGE_NAMES = ['dashboard', 'settings', 'select-calendars', 'calendars', 'pair', 'subscription'] as const;
 export type PageName = (typeof PAGE_NAMES)[number];
@@ -44,9 +51,17 @@ export type PageNotice = 'notNative' | 'noGoogleToken' | 'error';
 type DashboardProps = ComponentProps<typeof DashboardClient>;
 type SelectCalendarsProps = ComponentProps<typeof SelectCalendarsClient>;
 
-/** Dashboard props on the wire: the trial end date is an ISO string. */
+/**
+ * Dashboard props on the wire: the trial end date is an ISO string, and calendarHome says
+ * which home PageGate renders (calendar-home spec §7.1). DashboardClient never gets the
+ * two new fields.
+ */
 export type DashboardPageProps = Omit<DashboardProps, 'trial'> & {
   trial: Omit<DashboardProps['trial'], 'trialEndsAt'> & { trialEndsAt: string | null };
+  /** isCalendarHomeOn(user): CalendarHome instead of DashboardClient. */
+  calendarHome: boolean;
+  /** Set exactly when calendarHome is true: the empty state's how-to-add hints (Ruling R10). */
+  hints?: HomeHints;
 };
 
 /** Select-calendars props on the wire: Sets and Maps as arrays. */
@@ -118,11 +133,12 @@ async function dashboard(user: UserConfig, userId: number, locale: string): Prom
   const needsOAuth = !isNative && !user.googleRefreshToken;
   const needsCalendars = !isNative && (!user.calendarAssignments || user.calendarAssignments.length === 0);
 
-  // Fetch subscription data
-  const [subWithUsage, trialStatus, isEarlyAdopter] = await Promise.all([
+  // Fetch subscription data, and whether the calendar home covers this user
+  const [subWithUsage, trialStatus, isEarlyAdopter, home] = await Promise.all([
     getSubscriptionWithUsage(user.id),
     getTrialStatus(user.id),
     checkEarlyAdopterAccess(user.id),
+    calendarHomeFor(user),
   ]);
 
   const subscription = subWithUsage ? {
@@ -147,8 +163,36 @@ async function dashboard(user: UserConfig, userId: number, locale: string): Prom
     subscription,
     trial: { ...trialStatus, trialEndsAt: trialStatus.trialEndsAt?.toISOString() ?? null },
     isEarlyAdopter,
+    ...home,
   };
+  // One open of the calendar home (spec §7.1), under the DB id like every activity
+  if (home.calendarHome) trackActivityAsync(user.id, 'webapp_opened');
   return { kind: 'props', props };
+}
+
+/**
+ * Whether the calendar home covers this user (the rollout switch, spec §1) and, only
+ * then, its empty state's how-to-add hints (spec §7.3, Ruling R10). Users the switch
+ * doesn't cover never run the two checks. Both are cheap: the feature checks are cached
+ * for 24 h in Redis, and the native-reminders switch is read through Redis.
+ * getReminderSupport already fails closed; a failed voice-events check does too, so a
+ * hint never promises what the plan may lack and never fails the page.
+ */
+async function calendarHomeFor(
+  user: UserConfig
+): Promise<{ calendarHome: false } | { calendarHome: true; hints: HomeHints }> {
+  if (!(await isCalendarHomeOn(user))) return { calendarHome: false };
+  const [reminders, voiceEvents] = await Promise.all([
+    getReminderSupport(user).then((support) => support.supported),
+    checkFeatureAccess(user.id, 'voice_events').then(
+      (access) => access.allowed,
+      (error) => {
+        captureError(error, 'calendar-home-hints', { user_id: user.id }, 'warning');
+        return false;
+      }
+    ),
+  ]);
+  return { calendarHome: true, hints: { reminders, voiceEvents } };
 }
 
 async function settings(user: UserConfig, userId: number, userLocale: string): Promise<PageDataResult> {

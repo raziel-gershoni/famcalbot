@@ -14,6 +14,13 @@
 // Review fix (#9): the dead /oauth-success route looked a user up by the URL's Telegram
 // id with no credential and showed their name.
 //
+// The dashboard branch (calendar-home spec §7.1, §7.3; Plan D, Task D7; #11-#14): the
+// dashboard's props gain calendarHome from the rollout switch and, only when it is on,
+// the empty state's hints and one webapp_opened activity. The switch, the two hint gates
+// (getReminderSupport, checkFeatureAccess) and the activity log run for real over the
+// fakes. The gates are wrapped in recorders, so a check can see they never run while the
+// switch is off.
+//
 // Every check here fails until the fix lands. Numbers follow the design's smoke list.
 //
 // Run with the fake env from the task brief (no dotenv):
@@ -264,6 +271,11 @@ const recorder = (platform: string, prefix: string): Row =>
 const googleCalls: string[] = [];
 /** When set, the stubbed Google calendar list throws this message (#10). */
 let googleListError: string | null = null;
+/** The calendar home's hint gates as called: `<feature>(<user id>)`, and getReminderSupport's user ids (#11-#14). */
+const featureChecks: string[] = [];
+const supportChecks: number[] = [];
+/** When set, checkFeatureAccess throws for this feature (#14). */
+let featureError: string | null = null;
 const Module = nodeRequire('module');
 const stubs: Record<string, Row> = {};
 (globalThis as Row).__smokeStubs = stubs;
@@ -332,6 +344,25 @@ function installStubs() {
   // the page hands it, which is what the RSC payload would carry.
   const DashboardClient = () => null;
   stub('app/[locale]/dashboard/DashboardClient.tsx', { __esModule: true, default: DashboardClient });
+  // The calendar home's hint gates run for real inside recorders. The support module loads
+  // after the wrapped subscription service, so its own 'reminders' check is recorded too.
+  const subscriptionService = nodeRequire(path.join(ROOT, 'src/services/subscription-service.ts'));
+  stub('src/services/subscription-service.ts', {
+    ...subscriptionService,
+    checkFeatureAccess: async (userId: number, feature: string) => {
+      featureChecks.push(`${feature}(${userId})`);
+      if (featureError === feature) throw new Error(`feature check failed in smoke: ${feature}`);
+      return subscriptionService.checkFeatureAccess(userId, feature);
+    },
+  });
+  const reminderSupport = nodeRequire(path.join(ROOT, 'src/services/native-reminders/support.ts'));
+  stub('src/services/native-reminders/support.ts', {
+    ...reminderSupport,
+    getReminderSupport: async (user: Row) => {
+      supportChecks.push(Number(user.id));
+      return reminderSupport.getReminderSupport(user);
+    },
+  });
   globalThis.fetch = (async (input: unknown) => {
     googleCalls.push(`fetch ${String(input)}`);
     throw new Error(`network blocked in smoke: ${String(input)}`);
@@ -368,6 +399,11 @@ function seed() {
   prismaCalls.length = 0;
   googleCalls.length = 0;
   googleListError = null;
+  featureChecks.length = 0;
+  supportChecks.length = 0;
+  featureError = null;
+  // The rollout switch's 30 s memo lives on globalThis: each check starts from its own row
+  delete (globalThis as Row).__calendarHomeRolloutMemo;
   sent.length = 0;
   captured.length = 0;
   DB.user = [
@@ -599,6 +635,99 @@ async function main() {
     const body = await fullBody(res);
     assert(body.includes('redirect'), `no redirect: status ${res.status} ${await bodyOf(res)}`);
     assert(body.includes('"/refresh-token?user_id=8880004"'), `the redirect is not to /refresh-token?user_id=8880004: ${await bodyOf(res)}`);
+  });
+
+  // ---- The dashboard branch: the calendar home's switch, hints and open (spec §7.1, §7.3) ----
+
+  const { REDIS_KEYS } = await load('src/config/redis-keys.ts');
+  const show = (value: unknown) => JSON.stringify(value);
+  /** The dashboard's props as page-data sent them before the calendar home. */
+  const TODAY_KEYS = ['user', 'calendarAssignments', 'locale', 'calendarSource', 'needsOAuth', 'needsCalendars', 'subscription', 'trial', 'isEarlyAdopter'];
+  const keysOf = (value: Row) => Object.keys(value).sort().join(',');
+  const hintsOf = (props: Row) => `reminders=${props.hints?.reminders} voiceEvents=${props.hints?.voiceEvents}`;
+  const rollout = (value: string) => {
+    DB.adminSettings = [{ id: 'global', calendarHomeRollout: value, nativeRemindersEnabled: true }];
+  };
+  /** A feature check's answer in the 24 h cache checkFeatureAccess reads first. */
+  const cacheFeature = (userId: number, feature: string, allowed: boolean) => {
+    redisStore.set(REDIS_KEYS.featureAccess(userId, feature), JSON.stringify({ allowed }));
+  };
+  /** The users whose webapp_opened rows landed (trackActivityAsync is fire and forget). */
+  const opens = async (): Promise<number[]> => {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    return (DB.userActivity ?? []).filter((r: Row) => r.action === 'webapp_opened').map((r: Row) => Number(r.userId));
+  };
+  /** page-data's dashboard props for a Telegram user, opened with their own initData. */
+  const dashboardFor = async (tgId: number, locale: string): Promise<Row> => {
+    const res = await pageData({ page: 'dashboard', user_id: tgId, locale, initData: initDataFor(tgId) });
+    const body = res.status === 200 ? await res.clone().json() : null;
+    assert(body?.kind === 'props', `${tgId}: status ${res.status} ${await bodyOf(res)}`);
+    return body.props as Row;
+  };
+
+  await check('#11 dashboard with the switch OFF (no row): today\'s props plus calendarHome false, no hints; no hint check runs and no open is logged', async () => {
+    seed();
+    (DB.user.find((u: Row) => u.id === 1) as Row).isAdmin = true; // an admin too: only the switch decides
+    const problems: string[] = [];
+    for (const [tgId, locale] of [[5550001, 'he'], [8880004, 'en']] as const) {
+      const props = await dashboardFor(tgId, locale);
+      const want = [...TODAY_KEYS, 'calendarHome'].sort().join(',');
+      if (keysOf(props) !== want) problems.push(`${tgId}: keys ${keysOf(props)} (want ${want})`);
+      if (props.calendarHome !== false) problems.push(`${tgId}: calendarHome ${show(props.calendarHome)}`);
+    }
+    if (featureChecks.length || supportChecks.length) problems.push(`hint checks ran: ${show({ featureChecks, supportChecks })}`);
+    const opened = await opens();
+    if (opened.length) problems.push(`webapp_opened for ${show(opened)}`);
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#12 the switch at ADMINS: a non-admin keeps today\'s dashboard with no hint check; an admin gets calendarHome, the hints and one webapp_opened under the DB id', async () => {
+    seed();
+    rollout('ADMINS');
+    (DB.user.find((u: Row) => u.id === 4) as Row).isAdmin = true;
+    cacheFeature(4, 'voice_events', true);
+    const problems: string[] = [];
+    const dana = await dashboardFor(5550001, 'he');
+    if (dana.calendarHome !== false || 'hints' in dana) problems.push(`non-admin: calendarHome ${show(dana.calendarHome)}, hints ${show(dana.hints)}`);
+    if (featureChecks.length || supportChecks.length) problems.push(`hint checks ran for the non-admin: ${show({ featureChecks, supportChecks })}`);
+    const gina = await dashboardFor(8880004, 'en');
+    const want = [...TODAY_KEYS, 'calendarHome', 'hints'].sort().join(',');
+    if (gina.calendarHome !== true || keysOf(gina) !== want) problems.push(`admin: calendarHome ${show(gina.calendarHome)}, keys ${keysOf(gina)} (want ${want})`);
+    // A Google user: getReminderSupport answers not_native before any feature check
+    if (hintsOf(gina) !== 'reminders=false voiceEvents=true' || keysOf(gina.hints ?? {}) !== 'reminders,voiceEvents') problems.push(`admin hints ${show(gina.hints)}`);
+    if (show(featureChecks) !== show(['voice_events(4)']) || show(supportChecks) !== show([4])) problems.push(`hint checks ${show({ featureChecks, supportChecks })}`);
+    const opened = await opens();
+    if (show(opened) !== show([4])) problems.push(`webapp_opened for ${show(opened)} (want [4]: the DB id, once)`);
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#13 the hints are the real gates (R10): a FamCal user on Telegram with reminders and no voice events; the native-reminders switch off clears reminders; ALL covers non-admins; one open per load', async () => {
+    seed();
+    rollout('ALL');
+    cacheFeature(1, 'reminders', true);
+    cacheFeature(1, 'voice_events', false);
+    const problems: string[] = [];
+    const first = await dashboardFor(5550001, 'he');
+    if (first.calendarHome !== true) problems.push(`calendarHome ${show(first.calendarHome)}`);
+    if (hintsOf(first) !== 'reminders=true voiceEvents=false') problems.push(`hints ${hintsOf(first)}`);
+    if (!featureChecks.includes('reminders(1)') || !featureChecks.includes('voice_events(1)')) problems.push(`feature checks ${show(featureChecks)}`);
+    redisStore.set(REDIS_KEYS.NATIVE_REMINDERS_ENABLED, 'false');
+    const second = await dashboardFor(5550001, 'he');
+    if (hintsOf(second) !== 'reminders=false voiceEvents=false') problems.push(`with native reminders off: ${hintsOf(second)}`);
+    const opened = await opens();
+    if (show(opened) !== show([1, 1])) problems.push(`webapp_opened for ${show(opened)} (want [1,1]: once per load)`);
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#14 a failing voice-events check reads as no hint: the page still answers, voiceEvents false, with a warning', async () => {
+    seed();
+    rollout('ALL');
+    cacheFeature(1, 'reminders', true);
+    featureError = 'voice_events';
+    const props = await dashboardFor(5550001, 'he');
+    assert(props.calendarHome === true && hintsOf(props) === 'reminders=true voiceEvents=false',
+      `calendarHome ${show(props.calendarHome)}, ${hintsOf(props)}`);
+    assert(captured.some(c => c.startsWith('calendar-home-hints: ') && c.includes('voice_events')), `captured: ${show(captured)}`);
   });
 
   let failed = 0;
