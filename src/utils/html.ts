@@ -174,10 +174,35 @@ function replaceLinks(text: string): string {
   return out + text.slice(from);
 }
 
+/**
+ * A run of spaces, tabs, line breaks and block marks (\u0001) as htmlToPlain leaves it: a
+ * run with a block mark becomes as many line breaks as it held, and at least one, so the
+ * words on either side of a mark never run together and a block adds a line break only
+ * where the run has none. A run without a mark stays. Entities are decoded later, so an
+ * encoded break (&#10;) is text here.
+ */
+function breakBlocks(run: string): string {
+  return run.includes('\u0001') ? '\n'.repeat(Math.max(1, run.split('\n').length - 1)) : run;
+}
+
+/**
+ * Outlook's, Teams' and pasted web text's blocks, which start and end a line: headings,
+ * paragraphs and divs where they open, tables and their rows, lists, quotes, <pre>, <hr>.
+ */
+const BLOCK_TAG = /<\/?(?:h[1-6]|table|tr|ul|ol|blockquote|pre)(?=[\s/>])[^>]*>|<(?:p|div|hr)(?=[\s/>])[^>]*>/gi;
+
 function htmlToPlain(html: string): string {
-  const linked = replaceLinks(dropBlocks(dropComments(html.replace(/\r\n?/g, '\n'))));
+  const linked = replaceLinks(dropBlocks(dropComments(html.replace(/[\u0001\u0002]/g, '').replace(/\r\n?/g, '\n'))));
   const lined = replaceTag(linked, /<br(?=[\s/>])[^>]*>/gi, '\n').replace(/<\/(?:p|div|li)\s*>/gi, '\n');
-  const text = replaceTag(replaceTag(lined, /<li(?=[\s/>])[^>]*>/gi, '• '), ANY_TAG, '');
+  // A list item starts a line (\u0001, a block mark) with its bullet (\u0002, written below).
+  const listed = replaceTag(lined, /<li(?=[\s/>])[^>]*>/gi, '\u0001\u0002');
+  // A block starts and ends a line; a table cell is set apart by a space.
+  const celled = replaceTag(replaceTag(listed, BLOCK_TAG, '\u0001'), /<t[dh](?=[\s/>])[^>]*>/gi, ' ');
+  const text = replaceTag(celled, ANY_TAG, '')
+    // A bullet keeps its item on its line, past the item's own <p> or spaces.
+    .replace(/\u0002[ \t\u0001]*/g, '\u0002')
+    .replace(/[ \t\n\u0001]+/g, breakBlocks)
+    .replace(/\u0002/g, '• ');
   return trimLines(decodeEntities(text).replace(/\u00a0/g, ' '))
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -187,7 +212,13 @@ function htmlToPlain(html: string): string {
  * A Google event description as plain text. Google keeps descriptions as HTML ("Line
  * one<br>Line two", links, "&amp;"); the home shows the text and the summaries put it in
  * the prompt, so both read the same thing.
- * - <br>, </p>, </li> and </div> become a newline, <li> becomes "• ";
+ * - <br>, </p>, </li> and </div> become a newline, <li> starts a line with "• ";
+ * - headings, paragraphs, divs, tables and their rows, lists, quotes, <pre> and <hr>
+ *   start and end a line, adding a line break only where the text has none yet (a
+ *   newline, or a tag above), and a table cell is set apart by a space, so an Outlook or
+ *   Teams invite's blocks don't run two words together. Not inside a link, whose text is
+ *   flattened first; and an encoded break (&#10;) is decoded after, so a block next to
+ *   one adds a blank line;
  * - <a href=u>t</a> becomes "t (u)", or u when the text is the address;
  * - other tags go (a <style> or <script> block with its content), entities are decoded;
  * - runs of blank lines collapse to one, and the ends are trimmed.

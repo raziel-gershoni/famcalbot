@@ -376,7 +376,17 @@ async function main() {
       'Microsoft Teams\nJoin<https://teams.microsoft.com/l/x>\nLi Wang <li.wang@corp.com>',
       'raw <…> inside HTML stays',
     );
-    assertEq(htmlToText('<html-blob><u>Notes</u><o:p></o:p></html-blob><H1>Agenda</H1>'), 'NotesAgenda', 'Google\'s and Outlook\'s own tags still go');
+    assertEq(htmlToText('<html-blob><u>Notes</u><o:p></o:p></html-blob><H1>Agenda</H1>'), 'Notes\nAgenda', 'Google\'s and Outlook\'s own tags still go, and a heading starts its line');
+  });
+
+  await check('htmlToText: blocks (headings, paragraphs, tables, lists, quotes, pre, hr) start and end a line, a table cell is set apart, and a block next to a line break adds no second one', () => {
+    assertEq(htmlToText('<h1>Agenda</h1><p>Budget</p>'), 'Agenda\nBudget', 'a heading');
+    assertEq(htmlToText('<table><tr><td>Agenda</td><td>Budget</td></tr><tr><th>Q1</th><th>Q2</th></tr></table><h2>Join</h2><p>Room 4</p>'), 'Agenda Budget\nQ1 Q2\nJoin\nRoom 4', 'an Outlook table, a heading, a paragraph');
+    assertEq(htmlToText('Agenda:<ul><li>Budget<li>Hiring</ul>Bring laptops'), 'Agenda:\n• Budget\n• Hiring\nBring laptops', 'a list whose items are not closed');
+    assertEq(htmlToText('<ul><li><p>First</p></li><li><p>Second</p></li></ul>'), '• First\n\n• Second', 'a bullet keeps its paragraph');
+    assertEq(htmlToText('One<hr>Two<blockquote>Quoted</blockquote>Three<pre>line 1\nline 2</pre>after'), 'One\nTwo\nQuoted\nThree\nline 1\nline 2\nafter', 'a rule, a quote, pre');
+    assertEq(htmlToText('Hi<p>There</p>Intro<div>Body</div>'), 'Hi\nThere\nIntro\nBody', 'paragraphs and divs where they open');
+    assertEq(htmlToText('<p>Agenda:</p><ul><li>Budget</li></ul><p>Next</p>'), 'Agenda:\n• Budget\nNext', 'a block next to </p> adds no second line break');
   });
 
   await check('htmlToText: the cut is 500 code points and never splits an emoji', () => {
@@ -489,6 +499,9 @@ async function main() {
       '"href=\\"" repeated in one <a>': fill('href="', '>x</a>', '<a '),
       '"<b " repeated inside a link': fill('<b ', '</a>', '<a href=x>'),
       '<b>, then spaces': '<b>' + ' '.repeat(size - 4) + '.',
+      '"<h1 " repeated': fill('<h1 '),
+      '"<td " repeated': fill('<td '),
+      '"<p " repeated': fill('<p '),
     };
     const slow: string[] = [];
     for (const [name, description] of Object.entries(shapes)) {

@@ -317,7 +317,8 @@ Applies only when `calendarSource === 'GOOGLE'`. The calendar set is `user.calen
 
    Per-event `colorId` is ignored in step 1.
 8. **`htmlToText(s, 500)`:**
-   - `<br>`, `</p>`, `</li>` and `</div>` become a newline; `<li>` becomes "• ";
+   - `<br>`, `</p>`, `</li>` and `</div>` become a newline; `<li>` starts a line with "• ";
+   - headings (`h1`–`h6`), tables and their rows (`table`, `tr`), lists (`ul`, `ol`), `blockquote` and `pre` start and end a line, and so do `p`, `div` and `hr` where they open, with a line break added only where the text has none yet (a newline, or a tag above); a table cell (`td`, `th`) is set apart by a space. So an Outlook or Teams invite's blocks don't run words together: `<h1>Agenda</h1><p>Budget</p>` is "Agenda" and "Budget" on two lines, and a row of cells reads "Agenda Budget". Two limits: blocks inside a link still run together, because the link's text is flattened first (`<a href=u><h1>Join</h1><p>Room 4</p></a>` is "JoinRoom 4 (u)"), and an encoded line break (`&#10;`) is decoded afterwards, so a block next to one adds a blank line;
    - `<a href=u>t</a>` becomes `t (u)` when t ≠ u, else `u`;
    - other tags are stripped; named and numeric entities are decoded;
    - runs of blank lines collapse; the result is cut at 500 code points.
