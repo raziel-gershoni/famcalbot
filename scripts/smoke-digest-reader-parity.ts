@@ -156,6 +156,12 @@ async function runVirtual<T>(work: () => Promise<T>): Promise<T> {
     for (;;) {
       for (let i = 0; i < 50 && !settled; i++) await new Promise(resolve => setImmediate(resolve));
       if (settled) return await result;
+      // With no timer to fire yet, the work may still be on its way to one: on Node 22 the
+      // stall check's token step takes 51 turns to start its deadline. Keep turning first.
+      for (let i = 0; i < 10_000 && !settled && !virtualTimers.some(t => !t.cleared); i++) {
+        await new Promise(resolve => setImmediate(resolve));
+      }
+      if (settled) return await result;
       const next = virtualTimers.filter(t => !t.cleared).sort((a, b) => a.due - b.due || a.seq - b.seq)[0];
       if (!next) throw new Error('virtual time: the work is waiting on something that is not a timer');
       next.cleared = true;
