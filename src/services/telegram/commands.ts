@@ -4,11 +4,10 @@
  */
 
 import TelegramBot from 'node-telegram-bot-api';
-import { getUserByTelegramId, getUserByIdentifier, getOrCreateUser, clearGoogleRefreshToken, TelegramUserInfo } from '../user-service';
+import { getUserByTelegramId, getUserByIdentifier, getOrCreateUser, TelegramUserInfo } from '../user-service';
 import { MessagingPlatform, MessageFormat, IMessagingService } from '../messaging';
 import { getMessagingService as getMessagingServiceByPlatform } from '../messaging';
 import type { StreamMessageHandle } from '../messaging/types';
-import type { UserConfig } from '../../types';
 import { buildUrl } from '../../config/urls';
 import { SHARE_STORY_LABELS, getLabel } from '../../config/labels';
 import { REDIS_KEYS } from '../../config/redis-keys';
@@ -26,6 +25,7 @@ import {
   sendTomorrowSummaryToUser,
   routeTextMessage,
 } from './summary';
+import { answerGoogleReadError } from './google-read-errors';
 
 /**
  * Check if user is authorized (supports both Telegram ID and WhatsApp phone).
@@ -494,78 +494,6 @@ export async function handleWeatherCommand(
 }
 
 /**
- * /week's and /nextweek's answers to Google's failures (spec §3.1 step 5, Ruling R14).
- * With the calendar home on, the week reads through the shared reader, which throws them:
- * - a dead token or missing permissions get the on-demand daily summary's answers, and
- *   missing permissions clear the token, as there;
- * - an outage, after the reader's quick retry, gets "couldn't reach Google Calendar",
- *   with no admin notice.
- * Anything else falls through to the pipeline's error text and admin notice. Today's read
- * (switch off) never throws these: it skips a calendar that fails.
- */
-async function answerWeekError(
-  error: Error,
-  ctx: {
-    chatId: number | string;
-    user: UserConfig;
-    userLanguage: string;
-    messagingService: IMessagingService;
-    streamHandle?: StreamMessageHandle;
-  }
-): Promise<boolean> {
-  const { chatId, user, userLanguage, messagingService, streamHandle } = ctx;
-
-  if (error.message === 'GOOGLE_INSUFFICIENT_SCOPES') {
-    const t = await getBotMessages(userLanguage);
-    const scopesMessage = `${t.insufficientScopes.title}\n\n${t.insufficientScopes.message}`;
-    await messagingService.sendMessage(chatId, scopesMessage, {
-      format: MessageFormat.HTML
-    });
-
-    if (user.telegramId) {
-      await clearGoogleRefreshToken(BigInt(user.telegramId));
-    }
-
-    const { notifyAdminWarning } = await import('../../utils/error-notifier');
-    await notifyAdminWarning(
-      'Insufficient Scopes',
-      `User ${user.id} has a token with insufficient scopes. Token cleared, awaiting re-authorization.`
-    );
-    return true;
-  }
-
-  if (error.message === 'GOOGLE_TOKEN_EXPIRED') {
-    const t = await getBotMessages(userLanguage);
-    const expiredMessage = `${t.tokenExpired.title}\n\n${t.tokenExpired.message}`;
-    await messagingService.sendMessage(chatId, expiredMessage, {
-      format: MessageFormat.HTML
-    });
-
-    const { notifyAdminWarning } = await import('../../utils/error-notifier');
-    await notifyAdminWarning(
-      'Token Expired',
-      `User ${user.id} needs to refresh their Google Calendar token`
-    );
-    return true;
-  }
-
-  if (error.message === 'GOOGLE_FETCH_FAILED') {
-    const t = await getBotMessages(userLanguage);
-    const unreachable: string = t.errors.googleUnreachable;
-    // An open draft collapses into the answer, as the pipeline's own error texts do. HTML,
-    // as the daily summary sends this text and as the answers above are sent.
-    if (streamHandle) {
-      await streamHandle.cancel(unreachable, { format: MessageFormat.HTML });
-    } else {
-      await messagingService.sendMessage(chatId, unreachable, { format: MessageFormat.HTML });
-    }
-    return true;
-  }
-
-  return false;
-}
-
-/**
  * Handle /lookahead command
  * Displays notable upcoming events for the week
  */
@@ -664,7 +592,7 @@ export async function handleLookaheadCommand(
         );
       }
     },
-    onError: (error) => answerWeekError(error, { chatId, user, userLanguage, messagingService, streamHandle }),
+    onError: (error) => answerGoogleReadError(error, { chatId, user, userLanguage, messagingService, streamHandle }),
   });
 }
 
@@ -766,7 +694,7 @@ export async function handleNextWeekCommand(
         );
       }
     },
-    onError: (error) => answerWeekError(error, { chatId, user, userLanguage, messagingService, streamHandle }),
+    onError: (error) => answerGoogleReadError(error, { chatId, user, userLanguage, messagingService, streamHandle }),
   });
 }
 

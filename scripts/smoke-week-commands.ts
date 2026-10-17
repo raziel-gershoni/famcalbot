@@ -153,6 +153,7 @@ const stubs: Record<string, Record<string, unknown>> = {
     sendTomorrowSummaryToUser: async () => undefined,
     routeTextMessage: async (_chatId: unknown, text: string) => { deliveries.push(text); },
   },
+  // google-read-errors.ts is deliberately NOT stubbed: the real shared answers run.
   [`${SRC}/services/analytics-service.ts`]: { trackActivityAsync: () => undefined, addBreadcrumb: () => undefined },
   [`${SRC}/services/subscription-service.ts`]: { checkFeatureAccess: async () => ({ allowed: true }), incrementUsage: async () => undefined },
   [`${SRC}/lib/error-capture.ts`]: { captureError: () => undefined, captureWarning: () => undefined, captureInfo: () => undefined },

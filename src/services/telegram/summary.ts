@@ -47,6 +47,7 @@ import { SHARE_STORY_LABELS, TELEGRAM_CTA_LABELS, getLabel } from '../../config/
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { executeCommand } from './command-pipeline';
 import { getBotMessages } from '../../lib/bot-messages';
+import { answerGoogleReadError } from './google-read-errors';
 import { trackActivityAsync } from '../analytics-service';
 import { checkFeatureAccess, incrementUsage } from '../subscription-service';
 import { SCHEDULED_READ, SCHEDULED_RETRY_READ } from '../calendar-read/digest';
@@ -349,58 +350,7 @@ export async function sendSummaryToUser(
         summaryDate,
       });
     },
-    onError: async (error) => {
-      if (error.message === 'GOOGLE_INSUFFICIENT_SCOPES') {
-        const t = await getBotMessages(userLanguage);
-        const scopesMessage = `${t.insufficientScopes.title}\n\n${t.insufficientScopes.message}`;
-        await messagingService.sendMessage(chatId, scopesMessage, {
-          format: MessageFormat.HTML
-        });
-
-        if (user.telegramId) {
-          const { clearGoogleRefreshToken } = await import('../user-service');
-          await clearGoogleRefreshToken(BigInt(user.telegramId));
-        }
-
-        const { notifyAdminWarning } = await import('../../utils/error-notifier');
-        await notifyAdminWarning(
-          'Insufficient Scopes',
-          `User ${user.id} has a token with insufficient scopes. Token cleared, awaiting re-authorization.`
-        );
-        return true;
-      }
-
-      if (error.message === 'GOOGLE_TOKEN_EXPIRED') {
-        const t = await getBotMessages(userLanguage);
-        const expiredMessage = `${t.tokenExpired.title}\n\n${t.tokenExpired.message}`;
-        await messagingService.sendMessage(chatId, expiredMessage, {
-          format: MessageFormat.HTML
-        });
-
-        const { notifyAdminWarning } = await import('../../utils/error-notifier');
-        await notifyAdminWarning(
-          'Token Expired',
-          `User ${user.id} needs to refresh their Google Calendar token`
-        );
-        return true;
-      }
-
-      // Ruling R13: Google couldn't be reached, even after the reader's quick retry. It
-      // isn't the user's token, so they're told to try again in a minute, and no admin
-      // is paged.
-      if (error.message === 'GOOGLE_FETCH_FAILED') {
-        const t = await getBotMessages(userLanguage);
-        const unreachable = t.errors.googleUnreachable;
-        if (streamHandle) {
-          await streamHandle.cancel(unreachable, { format: MessageFormat.HTML });
-        } else {
-          await messagingService.sendMessage(chatId, unreachable, { format: MessageFormat.HTML });
-        }
-        return true;
-      }
-
-      return false;
-    },
+    onError: error => answerGoogleReadError(error, { chatId, user, userLanguage, messagingService, streamHandle }),
   });
 }
 
