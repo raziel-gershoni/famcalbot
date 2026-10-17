@@ -72,6 +72,9 @@ export function onTelegramEvent(event: TelegramWebAppEventType, handler: () => v
   };
 }
 
+/** The handler useTelegramBackButton has on the button now, for releaseTelegramBackButton. */
+let liveBackHandler: (() => void) | null = null;
+
 /**
  * Telegram's BackButton (Bot API 6.1+) while `active`; a tap calls the latest `onBack`.
  * - On mount it hides the button: the client keeps it across reloads.
@@ -95,11 +98,26 @@ export function useTelegramBackButton(active: boolean, onBack: () => void): void
       tg.BackButton.onClick(handler);
       tg.BackButton.show();
     });
+    liveBackHandler = handler;
     return () => {
+      if (liveBackHandler === handler) liveBackHandler = null;
       tgCall(BACK_BUTTON, 'BackButton.offClick', (tg) => tg.BackButton.offClick(handler));
       tgCall(BACK_BUTTON, 'BackButton.hide', (tg) => tg.BackButton.hide());
     };
   }, [active]);
+}
+
+/**
+ * Lets the BackButton go at once, outside React: offClick(the live handler, if any), then
+ * hide(). For a page reload (spec §5: 404 not_enabled, a chunk-load error), which runs no
+ * React cleanup while the client keeps the button across it (§7.6): otherwise the page
+ * after the reload would show a back button that does nothing.
+ */
+export function releaseTelegramBackButton(): void {
+  const handler = liveBackHandler;
+  liveBackHandler = null;
+  if (handler) tgCall(BACK_BUTTON, 'BackButton.offClick', (tg) => tg.BackButton.offClick(handler));
+  tgCall(BACK_BUTTON, 'BackButton.hide', (tg) => tg.BackButton.hide());
 }
 
 export type ColorScheme = 'light' | 'dark';

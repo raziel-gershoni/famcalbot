@@ -30,6 +30,19 @@
 //    no hint, no fold, no placeholders;
 //  - the colours: the brand fallbacks are globals.css's tokens, and the page's root takes
 //    the theme's background while the home is mounted.
+//
+// CalendarHome (Task D6, #21-#39), the container around the Agenda, in real React with
+// a fake fetch (spec §5, §7.1, §7.2, §7.6; Rulings R5, R6, R19): one range request per
+// applicable source, with no dates and the init data in the header only; the header
+// (the server's today, its Hebrew date, "Times in <zone>" only when the device is
+// elsewhere); RTL; "Show next week", the foreground refetch, ⋯ → Refresh with fresh=1,
+// the stale re-request and the Google error retry; midnight, also when the app comes
+// back after a night with its timers suspended; a range request that never settles
+// timing out; 404 not_enabled reloading once, with Telegram's BackButton let go first;
+// 401/403/404 on PageGate's card; the busy and retry cards; the send sheet's answers
+// (R5); the menu (R6); the banners (§7.2), with no Agenda under a Google setup banner;
+// Telegram's BackButton for the item, send and menu sheets; the shell's CSS; the error
+// boundary.
 // React must log no warning. No network, no DB, no Redis.
 //
 // Run with the fake env from the task brief (no dotenv), under three clocks:
@@ -37,7 +50,8 @@
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-calendar-home-render.ts
 //   TZ=Pacific/Kiritimati npx tsx scripts/smoke-calendar-home-render.ts
 
-// The view first: the import-rule check walks what these load.
+// The views first: the import-rule checks walk what these load.
+import CalendarHome, { CalendarHomeContainer, NOT_ENABLED_RELOAD_KEY, type HomeDeps } from '../app/[locale]/dashboard/CalendarHome';
 import { AgendaView, AGENDA_CSS, type AgendaViewProps } from '../app/[locale]/dashboard/AgendaView';
 import { ItemSheet } from '../app/[locale]/dashboard/ItemSheet';
 import { HOME_THEME_CSS } from '../app/[locale]/dashboard/home-theme';
@@ -52,8 +66,14 @@ import { NextIntlClientProvider } from 'next-intl';
 import { buildAgenda, type AgendaModel, type AgendaRow } from '../src/lib/calendar-view/agenda';
 import { addDaysToKey, daysInWindow, emptyStore, reduceStore, type CalendarStore, type StoreAction } from '../src/lib/calendar-view/store';
 import { compareItems, type CalendarDTO, type DayKey, type ItemCalendarDTO, type ItemDTO, type ItemReminderDTO, type RangeResponse } from '../src/lib/calendar-view/types';
-import type { HomeHints } from '../src/lib/calendar-view/home-props';
+import type { CalendarHomeProps, HomeHints } from '../src/lib/calendar-view/home-props';
 import { formatDayRange, formatDayShort } from '../src/lib/calendar-view/format';
+import { CHUNK_RELOAD_KEY, HomeErrorBoundary } from '../app/[locale]/dashboard/HomeErrorBoundary';
+import { homeBanners, type BannerFacts } from '../app/[locale]/dashboard/HomeBanners';
+import { HOME_SHELL_CSS } from '../app/[locale]/dashboard/home-shell';
+import { menuEntries } from '../app/[locale]/dashboard/MenuSheet';
+import { isChunkLoadError, isPastDay, msUntilDayCheck, zoneDiffers } from '../src/lib/calendar-view/home-client';
+import { ERROR_RETRY_MS, RANGE_TIMEOUT_MS, STALE_RETRY_MS } from '../src/lib/calendar-view/home-loader';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -89,11 +109,19 @@ const messages: Record<Locale, Row> = {
 // ---- React must not warn ----
 
 const reactWarnings: string[] = [];
+/** The app's own log lines (sendToChat's, the error boundary's): some checks expect them; they are never React's. */
+const appLogs: string[] = [];
 for (const level of ['error', 'warn'] as const) {
   const original = console[level].bind(console);
   console[level] = (...args: unknown[]) => {
     const text = args.map(String).join(' ');
     if (text.startsWith('[telegram-ui]')) return original(...args);
+    // Node's own warnings (tsx's module.register() deprecation on Node 26 lands here, at a time that varies) aren't React's.
+    if (text.startsWith('(node:')) return original(...args);
+    if (text.startsWith('[command-client]') || text.startsWith('[calendar-home]')) {
+      appLogs.push(text.slice(0, 300));
+      return;
+    }
     reactWarnings.push(text.slice(0, 300));
   };
 }
@@ -532,10 +560,10 @@ type Mounted = {
   unmount: () => void;
 };
 
-function mount(el: ReactElement): Mounted {
+function mount(el: ReactElement, rootOptions?: Row): Mounted {
   const { createRoot } = nodeRequire('react-dom/client');
   const container = new FakeElement('div', HTML_NS);
-  const root = createRoot(container);
+  const root = createRoot(container, rootOptions);
   React.act(() => root.render(el));
   const dispatch = (target: FakeNode, type: string, extra: Row) => {
     const event: Row = {
@@ -590,6 +618,236 @@ function button(node: FakeNode, text: string): FakeElement {
   return found[0];
 }
 const byClass = (node: FakeNode, cls: string) => elements(node).filter((e) => e.className.split(' ').includes(cls));
+
+// ---- CalendarHome (D6): a fake fetch, a fake clock, a fake Telegram, the fake DOM as HTML ----
+
+/** One request the home made: the range route or execute-command. */
+type FetchCall = {
+  url: string;
+  path: string;
+  query: URLSearchParams;
+  method: string;
+  headers: Record<string, string>;
+  body: Row | null;
+  credentials?: string;
+  cache?: string;
+  /** The request's AbortSignal (fetchRange's time limit). */
+  signal?: { aborted: boolean };
+};
+type FetchAnswer = { status: number; body?: unknown } | 'throw';
+const fetchCalls: FetchCall[] = [];
+/** What the fake fetch answers; each check sets it. A promise holds the answer back. */
+let answerFetch: (call: FetchCall) => FetchAnswer | Promise<FetchAnswer> = () => ({ status: 500, body: { error: 'no answer set' } });
+
+async function fakeFetch(input: unknown, init: Row = {}): Promise<Row> {
+  const url = String(input);
+  const parsed = new URL(url, 'https://famcal.test');
+  const call: FetchCall = {
+    url,
+    path: parsed.pathname,
+    query: parsed.searchParams,
+    method: String(init.method ?? 'GET'),
+    headers: { ...(init.headers ?? {}) },
+    body: typeof init.body === 'string' ? JSON.parse(init.body) : null,
+    credentials: init.credentials,
+    cache: init.cache,
+    signal: init.signal,
+  };
+  fetchCalls.push(call);
+  const reply = await answerFetch(call);
+  if (reply === 'throw') throw new TypeError('Failed to fetch (smoke)');
+  return { status: reply.status, ok: reply.status >= 200 && reply.status < 300, json: async () => reply.body };
+}
+const rangeCalls = () => fetchCalls.filter((c) => c.path === '/api/calendar/range');
+const sendCalls = () => fetchCalls.filter((c) => c.path === '/api/execute-command');
+/** A range call as "<source> <from>→<to>[ fresh]", or "<source> default" with no dates. */
+const describeRange = (c: FetchCall) =>
+  `${c.query.get('sources')} ${c.query.has('from') ? `${c.query.get('from')}→${c.query.get('to')}` : 'default'}${c.query.get('fresh') === '1' ? ' fresh' : ''}`;
+const ranges = () => rangeCalls().map(describeRange);
+const ok200 = (body: unknown): FetchAnswer => ({ status: 200, body });
+/** The answer to a range call for its own window (the no-dates one is week 0). */
+const answerFor = (c: FetchCall, o: Partial<RangeResponse> & { items?: Record<DayKey, ItemDTO[]> } = {}) =>
+  ok200(answer({ from: c.query.get('from') ?? TODAY, to: c.query.get('to') ?? day(7), ...o }));
+
+/** Lets every pending promise, and the renders and effects they cause, run inside act. */
+async function settle() {
+  await React.act(async () => {
+    for (let i = 0; i < 6; i++) await new Promise((resolve) => setImmediate(resolve));
+  });
+}
+
+/** A clock for CalendarHomeContainer's deps: its timers run only on advance(). */
+function fakeClock(startIso: string, deviceZone: string | null = TZ) {
+  let now = Date.parse(startIso);
+  let seq = 0;
+  const timers: { id: number; at: number; run: () => void }[] = [];
+  const deps: HomeDeps = {
+    now: () => now,
+    setTimer: (run, ms) => {
+      const id = ++seq;
+      timers.push({ id, at: now + ms, run });
+      return () => {
+        const i = timers.findIndex((t) => t.id === id);
+        if (i >= 0) timers.splice(i, 1);
+      };
+    },
+    deviceTimeZone: () => deviceZone,
+  };
+  return {
+    deps,
+    /** Moves the clock on, running each timer that falls due, in order. */
+    advance: async (ms: number) => {
+      const end = now + ms;
+      for (;;) {
+        timers.sort((a, b) => a.at - b.at || a.id - b.id);
+        const next = timers[0];
+        if (!next || next.at > end) break;
+        timers.shift();
+        now = next.at;
+        await React.act(async () => next.run());
+        await settle();
+      }
+      now = end;
+    },
+    /** Moves the clock on without running any timer, as iOS does while the app is suspended. */
+    jump: (ms: number) => {
+      now += ms;
+    },
+    /** The pending timers' delays from now, shortest first. */
+    pending: () => timers.map((t) => t.at - now).sort((a, b) => a - b),
+  };
+}
+
+/** A fake Telegram.WebApp for the home (Bot API 8.0 by default, so `activated` exists). BackButton handlers ride on backButtonClicked, as the SDK's do. */
+function fakeTelegramHome(o: { version?: string; scheme?: 'light' | 'dark'; closeThrows?: boolean } = {}) {
+  const calls: string[] = [];
+  const events = new Map<string, Set<() => void>>();
+  const version = o.version ?? '8.0';
+  const webApp: Row = {
+    initData: 'query_id=AAE&user=%7B%22id%22%3A5550001%7D&auth_date=1792000000&hash=abc',
+    version,
+    colorScheme: o.scheme ?? 'light',
+    isVersionAtLeast: (v: string) => Number(v) <= Number(version),
+    setHeaderColor: (c: string) => calls.push(`setHeaderColor(${c})`),
+    setBackgroundColor: (c: string) => calls.push(`setBackgroundColor(${c})`),
+    onEvent: (e: string, h: () => void) => {
+      calls.push(`onEvent(${e})`);
+      if (!events.has(e)) events.set(e, new Set());
+      events.get(e)?.add(h);
+    },
+    offEvent: (e: string, h: () => void) => {
+      calls.push(`offEvent(${e})`);
+      events.get(e)?.delete(h);
+    },
+    openLink: (url: string) => calls.push(`openLink(${url})`),
+    close: () => {
+      calls.push('close()');
+      if (o.closeThrows) throw new Error('close() failed in the smoke');
+    },
+    BackButton: {
+      onClick: (h: () => void) => {
+        calls.push('BackButton.onClick');
+        if (!events.has('backButtonClicked')) events.set('backButtonClicked', new Set());
+        events.get('backButtonClicked')?.add(h);
+      },
+      offClick: (h: () => void) => {
+        calls.push('BackButton.offClick');
+        events.get('backButtonClicked')?.delete(h);
+      },
+      show: () => calls.push('BackButton.show()'),
+      hide: () => calls.push('BackButton.hide()'),
+    },
+  };
+  return {
+    webApp,
+    calls,
+    fire: (e: string) => [...(events.get(e) ?? [])].forEach((h) => h()),
+    /** BackButton handlers still registered. */
+    backHandlers: () => events.get('backButtonClicked')?.size ?? 0,
+  };
+}
+
+/** The fake DOM as HTML, so textOf and the markup checks read it as they read renderToString's. */
+function htmlOf(node: FakeNode): string {
+  if (node instanceof FakeText) return node.data.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const inner = node.childNodes.map(htmlOf).join('');
+  if (!(node instanceof FakeElement)) return inner;
+  const attrs = [...node.attributes].map(([k, v]) => ` ${k}="${v.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`).join('');
+  return `<${node.localName}${attrs}>${inner}</${node.localName}>`;
+}
+/** A mounted root's markup: its children, as renderToString would give them. */
+const innerHtml = (node: FakeNode) => node.childNodes.map(htmlOf).join('');
+function byLabel(node: FakeNode, label: string): FakeElement {
+  const found = elements(node).filter((e) => e.getAttribute('aria-label') === label);
+  assert(found.length > 0, `nothing labelled ${show(label)}`);
+  return found[0];
+}
+function byData(node: FakeNode, name: string, value: string): FakeElement {
+  const found = elements(node).filter((e) => e.getAttribute(`data-${name}`) === value);
+  assert(found.length > 0, `no data-${name}=${show(value)}`);
+  return found[0];
+}
+const dialogText = (node: FakeNode) => textOf(htmlOf(byRole(node, 'dialog')[0] ?? new FakeElement('div', HTML_NS)));
+/** The header's day line as Intl writes it (the server's today, formatted as UTC noon). */
+const dayLong = (l: string, d: DayKey) =>
+  new Intl.DateTimeFormat(l, { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${d}T12:00:00Z`));
+
+const pushes: string[] = [];
+const fakeRouter = { push: (href: string) => pushes.push(href), replace: noop, refresh: noop, prefetch: noop, back: noop, forward: noop };
+
+/** What PageGate gives the home: the app router and next-intl. CalendarHome makes its own .ch-home root. */
+function inApp(locale: Locale, el: ReactElement): ReactElement {
+  const { AppRouterContext } = nodeRequire('next/dist/shared/lib/app-router-context.shared-runtime');
+  const provider = { locale, messages: messages[locale], timeZone: TZ } as ComponentProps<typeof NextIntlClientProvider>;
+  return createElement(AppRouterContext.Provider, { value: fakeRouter }, createElement(NextIntlClientProvider, provider, el));
+}
+
+/** A FamCal user on Telegram (the page's user_id is their Telegram id), and a Google admin. */
+const FAMCAL_HOME: CalendarHomeProps = {
+  user: { id: 5550001, name: 'Dana', isAdmin: false },
+  locale: 'en',
+  calendarSource: 'NATIVE',
+  needsOAuth: false,
+  needsCalendars: false,
+  hints: HINTS_ALL,
+};
+const GOOGLE_HOME: CalendarHomeProps = { ...FAMCAL_HOME, user: { id: 5550002, name: 'Avi', isAdmin: true }, calendarSource: 'GOOGLE' };
+
+/** Mounts the home (the default export, or the container on a fake clock) and lets its first effects run. */
+async function mountHome(locale: Locale, props: Partial<CalendarHomeProps> = {}, clock?: ReturnType<typeof fakeClock>) {
+  const all: CalendarHomeProps = { ...FAMCAL_HOME, ...props, locale };
+  const el = clock ? createElement(CalendarHomeContainer, { ...all, deps: clock.deps }) : createElement(CalendarHome, all);
+  const m = mount(inApp(locale, el));
+  await settle();
+  return { ...m, html: () => innerHtml(m.container), text: () => textOf(innerHtml(m.container)) };
+}
+
+/** document's own listeners (visibilitychange), which the fake DOM dropped until now. */
+const docListeners: { type: string; fn: (event: Row) => void }[] = [];
+fakeDocument.addEventListener = (type: string, fn: (event: Row) => void) => docListeners.push({ type, fn });
+fakeDocument.removeEventListener = (type: string, fn: (event: Row) => void) => {
+  const i = docListeners.findIndex((l) => l.type === type && l.fn === fn);
+  if (i >= 0) docListeners.splice(i, 1);
+};
+const fireDocument = (type: string) => React.act(() => docListeners.filter((l) => l.type === type).forEach((l) => l.fn({ type })));
+
+const reloads: string[] = [];
+/** A fresh slate for a home check: the fake fetch, no calls or pushes, an empty sessionStorage, reload() recorded, no Telegram. */
+function resetHome() {
+  (globalThis as Row).fetch = fakeFetch;
+  fetchCalls.length = 0;
+  pushes.length = 0;
+  reloads.length = 0;
+  const saved = new Map<string, string>();
+  fakeWindow.sessionStorage = {
+    getItem: (k: string) => saved.get(k) ?? null,
+    setItem: (k: string, v: string) => void saved.set(k, String(v)),
+    removeItem: (k: string) => void saved.delete(k),
+  };
+  fakeWindow.location = { hash: '', reload: () => reloads.push('reload') };
+  fakeWindow.Telegram = undefined;
+  fakeDocument.visibilityState = 'visible';
+}
 
 // ---- The checks ----
 
@@ -1092,7 +1350,802 @@ async function main() {
     }
   });
 
-  await check('#21 React logged no warning in any render (keys, nesting, attributes)', () => {
+  // ---- CalendarHome (Task D6): the container, in real React with a fake fetch ----
+
+  await check('#21 the container is client-safe: CalendarHome and its parts load no server module', () => {
+    const root = path.join(ROOT, 'app/[locale]/dashboard/CalendarHome.tsx');
+    assert(require.cache[root] !== undefined, 'CalendarHome is not in require.cache: the check would be empty');
+    const loaded = new Set<string>();
+    const walk = (id: string) => {
+      for (const child of require.cache[id]?.children ?? []) {
+        if (loaded.has(child.id)) continue;
+        loaded.add(child.id);
+        walk(child.id);
+      }
+    };
+    walk(root);
+    const parts = ['HomeHeader.tsx', 'HomeBanners.tsx', 'SendSheet.tsx', 'MenuSheet.tsx', 'HomeErrorBoundary.tsx', 'home-shell.ts', 'AgendaView.tsx'].map((f) => `app/[locale]/dashboard/${f}`);
+    for (const want of [...parts, 'app/[locale]/PageGate.tsx', 'src/lib/calendar-view/home-loader.ts', 'src/lib/calendar-view/home-client.ts', 'src/lib/command-client.ts']) {
+      assert(loaded.has(path.join(ROOT, want)), `${want} not among the loaded modules: the check would be empty`);
+    }
+    const forbidden = [...loaded].filter((p) =>
+      /[\\/](src[\\/](services|utils|config)|@prisma|\.prisma|@upstash|date-fns-tz|@hebcal[\\/]core|googleapis|@googleapis)[\\/]|src[\\/]lib[\\/](page-data|api-auth|prisma)/.test(p),
+    );
+    assert(forbidden.length === 0, `server modules in the home's graph: ${show(forbidden.map((p) => path.relative(ROOT, p)))}`);
+  });
+
+  await check('#22 CalendarHome (en, FamCal, in Telegram): one range request, no dates, the init data in the header only; placeholders, then the server\'s today, its Hebrew date and the Agenda; Telegram\'s theme and a hidden BackButton on mount; no tab bar', async () => {
+    resetHome();
+    const tg = fakeTelegramHome({ scheme: 'dark' });
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    let release: (a: FetchAnswer) => void = noop;
+    answerFetch = () => new Promise<FetchAnswer>((resolve) => (release = resolve));
+    const m = await mountHome('en');
+    try {
+      const [first, ...more] = rangeCalls();
+      assert(first && more.length === 0 && first.url === '/api/calendar/range?user_id=5550001&sources=famcal', `requests: ${show(rangeCalls().map((c) => c.url))}`);
+      assert(first.headers['X-Telegram-Init-Data'] === tg.webApp.initData && !/hash=|auth_date|query_id/.test(first.url), 'the init data in the header, never in the URL');
+      assert(first.method === 'GET' && first.credentials === 'same-origin' && first.cache === 'no-store', `request: ${show({ method: first.method, credentials: first.credentials, cache: first.cache })}`);
+      const before = m.html();
+      assert(/^<div class="ch-home" data-theme="dark" dir="ltr" lang="en">/.test(before), `the root: ${before.slice(0, 120)}`);
+      assert(before.includes('class="ch-head-ghost"') && before.includes('aria-busy="true"') && !before.includes('<h1'), 'placeholders until the answer, no made-up day');
+      byLabel(m.container, 'Send to chat');
+      byLabel(m.container, 'Menu');
+      for (const call of ['BackButton.hide()', 'setHeaderColor(bg_color)', 'setBackgroundColor(bg_color)', 'onEvent(themeChanged)']) {
+        assert(tg.calls.includes(call), `no ${call} on mount: ${show(tg.calls)}`);
+      }
+      await React.act(async () => release(ok200(answer({ items: WEEK, carryOvers: [CARRY_PLUMBER, CARRY_BILL, CARRY_OLD] }))));
+      await settle();
+      const after = m.html();
+      assert(after.includes('<h1 class="ch-head-title">Thursday, 15 October</h1><p class="ch-head-sub">4 Cheshvan 5787</p>'), `the header: ${textOf(after).slice(0, 120)}`);
+      assertHas(textOf(after), [`Today ${ref.dayShort('en-GB', day(0))} 4 Cheshvan`, 'Still open 5 reminders', '09:30 10:30 Dentist', 'Show next week'], 'the Agenda');
+      assertLacks(after, ['role="tablist"', 'role="tab"', 'calendarHome.'], 'Plan D\'s shape (R19)');
+      assertLacks(textOf(after), ['Month', 'Agenda', 'Open FamCal in Telegram'], 'no tabs; inside Telegram, no Telegram banner');
+      assert(show(ranges()) === show(['famcal default']), `one request in all: ${show(ranges())}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#23 he and ru: the root dir="rtl" and the Hebrew header and labels; the Russian header with the genitive Hebrew month (R9); the send icon flips in RTL', async () => {
+    resetHome();
+    answerFetch = () => ok200(answer({ items: WEEK }));
+    const he = await mountHome('he');
+    try {
+      const html = he.html();
+      assert(/^<div class="ch-home" data-theme="light" dir="rtl" lang="he">/.test(html), `the he root: ${html.slice(0, 120)}`);
+      assertHas(textOf(html), [`${dayLong('he-IL', TODAY)} ד׳ בחשון תשפ״ז`, 'היום חמישי 15 באוק׳', 'להציג את השבוע הבא'], 'he');
+      byLabel(he.container, 'שליחה לצ׳אט');
+      byLabel(he.container, 'תפריט');
+      assert(html.includes('<svg class="ch-flip"') && /\.ch-home\[dir='rtl'\] \.ch-flip \{\s*transform: scaleX\(-1\);/.test(HOME_SHELL_CSS), 'the send icon flips in RTL');
+    } finally {
+      he.unmount();
+    }
+    const ru = await mountHome('ru');
+    try {
+      const text = ru.text();
+      assertHas(text, [`${dayLong('ru-RU', TODAY)} 4 хешвана 5787`, `Сегодня ${ref.dayShort('ru-RU', day(0))}`, 'Показать следующую неделю'], 'ru');
+      assertLacks(text, ['Хешван'], 'ru: the genitive, not the nominative');
+      byLabel(ru.container, 'Отправить в чат');
+      byLabel(ru.container, 'Меню');
+    } finally {
+      ru.unmount();
+    }
+    answerFetch = () => ok200(answer({ items: WEEK, hebrewDates: false }));
+    const off = await mountHome('en');
+    try {
+      assert(off.html().includes('<h1 class="ch-head-title">Thursday, 15 October</h1>') && !markup(off.html()).includes('class="ch-head-sub"'), 'no Hebrew date when the route says hebrewDates false');
+      assertLacks(off.text(), ['Cheshvan'], 'en, Hebrew dates off');
+    } finally {
+      off.unmount();
+    }
+  });
+
+  await check('#24 privacy through the container: no calendar id anywhere in the home, sheet open or not, and a masked partner calendar reads as the partner\'s', async () => {
+    resetHome();
+    answerFetch = () => ok200(answer({ items: WEEK, carryOvers: [CARRY_PLUMBER, CARRY_BILL, CARRY_OLD] }));
+    const m = await mountHome('en');
+    try {
+      const ids = [MY_CAL.id, NOA_CAL.id].map(String);
+      assertLacks(m.html(), [...ids, 'native:', 'cal_'], 'the home');
+      m.click(button(m.container, 'Pick up the parcel'));
+      assertLacks(m.html(), [...ids, 'native:', 'cal_'], 'the masked item\'s sheet');
+      assertHas(dialogText(m.container), ['Calendar Noa’s calendar', 'From Noa'], 'the masked sheet');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#25 Google (fake clock): sources=google with the page\'s user_id; a stale answer asks that window once more after about 3 s, once; a Google error retries once after about 5 s; calendars_gone never retries', async () => {
+    const google = (status: NonNullable<RangeResponse['sources']['google']>) => googleAnswer({ items: { [day(0)]: [DINNER] }, sources: { google: status } });
+    resetHome();
+    const clock = fakeClock('2026-10-15T07:00:00Z');
+    answerFetch = () => ok200(google({ status: 'ok', stale: true }));
+    const m = await mountHome('en', GOOGLE_HOME, clock);
+    try {
+      assert(show(ranges()) === show(['google default']) && rangeCalls()[0].query.get('user_id') === '5550002', `first: ${show(rangeCalls().map((c) => c.url))}`);
+      assertHas(m.text(), ['Dinner with the Cohens'], 'the stale data shows meanwhile');
+      await clock.advance(STALE_RETRY_MS - 100);
+      assert(ranges().length === 1, 'not before about 3 s');
+      await clock.advance(200);
+      assert(show(ranges()) === show(['google default', `google ${day(0)}→${day(7)}`]), `the stale re-request: ${show(ranges())}`);
+      await clock.advance(60_000);
+      assert(ranges().length === 2, `stale again: it waits for the foreground or Refresh: ${show(ranges())}`);
+    } finally {
+      m.unmount();
+    }
+
+    resetHome();
+    const c2 = fakeClock('2026-10-15T07:00:00Z');
+    answerFetch = () => ok200(google({ status: 'error', reason: 'transient' }));
+    const e = await mountHome('en', GOOGLE_HOME, c2);
+    try {
+      assertHas(e.text(), ['Couldn’t load Google Calendar Retry'], 'the error row');
+      await c2.advance(ERROR_RETRY_MS - 100);
+      assert(ranges().length === 1, 'not before about 5 s');
+      await c2.advance(200);
+      assert(show(ranges()) === show(['google default', `google ${day(0)}→${day(7)}`]), `one automatic retry: ${show(ranges())}`);
+      await c2.advance(60_000);
+      assert(ranges().length === 2, `and only one: ${show(ranges())}`);
+      e.click(button(e.container, 'Retry'));
+      await settle();
+      assert(show(ranges().slice(2)) === show([`google ${day(0)}→${day(7)}`]), `Retry asks again: ${show(ranges())}`);
+    } finally {
+      e.unmount();
+    }
+
+    resetHome();
+    const c3 = fakeClock('2026-10-15T07:00:00Z');
+    answerFetch = () => ok200(google({ status: 'error', reason: 'calendars_gone' }));
+    const g = await mountHome('en', GOOGLE_HOME, c3);
+    try {
+      await c3.advance(60_000);
+      assert(ranges().length === 1, `calendars_gone: no retry: ${show(ranges())}`);
+      assertHas(g.text(), ['Your calendars aren’t available Choose again'], 'its row');
+      g.click(button(g.container, 'Choose again'));
+      assert(show(pushes) === show(['/en/select-calendars?user_id=5550002']), `Choose again: ${show(pushes)}`);
+    } finally {
+      g.unmount();
+    }
+  });
+
+  await check('#26 "Show next week" asks [today+7, today+14); a return to the foreground (visibilitychange, Telegram\'s activated) asks every visible window once; ⋯ → Refresh sends fresh=1 on each and closes the menu', async () => {
+    resetHome();
+    const tg = fakeTelegramHome();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    // The fixtures' Thursday: a return to the foreground first checks whether that day has ended (#39).
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    const both = [`famcal ${day(0)}→${day(7)}`, `famcal ${day(7)}→${day(14)}`];
+    try {
+      assert(tg.calls.includes('onEvent(activated)'), `activated is watched on an 8.0 client: ${show(tg.calls)}`);
+      m.click(button(m.container, 'Show next week'));
+      await settle();
+      assert(show(ranges()) === show(['famcal default', both[1]]), `next week: ${show(ranges())}`);
+      assertHas(m.text(), ['Nothing planned Thu 22 – Wed 28 Oct'], 'the second week, answered and empty, folds');
+      assert(!m.html().includes('class="ch-ghost"'), 'no placeholders left');
+
+      const held: ((a: FetchAnswer) => void)[] = [];
+      answerFetch = () => new Promise<FetchAnswer>((resolve) => held.push(resolve));
+      /** Answers the held requests, then forgets every call so far. */
+      const release = async () => {
+        const calls = rangeCalls();
+        await React.act(async () => held.splice(0).forEach((resolve, i) => resolve(answerFor(calls[i], { items: WEEK }))));
+        await settle();
+        fetchCalls.length = 0;
+      };
+      fetchCalls.length = 0;
+      fakeDocument.visibilityState = 'hidden';
+      fireDocument('visibilitychange');
+      assert(ranges().length === 0, 'going to the background asks nothing');
+      fakeDocument.visibilityState = 'visible';
+      fireDocument('visibilitychange');
+      assert(show(ranges()) === show(both), `visibilitychange: every visible window: ${show(ranges())}`);
+      await release();
+      React.act(() => tg.fire('activated'));
+      assert(show(ranges()) === show(both), `Telegram's activated: every visible window: ${show(ranges())}`);
+      await release();
+      fireDocument('visibilitychange');
+      React.act(() => tg.fire('activated'));
+      assert(show(ranges()) === show(both), `both at once: each window once: ${show(ranges())}`);
+      await release();
+
+      fetchCalls.length = 0;
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      m.click(byLabel(m.container, 'Menu'));
+      assert(byRole(m.container, 'dialog').length === 1, 'the menu is open');
+      m.click(byData(m.container, 'menu', 'refresh'));
+      await settle();
+      assert(show(ranges()) === show(both.map((w) => `${w} fresh`)), `Refresh: ${show(ranges())}`);
+      assert(byRole(m.container, 'dialog').length === 0, 'the menu closed');
+    } finally {
+      m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+    assert(tg.calls.includes('offEvent(activated)'), 'activated is let go on unmount');
+  });
+
+  await check('#27 midnight in the user\'s timezone: the store starts over with a no-dates request and the header moves to the new day; a stale re-request for the day that ended is dropped; the day check never waits more than an hour, and lands after a midnight that DST skips', async () => {
+    resetHome();
+    const clock = fakeClock('2026-10-15T20:59:30Z'); // 23:59:30 in Israel, Thursday 15 October
+    let serverToday = TODAY;
+    answerFetch = () => ok200(serverToday === TODAY ? answer({ items: WEEK }) : answer({ today: day(1), from: day(1), to: day(8), items: { [day(1)]: [GRANDMA] } }));
+    const m = await mountHome('en', {}, clock);
+    try {
+      assert(m.html().includes('<h1 class="ch-head-title">Thursday, 15 October</h1>'), 'Thursday');
+      const wait = clock.pending()[0];
+      assert(wait > 30_000 && wait <= 31_000, `the check waits until just after midnight: ${wait} ms`);
+      serverToday = day(1);
+      await clock.advance(31_000);
+      assert(show(ranges()) === show(['famcal default', 'famcal default']), `after midnight: ${show(ranges())}`);
+      assert(m.html().includes('<h1 class="ch-head-title">Friday, 16 October</h1>'), `the header moved on: ${m.text().slice(0, 80)}`);
+      assertHas(m.text(), [`Today ${ref.dayShort('en-GB', day(1))}`, 'All day Grandma visits'], 'the new today');
+      assert(clock.pending().length > 0 && clock.pending().every((ms) => ms <= 3_600_000), `pending: ${show(clock.pending())}`);
+    } finally {
+      m.unmount();
+    }
+    // A stale Google answer two seconds before midnight: its re-request is for a day that has gone, so it is dropped.
+    resetHome();
+    const late = fakeClock('2026-10-15T20:59:58Z');
+    let googleToday = TODAY;
+    answerFetch = () =>
+      ok200(googleToday === TODAY ? googleAnswer({ sources: { google: { status: 'ok', stale: true } } }) : googleAnswer({ today: day(1), from: day(1), to: day(8) }));
+    const g = await mountHome('en', GOOGLE_HOME, late);
+    try {
+      googleToday = day(1);
+      await late.advance(STALE_RETRY_MS + 1000);
+      assert(show(ranges()) === show(['google default', 'google default']), `only the new day's request: ${show(ranges())}`);
+    } finally {
+      g.unmount();
+    }
+    assert(msUntilDayCheck(Date.parse('2026-10-15T07:00:00Z'), TZ) === 3_600_000, 'at 10:00 the check waits an hour');
+    assert(isPastDay(Date.parse('2026-10-15T21:00:01Z'), TZ, TODAY) && !isPastDay(Date.parse('2026-10-15T20:59:59Z'), TZ, TODAY), 'midnight in Israel');
+    // Chile skips 00:00 on 6 September 2026: from 23:30 the check lands at 01:00, the new day.
+    const santiago = Date.parse('2026-09-06T03:30:00Z');
+    const delay = msUntilDayCheck(santiago, 'America/Santiago');
+    assert(delay > 30 * 60_000 && delay <= 31 * 60_000 && isPastDay(santiago + delay, 'America/Santiago', '2026-09-05'), `Santiago: ${delay} ms`);
+  });
+
+  await check('#28 404 not_enabled reloads once (PageGate then shows today\'s dashboard), and with the item sheet open Telegram\'s BackButton is let go (offClick, hide) before the reload; within the guard, the retry card, whose Retry reloads by hand; 401, 403 and any other 404 show PageGate\'s card and nothing more is asked', async () => {
+    resetHome();
+    answerFetch = () => ({ status: 404, body: { error: 'not_enabled' } });
+    const a = await mountHome('en');
+    a.unmount();
+    assert(show(reloads) === show(['reload']) && fakeWindow.sessionStorage.getItem(NOT_ENABLED_RELOAD_KEY) !== null, `one reload, guarded: ${show(reloads)}`);
+    const b = await mountHome('en');
+    try {
+      assert(show(reloads) === show(['reload']), `no second reload within the minute: ${show(reloads)}`);
+      assertHas(b.text(), ['Something went wrong Your calendar didn’t load. Try again. Retry'], 'the card');
+      b.click(button(b.container, 'Retry'));
+      assert(show(reloads) === show(['reload', 'reload']), 'Retry reloads by hand');
+    } finally {
+      b.unmount();
+    }
+
+    // The switch turned back while the item sheet is open (say, back from "Open in Google
+    // Calendar"): a reload runs no cleanup and the client keeps the button, so it goes first.
+    resetHome();
+    const open = fakeTelegramHome();
+    fakeWindow.Telegram = { WebApp: open.webApp };
+    fakeWindow.location = { hash: '', reload: () => void open.calls.push('location.reload()') };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const o = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      o.click(button(o.container, 'Dentist'));
+      assert(open.calls.includes('BackButton.show()') && open.backHandlers() === 1, `the sheet shows the BackButton: ${show(open.calls)}`);
+      open.calls.length = 0;
+      answerFetch = () => ({ status: 404, body: { error: 'not_enabled' } });
+      fireDocument('visibilitychange');
+      await settle();
+      const steps = open.calls.filter((c) => c.startsWith('BackButton') || c === 'location.reload()');
+      assert(show(steps.slice(0, 3)) === show(['BackButton.offClick', 'BackButton.hide()', 'location.reload()']), `before the reload: ${show(steps)}`);
+      assert(open.backHandlers() === 0, 'no handler left');
+    } finally {
+      o.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+
+    for (const [status, error] of [[401, 'Unauthorized'], [403, 'Account suspended'], [404, 'User not found']] as const) {
+      resetHome();
+      const tg = fakeTelegramHome();
+      fakeWindow.Telegram = { WebApp: tg.webApp };
+      answerFetch = () => ({ status, body: { error } });
+      const m = await mountHome('en');
+      try {
+        assertHas(m.text(), ['Please open this from the bot', 'Back to the chat'], `${status} in Telegram`);
+        assertLacks(m.text(), ['Show next week', 'Today'], `${status}: no Agenda`);
+        m.click(button(m.container, 'Back to the chat'));
+        assert(tg.calls.includes('close()'), `${status}: its button closes the Mini App`);
+        fireDocument('visibilitychange');
+        React.act(() => tg.fire('activated'));
+        await settle();
+        assert(ranges().length === 1 && reloads.length === 0, `${status}: nothing more is asked: ${show(ranges())}`);
+      } finally {
+        m.unmount();
+      }
+    }
+    resetHome();
+    answerFetch = () => ({ status: 401, body: { error: 'Unauthorized' } });
+    const web = await mountHome('he');
+    try {
+      const html = web.html();
+      assert(html.includes('href="https://wa.me/972548524687?text=settings"') && html.includes('href="https://t.me/family_calendar_telegram_bot?start=dashboard"'), `the browser card's links: ${textOf(html).slice(0, 160)}`);
+    } finally {
+      web.unmount();
+    }
+  });
+
+  await check('#29 before any answer, a 429 shows the busy card and a 500, no answer or a body that isn\'t a RangeResponse the retry card, with no loop; Retry asks again. Once the facts are pinned, a 429 on the next week is that window\'s busy row', async () => {
+    const cases: [string, FetchAnswer, string][] = [
+      ['429', { status: 429, body: { error: 'Too many requests. Please wait a minute.' } }, 'Busy right now, try again in a minute Retry'],
+      ['500', { status: 500, body: { error: 'internal_error' } }, 'Something went wrong Your calendar didn’t load. Try again. Retry'],
+      ['no answer', 'throw', 'Something went wrong Your calendar didn’t load. Try again. Retry'],
+      ['not a RangeResponse', { status: 200, body: { hello: 'world' } }, 'Something went wrong Your calendar didn’t load. Try again. Retry'],
+    ];
+    for (const [name, failure, card] of cases) {
+      resetHome();
+      answerFetch = () => failure;
+      const m = await mountHome('en');
+      try {
+        assertHas(m.text(), [card], name);
+        assertLacks(m.text(), ['Show next week', 'Loading your calendar'], `${name}: the card, not placeholders`);
+        assert(ranges().length === 1, `${name}: asked once, no loop: ${show(ranges())}`);
+        answerFetch = () => ok200(answer({ items: WEEK }));
+        m.click(button(m.container, 'Retry'));
+        await settle();
+        assert(show(ranges()) === show(['famcal default', 'famcal default']), `${name}: Retry: ${show(ranges())}`);
+        assertHas(m.text(), ['Today', 'Dentist'], `${name}: then the Agenda`);
+      } finally {
+        m.unmount();
+      }
+    }
+    resetHome();
+    answerFetch = (c) => (c.query.has('from') ? { status: 429, body: {} } : ok200(answer({ items: WEEK })));
+    const m = await mountHome('en');
+    try {
+      m.click(button(m.container, 'Show next week'));
+      await settle();
+      assertHas(m.text(), ['Busy right now, try again in a minute Retry', 'Dentist'], 'the busy row above the days');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#30 the send sheet (R5): five options in order; a tap posts its command for the page\'s user_id; in Telegram a 2xx closes the app with the spinner kept, one send at a time; in a browser "Sent to WhatsApp"; 429, 403, no answer and a 500 each say why, and the sheet stays', async () => {
+    resetHome();
+    const tg = fakeTelegramHome();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    let hold: (a: FetchAnswer) => void = noop;
+    answerFetch = (c) => (c.path === '/api/execute-command' ? new Promise<FetchAnswer>((resolve) => (hold = resolve)) : ok200(answer({ items: WEEK })));
+    const m = await mountHome('en');
+    try {
+      m.click(byLabel(m.container, 'Send to chat'));
+      const dialog = byRole(m.container, 'dialog')[0];
+      assert(dialog?.getAttribute('aria-label') === 'Send to chat' && dialog.getAttribute('aria-modal') === 'true', 'a modal dialog labelled Send to chat');
+      assertHas(
+        dialogText(m.container),
+        ['Send to chat FamCal sends it to your chat', 'Today’s summary Events and reminders for today', 'Tomorrow’s summary What’s coming up tomorrow', 'This week Coming up this week', 'Next week Coming up next week', 'Weather Today’s forecast', 'Close'],
+        'the options',
+      );
+      const order = elements(dialog).filter((e) => e.hasAttribute('data-send')).map((e) => e.getAttribute('data-send'));
+      assert(show(order) === show(['today', 'tomorrow', 'thisWeek', 'nextWeek', 'weather']), `order: ${show(order)}`);
+      m.click(byData(dialog, 'send', 'today'));
+      const [sent, ...extra] = sendCalls();
+      assert(sent && extra.length === 0 && sent.method === 'POST' && sent.body?.user_id === 5550001 && sent.body?.command === 'summary', `the call: ${show(sendCalls().map((c) => c.body))}`);
+      assert(sent.headers['X-Telegram-Init-Data'] === tg.webApp.initData && sent.body?.initData === tg.webApp.initData, 'the init data header, and the body copy as the fallback');
+      assertHas(dialogText(m.container), ['Today’s summary Sending…'], 'the spinner');
+      assert(byData(dialog, 'send', 'weather').getAttribute('aria-disabled') === 'true', 'the other options wait');
+      m.click(byData(dialog, 'send', 'weather'));
+      assert(sendCalls().length === 1, 'one send at a time');
+      await React.act(async () => hold({ status: 200, body: { success: true } }));
+      await settle();
+      assert(tg.calls.includes('close()'), 'a 2xx closes the Mini App');
+      assertHas(dialogText(m.container), ['Today’s summary Sending…'], 'the spinner stays while it closes');
+    } finally {
+      m.unmount();
+    }
+
+    const replies: [string, FetchAnswer, 'today' | 'tomorrow' | 'weather', string, Row][] = [
+      ['browser 200', { status: 200, body: { success: true } }, 'tomorrow', 'Sent to WhatsApp', { command: 'summary', args: 'tmrw' }],
+      ['429', { status: 429, body: {} }, 'weather', 'Lots of requests right now. Try again in a minute.', { command: 'weather' }],
+      ['403', { status: 403, body: {} }, 'today', 'Please reopen FamCal from the chat and try again.', { command: 'summary' }],
+      ['no answer', 'throw', 'today', 'No connection. Check your internet and try again.', { command: 'summary' }],
+      ['500', { status: 500, body: {} }, 'today', 'Couldn’t send it. Try again.', { command: 'summary' }],
+    ];
+    for (const [name, reply, item, line, body] of replies) {
+      resetHome();
+      answerFetch = (c) => (c.path === '/api/execute-command' ? reply : ok200(answer({ items: WEEK })));
+      const b = await mountHome('en');
+      try {
+        b.click(byLabel(b.container, 'Send to chat'));
+        b.click(byData(b.container, 'send', item));
+        await settle();
+        const call = sendCalls()[0];
+        assert(call && call.body?.command === body.command && call.body?.args === body.args && call.body?.user_id === 5550001 && !('initData' in (call.body ?? {})), `${name}: ${show(call?.body)}`);
+        assert(byRole(b.container, 'dialog').length === 1, `${name}: the sheet stays open`);
+        assertHas(dialogText(b.container), [line], name);
+        assert(byData(b.container, 'send', 'today').getAttribute('aria-disabled') === null, `${name}: ready for another try`);
+      } finally {
+        b.unmount();
+      }
+    }
+
+    resetHome();
+    const stuck = fakeTelegramHome({ closeThrows: true });
+    fakeWindow.Telegram = { WebApp: stuck.webApp };
+    answerFetch = (c) => (c.path === '/api/execute-command' ? { status: 200, body: { success: true } } : ok200(answer({ items: WEEK })));
+    const s = await mountHome('he');
+    try {
+      s.click(byLabel(s.container, 'שליחה לצ׳אט'));
+      s.click(byData(s.container, 'send', 'nextWeek'));
+      await settle();
+      assert(sendCalls()[0]?.body?.command === 'nextweek', 'nextweek');
+      assertHas(dialogText(s.container), ['נשלח. אפשר להציץ בצ׳אט'], 'Telegram couldn\'t close the app: the answer is in the chat');
+    } finally {
+      s.unmount();
+    }
+  });
+
+  await check('#31 the ⋯ menu (R6): FamCal users get Calendars and Partner, Google users Choose calendars and Reconnect Google, admins the Admin panel; each opens its page with the page\'s user_id, and the sheet closes', async () => {
+    const famcal = menuEntries({ calendarSource: 'NATIVE', isAdmin: false, locale: 'en', userId: 5550001 });
+    assert(show(famcal.map((e) => e.id)) === show(['settings', 'calendars', 'partner', 'subscription', 'refresh', 'feedback']), `FamCal: ${show(famcal)}`);
+    const google = menuEntries({ calendarSource: 'GOOGLE', isAdmin: true, locale: 'ru', userId: 5550002 });
+    const want = [
+      ['settings', '/ru/settings?user_id=5550002'],
+      ['chooseCalendars', '/ru/select-calendars?user_id=5550002'],
+      ['reconnectGoogle', '/refresh-token?user_id=5550002'],
+      ['subscription', '/ru/subscription?user_id=5550002'],
+      ['refresh', null],
+      ['feedback', '/ru/feedback?user_id=5550002'],
+      ['admin', '/ru/admin-panel?user_id=5550002'],
+    ];
+    assert(show(google.map((e) => [e.id, e.href])) === show(want), `Google admin: ${show(google)}`);
+
+    resetHome();
+    answerFetch = () => ok200(answer({ items: WEEK }));
+    const m = await mountHome('en');
+    try {
+      m.click(byLabel(m.container, 'Menu'));
+      assert(byRole(m.container, 'dialog')[0]?.getAttribute('aria-label') === 'Menu', 'a dialog labelled Menu');
+      assertHas(dialogText(m.container), ['Settings Calendars Partner Subscription Refresh Feedback Close'], 'the FamCal menu');
+      assertLacks(dialogText(m.container), ['Choose calendars', 'Reconnect Google', 'Admin panel'], 'no Google entry, no admin entry');
+      m.click(byData(m.container, 'menu', 'partner'));
+      assert(show(pushes) === show(['/en/pair?user_id=5550001']), `push: ${show(pushes)}`);
+      assert(byRole(m.container, 'dialog').length === 0, 'the menu closed');
+    } finally {
+      m.unmount();
+    }
+    resetHome();
+    answerFetch = () => ok200(googleAnswer({ items: { [day(0)]: [DINNER] } }));
+    const g = await mountHome('ru', GOOGLE_HOME);
+    try {
+      g.click(byLabel(g.container, 'Меню'));
+      assertHas(dialogText(g.container), ['Настройки Выбрать календари Переподключить Google Подписка Обновить Обратная связь Панель администратора'], 'the Google admin\'s menu (ru)');
+      g.click(byData(g.container, 'menu', 'admin'));
+      assert(show(pushes) === show(['/ru/admin-panel?user_id=5550002']), `push: ${show(pushes)}`);
+    } finally {
+      g.unmount();
+    }
+  });
+
+  await check('#32 the banners (§7.2), in order: trial, location, the Google setup card, Reconnect (token or scopes; never with Connect, never for FamCal) and, in a browser, Open FamCal in Telegram; each opens its page', async () => {
+    const base: BannerFacts = { calendarSource: 'NATIVE', needsOAuth: false, needsCalendars: false, reconnect: null, inTelegram: true };
+    const cases: [Partial<BannerFacts>, string[]][] = [
+      [{}, []],
+      [{ trialDaysLeft: 5, hasLocation: false, inTelegram: false }, ['trial', 'location', 'openInTelegram']],
+      [{ trialDaysLeft: 0, hasLocation: true }, []],
+      [{ trialDaysLeft: null }, []],
+      [{ reconnect: 'token' }, []],
+      [{ calendarSource: 'GOOGLE', hasLocation: false }, []],
+      [{ calendarSource: 'GOOGLE', needsOAuth: true, needsCalendars: true, hasLocation: false, reconnect: 'token' }, ['location', 'connectGoogle']],
+      [{ calendarSource: 'GOOGLE', needsCalendars: true }, ['chooseCalendars']],
+      [{ calendarSource: 'GOOGLE', reconnect: 'token' }, ['reconnect']],
+      [{ calendarSource: 'GOOGLE', reconnect: 'scopes', inTelegram: false }, ['reconnectScopes', 'openInTelegram']],
+    ];
+    for (const [facts, want] of cases) {
+      const got = homeBanners({ ...base, ...facts });
+      assert(show(got) === show(want), `${show(facts)}: ${show(got)}, want ${show(want)}`);
+    }
+
+    resetHome();
+    answerFetch = () => ok200(answer({ items: WEEK }));
+    const m = await mountHome('en', { trialDaysLeft: 5, hasLocation: false });
+    try {
+      assertHas(m.text(), ['5 days left in your trial See plans Set your location for the right times Set location Open FamCal in Telegram Reminders, voice summaries and more are waiting there.'], 'en, in a browser');
+      const link = byData(m.container, 'banner', 'openInTelegram');
+      assert(link.localName === 'a' && link.getAttribute('href') === 'https://t.me/family_calendar_telegram_bot?start=connect' && link.getAttribute('target') === '_blank', `the Telegram link: ${htmlOf(link).slice(0, 160)}`);
+      m.click(byData(m.container, 'banner', 'trial'));
+      m.click(byData(m.container, 'banner', 'location'));
+      assert(show(pushes) === show(['/en/subscription?user_id=5550001', '/en/settings?user_id=5550001']), `pushes: ${show(pushes)}`);
+    } finally {
+      m.unmount();
+    }
+    resetHome();
+    const tg = fakeTelegramHome();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    answerFetch = () => ok200(googleAnswer({ sources: { google: { status: 'reconnect', reason: 'scopes' } }, calendars: [] }));
+    const g = await mountHome('he', { ...GOOGLE_HOME, trialDaysLeft: 2 });
+    try {
+      assertHas(g.text(), ['נשארו יומיים לתקופת הניסיון', 'FamCal צריך הרשאה לקרוא את היומן צריך להתחבר מחדש ל-Google ולאשר גישה ליומן. חיבור מחדש ל-Google'], 'he: the trial (two days) and the scopes banner');
+      assertLacks(g.text(), ['לפתוח את FamCal בטלגרם', 'Nothing planned'], 'inside Telegram: no Telegram banner; a reconnect is never "nothing planned"');
+      g.click(byData(g.container, 'banner', 'reconnectScopes'));
+      assert(show(pushes) === show(['/refresh-token?user_id=5550002']), `pushes: ${show(pushes)}`);
+    } finally {
+      g.unmount();
+    }
+  });
+
+  await check('#33 "Times in <zone>" shows only when the device is in another zone than the route\'s (an alias is the same zone)', async () => {
+    const cases: [Locale, string | null, string | null][] = [
+      ['en', 'Europe/London', 'Times in Israel Time'],
+      ['he', 'America/New_York', 'השעות לפי שעון ישראל'],
+      ['ru', 'Europe/Moscow', 'Часовой пояс: Израиль'],
+      ['en', 'Asia/Jerusalem', null],
+      ['en', 'Asia/Tel_Aviv', null],
+      ['en', null, null],
+    ];
+    for (const [locale, device, want] of cases) {
+      resetHome();
+      answerFetch = () => ok200(answer({ items: WEEK }));
+      const m = await mountHome(locale, {}, fakeClock('2026-10-15T07:00:00Z', device));
+      try {
+        if (want) assertHas(m.text(), [want], `${locale} on ${device}`);
+        else assert(!markup(m.html()).includes('class="ch-head-zone"'), `${device}: no zone line`);
+      } finally {
+        m.unmount();
+      }
+    }
+    assert(!zoneDiffers('Asia/Kolkata', 'Asia/Calcutta') && zoneDiffers('UTC', TZ) && !zoneDiffers(null, TZ), 'zoneDiffers');
+  });
+
+  await check('#34 the shell\'s CSS (§7.1): nothing under 11 px, taps at least 44 px, logical properties only, no hover, overflow-x: clip (never hidden), the stable viewport height, both safe-area families with 0 fallbacks, no transform or filter on the frame', () => {
+    const css = HOME_SHELL_CSS;
+    const sizes = [...css.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)].map((m) => Number(m[1]));
+    assert(sizes.length > 10 && Math.min(...sizes) >= 11, `font sizes: ${show(sizes)}`);
+    assert(!/font-size:\s*[\d.]+(?:em|rem|%)|font:\s/.test(css), 'every font size in px');
+    const rule = (selector: string) => {
+      const m = new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`).exec(css);
+      assert(m, `no rule ${selector}`);
+      return m[1];
+    };
+    for (const selector of ['.ch-icon-btn', '.ch-banner', '.ch-option', '.ch-option-compact', '.ch-home-card-action']) {
+      const min = /min-height:\s*(\d+)px/.exec(rule(selector));
+      assert(min && Number(min[1]) >= 44, `${selector} min-height ${min?.[1]}`);
+    }
+    assert(/min-width:\s*44px/.test(rule('.ch-icon-btn')), '.ch-icon-btn min-width 44px');
+    const physical = css.match(/(?:margin|padding|border)-(?:left|right)|(?:^|[\s;{])(?:left|right)\s*:|text-align:\s*(?:left|right)|float:/g);
+    assert(!physical, `physical properties: ${show(physical)}`);
+    assert(!/:hover/.test(css), 'no hover styles');
+    const frame = rule('.ch-home');
+    assert(!/overflow:\s*hidden/.test(css) && /overflow-x:\s*clip/.test(frame), 'overflow-x: clip, never overflow: hidden');
+    assert(frame.includes('min-height: var(--tg-viewport-stable-height, 100dvh)'), 'the stable viewport height');
+    for (const v of ['--tg-safe-area-inset-top, 0px', '--tg-content-safe-area-inset-top, 0px', '--tg-safe-area-inset-left, 0px', '--tg-content-safe-area-inset-left, 0px', '--tg-safe-area-inset-right, 0px', '--tg-content-safe-area-inset-right, 0px']) {
+      assert(frame.includes(`var(${v})`), `no var(${v}) on the frame`);
+    }
+    assert(!/\b(?:transform|filter)\s*:/.test(frame), 'no transform or filter on the frame (the sheets are position: fixed)');
+  });
+
+  await check('#35 the error boundary (§5): a render error shows the Reload card in the home\'s look and language; a chunk-load error reloads once by itself, never twice in a minute', async () => {
+    assert(
+      isChunkLoadError(Object.assign(new Error('Loading chunk 123 failed.'), { name: 'ChunkLoadError' })) &&
+        isChunkLoadError(new TypeError('Failed to fetch dynamically imported module: https://famcal.bot/_next/static/chunks/x.js')) &&
+        isChunkLoadError(new TypeError('Importing a module script failed.')) &&
+        !isChunkLoadError(new TypeError('x is undefined')),
+      'isChunkLoadError',
+    );
+    const el = CalendarHome(FAMCAL_HOME) as ReactElement;
+    assert(el.type === HomeErrorBoundary, 'the default export wraps the home in the boundary');
+    const crash = (locale: Locale, error: Error) => {
+      const Thrower = () => {
+        throw error;
+      };
+      return mount(inApp(locale, createElement(HomeErrorBoundary, null, createElement(Thrower))), { onCaughtError: noop, onUncaughtError: noop });
+    };
+    resetHome();
+    appLogs.length = 0;
+    const a = crash('he', new TypeError('x is undefined'));
+    try {
+      const html = innerHtml(a.container);
+      assert(/^<div class="ch-home" data-theme="light" dir="rtl" lang="he">/.test(html), `the card's root: ${html.slice(0, 120)}`);
+      assertHas(textOf(html), ['משהו השתבש היומן נתקע. טעינה מחדש בדרך כלל עוזרת. לטעון מחדש'], 'the he card');
+      assert(reloads.length === 0, 'a plain error never reloads by itself');
+      a.click(button(a.container, 'לטעון מחדש'));
+      assert(show(reloads) === show(['reload']), 'Reload reloads');
+      assert(appLogs.some((l) => l.startsWith('[calendar-home] The home failed to render')), `logged: ${show(appLogs)}`);
+    } finally {
+      a.unmount();
+    }
+    resetHome();
+    const chunk = Object.assign(new Error('Loading chunk 77 failed.'), { name: 'ChunkLoadError' });
+    crash('en', chunk).unmount();
+    assert(show(reloads) === show(['reload']) && fakeWindow.sessionStorage.getItem(CHUNK_RELOAD_KEY) !== null, `a chunk-load error reloads once: ${show(reloads)}`);
+    const c = crash('en', chunk);
+    try {
+      assert(show(reloads) === show(['reload']), `not twice within a minute: ${show(reloads)}`);
+      assertHas(textOf(innerHtml(c.container)), ['Something went wrong The calendar ran into a problem. Reloading usually fixes it. Reload'], 'the card instead');
+    } finally {
+      c.unmount();
+    }
+    appLogs.length = 0;
+  });
+
+  await check('#36 a range request that never settles is aborted after about 15 s and counts as no answer: before any answer, the retry card, and the next return to the foreground asks again; once the facts are pinned, a hung refetch no longer holds back the next one', async () => {
+    resetHome();
+    const clock = fakeClock('2026-10-15T07:00:00Z');
+    answerFetch = () => new Promise<FetchAnswer>(() => undefined);
+    const m = await mountHome('en', {}, clock);
+    try {
+      assert(show(ranges()) === show(['famcal default']), `first: ${show(ranges())}`);
+      assert(clock.pending().includes(RANGE_TIMEOUT_MS), `a ${RANGE_TIMEOUT_MS} ms limit on the request: ${show(clock.pending())}`);
+      await clock.advance(RANGE_TIMEOUT_MS - 1000);
+      assertHas(m.text(), ['Loading your calendar…'], 'still loading after 14 s');
+      await clock.advance(6000);
+      assert(rangeCalls()[0].signal?.aborted === true, 'the request was aborted');
+      assertHas(m.text(), ['Something went wrong Your calendar didn’t load. Try again. Retry'], 'after 20 s, the retry card');
+      assert(ranges().length === 1, `no loop: ${show(ranges())}`);
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      fireDocument('visibilitychange');
+      await settle();
+      assert(show(ranges()) === show(['famcal default', 'famcal default']), `the foreground asks again: ${show(ranges())}`);
+      assertHas(m.text(), ['Today', 'Dentist'], 'then the Agenda');
+      // The facts are pinned: a refetch that hangs is let go too.
+      answerFetch = () => new Promise<FetchAnswer>(() => undefined);
+      fireDocument('visibilitychange');
+      fireDocument('visibilitychange');
+      assert(show(ranges().slice(2)) === show([`famcal ${day(0)}→${day(7)}`]), `in flight, a second return is deduped: ${show(ranges())}`);
+      await clock.advance(20_000);
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      fireDocument('visibilitychange');
+      await settle();
+      assert(show(ranges().slice(2)) === show([`famcal ${day(0)}→${day(7)}`, `famcal ${day(0)}→${day(7)}`]), `past the limit, the next return asks again: ${show(ranges())}`);
+      assertHas(m.text(), ['Dentist'], 'the data stays meanwhile');
+      assertLacks(m.text(), ['Something went wrong'], 'no card once the facts are pinned');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#37 Telegram\'s BackButton is the container\'s one (§7.6): hidden on mount; shown while the item sheet, the Send sheet or the ⋯ menu is open; a tap (also Android\'s back gesture) closes only that sheet, then offClick and hide; a store drop closes the item sheet for good', async () => {
+    resetHome();
+    const tg = fakeTelegramHome();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    const clock = fakeClock('2026-10-15T20:59:30Z'); // 23:59:30 in Israel, Thursday 15 October
+    let serverToday = TODAY;
+    answerFetch = () => ok200(serverToday === TODAY ? answer({ items: WEEK }) : answer({ today: day(1), from: day(1), to: day(8), items: { [day(1)]: [GRANDMA] } }));
+    const m = await mountHome('en', {}, clock);
+    const back = () => tg.calls.filter((c) => c.startsWith('BackButton'));
+    try {
+      assert(show(back()) === show(['BackButton.hide()']), `on mount: ${show(back())}`);
+      const dentist = button(m.container, 'Dentist');
+      dentist.focus();
+      const sheets: [string, () => FakeElement][] = [
+        ['the item sheet', () => dentist],
+        ['the Send sheet', () => byLabel(m.container, 'Send to chat')],
+        ['the menu', () => byLabel(m.container, 'Menu')],
+      ];
+      for (const [name, opener] of sheets) {
+        const target = opener();
+        target.focus();
+        tg.calls.length = 0;
+        m.click(target);
+        assert(byRole(m.container, 'dialog').length === 1, `${name} is open`);
+        assert(show(back()) === show(['BackButton.onClick', 'BackButton.show()']), `${name} open: ${show(back())}`);
+        tg.calls.length = 0;
+        React.act(() => tg.fire('backButtonClicked'));
+        assert(byRole(m.container, 'dialog').length === 0, `the BackButton closed ${name}`);
+        assert(show(back()) === show(['BackButton.offClick', 'BackButton.hide()']), `${name} closed: ${show(back())}`);
+        assert(tg.backHandlers() === 0, `${name}: no handler left`);
+        assert(fakeDocument.activeElement === target, `${name}: focus is back where it was`);
+        assertHas(m.text(), ['Thursday, 15 October', 'Dentist', 'Show next week'], `only ${name} closed`);
+      }
+      // Midnight with the sheet open: the store drops, the sheet closes for good, the button goes.
+      m.click(button(m.container, 'Send the school form'));
+      tg.calls.length = 0;
+      serverToday = day(1);
+      await clock.advance(31_000);
+      assert(show(back()) === show(['BackButton.offClick', 'BackButton.hide()']), `the drop let the button go: ${show(back())}`);
+      assertHas(m.text(), ['Friday, 16 October', 'Grandma visits'], 'the new day');
+      assert(byRole(m.container, 'dialog').length === 0 && tg.backHandlers() === 0, 'the next answer does not open it again');
+    } finally {
+      m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+  });
+
+  await check('#38 a Google user who connected but hasn\'t chosen calendars (the route answers ok with 7 empty days): the Choose your calendars banner, and under it no "Nothing planned", no hint, no fold, no "Show next week"; before connecting, the Connect banner the same way', async () => {
+    const cases: [Locale, Partial<CalendarHomeProps>, RangeResponse, string, string, string[]][] = [
+      ['en', { needsCalendars: true }, googleAnswer({ calendars: [] }), 'chooseCalendars', 'Choose your calendars Pick the Google calendars to show here and in your summaries.', ['Nothing planned', 'voice message', 'Remind me', 'Show next week', 'Today', 'Tomorrow']],
+      ['he', { needsCalendars: true }, googleAnswer({ calendars: [] }), 'chooseCalendars', 'בחירת יומנים אילו יומני Google להציג כאן ובסיכומים?', ['אין אירועים', 'הודעה קולית', 'תזכיר לי', 'להציג את השבוע הבא', 'היום', 'מחר']],
+      ['en', { needsOAuth: true, needsCalendars: true }, googleAnswer({ sources: { google: { status: 'reconnect', reason: 'token' } }, calendars: [] }), 'connectGoogle', 'Connect Google Calendar Your calendar shows up here once it’s connected.', ['Nothing planned', 'Reconnect', 'Show next week', 'Today', 'Tomorrow']],
+    ];
+    for (const [locale, setup, reply, banner, title, absent] of cases) {
+      resetHome();
+      answerFetch = () => ok200(reply);
+      const m = await mountHome(locale, { ...GOOGLE_HOME, ...setup });
+      try {
+        assertHas(m.text(), [title], `${locale} ${banner}`);
+        assert(m.html().includes(`data-banner="${banner}"`), `${locale}: the ${banner} banner`);
+        assertLacks(m.text(), absent, `${locale} ${banner}: no Agenda under the banner`);
+        assert(!/class="ch-(?:fold|ghost|empty|day-head|more)\b/.test(markup(m.html())), `${locale} ${banner}: no fold, placeholder, empty state, day or button`);
+        assert(show(ranges()) === show(['google default']), `${locale}: one request: ${show(ranges())}`);
+        m.click(byData(m.container, 'banner', banner));
+        const want = banner === 'chooseCalendars' ? `/${locale}/select-calendars?user_id=5550002` : '/refresh-token?user_id=5550002';
+        assert(show(pushes) === show([want]), `${banner} opens ${want}: ${show(pushes)}`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('#39 back in the foreground after the night, the midnight timer not yet run (iOS suspends timers): the store starts over at once with a no-dates request, the header and Today move to the new day, yesterday\'s items are never labelled Today, and the late timer resets nothing; a device clock that runs ahead resets once, then only refetches; with init data over a day old the route answers 401 and the home shows PageGate\'s card', async () => {
+    const overnight = async (reply: (today: DayKey) => FetchAnswer | Promise<FetchAnswer>) => {
+      resetHome();
+      const tg = fakeTelegramHome();
+      fakeWindow.Telegram = { WebApp: tg.webApp };
+      const clock = fakeClock('2026-10-15T18:00:00Z'); // 21:00 Thursday in Israel
+      answerFetch = () => ok200(answer({ items: WEEK }));
+      const m = await mountHome('en', {}, clock);
+      assert(m.html().includes('<h1 class="ch-head-title">Thursday, 15 October</h1>'), 'Thursday');
+      assert(clock.pending().some((ms) => ms <= 3_600_000), `the day check is armed: ${show(clock.pending())}`);
+      clock.jump(10 * 3_600_000); // 07:00 Friday in Israel; the timer never ran
+      answerFetch = () => reply(day(1));
+      fetchCalls.length = 0;
+      return { tg, clock, m };
+    };
+
+    let release: (a: FetchAnswer) => void = noop;
+    const { tg, clock, m } = await overnight(() => new Promise<FetchAnswer>((resolve) => (release = resolve)));
+    try {
+      React.act(() => tg.fire('activated'));
+      await settle();
+      assert(show(ranges()) === show(['famcal default']), `one no-dates request, not yesterday's window: ${show(ranges())}`);
+      assertLacks(m.text(), ['Thursday, 15 October', 'Dentist', 'Today'], 'until the answer: placeholders, never yesterday as Today');
+      await React.act(async () => release(ok200(answer({ today: day(1), from: day(1), to: day(8), items: { [day(1)]: [GRANDMA] } }))));
+      await settle();
+      assert(m.html().includes('<h1 class="ch-head-title">Friday, 16 October</h1>'), `the header: ${m.text().slice(0, 80)}`);
+      assertHas(m.text(), [`Today ${ref.dayShort('en-GB', day(1))}`, 'All day Grandma visits'], 'the new Today');
+      assertLacks(m.text(), ['Dentist', 'Send the school form'], 'nothing of Thursday\'s');
+      // The suspended timer is due now; it was dropped with the old day and resets nothing.
+      await clock.advance(0);
+      assert(clock.pending().every((ms) => ms > 0), `no timer left overdue: ${show(clock.pending())}`);
+      assert(show(ranges()) === show(['famcal default']) && m.text().includes('Friday, 16 October'), `no second reset: ${show(ranges())}`);
+    } finally {
+      m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+
+    // A device clock that runs ahead (the server still says Thursday): one reset, then plain refetches.
+    const ahead = await overnight(() => ok200(answer({ items: WEEK })));
+    try {
+      React.act(() => ahead.tg.fire('activated'));
+      await settle();
+      React.act(() => ahead.tg.fire('activated'));
+      await settle();
+      assert(show(ranges()) === show(['famcal default', `famcal ${day(0)}→${day(7)}`]), `one reset, then a refetch: ${show(ranges())}`);
+      assertHas(ahead.m.text(), ['Thursday, 15 October', 'Dentist'], 'the server\'s day stands');
+    } finally {
+      ahead.m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+
+    // Init data older than a day: the route proves no one (401), and the home shows PageGate's card, asking nothing more.
+    const stale = await overnight(() => ({ status: 401, body: { error: 'Unauthorized' } }));
+    try {
+      React.act(() => stale.tg.fire('activated'));
+      await settle();
+      assertHas(stale.m.text(), ['Please open this from the bot', 'Back to the chat'], '401: PageGate\'s card');
+      assertLacks(stale.m.text(), ['Dentist', 'Today'], '401: no stale Agenda');
+      React.act(() => stale.tg.fire('activated'));
+      fireDocument('visibilitychange');
+      await settle();
+      assert(show(ranges()) === show(['famcal default']), `401: nothing more is asked: ${show(ranges())}`);
+    } finally {
+      stale.m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+  });
+
+  await check('#40 React logged no warning in any render, CalendarHome\'s included (keys, nesting, attributes, act)', () => {
     assert(reactWarnings.length === 0, `warnings: ${show(reactWarnings.slice(0, 5))}`);
   });
 

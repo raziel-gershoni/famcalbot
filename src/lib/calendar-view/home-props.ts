@@ -17,4 +17,14 @@ export type CalendarHomeProps = {
   needsOAuth: boolean;
   needsCalendars: boolean;
   hints: HomeHints;
+  /**
+   * The trial's days left, for the home's trial banner (spec §7.2); null when there is no
+   * trial (or the user is an early adopter). Absent means unknown: no banner.
+   */
+  trialDaysLeft?: number | null;
+  /**
+   * Whether a location is set, for "Set your location for the right times" (spec §7.2).
+   * Absent means unknown: no banner.
+   */
+  hasLocation?: boolean;
 };
