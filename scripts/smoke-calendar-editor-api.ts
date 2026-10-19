@@ -62,7 +62,7 @@ const tables: Record<string, Row[]> = {};
 const COMPOUND_KEYS = ['seriesEventId_originalStartsAt'];
 const DEFAULTS: Record<string, () => Row> = {
   nativeCalendar: () => ({ color: '#039BE5', labels: [], personName: null, privacy: 'PRIVATE', isDeleted: false }),
-  nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, exdates: [], reminderMinutes: null, isDeleted: false, kind: 'EVENT', forUserId: null, armedAt: null }),
+  nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [], reminderMinutes: null, isDeleted: false, kind: 'EVENT', forUserId: null, armedAt: null }),
   nativeEventInstance: () => ({ title: null, description: null, location: null, startsAt: null, endsAt: null, allDay: null }),
   nativeReminderState: () => ({ doneAt: null, doneByUserId: null, snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null }),
 };
@@ -1980,6 +1980,175 @@ async function main() {
   });
 
   // ================= failures and logs =================
+
+  // ================= Hebrew-date repeats: the pair across edits (hebrew-repeats spec §2, §6) =================
+
+  /**
+   * A Hebrew birthday as the store writes one: FREQ=YEARLY, the pair, anchored on 30 Cheshvan
+   * 5783 (24 Nov 2022) at 10:00. Its days: 2022-11-24, 2023-11-14, 2024-12-01, 2025-11-21 (1
+   * Kislev: 5786 has no 30 Cheshvan), 2026-11-10, 2027-11-30, 2028-11-19.
+   */
+  const hebrewSeries = (id = 'heb', extra: Row = {}) => {
+    const row = seedSeries(id, {
+      calendarId: 'cal-tal', creatorUserId: TAL, title: 'Grandpa\'s birthday', startsAt: at('2022-11-24 10:00'),
+      rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', hebrewAnchor: '2022-11-24', ...extra,
+    });
+    const occ = (day: string, time = '10:00', sid = row.id) => `famcal|${sid}#${iso(at(`${day} ${time}`))}`;
+    return { id: row.id as string, occ, row };
+  };
+  const pairOf = (r: Row) => [r.rrule, r.hebrewRule, r.hebrewAnchor];
+  const daysOf = async (id: string, from: string, to: string) => {
+    const { expandSeries } = await load('src/services/native-calendar/recurrence.ts');
+    return expandSeries(eventRow(id), { from: at(`${from} 00:00`), to: at(`${to} 00:00`) }, overrides(id)).map((i: Row) => formatInTimeZone(i.startsAt, IL, 'yyyy-MM-dd'));
+  };
+
+  await check('hebrew: "this and after" from a rolled day keeps the pair and the anchor; the tail still falls on 30 Cheshvan in long years', async () => {
+    seed();
+    const { id, occ } = hebrewSeries();
+    const r = await patch({ key: occ('2025-11-21'), scope: 'following', changes: { title: 'Saba' } });
+    const tail = lastEvent();
+    assertSame([r.status, r.body.key], [200, occ('2025-11-21', '10:00', tail.id)], 'the key is the tail\'s first');
+    assertSame(pairOf(tail), ['FREQ=YEARLY', 'anniversary', '2022-11-24'], 'the tail: the anchor copied, not re-derived from 1 Kislev');
+    assertSame(pairOf(eventRow(id)), ['FREQ=YEARLY;UNTIL=20251121T095959', 'anniversary', '2022-11-24'], 'the head is cut and keeps its pair');
+    assertSame(await daysOf(tail.id, '2020-01-01', '2029-01-01'), ['2025-11-21', '2026-11-10', '2027-11-30', '2028-11-19'], 'the tail\'s days');
+    assertSame(await daysOf(id, '2020-01-01', '2029-01-01'), ['2022-11-24', '2023-11-14', '2024-12-01'], 'the head\'s days');
+    assertSame((await itemOf(r.body.key)).status, 200, 'the tail\'s key reads');
+    const timed = await patch({ key: occ('2026-11-10', '10:00', tail.id), scope: 'following', changes: { start: '2026-11-10T12:00', end: '2026-11-10T13:00' } });
+    assertSame([timed.status, pairOf(lastEvent())], [200, ['FREQ=YEARLY', 'anniversary', '2022-11-24']], 'a new time on the same day keeps the anchor');
+  });
+
+  await check('hebrew: "this and after" to another day replaces the anchor with the tail\'s new start; COUNT is cut in Hebrew slots', async () => {
+    seed();
+    const { occ } = hebrewSeries();
+    const r = await patch({ key: occ('2026-11-10'), scope: 'following', changes: { start: '2026-11-12T10:00', end: '2026-11-12T11:00' } });
+    const tail = lastEvent();
+    assertSame([r.status, iso(tail.startsAt), pairOf(tail)], [200, iso(at('2026-11-12 10:00')), ['FREQ=YEARLY', 'anniversary', '2026-11-12']], 'anchored on its new day');
+    seed();
+    const counted = hebrewSeries('heb-count', { rrule: 'FREQ=YEARLY;COUNT=5' });
+    await patch({ key: counted.occ('2025-11-21'), scope: 'following', changes: { title: 'Saba' } });
+    assertSame([pairOf(lastEvent()), eventRow(counted.id).rrule], [['FREQ=YEARLY;COUNT=2', 'anniversary', '2022-11-24'], 'FREQ=YEARLY;UNTIL=20251121T095959'], 'three slots before the cut, two left');
+    assertSame(await daysOf(lastEvent().id, '2020-01-01', '2035-01-01'), ['2025-11-21', '2026-11-10'], 'the tail has what is left');
+  });
+
+  await check('hebrew: "this and after" from the first occurrence changes the series in place: a rename and a new time keep the anchor, a day move replaces it', async () => {
+    seed();
+    const { id, occ } = hebrewSeries();
+    const renamed = await patch({ key: occ('2022-11-24'), scope: 'following', changes: { title: 'Saba', start: '2022-11-24T11:00', end: '2022-11-24T12:00' } });
+    assertSame([renamed.status, tables.nativeEvent.length, pairOf(eventRow(id))], [200, 1, ['FREQ=YEARLY', 'anniversary', '2022-11-24']], 'in place, the anchor kept');
+    const moved = await patch({ key: occ('2022-11-24', '11:00'), scope: 'following', changes: { start: '2022-11-25T11:00', end: '2022-11-25T12:00' } });
+    assertSame([moved.status, tables.nativeEvent.length, pairOf(eventRow(id))], [200, 1, ['FREQ=YEARLY', 'anniversary', '2022-11-25']], 'a day move re-anchors on 1 Kislev 5783');
+    assertSame((await daysOf(id, '2022-01-01', '2025-01-01')), ['2022-11-25', '2023-11-14', '2024-12-02'], 'now it follows 1 Kislev');
+  });
+
+  await check('hebrew: "all" keeps the pair; a day move shifts the anchor by the same days; a title change leaves it alone', async () => {
+    seed();
+    const { id, occ } = hebrewSeries();
+    await patch({ key: occ('2024-12-01'), scope: 'all', changes: { title: 'Saba' } });
+    assertSame(pairOf(eventRow(id)), ['FREQ=YEARLY', 'anniversary', '2022-11-24'], 'a rename');
+    const r = await patch({ key: occ('2024-12-01'), scope: 'all', changes: { start: '2024-12-02T10:00', end: '2024-12-02T11:00' } });
+    assertSame([r.status, iso(eventRow(id).startsAt), pairOf(eventRow(id))], [200, iso(at('2022-11-25 10:00')), ['FREQ=YEARLY', 'anniversary', '2022-11-25']], 'a day later, the anchor too');
+  });
+
+  await check('hebrew: a calendar move "this and after" and a recipient change "this and after" each give the tail the pair', async () => {
+    seed();
+    const { id, occ } = hebrewSeries();
+    const moved = await patch({ key: occ('2025-11-21'), scope: 'following', changes: { calendarId: 'native:cal-tal-family' } });
+    const tail = lastEvent();
+    assertSame([moved.status, tail.calendarId, pairOf(tail), eventRow(id).hebrewRule], [200, 'cal-tal-family', ['FREQ=YEARLY', 'anniversary', '2022-11-24'], 'anniversary'], 'calendar move');
+    seed();
+    const rem = hebrewSeries('heb-rem', { kind: 'REMINDER', hebrewRule: 'yahrzeit', title: 'Light a candle' });
+    // The yahrzeit's 5786 day is 29 Cheshvan (20 Nov): its first anniversary year had no 30th.
+    const handed = await patch({ key: rem.occ('2025-11-20'), scope: 'following', changes: { forPartner: true } });
+    const remTail = lastEvent();
+    assertSame([handed.status, remTail.forUserId, remTail.kind, pairOf(remTail)], [200, NOA, 'REMINDER', ['FREQ=YEARLY', 'yahrzeit', '2022-11-24']], 'recipient');
+    assertSame(await daysOf(remTail.id, '2025-01-01', '2029-01-01'), ['2025-11-20', '2026-11-10', '2027-11-30', '2028-11-18'], 'the yahrzeit tail keeps 29 Cheshvan from its first anniversary year');
+  });
+
+  await check('hebrew: a stop clears rrule, hebrewRule and hebrewAnchor together, from a later occurrence and from the first', async () => {
+    seed();
+    const { id, occ } = hebrewSeries();
+    const later = await patch({ key: occ('2025-11-21'), scope: 'following', changes: { repeat: 'none' } });
+    const one = lastEvent();
+    assertSame([later.status, pairOf(one), iso(one.startsAt)], [200, [null, null, null], iso(at('2025-11-21 10:00'))], 'the one-off has no pair');
+    assertSame(pairOf(eventRow(id)), ['FREQ=YEARLY;UNTIL=20251121T095959', 'anniversary', '2022-11-24'], 'the head keeps repeating');
+    const first = await patch({ key: occ('2022-11-24'), scope: 'following', changes: { repeat: 'none' } });
+    assertSame([first.status, pairOf(eventRow(id))], [200, [null, null, null]], 'from the first: the row is a one-off');
+    seed();
+    const rem = hebrewSeries('heb-rem', { kind: 'REMINDER' });
+    const stopped = await patch({ key: rem.occ('2022-11-24'), scope: 'following', changes: { repeat: 'none' } });
+    assertSame([stopped.status, pairOf(eventRow(rem.id))], [200, [null, null, null]], 'a reminder too');
+  });
+
+  await check('hebrew: the item info names the kind and the anchor; a yahrzeit\'s start (the date of death) opens; fixed days stay off', async () => {
+    seed();
+    const { occ } = hebrewSeries();
+    const info = await itemOf(occ('2025-11-21'));
+    assertSame([info.status, info.body.series.rule, info.body.series.repeat, info.body.series.fixedDays],
+      [200, { choice: 'hebrew' }, { freq: 'yearly', interval: 1, byDay: [], ends: false, hebrew: { kind: 'anniversary', anchor: '2022-11-24' } }, false], 'anniversary');
+    const y = hebrewSeries('heb-y', { hebrewRule: 'yahrzeit', rrule: 'FREQ=YEARLY;COUNT=3' });
+    const death = await itemOf(y.occ('2022-11-24'));
+    assertSame([death.status, death.body.series.rule, death.body.series.first], [200, { choice: 'yahrzeit', until: '2024-12-01' }, true], 'the yahrzeit\'s first occurrence');
+    const custom = hebrewSeries('heb-2', { rrule: 'FREQ=YEARLY;INTERVAL=2' });
+    assertSame((await itemOf(custom.occ('2022-11-24'))).body.series.rule, { choice: 'custom' }, 'every 2 years is custom');
+    const greg = seedSeries('greg', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Wedding', startsAt: at('2022-11-24 10:00'), rrule: 'FREQ=YEARLY' });
+    const g = await itemOf(`famcal|${greg.id}#${iso(at('2023-11-24 10:00'))}`);
+    assertSame([g.body.series.rule, g.body.series.repeat], [{ choice: 'yearly' }, { freq: 'yearly', interval: 1, byDay: [], ends: false }], 'a Gregorian yearly series is unchanged');
+  });
+
+  await check('hebrew: the store creates the pair with the anchor read in the zone, refuses a bad pair, and the key create gives opens', async () => {
+    seed();
+    const created = await store.createNativeEvent({
+      calendarCuid: 'cal-tal', creatorUserId: TAL, title: 'Yahrzeit', startsAt: new Date('2026-02-01T23:30:00Z'), endsAt: new Date('2026-02-02T00:30:00Z'),
+      timeZone: IL, rrule: 'FREQ=YEARLY', hebrewRule: 'yahrzeit',
+    });
+    assertSame(pairOf(eventRow(created.id)), ['FREQ=YEARLY', 'yahrzeit', '2026-02-02'], 'anchored on 15 Shvat, the day in Israel');
+    const key = `famcal|${created.id}#${created.startsAt.toISOString()}`;
+    assertSame([(await itemOf(key)).status, (await itemOf(key)).body.series?.first], [200, true], 'the start is an occurrence');
+    assertSame(await store.getNativeSeriesRrule(created.id), 'FREQ=YEARLY', 'week-lookahead reads a yearly rule');
+    const rem = await store.createNativeEvent({
+      calendarCuid: 'cal-tal', creatorUserId: TAL, title: 'Candle', startsAt: at('2026-02-02 15:00'), endsAt: at('2026-02-02 15:00'), allDay: true,
+      timeZone: IL, rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', kind: 'REMINDER',
+    });
+    assertSame([iso(eventRow(rem.id).startsAt), eventRow(rem.id).hebrewAnchor], [iso(at('2026-02-02 00:00')), '2026-02-02'], 'a date-only reminder, anchored on its day');
+    const before = tables.nativeEvent.length;
+    const base = { calendarCuid: 'cal-tal', creatorUserId: TAL, title: 'x', startsAt: at('2026-02-02 10:00'), endsAt: at('2026-02-02 11:00'), timeZone: IL };
+    for (const bad of [
+      { rrule: 'FREQ=WEEKLY', hebrewRule: 'anniversary' },
+      { rrule: 'FREQ=YEARLY;BYMONTH=2', hebrewRule: 'anniversary' },
+      { rrule: null, hebrewRule: 'yahrzeit' },
+      { rrule: 'FREQ=YEARLY', hebrewRule: 'monthly' },
+      { rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', hebrewAnchor: '2026-02-03' },
+      { rrule: 'FREQ=YEARLY', hebrewAnchor: '2026-02-02' },
+    ]) {
+      const e = await thrownBy(() => store.createNativeEvent({ ...base, ...bad }));
+      assert(e instanceof rec.NativeRuleError, `${show(bad)}: ${e}`);
+    }
+    assertSame(tables.nativeEvent.length, before, 'nothing written');
+  });
+
+  await check('hebrew: the store takes a rule change with the pair: Hebrew to Gregorian yearly, Gregorian to Hebrew, one kind to the other (same rrule string)', async () => {
+    seed();
+    const { id } = hebrewSeries();
+    const update = (seriesCuid: string, day: string, o: Row) => store.updateNativeEvent({ seriesCuid, instanceStartsAt: at(`${day} 10:00`), scope: 'following', actingUserId: TAL, ...o });
+    await update(id, '2025-11-21', { rrule: 'FREQ=YEARLY', hebrewRule: null });
+    assertSame(pairOf(lastEvent()), ['FREQ=YEARLY', null, null], 'to Gregorian yearly');
+    assertSame(await daysOf(lastEvent().id, '2025-01-01', '2028-01-01'), ['2025-11-21', '2026-11-21', '2027-11-21'], 'on the Gregorian date from there');
+    seed();
+    const greg = seedSeries('greg', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Wedding', startsAt: at('2022-11-24 10:00'), rrule: 'FREQ=YEARLY' });
+    await update(greg.id, '2024-11-24', { rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary' });
+    assertSame(pairOf(lastEvent()), ['FREQ=YEARLY', 'anniversary', '2024-11-24'], 'to Hebrew, anchored on the tail\'s start (23 Cheshvan 5785)');
+    assertSame(await daysOf(lastEvent().id, '2024-01-01', '2026-01-01'), ['2024-11-24', '2025-11-14'], 'its Hebrew days');
+    seed();
+    const kinds = hebrewSeries();
+    await update(kinds.id, '2026-11-10', { hebrewRule: 'yahrzeit' });
+    assertSame(pairOf(lastEvent()), ['FREQ=YEARLY', 'yahrzeit', '2022-11-24'], 'the other kind, the anchor kept');
+    assertSame(await daysOf(lastEvent().id, '2026-01-01', '2029-01-01'), ['2026-11-10', '2027-11-30', '2028-11-18'], 'the yahrzeit\'s days from there');
+    seed();
+    const same = hebrewSeries('heb-same');
+    prismaCalls.length = 0;
+    await update(same.id, '2023-11-14', { rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary' });
+    assertSame([tables.nativeEvent.length, prismaCalls.some((c) => /\.(update|upsert|create|deleteMany)$/.test(c))], [1, false], 'the pair it already has is no change');
+  });
 
   await check('a store failure is 500 with no title in the response, the capture or the console', async () => {
     seed();
