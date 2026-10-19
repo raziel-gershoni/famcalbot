@@ -1021,6 +1021,9 @@ async function main() {
   const commands = await import('../src/services/telegram/commands');
   const { getWeekLookahead, getNextWeekLookahead } = await import('../src/services/week-lookahead');
   const { getCalendarAssignmentsForUser } = await import('../src/services/calendar-provider/user-calendars');
+  // These timelines read one user after another on a single fake clock; the batch's own
+  // concurrency is checked in smoke-summary-retry.
+  summary.__setSummaryConcurrencyForTests(1);
   summary.__setScheduledRetrySleepForTests(async (ms: number) => {
     log.push(`sleep ${ms}`);
     clock += ms;

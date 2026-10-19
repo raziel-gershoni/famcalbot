@@ -136,7 +136,7 @@ let batch: UserConfig[] = [];
 
 // ---- The reader: each user's planned outcomes, one per readRange call ----
 
-type Outcome = 'ok' | 'empty' | 'fail' | 'token' | 'scopes';
+type Outcome = 'ok' | 'empty' | 'fail' | 'token' | 'scopes' | 'boom';
 let plans = new Map<number, Outcome[]>();
 
 function item(user: UserConfig, event: CalendarEvent): ReadItem {
@@ -157,11 +157,22 @@ function dentist(user: UserConfig, day: string): CalendarEvent {
   };
 }
 
+/** While set, every read waits for it (a stalled Google): how many wait at once is the batch's concurrency. */
+let hold: Promise<void> | null = null;
+let readsHeld = 0;
+let peakHeld = 0;
+
 async function readRange(user: UserConfig, fromKey: string, toKey: string, opts: ReadRangeOptions): Promise<RangeRead> {
   log.push(`read ${user.name} ${fromKey}..${toKey} ${opts.deadlineMs}`);
+  if (hold) {
+    peakHeld = Math.max(peakHeld, ++readsHeld);
+    await hold;
+    readsHeld--;
+  }
   clock += readMs;
   const outcome = plans.get(user.id)?.shift();
   if (!outcome) throw new Error(`unplanned read for ${user.name}`);
+  if (outcome === 'boom') throw new Error(`the read for ${user.name} broke`);
   const window = { from: new RealDate(il(`${fromKey} 00:00:00`)), to: new RealDate(il(`${toKey} 00:00:00`)) };
   const items = outcome === 'ok' ? [item(user, dentist(user, fromKey))] : [];
   if (user.calendarSource === 'NATIVE') {
@@ -417,6 +428,10 @@ async function main() {
   loadedSummary = summary;
   const { filterUsersForSummary } = await import('../src/lib/summary-scheduling');
   const { handleDailySummary } = await import('../src/cron/handlers');
+  // The checks below read one user after another on a single fake clock (each read adds its
+  // time to it), so their timelines hold at one user at a time; the last check runs the
+  // real limit.
+  summary.__setSummaryConcurrencyForTests(1);
   summary.__setScheduledRetrySleepForTests(async (ms: number) => {
     await onSleep();
     log.push(`sleep ${ms}`);
@@ -689,6 +704,61 @@ async function main() {
       'send Dana summary',
       'mark Dana daily 2026-10-16',
     ], 'run');
+  });
+
+  // ---- Concurrency: a Google stall costs the batch one wait per four users, not one per user ----
+
+  await check('six Google users behind a stalled Google: four reads in flight at once, in order; every user delivered once, the set-aside ones retried once after one wait, four at a time; a user whose read throws leaves the others alone; the counts equal the one-at-a-time run', async () => {
+    const gs = [21, 22, 23, 24, 25, 26].map(id => google(id, `G${id - 20}`));
+    const boom = google(27, 'G7');
+    EVERYONE.push(...gs, boom);
+    const run = async (concurrency: number, held: boolean) => {
+      summary.__setSummaryConcurrencyForTests(concurrency);
+      reset([...gs, boom], [...gs.map((g): [UserConfig, Outcome[]] => [g, ['fail', 'ok']]), [boom, ['boom']]]);
+      peakHeld = 0;
+      readsHeld = 0;
+      let release: () => void = () => {};
+      if (held) hold = new Promise<void>(resolve => { release = resolve; });
+      const phases: number[] = [];
+      onSleep = async () => {
+        // The retry's turn: stall it too, to see it is four at a time as well.
+        if (!held) return;
+        peakHeld = 0;
+        hold = new Promise<void>(resolve => { release = resolve; });
+        setTimeout(() => { phases.push(peakHeld); release(); hold = null; }, 60);
+      };
+      const running = summary.sendDailySummaryToAll({ filterByHour: true });
+      if (held) {
+        await until(() => readsHeld >= 4);
+        await new Promise(resolve => setTimeout(resolve, 30));
+        phases.unshift(peakHeld);
+        const firstWave = log.filter(l => l.startsWith('read ')).map(l => l.split(' ')[1]).join();
+        assert(firstWave === 'G1,G2,G3,G4', `the first reads ${firstWave}`);
+        hold = null;
+        release();
+      }
+      const result = await running;
+      hold = null;
+      return { result, phases, log: [...log], batchLines: [...batchLines], sleeps: [...sleeps], reports: reported() };
+    };
+    const wide = await run(4, true);
+    assert(wide.phases.join() === '4,4', `most reads in flight at once, first wave then retries: ${wide.phases}`);
+    const count = (lines: string[], prefix: string) => lines.filter(l => l.startsWith(prefix)).length;
+    for (const g of gs) {
+      assert(sent.filter(x => x.name === g.name).length === 1, `${g.name} got ${sent.filter(x => x.name === g.name).length} summaries`);
+      assert(wide.log.filter(l => l === `mark ${g.name} daily 2026-10-16`).length === 1, `${g.name} marks`);
+      assert(wide.log.filter(l => l.startsWith(`read ${g.name} `)).length === 2, `${g.name} reads`);
+    }
+    assert(sent.every(x => x.name !== 'G7'), 'the user whose read broke got a summary');
+    assert(wide.sleeps.length === 1 && wide.log.filter(l => l.startsWith('warn summary-google-retry')).join() === 'warn summary-google-retry 6 scheduled summaries set aside for a Google retry', `sleeps ${wide.sleeps}, log ${wide.log.filter(l => l.includes('retry'))}`);
+    assert(wide.reports.some(r => r.includes('the read for G7 broke')) || captured.some(c => c.context === 'summary-batch-user'), `no report for G7: ${JSON.stringify(captured)}`);
+    assert(wide.result.processed === 6, `processed ${wide.result.processed}`);
+    assert(wide.batchLines.join().includes('processed=6 set aside=6'), `closing line ${wide.batchLines}`);
+    const wideMarks = count(wide.log, 'mark ');
+    const narrow = await run(1, false);
+    assert(narrow.result.processed === wide.result.processed && count(narrow.log, 'mark ') === wideMarks && narrow.sleeps.length === wide.sleeps.length,
+      `one at a time: processed ${narrow.result.processed}, marks ${count(narrow.log, 'mark ')}, sleeps ${narrow.sleeps.length}`);
+    summary.__setSummaryConcurrencyForTests(1);
   });
 
   await check('nothing above reached the network or sent an admin error notice', () => {

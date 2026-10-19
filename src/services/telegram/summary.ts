@@ -373,6 +373,37 @@ export function __setScheduledRetrySleepForTests(sleep: ((ms: number) => Promise
   scheduledRetrySleep = sleep ?? realSleep;
 }
 
+/** How many users a batch handles at once (Telegram, Anthropic and Neon take this easily). */
+const SUMMARY_CONCURRENCY = 4;
+let summaryConcurrency = SUMMARY_CONCURRENCY;
+
+/** Smoke scripts only: a timeline check that reads one user after another sets 1; null puts the real limit back. */
+export function __setSummaryConcurrencyForTests(limit: number | null): void {
+  summaryConcurrency = limit ?? SUMMARY_CONCURRENCY;
+}
+
+/**
+ * Runs fn over items, `limit` at a time, starting them in order. One that throws does not
+ * stop the rest; the first error is thrown once all are done, as the sequential loop's
+ * throw reached the batch's own catch.
+ */
+async function runPool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  let failure: { error: unknown } | null = null;
+  const worker = async () => {
+    while (next < items.length) {
+      const item = items[next++];
+      try {
+        await fn(item);
+      } catch (error) {
+        failure ??= { error };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  if (failure) throw (failure as { error: unknown }).error;
+}
+
 /** Result counts from batch summary delivery */
 export interface SummaryBatchResult {
   processed: number;
@@ -539,7 +570,8 @@ async function sendSummaryToAll(
       }
     };
 
-    for (const user of ordered) {
+    // One user's pass: skipped, weather-only, or delivered; a Google outage sets them aside.
+    const processUser = async (user: UserConfig) => {
       const platform = user.messagingPlatform || 'telegram';
 
       // Diagnostic: log WA delivery details for dual-platform users
@@ -560,12 +592,12 @@ async function sendSummaryToAll(
 
       if (!hasBackend) {
         console.log(`[Summary] Skipping user ${user.id}: No Google token`);
-        continue;
+        return;
       }
 
       if (!hasCalendars && !hasLocation) {
         console.log(`[Summary] Skipping user ${user.id}: No calendars or location`);
-        continue;
+        return;
       }
 
       if (!hasCalendars && hasLocation && user.weatherEnabled) {
@@ -582,12 +614,12 @@ async function sendSummaryToAll(
           console.error(`[Summary] Failed to send weather-only to user ${user.telegramId}:`, error);
           captureError(error, 'summary-weather-only', { user_id: user.id }, 'warning');
         }
-        continue;
+        return;
       }
 
       if (!hasCalendars) {
         console.log(`[Summary] Skipping user ${user.id}: No calendars, weather disabled`);
-        continue;
+        return;
       }
 
       try {
@@ -601,9 +633,14 @@ async function sendSummaryToAll(
           await reportFailure(user, platform, error);
         }
       }
-    }
+    };
 
-    // C5: 30 s after the first failure, each set-aside user gets one retry, in order.
+    // A few users at once: a Google stall (30 s a read, up to 60 s a user) would otherwise
+    // cost the batch N times that, past every later user's hour. Counters, the retry list and
+    // firstGoogleFailureAt are only touched between awaits, so they need no lock.
+    await runPool(ordered, summaryConcurrency, processUser);
+
+    // C5: 30 s after the first failure, each set-aside user gets one retry, SUMMARY_CONCURRENCY at a time.
     if (googleRetries.length > 0) {
       // Said once per batch, before the wait: if the process stops during it (a deploy),
       // these users get no summary and no dedup mark this hour, and Sentry has the count.
@@ -613,13 +650,13 @@ async function sendSummaryToAll(
       });
       const waitMs = firstGoogleFailureAt + SCHEDULED_RETRY_AFTER_MS - Date.now();
       if (waitMs > 0) await scheduledRetrySleep(waitMs);
-      for (const { user, platform, day } of googleRetries) {
+      await runPool(googleRetries, summaryConcurrency, async ({ user, platform, day }) => {
         try {
           await retryOnce(user, platform, day);
         } catch (error) {
           await reportFailure(user, platform, error);
         }
-      }
+      });
     }
 
     console.log(`[Batch Summary] ${summaryDate ? 'tomorrow' : 'daily'} done: processed=${result.processed} set aside=${googleRetries.length} total=${Date.now() - batchStartedAt.getTime()}ms`);
