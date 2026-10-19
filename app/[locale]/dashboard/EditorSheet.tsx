@@ -14,7 +14,8 @@
 //   creator, the For row. Where the info doesn't allow a row, its value stays text. What a
 //   Save applies to is editor-model's scopePlan: a repeat change is from this occurrence on
 //   with no question, a calendar or recipient change on a series asks 'this one and the
-//   ones after' or 'all', a day move on a set-weekdays series can only be this one's.
+//   ones after' or 'all', a day move on a set-weekdays series is this one's, or, when its
+//   rule reads as one of the five, from this one on with that rule following the start.
 // - Cancel asks "Discard your changes?" only when something changed. The container's
 //   BackButton calls the same thing through `cancelRef`: it closes a sheet on top first,
 //   then cancels.

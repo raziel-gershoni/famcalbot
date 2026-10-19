@@ -11,7 +11,8 @@
 // back shows above the buttons. The title in the copy is the item's own, in a bdi. The
 // editor picks the choices (editor-model's scopePlan): a day move on a series whose rule
 // fixes its days (the bot's "every Tuesday") can apply to this one alone, so it offers only
-// that and says why; a calendar or recipient change has no meaning for one occurrence, so it
+// that and says why (with "this one and the ones after" too when the rule reads as one of the
+// five, which then follows the start from there); a calendar or recipient change has no meaning for one occurrence, so it
 // offers "this one and the ones after" and "all of them" (neutral labels: the old rule's
 // "Every Tuesday" would read as keeping it) with a line saying so.
 

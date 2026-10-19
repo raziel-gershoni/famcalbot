@@ -63,7 +63,7 @@ function listFailureClass(error: unknown): GoogleErrorClass {
  * The Google calendars the editor offers (3b spec §2.4): the user's chosen ones they can
  * write, by the live role (one calendarList.list), in the order chosen. main is the
  * primary. A list that can't be read gives none (no "+") with its failure's class, and is
- * logged; a write that needs the list answers by that class (failureOutcome).
+ * logged once here (the list's reader captures nothing); a write that needs the list answers by that class (failureOutcome).
  */
 export async function googleEditorCalendars(user: UserConfig): Promise<GoogleEditorCalendars> {
   const chosen = readsGoogle(user) ? googleCalendarSet(user) : [];
@@ -73,7 +73,10 @@ export async function googleEditorCalendars(user: UserConfig): Promise<GoogleEdi
     live = await googleProvider.listCalendars(user);
   } catch (error) {
     const failure = listFailureClass(error);
-    captureError(new Error(`Google ${failure} reading the calendar list`), 'calendar-editor-google', { user_id: user.id }, failure === 'transient' ? 'warning' : 'error');
+    // As the reader reports (calendar-read/google.ts): a failure the user or Google fixes (a
+    // dead token or missing scopes, which the reconnect banner already shows, Google down)
+    // is a warning; an OAuth client Google rejects, or an error no table knows, is ours.
+    captureError(new Error(`Google ${failure} reading the calendar list`), 'calendar-editor-google', { user_id: user.id }, failure === 'config' || failure === 'unknown' ? 'error' : 'warning');
     return { calendars: [], failure };
   }
   const byId = new Map(live.map((c) => [c.id, c]));

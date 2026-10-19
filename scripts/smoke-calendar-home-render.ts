@@ -126,7 +126,7 @@ import { postReminderAction } from '../src/lib/calendar-view/reminder-client';
 import { REAL_EDITING } from '../src/lib/calendar-view/editor-client';
 import { resetHolidaysCache } from '../src/lib/calendar-view/holidays-client';
 import type { EditorInfoResponse, ItemEditInfoResponse, RepeatInfo } from '../src/lib/calendar-view/editor-types';
-import { checkForm, editItemForm, moveStart, movesDay, newItemForm, setAllDay, spanOf, type EditorForm, type NewItemContext } from '../src/lib/calendar-view/editor-model';
+import { checkForm, editItemForm, moveStart, movesDay, newItemForm, scopePlan, setAllDay, spanOf, updateBody, type EditorForm, type NewItemContext } from '../src/lib/calendar-view/editor-model';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -5602,22 +5602,55 @@ async function main() {
     }
   });
 
-  await check('#95a a bot rule that reads as one of the five (every Tuesday, BYDAY) keeps the fixed-days rule: a day move alone offers only this one and sends no repeat; picking one of the five with the move is a repeat change, never refused', async () => {
-    const fixed = swimSeries({ fixedDays: true, repeat: { freq: 'weekly', interval: 1, byDay: ['TU'], ends: false }, rule: { choice: 'weekly' } });
-    const a = await editingHome('en', { item: serveSwim(fixed), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
-    try {
-      await openEditor(a.m, 'Swimming');
-      assert(shownIn(a.m, 'Repeat') === 'Every week on Tuesday', 'it reads as the weekly choice');
-      await typeInto(inDialog(a.m, 'Start date'), day(7));
-      a.m.click(saveButton(a.m));
-      await settle();
-      assert(show(choiceTexts(a.m)) === show(['Only this one (Tue 20 Oct)', 'Cancel']), `only this one: ${show(choiceTexts(a.m))}`);
-      tapIn(a.m, 'Only this one (Tue 20 Oct)');
-      await settle();
-      assert(writes()[0].body?.scope === 'single' && !('repeat' in (writes()[0].body?.changes as Row)), `no repeat sent: ${show(writes()[0].body)}`);
-    } finally {
-      a.m.unmount();
+  await check('#95a a rule with days that reads as one of the five (Google\'s own weekly events, the bot\'s every Tuesday, BYDAY) and a day move alone: "Only this one" keeps the rule and sends no repeat; "This one and the ones after" sends the shown choice again, so the rule follows the start from there (never refused); from the first occurrence, no line on moving them all; picking one of the five with the move is a repeat change, never refused', async () => {
+    const NOTE = 'To move all of them to another day, delete the series and create it again.';
+    const later = swimSeries({ fixedDays: true, repeat: { freq: 'weekly', interval: 1, byDay: ['TU'], ends: false }, rule: { choice: 'weekly' }, first: false });
+    const moved = { start: `${day(7)}T17:00`, end: `${day(7)}T18:00` };
+    for (const [pickText, scope, changes] of [
+      ['Only this one (Tue 20 Oct)', 'single', moved],
+      ['This one and the ones after', 'following', { ...moved, repeat: 'weekly' }],
+    ] as const) {
+      const a = await editingHome('en', { item: serveSwim(later), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
+      try {
+        await openEditor(a.m, 'Swimming');
+        assert(shownIn(a.m, 'Repeat') === 'Every week on Tuesday', 'it reads as the weekly choice');
+        await typeInto(inDialog(a.m, 'Start date'), day(7));
+        a.m.click(saveButton(a.m));
+        await settle();
+        assert(show(choiceTexts(a.m)) === show(['Only this one (Tue 20 Oct)', 'This one and the ones after', 'Cancel']), `this one, or from here on: ${show(choiceTexts(a.m))}`);
+        assertHas(topText(a.m), [NOTE], 'the line on moving them all, from a later occurrence');
+        tapIn(a.m, pickText);
+        await settle();
+        assert(writes().length === 1 && sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope, changes }), `${scope}: ${show(writes()[0]?.body)}`);
+      } finally {
+        a.m.unmount();
+      }
     }
+    // From the first occurrence, "this one and the ones after" is the whole series: no line.
+    const first = swimSeries({ fixedDays: true, repeat: { freq: 'weekly', interval: 1, byDay: ['TU'], ends: false }, rule: { choice: 'weekly' } });
+    const f = await editingHome('en', { item: serveSwim(first), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
+    try {
+      await openEditor(f.m, 'Swimming');
+      await typeInto(inDialog(f.m, 'Start date'), day(7));
+      f.m.click(saveButton(f.m));
+      await settle();
+      assert(show(choiceTexts(f.m)) === show(['Only this one (Tue 20 Oct)', 'This one and the ones after', 'Cancel']), `from the first: ${show(choiceTexts(f.m))}`);
+      assertLacks(topText(f.m), [NOTE], 'no line from the first occurrence');
+    } finally {
+      f.m.unmount();
+    }
+    // The pure rule: a rule the five can't say (custom) still moves this one alone; a new time of day restates nothing.
+    const assertSame = (got: unknown, want: unknown, what: string) => assert(sameBody(got, want as Row), `${what}: got ${show(got)}, want ${show(want)}`);
+    const initial = editItemForm(later);
+    const dayMoved = { ...initial, startDay: day(7), endDay: day(7) };
+    assertSame(scopePlan(dayMoved, initial, later), { kind: 'sheet', choices: ['single', 'following'], note: 'dayMove' }, 'the plan');
+    assertSame(updateBody(dayMoved, initial, 'famcal|swim', 'following', later)?.changes, { ...moved, repeat: 'weekly' }, 'following restates');
+    assertSame(updateBody(dayMoved, initial, 'famcal|swim', 'single', later)?.changes, moved, 'single keeps the rule');
+    const custom = swimSeries({ fixedDays: true, repeat: { freq: 'weekly', interval: 1, byDay: ['TU', 'TH'], ends: false }, rule: { choice: 'custom' }, first: false });
+    const ci = editItemForm(custom);
+    assertSame(scopePlan({ ...ci, startDay: day(7), endDay: day(7) }, ci, custom), { kind: 'sheet', choices: ['single'], note: 'dayMove' }, 'custom: this one alone');
+    assertSame(updateBody({ ...initial, startTime: '18:00', endTime: '19:00' }, initial, 'famcal|swim', 'following', later)?.changes, { start: `${day(5)}T18:00`, end: `${day(5)}T19:00` }, 'a new time restates nothing');
+    const fixed = later;
     const b = await editingHome('en', { item: serveSwim(fixed), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
     try {
       await openEditor(b.m, 'Swimming');
@@ -6044,6 +6077,30 @@ async function main() {
     } finally {
       failed.m.unmount();
     }
+  });
+
+  await check('#99a a write is never cut short on the client: a Google "this one and the ones after" runs many Google calls, and an abort would show "Couldn\'t save" while the write lands; create, edit and delete send no time limit and wait for the answer, the reads keep theirs', async () => {
+    resetHome();
+    let release: (a: FetchAnswer) => void = noop;
+    serveEditing = (c) => (c.method === 'GET' ? ok200({}) : new Promise<FetchAnswer>((resolve) => (release = resolve)));
+    for (const [method, send] of [
+      ['POST', () => REAL_EDITING.create(5550001, { kind: 'event', title: 'x', allDay: false, start: `${day(1)}T10:00`, end: `${day(1)}T11:00`, repeat: 'none' })],
+      ['PATCH', () => REAL_EDITING.update(5550001, { key: 'google|swim', scope: 'following', changes: { title: 'y' } })],
+      ['DELETE', () => REAL_EDITING.remove(5550001, { key: 'google|swim', scope: 'single' })],
+    ] as const) {
+      fetchCalls.length = 0;
+      const pending = send();
+      await new Promise((resolve) => setImmediate(resolve));
+      const call = fetchCalls[0];
+      assert(call?.method === method && call.signal === undefined, `${method}: a time limit on the write: ${show({ method: call?.method, signal: call?.signal !== undefined })}`);
+      release({ status: 200, body: { status: 'ok', key: 'google|swim2' } });
+      const out = await pending;
+      assert(out.kind === 'ok' && out.key === 'google|swim2', `${method}: ${show(out)}`);
+    }
+    fetchCalls.length = 0;
+    await REAL_EDITING.editor(5550001);
+    await REAL_EDITING.item(5550001, 'google|swim');
+    assert(fetchCalls.length === 2 && fetchCalls.every((c) => c.method === 'GET' && c.signal !== undefined), `the reads keep their limit: ${show(fetchCalls.map((c) => [c.method, c.signal !== undefined]))}`);
   });
 
   await check('#100 the 3b copy in en, he and ru: the new rows, the lines, the Google line and the reconnect error show real text, no key left bare, and Hebrew and Russian are translated, not copied', async () => {

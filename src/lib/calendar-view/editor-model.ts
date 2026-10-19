@@ -398,12 +398,17 @@ export function createBody(form: EditorForm): Omit<CreateItemBody, 'user_id' | '
   return body;
 }
 
-/** The PATCH body for an edit: only what changed, or null when nothing did. */
+/**
+ * The PATCH body for an edit: only what changed, or null when nothing did. `info` is the
+ * item's edit info: with it, a 'following' day move on a set-weekdays series whose rule reads
+ * as one of the five sends that choice again (restatedRepeat).
+ */
 export function updateBody(
   form: EditorForm,
   initial: EditorForm,
   key: string,
   scope: EditScope,
+  info?: ItemEditInfoResponse,
 ): Omit<UpdateItemBody, 'user_id' | 'initData'> | null {
   const reminder = form.kind === 'reminder';
   const changes: UpdateItemBody['changes'] = {};
@@ -426,7 +431,7 @@ export function updateBody(
   // The series-level fields go only when the person changed them (3b spec §4). A rule kept
   // as it is ('custom' untouched, or the stored choice) is never sent: the server would read
   // a stored bot rule that classifies as one of the five as a repeat change.
-  const repeat = pickedRepeat(form, initial);
+  const repeat = pickedRepeat(form, initial) ?? (scope === 'following' && info ? restatedRepeat(form, initial, info) : null);
   if (repeat !== null) changes.repeat = repeat;
   if (!reminder && form.calendarId && form.calendarId !== initial.calendarId) changes.calendarId = form.calendarId;
   if (reminder && form.forPartner !== initial.forPartner) changes.forPartner = form.forPartner;
@@ -442,6 +447,19 @@ export function updateBody(
 /** The repeat the person picked, or null while the row is as it was (including a custom rule left alone). */
 function pickedRepeat(form: EditorForm, initial: EditorForm): RepeatChoice | null {
   return form.repeat !== 'custom' && form.repeat !== initial.repeat ? form.repeat : null;
+}
+
+/**
+ * The stored choice, to send again, when the form moves the day of a set-weekdays series
+ * whose rule reads as one of the five (Google's own weekly events, BYDAY=MO from a Monday;
+ * the bot's "every Tuesday"); else null. The Repeat row can't pick the choice it already
+ * shows, and the server reads it sent again as a change to the rule that follows the start
+ * (write.ts repeatChanges), so "this one and the ones after" can move the day (3b spec §2.1).
+ */
+export function restatedRepeat(form: EditorForm, initial: EditorForm, info: ItemEditInfoResponse): RepeatChoice | null {
+  const choice = initial.repeat;
+  if (!info.series.recurring || !info.series.fixedDays || choice === 'none' || choice === 'custom' || form.repeat !== choice) return null;
+  return movesDay(form, initial, info.tz, info.series.zone) ? choice : null;
 }
 
 /** Which occurrences a Save applies to, and whether to ask (3b spec §4). */
@@ -460,7 +478,10 @@ export type ScopePlan =
  * occurrence on; a calendar or recipient change on a series asks 'following' or 'all' (an
  * occurrence has neither of its own); a day move on a set-weekdays series (the bot's "every
  * Tuesday") can apply to this one alone, so it can't share a save with those. A repeat pick
- * writes a rule that names no days, so a move that also picks one is never refused.
+ * writes a rule that names no days, so a move that also picks one is never refused. A day
+ * move alone on a set-weekdays series whose rule reads as one of the five offers this one, or
+ * this one and the ones after with that choice sent again (restatedRepeat); the line on
+ * moving them all shows unless the opened occurrence is the first (then that is all of them).
  */
 export function scopePlan(form: EditorForm, initial: EditorForm, info: ItemEditInfoResponse): ScopePlan {
   if (!info.series.recurring) return { kind: 'none' };
@@ -470,7 +491,9 @@ export function scopePlan(form: EditorForm, initial: EditorForm, info: ItemEditI
   const dayMove = info.series.fixedDays && movesDay(form, initial, info.tz, info.series.zone);
   if (seriesLevel) return dayMove ? { kind: 'refuse', note: 'dayMoveAlone' } : { kind: 'sheet', choices: ['following', 'all'], note: 'series' };
   if (info.scopes.length <= 1) return { kind: 'none' };
-  return dayMove ? { kind: 'sheet', choices: ['single'], note: 'dayMove' } : { kind: 'sheet', choices: ['single', 'following', 'all'] };
+  if (!dayMove) return { kind: 'sheet', choices: ['single', 'following', 'all'] };
+  if (restatedRepeat(form, initial, info) === null) return { kind: 'sheet', choices: ['single'], note: 'dayMove' };
+  return info.series.first === true ? { kind: 'sheet', choices: ['single', 'following'] } : { kind: 'sheet', choices: ['single', 'following'], note: 'dayMove' };
 }
 
 // ---- Words for a repeat ----

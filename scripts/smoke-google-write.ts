@@ -856,6 +856,14 @@ async function main() {
     assertSame(new Date(stored(NOA_CAL, r.eventId)!.start.dateTime).toISOString(), at('2026-10-21T10:00:00').toISOString(), 'moved');
   });
 
+  await check('repeat: the home\'s "this one and the ones after" day move on a weekly event Google saved with its own day (BYDAY=TU from a Tuesday) sends weekly again; it is a repeat change, not refused, and the new part follows its new start', async () => {
+    WEEKLY_TUE({ recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=TU'] });
+    const r = await write.updateItem(NOA, patchCmd({ key: gkey(NOA_CAL, inst('wk', '2026-10-20T10:00:00')), scope: 'following', changes: { repeat: 'weekly', start: '2026-10-21T10:00', end: '2026-10-21T11:00' } }), IL);
+    assert(r.status === 'ok' && typeof r.key === 'string', show(r));
+    const inserted = writes().filter((c) => c.method === 'POST' && c.path === `/calendars/${encodeURIComponent(NOA_CAL)}/events`).map((c) => c.body);
+    assertSame(inserted.map((b) => [b?.recurrence, new Date(b?.start?.dateTime).toISOString()]), [[['RRULE:FREQ=WEEKLY'], at('2026-10-21T10:00:00').toISOString()]], 'a weekly rule from Wednesday the 21st');
+  });
+
   await check('recurrence lines: RRULE, EXDATE and RDATE lines pass as they are; a bare rule gets RRULE:', async () => {
     await googleProvider.createEvent(NOA, NOA_CAL, {
       title: 'x', startTime: at('2026-10-20T10:00:00'), endTime: at('2026-10-20T11:00:00'),
@@ -892,6 +900,30 @@ async function main() {
     const e = await info.editorInfo(NOA, IL);
     assertSame([e.kinds, e.calendars], [{ event: false, reminder: false }, []], 'no rows');
     assert(captured.length >= 1, 'not logged');
+  });
+
+  await check('editor: a dead token or missing scopes on the calendar list is one warning (the reconnect banner tells the user), never an error, and the list\'s reader captures nothing of its own (no raw Google error); an OAuth client Google rejects stays an error', async () => {
+    const list = (r: Req) => r.method === 'GET' && r.path === '/users/me/calendarList';
+    const levels = () => captured.map((c) => `${c.ctx}:${c.severity ?? 'error'}`);
+    tokenAnswer = { status: 400, data: { error: 'invalid_grant', error_description: 'Token has been expired or revoked.' } };
+    assertSame((await gitem.googleEditorCalendars(NOA)).failure, 'token', 'invalid_grant class');
+    assertSame(levels(), ['calendar-editor-google:warning'], 'invalid_grant');
+    tokenAnswer = null;
+    captured.length = 0;
+    failOn(list, fail(401, 'authError', 'Invalid Credentials'), 20);
+    assertSame((await gitem.googleEditorCalendars(NOA)).failure, 'token', '401 class');
+    assertSame(levels(), ['calendar-editor-google:warning'], '401');
+    rules = [];
+    captured.length = 0;
+    failOn(list, fail(403, 'insufficientPermissions', 'Request had insufficient authentication scopes.'), 20);
+    assertSame((await gitem.googleEditorCalendars(NOA)).failure, 'scopes', 'scopes class');
+    assertSame(levels(), ['calendar-editor-google:warning'], 'scopes');
+    rules = [];
+    captured.length = 0;
+    tokenAnswer = { status: 401, data: { error: 'invalid_client', error_description: 'The OAuth client was not found.' } };
+    assertSame((await gitem.googleEditorCalendars(NOA)).failure, 'config', 'invalid_client class');
+    assertSame(levels(), ['calendar-editor-google:error'], 'invalid_client');
+    tokenAnswer = null;
   });
 
   await check('item info: a series occurrence, read live (calendar role, instance, master): wall times, the rule classified, plain notes, scopes, moves', async () => {

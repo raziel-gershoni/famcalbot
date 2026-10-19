@@ -121,8 +121,9 @@ export async function listUserCalendars(refreshToken: string): Promise<CalendarI
       backgroundColor: cal.backgroundColor || '#039BE5'
     }));
   } catch (error) {
-    console.error('Error listing user calendars:', error);
-    captureError(error, 'calendar-list-calendars');
+    // Every path rethrows: the caller reports it, by its class and without Google's raw
+    // error (the editor's calendars, the select-calendars page).
+    console.warn('[calendar-list-calendars] listing the user\'s calendars failed:', scrubbedGoogleError(error, classifyGoogleError(error)).message);
 
     // If it's an insufficient scopes error, re-throw with specific message (the cause keeps
     // Google's error, which the home classifies by its own table)
@@ -197,7 +198,7 @@ export interface CreateEventResult {
  * reasons and Google's own message. The GaxiosError itself carries the request, whose body
  * holds the title, so it never reaches a log.
  */
-function scrubbedGoogleError(error: unknown, cls: GoogleErrorClass): Error & { status?: number; reasons: string[] } {
+export function scrubbedGoogleError(error: unknown, cls: GoogleErrorClass): Error & { status?: number; reasons: string[] } {
   const facts = googleErrorFacts(error);
   const name = error instanceof Error ? error.name : typeof error;
   const scrubbed = new Error(`Google ${cls} (${name}${facts.status ? ` ${facts.status}` : ''}${facts.reasons.length ? ` ${facts.reasons.join(',')}` : ''}): ${facts.message}`);

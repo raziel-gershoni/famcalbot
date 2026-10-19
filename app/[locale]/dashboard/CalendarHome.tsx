@@ -682,7 +682,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     try {
       if (editor.mode === 'create') out = await deps.editing.create(userId, createBody(form));
       else {
-        const body = updateBody(form, editor.initial, editor.key, scope);
+        const body = updateBody(form, editor.initial, editor.key, scope, editor.info);
         out = body ? await deps.editing.update(userId, body) : { kind: 'ok', key: editor.key };
       }
     } catch {

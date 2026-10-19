@@ -5,8 +5,11 @@
 // The init data goes in the header (and, for a write, the body), as the other Mini App
 // requests send it; in a browser the session cookie rides along. user_id is the page's
 // own, a Telegram id or a DB id, never swapped. Nothing here throws: a request that fails
-// or answers in a form this file does not know reads as `failed`, and a request that has
-// not answered in time is aborted so a button never stays disabled.
+// or answers in a form this file does not know reads as `failed`. A read that has not
+// answered in time is aborted, so the pencil or the "+" never waits on it for good. A write
+// has no time limit of ours: a Google split or repeat change is many Google calls one after
+// another, and an abort would show "Couldn't save" while the server goes on and the write
+// lands. It waits for the server's answer, or for the platform's own limit, which fails it.
 
 import { INIT_DATA_HEADER, initDataHeaders, readInitData } from '../read-init-data';
 import type {
@@ -17,8 +20,8 @@ import type {
   UpdateItemBody,
 } from './editor-types';
 
-/** A request that has not answered by then reads as failed. */
-const TIME_LIMIT_MS = 15_000;
+/** A read that has not answered by then reads as failed. Writes have none (see above). */
+const READ_TIME_LIMIT_MS = 15_000;
 
 /** What a write came to, for the editor to word. */
 export type WriteOutcome =
@@ -91,10 +94,14 @@ function isItemInfoExtras(value: Record<string, unknown>): boolean {
   );
 }
 
-/** One request, with a time limit. Resolves to the status and the parsed body (null when not JSON), or null when it failed. */
+/**
+ * One request, a read with a time limit and a write without one. Resolves to the status and
+ * the parsed body (null when not JSON), or null when it failed.
+ */
 async function send(url: string, init: { method: string; body?: unknown }): Promise<{ status: number; body: unknown } | null> {
-  const controller = typeof AbortController === 'function' ? new AbortController() : null;
-  const timer = setTimeout(() => controller?.abort(), TIME_LIMIT_MS);
+  const limited = init.method === 'GET';
+  const controller = limited && typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = limited ? setTimeout(() => controller?.abort(), READ_TIME_LIMIT_MS) : null;
   try {
     const initData = readInitData();
     const res = await fetch(url, {
@@ -115,7 +122,7 @@ async function send(url: string, init: { method: string; body?: unknown }): Prom
   } catch {
     return null;
   } finally {
-    clearTimeout(timer);
+    if (timer !== null) clearTimeout(timer);
   }
 }
 

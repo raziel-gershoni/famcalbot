@@ -25,7 +25,8 @@ import { getSubscriptionWithUsage, getTrialStatus, checkEarlyAdopterAccess, peek
 import { getReminderSupport } from '@/src/services/native-reminders/support';
 import { trackActivityAsync } from '@/src/services/analytics-service';
 import { captureError } from '@/src/lib/error-capture';
-import { listUserCalendars } from '@/src/services/calendar';
+import { listUserCalendars, scrubbedGoogleError } from '@/src/services/calendar';
+import { classifyGoogleError } from '@/src/services/calendar-read/google-map';
 import { listVisibleCalendars } from '@/src/services/native-calendar/event-store';
 import { getActivePartner, getActiveInvite } from '@/src/services/pairing-service';
 import { getPlanLimits } from '@/src/config/plans';
@@ -311,7 +312,11 @@ async function selectCalendars(user: UserConfig, userId: number, userLocale: str
     };
     return { kind: 'props', props };
   } catch (error) {
-    console.error('Error listing calendars:', error);
+    // The list's reader captures nothing of its own: this reports it once, without Google's
+    // raw error. A dead token or missing scopes is the user's to fix (a warning); the rest is ours.
+    const cause = error instanceof Error && error.cause !== undefined ? error.cause : error;
+    const cls = classifyGoogleError(cause);
+    captureError(scrubbedGoogleError(cause, cls), 'select-calendars-list', { user_id: user.id }, cls === 'token' || cls === 'scopes' || cls === 'transient' ? 'warning' : 'error');
 
     // Handle insufficient scopes - clear token and redirect to re-authorize
     if (error instanceof Error && error.message === 'GOOGLE_INSUFFICIENT_SCOPES') {

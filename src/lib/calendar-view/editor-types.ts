@@ -76,9 +76,10 @@ export interface ItemEditInfoResponse {
     /** null for a one-off, and for a rule that isn't daily, weekly, monthly or yearly. */
     repeat: RepeatInfo | null;
     /**
-     * The rule names its days (BYDAY, BYMONTHDAY, BYMONTH, as the bot's rules do): a change
-     * that moves this occurrence to another day can apply to it alone ('single'); the
-     * other scopes answer 400 invalid, field 'start'.
+     * The rule names its days (BYDAY, BYMONTHDAY, BYMONTH, as the bot's rules and Google's
+     * own weekly events do): a change that moves this occurrence to another day can apply to
+     * it alone ('single'); the other scopes answer 400 invalid, field 'start', unless the
+     * change also carries one of the five (editor-model's restatedRepeat).
      */
     fixedDays: boolean;
     /** The series' own zone: where the store reads days (a day move is a move of the day there). */

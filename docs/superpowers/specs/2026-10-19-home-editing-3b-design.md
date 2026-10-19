@@ -44,6 +44,7 @@ This builds on the shipped first pass, docs/superpowers/specs/2026-10-19-home-ed
   - **One-off → repeating:** the item becomes a series starting at the form's start.
   - **Other changes in the same save** (title, time, all-day, calendar, recipient) apply from the opened occurrence on too.
 - **The fixed-days guard.** A day move on a set-weekdays series is refused, and the guard reads the rule that will be stored. The five rules have no BY* parts and follow the start, so a move that also picks one of the five is never refused.
+  - **A rule with days that reads as one of the five** (Google's own weekly events, BYDAY=MO from a Monday; the bot's "every Tuesday"): the Repeat row can't pick the choice it already shows. A day move alone offers "Only this one" (the rule is kept) and "This one and the ones after", which sends the shown choice again: a repeat change, so the rule follows the start from the opened occurrence on. The line on moving them all shows unless the opened occurrence is the first.
 
 ### 2.2 Calendar on edit (events)
 - **When the row shows.** The create Calendar row shows on edit, with the current calendar selected. It needs:
