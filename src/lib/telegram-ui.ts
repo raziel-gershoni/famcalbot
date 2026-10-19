@@ -161,6 +161,15 @@ export function releaseTelegramControls(): void {
   setVerticalSwipes(true);
 }
 
+/**
+ * Swipe-to-close back on, for the pages that never lock it: PageGate calls this at start,
+ * because a reload keeps the client's setting and a page that locked it (the home's Month
+ * browse) may be the one before it. The home locks again when it shows Month.
+ */
+export function enableTelegramVerticalSwipes(): void {
+  setVerticalSwipes(true);
+}
+
 export type ColorScheme = 'light' | 'dark';
 
 const DARK_QUERY = '(prefers-color-scheme: dark)';

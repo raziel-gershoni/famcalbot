@@ -17,6 +17,7 @@ import { AlertTriangle, Loader2 } from 'lucide-react';
 import type { PageDataResult, PageName, PageNotice, PagePropsMap } from '@/src/lib/page-data';
 import type { CalendarHomeProps, HomeHints } from '@/src/lib/calendar-view/home-props';
 import type { GateLinks } from '@/src/lib/gate-links';
+import { enableTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
 import { readInitData } from '@/src/lib/read-init-data';
 import { CHUNK_RELOAD_KEY, isChunkLoadError, reloadOnce } from '@/src/lib/calendar-view/reload-guard';
 
@@ -81,6 +82,8 @@ export function startMiniApp(look: Look) {
   } catch (e) {
     console.error('[PageGate] Could not set the background colour:', e);
   }
+  // A reload keeps swipes off if the page before it (Month browse) turned them off
+  enableTelegramVerticalSwipes();
 }
 
 const telegramLoader = () => <PageLoader look="telegram" />;

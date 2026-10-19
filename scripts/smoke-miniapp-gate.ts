@@ -185,7 +185,7 @@ async function callPage(rel: string, locale: string, userId?: string): Promise<R
 }
 
 /** A fake Telegram.WebApp that records every call; `throwOn` methods throw as old SDKs do. */
-function fakeWebApp(throwOn: string[] = []) {
+function fakeWebApp(throwOn: string[] = [], version: string | null = null) {
   const calls: string[] = [];
   const method = (name: string) => (...args: unknown[]) => {
     calls.push(args.length ? `${name}(${args.map(a => String(a)).join(',')})` : `${name}()`);
@@ -199,6 +199,18 @@ function fakeWebApp(throwOn: string[] = []) {
     close: method('close'),
     setHeaderColor: method('setHeaderColor'),
     setBackgroundColor: method('setBackgroundColor'),
+    // Only a fake given a version has the 7.x members, so the existing checks see no new calls
+    ...(version
+      ? {
+          isVersionAtLeast: (v: string) => {
+            const a = version.split('.').map(Number);
+            const b = v.split('.').map(Number);
+            return a[0] !== b[0] ? a[0] > b[0] : (a[1] ?? 0) >= (b[1] ?? 0);
+          },
+          enableVerticalSwipes: method('enableVerticalSwipes'),
+          disableVerticalSwipes: method('disableVerticalSwipes'),
+        }
+      : {}),
   };
   return { webApp, calls };
 }
@@ -275,6 +287,34 @@ async function main() {
     assert(show(light.calls) === show(['ready()', 'expand()']), `light look: ${show(light.calls)}`);
 
     await withWindow(null, () => startMiniApp('telegram'));
+  });
+
+  await check('#2b startMiniApp: a 7.7+ client gets enableVerticalSwipes() once and never disable; 7.6 gets none; a throw there costs nothing; the light look stays ready+expand', async () => {
+    const { startMiniApp } = await load('app/[locale]/PageGate.tsx');
+    const modern = fakeWebApp([], '7.7');
+    await withWindow(modern.webApp, () => startMiniApp('telegram'));
+    assert(modern.calls.filter(c => c === 'enableVerticalSwipes()').length === 1, `7.7: ${show(modern.calls)}`);
+    assert(!modern.calls.includes('disableVerticalSwipes()'), `7.7 disabled swipes: ${show(modern.calls)}`);
+
+    const old = fakeWebApp([], '7.6');
+    await withWindow(old.webApp, () => startMiniApp('telegram'));
+    assert(!old.calls.some(c => c.includes('VerticalSwipes')), `7.6: ${show(old.calls)}`);
+
+    const throws = fakeWebApp(['enableVerticalSwipes'], '8.0');
+    const logged = console.warn;
+    console.warn = () => undefined;
+    try {
+      await withWindow(throws.webApp, () => startMiniApp('telegram'));
+    } finally {
+      console.warn = logged;
+    }
+    for (const call of ['ready()', 'expand()', 'setHeaderColor(#667eea)', 'setBackgroundColor(#ffffff)']) {
+      assert(throws.calls.includes(call), `swipes threw: no ${call} in ${show(throws.calls)}`);
+    }
+
+    const light = fakeWebApp([], '8.0');
+    await withWindow(light.webApp, () => startMiniApp('light'));
+    assert(show(light.calls) === show(['ready()', 'expand()']), `light look: ${show(light.calls)}`);
   });
 
   await check('#3 share-story keeps ready() alone: no expand() anywhere in it', () => {
