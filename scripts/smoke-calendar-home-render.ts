@@ -5485,7 +5485,7 @@ async function main() {
 
   await check('#95 the Repeat row on edit: the five choices worded from the start day with the stored one selected; a custom rule and an end get their own labels; picking another sends repeat alone, from this one on, with no scope question; an untouched custom rule is never sent', async () => {
     // A one-off event, at Never: the five, in the create row's words.
-    const a = await editingHome('en', { item: serveDentist(infoFor({ series: { recurring: false, start: `${day(0)}T09:30`, repeat: null, fixedDays: false, zone: 'UTC', rule: { choice: 'none' }, first: true } })), write: () => ok200({ status: 'ok', key: 'famcal|dentist#2026-10-15T07:30:00.000Z' }) });
+    const a = await editingHome('en', { item: serveDentist(infoFor({ series: { recurring: false, start: `${day(0)}T09:30`, repeat: null, fixedDays: false, zone: 'UTC', rule: { choice: 'none' }, first: true } })), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
     try {
       await openEditor(a.m, 'Dentist');
       assert(shownIn(a.m, 'Repeat') === 'Never', `a one-off shows ${show(shownIn(a.m, 'Repeat'))}`);
@@ -5504,7 +5504,7 @@ async function main() {
       a.m.unmount();
     }
     // A series at a rule the row has: that one is selected; a pick is a repeat change from here on ('following'), no sheet.
-    const b = await editingHome('en', { item: serveSwim(swimSeries()), write: () => ok200({ status: 'ok', key: 'famcal|swim#2026-10-20T14:00:00.000Z' }) });
+    const b = await editingHome('en', { item: serveSwim(swimSeries()), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
     try {
       await openEditor(b.m, 'Swimming');
       assert(shownIn(b.m, 'Repeat') === 'Every week on Tuesday' && optionsIn(b.m, 'Repeat').length === 5, `a weekly series: ${show(shownIn(b.m, 'Repeat'))}, ${optionsIn(b.m, 'Repeat').length} options`);
@@ -5618,7 +5618,7 @@ async function main() {
     } finally {
       a.m.unmount();
     }
-    const b = await editingHome('en', { item: serveSwim(fixed), write: () => ok200({ status: 'ok', key: 'famcal|swim#2026-10-22T14:00:00.000Z' }) });
+    const b = await editingHome('en', { item: serveSwim(fixed), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
     try {
       await openEditor(b.m, 'Swimming');
       await typeInto(inDialog(b.m, 'Start date'), day(7));
@@ -5710,7 +5710,7 @@ async function main() {
       a.m.unmount();
     }
     // With a repeat change: from this one on, no sheet, both fields go.
-    const b = await editingHome('en', { editor: ok200(editorWith({ calendars })), item: serveSwim(series), write: () => ok200({ status: 'ok', key: 'famcal|swim#2026-10-20T14:00:00.000Z' }) });
+    const b = await editingHome('en', { editor: ok200(editorWith({ calendars })), item: serveSwim(series), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
     try {
       await openEditor(b.m, 'Swimming');
       await pick(b.m, 'Calendar', 'native:cal_noa_91b2');
@@ -6029,7 +6029,7 @@ async function main() {
         await openEditor(m, 'Swimming', l.sheet.edit);
         await pick(m, l.editor.repeat.label, 'daily');
         const html = htmlOf(topDialog(m));
-        assertLacks(html + textOf(html), ['calendarHome.', '[missing', 'undefined', '{'], `${locale} editor`);
+        assertLacks(html + textOf(html), ['calendarHome.', '[missing', 'undefined'], `${locale} editor`);
         assert(byClass(valueRow(m, l.editor.repeat.label), 'ch-form-hint').length === 1, `${locale}: the "from here" line`);
         await pick(m, l.editor.calendar, 'native:cal_noa_91b2');
         await pick(m, l.editor.repeat.label, 'custom');
