@@ -34,6 +34,7 @@ import {
   isDirty,
   isRealDay,
   moveStart,
+  movesDay,
   repeatWords,
   scopePlan,
   setAllDay,
@@ -87,7 +88,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
   const [scopeOpen, setScopeOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
   /** The inline line Save shows when it can't save as it is (a day move beside a calendar or recipient change). */
-  const [inlineNote, setInlineNote] = useState<'dayMoveAlone' | null>(null);
+  const [inlineNote, setInlineNote] = useState<'dayMoveAlone' | 'dayMove' | null>(null);
   const errorText = useErrorText(error);
   /** The last real start day: the repeat choices keep their words while a date is being typed. */
   const [lastDay, setLastDay] = useState(isRealDay(initial.startDay) ? initial.startDay : '');
@@ -140,7 +141,10 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
     setSaving(false);
     if (outcome.kind === 'error') {
       setScopeOpen(false);
-      setError(outcome.error);
+      // A refused day move for more than this one: the rule fixes the days (it changed after
+      // the sheet opened, so the choices offered it), and retrying would fail the same way.
+      if (edit && info && outcome.field === 'start' && scope !== 'single' && movesDay(form, start, info.tz, info.series.zone)) setInlineNote('dayMove');
+      else setError(outcome.error);
       if (outcome.field) setServerField(outcome.field);
     }
   };
@@ -354,7 +358,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
             {edit && info?.forName && partnerName === null ? <p className="ch-form-fixed">{t('editor.forName', { name: info.forName })}</p> : null}
           </div>
         </div>
-        <SaveBar label={t('editor.save')} busy={saving} error={errorText ?? (inlineNote ? t('editor.dayMoveAlone') : null)} onSave={save} />
+        <SaveBar label={t('editor.save')} busy={saving} error={errorText ?? (inlineNote ? t(inlineNote === 'dayMove' ? 'scope.dayMoveNote' : 'editor.dayMoveAlone') : null)} onSave={save} />
       </BottomSheet>
       {scopeOpen && info && itemKey ? (
         <ScopeSheet

@@ -5943,11 +5943,38 @@ async function main() {
     try {
       await openItem(d.m, 'Dinner with the Cohens');
       tapIn(d.m, 'Delete event');
+      const beforeDelete = rangeCalls().length;
       tapIn(d.m, 'Delete');
       await settle();
       assert(writes().length === 1 && writes()[0].method === 'DELETE' && writes()[0].body?.key === 'google|dinner', `delete: ${show(writes()[0]?.body)}`);
+      // A deleted Google item leaves the Agenda and Month by asking Google again, not FamCal.
+      const afterDelete = rangeCalls().slice(beforeDelete);
+      assert(afterDelete.length > 0 && afterDelete.every((x) => x.query.get('sources') === 'google'), `only Google is asked after the delete: ${show(afterDelete.map((x) => x.url))}`);
     } finally {
       d.m.unmount();
+    }
+  });
+
+  await check('#98c a day move the server refuses for a series with fixed days (the rule changed after the sheet opened) shows the day note, not "Couldn\'t save"', async () => {
+    const series = infoFor({
+      source: 'google',
+      occurrence: { start: `${day(0)}T19:30`, end: `${day(0)}T22:00`, allDay: false, title: 'Dinner with the Cohens', location: '', description: '' },
+      series: { recurring: true, start: `${day(0)}T19:30`, repeat: { freq: 'weekly', interval: 1, byDay: [], ends: false }, fixedDays: false, zone: 'UTC', rule: { choice: 'weekly' }, first: true },
+      scopes: ['single', 'following', 'all'],
+    });
+    const a = await googleHome('en', { item: (key) => (key === 'google|dinner' ? ok200(series) : ({ status: 404, body: {} } as FetchAnswer)), write: () => ({ status: 400, body: { error: 'invalid', field: 'start' } }) });
+    try {
+      await openEditor(a.m, 'Dinner with the Cohens');
+      await typeInto(inDialog(a.m, 'Start date'), day(2));
+      a.m.click(saveButton(a.m));
+      await settle();
+      tapIn(a.m, 'Every Thursday');
+      await settle();
+      assert(writes().length === 1 && writes()[0].body?.scope === 'all', `sent: ${show(writes()[0]?.body)}`);
+      assert(alerts(a.m).includes(messages.en.calendarHome.scope.dayMoveNote), `the day note: ${show(alerts(a.m))}`);
+      assert(!alerts(a.m).includes('Couldn’t save. Try again.'), `not the generic text: ${show(alerts(a.m))}`);
+    } finally {
+      a.m.unmount();
     }
   });
 

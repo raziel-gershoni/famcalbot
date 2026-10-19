@@ -815,6 +815,12 @@ async function main() {
       ['ru', 'editor.repeat.every.monthly', { count: 5 }, 'Каждые 5 месяцев'],
       ['ru', 'editor.repeat.every.yearly', { count: 3 }, 'Каждые 3 года'],
       ['ru', 'editor.repeat.every.weekly', { count: 1 }, 'Каждую неделю'],
+      // Russian `one` also matches 21, 31, 101: only a count of exactly 1 reads as the singular.
+      ['ru', 'editor.repeat.every.daily', { count: 21 }, 'Каждые 21 день'],
+      ['ru', 'editor.repeat.every.weekly', { count: 21 }, 'Каждые 21 неделю'],
+      ['ru', 'editor.repeat.every.monthly', { count: 31 }, 'Каждые 31 месяц'],
+      ['ru', 'editor.repeat.every.yearly', { count: 21 }, 'Каждые 21 год'],
+      ['ru', 'editor.repeat.every.daily', { count: 1 }, 'Каждый день'],
       ['en', 'scope.single', { date: 'Tue 20 Oct' }, 'Only this one (Tue 20 Oct)'],
       ['en', 'scope.everyWeekday', { weekday: 'tue' }, 'Every Tuesday'],
       ['he', 'scope.everyWeekday', { weekday: 'tue' }, 'כל יום שלישי'],
