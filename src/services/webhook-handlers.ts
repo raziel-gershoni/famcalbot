@@ -1045,7 +1045,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
       // All-HIGH bulk auto-create. Iterate sequentially through the provider
       // so partial failures are reported clearly rather than aborting silently.
       const { getProviderForUser } = await import('./calendar-provider');
-      const { buildRecurrenceRule } = await import('./calendar');
+      const { recurrenceFields, repeatInput } = await import('./recurrence-fields');
       const { pushRecentEvent } = await import('./voice/recent-events-store');
       const { incrementUsage } = await import('./subscription-service');
       const { trackActivityAsync } = await import('./analytics-service');
@@ -1064,7 +1064,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
           location: ev.location,
           description: ev.description,
           allDay: ev.allDay,
-          recurrence: buildRecurrenceRule(ev.recurrence),
+          ...repeatInput(await recurrenceFields(user, provider.name, ev)),
           ...reminderCreateFields(ev),
         });
         if (result.success && result.eventId) {
@@ -1144,7 +1144,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
         // Auto-create directly. No confirmation, no Undo button (WhatsApp
         // template/button surface is constrained — see TG flow for full Undo).
         const { getProviderForUser } = await import('./calendar-provider');
-        const { buildRecurrenceRule } = await import('./calendar');
+        const { recurrenceFields, repeatInput } = await import('./recurrence-fields');
         const provider = getProviderForUser(user);
         const result = await provider.createEvent(user, intentResult.event.calendarId || 'primary', {
           title: intentResult.event.title,
@@ -1153,7 +1153,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
           location: intentResult.event.location,
           description: intentResult.event.description,
           allDay: intentResult.event.allDay,
-          recurrence: buildRecurrenceRule(intentResult.event.recurrence),
+          ...repeatInput(await recurrenceFields(user, provider.name, intentResult.event)),
           ...reminderCreateFields(intentResult.event),
         });
         if (result.success) {
@@ -1200,14 +1200,17 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
       const pendingEvent = reminder ? refreshReminderNotice(intentResult.event, timezone) : intentResult.event;
       await redis.set(REDIS_KEYS.pendingEvent(pendingId), { event: pendingEvent, user, transcription }, { ex: 600 });
 
-      const { formatEventDateTime, formatReminderCard } = await import('./voice/confirmations');
+      const { formatEventDateTime, formatReminderCard, hebrewCardParts } = await import('./voice/confirmations');
       let card: string;
       if (reminder) {
         card = await formatReminderCard(pendingEvent, user.language || 'en', timezone, 'whatsapp');
       } else {
-        const dateTimeStr = formatEventDateTime(intentResult.event, user.language || 'en', t.voice?.allDay || 'All day', timezone);
+        const hebrew = await hebrewCardParts(intentResult.event, user, user.language || 'en', timezone);
+        const dateTimeStr = formatEventDateTime(intentResult.event, user.language || 'en', t.voice?.allDay || 'All day', timezone)
+          + (hebrew.line ? `\n${hebrew.line}` : '');
         const locationStr = intentResult.event.location ? `\n📍 ${intentResult.event.location}` : '';
-        card = `*${wa.createEvent || 'Create event?'}*\n\n*${intentResult.event.title}*\n${dateTimeStr}${locationStr}`;
+        const noticeStr = hebrew.notices.map(notice => `\n\n_${notice}_`).join('');
+        card = `*${wa.createEvent || 'Create event?'}*\n\n*${intentResult.event.title}*\n${dateTimeStr}${locationStr}${noticeStr}`;
       }
       // A partner who can't be pinged: confirming keeps the reminder as the creator's
       const createTitle = pendingEvent.reminderNotice === 'partner_not_on_telegram'
@@ -1269,7 +1272,7 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
         return;
       }
 
-      const { buildRecurrenceRule } = await import('./calendar');
+      const { recurrenceFields, repeatInput } = await import('./recurrence-fields');
       const { getProviderForUser } = await import('./calendar-provider');
       const { reminderCreateFields } = await import('./native-reminders/resolve');
       const provider = getProviderForUser(pending.user);
@@ -1282,7 +1285,7 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
           endTime: new Date(pending.event.endTime),
           location: pending.event.location,
           allDay: pending.event.allDay,
-          recurrence: buildRecurrenceRule(pending.event.recurrence),
+          ...repeatInput(await recurrenceFields(pending.user, provider.name, pending.event)),
           ...reminderCreateFields(pending.event),
         }
       );

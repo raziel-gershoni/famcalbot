@@ -6,6 +6,7 @@
 
 import { CalendarEvent, UserConfig } from '../../types';
 import type { ClearedPing } from '../native-calendar/event-store';
+import type { HebrewRule } from '../native-calendar/recurrence';
 
 export type CalendarProviderName = 'google' | 'native';
 
@@ -43,6 +44,11 @@ export interface CreateEventInput {
   location?: string;
   allDay?: boolean;
   recurrence?: string[]; // RFC-5545 RRULE strings
+  // Native only (hebrew-repeats spec §2): the recurrence is then a plain FREQ=YEARLY and the
+  // series repeats on the Hebrew date of its anchor, the start's day in the user's zone. Only the
+  // bot's recurrenceFields sets them; the Google provider refuses a create that carries them.
+  hebrewRule?: HebrewRule;
+  hebrewAnchor?: string;
   // Native only; the Google provider ignores both. A reminder has no length
   // (startTime === endTime), and forUserId is the partner it is for (null: the creator).
   kind?: 'event' | 'reminder';

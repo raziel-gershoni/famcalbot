@@ -4,7 +4,7 @@
  */
 
 import { getBot } from '../telegram';
-import { buildRecurrenceRule } from '../calendar';
+import { recurrenceFields, repeatInput } from '../recurrence-fields';
 import { getProviderForUser } from '../calendar-provider';
 import type { CreateEventResult, UpdateEventResult, DeleteEventResult } from '../calendar-provider';
 import { buildUrl } from '../../config/urls';
@@ -25,6 +25,7 @@ import {
   escapeHtml,
   formatEventDateTime,
   formatReminderCreated,
+  hebrewCardParts,
 } from './confirmations';
 
 /**
@@ -99,7 +100,7 @@ export async function handleEventCallback(
         location: event.location,
         description: event.description,
         allDay: event.allDay,
-        recurrence: buildRecurrenceRule(event.recurrence),
+        ...repeatInput(await recurrenceFields(user, provider.name, event)),
         ...reminderCreateFields(event),
       }
     );
@@ -150,7 +151,10 @@ export async function handleEventCallback(
         console.error('[Subscription] Failed to increment voice events:', err)
       );
 
-      const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay, timezone);
+      const hebrew = await hebrewCardParts(event, user, user.language || 'en', timezone);
+      const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay, timezone)
+        + (hebrew.line ? `\n${hebrew.line}` : '')
+        + hebrew.notices.map(notice => `\n<i>${notice}</i>`).join('');
       const linkButton = result.eventLink
         ? `\n\n<a href="${result.eventLink}">${t.voice.openInCalendar}</a>`
         : '';

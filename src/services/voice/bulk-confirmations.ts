@@ -13,7 +13,7 @@
 import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { getProviderForUser } from '../calendar-provider';
-import { buildRecurrenceRule } from '../calendar';
+import { recurrenceFields, recurrenceNotice, repeatInput, targetOf } from '../recurrence-fields';
 import { pushRecentEvent } from './recent-events-store';
 import { escapeHtml, formatEventDateTime, formatReminderWhen } from './confirmations';
 import { reminderCreateFields } from '../native-reminders/resolve';
@@ -124,7 +124,11 @@ export async function showBulkConfirmation(
   const unreachable = await Promise.all(creates
     .filter((it) => it.event?.reminderNotice === 'partner_not_on_telegram')
     .map((it) => getBotMessage(language, 'nativeReminders.card.partnerNotOnTelegram', { name: escapeHtml(it.event?.forName || '') })));
-  const notices = [...new Set(unreachable)].map((notice) => `<i>${notice}</i>`);
+  // Google can't repeat by the Hebrew date: "Confirm all" creates those once, so say so first
+  const hebrewTarget = creates.some((it) => it.event?.recurrence?.calendar === 'hebrew') ? await targetOf(user) : null;
+  const googleOnce = hebrewTarget !== null && creates.some((it) => recurrenceNotice(hebrewTarget, it.event?.recurrence));
+  const hebrewNotice = googleOnce ? [await getBotMessage(language, 'hebrewRepeat.notice.google')] : [];
+  const notices = [...new Set([...unreachable, ...hebrewNotice])].map((notice) => `<i>${notice}</i>`);
 
   const heading = (t.voice?.bulkFound || '📋 Found {count} events. Confirm all?').replace('{count}', String(creates.length));
   const body = `${heading}\n\n${lines.join('\n')}${notices.length > 0 ? `\n\n${notices.join('\n')}` : ''}`;
@@ -216,7 +220,7 @@ export async function handleBulkConfirmAll(pendingId: string): Promise<{
       location: ev.location,
       description: ev.description,
       allDay: ev.allDay,
-      recurrence: buildRecurrenceRule(ev.recurrence),
+      ...repeatInput(await recurrenceFields(pending.user, provider.name, ev)),
       ...reminderCreateFields(ev),
     });
     if (result.success && result.eventId) {

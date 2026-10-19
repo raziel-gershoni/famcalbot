@@ -15,7 +15,7 @@ import crypto from 'crypto';
 import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { getProviderForUser } from '../calendar-provider';
-import { buildRecurrenceRule } from '../calendar';
+import { recurrenceFields, repeatInput } from '../recurrence-fields';
 import type { ParsedEvent } from '../event-parser';
 import type { UserConfig } from '../../types';
 import type { IMessagingService } from '../messaging/types';
@@ -105,7 +105,7 @@ export async function autoCreateEvent(
     location: event.location,
     description: event.description,
     allDay: event.allDay,
-    recurrence: buildRecurrenceRule(event.recurrence),
+    ...repeatInput(await recurrenceFields(user, provider.name, event)),
     ...reminderCreateFields(event),
   });
   if (!result.success || !result.eventId) return false;

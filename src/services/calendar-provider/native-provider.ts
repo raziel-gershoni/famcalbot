@@ -348,6 +348,8 @@ export const nativeProvider: CalendarProvider = {
         rrule: data.recurrence && data.recurrence.length > 0
           ? data.recurrence[0].replace(/^RRULE:/, '')
           : null,
+        // The pair travels with the rule (hebrew-repeats spec §2); the store checks the anchor
+        ...(data.hebrewRule ? { hebrewRule: data.hebrewRule, hebrewAnchor: data.hebrewAnchor } : {}),
         kind: data.kind === 'reminder' ? 'REMINDER' : 'EVENT',
         forUserId: data.forUserId ?? null,
       });
