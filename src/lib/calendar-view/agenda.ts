@@ -181,12 +181,28 @@ function stillOpenCard(state: CalendarStore, today: DayKey, partnerName: string 
     rows.push({ ...toRow(item, partnerName), since: today, carriedOver: false });
   }
   for (const item of state.carryOvers ?? []) {
-    if (seen.has(item.key)) continue;
+    // A carry-over marked done stays in the store, struck, until the next answer drops it; it is no longer open.
+    if (seen.has(item.key) || item.reminder?.open === false) continue;
     seen.add(item.key);
     rows.push({ ...toRow(item, partnerName), since: item.reminder?.openSince ?? today, carriedOver: true });
   }
   if (rows.length === 0) return null;
   return { shown: rows.slice(0, STILL_OPEN_SHOWN), more: rows.slice(STILL_OPEN_SHOWN) };
+}
+
+/**
+ * The row for the item `key` as the store has it now: its first day's copy, else the
+ * carry-over's. null when the store holds none (a store drop, or an answer without it).
+ * The open item sheet re-derives its row with this on every render.
+ */
+export function storeRow(state: CalendarStore, key: string): AgendaRow | null {
+  const partnerName = state.partner?.name ?? null;
+  for (const date of Object.keys(state.days).sort()) {
+    const item = state.days[date].items.find((i) => i.key === key);
+    if (item) return toRow(item, partnerName);
+  }
+  const carried = state.carryOvers?.find((i) => i.key === key);
+  return carried ? toRow(carried, partnerName) : null;
 }
 
 /** The Agenda for `weeks` weeks (1 = today + 6 days); null until the first answer pins the facts. */

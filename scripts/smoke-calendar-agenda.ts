@@ -687,6 +687,50 @@ async function main() {
     assert(buildAgenda(run([answer(famcalAnswer())]), 2)?.empty === false, 'week 1 still loading');
   });
 
+  await check('patchReminder: done, undo and snooze reach every copy of the item (each day, the carry-overs), with open worked out per place; the Still open card follows; nothing else is touched', () => {
+    const copy = (r: Partial<ItemReminderDTO> = {}) => rem('plumber', T(0, '08:00'), { open: true, ...r });
+    const other = rem('other', T(0, '09:00'), { open: true });
+    const carried = rem('plumber', T(0, '08:00'), { open: true, openSince: day(-1) });
+    const s0 = run([answer(famcalAnswer({ days: { [TODAY]: [copy(), other], [day(2)]: [copy()] }, carryOvers: [carried] }))]);
+    const keyOf = 'famcal|plumber';
+    const reminderOf = (s: CalendarStore, where: 'today' | 'later' | 'carry') =>
+      (where === 'carry' ? s.carryOvers?.find((i) => i.key === keyOf) : dayItems(s, where === 'today' ? TODAY : day(2)).find((i) => i.key === keyOf))?.reminder;
+    const done = { done: true, doneAt: T(0, '10:00'), snoozedUntil: null, open: true, openSince: null, ownerIsViewer: true, creatorIsViewer: true };
+    const s1 = reduceStore(s0, { type: 'patchReminder', key: keyOf, reminder: done });
+    for (const where of ['today', 'later', 'carry'] as const) {
+      const r = reminderOf(s1, where);
+      assert(r?.done === true && r.doneAt === T(0, '10:00') && r.open === false, `done, ${where}: ${JSON.stringify(r)}`);
+    }
+    assert(reminderOf(s1, 'carry')?.openSince === day(-1), 'a carry-over keeps its since');
+    assert(dayItems(s1, TODAY).find((i) => i.key === 'famcal|other') === dayItems(s0, TODAY).find((i) => i.key === 'famcal|other'), 'another item is the same object');
+    assert(s1.days[day(3)] === s0.days[day(3)], 'a day without it is the same object');
+    const card = (s: CalendarStore) => (buildAgenda(s)?.stillOpen?.shown ?? []).map((r) => r.item.key).sort();
+    assertJson(card(s0), ['famcal|other', keyOf].sort(), 'the card before');
+    assertJson(card(s1), ['famcal|other'], 'the card after done');
+    assert(reminderMark(dayItems(s1, TODAY).find((i) => i.key === keyOf) as ItemDTO) === 'done', 'the mark follows');
+
+    // Undo: the server's open is for today's copy only; a copy on another day is never open; the carry-over is.
+    const s2 = reduceStore(s1, { type: 'patchReminder', key: keyOf, reminder: { ...done, done: false, doneAt: null, open: true } });
+    assert(reminderOf(s2, 'today')?.open === true && reminderMark(dayItems(s2, TODAY).find((i) => i.key === keyOf) as ItemDTO) === 'open', 'undo, today open');
+    assert(reminderOf(s2, 'later')?.open === false && reminderOf(s2, 'carry')?.open === true, 'undo, later never open, carry-over open');
+    assertJson(card(s2), ['famcal|other', keyOf].sort(), 'the card after undo');
+
+    // Snooze: still open and marked snoozed; an undue copy stays not open.
+    const snoozed = { ...done, done: false, doneAt: null, snoozedUntil: T(0, '12:30'), open: true };
+    const s3 = reduceStore(s2, { type: 'patchReminder', key: keyOf, reminder: snoozed });
+    assert(reminderMark(dayItems(s3, TODAY).find((i) => i.key === keyOf) as ItemDTO) === 'snoozed' && reminderOf(s3, 'today')?.open === true, 'snoozed, today');
+    assert(card(s3).includes(keyOf), 'a snoozed past-due item stays on the card');
+
+    // The next answer is the truth: it replaces what the patch said.
+    const s4 = reduceStore(s3, answer(famcalAnswer({ days: { [TODAY]: [copy({ done: true, doneAt: T(0, '11:00') }), other] } })));
+    assert(reminderOf(s4, 'today')?.doneAt === T(0, '11:00'), 'the answer replaces the patch');
+
+    // A key the store does not hold changes nothing; an event of that key is not a reminder.
+    assert(reduceStore(s0, { type: 'patchReminder', key: 'famcal|nope', reminder: done }) === s0, 'unknown key: same state');
+    const evState = run([answer(famcalAnswer({ days: { [TODAY]: [ev('plumber', T(0, '08:00'), T(0, '09:00'))] } }))]);
+    assert(reduceStore(evState, { type: 'patchReminder', key: keyOf, reminder: done }) === evState, 'an event is not patched');
+  });
+
   await check('the model is client-safe: store.ts and agenda.ts load nothing outside src/lib/calendar-view', () => {
     const view = path.resolve(__dirname, '..', 'src', 'lib', 'calendar-view');
     const roots = [path.join(view, 'store.ts'), path.join(view, 'agenda.ts')];

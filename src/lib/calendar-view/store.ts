@@ -26,6 +26,7 @@ import {
   type DayKey,
   type GoogleStatusReason,
   type ItemDTO,
+  type ItemReminderDTO,
   type RangeResponse,
   type SourceName,
   type WeekStart,
@@ -104,6 +105,12 @@ export type StoreAction =
    * pinned facts: before the first answer the container shows its own retry card.
    */
   | { type: 'windowFailed'; from: DayKey; to: DayKey; sources: readonly SourceName[]; kind: 'busy' | 'error'; epoch: number }
+  /**
+   * A reminder's new state after done, undo or snooze (POST /api/calendar/reminder): every
+   * copy of the item `key` takes it, in the days' items and in carryOvers, with `open`
+   * worked out again (patchedReminder). The next answer confirms it.
+   */
+  | { type: 'patchReminder'; key: string; reminder: ItemReminderDTO }
   /** The midnight timer in tz: drop everything and start over. */
   | { type: 'reset' };
 
@@ -281,6 +288,41 @@ function markFailed(state: CalendarStore, a: Extract<StoreAction, { type: 'windo
   return { ...state, days, lastFailure };
 }
 
+/**
+ * A reminder's state after an action, for one copy of the item. The server's `open` is
+ * for the occurrence as of now, the store's rules are per place: a done item is not
+ * open; a carry-over is (it stays in the list, struck, until the next answer drops it);
+ * a copy on today is open when the server says it is past due and undone; a copy on
+ * another day never is. A snooze leaves a past-due item open.
+ */
+export function patchedReminder(prev: ItemReminderDTO | undefined, next: ItemReminderDTO, place: 'carryOver' | 'today' | 'other'): ItemReminderDTO {
+  const open = !next.done && (place === 'carryOver' || (place === 'today' && next.open));
+  const openSince = place === 'carryOver' ? (prev?.openSince ?? next.openSince) : place === 'today' ? next.openSince : (prev?.openSince ?? null);
+  return { ...next, open, openSince };
+}
+
+function patchReminder(state: CalendarStore, key: string, reminder: ItemReminderDTO): CalendarStore {
+  const today = state.facts?.today;
+  const patch = (item: ItemDTO, place: 'carryOver' | 'today' | 'other'): ItemDTO =>
+    item.key === key && item.kind === 'reminder' ? { ...item, reminder: patchedReminder(item.reminder, reminder, place) } : item;
+  let changed = false;
+  const days: Record<DayKey, StoreDay> = {};
+  for (const [date, day] of Object.entries(state.days)) {
+    if (!day.items.some((i) => i.key === key && i.kind === 'reminder')) {
+      days[date] = day;
+      continue;
+    }
+    changed = true;
+    days[date] = { ...day, items: day.items.map((i) => patch(i, date === today ? 'today' : 'other')) };
+  }
+  let carryOvers = state.carryOvers;
+  if (carryOvers?.some((i) => i.key === key && i.kind === 'reminder')) {
+    changed = true;
+    carryOvers = carryOvers.map((i) => patch(i, 'carryOver'));
+  }
+  return changed ? { ...state, days, carryOvers } : state;
+}
+
 /** The reducer. It never changes `state` or the answer; an action that changes nothing returns `state` itself. */
 export function reduceStore(state: CalendarStore, action: StoreAction): CalendarStore {
   switch (action.type) {
@@ -290,6 +332,8 @@ export function reduceStore(state: CalendarStore, action: StoreAction): Calendar
       return receive(state, action.response, action.epoch);
     case 'windowFailed':
       return markFailed(state, action);
+    case 'patchReminder':
+      return patchReminder(state, action.key, action.reminder);
   }
 }
 
