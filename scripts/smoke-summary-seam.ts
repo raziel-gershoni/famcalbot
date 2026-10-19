@@ -226,8 +226,6 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   [`${SRC}/services/calendar-provider/index.ts`]: {
     getCalendarAssignmentsForUser: async (u: UserConfig) => (u.calendarSource === 'NATIVE' ? [HOME] : (u.calendarAssignments ?? [])),
   },
-  // TEMPORARY, until the summaries stop asking the switch: on for everyone, as in production.
-  [`${SRC}/services/calendar-read/rollout.ts`]: { isCalendarHomeOn: async () => true },
   [`${SRC}/services/calendar-read/digest.ts`]: real => ({
     ...real,
     readDigestDay: async (u: UserConfig, day: string, tz: string, ids: readonly string[], read: DigestRead) => {
@@ -428,16 +426,16 @@ async function main() {
     assertEqual(readsOf().map(r => r.slice(0, 2)), [['2026-10-16', NY], ['2026-10-17', NY]], 'reader reads (day, tz)');
   });
 
-  await check("the summaries' reads hand on the caller's day and read", async () => {
-    await summary.fetchTodayEvents(GOOGLE_USER, GOOGLE_IDS, IL, '2026-10-17', digest.SCHEDULED_READ);
-    await summary.fetchTomorrowEvents(GOOGLE_USER, GOOGLE_IDS, IL, '2026-10-20', digest.SCHEDULED_RETRY_READ);
+  await check("the summary read hands on the caller's day and read", async () => {
+    await summary.readSummaryDay(GOOGLE_USER, GOOGLE_IDS, IL, '2026-10-17', digest.SCHEDULED_READ);
+    await summary.readSummaryDay(GOOGLE_USER, GOOGLE_IDS, IL, '2026-10-20', digest.SCHEDULED_RETRY_READ);
     assertEqual(readsOf().map(r => r[0]), ['2026-10-17', '2026-10-20'], 'reader days');
     assert(digestCalls[0].read === digest.SCHEDULED_READ && digestCalls[1].read === digest.SCHEDULED_RETRY_READ, `reads ${show(digestCalls.map(c => c.read))}`);
   });
 
   await check("opts.day keeps the first attempt's day past midnight: the read, the shaping, the reminders, the prompt's date, the header and the week block", async () => {
     clock = PAST_MIDNIGHT;
-    const result = await summary.prepareSummaryForUser(GOOGLE_USER, summary.fetchTomorrowEvents, tomorrowFlag(), undefined, undefined, undefined, {
+    const result = await summary.prepareSummaryForUser(GOOGLE_USER, summary.readSummaryDay, tomorrowFlag(), undefined, undefined, undefined, {
       day: '2026-10-18',
       read: digest.SCHEDULED_RETRY_READ,
     });
@@ -453,14 +451,14 @@ async function main() {
 
   await check("without opts.day the day is today's rule and the read is on demand: past midnight, tomorrow is the 19th", async () => {
     clock = PAST_MIDNIGHT;
-    await summary.prepareSummaryForUser(GOOGLE_USER, summary.fetchTomorrowEvents, tomorrowFlag());
+    await summary.prepareSummaryForUser(GOOGLE_USER, summary.readSummaryDay, tomorrowFlag());
     assertEqual(readsOf(), [['2026-10-19', IL, GOOGLE_IDS, { mode: 'onDemand', deadlineMs: 10000 }]], 'reader reads (day, tz, ids, read)');
     assertEqual(aiEvents(), [['mon']], 'the events the AI got');
   });
 
   await check('googleUnavailable, Google user: no read, an empty day, the prompt flagged, no week block, and the outage line under the text', async () => {
     clock = PAST_MIDNIGHT;
-    const result = await summary.prepareSummaryForUser(GOOGLE_USER, summary.fetchTomorrowEvents, tomorrowFlag(), undefined, undefined, undefined, {
+    const result = await summary.prepareSummaryForUser(GOOGLE_USER, summary.readSummaryDay, tomorrowFlag(), undefined, undefined, undefined, {
       day: '2026-10-18',
       read: digest.SCHEDULED_RETRY_READ,
       googleUnavailable: true,
@@ -475,7 +473,7 @@ async function main() {
 
   await check("googleUnavailable: the outage line is in the user's language", async () => {
     for (const [u, lang] of [[NEW_YORKER, 'en'], [WHATSAPP_USER, 'ru']] as const) {
-      const result = await summary.prepareSummaryForUser(u, summary.fetchTodayEvents, undefined, undefined, undefined, undefined, {
+      const result = await summary.prepareSummaryForUser(u, summary.readSummaryDay, undefined, undefined, undefined, undefined, {
         read: digest.SCHEDULED_RETRY_READ,
         googleUnavailable: true,
       });
@@ -486,7 +484,7 @@ async function main() {
 
   await check('googleUnavailable with an empty AI answer: nothing is added, so delivery still answers "could not generate"', async () => {
     aiText = '';
-    const result = await summary.prepareSummaryForUser(GOOGLE_USER, summary.fetchTodayEvents, undefined, undefined, undefined, undefined, {
+    const result = await summary.prepareSummaryForUser(GOOGLE_USER, summary.readSummaryDay, undefined, undefined, undefined, undefined, {
       read: digest.SCHEDULED_RETRY_READ,
       googleUnavailable: true,
     });
@@ -494,7 +492,7 @@ async function main() {
   });
 
   await check("googleUnavailable leaves a FamCal user's read, prompt and text alone", async () => {
-    const result = await summary.prepareSummaryForUser(FAMCAL_USER, summary.fetchTodayEvents, undefined, undefined, undefined, undefined, {
+    const result = await summary.prepareSummaryForUser(FAMCAL_USER, summary.readSummaryDay, undefined, undefined, undefined, undefined, {
       read: digest.SCHEDULED_RETRY_READ,
       googleUnavailable: true,
     });

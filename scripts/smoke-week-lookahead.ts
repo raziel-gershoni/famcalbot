@@ -342,8 +342,6 @@ async function main() {
     __esModule: true,
     calendar: ({ auth }: { auth: { token: string } }) => fakeGoogleClient(auth.token),
   });
-  // TEMPORARY, until the lookaheads stop asking the switch: on for everyone, as in production.
-  stub('services/calendar-read/rollout.ts', { isCalendarHomeOn: async () => true });
   // The reader's FamCal half (famcal.ts): the legend, the rows and the viewer.
   stub('services/calendar-provider/native-provider.ts', {
     fetchViewerItems: async (u: { id: number }, cuids: string[], range: { from: Date; to: Date }) => {

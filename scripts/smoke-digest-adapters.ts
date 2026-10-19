@@ -2,10 +2,10 @@
 // readDigestDay, readLookaheadEvents and the three read kinds in
 // src/services/calendar-read/digest.ts.
 //
-// For the users the rollout switch covers, a summary reads its day, and the week block,
-// /week and /nextweek their range, through the shared reader. The adapters must ask the
-// reader for exactly today's window, never through the Google cache, and turn each way
-// a read can end into what the summaries answer:
+// A summary reads its day, and the week block, /week and /nextweek their range, through
+// the shared reader. The adapters must ask the reader for exactly today's window, never
+// through the Google cache, and turn each way a read can end into what the summaries
+// answer:
 // - a dead token or missing scopes: GOOGLE_TOKEN_EXPIRED / GOOGLE_INSUFFICIENT_SCOPES;
 // - any other Google failure: GOOGLE_FETCH_FAILED with the read's first day (C5, R13),
 //   after one quick retry when an on-demand read failed fast;

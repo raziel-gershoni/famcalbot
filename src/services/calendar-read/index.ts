@@ -1,6 +1,5 @@
 // The shared calendar reader (calendar home spec §2): one read over the sources that
-// apply to a user, for the calendar home's range route and, once the rollout switch
-// covers them, the summaries (Plan C).
+// apply to a user, for the calendar home's range route and the summaries (Plan C).
 //
 // This file picks the sources, builds the window and runs the halves in parallel. The
 // halves do the reading: famcal.ts (§2.4) and google.ts (§2.5, §2.6). Nothing here

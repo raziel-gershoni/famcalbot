@@ -3,8 +3,7 @@
  */
 
 import { getUserByIdentifier, getAllUsers, getWhatsAppChatId } from '../user-service';
-import { getProviderForUser, getCalendarAssignmentsForUser } from '../calendar-provider';
-import { isCalendarHomeOn } from '../calendar-read/rollout';
+import { getCalendarAssignmentsForUser } from '../calendar-provider';
 import { DEFAULT_ON_DEMAND_READ, readDigestDay, type DigestRead } from '../calendar-read/digest';
 import type { DayKey } from '../calendar-read/types';
 
@@ -20,21 +19,13 @@ export type SummaryFetch = (
   read?: DigestRead
 ) => Promise<CalendarEvent[]>;
 
-// The summaries' day reads (calendar home spec §3.1). A user the rollout switch covers
-// reads the summary day through the shared reader, with the run's mode and deadline (on
-// demand unless the caller says otherwise). Its Google failures come back as
-// GOOGLE_TOKEN_EXPIRED, GOOGLE_INSUFFICIENT_SCOPES or GOOGLE_FETCH_FAILED. Everyone else
-// keeps the provider's read, which ignores `day` and `read` and picks the same day
-// itself, so their summaries stay as they are today (A-33). One wrapper serves on-demand
-// and scheduled runs alike: the mode comes with `read`.
-export const fetchTodayEvents: SummaryFetch = async (user, calendarIds, tz, day, read = DEFAULT_ON_DEMAND_READ) =>
-  (await isCalendarHomeOn(user))
-    ? readDigestDay(user, day, tz, calendarIds, read)
-    : getProviderForUser(user).fetchTodayEvents(user, calendarIds, tz);
-export const fetchTomorrowEvents: SummaryFetch = async (user, calendarIds, tz, day, read = DEFAULT_ON_DEMAND_READ) =>
-  (await isCalendarHomeOn(user))
-    ? readDigestDay(user, day, tz, calendarIds, read)
-    : getProviderForUser(user).fetchTomorrowEvents(user, calendarIds, tz);
+// The summaries' day read (calendar home spec §3.1): the summary day through the shared
+// reader, with the run's mode and deadline (on demand unless the caller says otherwise).
+// Its Google failures come back as GOOGLE_TOKEN_EXPIRED, GOOGLE_INSUFFICIENT_SCOPES or
+// GOOGLE_FETCH_FAILED. One read serves today and tomorrow, on demand and scheduled alike:
+// the day comes with `day`, the mode with `read`.
+export const readSummaryDay: SummaryFetch = (user, calendarIds, tz, day, read = DEFAULT_ON_DEMAND_READ) =>
+  readDigestDay(user, day, tz, calendarIds, read);
 import { generateSummary, SummaryUserContext, formatDateHeader } from '../claude';
 import { CalendarEvent, UserConfig, CalendarAssignment } from '../../types';
 import { getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from '../messaging';
@@ -107,8 +98,7 @@ type StreamStage = 'fetchingCalendar' | 'lookingAhead' | 'fetchingWeather' | 'co
  * - `day`: the summary day. Unset, it is today's rule: the user's local date, plus one
  *   calendar day for tomorrow. The scheduled retry passes the first attempt's day, so a
  *   retry that crosses midnight still reads, shapes and dates that day (A-7).
- * - `read`: the run's mode and deadline, handed to the fetch. Only the shared reader
- *   (switch-covered users) uses it.
+ * - `read`: the run's mode and deadline, handed to the read.
  * - `googleUnavailable`: the outage run, after Google failed the first attempt and the
  *   retry. A Google user's day is then empty, with no read and no week block; the prompt
  *   is told why, and the outage line goes under the summary.
@@ -142,10 +132,9 @@ export async function prepareSummaryForUser(
   // overlaps the day, so keep only what belongs to it: last night's 22:00-02:00 party
   // is dropped, and an event crossing the day's edges is marked for the prompt.
   //
-  // The summary day is decided once, before the fetch, the way the providers pick the
-  // day they fetch: the user's local date, plus one calendar day for tomorrow (not
-  // 24 hours, which lands on the wrong day around a DST change). The prompt and the
-  // date header get noon of that day.
+  // The summary day is decided once, before the read: the user's local date, plus one
+  // calendar day for tomorrow (not 24 hours, which lands on the wrong day around a DST
+  // change). The prompt and the date header get noon of that day.
   onStageChange?.('fetchingCalendar');
   const tCalendar = Date.now();
   const { localDate, nextDate, shapeEventsForDay } = await import('../../utils/day-events');
@@ -458,16 +447,6 @@ async function sendSummaryToAll(
       console.log(`[Summary] Hourly filter: ${users.length} eligible, ${filtered.skippedHour} skipped (hour), ${filtered.skippedDay} skipped (day), ${filtered.skippedDedup} skipped (dedup)`);
     }
 
-    // Users the calendar home doesn't cover go first, in their own order, then the users it
-    // covers. A covered user's Google read can take up to 30 s for the day and 30 s more for
-    // the week block before it is set aside (spec §2.2), and nobody the switch doesn't cover
-    // should wait on that. With the switch OFF (or ALL) the order is the batch's own.
-    const covered = new Set<UserConfig>();
-    for (const user of users) {
-      if (await isCalendarHomeOn(user)) covered.add(user);
-    }
-    const ordered = [...users.filter(u => !covered.has(u)), ...users.filter(u => covered.has(u))];
-
     // C5 (spec §3.1 step 6): a user whose Google read fails is set aside here and retried
     // after the loop, so the rest of the batch never waits on Google.
     const googleRetries: { user: UserConfig; platform: DeliveryPlatform; day: SummaryRunOptions['day'] }[] = [];
@@ -554,12 +533,6 @@ async function sendSummaryToAll(
     // with the outage guideline and line; it counts as sent. Anything else it throws is
     // the caller's to report. Every summary it sends is marked for the batch's date.
     const retryOnce = async (user: UserConfig, platform: DeliveryPlatform, day: SummaryRunOptions['day']) => {
-      // The switch turned back meanwhile (a rollback during the outage): today's path, as
-      // for everyone the switch doesn't cover, so the read and the shaping agree on the day.
-      if (!(await isCalendarHomeOn(user))) {
-        await deliverToUser(user, platform, { read: SCHEDULED_READ }, batchStartedAt);
-        return;
-      }
       const retry: SummaryRunOptions = { day, read: SCHEDULED_RETRY_READ };
       try {
         await deliverToUser(user, platform, retry, batchStartedAt);
@@ -638,7 +611,7 @@ async function sendSummaryToAll(
     // A few users at once: a Google stall (30 s a read, up to 60 s a user) would otherwise
     // cost the batch N times that, past every later user's hour. Counters, the retry list and
     // firstGoogleFailureAt are only touched between awaits, so they need no lock.
-    await runPool(ordered, summaryConcurrency, processUser);
+    await runPool(users, summaryConcurrency, processUser);
 
     // C5: 30 s after the first failure, each set-aside user gets one retry, SUMMARY_CONCURRENCY at a time.
     if (googleRetries.length > 0) {
@@ -685,7 +658,7 @@ export async function sendDailySummaryToUser(
 ): Promise<void> {
   await sendSummaryToUser(
     chatId,
-    fetchTodayEvents,
+    readSummaryDay,
     undefined,
     'calendarFetch',
     undefined,
@@ -808,7 +781,7 @@ ${weatherData.tomorrow ? `<b>${t.weatherOnly?.tomorrow || 'Tomorrow'}:</b> ${t.w
  * Send daily summary to all users
  */
 export async function sendDailySummaryToAll(options?: { filterByHour?: boolean }): Promise<SummaryBatchResult> {
-  return sendSummaryToAll(fetchTodayEvents, undefined, options);
+  return sendSummaryToAll(readSummaryDay, undefined, options);
 }
 
 /**
@@ -824,7 +797,7 @@ export async function sendTomorrowSummaryToUser(
 
   await sendSummaryToUser(
     chatId,
-    fetchTomorrowEvents,
+    readSummaryDay,
     tomorrow,
     'tomorrowFetch',
     undefined,
@@ -840,7 +813,7 @@ export async function sendTomorrowSummaryToAll(options?: { filterByHour?: boolea
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
 
-  return sendSummaryToAll(fetchTomorrowEvents, tomorrow, options);
+  return sendSummaryToAll(readSummaryDay, tomorrow, options);
 }
 
 /** Platform options for message delivery */

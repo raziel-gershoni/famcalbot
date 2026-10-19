@@ -1,7 +1,6 @@
 // The summaries' calendar read (calendar home spec §3.1 "Adapters"): the day of a daily
-// or tomorrow summary, and the range of the week block, /week and /nextweek, read
-// through the shared reader for the users the rollout switch covers. The callers
-// (telegram/summary.ts, week-lookahead.ts) ask the switch; nothing here does.
+// or tomorrow summary (telegram/summary.ts), and the range of the week block, /week and
+// /nextweek (week-lookahead.ts), read through the shared reader for every user.
 //
 // The summary gets each item's event exactly as the reader carries it, in the reader's
 // order, so its own shaping and prompts run as they do today (Appendix A). This file

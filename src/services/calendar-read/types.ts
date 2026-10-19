@@ -1,5 +1,5 @@
-// The shared reader's server types (spec §2.2). One read covers the calendar home and,
-// for the users the rollout switch covers, the summaries. Types only.
+// The shared reader's server types (spec §2.2). One read covers the calendar home and the
+// summaries. Types only.
 
 import type { UnifiedEvent } from '../calendar-provider/types';
 import type { ViewerContext } from '../native-reminders/ownership';

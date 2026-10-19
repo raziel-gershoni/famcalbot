@@ -238,8 +238,6 @@ const stubs: Record<string, object> = {
     readRange,
     sourcesFor: (u: UserConfig) => (u.calendarSource === 'NATIVE' ? ['famcal'] : ['google']),
   },
-  // TEMPORARY, until the summaries stop asking the switch: on for everyone, as in production.
-  [`${SRC}/services/calendar-read/rollout.ts`]: { isCalendarHomeOn: async () => true },
   [`${SRC}/services/calendar-provider/index.ts`]: {
     getCalendarAssignmentsForUser: async (u: UserConfig) =>
       u.calendarSource === 'NATIVE' ? [cal('native:cal-dana', 'Dana')] : (u.calendarAssignments ?? []),

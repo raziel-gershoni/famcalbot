@@ -831,8 +831,6 @@ const stubs: Record<string, object | ((real: RealModule) => object)> = {
   '@googleapis/calendar': { __esModule: true, calendar: fakeCalendarClient, auth: { OAuth2: FakeOAuth2 } },
   [`${SRC}/utils/prisma.ts`]: { prisma: fakePrisma, withRetry: <T>(fn: () => Promise<T>) => fn() },
   [`${SRC}/utils/redis.ts`]: { redis: fakeRedis },
-  // TEMPORARY, until the summaries stop asking the switch: on for everyone, as in production.
-  [`${SRC}/services/calendar-read/rollout.ts`]: { isCalendarHomeOn: async () => true },
   [`${SRC}/lib/timezone.ts`]: {
     resolveUserTimezone: async (u: { id: number }) => {
       if (timezoneLookupMs > 0 && !timezoneLooked.has(u.id)) {
@@ -1057,9 +1055,8 @@ async function main() {
     const ids = (await getCalendarAssignmentsForUser(user)).map(a => a.calendarId);
     const today = localDate(new Date(), zone);
     const day = kind === 'today' ? today : nextDate(today);
-    const fetchDay = kind === 'today' ? summary.fetchTodayEvents : summary.fetchTomorrowEvents;
     try {
-      return { day, read: { events: shapeEventsForDay(await fetchDay(user, ids, zone, day), day, zone) } };
+      return { day, read: { events: shapeEventsForDay(await summary.readSummaryDay(user, ids, zone, day), day, zone) } };
     } catch (err) {
       return { day, read: { error: err instanceof Error ? err.message : String(err) } };
     }
@@ -1098,7 +1095,7 @@ async function main() {
   async function promptOf(user: UserConfig, kind: 'today' | 'tomorrow'): Promise<string> {
     prompts = [];
     const tomorrowFlag = kind === 'tomorrow' ? new Date(clock + 86_400_000) : undefined;
-    await summary.prepareSummaryForUser(user, kind === 'today' ? summary.fetchTodayEvents : summary.fetchTomorrowEvents, tomorrowFlag);
+    await summary.prepareSummaryForUser(user, summary.readSummaryDay, tomorrowFlag);
     assert(prompts.length === 1, `${user.name} ${kind}: ${prompts.length} prompts`);
     return prompts[0];
   }
@@ -1217,10 +1214,10 @@ async function main() {
   await check('(b) an Outlook/Teams HTML description (a table row, a heading, a paragraph) keeps its words apart: on separate lines in the reader\'s event, as separate words in the prompt', async () => {
     reset();
     const ids = (await getCalendarAssignmentsForUser(GALI)).map(a => a.calendarId);
-    const review = (await summary.fetchTodayEvents(GALI, ids, IL, '2026-10-22')).find(e => e.eventId === 'g-review');
+    const review = (await summary.readSummaryDay(GALI, ids, IL, '2026-10-22')).find(e => e.eventId === 'g-review');
     assert(review?.description === 'Agenda Budget\nJoin\nRoom 4', `the reader's description ${show(review?.description)}`);
     prompts = [];
-    await summary.prepareSummaryForUser(GALI, summary.fetchTodayEvents, undefined);
+    await summary.prepareSummaryForUser(GALI, summary.readSummaryDay, undefined);
     // The prompt's own sanitizing turns a description's line breaks into spaces (A-13, unchanged).
     const line = prompts[0]?.split('\n').find(l => l.includes('Description: Agenda'))?.trim();
     assert(line === 'Description: Agenda Budget Join Room 4', `the prompt's line ${show(line)}`);

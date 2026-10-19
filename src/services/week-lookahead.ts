@@ -5,9 +5,7 @@
 
 import { CalendarEvent, CalendarAssignment, CalendarLabel, ReminderInfo, UserConfig } from '../types';
 import { getCalendarClient } from './calendar';
-import { getProviderForUser } from './calendar-provider';
 import { DEFAULT_ON_DEMAND_READ, readLookaheadEvents, type DigestRead } from './calendar-read/digest';
-import { isCalendarHomeOn } from './calendar-read/rollout';
 import { getNativeSeriesRrule } from './native-calendar/event-store';
 import {
   RECURRENCE_ANSWER_TTL_MS,
@@ -19,7 +17,7 @@ import {
 } from './recurrence-cache';
 import { eventTimeLabel, isAllDayEvent, isBirthdayEvent, isReminderEvent, reminderAttribution } from '../utils/event-formatter';
 import { daySpanOf, localDate, nextDate, startOfLocalDay } from '../utils/day-events';
-import { legacyWeekStart, nextWeekBoundaries, nextWeekBoundary, tzKnownFor, weekStartFor, type WeekStart } from '../utils/locale-rules';
+import { nextWeekBoundaries, nextWeekBoundary, tzKnownFor, weekStartFor, type WeekStart } from '../utils/locale-rules';
 import { resolveUserTimezone } from '../lib/timezone';
 
 // Recurrence frequency types
@@ -79,14 +77,11 @@ function endOfLocalDay(day: string, timezone: string): Date {
 
 /**
  * The first day of the user's week (0 = Sunday), which sets This week's last day and Next
- * week's days. With the calendar home on (spec §6): Sunday for Jewish culture, else the
- * country of the user's own timezone (from their location or Google), else the language.
- * Otherwise today's rule: Sunday for Jewish culture, Monday for everyone else.
+ * week's days (spec §6): Sunday for Jewish culture, else the country of the user's own
+ * timezone (from their location or Google), else the language.
  */
-function weekStartOf(user: UserConfig, timezone: string, homeOn: boolean): WeekStart {
-  return homeOn
-    ? weekStartFor({ culture: user.culture, language: user.language, tz: timezone, tzKnown: tzKnownFor(user) })
-    : legacyWeekStart(user.culture);
+function weekStartOf(user: UserConfig, timezone: string): WeekStart {
+  return weekStartFor({ culture: user.culture, language: user.language, tz: timezone, tzKnown: tzKnownFor(user) });
 }
 
 /**
@@ -222,69 +217,6 @@ function getDaysFromReference(eventDay: string, referenceDay: string): number {
 }
 
 /**
- * Fetch events for date range from all assigned calendars. With the calendar home on,
- * the shared reader (spec §3.1): the user's own source over [start, the end of the last
- * day), Google's clean-up, and Google's failures thrown for the command to answer.
- */
-async function fetchEventsInRange(
-  user: UserConfig,
-  calendarIds: string[],
-  start: Date,
-  end: Date,
-  timezone: string,
-  homeOn: boolean,
-  read: DigestRead
-): Promise<CalendarEvent[]> {
-  if (homeOn) return readLookaheadEvents(user, start, end, timezone, calendarIds, read);
-
-  // NATIVE users go through the provider, which reads the in-bot calendar.
-  // This function's Google path below talks to the API directly, so without
-  // this branch /week and /nextweek returned nothing for them.
-  if (user.calendarSource === 'NATIVE') {
-    return getProviderForUser(user).fetchEventsInRange(user, calendarIds, start, end);
-  }
-
-  const calendar = getCalendarClient(user.googleRefreshToken);
-  const allEvents: CalendarEvent[] = [];
-
-  for (const calendarId of calendarIds) {
-    try {
-      const calendarInfo = await calendar.calendars.get({ calendarId });
-      const calendarName = calendarInfo.data.summary || calendarId;
-
-      const response = await calendar.events.list({
-        calendarId,
-        timeMin: start.toISOString(),
-        timeMax: end.toISOString(),
-        singleEvents: true,
-        orderBy: 'startTime',
-        timeZone: timezone,
-      });
-
-      const events = response.data.items || [];
-
-      for (const event of events) {
-        allEvents.push({
-          summary: event.summary || 'No title',
-          start: event.start?.dateTime || event.start?.date || '',
-          end: event.end?.dateTime || event.end?.date || '',
-          description: event.description || undefined,
-          location: event.location || undefined,
-          calendarName,
-          calendarId,
-          eventType: event.eventType || undefined,
-          recurringEventId: event.recurringEventId || undefined,
-        });
-      }
-    } catch (error) {
-      console.warn(`Failed to fetch calendar ${calendarId}:`, error);
-    }
-  }
-
-  return allEvents;
-}
-
-/**
  * Filter events by recurrence rules and build LookaheadEvent objects
  */
 async function filterAndBuildLookaheadEvents(
@@ -388,7 +320,7 @@ async function filterAndBuildLookaheadEvents(
  * @param user - User configuration
  * @param calendars - Calendar assignments
  * @param referenceDate - The date to calculate lookahead from (defaults to now, use tomorrow for tomorrow's summary)
- * @param read - With the calendar home on, the read's mode and deadline (defaults to on demand)
+ * @param read - The read's mode and deadline (defaults to on demand)
  */
 export async function getWeekLookahead(
   user: UserConfig,
@@ -399,10 +331,8 @@ export async function getWeekLookahead(
   const startDate = referenceDate || new Date();
   // The week is made of the user's days, from the reference day to the end of the last.
   const timezone = await resolveUserTimezone(user);
-  // Asked once: the switch decides both the week's days and the read.
-  const homeOn = await isCalendarHomeOn(user);
   const today = localDate(startDate, timezone);
-  const lastDay = nextWeekBoundary(weekStartOf(user, timezone, homeOn), user.lookaheadAlways7Days, today);
+  const lastDay = nextWeekBoundary(weekStartOf(user, timezone), user.lookaheadAlways7Days, today);
   const endDate = endOfLocalDay(lastDay, timezone);
 
   // Get all calendar IDs (including birthdays)
@@ -412,16 +342,9 @@ export async function getWeekLookahead(
     return { events: [], dateRange: { start: startDate, end: endDate }, timezone };
   }
 
-  // Fetch all events in range
-  const events = await fetchEventsInRange(
-    user,
-    calendarIds,
-    startDate,
-    endDate,
-    timezone,
-    homeOn,
-    read
-  );
+  // The shared reader (spec §3.1): the user's own source over [start, the end of the last
+  // day), Google's clean-up, and Google's failures thrown for the command to answer.
+  const events = await readLookaheadEvents(user, startDate, endDate, timezone, calendarIds, read);
 
   const lookaheadEvents = await filterAndBuildLookaheadEvents(events, user, calendars, {
     timezone, today, first: today, last: lastDay,
@@ -470,7 +393,7 @@ export function formatTomorrowLookahead(lookahead: WeekLookahead): string {
  * @param user - User configuration
  * @param calendars - Calendar assignments
  * @param referenceDate - The date to calculate from (defaults to now)
- * @param read - With the calendar home on, the read's mode and deadline (defaults to on demand)
+ * @param read - The read's mode and deadline (defaults to on demand)
  */
 export async function getNextWeekLookahead(
   user: UserConfig,
@@ -480,10 +403,8 @@ export async function getNextWeekLookahead(
 ): Promise<WeekLookahead> {
   // Next week's days run from the user's midnight to the end of their last day.
   const timezone = await resolveUserTimezone(user);
-  // Asked once: the switch decides both the week's days and the read.
-  const homeOn = await isCalendarHomeOn(user);
   const today = localDate(referenceDate || new Date(), timezone);
-  const { first, last } = nextWeekBoundaries(weekStartOf(user, timezone, homeOn), today);
+  const { first, last } = nextWeekBoundaries(weekStartOf(user, timezone), today);
   const start = startOfLocalDay(first, timezone);
   const end = endOfLocalDay(last, timezone);
 
@@ -494,16 +415,8 @@ export async function getNextWeekLookahead(
     return { events: [], dateRange: { start, end }, timezone };
   }
 
-  // Fetch all events in range
-  const events = await fetchEventsInRange(
-    user,
-    calendarIds,
-    start,
-    end,
-    timezone,
-    homeOn,
-    read
-  );
+  // Through the shared reader, as for This week.
+  const events = await readLookaheadEvents(user, start, end, timezone, calendarIds, read);
 
   const lookaheadEvents = await filterAndBuildLookaheadEvents(events, user, calendars, { timezone, today, first, last });
 

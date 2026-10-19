@@ -175,8 +175,6 @@ async function main() {
   ];
   stub('services/calendar-read/index.ts', { readRange: async () => ({ items: WEEK_EVENTS.map(event => ({ event })) }) });
   stub('services/calendar-provider/index.ts', { getCalendarAssignmentsForUser });
-  // TEMPORARY, until the lookaheads stop asking the switch: on for everyone, as in production.
-  stub('services/calendar-read/rollout.ts', { isCalendarHomeOn: async () => true });
 
   const { getSpouseInfo, getPrimaryCalendar } = await import('../src/utils/calendar-helpers');
   const { categorizeEvents } = await import('../src/services/telegram/summary');
