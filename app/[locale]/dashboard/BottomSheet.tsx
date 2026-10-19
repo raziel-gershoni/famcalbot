@@ -45,6 +45,9 @@ function controlsIn(root: HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(TABBABLE));
 }
 
+/** The mounted sheets, oldest first: only the last one owns the focus trap and Escape. */
+const openSheets: object[] = [];
+
 export function BottomSheet({ label, closeLabel, onClose, children }: BottomSheetProps) {
   const panel = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
@@ -54,20 +57,25 @@ export function BottomSheet({ label, closeLabel, onClose, children }: BottomShee
 
   // Focus in on open, out on close; while open, focus that lands outside comes back and
   // Escape closes the sheet wherever focus is. The listeners go before focus goes back.
+  // With two sheets open the top one owns both, or each would pull focus from the other.
   useEffect(() => {
     const previous = document.activeElement as Focusable | null;
     const el = panel.current;
+    const token = {};
+    openSheets.push(token);
+    const onTop = () => openSheets[openSheets.length - 1] === token;
     el?.focus({ preventScroll: true });
     const onFocusIn = (e: Event) => {
-      if (el && !inside(el as unknown as TreeNode, e.target)) el.focus({ preventScroll: true });
+      if (el && onTop() && !inside(el as unknown as TreeNode, e.target)) el.focus({ preventScroll: true });
     };
     const onDocumentKey = (e: Event) => {
       const key = (e as unknown as { key?: string }).key;
-      if (key === 'Escape' && el && !inside(el as unknown as TreeNode, e.target)) close.current();
+      if (key === 'Escape' && el && onTop() && !inside(el as unknown as TreeNode, e.target)) close.current();
     };
     document.addEventListener('focusin', onFocusIn);
     document.addEventListener('keydown', onDocumentKey);
     return () => {
+      openSheets.splice(openSheets.indexOf(token), 1);
       document.removeEventListener('focusin', onFocusIn);
       document.removeEventListener('keydown', onDocumentKey);
       if (previous && typeof previous.focus === 'function') previous.focus({ preventScroll: true });

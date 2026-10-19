@@ -3370,6 +3370,47 @@ async function main() {
     }
   });
 
+  await check('#59c two sheets at once: only the top one traps focus and answers an outside Escape (no ping-pong); when it goes, the lower one\'s trap works again', () => {
+    resetHome();
+    const closed: string[] = [];
+    const sheet = (label: string) => createElement(BottomSheet, { label, closeLabel: 'Close', onClose: () => closed.push(label) }, createElement('button', { type: 'button' }, `In ${label}`));
+    const focusIn = (target: FakeNode) => React.act(() => docListeners.filter((l) => l.type === 'focusin').forEach((l) => l.fn({ type: 'focusin', target })));
+    const docKey = (key: string, target: FakeNode) => React.act(() => docListeners.filter((l) => l.type === 'keydown').forEach((l) => l.fn({ type: 'keydown', key, target, preventDefault: noop })));
+    const lower = mount(sheet('lower'));
+    const upper = mount(sheet('upper'));
+    try {
+      const panelOf = (m: Mounted) => elements(m.container).find((e) => e.getAttribute('role') === 'dialog') as FakeElement;
+      const lowerPanel = panelOf(lower);
+      const upperPanel = panelOf(upper);
+      const pulls = new Map<FakeElement, number>();
+      for (const p of [lowerPanel, upperPanel]) {
+        const focus = p.focus.bind(p);
+        p.focus = () => {
+          pulls.set(p, (pulls.get(p) ?? 0) + 1);
+          focus();
+        };
+      }
+      const inLower = elements(lowerPanel).find((e) => e.localName === 'button' && e.textContent === 'In lower') as FakeElement;
+      inLower.focus();
+      focusIn(inLower);
+      assert((pulls.get(lowerPanel) ?? 0) === 0 && (pulls.get(upperPanel) ?? 0) <= 1, `pulls: lower ${pulls.get(lowerPanel) ?? 0}, upper ${pulls.get(upperPanel) ?? 0}`);
+      assert(fakeDocument.activeElement === upperPanel, 'focus went to the top sheet');
+      docKey('Escape', fakeDocument.body);
+      assert(show(closed) === show(['upper']), `Escape from outside closed: ${show(closed)}`);
+      upper.unmount();
+      pulls.clear();
+      inLower.focus();
+      const body = fakeDocument.body as FakeNode;
+      focusIn(body);
+      assert(pulls.get(lowerPanel) === 1 && fakeDocument.activeElement === lowerPanel, 'the lower sheet\'s trap works once the top one is gone');
+      closed.length = 0;
+      docKey('Escape', body);
+      assert(show(closed) === show(['lower']), `Escape then: ${show(closed)}`);
+    } finally {
+      lower.unmount();
+    }
+  });
+
   await check('#60 React logged no warning in #43-#59 (keys, nesting, attributes, act)', () => {
     assert(reactWarnings.length === warnedBeforeMonth, `warnings: ${show(reactWarnings.slice(warnedBeforeMonth, warnedBeforeMonth + 5))}`);
   });
