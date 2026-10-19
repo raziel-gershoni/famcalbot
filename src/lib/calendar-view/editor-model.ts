@@ -370,6 +370,12 @@ export function checkForm(form: EditorForm): FieldErrors {
 
 // ---- Requests ----
 
+/**
+ * A stored rule the Repeat row can't pick, so it is kept as it is and never sent: 'custom',
+ * and until the editor offers them (hebrew-repeats spec §4), the Hebrew kinds.
+ */
+const keptAsIs = (r: RuleChoice): r is Exclude<RuleChoice, RepeatChoice> => r === 'custom' || r === 'hebrew' || r === 'yahrzeit';
+
 /** The wall time the server takes: with the clock when timed, the bare day when all-day. */
 const wallOf = (day: string, time: string, allDay: boolean) => (allDay ? day : `${day}T${time}`);
 
@@ -383,7 +389,7 @@ export function createBody(form: EditorForm): Omit<CreateItemBody, 'user_id' | '
     title: form.title.trim(),
     allDay,
     start: wallOf(form.startDay, form.startTime, allDay),
-    repeat: form.repeat === 'custom' ? 'none' : form.repeat,
+    repeat: keptAsIs(form.repeat) ? 'none' : form.repeat,
   };
   const location = form.location.trim();
   const notes = form.notes.trim();
@@ -446,7 +452,7 @@ export function updateBody(
 
 /** The repeat the person picked, or null while the row is as it was (including a custom rule left alone). */
 function pickedRepeat(form: EditorForm, initial: EditorForm): RepeatChoice | null {
-  return form.repeat !== 'custom' && form.repeat !== initial.repeat ? form.repeat : null;
+  return !keptAsIs(form.repeat) && form.repeat !== initial.repeat ? form.repeat : null;
 }
 
 /**
@@ -458,7 +464,7 @@ function pickedRepeat(form: EditorForm, initial: EditorForm): RepeatChoice | nul
  */
 export function restatedRepeat(form: EditorForm, initial: EditorForm, info: ItemEditInfoResponse): RepeatChoice | null {
   const choice = initial.repeat;
-  if (!info.series.recurring || !info.series.fixedDays || choice === 'none' || choice === 'custom' || form.repeat !== choice) return null;
+  if (!info.series.recurring || !info.series.fixedDays || choice === 'none' || keptAsIs(choice) || form.repeat !== choice) return null;
   return movesDay(form, initial, info.tz, info.series.zone) ? choice : null;
 }
 

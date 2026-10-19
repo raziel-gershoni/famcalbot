@@ -52,8 +52,11 @@ export interface RepeatInfo {
   ends: boolean;
 }
 
-/** How the editor's Repeat row names a stored rule: one of the five, or 'custom' (3b spec §2.1). */
-export type RuleChoice = RepeatChoice | 'custom';
+/**
+ * How the editor's Repeat row names a stored rule: one of the five, a Hebrew kind ('hebrew',
+ * every year on the Hebrew date, or 'yahrzeit'), or 'custom' (3b spec §2.1, hebrew-repeats §3).
+ */
+export type RuleChoice = RepeatChoice | 'hebrew' | 'yahrzeit' | 'custom';
 
 /** GET /api/calendar/item?user_id=&key= */
 export interface ItemEditInfoResponse {

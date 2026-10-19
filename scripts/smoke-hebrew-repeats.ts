@@ -193,7 +193,7 @@ function main() {
     const y5806 = Number(want5806.slice(0, 4));
     assertSame(days(s, `${y5806}-01-01`, `${y5806 + 1}-01-01`).filter((d) => d === want5806), [want5806], 'the 21st');
     assertSame(days(s, want5807, `${Number(want5807.slice(0, 4)) + 1}-12-31`), [], 'no 22nd');
-    assertSame(rec.slotsBefore(s, at(`${want5806} 10:00`)), 20, 'twenty slots before the 21st');
+    assertSame(rec.slotsBefore({ ...s, rrule: s.rrule! }, at(`${want5806} 10:00`)), 20, 'twenty slots before the 21st');
     assertSame([...rec.yieldsSlots(s, [at(`${want5806} 10:00`), at(`${want5807} 10:00`), at('2046-02-02 10:00')])].map((t) => dayIn(new Date(t))), [want5806], 'yieldsSlots far from the start');
   });
 
@@ -310,7 +310,8 @@ function main() {
 
   check('slotsBefore counts Hebrew slots, exdates included', () => {
     const s = hebrew('anniversary', shvat, { exdates: [at('2027-01-23 10:00')] });
-    assertSame([rec.slotsBefore(s, at('2028-02-12 10:00')), rec.slotsBefore(s, shvat), rec.slotsBefore(s, at('2027-06-01 10:00'))], [2, 0, 2], 'slots before');
+    const ss = { ...s, rrule: s.rrule! };
+    assertSame([rec.slotsBefore(ss, at('2028-02-12 10:00')), rec.slotsBefore(ss, shvat), rec.slotsBefore(ss, at('2027-06-01 10:00'))], [2, 0, 2], 'slots before');
   });
 
   check('yieldsSlots: a Hebrew series yields its Hebrew days, not the Gregorian anniversary of its start', () => {

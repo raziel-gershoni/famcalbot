@@ -13,6 +13,7 @@
 
 import { RRule, RRuleSet } from 'rrule';
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
+import { HDate, getBirthdayOrAnniversary, getYahrzeit } from '@hebcal/hdate';
 import type { NativeEvent, NativeEventInstance } from '@prisma/client';
 import { TIMEZONE } from '../../config/constants';
 import { captureError } from '../../lib/error-capture';
@@ -215,7 +216,6 @@ export function expandSeries(
   // `tzid` option does NOT fix this: it expects a floating dtstart, so handing
   // it a real instant makes it a no-op.
   const tz = event.timeZone || TIMEZONE;
-  const ruleset = buildRuleSet(event.rrule, toFloating(event.startsAt, tz));
 
   // Reach back by the series's length too, so an occurrence that started before
   // the window but is still running in it (Monday 22:00 to Tuesday 02:00, on
@@ -225,13 +225,20 @@ export function expandSeries(
   // is inclusive at both ends; the overlap filter restores the half-open window.
   const PAD_MS = 24 * 60 * 60 * 1000;
   const reachBackMs = Math.max(0, defaultDurationMs(event)) + PAD_MS;
-  const candidates = ruleset
-    .between(
-      new Date(toFloating(range.from, tz).getTime() - reachBackMs),
-      new Date(toFloating(range.to, tz).getTime() + PAD_MS),
-      true
-    )
-    .map((floating) => fromFloating(floating, tz));
+  // A Hebrew series never reaches the rrule library: its days come from hebcal
+  // (hebrew-repeats spec §3), and then go through the same filters as any other.
+  const candidates = event.hebrewRule
+    ? hebrewCandidates(hebrewSeriesOf(event), {
+        from: new Date(range.from.getTime() - reachBackMs),
+        to: new Date(range.to.getTime() + PAD_MS),
+      })
+    : buildRuleSet(event.rrule, toFloating(event.startsAt, tz))
+        .between(
+          new Date(toFloating(range.from, tz).getTime() - reachBackMs),
+          new Date(toFloating(range.to, tz).getTime() + PAD_MS),
+          true
+        )
+        .map((floating) => fromFloating(floating, tz));
 
   // Filter on the instance as overridden, not the original slot: an occurrence
   // moved to Tuesday shows on Tuesday, not on the Monday it was moved off.
@@ -401,9 +408,150 @@ export class NativeRuleError extends Error {
 
 const RULE_PREFIX = 'RRULE:';
 const bare = (rule: string) => (rule.startsWith(RULE_PREFIX) ? rule.slice(RULE_PREFIX.length) : rule);
+
+// ---- Hebrew-date repeats (hebrew-repeats spec §2, §3) ----
+//
+// A Hebrew series stores a plain FREQ=YEARLY rule (at most INTERVAL, UNTIL or COUNT), so
+// every check that only asks "is this a series" keeps working, and next to it the pair:
+// hebrewRule, the kind, and hebrewAnchor, the anchor's civil date in the series' zone. Its
+// occurrence k (from the anchor, 0-based) is in Hebrew year Y0 + k * INTERVAL, Y0 being the
+// anchor's; the day comes from hebcal: getBirthdayOrAnniversary for 'anniversary',
+// getYahrzeit for 'yahrzeit'. Days are daytime dates, with no sunset shift (the home's rule).
+
+/** The two Hebrew kinds: every year on the Hebrew date (hebcal's birthday rules), or a yahrzeit. */
+export type HebrewRule = 'anniversary' | 'yahrzeit';
+export const isHebrewRule = (value: unknown): value is HebrewRule => value === 'anniversary' || value === 'yahrzeit';
+
+/** What the Hebrew expander reads of a series. */
+export interface HebrewSeries {
+  startsAt: Date;
+  timeZone: string | null;
+  rrule: string;
+  hebrewRule: HebrewRule;
+  hebrewAnchor: string;
+}
+
+/** A series' Hebrew columns, as the rule helpers take them (absent or null: a Gregorian rule). */
+export interface HebrewColumns {
+  hebrewRule?: string | null;
+  hebrewAnchor?: string | null;
+}
+
+/** Whether `day` is a real yyyy-MM-dd. */
+function isCivilDay(day: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+  const t = Date.parse(`${day}T00:00:00Z`);
+  return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === day;
+}
+
+/** A civil day's Hebrew date, read off a Date at local midnight as hebcal reads one (hebrew-date.ts does the same). */
+function hebrewDateOf(day: string): HDate {
+  const [y, m, d] = day.split('-').map(Number);
+  return new HDate(new Date(y, m - 1, d));
+}
+
+/** The civil day of a Date at local midnight (what hebcal returns), from its local getters, never toISOString. */
+const civilDayOf = (date: Date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+
+/** A series' Hebrew fields checked: NativeRuleError for a kind, rule or anchor the app can't read. */
+export function hebrewSeriesOf(series: { startsAt: Date; timeZone: string | null; rrule: string | null } & HebrewColumns): HebrewSeries {
+  if (!isHebrewRule(series.hebrewRule)) throw new NativeRuleError(`Hebrew repeat kind not supported: ${String(series.hebrewRule)}`);
+  if (!series.rrule) throw new NativeRuleError('A Hebrew repeat has no yearly rule');
+  if (!series.hebrewAnchor || !isCivilDay(series.hebrewAnchor)) throw new NativeRuleError('A Hebrew repeat anchor is not a date');
+  return { startsAt: series.startsAt, timeZone: series.timeZone, rrule: series.rrule, hebrewRule: series.hebrewRule, hebrewAnchor: series.hebrewAnchor };
+}
+
+/**
+ * A Hebrew series' slots by index from its anchor: `at(j)` is slot j's instant (the anchor's
+ * wall-clock time, read off startsAt in the series' zone, on that year's day there); `first`
+ * is the first slot at or after startsAt (a tail's anchor year can precede its start, and
+ * what comes before is not the series'); `last` is the last slot its COUNT or UNTIL admits
+ * (Infinity with no end, below `first` when none is left). A COUNT counts from `first`.
+ */
+function hebrewPlan(series: HebrewSeries): { at: (j: number) => Date | null; first: number; last: number; anchorYear: number; interval: number; zone: string } {
+  const zone = series.timeZone || TIMEZONE;
+  let opts: ReturnType<typeof RRule.parseString>;
+  try {
+    opts = RRule.parseString(withInclusiveUntil(bare(series.rrule)));
+  } catch (error) {
+    throw new NativeRuleError(`Unreadable repeat rule: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const interval = opts.interval ?? 1;
+  if (!Number.isInteger(interval) || interval < 1) throw new NativeRuleError('Repeat rule interval must be a whole number of at least 1');
+  const anchor = hebrewDateOf(series.hebrewAnchor);
+  const anchorYear = anchor.getFullYear();
+  const month = anchor.getMonth();
+  const date = anchor.getDate();
+  const wall = formatInTimeZone(series.startsAt, zone, 'HH:mm:ss');
+  const dayIn = series.hebrewRule === 'yahrzeit' ? getYahrzeit : getBirthdayOrAnniversary;
+  const slots = new Map<number, Date | null>();
+  const at = (j: number): Date | null => {
+    if (j < 0) return null;
+    if (!slots.has(j)) {
+      // The anchor year is the anchor itself, for both kinds: hebcal gives nothing there for a
+      // yahrzeit. getYahrzeit writes to the date it is given, so each call gets a fresh one.
+      const found = j === 0 ? null : dayIn(anchorYear + j * interval, { yy: anchorYear, mm: month, dd: date });
+      const day = j === 0 ? series.hebrewAnchor : found ? civilDayOf(found) : null;
+      slots.set(j, day ? fromZonedTime(`${day}T${wall}`, zone) : null);
+    }
+    return slots.get(j)!;
+  };
+  // Slots grow one Hebrew year (or INTERVAL of them) at a time, so the first one at or after
+  // the start is a step or two past the one before the start's own Hebrew year.
+  const startYear = hebrewDateOf(localDate(series.startsAt, zone)).getFullYear();
+  let first = Math.max(0, Math.floor((startYear - anchorYear) / interval) - 1);
+  for (let tries = 0; ; tries++) {
+    const slot = at(first);
+    if (slot && slot >= series.startsAt) break;
+    if (tries > 8) throw new NativeRuleError('A Hebrew repeat has no occurrence at or after its start');
+    first++;
+  }
+  let last = opts.count != null ? first + opts.count - 1 : Infinity;
+  if (opts.until) {
+    // The UNTIL's fields are a wall time (a date-only one is 23:59:59): compared with each
+    // slot's floating wall time, never its instant.
+    const until = opts.until;
+    let j = Math.floor((hebrewDateOf(until.toISOString().slice(0, 10)).getFullYear() - anchorYear) / interval) + 1;
+    for (;;) {
+      if (j < first) break;
+      const slot = at(j);
+      if (slot && toFloating(slot, zone) <= until) break;
+      j--;
+    }
+    last = Math.min(last, j);
+  }
+  return { at, first, last, anchorYear, interval, zone };
+}
+
+/**
+ * A Hebrew series' slots (instants, exdates and overrides aside) in the Hebrew years
+ * `window` touches, padded by one Hebrew year each side: the years are picked by arithmetic,
+ * so a window far from the start counts COUNT right. expandSeries filters them exactly.
+ */
+export function hebrewCandidates(series: HebrewSeries, window: { from: Date; to: Date }): Date[] {
+  const plan = hebrewPlan(series);
+  const yearOf = (d: Date) => hebrewDateOf(localDate(d, plan.zone)).getFullYear();
+  const lo = Math.max(plan.first, Math.ceil((yearOf(window.from) - 1 - plan.anchorYear) / plan.interval));
+  const hi = Math.min(plan.last, Math.floor((yearOf(window.to) + 1 - plan.anchorYear) / plan.interval));
+  const out: Date[] = [];
+  for (let j = lo; j <= hi; j++) {
+    const slot = plan.at(j);
+    if (slot) out.push(slot);
+  }
+  return out;
+}
+
+/** The last slot of a Hebrew series that ends (UNTIL or COUNT), or null. */
+function hebrewLastSlot(series: HebrewSeries): Date | null {
+  const plan = hebrewPlan(series);
+  return Number.isFinite(plan.last) && plan.last >= plan.first ? plan.at(plan.last) : null;
+}
+
 /** The parts a stored rule may have, as RRule.parseString names them. */
 const STORABLE_PARTS = new Set(['freq', 'interval', 'byweekday', 'bymonthday', 'bymonth', 'until', 'count', 'wkst']);
 const STORABLE_FREQS: readonly number[] = [RRule.DAILY, RRule.WEEKLY, RRule.MONTHLY, RRule.YEARLY];
+/** The parts a Hebrew rule may have besides FREQ=YEARLY: no BY part, so fixesDays stays false. */
+const HEBREW_PARTS = new Set(['freq', 'interval', 'until', 'count']);
 
 /**
  * Throw NativeRuleError unless `rule` (bare, or with an RRULE: prefix) is one every reader
@@ -412,8 +560,19 @@ const STORABLE_FREQS: readonly number[] = [RRule.DAILY, RRule.WEEKLY, RRule.MONT
  * when present, are whole numbers of at least 1, each BYDAY is a weekday (with an ordinal of
  * ±1..53 or none), each BYMONTHDAY ±1..31 and each BYMONTH 1..12. Checked on the parsed
  * options, so a prefix or the order of the parts doesn't matter.
+ *
+ * With `hebrewRule` (hebrew-repeats spec §2), both ways: a kind is 'anniversary' or
+ * 'yahrzeit' and needs a rule, which is FREQ=YEARLY with at most INTERVAL, UNTIL or COUNT;
+ * no rule (null) takes no kind.
  */
-export function assertStorableRule(rule: string): void {
+export function assertStorableRule(rule: string | null, hebrewRule?: string | null): void {
+  if (hebrewRule !== undefined && hebrewRule !== null && !isHebrewRule(hebrewRule)) {
+    throw new NativeRuleError(`Hebrew repeat kind not supported: ${String(hebrewRule)}`);
+  }
+  if (rule === null) {
+    if (hebrewRule) throw new NativeRuleError('A Hebrew repeat needs a yearly rule');
+    return;
+  }
   let opts: Record<string, unknown>;
   try {
     opts = RRule.parseString(withInclusiveUntil(bare(rule))) as Record<string, unknown>;
@@ -423,6 +582,11 @@ export function assertStorableRule(rule: string): void {
   const extra = Object.keys(opts).find((k) => !STORABLE_PARTS.has(k));
   if (extra) throw new NativeRuleError(`Repeat rule part not supported: ${extra}`);
   if (typeof opts.freq !== 'number' || !STORABLE_FREQS.includes(opts.freq)) throw new NativeRuleError('Repeat rule frequency not supported');
+  if (hebrewRule) {
+    if (opts.freq !== RRule.YEARLY) throw new NativeRuleError('A Hebrew repeat is yearly');
+    const part = Object.keys(opts).find((k) => !HEBREW_PARTS.has(k));
+    if (part) throw new NativeRuleError(`A Hebrew repeat cannot have ${part}`);
+  }
   for (const part of ['interval', 'count'] as const) {
     if (part in opts && !(Number.isInteger(opts[part]) && (opts[part] as number) >= 1)) {
       throw new NativeRuleError(`Repeat rule ${part} must be a whole number of at least 1`);
@@ -448,8 +612,12 @@ export function assertStorableRule(rule: string): void {
   }
 }
 
-/** The last slot of a rule that ends (UNTIL or COUNT), exdates aside, or null. Capped, so a huge COUNT can't run away. */
-function lastSlot(rule: string, start: Date, zone: string): Date | null {
+/**
+ * The last slot of a rule that ends (UNTIL or COUNT), exdates aside, or null. Capped, so a
+ * huge COUNT can't run away. A Hebrew rule's (with `hebrew`'s pair) is its last Hebrew slot.
+ */
+function lastSlot(rule: string, start: Date, zone: string, hebrew?: HebrewColumns | null): Date | null {
+  if (hebrew?.hebrewRule) return hebrewLastSlot(hebrewSeriesOf({ startsAt: start, timeZone: zone, rrule: rule, ...hebrew }));
   const tz = zone || TIMEZONE;
   let last: Date | null = null;
   buildRuleSet(rule, toFloating(start, tz)).all((date, i) => {
@@ -460,8 +628,11 @@ function lastSlot(rule: string, start: Date, zone: string): Date | null {
   return last ? fromFloating(last, tz) : null;
 }
 
-/** What the editor's Repeat row calls a stored rule: one of its five, or 'custom' (3b spec §2.1). */
-export type RuleChoice = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom';
+/**
+ * What the editor's Repeat row calls a stored rule: one of its five, a Hebrew kind ('hebrew'
+ * every year on the Hebrew date, 'yahrzeit'), or 'custom' (3b spec §2.1, hebrew-repeats §3).
+ */
+export type RuleChoice = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'hebrew' | 'yahrzeit' | 'custom';
 const CHOICE_OF_FREQ: Record<number, RuleChoice> = {
   [RRule.DAILY]: 'daily',
   [RRule.WEEKLY]: 'weekly',
@@ -485,7 +656,7 @@ const asList = (v: unknown): unknown[] => ([] as unknown[]).concat(v);
  * no other part (WKST aside). Anything else, an unreadable rule included, is 'custom'.
  * A rule with an end (UNTIL or COUNT) has `until`, the start of its last slot.
  */
-export function classifyRule(rule: string | null, start: Date, zone: string): { choice: RuleChoice; until?: Date } {
+export function classifyRule(rule: string | null, start: Date, zone: string, hebrew?: HebrewColumns | null): { choice: RuleChoice; until?: Date } {
   if (!rule) return { choice: 'none' };
   const tz = zone || TIMEZONE;
   let opts: Record<string, unknown>;
@@ -499,12 +670,20 @@ export function classifyRule(rule: string | null, start: Date, zone: string): { 
   let until: Date | undefined;
   if (ends) {
     try {
-      until = lastSlot(rule, start, tz) ?? undefined;
+      until = lastSlot(rule, start, tz, hebrew) ?? undefined;
     } catch (error) {
       captureError(error, 'native-rule-classify', {}, 'warning');
     }
   }
   const withEnd = (choice: RuleChoice) => (until ? { choice, until } : { choice });
+  // A Hebrew rule is its kind only with INTERVAL 1 or absent and nothing else besides its end
+  // (hebrew-repeats spec §3); "every 2 years on 15 Shvat" is custom.
+  if (hebrew?.hebrewRule) {
+    const plain = opts.freq === RRule.YEARLY && (opts.interval === undefined || opts.interval === 1)
+      && Object.keys(opts).every((k) => HEBREW_PARTS.has(k));
+    if (!plain || !isHebrewRule(hebrew.hebrewRule)) return withEnd('custom');
+    return withEnd(hebrew.hebrewRule === 'yahrzeit' ? 'yahrzeit' : 'hebrew');
+  }
   const choice = typeof opts.freq === 'number' ? CHOICE_OF_FREQ[opts.freq] : undefined;
   if (!choice) return withEnd('custom');
   if (opts.interval !== undefined && opts.interval !== 1) return withEnd('custom');
@@ -534,7 +713,8 @@ export function classifyRule(rule: string | null, start: Date, zone: string): { 
  * yieldsSlots counts): a COUNT counts the skipped ones too, so "this one and the ones after"
  * keeps what is left of it.
  */
-export function slotsBefore(series: { rrule: string; startsAt: Date; timeZone: string | null }, cut: Date): number {
+export function slotsBefore(series: { rrule: string; startsAt: Date; timeZone: string | null } & HebrewColumns, cut: Date): number {
+  if (series.hebrewRule) return hebrewCandidates(hebrewSeriesOf(series), { from: series.startsAt, to: cut }).filter((d) => d < cut).length;
   const tz = series.timeZone || TIMEZONE;
   const from = toFloating(series.startsAt, tz);
   const to = new Date(toFloating(cut, tz).getTime() - 1);
@@ -551,7 +731,7 @@ export function slotsBefore(series: { rrule: string; startsAt: Date; timeZone: s
 export function endCarriedRule(
   newRule: string | null,
   oldRule: string,
-  series: { startsAt: Date; timeZone: string | null }
+  series: { startsAt: Date; timeZone: string | null } & HebrewColumns
 ): string | null {
   if (newRule === null) return null;
   if (/(^|[;:])(UNTIL|COUNT)=/i.test(newRule)) return newRule;
@@ -560,7 +740,7 @@ export function endCarriedRule(
   if (until) return `${newRule};UNTIL=${until[2]}`;
   if (/(^|;)COUNT=/i.test(old)) {
     const tz = series.timeZone || TIMEZONE;
-    const last = lastSlot(old, series.startsAt, tz);
+    const last = lastSlot(old, series.startsAt, tz, series);
     if (last) return `${newRule};UNTIL=${formatInTimeZone(last, tz, 'yyyyMMdd')}`;
   }
   return newRule;

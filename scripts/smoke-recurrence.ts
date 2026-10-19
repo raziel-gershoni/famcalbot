@@ -52,6 +52,8 @@ function makeSeries(overrides: Partial<NativeEvent> = {}): NativeEvent {
     allDay: false,
     timeZone: 'UTC',
     rrule: null,
+    hebrewRule: null,
+    hebrewAnchor: null,
     exdates: [],
     reminderMinutes: null,
     kind: 'EVENT',
