@@ -14,6 +14,7 @@ import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { getProviderForUser } from '../calendar-provider';
 import { recurrenceFields, recurrenceNotice, repeatInput, targetOf } from '../recurrence-fields';
+import { hebrewRepeatCard } from './hebrew-repeat-card';
 import { pushRecentEvent } from './recent-events-store';
 import { escapeHtml, formatEventDateTime, formatReminderWhen } from './confirmations';
 import { reminderCreateFields } from '../native-reminders/resolve';
@@ -102,9 +103,16 @@ export async function showBulkConfirmation(
   });
 
   const language = user.language || 'en';
+  // Where "Confirm all" creates them: a Hebrew repeat is worded for that target
+  const hebrewTarget = creates.some((it) => it.event?.recurrence?.calendar === 'hebrew') ? await targetOf(user) : null;
   const lines = await Promise.all(creates.map(async (it, i) => {
     const ev = it.event as ParsedEvent;
-    const recurringMark = ev.recurrence ? ' 🔁' : '';
+    // A Hebrew repeat names its date and its kind, as the single card does (spec §5); the bare mark stays for the rest
+    const hebrew = hebrewTarget !== null && ev.recurrence?.calendar === 'hebrew'
+      ? (await hebrewRepeatCard(ev, hebrewTarget, language, timezone)).line
+      : null;
+    const hebrewLine = hebrew ? ` · ${escapeHtml(hebrew)}` : '';
+    const recurringMark = ev.recurrence && !hebrew ? ' 🔁' : '';
     if (ev.kind === 'reminder') {
       const title = await getBotMessage(language, 'nativeReminders.card.title', { title: `<b>${escapeHtml(ev.title)}</b>` });
       const forPartner = ev.forUserId != null && ev.forName
@@ -114,10 +122,10 @@ export async function showBulkConfirmation(
       const notice = ev.reminderNotice === 'time_passed' || ev.reminderNotice === 'no_time_set'
         ? ` · <i>${await getBotMessage(language, `nativeReminders.bulk.${ev.reminderNotice === 'time_passed' ? 'timePassed' : 'noTimeSet'}`)}</i>`
         : '';
-      return `${i + 1}. ${title}${recurringMark} — ${formatReminderWhen(ev, language, timezone)}${forPartner}${notice}`;
+      return `${i + 1}. ${title}${recurringMark} — ${formatReminderWhen(ev, language, timezone)}${forPartner}${hebrewLine}${notice}`;
     }
     const when = formatEventDateTime(ev, language, t.voice?.allDay || 'All day', timezone);
-    return `${i + 1}. <b>${escapeHtml(ev.title)}</b>${recurringMark} — ${when}`;
+    return `${i + 1}. <b>${escapeHtml(ev.title)}</b>${recurringMark} — ${when}${hebrewLine}`;
   }));
 
   // "Confirm all" keeps a reminder for a partner who can't be pinged as the creator's: say so
@@ -125,7 +133,6 @@ export async function showBulkConfirmation(
     .filter((it) => it.event?.reminderNotice === 'partner_not_on_telegram')
     .map((it) => getBotMessage(language, 'nativeReminders.card.partnerNotOnTelegram', { name: escapeHtml(it.event?.forName || '') })));
   // Google can't repeat by the Hebrew date: "Confirm all" creates those once, so say so first
-  const hebrewTarget = creates.some((it) => it.event?.recurrence?.calendar === 'hebrew') ? await targetOf(user) : null;
   const googleOnce = hebrewTarget !== null && creates.some((it) => recurrenceNotice(hebrewTarget, it.event?.recurrence));
   const hebrewNotice = googleOnce ? [await getBotMessage(language, 'hebrewRepeat.notice.google')] : [];
   const notices = [...new Set([...unreachable, ...hebrewNotice])].map((notice) => `<i>${notice}</i>`);

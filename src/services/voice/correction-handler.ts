@@ -15,7 +15,7 @@ import { captureError } from '../../lib/error-capture';
 import { AI_MODEL_ID } from '../../config/ai-models';
 import { formatInTimeZone } from 'date-fns-tz';
 import { getPendingEvent, removePendingEvent, showEventConfirmation } from './confirmations';
-import { buildEventTimes } from './gemini-voice';
+import { buildEventTimes, readRepeat } from './gemini-voice';
 import { normalizeReminderTimes } from '../native-calendar/event-store';
 import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
@@ -44,6 +44,11 @@ function buildCorrectionPrompt(
     ? '\nThis is a REMINDER: it has one time and no end. Return endDate and endTime equal to startDate and startTime.\n'
     : '';
 
+  // The model reads a Hebrew date and the server converts it (hebrew-repeats spec §5); a repeat by the Hebrew date keeps its rule
+  const hebrewNote = event.recurrence?.calendar === 'hebrew'
+    ? `\nThis event repeats every year by the Hebrew calendar (${event.recurrence.hebrewKind === 'yahrzeit' ? 'a yahrzeit' : 'a Hebrew birthday or anniversary'}). Its start date is the day of the first occurrence. Do not change how it repeats.\n`
+    : '';
+
   return `You are correcting a calendar event based on user feedback.
 The user will provide their correction as text or voice.
 
@@ -56,7 +61,7 @@ CURRENT EVENT:
 - Location: ${event.location || 'none'}
 - Calendar: ${event.calendarName || 'Primary'} (ID: ${event.calendarId || 'primary'})
 - All day: ${event.allDay}
-${reminderNote}
+${reminderNote}${hebrewNote}
 USER'S CALENDARS:
 ${calendarList || '- Primary calendar (ID: primary)'}
 
@@ -64,6 +69,7 @@ TIMEZONE: ${timezone}
 
 Apply the user's correction and return the updated event in JSON format.
 Only change the fields the user mentioned. Keep everything else exactly as-is.
+HEBREW DATES: when the user gives a date of the Hebrew calendar ("11 Tevet", "the 10th of Tevet 5770", "י״א בטבת", "15 швата"), NEVER convert it to a Gregorian date yourself. Return "hebrewDate" with the day, the month and the Hebrew year only if the user said one, and set "startDate" and "endDate" to null; the server works out the Gregorian date. Otherwise "hebrewDate" is null. The month is one of Tishrei, Cheshvan, Kislev, Tevet, Sh'vat, Adar, Adar I, Adar II, Nisan, Iyyar, Sivan, Tamuz, Av, Elul ("Adar" when the user does not say which in a leap year).
 
 RESPOND IN JSON FORMAT ONLY:
 {
@@ -73,10 +79,32 @@ RESPOND IN JSON FORMAT ONLY:
   "endDate": "YYYY-MM-DD",
   "endTime": "HH:MM",
   "allDay": false,
+  "hebrewDate": {"day": 1-30, "month": "Tevet", "year": Hebrew year as a number or null} or null,
   "location": "..." or null,
   "calendarId": "..." or "primary",
   "calendarName": "..." or "Primary"
 }`;
+}
+
+/**
+ * The repeat after a correction. A Hebrew date the user gave re-reads the rule (a given year drops
+ * the "no year was given" note). Otherwise the rule stays, and the note stays only while the start
+ * day does: a new day is the date the user chose, not "the next occurrence".
+ */
+function correctedRecurrence(
+  event: ParsedEvent,
+  newStart: Date,
+  hebrew: ReturnType<typeof readRepeat> | null,
+  timezone: string
+): ParsedEvent['recurrence'] {
+  if (hebrew) return hebrew.recurrence ?? event.recurrence;
+  const recurrence = event.recurrence;
+  if (!recurrence?.hebrewNoYear) return recurrence;
+  const day = (d: Date) => formatInTimeZone(d, timezone, 'yyyy-MM-dd');
+  if (day(newStart) === day(event.startTime)) return recurrence;
+  const kept = { ...recurrence };
+  delete kept.hebrewNoYear;
+  return kept;
 }
 
 /**
@@ -163,12 +191,19 @@ export async function handleEventCorrection(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const parsed: any = JSON.parse(jsonMatch[0]);
 
+    // A Hebrew date the user gave is resolved here, by the same reader as a new event, never by the model
+    const hebrew = parsed.hebrewDate != null
+      ? readRepeat({ ...parsed, recurrence: event.recurrence }, timezone, new Date())
+      : null;
+    const startDate = hebrew ? hebrew.startDate : parsed.startDate;
+    const endDate = hebrew ? hebrew.endDate : parsed.endDate;
+
     // Build corrected ParsedEvent. A reminder's end is its start, whatever the model sent.
     const reminder = event.kind === 'reminder';
     const { start: startDateTime, end: endDateTime } = buildEventTimes(
-      parsed.startDate,
+      startDate,
       parsed.startTime,
-      reminder ? parsed.startDate : parsed.endDate,
+      reminder ? startDate : endDate,
       reminder ? parsed.startTime : parsed.endTime,
       !!parsed.allDay,
       timezone
@@ -195,7 +230,7 @@ export async function handleEventCorrection(
       calendarId: resolvedCalendarId,
       calendarName: resolvedCalendarName,
       confidence: 'high',
-      recurrence: event.recurrence,
+      recurrence: correctedRecurrence(event, startDateTime, hebrew, timezone),
     };
     if (reminder) {
       // A reminder keeps who it is for and its main calendar, and stays zero-length.

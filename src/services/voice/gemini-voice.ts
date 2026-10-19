@@ -548,7 +548,7 @@ function daysBetweenDates(from: unknown, to: unknown): number | null {
  * rest is dropped with a log line and the repeat stays what it was. An ordinary repeat is returned
  * as the model wrote it.
  */
-function readRepeat(
+export function readRepeat(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw model JSON, read field by field
   eventData: any,
   timezone: string,
@@ -559,10 +559,14 @@ function readRepeat(
 
   let hasYear = false;
   let spoken = false;
+  // The date's kind comes first: a yahrzeit's plain "Adar" with no year is not a birthday's
+  const dateKind: HebrewKind = eventData.recurrence?.calendar === 'hebrew' && eventData.recurrence?.frequency === 'yearly' && eventData.recurrence?.hebrewKind === 'yahrzeit'
+    ? 'yahrzeit'
+    : 'anniversary';
   if (eventData.hebrewDate !== undefined && eventData.hebrewDate !== null) {
     const read = readSpokenHebrewDate(eventData.hebrewDate);
     for (const problem of read.problems) console.warn(`[Gemini] ${problem}`);
-    const resolved = read.date ? resolveSpokenHebrewDate(read.date, localDate(now, timezone)) : null;
+    const resolved = read.date ? resolveSpokenHebrewDate(read.date, localDate(now, timezone), dateKind) : null;
     if (read.date && !resolved) {
       console.warn(`[Gemini] hebrewDate ${JSON.stringify(read.date)} has no such day (or none in the next 20 years); ignored`);
     }
@@ -651,6 +655,12 @@ function parseReminderCreate(
   const anchor = readAnchor(eventData.anchor);
   const repeat = readRepeat(eventData, timezone, now);
   if (!anchor && eventData.anchor && !repeat.startDate) {
+    return { intent: 'create', confidence: 'low', error: 'Missing date/time fields' };
+  }
+  // A Hebrew date the user spoke that did not resolve has no day: refuse it as an event does,
+  // instead of letting the reminder default to today and repeat from today's Hebrew date
+  if (!anchor && !repeat.startDate && eventData.hebrewDate != null) {
+    console.warn(`[Gemini] reminder has a hebrewDate that did not resolve to a day; refused: ${JSON.stringify(eventData.hebrewDate)}`);
     return { intent: 'create', confidence: 'low', error: 'Missing date/time fields' };
   }
 

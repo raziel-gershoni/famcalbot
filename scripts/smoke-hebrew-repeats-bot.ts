@@ -151,6 +151,18 @@ const providerFor = (name: 'native' | 'google') => ({
 const fakeNative = providerFor('native');
 const fakeGoogle = providerFor('google');
 
+/** Gemini for reply-to-correct: answers `geminiText`, keeps each prompt. */
+let geminiText = '{}';
+let geminiPrompts: string[] = [];
+const fakeGemini = {
+  models: {
+    generateContent: async ({ contents }: { contents: Array<{ parts: Array<{ text?: string }> }> }) => {
+      geminiPrompts.push(contents[0].parts.map(p => p.text ?? '').join(''));
+      return { text: geminiText, usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 } };
+    },
+  },
+};
+
 let extracted: VoiceIntentResult[] = [];
 async function fakeVoiceExtraction(...args: unknown[]) {
   void args;
@@ -170,6 +182,8 @@ function reset() {
   created = [];
   logs.length = 0;
   extracted = [];
+  geminiText = '{}';
+  geminiPrompts = [];
   flags.autoCreate = false;
   currentUser = nativeUser('en');
 }
@@ -187,7 +201,7 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   [`${SRC}/utils/prisma.ts`]: { prisma: {}, withRetry: (fn: () => unknown) => fn() },
   [`${SRC}/lib/error-capture.ts`]: { captureError: () => {}, captureWarning: () => {}, captureInfo: () => {} },
   [`${SRC}/lib/timezone.ts`]: { resolveUserTimezone: async () => IL },
-  [`${SRC}/services/ai-provider.ts`]: { generateAICompletion: async () => ({ text: '{}' }), getGemini: () => ({}), extractionConfig: () => ({}) },
+  [`${SRC}/services/ai-provider.ts`]: { generateAICompletion: async () => ({ text: '{}' }), getGemini: () => fakeGemini, extractionConfig: () => ({}) },
   [`${SRC}/services/telegram/index.ts`]: { getBot: () => fakeBot, getMessagingService: () => fakeService },
   [`${SRC}/services/telegram/bot.ts`]: { getBot: () => fakeBot, getMessagingService: () => fakeService },
   [`${SRC}/services/analytics-service.ts`]: {
@@ -427,6 +441,32 @@ async function main() {
     assert(logs.some(l => l.includes('hebrewDate')), `not logged: ${logs.join(' | ')}`);
   });
 
+  await check('parse: a yahrzeit on plain Adar with no year is a common-year Adar death, so a leap year reads it in Adar I; a birthday and a given year keep Adar II', () => {
+    // Today is in 5787, a leap year: 10 Adar I is 2027-02-17, 10 Adar II is 2027-03-19
+    const yz = parse(hebrewAllDay({ day: 10, month: 'Adar', year: null }, yahrzeit)).event!;
+    assertEqual(when(yz.startTime), '2027-02-17 00:00', 'yahrzeit, plain Adar, no year');
+    assertEqual(yz.recurrence, { frequency: 'yearly', calendar: 'hebrew', hebrewKind: 'yahrzeit', hebrewNoYear: true }, 'recurrence');
+    assertEqual(when(parse(hebrewAllDay({ day: 10, month: 'Adar', year: null }, birthday)).event!.startTime), '2027-03-19 00:00', 'birthday keeps Adar II');
+    assertEqual(when(parse(hebrewAllDay({ day: 10, month: 'Adar' }, null)).event!.startTime), '2027-03-19 00:00', 'no rule keeps Adar II');
+    assertEqual(when(parse(hebrewAllDay({ day: 10, month: 'Adar II', year: null }, yahrzeit)).event!.startTime), '2027-03-19 00:00', 'a spoken Adar II stays');
+    assertEqual(when(parse(hebrewAllDay({ day: 10, month: 'Adar I', year: null }, yahrzeit)).event!.startTime), '2027-02-17 00:00', 'a spoken Adar I stays');
+    // A death year the user gave is that year's Adar: 5784 was a leap year, whose plain Adar is Adar II
+    assertEqual(when(parse(hebrewAllDay({ day: 10, month: 'Adar', year: 5784 }, yahrzeit)).event!.startTime), '2024-03-20 00:00', 'given leap year');
+    // 5786 was a common year: its only Adar
+    assertEqual(when(parse(hebrewAllDay({ day: 10, month: 'Adar', year: 5786 }, yahrzeit)).event!.startTime), '2026-02-27 00:00', 'given common year');
+    // In a common year (5788) the two kinds agree: there is one Adar
+    clock = at('2027-10-20 10:00').getTime();
+    const common = when(parse(hebrewAllDay({ day: 10, month: 'Adar', year: null }, yahrzeit)).event!.startTime);
+    assertEqual(common, when(parse(hebrewAllDay({ day: 10, month: 'Adar', year: null }, birthday)).event!.startTime), 'common year');
+    // Reminders go through the same reader
+    clock = at('2026-10-20 10:00').getTime();
+    const rem = parse({
+      kind: 'reminder', forPerson: 'self', title: 'Candle', startDate: null, startTime: null, endDate: null, endTime: null, allDay: true,
+      hebrewDate: { day: 10, month: 'Adar', year: null }, recurrence: yahrzeit, anchor: null,
+    }, { reminders: true }).event!;
+    assertEqual(when(rem.startTime), '2027-02-17 00:00', 'reminder');
+  });
+
   await check('parse: 30 Cheshvan with no year skips the years that have no 30 Cheshvan', () => {
     assertEqual(when(parse(hebrewAllDay({ day: 30, month: 'Cheshvan' }, null)).event!.startTime), '2026-11-10 00:00', '5787');
     clock = at('2027-12-05 10:00').getTime();
@@ -511,6 +551,25 @@ async function main() {
     assert(!!e && e.kind === 'reminder', JSON.stringify(got));
     assertEqual(when(e.startTime), '2026-12-20 00:00', 'start');
     assertEqual(e.recurrence, { frequency: 'yearly', calendar: 'hebrew', hebrewKind: 'yahrzeit', hebrewNoYear: true }, 'recurrence');
+  });
+
+  await check('parse: a reminder whose Hebrew date cannot be read or does not exist is refused like an event, not set for today', () => {
+    const reminder = (hebrewDate: unknown, extra: Record<string, unknown> = {}) => parse({
+      kind: 'reminder', forPerson: 'self', title: 'Light a candle', startDate: null, startTime: null, endDate: null, endTime: null, allDay: true,
+      hebrewDate, recurrence: yahrzeit, anchor: null, ...extra,
+    }, { reminders: true });
+    // Tevet has 29 days; "Adar Sheni" is no month the server knows
+    for (const bad of [{ day: 30, month: 'Tevet', year: null }, { day: 10, month: 'Adar Sheni', year: null }, 'Tevet 10']) {
+      logs.length = 0;
+      const got = reminder(bad);
+      assert(!got.event && got.confidence === 'low' && got.error === 'Missing date/time fields', `${JSON.stringify(bad)}: ${JSON.stringify(got)}`);
+      assert(logs.some(l => l.includes('hebrewDate')), `not logged: ${logs.join(' | ')}`);
+    }
+    // The model's own startDate still stands beside a Hebrew date that is no date, as for an event
+    assertEqual(when(reminder({ day: 30, month: 'Tevet' }, { startDate: '2026-12-01' }).event?.startTime), '2026-12-01 00:00', 'model startDate');
+    // A reminder with no Hebrew date at all is still for today
+    const plain = parse({ kind: 'reminder', forPerson: 'self', title: 'Water', startDate: null, startTime: null, endDate: null, endTime: null, allDay: true, hebrewDate: null, recurrence: null, anchor: null }, { reminders: true });
+    assertEqual(when(plain.event?.startTime), '2026-10-20 00:00', 'no Hebrew date is today');
   });
 
   await check('parse: extractIntents (text and image paths) resolves too, in a batch', () => {
@@ -784,11 +843,108 @@ async function main() {
     assertEqual(hebrewFieldsOf(nativeInput()), HEBREW_CREATE, 'fields');
   });
 
-  await check('card: the bulk line marks the repeat as before', async () => {
+  await check('card: the bulk card names the Hebrew date and the kind per item, in three languages, and keeps the bare mark for other repeats', async () => {
+    const anniv = { frequency: 'yearly', calendar: 'hebrew', hebrewKind: 'anniversary' } as const;
+    const weekly = plainEvent({ title: 'Gym', recurrence: { frequency: 'weekly', daysOfWeek: ['TU'] } });
+    const lines = [
+      ['en', 'Yahrzeit, every year on 10 Tevet', 'Every year on 10 Tevet'],
+      ['he', 'יארצייט, כל שנה בי׳ בטבת', 'כל שנה בי׳ בטבת'],
+      ['ru', 'Йорцайт, каждый год 10 тевета', 'Каждый год 10 тевета'],
+    ] as const;
+    for (const [language, yz, bd] of lines) {
+      currentUser = nativeUser(language);
+      serviceCalls = [];
+      await showBulkConfirmation(555, [
+        createIntent(hebrewEvent()), createIntent(hebrewEvent({ title: 'Birthday', recurrence: anniv })), createIntent(weekly), createIntent(plainEvent()),
+      ], currentUser, 'x', await getBotMessages(language), fakeService as never, IL);
+      const [one, two, three, four] = serviceCalls[0].text.split('\n').filter(l => /^\d\. /.test(l));
+      assert(one.includes(`· 🔄 ${yz}`) && !one.includes('🔁'), `${language} 1: ${one}`);
+      assert(two.includes(`· 🔄 ${bd}`) && !two.includes('🔁') && !two.includes(yz), `${language} 2: ${two}`);
+      assert(three.includes('</b> 🔁') && !three.includes('🔄'), `${language} 3: ${three}`);
+      assert(!four.includes('🔁') && !four.includes('🔄'), `${language} 4: ${four}`);
+      assert(!serviceCalls[0].text.includes(await notice(language)), 'a native bulk card has the Google notice');
+    }
+  });
+
+  await check('card: the bulk card names a Hebrew reminder\'s date and kind, and a Google target keeps the bare mark with its notice', async () => {
+    currentUser = nativeUser('en');
+    const rem = hebrewEvent({ title: 'Light a candle', kind: 'reminder', forPerson: 'self', endTime: at('2026-12-20 00:00') });
+    await showBulkConfirmation(555, [createIntent(rem), createIntent(plainEvent())], currentUser, 'x', t, fakeService as never, IL);
+    const reminderLine = serviceCalls[0].text.split('\n').find(l => l.startsWith('1. '))!;
+    assert(reminderLine.includes('· 🔄 Yahrzeit, every year on 10 Tevet') && !reminderLine.includes('🔁'), reminderLine);
+    currentUser = googleUser('en');
+    serviceCalls = [];
     await showBulkConfirmation(555, [hebrewIntent(), createIntent(plainEvent())], currentUser, 'x', t, fakeService as never, IL);
-    const text = serviceCalls[0].text;
-    assert(text.includes('Yahrzeit for Dad</b> 🔁'), text);
-    assert(!text.includes(await notice('en')), 'a native bulk card has the Google notice');
+    const googleLine = serviceCalls[0].text.split('\n').find(l => l.startsWith('1. '))!;
+    assert(googleLine.includes('</b> 🔁') && !googleLine.includes('🔄'), googleLine);
+    assert(serviceCalls[0].text.includes(`<i>${await notice('en')}</i>`), serviceCalls[0].text);
+  });
+
+  // ================= Reply and voice corrections =================
+
+  const { handleEventCorrection } = await import('../src/services/voice/correction-handler');
+  /** Shows `event`'s card, sends one correction, and returns the pending event of the card that replaced it. */
+  const correct = async (event: ParsedEvent, reply: Record<string, unknown>, text = 'a correction') => {
+    await showEventConfirmation(555, undefined, event, 'x', currentUser);
+    const pendingId = pendingIdOf(lastBot(), 'event_create:');
+    geminiText = JSON.stringify({ title: event.title, startTime: '00:00', endTime: '23:59', allDay: true, calendarId: 'native:main-1', calendarName: 'Dana', location: null, ...reply });
+    await handleEventCorrection(555, 1001, pendingId, 701, { text });
+    const card = lastBot();
+    const raw = await fakeRedis.get(`voice:pending:event:${pendingIdOf(card, 'event_create:')}`);
+    return { card, event: raw.event as { startTime: string; recurrence?: Record<string, unknown> } };
+  };
+  const noYearEvent = () => hebrewEvent({ recurrence: { frequency: 'yearly', calendar: 'hebrew', hebrewKind: 'yahrzeit', hebrewNoYear: true } });
+
+  await check('correction: a Hebrew date in the reply is resolved by the server (the prompt asks for hebrewDate, never a converted date), and a given year drops the no-year note', async () => {
+    const got = await correct(noYearEvent(), { startDate: null, endDate: null, hebrewDate: { day: 10, month: 'Tevet', year: 5770 } });
+    assert(geminiPrompts[0].includes('"hebrewDate"') && geminiPrompts[0].includes('NEVER convert'), geminiPrompts[0]);
+    assertEqual(when(new Date(got.event.startTime)), '2009-12-27 00:00', 'start is the day of death');
+    assertEqual(got.event.recurrence, { frequency: 'yearly', calendar: 'hebrew', hebrewKind: 'yahrzeit' }, 'recurrence');
+    assert(got.card.text.includes('🔄 Yahrzeit, every year on 10 Tevet'), got.card.text);
+    assert(!got.card.text.includes(await getBotMessage('en', 'hebrewRepeat.notice.yahrzeitNext')), `the stale note stayed: ${got.card.text}`);
+  });
+
+  await check('correction: a new Hebrew day with no year moves the start to its next occurrence and keeps the no-year note', async () => {
+    // The model's own Gregorian guess is ignored when it also sent a Hebrew date
+    const got = await correct(noYearEvent(), { startDate: '2026-12-25', endDate: '2026-12-25', hebrewDate: { day: 11, month: 'Tevet', year: null } });
+    assertEqual(when(new Date(got.event.startTime)), '2026-12-21 00:00', 'start');
+    assertEqual(got.event.recurrence, { frequency: 'yearly', calendar: 'hebrew', hebrewKind: 'yahrzeit', hebrewNoYear: true }, 'recurrence');
+    assert(got.card.text.includes('every year on 11 Tevet') && got.card.text.includes(await getBotMessage('en', 'hebrewRepeat.notice.yahrzeitNext')), got.card.text);
+  });
+
+  await check('correction: a Hebrew day that does not exist fails the correction with the usual message and keeps the card', async () => {
+    const realError = console.error;
+    console.error = () => {};
+    try {
+      await showEventConfirmation(555, undefined, noYearEvent(), 'x', currentUser);
+      const pendingId = pendingIdOf(lastBot(), 'event_create:');
+      geminiText = JSON.stringify({ title: 'Yahrzeit for Dad', startDate: null, endDate: null, startTime: '00:00', endTime: '23:59', allDay: true, hebrewDate: { day: 30, month: 'Tevet', year: null } });
+      await handleEventCorrection(555, 1001, pendingId, 701, { text: '30 Tevet' });
+      const failed = serviceCalls[serviceCalls.length - 1]?.text ?? '';
+      assert(failed === t.voice.correctionFailed && !!failed, `no failure message: ${failed}`);
+      assert(store.has(`voice:pending:event:${pendingId}`), 'the pending card was removed');
+    } finally {
+      console.error = realError;
+    }
+  });
+
+  await check('correction: a change that leaves the day alone keeps the repeat and the note; a new Gregorian day drops only the note', async () => {
+    const same = await correct(noYearEvent(), { title: 'Yahrzeit for Grandpa', startDate: '2026-12-20', endDate: '2026-12-20', hebrewDate: null });
+    assertEqual(same.event.recurrence, { frequency: 'yearly', calendar: 'hebrew', hebrewKind: 'yahrzeit', hebrewNoYear: true }, 'same day');
+    assert(same.card.text.includes(await getBotMessage('en', 'hebrewRepeat.notice.yahrzeitNext')), same.card.text);
+    const moved = await correct(noYearEvent(), { startDate: '2026-12-25', endDate: '2026-12-25' });
+    assertEqual(when(new Date(moved.event.startTime)), '2026-12-25 00:00', 'moved');
+    assertEqual(moved.event.recurrence, { frequency: 'yearly', calendar: 'hebrew', hebrewKind: 'yahrzeit' }, 'moved recurrence');
+    assert(!moved.card.text.includes(await getBotMessage('en', 'hebrewRepeat.notice.yahrzeitNext')), moved.card.text);
+    assert(moved.card.text.includes('🔄 Yahrzeit, every year on'), moved.card.text);
+  });
+
+  await check('correction: a yahrzeit\'s plain Adar with no year goes to Adar I, as at creation; an ordinary repeat is untouched', async () => {
+    const adar = await correct(noYearEvent(), { startDate: null, endDate: null, hebrewDate: { day: 10, month: 'Adar', year: null } });
+    assertEqual(when(new Date(adar.event.startTime)), '2027-02-17 00:00', 'Adar I');
+    const weekly = { frequency: 'weekly', daysOfWeek: ['TU'] };
+    const plain = await correct(plainEvent({ recurrence: weekly as ParsedEvent['recurrence'] }), { startDate: '2026-10-27', endDate: '2026-10-27', startTime: '10:00', endTime: '11:00', allDay: false });
+    assertEqual(plain.event.recurrence, weekly, 'weekly');
   });
 
   await check('card: a Gregorian repeat\'s card is unchanged', async () => {
