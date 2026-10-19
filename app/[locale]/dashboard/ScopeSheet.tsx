@@ -8,7 +8,9 @@
 // Both are BottomSheets: the Cancel button is the sheet's own Close, with the Cancel text.
 // The container (the editor or the home) owns the request and the BackButton; these only
 // draw. While a request is in flight every button is disabled, and an error that came
-// back shows above the buttons. The title in the copy is the item's own, in a bdi.
+// back shows above the buttons. The title in the copy is the item's own, in a bdi. A
+// change that moves the day of a series whose rule fixes its days (the bot's "every
+// Tuesday") can apply to this one alone: the sheet offers only that, and says why.
 
 import { useLocale, useTranslations } from 'next-intl';
 import type { EditScope, ItemKind } from '@/src/lib/calendar-view/editor-types';
@@ -35,23 +37,22 @@ export interface ScopeSheetProps {
   day: string;
   /** What "all of them" is called: every day, every <weekday>, or all of them. */
   all: ReturnType<typeof allOfThem>;
+  /** Only "Only this one", with a line on how to move them all: a day move on a rule with fixed days. */
+  singleOnly?: boolean;
   busy: boolean;
   error: SubmitError | null;
   onPick: (scope: EditScope) => void;
   onClose: () => void;
 }
 
-export function ScopeSheet({ kind, mode, title, day, all, busy, error, onPick, onClose }: ScopeSheetProps) {
+export function ScopeSheet({ kind, mode, title, day, all, singleOnly = false, busy, error, onPick, onClose }: ScopeSheetProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   const errorText = useErrorText(error);
   const heading = t(`scope.${mode}.${kind}`);
   const allText = all.key === 'weekday' ? t('scope.everyWeekday', { weekday: all.weekday }) : all.key === 'daily' ? t('scope.everyDay') : t('scope.all');
-  const choices: [EditScope, string][] = [
-    ['single', t('scope.single', { date: formatDayShort(day, locale) })],
-    ['following', t('scope.following')],
-    ['all', allText],
-  ];
+  const choices: [EditScope, string][] = [['single', t('scope.single', { date: formatDayShort(day, locale) })]];
+  if (!singleOnly) choices.push(['following', t('scope.following')], ['all', allText]);
   return (
     <BottomSheet label={heading} closeLabel={t('scope.cancel')} onClose={onClose}>
       <style>{FORM_CSS}</style>
@@ -73,6 +74,7 @@ export function ScopeSheet({ kind, mode, title, day, all, busy, error, onPick, o
             {text}
           </button>
         ))}
+        {singleOnly ? <p className="ch-form-fixed">{t('scope.dayMoveNote')}</p> : null}
         {errorText ? (
           <p className="ch-form-error" role="alert">
             {errorText}

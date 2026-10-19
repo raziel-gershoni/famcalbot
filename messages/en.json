@@ -299,7 +299,8 @@
       "everyWeekday": "Every {weekday, select, sun {Sunday} mon {Monday} tue {Tuesday} wed {Wednesday} thu {Thursday} fri {Friday} sat {Saturday} other {}}",
       "cancel": "Cancel",
       "confirmDelete": "Delete “{title}”?",
-      "deleteConfirm": "Delete"
+      "deleteConfirm": "Delete",
+      "dayMoveNote": "To move all of them to another day, delete the series and create it again."
     },
     "empty": {
       "title": "Nothing planned",

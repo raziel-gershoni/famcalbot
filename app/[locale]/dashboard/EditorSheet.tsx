@@ -10,7 +10,8 @@
 //   and For when the partner can be pinged.
 // - Edit: the same fields prefilled from the item's edit info. What cannot change in this
 //   pass (the repeat rule, the calendar, who it is for) is shown as text. A repeating item
-//   asks which occurrences on Save (ScopeSheet).
+//   asks which occurrences on Save (ScopeSheet); when its rule fixes its days and the
+//   start moved to another day, only this one can take the change.
 // - Cancel asks "Discard your changes?" only when something changed. The container's
 //   BackButton calls the same thing through `cancelRef`: it closes a sheet on top first,
 //   then cancels.
@@ -303,6 +304,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
           title={form.title.trim() || info.occurrence.title}
           day={info.occurrence.start.slice(0, 10)}
           all={allOfThem(info.series.repeat, info.series.start)}
+          singleOnly={info.series.fixedDays && form.startDay !== start.startDay}
           busy={saving}
           error={error}
           onPick={(scope) => void run(scope)}

@@ -267,6 +267,7 @@ const KEYS: Record<string, readonly string[]> = {
   'scope.cancel': [],
   'scope.confirmDelete': ['title'],
   'scope.deleteConfirm': [],
+  'scope.dayMoveNote': [],
   // The empty state (D5), Ruling R10
   'empty.title': [],
   'empty.hintEvents': [],

@@ -72,6 +72,12 @@ export interface ItemEditInfoResponse {
     start: string;
     /** null for a one-off, and for a rule that isn't daily, weekly, monthly or yearly. */
     repeat: RepeatInfo | null;
+    /**
+     * The rule names its days (BYDAY, BYMONTHDAY, BYMONTH, as the bot's rules do): a change
+     * that moves this occurrence to another day can apply to it alone ('single'); the
+     * other scopes answer 400 invalid, field 'start'.
+     */
+    fixedDays: boolean;
   };
   /** id is null when the calendar is the partner's private one (a reminder they set for the user). */
   calendar: { id: string | null; name: string; color: string | null };

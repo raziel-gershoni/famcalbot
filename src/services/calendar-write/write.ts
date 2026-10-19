@@ -32,7 +32,7 @@ import { stripMovedPings } from '../native-reminders/moved-pings';
 import { resolveReminderForCreate } from '../native-reminders/resolve';
 import { getReminderSupport } from '../native-reminders/support';
 import type { ParsedEvent } from '../event-parser';
-import { itemZone, loadItem, wallFor, type LoadedItem } from './item-info';
+import { fixesDays, itemZone, loadItem, wallFor, type LoadedItem } from './item-info';
 import { endFollows, itemKeyOf, isTime, type CreateCommand, type DeleteCommand, type UpdateCommand } from './validate';
 import { addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween, instantToWall, localDate, wallToInstant } from './walltime';
 
@@ -172,7 +172,7 @@ const effectiveScope = (item: Ok, scope: UpdateCommand['scope']) => (item.series
  * Where "every one of them" lands when this occurrence moves: the series keeps its place
  * in the rule, so it shifts by the days this occurrence moved and takes its new time of
  * day. A rule with no BYDAY (what the editor writes) follows its start, so the weekday
- * moves with it.
+ * moves with it; one with fixed days never gets here with a day move (updateItem).
  */
 function shiftedSeries(
   item: Ok,
@@ -244,6 +244,12 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   const scope = effectiveScope(item, cmd.scope);
   const startsAt = allDay ? dayStart(start, itemTz) : wallToInstant(start, userTz);
   const endsAt = reminder ? startsAt : allDay ? dayEnd(end, itemTz) : wallToInstant(end, userTz);
+  // A rule with fixed days (the bot's BYDAY) keeps them wherever the series starts: moved
+  // to another day, "following" or "all" would start it on a day it doesn't fall on and
+  // lose the occurrences before. Only this one can move; a new time of day is fine.
+  if (scope !== 'single' && fixesDays(series.rrule) && localDate(startsAt, itemTz) !== localDate(occ.startsAt, itemTz)) {
+    return { status: 'invalid', field: 'start' };
+  }
   const input: UpdateNativeEventInput = { seriesCuid: series.id, instanceStartsAt: series.rrule ? cmd.key.slot : undefined, scope, actingUserId: user.id, ...text };
   let key = sameKey;
   if (timeChanged) {

@@ -171,6 +171,15 @@ export function repeatInfo(rrule: string | null): RepeatInfo | null {
   }
 }
 
+/**
+ * Whether a stored rule names its days (BYDAY, BYMONTHDAY, BYMONTH, as the bot's rules
+ * do): its occurrences fall on those days, wherever the series starts, so moving one
+ * occurrence to another day can't take the others with it.
+ */
+export function fixesDays(rrule: string | null): boolean {
+  return rrule !== null && /(^|[;:])BY(DAY|MONTHDAY|MONTH|YEARDAY|WEEKNO)=/i.test(rrule);
+}
+
 /** GET /api/calendar/item: the edit info of a loaded item. */
 export function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, userTz: string): ItemEditInfoResponse {
   const { series, calendar, ctx, occurrence, masked } = item;
@@ -192,7 +201,7 @@ export function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, userTz
       location: occurrence.location ?? '',
       description: occurrence.description ?? '',
     },
-    series: { recurring: Boolean(series.rrule), start: first.start, repeat: repeatInfo(series.rrule) },
+    series: { recurring: Boolean(series.rrule), start: first.start, repeat: repeatInfo(series.rrule), fixedDays: fixesDays(series.rrule) },
     calendar: masked
       ? { id: null, name: ctx.partner?.name ?? '', color: null }
       : { id: encodeCalendarId(calendar.id), name: calendar.name, color: calendar.color },

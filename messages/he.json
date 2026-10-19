@@ -299,7 +299,8 @@
       "everyWeekday": "כל {weekday, select, sun {יום ראשון} mon {יום שני} tue {יום שלישי} wed {יום רביעי} thu {יום חמישי} fri {יום שישי} sat {שבת} other {}}",
       "cancel": "ביטול",
       "confirmDelete": "למחוק את ״{title}״?",
-      "deleteConfirm": "מחיקה"
+      "deleteConfirm": "מחיקה",
+      "dayMoveNote": "כדי להעביר את כל המופעים ליום אחר, צריך למחוק את הסדרה וליצור אותה מחדש."
     },
     "empty": {
       "title": "אין אירועים",

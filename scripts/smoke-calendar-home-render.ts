@@ -3983,7 +3983,7 @@ async function main() {
     canEdit: true,
     canDelete: true,
     occurrence: { start: `${day(0)}T09:30`, end: `${day(0)}T10:30`, allDay: false, title: 'Dentist', location: 'Clinic on Herzl St', description: 'Bring the X-rays' },
-    series: { recurring: false, start: `${day(0)}T09:30`, repeat: null },
+    series: { recurring: false, start: `${day(0)}T09:30`, repeat: null, fixedDays: false },
     calendar: { id: 'native:cal_me_7f3a', name: 'Family', color: '#039BE5' },
     forName: null,
     scopes: ['single'],
@@ -3994,7 +3994,7 @@ async function main() {
   const swimInfo = (o: Partial<ItemEditInfoResponse> = {}) =>
     infoFor({
       occurrence: { start: `${day(5)}T17:00`, end: `${day(5)}T18:00`, allDay: false, title: 'Swimming', location: '', description: '' },
-      series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: [], ends: false } },
+      series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: [], ends: false }, fixedDays: false },
       scopes: ['single', 'following', 'all'],
       ...o,
     });
@@ -4546,7 +4546,7 @@ async function main() {
     const remInfo = infoFor({
       kind: 'reminder',
       occurrence: { start: `${day(5)}T17:00`, end: `${day(5)}T17:00`, allDay: false, title: 'Book the plumber', location: '', description: '' },
-      series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: ['TU'], ends: false } },
+      series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: ['TU'], ends: false }, fixedDays: true },
       calendar: { id: 'native:cal_me_7f3a', name: 'Family', color: '#039BE5' },
       forName: 'Noa',
       scopes: ['single', 'following', 'all'],
@@ -4621,7 +4621,7 @@ async function main() {
       ['every other week', { freq: 'weekly', interval: 2, byDay: [], ends: false }],
     ];
     for (const [what, repeat] of noShortName) {
-      const w = await editingHome('en', { item: swim({ series: { recurring: true, start: `${day(5)}T17:00`, repeat } }) });
+      const w = await editingHome('en', { item: swim({ series: { recurring: true, start: `${day(5)}T17:00`, repeat, fixedDays: false } }) });
       try {
         await openItem(w.m, 'Swimming');
         tapIn(w.m, 'Delete event');
@@ -4631,7 +4631,7 @@ async function main() {
         w.m.unmount();
       }
     }
-    const daily = await editingHome('en', { item: swim({ series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'daily', interval: 1, byDay: [], ends: false } } }) });
+    const daily = await editingHome('en', { item: swim({ series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'daily', interval: 1, byDay: [], ends: false }, fixedDays: false } }) });
     try {
       await openItem(daily.m, 'Swimming');
       tapIn(daily.m, 'Delete event');
@@ -4692,6 +4692,70 @@ async function main() {
       assert(topDialog(rem.m).getAttribute('aria-label') === 'This reminder repeats', 'the reminder wording');
     } finally {
       rem.m.unmount();
+    }
+  });
+
+  await check('#82a a series whose rule fixes its days (the bot\'s "every Tuesday"): a change that moves the date offers only "Only this one", with a line on how to move them all, in en, he and ru; a new time of day, or a series that follows its start, keeps the three choices', async () => {
+    const fixed = swimInfo({ series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: ['TU'], ends: false }, fixedDays: true } });
+    const serve = (info: ItemEditInfoResponse) => (key: string) => (key === 'famcal|swim' ? ok200(info) : ({ status: 404, body: {} } as FetchAnswer));
+    const choicesOf = (m: Home) => elements(topDialog(m)).filter((e) => e.localName === 'button').map((e) => e.textContent.trim());
+    const NOTE = 'To move all of them to another day, delete the series and create it again.';
+    const { m } = await editingHome('en', { item: serve(fixed), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
+    try {
+      await openItem(m, 'Swimming');
+      m.click(byLabel(topDialog(m), 'Edit'));
+      await settle();
+      await typeInto(inDialog(m, 'Start date'), day(7));
+      m.click(saveButton(m));
+      await settle();
+      assert(show(choicesOf(m)) === show(['Only this one (Tue 20 Oct)', 'Cancel']), `a date move: ${show(choicesOf(m))}`);
+      assertHas(topText(m), [NOTE], 'the line on moving them all');
+      tapIn(m, 'Cancel');
+      // Back on the start day, a new time of day: the three choices and no line.
+      await typeInto(inDialog(m, 'Start date'), day(5));
+      await typeInto(inDialog(m, 'Start time'), '18:00');
+      m.click(saveButton(m));
+      await settle();
+      assert(show(choicesOf(m)) === show(['Only this one (Tue 20 Oct)', 'This one and the ones after', 'Every Tuesday', 'Cancel']), `a new time: ${show(choicesOf(m))}`);
+      assertLacks(topText(m), [NOTE], 'no line for a new time');
+      tapIn(m, 'Cancel');
+      await typeInto(inDialog(m, 'Start date'), day(6));
+      m.click(saveButton(m));
+      await settle();
+      tapIn(m, 'Only this one (Tue 20 Oct)');
+      await settle();
+      assert(writes().length === 1 && writes()[0].body?.scope === 'single' && writes()[0].body?.changes?.start === `${day(6)}T18:00`, `the one choice sends single: ${show(writes()[0]?.body)}`);
+    } finally {
+      m.unmount();
+    }
+    // A series that follows its start (what the editor writes) moves days for every scope.
+    const plain = await editingHome('en', { item: serve(swimInfo()) });
+    try {
+      await openItem(plain.m, 'Swimming');
+      plain.m.click(byLabel(topDialog(plain.m), 'Edit'));
+      await settle();
+      await typeInto(inDialog(plain.m, 'Start date'), day(7));
+      plain.m.click(saveButton(plain.m));
+      await settle();
+      assert(choicesOf(plain.m).length === 4 && !topText(plain.m).includes(NOTE), `no fixed days: ${show(choicesOf(plain.m))}`);
+    } finally {
+      plain.m.unmount();
+    }
+    // The line in Hebrew and Russian.
+    for (const [locale, note] of [['he', 'כדי להעביר את כל המופעים ליום אחר, צריך למחוק את הסדרה וליצור אותה מחדש.'], ['ru', 'Чтобы перенести их все на другой день, удалите серию и создайте её заново.']] as const) {
+      const l = await editingHome(locale, { item: serve(fixed) });
+      try {
+        await openItem(l.m, 'Swimming');
+        l.m.click(byLabel(topDialog(l.m), messages[locale].calendarHome.sheet.edit));
+        await settle();
+        await typeInto(inDialog(l.m, messages[locale].calendarHome.editor.startsDate), day(7));
+        l.m.click(saveButton(l.m));
+        await settle();
+        assertHas(topText(l.m), [note], `${locale}: the line`);
+        assert(choicesOf(l.m).length === 2, `${locale}: one choice and Cancel: ${show(choicesOf(l.m))}`);
+      } finally {
+        l.m.unmount();
+      }
     }
   });
 
