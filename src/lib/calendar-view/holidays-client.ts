@@ -3,7 +3,8 @@
 // day headers and the header read it with.
 //
 // Holidays are decoration, never an error state: a failed month logs, shows nothing and is
-// asked again the next time a view needs it (a failure is not cached). They load alongside
+// asked again the next time a view needs it, or when the month in view changes (a failure
+// is not cached, retryFailedHolidays asks the failed months again). They load alongside
 // the range requests and never block them, and only when the home shows Hebrew dates.
 // Client-safe: it imports only the grid's month arithmetic and the wire types, never
 // @hebcal/core (the server computes the holidays).
@@ -21,6 +22,8 @@ const NONE: HolidayDays = Object.freeze({});
 const landed = new Map<string, HolidayDays>();
 /** One request per key at a time. */
 const inflight = new Map<string, Promise<HolidayDays>>();
+/** Months whose last request failed, by key; a request that lands takes its month out. */
+const failed = new Map<string, { month: MonthKey; lang: string }>();
 const listeners = new Set<() => void>();
 /** Bumped when a month lands, so a hook knows to read the cache again. */
 let version = 0;
@@ -36,6 +39,7 @@ function subscribe(listener: () => void): () => void {
 export function resetHolidaysCache(): void {
   landed.clear();
   inflight.clear();
+  failed.clear();
   version++;
   listeners.forEach((listener) => listener());
 }
@@ -69,11 +73,13 @@ async function fetchMonth(month: MonthKey, lang: string): Promise<HolidayDays> {
     const days = readDays(await res.json());
     if (!days) throw new Error('unexpected answer');
     landed.set(cacheKey(month, lang), days);
+    failed.delete(cacheKey(month, lang));
     version++;
     listeners.forEach((listener) => listener());
     return days;
   } catch (error) {
     console.error(`[holidays] ${month} (${lang}) failed${status ? ` with ${status}` : ''}:`, error);
+    failed.set(cacheKey(month, lang), { month, lang });
     return NONE;
   }
 }
@@ -91,6 +97,15 @@ export function holidaysFor(month: MonthKey, lang: string): Promise<HolidayDays>
   const request = fetchMonth(month, lang).finally(() => inflight.delete(key));
   inflight.set(key, request);
   return request;
+}
+
+/**
+ * Asks again for every month whose request failed (a month with a request on its way, or one that
+ * landed since, is left alone). The Month calls it when the month in view changes: its grids stay
+ * mounted, so their hooks would never ask again by themselves.
+ */
+export function retryFailedHolidays(): void {
+  for (const { month, lang } of [...failed.values()]) void holidaysFor(month, lang);
 }
 
 /**

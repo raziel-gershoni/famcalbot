@@ -179,6 +179,8 @@ async function main() {
     assertEqual(ru('2027-03-09'), ['Рош ходеш Адар II'], 'rosh chodesh adar II');
     assertEqual(ru('2026-02-18'), ['Рош ходеш Адар'], 'rosh chodesh adar of a common year');
     assertEqual(ru('2027-08-12'), ['Тиша бе-Ав'], "tish'a b'av");
+    assertEqual(ru('2027-05-11'), ['День памяти павших'], 'yom hazikaron: a common noun in lower case');
+    assertEqual(ru('2027-05-25'), ['Лаг ба-Омер'], 'lag ba-omer: hyphenated like the other names');
     assertEqual(on('2027-04-23', 'ru')[0].brief, 'Песах II (холь а-моэд)', 'brief mirrors the title');
     assertEqual(on('2026-09-28', 'he').map(h => h.title), ['סוכות ג׳ (חוה״מ)'], 'he chol hamoed letter');
   });

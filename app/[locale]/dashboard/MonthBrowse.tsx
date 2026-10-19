@@ -46,7 +46,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { formatDayLong, formatMonthTitle, formatWeekdayHeader } from '@/src/lib/calendar-view/format';
 import { monthGrid, monthOf, weekdayOrder, type MonthKey } from '@/src/lib/calendar-view/grid';
 import { hebrewCellLabel, hebrewCellMonth, hebrewDayLabel, hebrewMonthHeader, isHebrewMonthStart } from '@/src/lib/calendar-view/hebrew-date';
-import { holidayTitles, useHolidays } from '@/src/lib/calendar-view/holidays-client';
+import { holidayTitles, retryFailedHolidays, useHolidays } from '@/src/lib/calendar-view/holidays-client';
 import {
   BROWSE_CELL_PX,
   BROWSE_CHIPS_NARROW,
@@ -459,6 +459,8 @@ export function MonthBrowse(props: MonthBrowseProps) {
     anchor.current = { month, delta: top - tops[first] };
     setInView(month);
     if (reported.current.inView !== month) {
+      // A month whose holidays failed is asked again on the next month change (not on the first report).
+      if (reported.current.inView !== null) retryFailedHolidays();
       reported.current.inView = month;
       p.onMonthInView(month);
     }

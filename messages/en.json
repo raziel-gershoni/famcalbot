@@ -1401,6 +1401,7 @@
       "herzlDay": "Herzl Day",
       "hoshanaRaba": "Sukkot VII (Hoshana Raba)",
       "jabotinskyDay": "Jabotinsky Day",
+      "lagBaomer": "Lag BaOmer",
       "pesachI": "Pesach I",
       "pesachSheni": "Pesach Sheni",
       "pesachVii": "Pesach VII",
@@ -1415,6 +1416,7 @@
       "yitzhakRabinMemorialDay": "Yitzhak Rabin Memorial Day",
       "yomHaaliyah": "Yom HaAliyah",
       "yomHaaliyahSchoolObservance": "Yom HaAliyah School Observance",
+      "yomHazikaron": "Yom HaZikaron",
       "yomKippur": "Yom Kippur"
     }
   }

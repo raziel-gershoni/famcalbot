@@ -5176,7 +5176,7 @@ async function main() {
       [day(0)]: [hol('Шмини Ацерет', 'chag')],
       [day(1)]: [hol('Ханука: 8 Свечей', 'minor'), hol('Рош ходеш Тевет', 'roshChodesh')],
       '2026-10-12': [hol('Рош ходеш Хешван', 'roshChodesh')],
-      '2026-10-20': [hol('День Памяти', 'modern')],
+      '2026-10-20': [hol('День памяти павших', 'modern')],
       '2026-09-12': [hol('Рош а-Шана 5787', 'chag')],
     },
   };
@@ -5286,6 +5286,34 @@ async function main() {
       } finally {
         m.unmount();
       }
+    }
+  });
+
+  await check('#90a a month whose holidays request failed is asked again when the month in view changes, even though its grid never unmounted: October fails, the user scrolls to November and back, and October is asked a second time and shows its holidays', async () => {
+    resetHome();
+    serveHolidays = () => ({ status: 502, body: { error: 'deploying' } });
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      await settle();
+      flushFrames();
+      await settle();
+      const octAsks = () => asked().filter((a) => a.startsWith('2026-10-01')).length;
+      assert(octAsks() >= 1, `October was asked: ${show(asked())}`);
+      assert(!byClass(m.container, 'ch-mb-hmonth').some((e) => e.textContent === 'Yom HaZikaron'), 'and failed: no holiday yet');
+      const before = octAsks();
+      serveHolidays = serveFixtures;
+      scrollPageTo(inViewAt('2026-11'));
+      await settle();
+      scrollPageTo(inViewAt('2026-10'));
+      await settle();
+      flushFrames();
+      await settle();
+      assert(octAsks() === before + 1, `October is asked again after the month in view changed: ${before} then ${octAsks()}: ${show(asked())}`);
+      assert(byClass(m.container, 'ch-mb-hmonth').some((e) => e.textContent === 'Yom HaZikaron'), 'and the holidays show');
+    } finally {
+      m.unmount();
     }
   });
 
