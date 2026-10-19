@@ -24,7 +24,7 @@ import { resolveUserTimezone } from '../../lib/timezone';
 import { classifyGoogleError, type GoogleErrorClass } from '../calendar-read/google-map';
 import { classifyRule, fixesDays } from '../native-calendar/recurrence';
 import { repeatInfo, wallFor } from './item-info';
-import { googleKeyOf, parseGoogleKey, type CreateCommand, type DeleteCommand, type GoogleItemKey, type UpdateCommand } from './validate';
+import { googleKeyOf, isHebrewChoice, parseGoogleKey, type CreateCommand, type DeleteCommand, type GoogleItemKey, type UpdateCommand } from './validate';
 import { dayEnd, dayStart, localDate, wallToInstant } from './walltime';
 import { createTimes, repeatChanges, resolveWallTimes, ruleFor, type WriteResult } from './write';
 
@@ -251,6 +251,8 @@ function outcomeOf(error: ProviderErrorCode | undefined): WriteResult {
 
 /** A rule for a repeat choice as Google takes it, or null for none. */
 const googleRuleFor = (repeat: CreateCommand['repeat']): string | null => {
+  // Never a Hebrew rule as a Gregorian yearly one (hebrew-repeats spec §4); the writes above refuse it first.
+  if (isHebrewChoice(repeat)) throw new Error('A Hebrew-date repeat cannot be written to Google');
   const rule = ruleFor(repeat);
   return rule ? `RRULE:${rule}` : null;
 };
@@ -262,6 +264,8 @@ const googleRuleFor = (repeat: CreateCommand['repeat']): string | null => {
  */
 export async function createGoogleItem(user: UserConfig, cmd: CreateCommand, tz: string): Promise<WriteResult> {
   if (cmd.kind !== 'event') return NOT_ALLOWED; // reminders always live in FamCal
+  // Google can't hold a Hebrew-date rule (hebrew-repeats spec §4): never sent as a Gregorian yearly one.
+  if (isHebrewChoice(cmd.repeat)) return { status: 'invalid', field: 'repeat' };
   if (sourcesFor(user).includes('google') && !user.googleRefreshToken) {
     captureError(new Error('Google create with no refresh token'), 'calendar-google-item', { user_id: user.id }, 'warning');
     return { status: 'reconnect', reason: 'token' };
@@ -297,6 +301,7 @@ export async function createGoogleItem(user: UserConfig, cmd: CreateCommand, tz:
  */
 export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { key: { source: 'google' } & GoogleItemKey }, userTz: string): Promise<WriteResult> {
   const key = cmd.key;
+  if (isHebrewChoice(cmd.changes.repeat)) return { status: 'invalid', field: 'repeat' };
   const loaded = await loadGoogleItem(user, key, userTz);
   if (loaded.status === 'not_found') return NOT_FOUND;
   if (loaded.status === 'error') return loaded.result;

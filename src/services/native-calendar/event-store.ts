@@ -595,7 +595,7 @@ function tailRule(series: NativeEvent, cut: Date, newStart: Date, newRule: strin
   const startsWith = (rule: string) => yieldsSlots({ ...series, ...pair, rrule: rule, startsAt: newStart, endsAt }, [newStart]).size > 0;
   // The stored string with another kind keeps the series' own end: its COUNT, word for word, would start over in the tail.
   if (newRule !== undefined && newRule !== series.rrule) {
-    const carried = endCarriedRule(newRule, series.rrule!, series)!;
+    const carried = endCarriedRule(newRule, series.rrule!, series, { cut, hebrewRule: pair.hebrewRule })!;
     assertStorableRule(carried, pair.hebrewRule);
     if (startsWith(carried)) return carried;
     const pushed = withUntilOnDayOf(carried, newStart, series.timeZone);

@@ -257,6 +257,8 @@ export async function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, 
   const rule = {
     choice: classified.choice,
     ...(classified.until ? { until: wallFor(classified.until, classified.until, series.allDay, userTz, itemTz).start.slice(0, 10) } : {}),
+    // The words of a Hebrew series name its anchor, never the opened occurrence's day (a rolled year's).
+    ...(series.rrule && series.hebrewRule && series.hebrewAnchor ? { anchor: series.hebrewAnchor } : {}),
   };
   const moveTargets = await moveTargetsOf(user, item);
   const forPartner = isForPartner(series, ctx);

@@ -408,6 +408,7 @@ export class NativeRuleError extends Error {
 
 const RULE_PREFIX = 'RRULE:';
 const bare = (rule: string) => (rule.startsWith(RULE_PREFIX) ? rule.slice(RULE_PREFIX.length) : rule);
+const isYearlyRule = (rule: string) => /(^|;)FREQ=YEARLY(;|$)/i.test(bare(rule));
 
 // ---- Hebrew-date repeats (hebrew-repeats spec §2, §3) ----
 //
@@ -764,17 +765,28 @@ export function slotsBefore(series: { rrule: string; startsAt: Date; timeZone: s
  * with the old rule's end. An UNTIL carries over as it is; a COUNT becomes a date-only
  * UNTIL on the day of its last slot under the old rule, so the series still ends that
  * day. Never (null) has no end. A new rule with an end of its own keeps it.
+ *
+ * `change` (the cut, and the kind the new part has) is for a repeat change from a later
+ * occurrence: between the yearly rules (Gregorian yearly, every year on the Hebrew date,
+ * yahrzeit) a COUNT carries as what is left of it, the old rule's slots before the cut
+ * taken off (at least 1), not as a date, because the same year lands up to a month apart
+ * under the other rule (hebrew-repeats spec §4).
  */
 export function endCarriedRule(
   newRule: string | null,
   oldRule: string,
-  series: { startsAt: Date; timeZone: string | null } & HebrewColumns
+  series: { startsAt: Date; timeZone: string | null } & HebrewColumns,
+  change?: { cut: Date; hebrewRule: HebrewRule | null }
 ): string | null {
   if (newRule === null) return null;
   if (/(^|[;:])(UNTIL|COUNT)=/i.test(newRule)) return newRule;
   const old = bare(oldRule);
   const until = /(^|;)UNTIL=([^;]+)/i.exec(old);
   if (until) return `${newRule};UNTIL=${until[2]}`;
+  const count = /(^|;)COUNT=(\d+)/i.exec(old);
+  if (count && change && isYearlyRule(newRule) && isYearlyRule(old) && (series.hebrewRule ?? null) !== (change.hebrewRule ?? null)) {
+    return `${newRule};COUNT=${Math.max(1, Number(count[2]) - slotsBefore({ ...series, rrule: old }, change.cut))}`;
+  }
   if (/(^|;)COUNT=/i.test(old)) {
     const tz = series.timeZone || TIMEZONE;
     const last = lastSlot(old, series.startsAt, tz, series);

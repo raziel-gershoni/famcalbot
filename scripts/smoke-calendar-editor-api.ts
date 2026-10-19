@@ -2153,12 +2153,12 @@ async function main() {
     const { occ } = hebrewSeries();
     const info = await itemOf(occ('2025-11-21'));
     assertSame([info.status, info.body.series.rule, info.body.series.repeat, info.body.series.fixedDays],
-      [200, { choice: 'hebrew' }, { freq: 'yearly', interval: 1, byDay: [], ends: false, hebrew: { kind: 'anniversary', anchor: '2022-11-24' } }, false], 'anniversary');
+      [200, { choice: 'hebrew', anchor: '2022-11-24' }, { freq: 'yearly', interval: 1, byDay: [], ends: false, hebrew: { kind: 'anniversary', anchor: '2022-11-24' } }, false], 'anniversary');
     const y = hebrewSeries('heb-y', { hebrewRule: 'yahrzeit', rrule: 'FREQ=YEARLY;COUNT=3' });
     const death = await itemOf(y.occ('2022-11-24'));
-    assertSame([death.status, death.body.series.rule, death.body.series.first], [200, { choice: 'yahrzeit', until: '2024-12-01' }, true], 'the yahrzeit\'s first occurrence');
+    assertSame([death.status, death.body.series.rule, death.body.series.first], [200, { choice: 'yahrzeit', until: '2024-12-01', anchor: '2022-11-24' }, true], 'the yahrzeit\'s first occurrence');
     const custom = hebrewSeries('heb-2', { rrule: 'FREQ=YEARLY;INTERVAL=2' });
-    assertSame((await itemOf(custom.occ('2022-11-24'))).body.series.rule, { choice: 'custom' }, 'every 2 years is custom');
+    assertSame((await itemOf(custom.occ('2022-11-24'))).body.series.rule, { choice: 'custom', anchor: '2022-11-24' }, 'every 2 years is custom');
     const greg = seedSeries('greg', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Wedding', startsAt: at('2022-11-24 10:00'), rrule: 'FREQ=YEARLY' });
     const g = await itemOf(`famcal|${greg.id}#${iso(at('2023-11-24 10:00'))}`);
     assertSame([g.body.series.rule, g.body.series.repeat], [{ choice: 'yearly' }, { freq: 'yearly', interval: 1, byDay: [], ends: false }], 'a Gregorian yearly series is unchanged');
@@ -2264,7 +2264,7 @@ async function main() {
       assertSame((await itemOf(r.body.key)).status, 200, `${repeat}: the key opens the sheet`);
     }
     const days = expandSeries(eventRow(idOf((await post(eventBody({ repeat: 'yahrzeit', start: '2022-11-24T10:00', end: '2022-11-24T11:00' }))).body.key)), { from: at('2022-01-01 00:00'), to: at('2025-01-01 00:00') }, []);
-    assertSame(days.map((i: Row) => formatInTimeZone(i.startsAt, IL, 'yyyy-MM-dd')), ['2022-11-24', '2023-11-14', '2024-11-12'], 'a yahrzeit: the date of death, then its own days');
+    assertSame(days.map((i: Row) => formatInTimeZone(i.startsAt, IL, 'yyyy-MM-dd')), ['2022-11-24', '2023-11-13', '2024-12-01'], 'a yahrzeit: the date of death, then its own days (29 Cheshvan in the short year after, then 1 Kislev)');
     const allDay = await post(eventBody({ repeat: 'hebrew', allDay: true, start: '2026-02-02', end: '2026-02-02' }));
     assertSame(pairOf(eventRow(idOf(allDay.body.key))), ['FREQ=YEARLY', 'anniversary', '2026-02-02'], 'an all-day event, anchored on its day');
     const rem = await post(reminderBody({ repeat: 'yahrzeit', start: '2026-02-02T17:30' }));

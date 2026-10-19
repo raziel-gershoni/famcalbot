@@ -13,8 +13,12 @@ export const NOTES_MAX = 2000;
 export type ItemKind = 'event' | 'reminder';
 /** Which occurrences a change or a delete applies to. A one-off item has only 'single'. */
 export type EditScope = 'single' | 'following' | 'all';
-/** How a new item repeats; the rule is built on the server, anchored on the start. */
-export type RepeatChoice = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
+/**
+ * How a new item repeats; the rule is built on the server, anchored on the start. 'hebrew'
+ * (every year on the Hebrew date) and 'yahrzeit' are yearly rules that follow the start's
+ * Hebrew date (hebrew-repeats spec §4); FamCal calendars only.
+ */
+export type RepeatChoice = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'hebrew' | 'yahrzeit';
 
 /** A calendar the user may add events to. */
 export interface EditorCalendar {
@@ -59,10 +63,10 @@ export interface RepeatInfo {
 }
 
 /**
- * How the editor's Repeat row names a stored rule: one of the five, a Hebrew kind ('hebrew',
- * every year on the Hebrew date, or 'yahrzeit'), or 'custom' (3b spec §2.1, hebrew-repeats §3).
+ * How the editor's Repeat row names a stored rule: one of the choices (the five and the two
+ * Hebrew kinds), or 'custom' (3b spec §2.1, hebrew-repeats §3).
  */
-export type RuleChoice = RepeatChoice | 'hebrew' | 'yahrzeit' | 'custom';
+export type RuleChoice = RepeatChoice | 'custom';
 
 /** GET /api/calendar/item?user_id=&key= */
 export interface ItemEditInfoResponse {
@@ -96,9 +100,10 @@ export interface ItemEditInfoResponse {
     /**
      * 3b: the stored rule as the Repeat row names it ('none' for a one-off), and the day of
      * its last occurrence when it ends (UNTIL or COUNT). `words` is the rule in words when
-     * the server words it (Google); a FamCal rule is worded from `repeat`.
+     * the server words it (Google); a FamCal rule is worded from `repeat`. `anchor` is a
+     * Hebrew series' anchor day (yyyy-MM-dd), which its words name (hebrew-repeats spec §4).
      */
-    rule?: { choice: RuleChoice; words?: string; until?: string };
+    rule?: { choice: RuleChoice; words?: string; until?: string; anchor?: string };
     /** 3b: this is the first occurrence the series shows (a one-off is its own first). */
     first?: boolean;
   };

@@ -40,9 +40,9 @@ import { stripMovedPings } from '../native-reminders/moved-pings';
 import { resolveReminderForCreate } from '../native-reminders/resolve';
 import { getReminderSupport } from '../native-reminders/support';
 import type { ParsedEvent } from '../event-parser';
-import { classifyRule } from '../native-calendar/recurrence';
+import { classifyRule, type HebrewRule } from '../native-calendar/recurrence';
 import { isForPartner, itemZone, loadItem, wallFor, type LoadedItem } from './item-info';
-import { endFollows, itemKeyOf, isTime, type CreateCommand, type DeleteCommand, type UpdateCommand } from './validate';
+import { endFollows, isHebrewChoice, itemKeyOf, isTime, type CreateCommand, type DeleteCommand, type UpdateCommand } from './validate';
 import { sourcesFor } from '../calendar-read/index';
 import { addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween, instantToWall, wallToInstant } from './walltime';
 
@@ -108,7 +108,13 @@ async function clearCaches(
 /** The stored rule for a repeat choice, as the bot's provider stores it (no RRULE: prefix). */
 export function ruleFor(repeat: CreateCommand['repeat']): string | null {
   if (repeat === 'none') return null;
-  return buildRecurrenceRule({ frequency: repeat })[0].replace(/^RRULE:/, '');
+  // The Hebrew kinds are a plain yearly rule plus the pair (hebrewKindFor).
+  return buildRecurrenceRule({ frequency: isHebrewChoice(repeat) ? 'yearly' : repeat })[0].replace(/^RRULE:/, '');
+}
+
+/** The Hebrew kind a repeat choice stores next to its rule (hebrew-repeats spec §2), or null for a Gregorian one. */
+export function hebrewKindFor(repeat: CreateCommand['repeat']): HebrewRule | null {
+  return repeat === 'hebrew' ? 'anniversary' : repeat === 'yahrzeit' ? 'yahrzeit' : null;
 }
 
 /** A stored rule without its end and the parts that mean nothing for it (WKST, INTERVAL=1), to compare with a choice's. */
@@ -150,6 +156,7 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
   if (!famcal) return NOT_ALLOWED;
   try {
     const rrule = ruleFor(cmd.repeat);
+    const hebrewRule = hebrewKindFor(cmd.repeat);
     const base = {
       creatorUserId: user.id,
       title: cmd.title,
@@ -158,6 +165,7 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
       allDay: cmd.allDay,
       timeZone: tz,
       rrule,
+      ...(hebrewRule ? { hebrewRule } : {}),
     };
 
     if (cmd.kind === 'event') {
@@ -296,7 +304,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   // The series-level fields (3b spec §3.3), each only when it differs from what the item
   // has: a repeat other than the one the Repeat row shows, another calendar, the other
   // recipient (relative to the reminder's creator).
-  const repeat = c.repeat !== undefined && repeatChanges(c.repeat, series.rrule, classifyRule(series.rrule, series.startsAt, itemTz).choice) ? c.repeat : undefined;
+  const repeat = c.repeat !== undefined && repeatChanges(c.repeat, series.rrule, classifyRule(series.rrule, series.startsAt, itemTz, series).choice) ? c.repeat : undefined;
   const calendarCuid = c.calendarId !== undefined ? decodeCalendarId(c.calendarId) : null;
   const moveTo = calendarCuid !== null && calendarCuid !== series.calendarId ? calendarCuid : undefined;
   const forPartner = c.forPartner !== undefined && c.forPartner !== isForPartner(series, item.ctx) ? c.forPartner : undefined;
@@ -321,7 +329,8 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
     scope,
     actingUserId: user.id,
     ...text,
-    ...(repeat !== undefined ? { rrule: ruleFor(repeat) } : {}),
+    // The pair goes with the rule, null for a Gregorian choice (hebrew-repeats spec §2).
+    ...(repeat !== undefined ? { rrule: ruleFor(repeat), hebrewRule: hebrewKindFor(repeat) } : {}),
     ...(moveTo !== undefined ? { calendarId: moveTo } : {}),
     ...(forUserId !== undefined ? { forUserId } : {}),
   };
