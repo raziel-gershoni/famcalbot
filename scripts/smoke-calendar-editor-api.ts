@@ -2063,6 +2063,61 @@ async function main() {
     assertSame((await daysOf(bareRem.id, '2022-01-01', '2023-01-01')), ['2022-11-26'], 'its start is still its first occurrence');
   });
 
+  await check('hebrew: a day move keys what was done to rolled years by Hebrew year ("all", "this and after"); "all" from a rolled occurrence is refused', async () => {
+    // The rolled years of hebrewSeries(): 2023-11-14, 2025-11-21, 2028-11-19 (1 Kislev, no 30
+    // Cheshvan there). Moved to 1 Kislev, those stay where they are while the others move a day.
+    seed();
+    const { id, occ } = hebrewSeries();
+    assertSame((await del({ key: occ('2025-11-21'), scope: 'single' })).status, 200, 'a rolled year cancelled');
+    assertSame((await patch({ key: occ('2028-11-19'), scope: 'single', changes: { title: 'Renamed' } })).status, 200, 'a rolled year renamed');
+    assertSame((await patch({ key: occ('2026-11-10'), scope: 'single', changes: { title: 'Plain' } })).status, 200, 'a long year renamed');
+    const r = await patch({ key: occ('2024-12-01'), scope: 'all', changes: { start: '2024-12-02T10:00', end: '2024-12-02T11:00' } });
+    assertSame([r.status, r.body.key, eventRow(id).hebrewAnchor], [200, occ('2024-12-02'), '2022-11-25'], '"all" from a long year: a day later');
+    assertSame(await daysOf(id, '2022-01-01', '2029-01-01'), ['2022-11-25', '2023-11-14', '2024-12-02', '2026-11-11', '2027-12-01', '2028-11-19'], 'the cancelled rolled year stays cancelled');
+    const titles = (sid: string) => overrides(sid).filter((o) => o.status === 'OVERRIDE').map((o) => [iso(o.originalStartsAt), o.title]).sort();
+    assertSame(titles(id), [[iso(at('2026-11-11 10:00')), 'Plain'], [iso(at('2028-11-19 10:00')), 'Renamed']], 'each rename on its year\'s new day');
+    assertSame((await itemOf(r.body.key)).status, 200, 'the key reads');
+
+    seed();
+    const rolled = hebrewSeries();
+    await del({ key: rolled.occ('2025-11-21'), scope: 'single' });
+    const refused = await patch({ key: rolled.occ('2023-11-14'), scope: 'all', changes: { start: '2023-11-15T10:00', end: '2023-11-15T11:00' } });
+    assertSame([refused.status, refused.body], [400, { error: 'invalid', field: 'start' }], '"all" from a rolled year: refused (it would not move)');
+    assertSame([iso(eventRow(rolled.id).startsAt), eventRow(rolled.id).hebrewAnchor, eventRow(rolled.id).exdates.map(iso)], [iso(at('2022-11-24 10:00')), '2022-11-24', [iso(at('2025-11-21 10:00'))]], 'nothing written');
+    const ask = (instance: string, start: string) => store.refusesFixedDays({ seriesCuid: rolled.id, instanceStartsAt: at(`${instance} 10:00`), scope: 'all', actingUserId: TAL, occurrenceTimes: true, startsAt: at(`${start} 10:00`) });
+    assertSame([await ask('2023-11-14', '2023-11-15'), await ask('2024-12-01', '2024-12-02'), await ask('2023-11-14', '2023-11-14')], [true, false, false], 'the bot asks first: refused from a rolled year only, and only a day move');
+    const timed = await patch({ key: rolled.occ('2023-11-14'), scope: 'all', changes: { start: '2023-11-14T12:00', end: '2023-11-14T13:00' } });
+    assertSame([timed.status, eventRow(rolled.id).hebrewAnchor, await daysOf(rolled.id, '2025-01-01', '2026-01-01')], [200, '2022-11-24', []], 'a new time from a rolled year is fine; the cancellation kept');
+
+    seed();
+    const rem = hebrewSeries('heb-rem', { kind: 'REMINDER', title: 'Light a candle' });
+    await del({ key: rem.occ('2025-11-21'), scope: 'single' });
+    const remMoved = await patch({ key: rem.occ('2024-12-01'), scope: 'all', changes: { start: '2024-12-02T10:00' } });
+    assertSame([remMoved.status, remMoved.body.key, eventRow(rem.id).hebrewAnchor], [200, rem.occ('2024-12-02'), '2022-11-25'], 'a reminder "all": a day later');
+    assertSame(await daysOf(rem.id, '2022-01-01', '2027-01-01'), ['2022-11-25', '2023-11-14', '2024-12-02', '2026-11-11'], 'the reminder\'s cancelled rolled year stays cancelled');
+    seed();
+    const rem2 = hebrewSeries('heb-rem2', { kind: 'REMINDER', title: 'Light a candle' });
+    const remRefused = await patch({ key: rem2.occ('2023-11-14'), scope: 'all', changes: { start: '2023-11-15T10:00' } });
+    assertSame([remRefused.status, remRefused.body, eventRow(rem2.id).hebrewAnchor], [400, { error: 'invalid', field: 'start' }, '2022-11-24'], 'a reminder "all" from a rolled year: refused');
+
+    seed();
+    const tailed = hebrewSeries();
+    await del({ key: tailed.occ('2025-11-21'), scope: 'single' });
+    await patch({ key: tailed.occ('2028-11-19'), scope: 'single', changes: { title: 'Renamed' } });
+    const split = await patch({ key: tailed.occ('2024-12-01'), scope: 'following', changes: { start: '2024-12-02T10:00', end: '2024-12-02T11:00' } });
+    const tail = lastEvent();
+    assertSame([split.status, tail.hebrewAnchor], [200, '2024-12-02'], '"this and after" to 1 Kislev');
+    assertSame(await daysOf(tail.id, '2024-01-01', '2029-01-01'), ['2024-12-02', '2026-11-11', '2027-12-01', '2028-11-19'], 'the tail keeps the cancelled rolled year cancelled');
+    assertSame(titles(tail.id), [[iso(at('2028-11-19 10:00')), 'Renamed']], 'and the rename on its rolled year');
+
+    seed();
+    const remTailed = hebrewSeries('heb-rem3', { kind: 'REMINDER', title: 'Light a candle' });
+    await del({ key: remTailed.occ('2025-11-21'), scope: 'single' });
+    const remSplit = await patch({ key: remTailed.occ('2024-12-01'), scope: 'following', changes: { start: '2024-12-02T10:00' } });
+    assertSame([remSplit.status, lastEvent().hebrewAnchor], [200, '2024-12-02'], 'a reminder "this and after" to 1 Kislev');
+    assertSame(await daysOf(lastEvent().id, '2024-01-01', '2027-01-01'), ['2024-12-02', '2026-11-11'], 'the reminder\'s tail keeps the cancelled rolled year cancelled');
+  });
+
   await check('hebrew: a calendar move "this and after" and a recipient change "this and after" each give the tail the pair', async () => {
     seed();
     const { id, occ } = hebrewSeries();
@@ -2157,6 +2212,24 @@ async function main() {
     await update(kinds.id, '2026-11-10', { hebrewRule: 'yahrzeit' });
     assertSame(pairOf(lastEvent()), ['FREQ=YEARLY', 'yahrzeit', '2022-11-24'], 'the other kind, the anchor kept');
     assertSame(await daysOf(lastEvent().id, '2026-01-01', '2029-01-01'), ['2026-11-10', '2027-11-30', '2028-11-18'], 'the yahrzeit\'s days from there');
+    seed();
+    const counted = hebrewSeries('heb-c', { rrule: 'FREQ=YEARLY;COUNT=5' });
+    await update(counted.id, '2026-11-10', { hebrewRule: 'yahrzeit' });
+    assertSame([pairOf(lastEvent()), eventRow(counted.id).rrule], [['FREQ=YEARLY;COUNT=1', 'yahrzeit', '2022-11-24'], 'FREQ=YEARLY;UNTIL=20261110T095959'], 'a COUNT: four slots before the cut, one left, not five again');
+    assertSame(await daysOf(lastEvent().id, '2026-01-01', '2035-01-01'), ['2026-11-10'], 'the tail has what is left');
+    seed();
+    const counted2 = hebrewSeries('heb-c2', { rrule: 'FREQ=YEARLY;COUNT=5' });
+    await update(counted2.id, '2026-11-10', { rrule: 'FREQ=YEARLY;COUNT=5', hebrewRule: 'yahrzeit' });
+    assertSame(pairOf(lastEvent()), ['FREQ=YEARLY;COUNT=1', 'yahrzeit', '2022-11-24'], 'the stored rule string sent with the other kind: the same');
+    seed();
+    const ending = hebrewSeries('heb-u', { rrule: 'FREQ=YEARLY;UNTIL=20281231T235959' });
+    await update(ending.id, '2026-11-10', { hebrewRule: 'yahrzeit' });
+    assertSame(pairOf(lastEvent()), ['FREQ=YEARLY;UNTIL=20281231T235959', 'yahrzeit', '2022-11-24'], 'an UNTIL is kept');
+    seed();
+    const early = hebrewSeries('heb-e');
+    // 5789: the birthday is 1 Kislev (2028-11-19), the yahrzeit 29 Cheshvan (2028-11-18), before the cut.
+    const e = await thrownBy(() => update(early.id, '2028-11-19', { hebrewRule: 'yahrzeit' }));
+    assertSame([e instanceof rec.NativeRuleError, tables.nativeEvent.length, eventRow(early.id).rrule], [true, 1, 'FREQ=YEARLY'], 'the other kind with no occurrence at the cut: refused, nothing written');
     seed();
     const one = seedSeries('one', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Bar mitzvah', startsAt: at('2026-02-02 10:00') });
     await store.updateNativeEvent({ seriesCuid: one.id, scope: 'all', actingUserId: TAL, rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', startsAt: at('2026-02-03 10:00'), endsAt: at('2026-02-03 11:00') });

@@ -68,7 +68,9 @@ export function assertStorableRule(rule: string, hebrewRule?: 'anniversary' | 'y
   - editor-api: create and edit with 'hebrew' and 'yahrzeit'; 400 for a Google key or a non-native `calendarId`; the COUNT carry between kinds.
   - render: the choices only with Hebrew dates and a FamCal calendar; words from the anchor; en/he/ru with gematriya; the sheet's repeat line naming the kind.
 - [ ] `RepeatChoice` gains the two values. The route builds `FREQ=YEARLY` plus the pair and refuses non-FamCal targets. The end carry handles a switch between kinds (remaining COUNT, UNTIL unchanged). The item info reports `choice` and `anchor`.
+- [ ] Close the gap H1 left between the server and the client, before any Hebrew row can exist: since H1 the item info sends `series.rule.choice` 'hebrew' / 'yahrzeit', but `isItemInfoExtras` in `src/lib/calendar-view/editor-client.ts` allows only none/daily/weekly/monthly/yearly/custom, so the client rejects the whole edit info and the sheet can't open a Hebrew item. Add the two values there, give `EditorSheet` a Repeat option for a stored Hebrew choice, and pass the pair to `classifyRule` in `write.ts` (`repeatChanges(..., classifyRule(series.rrule, series.startsAt, itemTz).choice)` still classifies a Hebrew series as 'yearly'). Add an editor-api check that opens and edits a Hebrew item.
 - [ ] Editor: the two choices in the Repeat row (create and edit), shown under §4's rules and worded from the anchor. Copy in en, he and ru.
+- [ ] Editor: an 'all' day move from a rolled occurrence (a year with no 30 Cheshvan, an Adar case) is refused by the store as `NativeFixedDaysError` (400 `field: 'start'`), and so is one on a series whose own start is a rolled year. Show the day note there, as for fixed days.
 - [ ] Run editor-api, the full render smoke, copy, parity, tsc and lint. Commit.
 
 ### Task H3: The bot (§5)

@@ -542,6 +542,42 @@ export function hebrewCandidates(series: HebrewSeries, window: { from: Date; to:
   return out;
 }
 
+/** The Hebrew year a plan gives `slot` for (its anchor year plus j steps), or null when `slot` is none of its slots. */
+function planYearOf(plan: ReturnType<typeof hebrewPlan>, slot: Date): number | null {
+  // A slot falls in its own Hebrew year (a rolled day stays in it: 30 Cheshvan to 1 Kislev).
+  const near = Math.round((hebrewDateOf(localDate(slot, plan.zone)).getFullYear() - plan.anchorYear) / plan.interval);
+  for (const j of [near, near - 1, near + 1]) {
+    if (plan.at(j)?.getTime() === slot.getTime()) return plan.anchorYear + j * plan.interval;
+  }
+  return null;
+}
+
+/**
+ * Where a Hebrew series' slots go when it becomes `to` (another Hebrew series): each to `to`'s
+ * slot in the same Hebrew year, counted from `ref` (a slot of `from` and where it went in
+ * `to`; without, the anchors stand for each other). A day move on the wall clock would put a
+ * rolled year one day off (30 Cheshvan moved to 1 Kislev leaves the years with no 30 Cheshvan
+ * where they were). The function gives null for a slot that is not one of `from`'s, or a year
+ * `to` has no slot in; null in place of the function when `ref` is not a slot pair.
+ */
+export function hebrewSlotMap(from: HebrewSeries, to: HebrewSeries, ref?: { from: Date; to: Date }): ((slot: Date) => Date | null) | null {
+  const old = hebrewPlan(from);
+  const next = hebrewPlan(to);
+  let years = next.anchorYear - old.anchorYear;
+  if (ref) {
+    const was = planYearOf(old, ref.from);
+    const is = planYearOf(next, ref.to);
+    if (was === null || is === null) return null;
+    years = is - was;
+  }
+  return (slot) => {
+    const year = planYearOf(old, slot);
+    if (year === null) return null;
+    const k = (year + years - next.anchorYear) / next.interval;
+    return Number.isInteger(k) ? next.at(k) : null;
+  };
+}
+
 /** The last slot of a Hebrew series that ends (UNTIL or COUNT), or null. */
 function hebrewLastSlot(series: HebrewSeries): Date | null {
   const plan = hebrewPlan(series);

@@ -28,6 +28,8 @@ import {
   expandSeries,
   fixesDays,
   followingTimesFor,
+  hebrewSeriesOf,
+  hebrewSlotMap,
   type HebrewRule,
   NativeRuleError,
   seriesTimesFor,
@@ -386,7 +388,9 @@ export class NativeNotFoundError extends Error {
 /**
  * A day move for every occurrence, or this one and the ones after, of a rule with fixed
  * days (the bot's BYDAY): the rule keeps its days, so the series would start on a day it
- * doesn't fall on and its occurrences would scramble. Only one occurrence can move.
+ * doesn't fall on and its occurrences would scramble. Only one occurrence can move. Also a
+ * Hebrew series' 'all' day move led by a rolled year (1 Kislev, no 30 Cheshvan that year):
+ * that occurrence would stay on its day while the anchor moved.
  */
 export class NativeFixedDaysError extends Error {
   constructor(message = 'A series with fixed days cannot move to another day') {
@@ -580,25 +584,32 @@ export async function isFirstOccurrence(series: NativeEvent, cut: Date): Promise
  * where it is, however the cut moved: the series still ends on the day the item info names
  * (3b spec §2.1). Only when the opened occurrence moved past that end does the end go to
  * its new day, so the new part never starts empty (the parent is already cut there); a rule
- * that still has no occurrence at its start is refused. Without, it is the series' own, its
- * UNTIL moved as the cut moved (so it keeps its last occurrence) and a COUNT cut to what is
- * left after the slots before the cut (at least 1, the cut being a slot).
+ * that still has no occurrence at its start is refused. Without, or with the stored rule
+ * string (only the kind changed, hebrew-repeats spec §4), it is the series' own, its UNTIL
+ * moved as the cut moved (so it keeps its last occurrence) and a COUNT cut to what is left
+ * after the slots before the cut (at least 1, the cut being a slot); with another kind, one
+ * that has no occurrence at its start is refused too.
  */
 function tailRule(series: NativeEvent, cut: Date, newStart: Date, newRule: string | undefined, pair: HebrewPair): string {
-  if (newRule !== undefined) {
+  const endsAt = new Date(newStart.getTime() + (series.endsAt.getTime() - series.startsAt.getTime()));
+  const startsWith = (rule: string) => yieldsSlots({ ...series, ...pair, rrule: rule, startsAt: newStart, endsAt }, [newStart]).size > 0;
+  // The stored string with another kind keeps the series' own end: its COUNT, word for word, would start over in the tail.
+  if (newRule !== undefined && newRule !== series.rrule) {
     const carried = endCarriedRule(newRule, series.rrule!, series)!;
     assertStorableRule(carried, pair.hebrewRule);
-    const endsAt = new Date(newStart.getTime() + (series.endsAt.getTime() - series.startsAt.getTime()));
-    const startsWith = (rule: string) => yieldsSlots({ ...series, ...pair, rrule: rule, startsAt: newStart, endsAt }, [newStart]).size > 0;
     if (startsWith(carried)) return carried;
     const pushed = withUntilOnDayOf(carried, newStart, series.timeZone);
     if (startsWith(pushed)) return pushed;
     throw new NativeRuleError('The new repeat has no occurrence at its start');
   }
-  const rule = shiftUntil(series.rrule!, cut, newStart, series.timeZone);
-  const count = /(^|;)COUNT=(\d+)/i.exec(rule);
-  if (!count) return rule;
-  return withCount(rule, Math.max(1, Number(count[2]) - slotsBefore({ ...series, rrule: series.rrule! }, cut)));
+  const shifted = shiftUntil(series.rrule!, cut, newStart, series.timeZone);
+  const count = /(^|;)COUNT=(\d+)/i.exec(shifted);
+  const rule = count ? withCount(shifted, Math.max(1, Number(count[2]) - slotsBefore({ ...series, rrule: series.rrule! }, cut))) : shifted;
+  if (newRule !== undefined) {
+    assertStorableRule(rule, pair.hebrewRule);
+    if (!startsWith(rule)) throw new NativeRuleError('The new repeat has no occurrence at its start');
+  }
+  return rule;
 }
 
 const DAY_MS = 86_400_000;
@@ -632,6 +643,36 @@ function shiftedAnchor(series: NativeEvent, start: Date): string | null {
   if (!series.hebrewAnchor) return series.hebrewAnchor;
   const tz = series.timeZone || TIMEZONE;
   return addDaysToDate(series.hebrewAnchor, daysFromTo(localDate(series.startsAt, tz), localDate(start, tz)));
+}
+
+/**
+ * Where a series' slots go when it becomes `shape`, as `from` (a slot) went to `to`: shifted
+ * on the wall clock, or, Hebrew both before and after, to the new series' slot in the same
+ * Hebrew year (hebrewSlotMap; with `anchors`, the old and new anchors stand for each other, as
+ * in an 'all' move). A rolled year (1 Kislev where there is no 30 Cheshvan) moves by other days
+ * than the start did. Null: the new series has no slot for it.
+ */
+function slotMapFor(series: NativeEvent, shape: NativeEvent, from: Date, to: Date, anchors = false): (slot: Date) => Date | null {
+  const shift = (slot: Date) => shiftOnWall(slot, from, to, series.timeZone);
+  if (!series.rrule || !series.hebrewRule || !shape.rrule || !shape.hebrewRule) return shift;
+  return hebrewSlotMap(hebrewSeriesOf(series), hebrewSeriesOf(shape), anchors ? undefined : { from, to }) ?? shift;
+}
+
+/**
+ * Whether an 'all' day move of a Hebrew series leaves the occurrence it was asked for (the
+ * opened one, else the series' first) off the day it was put on: a rolled year (1 Kislev, no
+ * 30 Cheshvan that year) stays on its day when the anchor moves, so it can't lead the move.
+ */
+function rollsHebrewDay(series: NativeEvent, input: UpdateNativeEventInput): boolean {
+  const start = input.startsAt;
+  if (input.scope !== 'all' || start === undefined || !series.rrule || !series.hebrewRule || !series.hebrewAnchor) return false;
+  const tz = series.timeZone || TIMEZONE;
+  if (localDate(start, tz) === localDate(series.startsAt, tz)) return false;
+  const shape: NativeEvent = { ...series, startsAt: start, hebrewAnchor: shiftedAnchor(series, start) };
+  const slotOf = slotMapFor(series, shape, series.startsAt, start, true);
+  return [series.startsAt, input.instanceStartsAt].some(
+    (slot) => slot !== undefined && slotOf(slot)?.getTime() !== shiftOnWall(slot, series.startsAt, start, series.timeZone).getTime()
+  );
 }
 
 /** The pair a one-off takes when it starts repeating at `start`. */
@@ -682,6 +723,7 @@ async function ownTimes(series: NativeEvent, input: UpdateNativeEventInput): Pro
  * occurrence: the series' own start ('all') or the new series' ('following') off its day.
  */
 function movesFixedDays(series: NativeEvent, input: UpdateNativeEventInput): boolean {
+  if (rollsHebrewDay(series, input)) return true;
   if (input.startsAt === undefined || !fixesDays(ruleAfter(series, input))) return false;
   const tz = series.timeZone || TIMEZONE;
   if (input.scope === 'all') return localDate(input.startsAt, tz) !== localDate(series.startsAt, tz);
@@ -698,7 +740,7 @@ export async function refusesFixedDays(given: UpdateNativeEventInput): Promise<b
   const series = await prisma.nativeEvent.findUnique({ where: { id: given.seriesCuid } });
   if (!series || series.isDeleted) return false;
   const input = changesOnly(series, given);
-  if (!fixesDays(ruleAfter(series, input))) return false;
+  if (!fixesDays(ruleAfter(series, input)) && !series.hebrewRule) return false;
   return movesFixedDays(series, input.rrule === null ? input : await ownTimes(series, input));
 }
 
@@ -706,8 +748,8 @@ export async function refusesFixedDays(given: UpdateNativeEventInput): Promise<b
  * A series' exdates (from `since`, if given) where its occurrences went (`slotOf`), kept
  * only where `shape` (the series as it will be) still has an occurrence.
  */
-function carriedExdates(dates: readonly Date[], since: Date | undefined, slotOf: (slot: Date) => Date, shape: NativeEvent): Date[] {
-  const moved = dates.filter((d) => !since || d.getTime() >= since.getTime()).map(slotOf);
+function carriedExdates(dates: readonly Date[], since: Date | undefined, slotOf: (slot: Date) => Date | null, shape: NativeEvent): Date[] {
+  const moved = dates.filter((d) => !since || d.getTime() >= since.getTime()).map(slotOf).filter((d): d is Date => d !== null);
   const yields = yieldsSlots(shape, moved);
   return moved.filter((d) => yields.has(d.getTime()));
 }
@@ -726,7 +768,7 @@ async function moveInstances(
     fromSeries: string;
     toSeries: string;
     since?: Date;
-    slotOf: (slot: Date) => Date;
+    slotOf: (slot: Date) => Date | null;
     shape: NativeEvent;
     dropOverrides: boolean;
     clear: Prisma.NativeEventInstanceUncheckedUpdateInput;
@@ -734,18 +776,18 @@ async function moveInstances(
 ): Promise<void> {
   const where = { seriesEventId: o.fromSeries, ...(o.since ? { originalStartsAt: { gte: o.since } } : {}) };
   if (o.dropOverrides) await tx.nativeEventInstance.deleteMany({ where: { ...where, status: 'OVERRIDE' } });
-  const rows = await tx.nativeEventInstance.findMany({ where });
-  const yields = yieldsSlots(o.shape, rows.map((r) => o.slotOf(r.originalStartsAt)));
-  const kept = rows.filter((r) => yields.has(o.slotOf(r.originalStartsAt).getTime()));
-  const gone = rows.filter((r) => !kept.includes(r));
+  const rows = (await tx.nativeEventInstance.findMany({ where })).map((r) => ({ r, to: o.slotOf(r.originalStartsAt) }));
+  const yields = yieldsSlots(o.shape, rows.flatMap((m) => (m.to ? [m.to] : [])));
+  const kept = rows.filter((m): m is { r: NativeEventInstance; to: Date } => m.to !== null && yields.has(m.to.getTime()));
+  const gone = rows.filter((m) => !kept.includes(m as (typeof kept)[number])).map((m) => m.r);
   if (gone.length > 0) await tx.nativeEventInstance.deleteMany({ where: { id: { in: gone.map((r) => r.id) } } });
   if (kept.length === 0) return;
-  const later = o.slotOf(kept[0].originalStartsAt).getTime() > kept[0].originalStartsAt.getTime();
-  kept.sort((a, b) => (a.originalStartsAt.getTime() - b.originalStartsAt.getTime()) * (later ? -1 : 1));
-  for (const r of kept) {
+  const later = kept[0].to.getTime() > kept[0].r.originalStartsAt.getTime();
+  kept.sort((a, b) => (a.r.originalStartsAt.getTime() - b.r.originalStartsAt.getTime()) * (later ? -1 : 1));
+  for (const { r, to } of kept) {
     await tx.nativeEventInstance.update({
       where: { id: r.id },
-      data: { ...o.clear, seriesEventId: o.toSeries, originalStartsAt: o.slotOf(r.originalStartsAt) },
+      data: { ...o.clear, seriesEventId: o.toSeries, originalStartsAt: to },
     });
   }
 }
@@ -1030,7 +1072,6 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
       (input.allDay !== undefined && input.allDay !== series.allDay);
     await prisma.$transaction(async (tx) => {
       if (start !== undefined && series.rrule) {
-        const slotOf = (slot: Date) => shiftOnWall(slot, series.startsAt, start, series.timeZone);
         const rrule = shiftUntil(series.rrule, series.startsAt, start, series.timeZone);
         const hebrewAnchor = shiftedAnchor(series, start);
         const shape: NativeEvent = {
@@ -1041,6 +1082,7 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
           endsAt: input.endsAt ?? new Date(start.getTime() + (series.endsAt.getTime() - series.startsAt.getTime())),
           allDay: input.allDay ?? series.allDay,
         };
+        const slotOf = slotMapFor(series, shape, series.startsAt, start, true);
         await tx.nativeEvent.update({
           where: { id: series.id },
           data: { ...seriesUpdate, rrule, hebrewAnchor, exdates: carriedExdates(series.exdates, undefined, slotOf, shape) },
@@ -1084,10 +1126,10 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
     // occurrence's own.
     const newStarts = input.startsAt ?? cut;
     const newEnds = input.endsAt ?? new Date(newStarts.getTime() + (series.endsAt.getTime() - series.startsAt.getTime()));
-    const slotOf = (d: Date) => shiftOnWall(d, cut, newStarts, series.timeZone);
     const pair = tailPair(series, input, cut, newStarts);
     const rrule = tailRule(series, cut, newStarts, input.rrule ?? undefined, pair);
     const shape: NativeEvent = { ...series, ...pair, rrule, startsAt: newStarts, endsAt: newEnds, allDay: input.allDay ?? series.allDay };
+    const slotOf = slotMapFor(series, shape, cut, newStarts);
     const retimed = input.startsAt !== undefined || input.endsAt !== undefined || input.allDay !== undefined;
     const clear: Prisma.NativeEventInstanceUncheckedUpdateInput = {
       ...(input.title !== undefined ? { title: null } : {}),
@@ -1243,10 +1285,10 @@ async function updateNativeReminder(
     const cut = input.instanceStartsAt;
     const edit = reminderTimeEdit({ startsAt: cut, allDay: series.allDay }, input, series.timeZone);
     const target = edit ?? { startsAt: cut, endsAt: cut, allDay: series.allDay, changed: false };
-    const slotOf = (slot: Date) => shiftOnWall(slot, cut, target.startsAt, series.timeZone);
     const pair = tailPair(series, input, cut, target.startsAt);
     const rrule = tailRule(series, cut, target.startsAt, newRule, pair);
     const shape: NativeEvent = { ...series, ...pair, rrule, startsAt: target.startsAt, endsAt: target.endsAt, allDay: target.allDay };
+    const slotOf = slotMapFor(series, shape, cut, target.startsAt);
     const cleared = {
       ...(input.title !== undefined ? { title: null } : {}),
       ...(input.description !== undefined ? { description: null } : {}),
@@ -1371,10 +1413,10 @@ async function updateNativeReminder(
     // Every occurrence moves and starts afresh: what was moved on its own goes, and what
     // was skipped stays skipped, keyed where it went.
     if (input.scope === 'all' && series.rrule) {
-      const slotOf = (slot: Date) => shiftOnWall(slot, series.startsAt, edit.startsAt, series.timeZone);
       const rrule = shiftUntil(series.rrule, series.startsAt, edit.startsAt, series.timeZone);
       const hebrewAnchor = shiftedAnchor(series, edit.startsAt);
       const shape: NativeEvent = { ...series, rrule, hebrewAnchor, startsAt: edit.startsAt, endsAt: edit.endsAt, allDay: edit.allDay };
+      const slotOf = slotMapFor(series, shape, series.startsAt, edit.startsAt, true);
       await tx.nativeEvent.update({
         where: { id: series.id },
         data: { rrule, hebrewAnchor, exdates: carriedExdates(series.exdates, undefined, slotOf, shape) },
@@ -1401,13 +1443,14 @@ async function takeStates(
   tx: Prisma.TransactionClient,
   where: Prisma.NativeReminderStateWhereInput,
   reassign: boolean,
-  rule?: { slotOf: (slot: Date) => Date; shape: NativeEvent }
+  rule?: { slotOf: (slot: Date) => Date | null; shape: NativeEvent }
 ): Promise<{ clearedPings: ClearedPing[]; reassignedPings: ClearedPing[]; changedPings: ClearedPing[] }> {
   const rows = await tx.nativeReminderState.findMany({ where, select: { originalStartsAt: true, doneAt: true, pingChatId: true, pingMessageId: true } });
   if (rows.length === 0) return { clearedPings: [], reassignedPings: [], changedPings: [] };
   await tx.nativeReminderState.deleteMany({ where });
-  const yields = rule ? yieldsSlots(rule.shape, rows.map((r) => rule.slotOf(r.originalStartsAt))) : null;
-  const gone = (r: { originalStartsAt: Date }) => yields !== null && !yields.has(rule!.slotOf(r.originalStartsAt).getTime());
+  const to = (r: { originalStartsAt: Date }) => rule?.slotOf(r.originalStartsAt) ?? null;
+  const yields = rule ? yieldsSlots(rule.shape, rows.flatMap((r) => to(r) ?? [])) : null;
+  const gone = (r: { originalStartsAt: Date }) => yields !== null && !yields.has(to(r)?.getTime() ?? NaN);
   const open = (r: { doneAt: Date | null }) => reassign && r.doneAt === null;
   return {
     changedPings: pingsOf(rows.filter(gone)),
