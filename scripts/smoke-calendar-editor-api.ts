@@ -2145,9 +2145,11 @@ async function main() {
     assertSame(await daysOf(lastEvent().id, '2026-01-01', '2029-01-01'), ['2026-11-10', '2027-11-30', '2028-11-18'], 'the yahrzeit\'s days from there');
     seed();
     const same = hebrewSeries('heb-same');
-    prismaCalls.length = 0;
-    await update(same.id, '2023-11-14', { rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary' });
-    assertSame([tables.nativeEvent.length, prismaCalls.some((c) => /\.(update|upsert|create|deleteMany)$/.test(c))], [1, false], 'the pair it already has is no change');
+    // A rule change takes 'following': sent for every occurrence, only a real change is refused.
+    const all = (o: Row) => thrownBy(() => store.updateNativeEvent({ seriesCuid: same.id, instanceStartsAt: at('2023-11-14 10:00'), scope: 'all', actingUserId: TAL, title: 'Saba', ...o }));
+    assertSame(await all({ rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary' }), null, 'the pair it already has is no change');
+    assertSame([(await all({ hebrewRule: 'yahrzeit' }) as Row)?.name, (await all({ rrule: 'FREQ=YEARLY' }) as Row)?.name], ['NativeScopeError', 'NativeScopeError'], 'another kind, or a rule alone (Gregorian), is a change');
+    assertSame([pairOf(eventRow(same.id)), eventRow(same.id).title, tables.nativeEvent.length], [['FREQ=YEARLY', 'anniversary', '2022-11-24'], 'Saba', 1], 'only the title changed');
   });
 
   await check('a store failure is 500 with no title in the response, the capture or the console', async () => {

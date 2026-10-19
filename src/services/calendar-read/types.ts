@@ -39,6 +39,9 @@ export interface ReadItem {
   recurring: boolean;
   /** The FamCal series rrule; null for Google. */
   rrule: string | null;
+  /** The FamCal series' Hebrew kind and anchor (hebrew-repeats spec §2); null otherwise and for Google. */
+  hebrewRule: string | null;
+  hebrewAnchor: string | null;
   state?: { doneAt: Date | null; snoozedUntil: Date | null };
   google?: { birthday: boolean; htmlLink: string | null };
 }

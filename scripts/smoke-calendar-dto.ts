@@ -106,6 +106,8 @@ function famcal(eventId: string, title: string, start: string, end: string, extr
     originalStart: extra.originalStart !== undefined ? extra.originalStart : start.includes('T') ? start : null,
     recurring: !!extra.rrule,
     rrule: extra.rrule ?? null,
+    hebrewRule: null,
+    hebrewAnchor: null,
     ...(extra.state ? { state: extra.state } : {}),
   };
 }
@@ -133,6 +135,8 @@ function google(id: string, title: string | null, start: string, end: string, ex
     originalStart: null,
     recurring: false,
     rrule: null,
+    hebrewRule: null,
+    hebrewAnchor: null,
     google: { birthday: !!extra.birthday, htmlLink: extra.htmlLink ?? `https://www.google.com/calendar/event?eid=${id}` },
   };
 }

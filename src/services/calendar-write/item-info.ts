@@ -25,7 +25,7 @@ import {
   occurrenceAt,
   type NativeAccess,
 } from '../native-calendar/event-store';
-import { classifyRule, fixesDays, type VirtualInstance } from '../native-calendar/recurrence';
+import { classifyRule, fixesDays, isHebrewRule, type HebrewColumns, type VirtualInstance } from '../native-calendar/recurrence';
 import { effectiveOwnerForViewer, loadViewerContext, type ViewerContext } from '../native-reminders/ownership';
 import { getReminderSupport } from '../native-reminders/support';
 import type { AnyItemKey, ItemKey } from './validate';
@@ -190,8 +190,11 @@ const FREQS: Record<number, RepeatInfo['freq']> = {
 };
 const WEEKDAYS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
 
-/** How a stored rule repeats, or null for none (or a frequency the app has no words for). */
-export function repeatInfo(rrule: string | null): RepeatInfo | null {
+/**
+ * How a stored rule repeats, or null for none (or a frequency the app has no words for). A
+ * Hebrew series' (with its pair) names its kind and anchor (hebrew-repeats spec §3).
+ */
+export function repeatInfo(rrule: string | null, hebrew?: HebrewColumns | null): RepeatInfo | null {
   if (!rrule) return null;
   try {
     const opts = RRule.parseString(rrule.startsWith('RRULE:') ? rrule.slice(6) : rrule);
@@ -201,7 +204,12 @@ export function repeatInfo(rrule: string | null): RepeatInfo | null {
       const n = typeof d === 'number' ? d : (d as { weekday?: number }).weekday;
       return typeof n === 'number' && WEEKDAYS[n] ? [WEEKDAYS[n]] : [];
     });
-    return { freq, interval: opts.interval ?? 1, byDay, ends: opts.until != null || opts.count != null };
+    const info: RepeatInfo = { freq, interval: opts.interval ?? 1, byDay, ends: opts.until != null || opts.count != null };
+    if (hebrew?.hebrewRule) {
+      if (!isHebrewRule(hebrew.hebrewRule) || !hebrew.hebrewAnchor) return null;
+      info.hebrew = { kind: hebrew.hebrewRule, anchor: hebrew.hebrewAnchor };
+    }
+    return info;
   } catch (error) {
     captureError(error, 'native-rule-repeat-info', {}, 'warning');
     return null;
@@ -245,7 +253,7 @@ export async function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, 
   const at = wallFor(occurrence.startsAt, occurrence.endsAt, occurrence.allDay, userTz, itemTz);
   const first = wallFor(series.startsAt, series.endsAt, series.allDay, userTz, itemTz);
   const ownerIsPartner = isReminder && ctx.partner !== null && effectiveOwnerForViewer(series, ctx) === ctx.partner.id;
-  const classified = classifyRule(series.rrule, series.startsAt, itemTz);
+  const classified = classifyRule(series.rrule, series.startsAt, itemTz, series);
   const rule = {
     choice: classified.choice,
     ...(classified.until ? { until: wallFor(classified.until, classified.until, series.allDay, userTz, itemTz).start.slice(0, 10) } : {}),
@@ -269,7 +277,7 @@ export async function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, 
     series: {
       recurring: Boolean(series.rrule),
       start: first.start,
-      repeat: repeatInfo(series.rrule),
+      repeat: repeatInfo(series.rrule, series),
       fixedDays: fixesDays(series.rrule),
       zone: itemTz,
       rule,

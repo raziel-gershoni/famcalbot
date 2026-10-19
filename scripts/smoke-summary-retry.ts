@@ -142,7 +142,7 @@ function item(user: UserConfig, event: CalendarEvent): ReadItem {
   return {
     source, key: `${source}|${event.summary}`, event: { ...event, provider: source === 'famcal' ? 'native' : 'google' },
     calendar: { id: event.calendarId, source, name: event.calendarName, color: null, mine: true, inLegend: true },
-    title: event.summary, kind: 'event', seriesId: null, originalStart: null, recurring: false, rrule: null,
+    title: event.summary, kind: 'event', seriesId: null, originalStart: null, recurring: false, rrule: null, hebrewRule: null, hebrewAnchor: null,
   };
 }
 

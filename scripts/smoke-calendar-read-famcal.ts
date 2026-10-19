@@ -428,6 +428,19 @@ async function main() {
     }, 'Dentist');
   });
 
+  await check('readFamcal: a Hebrew-date series reads on its Hebrew day (2 Cheshvan, not the Gregorian 24 Oct) and its item carries the pair', async () => {
+    household();
+    db.events.push(event({
+      id: 'ev-heb', calendarId: 'cal-dana', creatorUserId: DANA, title: 'Grandma', startsAt: at('2025-10-24 12:00'), endsAt: at('2025-10-24 13:00'),
+      rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', hebrewAnchor: '2025-10-24',
+    }) as unknown as Row);
+    const { items } = await readFamcal(viewer(DANA), DAY, {});
+    const heb = items.find((i) => i.seriesId === 'ev-heb');
+    assert(heb !== undefined, `not read on 2 Cheshvan 5787: ${items.map((i) => i.title).join(', ')}`);
+    assertJson([heb.key, heb.rrule, heb.hebrewRule, heb.hebrewAnchor], [`famcal|ev-heb#${at('2026-10-13 12:00').toISOString()}`, 'FREQ=YEARLY', 'anniversary', '2025-10-24'], 'the item');
+    assertJson(items.filter((i) => i.seriesId !== 'ev-heb').every((i) => i.hebrewRule === null && i.hebrewAnchor === null), true, 'the rest have none');
+  });
+
   await check('readFamcal: a reminder-for-me from Raziel\'s PRIVATE calendar never names that calendar', async () => {
     household();
     const { read, items } = await readFamcal(viewer(DANA), DAY, {});

@@ -50,6 +50,12 @@ export interface RepeatInfo {
   byDay: string[];
   /** The rule has an end (UNTIL or COUNT), as a series cut by "this one and the ones after" does. */
   ends: boolean;
+  /**
+   * A Hebrew-date repeat (hebrew-repeats spec §3): its kind, and its anchor's date
+   * (yyyy-MM-dd, in the series' zone), which the words name, never the opened occurrence's
+   * (a rolled day). freq is then 'yearly'.
+   */
+  hebrew?: { kind: 'anniversary' | 'yahrzeit'; anchor: string };
 }
 
 /**

@@ -158,7 +158,7 @@ function famcalItem(id: string, summary: string, start: string, end: string, kin
   return {
     source: 'famcal', key: `famcal|${id}`, event,
     calendar: { id: FAMCAL_IDS[0], source: 'famcal', name: 'Dana', color: '#039BE5', mine: true, inLegend: true },
-    title: summary, kind, seriesId: id, originalStart: start, recurring: false, rrule: null,
+    title: summary, kind, seriesId: id, originalStart: start, recurring: false, rrule: null, hebrewRule: null, hebrewAnchor: null,
     ...(kind === 'reminder' ? { state: { doneAt: null, snoozedUntil: null } } : {}),
   };
 }
@@ -171,7 +171,7 @@ function googleItem(id: string, summary: string, start: string, end: string, eve
   return {
     source: 'google', key: `google|${GOOGLE_IDS[0]}|${id}`, event,
     calendar: { id: GOOGLE_IDS[0], source: 'google', name: 'Kids', color: '#33b679', mine: true, inLegend: true },
-    title: summary, kind: 'event', seriesId: null, originalStart: null, recurring: false, rrule: null,
+    title: summary, kind: 'event', seriesId: null, originalStart: null, recurring: false, rrule: null, hebrewRule: null, hebrewAnchor: null,
     google: { birthday: eventType === 'birthday', htmlLink: null },
   };
 }

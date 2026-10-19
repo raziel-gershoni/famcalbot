@@ -138,6 +138,8 @@ export function mapGoogleEvent(raw: calendar_v3.Schema$Event, calendarId: string
     originalStart: raw.originalStartTime?.dateTime ?? raw.originalStartTime?.date ?? null,
     recurring: Boolean(raw.recurringEventId),
     rrule: null,
+    hebrewRule: null,
+    hebrewAnchor: null,
     google: { birthday: raw.eventType === 'birthday', htmlLink: raw.htmlLink ?? null },
   };
 }

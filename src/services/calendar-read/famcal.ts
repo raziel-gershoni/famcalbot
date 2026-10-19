@@ -61,7 +61,7 @@ function legendById(calendars: readonly CalendarRef[]): Map<string, CalendarRef>
  */
 function toReadItem(
   parts: {
-    series: Pick<NativeEvent, 'id' | 'kind' | 'rrule'>;
+    series: Pick<NativeEvent, 'id' | 'kind' | 'rrule' | 'hebrewRule' | 'hebrewAnchor'>;
     title: string;
     instanceStartsAt: Date;
     state?: { doneAt: Date | null; snoozedUntil: Date | null };
@@ -81,6 +81,8 @@ function toReadItem(
     originalStart: parts.instanceStartsAt.toISOString(),
     recurring: parts.series.rrule != null,
     rrule: parts.series.rrule,
+    hebrewRule: parts.series.hebrewRule,
+    hebrewAnchor: parts.series.hebrewAnchor,
     ...(kind === 'reminder'
       ? { state: { doneAt: parts.state?.doneAt ?? null, snoozedUntil: parts.state?.snoozedUntil ?? null } }
       : {}),

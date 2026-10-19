@@ -159,6 +159,8 @@ function famcal(eventId: string, title: string, start: string, end: string, extr
     originalStart: start.includes('T') ? start : null,
     recurring: !!extra.rrule,
     rrule: extra.rrule ?? null,
+    hebrewRule: null,
+    hebrewAnchor: null,
     ...(extra.state ? { state: extra.state } : {}),
   };
 }
@@ -180,6 +182,8 @@ function google(id: string, title: string, start: string, end: string): ReadItem
     originalStart: null,
     recurring: false,
     rrule: null,
+    hebrewRule: null,
+    hebrewAnchor: null,
     google: { birthday: false, htmlLink: null },
   };
 }
