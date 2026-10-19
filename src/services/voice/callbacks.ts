@@ -168,8 +168,9 @@ export async function handleEventCallback(
           disable_web_page_preview: true
         }
       );
-    } else if (result.error === 'PERMISSION_DENIED' && user.calendarSource === 'NATIVE') {
-      // On the built-in calendar no grant fixes this: the calendar is not theirs to add to
+    } else if (result.error === 'FORBIDDEN' || (result.error === 'PERMISSION_DENIED' && user.calendarSource === 'NATIVE')) {
+      // No grant fixes this: the calendar is not theirs to add to (built-in), or Google refuses
+      // it (a read-only calendar, an event they don't organize)
       await bot.editMessageText(t.nativeReminders?.permissionDenied || "You can't change this one.", {
         chat_id: chatId,
         message_id: messageId,
@@ -343,8 +344,9 @@ export async function handleEditCallback(
         const { stripMovedPings } = await import('../native-reminders/moved-pings');
         await stripMovedPings(result.clearedPings, originalEvent, updates, user);
       }
-    } else if (result.error === 'PERMISSION_DENIED' && user.calendarSource === 'NATIVE') {
-      // On the built-in calendar no grant fixes this: the item is not theirs to change
+    } else if (result.error === 'FORBIDDEN' || (result.error === 'PERMISSION_DENIED' && user.calendarSource === 'NATIVE')) {
+      // No grant fixes this: the item is not theirs to change (built-in), or Google refuses it
+      // (a read-only calendar, an event they don't organize)
       await bot.editMessageText(t.nativeReminders?.permissionDenied || "You can't change this one.", {
         chat_id: chatId,
         message_id: messageId,
@@ -524,8 +526,9 @@ export async function handleDeleteCallback(
           action: 'delete',
         });
       }
-    } else if (result.error === 'PERMISSION_DENIED' && user.calendarSource === 'NATIVE') {
-      // On the built-in calendar no grant fixes this: the item is not theirs to delete
+    } else if (result.error === 'FORBIDDEN' || (result.error === 'PERMISSION_DENIED' && user.calendarSource === 'NATIVE')) {
+      // No grant fixes this: the item is not theirs to delete (built-in), or Google refuses it
+      // (a read-only calendar, an event they don't organize)
       await bot.editMessageText(t.nativeReminders?.permissionDenied || "You can't change this one.", {
         chat_id: chatId,
         message_id: messageId,

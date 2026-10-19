@@ -14,9 +14,11 @@ import type { ReadItem } from './types';
  * - config: Google rejects our OAuth client, which breaks every user;
  * - gone: the calendar was deleted or unshared, or is on another account;
  * - transient: rate limits, timeouts, Google's own failures, the network;
+ * - forbidden: any other 403, Google refusing this one write or read (a read-only
+ *   calendar, an event the user doesn't organize, an organizer that can't change);
  * - unknown: anything else.
  */
-export type GoogleErrorClass = 'scopes' | 'token' | 'config' | 'gone' | 'transient' | 'unknown';
+export type GoogleErrorClass = 'scopes' | 'token' | 'config' | 'gone' | 'transient' | 'forbidden' | 'unknown';
 
 const RATE_LIMIT_REASONS = new Set(['rateLimitExceeded', 'userRateLimitExceeded', 'quotaExceeded', 'dailyLimitExceeded']);
 
@@ -37,11 +39,24 @@ function oauthError(data: unknown): string | undefined {
   return typeof error === 'string' ? error : undefined;
 }
 
-/** The HTTP status: the response's, else the error's, else a numeric code (an API error body's). */
+/** The HTTP status: the error's, else the response's, else a numeric code (an API error body's). */
 function httpStatus(err: GoogleErrorShape): number | undefined {
-  for (const s of [err.response?.status, err.status, err.code]) if (typeof s === 'number') return s;
+  for (const s of [err.status, err.response?.status, err.code]) if (typeof s === 'number') return s;
   return undefined;
 }
+
+/**
+ * What a Google error says, for a log line: its HTTP status, the API's reasons and Google's
+ * own message. Never the request it carried (a write's body holds the title).
+ */
+export function googleErrorFacts(e: unknown): { status?: number; reasons: string[]; message: string } {
+  if (!e || typeof e !== 'object') return { reasons: [], message: String(e) };
+  const err = e as GoogleErrorShape & { message?: unknown };
+  return { status: httpStatus(err), reasons: errorReasons(err), message: typeof err.message === 'string' ? err.message : '' };
+}
+
+/** Google's reasons for a token that lacks a scope (the 403 the grant-write flow fixes). */
+const SCOPE_REASONS = new Set(['insufficientPermissions', 'ACCESS_TOKEN_SCOPE_INSUFFICIENT']);
 
 /** The Calendar API's error reasons ('rateLimitExceeded', ...). */
 function errorReasons(err: GoogleErrorShape): string[] {
@@ -54,13 +69,15 @@ function errorReasons(err: GoogleErrorShape): string[] {
 /**
  * Sorts a Google error into the class that decides the source's status (spec §2.5).
  * The OAuth strings come before the status: Google's token endpoint sends invalid_client,
- * and often unauthorized_client, with HTTP 401. The old isTokenError stays for every
- * other path.
+ * and often unauthorized_client, with HTTP 401. The writes (calendar.ts, 3b spec §3.2)
+ * map every class to a result; the reader treats 'forbidden' as 'unknown'. The status is
+ * err.status ?? err.response?.status ?? err.code.
  */
 export function classifyGoogleError(e: unknown): GoogleErrorClass {
   if (isInsufficientScopesError(e)) return 'scopes';
   if (!e || typeof e !== 'object') return 'unknown';
   const err = e as GoogleErrorShape;
+  if (httpStatus(err) === 403 && errorReasons(err).some((r) => SCOPE_REASONS.has(r))) return 'scopes';
   const oauth = oauthError(err.response?.data);
   if (oauth === 'invalid_grant' || oauth === 'admin_policy_enforced') return 'token';
   if (oauth === 'invalid_client' || oauth === 'unauthorized_client') return 'config';
@@ -73,6 +90,7 @@ export function classifyGoogleError(e: unknown): GoogleErrorClass {
   const cause = err.error && typeof err.error === 'object' ? err.error : undefined;
   if (!err.response && (typeof err.code === 'string' || err.type === 'request-timeout' || cause?.type === 'request-timeout')) return 'transient';
   if (err.name === 'AbortError' || cause?.name === 'AbortError') return 'transient';
+  if (status === 403) return 'forbidden';
   return 'unknown';
 }
 

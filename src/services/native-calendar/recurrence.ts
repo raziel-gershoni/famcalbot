@@ -16,6 +16,7 @@ import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import type { NativeEvent, NativeEventInstance } from '@prisma/client';
 import { TIMEZONE } from '../../config/constants';
 import { captureError } from '../../lib/error-capture';
+import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
 
 export interface VirtualInstance {
   // Identity
@@ -578,4 +579,52 @@ export function withUntilOnDayOf(rule: string, start: Date, timeZone: string | n
 /** A rule with its COUNT replaced (the rest of a series cut by "this one and the ones after"). */
 export function withCount(rule: string, count: number): string {
   return rule.replace(/(^|;)COUNT=\d+/i, `$1COUNT=${count}`);
+}
+
+// ---- The scope arithmetic of a moved occurrence (shared by the store, the home's routes and
+// the Google path, calendar.ts) ----
+
+/** Calendar days from one yyyy-MM-dd to another. */
+export const daysFromTo = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+/** An all-day item's end as the bot stores it: 23:59 on its last day. */
+export const endOfLocalDay = (day: string, tz: string) => fromZonedTime(`${day}T23:59:00`, tz);
+
+/**
+ * Where a series goes when one of its occurrences moves to `to` and every occurrence
+ * follows: by the days that occurrence moved, at its new time of day, so the series keeps
+ * its place in the rule and its first occurrences. Timed, it takes the occurrence's new
+ * length; all day, its new span in days. `occurrenceStart` is where the occurrence is now
+ * (its override's start, when it was moved on its own).
+ */
+export function seriesTimesFor(
+  series: { startsAt: Date; timeZone: string | null },
+  occurrenceStart: Date,
+  to: { startsAt: Date; endsAt: Date; allDay: boolean }
+): { startsAt: Date; endsAt: Date } {
+  const tz = series.timeZone || TIMEZONE;
+  const day = addDaysToDate(localDate(series.startsAt, tz), daysFromTo(localDate(occurrenceStart, tz), localDate(to.startsAt, tz)));
+  if (to.allDay) {
+    const span = daysFromTo(localDate(to.startsAt, tz), localDate(to.endsAt, tz));
+    return { startsAt: startOfLocalDay(day, tz), endsAt: endOfLocalDay(addDaysToDate(day, Math.max(0, span)), tz) };
+  }
+  const startsAt = fromZonedTime(`${day}T${formatInTimeZone(to.startsAt, tz, 'HH:mm')}:00`, tz);
+  return { startsAt, endsAt: new Date(startsAt.getTime() + (to.endsAt.getTime() - to.startsAt.getTime())) };
+}
+
+/**
+ * Where "this one and the ones after" starts its new series when the cut occurrence goes
+ * to `to` (it is now at `occurrenceStart`): on the date entered when that is another day,
+ * as a rule that follows its start moves its weekday with it (one with fixed days is
+ * refused a day move); a new time alone keeps the cut's own slot, so an occurrence moved
+ * on its own to another day and given a new time takes the rule's day back.
+ */
+export function followingTimesFor(
+  series: { rrule: string | null; timeZone: string | null },
+  slot: Date,
+  occurrenceStart: Date,
+  to: { startsAt: Date; endsAt: Date; allDay: boolean }
+): { startsAt: Date; endsAt: Date } {
+  const tz = series.timeZone || TIMEZONE;
+  if (!fixesDays(series.rrule) && localDate(to.startsAt, tz) !== localDate(occurrenceStart, tz)) return { startsAt: to.startsAt, endsAt: to.endsAt };
+  return seriesTimesFor({ startsAt: slot, timeZone: series.timeZone }, occurrenceStart, to);
 }

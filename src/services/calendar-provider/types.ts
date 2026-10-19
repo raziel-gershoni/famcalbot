@@ -61,6 +61,12 @@ export interface UpdateEventInput {
   // Native only — identifies which occurrence to override on scope=single.
   // GCal ignores this and uses the instance eventId.
   instanceStartsAt?: Date;
+  // Google only (3b spec §3.2). The new rule from the opened occurrence on ('RRULE:…'), or
+  // null to stop repeating; omitted keeps it. A rule change on a series always works from
+  // the occurrence (eventId), whatever the scope.
+  rrule?: string | null;
+  // Google only: a 'following' edit puts the new part on this calendar.
+  toCalendarId?: string;
 }
 
 export interface DeleteEventOptions {
@@ -74,23 +80,34 @@ export type ProviderErrorCode =
   | 'TOKEN_EXPIRED'
   | 'NOT_FOUND'
   | 'NOT_CONNECTED' // user.calendarSource mismatch / missing credentials
-  | 'FIXED_DAYS' // built-in calendar: a day move for more than one occurrence of a series with fixed days (BYDAY)
-  | 'UNKNOWN_ERROR';
+  | 'FIXED_DAYS' // a day move for more than one occurrence of a series with fixed days (BYDAY), both providers
+  | 'FORBIDDEN' // Google refused this write: a read-only calendar, an event the user doesn't organize (no grant fixes it)
+  | 'UNKNOWN_ERROR'; // with retryable when it was transient (a rate limit, a 5xx, a timeout)
 
 export interface CreateEventResult {
   success: boolean;
   eventId?: string;
   eventLink?: string;
+  /** Google: a series' first occurrence (the home's key names an occurrence). */
+  instanceId?: string;
   error?: ProviderErrorCode;
   errorMessage?: string;
+  /** A transient failure (rate limit, 5xx, timeout): trying again may work. */
+  retryable?: boolean;
 }
 
 export interface UpdateEventResult {
   success: boolean;
   eventId?: string;
   eventLink?: string;
+  /** Google: where the opened occurrence is after the write (its instance id, or a one-off's id). */
+  instanceId?: string;
+  /** Google: the calendar it is on after the write (a 'following' tail can go elsewhere). */
+  calendarId?: string;
   error?: ProviderErrorCode;
   errorMessage?: string;
+  /** A transient failure (rate limit, 5xx, timeout): trying again may work. */
+  retryable?: boolean;
   // Native only: the live pings of a reminder whose time changed, now without state
   // (re-armed), so the caller can strip their buttons. Absent when there are none.
   clearedPings?: ClearedPing[];
@@ -100,7 +117,18 @@ export interface DeleteEventResult {
   success: boolean;
   error?: ProviderErrorCode;
   errorMessage?: string;
+  /** A transient failure (rate limit, 5xx, timeout): trying again may work. */
+  retryable?: boolean;
 }
+
+/** Moving an event (a whole series: its master) to another calendar of the same provider. */
+export interface MoveEventInput {
+  eventId: string;
+  fromCalendarId: string;
+  toCalendarId: string;
+}
+
+export type MoveEventResult = DeleteEventResult & { eventId?: string };
 
 export interface CalendarProvider {
   readonly name: CalendarProviderName;
@@ -112,4 +140,6 @@ export interface CalendarProvider {
   createEvent(user: UserConfig, calendarId: string, data: CreateEventInput): Promise<CreateEventResult>;
   updateEvent(user: UserConfig, calendarId: string, eventId: string, data: UpdateEventInput): Promise<UpdateEventResult>;
   deleteEvent(user: UserConfig, calendarId: string, eventId: string, options?: DeleteEventOptions): Promise<DeleteEventResult>;
+  /** Google's events.move; FamCal moves through updateNativeEvent's calendarId instead. */
+  moveEvent(user: UserConfig, move: MoveEventInput): Promise<MoveEventResult>;
 }

@@ -16,6 +16,7 @@ import {
   UnifiedEvent,
   UpdateEventInput,
   UpdateEventResult,
+  MoveEventResult,
 } from './types';
 import { ReminderInfo, UserConfig } from '../../types';
 import {
@@ -281,7 +282,11 @@ function updateInput(user: UserConfig, eventId: string, data: UpdateEventInput):
  * (FIXED_DAYS), asked before the confirmation card. False for any other calendar.
  */
 export async function wouldRefuseFixedDays(user: UserConfig, calendarId: string, eventId: string, data: UpdateEventInput): Promise<boolean> {
-  if (!isNativeCalendarId(calendarId)) return false;
+  // Per calendar: a Google id is answered from its master (3b spec §3.2 "Fixed days").
+  if (!isNativeCalendarId(calendarId)) {
+    const { wouldRefuseFixedDaysOnGoogle } = await import('./google-provider');
+    return wouldRefuseFixedDaysOnGoogle(user, calendarId, eventId, data);
+  }
   try {
     return await refusesFixedDays(updateInput(user, eventId, data));
   } catch (error) {
@@ -398,5 +403,11 @@ export const nativeProvider: CalendarProvider = {
     } catch (err) {
       return toErrorResult<DeleteEventResult>(err, { user_id: user.id, calendar_id: calendarId, event_id: eventId });
     }
+  },
+
+  // A FamCal event changes calendar through updateNativeEvent's calendarId (the home's
+  // routes); nothing calls this for one.
+  async moveEvent(): Promise<MoveEventResult> {
+    return { success: false, error: 'UNKNOWN_ERROR', errorMessage: 'Built-in calendar events move through their edit, not moveEvent.' };
   },
 };

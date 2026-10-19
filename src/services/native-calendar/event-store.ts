@@ -6,7 +6,6 @@
 // owner/partner edit rules in exactly one place.
 
 import { Prisma } from '@prisma/client';
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import type {
   NativeCalendar,
   NativeEvent,
@@ -23,10 +22,14 @@ import { effectiveOwnerId, getActivePartnerSummary } from '../native-reminders/o
 import { ensurePrimaryNativeCalendar } from './onboarding';
 import {
   assertStorableRule,
+  daysFromTo,
   endCarriedRule,
+  endOfLocalDay,
   expandSeries,
   fixesDays,
+  followingTimesFor,
   NativeRuleError,
+  seriesTimesFor,
   shiftOnWall,
   shiftUntil,
   slotsBefore,
@@ -37,7 +40,7 @@ import {
   yieldsSlots,
 } from './recurrence';
 
-export { NativeRuleError };
+export { NativeRuleError, seriesTimesFor, followingTimesFor };
 
 export const NATIVE_CALENDAR_ID_PREFIX = 'native:';
 export const NATIVE_EVENT_INSTANCE_SEP = '#';
@@ -577,49 +580,6 @@ function tailRule(series: NativeEvent, cut: Date, newStart: Date, newRule?: stri
 }
 
 const DAY_MS = 86_400_000;
-const daysFromTo = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS);
-/** An all-day item's end as the bot stores it: 23:59 on its last day. */
-const endOfLocalDay = (day: string, tz: string) => fromZonedTime(`${day}T23:59:00`, tz);
-
-/**
- * Where a series goes when one of its occurrences moves to `to` and every occurrence
- * follows: by the days that occurrence moved, at its new time of day, so the series keeps
- * its place in the rule and its first occurrences. Timed, it takes the occurrence's new
- * length; all day, its new span in days. `occurrenceStart` is where the occurrence is now
- * (its override's start, when it was moved on its own).
- */
-export function seriesTimesFor(
-  series: Pick<NativeEvent, 'startsAt' | 'timeZone'>,
-  occurrenceStart: Date,
-  to: { startsAt: Date; endsAt: Date; allDay: boolean }
-): { startsAt: Date; endsAt: Date } {
-  const tz = series.timeZone || TIMEZONE;
-  const day = addDaysToDate(localDate(series.startsAt, tz), daysFromTo(localDate(occurrenceStart, tz), localDate(to.startsAt, tz)));
-  if (to.allDay) {
-    const span = daysFromTo(localDate(to.startsAt, tz), localDate(to.endsAt, tz));
-    return { startsAt: startOfLocalDay(day, tz), endsAt: endOfLocalDay(addDaysToDate(day, Math.max(0, span)), tz) };
-  }
-  const startsAt = fromZonedTime(`${day}T${formatInTimeZone(to.startsAt, tz, 'HH:mm')}:00`, tz);
-  return { startsAt, endsAt: new Date(startsAt.getTime() + (to.endsAt.getTime() - to.startsAt.getTime())) };
-}
-
-/**
- * Where "this one and the ones after" starts its new series when the cut occurrence goes
- * to `to` (it is now at `occurrenceStart`): on the date entered when that is another day,
- * as a rule that follows its start moves its weekday with it (one with fixed days is
- * refused a day move); a new time alone keeps the cut's own slot, so an occurrence moved
- * on its own to another day and given a new time takes the rule's day back.
- */
-export function followingTimesFor(
-  series: Pick<NativeEvent, 'rrule' | 'timeZone'>,
-  slot: Date,
-  occurrenceStart: Date,
-  to: { startsAt: Date; endsAt: Date; allDay: boolean }
-): { startsAt: Date; endsAt: Date } {
-  const tz = series.timeZone || TIMEZONE;
-  if (!fixesDays(series.rrule) && localDate(to.startsAt, tz) !== localDate(occurrenceStart, tz)) return { startsAt: to.startsAt, endsAt: to.endsAt };
-  return seriesTimesFor({ startsAt: slot, timeZone: series.timeZone }, occurrenceStart, to);
-}
 
 /**
  * The times an edit gives, as the ones the store writes. A 'following' edit, and an 'all'

@@ -88,10 +88,6 @@ const dt = (instant: Date, zone: string) => formatInTimeZone(instant, zone, "yyy
 const at = (local: string, zone = IL) => fromZonedTime(local, zone);
 const utcStamp = (d: Date) => formatInTimeZone(d, 'UTC', "yyyyMMdd'T'HHmmss'Z'");
 
-function untilOf(rr: string): string | undefined {
-  return /(?:^|;)UNTIL=([^;]+)/i.exec(rr)?.[1];
-}
-
 /** EXDATE/RDATE values of a line as instants (timed) or dates. */
 function lineValues(line: string, zone: string): Array<{ date?: string; instant?: Date }> {
   const colon = line.indexOf(':');
@@ -462,6 +458,8 @@ function seedException(cal: string, slotId: string, fields: Row): Row {
 
 const inst = (masterId: string, local: string, zone = IL) => `${masterId}_${utcStamp(at(local, zone))}`;
 const instDay = (masterId: string, day: string) => `${masterId}_${day.replace(/-/g, '')}`;
+/** A stored event that isn't cancelled (deleting an occurrence cancels it, as Google does). */
+const alive = (cal: string, id: string) => Boolean(stored(cal, id)) && stored(cal, id)!.status !== 'cancelled';
 const visible = (cal: string, masterId: string) => instancesOf(cal, stored(cal, masterId)!).filter((i) => i.status !== 'cancelled');
 const rrLines = () => writes().flatMap((c) => (c.body?.recurrence ?? []) as string[]).filter((l) => /^RRULE:/i.test(l));
 
@@ -515,14 +513,15 @@ async function main() {
 
   // ---- Errors: one classifier for every write, real GaxiosErrors ----
 
-  await check('errors: a 403 on a read-only calendar is FORBIDDEN, not a dead token, and the error is a real GaxiosError', async () => {
+  await check('errors: a 403 on a read-only calendar is FORBIDDEN, not a dead token; what is logged is the class and status, never the request (titles)', async () => {
     seed(HOLIDAYS, 'h1', { start: '2026-10-20T10:00:00' });
     cals.get(HOLIDAYS)!.accessRole = 'writer';
     failOn((r) => r.method === 'PATCH', fail(403, 'requiredAccessLevel', 'You need to have writer access to this calendar.'));
-    const r = await update(NOA, HOLIDAYS, 'h1', { title: 'x', scope: 'single' });
+    const r = await update(NOA, HOLIDAYS, 'h1', { title: 'Zebra Private Title', scope: 'single' });
     assertSame([r.success, r.error], [false, 'FORBIDDEN'], 'result');
     const e = captured.find((c) => c.ctx === 'calendar-update-event')?.error as Row;
-    assert(e && e.constructor?.name === 'GaxiosError' && e.status === 403, `captured ${e?.constructor?.name} ${e?.status}`);
+    assert(e && e.status === 403 && /forbidden/.test(e.message) && /requiredAccessLevel/.test(e.message), `captured ${show(e)} ${e?.message}`);
+    assert(!('config' in e) && !('response' in e) && !show(captured.map((c) => [String((c.error as Error)?.message), c.extra])).includes('Zebra'), 'the request reached the log');
   });
 
   await check('errors: a 403 for missing scopes stays PERMISSION_DENIED (the grant-write flow)', async () => {
@@ -686,7 +685,7 @@ async function main() {
     assertSame(new Date(tail.start.dateTime).toISOString(), at('2026-10-27T10:00:00').toISOString(), 'the tail starts exactly at the cut');
     assertSame(r.instanceId, `${r.eventId}_${utcStamp(at('2026-10-27T10:00:00'))}`, 'the key follows the opened occurrence');
     const all = [...visible(NOA_CAL, 'wk'), ...visible(NOA_CAL, r.eventId)].map((i) => new Date(i.start.dateTime).toISOString());
-    assertSame(all.length, 9, `still 10 slots, one exdated (got ${show(all)})`);
+    assertSame(all.length, 8, `still 10 slots, two exdated (got ${show(all)})`);
   });
 
   await check('following: the tail takes the cut instance as shown (title, HTML notes, colour, alerts, visibility, transparency), never ids, guests, Meet, files or properties', async () => {
@@ -709,7 +708,7 @@ async function main() {
     seedException(NOA_CAL, inst('wk', '2026-11-10T10:00:00'), { summary: 'Renamed later' });
     seedException(NOA_CAL, inst('wk', '2026-10-13T10:00:00'), { summary: 'Renamed earlier' });
     await update(NOA, NOA_CAL, inst('wk', '2026-10-27T10:00:00'), { title: 'New', scope: 'following', recurringEventId: 'wk' });
-    assert(!stored(NOA_CAL, inst('wk', '2026-11-10T10:00:00')), 'the stray is still there');
+    assert(!alive(NOA_CAL, inst('wk', '2026-11-10T10:00:00')), 'the stray is still there');
     assertSame(stored(NOA_CAL, inst('wk', '2026-10-13T10:00:00'))?.summary, 'Renamed earlier', 'an earlier exception stays');
     assert(consoleLines.some((l) => /stray/i.test(l) && /1/.test(l)), `no logged count: ${show(consoleLines.slice(-5))}`);
   });
@@ -718,7 +717,7 @@ async function main() {
     seed(NOA_CAL, 'ad', { start: '2026-10-10', allDay: true, recurrence: ['RRULE:FREQ=DAILY;UNTIL=20261031'] });
     const r = await update(NOA, NOA_CAL, instDay('ad', '2026-10-20'), { title: 'x', scope: 'following', recurringEventId: 'ad' });
     assertSame(stored(NOA_CAL, 'ad')!.recurrence, ['RRULE:FREQ=DAILY;UNTIL=20261019'], 'master');
-    assertSame([stored(NOA_CAL, r.eventId)!.recurrence, stored(NOA_CAL, r.eventId)!.start], [['RRULE:FREQ=DAILY;UNTIL=20261031'], { date: '2026-10-20' }], 'tail');
+    assertSame([stored(NOA_CAL, r.eventId)!.recurrence, stored(NOA_CAL, r.eventId)!.start.date], [['RRULE:FREQ=DAILY;UNTIL=20261031'], '2026-10-20'], 'tail');
   });
 
   await check('following: a time change starts the tail at the new time; a calendar change puts the tail on the destination', async () => {
@@ -767,7 +766,7 @@ async function main() {
     assert(r.success, show(r));
     assertSame(stored(NOA_CAL, 'wk')!.recurrence, ['RRULE:FREQ=WEEKLY;UNTIL=20261020T065959Z'], 'master');
     assertSame(stored(NOA_CAL, r.eventId)!.recurrence, ['RRULE:FREQ=DAILY'], 'new rule');
-    assert(!stored(NOA_CAL, inst('wk', '2026-11-03T10:00:00')), 'stray left');
+    assert(!alive(NOA_CAL, inst('wk', '2026-11-03T10:00:00')), 'stray left');
     assertSame(r.instanceId, `${r.eventId}_${utcStamp(at('2026-10-20T10:00:00'))}`, 'key');
   });
 

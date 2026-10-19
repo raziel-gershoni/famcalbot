@@ -9,6 +9,8 @@ import {
   createEvent as gcalCreate,
   updateEvent as gcalUpdate,
   deleteEvent as gcalDelete,
+  moveEvent as gcalMove,
+  wouldRefuseFixedDays as gcalWouldRefuseFixedDays,
 } from '../calendar';
 import {
   CalendarProvider,
@@ -20,6 +22,8 @@ import {
   UpdateEventResult,
   DeleteEventOptions,
   DeleteEventResult,
+  MoveEventInput,
+  MoveEventResult,
 } from './types';
 import { UserConfig } from '../../types';
 import { stampGoogleCache } from '../calendar-read/google';
@@ -27,10 +31,11 @@ import { stampGoogleCache } from '../calendar-read/google';
 const PROVIDER_NAME = 'google' as const;
 
 /**
- * The user's timezone, which an all-day event's instants are on (see CreateEventInput);
- * calendar.ts turns them into Google's dates with it.
+ * The user's timezone: a new event's zone, the clock an all-day event's instants are on
+ * (see CreateEventInput), and the last zone an edit falls back on when neither the event
+ * nor its calendar has one (calendar.ts, 3b spec §3.2 "Zone").
  */
-async function allDayTimezone(user: UserConfig): Promise<string> {
+async function userTimezone(user: UserConfig): Promise<string> {
   const { resolveUserTimezone } = await import('../../lib/timezone');
   return resolveUserTimezone(user);
 }
@@ -98,7 +103,7 @@ export const googleProvider: CalendarProvider = {
       location: data.location,
       allDay: data.allDay,
       recurrence: data.recurrence,
-      timeZone: data.allDay ? await allDayTimezone(user) : undefined,
+      timeZone: await userTimezone(user),
     }));
     return result;
   },
@@ -114,10 +119,10 @@ export const googleProvider: CalendarProvider = {
       allDay: data.allDay,
       scope: data.scope,
       recurringEventId: data.recurringEventId,
-      // instanceStartsAt is native-only; GCal uses the instance eventId directly.
-      // Whether the event is all-day may only show once calendar.ts reads it, so any
-      // new time takes the timezone along.
-      timeZone: data.startTime || data.endTime || data.allDay ? await allDayTimezone(user) : undefined,
+      // instanceStartsAt is native-only; GCal uses the instance eventId (the occurrence) directly.
+      rrule: data.rrule,
+      toCalendarId: data.toCalendarId,
+      timeZone: await userTimezone(user),
     }));
     return result;
   },
@@ -130,4 +135,27 @@ export const googleProvider: CalendarProvider = {
     }));
     return result;
   },
+
+  async moveEvent(user: UserConfig, move: MoveEventInput): Promise<MoveEventResult> {
+    if (!user.googleRefreshToken) return notConnected('move event');
+    return writeThenStamp(user.id, () => gcalMove(user.googleRefreshToken, move.fromCalendarId, move.eventId, move.toCalendarId));
+  },
 };
+
+/**
+ * Whether the Google write would refuse this edit as a day move on a series with fixed days
+ * (FIXED_DAYS), asked before the bot's confirmation card. It only reads; a read error logs
+ * and answers false.
+ */
+export async function wouldRefuseFixedDaysOnGoogle(user: UserConfig, calendarId: string, eventId: string, data: UpdateEventInput): Promise<boolean> {
+  if (!user.googleRefreshToken) return false;
+  return gcalWouldRefuseFixedDays(user.googleRefreshToken, calendarId, eventId, {
+    startTime: data.startTime,
+    endTime: data.endTime,
+    allDay: data.allDay,
+    scope: data.scope,
+    recurringEventId: data.recurringEventId,
+    rrule: data.rrule,
+    timeZone: await userTimezone(user),
+  });
+}
