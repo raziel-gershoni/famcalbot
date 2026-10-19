@@ -837,6 +837,15 @@ async function main() {
     assertSame([e.kinds, e.partner, e.calendars.length, e.tz], [{ event: true, reminder: false }, null, 4, IL], 'editor info');
   });
 
+  await check('editor: under today\'s model a user reads one kind: a built-in calendar user with a leftover token and choices gets no Google row, item or write', async () => {
+    const native = user(9, IL, { calendarSource: 'NATIVE' });
+    assertSame(await gitem.googleEditorCalendars(native), [], 'no Google rows');
+    seed(NOA_CAL, 'e1', { start: '2026-10-20T10:00:00' });
+    assertSame(await editInfo(native, gkey(NOA_CAL, 'e1')), 'not_found', 'no Google item');
+    assertSame(await write.createItem(native, createCmd({ kind: 'event', title: 'x', allDay: false, start: '2026-10-22T18:00', calendarId: NOA_CAL }), IL), { status: 'invalid', field: 'calendarId' }, 'no Google create');
+    assertSame(calls.length, 0, 'Google was asked');
+  });
+
   await check('editor: a calendar list that can\'t be read drops the Google rows (no "+"), logged', async () => {
     failOn((r) => r.path === '/users/me/calendarList', fail(401, 'authError', 'Invalid Credentials'));
     const e = await info.editorInfo(NOA, IL);
@@ -867,7 +876,12 @@ async function main() {
     WEEKLY_TUE({ recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=20261124T075959Z'] });
     const a = await editInfo(NOA, gkey(NOA_CAL, inst('wk', '2026-10-20T10:00:00')));
     assert(a !== 'not_found', 'nf');
-    assertSame([a.series.rule, a.series.fixedDays], [{ choice: 'custom', until: '2026-11-24' }, true], 'custom with an end');
+    // UNTIL 07:59:59Z on the 24th is 09:59:59 there, before that Tuesday's 10:00: the last is Thursday the 19th.
+    assertSame([a.series.rule, a.series.fixedDays], [{ choice: 'custom', until: '2026-11-19' }, true], 'custom with an end');
+    stored(NOA_CAL, 'wk')!.recurrence = ['RRULE:FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=20261124T080000Z'];
+    const a2 = await editInfo(NOA, gkey(NOA_CAL, inst('wk', '2026-10-20T10:00:00')));
+    assert(a2 !== 'not_found', 'nf');
+    assertSame(a2.series.rule, { choice: 'custom', until: '2026-11-24' }, 'an UNTIL on the last one');
     seed(NOA_CAL, 'tu', { start: '2026-10-06T10:00:00', recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=TU'] });
     const b = await editInfo(NOA, gkey(NOA_CAL, inst('tu', '2026-10-20T10:00:00')));
     assert(b !== 'not_found' && b.series.rule?.choice === 'weekly', `BYDAY on its start's day ${show(b !== 'not_found' && b.series.rule)}`);

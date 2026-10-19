@@ -589,7 +589,7 @@ async function main() {
     const key = created.body.key;
     const cases: [string, Row, string][] = [
       ['no key', { key: undefined, scope: 'single', changes: { title: 'x' } }, 'key'],
-      ['a key from Google', { key: 'google|cal|id', scope: 'single', changes: { title: 'x' } }, 'key'],
+      ['a key of neither source', { key: 'outlook|cal|id', scope: 'single', changes: { title: 'x' } }, 'key'],
       ['a key with a bad instant', { key: 'famcal|abc#2026-10-20', scope: 'single', changes: { title: 'x' } }, 'key'],
       ['no scope', { key, changes: { title: 'x' } }, 'scope'],
       ['an unknown scope', { key, scope: 'some', changes: { title: 'x' } }, 'scope'],
@@ -620,6 +620,9 @@ async function main() {
       assert(r.status === 400, `${name}: status ${r.status}`);
       assertSame(r.body, { error: 'invalid', field }, name);
     }
+    // 3b: a Google key goes to the Google path, which knows no calendar the user didn't choose.
+    const google = await patch({ key: 'google|cal|id', scope: 'single', changes: { title: 'x' } });
+    assertSame([google.status, google.body], [404, { error: 'not_found' }], 'a Google key for a calendar not chosen');
     const row = eventRow(idOf(key));
     assert(row.title === 'Dentist' && !row.isDeleted, 'a refused request changed the event');
   });
@@ -1284,11 +1287,11 @@ async function main() {
     await del({ key: occ('2026-10-20'), scope: 'single' });
     await del({ key: reminder.body.key, scope: 'following' });
     assertSame(tracked.map((t) => [t.userId, t.action, t.meta]), [
-      [TAL, 'calendar_item_edited', { kind: 'event', scope: 'following', source: 'app', changed_fields: ['title'] }],
-      [TAL, 'calendar_item_edited', { kind: 'reminder', scope: 'single', source: 'app', changed_fields: ['time'] }],
-      [TAL, 'calendar_item_edited', { kind: 'event', scope: 'single', source: 'app', changed_fields: ['location'] }],
-      [TAL, 'calendar_item_deleted', { kind: 'event', scope: 'single', source: 'app' }],
-      [TAL, 'calendar_item_deleted', { kind: 'reminder', scope: 'single', source: 'app' }],
+      [TAL, 'calendar_item_edited', { kind: 'event', scope: 'following', source: 'app', provider: 'famcal', changed_fields: ['title'] }],
+      [TAL, 'calendar_item_edited', { kind: 'reminder', scope: 'single', source: 'app', provider: 'famcal', changed_fields: ['time'] }],
+      [TAL, 'calendar_item_edited', { kind: 'event', scope: 'single', source: 'app', provider: 'famcal', changed_fields: ['location'] }],
+      [TAL, 'calendar_item_deleted', { kind: 'event', scope: 'single', source: 'app', provider: 'famcal' }],
+      [TAL, 'calendar_item_deleted', { kind: 'reminder', scope: 'single', source: 'app', provider: 'famcal' }],
     ], 'one each, a one-off\'s scope being single');
     assert(!show(tracked).includes(SECRET_TITLE), 'a title reached analytics');
     tracked.length = 0;

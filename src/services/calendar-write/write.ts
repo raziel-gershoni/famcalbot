@@ -1,5 +1,7 @@
 // The calendar home's writes (home editing spec §3): create, edit and delete a FamCal
-// event or reminder, for the three routes in app/api/calendar/items. Every write goes
+// event or reminder, for the three routes in app/api/calendar/items. A Google item (its
+// key 'google|…', or a Google calendar id on a create) goes to google-item.ts (3b spec
+// §3.3), which shares this file's rules and goes through the bot's provider. Every write goes
 // through the same store functions the bot's confirmations call, so access, the main
 // calendar, forUserId, armedAt and the due gate are the bot's. Validation of the body is
 // validate.ts; what this file adds is the wall times in the user's zone, the diff against
@@ -41,12 +43,17 @@ import type { ParsedEvent } from '../event-parser';
 import { classifyRule } from '../native-calendar/recurrence';
 import { isForPartner, itemZone, loadItem, wallFor, type LoadedItem } from './item-info';
 import { endFollows, itemKeyOf, isTime, type CreateCommand, type DeleteCommand, type UpdateCommand } from './validate';
+import { sourcesFor } from '../calendar-read/index';
 import { addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween, instantToWall, wallToInstant } from './walltime';
 
 export type WriteResult =
   | { status: 'ok'; key?: string }
   | { status: 'invalid'; field: string }
-  | { status: 'not_allowed' | 'not_found' | 'changed' };
+  | { status: 'not_allowed' | 'not_found' | 'changed' }
+  // 3b, Google: the connection needs the user (a dead token, or a write scope not granted),
+  // or Google failed (a rate limit, a 5xx, a timeout, anything else; already logged).
+  | { status: 'reconnect'; reason: 'token' | 'scopes' }
+  | { status: 'failed' };
 
 const HOUR_MS = 3_600_000;
 const NOT_ALLOWED: WriteResult = { status: 'not_allowed' };
@@ -99,7 +106,7 @@ async function clearCaches(
 }
 
 /** The stored rule for a repeat choice, as the bot's provider stores it (no RRULE: prefix). */
-function ruleFor(repeat: CreateCommand['repeat']): string | null {
+export function ruleFor(repeat: CreateCommand['repeat']): string | null {
   if (repeat === 'none') return null;
   return buildRecurrenceRule({ frequency: repeat })[0].replace(/^RRULE:/, '');
 }
@@ -119,20 +126,28 @@ function withoutEnd(rule: string): string {
  * the same one for a rule that isn't the one that choice writes. A bot's "every Tuesday"
  * (BYDAY=TU) reads as 'weekly' but keeps its day; picked again, the rule follows the start.
  */
-function repeatChanges(repeat: CreateCommand['repeat'], rrule: string | null, current: string): boolean {
+export function repeatChanges(repeat: CreateCommand['repeat'], rrule: string | null, current: string): boolean {
   if (repeat !== current) return true;
   return repeat !== 'none' && rrule !== null && withoutEnd(rrule) !== ruleFor(repeat);
 }
 
 /** The wall times of a create as instants: an all-day item from the start of its first day to 23:59 on its last. */
-function createTimes(cmd: CreateCommand, tz: string): { startsAt: Date; endsAt: Date } {
+export function createTimes(cmd: CreateCommand, tz: string): { startsAt: Date; endsAt: Date } {
   if (cmd.allDay) return { startsAt: dayStart(cmd.start, tz), endsAt: dayEnd(cmd.end ?? cmd.start, tz) };
   const startsAt = wallToInstant(cmd.start, tz);
   return { startsAt, endsAt: cmd.end ? wallToInstant(cmd.end, tz) : new Date(startsAt.getTime() + HOUR_MS) };
 }
 
 export async function createItem(user: UserConfig, cmd: CreateCommand, tz: string): Promise<WriteResult> {
-  if (user.calendarSource !== 'NATIVE') return NOT_ALLOWED;
+  // Per calendar (3b spec §3.3, and the next step's per-calendar editor): a Google id goes
+  // to Google; no id goes to the user's FamCal main calendar, or to Google's when the user
+  // reads no FamCal.
+  const famcal = sourcesFor(user).includes('famcal');
+  if ((cmd.calendarId && !cmd.calendarId.startsWith('native:')) || (!cmd.calendarId && !famcal && sourcesFor(user).includes('google'))) {
+    const { createGoogleItem } = await import('./google-item');
+    return createGoogleItem(user, cmd, tz);
+  }
+  if (!famcal) return NOT_ALLOWED;
   try {
     const rrule = ruleFor(cmd.repeat);
     const base = {
@@ -201,19 +216,19 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
   }
 }
 
-type Ok = Extract<LoadedItem, { status: 'ok' }>;
-
-/** The scope the store is given: a one-off has only itself. */
-const effectiveScope = (item: Ok, scope: UpdateCommand['scope']) => (item.series.rrule ? scope : 'single');
-
-export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: string): Promise<WriteResult> {
-  const item = await loadItem(user, cmd.key);
-  if (item.status !== 'ok') return { status: item.status };
-  if (!item.canEdit) return NOT_ALLOWED;
-  const { series, occurrence: occ } = item;
-  const reminder = series.kind === 'REMINDER';
-  const itemTz = itemZone(series);
-  const c = cmd.changes;
+/**
+ * The times an edit gives, in the wall form the editor speaks (3a's rules): what the body
+ * leaves out stays, or follows. A moved start keeps the length, and a form change takes the
+ * nearest sensible value. `occ` is the occurrence as it stands; all-day days are read in
+ * `itemTz`, timed walls on the user's clock. The Google items share it (google-item.ts).
+ */
+export function resolveWallTimes(
+  c: UpdateCommand['changes'],
+  occ: { startsAt: Date; endsAt: Date; allDay: boolean },
+  reminder: boolean,
+  userTz: string,
+  itemTz: string
+): { ok: true; start: string; end: string; allDay: boolean; timeChanged: boolean } | { ok: false; field: 'start' | 'end' } {
   const was = wallFor(occ.startsAt, occ.endsAt, occ.allDay, userTz, itemTz);
   const wasEnd = reminder ? was.start : was.end;
   const allDay = c.allDay ?? occ.allDay;
@@ -222,20 +237,20 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   // a moved start keeps the length, and a form change takes the nearest sensible value.
   let start: string;
   if (c.start !== undefined) {
-    if (!isTime(c.start, allDay)) return { status: 'invalid', field: 'start' };
+    if (!isTime(c.start, allDay)) return { ok: false, field: 'start' };
     start = c.start;
   } else if (allDay === occ.allDay) {
     start = was.start;
   } else if (allDay) {
     start = dayOfWall(was.start);
   } else {
-    return { status: 'invalid', field: 'start' };
+    return { ok: false, field: 'start' };
   }
   let end: string;
   if (reminder) {
     end = start;
   } else if (c.end !== undefined) {
-    if (!isTime(c.end, allDay)) return { status: 'invalid', field: 'end' };
+    if (!isTime(c.end, allDay)) return { ok: false, field: 'end' };
     end = c.end;
   } else if (allDay !== occ.allDay) {
     end = allDay ? start : instantToWall(new Date(wallToInstant(start, userTz).getTime() + HOUR_MS), userTz);
@@ -246,9 +261,32 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   } else {
     end = instantToWall(new Date(wallToInstant(start, userTz).getTime() + (occ.endsAt.getTime() - occ.startsAt.getTime())), userTz);
   }
-  if (!reminder && !endFollows(start, end, allDay)) return { status: 'invalid', field: 'end' };
+  if (!reminder && !endFollows(start, end, allDay)) return { ok: false, field: 'end' };
 
-  const timeChanged = allDay !== occ.allDay || start !== was.start || end !== wasEnd;
+  return { ok: true, start, end, allDay, timeChanged: allDay !== occ.allDay || start !== was.start || end !== wasEnd };
+}
+
+type Ok = Extract<LoadedItem, { status: 'ok' }>;
+
+/** The scope the store is given: a one-off has only itself. */
+const effectiveScope = (item: Ok, scope: UpdateCommand['scope']) => (item.series.rrule ? scope : 'single');
+
+export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: string): Promise<WriteResult> {
+  if (cmd.key.source === 'google') {
+    const { updateGoogleItem } = await import('./google-item');
+    return updateGoogleItem(user, { ...cmd, key: cmd.key }, userTz);
+  }
+  const key = cmd.key;
+  const item = await loadItem(user, key);
+  if (item.status !== 'ok') return { status: item.status };
+  if (!item.canEdit) return NOT_ALLOWED;
+  const { series, occurrence: occ } = item;
+  const reminder = series.kind === 'REMINDER';
+  const itemTz = itemZone(series);
+  const c = cmd.changes;
+  const times = resolveWallTimes(c, occ, reminder, userTz, itemTz);
+  if (!times.ok) return { status: 'invalid', field: times.field };
+  const { start, end, allDay, timeChanged } = times;
   const text = {
     ...(c.title !== undefined && c.title !== occ.title ? { title: c.title } : {}),
     ...(c.location !== undefined && c.location !== (occ.location ?? '') ? { location: c.location } : {}),
@@ -265,7 +303,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   if (forPartner !== undefined && (!reminder || (forPartner && !item.ctx.partner))) return { status: 'invalid', field: 'forPartner' };
   const forUserId = forPartner === undefined ? undefined : forPartner ? item.ctx.partner!.id : null;
   const seriesLevel = repeat !== undefined || moveTo !== undefined || forUserId !== undefined;
-  const sameKey = itemKeyOf(series.id, cmd.key.slot);
+  const sameKey = itemKeyOf(series.id, key.slot);
   if (!timeChanged && Object.keys(text).length === 0 && !seriesLevel) return { status: 'ok', key: sameKey };
 
   // A repeat change applies from the opened occurrence on; a calendar or recipient change
@@ -279,7 +317,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   const endsAt = reminder ? startsAt : allDay ? dayEnd(end, itemTz) : wallToInstant(end, userTz);
   const input: UpdateNativeEventInput = {
     seriesCuid: series.id,
-    instanceStartsAt: series.rrule ? cmd.key.slot : undefined,
+    instanceStartsAt: series.rrule ? key.slot : undefined,
     scope,
     actingUserId: user.id,
     ...text,
@@ -345,7 +383,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
       ...(moveTo !== undefined ? ['calendar'] : []),
       ...(forUserId !== undefined ? ['recipient'] : []),
     ];
-    trackActivityAsync(user.id, 'calendar_item_edited', { kind: reminder ? 'reminder' : 'event', scope, source: 'app', changed_fields: changedFields });
+    trackActivityAsync(user.id, 'calendar_item_edited', { kind: reminder ? 'reminder' : 'event', scope, source: 'app', provider: 'famcal', changed_fields: changedFields });
     return { status: 'ok', key };
   } catch (err) {
     const refused = refusalOf(err);
@@ -355,19 +393,24 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
 }
 
 export async function deleteItem(user: UserConfig, cmd: DeleteCommand): Promise<WriteResult> {
-  const item = await loadItem(user, cmd.key);
+  if (cmd.key.source === 'google') {
+    const { deleteGoogleItem } = await import('./google-item');
+    return deleteGoogleItem(user, { ...cmd, key: cmd.key });
+  }
+  const key = cmd.key;
+  const item = await loadItem(user, key);
   if (item.status !== 'ok') return { status: item.status };
   if (!item.canDelete) return NOT_ALLOWED;
   const scope = effectiveScope(item, cmd.scope);
   try {
     await deleteNativeEvent({
       seriesCuid: item.series.id,
-      instanceStartsAt: item.series.rrule ? cmd.key.slot : undefined,
+      instanceStartsAt: item.series.rrule ? key.slot : undefined,
       scope,
       actingUserId: user.id,
     });
     await clearCaches(user, [item.calendar], [item.series.forUserId]);
-    trackActivityAsync(user.id, 'calendar_item_deleted', { kind: item.series.kind === 'REMINDER' ? 'reminder' : 'event', scope, source: 'app' });
+    trackActivityAsync(user.id, 'calendar_item_deleted', { kind: item.series.kind === 'REMINDER' ? 'reminder' : 'event', scope, source: 'app', provider: 'famcal' });
     return { status: 'ok' };
   } catch (err) {
     const refused = refusalOf(err);

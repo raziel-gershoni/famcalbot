@@ -494,7 +494,7 @@ const FIXED_DAYS_FAILURE: WriteFailure = {
 };
 
 /** The bare rule of a recurrence's RRULE line (no RRULE: prefix), or null. */
-function ruleOf(recurrence: readonly string[] | null | undefined): string | null {
+export function ruleOf(recurrence: readonly string[] | null | undefined): string | null {
   const line = (recurrence ?? []).find((l) => /^RRULE:/i.test(l));
   return line ? line.slice('RRULE:'.length) : null;
 }
@@ -516,7 +516,7 @@ function untilInstant(until: string, zone: string): Date {
  * A Google rule as the native rule helpers read it (they expand on the event's wall
  * clock): a UTC UNTIL becomes the wall time it is in `zone`.
  */
-function nativeRuleOf(rule: string, zone: string): string {
+export function nativeRuleOf(rule: string, zone: string): string {
   return rule.replace(/(^|;)UNTIL=(\d{8}T\d{6})Z(?=;|$)/i, (_m, lead: string, v: string) => `${lead}UNTIL=${formatInTimeZone(untilInstant(`${v}Z`, zone), zone, "yyyyMMdd'T'HHmmss")}`);
 }
 
@@ -1038,6 +1038,10 @@ export interface GoogleItemRead {
   event: GEvent;
   /** A series' master, when the event is an occurrence. */
   master?: GEvent;
+  /** The series shows no occurrence before this one (true for a one-off). */
+  first: boolean;
+  /** The zone the event is written in: its own, else its calendar's (undefined: the user's). */
+  zone?: string;
 }
 
 /**
@@ -1045,7 +1049,7 @@ export interface GoogleItemRead {
  * event, then its master for a series. Google's errors are thrown, for the caller to sort
  * with classifyGoogleError.
  */
-export async function readEventForEdit(refreshToken: string, calendarId: string, eventId: string): Promise<GoogleItemRead> {
+export async function readEventForEdit(refreshToken: string, calendarId: string, eventId: string, userTz?: string): Promise<GoogleItemRead> {
   const calendar = getCalendarClient(refreshToken);
   const [entry, event] = await Promise.all([
     calendar.calendarList.get({ calendarId }).then((r) => r.data),
@@ -1053,5 +1057,7 @@ export async function readEventForEdit(refreshToken: string, calendarId: string,
   ]);
   const masterId = event.recurringEventId && event.recurringEventId !== eventId ? event.recurringEventId : undefined;
   const master = masterId ? (await calendar.events.get({ calendarId, eventId: masterId })).data : undefined;
-  return { accessRole: entry.accessRole ?? 'reader', calendarTimeZone: entry.timeZone ?? undefined, event, ...(master ? { master } : {}) };
+  const zone = event.start?.timeZone ?? master?.start?.timeZone ?? entry.timeZone ?? undefined;
+  const first = !masterId || !(await showsOneBefore(calendar, calendarId, masterId, slotOf(event, zone ?? userTz ?? TIMEZONE), zone ?? userTz ?? TIMEZONE));
+  return { accessRole: entry.accessRole ?? 'reader', calendarTimeZone: entry.timeZone ?? undefined, event, ...(master ? { master } : {}), first, ...(zone ? { zone } : {}) };
 }

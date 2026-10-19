@@ -19,6 +19,9 @@ const SCOPES: readonly EditScope[] = ['single', 'following', 'all'];
 const REPEATS: readonly RepeatChoice[] = ['none', 'daily', 'weekly', 'monthly', 'yearly'];
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const FAMCAL_KEY = 'famcal|';
+const GOOGLE_KEY = 'google|';
+/** A Google event or instance id ('<id>' or '<id>_<YYYYMMDDTHHMMSSZ>'): base32hex, '_' and the stamp. */
+const GOOGLE_EVENT_ID = /^[A-Za-z0-9_-]{1,1024}$/;
 const AUTH_KEYS = ['user_id', 'initData'];
 
 type Obj = Record<string, unknown>;
@@ -99,7 +102,9 @@ export function parseCreate(raw: unknown): Parsed<CreateCommand> {
   const repeat = (raw.repeat ?? 'none') as RepeatChoice;
   let calendarId: string | undefined;
   if (kind === 'event' && raw.calendarId !== undefined) {
-    if (!isNativeCalendarIdOf(raw.calendarId)) return fail('calendarId');
+    // A FamCal calendar ('native:<cuid>') or a Google one (3b spec §3.3), checked against
+    // the user's writable calendars once the write knows the user.
+    if (!isNativeCalendarIdOf(raw.calendarId) && !isGoogleCalendarId(raw.calendarId)) return fail('calendarId');
     calendarId = raw.calendarId;
   }
   if (raw.forPartner !== undefined && typeof raw.forPartner !== 'boolean') return fail('forPartner');
@@ -130,8 +135,44 @@ export function parseItemKey(value: unknown): ItemKey | null {
 
 export const itemKeyOf = (seriesCuid: string, slot?: Date): string => `${FAMCAL_KEY}${seriesCuid}${slot ? `#${slot.toISOString()}` : ''}`;
 
+/** A Google item's key: its calendar and its event (an occurrence's instance id, or a one-off's id). */
+export interface GoogleItemKey {
+  calendarId: string;
+  eventId: string;
+}
+
+/**
+ * A Google calendar id as a key or a body carries it: an email-like id, not a FamCal one,
+ * with no '|' (the key's separator) and no whitespace or control character.
+ */
+export const isGoogleCalendarId = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0 && value.length <= 255 && !value.startsWith('native:') && !/[|\s\u0000-\u001f]/.test(value);
+
+/** 'google|<calendarId>|<eventId>' (the home's keys), or null. The calendar is checked against the user's own choices on use. */
+export function parseGoogleKey(value: unknown): GoogleItemKey | null {
+  if (typeof value !== 'string' || !value.startsWith(GOOGLE_KEY)) return null;
+  const rest = value.slice(GOOGLE_KEY.length);
+  const bar = rest.lastIndexOf('|');
+  if (bar === -1) return null;
+  const calendarId = rest.slice(0, bar);
+  const eventId = rest.slice(bar + 1);
+  return isGoogleCalendarId(calendarId) && GOOGLE_EVENT_ID.test(eventId) ? { calendarId, eventId } : null;
+}
+
+export const googleKeyOf = (calendarId: string, eventId: string): string => `${GOOGLE_KEY}${calendarId}|${eventId}`;
+
+/** Any item key, by its source (3b: the writes and the item info dispatch on it). */
+export type AnyItemKey = ({ source: 'famcal' } & ItemKey) | ({ source: 'google' } & GoogleItemKey);
+
+export function parseAnyItemKey(value: unknown): AnyItemKey | null {
+  const famcal = parseItemKey(value);
+  if (famcal) return { source: 'famcal', ...famcal };
+  const google = parseGoogleKey(value);
+  return google ? { source: 'google', ...google } : null;
+}
+
 export interface UpdateCommand {
-  key: ItemKey;
+  key: AnyItemKey;
   scope: EditScope;
   changes: {
     title?: string;
@@ -142,7 +183,7 @@ export interface UpdateCommand {
     end?: string;
     /** 3b: the repeat from the opened occurrence on. */
     repeat?: RepeatChoice;
-    /** 3b: an event's calendar, 'native:<cuid>'. */
+    /** 3b: an event's calendar, 'native:<cuid>' for a FamCal item, a Google id for a Google one. */
     calendarId?: string;
     /** 3b: a reminder for the partner (true) or its creator (false), relative to its creator. */
     forPartner?: boolean;
@@ -157,7 +198,7 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
   if (!isObject(raw)) return fail('body');
   const bad = unknownKey(raw, ['key', 'scope', 'changes']);
   if (bad) return fail(bad);
-  const key = parseItemKey(raw.key);
+  const key = parseAnyItemKey(raw.key);
   if (!key) return fail('key');
   if (typeof raw.scope !== 'string' || !(SCOPES as readonly string[]).includes(raw.scope)) return fail('scope');
   if (!isObject(raw.changes)) return fail('changes');
@@ -199,8 +240,9 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
     changes.repeat = c.repeat as RepeatChoice;
   }
   if (c.calendarId !== undefined) {
-    if (!isNativeCalendarIdOf(c.calendarId)) return fail('calendarId');
-    changes.calendarId = c.calendarId;
+    // Within the item's own source: a move between FamCal and Google waits for "Google as a connection".
+    if (!(key.source === 'famcal' ? isNativeCalendarIdOf(c.calendarId) : isGoogleCalendarId(c.calendarId))) return fail('calendarId');
+    changes.calendarId = c.calendarId as string;
   }
   if (c.forPartner !== undefined) {
     if (typeof c.forPartner !== 'boolean') return fail('forPartner');
@@ -210,7 +252,7 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
 }
 
 export interface DeleteCommand {
-  key: ItemKey;
+  key: AnyItemKey;
   scope: EditScope;
 }
 
@@ -218,7 +260,7 @@ export function parseDelete(raw: unknown): Parsed<DeleteCommand> {
   if (!isObject(raw)) return fail('body');
   const bad = unknownKey(raw, ['key', 'scope']);
   if (bad) return fail(bad);
-  const key = parseItemKey(raw.key);
+  const key = parseAnyItemKey(raw.key);
   if (!key) return fail('key');
   if (typeof raw.scope !== 'string' || !(SCOPES as readonly string[]).includes(raw.scope)) return fail('scope');
   return { ok: true, value: { key, scope: raw.scope as EditScope } };

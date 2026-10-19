@@ -28,7 +28,8 @@ import {
 import { classifyRule, fixesDays, type VirtualInstance } from '../native-calendar/recurrence';
 import { effectiveOwnerForViewer, loadViewerContext, type ViewerContext } from '../native-reminders/ownership';
 import { getReminderSupport } from '../native-reminders/support';
-import type { ItemKey } from './validate';
+import type { AnyItemKey, ItemKey } from './validate';
+import { sourcesFor } from '../calendar-read/index';
 import { instantToWall, lastDayOf, localDate } from './walltime';
 
 
@@ -66,22 +67,46 @@ export async function writableCalendars(user: UserConfig): Promise<EditorCalenda
   return (await writableCalendarRows(user)).map((r) => r.entry);
 }
 
-/** GET /api/calendar/editor: what the user can add, to which calendars, and for whom. */
+/**
+ * GET /api/calendar/editor: what the user can add, to which calendars, and for whom. Per
+ * calendar (3b spec §3.3, and "Google as a connection" §4): the union of a FamCal part
+ * (its calendars, reminders and the partner, by FamCal's rules) when the user reads FamCal,
+ * and a Google part (the chosen calendars they can write, read live) when they read
+ * Google. A Google list that can't be read drops only the Google rows, and is logged.
+ */
 export async function editorInfo(user: UserConfig, tz: string): Promise<EditorInfoResponse> {
-  const native = user.calendarSource === 'NATIVE';
-  const [calendars, reminders, ctx] = await Promise.all([
-    native ? writableCalendars(user) : Promise.resolve([]),
+  const sources = sourcesFor(user);
+  const famcal = sources.includes('famcal');
+  const google = sources.includes('google');
+  const [famcalCalendars, googleCalendars, reminders, ctx] = await Promise.all([
+    famcal ? writableCalendars(user) : Promise.resolve([]),
+    google ? import('./google-item').then((m) => m.googleEditorCalendars(user)) : Promise.resolve([]),
     // quiet: a hint, not a gate, so a plan without reminders logs nothing
     getReminderSupport(user, { quiet: true }),
-    loadViewerContext({ id: user.id, pairingId: user.pairingId ?? null }),
+    famcal ? loadViewerContext({ id: user.id, pairingId: user.pairingId ?? null }) : Promise.resolve(null),
   ]);
-  const partner = native && ctx.partner ? { name: ctx.partner.name, canRemind: partnerCanRemind(ctx) } : null;
+  const calendars = [...famcalCalendars, ...googleCalendars];
+  const partner = ctx?.partner ? { name: ctx.partner.name, canRemind: partnerCanRemind(ctx) } : null;
   return {
-    kinds: { event: native && calendars.length > 0, reminder: reminders.supported },
+    kinds: { event: calendars.length > 0, reminder: reminders.supported },
     calendars,
     partner,
     tz,
   };
+}
+
+/**
+ * GET /api/calendar/item: an item's edit info, by its key's source (FamCal read from the
+ * store, Google read live), or not_found.
+ */
+export async function itemInfoFor(user: UserConfig, key: AnyItemKey, userTz: string): Promise<ItemEditInfoResponse | 'not_found'> {
+  if (key.source === 'google') {
+    const { googleEditInfo } = await import('./google-item');
+    return googleEditInfo(user, key, userTz);
+  }
+  const item = await loadItem(user, key);
+  if (item.status !== 'ok') return 'not_found';
+  return itemEditInfo(item, userTz, user);
 }
 
 /** The result of looking an item up: it, or why not. 'changed' is an occurrence that is gone from a series that is not. */
@@ -110,7 +135,7 @@ export type LoadedItem =
  * not (cancelled, cut off by "this one and the ones after", or it never was one).
  */
 export async function loadItem(user: UserConfig, key: ItemKey): Promise<LoadedItem> {
-  if (user.calendarSource !== 'NATIVE') return { status: 'not_found' };
+  if (!sourcesFor(user).includes('famcal')) return { status: 'not_found' };
   const series = await prisma.nativeEvent.findUnique({ where: { id: key.seriesCuid } });
   if (!series || series.isDeleted) return { status: 'not_found' };
   const calendar = await prisma.nativeCalendar.findUnique({ where: { id: series.calendarId } });

@@ -18,7 +18,7 @@ export type RepeatChoice = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
 
 /** A calendar the user may add events to. */
 export interface EditorCalendar {
-  /** 'native:<cuid>'. */
+  /** 'native:<cuid>', or a Google calendar's id (3b). */
   id: string;
   name: string;
   color: string | null;
@@ -126,7 +126,7 @@ export interface CreateItemBody {
   /** Events only; a timed event's default is an hour after the start, an all-day one's its start day. */
   end?: string;
   repeat?: RepeatChoice;
-  /** Events only: 'native:<cuid>' of a calendar from the editor info; default the main one. */
+  /** Events only: the id of a calendar from the editor info ('native:<cuid>' or a Google id); default the main one. */
   calendarId?: string;
   /** Reminders only: for the partner. */
   forPartner?: boolean;
@@ -169,9 +169,12 @@ export interface DeleteItemBody {
  * 400 { error: 'invalid', field } or { error: 'bad_request' } for a body that isn't JSON;
  * 403 { error: 'not_allowed' }; 404 { error: 'not_found' }; 409 { error: 'changed' } (the
  * occurrence is gone); 500 { error: 'internal_error' }. Auth and the rate limit answer
- * 400/401/403/404/429 with { error } as every route does.
+ * 400/401/403/404/429 with { error } as every route does. 3b, a Google item: 403
+ * { error: 'reconnect', reason } when the Google connection needs the user (a dead token,
+ * or a write scope not granted); a Google failure is 500.
  */
 export type WriteResponse =
   | { status: 'ok'; key?: string }
   | { error: 'invalid'; field: string }
-  | { error: 'bad_request' | 'not_allowed' | 'not_found' | 'changed' | 'internal_error' };
+  | { error: 'bad_request' | 'not_allowed' | 'not_found' | 'changed' | 'internal_error' }
+  | { error: 'reconnect'; reason: 'token' | 'scopes' };

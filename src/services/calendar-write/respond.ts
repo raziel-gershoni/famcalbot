@@ -23,7 +23,11 @@ export function userIdOf(raw: unknown): string | null {
   return typeof id === 'string' ? id : typeof id === 'number' ? String(id) : null;
 }
 
-/** A write's result as its response: 200, 400, 403, 404 or 409. */
+/**
+ * A write's result as its response: 200, 400, 403, 404 or 409. A Google connection that
+ * needs the user answers 403 { error: 'reconnect', reason }; a Google failure (already
+ * logged) 500, as any server failure.
+ */
 export function writeResponse(result: WriteResult): NextResponse {
   switch (result.status) {
     case 'ok': {
@@ -34,5 +38,7 @@ export function writeResponse(result: WriteResult): NextResponse {
     case 'not_allowed': return json({ error: 'not_allowed' } satisfies WriteResponse, 403);
     case 'not_found': return json({ error: 'not_found' } satisfies WriteResponse, 404);
     case 'changed': return json({ error: 'changed' } satisfies WriteResponse, 409);
+    case 'reconnect': return json({ error: 'reconnect', reason: result.reason } satisfies WriteResponse, 403);
+    case 'failed': return json({ error: 'internal_error' } satisfies WriteResponse, 500);
   }
 }
