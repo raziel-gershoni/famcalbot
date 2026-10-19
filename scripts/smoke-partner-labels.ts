@@ -272,12 +272,9 @@ async function main() {
     assert(getSpouseInfo(raziel) === null, 'spouse found without the resolved calendars');
   });
 
-  await check('Google users: calendars come from the user row untouched, spouse info is the same', async () => {
-    storeCalls.length = 0;
-    userQueries.length = 0;
+  await check('Google users: the Google choices follow their FamCal rows (none here), untouched; spouse info is the same', async () => {
     const resolved = await getCalendarAssignmentsForUser(googleUser);
-    assert(resolved === googleCalendars, 'not the user row\'s own list');
-    assert(storeCalls.length === 0 && userQueries.length === 0, 'Google user hit the native store');
+    assert(resolved.length === googleCalendars.length && resolved.every((a, i) => a === googleCalendars[i]), 'not the user row\'s own list');
     assertList(getSpouseInfo(googleUser, resolved), getSpouseInfo(googleUser));
     assertList(getSpouseInfo(googleUser), { name: 'Noa', gender: 'female' });
   });

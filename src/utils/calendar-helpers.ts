@@ -55,6 +55,28 @@ export function getPrimaryCalendar(
   return primary?.calendarId || null;
 }
 
+/** A FamCal calendar id ('native:<cuid>'); every other id is Google's. */
+const isFamcalId = (calendarId: string) => calendarId.startsWith('native:');
+
+/**
+ * Where an event goes when nothing places it ("Google as a connection" spec §3), over the
+ * union list (getCalendarAssignmentsForUser: FamCal rows, then the Google choices). The
+ * first match wins:
+ * 1. the user's own calendar labelled primary, the Google one when both kinds carry it;
+ * 2. the first Google calendar labelled yours, else the first Google calendar;
+ * 3. the main FamCal calendar: null, for the caller to resolve (getMainNativeCalendar,
+ *    which makes it when there is none). The list can't tell an own FamCal row from the
+ *    partner's without a primary.
+ * Partner rows never count: labelsFromViewerSide strips their primary, and every Google
+ * choice is the user's own.
+ */
+export function defaultCalendarFor(calendars: readonly Pick<CalendarAssignment, 'calendarId' | 'labels'>[]): string | null {
+  const google = calendars.filter((c) => !isFamcalId(c.calendarId));
+  const primary = google.find((c) => c.labels.includes('primary')) ?? calendars.find((c) => c.labels.includes('primary'));
+  if (primary) return primary.calendarId;
+  return (google.find((c) => c.labels.includes('yours')) ?? google[0])?.calendarId ?? null;
+}
+
 /**
  * Validate calendar assignments against business rules
  */

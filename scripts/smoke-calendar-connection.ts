@@ -456,10 +456,12 @@ async function main() {
     eq(got[1].labels, ['spouse'], 'partner row labelled from the viewer side');
   });
 
-  await check('B2 a legacy Google user: the union is the (lazily made) FamCal main, then the Google choices; hidden FamCal calendars stay hidden', async () => {
+  await check('B2 a legacy Google user: usable by Google alone; once the FamCal main is made (lazily, by reminders), the union is it, then the Google choices; hidden FamCal calendars stay hidden', async () => {
     seed();
     const { hasUsableCalendar, getCalendarAssignmentsForUser } = await load('src/services/calendar-provider/user-calendars.ts');
+    const { getMainNativeCalendar } = await load('src/services/native-calendar/event-store.ts');
     assert(await hasUsableCalendar(await configOf(3)), 'not usable');
+    await getMainNativeCalendar(3);
     const got = await getCalendarAssignmentsForUser(await configOf(3));
     const main = live(3);
     assert(main.length === 1 && main[0].id !== 'cal-3', `live FamCal ${show(calsOf(3))}`);

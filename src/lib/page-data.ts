@@ -65,8 +65,13 @@ export interface DashboardPageProps {
   lookahead7: boolean;
 }
 
-/** Select-calendars props on the wire: Sets and Maps as arrays. */
+/**
+ * Select-calendars props on the wire: Sets and Maps as arrays. famcalPrimaryName is the
+ * user's FamCal calendar labelled primary, if any: ticking primary on a Google calendar
+ * moves the default from it, so the page says "New events will go to <name>" (spec §3).
+ */
 export type SelectCalendarsPageProps = Omit<SelectCalendarsProps, 'currentSelections'> & {
+  famcalPrimaryName: string | null;
   currentSelections: {
     selectedCalendars: string[];
     calendarLabels: [string, CalendarLabel[]][];
@@ -288,9 +293,14 @@ async function selectCalendars(user: UserConfig, userId: number, userLocale: str
   }
 
   try {
-    const [availableCalendars, subWithUsage] = await Promise.all([
+    const [availableCalendars, subWithUsage, ownFamcal] = await Promise.all([
       listUserCalendars(user.googleRefreshToken),
       getSubscriptionWithUsage(user.id).catch(() => null),
+      prisma.nativeCalendar.findMany({
+        where: { ownerUserId: user.id, isDeleted: false },
+        select: { name: true, labels: true },
+        orderBy: [{ createdAt: 'asc' }],
+      }),
     ]);
 
     const effectivePlan = subWithUsage?.effectivePlan || 'FREE';
@@ -309,6 +319,7 @@ async function selectCalendars(user: UserConfig, userId: number, userLocale: str
       currentSelections,
       locale: userLocale,
       calendarLimit,
+      famcalPrimaryName: ownFamcal.find((c) => c.labels.includes('primary'))?.name ?? null,
     };
     return { kind: 'props', props };
   } catch (error) {

@@ -499,11 +499,10 @@ async function main() {
     assert(!queries.some((q) => q.startsWith('nativeEvent.')), `queries ${queries.join(', ')}`);
   });
 
-  await check('readFamcal: a Google user is never queried', async () => {
+  await check('readFamcal: a Google user reads FamCal too (Google as a connection); with no FamCal calendar of their own, an empty ok half', async () => {
     household();
     const { read, items } = await readFamcal(viewer(GALI), DAY, {});
-    assert(read.status === 'error' && items.length === 0, `read ${json(read)}`);
-    assertJson(queries, [], 'queries');
+    assert(read.status === 'ok' && items.length === 0 && read.calendars.length === 0, `read ${json(read)}`);
   });
 
   await check('readFamcal: a database error is the half\'s error, with its cause', async () => {

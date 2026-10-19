@@ -1,15 +1,16 @@
 // Cross-provider helpers that resolve the user's calendar context into shapes
 // the existing voice prompt and reminder/summary code already understand.
 //
-// For GOOGLE users this is just `user.calendarAssignments` (verbatim). For
-// NATIVE users we synthesize CalendarAssignment objects from NativeCalendar
-// rows so the existing label-aware prompt logic in gemini-voice.ts works
-// unchanged — native calendar IDs are namespaced as `native:<cuid>`.
+// One list for everyone ("Google as a connection" spec §1, §4): CalendarAssignment
+// objects synthesized from the FamCal rows the user sees (ids namespaced `native:<cuid>`),
+// then the Google choices, `user.calendarAssignments` verbatim.
 
 import type { NativeCalendar, User } from '@prisma/client';
 import type { UserConfig } from '../../types';
 import type { CalendarAssignment, CalendarLabel } from '../../types';
+import { defaultCalendarFor } from '../../utils/calendar-helpers';
 import { prisma } from '../../utils/prisma';
+import { captureError } from '../../lib/error-capture';
 import {
   encodeCalendarId,
   listVisibleCalendars,
@@ -27,26 +28,34 @@ type CalendarOwner = Pick<User, 'id' | 'name' | 'englishName' | 'gender'>;
  * person, is named after the partner, so summaries file and name it as the spouse's.
  */
 export async function getCalendarAssignmentsForUser(user: UserConfig): Promise<CalendarAssignment[]> {
-  if (user.calendarSource === 'NATIVE') {
-    const calendars = await listVisibleCalendars(user.id, user.pairingId ?? null);
-    const owners = await loadUnnamedOwners(calendars, user.id);
-    return calendars.map((c) => {
-      const partnersCalendar = c.ownerUserId !== user.id;
-      const owner = needsOwnerName(c, user.id) ? owners.get(c.ownerUserId) : undefined;
-      return {
-        calendarId: encodeCalendarId(c.id),
-        labels: partnersCalendar ? labelsFromViewerSide(c.labels as CalendarLabel[]) : (c.labels as CalendarLabel[]) || [],
-        name: c.name,
-        color: c.color,
-        personName: owner ? owner.name : c.personName ?? undefined,
-        personEnglishName: owner ? owner.englishName || undefined : c.personEnglishName ?? undefined,
-        personGender: ((owner ? owner.gender : c.personGender) as 'male' | 'female' | undefined) ?? undefined,
-        rules: c.rules || undefined,
-      };
-    });
-  }
-  // GOOGLE: existing behavior — assignments are stored on User.calendarAssignments JSON
-  return user.calendarAssignments ?? [];
+  const calendars = await listVisibleCalendars(user.id, user.pairingId ?? null);
+  const owners = await loadUnnamedOwners(calendars, user.id);
+  const famcal = calendars.map((c): CalendarAssignment => {
+    const partnersCalendar = c.ownerUserId !== user.id;
+    const owner = needsOwnerName(c, user.id) ? owners.get(c.ownerUserId) : undefined;
+    return {
+      calendarId: encodeCalendarId(c.id),
+      labels: partnersCalendar ? labelsFromViewerSide(c.labels as CalendarLabel[]) : (c.labels as CalendarLabel[]) || [],
+      name: c.name,
+      color: c.color,
+      personName: owner ? owner.name : c.personName ?? undefined,
+      personEnglishName: owner ? owner.englishName || undefined : c.personEnglishName ?? undefined,
+      personGender: ((owner ? owner.gender : c.personGender) as 'male' | 'female' | undefined) ?? undefined,
+      rules: c.rules || undefined,
+    };
+  });
+  // The Google choices, as stored on User.calendarAssignments: kept without a token too,
+  // so an event placed on a Google calendar asks to reconnect instead of moving to FamCal.
+  return [...famcal, ...(user.calendarAssignments ?? [])];
+}
+
+/**
+ * The user's default calendar for an event nothing places (spec §3, defaultCalendarFor over
+ * the union): a calendar id, or null for the main FamCal calendar (getMainNativeCalendar,
+ * which makes it when there is none).
+ */
+export async function defaultCalendarIdFor(user: UserConfig): Promise<string | null> {
+  return defaultCalendarFor(await getCalendarAssignmentsForUser(user));
 }
 
 /**
@@ -85,27 +94,21 @@ async function loadUnnamedOwners(calendars: NativeCalendar[], viewerId: number):
 }
 
 /**
- * True if the user has a usable calendar setup for read/write. For GOOGLE
- * users that means a non-empty refresh token. For NATIVE users we just need
- * at least one visible calendar (own or partner-shared editor).
- *
- * NATIVE recovery: if a NATIVE user has zero visible calendars (rare — only
- * if `ensurePrimaryNativeCalendar` failed at signup), this lazily re-runs
- * the bootstrap so the user isn't permanently bricked. Best-effort only.
+ * True if the user has a usable calendar for read/write: any FamCal calendar they see, or
+ * Google choices. With neither (a legacy Google user whose FamCal was hidden by an old
+ * connect, or a failed signup bootstrap), the FamCal main is made here, lazily, so FamCal
+ * is there for everyone. Best effort: a failed bootstrap is logged and answers false.
  */
 export async function hasUsableCalendar(user: UserConfig): Promise<boolean> {
-  if (user.calendarSource === 'NATIVE') {
-    let assignments = await getCalendarAssignmentsForUser(user);
-    if (assignments.length === 0) {
-      try {
-        const { ensurePrimaryNativeCalendar } = await import('../native-calendar/onboarding');
-        await ensurePrimaryNativeCalendar(user.id);
-        assignments = await getCalendarAssignmentsForUser(user);
-      } catch (err) {
-        console.warn('[UserCalendars] Lazy primary-calendar bootstrap failed:', err);
-      }
+  let assignments = await getCalendarAssignmentsForUser(user);
+  if (assignments.length === 0) {
+    try {
+      const { ensurePrimaryNativeCalendar } = await import('../native-calendar/onboarding');
+      await ensurePrimaryNativeCalendar(user.id);
+      assignments = await getCalendarAssignmentsForUser(user);
+    } catch (err) {
+      captureError(err, 'user-calendars-bootstrap', { user_id: user.id }, 'warning');
     }
-    return assignments.length > 0;
   }
-  return Boolean(user.googleRefreshToken && user.googleRefreshToken.length > 0);
+  return assignments.length > 0;
 }

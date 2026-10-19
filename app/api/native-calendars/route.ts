@@ -13,6 +13,7 @@ import { listVisibleCalendars, encodeCalendarId } from '@/src/services/native-ca
 import { checkCalendarLimit } from '@/src/services/subscription-service';
 import { prisma } from '@/src/utils/prisma';
 import { captureError } from '@/src/lib/error-capture';
+import { addsPrimary, clearOtherPrimaries } from '@/src/services/calendar-provider/primary';
 
 const VALID_LABELS = new Set(['primary', 'yours', 'spouse', 'kids', 'birthdays']);
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -63,9 +64,6 @@ export async function POST(request: NextRequest) {
     if (!auth.success) return auth.response;
 
     const user = auth.user;
-    if (user.calendarSource !== 'NATIVE') {
-      return NextResponse.json({ error: 'native_only' }, { status: 400 });
-    }
 
     const name: string | undefined = body.name?.trim();
     const color: string | undefined = body.color;
@@ -112,6 +110,8 @@ export async function POST(request: NextRequest) {
         privacy: 'PRIVATE',
       },
     });
+    // A calendar created primary is the user's only primary, across both lists (spec §3).
+    if (addsPrimary(null, labels)) await clearOtherPrimaries(user.id, { famcalId: created.id });
 
     return NextResponse.json({
       success: true,

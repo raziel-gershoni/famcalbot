@@ -325,10 +325,25 @@ class FakeUpstash {
 }
 
 const SRC = path.resolve(__dirname, '../src');
-const noDb = new Proxy({}, {
-  get: (_t, model) => (model === 'then' ? undefined : new Proxy({}, { get: (_m, op) => async () => { throw new Error(`no database in this smoke (${String(model)}.${String(op)})`); } })),
+const noModel = (model: string) => new Proxy({}, { get: (_m, op) => async () => { throw new Error(`no database in this smoke (${model}.${String(op)})`); } });
+/** Each user's FamCal main calendar (Google as a connection: everyone has FamCal), labelled
+ *  yours only, as the lazy one is beside a Google primary. The database holds nothing else. */
+const famcalMain = (ownerUserId: number) => ({
+  id: `fam-${ownerUserId}`, ownerUserId, name: 'Noa', color: '#039BE5', labels: ['yours'], rules: [], privacy: 'PRIVATE',
+  isDeleted: false, personName: null, personEnglishName: null, personGender: null, createdAt: new Date(0), updatedAt: new Date(0),
 });
-const fakeRedis = new Proxy({} as Row, { get: (_t, p) => (p === 'then' ? undefined : async () => null) });
+const ownerIn = (where: Row | undefined): number => where?.ownerUserId ?? where?.OR?.[0]?.ownerUserId;
+const noDb = new Proxy({}, {
+  get: (_t, model) => (model === 'then' ? undefined : model === 'nativeCalendar'
+    ? { findMany: async (a: Row) => [famcalMain(ownerIn(a?.where))], findFirst: async (a: Row) => famcalMain(ownerIn(a?.where)) }
+    : noModel(String(model))),
+});
+/** The reminders switch is on and no plan here has reminders, so no feature check reaches the database. */
+const fakeRedis = new Proxy({} as Row, {
+  get: (_t, p) => (p === 'then' ? undefined : p === 'get'
+    ? async (key: string) => (key === 'nrem:enabled' ? true : key.startsWith('feature:access:') ? { allowed: false } : null)
+    : async () => null),
+});
 const stubs: Record<string, object> = {
   '@upstash/redis': { Redis: FakeUpstash },
   [`${SRC}/utils/redis.ts`]: { redis: fakeRedis },
@@ -883,22 +898,21 @@ async function main() {
       { id: DANA, name: 'Dana', color: '#f4511e', main: false, mine: false, ownerName: 'Dana' },
     ], 'calendars');
     const e = await info.editorInfo(NOA, IL);
-    assertSame([e.kinds, e.partner, e.calendars.length, e.tz], [{ event: true, reminder: false }, null, 4, IL], 'editor info');
+    assertSame([e.kinds, e.partner, e.calendars.map((c: Row) => c.id), e.tz], [{ event: true, reminder: false }, null, ['native:fam-7', NOA_CAL, FAMILY, NY_CAL, DANA], IL], 'editor info: the FamCal main, then the Google rows');
   });
 
-  await check('editor: under today\'s model a user reads one kind: a built-in calendar user with a leftover token and choices gets no Google row, item or write', async () => {
+  await check('editor: a built-in calendar user\'s leftover token and choices are a connection now (Google as a connection): Google rows, item and write', async () => {
     const native = user(9, IL, { calendarSource: 'NATIVE' });
-    assertSame(await gitem.googleEditorCalendars(native), { calendars: [] }, 'no Google rows');
+    assertSame((await gitem.googleEditorCalendars(native)).calendars.length, 4, 'Google rows');
     seed(NOA_CAL, 'e1', { start: '2026-10-20T10:00:00' });
-    assertSame(await editInfo(native, gkey(NOA_CAL, 'e1')), 'not_found', 'no Google item');
-    assertSame(await write.createItem(native, createCmd({ kind: 'event', title: 'x', allDay: false, start: '2026-10-22T18:00', calendarId: NOA_CAL }), IL), { status: 'invalid', field: 'calendarId' }, 'no Google create');
-    assertSame(calls.length, 0, 'Google was asked');
+    assert((await editInfo(native, gkey(NOA_CAL, 'e1'))) !== 'not_found', 'no Google item');
+    assertSame((await write.createItem(native, createCmd({ kind: 'event', title: 'x', allDay: false, start: '2026-10-22T18:00', calendarId: NOA_CAL }), IL)).status, 'ok', 'Google create');
   });
 
-  await check('editor: a calendar list that can\'t be read drops the Google rows (no "+"), logged', async () => {
+  await check('editor: a calendar list that can\'t be read drops only the Google rows (the FamCal "+" stays), logged', async () => {
     failOn((r) => r.path === '/users/me/calendarList', fail(401, 'authError', 'Invalid Credentials'));
     const e = await info.editorInfo(NOA, IL);
-    assertSame([e.kinds, e.calendars], [{ event: false, reminder: false }, []], 'no rows');
+    assertSame([e.kinds, e.calendars.map((c: Row) => c.id)], [{ event: true, reminder: false }, ['native:fam-7']], 'FamCal rows only');
     assert(captured.length >= 1, 'not logged');
   });
 
@@ -1021,7 +1035,7 @@ async function main() {
     }
     const all = await write.createItem(NOA, createCmd({ kind: 'event', title: 'Trip', allDay: true, start: '2026-10-22', end: '2026-10-24' }), IL);
     assertSame([all.status, stored(NOA_CAL, all.key.split('|')[2])?.start, stored(NOA_CAL, all.key.split('|')[2])?.end], ['ok', { date: '2026-10-22', timeZone: IL }, { date: '2026-10-25', timeZone: IL }], 'no calendar: the primary; all-day dates');
-    assertSame(await write.createItem(NOA, createCmd({ kind: 'reminder', title: 'x', allDay: false, start: '2026-10-22T18:00' }), IL), { status: 'not_allowed' }, 'no reminders on Google');
+    assertSame(await write.createItem(NOA, createCmd({ kind: 'reminder', title: 'x', allDay: false, start: '2026-10-22T18:00' }), IL), { status: 'not_allowed' }, 'a reminder without the plan');
   });
 
   await check('edit: only the changed fields are written; notes only when changed, as plain text', async () => {

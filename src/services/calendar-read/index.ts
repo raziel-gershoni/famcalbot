@@ -13,16 +13,12 @@ import { readGoogle } from './google';
 import type { DayKey, FamcalRead, GoogleRead, RangeRead, ReadItem, ReadRangeOptions, SourceName } from './types';
 
 /**
- * The sources that apply to a user: the one place that decides it. In step 1 a user
- * reads only their own kind (Owner decision 2, Ruling R3): a built-in calendar user
- * FamCal, a Google user Google, also while still paired with a FamCal partner. The
- * "Google becomes a connection" step changes only this function (plus the ownership
- * fixes).
+ * The sources that apply to a user: the one place that decides it ("Google as a
+ * connection" spec §4). Every user has FamCal (created lazily); Google applies while the
+ * user has a token. User.calendarSource is not read: it is a legacy column.
  */
-export function sourcesFor(user: Pick<UserConfig, 'calendarSource'>): SourceName[] {
-  if (user.calendarSource === 'NATIVE') return ['famcal'];
-  if (user.calendarSource === 'GOOGLE') return ['google'];
-  return [];
+export function sourcesFor(user: Pick<UserConfig, 'googleRefreshToken'>): SourceName[] {
+  return user.googleRefreshToken ? ['famcal', 'google'] : ['famcal'];
 }
 
 type Half<R> = { read: R; items: ReadItem[] };
@@ -40,12 +36,12 @@ type Half<R> = { read: R; items: ReadItem[] };
  *   `error` (FamCal with the cause; Google as 'unknown').
  * - Items: FamCal in the provider's order, then Google in the order of the choices,
  *   stably sorted by start as calendar.ts:159 sorts. An item without a start is
- *   dropped. A user has one source in step 1, so the concatenation never reorders.
+ *   dropped.
  * - Only Google takes the cache options; the default is 'bypass' (summaries never use
  *   the cache).
  *
  * `user` must be a fresh DB row (verifyUserAuth's, or the summary's getAllUsers row),
- * never the reminder cache's rebuilt user, which defaults the source to GOOGLE.
+ * never the reminder cache's rebuilt user, whose token may be an hour old.
  */
 export async function readRange(user: UserConfig, fromKey: DayKey, toKey: DayKey, opts: ReadRangeOptions): Promise<RangeRead> {
   const dayStart = startOfLocalDay(fromKey, opts.tz);

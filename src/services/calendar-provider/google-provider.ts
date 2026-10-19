@@ -74,8 +74,10 @@ export const googleProvider: CalendarProvider = {
   name: PROVIDER_NAME,
 
   async fetchEventsInRange(user: UserConfig, calendarIds: string[], startDate: Date, endDate: Date): Promise<UnifiedEvent[]> {
-    if (!user.googleRefreshToken || calendarIds.length === 0) return [];
-    const events = await gcalFetchRange(user.googleRefreshToken, calendarIds, startDate, endDate);
+    // The union list (getCalendarAssignmentsForUser) holds FamCal ids too; they are never Google's.
+    const googleIds = calendarIds.filter((id) => !id.startsWith('native:'));
+    if (!user.googleRefreshToken || googleIds.length === 0) return [];
+    const events = await gcalFetchRange(user.googleRefreshToken, googleIds, startDate, endDate);
     return events.map((e) => ({ ...e, provider: PROVIDER_NAME }));
   },
 

@@ -10,6 +10,7 @@ import { requestInitData } from '@/src/lib/request-init-data';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { prisma } from '@/src/utils/prisma';
 import { captureError } from '@/src/lib/error-capture';
+import { addsPrimary, clearOtherPrimaries } from '@/src/services/calendar-provider/primary';
 
 const VALID_LABELS = new Set(['primary', 'yours', 'spouse', 'kids', 'birthdays']);
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -97,6 +98,11 @@ export async function PATCH(request: NextRequest, { params }: PathProps) {
     }
 
     const updated = await prisma.nativeCalendar.update({ where: { id: calendar.id }, data: update });
+    // One primary across both lists, only when this save adds it (spec §3): a rename or a
+    // label toggle that resends primary as it was touches nothing else.
+    if (update.labels && addsPrimary(calendar.labels, update.labels)) {
+      await clearOtherPrimaries(user.id, { famcalId: calendar.id });
+    }
     return NextResponse.json({ success: true, calendar: updated });
   } catch (error) {
     captureError(error, 'native-calendar-patch', { calendarId });

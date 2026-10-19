@@ -550,7 +550,7 @@ const GALI = person(4, 'Gali', {
     cal(BIRTHDAYS_CAL, 'Birthdays', ['birthdays']),
   ],
 });
-/** Google, still paired with Lior, a FamCal user who set him a reminder. */
+/** Google, paired with Lior, a FamCal user who set him a reminder. */
 const TOM = person(5, 'Tom', { gender: 'male', googleRefreshToken: 'tok-tom', pairingId: 'pair-2', calendarAssignments: own(TOM_CAL, 'Tom') });
 /** Google, dead token. */
 const ORI = person(7, 'Ori', { gender: 'male', googleRefreshToken: 'tok-ori', calendarAssignments: own('ori@example.com', 'Ori') });
@@ -1180,11 +1180,9 @@ async function main() {
     assert(seen.length === 0, `kept past 06:00: ${show(seen)}`);
   });
 
-  await check('(a) a Google user still paired with a FamCal partner gets no FamCal item, and his reads make no database query (A-2, R3)', async () => {
+  await check('(a) a Google user paired with a FamCal partner reads FamCal too (Google as a connection): his reads query the database', async () => {
     assert(tomEvents.length > 0, 'Tom read nothing');
-    const famcal = tomEvents.filter(e => e.calendarId.startsWith('native:') || e.summary === 'Pick up the dry cleaning');
-    assert(famcal.length === 0, `FamCal items: ${show(famcal)}`);
-    assert(tomQueries === 0, `${tomQueries} database queries`);
+    assert(tomQueries > 0, 'Tom\'s reads never asked the database');
   });
 
   for (const user of [DANA, GALI]) {

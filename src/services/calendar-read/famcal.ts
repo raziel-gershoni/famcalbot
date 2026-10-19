@@ -100,17 +100,12 @@ function toReadItem(
  *   items.map(i => i.event) is what the provider returns for the same calendars.
  * - Any error: { status: 'error', cause } and no items. Nothing is logged here: the
  *   summary rethrows the cause, and the route reports the status.
- * - A user not on the built-in calendar has no FamCal half (sourcesFor): an error,
- *   with no query.
  */
 export async function readFamcal(
   user: UserConfig,
   window: { from: Date; to: Date },
   opts: { calendarIds?: readonly string[] }
 ): Promise<{ read: FamcalRead; items: ReadItem[] }> {
-  if (user.calendarSource !== 'NATIVE') {
-    return { read: { status: 'error', cause: new Error('readFamcal: not a built-in calendar user') }, items: [] };
-  }
   try {
     const visible = await listVisibleCalendars(user.id, user.pairingId ?? null);
     const wanted = opts.calendarIds ? new Set(opts.calendarIds) : null;

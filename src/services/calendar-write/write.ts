@@ -45,6 +45,7 @@ import { classifyRule, type HebrewRule } from '../native-calendar/recurrence';
 import { isForPartner, itemZone, loadItem, wallFor, type LoadedItem } from './item-info';
 import { endFollows, isHebrewChoice, itemKeyOf, isTime, type CreateCommand, type DeleteCommand, type UpdateCommand } from './validate';
 import { sourcesFor } from '../calendar-read/index';
+import { defaultCalendarIdFor } from '../calendar-provider/user-calendars';
 import { addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween, instantToWall, wallToInstant } from './walltime';
 
 export type WriteResult =
@@ -149,13 +150,14 @@ export function createTimes(cmd: CreateCommand, tz: string): { startsAt: Date; e
 }
 
 export async function createItem(user: UserConfig, cmd: CreateCommand, tz: string): Promise<WriteResult> {
-  // Per calendar (3b spec §3.3, and the next step's per-calendar editor): a Google id goes
-  // to Google; no id goes to the user's FamCal main calendar, or to Google's when the user
-  // reads no FamCal.
+  // Per calendar (3b spec §3.3, "Google as a connection" §3): a Google id goes to Google;
+  // an event with no id goes to the user's default calendar (defaultCalendarFor), a
+  // reminder to the FamCal main calendar.
   const famcal = sourcesFor(user).includes('famcal');
-  if ((cmd.calendarId && !cmd.calendarId.startsWith('native:')) || (!cmd.calendarId && !famcal && sourcesFor(user).includes('google'))) {
+  const placed = cmd.calendarId ?? (cmd.kind === 'event' ? await defaultCalendarIdFor(user) : null);
+  if (placed && !placed.startsWith('native:')) {
     const { createGoogleItem } = await import('./google-item');
-    return createGoogleItem(user, cmd, tz);
+    return createGoogleItem(user, { ...cmd, calendarId: placed }, tz);
   }
   if (!famcal) return NOT_ALLOWED;
   try {
@@ -173,13 +175,13 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
     };
 
     if (cmd.kind === 'event') {
-      const calendarCuid = cmd.calendarId ? decodeCalendarId(cmd.calendarId) : (await getMainNativeCalendar(user.id)).id;
+      const calendarCuid = placed ? decodeCalendarId(placed) : (await getMainNativeCalendar(user.id)).id;
       if (!calendarCuid) return { status: 'invalid', field: 'calendarId' };
       const times = createTimes(cmd, tz);
       const event = await createNativeEvent({ ...base, ...times, calendarCuid });
       const calendar = await prisma.nativeCalendar.findUnique({ where: { id: event.calendarId } });
       if (calendar) await clearCaches(user, [calendar], [null]);
-      trackActivityAsync(user.id, 'voice_event_created', { calendar_id: cmd.calendarId ?? `native:${calendarCuid}`, source: 'app' });
+      trackActivityAsync(user.id, 'voice_event_created', { calendar_id: placed ?? `native:${calendarCuid}`, source: 'app' });
       return { status: 'ok', key: itemKeyOf(event.id, rrule ? event.startsAt : undefined) };
     }
 

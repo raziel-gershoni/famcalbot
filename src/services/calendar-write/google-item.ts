@@ -36,7 +36,7 @@ const WRITABLE_ROLES = new Set(['owner', 'writer']);
 const NOT_ALLOWED: WriteResult = { status: 'not_allowed' };
 const NOT_FOUND: WriteResult = { status: 'not_found' };
 
-/** Whether the user reads Google (today: their calendar is Google; "Google as a connection" changes only sourcesFor). */
+/** Whether the user reads Google: a token (sourcesFor), and so their chosen calendars. */
 const readsGoogle = (user: UserConfig) => sourcesFor(user).includes('google') && Boolean(user.googleRefreshToken);
 
 /** The user's chosen Google calendar a key names, or undefined: ids never come from the client. */
@@ -266,7 +266,8 @@ export async function createGoogleItem(user: UserConfig, cmd: CreateCommand, tz:
   if (cmd.kind !== 'event') return NOT_ALLOWED; // reminders always live in FamCal
   // Google can't hold a Hebrew-date rule (hebrew-repeats spec §4): never sent as a Gregorian yearly one.
   if (isHebrewChoice(cmd.repeat)) return { status: 'invalid', field: 'repeat' };
-  if (sourcesFor(user).includes('google') && !user.googleRefreshToken) {
+  // A calendar the user chose while connected, with the token gone (cleared on a scope error): reconnect.
+  if (!user.googleRefreshToken && (user.calendarAssignments ?? []).some((a) => a.calendarId === cmd.calendarId)) {
     captureError(new Error('Google create with no refresh token'), 'calendar-google-item', { user_id: user.id }, 'warning');
     return { status: 'reconnect', reason: 'token' };
   }

@@ -552,7 +552,7 @@ async function main() {
     assertSame([pick(tal.body), pick(noa.body), pick(dana.body)], [[IL, 0, true], ['Europe/Moscow', 1, false], [NY, 0, false]], 'facts');
   });
 
-  await check('#9 sources: a FamCal user has no google key; requested-but-not-applicable reads nothing; applicable-but-not-requested is pending', async () => {
+  await check('#9 sources: a user without a token has no google key; a Google user reads FamCal too (Google as a connection); requested-but-not-applicable reads nothing; applicable-but-not-requested is pending', async () => {
     seed();
     const famcalUser = await get('', { tg: TG.tal });
     const famcalOnlyGoogle = await get('sources=google', { tg: TG.tal });
@@ -561,19 +561,19 @@ async function main() {
     assertSame(famcalUser.body.sources, { famcal: { status: 'ok' } }, 'FamCal user');
     assertSame(famcalOnlyGoogle.body.sources, { famcal: { status: 'pending' } }, 'FamCal user on sources=google');
     assert(!('carryOvers' in famcalOnlyGoogle.body), 'carry-overs without a FamCal read');
-    assertSame(googleOnlyFamcal.body.sources, { google: { status: 'pending' } }, 'Google user on sources=famcal');
-    assertSame(both.body.sources, { google: { status: 'ok' } }, 'Google user on both');
-    assertSame([famcalCalls.map((c) => c.user.id), googleCalls.map((c) => c.user.id)], [[9], [50]], 'reads');
+    assertSame(googleOnlyFamcal.body.sources, { famcal: { status: 'ok' }, google: { status: 'pending' } }, 'Google user on sources=famcal');
+    assertSame(both.body.sources, { famcal: { status: 'ok' }, google: { status: 'ok' } }, 'Google user on both');
+    assertSame([famcalCalls.map((c) => c.user.id), googleCalls.map((c) => c.user.id)], [[9, 50, 50], [50]], 'reads');
     assert(famcalCalls[0].opts.calendarIds === undefined, `calendarIds from the route: ${show(famcalCalls[0].opts)}`);
   });
 
-  await check('#10 a Google user with an empty token gets reconnect, with no FamCal read, no FamCal query and no network', async () => {
+  await check('#10 a Google user with an empty token has no Google half (Google as a connection: the page props say Reconnect): no google key, no Google read, no network', async () => {
     seed();
     const r = await get('sources=google', { tg: TG.omer });
     assert(r.status === 200, `status ${r.status} ${r.text}`);
-    assertSame(r.body.sources, { google: { status: 'reconnect', reason: 'token' } }, 'sources');
+    assertSame(r.body.sources, { famcal: { status: 'pending' } }, 'sources');
     assertSame([r.body.calendars, r.body.partner, 'carryOvers' in r.body], [[], null, false], 'legend, partner, carry-overs');
-    assert(famcalCalls.length === 0 && carryCalls.length === 0, 'FamCal read for a Google user');
+    assert(famcalCalls.length === 0 && carryCalls.length === 0 && googleCalls.length === 0, 'a read on sources=google with no token');
     assert(prismaCalls.every((c) => c.startsWith('user.')), `queries: ${show(prismaCalls)}`);
     assert(fetched.length === 0, `network: ${show(fetched)}`);
   });
@@ -581,13 +581,13 @@ async function main() {
   await check('#11 the Google read: cache "use" (fresh=1 "refresh"), 6,000 ms, the user\'s tz, after() as defer; partial, stale and unavailable carried', async () => {
     seed();
     googleMode = 'partialStale';
-    const r = await get('', { tg: TG.dana });
-    await get('fresh=1', { tg: TG.dana });
-    await get('fresh=0', { tg: TG.dana });
+    const r = await get('sources=google', { tg: TG.dana });
+    await get('sources=google&fresh=1', { tg: TG.dana });
+    await get('sources=google&fresh=0', { tg: TG.dana });
     assertSame(googleCalls.map((c) => [c.opts.googleCache, c.opts.deadlineMs, c.opts.tz, c.opts.calendarIds, typeof c.opts.defer]), [
       ['use', 6000, NY, undefined, 'function'], ['refresh', 6000, NY, undefined, 'function'], ['use', 6000, NY, undefined, 'function'],
     ], 'readGoogle options');
-    assertSame(r.body.sources, { google: { status: 'ok', partial: { failed: 1, truncated: 0 }, stale: true } }, 'sources');
+    assertSame(r.body.sources, { famcal: { status: 'pending' }, google: { status: 'ok', partial: { failed: 1, truncated: 0 }, stale: true } }, 'sources');
     assertSame(r.body.calendars, [
       { id: FAMILY.id, source: 'google', name: 'Family', color: '#7986CB', mine: true },
       { id: SPOUSE.id, source: 'google', name: 'Dan', color: '#33B679', mine: false, ownerName: 'Dan', unavailable: true },
@@ -603,10 +603,10 @@ async function main() {
   await check('#12 Google errors keep their reason; a FamCal error is reported and leaves the days unanswered', async () => {
     seed();
     googleMode = 'gone';
-    const gone = await get('', { tg: TG.dana });
+    const gone = await get('sources=google', { tg: TG.dana });
     famcalMode = 'error';
     const down = await get('', { tg: TG.tal });
-    assertSame([gone.status, gone.body.sources, gone.body.calendars], [200, { google: { status: 'error', reason: 'calendars_gone' } }, []], 'calendars_gone');
+    assertSame([gone.status, gone.body.sources, gone.body.calendars], [200, { famcal: { status: 'pending' }, google: { status: 'error', reason: 'calendars_gone' } }, []], 'calendars_gone');
     assertSame([down.status, down.body.sources, down.body.partner, 'carryOvers' in down.body], [200, { famcal: { status: 'error' } }, null, false], 'FamCal error');
     assert(down.body.days.every((d: Row) => d.items.length === 0) && down.body.days.length === 7, `days ${show(down.body.days)}`);
     assertSame(captured.map((c) => [c.ctx, c.severity, c.extra]), [['calendar-range-famcal', 'warning', { user_id: 9 }]], 'captured');
@@ -739,16 +739,16 @@ async function main() {
   await check('#21 readRange: sources intersect sourcesFor; calendarIds and the cache default reach the halves; FamCal then Google order; no start dropped', async () => {
     seed();
     const toUser = (id: number) => ({ ...DB.user.find((u) => u.id === id), telegramId: null });
-    assertSame([reader.sourcesFor({ calendarSource: 'NATIVE' }), reader.sourcesFor({ calendarSource: 'GOOGLE' })], [['famcal'], ['google']], 'sourcesFor');
+    assertSame([reader.sourcesFor({ googleRefreshToken: '' }), reader.sourcesFor({ googleRefreshToken: 'rt' })], [['famcal'], ['famcal', 'google']], 'sourcesFor');
     const none = await reader.readRange(toUser(9), '2026-10-16', '2026-10-17', { tz: IL, deadlineMs: 1000, sources: ['google'] });
     assertSame([Object.keys(none).sort(), none.items.length, famcalCalls.length, googleCalls.length], [['items', 'window'], 0, 0, 0], 'FamCal user, sources [google]');
     const solo = await reader.readRange(toUser(42), '2026-10-16', '2026-10-17', { tz: IL, deadlineMs: 1000, calendarIds: ['native:cal-own'] });
     assertSame([solo.items.map((i: Row) => i.key), famcalCalls[0].opts.calendarIds], [['famcal|ev-solo'], ['native:cal-own']], 'no-start item dropped; calendarIds passed');
     googleMode = 'unsorted';
-    const g = await reader.readRange(toUser(50), '2026-10-16', '2026-10-17', { tz: NY, deadlineMs: 4321, calendarIds: [FAMILY.id] });
+    const g = await reader.readRange(toUser(50), '2026-10-16', '2026-10-17', { tz: NY, deadlineMs: 4321, calendarIds: [FAMILY.id], sources: ['google'] });
     assertSame(g.items.map((i: Row) => i.event.eventId), ['g-allday', 'g-a', 'g-b', 'g-late'], 'Google order: by start, ties in the order of the choices');
     assertSame([googleCalls[0].opts.googleCache, googleCalls[0].opts.deadlineMs, googleCalls[0].opts.calendarIds, googleCalls[0].opts.defer], ['bypass', 4321, [FAMILY.id], undefined], 'Google options');
-    assert(!('famcal' in g), 'a Google user has no FamCal half');
+    assert(!('famcal' in g), 'sources [google] read a FamCal half');
   });
 
   await check('#22 readRange: a half that rejects reports error and the read still answers', async () => {

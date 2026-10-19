@@ -117,9 +117,9 @@ function parseQuery(params: URLSearchParams, today: DayKey): Query | { error: st
 
 /**
  * Each applicable source's status: what the read said for a requested one, 'pending' for
- * one that applies but wasn't requested. A source that doesn't apply has no key, so a
- * FamCal user can never be shown "Reconnect Google" (that flow would switch them to
- * Google and hide their calendars).
+ * one that applies but wasn't requested. A source that doesn't apply has no key: Google
+ * applies only with a token (sourcesFor), so a dead token answers reconnect here, and a
+ * token cleared while calendars are stored is the page's Google state to show.
  */
 function sourcesDto(applicable: readonly SourceName[], read: RangeRead): RangeResponse['sources'] {
   const out: RangeResponse['sources'] = {};
