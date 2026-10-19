@@ -19,7 +19,9 @@ import { effectiveOwnerId, getActivePartnerSummary } from './ownership';
 import { getReminderSupport, isNativeRemindersEnabled } from './support';
 import { dueAtForOccurrence, isEligible, MAX_PING_ATTEMPTS, PING_LOOKBACK_MS } from './due';
 import { Claim, claimOccurrence, releaseClaim } from './claim';
-import { buildPingKeyboard, buildPingText, sendPing } from './ping';
+import { buildPingKeyboard, buildPingText, sendPing, stripPingButtons } from './ping';
+import { getBotMessage } from '../../lib/bot-messages';
+import { escapeHtml } from '../../utils/html';
 
 const HOUR_MS = 60 * 60 * 1000;
 // The window occurrences are expanded over. A date-only reminder pings at 09:00 in the
@@ -193,10 +195,16 @@ async function pingOccurrence(
   }
 
   try {
-    await prisma.nativeReminderState.update({
+    const saved = await prisma.nativeReminderState.update({
       where: { id: claim.id },
       data: { pingChatId: recipient.telegramId, pingMessageId: messageId },
+      select: { doneAt: true },
     });
+    // An in-app done between the claim and this save found no message to edit: close it here.
+    if (saved.doneAt) {
+      const done = await getBotMessage(recipient.language, 'nativeReminders.done', { title: escapeHtml(candidate.occ.title) });
+      await stripPingButtons(recipient.telegramId, messageId, done);
+    }
   } catch (error) {
     // The ping went out; only a later edit to it (on a move) is lost.
     captureError(error, 'native-reminders-save-ping', { user_id: recipient.id }, 'warning');

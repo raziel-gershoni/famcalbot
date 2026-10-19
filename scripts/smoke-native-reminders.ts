@@ -231,11 +231,15 @@ let sendCalls = 0;
 let edits: { text: string; options: Row }[] = [];
 let editFailure: unknown = null;
 let nextMessageId = 100;
+/** Runs inside the next send, as an action landing while the ping is on its way. */
+let duringSend: (() => void) | null = null;
 const fakeBot = {
   sendMessage: async (chatId: string, text: string, options: { parse_mode?: string; reply_markup: Keyboard }) => {
     sendCalls++;
     if (sendFailures.length) throw sendFailures.shift();
     const messageId = nextMessageId++;
+    duringSend?.();
+    duringSend = null;
     sent.push({ at: clock, chatId: String(chatId), text, parseMode: options.parse_mode, keyboard: options.reply_markup, messageId });
     return { message_id: messageId };
   },
@@ -859,6 +863,21 @@ async function main() {
     const data = callbacks(keyboard as Keyboard);
     assert(data.length === 4 && data.every((d) => Buffer.byteLength(d) <= 64), data.join(' '));
     assertSame(data.map((d) => d.split(':')[1]), ['d', 's15', 's60', 'st']);
+  });
+
+  await check('pass: a done that lands while the ping is being sent leaves it closed, not with live buttons', async () => {
+    reset();
+    const r = reminder({ startsAt: today('10:00') });
+    duringSend = () => { stateOf(r.id, today('10:00'))!.doneAt = today('10:00'); };
+    await pass(today('10:00'));
+    const row = stateOf(r.id, today('10:00'))!;
+    assert(row.pingMessageId === sent[0].messageId, show(row));
+    const text = copy.he.done.replace('{title}', 'Call the plumber');
+    assertSame(edits, [{ text, options: { chat_id: '1001', message_id: sent[0].messageId, parse_mode: 'HTML' } }]);
+    reset();
+    reminder({ startsAt: today('10:00') });
+    await pass(today('10:00'));
+    assert(edits.length === 0, 'an open ping is left alone');
   });
 
   await check('stripPingButtons: edits to the text with no buttons; a ping already edited or deleted is fine', async () => {
