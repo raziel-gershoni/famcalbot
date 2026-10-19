@@ -23,7 +23,7 @@ import type CalendarsClient from '@/app/[locale]/calendars/CalendarsClient';
 import type PairClient from '@/app/[locale]/pair/PairClient';
 import type SubscriptionClient from '@/app/[locale]/subscription/SubscriptionClient';
 import { updateUserById } from '@/src/services/user-service';
-import { getSubscriptionWithUsage, getTrialStatus, checkEarlyAdopterAccess, checkFeatureAccess } from '@/src/services/subscription-service';
+import { getSubscriptionWithUsage, getTrialStatus, checkEarlyAdopterAccess, peekFeatureAccess } from '@/src/services/subscription-service';
 import { isCalendarHomeOn } from '@/src/services/calendar-read/rollout';
 import { getReminderSupport } from '@/src/services/native-reminders/support';
 import { trackActivityAsync } from '@/src/services/analytics-service';
@@ -183,8 +183,8 @@ async function calendarHomeFor(
 ): Promise<{ calendarHome: false } | { calendarHome: true; hints: HomeHints }> {
   if (!(await isCalendarHomeOn(user))) return { calendarHome: false };
   const [reminders, voiceEvents] = await Promise.all([
-    getReminderSupport(user).then((support) => support.supported),
-    checkFeatureAccess(user.id, 'voice_events').then(
+    getReminderSupport(user, { quiet: true }).then((support) => support.supported),
+    peekFeatureAccess(user.id, 'voice_events').then(
       (access) => access.allowed,
       (error) => {
         captureError(error, 'calendar-home-hints', { user_id: user.id }, 'warning');

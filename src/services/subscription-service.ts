@@ -672,6 +672,26 @@ export async function checkFeatureAccess(
   userId: number,
   feature: FeatureType
 ): Promise<FeatureAccessResult> {
+  return readFeatureAccess(userId, feature, true);
+}
+
+/**
+ * The same answer as checkFeatureAccess, for a caller that only shows a hint: a miss
+ * that finds the plan lacking the feature does not log feature_blocked (nothing was
+ * blocked). Same cache key and value, so the two share the 24h cache.
+ */
+export async function peekFeatureAccess(
+  userId: number,
+  feature: FeatureType
+): Promise<FeatureAccessResult> {
+  return readFeatureAccess(userId, feature, false);
+}
+
+async function readFeatureAccess(
+  userId: number,
+  feature: FeatureType,
+  track: boolean
+): Promise<FeatureAccessResult> {
   const cacheKey = REDIS_KEYS.featureAccess(userId, feature);
 
   // 1. Check Redis cache first
@@ -687,7 +707,7 @@ export async function checkFeatureAccess(
   }
 
   // 2. Compute feature access (existing logic)
-  const result = await computeFeatureAccess(userId, feature);
+  const result = await computeFeatureAccess(userId, feature, track);
 
   // 3. Cache the result (fire and forget)
   redis.set(cacheKey, result, { ex: FEATURE_ACCESS_CACHE_TTL }).catch(error => {
@@ -704,7 +724,8 @@ export async function checkFeatureAccess(
  */
 async function computeFeatureAccess(
   userId: number,
-  feature: FeatureType
+  feature: FeatureType,
+  track = true
 ): Promise<FeatureAccessResult> {
   // 0. Check early adopter access (global mode or per-user flag)
   const isEarlyAdopter = await checkEarlyAdopterAccess(userId);
@@ -741,11 +762,13 @@ async function computeFeatureAccess(
       }
       if (usage.textSummariesUsed >= limits.textSummaries) {
         // Track blocked feature
-        await trackActivity(userId, 'feature_blocked', {
-          feature: 'text_summary',
-          current_usage: usage.textSummariesUsed,
-          limit: limits.textSummaries,
-        });
+        if (track) {
+          await trackActivity(userId, 'feature_blocked', {
+            feature: 'text_summary',
+            current_usage: usage.textSummariesUsed,
+            limit: limits.textSummaries,
+          });
+        }
         return {
           allowed: false,
           reason: 'limit_reached',
@@ -767,11 +790,13 @@ async function computeFeatureAccess(
         return { allowed: true };
       }
       if (usage.voiceSummariesUsed >= limits.voiceSummaries) {
-        await trackActivity(userId, 'feature_blocked', {
-          feature: 'voice_summary',
-          current_usage: usage.voiceSummariesUsed,
-          limit: limits.voiceSummaries,
-        });
+        if (track) {
+          await trackActivity(userId, 'feature_blocked', {
+            feature: 'voice_summary',
+            current_usage: usage.voiceSummariesUsed,
+            limit: limits.voiceSummaries,
+          });
+        }
         return {
           allowed: false,
           reason: 'limit_reached',
@@ -790,9 +815,11 @@ async function computeFeatureAccess(
 
     case 'reminders': {
       if (!limits.reminders) {
-        await trackActivity(userId, 'feature_blocked', {
-          feature: 'reminders',
-        });
+        if (track) {
+          await trackActivity(userId, 'feature_blocked', {
+            feature: 'reminders',
+          });
+        }
         return { allowed: false, reason: 'upgrade_required' };
       }
       return { allowed: true };
@@ -800,9 +827,11 @@ async function computeFeatureAccess(
 
     case 'voice_events': {
       if (!limits.voiceEvents) {
-        await trackActivity(userId, 'feature_blocked', {
-          feature: 'voice_events',
-        });
+        if (track) {
+          await trackActivity(userId, 'feature_blocked', {
+            feature: 'voice_events',
+          });
+        }
         return { allowed: false, reason: 'upgrade_required' };
       }
       return { allowed: true };

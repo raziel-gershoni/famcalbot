@@ -354,13 +354,19 @@ function installStubs() {
       if (featureError === feature) throw new Error(`feature check failed in smoke: ${feature}`);
       return subscriptionService.checkFeatureAccess(userId, feature);
     },
+    // The hint's quiet read: recorded the same way, answered by the real one.
+    peekFeatureAccess: async (userId: number, feature: string) => {
+      featureChecks.push(`${feature}(${userId})`);
+      if (featureError === feature) throw new Error(`feature check failed in smoke: ${feature}`);
+      return subscriptionService.peekFeatureAccess(userId, feature);
+    },
   });
   const reminderSupport = nodeRequire(path.join(ROOT, 'src/services/native-reminders/support.ts'));
   stub('src/services/native-reminders/support.ts', {
     ...reminderSupport,
-    getReminderSupport: async (user: Row) => {
+    getReminderSupport: async (user: Row, options?: Row) => {
       supportChecks.push(Number(user.id));
-      return reminderSupport.getReminderSupport(user);
+      return reminderSupport.getReminderSupport(user, options);
     },
   });
   globalThis.fetch = (async (input: unknown) => {
@@ -728,6 +734,34 @@ async function main() {
     assert(props.calendarHome === true && hintsOf(props) === 'reminders=true voiceEvents=false',
       `calendarHome ${show(props.calendarHome)}, ${hintsOf(props)}`);
     assert(captured.some(c => c.startsWith('calendar-home-hints: ') && c.includes('voice_events')), `captured: ${show(captured)}`);
+  });
+
+  await check('#15 the hints are a read, not a block: a Basic user (no reminders, no voice events) opening the dashboard on an empty feature cache logs no feature_blocked row and no Sentry capture; a direct checkFeatureAccess miss still does', async () => {
+    seed();
+    rollout('ALL');
+    DB.subscription = [{ id: 'sub-basic', userId: 1, plan: 'BASIC', status: 'ACTIVE', currentPeriodStart: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, trialStartedAt: null, trialEndsAt: new Date(0) }];
+    const sentry = nodeRequire('@sentry/nextjs');
+    const messages: string[] = [];
+    const realCapture = sentry.captureMessage;
+    sentry.captureMessage = (message: string) => { messages.push(message); return ''; };
+    const blocked = () => (DB.userActivity ?? []).filter((r: Row) => r.action === 'feature_blocked').length;
+    try {
+      const props = await dashboardFor(5550001, 'he');
+      await new Promise(resolve => setTimeout(resolve, 20));
+      const problems: string[] = [];
+      if (hintsOf(props) !== 'reminders=false voiceEvents=false') problems.push(`hints ${hintsOf(props)}`);
+      if (blocked() !== 0) problems.push(`${blocked()} feature_blocked rows from the hints`);
+      if (messages.length) problems.push(`Sentry captures ${show(messages)}`);
+      assert(problems.length === 0, problems.join('; '));
+      // The control: a real gate on a miss still logs what it blocked.
+      redisStore.delete(REDIS_KEYS.featureAccess(1, 'reminders'));
+      const direct = await (await load('src/services/subscription-service.ts')).checkFeatureAccess(1, 'reminders');
+      await new Promise(resolve => setTimeout(resolve, 20));
+      assert(direct.allowed === false && blocked() === 1 && messages.includes('User Activity: feature_blocked'),
+        `direct ${show(direct)}, rows ${blocked()}, captures ${show(messages)}`);
+    } finally {
+      sentry.captureMessage = realCapture;
+    }
   });
 
   let failed = 0;

@@ -101,6 +101,13 @@ const fakeSubscriptionService = {
     if (allowed instanceof Error) throw allowed;
     return allowed ? { allowed: true } : { allowed: false, reason: 'upgrade_required' };
   },
+  // The quiet read the home's hints use: the same answer, recorded apart.
+  peekFeatureAccess: async (userId: number, feature: string) => {
+    accessChecks.push(`peek ${userId}:${feature}`);
+    const allowed = access[userId];
+    if (allowed instanceof Error) throw allowed;
+    return allowed ? { allowed: true } : { allowed: false, reason: 'upgrade_required' };
+  },
   invalidateAllFeatureAccessCaches: async () => {},
 };
 
@@ -232,6 +239,19 @@ async function main() {
     access[7] = new Error('db is down');
     const support = await getReminderSupport({ id: 7, calendarSource: 'NATIVE', telegramId: 1007 });
     assert(!support.supported && support.reason === 'no_access', JSON.stringify(support));
+  });
+
+  await check('quiet: true reads through peekFeatureAccess (no logging gate), with the same answers and failing closed', async () => {
+    reset();
+    access[8] = true;
+    access[9] = false;
+    access[10] = new Error('db is down');
+    const yes = await getReminderSupport({ id: 8, calendarSource: 'NATIVE', telegramId: 1008 }, { quiet: true });
+    const no = await getReminderSupport({ id: 9, calendarSource: 'NATIVE', telegramId: 1009 }, { quiet: true });
+    const down = await getReminderSupport({ id: 10, calendarSource: 'NATIVE', telegramId: 1010 }, { quiet: true });
+    assert(yes.supported && !no.supported && no.reason === 'no_access', JSON.stringify({ yes, no }));
+    assert(!down.supported && down.reason === 'no_access', JSON.stringify(down));
+    assert(accessChecks.join() === 'peek 8:reminders,peek 9:reminders,peek 10:reminders', `feature checks ${accessChecks}`);
   });
 
   // ---- isNativeRemindersEnabled: Redis first, the DB behind it, on by default ----

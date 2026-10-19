@@ -12,7 +12,7 @@ import { redis } from '../../utils/redis';
 import { prisma } from '../../utils/prisma';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { captureError } from '../../lib/error-capture';
-import { checkFeatureAccess } from '../subscription-service';
+import { checkFeatureAccess, peekFeatureAccess } from '../subscription-service';
 import { invalidateDueGate } from './due-gate';
 
 const FLAG_KEY = REDIS_KEYS.NATIVE_REMINDERS_ENABLED;
@@ -88,13 +88,14 @@ export async function getReminderSupport(user: {
   id: number;
   calendarSource: string;
   telegramId?: bigint | number | string | null;
-}): Promise<ReminderSupport> {
+}, options: { quiet?: boolean } = {}): Promise<ReminderSupport> {
   if (user.calendarSource !== 'NATIVE') return { supported: false, reason: 'not_native' };
   if (!hasTelegram(user.telegramId)) return { supported: false, reason: 'no_telegram' };
   if (!(await isNativeRemindersEnabled())) return { supported: false, reason: 'disabled' };
 
   try {
-    const access = await checkFeatureAccess(user.id, 'reminders');
+    // quiet: a hint (the home's), not a gate, so a plan without reminders logs nothing
+    const access = await (options.quiet ? peekFeatureAccess : checkFeatureAccess)(user.id, 'reminders');
     if (!access.allowed) return { supported: false, reason: 'no_access' };
   } catch (error) {
     console.error(`[NativeReminders] Feature check failed for user ${user.id}:`, error);
