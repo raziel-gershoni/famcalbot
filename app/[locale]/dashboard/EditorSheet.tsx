@@ -10,7 +10,9 @@
 //   and For when the partner can be pinged.
 // - Edit: the same fields prefilled from the item's edit info, with the Repeat row (the
 //   stored rule selected; a rule the five can't say is a sixth, first choice; an end is
-//   kept and named), the Calendar row (the item's move targets) and, for a reminder's
+//   kept and named; with the home's Hebrew dates on and a FamCal calendar, also "every year on
+//   <Hebrew date>" and "Yahrzeit", worded from the stored anchor or the form's start day), the
+//   Calendar row (the item's move targets) and, for a reminder's
 //   creator, the For row. Where the info doesn't allow a row, its value stays text. What a
 //   Save applies to is editor-model's scopePlan: a repeat change is from this occurrence on
 //   with no question, a calendar or recipient change on a series asks 'this one and the
@@ -31,8 +33,11 @@ import {
   REMINDER_DEFAULT_TIME,
   allOfThem,
   checkForm,
+  dayInZone,
   dayOfMonth,
+  hebrewAnchorOf,
   isDirty,
+  isHebrewRepeat,
   isRealDay,
   moveStart,
   movesDay,
@@ -51,6 +56,7 @@ import {
 } from '@/src/lib/calendar-view/editor-model';
 import type { EditScope, EditorCalendar, ItemEditInfoResponse, ItemKind, RepeatChoice, RuleChoice } from '@/src/lib/calendar-view/editor-types';
 import { formatDayMonth } from '@/src/lib/calendar-view/format';
+import { hebrewDayLabel } from '@/src/lib/calendar-view/hebrew-date';
 import { BottomSheet } from './BottomSheet';
 import { FORM_CSS, FormCard, PillRow, RadioPair, SaveBar, Segmented, SwitchRow, TextField, ValueRow, type SelectOption } from './form-kit';
 import { ConfirmSheet, ScopeSheet, useErrorText, type SubmitError } from './ScopeSheet';
@@ -65,6 +71,8 @@ export interface EditorSheetProps {
   kinds?: { event: boolean; reminder: boolean };
   calendars?: EditorCalendar[];
   partner?: { name: string; canRemind: boolean } | null;
+  /** The home shows Hebrew dates: with a FamCal calendar, the Repeat row offers the two Hebrew choices (hebrew-repeats spec §4). */
+  hebrewDates?: boolean;
   /** Edit: the item's edit info and key. */
   info?: ItemEditInfoResponse;
   itemKey?: string;
@@ -77,7 +85,7 @@ export interface EditorSheetProps {
 
 const REPEATS: RepeatChoice[] = ['none', 'daily', 'weekly', 'monthly', 'yearly'];
 
-export function EditorSheet({ mode, initial, kinds, calendars = [], partner, info, itemKey, onSave, onClose, cancelRef }: EditorSheetProps) {
+export function EditorSheet({ mode, initial, kinds, calendars = [], partner, hebrewDates = false, info, itemKey, onSave, onClose, cancelRef }: EditorSheetProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   const [start] = useState(initial);
@@ -175,6 +183,9 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
   const weekday = weekdayId(day);
   const stored: RuleChoice = edit && info ? storedChoice(info) : 'none';
   const untilDay = edit && info ? (info.series.rule?.until ?? null) : null;
+  /** The Hebrew date of a day, in the language's own form (gematriya in Hebrew); Russian reads its month genitives. */
+  const genitive = locale === 'ru' ? (t.raw('hebrewMonthGenitive') as string[]) : undefined;
+  const hebrewLabel = (d: string): string => (d ? hebrewDayLabel(d, locale, genitive) : '');
   const wordsOf = (w: RepeatWords): string | null => {
     switch (w.key) {
       case 'daily':
@@ -189,9 +200,28 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
         return t('editor.repeat.monthlyPlain');
       case 'yearly':
         return t('editor.repeat.yearlyPlain');
+      case 'hebrewEvery': {
+        const when = hebrewLabel(w.anchor);
+        return when ? t(w.kind === 'yahrzeit' ? 'editor.repeat.yahrzeitEvery' : 'editor.repeat.hebrewEvery', { count: w.count, date: when }) : t('editor.repeat.every.yearly', { count: w.count });
+      }
       default:
         return null;
     }
+  };
+  // The Hebrew choices (hebrew-repeats spec §4): offered with Hebrew dates and a FamCal calendar
+  // (a reminder is always FamCal's); an item that already has one shows its words to anyone.
+  const famcalTarget = edit ? info?.source !== 'google' : reminder || !form.calendarId || form.calendarId.startsWith('native:');
+  const hebrewOffered = hebrewDates && famcalTarget;
+  /** Where a new part would be anchored: the form's start day, in the series' zone on an edit. */
+  const startDayInZone = edit && info && day ? dayInZone(day, form.allDay ? '00:00' : form.startTime, info.tz, info.series.zone) : day;
+  const storedAnchor = edit && info ? hebrewAnchorOf(info) : null;
+  const dayMoved = edit && info ? movesDay(form, start, info.tz, info.series.zone) : false;
+  /** A Hebrew choice's words: the stored anchor's date (never the opened occurrence's, which may be a rolled day) unless the start moved, else the start's. */
+  const hebrewChoiceText = (r: 'hebrew' | 'yahrzeit'): string => {
+    const anchorDay = storedAnchor && (stored === r || !dayMoved) ? storedAnchor : startDayInZone;
+    const when = hebrewLabel(anchorDay);
+    if (r === 'yahrzeit') return when ? t('editor.repeat.yahrzeit', { date: when }) : t('editor.repeat.yahrzeitPlain');
+    return when ? t('editor.repeat.hebrew', { date: when }) : t('editor.repeat.hebrewPlain');
   };
   const date = day ? formatDayMonth(day, locale) : '';
   const dom = dayOfMonth(day) ?? 1;
@@ -202,9 +232,11 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
     if (r === 'daily') return t('editor.repeat.daily');
     if (r === 'weekly') return weekday ? t('editor.repeat.weekly', { weekday }) : t('editor.repeat.weeklyPlain');
     if (r === 'monthly') return day ? t('editor.repeat.monthly', { day: dom }) : t('editor.repeat.monthlyPlain');
+    if (r === 'hebrew' || r === 'yahrzeit') return hebrewChoiceText(r);
     return day ? t('editor.repeat.yearly', { date }) : t('editor.repeat.yearlyPlain');
   };
-  const repeatOptions: SelectOption[] = REPEATS.map((r): SelectOption => {
+  const choices: RepeatChoice[] = hebrewOffered ? [...REPEATS, 'hebrew', 'yahrzeit'] : isHebrewRepeat(stored) ? [...REPEATS, stored] : REPEATS;
+  const repeatOptions: SelectOption[] = choices.map((r): SelectOption => {
     if (r === 'none' || !until) return { value: r, text: choiceText(r) };
     const ended = withEnd(choiceText(r));
     return { value: r, text: stored === r ? t('editor.repeat.current', { words: ended }) : ended };
@@ -316,7 +348,8 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
                   label={t('editor.calendar')}
                   value={form.calendarId ?? (edit ? moveOptions : calendarOptions)[0].value}
                   options={edit ? moveOptions : calendarOptions}
-                  onChange={(calendarId) => change({ ...form, calendarId })}
+                  // A Google calendar can't hold a Hebrew-date repeat: the pick falls back to the Gregorian yearly one.
+                  onChange={(calendarId) => change({ ...form, calendarId, repeat: isHebrewRepeat(form.repeat) && !calendarId.startsWith('native:') ? 'yearly' : form.repeat })}
                 />
               </FormCard>
             ) : null}

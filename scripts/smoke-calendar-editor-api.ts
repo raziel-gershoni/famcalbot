@@ -2297,7 +2297,7 @@ async function main() {
     assertSame([picked.status, pairOf(eventRow(idOf(one.body.key)))], [200, ['FREQ=YEARLY', 'anniversary', '2026-10-20']], 'a one-off starts repeating by its Hebrew date');
     assertSame(picked.body.key, `famcal|${idOf(one.body.key)}#${iso(at('2026-10-20 10:00'))}`, 'its key gains the start');
     seed();
-    const greg = seedSeries('greg', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Wedding', startsAt: at('2022-11-24 10:00'), rrule: 'FREQ=YEARLY' });
+    seedSeries('greg', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Wedding', startsAt: at('2022-11-24 10:00'), rrule: 'FREQ=YEARLY' });
     const toHebrew = await patch({ key: `famcal|greg#${iso(at('2024-11-24 10:00'))}`, scope: 'following', changes: { repeat: 'hebrew' } });
     assertSame([toHebrew.status, pairOf(lastEvent()), pairOf(eventRow('greg'))[1]], [200, ['FREQ=YEARLY', 'anniversary', '2024-11-24'], null], 'a Gregorian series, from the opened occurrence: anchored on its day');
     assertSame(await daysOf(lastEvent().id, '2024-01-01', '2026-01-01'), ['2024-11-24', '2025-11-14'], 'its Hebrew days');

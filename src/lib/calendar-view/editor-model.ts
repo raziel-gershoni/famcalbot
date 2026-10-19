@@ -370,11 +370,14 @@ export function checkForm(form: EditorForm): FieldErrors {
 
 // ---- Requests ----
 
-/**
- * A stored rule the Repeat row can't pick, so it is kept as it is and never sent: 'custom',
- * and until the editor offers them (hebrew-repeats spec §4), the Hebrew kinds.
- */
-const keptAsIs = (r: RuleChoice): r is Exclude<RuleChoice, RepeatChoice> => r === 'custom' || r === 'hebrew' || r === 'yahrzeit';
+/** A stored rule the Repeat row can't pick, so it is kept as it is and never sent: 'custom'. */
+const keptAsIs = (r: RuleChoice): r is Exclude<RuleChoice, RepeatChoice> => r === 'custom';
+
+/** The two repeats that follow the start's Hebrew date (hebrew-repeats spec §1). */
+export const isHebrewRepeat = (r: RuleChoice): r is 'hebrew' | 'yahrzeit' => r === 'hebrew' || r === 'yahrzeit';
+
+/** A Hebrew series' anchor day (yyyy-MM-dd, in its zone), from the edit info, or null for any other. */
+export const hebrewAnchorOf = (info: ItemEditInfoResponse): string | null => info.series.rule?.anchor ?? info.series.repeat?.hebrew?.anchor ?? null;
 
 /** The wall time the server takes: with the clock when timed, the bare day when all-day. */
 const wallOf = (day: string, time: string, allDay: boolean) => (allDay ? day : `${day}T${time}`);
@@ -509,6 +512,8 @@ export type RepeatWords =
   | { key: 'daily' }
   | { key: 'weekday'; weekday: WeekdayId }
   | { key: 'interval'; unit: RepeatInfo['freq']; count: number }
+  /** Every N years on the anchor's Hebrew date (the editor words the date), for a rule the two Hebrew choices can't say. */
+  | { key: 'hebrewEvery'; kind: 'anniversary' | 'yahrzeit'; count: number; anchor: string }
   | { key: 'weekly' | 'monthly' | 'yearly' }
   | { key: 'other' };
 
@@ -517,10 +522,12 @@ const BYDAY: Record<string, WeekdayId> = { SU: 'sun', MO: 'mon', TU: 'tue', WE: 
 /**
  * What a series repeats on, from the server's rule info: "every day", "every Tuesday"
  * (a weekly rule on one day, or following the start), "every 2 weeks", the frequency
- * alone for the rest, and "other" for a rule with no words (null).
+ * alone for the rest, and "other" for a rule with no words (null). A Hebrew-date rule
+ * names its anchor's date, never the start's (hebrew-repeats spec §3).
  */
 export function repeatWords(repeat: RepeatInfo | null, seriesStart: string): RepeatWords {
   if (!repeat) return { key: 'other' };
+  if (repeat.hebrew) return { key: 'hebrewEvery', kind: repeat.hebrew.kind, count: repeat.interval, anchor: repeat.hebrew.anchor };
   if (repeat.interval > 1) return { key: 'interval', unit: repeat.freq, count: repeat.interval };
   if (repeat.freq === 'daily') return { key: 'daily' };
   if (repeat.freq === 'weekly') {

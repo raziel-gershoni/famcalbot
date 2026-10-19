@@ -906,6 +906,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
         <EditorSheet
           mode={editor.mode}
           initial={editor.initial}
+          hebrewDates={facts?.hebrewDates ?? false}
           {...(editor.mode === 'create'
             ? { kinds: editor.kinds, calendars: editor.info.calendars, partner: editor.info.partner }
             : { info: editor.info, itemKey: editor.key, calendars: editorInfo?.calendars, partner: editorInfo?.partner })}

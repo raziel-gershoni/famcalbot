@@ -4327,7 +4327,7 @@ async function main() {
       assert(fieldValue(m, 'End time') === '19:30', `the duration kept: ${fieldValue(m, 'End time')}`);
       // The repeat choices read from the start day (Thursday 15 October).
       const options = (sel: Fake) => elements(sel).filter((e) => e.localName === 'option').map((e) => [propsOf(e).value, e.textContent]);
-      assert(show(options(selects(m)[0])) === show([['none', 'Never'], ['daily', 'Every day'], ['weekly', 'Every week on Thursday'], ['monthly', 'Every month on the 15th'], ['yearly', 'Every year on 15 Oct']]), `repeat: ${show(options(selects(m)[0]))}`);
+      assert(show(options(selects(m)[0])) === show([['none', 'Never'], ['daily', 'Every day'], ['weekly', 'Every week on Thursday'], ['monthly', 'Every month on the 15th'], ['yearly', 'Every year on 15 Oct'], ['hebrew', 'Every year on 4 Cheshvan'], ['yahrzeit', 'Yahrzeit, every year on 4 Cheshvan']]), `repeat: ${show(options(selects(m)[0]))}`);
       await typeInto(inDialog(m, 'Start date'), '2026-10-22');
       assert(fieldValue(m, 'End date') === '2026-10-22', 'a later day carries the end');
       assert(options(selects(m)[0])[3][1] === 'Every month on the 22nd', 'the ordinal follows the day');
@@ -5490,7 +5490,7 @@ async function main() {
       await openEditor(a.m, 'Dentist');
       assert(shownIn(a.m, 'Repeat') === 'Never', `a one-off shows ${show(shownIn(a.m, 'Repeat'))}`);
       assert(
-        show(optionsIn(a.m, 'Repeat')) === show([['none', 'Never'], ['daily', 'Every day'], ['weekly', 'Every week on Thursday'], ['monthly', 'Every month on the 15th'], ['yearly', 'Every year on 15 Oct']]),
+        show(optionsIn(a.m, 'Repeat')) === show([['none', 'Never'], ['daily', 'Every day'], ['weekly', 'Every week on Thursday'], ['monthly', 'Every month on the 15th'], ['yearly', 'Every year on 15 Oct'], ['hebrew', 'Every year on 4 Cheshvan'], ['yahrzeit', 'Yahrzeit, every year on 4 Cheshvan']]),
         `options: ${show(optionsIn(a.m, 'Repeat'))}`,
       );
       assertLacks(topText(a.m), ['Earlier ones stay'], 'a one-off has no "from here" line');
@@ -5507,7 +5507,7 @@ async function main() {
     const b = await editingHome('en', { item: serveSwim(swimSeries()), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
     try {
       await openEditor(b.m, 'Swimming');
-      assert(shownIn(b.m, 'Repeat') === 'Every week on Tuesday' && optionsIn(b.m, 'Repeat').length === 5, `a weekly series: ${show(shownIn(b.m, 'Repeat'))}, ${optionsIn(b.m, 'Repeat').length} options`);
+      assert(shownIn(b.m, 'Repeat') === 'Every week on Tuesday' && optionsIn(b.m, 'Repeat').length === 7, `a weekly series: ${show(shownIn(b.m, 'Repeat'))}, ${optionsIn(b.m, 'Repeat').length} options`);
       assertLacks(topText(b.m), ['Repeats every'], 'the row replaces the old text line');
       await pick(b.m, 'Repeat', 'daily');
       b.m.click(saveButton(b.m));
@@ -5546,7 +5546,7 @@ async function main() {
       await openEditor(e.m, 'Swimming');
       assert(shownIn(e.m, 'Repeat') === 'Every 2 weeks (current)', `custom: ${show(shownIn(e.m, 'Repeat'))}`);
       const opts = optionsIn(e.m, 'Repeat');
-      assert(show(opts[0]) === show(['custom', 'Every 2 weeks (current)']) && show(opts.slice(1).map((o) => o[0])) === show(['none', 'daily', 'weekly', 'monthly', 'yearly']), `custom first: ${show(opts)}`);
+      assert(show(opts[0]) === show(['custom', 'Every 2 weeks (current)']) && show(opts.slice(1).map((o) => o[0])) === show(['none', 'daily', 'weekly', 'monthly', 'yearly', 'hebrew', 'yahrzeit']), `custom first: ${show(opts)}`);
       await typeInto(inDialog(e.m, 'Location'), 'The pool');
       e.m.click(saveButton(e.m));
       await settle();
@@ -5569,7 +5569,7 @@ async function main() {
     try {
       await openEditor(f.m, 'Swimming');
       assert(
-        show(optionsIn(f.m, 'Repeat')) === show([['none', 'Never'], ['daily', 'Every day, until 27 Oct (current)'], ['weekly', 'Every week on Tuesday, until 27 Oct'], ['monthly', 'Every month on the 20th, until 27 Oct'], ['yearly', 'Every year on 20 Oct, until 27 Oct']]),
+        show(optionsIn(f.m, 'Repeat')) === show([['none', 'Never'], ['daily', 'Every day, until 27 Oct (current)'], ['weekly', 'Every week on Tuesday, until 27 Oct'], ['monthly', 'Every month on the 20th, until 27 Oct'], ['yearly', 'Every year on 20 Oct, until 27 Oct'], ['hebrew', 'Every year on 9 Cheshvan, until 27 Oct'], ['yahrzeit', 'Yahrzeit, every year on 9 Cheshvan, until 27 Oct']]),
         `ended: ${show(optionsIn(f.m, 'Repeat'))}`,
       );
     } finally {
@@ -6212,6 +6212,9 @@ async function main() {
       assert(shownIn(a.m, 'Repeat') === 'Every year on 15 Oct', `the pick fell back to yearly: ${show(shownIn(a.m, 'Repeat'))}`);
       await pick(a.m, 'Calendar', 'native:cal_me_7f3a');
       assert(optionsIn(a.m, 'Repeat').length === 7, 'back on FamCal: the choices are back');
+      // A reminder is always FamCal's: the Google calendar picked for the event does not take them away.
+      await pick(a.m, 'Calendar', 'avi@gmail.com');
+      assert(optionsIn(a.m, 'Repeat').length === 5, 'the Google calendar again');
       tapIn(a.m, 'Reminder');
       await settle();
       assert(optionsIn(a.m, 'Repeat').length === 7, `a reminder: ${show(optionsIn(a.m, 'Repeat'))}`);
