@@ -770,6 +770,9 @@ const ruleOf = (css: string, selector: string) => {
 const declOf = (body: string, prop: string) => new RegExp(`(?:^|[\\s;])${prop}\\s*:\\s*([^;]+);`).exec(body)?.[1].trim() ?? null;
 
 async function main() {
+  // The holidays hook asks the holidays route from a mounted view with Hebrew dates; there is no network here, so it answers none.
+  (globalThis as Row).fetch = async () => ({ ok: true, status: 200, json: async () => ({ days: {} }) });
+
   await check('#1 the view is client-safe: MonthBrowse loads no server module (DB, Redis, services, date-fns-tz, @hebcal/core), no home-client and no Telegram code; it reads month.ts, grid.ts, hebrew-date.ts and format.ts', () => {
     const root = path.join(ROOT, 'app/[locale]/dashboard/MonthBrowse.tsx');
     assert(require.cache[root] !== undefined, 'MonthBrowse is not in require.cache: the check would be empty');

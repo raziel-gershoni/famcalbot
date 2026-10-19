@@ -10,6 +10,7 @@
 import { useLocale, useTranslations } from 'next-intl';
 import { formatDayLong } from '@/src/lib/calendar-view/format';
 import { hebrewFullDate } from '@/src/lib/calendar-view/hebrew-date';
+import { hasChag, holidayTitles, useHolidays } from '@/src/lib/calendar-view/holidays-client';
 import { zoneLabel } from '@/src/lib/calendar-view/home-client';
 import type { DayKey } from '@/src/lib/calendar-view/types';
 
@@ -62,6 +63,7 @@ export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSen
   const genitive = locale === 'ru' ? (t.raw('hebrewMonthGenitive') as string[]) : undefined;
   const title = today ? formatDayLong(today, locale) : '';
   const hebrew = today && hebrewDates ? hebrewFullDate(today, locale, genitive) : '';
+  const holidays = useHolidays(today ? [today.slice(0, 7)] : [], locale, hebrewDates)[today ?? ''];
 
   return (
     <header className="ch-head">
@@ -75,6 +77,11 @@ export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSen
           </div>
         )}
         {hebrew ? <p className="ch-head-sub">{hebrew}</p> : null}
+        {holidays && holidays.length > 0 ? (
+          <p className={hasChag(holidays) ? 'ch-head-sub ch-day-holiday is-chag' : 'ch-head-sub ch-day-holiday'}>
+            <bdi>{holidayTitles(holidays, locale)}</bdi>
+          </p>
+        ) : null}
         {zone ? <p className="ch-head-zone">{t('shell.timesIn', { zone: zoneLabel(zone, locale) })}</p> : null}
       </div>
       <div className="ch-head-buttons">

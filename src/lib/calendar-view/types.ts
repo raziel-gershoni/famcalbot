@@ -141,3 +141,18 @@ export function compareItems(a: ItemDTO, b: ItemDTO): number {
   if (byTitle !== 0) return byTitle;
   return compareStrings(a.key, b.key);
 }
+
+/** What kind of holiday it is, highest priority first (the server ranks a day's holidays by it). */
+export type HolidayKind = 'chag' | 'fast' | 'erev' | 'cholHamoed' | 'minor' | 'modern' | 'roshChodesh';
+
+/**
+ * A Hebrew holiday of a day, as GET /api/calendar/holidays answers (src/services/hebrew-holidays.ts
+ * builds it; this is the client's copy, so the home never imports the server module). `title` is
+ * the full name, `brief` the short one for the Month's cells, `chag` a yom tov.
+ */
+export interface Holiday {
+  title: string;
+  brief: string;
+  chag: boolean;
+  kind: HolidayKind;
+}

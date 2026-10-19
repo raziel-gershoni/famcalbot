@@ -124,6 +124,7 @@ import { formatDayLong } from '../src/lib/calendar-view/format';
 import { calendarVars } from '../src/lib/calendar-view/colours';
 import { postReminderAction } from '../src/lib/calendar-view/reminder-client';
 import { REAL_EDITING } from '../src/lib/calendar-view/editor-client';
+import { resetHolidaysCache } from '../src/lib/calendar-view/holidays-client';
 import type { EditorInfoResponse, ItemEditInfoResponse, RepeatInfo } from '../src/lib/calendar-view/editor-types';
 import { checkForm, editItemForm, moveStart, movesDay, newItemForm, setAllDay, spanOf, type EditorForm, type NewItemContext } from '../src/lib/calendar-view/editor-model';
 
@@ -170,7 +171,7 @@ for (const level of ['error', 'warn'] as const) {
     if (text.startsWith('[telegram-ui]')) return original(...args);
     // Node's own warnings (tsx's module.register() deprecation on Node 26 lands here, at a time that varies) aren't React's.
     if (text.startsWith('(node:')) return original(...args);
-    if (text.startsWith('[command-client]') || text.startsWith('[calendar-home]')) {
+    if (text.startsWith('[command-client]') || text.startsWith('[calendar-home]') || text.startsWith('[holidays]')) {
       appLogs.push(text.slice(0, 300));
       return;
     }
@@ -879,6 +880,14 @@ let answerFetch: (call: FetchCall) => FetchAnswer | Promise<FetchAnswer> = () =>
 const EDITING_PATHS = ['/api/calendar/editor', '/api/calendar/item', '/api/calendar/items'];
 let serveEditing: (call: FetchCall) => FetchAnswer | Promise<FetchAnswer> = () => ({ status: 500, body: { error: 'not served' } });
 
+/**
+ * The holidays route (GET /api/calendar/holidays, the Hebrew holidays layer): its calls are kept apart from
+ * fetchCalls, so the older checks' counts of range and write calls are what they were, and by default it
+ * answers no holidays. The holiday checks (#88 on) set serveHolidays.
+ */
+const holidayCalls: FetchCall[] = [];
+let serveHolidays: (call: FetchCall) => FetchAnswer | Promise<FetchAnswer> = () => ({ status: 200, body: { days: {} } });
+
 async function fakeFetch(input: unknown, init: Row = {}): Promise<Row> {
   const url = String(input);
   const parsed = new URL(url, 'https://famcal.test');
@@ -893,8 +902,9 @@ async function fakeFetch(input: unknown, init: Row = {}): Promise<Row> {
     cache: init.cache,
     signal: init.signal,
   };
-  fetchCalls.push(call);
-  const reply = await (EDITING_PATHS.includes(call.path) ? serveEditing(call) : answerFetch(call));
+  const holidays = call.path === '/api/calendar/holidays';
+  (holidays ? holidayCalls : fetchCalls).push(call);
+  const reply = await (holidays ? serveHolidays(call) : EDITING_PATHS.includes(call.path) ? serveEditing(call) : answerFetch(call));
   if (reply === 'throw') throw new TypeError('Failed to fetch (smoke)');
   return { status: reply.status, ok: reply.status >= 200 && reply.status < 300, json: async () => reply.body };
 }
@@ -1086,6 +1096,9 @@ const reloads: string[] = [];
 function resetHome() {
   (globalThis as Row).fetch = fakeFetch;
   fetchCalls.length = 0;
+  holidayCalls.length = 0;
+  serveHolidays = () => ({ status: 200, body: { days: {} } });
+  resetHolidaysCache();
   serveEditing = () => ({ status: 500, body: { error: 'not served' } });
   pushes.length = 0;
   reloads.length = 0;
@@ -1117,6 +1130,9 @@ async function main() {
     process.stdout.write(`${html.length} ${createHash('sha256').update(html).digest('hex')} ${html.includes('Take vitamins')}\n`);
     return;
   }
+
+  // The holidays hook asks the holidays route from any mounted view with Hebrew dates (no network here).
+  (globalThis as Row).fetch = fakeFetch;
 
   await check('#1 the view is client-safe: AgendaView and ItemSheet load no server module (DB, Redis, services, date-fns-tz, @hebcal/core)', () => {
     const roots = [path.join(ROOT, 'app/[locale]/dashboard/AgendaView.tsx'), path.join(ROOT, 'app/[locale]/dashboard/ItemSheet.tsx')];
@@ -5132,6 +5148,254 @@ async function main() {
 
   await check('#87 React logged no warning in #74-#86 (keys, nesting, attributes, act)', () => {
     assert(reactWarnings.length === warnedBeforeEditing, `React warned: ${show(reactWarnings.slice(warnedBeforeEditing, warnedBeforeEditing + 3))}`);
+  });
+
+  // ---- Hebrew holidays on the home (Hebrew holidays spec §5; #88-#95) ----
+
+  const warnedBeforeHolidays = reactWarnings.length;
+  type Hol = { title: string; brief: string; chag: boolean; kind: string };
+  const hol = (title: string, kind: string, brief = title): Hol => ({ title, brief, chag: kind === 'chag', kind });
+  /** The holidays each language's fake route knows, by day: a yom tov today, two minor ones tomorrow, and cells of October and September. */
+  const HOLIDAYS: Record<Locale, Record<DayKey, Hol[]>> = {
+    en: {
+      [day(0)]: [hol('Shmini Atzeret', 'chag')],
+      [day(1)]: [hol('Chanukah: 8 Candles', 'minor'), hol('Rosh Chodesh Tevet', 'roshChodesh')],
+      '2026-10-01': [hol("Sukkot VI (CH''M)", 'cholHamoed', 'Sukkot VI')],
+      '2026-10-12': [hol('Rosh Chodesh Cheshvan', 'roshChodesh')],
+      '2026-10-20': [hol('Yom HaZikaron', 'modern')],
+      '2026-09-12': [hol('Rosh Hashana 5787', 'chag')],
+    },
+    he: {
+      [day(0)]: [hol('שמיני עצרת', 'chag')],
+      [day(1)]: [hol('חנוכה: ח׳ נרות', 'minor'), hol('ראש חודש טבת', 'roshChodesh')],
+      '2026-10-12': [hol('ראש חודש חשון', 'roshChodesh')],
+      '2026-10-20': [hol('יום הזכרון', 'modern')],
+      '2026-09-12': [hol('ראש השנה תשפ״ז', 'chag')],
+    },
+    ru: {
+      [day(0)]: [hol('Шмини Ацерет', 'chag')],
+      [day(1)]: [hol('Ханука: 8 Свечей', 'minor'), hol('Рош ходеш Тевет', 'roshChodesh')],
+      '2026-10-12': [hol('Рош ходеш Хешван', 'roshChodesh')],
+      '2026-10-20': [hol('День Памяти', 'modern')],
+      '2026-09-12': [hol('Рош а-Шана 5787', 'chag')],
+    },
+  };
+  /** The fake route: the fixtures of the requested language inside [from, to]. */
+  const serveFixtures = (c: FetchCall): FetchAnswer => {
+    const lang = (c.query.get('lang') ?? 'en') as Locale;
+    const from = c.query.get('from') ?? '';
+    const to = c.query.get('to') ?? '';
+    const days = Object.fromEntries(Object.entries(HOLIDAYS[lang] ?? {}).filter(([k]) => k >= from && k <= to));
+    return ok200({ days });
+  };
+  const asked = () => holidayCalls.map((c) => `${c.query.get('from')}→${c.query.get('to')} ${c.query.get('lang')}`);
+  const headSubs = (m: Home) => byClass(m.container, 'ch-head-sub');
+  const dayHead = (m: Home, dayKey: DayKey) => {
+    const found = elements(m.container).find((e) => e.getAttribute('id') === `ch-day-${dayKey}`);
+    assert(found, `no header for ${dayKey}`);
+    return found;
+  };
+  const holidayIn = (el: FakeNode) => byClass(el, 'ch-day-holiday')[0];
+  const list = (locale: Locale, titles: string[]) => new Intl.ListFormat(locale, { style: 'long', type: 'unit' }).format(titles);
+
+  await check('#88 the header and the Agenda name the day\'s holidays in en, he and ru: after the Hebrew date, the titles joined as the language lists things, bidi-isolated, a yom tov in the accent; one request for the month, in the language, however many views ask', async () => {
+    for (const locale of LOCALES) {
+      resetHome();
+      serveHolidays = serveFixtures;
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      const m = await mountHome(locale);
+      try {
+        assert(show(asked()) === show([`2026-10-01→2026-10-31 ${locale}`]), `${locale}: one request for October: ${show(asked())}`);
+        const [today, tomorrow] = [HOLIDAYS[locale][day(0)], HOLIDAYS[locale][day(1)]];
+        // The header: its own line after the Hebrew date, the yom tov in the accent.
+        const subs = headSubs(m);
+        assert(subs.length === 2 && !subs[0].className.includes('ch-day-holiday'), `${locale}: the Hebrew date, then the holiday line: ${show(subs.map((e) => e.className))}`);
+        assert(subs[1].className === 'ch-head-sub ch-day-holiday is-chag', `${locale}: today's line: ${subs[1].className}`);
+        assert(htmlOf(subs[1]) === `<p class="ch-head-sub ch-day-holiday is-chag"><bdi>${today[0].title}</bdi></p>`, `${locale}: ${htmlOf(subs[1])}`);
+        // The Agenda's day headers: the title in today's header (a yom tov), two joined in tomorrow's.
+        const first = holidayIn(dayHead(m, day(0)));
+        assert(first?.className === 'ch-day-holiday is-chag' && htmlOf(first) === `<span class="ch-day-holiday is-chag"><bdi>${today[0].title}</bdi></span>`, `${locale}: ${first && htmlOf(first)}`);
+        const second = holidayIn(dayHead(m, day(1)));
+        assert(second?.className === 'ch-day-holiday', `${locale}: tomorrow isn't a yom tov: ${second?.className}`);
+        assert(second.textContent === list(locale, tomorrow.map((h) => h.title)), `${locale}: ${second.textContent} vs ${list(locale, tomorrow.map((h) => h.title))}`);
+        assert(second.textContent.includes(', ') || locale === 'en' || second.textContent.includes(' '), `${locale}: a list`);
+        // A day with none has no span, and the Hebrew date is still before the holiday.
+        assert(!holidayIn(dayHead(m, day(4))), 'a day without a holiday has no span');
+        const head = htmlOf(dayHead(m, day(0)));
+        assert(head.indexOf('ch-day-hebrew') > 0 && head.indexOf('ch-day-hebrew') < head.indexOf('ch-day-holiday'), `${locale}: the holiday follows the Hebrew date: ${head}`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('#88a holidays never hold the home back: the Agenda and header show while the holidays are still on their way, and the holidays join them when they land', async () => {
+    resetHome();
+    let land: (a: FetchAnswer) => void = noop;
+    serveHolidays = () => new Promise<FetchAnswer>((resolve) => { land = resolve; });
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const m = await mountHome('en');
+    try {
+      assertHas(m.text(), ['Dentist', 'Grandma visits', '4 Cheshvan 5787'], 'the home, before the holidays');
+      assert(holidayCalls.length === 1 && !/ch-day-holiday/.test(markup(m.html())), 'asked, nothing shown yet');
+      await React.act(async () => land(serveFixtures(holidayCalls[0])));
+      await settle();
+      assert(/Shmini Atzeret/.test(m.text()) && byClass(m.container, 'ch-day-holiday').length === 4, `the holidays arrived (the header, and the three days of the week that have one): ${show(byClass(m.container, 'ch-day-holiday').map(htmlOf))}`);
+      assert(holidayCalls.length === 1, 'and were not asked again');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#89 with Hebrew dates off there are no holidays: no request, no line, no span, on the Agenda or the Month', async () => {
+    resetHome();
+    serveHolidays = serveFixtures;
+    answerFetch = (c) => answerFor(c, { items: WEEK, hebrewDates: false });
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      await tap(m, tabButton(m, 'agenda'));
+      assert(holidayCalls.length === 0, `no request: ${show(asked())}`);
+      assert(!/ch-day-holiday|has-chag|Shmini Atzeret/.test(markup(m.html())), 'nothing shown');
+      await openMonth(m);
+      assert(holidayCalls.length === 0 && !/Yom HaZikaron|Shmini Atzeret/.test(markup(m.html())), `nothing on the Month: ${show(asked())}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#90 a failed holidays request (500, no connection, a garbled answer) shows nothing and logs the month and status, the home carries on, and the failure is not remembered: the next view of the month asks again and shows them', async () => {
+    for (const failure of [{ status: 500, body: { error: 'failed' } }, 'throw', { status: 200, body: { days: [] } }, { status: 200, body: { days: { [day(0)]: [{ title: 1 }] } } }] as FetchAnswer[]) {
+      resetHome();
+      serveHolidays = () => failure;
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      const logged = appLogs.length;
+      fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'agenda');
+      const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+      try {
+        assertHas(m.text(), ['Dentist', 'Grandma visits'], `the home, ${show(failure)}`);
+        assert(!/ch-day-holiday/.test(markup(m.html())), `nothing shown: ${show(failure)}`);
+        const lines = appLogs.slice(logged).filter((l) => l.startsWith('[holidays]'));
+        assert(lines.length === 1 && lines[0].includes('2026-10 (en) failed'), `one log line with the month: ${show(lines)}`);
+        if (typeof failure === 'object' && failure.status === 500) assert(lines[0].includes('with 500'), `and the status: ${lines[0]}`);
+        // Not remembered: the Month asks October again, and this time it answers.
+        serveHolidays = serveFixtures;
+        await openMonth(m);
+        assert(asked().filter((a) => a.startsWith('2026-10-01')).length === 2, `October is asked again: ${show(asked())}`);
+        assert(byClass(m.container, 'ch-mb-hmonth').some((e) => e.textContent === 'Yom HaZikaron'), 'and the holidays show');
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('#91 the Month\'s cell: the second line holds the day\'s highest-priority holiday (brief), a yom tov in the accent; a Hebrew month\'s first day keeps the month name, except under a yom tov (1 Tishrei shows Rosh Hashana); the month\'s first cell gives its name up to a holiday; the aria label names the titles; the line is one dir=auto ellipsis line', async () => {
+    resetHome();
+    serveHolidays = serveFixtures;
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      await settle();
+      flushFrames();
+      await settle();
+      const line = (dayKey: DayKey) => byClass(dayButton(m, dayKey), 'ch-mb-hmonth')[0];
+      // A plain holiday: its brief, muted.
+      assert(line('2026-10-20').textContent === 'Yom HaZikaron' && line('2026-10-20').className === 'ch-mb-hmonth' && line('2026-10-20').getAttribute('dir') === 'auto', `a modern day: ${htmlOf(line('2026-10-20'))}`);
+      assert((dayButton(m, '2026-10-20').getAttribute('aria-label') ?? '').includes('Yom HaZikaron'), `the label names it: ${dayButton(m, '2026-10-20').getAttribute('aria-label')}`);
+      // 1 Cheshvan: Rosh Chodesh is implied, the month name stays.
+      assert(line('2026-10-12').textContent === 'Chesh.' && line('2026-10-12').className === 'ch-mb-hmonth', `1 Cheshvan: ${htmlOf(line('2026-10-12'))}`);
+      assert((dayButton(m, '2026-10-12').getAttribute('aria-label') ?? '').includes('Rosh Chodesh Cheshvan'), 'but the label still names Rosh Chodesh');
+      // The month's first cell (Hebrew day 19, not a Hebrew month start): the holiday takes the line, with its brief.
+      assert(line('2026-10-01').textContent === 'Sukkot VI', `the first cell: ${htmlOf(line('2026-10-01'))}`);
+      assert((dayButton(m, '2026-10-01').getAttribute('aria-label') ?? '').includes("Sukkot VI (CH''M)"), 'and the label has the full title');
+      // 1 Tishrei: a yom tov takes the line from the month name, in the accent.
+      assert(line('2026-09-12').textContent === 'Rosh Hashana 5787' && line('2026-09-12').className === 'ch-mb-hmonth has-chag', `1 Tishrei: ${htmlOf(line('2026-09-12'))}`);
+      // A day with none keeps what it had: nothing on a plain day, a month name on a Hebrew day 1.
+      assert(line('2026-10-17').textContent === '' && line('2026-10-17').getAttribute('dir') === null, `a plain day, nothing: ${htmlOf(line('2026-10-17'))}`);
+      // The cell's height is the browse math's: the line's size and the cell are untouched.
+      assert(/\.ch-mb-hmonth \{[^}]*block-size: 13px[^}]*white-space: nowrap[^}]*overflow: hidden[^}]*text-overflow: ellipsis/.test(MONTH_BROWSE_CSS), 'one ellipsis line of 13 px');
+      assert(/\.ch-mb-hmonth\.has-chag \{\s*color: var\(--ch-accent\);\s*\}/.test(MONTH_BROWSE_CSS), 'a yom tov reads the accent');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#91a the Month\'s cell in he and ru: the line holds the brief in the page\'s language (a Hebrew Rosh Chodesh keeps the month name in Hebrew), the label has the titles', async () => {
+    for (const locale of ['he', 'ru'] as const) {
+      resetHome();
+      serveHolidays = serveFixtures;
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+      const m = await mountHome(locale, {}, fakeClock('2026-10-15T07:00:00Z'));
+      try {
+        await settle();
+        flushFrames();
+        await settle();
+        const cell = (dayKey: DayKey) => {
+          const found = byClass(byData(m.container, 'month', dayKey.slice(0, 7)), 'ch-mb-cell').find((e) => (e.getAttribute('aria-label') ?? '').startsWith(formatDayLong(dayKey, locale)));
+          assert(found, `${locale}: no cell for ${dayKey}`);
+          return found;
+        };
+        const line = (dayKey: DayKey) => byClass(cell(dayKey), 'ch-mb-hmonth')[0];
+        assert(line('2026-10-20').textContent === HOLIDAYS[locale]['2026-10-20'][0].brief, `${locale}: ${line('2026-10-20').textContent}`);
+        assert(line('2026-09-12').className === 'ch-mb-hmonth has-chag' && line('2026-09-12').textContent === HOLIDAYS[locale]['2026-09-12'][0].brief, `${locale}: 1 Tishrei: ${htmlOf(line('2026-09-12'))}`);
+        assert(/[א-ת]/.test(line('2026-10-12').textContent) === (locale === 'he') && line('2026-10-12').className === 'ch-mb-hmonth', `${locale}: 1 Cheshvan keeps the month: ${line('2026-10-12').textContent}`);
+        assert((cell('2026-10-20').getAttribute('aria-label') ?? '').includes(HOLIDAYS[locale]['2026-10-20'][0].title), `${locale}: the label`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('#92 the picked day\'s header names the holidays after its Hebrew date, a yom tov in the accent, bidi-isolated; the compact grid has no holiday line', async () => {
+    resetHome();
+    serveHolidays = serveFixtures;
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      await settle();
+      flushFrames();
+      await settle();
+      await tap(m, dayButton(m, '2026-10-20'));
+      assert(pickedShown(m), 'picked');
+      const head = byClass(m.container, 'ch-mp-day')[0];
+      assert(htmlOf(holidayIn(head)) === '<span class="ch-day-holiday"><bdi>Yom HaZikaron</bdi></span>', `${htmlOf(head)}`);
+      assert(htmlOf(head).indexOf('ch-mp-day-hebrew') < htmlOf(head).indexOf('ch-day-holiday'), 'after the Hebrew date');
+      await tap(m, byClass(m.container, 'ch-mp-cell').find((e) => (e.getAttribute('aria-label') ?? '').startsWith(formatDayLong(day(0), 'en'))) as FakeElement);
+      assert(holidayIn(byClass(m.container, 'ch-mp-day')[0])?.className === 'ch-day-holiday is-chag', "today's yom tov reads the accent");
+      assert(byClass(m.container, 'ch-mp-cell').every((e) => !/Shmini|Zikaron/.test(e.textContent)), 'no holiday line in the compact grid');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#93 the holidays\' client is client-safe and the CSS follows the home\'s rules: holidays-client.ts loads only react, the grid and the wire types (never @hebcal/core or the server module); logical properties, no hover, nothing under 11 px; yom tov titles read --ch-accent, the rest --ch-muted', () => {
+    const source = fs.readFileSync(path.join(ROOT, 'src/lib/calendar-view/holidays-client.ts'), 'utf8');
+    const imports = [...source.matchAll(/^import\s+(type\s+)?(?:[^'"]*?\s+from\s+)?'([^']+)';/gm)].map((m) => `${m[1] ? 'type ' : ''}${m[2]}`);
+    assert(show(imports.sort()) === show(['./grid', 'react', 'type ./types']), `imports: ${show(imports)}`);
+    const walk = (id: string, seen = new Set<string>()): Set<string> => {
+      for (const child of require.cache[id]?.children ?? []) if (!seen.has(child.id)) { seen.add(child.id); walk(child.id, seen); }
+      return seen;
+    };
+    const client = path.join(ROOT, 'src/lib/calendar-view/holidays-client.ts');
+    assert(require.cache[client] !== undefined, 'holidays-client.ts is not in require.cache: the check would be empty');
+    const loaded = [...walk(client)];
+    assert(!loaded.some((id) => /@hebcal|hebrew-holidays|node_modules\/(?:@prisma|ioredis|@upstash)/.test(id)), `server code reached: ${show(loaded.filter((id) => /@hebcal|hebrew-holidays/.test(id)))}`);
+    for (const view of ['MonthBrowse', 'DayList', 'MonthPicked', 'HomeHeader']) {
+      const file = fs.readFileSync(path.join(ROOT, `app/[locale]/dashboard/${view}.tsx`), 'utf8');
+      assert(/holidays-client/.test(file) && !/@hebcal\/core|services\/hebrew-holidays/.test(file), `${view} reads holidays-client only`);
+    }
+    const css = [HOME_THEME_CSS, MONTH_BROWSE_CSS].join('\n');
+    assert(/\.ch-day-holiday \{\s*color: var\(--ch-muted\);\s*\}/.test(HOME_THEME_CSS) && /\.ch-day-holiday\.is-chag \{\s*color: var\(--ch-accent\);\s*\}/.test(HOME_THEME_CSS), 'the colours');
+    const holidayCss = [...css.matchAll(/[^{}]*(?:ch-day-holiday|has-chag)[^{}]*\{[^}]*\}/g)].map((m) => m[0]).join('\n');
+    assert(holidayCss.length > 0 && !/(?:margin|padding|border)-(?:left|right)|(?:^|[\s;{])(?:left|right)\s*:|text-align:\s*(?:left|right)|(?:^|[\s;{])(?:width|height)\s*:/.test(holidayCss), `physical properties in ${holidayCss}`);
+    assert(!/:hover/.test(holidayCss) && [...holidayCss.matchAll(/font-size:\s*(\d+)px/g)].every((m) => Number(m[1]) >= 11), 'no hover, nothing under 11 px');
+  });
+
+  await check('#94 React logged no warning in #88-#93 (keys, nesting, attributes, act)', () => {
+    assert(reactWarnings.length === warnedBeforeHolidays, `React warned: ${show(reactWarnings.slice(warnedBeforeHolidays, warnedBeforeHolidays + 3))}`);
   });
 
   let failed = 0;

@@ -45,7 +45,8 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { useLocale, useTranslations } from 'next-intl';
 import { formatDayLong, formatMonthTitle, formatWeekdayHeader } from '@/src/lib/calendar-view/format';
 import { monthGrid, monthOf, weekdayOrder, type MonthKey } from '@/src/lib/calendar-view/grid';
-import { hebrewCellLabel, hebrewCellMonth, hebrewDayLabel, hebrewMonthHeader } from '@/src/lib/calendar-view/hebrew-date';
+import { hebrewCellLabel, hebrewCellMonth, hebrewDayLabel, hebrewMonthHeader, isHebrewMonthStart } from '@/src/lib/calendar-view/hebrew-date';
+import { holidayTitles, useHolidays } from '@/src/lib/calendar-view/holidays-client';
 import {
   BROWSE_CELL_PX,
   BROWSE_CHIPS_NARROW,
@@ -63,7 +64,7 @@ import {
   type MonthNotice,
   type MonthSlot,
 } from '@/src/lib/calendar-view/month';
-import type { DayKey, SourceName, WeekStart } from '@/src/lib/calendar-view/types';
+import type { DayKey, Holiday, SourceName, WeekStart } from '@/src/lib/calendar-view/types';
 import { calendarMark } from './ItemRow';
 
 export interface MonthBrowseProps {
@@ -232,11 +233,13 @@ interface CellProps {
   genitive: readonly string[] | undefined;
   /** calendarHome.hebrewMonthShort (the cell's Hebrew month line). */
   shortMonths: readonly string[] | undefined;
+  /** The day's Hebrew holidays, highest priority first (none while Hebrew dates are off or the month hasn't landed). */
+  holidays: readonly Holiday[] | undefined;
   noTitle: string;
   onPickDay: (day: DayKey) => void;
 }
 
-function Cell({ cell, partner, hebrewDates, shown, more, genitive, shortMonths, noTitle, onPickDay }: CellProps) {
+function Cell({ cell, partner, hebrewDates, shown, more, genitive, shortMonths, holidays, noTitle, onPickDay }: CellProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   if (!cell.inMonth) return <div className="ch-mb-cell is-blank" aria-hidden="true" />;
@@ -245,11 +248,19 @@ function Cell({ cell, partner, hebrewDates, shown, more, genitive, shortMonths, 
   const placeholder = cell.status === 'loading' && more === 0 && shown.length < BROWSE_SLOTS;
   const hebrewDay = hebrewDates ? hebrewCellLabel(cell.day, locale, false) : '';
   const hebrewMonth = hebrewDates && cell.hebrewMonthStart ? hebrewCellMonth(cell.day, locale, shortMonths) : '';
+  // The second line holds the Hebrew month's name on its first day (Rosh Chodesh is implied),
+  // unless that day is a yom tov (1 Tishrei shows Rosh Hashana); every other day it holds
+  // the day's highest-priority holiday. The month's first cell, when it isn't Hebrew day 1,
+  // gives its name up to a holiday.
+  const holiday = holidays?.[0];
+  const showHoliday = holiday !== undefined && (!hebrewMonth || !isHebrewMonthStart(cell.day) || holiday.chag);
+  const line = showHoliday ? holiday.brief : hebrewMonth;
 
   const parts = [formatDayLong(cell.day, locale)];
   if (hebrewDates) {
     const full = hebrewDayLabel(cell.day, locale, genitive);
     if (full) parts.push(full);
+    if (holidays && holidays.length > 0) parts.push(holidayTitles(holidays, locale));
   }
   if (cell.count > 0) {
     parts.push(t('month.cellItems', { count: cell.count }));
@@ -270,8 +281,8 @@ function Cell({ cell, partner, hebrewDates, shown, more, genitive, shortMonths, 
         </span>
         {hebrewDay ? <span className="ch-mb-hday">{hebrewDay}</span> : null}
       </span>
-      <span className="ch-mb-hmonth" aria-hidden="true">
-        {hebrewMonth}
+      <span className={showHoliday && holiday.chag ? 'ch-mb-hmonth has-chag' : 'ch-mb-hmonth'} dir={showHoliday ? 'auto' : undefined} aria-hidden="true">
+        {line}
       </span>
       <span className="ch-mb-slots" aria-hidden="true">
         {shown.map((slot, i) => (
@@ -330,6 +341,7 @@ const MonthGrid = memo(function MonthGrid({ month, model, weekStart, today, hebr
   const weeks = model && fits ? model.weeks : loadingMonth(month, weekStart, today).weeks;
   const genitive = hebrewDates && locale === 'ru' ? (t.raw('hebrewMonthGenitive') as string[]) : undefined;
   const shortMonths = hebrewDates ? (t.raw('hebrewMonthShort') as string[]) : undefined;
+  const holidays = useHolidays([month], locale, hebrewDates);
   const noTitle = t('row.noTitle');
   const notices = model && fits ? model.notices : [];
   const failed = notices.filter((n) => n.kind === 'failed');
@@ -366,6 +378,7 @@ const MonthGrid = memo(function MonthGrid({ month, model, weekStart, today, hebr
                   more={limited[col].more}
                   genitive={genitive}
                   shortMonths={shortMonths}
+                  holidays={holidays[cell.day]}
                   noTitle={noTitle}
                   onPickDay={onPickDay}
                 />
@@ -842,6 +855,9 @@ button.ch-mb-cell:active {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.ch-mb-hmonth.has-chag {
+  color: var(--ch-accent);
 }
 .ch-mb-slots {
   display: block;

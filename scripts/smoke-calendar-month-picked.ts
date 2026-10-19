@@ -659,6 +659,9 @@ function PickedHost({ store, start, seen }: { store: CalendarStore; start: Month
 // ---- The checks ----
 
 async function main() {
+  // The holidays hook asks the holidays route from a mounted view with Hebrew dates; there is no network here, so it answers none.
+  (globalThis as Row).fetch = async () => ({ ok: true, status: 200, json: async () => ({ days: {} }) });
+
   await check('#1 the view is client-safe: MonthPicked loads no server module (DB, Redis, services, date-fns-tz, @hebcal/core), and it does load the model, the Hebrew dates and D\'s rows', () => {
     const root = path.join(ROOT, 'app/[locale]/dashboard/MonthPicked.tsx');
     assert(require.cache[root] !== undefined, `${root} is not in require.cache: the check would be empty`);

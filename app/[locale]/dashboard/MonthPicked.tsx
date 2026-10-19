@@ -51,6 +51,7 @@ import type { AgendaRow } from '@/src/lib/calendar-view/agenda';
 import { formatDayLong, formatMonthTitle, formatWeekdayHeader } from '@/src/lib/calendar-view/format';
 import { weekdayOrder, type MonthKey } from '@/src/lib/calendar-view/grid';
 import { hebrewCellLabel, hebrewDayLabel, hebrewMonthHeader } from '@/src/lib/calendar-view/hebrew-date';
+import { hasChag, holidayTitles, useHolidays } from '@/src/lib/calendar-view/holidays-client';
 import { PICKED_CELL_PX, limitDots, pickedScrollTop, type MonthCell, type MonthModel } from '@/src/lib/calendar-view/month';
 import type { DayStatus } from '@/src/lib/calendar-view/store';
 import type { DayKey, SourceName, WeekStart } from '@/src/lib/calendar-view/types';
@@ -269,6 +270,7 @@ export function MonthPicked({
   const date = formatDayLong(selected, locale);
   const dayTitle = selected === today ? t('month.dayToday', { date }) : date;
   const dayHebrew = hebrewDates ? hebrewDayLabel(selected, locale, genitive) : '';
+  const dayHolidays = useHolidays([selected.slice(0, 7)], locale, hebrewDates)[selected];
   const loading = dayStatus === 'loading';
 
   return (
@@ -369,6 +371,14 @@ export function MonthPicked({
             <>
               {' '}
               <span className="ch-mp-day-hebrew">{dayHebrew}</span>
+            </>
+          ) : null}
+          {dayHolidays && dayHolidays.length > 0 ? (
+            <>
+              {' '}
+              <span className={hasChag(dayHolidays) ? 'ch-day-holiday is-chag' : 'ch-day-holiday'}>
+                <bdi>{holidayTitles(dayHolidays, locale)}</bdi>
+              </span>
             </>
           ) : null}
         </h3>

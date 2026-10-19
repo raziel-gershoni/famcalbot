@@ -12,6 +12,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import type { AgendaDay, AgendaEntry, AgendaRow } from '@/src/lib/calendar-view/agenda';
 import { formatDayRange, formatDayShort } from '@/src/lib/calendar-view/format';
 import { hebrewDayLabel } from '@/src/lib/calendar-view/hebrew-date';
+import { hasChag, holidayTitles, useHolidays, type HolidayDays } from '@/src/lib/calendar-view/holidays-client';
 import { ItemRow } from './ItemRow';
 
 export interface DayListProps {
@@ -33,13 +34,14 @@ export function PlaceholderRows({ count }: { count: number }) {
 }
 
 /** The Hebrew-date settings a day header reads: on or off, and Russian's genitive month names (Ruling R9). */
-type HebrewDates = { on: boolean; genitive?: readonly string[] };
+type HebrewDates = { on: boolean; genitive?: readonly string[]; holidays: HolidayDays };
 
 function DayHeader({ day, hebrew }: { day: AgendaDay; hebrew: HebrewDates }) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   const date = formatDayShort(day.date, locale);
   const hebrewLabel = hebrew.on ? hebrewDayLabel(day.date, locale, hebrew.genitive) : '';
+  const holidays = hebrew.on ? hebrew.holidays[day.date] : undefined;
   const relative = day.relative === 'today' ? t('agenda.today') : day.relative === 'tomorrow' ? t('agenda.tomorrow') : null;
   return (
     <h2 className="ch-day-head" id={`ch-day-${day.date}`}>
@@ -54,6 +56,14 @@ function DayHeader({ day, hebrew }: { day: AgendaDay; hebrew: HebrewDates }) {
         <>
           {' '}
           <span className="ch-day-hebrew">{hebrewLabel}</span>
+        </>
+      ) : null}
+      {holidays && holidays.length > 0 ? (
+        <>
+          {' '}
+          <span className={hasChag(holidays) ? 'ch-day-holiday is-chag' : 'ch-day-holiday'}>
+            <bdi>{holidayTitles(holidays, locale)}</bdi>
+          </span>
         </>
       ) : null}
     </h2>
@@ -83,9 +93,13 @@ export function DayList({ entries, tz, hebrewDates, onOpen }: DayListProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   // calendarHome.hebrewMonthGenitive: 14 names in D2's HEBREW_MONTHS order; only Russian reads them.
+  // The holidays of the months the listed days fall in (folds name no day).
+  const months = [...new Set(entries.flatMap((entry) => (entry.type === 'fold' ? [] : [entry.date.slice(0, 7)])))];
+  const holidays = useHolidays(months, locale, hebrewDates);
   const hebrew: HebrewDates = {
     on: hebrewDates,
     genitive: hebrewDates && locale === 'ru' ? (t.raw('hebrewMonthGenitive') as string[]) : undefined,
+    holidays,
   };
   return (
     <div className="ch-days">
