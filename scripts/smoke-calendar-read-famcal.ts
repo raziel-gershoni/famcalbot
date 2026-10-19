@@ -580,6 +580,23 @@ async function main() {
     assert(items.every((i) => i.event.reminder?.openSince !== undefined), 'openSince missing');
   });
 
+  await check('fetchOpenReminderItems: a Hebrew-date reminder is carried from its Hebrew day (12 Oct this year), keyed by that slot', async () => {
+    household();
+    // Anchored a year earlier on 23 Oct 2025: the same Hebrew date is 12 Oct 2026.
+    db.events.push(reminder({
+      id: 'rem-heb', calendarId: 'cal-dana', creatorUserId: DANA, title: 'Call Grandma', startsAt: at('2025-10-23 16:00'),
+      rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', hebrewAnchor: '2025-10-23',
+    }) as unknown as Row);
+    const famcal = await danaCtx();
+    const { items } = await fetchOpenReminderItems(viewer(DANA), famcal.ctx, CUTOFF, cutoffDay, IL, Infinity);
+    assertJson(items.map((i) => [i.event.summary, i.instanceStartsAt.toISOString(), i.event.reminder?.openSince]), [
+      ['Book the plumber', at('2026-10-12 17:00').toISOString(), '2026-10-12'],
+      ['Call Grandma', at('2026-10-12 16:00').toISOString(), '2026-10-12'],
+      ['Return the library books', at('2026-10-11 10:00').toISOString(), '2026-10-11'],
+      ['Recycling out', at('2026-10-11 08:00').toISOString(), '2026-10-11'],
+    ], 'items');
+  });
+
   await check('fetchOpenReminderItems: the cap and the count past it, as fetchOpenReminders', async () => {
     household();
     const famcal = await danaCtx();

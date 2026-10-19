@@ -387,7 +387,7 @@ let seq = 0;
 function reminder(p: Row & { startsAt: Date }): Row {
   const row: Row = {
     id: `rem${++seq}`, calendarId: 'cal-1', creatorUserId: 1, forUserId: null, title: 'Call the plumber',
-    description: null, location: null, endsAt: p.startsAt, allDay: false, timeZone: IL, rrule: null, exdates: [],
+    description: null, location: null, endsAt: p.startsAt, allDay: false, timeZone: IL, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [],
     reminderMinutes: null, kind: 'REMINDER', armedAt: new RealDate(p.startsAt.getTime() - HOUR), isDeleted: false,
     createdAt: new RealDate(p.startsAt.getTime() - HOUR), updatedAt: new RealDate(p.startsAt.getTime() - HOUR),
     ...p,
@@ -566,6 +566,20 @@ async function main() {
     assert(sent.length === 1 && sent[0].chatId === '1002', sentLines());
     assert(sent[0].text === `⏰ <b>Buy milk</b>\n${fromLine('en', 'רזיאל')}`, `text ${sent[0].text}`);
     assert(sent[0].keyboard.inline_keyboard[0][0].text === copy.en.buttons.done, 'buttons not in her language');
+  });
+
+  await check('pass: a Hebrew-date reminder pings on its Hebrew day (15 Oct this year), not on the Gregorian date it started on', async () => {
+    reset();
+    // Anchored on 26 Oct 2025: the same Hebrew date is 15 Oct 2026.
+    const heb = reminder({
+      startsAt: at('2025-10-26 10:00'), rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', hebrewAnchor: '2025-10-26',
+      armedAt: at('2026-10-01 12:00'), title: 'Call Grandma',
+    });
+    await pass(today('10:00'));
+    assert(sent.length === 1 && sent[0].text === '⏰ <b>Call Grandma</b>', sentLines());
+    assert(!!stateOf(heb.id, today('10:00')), `keyed ${show(db.states)}`);
+    await pass(at('2026-10-26 10:00'));
+    assert(sent.length === 1, `pinged on the Gregorian date too: ${sentLines()}`);
   });
 
   await check('pass: a daily 09:00 reminder pings at 09:00 local on the day the clocks go back', async () => {
