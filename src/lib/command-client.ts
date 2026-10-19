@@ -21,7 +21,7 @@ export type SendItem = (typeof SEND_ITEMS)[number];
 
 export type SendCommand = { command: 'summary' | 'lookahead' | 'nextweek' | 'weather'; args?: 'tmrw' };
 
-/** What /api/execute-command runs for each item: the old dashboard's five buttons. */
+/** What /api/execute-command runs for each of the Send sheet's five items. */
 export const SEND_COMMANDS: Record<SendItem, SendCommand> = {
   today: { command: 'summary' },
   tomorrow: { command: 'summary', args: 'tmrw' },

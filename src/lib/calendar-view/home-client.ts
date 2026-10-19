@@ -16,7 +16,7 @@ import { initDataHeaders } from '../read-init-data';
 import { instantDay, intlLocale } from './format';
 import type { DayKey, RangeResponse, SourceName } from './types';
 
-export { isChunkLoadError, reloadOnce } from './reload-guard';
+export { isChunkLoadError } from './reload-guard';
 
 /** A window of days, [from, to). */
 export interface RangeWindow {

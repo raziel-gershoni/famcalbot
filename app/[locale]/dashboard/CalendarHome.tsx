@@ -50,8 +50,8 @@
 //   tab bar and no Agenda under it (an Agenda with nothing chosen would only say
 //   "Nothing planned"); a remembered Month tab is left as it is;
 // - the Month's views (MonthView, MonthBrowse, MonthPicked) are a chunk of their own
-//   (import()): PageGate preloads this file's chunk on every /dashboard open, for the
-//   users the switch doesn't cover too. The chunk is fetched once the first answer is in,
+//   (import()): PageGate preloads this file's chunk on every /dashboard open. The chunk
+//   is fetched once the first answer is in,
 //   and the Month shows its placeholders until it is there;
 // - an error boundary around all of it; a chunk-load error reloads once.
 //

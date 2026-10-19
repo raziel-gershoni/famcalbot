@@ -133,11 +133,14 @@ async function dashboard(user: UserConfig, userId: number, locale: string): Prom
   const needsOAuth = !isNative && !user.googleRefreshToken;
   const needsCalendars = !isNative && (!user.calendarAssignments || user.calendarAssignments.length === 0);
 
-  // The trial and early-adopter lines, and the home's hints
+  // The trial and early-adopter lines, and the home's hints. getSubscriptionWithUsage's
+  // answer isn't on the wire; it runs for its side effect: an open after the trial's end
+  // expires it (clearing the feature caches and sending the notice), as the old home's did.
   const [trialStatus, isEarlyAdopter, home] = await Promise.all([
     getTrialStatus(user.id),
     checkEarlyAdopterAccess(user.id),
     homeHintsFor(user),
+    getSubscriptionWithUsage(user.id).catch(() => null),
   ]);
 
   const props: DashboardPageProps = {

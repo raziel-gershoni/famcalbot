@@ -79,62 +79,60 @@ export async function POST(request: NextRequest) {
     // Upsert admin settings
     try {
       let toggles: Record<string, boolean> = {};
-      if (hasToggle) {
-        const updateData: Record<string, boolean> = {};
-        const createData: Record<string, boolean | string> = { id: 'global' };
-        if (hasReminders) {
-          updateData.remindersEnabled = remindersEnabled;
-          createData.remindersEnabled = remindersEnabled;
-        }
-        if (hasEarlyAdoption) {
-          updateData.earlyAdoptionMode = earlyAdoptionMode;
-          createData.earlyAdoptionMode = earlyAdoptionMode;
-        }
-        if (hasVoiceAutoCreate) {
-          updateData.voiceAutoCreateHighConf = voiceAutoCreateHighConf;
-          createData.voiceAutoCreateHighConf = voiceAutoCreateHighConf;
-        }
-        if (hasVoiceTts) {
-          updateData.voiceTtsOutcome = voiceTtsOutcome;
-          createData.voiceTtsOutcome = voiceTtsOutcome;
-        }
-        if (hasNativeReminders) {
-          updateData.nativeRemindersEnabled = nativeRemindersEnabled;
-          createData.nativeRemindersEnabled = nativeRemindersEnabled;
-        }
-
-        const settings = await prisma.adminSettings.upsert({
-          where: { id: 'global' },
-          update: updateData,
-          create: createData as { id: string; remindersEnabled?: boolean; earlyAdoptionMode?: boolean; voiceAutoCreateHighConf?: boolean; voiceTtsOutcome?: boolean; nativeRemindersEnabled?: boolean },
-        });
-
-        // Sync to Redis cache
-        if (hasReminders) {
-          await setGlobalRemindersEnabled(remindersEnabled);
-        }
-        if (hasEarlyAdoption) {
-          await setEarlyAdoptionMode(earlyAdoptionMode);
-          await invalidateAllFeatureAccessCaches();
-        }
-        if (hasVoiceAutoCreate) {
-          await setVoiceAutoCreateHighConf(voiceAutoCreateHighConf);
-        }
-        if (hasVoiceTts) {
-          await setVoiceTtsOutcome(voiceTtsOutcome);
-        }
-        if (hasNativeReminders) {
-          await setNativeRemindersEnabled(nativeRemindersEnabled);
-        }
-
-        toggles = {
-          remindersEnabled: settings.remindersEnabled,
-          earlyAdoptionMode: settings.earlyAdoptionMode,
-          voiceAutoCreateHighConf: settings.voiceAutoCreateHighConf,
-          voiceTtsOutcome: settings.voiceTtsOutcome,
-          nativeRemindersEnabled: settings.nativeRemindersEnabled,
-        };
+      const updateData: Record<string, boolean> = {};
+      const createData: Record<string, boolean | string> = { id: 'global' };
+      if (hasReminders) {
+        updateData.remindersEnabled = remindersEnabled;
+        createData.remindersEnabled = remindersEnabled;
       }
+      if (hasEarlyAdoption) {
+        updateData.earlyAdoptionMode = earlyAdoptionMode;
+        createData.earlyAdoptionMode = earlyAdoptionMode;
+      }
+      if (hasVoiceAutoCreate) {
+        updateData.voiceAutoCreateHighConf = voiceAutoCreateHighConf;
+        createData.voiceAutoCreateHighConf = voiceAutoCreateHighConf;
+      }
+      if (hasVoiceTts) {
+        updateData.voiceTtsOutcome = voiceTtsOutcome;
+        createData.voiceTtsOutcome = voiceTtsOutcome;
+      }
+      if (hasNativeReminders) {
+        updateData.nativeRemindersEnabled = nativeRemindersEnabled;
+        createData.nativeRemindersEnabled = nativeRemindersEnabled;
+      }
+
+      const settings = await prisma.adminSettings.upsert({
+        where: { id: 'global' },
+        update: updateData,
+        create: createData as { id: string; remindersEnabled?: boolean; earlyAdoptionMode?: boolean; voiceAutoCreateHighConf?: boolean; voiceTtsOutcome?: boolean; nativeRemindersEnabled?: boolean },
+      });
+
+      // Sync to Redis cache
+      if (hasReminders) {
+        await setGlobalRemindersEnabled(remindersEnabled);
+      }
+      if (hasEarlyAdoption) {
+        await setEarlyAdoptionMode(earlyAdoptionMode);
+        await invalidateAllFeatureAccessCaches();
+      }
+      if (hasVoiceAutoCreate) {
+        await setVoiceAutoCreateHighConf(voiceAutoCreateHighConf);
+      }
+      if (hasVoiceTts) {
+        await setVoiceTtsOutcome(voiceTtsOutcome);
+      }
+      if (hasNativeReminders) {
+        await setNativeRemindersEnabled(nativeRemindersEnabled);
+      }
+
+      toggles = {
+        remindersEnabled: settings.remindersEnabled,
+        earlyAdoptionMode: settings.earlyAdoptionMode,
+        voiceAutoCreateHighConf: settings.voiceAutoCreateHighConf,
+        voiceTtsOutcome: settings.voiceTtsOutcome,
+        nativeRemindersEnabled: settings.nativeRemindersEnabled,
+      };
 
       console.log(`[admin-settings] Admin ${auth.adminId} updated settings:`, { remindersEnabled, earlyAdoptionMode, voiceAutoCreateHighConf, voiceTtsOutcome, nativeRemindersEnabled });
 
