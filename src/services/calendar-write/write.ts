@@ -18,9 +18,13 @@ import { trackActivityAsync } from '../analytics-service';
 import { clearRecurrenceCacheForUser } from '../recurrence-cache';
 import { toUnifiedEvent } from '../calendar-provider/native-provider';
 import {
+  NativeDestinationError,
   NativeFixedDaysError,
   NativeNotFoundError,
   NativePermissionDeniedError,
+  NativeRecipientError,
+  NativeRuleError,
+  NativeScopeError,
   createNativeEvent,
   decodeCalendarId,
   decodeEventId,
@@ -61,12 +65,19 @@ export function scrubbed(err: unknown): Error {
 }
 
 /** The store's refusals as results; anything else is for the route to report. */
-function refusal(err: unknown): WriteResult | null {
+export function refusalOf(err: unknown): WriteResult | null {
   if (err instanceof NativePermissionDeniedError) return NOT_ALLOWED;
   if (err instanceof NativeNotFoundError) return NOT_FOUND;
   // A day move for more than this one of a rule with fixed days (the bot's BYDAY): the
   // editor offers only "Only this one" then (series.fixedDays).
   if (err instanceof NativeFixedDaysError) return { status: 'invalid', field: 'start' };
+  // 3b's series-level fields (spec §3.1): a rule the store won't keep, a scope that can't
+  // carry the change, a recipient who can't be pinged, a calendar it can't move to (never
+  // not_found: the item is still there).
+  if (err instanceof NativeRuleError) return { status: 'invalid', field: 'repeat' };
+  if (err instanceof NativeScopeError) return { status: 'invalid', field: err.field };
+  if (err instanceof NativeRecipientError) return { status: 'invalid', field: 'forPartner' };
+  if (err instanceof NativeDestinationError) return { status: 'invalid', field: 'calendarId' };
   return null;
 }
 
@@ -165,7 +176,7 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
     });
     return { status: 'ok', key: itemKeyOf(reminder.id, rrule ? reminder.startsAt : undefined) };
   } catch (err) {
-    const refused = refusal(err);
+    const refused = refusalOf(err);
     if (refused) return refused;
     throw err;
   }
@@ -269,7 +280,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
     trackActivityAsync(user.id, 'calendar_item_edited', { kind: reminder ? 'reminder' : 'event', scope, source: 'app' });
     return { status: 'ok', key };
   } catch (err) {
-    const refused = refusal(err);
+    const refused = refusalOf(err);
     if (refused) return refused;
     throw err;
   }
@@ -291,7 +302,7 @@ export async function deleteItem(user: UserConfig, cmd: DeleteCommand): Promise<
     trackActivityAsync(user.id, 'calendar_item_deleted', { kind: item.series.kind === 'REMINDER' ? 'reminder' : 'event', scope, source: 'app' });
     return { status: 'ok' };
   } catch (err) {
-    const refused = refusal(err);
+    const refused = refusalOf(err);
     if (refused) return refused;
     throw err;
   }

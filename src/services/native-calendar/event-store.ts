@@ -20,7 +20,19 @@ import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-event
 import { invalidateDueGate } from '../native-reminders/due-gate';
 import { effectiveOwnerId, getActivePartnerSummary } from '../native-reminders/ownership';
 import { ensurePrimaryNativeCalendar } from './onboarding';
-import { expandSeries, fixesDays, shiftOnWall, shiftUntil, truncateRruleBefore, VirtualInstance, yieldsSlots } from './recurrence';
+import {
+  assertStorableRule,
+  expandSeries,
+  fixesDays,
+  NativeRuleError,
+  shiftOnWall,
+  shiftUntil,
+  truncateRruleBefore,
+  VirtualInstance,
+  yieldsSlots,
+} from './recurrence';
+
+export { NativeRuleError };
 
 export const NATIVE_CALENDAR_ID_PREFIX = 'native:';
 export const NATIVE_EVENT_INSTANCE_SEP = '#';
@@ -360,7 +372,43 @@ export class NativeFixedDaysError extends Error {
   }
 }
 
+/**
+ * A series-level change (a new rule, calendar or recipient) asked for a scope that can't
+ * carry it (3b spec §3.1): 'single' on a series, a new rule for 'all', or a calendar move
+ * of a reminder. `field` names what the home answers 400 for.
+ */
+export class NativeScopeError extends Error {
+  constructor(
+    public readonly field: 'scope' | 'calendarId',
+    message = 'This change cannot apply to that scope'
+  ) {
+    super(message);
+    this.name = 'NativeScopeError';
+  }
+}
+
+/** A recipient other than the creator or their ACTIVE partner on the built-in calendar and Telegram. */
+export class NativeRecipientError extends Error {
+  constructor(message = 'This reminder cannot be for that person') {
+    super(message);
+    this.name = 'NativeRecipientError';
+  }
+}
+
+/**
+ * A calendar move to a calendar that is missing, deleted or not writable, or a partner's
+ * event to the user's own private calendar. Never NativeNotFoundError: the item is still there.
+ */
+export class NativeDestinationError extends Error {
+  constructor(message = 'The event cannot move to that calendar') {
+    super(message);
+    this.name = 'NativeDestinationError';
+  }
+}
+
 export async function createNativeEvent(input: CreateNativeEventInput): Promise<NativeEvent> {
+  // A rule every reader can expand, or nothing is written (3b spec §3.1).
+  if (input.rrule) assertStorableRule(input.rrule);
   const calendar = await prisma.nativeCalendar.findUnique({
     where: { id: input.calendarCuid },
     select: { id: true, ownerUserId: true, privacy: true, isDeleted: true },

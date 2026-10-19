@@ -15,6 +15,7 @@ import { RRule, RRuleSet } from 'rrule';
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import type { NativeEvent, NativeEventInstance } from '@prisma/client';
 import { TIMEZONE } from '../../config/constants';
+import { captureError } from '../../lib/error-capture';
 
 export interface VirtualInstance {
   // Identity
@@ -383,4 +384,169 @@ export function truncateRruleBefore(rrule: string, instanceDate: Date, timeZone:
     .filter((p) => !p.startsWith('UNTIL=') && !p.startsWith('COUNT='));
   parts.push(`UNTIL=${untilStr}`);
   return parts.join(';');
+}
+
+/**
+ * A rule the store won't keep (3b spec §3.1): one that doesn't parse, has a part the app
+ * can't expand safely, or an INTERVAL or COUNT below 1 (a negative INTERVAL hangs the
+ * rrule library). event-store re-exports it; it lives here so the check needs no cycle.
+ */
+export class NativeRuleError extends Error {
+  constructor(message = 'This repeat rule cannot be stored') {
+    super(message);
+    this.name = 'NativeRuleError';
+  }
+}
+
+const RULE_PREFIX = 'RRULE:';
+const bare = (rule: string) => (rule.startsWith(RULE_PREFIX) ? rule.slice(RULE_PREFIX.length) : rule);
+/** The parts a stored rule may have, as RRule.parseString names them. */
+const STORABLE_PARTS = new Set(['freq', 'interval', 'byweekday', 'bymonthday', 'bymonth', 'until', 'count', 'wkst']);
+const STORABLE_FREQS: readonly number[] = [RRule.DAILY, RRule.WEEKLY, RRule.MONTHLY, RRule.YEARLY];
+
+/**
+ * Throw NativeRuleError unless `rule` (bare, or with an RRULE: prefix) is one every reader
+ * can expand: it parses, its parts are within freq, interval, byweekday, bymonthday,
+ * bymonth, until, count and wkst, its FREQ is daily to yearly, and INTERVAL and COUNT,
+ * when present, are whole numbers of at least 1. Checked on the parsed options, so a
+ * prefix or the order of the parts doesn't matter.
+ */
+export function assertStorableRule(rule: string): void {
+  let opts: Record<string, unknown>;
+  try {
+    opts = RRule.parseString(withInclusiveUntil(bare(rule))) as Record<string, unknown>;
+  } catch (error) {
+    throw new NativeRuleError(`Unreadable repeat rule: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const extra = Object.keys(opts).find((k) => !STORABLE_PARTS.has(k));
+  if (extra) throw new NativeRuleError(`Repeat rule part not supported: ${extra}`);
+  if (typeof opts.freq !== 'number' || !STORABLE_FREQS.includes(opts.freq)) throw new NativeRuleError('Repeat rule frequency not supported');
+  for (const part of ['interval', 'count'] as const) {
+    if (part in opts && !(Number.isInteger(opts[part]) && (opts[part] as number) >= 1)) {
+      throw new NativeRuleError(`Repeat rule ${part} must be a whole number of at least 1`);
+    }
+  }
+}
+
+/** The last slot of a rule that ends (UNTIL or COUNT), exdates aside, or null. Capped, so a huge COUNT can't run away. */
+function lastSlot(rule: string, start: Date, zone: string): Date | null {
+  const tz = zone || TIMEZONE;
+  let last: Date | null = null;
+  buildRuleSet(rule, toFloating(start, tz)).all((date, i) => {
+    if (i >= 100_000) return false;
+    last = date;
+    return true;
+  });
+  return last ? fromFloating(last, tz) : null;
+}
+
+/** What the editor's Repeat row calls a stored rule: one of its five, or 'custom' (3b spec §2.1). */
+export type RuleChoice = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom';
+const CHOICE_OF_FREQ: Record<number, RuleChoice> = {
+  [RRule.DAILY]: 'daily',
+  [RRule.WEEKLY]: 'weekly',
+  [RRule.MONTHLY]: 'monthly',
+  [RRule.YEARLY]: 'yearly',
+};
+/** The BY parts each choice may name, each only as its start's own value. */
+const CHOICE_PARTS: Record<string, readonly string[]> = {
+  daily: [],
+  weekly: ['byweekday'],
+  monthly: ['bymonthday'],
+  yearly: ['bymonth', 'bymonthday'],
+};
+const asList = (v: unknown): unknown[] => ([] as unknown[]).concat(v);
+
+/**
+ * How the editor names a stored rule (3b spec §2.1), read on the item's own start in its
+ * zone. One of the five when its FREQ matches, its INTERVAL is 1 or absent, its BY parts
+ * are only those that choice means and each equals the start's own (the start's weekday
+ * for weekly, its day of the month for monthly, its month and day for yearly), and it has
+ * no other part (WKST aside). Anything else, an unreadable rule included, is 'custom'.
+ * A rule with an end (UNTIL or COUNT) has `until`, the start of its last slot.
+ */
+export function classifyRule(rule: string | null, start: Date, zone: string): { choice: RuleChoice; until?: Date } {
+  if (!rule) return { choice: 'none' };
+  const tz = zone || TIMEZONE;
+  let opts: Record<string, unknown>;
+  try {
+    opts = RRule.parseString(withInclusiveUntil(bare(rule))) as Record<string, unknown>;
+  } catch (error) {
+    captureError(error, 'native-rule-classify', {}, 'warning');
+    return { choice: 'custom' };
+  }
+  const ends = opts.until != null || opts.count != null;
+  let until: Date | undefined;
+  if (ends) {
+    try {
+      until = lastSlot(rule, start, tz) ?? undefined;
+    } catch (error) {
+      captureError(error, 'native-rule-classify', {}, 'warning');
+    }
+  }
+  const withEnd = (choice: RuleChoice) => (until ? { choice, until } : { choice });
+  const choice = typeof opts.freq === 'number' ? CHOICE_OF_FREQ[opts.freq] : undefined;
+  if (!choice) return withEnd('custom');
+  if (opts.interval !== undefined && opts.interval !== 1) return withEnd('custom');
+  const allowed = CHOICE_PARTS[choice];
+  const own: Record<string, number> = {
+    // rrule numbers weekdays from Monday = 0; ISO's 1..7 from Monday.
+    byweekday: Number(formatInTimeZone(start, tz, 'i')) - 1,
+    bymonthday: Number(formatInTimeZone(start, tz, 'd')),
+    bymonth: Number(formatInTimeZone(start, tz, 'M')),
+  };
+  for (const [part, value] of Object.entries(opts)) {
+    if (value === undefined || ['freq', 'interval', 'until', 'count', 'wkst'].includes(part)) continue;
+    if (!allowed.includes(part)) return withEnd('custom');
+    const values = asList(value);
+    const matches = values.length === 1 && values.every((v) => {
+      if (part !== 'byweekday') return v === own[part];
+      const day = v as { weekday?: number; n?: number } | number;
+      return typeof day === 'number' ? day === own.byweekday : day.weekday === own.byweekday && !day.n;
+    });
+    if (!matches) return withEnd('custom');
+  }
+  return withEnd(choice);
+}
+
+/**
+ * How many of a series' rule slots fall before `cut`, its exdates and overrides aside (as
+ * yieldsSlots counts): a COUNT counts the skipped ones too, so "this one and the ones after"
+ * keeps what is left of it.
+ */
+export function slotsBefore(series: { rrule: string; startsAt: Date; timeZone: string | null }, cut: Date): number {
+  const tz = series.timeZone || TIMEZONE;
+  const from = toFloating(series.startsAt, tz);
+  const to = new Date(toFloating(cut, tz).getTime() - 1);
+  if (to < from) return 0;
+  return buildRuleSet(series.rrule, from).between(from, to, true).length;
+}
+
+/**
+ * The rule a repeat change stores (3b spec §2.1, Ends): `newRule` (one of the five, bare)
+ * with the old rule's end. An UNTIL carries over as it is; a COUNT becomes a date-only
+ * UNTIL on the day of its last slot under the old rule, so the series still ends that
+ * day. Never (null) has no end. A new rule with an end of its own keeps it.
+ */
+export function endCarriedRule(
+  newRule: string | null,
+  oldRule: string,
+  series: { startsAt: Date; timeZone: string | null }
+): string | null {
+  if (newRule === null) return null;
+  if (/(^|[;:])(UNTIL|COUNT)=/i.test(newRule)) return newRule;
+  const old = bare(oldRule);
+  const until = /(^|;)UNTIL=([^;]+)/i.exec(old);
+  if (until) return `${newRule};UNTIL=${until[2]}`;
+  if (/(^|;)COUNT=/i.test(old)) {
+    const tz = series.timeZone || TIMEZONE;
+    const last = lastSlot(old, series.startsAt, tz);
+    if (last) return `${newRule};UNTIL=${formatInTimeZone(last, tz, 'yyyyMMdd')}`;
+  }
+  return newRule;
+}
+
+/** A rule with its COUNT replaced (the rest of a series cut by "this one and the ones after"). */
+export function withCount(rule: string, count: number): string {
+  return rule.replace(/(^|;)COUNT=\d+/i, `$1COUNT=${count}`);
 }

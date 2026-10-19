@@ -24,6 +24,7 @@ import {
   NativeFixedDaysError,
   NativePermissionDeniedError,
   NativeNotFoundError,
+  NativeRuleError,
   ReminderStateRow,
   createNativeEvent,
   decodeCalendarId,
@@ -44,6 +45,7 @@ import {
 import { effectiveOwnerForViewer, loadViewerContext, ViewerContext } from '../native-reminders/ownership';
 import { TIMEZONE } from '../../config/constants';
 import { addDaysToDate } from '../../utils/day-events';
+import { captureError } from '../../lib/error-capture';
 
 const PROVIDER_NAME = 'native' as const;
 
@@ -215,8 +217,13 @@ function filterCalendarCuids(calendarIds: string[]): string[] {
   return out;
 }
 
-// Map permission/parsing errors from event-store into provider error shape.
-function toErrorResult<T extends { success: boolean; error?: string; errorMessage?: string }>(err: unknown): T {
+// Map permission/parsing errors from event-store into provider error shape. A rule the
+// store refused is UNKNOWN_ERROR to the bot, logged with the ids it was for (3b spec §3.1).
+function toErrorResult<T extends { success: boolean; error?: string; errorMessage?: string }>(
+  err: unknown,
+  ids: { user_id: number; calendar_id: string; event_id?: string }
+): T {
+  if (err instanceof NativeRuleError) captureError(err, 'native-provider-rule', ids, 'warning');
   if (err instanceof NativePermissionDeniedError) {
     return {
       success: false,
@@ -342,7 +349,7 @@ export const nativeProvider: CalendarProvider = {
         eventId: encodeEventId(event.id),
       };
     } catch (err) {
-      return toErrorResult<CreateEventResult>(err);
+      return toErrorResult<CreateEventResult>(err, { user_id: user.id, calendar_id: calendarId });
     }
   },
 
@@ -363,7 +370,7 @@ export const nativeProvider: CalendarProvider = {
         ...(result.clearedPings.length > 0 ? { clearedPings: result.clearedPings } : {}),
       };
     } catch (err) {
-      return toErrorResult<UpdateEventResult>(err);
+      return toErrorResult<UpdateEventResult>(err, { user_id: user.id, calendar_id: calendarId, event_id: eventId });
     }
   },
 
@@ -387,7 +394,7 @@ export const nativeProvider: CalendarProvider = {
       });
       return { success: true };
     } catch (err) {
-      return toErrorResult<DeleteEventResult>(err);
+      return toErrorResult<DeleteEventResult>(err, { user_id: user.id, calendar_id: calendarId, event_id: eventId });
     }
   },
 };
