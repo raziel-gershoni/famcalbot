@@ -531,7 +531,7 @@ async function main() {
     assertJson(row.snoozedUntil, new RealDate(NOW.getTime() + 15 * MIN), 'snoozedUntil');
     assert(row.lastPingedAt === null && row.pingAttempts === 0 && row.doneAt === null, json(row));
     assert(gateOpen(), 'gate woken');
-    assertJson(activity, [{ userId: DANA, action: 'native_reminder_snoozed', meta: { snooze: 's15', source: 'app' } }], 'analytics');
+    assertJson(activity, [{ userId: DANA, action: 'native_reminder_snoozed', meta: { series_event_id: MILK, snooze: 's15', source: 'app' } }], 'analytics');
     assert(sends().length === 0, 'a snooze tells nobody');
     await act(DANA, MILK_KEY, 'snooze60');
     assertJson(row.snoozedUntil, new RealDate(NOW.getTime() + 60 * MIN), 'a second snooze replaces the first');
@@ -602,6 +602,28 @@ async function main() {
     const want = await getBotMessage('he', 'nativeReminders.snoozedUntil', { title: 'Call the plumber', time: '10:15' });
     assert(want.includes('10:15'), want);
     assertJson(edits(), [{ kind: 'edit', chatId: tg(RAZIEL), messageId: 77, text: want, buttons: false }], 'snooze edit');
+  });
+
+  await check('ping: the edit is in the ping recipient\'s language and clock, not the actor\'s (Raziel acts on Dana\'s ping)', async () => {
+    reset();
+    db.states.push({
+      id: 'state-milk', seriesEventId: MILK, originalStartsAt: MILK_KEY.originalStartsAt, doneAt: null, doneByUserId: null,
+      snoozedUntil: null, lastPingedAt: NOW, pingAttempts: 1, pingChatId: BigInt(tg(DANA)), pingMessageId: 55,
+      createdAt: CREATED, updatedAt: CREATED,
+    });
+    TIMEZONES[DANA] = NY;
+    try {
+      await act(RAZIEL, MILK_KEY, 'snooze15');
+    } finally {
+      TIMEZONES[DANA] = IL;
+    }
+    // Dana is English and in New York: 10:15 in Israel is 03:15 there.
+    const want = await getBotMessage('en', 'nativeReminders.snoozedUntil', { title: 'Buy milk', time: '03:15' });
+    assertJson(edits(), [{ kind: 'edit', chatId: tg(DANA), messageId: 55, text: want, buttons: false }], 'snooze edit');
+    botCalls = [];
+    await act(RAZIEL, MILK_KEY, 'done');
+    const done = await getBotMessage('en', 'nativeReminders.done', { title: 'Buy milk' });
+    assertJson(edits(), [{ kind: 'edit', chatId: tg(DANA), messageId: 55, text: done, buttons: false }], 'done edit');
   });
 
   await check('ping: the edit is Telegram\'s to fail: the action still succeeds, answered ok, a warning is captured', async () => {
