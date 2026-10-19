@@ -1601,7 +1601,7 @@ async function main() {
     seedState(rid, at('2026-10-20 17:30'), 66);
     stripped.length = 0;
     const moved = await patch({ key: r.body.key, scope: 'following', changes: { start: '2026-10-20T18:00' } });
-    assertSame([moved.body.key, tables.nativeEvent.length, statesOf(rid).length, strips().moved], [`famcal|${rid}#${iso(at('2026-10-20 18:00'))}`, 3, 0, [66]], 'a reminder moves in place and re-arms');
+    assertSame([moved.body.key, tables.nativeEvent.length, statesOf(rid).length, strips().moved], [`famcal|${rid}#${iso(at('2026-10-20 18:00'))}`, 2, 0, [66]], 'a reminder moves in place and re-arms');
   });
 
   await check('3b delete "this and after" from the first occurrence deletes the series; from a later one it cuts', async () => {
@@ -1676,7 +1676,7 @@ async function main() {
     const r = await patch({ key: reminder.body.key, scope: 'single', changes: { calendarId: 'native:cal-tal-family' } });
     assertSame([r.status, r.body], [400, { error: 'invalid', field: 'calendarId' }], 'a reminder');
     const e = await thrownBy(() => store.updateNativeEvent({ seriesCuid: idOf(reminder.body.key), scope: 'all', actingUserId: TAL, calendarId: 'cal-tal-family' }));
-    assert(e instanceof store.NativeScopeError && e.field === 'calendarId', `the store: ${e}`);
+    assert(e instanceof store.NativeScopeError && (e as Row).field === 'calendarId', `the store: ${e}`);
   });
 
   await check('3b recipient: the creator hands a reminder to the partner and takes it back; done stays done, the open ones start afresh and their pings say who it is for now; armedAt stays', async () => {
