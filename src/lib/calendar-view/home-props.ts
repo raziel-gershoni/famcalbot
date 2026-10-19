@@ -1,5 +1,5 @@
 // The calendar home's props: what the dashboard's page-data hands PageGate, and PageGate
-// hands CalendarHome, when the rollout switch covers the user (Plan D). Type-only and
+// hands CalendarHome (Plan D). Type-only and
 // client-safe: it imports nothing, so page-data, PageGate and the home's client bundle
 // can all read it.
 

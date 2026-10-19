@@ -22,46 +22,9 @@
     }
   },
   "dashboard": {
-    "title": "בוט לוח שנה משפחתי",
-    "subtitle": "בוט לוח שנה משפחתי",
-    "welcomeMessage": "זוהי אפליקציית אינטרנט של טלגרם. פתח אותה דרך הבוט שלך בטלגרם.",
-    "setup": {
-      "connectGoogle": "חיבור ליומן Google",
-      "connectGoogleDesc": "קבלו תקצירים יומיים, סיכום קולי וסדר איסוף חכם. לוקח 60 שניות.",
-      "selectCalendars": "בחר את היומנים שלך",
-      "selectCalendarsDesc": "בחרו אילו יומנים לאחד — שלכם, בן/בת הזוג, ילדים. פותח את התצוגה המשפחתית המלאה.",
-      "nativeWelcome": "היומן שלך מוכן",
-      "nativeLocationDesc": "ספר/י לי איפה את/ה גר/ה כדי שמזג אוויר ואזורי זמן יעבדו כמו שצריך."
-    },
-    "summary": {
-      "title": "סיכום לוח שנה",
-      "today": "היום",
-      "tomorrow": "מחר",
-      "weekLookahead": "השבוע הקרוב",
-      "nextWeek": "השבוע הבא"
-    },
-    "weather": {
-      "title": "תחזית מזג אוויר",
-      "forecast": "תחזית",
-      "shareStory": "שתף לסטורי"
-    },
-    "settings": {
-      "title": "הגדרות לוח שנה",
-      "calendars": "{count} יומנים מסונכרנים",
-      "renewToken": "חדש אסימון Google"
-    },
-    "subscription": {
-      "daysRemaining": "ימים נותרו בתקופת הניסיון",
-      "earlyAdopter": "מאמץ מוקדם"
-    },
-    "telegramBanner": {
-      "text": "קבלו תזכורות, סיכומים קוליים ועוד בטלגרם",
-      "button": "פתח בטלגרם"
-    },
     "feedback": {
       "title": "משוב",
       "pageTitle": "שלח משוב",
-      "cardText": "שתף איתנו את המשוב שלך",
       "placeholder": "שתף את המחשבות, ההצעות או דווח על בעיות...",
       "submit": "שלח משוב",
       "sending": "שולח...",
@@ -262,12 +225,6 @@
       "remindersDescription": "הפעלה או כיבוי של ההתראה לפני תחילת אירוע, לכל המשתמשים",
       "nativeReminders": "תזכורות (יומן מובנה)",
       "nativeRemindersDescription": "\"תזכיר לי…\" למשתמשי היומן המובנה בטלגרם: יצירה בקול או בטקסט, שליחה עם כפתורי בוצע/נודניק, והצגה בסיכומים עד הסימון כבוצע. כבוי: לא נוצרות תזכורות חדשות ולא נשלחות תזכורות.",
-      "calendarHome": "מסך הבית של היומן",
-      "calendarHomeDescription": "מסך הבית החדש שמציג את היומן, והסיכומים היומיים והשבועיים נבנים מאותם נתונים. קודם למנהלים, אחר כך לכולם. כבוי: מסך הבית והסיכומים הנוכחיים.",
-      "calendarHomeOff": "כבוי",
-      "calendarHomeAdmins": "מנהלים",
-      "calendarHomeAll": "כולם",
-      "calendarHomeDelayed": "נשמר. ייכנס לתוקף תוך דקה",
       "earlyAdoption": "מצב אימוץ מוקדם",
       "earlyAdoptionDescription": "תן לכל המשתמשים גישת PRO. מסתיר ממשק תשלום."
     },

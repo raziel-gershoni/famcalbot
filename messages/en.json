@@ -22,46 +22,9 @@
     }
   },
   "dashboard": {
-    "title": "FamCalBot",
-    "subtitle": "Family Calendar Bot",
-    "welcomeMessage": "This is a Telegram Web App. Open it through your Telegram bot.",
-    "setup": {
-      "connectGoogle": "Connect Google Calendar",
-      "connectGoogleDesc": "Unlock daily schedule summaries, voice briefings, and smart pickup order. Takes 60 seconds.",
-      "selectCalendars": "Select Your Calendars",
-      "selectCalendarsDesc": "Choose which calendars to merge — yours, spouse, kids. Unlocks the full family view.",
-      "nativeWelcome": "Your calendar is ready",
-      "nativeLocationDesc": "Tell me where you live so weather and timezones work right."
-    },
-    "summary": {
-      "title": "Calendar Summary",
-      "today": "Today",
-      "tomorrow": "Tomorrow",
-      "weekLookahead": "Week Ahead",
-      "nextWeek": "Next Week"
-    },
-    "weather": {
-      "title": "Weather Forecast",
-      "forecast": "Forecast",
-      "shareStory": "Share to Story"
-    },
-    "settings": {
-      "title": "Calendar Settings",
-      "calendars": "{count} calendars synced",
-      "renewToken": "Renew Google Token"
-    },
-    "subscription": {
-      "daysRemaining": "days remaining in trial",
-      "earlyAdopter": "Early Adopter"
-    },
-    "telegramBanner": {
-      "text": "Get reminders, voice summaries, and more on Telegram",
-      "button": "Open in Telegram"
-    },
     "feedback": {
       "title": "Feedback",
       "pageTitle": "Send Feedback",
-      "cardText": "Share your feedback with us",
       "placeholder": "Share your thoughts, suggestions, or report issues...",
       "submit": "Send Feedback",
       "sending": "Sending...",
@@ -262,12 +225,6 @@
       "remindersDescription": "Turn event alerts (the heads-up before an event starts) on or off for everyone",
       "nativeReminders": "Reminders (built-in calendar)",
       "nativeRemindersDescription": "“Remind me…” for built-in calendar users on Telegram: made by voice or text, pinged with Done/Snooze, kept in summaries until done. Off: no new reminders and no pings.",
-      "calendarHome": "Calendar home",
-      "calendarHomeDescription": "The new home that shows the calendar, with the daily and weekly summaries read the same way. Admins first, then everyone. Off: the current home and summaries.",
-      "calendarHomeOff": "Off",
-      "calendarHomeAdmins": "Admins",
-      "calendarHomeAll": "Everyone",
-      "calendarHomeDelayed": "Saved; takes effect within a minute",
       "earlyAdoption": "Early Adoption Mode",
       "earlyAdoptionDescription": "Give all users PRO access. Hides payment UI."
     },
