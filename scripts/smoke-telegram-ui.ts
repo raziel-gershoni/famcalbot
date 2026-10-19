@@ -517,7 +517,7 @@ async function main() {
       fakeWindow.open = (...a: unknown[]) => { opened.push(a.join(' ')); return null; };
       assert(openExternalLink(link) === true, 'not opened');
       assert(show(tg.calls) === show([`openLink(${link})`]) && opened.length === 0, `telegram: ${show(tg.calls)} ${show(opened)}`);
-      assert(openExternalLink('javascript:alert(1)') === false && openExternalLink('/en/settings') === false, 'a bad link was accepted');
+      assert(['javascript:alert(1)', 'data:text/html,x', 'vbscript:msgbox(1)', '/en/settings'].every((u) => openExternalLink(u) === false), 'a bad link was accepted');
       assert(tg.calls.length === 1 && opened.length === 0, `bad links opened: ${show(tg.calls)} ${show(opened)}`);
     });
     const browser = fakeTelegram({ version: '6.0', initData: '' });

@@ -211,6 +211,7 @@
       "label": "Подробности",
       "calendar": "Календарь",
       "partnerCalendar": "{name} (личный)",
+      "privateCalendar": "Личный календарь",
       "location": "Место",
       "notes": "Заметки",
       "repeats": "Повторяется",

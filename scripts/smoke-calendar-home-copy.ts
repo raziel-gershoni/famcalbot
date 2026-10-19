@@ -171,6 +171,7 @@ const KEYS: Record<string, readonly string[]> = {
   'sheet.label': [],
   'sheet.calendar': [],
   'sheet.partnerCalendar': ['name'],
+  'sheet.privateCalendar': [],
   'sheet.location': [],
   'sheet.notes': [],
   'sheet.repeats': [],

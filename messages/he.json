@@ -211,6 +211,7 @@
       "label": "פרטים",
       "calendar": "יומן",
       "partnerCalendar": "היומן של {name}",
+      "privateCalendar": "יומן פרטי",
       "location": "מיקום",
       "notes": "הערות",
       "repeats": "חלק מסדרה",

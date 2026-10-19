@@ -211,6 +211,7 @@
       "label": "Details",
       "calendar": "Calendar",
       "partnerCalendar": "{name}’s calendar",
+      "privateCalendar": "Private calendar",
       "location": "Location",
       "notes": "Notes",
       "repeats": "Repeats",

@@ -98,13 +98,17 @@ export function ItemSheet({ row, today, tz, onClose }: ItemSheetProps) {
   if (item.repeatsDaily) tags.push(t('sheet.everyDay'));
   else if (item.recurring) tags.push(t('sheet.repeats'));
 
-  // A masked calendar (a partner's private one) has no id; the DTO puts the partner's name in its name.
+  // A masked calendar (a partner's private one) has no id; the DTO puts the partner's name in its name,
+  // which is blank when there is no partner. A blank name never reaches the sheet as an empty line.
+  const rawName = item.calendar.name.trim();
   const calendarName =
-    item.calendar.id === null
-      ? t('sheet.partnerCalendar', { name: item.calendar.name })
-      : item.source === 'google'
-        ? t('row.googleCalendar', { calendar: item.calendar.name })
-        : item.calendar.name;
+    rawName === ''
+      ? t('sheet.privateCalendar')
+      : item.calendar.id === null
+        ? t('sheet.partnerCalendar', { name: rawName })
+        : item.source === 'google'
+          ? t('row.googleCalendar', { calendar: rawName })
+          : rawName;
   const location = item.location && item.location.trim() !== '' ? item.location.trim() : null;
   const notes = item.description && item.description.trim() !== '' ? item.description.trim() : null;
   const googleLink = item.source === 'google' && item.htmlLink ? item.htmlLink : null;
@@ -145,6 +149,7 @@ export function ItemSheet({ row, today, tz, onClose }: ItemSheetProps) {
         {notes ? (
           <div className="ch-fact">
             <dt>{t('sheet.notes')}</dt>
+            {/* Plain text on purpose: a description is never linkified (a linkifier must allow only http, https, mailto, tel). */}
             <dd className="ch-notes" dir="auto">
               {notes}
             </dd>

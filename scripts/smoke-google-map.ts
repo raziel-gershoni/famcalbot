@@ -328,6 +328,11 @@ async function main() {
     assertEq(htmlToText('<b>x</b> &bogus; &#0; &#xD800;'), 'x &bogus; &#0; &#xD800;', 'unknown and invalid kept');
   });
 
+  await check('htmlToText: a javascript: link keeps its URL as text, never as a link', () => {
+    assertEq(htmlToText('<a href="javascript:alert(1)">click</a>'), 'click (javascript:alert(1))', 'javascript');
+    assertEq(htmlToText('<a href="data:text/html,x">go</a>'), 'go (data:text/html,x)', 'data');
+  });
+
   await check('htmlToText: line tags become newlines, list items bullets', () => {
     assertEq(htmlToText('One<br>Two<br/>Three<BR />Four'), 'One\nTwo\nThree\nFour', 'br');
     assertEq(htmlToText('<p>First</p><p>Second</p>'), 'First\nSecond', 'p');

@@ -571,6 +571,13 @@ async function main() {
     assertSame(copies(declined.items), [[`google|${DANA}|evt1`, DANA, true, null]], 'after the spouse declined');
   });
 
+  await check('a javascript: link in a description is plain text in the DTO (never a link)', async () => {
+    google.pages[DANA] = [{ summary: TITLES[DANA], items: [timed('evil', 'Evil', '2026-10-14T09:00:00-04:00', '2026-10-14T10:00:00-04:00', { description: '<a href="javascript:alert(1)">click</a>' })] }];
+    const r = await read(user(), { calendarIds: [DANA] });
+    const [day] = toRangeDays(r.items, DAY, nextDate(DAY), NY, new Date(), DAY);
+    assertSame(day.items.map(i => i.description), ['click (javascript:alert(1))'], 'the description');
+  });
+
   // ---- Paging ----
 
   await check('paging: follows nextPageToken through an empty page to the end', async () => {

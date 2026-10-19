@@ -3487,6 +3487,38 @@ async function main() {
     assert(/border-color: var\(--cal-line\);\s*background: transparent;/.test(rule('.ch-cal-chip.has-cal.is-partner')), 'the partner\'s: outlined, its text still --cal-text');
   });
 
+  await check('#63 the item sheet\'s Calendar line: a masked calendar with no partner name reads "Private calendar" (never empty or "\'s calendar"); with a name it reads as before', () => {
+    const generic = { en: 'Private calendar', he: 'יומן פרטי', ru: 'Личный календарь' } as const;
+    const named = { en: 'Noa’s calendar', he: 'היומן של Noa', ru: 'Noa (личный)' } as const;
+    // The first fact in the sheet is the calendar's: its <dd>.
+    const calendarLine = (html: string) => /<dl[^>]*>\s*<div[^>]*><dt>[^<]*<\/dt><dd[^>]*>([\s\S]*?)<\/dd>/.exec(html)?.[1] ?? '';
+    for (const locale of ['en', 'he', 'ru'] as const) {
+      for (const [kind, cal] of [['reminder', { ...MASKED, name: '' }], ['event', { ...MASKED, name: '  ' }]] as const) {
+        const one = item('masked', { kind: kind === 'reminder' ? 'reminder' : 'event', title: 'Masked', start: at(0, '15:00'), calendar: cal });
+        const row = rowOf(model([ok(answer({ items: { [day(0)]: [one] } }))]), 'famcal|masked');
+        const line = textOf(calendarLine(renderSheet(locale, row)));
+        assert(line === generic[locale], `${locale} ${kind}: ${show(line)}`);
+      }
+      const noa = rowOf(model([ok(answer({ items: { [day(0)]: [item('noa', { title: 'Noa', start: at(0, '15:00'), calendar: MASKED })] } }))]), 'famcal|noa');
+      const line = textOf(calendarLine(renderSheet(locale, noa)));
+      assert(line === named[locale], `${locale} named: ${show(line)}`);
+    }
+  });
+
+  await check('#64 a description is never linkified: javascript:, data:, vbscript:, markup and a plain https URL all stay verbatim text, and the sheet has no anchor (only the Google button, a <button>)', () => {
+    const notes = ['click (javascript:alert(1))', '<a href="javascript:alert(1)">x</a>', 'data:text/html,<script>', 'vbscript:msgbox(1)', 'https://example.com'];
+    for (const description of notes) {
+      const one = item('desc', { title: 'Desc', start: at(0, '15:00'), description });
+      const row = rowOf(model([ok(answer({ items: { [day(0)]: [one] } }))]), 'famcal|desc');
+      const html = markup(renderSheet('en', row));
+      assert(!/<a[\s>]/i.test(html) && !/ href="/i.test(html), `${show(description)}: has a link`);
+      assert(textOf(html).includes(spaces(description)), `${show(description)}: not shown verbatim`);
+    }
+    const google = rowOf(googleWeek(), DINNER.key);
+    const html = markup(renderSheet('en', google));
+    assert(!/<a[\s>]/i.test(html) && /<button[^>]*>Open in Google Calendar/.test(html), 'the Google link is a button');
+  });
+
   let failed = 0;
   for (const r of results) {
     process.stdout.write(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}\n`);
