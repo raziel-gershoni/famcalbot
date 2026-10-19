@@ -372,6 +372,24 @@ function blankCell(day: DayKey): MonthCell {
   return { day, inMonth: false, today: false, status: 'answered', slots: [], dots: [], count: 0, fromPartner: 0, hebrewMonthStart: false };
 }
 
+/** A month with no model yet: its own days loading, the rest blank (R12). */
+export function loadingMonth(month: MonthKey, weekStart: WeekStart, today: DayKey): MonthModel {
+  const first = monthFirstDay(month);
+  const weeks = monthGrid(month, weekStart).map((row) =>
+    row.map((day): MonthCell => {
+      const inMonth = monthOf(day) === month;
+      return {
+        ...blankCell(day),
+        inMonth,
+        today: inMonth && day === today,
+        status: inMonth ? 'loading' : 'answered',
+        hebrewMonthStart: inMonth && (day === first || isHebrewMonthStart(day)),
+      };
+    }),
+  );
+  return { month, weeks, status: 'loading', notices: [], partner: null };
+}
+
 function buildRow(store: CalendarStore, row: readonly DayKey[], month: MonthKey, first: DayKey, last: DayKey, today: DayKey, tz: string, partner: string | null): MonthCell[] {
   const cols = row.map((day) => (monthOf(day) === month ? drawnOn(store, day, first, last, tz, partner) : null));
   const runs = rowRuns(cols);

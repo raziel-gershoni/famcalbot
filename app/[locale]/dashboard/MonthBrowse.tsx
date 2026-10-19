@@ -44,14 +44,15 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { formatDayLong, formatMonthTitle, formatWeekdayHeader } from '@/src/lib/calendar-view/format';
-import { monthFirstDay, monthGrid, monthOf, weekdayOrder, type MonthKey } from '@/src/lib/calendar-view/grid';
-import { hebrewCellLabel, hebrewCellMonth, hebrewDayLabel, hebrewMonthHeader, isHebrewMonthStart } from '@/src/lib/calendar-view/hebrew-date';
+import { monthGrid, monthOf, weekdayOrder, type MonthKey } from '@/src/lib/calendar-view/grid';
+import { hebrewCellLabel, hebrewCellMonth, hebrewDayLabel, hebrewMonthHeader } from '@/src/lib/calendar-view/hebrew-date';
 import {
   BROWSE_CELL_PX,
   BROWSE_CHIPS_NARROW,
   BROWSE_SLOTS,
   NARROW_MAX_PX,
   limitRow,
+  loadingMonth,
   monthBarPx,
   monthBlockPx,
   monthOffsets,
@@ -187,27 +188,6 @@ function startIndexOf(months: readonly MonthKey[], month: MonthKey, today: DayKe
 
 function blockPx(month: MonthKey, weekStart: WeekStart, hebrewDates: boolean): number {
   return monthBlockPx(monthGrid(month, weekStart).length, hebrewDates);
-}
-
-/** A month with no model yet: its own days loading, the rest blank (R12). */
-function loadingWeeks(month: MonthKey, weekStart: WeekStart, today: DayKey): MonthCell[][] {
-  const first = monthFirstDay(month);
-  return monthGrid(month, weekStart).map((row) =>
-    row.map((day): MonthCell => {
-      const inMonth = monthOf(day) === month;
-      return {
-        day,
-        inMonth,
-        today: inMonth && day === today,
-        status: inMonth ? 'loading' : 'answered',
-        slots: [],
-        dots: [],
-        count: 0,
-        fromPartner: 0,
-        hebrewMonthStart: inMonth && (day === first || isHebrewMonthStart(day)),
-      };
-    }),
-  );
 }
 
 /**
@@ -347,7 +327,7 @@ const MonthGrid = memo(function MonthGrid({ month, model, weekStart, today, hebr
   // A model drawn from another week start (a store not yet dropped after the facts
   // changed) would not fit this month's block: until the new one comes, it reads as loading.
   const fits = model !== null && model.weeks[0]?.[0]?.day === monthGrid(month, weekStart)[0]?.[0];
-  const weeks = model && fits ? model.weeks : loadingWeeks(month, weekStart, today);
+  const weeks = model && fits ? model.weeks : loadingMonth(month, weekStart, today).weeks;
   const genitive = hebrewDates && locale === 'ru' ? (t.raw('hebrewMonthGenitive') as string[]) : undefined;
   const shortMonths = hebrewDates ? (t.raw('hebrewMonthShort') as string[]) : undefined;
   const noTitle = t('row.noTitle');

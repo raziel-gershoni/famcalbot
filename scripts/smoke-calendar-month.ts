@@ -44,6 +44,7 @@ import {
   limitDots,
   limitRow,
   limitSlots,
+  loadingMonth,
   monthBarPx,
   monthBlockPx,
   monthModels,
@@ -765,6 +766,24 @@ async function main() {
     assert(monthModels(next)('2026-10') !== oct && get('2026-10') === oct, 'built afresh; the old store keeps its own');
     const none = monthModels(emptyStore());
     assert(none('2026-10') === null && none('2026-10') === null, 'null before facts');
+  });
+
+  await check('loadingMonth: 4/5/6-row months at either week start: own days loading (today only in the month), the rest answered and blank, the 1st marked', () => {
+    // Feb 2027 is 4 rows from Monday, Oct 2026 is 5 from Sunday, Aug 2026 is 6 from Sunday.
+    for (const [month, ws, rows] of [['2027-02', 1, 4], ['2026-10', 0, 5], ['2026-08', 0, 6]] as const) {
+      const m = loadingMonth(month, ws, `${month}-02`);
+      assert(m.month === month && m.status === 'loading' && m.notices.length === 0 && m.partner === null, `${month}: ${JSON.stringify([m.status, m.notices, m.partner])}`);
+      assert(m.weeks.length === rows && m.weeks.every((w) => w.length === 7), `${month}/${ws}: ${m.weeks.length} rows`);
+      for (const c of m.weeks.flat()) {
+        const inMonth = c.day.startsWith(month);
+        assert(c.inMonth === inMonth && c.status === (inMonth ? 'loading' : 'answered'), `${c.day}: ${c.status}`);
+        assert(c.today === (c.day === `${month}-02`) && c.count === 0 && c.fromPartner === 0 && c.slots.length === 0 && c.dots.length === 0, `${c.day}: today/count`);
+        if (c.day === `${month}-01`) assert(c.hebrewMonthStart, `${c.day}: the 1st is a month start`);
+        if (!inMonth) assert(!c.hebrewMonthStart && !c.today, `${c.day}: outside`);
+      }
+    }
+    // Today in another month flags no cell.
+    assert(loadingMonth('2026-10', 0, '2026-11-02').weeks.flat().every((c) => !c.today), 'today outside the month');
   });
 
   await check('null before the first answer and for a malformed month', () => {

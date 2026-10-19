@@ -22,9 +22,8 @@
 
 import { useTranslations } from 'next-intl';
 import type { AgendaRow } from '@/src/lib/calendar-view/agenda';
-import { monthFirstDay, monthGrid, monthOf, type MonthKey } from '@/src/lib/calendar-view/grid';
-import { isHebrewMonthStart } from '@/src/lib/calendar-view/hebrew-date';
-import { backToBrowse, canStep, pickDay, pickToday, stepMonth, type MonthCell, type MonthModel, type MonthUi } from '@/src/lib/calendar-view/month';
+import { monthGrid, type MonthKey } from '@/src/lib/calendar-view/grid';
+import { backToBrowse, canStep, loadingMonth, pickDay, pickToday, stepMonth, type MonthModel, type MonthUi } from '@/src/lib/calendar-view/month';
 import type { DayStatus } from '@/src/lib/calendar-view/store';
 import type { DayKey, SourceName, WeekStart } from '@/src/lib/calendar-view/types';
 import { AGENDA_CSS } from './AgendaView';
@@ -65,33 +64,11 @@ export interface MonthViewProps {
   onChooseCalendars: () => void;
 }
 
-/** A month with no model yet: its own days loading, the rest blank (R12). */
-function loadingModel(month: MonthKey, weekStart: WeekStart, today: DayKey): MonthModel {
-  const first = monthFirstDay(month);
-  const weeks = monthGrid(month, weekStart).map((row) =>
-    row.map((day): MonthCell => {
-      const inMonth = monthOf(day) === month;
-      return {
-        day,
-        inMonth,
-        today: inMonth && day === today,
-        status: inMonth ? 'loading' : 'answered',
-        slots: [],
-        dots: [],
-        count: 0,
-        fromPartner: 0,
-        hebrewMonthStart: inMonth && (day === first || isHebrewMonthStart(day)),
-      };
-    }),
-  );
-  return { month, weeks, status: 'loading', notices: [], partner: null };
-}
-
 /** The month's model when it fits this week start, else the loading one. */
 function modelFor(getMonth: MonthViewProps['getMonth'], month: MonthKey, weekStart: WeekStart, today: DayKey): MonthModel {
   const model = getMonth(month);
   const first = monthGrid(month, weekStart)[0]?.[0];
-  return model && first !== undefined && model.weeks[0]?.[0]?.day === first ? model : loadingModel(month, weekStart, today);
+  return model && first !== undefined && model.weeks[0]?.[0]?.day === first ? model : loadingMonth(month, weekStart, today);
 }
 
 /** The open sheet's item as the picked day's latest rows have it (a refetch may have changed it), else as it was tapped. */
