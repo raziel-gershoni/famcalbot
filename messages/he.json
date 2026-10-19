@@ -1061,7 +1061,6 @@
     }
   },
   "subscription": {
-    "title": "מנוי",
     "currentPlan": "התוכנית הנוכחית",
     "usage": "שימוש החודש",
     "textSummaries": "סיכומי טקסט",
@@ -1102,7 +1101,6 @@
     "earlyAdopterBanner": "מאמץ מוקדם - גישה מלאה",
     "earlyAdopterDescription": "יש לך גישה מלאה לכל התכונות כמאמץ מוקדם!",
     "upgradeButton": "⭐ שדרג תוכנית",
-    "managePlan": "נהל מנוי",
     "cancelPlan": "בטל מנוי",
     "paymentSuccess": "✅ <b>התשלום הצליח!</b>\n\nאתה עכשיו בתוכנית <b>{plan}</b>.\n\n<b>תכונות שנפתחו:</b>\n• {features}",
     "paymentError": "❌ אירעה שגיאה בהפעלת המנוי שלך. אנא פנה לתמיכה.",

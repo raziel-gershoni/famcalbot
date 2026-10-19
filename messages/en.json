@@ -1061,7 +1061,6 @@
     }
   },
   "subscription": {
-    "title": "Subscription",
     "currentPlan": "Current Plan",
     "usage": "Usage This Month",
     "textSummaries": "Text Summaries",
@@ -1102,7 +1101,6 @@
     "earlyAdopterBanner": "Early Adopter - Full Access",
     "earlyAdopterDescription": "You have full access to all features as an early adopter!",
     "upgradeButton": "⭐ Upgrade Plan",
-    "managePlan": "Manage Subscription",
     "cancelPlan": "Cancel Subscription",
     "paymentSuccess": "✅ <b>Payment successful!</b>\n\nYou're now on the <b>{plan}</b> plan.\n\n<b>Features unlocked:</b>\n• {features}",
     "paymentError": "❌ There was an error activating your subscription. Please contact support.",

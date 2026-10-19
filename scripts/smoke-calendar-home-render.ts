@@ -2565,7 +2565,7 @@ async function main() {
   const swipeCalls = (calls: string[]) => calls.filter((c) => /VerticalSwipes/.test(c));
   const backCalls = (calls: string[]) => calls.filter((c) => c.startsWith('BackButton'));
 
-  await check('#43 the Month\'s parts are client-safe, and its views are a chunk of their own (every /dashboard open preloads CalendarHome\'s chunk, the users the switch doesn\'t cover included): CalendarHome loads HomeTabs, month.ts, grid.ts, home-storage.ts and hebrew-date.ts, and reaches MonthView only through one import(), never MonthBrowse or MonthPicked; MonthView loads both; neither graph has a server module or @hebcal/core', () => {
+  await check('#43 the Month\'s parts are client-safe, and its views are a chunk of their own (every /dashboard open preloads CalendarHome\'s chunk): CalendarHome loads HomeTabs, month.ts, grid.ts, home-storage.ts and hebrew-date.ts, and reaches MonthView only through one import(), never MonthBrowse or MonthPicked; MonthView loads both; neither graph has a server module or @hebcal/core', () => {
     const graph = (id: string) => {
       const loaded = new Set<string>();
       const walk = (at: string) => {

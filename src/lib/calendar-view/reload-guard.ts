@@ -15,7 +15,7 @@ export function isChunkLoadError(error: unknown): boolean {
   );
 }
 
-/** How long a reload-once guard holds: longer than the switch's 30 s memo. */
+/** How long a reload-once guard holds: a reload within this long of the last one is refused. */
 const RELOAD_GUARD_MS = 60_000;
 
 /**
