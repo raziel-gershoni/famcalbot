@@ -18,20 +18,21 @@ import {
   canWriteAccess,
   encodeCalendarId,
   getCalendarAccess,
+  isFirstOccurrence,
   listVisibleCalendars,
   mayDeleteReminder,
+  occurrenceAt,
   type NativeAccess,
 } from '../native-calendar/event-store';
-import { expandSeries, fixesDays, type VirtualInstance } from '../native-calendar/recurrence';
+import { classifyRule, fixesDays, type VirtualInstance } from '../native-calendar/recurrence';
 import { effectiveOwnerForViewer, loadViewerContext, type ViewerContext } from '../native-reminders/ownership';
 import { getReminderSupport } from '../native-reminders/support';
 import type { ItemKey } from './validate';
 import { instantToWall, lastDayOf, localDate } from './walltime';
 
-const DAY_MS = 86_400_000;
 
-/** The viewer's calendars they may add events to (own, and the partner's SHARED_EDITOR), the viewer's first. */
-export async function writableCalendars(user: UserConfig): Promise<EditorCalendar[]> {
+/** The viewer's writable calendars, each with its row: own, and the partner's SHARED_EDITOR, the viewer's first. */
+async function writableCalendarRows(user: UserConfig): Promise<Array<{ calendar: NativeCalendar; entry: EditorCalendar }>> {
   const [visible, ctx] = await Promise.all([
     listVisibleCalendars(user.id, user.pairingId ?? null),
     loadViewerContext({ id: user.id, pairingId: user.pairingId ?? null }),
@@ -39,21 +40,29 @@ export async function writableCalendars(user: UserConfig): Promise<EditorCalenda
   const own = visible.filter((c) => c.ownerUserId === user.id);
   // The main one, as getMainNativeCalendar picks it, without its write when there is none.
   const main = own.find((c) => c.labels.includes('primary')) ?? own[0];
-  const out: EditorCalendar[] = [];
+  const out: Array<{ calendar: NativeCalendar; entry: EditorCalendar }> = [];
   for (const c of visible) {
     const access = await getCalendarAccess(user, c);
     if (!canWriteAccess(access)) continue;
     const mine = c.ownerUserId === user.id;
     out.push({
-      id: encodeCalendarId(c.id),
-      name: c.name,
-      color: c.color,
-      main: main?.id === c.id,
-      mine,
-      ...(!mine && ctx.partner ? { ownerName: ctx.partner.name } : {}),
+      calendar: c,
+      entry: {
+        id: encodeCalendarId(c.id),
+        name: c.name,
+        color: c.color,
+        main: main?.id === c.id,
+        mine,
+        ...(!mine && ctx.partner ? { ownerName: ctx.partner.name } : {}),
+      },
     });
   }
-  return out.sort((a, b) => Number(b.mine) - Number(a.mine));
+  return out.sort((a, b) => Number(b.entry.mine) - Number(a.entry.mine));
+}
+
+/** The viewer's calendars they may add events to (own, and the partner's SHARED_EDITOR), the viewer's first. */
+export async function writableCalendars(user: UserConfig): Promise<EditorCalendar[]> {
+  return (await writableCalendarRows(user)).map((r) => r.entry);
 }
 
 /** GET /api/calendar/editor: what the user can add, to which calendars, and for whom. */
@@ -65,9 +74,7 @@ export async function editorInfo(user: UserConfig, tz: string): Promise<EditorIn
     getReminderSupport(user, { quiet: true }),
     loadViewerContext({ id: user.id, pairingId: user.pairingId ?? null }),
   ]);
-  const partner = native && ctx.partner
-    ? { name: ctx.partner.name, canRemind: ctx.partner.calendarSource === 'NATIVE' && ctx.partner.telegramId !== null }
-    : null;
+  const partner = native && ctx.partner ? { name: ctx.partner.name, canRemind: partnerCanRemind(ctx) } : null;
   return {
     kinds: { event: native && calendars.length > 0, reminder: reminders.supported },
     calendars,
@@ -125,11 +132,7 @@ export async function loadItem(user: UserConfig, key: ItemKey): Promise<LoadedIt
   const overrides = await prisma.nativeEventInstance.findMany({ where: { seriesEventId: series.id } });
   const slot = key.slot ?? series.startsAt;
   const override = key.slot ? overrides.find((o) => o.originalStartsAt.getTime() === slot.getTime()) : undefined;
-  const length = Math.max(0, series.endsAt.getTime() - series.startsAt.getTime());
-  const moved = [slot, override?.startsAt, override?.endsAt].filter((d): d is Date => d instanceof Date);
-  const from = new Date(Math.min(...moved.map((d) => d.getTime())) - 2 * DAY_MS);
-  const to = new Date(Math.max(...moved.map((d) => d.getTime())) + 2 * DAY_MS + length);
-  const occurrence = expandSeries(series, { from, to }, overrides).find((i) => i.instanceStartsAt.getTime() === slot.getTime());
+  const occurrence = occurrenceAt(series, overrides, slot);
   if (!occurrence) return { status: 'changed' };
 
   const canEdit = canWriteAccess(access) || (isReminder && series.creatorUserId === user.id);
@@ -171,14 +174,51 @@ export function repeatInfo(rrule: string | null): RepeatInfo | null {
   }
 }
 
+/**
+ * Whether a reminder is for its creator's partner, relative to its creator, as the viewer
+ * can tell: the creator's ACTIVE partner is the viewer's when the viewer created it, and
+ * the viewer when the partner did. The stored value, even for a partner who can't be
+ * pinged now, so the creator can take it back.
+ */
+export function isForPartner(series: Pick<NativeEvent, 'kind' | 'creatorUserId' | 'forUserId'>, ctx: ViewerContext): boolean {
+  if (series.kind !== 'REMINDER' || series.forUserId === null || !ctx.partner) return false;
+  if (series.creatorUserId === ctx.viewerId) return series.forUserId === ctx.partner.id;
+  return series.creatorUserId === ctx.partner.id && series.forUserId === ctx.viewerId;
+}
+
+/** Whether the viewer's partner can be pinged, so a reminder can be for them (resolve.ts targetFor). */
+export const partnerCanRemind = (ctx: ViewerContext): boolean =>
+  ctx.partner !== null && ctx.partner.calendarSource === 'NATIVE' && ctx.partner.telegramId !== null;
+
+/**
+ * Where an event may move (3b spec §2.2): the calendars the user can write, its own among
+ * them, without the user's own private ones when it is on the partner's calendar (it would
+ * leave their view). None for a reminder, or an event the user can't change.
+ */
+async function moveTargetsOf(user: UserConfig, item: Extract<LoadedItem, { status: 'ok' }>): Promise<string[]> {
+  if (item.series.kind === 'REMINDER' || !canWriteAccess(item.access)) return [];
+  const partnersEvent = item.calendar.ownerUserId !== user.id;
+  return (await writableCalendarRows(user))
+    .filter(({ calendar }) => calendar.id === item.calendar.id || !(partnersEvent && calendar.ownerUserId === user.id && calendar.privacy === 'PRIVATE'))
+    .map(({ entry }) => entry.id);
+}
+
 /** GET /api/calendar/item: the edit info of a loaded item. */
-export function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, userTz: string): ItemEditInfoResponse {
+export async function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, userTz: string, user: UserConfig): Promise<ItemEditInfoResponse> {
   const { series, calendar, ctx, occurrence, masked } = item;
   const itemTz = itemZone(series);
   const isReminder = series.kind === 'REMINDER';
   const at = wallFor(occurrence.startsAt, occurrence.endsAt, occurrence.allDay, userTz, itemTz);
   const first = wallFor(series.startsAt, series.endsAt, series.allDay, userTz, itemTz);
   const ownerIsPartner = isReminder && ctx.partner !== null && effectiveOwnerForViewer(series, ctx) === ctx.partner.id;
+  const classified = classifyRule(series.rrule, series.startsAt, itemTz);
+  const rule = {
+    choice: classified.choice,
+    ...(classified.until ? { until: wallFor(classified.until, classified.until, series.allDay, userTz, itemTz).start.slice(0, 10) } : {}),
+  };
+  const moveTargets = await moveTargetsOf(user, item);
+  const forPartner = isForPartner(series, ctx);
+  const creator = isReminder && series.creatorUserId === user.id;
   return {
     kind: isReminder ? 'reminder' : 'event',
     canEdit: item.canEdit,
@@ -192,12 +232,26 @@ export function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, userTz
       location: occurrence.location ?? '',
       description: occurrence.description ?? '',
     },
-    series: { recurring: Boolean(series.rrule), start: first.start, repeat: repeatInfo(series.rrule), fixedDays: fixesDays(series.rrule), zone: itemTz },
+    series: {
+      recurring: Boolean(series.rrule),
+      start: first.start,
+      repeat: repeatInfo(series.rrule),
+      fixedDays: fixesDays(series.rrule),
+      zone: itemTz,
+      rule,
+      first: !series.rrule || (await isFirstOccurrence(series, occurrence.instanceStartsAt)),
+    },
     tz: userTz,
     calendar: masked
       ? { id: null, name: ctx.partner?.name ?? '', color: null }
       : { id: encodeCalendarId(calendar.id), name: calendar.name, color: calendar.color },
     forName: ownerIsPartner && ctx.partner ? ctx.partner.name : null,
     scopes: series.rrule ? ['single', 'following', 'all'] : ['single'],
+    canMoveCalendar: moveTargets.length > 1,
+    moveTargets,
+    // The creator, while the partner can be pinged or it is theirs now (so it can come back).
+    canChangeRecipient: creator && (partnerCanRemind(ctx) || forPartner),
+    forPartner,
+    source: 'famcal',
   };
 }

@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
   try {
     const item = await loadItem(user, key);
     if (item.status !== 'ok') return json({ error: 'not_found' }, 404);
-    return json(itemEditInfo(item, await resolveUserTimezone(user)));
+    return json(await itemEditInfo(item, await resolveUserTimezone(user), user));
   } catch (err) {
     // No titles in the context: the user id only.
     captureError(err, 'calendar-item', { user_id: user.id });

@@ -108,12 +108,26 @@ function apply(row: Row, data: Row) {
   row.updatedAt = new Date();
 }
 
+/** The tables with a unique (seriesEventId, originalStartsAt), as the schema has them. */
+const UNIQUE_SLOT = ['nativeEventInstance', 'nativeReminderState'];
+/** Throw as Postgres does when two rows of `name` share a unique (seriesEventId, originalStartsAt). */
+function checkUnique(name: string) {
+  if (!UNIQUE_SLOT.includes(name)) return;
+  const seen = new Set<string>();
+  for (const r of tables[name]) {
+    const k = `${r.seriesEventId}|${(r.originalStartsAt as Date).getTime()}`;
+    if (seen.has(k)) throw Object.assign(new Error(`stand-in ${name}: unique (seriesEventId, originalStartsAt) violated`), { code: 'P2002' });
+    seen.add(k);
+  }
+}
+
 function table(name: string) {
   const find = (where?: Where) => tables[name].filter((r) => !where || matches(r, where));
   const insert = (data: Row) => {
     const row: Row = { id: `${name}-${++nextId}`, ...DEFAULTS[name]?.(), createdAt: new Date() };
     apply(row, data);
     tables[name].push(row);
+    checkUnique(name);
     return { ...row };
   };
   type Args = { where?: Where; select?: Record<string, boolean>; orderBy?: Array<Record<string, 'asc' | 'desc'>>; data?: Row; create?: Row; update?: Row };
@@ -141,17 +155,20 @@ function table(name: string) {
       const row = find(where)[0];
       if (!row) throw new Error(`stand-in ${name}.update: no row matches ${JSON.stringify(where)}`);
       apply(row, data!);
+      checkUnique(name);
       return { ...row };
     }),
     upsert: async ({ where, create, update }: Args) => rec('upsert', () => {
       const row = find(where)[0];
       if (!row) return insert(create!);
       apply(row, update!);
+      checkUnique(name);
       return { ...row };
     }),
     updateMany: async ({ where, data }: Args) => rec('updateMany', () => {
       const rows = find(where);
       rows.forEach((r) => apply(r, data!));
+      checkUnique(name);
       return { count: rows.length };
     }),
     deleteMany: async ({ where }: Args) => rec('deleteMany', () => {
@@ -1515,6 +1532,18 @@ async function main() {
     assertSame(strips(), { moved: [], changed: [81], reassigned: [], names: [] }, 'the Wednesday\'s ping reads "changed"');
   });
 
+  await check('3b repeat, reminder: a new rule and a new time together: the occurrences the rule keeps read "moved", the ones it drops "changed"', async () => {
+    seed();
+    const created = await post(reminderBody({ repeat: 'daily' }));
+    const id = idOf(created.body.key);
+    seedState(id, at('2026-10-28 17:30'), 85);
+    seedState(id, at('2026-11-03 17:30'), 86);
+    stripped.length = 0;
+    const r = await patch({ key: `famcal|${id}#${iso(at('2026-10-27 17:30'))}`, scope: 'following', changes: { repeat: 'weekly', start: '2026-10-27T18:00' } });
+    assertSame([r.status, lastEvent().rrule, iso(lastEvent().startsAt)], [200, 'FREQ=WEEKLY', iso(at('2026-10-27 18:00'))], 'weekly at 18:00');
+    assertSame(strips(), { moved: [86], changed: [85], reassigned: [], names: [] }, 'the Tuesday moved, the Wednesday is gone');
+  });
+
   await check('3b stop repeating from a later occurrence: the earlier ones keep repeating up to it, the opened one is a one-off with its own values, the later ones go', async () => {
     seed();
     const { id, occ } = await weeklySeries({ calendarId: 'native:cal-tal-family' });
@@ -1632,6 +1661,39 @@ async function main() {
     const m = await patch({ key: `famcal|${rem.id}#${iso(at('2026-10-23 17:30'))}`, scope: 'following', changes: { start: '2026-10-23T18:00' } });
     assert(m.status === 200, `${m.status} ${m.text}`);
     assertSame([rem.rrule, lastEvent().rrule], ['FREQ=DAILY;UNTIL=20261023T172959', 'FREQ=DAILY;COUNT=7'], 'a reminder too');
+  });
+
+  await check('3b fixed days read the rule that will be stored: a day move that also picks one of the five is not refused, and the new part starts on the date entered', async () => {
+    seed();
+    const series = seedSeries('bot-weekly', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Piano', startsAt: at('2026-10-20 16:00'), rrule: 'FREQ=WEEKLY;BYDAY=TU' });
+    const k = `famcal|${series.id}#${iso(at('2026-10-27 16:00'))}`;
+    assert((await patch({ key: k, scope: 'single', changes: { start: '2026-10-28T16:00', end: '2026-10-28T17:00' } })).status === 200, 'moved to Wednesday alone');
+    const asked = { seriesCuid: series.id, instanceStartsAt: at('2026-10-27 16:00'), scope: 'following', actingUserId: TAL, occurrenceTimes: true, startsAt: at('2026-10-29 16:00'), endsAt: at('2026-10-29 17:00') };
+    assertSame([await store.refusesFixedDays(asked), await store.refusesFixedDays({ ...asked, rrule: 'FREQ=WEEKLY' })], [true, false], 'the bot\'s early answer, without and with the new rule');
+    const r = await patch({ key: k, scope: 'following', changes: { repeat: 'weekly', start: '2026-10-29T16:00', end: '2026-10-29T17:00' } });
+    const tail = lastEvent();
+    assertSame([r.status, r.body.key, tail.rrule, iso(tail.startsAt)], [200, `famcal|${tail.id}#${iso(at('2026-10-29 16:00'))}`, 'FREQ=WEEKLY', iso(at('2026-10-29 16:00'))], 'every Thursday from the 29th');
+  });
+
+  await check('3b repeat: the choice it already has is no change, an end and a WKST aside; nothing is written', async () => {
+    seed();
+    const { occ } = await weeklySeries();
+    const until = seedSeries('until-daily', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Course', startsAt: at('2026-10-20 10:00'), rrule: 'FREQ=DAILY;INTERVAL=1;WKST=MO;UNTIL=20261031' });
+    prismaCalls.length = 0;
+    const a = await patch({ key: occ('2026-10-27'), scope: 'following', changes: { repeat: 'weekly' } });
+    const b = await patch({ key: `famcal|${until.id}#${iso(at('2026-10-22 10:00'))}`, scope: 'following', changes: { repeat: 'daily' } });
+    assertSame([a.body.key, b.body.key, tables.nativeEvent.length], [occ('2026-10-27'), `famcal|${until.id}#${iso(at('2026-10-22 10:00'))}`, 2], 'the same keys, no new series');
+    assert(!prismaCalls.some((c) => /\.(update|upsert|create|deleteMany)$/.test(c)), `it wrote: ${prismaCalls}`);
+  });
+
+  await check('3b the store drops a series-level field equal to what the series has, so it asks no scope for it', async () => {
+    seed();
+    const { id } = await weeklySeries();
+    const same = await store.updateNativeEvent({ seriesCuid: id, instanceStartsAt: at('2026-10-27 10:00'), scope: 'single', actingUserId: TAL, title: 'Only this', calendarId: 'cal-tal', rrule: 'FREQ=WEEKLY' });
+    assertSame([same.key.seriesId, iso(same.key.slot), overrides(id).map((o) => o.title)], [id, iso(at('2026-10-27 10:00')), ['Only this']], 'a single edit, no scope refusal');
+    const reminder = await post(reminderBody({ repeat: 'daily' }));
+    const e = await thrownBy(() => store.updateNativeEvent({ seriesCuid: idOf(reminder.body.key), instanceStartsAt: at('2026-10-21 17:30'), scope: 'single', actingUserId: TAL, forUserId: null, title: 'x' }));
+    assert(e === null, `the same recipient: ${e}`);
   });
 
   await check('3b calendar: "all" moves the series, "this and after" puts the rest on the new calendar, a one-off moves itself; "only this one" is refused on a series; the same calendar is no change', async () => {
@@ -1758,7 +1820,7 @@ async function main() {
     tables.user.find((u) => u.id === NOA)!.telegramId = null;
     assertSame([(await itemOf(mine.body.key)).body.canChangeRecipient, (await itemOf(forNoa.body.key)).body.canChangeRecipient], [false, true], 'Noa can\'t be pinged: only the take-back');
     const masked = seedSeries('noa-for-tal', { calendarId: 'cal-noa-private', creatorUserId: NOA, forUserId: TAL, kind: 'REMINDER', title: 'Call', startsAt: at('2026-10-21 09:00') });
-    assertSame([(await itemOf(`famcal|${masked.id}`)).body.canChangeRecipient, (await itemOf(`famcal|${masked.id}`)).body.forPartner], [false, false], 'the one Noa set for Tal');
+    assertSame([(await itemOf(`famcal|${masked.id}`)).body.canChangeRecipient, (await itemOf(`famcal|${masked.id}`)).body.forPartner], [false, true], 'the one Noa set for Tal: for her partner, as she set it; only she changes it');
   });
 
   await check('3b rule validity: the store refuses a bad rule on create and update (NativeRuleError); the bot gets UNKNOWN_ERROR with the ids logged; the home answers 400 repeat', async () => {

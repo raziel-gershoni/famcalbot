@@ -1021,6 +1021,7 @@
       "changed": "התזכורת הזו השתנתה או שכבר לא קיימת.",
       "doneBy": "✅ בוצע ע״י {name}: {title}",
       "moved": "⏰ {title} · זמן חדש: {when}",
+      "reassigned": "⏰ {title} · עכשיו בשביל {name}",
       "card": {
         "title": "⏰ {title}",
         "forPartner": "בשביל {name}",

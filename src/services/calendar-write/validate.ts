@@ -99,7 +99,7 @@ export function parseCreate(raw: unknown): Parsed<CreateCommand> {
   const repeat = (raw.repeat ?? 'none') as RepeatChoice;
   let calendarId: string | undefined;
   if (kind === 'event' && raw.calendarId !== undefined) {
-    if (typeof raw.calendarId !== 'string' || !raw.calendarId.startsWith('native:') || !ID.test(raw.calendarId.slice(7))) return fail('calendarId');
+    if (!isNativeCalendarIdOf(raw.calendarId)) return fail('calendarId');
     calendarId = raw.calendarId;
   }
   if (raw.forPartner !== undefined && typeof raw.forPartner !== 'boolean') return fail('forPartner');
@@ -133,8 +133,25 @@ export const itemKeyOf = (seriesCuid: string, slot?: Date): string => `${FAMCAL_
 export interface UpdateCommand {
   key: ItemKey;
   scope: EditScope;
-  changes: { title?: string; location?: string; description?: string; allDay?: boolean; start?: string; end?: string };
+  changes: {
+    title?: string;
+    location?: string;
+    description?: string;
+    allDay?: boolean;
+    start?: string;
+    end?: string;
+    /** 3b: the repeat from the opened occurrence on. */
+    repeat?: RepeatChoice;
+    /** 3b: an event's calendar, 'native:<cuid>'. */
+    calendarId?: string;
+    /** 3b: a reminder for the partner (true) or its creator (false), relative to its creator. */
+    forPartner?: boolean;
+  };
 }
+
+/** A FamCal calendar id as the editor sends it, 'native:<cuid>'. */
+const isNativeCalendarIdOf = (value: unknown): value is string =>
+  typeof value === 'string' && value.startsWith('native:') && ID.test(value.slice(7));
 
 export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
   if (!isObject(raw)) return fail('body');
@@ -145,7 +162,7 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
   if (typeof raw.scope !== 'string' || !(SCOPES as readonly string[]).includes(raw.scope)) return fail('scope');
   if (!isObject(raw.changes)) return fail('changes');
   const c = raw.changes;
-  const unknown = Object.keys(c).find((k) => !['title', 'location', 'description', 'allDay', 'start', 'end'].includes(k));
+  const unknown = Object.keys(c).find((k) => !['title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forPartner'].includes(k));
   if (unknown) return fail(`changes.${unknown}`);
   if (Object.keys(c).length === 0) return fail('changes');
   const changes: UpdateCommand['changes'] = {};
@@ -176,6 +193,18 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
   if (c.end !== undefined) {
     if (typeof c.end !== 'string') return fail('end');
     changes.end = c.end;
+  }
+  if (c.repeat !== undefined) {
+    if (typeof c.repeat !== 'string' || !(REPEATS as readonly string[]).includes(c.repeat)) return fail('repeat');
+    changes.repeat = c.repeat as RepeatChoice;
+  }
+  if (c.calendarId !== undefined) {
+    if (!isNativeCalendarIdOf(c.calendarId)) return fail('calendarId');
+    changes.calendarId = c.calendarId;
+  }
+  if (c.forPartner !== undefined) {
+    if (typeof c.forPartner !== 'boolean') return fail('forPartner');
+    changes.forPartner = c.forPartner;
   }
   return { ok: true, value: { key, scope: raw.scope as EditScope, changes } };
 }

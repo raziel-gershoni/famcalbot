@@ -27,10 +27,8 @@ import {
   NativeScopeError,
   createNativeEvent,
   decodeCalendarId,
-  decodeEventId,
   deleteNativeEvent,
   getMainNativeCalendar,
-  followingTimesFor,
   getPartnerUserId,
   seriesTimesFor,
   updateNativeEvent,
@@ -40,8 +38,8 @@ import { stripMovedPings } from '../native-reminders/moved-pings';
 import { resolveReminderForCreate } from '../native-reminders/resolve';
 import { getReminderSupport } from '../native-reminders/support';
 import type { ParsedEvent } from '../event-parser';
-import { shiftOnWall } from '../native-calendar/recurrence';
-import { itemZone, loadItem, wallFor, type LoadedItem } from './item-info';
+import { classifyRule } from '../native-calendar/recurrence';
+import { isForPartner, itemZone, loadItem, wallFor, type LoadedItem } from './item-info';
 import { endFollows, itemKeyOf, isTime, type CreateCommand, type DeleteCommand, type UpdateCommand } from './validate';
 import { addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween, instantToWall, wallToInstant } from './walltime';
 
@@ -82,19 +80,20 @@ export function refusalOf(err: unknown): WriteResult | null {
 }
 
 /**
- * Forget the recurrence rules kept for everyone who reads this calendar: the user, and
- * the partner when the calendar is shared, is the partner's, or the item is a reminder
- * for them.
+ * Forget the recurrence rules kept for everyone who reads these calendars: the user, and
+ * the partner when one of them is shared or the partner's, or the item is (or was) a
+ * reminder for them. A calendar move passes both calendars, a recipient change both
+ * recipients (3b spec §3.3).
  */
 async function clearCaches(
   user: UserConfig,
-  calendar: Pick<NativeCalendar, 'ownerUserId' | 'privacy'>,
-  forUserId: number | null
+  calendars: Array<Pick<NativeCalendar, 'ownerUserId' | 'privacy'>>,
+  forUserIds: Array<number | null>
 ): Promise<void> {
   clearRecurrenceCacheForUser(user.id);
   const partnerId = await getPartnerUserId(user.id, user.pairingId ?? null);
   if (partnerId === null) return;
-  if (calendar.ownerUserId !== user.id || calendar.privacy !== 'PRIVATE' || forUserId === partnerId) {
+  if (calendars.some((c) => c.ownerUserId !== user.id || c.privacy !== 'PRIVATE') || forUserIds.includes(partnerId)) {
     clearRecurrenceCacheForUser(partnerId);
   }
 }
@@ -103,6 +102,26 @@ async function clearCaches(
 function ruleFor(repeat: CreateCommand['repeat']): string | null {
   if (repeat === 'none') return null;
   return buildRecurrenceRule({ frequency: repeat })[0].replace(/^RRULE:/, '');
+}
+
+/** A stored rule without its end and the parts that mean nothing for it (WKST, INTERVAL=1), to compare with a choice's. */
+function withoutEnd(rule: string): string {
+  return rule
+    .replace(/^RRULE:/i, '')
+    .split(';')
+    .filter((p) => !/^(UNTIL|COUNT|WKST)=/i.test(p) && !/^INTERVAL=1$/i.test(p))
+    .join(';')
+    .toUpperCase();
+}
+
+/**
+ * Whether picking `repeat` changes the stored rule (3b spec §2.1): another of the five, or
+ * the same one for a rule that isn't the one that choice writes. A bot's "every Tuesday"
+ * (BYDAY=TU) reads as 'weekly' but keeps its day; picked again, the rule follows the start.
+ */
+function repeatChanges(repeat: CreateCommand['repeat'], rrule: string | null, current: string): boolean {
+  if (repeat !== current) return true;
+  return repeat !== 'none' && rrule !== null && withoutEnd(rrule) !== ruleFor(repeat);
 }
 
 /** The wall times of a create as instants: an all-day item from the start of its first day to 23:59 on its last. */
@@ -132,7 +151,7 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
       const times = createTimes(cmd, tz);
       const event = await createNativeEvent({ ...base, ...times, calendarCuid });
       const calendar = await prisma.nativeCalendar.findUnique({ where: { id: event.calendarId } });
-      if (calendar) await clearCaches(user, calendar, null);
+      if (calendar) await clearCaches(user, [calendar], [null]);
       trackActivityAsync(user.id, 'voice_event_created', { calendar_id: cmd.calendarId ?? `native:${calendarCuid}`, source: 'app' });
       return { status: 'ok', key: itemKeyOf(event.id, rrule ? event.startsAt : undefined) };
     }
@@ -166,7 +185,7 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
       forUserId: resolved.forUserId,
     });
     const calendar = await prisma.nativeCalendar.findUnique({ where: { id: reminder.calendarId } });
-    if (calendar) await clearCaches(user, calendar, resolved.forUserId);
+    if (calendar) await clearCaches(user, [calendar], [resolved.forUserId]);
     trackActivityAsync(user.id, 'voice_event_created', { calendar_id: resolved.calendarId, source: 'app' });
     trackActivityAsync(user.id, 'native_reminder_created', {
       for_partner: resolved.forUserId !== null,
@@ -235,15 +254,51 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
     ...(c.location !== undefined && c.location !== (occ.location ?? '') ? { location: c.location } : {}),
     ...(c.description !== undefined && c.description !== (occ.description ?? '') ? { description: c.description } : {}),
   };
-  const sameKey = itemKeyOf(series.id, cmd.key.slot);
-  if (!timeChanged && Object.keys(text).length === 0) return { status: 'ok', key: sameKey };
 
-  const scope = effectiveScope(item, cmd.scope);
+  // The series-level fields (3b spec §3.3), each only when it differs from what the item
+  // has: a repeat other than the one the Repeat row shows, another calendar, the other
+  // recipient (relative to the reminder's creator).
+  const repeat = c.repeat !== undefined && repeatChanges(c.repeat, series.rrule, classifyRule(series.rrule, series.startsAt, itemTz).choice) ? c.repeat : undefined;
+  const calendarCuid = c.calendarId !== undefined ? decodeCalendarId(c.calendarId) : null;
+  const moveTo = calendarCuid !== null && calendarCuid !== series.calendarId ? calendarCuid : undefined;
+  const forPartner = c.forPartner !== undefined && c.forPartner !== isForPartner(series, item.ctx) ? c.forPartner : undefined;
+  if (forPartner !== undefined && (!reminder || (forPartner && !item.ctx.partner))) return { status: 'invalid', field: 'forPartner' };
+  const forUserId = forPartner === undefined ? undefined : forPartner ? item.ctx.partner!.id : null;
+  const seriesLevel = repeat !== undefined || moveTo !== undefined || forUserId !== undefined;
+  const sameKey = itemKeyOf(series.id, cmd.key.slot);
+  if (!timeChanged && Object.keys(text).length === 0 && !seriesLevel) return { status: 'ok', key: sameKey };
+
+  // A repeat change applies from the opened occurrence on; a calendar or recipient change
+  // needs a series scope, as an occurrence has neither of its own.
+  let scope = effectiveScope(item, cmd.scope);
+  if (series.rrule && repeat !== undefined) scope = 'following';
+  else if (series.rrule && seriesLevel && scope === 'single') return { status: 'invalid', field: 'scope' };
+  const stop = repeat === 'none' && Boolean(series.rrule);
+
   const startsAt = allDay ? dayStart(start, itemTz) : wallToInstant(start, userTz);
   const endsAt = reminder ? startsAt : allDay ? dayEnd(end, itemTz) : wallToInstant(end, userTz);
-  const input: UpdateNativeEventInput = { seriesCuid: series.id, instanceStartsAt: series.rrule ? cmd.key.slot : undefined, scope, actingUserId: user.id, ...text };
-  let key = sameKey;
-  if (timeChanged) {
+  const input: UpdateNativeEventInput = {
+    seriesCuid: series.id,
+    instanceStartsAt: series.rrule ? cmd.key.slot : undefined,
+    scope,
+    actingUserId: user.id,
+    ...text,
+    ...(repeat !== undefined ? { rrule: ruleFor(repeat) } : {}),
+    ...(moveTo !== undefined ? { calendarId: moveTo } : {}),
+    ...(forUserId !== undefined ? { forUserId } : {}),
+  };
+  if (stop) {
+    // The one-off is the opened occurrence as it stands with the form's edits on top: its
+    // own times, never the series' (3b spec §3.1).
+    Object.assign(input, {
+      title: text.title ?? occ.title,
+      location: text.location ?? occ.location ?? null,
+      description: text.description ?? occ.description ?? null,
+      startsAt,
+      endsAt,
+      allDay,
+    });
+  } else if (timeChanged) {
     if (scope === 'all' && series.rrule) {
       // The series moves as this occurrence did (by its days, to its new time of day): a rule
       // with no BYDAY (what the editor writes) follows its start, so the weekday moves with it;
@@ -251,10 +306,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
       // when it moves, which carries what was skipped or renamed along; this occurrence is
       // then where its slot went (one moved on its own comes back to the rule's day).
       const moved = seriesTimesFor(series, occ.startsAt, { startsAt, endsAt, allDay });
-      if (moved.startsAt.getTime() !== series.startsAt.getTime()) {
-        input.startsAt = moved.startsAt;
-        key = itemKeyOf(series.id, shiftOnWall(cmd.key.slot!, series.startsAt, moved.startsAt, itemTz));
-      }
+      if (moved.startsAt.getTime() !== series.startsAt.getTime()) input.startsAt = moved.startsAt;
       input.endsAt = moved.endsAt;
     } else {
       input.startsAt = startsAt;
@@ -265,19 +317,35 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
 
   try {
     const result = await updateNativeEvent(input);
-    if (scope === 'following' && series.rrule) {
-      // The cut starts a new series at this occurrence, where the store starts it: on the
-      // date entered, or for a new time alone on its own slot's day (followingTimesFor).
-      const anchor = timeChanged ? followingTimesFor(series, cmd.key.slot!, occ.startsAt, { startsAt, endsAt, allDay }).startsAt : cmd.key.slot;
-      key = itemKeyOf(decodeEventId(result.canonicalEventId).seriesCuid, anchor);
-    }
-    if (result.clearedPings.length > 0) {
-      // The pings still on screen say where the reminder went (best-effort, as for the bot).
+    // Where the opened occurrence is now, as the store left it: a new part's, a one-off's
+    // (no slot) or the same series' with its slot moved.
+    const key = itemKeyOf(result.key.seriesId, result.key.slot ?? undefined);
+    const { clearedPings, changedPings, reassignedPings } = result;
+    if (clearedPings.length + changedPings.length + reassignedPings.length > 0) {
+      // The pings still on screen say where the reminder went, that it changed, or who it is
+      // for now (best-effort, as for the bot).
       const original = toUnifiedEvent(item.calendar, occ, series);
-      await stripMovedPings(result.clearedPings, original, { title: text.title, startTime: startsAt, endTime: endsAt, allDay }, user);
+      const name = forUserId ? (item.ctx.partner?.name ?? '') : user.name;
+      await stripMovedPings(
+        clearedPings,
+        original,
+        { title: text.title, startTime: startsAt, endTime: endsAt, allDay },
+        user,
+        changedPings.length + reassignedPings.length > 0 ? { changed: changedPings, reassigned: { pings: reassignedPings, name } } : undefined
+      );
     }
-    await clearCaches(user, item.calendar, series.forUserId);
-    trackActivityAsync(user.id, 'calendar_item_edited', { kind: reminder ? 'reminder' : 'event', scope, source: 'app' });
+    const destination = moveTo !== undefined ? await prisma.nativeCalendar.findUnique({ where: { id: moveTo } }) : null;
+    await clearCaches(user, destination ? [item.calendar, destination] : [item.calendar], [series.forUserId, ...(forUserId !== undefined ? [forUserId] : [])]);
+    const changedFields = [
+      ...(text.title !== undefined ? ['title'] : []),
+      ...(text.location !== undefined ? ['location'] : []),
+      ...(text.description !== undefined ? ['description'] : []),
+      ...(timeChanged ? ['time'] : []),
+      ...(repeat !== undefined ? ['repeat'] : []),
+      ...(moveTo !== undefined ? ['calendar'] : []),
+      ...(forUserId !== undefined ? ['recipient'] : []),
+    ];
+    trackActivityAsync(user.id, 'calendar_item_edited', { kind: reminder ? 'reminder' : 'event', scope, source: 'app', changed_fields: changedFields });
     return { status: 'ok', key };
   } catch (err) {
     const refused = refusalOf(err);
@@ -298,7 +366,7 @@ export async function deleteItem(user: UserConfig, cmd: DeleteCommand): Promise<
       scope,
       actingUserId: user.id,
     });
-    await clearCaches(user, item.calendar, item.series.forUserId);
+    await clearCaches(user, [item.calendar], [item.series.forUserId]);
     trackActivityAsync(user.id, 'calendar_item_deleted', { kind: item.series.kind === 'REMINDER' ? 'reminder' : 'event', scope, source: 'app' });
     return { status: 'ok' };
   } catch (err) {

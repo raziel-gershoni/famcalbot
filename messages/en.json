@@ -1021,6 +1021,7 @@
       "changed": "This reminder changed or no longer exists.",
       "doneBy": "✅ Done by {name}: {title}",
       "moved": "⏰ {title} · moved to {when}",
+      "reassigned": "⏰ {title} · now for {name}",
       "card": {
         "title": "⏰ {title}",
         "forPartner": "for {name}",

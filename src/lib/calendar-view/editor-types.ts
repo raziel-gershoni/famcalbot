@@ -52,6 +52,9 @@ export interface RepeatInfo {
   ends: boolean;
 }
 
+/** How the editor's Repeat row names a stored rule: one of the five, or 'custom' (3b spec §2.1). */
+export type RuleChoice = RepeatChoice | 'custom';
+
 /** GET /api/calendar/item?user_id=&key= */
 export interface ItemEditInfoResponse {
   kind: ItemKind;
@@ -80,6 +83,14 @@ export interface ItemEditInfoResponse {
     fixedDays: boolean;
     /** The series' own zone: where the store reads days (a day move is a move of the day there). */
     zone: string;
+    /**
+     * 3b: the stored rule as the Repeat row names it ('none' for a one-off), and the day of
+     * its last occurrence when it ends (UNTIL or COUNT). `words` is the rule in words when
+     * the server words it (Google); a FamCal rule is worded from `repeat`.
+     */
+    rule?: { choice: RuleChoice; words?: string; until?: string };
+    /** 3b: this is the first occurrence the series shows (a one-off is its own first). */
+    first?: boolean;
   };
   /** The user's zone, as the wall times above are read (EditorInfoResponse.tz). */
   tz: string;
@@ -88,6 +99,18 @@ export interface ItemEditInfoResponse {
   /** A reminder for the partner: their name. Otherwise null. */
   forName: string | null;
   scopes: EditScope[];
+  /** 3b: an event that can move to another of `moveTargets`. */
+  canMoveCalendar?: boolean;
+  /** 3b: the calendars it may be on, its current one included (the private filter applied); [] when it can't move. */
+  moveTargets?: string[];
+  /** 3b: the For row (Me | partner) shows, to the reminder's creator. */
+  canChangeRecipient?: boolean;
+  /** 3b: the reminder is for its creator's partner (relative to the creator). */
+  forPartner?: boolean;
+  /** 3b: the calendar is writable but the item can only be changed in Google Calendar. */
+  editableInGoogleOnly?: boolean;
+  /** 3b: where the item lives. */
+  source?: 'famcal' | 'google';
 }
 
 /** POST /api/calendar/items */
@@ -123,6 +146,12 @@ export interface UpdateItemBody {
     allDay?: boolean;
     start?: string;
     end?: string;
+    /** 3b: the repeat from this occurrence on; omitted keeps it. */
+    repeat?: RepeatChoice;
+    /** 3b: an event's calendar, from the item info's moveTargets. */
+    calendarId?: string;
+    /** 3b: a reminder for the partner, or (false) its creator. */
+    forPartner?: boolean;
   };
 }
 

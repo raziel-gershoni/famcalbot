@@ -1021,6 +1021,7 @@
       "changed": "Это напоминание изменилось или его больше нет.",
       "doneBy": "✅ {name}: готово — {title}",
       "moved": "⏰ {title} · перенесено на {when}",
+      "reassigned": "⏰ {title} · теперь для {name}",
       "card": {
         "title": "⏰ {title}",
         "forPartner": "кому: {name}",
