@@ -13,6 +13,7 @@ export interface Claim {
   claimedAt: Date; // the lastPingedAt this claim wrote
   previousLastPingedAt: Date | null; // what releaseClaim puts back
   pingAttempts: number; // claims made on this occurrence, this one included
+  created: boolean; // the claim made the state row (the occurrence had none)
 }
 
 /**
@@ -53,7 +54,24 @@ export async function claimOccurrence(
     claimedAt: row.lastPingedAt,
     previousLastPingedAt: previous?.lastPingedAt ?? null,
     pingAttempts: Number(row.pingAttempts),
+    created: previous === null,
   };
+}
+
+/**
+ * Take back a claim made on a stale read of its series (3b spec §3.1, Recipient race): the
+ * row it made goes, or the row it updated gets its last ping and attempts back, as if it had
+ * never happened. Does nothing once anything else has written lastPingedAt since.
+ */
+export async function undoClaim(claim: Claim): Promise<void> {
+  if (claim.created) {
+    await prisma.nativeReminderState.deleteMany({ where: { id: claim.id, lastPingedAt: claim.claimedAt } });
+    return;
+  }
+  await prisma.nativeReminderState.updateMany({
+    where: { id: claim.id, lastPingedAt: claim.claimedAt },
+    data: { lastPingedAt: claim.previousLastPingedAt, pingAttempts: Math.max(0, claim.pingAttempts - 1) },
+  });
 }
 
 /**

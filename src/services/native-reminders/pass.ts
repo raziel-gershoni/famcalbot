@@ -18,7 +18,7 @@ import { expandSeries, VirtualInstance } from '../native-calendar/recurrence';
 import { effectiveOwnerId, getActivePartnerSummary } from './ownership';
 import { getReminderSupport, isNativeRemindersEnabled } from './support';
 import { dueAtForOccurrence, isEligible, MAX_PING_ATTEMPTS, PING_LOOKBACK_MS } from './due';
-import { Claim, claimOccurrence, releaseClaim } from './claim';
+import { Claim, claimOccurrence, releaseClaim, undoClaim } from './claim';
 import { buildPingKeyboard, buildPingText, sendPing, stripPingButtons } from './ping';
 import { getBotMessage } from '../../lib/bot-messages';
 import { escapeHtml } from '../../utils/html';
@@ -54,7 +54,7 @@ interface Candidate {
   state: NativeReminderState | undefined;
 }
 
-type SendOutcome = 'sent' | 'lost' | 'retry' | 'failed';
+type SendOutcome = 'sent' | 'lost' | 'raced' | 'retry' | 'failed';
 
 export interface NativeReminderPassResult {
   sent: number;
@@ -171,6 +171,19 @@ function isPassingFailure(error: unknown): boolean {
   return status === undefined || status === 429 || status >= 500;
 }
 
+/**
+ * Whether the series changed since the pass read it: deleted, for someone else, or edited
+ * at all (its updatedAt). A recipient change keeps the occurrence's key, so a claim made on
+ * the old read would ping the old person and leave the new one silent (3b spec §3.1).
+ */
+async function changedSinceRead(series: NativeEvent): Promise<boolean> {
+  const now = await prisma.nativeEvent.findUnique({
+    where: { id: series.id },
+    select: { forUserId: true, isDeleted: true, updatedAt: true },
+  });
+  return !now || now.isDeleted || now.forUserId !== series.forUserId || now.updatedAt.getTime() !== series.updatedAt.getTime();
+}
+
 /** Claim one occurrence and send its ping. */
 async function pingOccurrence(
   series: NativeEvent,
@@ -181,6 +194,13 @@ async function pingOccurrence(
 ): Promise<SendOutcome> {
   const claim = await claimOccurrence(series.id, candidate.occ.instanceStartsAt, candidate.due, now);
   if (!claim) return 'lost'; // another pass sent it, or it was just marked done
+  if (await changedSinceRead(series)) {
+    // An edit landed between the read and the claim: give the claim back, and the next
+    // tick reads the series as it is now.
+    console.log(`[NativeReminders] Series ${series.id} changed during the pass; pinging on the next tick`);
+    await undoClaim(claim);
+    return 'raced';
+  }
 
   let messageId: number;
   try {
@@ -344,9 +364,9 @@ export async function runNativeReminderPass(now: Date = new Date()): Promise<Nat
 
       const outcome = await pingOccurrence(s, newest, creator, { ...recipient, telegramId }, now);
       if (outcome === 'sent') result.sent++;
-      else if (outcome === 'lost') result.skipped++;
+      else if (outcome === 'lost' || outcome === 'raced') result.skipped++;
       else result.failed++;
-      if (outcome === 'retry') retrySoon = true;
+      if (outcome === 'retry' || outcome === 'raced') retrySoon = true;
     } catch (error) {
       // A database blip on one series mustn't stop the others; the next tick tries it again.
       captureError(error, 'native-reminders-series', { series_id: s.id });

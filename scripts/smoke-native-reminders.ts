@@ -142,6 +142,11 @@ const fakePrisma = {
     },
   },
   nativeEvent: {
+    // The pass re-reads a series after its claim (3b spec §3.1).
+    findUnique: async ({ where, select }: Args) => {
+      queries.push('nativeEvent.findUnique');
+      return pick(db.events.find((e) => e.id === where!.id), select);
+    },
     findMany: async ({ where }: Args) => {
       queries.push('nativeEvent.findMany');
       if (holdFind) {
