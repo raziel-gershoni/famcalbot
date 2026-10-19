@@ -306,7 +306,10 @@ async function selectCalendars(user: UserConfig, userId: number, userLocale: str
 
     const effectivePlan = subWithUsage?.effectivePlan || 'FREE';
     const limits = getPlanLimits(effectivePlan);
-    const calendarLimit = limits.calendars === Infinity ? -1 : limits.calendars;
+    // The Google share of the shared total: the limit less the FamCal calendars that count
+    // beside a Google choice (all but the main), at least 1 so the page always allows one.
+    const counted = Math.max(0, ownFamcal.length - 1);
+    const calendarLimit = limits.calendars === Infinity ? -1 : Math.max(1, limits.calendars - counted);
 
     // Convert user's current selections to new state format
     const currentSelections = user.calendarAssignments && user.calendarAssignments.length > 0

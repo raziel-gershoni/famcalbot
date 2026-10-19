@@ -10,7 +10,7 @@ import { verifyUserAuth } from '@/src/lib/api-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { listVisibleCalendars, encodeCalendarId } from '@/src/services/native-calendar/event-store';
-import { checkCalendarLimit } from '@/src/services/subscription-service';
+import { calendarTotal, checkCalendarLimit, countCalendars } from '@/src/services/subscription-service';
 import { prisma } from '@/src/utils/prisma';
 import { captureError } from '@/src/lib/error-capture';
 import { addsPrimary, clearOtherPrimaries } from '@/src/services/calendar-provider/primary';
@@ -86,14 +86,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'person_name_too_long' }, { status: 400 });
     }
 
-    // Paywall: count existing non-deleted calendars vs subscription limit.
-    const existing = await prisma.nativeCalendar.count({
-      where: { ownerUserId: user.id, isDeleted: false },
-    });
-    const limit = await checkCalendarLimit(user.id, existing + 1);
+    // Paywall: the shared total (own FamCal plus Google choices) after this one vs the limit.
+    const counts = await countCalendars(user.id);
+    const limit = await checkCalendarLimit(user.id, calendarTotal(counts.famcal + 1, counts.google));
     if (!limit.allowed) {
       return NextResponse.json(
-        { error: 'calendar_limit_reached', limit: limit.limit, current: existing },
+        { error: 'calendar_limit_reached', limit: limit.limit, current: calendarTotal(counts.famcal, counts.google) },
         { status: 403 }
       );
     }

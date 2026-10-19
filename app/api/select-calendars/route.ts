@@ -8,7 +8,7 @@ import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { updateUserInCache } from '@/src/services/reminder-cache';
-import { checkCalendarLimit } from '@/src/services/subscription-service';
+import { calendarTotal, checkCalendarLimit, countCalendars } from '@/src/services/subscription-service';
 import { addsPrimary, clearOtherPrimaries } from '@/src/services/calendar-provider/primary';
 
 /**
@@ -99,14 +99,16 @@ export async function POST(request: NextRequest) {
     // decrypted refresh token is re-encrypted below
     const currentUser = auth.user;
 
-    // Check calendar limit based on subscription
-    const calendarLimitResult = await checkCalendarLimit(currentUser.id, calendarAssignments.length);
+    // The shared calendar total after this save (own FamCal plus these Google choices) vs the limit
+    const counts = await countCalendars(currentUser.id);
+    const afterSave = calendarTotal(counts.famcal, calendarAssignments.length);
+    const calendarLimitResult = await checkCalendarLimit(currentUser.id, afterSave);
     if (!calendarLimitResult.allowed) {
       return NextResponse.json(
         {
           error: 'calendar_limit_reached',
           limit: calendarLimitResult.limit,
-          current: calendarAssignments.length,
+          current: afterSave,
         },
         { status: 403 }
       );

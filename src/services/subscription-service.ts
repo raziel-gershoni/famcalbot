@@ -851,12 +851,34 @@ async function computeFeatureAccess(
 }
 
 /**
- * Check if user can add more calendars
- * Checks admin overrides FIRST (highest priority), then subscription
+ * The shared calendar total ("Google as a connection" spec §4): the user's own FamCal
+ * calendars plus their Google choices, the FamCal main not counted once Google calendars
+ * are chosen (it is made for everyone, lazily).
+ */
+export function calendarTotal(ownFamcal: number, google: number): number {
+  return ownFamcal + google - (google > 0 && ownFamcal > 0 ? 1 : 0);
+}
+
+/** The user's own live FamCal calendars and Google choices, as stored now. */
+export async function countCalendars(userId: number): Promise<{ famcal: number; google: number }> {
+  const [famcal, user] = await Promise.all([
+    prisma.nativeCalendar.count({ where: { ownerUserId: userId, isDeleted: false } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { calendarAssignments: true } }),
+  ]);
+  const google = Array.isArray(user?.calendarAssignments) ? user.calendarAssignments.length : 0;
+  return { famcal, google };
+}
+
+/**
+ * Whether a save may leave the user with `afterSaveTotal` calendars (calendarTotal after
+ * the save). Admin overrides first, then the subscription. Blocked only when the total
+ * is above the plan's limit AND the save raises the user's current total, so a setup
+ * already over the limit (made before the shared total, or before a downgrade) keeps
+ * working: renames, label toggles and removals always save.
  */
 export async function checkCalendarLimit(
   userId: number,
-  currentCalendarCount: number
+  afterSaveTotal: number
 ): Promise<FeatureAccessResult> {
   // 0. Check early adopter access (global mode or per-user flag)
   if (await checkEarlyAdopterAccess(userId)) return { allowed: true };
@@ -880,10 +902,12 @@ export async function checkCalendarLimit(
     return { allowed: true };
   }
 
-  if (currentCalendarCount >= limits.calendars) {
+  const counts = await countCalendars(userId);
+  const currentTotal = calendarTotal(counts.famcal, counts.google);
+  if (afterSaveTotal > limits.calendars && afterSaveTotal > currentTotal) {
     await trackActivity(userId, 'feature_blocked', {
       feature: 'calendars',
-      current_usage: currentCalendarCount,
+      current_usage: afterSaveTotal,
       limit: limits.calendars,
     });
     return {
@@ -891,15 +915,15 @@ export async function checkCalendarLimit(
       reason: 'limit_reached',
       remaining: 0,
       limit: limits.calendars,
-      currentUsage: currentCalendarCount,
+      currentUsage: currentTotal,
     };
   }
 
   return {
     allowed: true,
-    remaining: limits.calendars - currentCalendarCount,
+    remaining: Math.max(0, limits.calendars - afterSaveTotal),
     limit: limits.calendars,
-    currentUsage: currentCalendarCount,
+    currentUsage: afterSaveTotal,
   };
 }
 
