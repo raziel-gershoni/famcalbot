@@ -365,7 +365,7 @@ Users on `messagingPlatform: 'all'` see reminders in their WhatsApp digest like 
 - **R3 is one helper:** `getReminderSupport(user) → { supported, reason }`. It is not cached itself; each message handler computes it once and passes it down (the admin flag and feature access underneath are Redis-cached). It fails closed if the feature check throws.
 - **No downgrade notice:** the new pass never sends the event-alert "reminders paused" notice.
 - **Admin flag:** the admin settings page gets a "Native reminders" toggle (`nativeRemindersEnabled`). The settings API accepts it as a partial update, following the toggle-sync pattern.
-- **Analytics:** new `ActivityAction` values `native_reminder_created`, `native_reminder_pinged`, `native_reminder_done`, `native_reminder_snoozed`. `UsageCounter.remindersTriggered` is not incremented, because it counts event alerts.
+- **Analytics:** new `ActivityAction` values `native_reminder_created`, `native_reminder_pinged`, `native_reminder_done`, `native_reminder_snoozed`, and later `native_reminder_undone`; done, snoozed and undone carry `{ series_event_id, source: 'ping' | 'app' }`. `UsageCounter.remindersTriggered` is not incremented, because it counts event alerts.
 
 ## 10. Copy and i18n
 
@@ -449,6 +449,6 @@ The repo has no test runner. Tests are `tsx` smoke scripts, run under `TZ=UTC` a
 - Moving the anchor event doesn't move a reminder set relative to it.
 - Typed edits and deletes need a reminder keyword in the message.
 - The due-gate memo assumes one app process (Railway today). Inside that process it lives on `globalThis`, because Next 16 gives `instrumentation.ts` and the route handlers separate module instances. A second replica needs it moved to Redis.
-- A "done" statement ("I did it", "סיימתי") creates nothing and gets the generic "didn't understand" reply. Marking done belongs to the ping buttons and the future calendar UI.
+- A "done" statement ("I did it", "סיימתי") creates nothing and gets the generic "didn't understand" reply. Marking done belongs to the ping buttons and the calendar home (done, undo and snooze, 2026-10-19).
 - After a series-level time change, an undone occurrence from before the change no longer carries over (state is re-keyed; see §6.2).
-- A "from now on" edit that keeps the time carries the series' skipped and moved occurrences into the new series. One that changes the time drops them, as it does for events today.
+- A "from now on" edit that keeps the time carries the series' skipped and moved occurrences into the new series. As of 58c7d3d, one that changes the time carries the exdates and the cancellations (re-keyed to the new time, where the new rule still yields them) and drops every override, title-only renames included; the state is cleared, so the reminder pings again.

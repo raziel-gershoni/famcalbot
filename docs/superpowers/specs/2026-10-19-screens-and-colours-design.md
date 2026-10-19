@@ -1,6 +1,6 @@
 # Calendar colours in the home, and every screen in the home's design
 
-Status: approved by the owner on 2026-10-19 (the mockups, and §6's defaults). The scope survey and the owner's decisions from 2026-10-17 are summarised in §1. Mockups: https://claude.ai/artifact/KJQjWZ7MFRRCr3A4raAQos. H1's plan: `docs/superpowers/plans/2026-10-19-calendar-colours-H1.md`; §3 reads as built.
+Status: approved by the owner on 2026-10-19 (the mockups, and §6's defaults). H1 is built and live on main (3e13dc8, 99155ce, 29c2c8f, b841371); F1 is next. The scope survey and the owner's decisions from 2026-10-17 are summarised in §1. Mockups: https://claude.ai/artifact/KJQjWZ7MFRRCr3A4raAQos. H1's plan: `docs/superpowers/plans/2026-10-19-calendar-colours-H1.md`; §3 reads as built.
 
 ## 1. Decisions already made (owner, 2026-10-17/18)
 
@@ -13,7 +13,7 @@ Status: approved by the owner on 2026-10-19 (the mockups, and §6's defaults). T
   Select calendars, refresh-token, the Google result pages and Calendars get the new design inside the later "Google as a connection" spec, which rebuilds those screens anyway.
 - **Defaults:**
   - the public website is out;
-  - each screen ships to everyone as it lands, then the rollout switch moves to `ALL` soon;
+  - each screen ships to everyone as it lands (the rollout switch is gone: the cleanup at c6336fc removed it);
   - system font;
   - themed native selects;
   - Settings saves through an explicit Save in a sticky bottom bar;
@@ -95,9 +95,16 @@ A coloured mark carries both looks' tones as inline custom properties (`calendar
   - the live colour wins over the saved one;
   - a failed list call keeps the saved colour;
   - `'bypass'` makes no list call;
-  - the colour cache key and TTL.
+  - the colours live in the cache entry, not under a key of their own: a hit makes no call, and a stale read or `fresh=1` asks again.
 - **Render:** a row, a chip, a bar, a dot and the still-open card carry the calendar's tones, and a `null` colour gives today's tones.
 - **Device check:** colours next to Google Calendar's app, in light and dark.
+
+### 3.5 Known limitations (shipped on purpose)
+
+- A calendar past the first 250 `calendarList` entries keeps its saved colour.
+- A Telegram background outside the grounds list is not guaranteed the contrast floors.
+- A colour changed in Google shows within the entry's life (up to 30 minutes), or at once with ⋯ → Refresh.
+- Per-event `colorId` is ignored.
 
 ## 4. F1: the shared design layer (no visual change)
 
@@ -122,13 +129,14 @@ A coloured mark carries both looks' tones as inline custom properties (`calendar
   - PageGate gets a third look, `'app'`;
   - one "Missing parameter" card replaces the 7 copies, and the 4 page notices use the same card;
   - `app/[locale]/not-found.tsx` is built on that card.
-- **Deletions:** LoadingButton is deleted, since nothing imports it.
+- **Deletions:** LoadingButton is already deleted (7c0e57e removed all of `components/Feedback/`).
 - **`smoke-app-ui`:**
   - a CSS lint: 11 px and 44 px floors, logical properties, no `:hover`, no hex in screen CSS;
   - contrast in light, dark and real Telegram themes;
   - `renderToString` in en, he and ru;
   - BackButton and sheet focus checks on the fake DOM.
-- **What stays:** the old `DashboardClient`, `TelegramLayout`, `Header`, `Section` and `CategoryIcon`, which the fallback home shares, until the `ALL` cleanup.
+- **What stays:** `TelegramLayout`, `Header`, `Section` and `CategoryIcon`, which the other screens still use, until W1 and W3 move those screens off them. `DashboardClient` is gone (7c0e57e).
+- **Lift, don't redraw:** the form kit already exists in the editor (`app/[locale]/dashboard/form-kit.tsx`, with BottomSheet's `full` variant). F1 lifts that into the shared layer rather than drawing a second kit.
 
 ## 5. W1, W3 and A in brief
 

@@ -1,6 +1,6 @@
 # Done, undo and snooze in the calendar home
 
-Status: designed 2026-10-19 under the owner's delegation ("go with it … proceed fast, don't pause"). Roadmap step 2 of the calendar UI (`project_native_calendar_roadmap`). It builds on the native-reminders spec (2026-10-14) §5 and the calendar-home spec (2026-10-16) §7.5, whose item sheet was view-only.
+Status: built and live on main, 613376f..f93b927, plus a3604f3, 4809d0c, a5cb729 and 71b6448. Designed 2026-10-19 under the owner's delegation ("go with it … proceed fast, don't pause"). Where the code differs from the design below, §8 says how it shipped. Roadmap step 2 of the calendar UI (`project_native_calendar_roadmap`). It builds on the native-reminders spec (2026-10-14) §5 and the calendar-home spec (2026-10-16) §7.5, whose item sheet was view-only.
 
 ## 1. What changes for people
 
@@ -37,7 +37,7 @@ One service, used by the ping callbacks and the new route: `applyReminderAction(
    - `invalidateDueGate()` after snooze and undo;
    - analytics: `native_reminder_done`, `native_reminder_snoozed` and, new, `native_reminder_undone`, with `{ series_event_id, source: 'ping' | 'app' }`;
    - the creator's done notice when the actor isn't the creator (Telegram only, R12);
-   - **the live ping** (`pingChatId` / `pingMessageId` on the row): an in-app done edits it to "✅ title" with no buttons, and an in-app snooze to the callback's "💤 title · until HH:mm". Undo leaves it as it is. Telegram errors here are swallowed and never fail the action.
+   - **the live ping** (`pingChatId` / `pingMessageId` on the row): an in-app done edits it to "✅ title" with no buttons, and an in-app snooze to the callback's "💤 title · until HH:mm". Undo leaves it as it is. Telegram errors here are swallowed and never fail the action. The edit is in the ping recipient's language and clock, not the actor's (a3604f3). When a done lands between the pass's claim and its save of the ping's message id, the pass closes the new ping (a5cb729). A snooze in that window leaves the ping's buttons (see Known limitations).
 5. **Refactor, no behaviour change.** The callbacks call the same service. A ping tap resolves its state id to the key first, and the toast and ping edits stay in `callbacks.ts`. `smoke-native-reminder-buttons` must stay green unchanged, apart from the new `source` field.
 
 ## 3. The route
@@ -64,7 +64,7 @@ One service, used by the ping callbacks and the new route: `applyReminderAction(
   - While a request is in flight, the buttons are disabled and the tapped one shows a small spinner.
 - **`deps.reminderAction`** is a new CalendarHome dependency, used for the fetch so the smokes can fake it. It sends the init-data header and the body like the other Mini App POSTs.
 - **Instant update.** A new store action, `patchReminder({ key, reminder })`, updates the item wherever the store holds it: each day's items and `carryOvers`. It recomputes `open` with the store's rules: a done item isn't open, and a snoozed past-due one still is. Then `refetchVisible({ only: 'famcal' })` confirms it. On `changed` or `not_yours` it only refetches.
-- **The open sheet** follows the store: CalendarHome keeps the selected item's key and re-derives the row on each render, not a snapshot (`CalendarHome.tsx:249`). An item that disappears closes the sheet after the note.
+- **The open sheet** follows the store: CalendarHome keeps the selected item's key and re-derives the row on each render, not a snapshot. It reads the occurrence's own state (`reminderStateAt`), not the row's per-day mark (f93b927). The loader holds a patched reminder against answers asked before the patch, and the confirming refetch is a `renew`. An item that disappears closes the sheet after the note, but only when there is a note (2.5 s): a done carry-over that the refetch drops stays struck and the sheet stays open, so it can be undone.
 - **Telegram:** `HapticFeedback.notificationOccurred('success')` after a done, on clients that have it.
 
 ## 5. Copy (en; he and ru written naturally, Hebrew gender-neutral)
@@ -77,7 +77,7 @@ One service, used by the ping callbacks and the new route: `applyReminderAction(
 - `snooze60` "1 hour"
 - `snoozeTomorrow` "Tomorrow"
 
-`calendarHome.sheet.notes.*`:
+`calendarHome.sheet.actionNotes.*` (not `sheet.notes`, which is the existing "Notes" label; ruling in 1ce4a21):
 - `changed` "This reminder changed. The calendar is up to date now."
 - `alreadyDone` "Already done"
 - `notYours` "This reminder isn't yours anymore"
@@ -105,8 +105,24 @@ One service, used by the ping callbacks and the new route: `applyReminderAction(
   - the notes;
   - buttons disabled in flight;
   - 44 px, and no untranslated key in en, he or ru.
-- **`smoke-native-reminder-buttons`:** unchanged and green.
+- **`smoke-native-reminder-buttons`:** green. Its fake DB was adapted to the service's queries; its assertions changed only by `source` and the snooze's `series_event_id`.
 
 ## 7. Out of scope
 
 Editing a reminder's title, time or repeats (roadmap step 3). Done from the digests (the native-reminders spec rules it out). WhatsApp pings (none exist).
+
+## 8. How it shipped, and what it leaves
+
+**Differences from the design above:**
+- The note keys are `calendarHome.sheet.actionNotes.*`, because `sheet.notes` is the Notes label (1ce4a21).
+- The sheet reads the occurrence's own state (`reminderStateAt`), and the loader holds patches against older answers; the confirming refetch is `renew` (f93b927).
+- A disappearing item closes the sheet only when there is a note. A done carry-over dropped by the refetch keeps the sheet open, so it can be undone.
+- The in-app ping edit uses the ping recipient's language and clock (a3604f3). A done that lands during the send closes the new ping (a5cb729).
+- The Russian action copy is formal (71b6448).
+
+**Known limitations (shipped on purpose):**
+- A snooze that lands between the pass's claim and its save of the ping's message id leaves the ping's buttons. They still work, and the reminder pings again at `snoozedUntil`.
+- `renew` refetches are not coalesced: each tap re-sends every visible FamCal window. Coalesce them if load shows it.
+- The loader's `patched` map is never pruned. It is tiny.
+- A sheet open across a due time shows the old state until something re-renders it (no minute tick).
+- The sheet falls back to the row's mark when the actions are absent; only the smokes reach that.

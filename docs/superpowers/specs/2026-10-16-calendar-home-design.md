@@ -2,6 +2,8 @@
 
 **Date:** 2026-10-16 · **Branch:** `feat/calendar-home` · **Status:** approved in conversation, section by section (reader, summaries, loading and errors, week start and Hebrew dates, screens). The owner delegated the smaller choices ("go with your defaults"); they are listed under *Rulings* so they can be reviewed. The owner also delegated the review of this written spec. It was reviewed twice against the code, and the confirmed findings are applied.
 
+**Later status (2026-10-19):** the rollout switch of §1 was removed at the ALL cleanup (c6336fc): the home is the dashboard for everyone, and the old dashboard, the not-enabled answer and the summaries' fallback are gone. The home is no longer view-only: the item sheet now has done, undo and snooze (`2026-10-19-reminder-actions-design.md`) and adding, editing and deleting (`2026-10-19-home-editing-design.md`), so §7.5's "view-only sheet" and §11's "while the home is view-only" are out of date, and an owner or creator can act in the browser home through the session cookie. §7.3's hints are quiet and sent to everyone. Read the text below as the design as of 2026-10-16.
+
 Line references are to `main` at 858886c. "Ruling Rn" refers to the table below; "A-n" refers to the summary regression contract in Appendix A.
 
 ## Goal
@@ -1062,6 +1064,8 @@ There's no test runner: these are `npx tsx` smoke scripts.
 - `smoke-initdata-header.ts`: the new route, and `execute-command` reading the header.
 
 `smoke-native-provider-reminders.ts` and `smoke-reminders.ts` must pass **unchanged**.
+
+**The summary golden:** `scripts/fixtures/digest-reader-golden.json` pins what the summaries read and send the AI. Retake it only when the summaries' reads or prompts are meant to change: delete the file, then run `npx tsx scripts/smoke-digest-reader.ts --write-golden-fixture` (it refuses to overwrite).
 
 **Live check:** after the switch goes to `ADMINS`, compare the owner's next summaries with the old path's, including the `[Calendar: …]` names.
 

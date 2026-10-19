@@ -34,7 +34,7 @@
 | `app/[locale]/dashboard/StillOpenCard.tsx` | the card's rows get the stripe |
 | `app/[locale]/dashboard/MonthBrowse.tsx` | chips and bars carry `has-cal` and the tones; the `has-cal` rules |
 | `app/[locale]/dashboard/MonthPicked.tsx` | dots carry `has-cal` and the tones; the `has-cal` rules |
-| `app/[locale]/dashboard/AgendaView.tsx` | `.ch-stripe` rules |
+| `app/[locale]/dashboard/AgendaView.tsx` | `.ch-stripe` rules, and the `.ch-cal-chip` rules for the Google chip (b841371) |
 | `app/[locale]/dashboard/home-theme.ts` | `.has-cal` picks `--cal-{fill,text,line}` by `data-theme` |
 | `scripts/smoke-calendar-colours.ts` (new) | the tones, the vars, the CSS |
 | `scripts/smoke-calendar-read-google-cache.ts`, `-cancel.ts` | colours on the reader's reads |
@@ -90,12 +90,14 @@ The cancel smoke runs the real client: the calendarList request carries the sign
 - **Chips and bars:** with `has-cal`, yours are `--cal-fill` under `--cal-text`, and the partner's are `--ch-bg` with a `--cal-line` border and `--cal-text`. Bars keep their logical-radius joins.
 - **Dots:** filled `--cal-line`, or a `--cal-line` ring.
 - **Item sheet:** unchanged. It already shows the swatch and the calendar's name.
+- **The Google chip (b841371, owner, 2026-10-19):** a Google row's "Google · {calendar}" chip, in `ItemRow.tsx` (`GoogleChip`), takes the calendar's tones as a Month chip does: `has-cal`, filled for your calendar, outlined (`is-partner`) for your partner's. A calendar with no usable colour keeps the grey outline.
 
 **Tests:**
 - month model: every slot's colour is its item's calendar colour, spacers have none, and the dots follow;
 - browse #26: chips and bars carry their calendar's vars, and masked or bad colours keep E4's look;
 - picked #14: the same for dots;
-- render #61: stripes on every row, solid, hollow or plain, and in the card.
+- render #61: stripes on every row, solid, hollow or plain, and in the card;
+- render #62: the Google chip carries the tones inline, filled or outlined, and keeps the grey outline with no style when the colour is unusable.
 
 The pinned-markup checks (browse #4, picked #5/#6/#9/#12, render #14) were updated to the new markup.
 
