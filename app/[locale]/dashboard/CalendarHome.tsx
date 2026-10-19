@@ -195,6 +195,8 @@ function saveOutcome(out: WriteOutcome): SaveOutcome {
       return { kind: 'error', error: 'changed' };
     case 'busy':
       return { kind: 'error', error: 'busy' };
+    case 'reconnect':
+      return { kind: 'error', error: 'reconnect' };
     default:
       return { kind: 'error', error: 'failed' };
   }
@@ -320,7 +322,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const [acting, setActing] = useState<{ key: string; action: ReminderActionName } | null>(null);
   const [note, setNote] = useState<{ key: string; kind: SheetNote } | null>(null);
   const actingRef = useRef(false);
-  /** What the user can add (null until asked, and for a Google user: no "+"). */
+  /** What the user can add (null until asked, or when the request failed: no "+"). */
   const [editorInfo, setEditorInfo] = useState<EditorInfoResponse | null>(null);
   /** The open item's edit info, with the key it was asked for; bumped to ask again after an edit. */
   const [itemInfo, setItemInfo] = useState<{ key: string; info: ItemEditInfoResponse } | null>(null);
@@ -536,9 +538,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   useEffect(() => {
     setNote(null);
   }, [selectedKey]);
-  // What the user can add: asked once for a FamCal user. A failure leaves the header without "+".
+  // What the user can add: asked once, for a Google user too (3b spec §3.3). A failure leaves the header without "+".
   useEffect(() => {
-    if (calendarSource !== 'NATIVE') return;
     let live = true;
     deps.editing
       .editor(userId)
@@ -549,17 +550,18 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     return () => {
       live = false;
     };
-  }, [calendarSource, userId, deps]);
+  }, [userId, deps]);
   const kinds = {
-    event: calendarSource === 'NATIVE' && !!editorInfo?.kinds.event,
-    reminder: calendarSource === 'NATIVE' && !!editorInfo?.kinds.reminder && hints.reminders,
+    event: !!editorInfo?.kinds.event,
+    reminder: !!editorInfo?.kinds.reminder && hints.reminders,
   };
   const canAdd = editorInfo !== null && (kinds.event || kinds.reminder) && facts !== null && card === null && blocked === null && !setupNeeded;
 
-  // The open FamCal item's edit info, asked when its sheet opens (and again after an edit of it).
-  const selectedFamcal = selected?.item.source === 'famcal' && calendarSource === 'NATIVE';
+  // The open item's edit info (FamCal's, or Google's for a Google user), asked when its sheet
+  // opens (and again after an edit of it).
+  const selectedEditable = selected !== null && ((selected.item.source === 'famcal' && calendarSource === 'NATIVE') || (selected.item.source === 'google' && calendarSource === 'GOOGLE'));
   useEffect(() => {
-    if (!selectedKey || !selectedFamcal) return;
+    if (!selectedKey || !selectedEditable) return;
     let live = true;
     deps.editing
       .item(userId, selectedKey)
@@ -570,7 +572,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     return () => {
       live = false;
     };
-  }, [selectedKey, selectedFamcal, infoTick, userId, deps]);
+  }, [selectedKey, selectedEditable, infoTick, userId, deps]);
   const openInfo = itemInfo && itemInfo.key === selectedKey ? itemInfo.info : null;
 
   // An item the store no longer holds: its note shows, then the sheet closes.
@@ -638,8 +640,14 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     }
     loaderRef.current?.refetchVisible({ only: 'famcal', renew: true });
   };
-  // After a write: FamCal's windows again, so the new or changed item shows. Settles when they have landed.
-  const refreshFamcal = () => loaderRef.current?.refetchVisible({ only: 'famcal', renew: true }) ?? Promise.resolve();
+  // After a write: the item's source's windows again, so the new or changed item shows (a new
+  // item: every source this user reads, which is one). Settles when they have landed. A
+  // Google write stamps the server's cache, so this read is not a stale one.
+  const refreshWritten = (source?: SourceName) => loaderRef.current?.refetchVisible({ ...(source ? { only: source } : {}), renew: true }) ?? Promise.resolve();
+  // A write that needs the user's Google connection raises the same banner a failed read does.
+  const raiseReconnect = (out: WriteOutcome) => {
+    if (out.kind === 'reconnect') dispatch({ type: 'reconnect', reason: out.reason });
+  };
 
   const openAdd = () => {
     if (!editorInfo || !facts) return;
@@ -681,10 +689,11 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
       out = { kind: 'failed' };
     }
     writingRef.current = false;
+    raiseReconnect(out);
     const result = saveOutcome(out);
     if (result.kind === 'ok') {
       setEditor(null);
-      const landed = refreshFamcal();
+      const landed = refreshWritten(editor.mode === 'edit' ? (editor.key.startsWith('google|') ? 'google' : 'famcal') : undefined);
       if (editor.mode === 'edit') {
         const armed = { key: editor.key, next: out.kind === 'ok' && out.key && out.key !== editor.key ? out.key : null, landed: false };
         setFollow(armed);
@@ -709,17 +718,18 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     }
     writingRef.current = false;
     setDeleteBusy(false);
+    raiseReconnect(out);
     const result = saveOutcome(out);
     if (result.kind === 'ok') {
       setDeleting(null);
       setSelected((cur) => (cur && cur.item.key === deleting.key ? null : cur));
       hapticSuccess();
-      void refreshFamcal();
+      void refreshWritten(deleting.key.startsWith('google|') ? 'google' : 'famcal');
     } else setDeleteError(result.error);
   };
   const editing: SheetEditing | undefined =
-    openInfo && (openInfo.canEdit || openInfo.canDelete)
-      ? { canEdit: openInfo.canEdit, canDelete: openInfo.canDelete, kind: openInfo.kind, onEdit: openEdit, onDelete: openDelete }
+    openInfo && (openInfo.canEdit || openInfo.canDelete || openInfo.editableInGoogleOnly)
+      ? { canEdit: openInfo.canEdit, canDelete: openInfo.canDelete, googleOnly: openInfo.editableInGoogleOnly === true, kind: openInfo.kind, onEdit: openEdit, onDelete: openDelete }
       : undefined;
 
   const sheetActions: SheetActions = {
@@ -898,7 +908,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
           initial={editor.initial}
           {...(editor.mode === 'create'
             ? { kinds: editor.kinds, calendars: editor.info.calendars, partner: editor.info.partner }
-            : { info: editor.info, itemKey: editor.key })}
+            : { info: editor.info, itemKey: editor.key, calendars: editorInfo?.calendars, partner: editorInfo?.partner })}
           onSave={saveEditor}
           onClose={() => setEditor(null)}
           cancelRef={editorCancel}

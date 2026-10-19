@@ -15,8 +15,9 @@
 // Editing (home editing spec §2): a FamCal item the viewer may change shows a pencil in the
 // header, and one they may delete shows "Delete event" / "Delete reminder" at the bottom,
 // both from `actions.editing`, which the container fills once the item's edit info has
-// arrived (none before, none for Google items). The sheet only draws them; the container
-// opens the editor and asks before deleting.
+// arrived (none before). A Google event on a calendar the viewer can write to but that
+// only Google can change (guests, a special type) says so instead (3b spec §2.4). The sheet
+// only draws them; the container opens the editor and asks before deleting.
 //
 // Telegram's BackButton closes it: the container owns the button (useTelegramBackButton)
 // and the selection, so this sheet only renders. In a browser, the Close button, a tap on
@@ -50,6 +51,8 @@ export type SheetNote = 'changed' | 'alreadyDone' | 'notYours' | 'failed';
 export interface SheetEditing {
   canEdit: boolean;
   canDelete: boolean;
+  /** A writable Google event that can only be changed in Google Calendar: the line says so. */
+  googleOnly?: boolean;
   kind: ItemKind;
   onEdit: () => void;
   onDelete: () => void;
@@ -256,6 +259,7 @@ export function ItemSheet({ row, today, tz, onClose, actions }: ItemSheetProps) 
           {t(`sheet.actionNotes.${actions.note}`)}
         </p>
       ) : null}
+      {editing?.googleOnly ? <p className="ch-sheet-note">{t('sheet.googleOnly')}</p> : null}
       <dl className="ch-facts">
         <div className="ch-fact">
           <dt>{t('sheet.calendar')}</dt>
