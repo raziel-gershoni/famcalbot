@@ -2047,6 +2047,20 @@ async function main() {
     assertSame(pairOf(eventRow(id)), ['FREQ=YEARLY', 'anniversary', '2022-11-24'], 'a rename');
     const r = await patch({ key: occ('2024-12-01'), scope: 'all', changes: { start: '2024-12-02T10:00', end: '2024-12-02T11:00' } });
     assertSame([r.status, iso(eventRow(id).startsAt), pairOf(eventRow(id))], [200, iso(at('2022-11-25 10:00')), ['FREQ=YEARLY', 'anniversary', '2022-11-25']], 'a day later, the anchor too');
+    seed();
+    const rem = hebrewSeries('heb-rem', { kind: 'REMINDER', title: 'Light a candle' });
+    const remMoved = await patch({ key: rem.occ('2024-12-01'), scope: 'all', changes: { start: '2024-12-02T10:00' } });
+    assertSame([remMoved.status, iso(eventRow(rem.id).startsAt), pairOf(eventRow(rem.id))], [200, iso(at('2022-11-25 10:00')), ['FREQ=YEARLY', 'anniversary', '2022-11-25']], 'a reminder: a day later, the anchor too');
+    assertSame(await daysOf(rem.id, '2022-01-01', '2025-01-01'), ['2022-11-25', '2023-11-14', '2024-12-02'], 'the reminder keeps its first occurrence');
+    seed();
+    const bare = hebrewSeries('heb-bare');
+    await store.updateNativeEvent({ seriesCuid: bare.id, scope: 'following', actingUserId: TAL, startsAt: at('2022-11-26 10:00'), endsAt: at('2022-11-26 11:00') });
+    assertSame([iso(eventRow(bare.id).startsAt), pairOf(eventRow(bare.id))], [iso(at('2022-11-26 10:00')), ['FREQ=YEARLY', 'anniversary', '2022-11-26']], '"this and after" with no occurrence: the anchor moves with the start');
+    seed();
+    const bareRem = hebrewSeries('heb-bare-rem', { kind: 'REMINDER' });
+    await store.updateNativeEvent({ seriesCuid: bareRem.id, scope: 'following', actingUserId: TAL, startsAt: at('2022-11-26 10:00') });
+    assertSame([iso(eventRow(bareRem.id).startsAt), pairOf(eventRow(bareRem.id))], [iso(at('2022-11-26 10:00')), ['FREQ=YEARLY', 'anniversary', '2022-11-26']], 'a reminder "this and after" with no occurrence: the anchor too');
+    assertSame((await daysOf(bareRem.id, '2022-01-01', '2023-01-01')), ['2022-11-26'], 'its start is still its first occurrence');
   });
 
   await check('hebrew: a calendar move "this and after" and a recipient change "this and after" each give the tail the pair', async () => {

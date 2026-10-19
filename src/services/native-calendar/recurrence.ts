@@ -482,7 +482,8 @@ function hebrewPlan(series: HebrewSeries): { at: (j: number) => Date | null; fir
   const anchorYear = anchor.getFullYear();
   const month = anchor.getMonth();
   const date = anchor.getDate();
-  const wall = formatInTimeZone(series.startsAt, zone, 'HH:mm:ss');
+  // To the millisecond: a start with a sub-second part would otherwise put slot 0 just before it.
+  const wall = formatInTimeZone(series.startsAt, zone, 'HH:mm:ss.SSS');
   const dayIn = series.hebrewRule === 'yahrzeit' ? getYahrzeit : getBirthdayOrAnniversary;
   const slots = new Map<number, Date | null>();
   const at = (j: number): Date | null => {

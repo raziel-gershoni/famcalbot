@@ -186,6 +186,15 @@ function main() {
     assertSame(days(hebrew('yahrzeit', shvat, { rrule: 'FREQ=YEARLY;INTERVAL=2;COUNT=2' }), '2026-01-01', '2035-01-01'), ['2026-02-02', '2028-02-12'], 'count 2, interval 2');
   });
 
+  check('a start with milliseconds keeps its first occurrence and its COUNT, keyed by the start itself, like the Gregorian yearly row', () => {
+    const start = new Date(shvat.getTime() + 123);
+    const s = hebrew('anniversary', start, { rrule: 'FREQ=YEARLY;COUNT=2' });
+    const got = rec.expandSeries(s, { from: at('2026-01-01 00:00'), to: at('2030-01-01 00:00') });
+    assertSame(got.map((i) => dayIn(i.startsAt)), ['2026-02-02', '2027-01-23'], 'count 2');
+    assertSame(got.map((i) => i.instanceStartsAt.toISOString()), [start.toISOString(), fromZonedTime('2027-01-23T10:00:00.123', IL).toISOString()], 'keys keep the milliseconds');
+    assertSame(days({ ...s, hebrewRule: null, hebrewAnchor: null }, '2026-01-01', '2030-01-01'), ['2026-02-02', '2027-02-02'], 'the Gregorian row');
+  });
+
   check('COUNT, a window 20 years from the start: the 21st occurrence (5806) is there, the 22nd (5807) is not', () => {
     const s = hebrew('anniversary', shvat, { rrule: 'FREQ=YEARLY;COUNT=21' });
     const want5806 = civil(new HDate(15, 11, 5806).greg());

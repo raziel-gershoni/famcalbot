@@ -1356,6 +1356,8 @@ async function updateNativeReminder(
         ...text,
         ...(edit ? { startsAt: edit.startsAt, endsAt: edit.endsAt, allDay: edit.allDay } : {}),
         ...(edit?.changed ? { armedAt: new Date() } : {}),
+        // A Hebrew series' anchor moves with its start, by the same days ('all', or 'following' with nothing to cut).
+        ...(edit?.changed && series.rrule && series.hebrewAnchor ? { hebrewAnchor: shiftedAnchor(series, edit.startsAt) } : {}),
         ...(startsRepeating ? { rrule: input.rrule, ...startingPair(input, edit?.startsAt ?? series.startsAt, series.timeZone) } : {}),
         ...(reassign ? { forUserId } : {}),
       },
