@@ -166,16 +166,17 @@ async function main() {
 
   const { getCalendarAssignmentsForUser, labelsFromViewerSide } = await import('../src/services/calendar-provider/user-calendars');
 
-  // The week fetch goes through the provider; everything else in the index is the real thing.
+  // The week read goes through the shared reader, whose readRange answers with these; the
+  // digest adapter and the calendar lookup are the real thing.
   const WEEK_EVENTS: CalendarEvent[] = [
     ev('Pilates', 'dana-main', '2026-10-15T15:00:00.000Z', '2026-10-15T16:00:00.000Z'),
     ev('Ballet', 'dana-kids', '2026-10-16T13:00:00.000Z', '2026-10-16T14:00:00.000Z'),
     ev('Dentist', 'raz-main', '2026-10-17T07:00:00.000Z', '2026-10-17T08:00:00.000Z'),
   ];
-  stub('services/calendar-provider/index.ts', {
-    getProviderForUser: () => ({ fetchEventsInRange: async () => WEEK_EVENTS }),
-    getCalendarAssignmentsForUser,
-  });
+  stub('services/calendar-read/index.ts', { readRange: async () => ({ items: WEEK_EVENTS.map(event => ({ event })) }) });
+  stub('services/calendar-provider/index.ts', { getCalendarAssignmentsForUser });
+  // TEMPORARY, until the lookaheads stop asking the switch: on for everyone, as in production.
+  stub('services/calendar-read/rollout.ts', { isCalendarHomeOn: async () => true });
 
   const { getSpouseInfo, getPrimaryCalendar } = await import('../src/utils/calendar-helpers');
   const { categorizeEvents } = await import('../src/services/telegram/summary');

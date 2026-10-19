@@ -1,11 +1,9 @@
 // Smoke test for the summary seam (calendar home spec §3.1, Plan C Task C3):
 // src/services/telegram/summary.ts.
 //
-// For a user the rollout switch covers, the daily and tomorrow summaries read their day
-// through the shared reader's readDigestDay: the summary day, the user's timezone, the
-// resolved calendar ids, and the run's mode and deadline (on demand: 10 s). Everyone
-// else keeps the provider's read with today's three arguments (A-33).
-// prepareSummaryForUser takes the summary day, the read and the outage flag from its
+// The daily and tomorrow summaries read their day through the shared reader's
+// readDigestDay: the summary day, the user's timezone, the resolved calendar ids, and the
+// run's mode and deadline (on demand: 10 s; scheduled: 30 s). prepareSummaryForUser takes the summary day, the read and the outage flag from its
 // caller (the scheduled retry, Task C4). The day drives the read, the shaping, the
 // reminders, the prompt's date, the header and the week block. The outage run reads
 // nothing for a Google user, skips the week block, flags the prompt and puts the outage
@@ -13,14 +11,13 @@
 // R13's text, in place of an open draft, and no admin page.
 //
 // The real summary.ts, command pipeline and bot texts run. Faked: the user lookup, the
-// calendar provider, the rollout switch, readDigestDay (the rest of digest.ts is real),
-// the timezone, open reminders, the week lookahead, the AI, the voice note, quota,
-// analytics, Redis, the setup nudge, both messaging services and the admin notifier. The
-// clock is frozen. No network, no DB.
+// calendar lookup, readDigestDay (the rest of digest.ts is real), the timezone, open
+// reminders, the week lookahead, the AI, the voice note, quota, analytics, Redis, the
+// setup nudge, both messaging services and the admin notifier. The clock is frozen. No
+// network, no DB.
 //
-// Checks named [guard] pass before this task too and must keep passing. They pin today's
-// behaviour for the users the switch doesn't cover, and the error branches that don't
-// change.
+// Checks named [guard] passed before the shared reader too: the error branches it left
+// as they were.
 //
 // Run under each clock; the output must not depend on the server's timezone:
 //   TZ=UTC npx tsx scripts/smoke-summary-seam.ts
@@ -115,22 +112,17 @@ function fixtureUser(o: Partial<UserConfig> & { id: number }): UserConfig {
   } as unknown as UserConfig;
 }
 
-// The switch doesn't cover these two.
-const LEGACY_GOOGLE = fixtureUser({ id: 1, telegramId: 1001 });
-const LEGACY_NATIVE = fixtureUser({ id: 2, telegramId: 1002, language: 'he', calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: undefined });
-// It covers these.
-const HOME_GOOGLE = fixtureUser({ id: 3, telegramId: 1003, language: 'he' });
-const HOME_NATIVE = fixtureUser({ id: 4, telegramId: 1004, language: 'ru', calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: undefined });
-const HOME_NEW_YORK = fixtureUser({ id: 5, telegramId: 1005, location: 'Brooklyn' });
-const HOME_WHATSAPP = fixtureUser({ id: 6, telegramId: null, language: 'ru', messagingPlatform: 'whatsapp', whatsappPhone: '972500000006' });
-const USERS = [LEGACY_GOOGLE, LEGACY_NATIVE, HOME_GOOGLE, HOME_NATIVE, HOME_NEW_YORK, HOME_WHATSAPP];
-const SWITCH_ON = new Set([3, 4, 5, 6]);
+const GOOGLE_USER = fixtureUser({ id: 3, telegramId: 1003, language: 'he' });
+const FAMCAL_USER = fixtureUser({ id: 4, telegramId: 1004, language: 'ru', calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: undefined });
+const NEW_YORKER = fixtureUser({ id: 5, telegramId: 1005, location: 'Brooklyn' });
+const WHATSAPP_USER = fixtureUser({ id: 6, telegramId: null, language: 'ru', messagingPlatform: 'whatsapp', whatsappPhone: '972500000006' });
+const USERS = [GOOGLE_USER, FAMCAL_USER, NEW_YORKER, WHATSAPP_USER];
 const TZ_OF: Record<number, string> = { 5: NY };
 
 const ev = (id: string, start: string, end: string, cal: CalendarAssignment = MINE): CalendarEvent => ({
   summary: `Event ${id}`, start, end, calendarId: cal.calendarId, calendarName: cal.name, eventId: id,
 });
-/** What either read returns: Friday the 16th to Monday the 19th, in Israel. */
+/** What the read returns: Friday the 16th to Monday the 19th, in Israel. */
 const READ: CalendarEvent[] = [
   ev('fri', '2026-10-16T09:00:00+03:00', '2026-10-16T10:00:00+03:00'),
   ev('sat', '2026-10-17T09:00:00+03:00', '2026-10-17T10:00:00+03:00'),
@@ -144,8 +136,6 @@ const NOON_18TH = '2026-10-18T09:00:00.000Z';
 
 type DigestCall = { user: UserConfig; day: string; tz: string; ids: string[]; read: DigestRead };
 const digestCalls: DigestCall[] = [];
-const providerCalls: { method: string; args: unknown[] }[] = [];
-const rolloutAsked: UserConfig[] = [];
 const lookedUp: UserConfig[] = [];
 const reminderDays: string[] = [];
 const lookaheadRefs: string[] = [];
@@ -161,7 +151,7 @@ const logs: string[] = [];
 /** Sentry, as "<context> <level> <message>". */
 const captured: string[] = [];
 
-/** What the next day read does, the provider's or the reader's: return events, or throw. */
+/** What the next day read does: return events, or throw. */
 let readOutcome: () => Promise<CalendarEvent[]>;
 /** What the next week block does: its events, or a throw. */
 let lookaheadOutcome: () => Promise<CalendarEvent[]>;
@@ -174,7 +164,7 @@ const failWith = (message: string) => async (): Promise<CalendarEvent[]> => {
 
 function reset() {
   clock = MORNING;
-  for (const list of [digestCalls, providerCalls, rolloutAsked, lookedUp, reminderDays, lookaheadRefs, aiCalls, headers, sent, voice, admin, cleared, captured]) {
+  for (const list of [digestCalls, lookedUp, reminderDays, lookaheadRefs, aiCalls, headers, sent, voice, admin, cleared, captured]) {
     list.length = 0;
   }
   readOutcome = async () => READ.map(e => ({ ...e }));
@@ -215,17 +205,6 @@ function draft(): StreamMessageHandle {
   };
 }
 
-const provider = {
-  fetchTodayEvents: async (...args: unknown[]) => {
-    providerCalls.push({ method: 'fetchTodayEvents', args });
-    return readOutcome();
-  },
-  fetchTomorrowEvents: async (...args: unknown[]) => {
-    providerCalls.push({ method: 'fetchTomorrowEvents', args });
-    return readOutcome();
-  },
-};
-
 const SRC = path.resolve(__dirname, '../src');
 
 /** Modules replaced by fakes, by file path; a function fakes part of the real module. */
@@ -245,15 +224,10 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
     },
   },
   [`${SRC}/services/calendar-provider/index.ts`]: {
-    getProviderForUser: () => provider,
     getCalendarAssignmentsForUser: async (u: UserConfig) => (u.calendarSource === 'NATIVE' ? [HOME] : (u.calendarAssignments ?? [])),
   },
-  [`${SRC}/services/calendar-read/rollout.ts`]: {
-    isCalendarHomeOn: async (u: UserConfig) => {
-      rolloutAsked.push(u);
-      return SWITCH_ON.has(u.id);
-    },
-  },
+  // TEMPORARY, until the summaries stop asking the switch: on for everyone, as in production.
+  [`${SRC}/services/calendar-read/rollout.ts`]: { isCalendarHomeOn: async () => true },
   [`${SRC}/services/calendar-read/digest.ts`]: real => ({
     ...real,
     readDigestDay: async (u: UserConfig, day: string, tz: string, ids: readonly string[], read: DigestRead) => {
@@ -417,72 +391,53 @@ async function main() {
   const aiEvents = () => aiCalls.map(a => a.events.flat());
   const messages = () => sent.filter(s => s.method !== 'updateMessage').map(s => [s.via, s.method, s.chatId ?? null, nameOf(s.text)]);
 
-  await check("[guard] switch off, Google user: the provider reads today with its three arguments, and the AI's text goes out as written", async () => {
-    await summary.sendDailySummaryToUser(1001);
-    assertEqual(providerCalls.map(c => [c.method, c.args.length]), [['fetchTodayEvents', 3]], 'the provider reads (method, argument count)');
-    assert(providerCalls[0].args[0] === lookedUp[0], 'the provider got another user object than the lookup returned');
-    assertEqual(providerCalls[0].args.slice(1), [GOOGLE_IDS, IL], 'the calendar ids and timezone of the read');
-    assertEqual(digestCalls.length, 0, 'reader reads');
-    assertEqual(aiCalls.map(a => a.events), [[['sat'], [], ['sat-kids']]], 'the events the AI got (mine, spouse, other)');
-    assertEqual(messages(), [['telegram', 'sendMessage', 1001, 'AI summary']], 'messages');
-    assertEqual(voice, ['AI summary'], 'the voice text');
-  });
-
-  await check("[guard] switch off, FamCal user, tomorrow: the provider's tomorrow read, three arguments, and the week block from tomorrow's noon", async () => {
-    await summary.sendTomorrowSummaryToUser(1002);
-    assertEqual(providerCalls.map(c => [c.method, c.args.length]), [['fetchTomorrowEvents', 3]], 'the provider reads (method, argument count)');
-    assertEqual(providerCalls[0].args.slice(1), [[HOME.calendarId], IL], 'the calendar ids and timezone of the read');
-    assertEqual(digestCalls.length, 0, 'reader reads');
-    assertEqual(aiEvents(), [['sun']], 'the events the AI got');
-    assertEqual(lookaheadRefs, [NOON_18TH], 'the week block reference');
-    assertEqual(aiCalls[0].weekLookahead, 'Looking ahead: Monday', 'the week block text');
-  });
-
-  await check('switch on, Google user: today is read through readDigestDay, on demand, with the fresh user row', async () => {
+  await check("Google user: today is read through readDigestDay, on demand, with the fresh user row, and the AI's text goes out as written", async () => {
     await summary.sendDailySummaryToUser(1003);
-    assertEqual(providerCalls.map(c => c.method), [], 'provider reads (the switch was ignored)');
     assertEqual(readsOf(), [['2026-10-17', IL, GOOGLE_IDS, { mode: 'onDemand', deadlineMs: 10000 }]], 'reader reads (day, tz, ids, read)');
     assert(digestCalls[0].read === digest.DEFAULT_ON_DEMAND_READ, "the read is not digest.ts's DEFAULT_ON_DEMAND_READ");
     assert(digestCalls[0].user === lookedUp[0], 'the reader got another user object than the lookup returned');
-    assert(rolloutAsked.length > 0 && rolloutAsked.every(u => u === lookedUp[0]), 'the switch was not asked with the looked-up user');
     assertEqual(aiCalls.map(a => a.events), [[['sat'], [], ['sat-kids']]], 'the events the AI got (mine, spouse, other)');
     assertEqual(messages(), [['telegram', 'sendMessage', 1003, 'AI summary']], 'messages');
+    assertEqual(voice, ['AI summary'], 'the voice text');
   });
 
-  await check("switch on, tomorrow: the reader reads tomorrow's local date, and the week block starts from its noon", async () => {
+  await check("tomorrow: the reader reads tomorrow's local date, and the week block starts from its noon", async () => {
     await summary.sendTomorrowSummaryToUser(1003);
-    assertEqual(providerCalls.map(c => c.method), [], 'provider reads (the switch was ignored)');
     assertEqual(readsOf(), [['2026-10-18', IL, GOOGLE_IDS, { mode: 'onDemand', deadlineMs: 10000 }]], 'reader reads (day, tz, ids, read)');
     assertEqual(aiEvents(), [['sun']], 'the events the AI got');
     assertEqual(aiCalls[0].dayNoon, NOON_18TH, "the prompt's date");
     assertEqual(lookaheadRefs, [NOON_18TH], 'the week block reference');
   });
 
-  await check('switch on, FamCal user: the reader too, with the built-in calendar ids', async () => {
+  await check('FamCal user: the reader too, with the built-in calendar ids', async () => {
     await summary.sendDailySummaryToUser(1004);
-    assertEqual(providerCalls.map(c => c.method), [], 'provider reads (the switch was ignored)');
     assertEqual(readsOf(), [['2026-10-17', IL, [HOME.calendarId], { mode: 'onDemand', deadlineMs: 10000 }]], 'reader reads (day, tz, ids, read)');
   });
 
-  await check("switch on, New York at 23:30 on Friday: today and tomorrow are New York's dates", async () => {
+  await check("FamCal user, tomorrow: the reader reads tomorrow with the built-in calendar ids, and the week block comes from tomorrow's noon", async () => {
+    await summary.sendTomorrowSummaryToUser(1004);
+    assertEqual(readsOf(), [['2026-10-18', IL, [HOME.calendarId], { mode: 'onDemand', deadlineMs: 10000 }]], 'reader reads (day, tz, ids, read)');
+    assertEqual(aiEvents(), [['sun']], 'the events the AI got');
+    assertEqual(lookaheadRefs, [NOON_18TH], 'the week block reference');
+    assertEqual(aiCalls[0].weekLookahead, 'Looking ahead: Monday', 'the week block text');
+  });
+
+  await check("New York at 23:30 on Friday: today and tomorrow are New York's dates", async () => {
     await summary.sendDailySummaryToUser(1005);
     await summary.sendTomorrowSummaryToUser(1005);
-    assertEqual(providerCalls.map(c => c.method), [], 'provider reads (the switch was ignored)');
     assertEqual(readsOf().map(r => r.slice(0, 2)), [['2026-10-16', NY], ['2026-10-17', NY]], 'reader reads (day, tz)');
   });
 
-  await check("the wrappers hand on the caller's day and read; off the switch, the provider still gets three arguments", async () => {
-    await summary.fetchTodayEvents(HOME_GOOGLE, GOOGLE_IDS, IL, '2026-10-17', digest.SCHEDULED_READ);
-    await summary.fetchTomorrowEvents(HOME_GOOGLE, GOOGLE_IDS, IL, '2026-10-20', digest.SCHEDULED_RETRY_READ);
-    await summary.fetchTomorrowEvents(LEGACY_GOOGLE, GOOGLE_IDS, IL, '2026-10-18', digest.SCHEDULED_READ);
+  await check("the summaries' reads hand on the caller's day and read", async () => {
+    await summary.fetchTodayEvents(GOOGLE_USER, GOOGLE_IDS, IL, '2026-10-17', digest.SCHEDULED_READ);
+    await summary.fetchTomorrowEvents(GOOGLE_USER, GOOGLE_IDS, IL, '2026-10-20', digest.SCHEDULED_RETRY_READ);
     assertEqual(readsOf().map(r => r[0]), ['2026-10-17', '2026-10-20'], 'reader days');
     assert(digestCalls[0].read === digest.SCHEDULED_READ && digestCalls[1].read === digest.SCHEDULED_RETRY_READ, `reads ${show(digestCalls.map(c => c.read))}`);
-    assertEqual(providerCalls.map(c => [c.method, c.args.length]), [['fetchTomorrowEvents', 3]], 'the provider reads (method, argument count)');
   });
 
   await check("opts.day keeps the first attempt's day past midnight: the read, the shaping, the reminders, the prompt's date, the header and the week block", async () => {
     clock = PAST_MIDNIGHT;
-    const result = await summary.prepareSummaryForUser(HOME_GOOGLE, summary.fetchTomorrowEvents, tomorrowFlag(), undefined, undefined, undefined, {
+    const result = await summary.prepareSummaryForUser(GOOGLE_USER, summary.fetchTomorrowEvents, tomorrowFlag(), undefined, undefined, undefined, {
       day: '2026-10-18',
       read: digest.SCHEDULED_RETRY_READ,
     });
@@ -498,19 +453,19 @@ async function main() {
 
   await check("without opts.day the day is today's rule and the read is on demand: past midnight, tomorrow is the 19th", async () => {
     clock = PAST_MIDNIGHT;
-    await summary.prepareSummaryForUser(HOME_GOOGLE, summary.fetchTomorrowEvents, tomorrowFlag());
+    await summary.prepareSummaryForUser(GOOGLE_USER, summary.fetchTomorrowEvents, tomorrowFlag());
     assertEqual(readsOf(), [['2026-10-19', IL, GOOGLE_IDS, { mode: 'onDemand', deadlineMs: 10000 }]], 'reader reads (day, tz, ids, read)');
     assertEqual(aiEvents(), [['mon']], 'the events the AI got');
   });
 
   await check('googleUnavailable, Google user: no read, an empty day, the prompt flagged, no week block, and the outage line under the text', async () => {
     clock = PAST_MIDNIGHT;
-    const result = await summary.prepareSummaryForUser(HOME_GOOGLE, summary.fetchTomorrowEvents, tomorrowFlag(), undefined, undefined, undefined, {
+    const result = await summary.prepareSummaryForUser(GOOGLE_USER, summary.fetchTomorrowEvents, tomorrowFlag(), undefined, undefined, undefined, {
       day: '2026-10-18',
       read: digest.SCHEDULED_RETRY_READ,
       googleUnavailable: true,
     });
-    assertEqual([digestCalls.length, providerCalls.length], [0, 0], 'reads (reader, provider)');
+    assertEqual(digestCalls.length, 0, 'reader reads');
     assertEqual(aiCalls.map(a => a.events), [[[], [], []]], 'the events the AI got');
     assert(aiCalls[0].context.googleUnavailable === true, `the prompt context has no googleUnavailable: true: ${show(aiCalls[0].context)}`);
     assertEqual([lookaheadRefs, aiCalls[0].weekLookahead], [[], undefined], 'the week block (reads, text)');
@@ -519,7 +474,7 @@ async function main() {
   });
 
   await check("googleUnavailable: the outage line is in the user's language", async () => {
-    for (const [u, lang] of [[HOME_NEW_YORK, 'en'], [HOME_WHATSAPP, 'ru']] as const) {
+    for (const [u, lang] of [[NEW_YORKER, 'en'], [WHATSAPP_USER, 'ru']] as const) {
       const result = await summary.prepareSummaryForUser(u, summary.fetchTodayEvents, undefined, undefined, undefined, undefined, {
         read: digest.SCHEDULED_RETRY_READ,
         googleUnavailable: true,
@@ -531,7 +486,7 @@ async function main() {
 
   await check('googleUnavailable with an empty AI answer: nothing is added, so delivery still answers "could not generate"', async () => {
     aiText = '';
-    const result = await summary.prepareSummaryForUser(HOME_GOOGLE, summary.fetchTodayEvents, undefined, undefined, undefined, undefined, {
+    const result = await summary.prepareSummaryForUser(GOOGLE_USER, summary.fetchTodayEvents, undefined, undefined, undefined, undefined, {
       read: digest.SCHEDULED_RETRY_READ,
       googleUnavailable: true,
     });
@@ -539,7 +494,7 @@ async function main() {
   });
 
   await check("googleUnavailable leaves a FamCal user's read, prompt and text alone", async () => {
-    const result = await summary.prepareSummaryForUser(HOME_NATIVE, summary.fetchTodayEvents, undefined, undefined, undefined, undefined, {
+    const result = await summary.prepareSummaryForUser(FAMCAL_USER, summary.fetchTodayEvents, undefined, undefined, undefined, undefined, {
       read: digest.SCHEDULED_RETRY_READ,
       googleUnavailable: true,
     });
@@ -562,7 +517,7 @@ async function main() {
   });
 
   await check("[guard] without the outage flag the prompt context has today's four keys, and nothing goes under the text (A-19)", async () => {
-    await summary.sendDailySummaryToUser(1001);
+    await summary.sendDailySummaryToUser(1005);
     await summary.sendTomorrowSummaryToUser(1003);
     const keys = ['culture', 'globalRules', 'calendarAssignments', 'openRemindersMore'];
     assertEqual(aiCalls.map(a => Object.keys(a.context)), [keys, keys], 'the prompt context keys');
@@ -635,13 +590,13 @@ async function main() {
     assertEqual(admin, ['error: Summary Generation', 'error: Summary Generation'], 'admin pages');
   });
 
-  await check("[guard] scheduled, switch off: the provider's read, the text and the voice note as before", async () => {
-    scheduledUsers = [LEGACY_GOOGLE];
+  await check('scheduled: the reader reads today with the scheduled 30 s deadline; the text and the voice note go out', async () => {
+    scheduledUsers = [GOOGLE_USER];
     const result = await summary.sendDailySummaryToAll();
     assertEqual(result.processed, 1, 'users processed');
-    assertEqual(providerCalls.map(c => [c.method, c.args.length]), [['fetchTodayEvents', 3]], 'the provider reads (method, argument count)');
-    assertEqual(digestCalls.length, 0, 'reader reads');
-    assertEqual(messages(), [['telegram', 'sendMessage', 1001, 'AI summary']], 'messages');
+    assertEqual(readsOf(), [['2026-10-17', IL, GOOGLE_IDS, { mode: 'scheduled', deadlineMs: 30000 }]], 'reader reads (day, tz, ids, read)');
+    assert(digestCalls[0].read === digest.SCHEDULED_READ, "the read is not digest.ts's SCHEDULED_READ");
+    assertEqual(messages(), [['telegram', 'sendMessage', 1003, 'AI summary']], 'messages');
     assertEqual(voice, ['AI summary'], 'the voice text');
   });
 

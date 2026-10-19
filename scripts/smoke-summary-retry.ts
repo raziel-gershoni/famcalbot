@@ -2,25 +2,24 @@
 // deliberate change C5): sendSummaryToAll in src/services/telegram/summary.ts, run through
 // sendDailySummaryToAll and sendTomorrowSummaryToAll.
 //
-// For a user the rollout switch covers, a summary whose Google read fails
-// (GOOGLE_FETCH_FAILED from the digest adapter) is set aside and the batch moves on. After
+// A summary whose Google read fails (GOOGLE_FETCH_FAILED from the digest adapter) is set
+// aside and the batch moves on. After
 // the loop the run waits until 30 s have passed since the first such failure, then retries
 // each set-aside user once, in order, on the first attempt's day with a 15 s deadline. Only
 // a second outage sends the summary without Google: the prompt gets the outage guideline,
 // the text and the voice note get the outage line, and the dedup mark is set. Any other
 // error on the retry goes the way it always went: a dead token gets the token text with
-// the refresh button and no dedup mark (A-24), missing scopes are Sentry only (A-25).
-// Users the switch doesn't cover read through their provider and are never retried (A-33);
-// they go first, so none of them waits on a covered user's Google read.
+// the refresh button and no dedup mark (A-24), missing scopes are Sentry only (A-25), and
+// a dead token on the first attempt is answered then, with no wait and no retry.
 //
 // Also: Sentry hears once per batch how many users were set aside (a deploy during the
 // wait would drop them); the retry's dedup marks carry the batch's date, so a 23:00
-// tomorrow summary retried past midnight doesn't skip the next evening's; a switch turned
-// back during the wait sends today's summary; the daily run's reminder-cache sync runs
-// beside the batch, not after its retries; the batch logs its total time.
+// tomorrow summary retried past midnight doesn't skip the next evening's; the daily run's
+// reminder-cache sync runs beside the batch, not after its retries; the batch logs its
+// total time.
 //
-// The real summary.ts, digest adapter, rollout switch, claude.ts prompt builder, bot
-// messages, summary scheduling and the cron's daily handler run. Faked: the reader's
+// The real summary.ts, digest adapter, claude.ts prompt builder, bot messages, summary
+// scheduling and the cron's daily handler run. Faked: the reader's
 // readRange, the clock and the retry's sleep, Redis (in memory), the database, the users,
 // the AI, Telegram, the voice note, the quota, the reminder cache, error capture and the
 // admin notifier. No network, no DB.
@@ -87,7 +86,7 @@ class ClockDate extends RealDate {
 }
 globalThis.Date = ClockDate as unknown as DateConstructor;
 
-/** How long each calendar read and each provider fetch takes on the smoke's clock. */
+/** How long each calendar read takes on the smoke's clock. */
 let readMs = 2_000;
 
 // ---- What happened, in order: reads, sends, waits, dedup marks, admin notices ----
@@ -102,10 +101,10 @@ let captured: { context: string; severity: string; message: string }[] = [];
 let tokensCleared: number[] = [];
 /** The batch's own "[Batch Summary] … done:" log lines. */
 let batchLines: string[] = [];
-/** What the next retry wait does besides moving the clock: turn the switch, wait for the housekeeping. */
+/** What the next retry wait does besides moving the clock: wait for the housekeeping. */
 let onSleep: () => void | Promise<void> = () => {};
 
-// ---- Users: every switch-covered one is an admin, as under ADMINS ----
+// ---- Users ----
 
 const cal = (calendarId: string, name: string): CalendarAssignment => ({ calendarId, labels: ['yours'], name, color: '#039BE5' });
 
@@ -125,8 +124,7 @@ const NOA = google(11, 'Noa');
 const YAEL = google(12, 'Yael', { language: 'he' });
 const DANA = person(13, 'Dana', { calendarSource: 'NATIVE', googleRefreshToken: '' });
 const OMER = google(14, 'Omer');
-/** Not an admin: the switch (ADMINS) doesn't cover him, so he reads through the provider. */
-const ITAI = google(15, 'Itai', { isAdmin: false });
+const ITAI = google(15, 'Itai');
 /** Her tomorrow summary comes at 23:00. */
 const LIOR = google(16, 'Lior', { preferredEveningHour: 23 });
 const EVERYONE = [NOA, YAEL, DANA, OMER, ITAI, LIOR];
@@ -186,24 +184,11 @@ async function readRange(user: UserConfig, fromKey: string, toKey: string, opts:
   return { window, items, google: read };
 }
 
-/** The switch as the fake Redis holds it: ADMINS unless a check turns it. */
-const rolloutNow = () => store.get('chome:rollout') ?? 'ADMINS';
-
-/** The provider that users the switch doesn't cover read through. */
-let providerFailure: Error | null = null;
-const legacyFetch = (kind: string) => async (user: UserConfig, _ids: string[], tz?: string) => {
-  log.push(`provider ${user.name} ${kind}`);
-  clock += readMs;
-  if (user.isAdmin && rolloutNow() !== 'OFF') throw new Error(`a switch-covered user (${user.name}) read through the provider`);
-  if (providerFailure) throw providerFailure;
-  return [dentist(user, new RealDate(clock).toLocaleDateString('en-CA', { timeZone: tz ?? IL }))];
-};
-
-// ---- Redis, in memory: the dedup marks and the rollout switch ----
+// ---- Redis, in memory: the dedup marks ----
 
 const store = new Map<string, string>();
 const fakeRedis = {
-  get: async (key: string) => store.get(key) ?? (key === 'chome:rollout' ? 'ADMINS' : null),
+  get: async (key: string) => store.get(key) ?? null,
   set: async (key: string, value: unknown) => {
     if (key.startsWith('summary:dedup:')) {
       const [, , type, userId, date] = key.split(':');
@@ -253,8 +238,9 @@ const stubs: Record<string, object> = {
     readRange,
     sourcesFor: (u: UserConfig) => (u.calendarSource === 'NATIVE' ? ['famcal'] : ['google']),
   },
+  // TEMPORARY, until the summaries stop asking the switch: on for everyone, as in production.
+  [`${SRC}/services/calendar-read/rollout.ts`]: { isCalendarHomeOn: async () => true },
   [`${SRC}/services/calendar-provider/index.ts`]: {
-    getProviderForUser: () => ({ fetchTodayEvents: legacyFetch('today'), fetchTomorrowEvents: legacyFetch('tomorrow') }),
     getCalendarAssignmentsForUser: async (u: UserConfig) =>
       u.calendarSource === 'NATIVE' ? [cal('native:cal-dana', 'Dana')] : (u.calendarAssignments ?? []),
   },
@@ -299,7 +285,7 @@ const stubs: Record<string, object> = {
   [`${SRC}/utils/redis.ts`]: { redis: fakeRedis },
   [`${SRC}/utils/prisma.ts`]: {
     prisma: {
-      adminSettings: { findUnique: async () => ({ calendarHomeRollout: 'ADMINS' }) },
+      adminSettings: { findUnique: async () => ({ remindersEnabled: false }) },
       // The daily handler's housekeeping: the reminder users, and the OAuth clean-up at 04:00 UTC.
       user: {
         findMany: async () => {
@@ -391,7 +377,6 @@ function reset(users: UserConfig[], userPlans: [UserConfig, Outcome[]][], startA
   plans = new Map(userPlans.map(([u, p]) => [u.id, [...p]]));
   clock = startAt;
   readMs = 2_000;
-  providerFailure = null;
   log = [];
   sleeps = [];
   sent = [];
@@ -402,8 +387,6 @@ function reset(users: UserConfig[], userPlans: [UserConfig, Outcome[]][], startA
   batchLines = [];
   onSleep = () => {};
   store.clear();
-  // The switch's 30 s memo lives on globalThis; each run starts without it.
-  delete (globalThis as Record<string, unknown>).__calendarHomeRolloutMemo;
 }
 
 const OUTAGE_EN = enMessages.bot.errors.googleOutageNote;
@@ -446,15 +429,15 @@ async function main() {
     else realLog(...args);
   };
 
-  // ---- The batch: three Google users fail, a FamCal user and a legacy user don't ----
+  // ---- The batch: three Google users fail, a FamCal user and another Google user don't ----
 
-  reset([NOA, YAEL, DANA, OMER, ITAI], [[NOA, ['fail', 'ok']], [YAEL, ['fail', 'fail']], [DANA, ['ok']], [OMER, ['fail', 'token']]]);
+  reset([ITAI, NOA, YAEL, DANA, OMER], [[ITAI, ['ok']], [NOA, ['fail', 'ok']], [YAEL, ['fail', 'fail']], [DANA, ['ok']], [OMER, ['fail', 'token']]]);
   const batchResult = await summary.sendDailySummaryToAll({ filterByHour: true });
   const batchLog = batchLines;
 
-  await check('the batch: the user the switch doesn\'t cover goes first, the FamCal user before the retries; one count to Sentry and one wait, then each set-aside user is retried once, in order', () => {
+  await check('the batch, in its own order: the users whose reads answer are delivered before the retries; one count to Sentry and one wait, then each set-aside user is retried once, in order', () => {
     assertList(log, [
-      'provider Itai today',
+      'read Itai 2026-10-16..2026-10-17 30000',
       'send Itai summary',
       'mark Itai daily 2026-10-16',
       'read Noa 2026-10-16..2026-10-17 30000',
@@ -519,8 +502,8 @@ async function main() {
     assert(batchResult.processed === 4, `processed ${batchResult.processed}`);
   });
 
-  await check('the legacy user (switch off) reads through his provider, never the reader, and is never retried (A-33)', () => {
-    assertList(log.filter(l => l.includes('Itai')), ['provider Itai today', 'send Itai summary', 'mark Itai daily 2026-10-16'], 'Itai');
+  await check('a user whose first read answers is read once and never retried', () => {
+    assertList(log.filter(l => l.includes('Itai')), ['read Itai 2026-10-16..2026-10-17 30000', 'send Itai summary', 'mark Itai daily 2026-10-16'], 'Itai');
   });
 
   // ---- The outage guideline: the same user and clock, retry ok with nothing vs a second outage ----
@@ -638,27 +621,6 @@ async function main() {
     assert(nextEvening.eligible.length === 1 && nextEvening.skippedDedup === 0, `at 23:00 on 17 October: ${JSON.stringify({ eligible: nextEvening.eligible.length, dedup: nextEvening.skippedDedup })}`);
   });
 
-  // ---- The switch turned back during the wait: today's path ----
-
-  reset([NOA], [[NOA, ['fail']]]);
-  onSleep = () => {
-    store.set('chome:rollout', 'OFF');
-  };
-  await summary.sendDailySummaryToAll({ filterByHour: true });
-
-  await check('a switch turned back to OFF during the wait: the retry is today\'s summary through the provider, with no outage line, marked for the batch\'s date', () => {
-    assertList(log, [
-      'read Noa 2026-10-16..2026-10-17 30000',
-      'warn summary-google-retry 1 scheduled summaries set aside for a Google retry',
-      'sleep 30000',
-      'provider Noa today',
-      'send Noa summary',
-      'mark Noa daily 2026-10-16',
-    ], 'run');
-    assert(textOf('Noa').length === 1 && !textOf('Noa')[0].includes(OUTAGE_EN), `Noa's messages ${JSON.stringify(textOf('Noa'))}`);
-    assertList(reported(), ['summary-google-retry warning 1 scheduled summaries set aside for a Google retry'], 'captured');
-  });
-
   // ---- The daily run's housekeeping runs beside the batch, not after its retries ----
 
   reset([NOA, DANA], [[NOA, ['fail', 'ok']], [DANA, ['ok']]]);
@@ -689,15 +651,14 @@ async function main() {
     assert(handled.success === true && handled.processed === 2, JSON.stringify(handled));
   });
 
-  // ---- Users the switch doesn't cover: today's handling, never the retry (A-33) ----
+  // ---- A dead token on the first attempt: answered then, never the retry ----
 
-  reset([ITAI, DANA], [[DANA, ['ok']]]);
-  providerFailure = new Error('GOOGLE_TOKEN_EXPIRED');
+  reset([ITAI, DANA], [[ITAI, ['token']], [DANA, ['ok']]]);
   await summary.sendDailySummaryToAll({ filterByHour: true });
 
-  await check('a legacy user\'s dead token gets today\'s token text and admin notice, with no wait and no retry', () => {
+  await check('a dead token on the first attempt gets the token text and the admin notice, with no wait and no retry', () => {
     assertList(log, [
-      'provider Itai today',
+      'read Itai 2026-10-16..2026-10-17 30000',
       'send Itai token',
       'admin Token Expired',
       'read Dana 2026-10-16..2026-10-17 30000',

@@ -1,33 +1,37 @@
-// Parity smoke for the summaries on the shared reader (calendar home spec §10,
-// "smoke-digest-reader-parity.ts"; Plan C, Task C6).
+// Smoke test for the summaries on the shared reader (calendar home spec §3.1, §10; Plan C,
+// Task C6).
 //
-// For the users the rollout switch covers, the daily and tomorrow summaries, the
-// tomorrow summary's week block, /week and /nextweek read through the shared reader
-// (readDigestDay, readLookaheadEvents) instead of the calendar providers. This smoke runs
-// the old path (switch OFF) and the new one (ADMINS) over the same fake Google and the
-// same in-memory database, and holds them to the spec's before/after contract:
-// (a) Same events: for every user, timezone and clock, the reader's day, shaped by
-//     shapeEventsForDay, is the provider's. FamCal users match strictly. For Google only
-//     the deliberate changes are normalized on the old side: C1/C2 items removed, C3
-//     descriptions through htmlToText, `reminders` deleted.
-// (b) Same prompts, byte for byte, for a paired FamCal user with reminders and a Google
-//     user with yours/spouse/kids/birthday calendars. An Outlook/Teams HTML description
-//     (a table row, a heading) keeps its words apart in the switch-on prompt.
-// (c) /week and /nextweek list the same events with weekStartFor on legacyWeekStart; with
-//     the real rule the weeks start by country.
+// The daily and tomorrow summaries, the tomorrow summary's week block, /week and
+// /nextweek read through the shared reader (readDigestDay, readLookaheadEvents). This
+// smoke runs them over a fake Google and an in-memory database:
+// (a) The day: for every user, timezone and clock, the reader's day, shaped by
+//     shapeEventsForDay, is the golden's. The reader leaves out the C1/C2 items, and the
+//     fixtures reach the shaping's edges.
+// (b) The prompts, byte for byte the golden's, for a paired FamCal user with reminders
+//     and a Google user with yours/spouse/kids/birthday calendars. An Outlook/Teams HTML
+//     description (a table row, a heading) keeps its words apart in the prompt.
+// (c) /week and /nextweek list the golden's events, read through the reader; the weeks
+//     start by country.
 // (d) How each Google failure ends, scheduled and on demand, with recording fakes; also
 //     a week block that fails on its own, and an on-demand tomorrow summary whose reads
 //     and AI call come close to the command's 50 s limit.
 // (e) A scheduled batch doesn't wait for its Google retries, also when Google stalls.
 //
+// scripts/fixtures/digest-reader-golden.json holds (a)-(c)'s answers: what the summaries
+// read and sent the AI with the rollout switch on, taken before the switch and the
+// providers' day reads were removed (the code of 5a74d6c), with:
+//   npx tsx scripts/smoke-digest-reader.ts --write-golden-fixture
+// That mode refuses to overwrite the file. Take a new one only when the summaries' reads
+// or prompts are meant to change: delete the file, then run it again.
+//
 // Real: summary.ts, commands.ts (/week), the command pipeline, week-lookahead.ts, the
-// digest adapters, readRange and both halves, calendar.ts, both providers, the event
-// store, ownership, open reminders, the claude.ts prompt builders, the bot texts and the
-// summary scheduling. Faked: Google (@googleapis/calendar's OAuth client and calendar
-// client), the database (in memory), Redis (in memory), the rollout switch, weekStartFor
-// (legacy or the real rule), the timezone lookup, the users, the AI, the holiday lookup,
-// Telegram, the voice note, quota, analytics, Sentry and the admin notifier. The clock is
-// a fake Date; timers are real. No network, no DB.
+// digest adapters, readRange and both halves, calendar.ts, the native provider, the event
+// store, ownership, open reminders, locale-rules, the claude.ts prompt builders, the bot
+// texts and the summary scheduling. Faked: Google (@googleapis/calendar's OAuth client
+// and calendar client), the database (in memory), Redis (in memory), the timezone
+// lookup, the users, the AI, the holiday lookup, Telegram, the voice note, quota,
+// analytics, Sentry and the admin notifier. The clock is a fake Date; timers are real. No
+// network, no DB.
 //
 // Real timers run the reader's 1 s pause before a quick retry (three times) and its 10 s
 // deadline (the hanging token server), so a run takes about 15 s. Three checks run on
@@ -35,25 +39,22 @@
 // the next timer whenever nothing else can run, so a 135 s stall takes a moment.
 //
 // Run under each clock; the output must not depend on the server's timezone:
-//   TZ=UTC npx tsx scripts/smoke-digest-reader-parity.ts
-//   TZ=Asia/Jerusalem npx tsx scripts/smoke-digest-reader-parity.ts
-//   TZ=Pacific/Kiritimati npx tsx scripts/smoke-digest-reader-parity.ts
+//   TZ=UTC npx tsx scripts/smoke-digest-reader.ts
+//   TZ=Asia/Jerusalem npx tsx scripts/smoke-digest-reader.ts
+//   TZ=Pacific/Kiritimati npx tsx scripts/smoke-digest-reader.ts
 
 import fs from 'node:fs';
 import Module from 'node:module';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
-import { isDeepStrictEqual } from 'node:util';
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import type { NativeCalendar, NativeEvent, NativeReminderState } from '@prisma/client';
 import { MessageFormat, MessagingPlatform } from '../src/services/messaging/types';
 import type { MessageOptions, StreamMessageHandle } from '../src/services/messaging/types';
 import type { CalendarAssignment, CalendarEvent, CalendarLabel, UserConfig } from '../src/types';
 import type { AICompletionResult } from '../src/services/ai-provider';
-import type { WeekLookahead } from '../src/services/week-lookahead';
 import { localDate, nextDate, shapeEventsForDay, startOfLocalDay } from '../src/utils/day-events';
-import { htmlToText } from '../src/utils/html';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -498,10 +499,8 @@ const MASTERS: Record<string, string[]> = {
   'g-book': ['RRULE:FREQ=MONTHLY;BYDAY=4TU'],
 };
 
-/** The items C1/C2 take out of a Google read: what the old read lists and the reader doesn't. */
-const DROPPED = new Set(Object.values(GOOGLE).flatMap(c => c.events.filter(e => e.changed === 'C1' || e.changed === 'C2')));
-const DROPPED_IDS = new Set([...DROPPED].map(e => e.id));
-const DROPPED_SUMMARIES = new Set([...DROPPED].map(e => e.summary));
+/** The titles C1/C2 take out of a Google read: Google lists them, the reader doesn't. */
+const DROPPED_SUMMARIES = new Set(Object.values(GOOGLE).flatMap(c => c.events.filter(e => e.changed === 'C1' || e.changed === 'C2').map(e => e.summary)));
 
 // ---- Google's failures, as its clients throw them ----
 
@@ -517,7 +516,7 @@ const rateLimited = () => Object.assign(new Error('Rate Limit Exceeded'), {
 const backendError = () => Object.assign(new Error('Backend Error'), { code: 500, status: 500, response: { status: 500 } });
 const notFound = () => Object.assign(new Error('Not Found'), { code: 404, status: 404, response: { status: 404 } });
 
-// ---- Users: every one an admin, so the ADMINS switch covers them ----
+// ---- Users ----
 
 const cal = (calendarId: string, name: string, labels: CalendarLabel[], more: Partial<CalendarAssignment> = {}): CalendarAssignment =>
   ({ calendarId, labels, name, color: '#039BE5', ...more });
@@ -582,16 +581,10 @@ const TIMEZONES: Record<number, string> = { [SAM.id]: NY, [OLIVIA.id]: LONDON, [
 
 // ---- The knobs a check turns ----
 
-/** The rollout switch, as isCalendarHomeOn reads it. */
-let rollout: 'OFF' | 'ADMINS' = 'OFF';
-/** weekStartFor: today's rule (legacyWeekStart) for the parity checks, or the real one. */
-let weekRule: 'legacy' | 'real' = 'legacy';
 /** Every user's timezone, when set; otherwise their own. */
 let zoneOverride: string | undefined;
 /** The scheduled batch's users. */
 let batch: UserConfig[] = [];
-/** Leave the deliberate-change items out of Google, so both paths list the same. */
-let hideChanged = false;
 /** How long each token step takes on the fake clock. */
 let tokenStepMs = 0;
 /** How long a user's first timezone lookup takes (a Nominatim miss); later ones are cached. */
@@ -630,11 +623,8 @@ function reset(over: { now?: string; zone?: string } = {}) {
   behaviours = {};
   callCounts.clear();
   store.clear();
-  rollout = 'ADMINS';
-  weekRule = 'legacy';
   zoneOverride = undefined;
   batch = [];
-  hideChanged = false;
   tokenStepMs = 0;
   timezoneLookupMs = 0;
   timezoneLooked.clear();
@@ -678,7 +668,7 @@ class FakeOAuth2 {
   }
 }
 
-/** The calendar client both paths build from that OAuth client. */
+/** The calendar client the reader builds from that OAuth client. */
 function fakeCalendarClient({ auth }: { auth: FakeOAuth2 }) {
   const token = auth.refreshToken;
   const who = ownerOfToken(token);
@@ -718,7 +708,6 @@ function fakeCalendarClient({ auth }: { auth: FakeOAuth2 }) {
         const to = Date.parse(params.timeMax);
         // Google's rule: the event ends after timeMin and starts before timeMax.
         const items = step === 'empty' ? [] : found.events
-          .filter(e => !(hideChanged && e.changed))
           .filter(e => instantOf(e.end, tz) > from && instantOf(e.start, tz) < to)
           .sort((a, b) => instantOf(a.start, tz) - instantOf(b.start, tz))
           .map(e => rawEvent(e, tz));
@@ -842,18 +831,8 @@ const stubs: Record<string, object | ((real: RealModule) => object)> = {
   '@googleapis/calendar': { __esModule: true, calendar: fakeCalendarClient, auth: { OAuth2: FakeOAuth2 } },
   [`${SRC}/utils/prisma.ts`]: { prisma: fakePrisma, withRetry: <T>(fn: () => Promise<T>) => fn() },
   [`${SRC}/utils/redis.ts`]: { redis: fakeRedis },
-  [`${SRC}/services/calendar-read/rollout.ts`]: {
-    isCalendarHomeOn: async (u: { isAdmin?: boolean | null }) => rollout === 'ADMINS' && u.isAdmin === true,
-  },
-  // The week start: the parity checks put weekStartFor on today's rule, so the switch
-  // changes only how the week is read; the country check uses the real one.
-  [`${SRC}/utils/locale-rules.ts`]: (real: RealModule) => {
-    const rules = real as unknown as typeof import('../src/utils/locale-rules');
-    return {
-      ...real,
-      weekStartFor: (f: Parameters<typeof rules.weekStartFor>[0]) => (weekRule === 'legacy' ? rules.legacyWeekStart(f.culture) : rules.weekStartFor(f)),
-    };
-  },
+  // TEMPORARY, until the summaries stop asking the switch: on for everyone, as in production.
+  [`${SRC}/services/calendar-read/rollout.ts`]: { isCalendarHomeOn: async () => true },
   [`${SRC}/lib/timezone.ts`]: {
     resolveUserTimezone: async (u: { id: number }) => {
       if (timezoneLookupMs > 0 && !timezoneLooked.has(u.id)) {
@@ -1037,10 +1016,43 @@ async function main() {
     { name: "Sunday 25 October 07:00, Israel's 25-hour day", local: '2026-10-25 07:00:00' },
   ];
 
-  // ---- (a) Same events: the provider's day and the reader's, shaped ----
+  // ---- The golden: what (a)-(c) read and prompted before the providers' reads went ----
+
+  const GOLDEN_FILE = path.resolve(__dirname, 'fixtures/digest-reader-golden.json');
+  type Golden = { days: Record<string, unknown>; prompts: Record<string, string>; weeks: Record<string, unknown> };
+  const taking = process.argv.includes('--write-golden-fixture');
+  if (taking && fs.existsSync(GOLDEN_FILE)) {
+    original.error(`${path.relative(process.cwd(), GOLDEN_FILE)} exists. Delete it first to take a new one.`);
+    process.exit(1);
+  }
+  assert(taking || fs.existsSync(GOLDEN_FILE), `${GOLDEN_FILE} is missing: take it first (see the header)`);
+  const golden: Golden = taking ? { days: {}, prompts: {}, weeks: {} } : JSON.parse(fs.readFileSync(GOLDEN_FILE, 'utf8'));
+  /** This run's answers, under the golden's keys. */
+  const got: Golden = { days: {}, prompts: {}, weeks: {} };
+
+  /** Fails unless this run has the golden's keys, in its order, each with the golden's answer. */
+  function assertGolden(part: 'days' | 'weeks', count: number) {
+    const keys = Object.keys(got[part]);
+    assert(keys.length === count, `${keys.length} ${part}`);
+    assertList(keys, Object.keys(golden[part]), `the golden's ${part}`);
+    const differ = keys.filter(k => show(got[part][k]) !== show(golden[part][k]));
+    assert(differ.length === 0, `${differ.length} of ${count} differ; the first, ${differ[0]}:\n     got  ${show(got[part][differ[0]])}\n     want ${show(golden[part][differ[0]])}`);
+  }
+
+  /** Where two prompts first differ, for a failure message. */
+  function firstDifference(gotText: string, wantText: string): string {
+    const a = gotText.split('\n');
+    const b = wantText.split('\n');
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      if (a[i] !== b[i]) return `line ${i + 1}:\n     got  ${JSON.stringify(a[i])}\n     want ${JSON.stringify(b[i])}`;
+    }
+    return 'nowhere';
+  }
+
+  // ---- (a) The day: the reader's, shaped ----
 
   type DayRead = { events: CalendarEvent[] } | { error: string };
-  /** One day read as the summary makes it: the resolved ids, the wrapper, then shapeEventsForDay. */
+  /** One day read as the summary makes it: the resolved ids, the summary's read, then shapeEventsForDay. */
   async function dayRead(user: UserConfig, kind: 'today' | 'tomorrow', zone: string): Promise<{ day: string; read: DayRead }> {
     const ids = (await getCalendarAssignmentsForUser(user)).map(a => a.calendarId);
     const today = localDate(new Date(), zone);
@@ -1053,32 +1065,10 @@ async function main() {
     }
   }
 
-  const normalized = { dropped: 0, descriptions: 0, reminders: 0 };
-  /** The old Google read with only the deliberate changes applied: C1/C2 items out, C3 descriptions as plain text, no `reminders`. */
-  function normalizeGoogle(events: CalendarEvent[]): CalendarEvent[] {
-    return events.flatMap(e => {
-      if (DROPPED_IDS.has(e.eventId ?? '')) {
-        normalized.dropped++;
-        return [];
-      }
-      const copy: CalendarEvent = { ...e };
-      if ('reminders' in copy) {
-        if (copy.reminders) normalized.reminders++;
-        delete copy.reminders;
-      }
-      if (copy.description !== undefined) {
-        const plain = htmlToText(copy.description) || undefined;
-        if (plain !== copy.description) normalized.descriptions++;
-        copy.description = plain;
-      }
-      return [copy];
-    });
-  }
-
-  /** The new side's shaped lines in Israel, for the coverage check: "<user> <day> <title> [<span>]". */
+  /** The shaped lines in Israel, for the coverage check: "<user> <day> <title> [<span>]". */
   const shapedLines = new Set<string>();
-  const mismatches: string[] = [];
-  let comparisons = 0;
+  /** Every title the reads listed, in either zone. */
+  const titles = new Set<string>();
   let tomQueries = 0;
   const tomEvents: CalendarEvent[] = [];
 
@@ -1088,38 +1078,78 @@ async function main() {
         for (const kind of ['today', 'tomorrow'] as const) {
           reset({ now: c.local, zone });
           zoneOverride = zone;
-          rollout = 'OFF';
-          const before = await dayRead(user, kind, zone);
-          rollout = 'ADMINS';
-          queries = [];
-          const after = await dayRead(user, kind, zone);
+          const { day, read } = await dayRead(user, kind, zone);
           if (user === TOM) tomQueries += queries.length;
-          comparisons++;
-          const where = `${user.name}, ${kind} (${after.day}) at ${c.name} in ${zone}`;
-          if ('error' in before.read || 'error' in after.read) {
-            if (show(before.read) !== show(after.read)) mismatches.push(`${where}: ${show(before.read)} became ${show(after.read)}`);
-            continue;
-          }
-          const want = user.calendarSource === 'NATIVE' ? before.read.events : normalizeGoogle(before.read.events);
-          if (!isDeepStrictEqual(want, after.read.events)) {
-            mismatches.push(`${where}:\n       provider ${show(want)}\n       reader   ${show(after.read.events)}`);
-          }
-          if (user === TOM) tomEvents.push(...after.read.events);
+          got.days[`${user.name}, ${kind} (${day}) at ${c.name} in ${zone}`] = read;
+          if ('error' in read) continue;
+          for (const e of read.events) titles.add(e.summary);
+          if (user === TOM) tomEvents.push(...read.events);
           if (zone === IL) {
-            for (const e of after.read.events) shapedLines.add(`${user.name} ${after.day} ${e.summary}${e.daySpan ? ` [${e.daySpan}]` : ''}`);
+            for (const e of read.events) shapedLines.add(`${user.name} ${day} ${e.summary}${e.daySpan ? ` [${e.daySpan}]` : ''}`);
           }
         }
       }
     }
   }
 
-  await check('(a) same events: the reader\'s day, shaped, is the provider\'s for every user, zone (Israel, New York), clock and today/tomorrow (FamCal strictly)', async () => {
-    assert(comparisons === 160, `${comparisons} comparisons`);
-    assert(mismatches.length === 0, `${mismatches.length} of ${comparisons} differ; the first:\n     ${mismatches[0]}`);
+  // ---- (b) The prompts ----
+
+  /** The prompt one summary builds. */
+  async function promptOf(user: UserConfig, kind: 'today' | 'tomorrow'): Promise<string> {
+    prompts = [];
+    const tomorrowFlag = kind === 'tomorrow' ? new Date(clock + 86_400_000) : undefined;
+    await summary.prepareSummaryForUser(user, kind === 'today' ? summary.fetchTodayEvents : summary.fetchTomorrowEvents, tomorrowFlag);
+    assert(prompts.length === 1, `${user.name} ${kind}: ${prompts.length} prompts`);
+    return prompts[0];
+  }
+  const PROMPT_RUNS = [
+    { name: 'the daily on Thursday 07:00', local: '2026-10-22 07:00:00', kind: 'today' as const },
+    { name: 'the tomorrow summary on Thursday 19:00', local: '2026-10-22 19:00:00', kind: 'tomorrow' as const },
+    { name: 'the tomorrow summary on Friday 19:00', local: '2026-10-23 19:00:00', kind: 'tomorrow' as const },
+    { name: 'the daily on Sunday 25 October 07:00', local: '2026-10-25 07:00:00', kind: 'today' as const },
+  ];
+  for (const user of [DANA, GALI]) {
+    for (const run of PROMPT_RUNS) {
+      reset({ now: run.local });
+      got.prompts[`${user.name}, ${run.name}`] = await promptOf(user, run.kind);
+    }
+  }
+
+  // ---- (c) /week and /nextweek ----
+
+  /** Google reads that did not go through the reader (no token step first, or calendars.get), and empty weeks. */
+  const weekProblems: string[] = [];
+  for (const local of ['2026-10-22 07:00:00', '2026-10-24 19:00:00', '2026-10-25 07:00:00']) {
+    for (const user of [DANA, NOAM, GALI, TOM]) {
+      const calendars = await getCalendarAssignmentsForUser(user);
+      for (const [command, read] of [['/week', getWeekLookahead], ['/nextweek', getNextWeekLookahead]] as const) {
+        reset({ now: local });
+        const lookahead = await read(user, calendars);
+        const where = `${user.name} ${command} at ${local}`;
+        got.weeks[where] = JSON.parse(show(lookahead));
+        if (user.calendarSource === 'GOOGLE' && (!log.some(l => l.startsWith('token ')) || log.some(l => l.startsWith('get ')))) {
+          weekProblems.push(`${where}: not read through the reader: ${show(log)}`);
+        }
+        if (local === '2026-10-22 07:00:00' && lookahead.events.length === 0) weekProblems.push(`${where}: nothing listed`);
+      }
+    }
+  }
+
+  if (taking) {
+    fs.mkdirSync(path.dirname(GOLDEN_FILE), { recursive: true });
+    fs.writeFileSync(GOLDEN_FILE, JSON.stringify(got, null, 1) + '\n');
+    original.log(`Wrote ${Object.keys(got.days).length} days, ${Object.keys(got.prompts).length} prompts and ${Object.keys(got.weeks).length} weeks to ${path.relative(process.cwd(), GOLDEN_FILE)}`);
+    process.exit(0);
+  }
+
+  await check('(a) the day: the reader\'s day, shaped, is the golden\'s for every user, zone (Israel, New York), clock and today/tomorrow', async () => {
+    assertGolden('days', 160);
   });
 
-  await check('(a) the normalization had work to do: the old Google read listed C1/C2 items, an HTML description and reminders the reader leaves out', async () => {
-    assert(normalized.dropped > 0 && normalized.descriptions > 0 && normalized.reminders > 0, `normalized ${show(normalized)}`);
+  await check('(a) the reader leaves out what Google lists and the summaries never take: working-location, focus time, out of office, a declined invite (C1/C2)', async () => {
+    assert(DROPPED_SUMMARIES.size === 5, `${DROPPED_SUMMARIES.size} C1/C2 titles in the fixture`);
+    const listed = [...DROPPED_SUMMARIES].filter(title => titles.has(title));
+    assert(listed.length === 0, `listed: ${show(listed)}`);
   });
 
   await check('(a) the fixtures reach the shaping: overnight, sleepover, multi-day all-day, zero-length at 00:00 and 23:59, the 25-hour day, partner reminders', async () => {
@@ -1160,43 +1190,21 @@ async function main() {
     assert(tomQueries === 0, `${tomQueries} database queries`);
   });
 
-  // ---- (b) Same prompts, byte for byte ----
-
-  /** The prompt one summary builds, with the switch as set. */
-  async function promptOf(user: UserConfig, kind: 'today' | 'tomorrow', setting: 'OFF' | 'ADMINS'): Promise<string> {
-    rollout = setting;
-    prompts = [];
-    const tomorrowFlag = kind === 'tomorrow' ? new Date(clock + 86_400_000) : undefined;
-    await summary.prepareSummaryForUser(user, kind === 'today' ? summary.fetchTodayEvents : summary.fetchTomorrowEvents, tomorrowFlag);
-    assert(prompts.length === 1, `${prompts.length} prompts`);
-    return prompts[0];
-  }
-  const PROMPT_RUNS = [
-    { name: 'the daily on Thursday 07:00', local: '2026-10-22 07:00:00', kind: 'today' as const },
-    { name: 'the tomorrow summary on Thursday 19:00', local: '2026-10-22 19:00:00', kind: 'tomorrow' as const },
-    { name: 'the tomorrow summary on Friday 19:00', local: '2026-10-23 19:00:00', kind: 'tomorrow' as const },
-    { name: 'the daily on Sunday 25 October 07:00', local: '2026-10-25 07:00:00', kind: 'today' as const },
-  ];
-  const promptsSeen: Record<string, string[]> = { Dana: [], Gali: [] };
   for (const user of [DANA, GALI]) {
-    await check(`(b) same prompts: ${user === DANA ? 'the paired FamCal user with reminders' : 'the Google user with yours/spouse/kids/birthday calendars'}, daily and tomorrow (with its week block), byte-identical with the switch on`, async () => {
+    await check(`(b) the prompts: ${user === DANA ? 'the paired FamCal user with reminders' : 'the Google user with yours/spouse/kids/birthday calendars'}, daily and tomorrow (with its week block), byte for byte the golden's`, async () => {
       for (const run of PROMPT_RUNS) {
-        reset({ now: run.local });
-        hideChanged = true;
-        const off = await promptOf(user, run.kind, 'OFF');
-        const on = await promptOf(user, run.kind, 'ADMINS');
-        const a = off.split('\n');
-        const b = on.split('\n');
-        const at = a.findIndex((line, i) => line !== b[i]);
-        assert(off === on, `${run.name}: line ${at + 1}\n     off ${JSON.stringify(a[at])}\n     on  ${JSON.stringify(b[at])}`);
-        promptsSeen[user.name].push(on);
+        const key = `${user.name}, ${run.name}`;
+        const want = golden.prompts[key];
+        assert(typeof want === 'string', `no golden prompt for ${key}`);
+        assert(got.prompts[key] === want, `${run.name}: ${firstDifference(got.prompts[key], want)}`);
       }
     });
   }
 
-  await check('(b) the prompts show what they compare: reminders and their guideline, carry-overs, the spouse, kids, a birthday, the week block', async () => {
-    const dana = promptsSeen.Dana.join('\n');
-    const gali = promptsSeen.Gali.join('\n');
+  await check('(b) the prompts show what they hold: reminders and their guideline, carry-overs, the spouse, kids, a birthday, the week block', async () => {
+    const of = (name: string) => Object.entries(got.prompts).filter(([key]) => key.startsWith(`${name}, `)).map(([, prompt]) => prompt).join('\n');
+    const dana = of('Dana');
+    const gali = of('Gali');
     const needles: [string, string][] = [
       [dana, 'Buy milk'], [dana, 'Call the plumber'], [dana, 'Pilates'], [dana, 'Swimming'], [dana, '- **תזכורות**'],
       [gali, 'Team standup'], [gali, '[Calendar: Tom]'], [gali, 'School'], [gali, "Grandma Ruth's birthday"],
@@ -1206,9 +1214,8 @@ async function main() {
     assert(missing.length === 0, `not in the prompts: ${show(missing)}`);
   });
 
-  await check('(b) an Outlook/Teams HTML description (a table row, a heading, a paragraph) keeps its words apart: on separate lines in the reader\'s event, as separate words in the switch-on prompt', async () => {
+  await check('(b) an Outlook/Teams HTML description (a table row, a heading, a paragraph) keeps its words apart: on separate lines in the reader\'s event, as separate words in the prompt', async () => {
     reset();
-    rollout = 'ADMINS';
     const ids = (await getCalendarAssignmentsForUser(GALI)).map(a => a.calendarId);
     const review = (await summary.fetchTodayEvents(GALI, ids, IL, '2026-10-22')).find(e => e.eventId === 'g-review');
     assert(review?.description === 'Agenda Budget\nJoin\nRoom 4', `the reader's description ${show(review?.description)}`);
@@ -1220,64 +1227,37 @@ async function main() {
     assert(!/AgendaBudget|BudgetJoin|JoinRoom/.test(prompts[0] ?? ''), 'words run together in the prompt');
   });
 
-  // ---- (c) /week and /nextweek ----
-
-  await check('(c) /week and /nextweek with weekStartFor on legacyWeekStart: the same events with the switch on (FamCal paired, FamCal solo, Google, Google still paired; Thursday, Saturday, Sunday)', async () => {
-    const got: string[] = [];
-    for (const local of ['2026-10-22 07:00:00', '2026-10-24 19:00:00', '2026-10-25 07:00:00']) {
-      for (const user of [DANA, NOAM, GALI, TOM]) {
-        const calendars = await getCalendarAssignmentsForUser(user);
-        for (const [command, read] of [['/week', getWeekLookahead], ['/nextweek', getNextWeekLookahead]] as const) {
-          reset({ now: local });
-          rollout = 'OFF';
-          const off = await read(user, calendars);
-          rollout = 'ADMINS';
-          log = [];
-          const on = await read(user, calendars);
-          const listing = (l: WeekLookahead, drop: boolean) =>
-            show({ ...l, events: l.events.filter(e => !(drop && DROPPED_SUMMARIES.has(e.summary))) });
-          const where = `${user.name} ${command} at ${local}`;
-          if (listing(off, user.calendarSource === 'GOOGLE') !== listing(on, false)) {
-            got.push(`${where}:\n       off ${listing(off, true)}\n       on  ${listing(on, false)}`);
-          }
-          if (user.calendarSource === 'GOOGLE' && (!log.some(l => l.startsWith('token ')) || log.some(l => l.startsWith('get ')))) {
-            got.push(`${where}: the switch-on read did not go through the reader: ${show(log)}`);
-          }
-          if (local === '2026-10-22 07:00:00' && on.events.length === 0) got.push(`${where}: nothing listed`);
-        }
-      }
-    }
-    assert(got.length === 0, `${got.length} differ:\n     ${got.join('\n     ')}`);
+  await check('(c) /week and /nextweek list the golden\'s events, read through the reader (FamCal paired, FamCal solo, Google, Google still paired; Thursday, Saturday, Sunday)', async () => {
+    assertGolden('weeks', 24);
+    assert(weekProblems.length === 0, `${weekProblems.length} problems:\n     ${weekProblems.join('\n     ')}`);
   });
 
-  await check('(c) with the real rule, from Saturday and Sunday: New York and Israel (default culture) Sun-Sat, London Mon-Sun, Cairo Sat-Fri; with the switch off, all Mon-Sun', async () => {
+  await check('(c) the weeks start by country, from Saturday and Sunday: New York and Israel (default culture) Sun-Sat, London Mon-Sun, Cairo Sat-Fri', async () => {
     const day = (d: Date, tz: string) => formatInTimeZone(d, tz, 'EEE d');
     /** /week's last day and /nextweek's days, from `local` on the user's clock. */
-    const weeks = async (user: UserConfig, local: string, setting: 'OFF' | 'ADMINS') => {
+    const weeks = async (user: UserConfig, local: string) => {
       const tz = zoneOf(user);
       reset({ now: local, zone: tz });
-      weekRule = 'real';
-      rollout = setting;
       const week = await getWeekLookahead(user, []);
       const next = await getNextWeekLookahead(user, []);
       return `/week to ${day(week.dateRange.end, tz)}, /nextweek ${day(next.dateRange.start, tz)} to ${day(next.dateRange.end, tz)}`;
     };
     const israeli = { ...GALI, calendarAssignments: [] } as UserConfig;
-    const got: string[] = [];
+    const weekDays: string[] = [];
     for (const [when, local] of [['Saturday', '2026-10-24 19:00:00'], ['Sunday', '2026-10-25 07:00:00']]) {
       for (const [place, user] of [['New York', SAM], ['Israel', israeli], ['London', OLIVIA], ['Cairo', KARIM]] as const) {
-        got.push(`${place} ${when}: on ${await weeks(user, local, 'ADMINS')} | off ${await weeks(user, local, 'OFF')}`);
+        weekDays.push(`${place} ${when}: ${await weeks(user, local)}`);
       }
     }
-    assertList(got, [
-      'New York Saturday: on /week to Sat 24, /nextweek Sun 25 to Sat 31 | off /week to Sun 25, /nextweek Mon 26 to Sun 1',
-      'Israel Saturday: on /week to Sat 24, /nextweek Sun 25 to Sat 31 | off /week to Sun 25, /nextweek Mon 26 to Sun 1',
-      'London Saturday: on /week to Sun 25, /nextweek Mon 26 to Sun 1 | off /week to Sun 25, /nextweek Mon 26 to Sun 1',
-      'Cairo Saturday: on /week to Fri 30, /nextweek Sat 31 to Fri 6 | off /week to Sun 25, /nextweek Mon 26 to Sun 1',
-      'New York Sunday: on /week to Sat 31, /nextweek Sun 1 to Sat 7 | off /week to Sun 25, /nextweek Mon 26 to Sun 1',
-      'Israel Sunday: on /week to Sat 31, /nextweek Sun 1 to Sat 7 | off /week to Sun 25, /nextweek Mon 26 to Sun 1',
-      'London Sunday: on /week to Sun 25, /nextweek Mon 26 to Sun 1 | off /week to Sun 25, /nextweek Mon 26 to Sun 1',
-      'Cairo Sunday: on /week to Fri 30, /nextweek Sat 31 to Fri 6 | off /week to Sun 25, /nextweek Mon 26 to Sun 1',
+    assertList(weekDays, [
+      'New York Saturday: /week to Sat 24, /nextweek Sun 25 to Sat 31',
+      'Israel Saturday: /week to Sat 24, /nextweek Sun 25 to Sat 31',
+      'London Saturday: /week to Sun 25, /nextweek Mon 26 to Sun 1',
+      'Cairo Saturday: /week to Fri 30, /nextweek Sat 31 to Fri 6',
+      'New York Sunday: /week to Sat 31, /nextweek Sun 1 to Sat 7',
+      'Israel Sunday: /week to Sat 31, /nextweek Sun 1 to Sat 7',
+      'London Sunday: /week to Sun 25, /nextweek Mon 26 to Sun 1',
+      'Cairo Sunday: /week to Fri 30, /nextweek Sat 31 to Fri 6',
     ], 'the weeks');
   });
 
@@ -1287,44 +1267,28 @@ async function main() {
   /** The user-facing part of the log: sends, drafts, voice notes, marks, admin notices, cleared tokens. */
   const facing = () => log.filter(l => !/^(token|list|get|master|sleep) /.test(l));
 
-  await check('(d) a dead token (invalid_grant): on demand the token text, scheduled the token text with the refresh button, an admin warning, no dedup mark; as with the switch off', async () => {
-    const outcomes: Record<string, string[]> = {};
-    for (const setting of ['OFF', 'ADMINS'] as const) {
-      reset();
-      rollout = setting;
-      await summary.sendDailySummaryToUser(tg(ORI));
-      const onDemand = facing();
-      const onDemandGoogle = log.filter(l => /^(token|list|get) /.test(l));
-      reset();
-      rollout = setting;
-      batch = [ORI];
-      await summary.sendDailySummaryToAll({ filterByHour: true });
-      outcomes[setting] = [...onDemand, '|', ...facing()];
-      if (setting === 'ADMINS') {
-        assertList([...onDemandGoogle, '|', ...log.filter(l => /^(token|list|get) /.test(l))], ['token Ori', '|', 'token Ori'], 'the reader\'s Google calls');
-      }
-    }
-    assertList(outcomes.ADMINS, ['send Ori token', 'admin warning Token Expired', '|', 'send Ori token + refresh button', 'admin warning Token Expired'], 'switch on');
-    assertList(outcomes.OFF, outcomes.ADMINS, 'switch off vs on');
+  await check('(d) a dead token (invalid_grant): on demand the token text, scheduled the token text with the refresh button, an admin warning, no dedup mark', async () => {
+    reset();
+    await summary.sendDailySummaryToUser(tg(ORI));
+    const onDemand = facing();
+    const onDemandGoogle = log.filter(l => /^(token|list|get) /.test(l));
+    reset();
+    batch = [ORI];
+    await summary.sendDailySummaryToAll({ filterByHour: true });
+    assertList([...onDemandGoogle, '|', ...log.filter(l => /^(token|list|get) /.test(l))], ['token Ori', '|', 'token Ori'], 'the reader\'s Google calls');
+    assertList([...onDemand, '|', ...facing()], ['send Ori token', 'admin warning Token Expired', '|', 'send Ori token + refresh button', 'admin warning Token Expired'], 'what Ori got');
   });
 
-  await check('(d) missing scopes: on demand the scopes text, the token cleared by Telegram id and an admin warning; scheduled Sentry only; as with the switch off', async () => {
-    const outcomes: Record<string, string[]> = {};
-    for (const setting of ['OFF', 'ADMINS'] as const) {
-      reset();
-      rollout = setting;
-      await summary.sendDailySummaryToUser(tg(SHIRA));
-      const onDemand = facing();
-      reset();
-      rollout = setting;
-      batch = [SHIRA];
-      await summary.sendDailySummaryToAll({ filterByHour: true });
-      outcomes[setting] = [...onDemand, '|', ...facing(), ...reportedBySummary()];
-    }
-    assertList(outcomes.ADMINS, [
+  await check('(d) missing scopes: on demand the scopes text, the token cleared by Telegram id and an admin warning; scheduled Sentry only', async () => {
+    reset();
+    await summary.sendDailySummaryToUser(tg(SHIRA));
+    const onDemand = facing();
+    reset();
+    batch = [SHIRA];
+    await summary.sendDailySummaryToAll({ filterByHour: true });
+    assertList([...onDemand, '|', ...facing(), ...reportedBySummary()], [
       'send Shira scopes', 'cleared the token of 1008', 'admin warning Insufficient Scopes', '|', 'summary-batch-user error GOOGLE_INSUFFICIENT_SCOPES',
-    ], 'switch on');
-    assertList(outcomes.OFF, outcomes.ADMINS, 'switch off vs on');
+    ], 'what Shira got');
   });
 
   /** The empty-retry run of the next check, which the check after it reads too. */
@@ -1376,12 +1340,12 @@ async function main() {
     batch = [GALI];
     await summary.sendTomorrowSummaryToAll({ filterByHour: true });
     await settle();
-    // The week block runs from Friday noon to the end of Sunday (Monday weeks, as today).
+    // The week block runs from Friday noon to the end of Saturday (Sunday weeks in Israel).
     assertList([...folded().filter(l => !l.startsWith('master ')), '|', ...longTimers().map(String)], [
       'token Gali',
       'list Gali ×5 10-23 00:00..10-24 00:00 10000',
       'token Gali',
-      'list Gali ×5 10-23 12:00..10-26 00:00 10000',
+      'list Gali ×5 10-23 12:00..10-25 00:00 10000',
       'send Gali summary',
       'voice Gali',
       'mark Gali tomorrow 2026-10-22',
@@ -1394,7 +1358,7 @@ async function main() {
       'token Gali',
       'list Gali ×5 10-23 00:00..10-24 00:00 10000',
       'token Gali',
-      'list Gali ×5 10-23 12:00..10-26 00:00 10000',
+      'list Gali ×5 10-23 12:00..10-25 00:00 10000',
       'send Gali summary',
       'voice Gali',
       'mark Gali tomorrow 2026-10-22',
@@ -1423,9 +1387,9 @@ async function main() {
     await commands.handleLookaheadCommand(tg(GALI), tg(GALI), MessagingPlatform.TELEGRAM);
     assertList(folded(), [
       'token Gali',
-      'list Gali ×5 10-22 07:00..10-26 00:00 9500',
+      'list Gali ×5 10-22 07:00..10-25 00:00 9500',
       'token Gali',
-      'list Gali ×5 10-22 07:00..10-26 00:00 7500',
+      'list Gali ×5 10-22 07:00..10-25 00:00 7500',
       'send Gali unreachable',
     ], 'the run');
     assertList(longTimers().map(String), ['50000', '10000', '1000', '8000'], 'the pipeline\'s limit, the deadline, the pause, the retry\'s deadline');
@@ -1506,7 +1470,7 @@ async function main() {
       'token Gali',
       'list Gali ×5 10-23 00:00..10-24 00:00 10000',
       'token Gali',
-      'list Gali ×5 10-23 12:00..10-26 00:00 10000',
+      'list Gali ×5 10-23 12:00..10-25 00:00 10000',
       'send Gali summary',
       'voice Gali',
       'mark Gali tomorrow 2026-10-22',
@@ -1531,9 +1495,9 @@ async function main() {
       'token Gali',
       'list Gali ×5 10-23 00:00..10-24 00:00 7500',
       'token Gali',
-      'list Gali ×5 10-23 12:00..10-26 00:00 9500',
+      'list Gali ×5 10-23 12:00..10-25 00:00 9500',
       'token Gali',
-      'list Gali ×5 10-23 12:00..10-26 00:00 7500',
+      'list Gali ×5 10-23 12:00..10-25 00:00 7500',
       'draft Gali finalized: summary',
       'voice Gali',
     ], 'the run');
