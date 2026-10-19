@@ -359,6 +359,15 @@ async function main() {
     }
   });
 
+  await check('prompt: the reminder rules send a Hebrew date to hebrewDate too, so it is not read as "today"', () => {
+    const people = { userName: 'Dana', userEnglishName: 'Dana', partnerName: null, partnerEnglishName: null };
+    for (const mode of ['voice', 'text'] as const) {
+      const base = buildEventExtractionPrompt('en', CALENDARS, IL, mode);
+      const rules = buildEventExtractionPrompt('en', CALENDARS, IL, mode, undefined, people).slice(base.length);
+      assert(rules.includes('hebrewDate') && rules.includes('"startDate" null'), `${mode}: the reminder rules do not mention the Hebrew date`);
+    }
+  });
+
   // ================= The parser =================
 
   await check('parse he: a yahrzeit on 10 Tevet with no year starts on the next 10 Tevet and notes it', () => {

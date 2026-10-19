@@ -394,6 +394,7 @@ ${whoRules}
    - An hour with no date and no part of the day ("at 5", "בחמש", "в пять") is the next time the clock shows it: said at 14:00, "at 5" is 17:00 today; said at 21:00, "at 8" is 08:00 tomorrow. A full time that has already passed today ("at 13:00" said at 15:00) is tomorrow.
    - "In 20 minutes", "בעוד חצי שעה", "через 20 минут": the CURRENT DATE/TIME above plus that much, as "startDate" and "startTime".
    - Repeating reminders use "recurrence" as events do, with "startDate" the first time: "every Sunday at 8" → weekly, "daysOfWeek": ["SU"], "startTime": "08:00"; "every morning" → daily at 09:00.
+   - A Hebrew-calendar date ("every year on 15 Shvat", "ביום ט״ו בשבט", "15 швата") is returned as "hebrewDate" with "startDate" null, exactly as in HEBREW DATES above; the server finds the day, so it is never "today".
    - Leave out "calendarId" and "calendarName": FamCal keeps a reminder on the user's own calendar, whoever it is for.
 
 5. RELATIVE TO ANOTHER EVENT - "an hour before the dentist", "שעה לפני רופא השיניים", "за час до стоматолога":
