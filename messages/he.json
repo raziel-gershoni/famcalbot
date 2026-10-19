@@ -40,7 +40,8 @@
   "calendarHome": {
     "header": {
       "send": "שליחה לצ׳אט",
-      "menu": "תפריט"
+      "menu": "תפריט",
+      "add": "הוספה"
     },
     "send": {
       "title": "שליחה לצ׳אט",
@@ -185,6 +186,9 @@
       "stateSnoozed": "נדחתה עד {time}",
       "stateLater": "עוד לא הגיע הזמן",
       "openInGoogle": "פתיחה ביומן Google",
+      "edit": "עריכה",
+      "deleteEvent": "מחיקת האירוע",
+      "deleteReminder": "מחיקת התזכורת",
       "actions": {
         "done": "בוצע",
         "undo": "לא בוצע",
@@ -199,6 +203,103 @@
         "notYours": "התזכורת הזו כבר לא שלך",
         "failed": "לא הצלחנו לשמור. אפשר לנסות שוב."
       }
+    },
+    "editor": {
+      "titleNew": "חדש",
+      "titleEdit": "עריכה",
+      "cancel": "ביטול",
+      "save": "שמירה",
+      "kind": {
+        "label": "סוג",
+        "event": "אירוע",
+        "reminder": "תזכורת"
+      },
+      "fields": {
+        "title": "כותרת",
+        "location": "מיקום",
+        "notes": "הערות"
+      },
+      "allDay": "כל היום",
+      "starts": "התחלה",
+      "ends": "סיום",
+      "startsDate": "תאריך התחלה",
+      "startsTime": "שעת התחלה",
+      "endsDate": "תאריך סיום",
+      "endsTime": "שעת סיום",
+      "when": "מתי",
+      "whenDate": "תאריך",
+      "whenTime": "שעה",
+      "atTime": "בשעה מסוימת",
+      "atTimeHint": "בלי שעה, התזכורת מגיעה ב-{time}",
+      "repeat": {
+        "label": "חזרה",
+        "none": "בלי חזרה",
+        "daily": "כל יום",
+        "weekly": "כל שבוע ביום {weekday, select, sun {ראשון} mon {שני} tue {שלישי} wed {רביעי} thu {חמישי} fri {שישי} sat {שבת} other {}}",
+        "weeklyPlain": "כל שבוע",
+        "monthly": "כל חודש ב-{day}",
+        "monthlyPlain": "כל חודש",
+        "yearly": "כל שנה ב-{date}",
+        "yearlyPlain": "כל שנה"
+      },
+      "repeats": {
+        "daily": "חזרה: כל יום",
+        "weekday": "חזרה: כל {weekday, select, sun {יום ראשון} mon {יום שני} tue {יום שלישי} wed {יום רביעי} thu {יום חמישי} fri {יום שישי} sat {שבת} other {}}",
+        "weekly": "חזרה: כל שבוע",
+        "monthly": "חזרה: כל חודש",
+        "yearly": "חזרה: כל שנה",
+        "other": "חלק מסדרה חוזרת",
+        "interval": {
+          "daily": "{count, plural, one {חזרה: כל יום} two {חזרה: כל יומיים} other {חזרה: כל # ימים}}",
+          "weekly": "{count, plural, one {חזרה: כל שבוע} two {חזרה: כל שבועיים} other {חזרה: כל # שבועות}}",
+          "monthly": "{count, plural, one {חזרה: כל חודש} two {חזרה: כל חודשיים} other {חזרה: כל # חודשים}}",
+          "yearly": "{count, plural, one {חזרה: כל שנה} two {חזרה: כל שנתיים} other {חזרה: כל # שנים}}"
+        }
+      },
+      "calendar": "יומן",
+      "partnerCalendar": "{calendar} · {name}",
+      "forLabel": "בשביל",
+      "forMe": "אני",
+      "forName": "בשביל {name}",
+      "errors": {
+        "errTitle": "צריך להוסיף כותרת",
+        "errTitleLong": "הכותרת ארוכה מדי, עד {max} תווים",
+        "errTooLong": "זה ארוך מדי",
+        "errDate": "צריך תאריך ושעה תקינים",
+        "errEnd": "הסיום לפני ההתחלה",
+        "errField": "כדאי לבדוק את זה"
+      },
+      "submitErrors": {
+        "notAllowed": "אי אפשר לשנות את זה",
+        "changed": "זה השתנה בינתיים. כדאי לפתוח מחדש",
+        "failed": "לא הצלחנו לשמור. אפשר לנסות שוב.",
+        "busy": "יותר מדי שינויים בבת אחת. אפשר לנסות שוב בעוד דקה."
+      },
+      "discard": {
+        "title": "לוותר על השינויים?",
+        "confirm": "ויתור",
+        "keep": "להמשיך לערוך"
+      }
+    },
+    "scope": {
+      "save": {
+        "event": "האירוע הזה חוזר",
+        "reminder": "התזכורת הזו חוזרת",
+        "ask": "לשמור את השינוי ב:"
+      },
+      "delete": {
+        "event": "האירוע הזה חוזר",
+        "reminder": "התזכורת הזו חוזרת",
+        "ask": "למחוק:"
+      },
+      "single": "רק את זה ({date})",
+      "following": "את זה ואת מה שאחריו",
+      "all": "כל המופעים",
+      "everyDay": "כל יום",
+      "everyWeekday": "כל {weekday, select, sun {יום ראשון} mon {יום שני} tue {יום שלישי} wed {יום רביעי} thu {יום חמישי} fri {יום שישי} sat {שבת} other {}}",
+      "cancel": "ביטול",
+      "confirmDelete": "למחוק את ״{title}״?",
+      "deleteConfirm": "מחיקה"
     },
     "empty": {
       "title": "אין אירועים",

@@ -40,7 +40,8 @@
   "calendarHome": {
     "header": {
       "send": "Send to chat",
-      "menu": "Menu"
+      "menu": "Menu",
+      "add": "Add"
     },
     "send": {
       "title": "Send to chat",
@@ -185,6 +186,9 @@
       "stateSnoozed": "Snoozed until {time}",
       "stateLater": "Not due yet",
       "openInGoogle": "Open in Google Calendar",
+      "edit": "Edit",
+      "deleteEvent": "Delete event",
+      "deleteReminder": "Delete reminder",
       "actions": {
         "done": "Done",
         "undo": "Not done",
@@ -199,6 +203,103 @@
         "notYours": "This reminder isn’t yours anymore",
         "failed": "Couldn’t save. Try again."
       }
+    },
+    "editor": {
+      "titleNew": "New",
+      "titleEdit": "Edit",
+      "cancel": "Cancel",
+      "save": "Save",
+      "kind": {
+        "label": "Type",
+        "event": "Event",
+        "reminder": "Reminder"
+      },
+      "fields": {
+        "title": "Title",
+        "location": "Location",
+        "notes": "Notes"
+      },
+      "allDay": "All day",
+      "starts": "Starts",
+      "ends": "Ends",
+      "startsDate": "Start date",
+      "startsTime": "Start time",
+      "endsDate": "End date",
+      "endsTime": "End time",
+      "when": "When",
+      "whenDate": "Date",
+      "whenTime": "Time",
+      "atTime": "At a set time",
+      "atTimeHint": "Without a time, the reminder arrives at {time}",
+      "repeat": {
+        "label": "Repeat",
+        "none": "Never",
+        "daily": "Every day",
+        "weekly": "Every week on {weekday, select, sun {Sunday} mon {Monday} tue {Tuesday} wed {Wednesday} thu {Thursday} fri {Friday} sat {Saturday} other {}}",
+        "weeklyPlain": "Every week",
+        "monthly": "Every month on the {day, selectordinal, one {#st} two {#nd} few {#rd} other {#th}}",
+        "monthlyPlain": "Every month",
+        "yearly": "Every year on {date}",
+        "yearlyPlain": "Every year"
+      },
+      "repeats": {
+        "daily": "Repeats every day",
+        "weekday": "Repeats every {weekday, select, sun {Sunday} mon {Monday} tue {Tuesday} wed {Wednesday} thu {Thursday} fri {Friday} sat {Saturday} other {}}",
+        "weekly": "Repeats every week",
+        "monthly": "Repeats every month",
+        "yearly": "Repeats every year",
+        "other": "Part of a repeating series",
+        "interval": {
+          "daily": "{count, plural, one {Repeats every day} other {Repeats every # days}}",
+          "weekly": "{count, plural, one {Repeats every week} other {Repeats every # weeks}}",
+          "monthly": "{count, plural, one {Repeats every month} other {Repeats every # months}}",
+          "yearly": "{count, plural, one {Repeats every year} other {Repeats every # years}}"
+        }
+      },
+      "calendar": "Calendar",
+      "partnerCalendar": "{calendar} · {name}",
+      "forLabel": "For",
+      "forMe": "Me",
+      "forName": "For {name}",
+      "errors": {
+        "errTitle": "Add a title",
+        "errTitleLong": "Keep the title to {max} characters or fewer",
+        "errTooLong": "That’s too long",
+        "errDate": "Enter a valid date and time",
+        "errEnd": "It ends before it starts",
+        "errField": "Check this one"
+      },
+      "submitErrors": {
+        "notAllowed": "You can’t change this one",
+        "changed": "This changed in the meantime — reopen it",
+        "failed": "Couldn’t save. Try again.",
+        "busy": "Too many changes at once. Try again in a minute."
+      },
+      "discard": {
+        "title": "Discard your changes?",
+        "confirm": "Discard",
+        "keep": "Keep editing"
+      }
+    },
+    "scope": {
+      "save": {
+        "event": "This event repeats",
+        "reminder": "This reminder repeats",
+        "ask": "Save the change to:"
+      },
+      "delete": {
+        "event": "This event repeats",
+        "reminder": "This reminder repeats",
+        "ask": "Delete:"
+      },
+      "single": "Only this one ({date})",
+      "following": "This one and the ones after",
+      "all": "All of them",
+      "everyDay": "Every day",
+      "everyWeekday": "Every {weekday, select, sun {Sunday} mon {Monday} tue {Tuesday} wed {Wednesday} thu {Thursday} fri {Friday} sat {Saturday} other {}}",
+      "cancel": "Cancel",
+      "confirmDelete": "Delete “{title}”?",
+      "deleteConfirm": "Delete"
     },
     "empty": {
       "title": "Nothing planned",
