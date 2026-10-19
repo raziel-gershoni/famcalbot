@@ -28,6 +28,7 @@ import {
   expandSeries,
   fixesDays,
   followingTimesFor,
+  type HebrewRule,
   NativeRuleError,
   seriesTimesFor,
   shiftOnWall,
@@ -339,6 +340,12 @@ export interface CreateNativeEventInput {
   allDay?: boolean;
   timeZone: string;
   rrule?: string | null;
+  /**
+   * A Hebrew-date repeat (hebrew-repeats spec §2): the kind, next to a FREQ=YEARLY `rrule`.
+   * Its anchor is the start's date in `timeZone`; `hebrewAnchor`, when given, must be that.
+   */
+  hebrewRule?: HebrewRule | null;
+  hebrewAnchor?: string | null;
   reminderMinutes?: number | null;
   // A reminder is an event with no length (spec §1). forUserId is the partner it
   // is for; null means the creator. Ignored for an EVENT.
@@ -423,8 +430,18 @@ export class NativeDestinationError extends Error {
 }
 
 export async function createNativeEvent(input: CreateNativeEventInput): Promise<NativeEvent> {
-  // A rule every reader can expand, or nothing is written (3b spec §3.1).
-  if (input.rrule) assertStorableRule(input.rrule);
+  // A rule every reader can expand, with its Hebrew kind if any, or nothing is written (3b spec
+  // §3.1, hebrew-repeats §2).
+  assertStorableRule(input.rrule || null, input.hebrewRule);
+  const isReminder = input.kind === 'REMINDER';
+  const times = isReminder
+    ? normalizeReminderTimes(input.startsAt, input.allDay ?? false, input.timeZone)
+    : { startsAt: input.startsAt, endsAt: input.endsAt };
+  // The anchor is the start's date where the series lives.
+  const hebrewAnchor = input.hebrewRule ? localDate(times.startsAt, input.timeZone || TIMEZONE) : null;
+  if ((input.hebrewAnchor ?? null) !== null && input.hebrewAnchor !== hebrewAnchor) {
+    throw new NativeRuleError('A Hebrew repeat is anchored on its start');
+  }
   const calendar = await prisma.nativeCalendar.findUnique({
     where: { id: input.calendarCuid },
     select: { id: true, ownerUserId: true, privacy: true, isDeleted: true },
@@ -440,10 +457,6 @@ export async function createNativeEvent(input: CreateNativeEventInput): Promise<
   const access = await getCalendarAccess(creator, calendar);
   if (!canWriteAccess(access)) throw new NativePermissionDeniedError();
 
-  const isReminder = input.kind === 'REMINDER';
-  const times = isReminder
-    ? normalizeReminderTimes(input.startsAt, input.allDay ?? false, input.timeZone)
-    : { startsAt: input.startsAt, endsAt: input.endsAt };
   const event = await prisma.nativeEvent.create({
     data: {
       calendarId: input.calendarCuid,
@@ -456,6 +469,8 @@ export async function createNativeEvent(input: CreateNativeEventInput): Promise<
       allDay: input.allDay ?? false,
       timeZone: input.timeZone,
       rrule: input.rrule ?? null,
+      hebrewRule: input.hebrewRule ?? null,
+      hebrewAnchor,
       reminderMinutes: input.reminderMinutes ?? null,
       // armedAt bounds how far back the ping pass looks, so a reminder created for a
       // time long gone doesn't ping (spec §4.2).
@@ -502,6 +517,13 @@ export interface UpdateNativeEventInput {
    * occurrence goes, never converted.
    */
   rrule?: string | null;
+  /**
+   * The new rule's Hebrew kind (hebrew-repeats spec §2), sent with `rrule` as a pair: a rule
+   * without it is a Gregorian one (null), and a kind without a rule keeps the stored rule
+   * string. The store sets the anchor: copied to a tail, replaced only when the start moves
+   * to another day.
+   */
+  hebrewRule?: HebrewRule | null;
   /** An event's new calendar (a native cuid). A reminder has none to change. */
   calendarId?: string;
   /** A reminder's new recipient: the creator's ACTIVE partner, or null for the creator. Only the creator may change it. */
@@ -562,12 +584,12 @@ export async function isFirstOccurrence(series: NativeEvent, cut: Date): Promise
  * UNTIL moved as the cut moved (so it keeps its last occurrence) and a COUNT cut to what is
  * left after the slots before the cut (at least 1, the cut being a slot).
  */
-function tailRule(series: NativeEvent, cut: Date, newStart: Date, newRule?: string): string {
+function tailRule(series: NativeEvent, cut: Date, newStart: Date, newRule: string | undefined, pair: HebrewPair): string {
   if (newRule !== undefined) {
     const carried = endCarriedRule(newRule, series.rrule!, series)!;
-    assertStorableRule(carried);
+    assertStorableRule(carried, pair.hebrewRule);
     const endsAt = new Date(newStart.getTime() + (series.endsAt.getTime() - series.startsAt.getTime()));
-    const startsWith = (rule: string) => yieldsSlots({ ...series, rrule: rule, startsAt: newStart, endsAt }, [newStart]).size > 0;
+    const startsWith = (rule: string) => yieldsSlots({ ...series, ...pair, rrule: rule, startsAt: newStart, endsAt }, [newStart]).size > 0;
     if (startsWith(carried)) return carried;
     const pushed = withUntilOnDayOf(carried, newStart, series.timeZone);
     if (startsWith(pushed)) return pushed;
@@ -580,6 +602,44 @@ function tailRule(series: NativeEvent, cut: Date, newStart: Date, newRule?: stri
 }
 
 const DAY_MS = 86_400_000;
+
+/** A series' Hebrew columns as the store writes them (hebrew-repeats spec §2): both null, or a kind and its anchor. */
+interface HebrewPair {
+  hebrewRule: HebrewRule | null;
+  hebrewAnchor: string | null;
+}
+
+/** The kind a series has after an edit: the edit's when it sets a rule (the pair travels together), else its own. */
+const hebrewRuleAfter = (series: NativeEvent, input: Pick<UpdateNativeEventInput, 'rrule' | 'hebrewRule'>): HebrewRule | null =>
+  input.rrule !== undefined ? (input.hebrewRule ?? null) : ((series.hebrewRule as HebrewRule | null) ?? null);
+
+/**
+ * The pair of the part "this one and the ones after" starts at `newStart`, cut at `cut` (from
+ * the first occurrence too, in place). A Hebrew series' anchor is copied, so a 30 Cheshvan
+ * birthday cut on a year it fell on 1 Kislev stays one; only a start moved to another day,
+ * or a rule that was not Hebrew before, takes the new start's date there.
+ */
+function tailPair(series: NativeEvent, input: Pick<UpdateNativeEventInput, 'rrule' | 'hebrewRule'>, cut: Date, newStart: Date): HebrewPair {
+  const hebrewRule = hebrewRuleAfter(series, input);
+  if (!hebrewRule) return { hebrewRule: null, hebrewAnchor: null };
+  const tz = series.timeZone || TIMEZONE;
+  const sameDay = localDate(newStart, tz) === localDate(cut, tz);
+  return { hebrewRule, hebrewAnchor: series.hebrewRule && series.hebrewAnchor && sameDay ? series.hebrewAnchor : localDate(newStart, tz) };
+}
+
+/** A series' anchor when every occurrence moves as its start moved to `start`: by the same days. */
+function shiftedAnchor(series: NativeEvent, start: Date): string | null {
+  if (!series.hebrewAnchor) return series.hebrewAnchor;
+  const tz = series.timeZone || TIMEZONE;
+  return addDaysToDate(series.hebrewAnchor, daysFromTo(localDate(series.startsAt, tz), localDate(start, tz)));
+}
+
+/** The pair a one-off takes when it starts repeating at `start`. */
+function startingPair(input: Pick<UpdateNativeEventInput, 'hebrewRule'>, start: Date, timeZone: string): HebrewPair {
+  return input.hebrewRule
+    ? { hebrewRule: input.hebrewRule, hebrewAnchor: localDate(start, timeZone || TIMEZONE) }
+    : { hebrewRule: null, hebrewAnchor: null };
+}
 
 /**
  * The times an edit gives, as the ones the store writes. A 'following' edit, and an 'all'
@@ -693,7 +753,14 @@ async function moveInstances(
 /** The edit without the series-level fields that equal what the series already has. */
 function changesOnly(series: NativeEvent, input: UpdateNativeEventInput): UpdateNativeEventInput {
   const out = { ...input };
-  if (out.rrule !== undefined && (out.rrule ?? null) === (series.rrule ?? null)) delete out.rrule;
+  // The rule is the pair (hebrew-repeats spec §2): a kind alone keeps the rule string, a rule
+  // alone is Gregorian, and the same rule with another kind is a change.
+  if (out.rrule === undefined && out.hebrewRule !== undefined) out.rrule = series.rrule;
+  if (out.rrule !== undefined && out.hebrewRule === undefined) out.hebrewRule = null;
+  if (out.rrule !== undefined && (out.rrule ?? null) === (series.rrule ?? null) && (out.hebrewRule ?? null) === (series.hebrewRule ?? null)) {
+    delete out.rrule;
+    delete out.hebrewRule;
+  }
   if (out.calendarId !== undefined && out.calendarId === series.calendarId) delete out.calendarId;
   if (out.forUserId !== undefined && (out.forUserId ?? null) === (series.forUserId ?? null)) delete out.forUserId;
   return out;
@@ -720,7 +787,7 @@ async function checkSeriesFields(
     // A rule changes from an occurrence on: the earlier ones keep theirs.
     if (input.rrule !== undefined && (input.scope !== 'following' || !input.instanceStartsAt)) throw new NativeScopeError('scope');
   }
-  if (input.rrule) assertStorableRule(input.rrule);
+  if (input.rrule !== undefined) assertStorableRule(input.rrule, input.hebrewRule);
   const isReminder = series.kind === 'REMINDER';
   if (input.calendarId !== undefined) {
     // A reminder lives on its creator's main calendar.
@@ -825,7 +892,7 @@ async function stopRepeating(series: NativeEvent, input: UpdateNativeEventInput,
         await settleOpened(tx, series.id);
       }
       await tx.nativeEventInstance.deleteMany({ where: { seriesEventId: series.id } });
-      await tx.nativeEvent.update({ where: { id: series.id }, data: { ...values, rrule: null, exdates: [] } });
+      await tx.nativeEvent.update({ where: { id: series.id }, data: { ...values, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [] } });
       return series.id;
     }
     await tx.nativeEvent.update({ where: { id: series.id }, data: { rrule: truncateRruleBefore(series.rrule!, cut, series.timeZone) } });
@@ -837,6 +904,8 @@ async function stopRepeating(series: NativeEvent, input: UpdateNativeEventInput,
         timeZone: series.timeZone,
         reminderMinutes: series.reminderMinutes,
         rrule: null,
+        hebrewRule: null,
+        hebrewAnchor: null,
       },
     });
     await tx.nativeEventInstance.deleteMany({ where: { seriesEventId: series.id, originalStartsAt: { gte: cut } } });
@@ -905,7 +974,10 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
   if (input.allDay !== undefined) seriesUpdate.allDay = input.allDay;
   if (input.calendarId !== undefined) seriesUpdate.calendarId = input.calendarId;
   // A one-off that starts repeating keeps its row; its key gains its start.
-  if (input.rrule && !series.rrule) seriesUpdate.rrule = input.rrule;
+  if (input.rrule && !series.rrule) {
+    seriesUpdate.rrule = input.rrule;
+    Object.assign(seriesUpdate, startingPair(input, input.startsAt ?? series.startsAt, series.timeZone));
+  }
   const oneOffSlot = input.rrule && !series.rrule ? (input.startsAt ?? series.startsAt) : null;
 
   // Single occurrence (recurring): write/upsert NativeEventInstance OVERRIDE
@@ -961,16 +1033,18 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
       if (start !== undefined && series.rrule) {
         const slotOf = (slot: Date) => shiftOnWall(slot, series.startsAt, start, series.timeZone);
         const rrule = shiftUntil(series.rrule, series.startsAt, start, series.timeZone);
+        const hebrewAnchor = shiftedAnchor(series, start);
         const shape: NativeEvent = {
           ...series,
           rrule,
+          hebrewAnchor,
           startsAt: start,
           endsAt: input.endsAt ?? new Date(start.getTime() + (series.endsAt.getTime() - series.startsAt.getTime())),
           allDay: input.allDay ?? series.allDay,
         };
         await tx.nativeEvent.update({
           where: { id: series.id },
-          data: { ...seriesUpdate, rrule, exdates: carriedExdates(series.exdates, undefined, slotOf, shape) },
+          data: { ...seriesUpdate, rrule, hebrewAnchor, exdates: carriedExdates(series.exdates, undefined, slotOf, shape) },
         });
         await moveInstances(tx, {
           fromSeries: series.id, toSeries: series.id, slotOf, shape, dropOverrides: false,
@@ -998,7 +1072,8 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
   // from the targeted instance.
   if (input.scope === 'following') {
     if (!series.rrule || !input.instanceStartsAt) {
-      // Fallback: nothing to truncate; treat as 'all'
+      // Fallback: nothing to truncate; treat as 'all'. A Hebrew series' anchor moves with its start.
+      if (series.rrule && series.hebrewAnchor && input.startsAt) seriesUpdate.hebrewAnchor = shiftedAnchor(series, input.startsAt);
       await prisma.nativeEvent.update({ where: { id: series.id }, data: seriesUpdate });
       return resultOf(encodeEventId(series.id), { seriesId: series.id, slot: series.rrule ? series.startsAt : oneOffSlot });
     }
@@ -1011,8 +1086,9 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
     const newStarts = input.startsAt ?? cut;
     const newEnds = input.endsAt ?? new Date(newStarts.getTime() + (series.endsAt.getTime() - series.startsAt.getTime()));
     const slotOf = (d: Date) => shiftOnWall(d, cut, newStarts, series.timeZone);
-    const rrule = tailRule(series, cut, newStarts, input.rrule ?? undefined);
-    const shape: NativeEvent = { ...series, rrule, startsAt: newStarts, endsAt: newEnds, allDay: input.allDay ?? series.allDay };
+    const pair = tailPair(series, input, cut, newStarts);
+    const rrule = tailRule(series, cut, newStarts, input.rrule ?? undefined, pair);
+    const shape: NativeEvent = { ...series, ...pair, rrule, startsAt: newStarts, endsAt: newEnds, allDay: input.allDay ?? series.allDay };
     const retimed = input.startsAt !== undefined || input.endsAt !== undefined || input.allDay !== undefined;
     const clear: Prisma.NativeEventInstanceUncheckedUpdateInput = {
       ...(input.title !== undefined ? { title: null } : {}),
@@ -1032,6 +1108,7 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
             endsAt: newEnds,
             allDay: shape.allDay,
             rrule,
+            ...pair,
             exdates: carriedExdates(series.exdates, undefined, slotOf, shape),
           },
         });
@@ -1058,6 +1135,7 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
           allDay: shape.allDay,
           timeZone: series.timeZone,
           rrule,
+          ...pair,
           reminderMinutes: series.reminderMinutes,
           exdates: carriedExdates(series.exdates, cut, slotOf, shape),
         },
@@ -1167,8 +1245,9 @@ async function updateNativeReminder(
     const edit = reminderTimeEdit({ startsAt: cut, allDay: series.allDay }, input, series.timeZone);
     const target = edit ?? { startsAt: cut, endsAt: cut, allDay: series.allDay, changed: false };
     const slotOf = (slot: Date) => shiftOnWall(slot, cut, target.startsAt, series.timeZone);
-    const rrule = tailRule(series, cut, target.startsAt, newRule);
-    const shape: NativeEvent = { ...series, rrule, startsAt: target.startsAt, endsAt: target.endsAt, allDay: target.allDay };
+    const pair = tailPair(series, input, cut, target.startsAt);
+    const rrule = tailRule(series, cut, target.startsAt, newRule, pair);
+    const shape: NativeEvent = { ...series, ...pair, rrule, startsAt: target.startsAt, endsAt: target.endsAt, allDay: target.allDay };
     const cleared = {
       ...(input.title !== undefined ? { title: null } : {}),
       ...(input.description !== undefined ? { description: null } : {}),
@@ -1204,6 +1283,7 @@ async function updateNativeReminder(
             endsAt: target.endsAt,
             allDay: target.allDay,
             rrule,
+            ...pair,
             exdates: carriedExdates(series.exdates, undefined, slotOf, shape),
             armedAt,
             forUserId,
@@ -1231,6 +1311,7 @@ async function updateNativeReminder(
           allDay: target.allDay,
           timeZone: series.timeZone,
           rrule,
+          ...pair,
           reminderMinutes: series.reminderMinutes,
           kind: 'REMINDER',
           forUserId,
@@ -1276,7 +1357,7 @@ async function updateNativeReminder(
         ...text,
         ...(edit ? { startsAt: edit.startsAt, endsAt: edit.endsAt, allDay: edit.allDay } : {}),
         ...(edit?.changed ? { armedAt: new Date() } : {}),
-        ...(startsRepeating ? { rrule: input.rrule } : {}),
+        ...(startsRepeating ? { rrule: input.rrule, ...startingPair(input, edit?.startsAt ?? series.startsAt, series.timeZone) } : {}),
         ...(reassign ? { forUserId } : {}),
       },
     });
@@ -1291,10 +1372,11 @@ async function updateNativeReminder(
     if (input.scope === 'all' && series.rrule) {
       const slotOf = (slot: Date) => shiftOnWall(slot, series.startsAt, edit.startsAt, series.timeZone);
       const rrule = shiftUntil(series.rrule, series.startsAt, edit.startsAt, series.timeZone);
-      const shape: NativeEvent = { ...series, rrule, startsAt: edit.startsAt, endsAt: edit.endsAt, allDay: edit.allDay };
+      const hebrewAnchor = shiftedAnchor(series, edit.startsAt);
+      const shape: NativeEvent = { ...series, rrule, hebrewAnchor, startsAt: edit.startsAt, endsAt: edit.endsAt, allDay: edit.allDay };
       await tx.nativeEvent.update({
         where: { id: series.id },
-        data: { rrule, exdates: carriedExdates(series.exdates, undefined, slotOf, shape) },
+        data: { rrule, hebrewAnchor, exdates: carriedExdates(series.exdates, undefined, slotOf, shape) },
       });
       await moveInstances(tx, { fromSeries: series.id, toSeries: series.id, slotOf, shape, dropOverrides: true, clear: {} });
     }
