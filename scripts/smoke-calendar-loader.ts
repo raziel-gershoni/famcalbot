@@ -33,7 +33,7 @@ import {
 } from '../src/lib/calendar-view/home-loader';
 import { dayStatus, emptyStore, reduceStore, type CalendarStore } from '../src/lib/calendar-view/store';
 import type { RangeWindow } from '../src/lib/calendar-view/home-client';
-import type { DayKey, RangeResponse, SourceName } from '../src/lib/calendar-view/types';
+import type { DayKey, ItemDTO, ItemReminderDTO, RangeResponse, SourceName } from '../src/lib/calendar-view/types';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -198,6 +198,7 @@ function fakeHost(o: HostOptions = {}) {
       state.store = reduceStore(state.store, a);
       if (a.type === 'response') state.log.push(`response ${a.response.from}..${a.response.to} @${a.epoch}`);
       else if (a.type === 'windowFailed') state.log.push(`windowFailed ${a.from}..${a.to} ${a.kind} @${a.epoch}`);
+      else if (a.type === 'patchReminder') state.log.push(`patchReminder ${a.key}`);
       else state.log.push('reset');
     },
     isBlocked: () => state.blocked,
@@ -534,6 +535,79 @@ async function main() {
       `${base}&sources=google&from=2026-10-15&to=2026-10-22`,
       `${base}&sources=google&from=2026-10-15&to=2026-10-22`,
     ], 'the URLs');
+  });
+
+  // ---- Reminder actions: an older answer never undoes a patch ----
+
+  const KEY = 'famcal|plumber';
+  const reminderState = (o: Partial<ItemReminderDTO>): ItemReminderDTO => ({
+    done: false, doneAt: null, snoozedUntil: null, open: true, openSince: null, ownerIsViewer: true, creatorIsViewer: true, ...o,
+  });
+  const plumber = (o: Partial<ItemReminderDTO>) => ({ key: KEY, source: 'famcal', kind: 'reminder', start: '2026-10-15T05:00:00.000Z', reminder: reminderState(o) }) as unknown as ItemDTO;
+  /** A call's own window answered with the plumber on today, in the state `o` says. */
+  const withPlumber = (c: Call, o: Partial<ItemReminderDTO>): Reply => {
+    const r = answerFor(c);
+    if (r === 'throw' || !r.body) return r;
+    const body = r.body as RangeResponse;
+    return { status: 200, body: { ...body, days: body.days.map((d) => (d.date === TODAY ? { ...d, items: [plumber(o)] } : d)) } };
+  };
+  const storedState = (h: ReturnType<typeof fakeHost>) => h.state.store.days[TODAY].items.find((i) => i.key === KEY)?.reminder;
+  const DONE = reminderState({ done: true, doneAt: '2026-10-15T07:00:00.000Z', open: false });
+  const weekCalls = () => calls.filter((c) => !c.settled && c.from === TODAY);
+
+  await check('patchReminder: an answer asked before the patch cannot undo it (a Done right after a foreground refetch), and the confirming refetch is a new request even with one in flight', async () => {
+    reset();
+    const h = fakeHost();
+    await h.firstLoad();
+    h.loader.refetchVisible(); // the foreground read, still out
+    assertSame(weekCalls().length, 1, 'the foreground read');
+    const [foreground] = weekCalls();
+    h.loader.patchReminder(KEY, DONE);
+    h.loader.refetchVisible({ only: 'famcal' });
+    assertSame(weekCalls().length, 1, 'a plain refetch still joins the one in flight');
+    h.loader.refetchVisible({ only: 'famcal', renew: true });
+    assertSame(weekCalls().length, 2, 'a renewed one goes out anew');
+    foreground.reply(withPlumber(foreground, { done: false }));
+    await flush();
+    assertSame(storedState(h)?.done, true, 'the answer asked before the patch comes back not done and is held to it');
+  });
+
+  await check('patchReminder: the stale answer keeps the patched state, the newer one is the truth; undo then a late answer of the done request stays undone', async () => {
+    reset();
+    const h = fakeHost();
+    await h.firstLoad();
+    h.loader.refetchVisible();
+    const [foreground] = weekCalls();
+    // Present in the store first, as the sheet's item would be.
+    h.state.store = reduceStore(h.state.store, { type: 'response', epoch: h.state.store.epoch, response: (withPlumber(foreground, { done: false }) as { body: RangeResponse }).body });
+    h.loader.patchReminder(KEY, DONE);
+    assertSame(storedState(h)?.done, true, 'patched');
+    h.loader.refetchVisible({ only: 'famcal', renew: true });
+    const confirming = weekCalls().filter((c) => c !== foreground)[0];
+    foreground.reply(withPlumber(foreground, { done: false })); // asked before the patch: not done yet
+    await flush();
+    assertSame(storedState(h)?.done, true, 'the older answer does not revert it');
+    confirming.reply(withPlumber(confirming, { done: true, doneAt: DONE.doneAt, open: false }));
+    await flush();
+    assertSame(storedState(h)?.done, true, 'the confirming one agrees');
+    // Done, then a quick Not done: the done confirmation arrives after the undo.
+    h.loader.refetchVisible({ only: 'famcal', renew: true });
+    const doneConfirm = weekCalls()[0];
+    h.loader.patchReminder(KEY, reminderState({ done: false }));
+    h.loader.refetchVisible({ only: 'famcal', renew: true });
+    const undoConfirm = weekCalls().filter((c) => c !== doneConfirm)[0];
+    doneConfirm.reply(withPlumber(doneConfirm, { done: true, doneAt: DONE.doneAt, open: false }));
+    await flush();
+    assertSame(storedState(h)?.done, false, 'a done answer asked before the undo does not bring it back');
+    undoConfirm.reply(withPlumber(undoConfirm, { done: false }));
+    await flush();
+    assertSame(storedState(h)?.done, false, 'the undo confirmed');
+    // A later request is the truth again: someone else marked it done.
+    h.loader.refetchVisible();
+    const later = weekCalls()[0];
+    later.reply(withPlumber(later, { done: true, doneAt: DONE.doneAt, open: false }));
+    await flush();
+    assertSame(storedState(h)?.done, true, 'an answer asked after the last patch is taken');
   });
 
   let failed = 0;

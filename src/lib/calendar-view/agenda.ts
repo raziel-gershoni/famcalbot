@@ -14,6 +14,7 @@
 // - Still open: today's open reminders by time, then the carry-overs newest first;
 //   5 shown, then the rest.
 
+import { instantDay } from './format';
 import type { DayKey, ItemDTO, SourceName, WeekStart } from './types';
 import {
   SOURCE_ORDER,
@@ -55,11 +56,16 @@ export interface Whose {
 /** A reminder's icon (§7.3): open circle, check (title struck through), open circle with "until <time>", bell. */
 export type ReminderMark = 'open' | 'done' | 'snoozed' | 'later';
 
+/** Where a row's item came from in the store: a day's items, or the carry-overs. */
+export type RowOrigin = DayKey | 'carryOver';
+
 export interface AgendaRow {
   item: ItemDTO;
   whose: Whose;
   /** null for events. */
   mark: ReminderMark | null;
+  /** The copy this row was made from; the open sheet keeps to it (storeRow). Absent: any copy. */
+  origin?: RowOrigin;
 }
 
 export interface AgendaDay {
@@ -162,8 +168,31 @@ export function reminderMark(item: ItemDTO): ReminderMark | null {
   return 'later';
 }
 
-function toRow(item: ItemDTO, partnerName: string | null): AgendaRow {
-  return { item, whose: whoseItem(item, partnerName), mark: reminderMark(item) };
+/**
+ * A reminder's state as it is now, for the item sheet (whose actions and state line must
+ * not depend on which day's copy was opened): done, snoozed, open once its due time (its
+ * time, or 09:00 on a date-only one, as native-reminders/due.ts) has passed, else not
+ * due yet. null for events.
+ */
+export function reminderStateAt(item: ItemDTO, nowMs: number, tz: string): ReminderMark | null {
+  const r = item.reminder;
+  if (item.kind !== 'reminder' || !r) return null;
+  if (r.done) return 'done';
+  if (r.snoozedUntil) return 'snoozed';
+  if (item.start.includes('T')) return Date.parse(item.start) <= nowMs ? 'open' : 'later';
+  const today = instantDay(new Date(nowMs).toISOString(), tz);
+  const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: 'numeric', hourCycle: 'h23' }).format(nowMs));
+  return today !== null && (item.start < today || (item.start === today && hour >= 9)) ? 'open' : 'later';
+}
+
+function toRow(item: ItemDTO, partnerName: string | null, origin: RowOrigin): AgendaRow {
+  return { item, whose: whoseItem(item, partnerName), mark: reminderMark(item), origin };
+}
+
+/** The row of the same item in `rows`: the same copy if it is there, else any. */
+export function sameItemRow<T extends AgendaRow>(rows: readonly T[], selected: AgendaRow): T | undefined {
+  const same = rows.filter((r) => r.item.key === selected.item.key);
+  return same.find((r) => r.origin === selected.origin) ?? same[0];
 }
 
 /** Today's reminders for the card: open, not done, and the viewer's to act on (its owner or its creator, as carry-overs: A-17). */
@@ -178,31 +207,46 @@ function stillOpenCard(state: CalendarStore, today: DayKey, partnerName: string 
   for (const item of dayItems(state, today)) {
     if (!isOpenForViewer(item) || seen.has(item.key)) continue;
     seen.add(item.key);
-    rows.push({ ...toRow(item, partnerName), since: today, carriedOver: false });
+    rows.push({ ...toRow(item, partnerName, today), since: today, carriedOver: false });
   }
   for (const item of state.carryOvers ?? []) {
     // A carry-over marked done stays in the store, struck, until the next answer drops it; it is no longer open.
     if (seen.has(item.key) || item.reminder?.open === false) continue;
     seen.add(item.key);
-    rows.push({ ...toRow(item, partnerName), since: item.reminder?.openSince ?? today, carriedOver: true });
+    rows.push({ ...toRow(item, partnerName, 'carryOver'), since: item.reminder?.openSince ?? today, carriedOver: true });
   }
   if (rows.length === 0) return null;
   return { shown: rows.slice(0, STILL_OPEN_SHOWN), more: rows.slice(STILL_OPEN_SHOWN) };
 }
 
 /**
- * The row for the item `key` as the store has it now: its first day's copy, else the
- * carry-over's. null when the store holds none (a store drop, or an answer without it).
- * The open item sheet re-derives its row with this on every render.
+ * The row for the item `key` as the store has it now: the copy it was opened from
+ * (`origin`, a day or the carry-overs) if the store still holds it, else the earliest
+ * day's copy, else the carry-over's. null when the store holds none (a store drop, or an
+ * answer without it). The open item sheet re-derives its row with this on every render.
  */
-export function storeRow(state: CalendarStore, key: string): AgendaRow | null {
+export function storeRow(state: CalendarStore, key: string, origin?: RowOrigin): AgendaRow | null {
   const partnerName = state.partner?.name ?? null;
-  for (const date of Object.keys(state.days).sort()) {
-    const item = state.days[date].items.find((i) => i.key === key);
-    if (item) return toRow(item, partnerName);
+  const inDay = (date: DayKey): AgendaRow | null => {
+    const item = state.days[date]?.items.find((i) => i.key === key);
+    return item ? toRow(item, partnerName, date) : null;
+  };
+  const carried = (): AgendaRow | null => {
+    const item = state.carryOvers?.find((i) => i.key === key);
+    return item ? toRow(item, partnerName, 'carryOver') : null;
+  };
+  if (origin === 'carryOver') {
+    const row = carried();
+    if (row) return row;
+  } else if (origin) {
+    const row = inDay(origin);
+    if (row) return row;
   }
-  const carried = state.carryOvers?.find((i) => i.key === key);
-  return carried ? toRow(carried, partnerName) : null;
+  for (const date of Object.keys(state.days).sort()) {
+    const row = inDay(date);
+    if (row) return row;
+  }
+  return carried();
 }
 
 /** The Agenda for `weeks` weeks (1 = today + 6 days); null until the first answer pins the facts. */
@@ -222,7 +266,7 @@ export function buildAgenda(state: CalendarStore, weeks = 1): AgendaModel | null
   for (let i = 0; i < count; i++) {
     const date = addDaysToKey(today, i);
     const status = dayStatus(state, date);
-    const rows = dayItems(state, date).map((item) => toRow(item, partnerName));
+    const rows = dayItems(state, date).map((item) => toRow(item, partnerName, date));
     for (const s of failedSources(state, date)) {
       if (!failing.has(s)) failing.set(s, dayFailure(state, date, s));
     }

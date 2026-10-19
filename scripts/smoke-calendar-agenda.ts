@@ -34,6 +34,8 @@ import {
   agendaWeekWindow,
   buildAgenda,
   reminderMark,
+  reminderStateAt,
+  storeRow,
   whoseItem,
   type AgendaEntry,
   type AgendaModel,
@@ -729,6 +731,52 @@ async function main() {
     assert(reduceStore(s0, { type: 'patchReminder', key: 'famcal|nope', reminder: done }) === s0, 'unknown key: same state');
     const evState = run([answer(famcalAnswer({ days: { [TODAY]: [ev('plumber', T(0, '08:00'), T(0, '09:00'))] } }))]);
     assert(reduceStore(evState, { type: 'patchReminder', key: keyOf, reminder: done }) === evState, 'an event is not patched');
+  });
+
+  await check('storeRow: the copy the sheet was opened from (a day or the carry-overs) wins over the earliest day\'s; without an origin the earliest day, then the carry-over', () => {
+    const past = rem('plumber', T(-3, '08:00'), { open: false });
+    const carried = rem('plumber', T(-3, '08:00'), { open: true, openSince: day(-3) });
+    const s = run([answer(famcalAnswer({ from: day(-3), days: { [day(-3)]: [past] }, carryOvers: [carried] }))]);
+    const row = (origin?: string) => storeRow(s, 'famcal|plumber', origin);
+    assert(row('carryOver')?.item.reminder?.open === true && row('carryOver')?.origin === 'carryOver', 'a card opens the carry-over copy');
+    assert(row(day(-3))?.item.reminder?.open === false && row(day(-3))?.origin === day(-3), 'a past day opens its own copy');
+    assert(row()?.origin === day(-3), 'no origin: the earliest day');
+    assert(row(day(5))?.origin === day(-3), 'an origin the store lacks: falls back');
+    const only = run([answer(famcalAnswer({ days: {}, carryOvers: [carried] }))]);
+    assert(storeRow(only, 'famcal|plumber', day(-3))?.origin === 'carryOver', 'a day copy that is gone: the carry-over');
+    assert(storeRow(only, 'famcal|nope', 'carryOver') === null, 'no copy at all');
+    const card = buildAgenda(run([answer(famcalAnswer({ days: {}, carryOvers: [carried] }))]))?.stillOpen?.shown[0];
+    assert(card?.origin === 'carryOver', 'the card\'s row carries its origin');
+  });
+
+  await check('reminderStateAt: done, snoozed, open once its time has passed (a date-only one from 09:00 its day), else not due yet; events have none', () => {
+    const r = (start: string, o: Partial<ItemReminderDTO> = {}) => rem('x', start, o);
+    assert(reminderStateAt(r(T(0, '13:00')), Date.parse(T(0, '14:00')), IL) === 'open', 'past due');
+    assert(reminderStateAt(r(T(0, '13:00')), Date.parse(T(0, '13:00')), IL) === 'open', 'at its time');
+    assert(reminderStateAt(r(T(0, '13:00'), { open: true }), Date.parse(T(0, '12:00')), IL) === 'later', 'ahead, whatever the per-day flag says');
+    assert(reminderStateAt(r(T(-2, '13:00'), { open: false }), Date.parse(T(0, '12:00')), IL) === 'open', 'a past day\'s copy that was never done is open');
+    assert(reminderStateAt(r(T(0, '13:00'), { done: true }), Date.parse(T(0, '14:00')), IL) === 'done', 'done');
+    assert(reminderStateAt(r(T(0, '13:00'), { snoozedUntil: T(0, '15:00') }), Date.parse(T(0, '14:00')), IL) === 'snoozed', 'snoozed');
+    assert(reminderStateAt(r(TODAY), Date.parse(T(0, '08:59')), IL) === 'later', 'date-only before 09:00');
+    assert(reminderStateAt(r(TODAY), Date.parse(T(0, '09:00')), IL) === 'open', 'date-only at 09:00');
+    assert(reminderStateAt(r(day(-1)), Date.parse(T(0, '00:30')), IL) === 'open', 'date-only, yesterday');
+    assert(reminderStateAt(r(day(1)), Date.parse(T(0, '23:00')), IL) === 'later', 'date-only, tomorrow');
+    assert(reminderStateAt(ev('e', T(0, '13:00'), T(0, '14:00')), Date.parse(T(0, '14:00')), IL) === null, 'an event');
+  });
+
+  await check('response with hold: an answer asked before a patch leaves that key as patched, in the days and the carry-overs; the other keys and a later answer are taken as they are', () => {
+    const copy = (id: string, r: Partial<ItemReminderDTO> = {}) => rem(id, T(0, '08:00'), { open: true, ...r });
+    const body = (done: boolean) => famcalAnswer({ days: { [TODAY]: [copy('plumber', { done }), copy('other')] }, carryOvers: [rem('plumber', T(0, '08:00'), { open: true, openSince: day(-1) })] });
+    const patch = { done: true, doneAt: T(0, '10:00'), snoozedUntil: null, open: false, openSince: null, ownerIsViewer: true, creatorIsViewer: true };
+    const s1 = reduceStore(run([answer(body(false))]), { type: 'patchReminder', key: 'famcal|plumber', reminder: patch });
+    const hold = new Map([['famcal|plumber', patch]]);
+    const stale = reduceStore(s1, { type: 'response', response: body(false), epoch: 0, hold });
+    const doneIn = (st: CalendarStore, id: string) => dayItems(st, TODAY).find((i) => i.key === `famcal|${id}`)?.reminder?.done;
+    assert(doneIn(stale, 'plumber') === true && doneIn(stale, 'other') === false, 'the stale answer does not undo the patch');
+    assert(stale.carryOvers?.[0].reminder?.done === true && stale.carryOvers[0].reminder.open === false, 'nor the carry-over\'s');
+    assert(reduceStore(s1, { type: 'response', response: body(false), epoch: 0 }).days[TODAY].items.find((i) => i.key === 'famcal|plumber')?.reminder?.done === false, 'without hold the answer is taken');
+    const later = reduceStore(stale, { type: 'response', response: body(false), epoch: 0 });
+    assert(doneIn(later, 'plumber') === false, 'an answer asked after is the truth');
   });
 
   await check('the model is client-safe: store.ts and agenda.ts load nothing outside src/lib/calendar-view', () => {

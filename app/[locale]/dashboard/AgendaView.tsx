@@ -21,7 +21,7 @@
 
 import { useCallback } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import type { AgendaModel, AgendaRow } from '@/src/lib/calendar-view/agenda';
+import { sameItemRow, type AgendaModel, type AgendaRow } from '@/src/lib/calendar-view/agenda';
 import type { HomeHints } from '@/src/lib/calendar-view/home-props';
 import type { SourceName } from '@/src/lib/calendar-view/types';
 import { DayList, PlaceholderRows } from './DayList';
@@ -117,13 +117,9 @@ function EmptyState({ hints }: { hints: HomeHints }) {
 
 /** The open sheet's item as the latest model has it (a refetch may have changed it), else as it was tapped. */
 function latestRow(agenda: AgendaModel, selected: AgendaRow): AgendaRow {
-  for (const entry of agenda.entries) {
-    if (entry.type !== 'day') continue;
-    const row = entry.rows.find((r) => r.item.key === selected.item.key);
-    if (row) return row;
-  }
+  const days = agenda.entries.flatMap((entry) => (entry.type === 'day' ? entry.rows : []));
   const open = agenda.stillOpen ? [...agenda.stillOpen.shown, ...agenda.stillOpen.more] : [];
-  return open.find((r) => r.item.key === selected.item.key) ?? selected;
+  return sameItemRow([...days, ...open], selected) ?? selected;
 }
 
 /** Before the first answer: placeholders, never free days (§5 States). */

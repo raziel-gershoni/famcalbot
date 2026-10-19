@@ -428,7 +428,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   // tapped row is only the fallback while the store holds no copy (a carry-over a refetch
   // dropped after done, which the sheet keeps showing so it can be undone). `gone` is an item
   // the store answered without.
-  const liveRow = selected && store.facts ? storeRow(store, selected.item.key) : null;
+  const liveRow = selected && store.facts ? storeRow(store, selected.item.key, selected.origin) : null;
   const selectedNow = selected && liveRow ? liveRow : selected;
   const selectedGone = selected !== null && store.facts !== null && liveRow === null;
 
@@ -502,18 +502,19 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
       setNote({ key, kind: status === 'changed' ? 'changed' : 'notYours' });
     } else {
       if (reminder) {
-        dispatch({ type: 'patchReminder', key, reminder });
+        loaderRef.current?.patchReminder(key, reminder);
         setSelected((cur) => (cur && cur.item.key === key ? withReminder(cur, reminder) : cur));
       }
       if (status === 'already_done') setNote({ key, kind: 'alreadyDone' });
       else if (status === 'ok' && action === 'done') hapticSuccess();
     }
-    loaderRef.current?.refetchVisible({ only: 'famcal' });
+    loaderRef.current?.refetchVisible({ only: 'famcal', renew: true });
   };
   const sheetActions: SheetActions = {
     busy: acting !== null,
     pending: acting && acting.key === selectedKey ? acting.action : null,
     note: note && note.key === selectedKey ? note.kind : null,
+    now: deps.now(),
     onAction: (action) => void runAction(action),
   };
 

@@ -552,7 +552,7 @@ export function pickedScrollTop(layoutTop: number, dayHeadBottom: number, viewpo
 /** A day's rows as the Agenda lists them, daily reminders included: the picked day's list. */
 export function dayRows(store: CalendarStore, day: DayKey): AgendaRow[] {
   const partner = store.partner?.name ?? null;
-  return dayItems(store, day).map((item) => ({ item, whose: whoseItem(item, partner), mark: reminderMark(item) }));
+  return dayItems(store, day).map((item) => ({ item, whose: whoseItem(item, partner), mark: reminderMark(item), origin: day }));
 }
 
 /** The window's first and last months around `today` (spec §7.4), or null for a malformed day. */

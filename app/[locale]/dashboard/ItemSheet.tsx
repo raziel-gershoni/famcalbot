@@ -8,7 +8,8 @@
 // A FamCal reminder the viewer may act on (its owner or its creator, from the DTO's
 // flags) also shows its actions under the state line (reminder-actions spec §1): Done and
 // Snooze while it is open, snoozed or not yet due (Done only before its time), Not done
-// once it is done. The container owns the request (`actions`): this sheet only draws the
+// once it is done. The state line and the actions read the occurrence's own state now
+// (reminderStateAt), never the per-day mark of the row it was opened from. The container owns the request (`actions`): this sheet only draws the
 // buttons, disabled while one is in flight, and the note after a tap that could not apply.
 //
 // Telegram's BackButton closes it: the container owns the button (useTelegramBackButton)
@@ -16,7 +17,7 @@
 // the scrim and Escape do the same.
 
 import { useLocale, useTranslations } from 'next-intl';
-import type { AgendaRow } from '@/src/lib/calendar-view/agenda';
+import { reminderStateAt, type AgendaRow } from '@/src/lib/calendar-view/agenda';
 import type { ReminderActionName } from '@/src/lib/calendar-view/reminder-client';
 import type { DayKey, ItemDTO } from '@/src/lib/calendar-view/types';
 import {
@@ -45,6 +46,8 @@ export interface SheetActions {
   /** The action in flight on this item, which shows the spinner. */
   pending: ReminderActionName | null;
   note: SheetNote | null;
+  /** The clock (ms) the reminder's state is read at: due or not yet. */
+  now: number;
   onAction: (action: ReminderActionName) => void;
 }
 
@@ -170,7 +173,9 @@ function useReminderState(item: ItemDTO, mark: AgendaRow['mark'], today: DayKey,
 
 export function ItemSheet({ row, today, tz, onClose, actions }: ItemSheetProps) {
   const t = useTranslations('calendarHome');
-  const { item, whose, mark } = row;
+  const { item, whose } = row;
+  // A reminder's state as it is now; a row's own mark is for its day's list.
+  const mark = actions ? reminderStateAt(item, actions.now, tz) : row.mark;
   const title = useItemTitle(item);
   const state = useReminderState(item, mark, today, tz);
 

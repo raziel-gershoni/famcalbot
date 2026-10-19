@@ -3488,7 +3488,9 @@ async function main() {
     const row = rowOf(model([ok(it.source === 'google' ? googleAnswer({ items: { [day(0)]: [it] } }) : answer({ items: { [day(0)]: [it] } }))]), it.key);
     return renderToString(inHome(locale, createElement(ItemSheet, { row, today: TODAY, tz: TZ, onClose: noop, actions })));
   };
-  const IDLE: SheetActions = { busy: false, pending: null, note: null, onAction: noop };
+  // 14:00 in Jerusalem: ACT's 13:00 is due. EARLY is 12:00, before it.
+  const IDLE: SheetActions = { busy: false, pending: null, note: null, now: Date.parse('2026-10-15T11:00:00Z'), onAction: noop };
+  const EARLY: SheetActions = { ...IDLE, now: Date.parse('2026-10-15T09:00:00Z') };
   const buttonsIn = (html: string) => [...markup(html).matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)].map((m) => ({ attrs: m[1], text: textOf(m[2]) }));
   const actionTexts = (locale: Locale, html: string) => buttonsIn(html).map((b) => b.text).filter((t) => t !== messages[locale].calendarHome.actions.close);
   const labelsOf = (locale: Locale) => messages[locale].calendarHome.sheet.actions as Record<'done' | 'undo' | 'snoozeLabel' | 'snooze15' | 'snooze60' | 'snoozeTomorrow', string>;
@@ -3500,7 +3502,7 @@ async function main() {
       const open = sheetWith(locale, ACT({ open: true }), IDLE);
       assert(show(actionTexts(locale, open)) === show(all), `${locale} open: ${show(actionTexts(locale, open))}`);
       assert(show(actionTexts(locale, sheetWith(locale, ACT({ open: true, snoozedUntil: at(0, '15:30') }), IDLE))) === show(all), `${locale} snoozed`);
-      assert(show(actionTexts(locale, sheetWith(locale, ACT(), IDLE))) === show([l.done]), `${locale} not due yet: Done alone`);
+      assert(show(actionTexts(locale, sheetWith(locale, ACT(), EARLY))) === show([l.done]), `${locale} not due yet: Done alone`);
       assert(show(actionTexts(locale, sheetWith(locale, ACT({ done: true, doneAt: at(0, '12:00') }), IDLE))) === show([l.undo]), `${locale} done: Not done alone`);
       assertHas(textOf(open), [l.snoozeLabel], `${locale} the Snooze label`);
       assert(/role="group"/.test(open) && open.includes(`aria-label="${l.snoozeLabel}"`), `${locale}: the snooze row is a labelled group`);
@@ -3532,7 +3534,7 @@ async function main() {
 
   await check('#67 in flight, every action button is disabled and the tapped one alone has the spinner; the four notes show, role=status, in en/he/ru and none without a note', () => {
     for (const locale of LOCALES) {
-      const html = sheetWith(locale, ACT({ open: true }), { busy: true, pending: 'snooze60', note: null, onAction: noop });
+      const html = sheetWith(locale, ACT({ open: true }), { ...IDLE, busy: true, pending: 'snooze60' });
       const l = labelsOf(locale);
       const acts = buttonsIn(html).filter((b) => [l.done, l.snooze15, l.snooze60, l.snoozeTomorrow].includes(b.text));
       assert(acts.length === 4 && acts.every((b) => /\bdisabled=""/.test(b.attrs)), `${locale}: all four disabled`);
@@ -3852,7 +3854,81 @@ async function main() {
     }
   });
 
-  await check('#73 React logged no warning in #66-#72 (keys, nesting, attributes, act)', () => {
+  await check('#72a the sheet reads the reminder\'s real state, not the row\'s per-day mark: a not-done reminder whose time has passed says "Not done yet" with Done and the snoozes, opened from a past day; one still ahead says "Not due yet" with Done alone, whatever its flag; snoozed is as open', () => {
+    const l = labelsOf('en');
+    const all = [l.done, l.snooze15, l.snooze60, l.snoozeTomorrow];
+    const past = sheetWith('en', ACT({ open: false }), IDLE); // a per-day mark of "later", past its time now
+    assertHas(textOf(past), ['Not done yet'], 'past due, state line');
+    assert(show(actionTexts('en', past)) === show(all), `past due, actions: ${show(actionTexts('en', past))}`);
+    const ahead = sheetWith('en', ACT({ open: true }), EARLY); // a flag of "open", ahead of its time
+    assertHas(textOf(ahead), ['Not due yet'], 'ahead, state line');
+    assert(show(actionTexts('en', ahead)) === show([l.done]), `ahead, actions: ${show(actionTexts('en', ahead))}`);
+    assertHas(textOf(sheetWith('en', ACT({ snoozedUntil: at(0, '15:30') }), EARLY)), ['Snoozed until'], 'snoozed ahead of its time');
+    assert(show(actionTexts('en', sheetWith('en', ACT({ snoozedUntil: at(0, '15:30') }), EARLY))) === show(all), 'snoozed: as open');
+    assert(show(actionTexts('en', sheetWith('en', ACT({ done: true, doneAt: at(0, '12:00') }), IDLE))) === show([l.undo]), 'done: Not done');
+  });
+
+  await check('#72b a past day picked in the Month: its never-done reminder opens as "Not done yet" with Done and the snoozes', async () => {
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    const old = item('old', { kind: 'reminder', title: 'Old errand', seriesId: 'series_old', start: at(-3, '10:00'), reminder: rem({ open: false }) });
+    live = { items: { [day(-3)]: [old] }, carry: [] };
+    serveReminders();
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T10:00:00Z'));
+    try {
+      await openMonth(m);
+      await tap(m, dayButton(m, day(-3)));
+      assert(pickedShown(m), 'picked');
+      m.click(button(byClass(m.container, 'ch-mp')[0], 'Old errand'));
+      assertHas(dialogText(m.container), ['Not done yet'], 'the state line');
+      assert(dialogButtons(m).slice(0, 4).join() === 'Done,15 min,1 hour,Tomorrow', `buttons: ${show(dialogButtons(m))}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#72c an older range read cannot undo a tap: a Done right after a foreground read stays done when that read answers not done; the confirming refetch is a new request; a late answer of it after a Not done stays undone', async () => {
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    live = { items: { [day(0)]: [form2()] }, carry: [] };
+    serveReminders();
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T10:00:00Z'));
+    try {
+      m.click(button(m.container, 'Send the form'));
+      const held: { call: FetchCall; resolve: (a: FetchAnswer) => void }[] = [];
+      answerFetch = (c) => (c.path === '/api/calendar/reminder' ? Promise.resolve(reminderReply(c)) : new Promise<FetchAnswer>((resolve) => held.push({ call: c, resolve })));
+      const release = async (h: (typeof held)[number], truth: ItemDTO) => {
+        await React.act(async () => h.resolve(answerFor(h.call, { items: { [day(0)]: [truth] }, carryOvers: [] })));
+        await settle();
+      };
+      fetchCalls.length = 0;
+      await fireDocument('visibilitychange');
+      await settle();
+      const out = () => held.length;
+      assert(out() === 1, `the foreground read is out: ${out()}`);
+      reminderReply = () => ok200({ status: 'ok', reminder: doneReminder });
+      m.click(dialogButton(m, 'Done'));
+      await settle();
+      assertHas(dialogText(m.container), ['Done at 13:05'], 'patched');
+      assert(out() === 2, `the confirming read is a new request, not the one in flight: ${out()}`);
+      await release(held[0], form2()); // asked before the tap: not done yet
+      assertHas(dialogText(m.container), ['Done at 13:05'], 'the older read did not revert it');
+      assert(dialogButtons(m).includes('Not done'), `still undoable: ${show(dialogButtons(m))}`);
+      // Not done, while the done read is still out.
+      reminderReply = () => ok200({ status: 'ok', reminder: rem({ open: true }) });
+      m.click(dialogButton(m, 'Not done'));
+      await settle();
+      assertHas(dialogText(m.container), ['Not done yet'], 'undone');
+      await release(held[1], form2({ done: true, doneAt: DONE_AT, open: false })); // asked before the undo: done
+      assertHas(dialogText(m.container), ['Not done yet'], 'the done read did not bring it back');
+      await release(held[2], form2());
+      assertHas(dialogText(m.container), ['Not done yet'], 'the undo confirmed');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#73 React logged no warning in #66-#72c (keys, nesting, attributes, act)', () => {
     assert(reactWarnings.length === warnedBeforeActions, `React warned: ${show(reactWarnings.slice(warnedBeforeActions, warnedBeforeActions + 3))}`);
   });
 

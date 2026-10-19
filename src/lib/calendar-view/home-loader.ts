@@ -12,7 +12,12 @@
 //   are gone). A window is asked at most once per epoch this way.
 // - refetchVisible(): every visible window again: a return to the foreground, a Retry,
 //   or ⋯ → Refresh (fresh=1). The Agenda's weeks only while the Agenda is on screen,
-//   and the wanted months. A request already in flight is not sent twice.
+//   and the wanted months. A request already in flight is not sent twice, except with
+//   `renew`: the confirming read after a reminder action always goes out anew, since an
+//   older request may have been asked before the action took.
+// - patchReminder(): a reminder's new state after an action. An answer whose request
+//   started before the latest patch of a key leaves that key's reminder as patched (the
+//   store's `hold`); a request started after it is taken as it is.
 // - retryWindow(): one window again (the Month's Retry).
 // - An answer with google.stale asks that window once more after about 3 s; if that is
 //   stale too, the window waits for the next foreground or Refresh. A Google error
@@ -36,7 +41,7 @@
 import { agendaWeekWindow } from './agenda';
 import { daysInWindow, type CalendarStore, type StoreAction } from './store';
 import { fetchRange, type RangeOutcome, type RangeWindow } from './home-client';
-import type { SourceName } from './types';
+import type { ItemReminderDTO, SourceName } from './types';
 
 /** A stale answer's one re-request (spec §5 Freshness). */
 export const STALE_RETRY_MS = 3000;
@@ -73,13 +78,15 @@ export interface LoaderHost {
 
 export interface HomeLoader {
   ensure(): void;
-  refetchVisible(o?: { fresh?: boolean; only?: SourceName }): void;
+  refetchVisible(o?: { fresh?: boolean; only?: SourceName; renew?: boolean }): void;
+  /** Patch the store with a reminder's state after an action, and remember it for the answers still on their way. */
+  patchReminder(key: string, reminder: ItemReminderDTO): void;
   /** One window again, for each applicable source or only `only` (the Month's Retry). */
   retryWindow(window: RangeWindow, only?: SourceName): void;
   dispose(): void;
 }
 
-type Ask = { source: SourceName; window: RangeWindow | null; fresh?: boolean; followUp?: 'stale' | 'retry' };
+type Ask = { source: SourceName; window: RangeWindow | null; fresh?: boolean; followUp?: 'stale' | 'retry'; renew?: boolean };
 /** A month send waiting for a slot: its in-flight key and the epoch it was asked in. */
 type Queued = { key: string; ask: Ask; epoch: number };
 
@@ -107,7 +114,11 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
   /** `${epoch}|${source}|${windowKey}`: asked in that epoch. */
   const issued = new Set<string>();
   /** The same plus `|fresh` or `|plain`: on its way now. */
-  const inflight = new Set<string>();
+  const inflight = new Map<string, number>();
+  /** Counts the patches; a request is stamped with the count when it starts. */
+  let patchSeq = 0;
+  /** Each patched reminder key's latest state, and the count of its patch. */
+  const patched = new Map<string, { seq: number; reminder: ItemReminderDTO }>();
   /** Month sends waiting for a slot, in the order they were asked. */
   const queue: Queued[] = [];
   let monthsInFlight = 0;
@@ -126,13 +137,15 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
     Array.from({ length: Math.max(1, Math.floor(host.getWeeks())) }, (_, week) => agendaWeekWindow(today, week));
   const wantedMonths = (): readonly RangeWindow[] => host.getMonths?.() ?? [];
 
-  function handle(outcome: RangeOutcome, ask: Ask, epoch: number, where: string) {
+  function handle(outcome: RangeOutcome, ask: Ask, epoch: number, where: string, startedAt: number) {
     const { source, window } = ask;
     switch (outcome.kind) {
       case 'ok': {
         const response = outcome.response;
         host.onAnswer();
-        host.dispatch({ type: 'response', response, epoch });
+        const hold = new Map<string, ItemReminderDTO>();
+        for (const [key, p] of patched) if (p.seq > startedAt) hold.set(key, p.reminder);
+        host.dispatch(hold.size > 0 ? { type: 'response', response, epoch, hold } : { type: 'response', response, epoch });
         const google = response.sources.google;
         const answered: RangeWindow = { from: response.from, to: response.to };
         // A follow-up is for this epoch's window only: after a drop the loader starts over
@@ -177,7 +190,7 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
     if (!live || host.isBlocked()) return;
     const epoch = host.getStore().epoch;
     const key = `${epoch}|${ask.source}|${windowKey(ask.window)}|${ask.fresh ? 'fresh' : 'plain'}`;
-    if (inflight.has(key)) return;
+    if (inflight.has(key) && !ask.renew) return;
     if (isMonthWindow(ask.window)) {
       if (queue.some((q) => q.key === key)) return;
       if (monthsInFlight >= MONTH_INFLIGHT_MAX) {
@@ -191,16 +204,19 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
   function start(ask: Ask, epoch: number, key: string) {
     const where = windowKey(ask.window);
     const month = isMonthWindow(ask.window);
-    inflight.add(key);
+    inflight.set(key, (inflight.get(key) ?? 0) + 1);
+    const startedAt = patchSeq;
     issued.add(`${epoch}|${ask.source}|${where}`);
     if (month) monthsInFlight++;
     void fetchRange(host.userId, ask.source, ask.window, ask.fresh === true, { ms: RANGE_TIMEOUT_MS, setTimer: host.setTimer })
       .catch((): RangeOutcome => ({ kind: 'error', status: null }))
       .then((outcome) => {
-        inflight.delete(key);
+        const left = (inflight.get(key) ?? 1) - 1;
+        if (left > 0) inflight.set(key, left);
+        else inflight.delete(key);
         if (month) monthsInFlight--;
         try {
-          if (live) handle(outcome, ask, epoch, where);
+          if (live) handle(outcome, ask, epoch, where, startedAt);
         } finally {
           if (month) nextMonth();
         }
@@ -222,7 +238,7 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
       const wanted = wantedMonths().map(windowKey);
       const rank = (q: Queued) => wanted.indexOf(windowKey(q.ask.window));
       for (let i = queue.length - 1; i >= 0; i--) {
-        if (queue[i].epoch !== epoch || rank(queue[i]) < 0 || inflight.has(queue[i].key)) queue.splice(i, 1);
+        if (queue[i].epoch !== epoch || rank(queue[i]) < 0 || (inflight.has(queue[i].key) && !queue[i].ask.renew)) queue.splice(i, 1);
       }
       if (queue.length === 0) return;
       let best = 0;
@@ -257,22 +273,28 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
       }
     },
 
-    refetchVisible({ fresh = false, only }: { fresh?: boolean; only?: SourceName } = {}) {
+    refetchVisible({ fresh = false, only, renew = false }: { fresh?: boolean; only?: SourceName; renew?: boolean } = {}) {
       if (!live) return;
       const facts = host.getStore().facts;
       const sources = (facts ? facts.sources : host.sources).filter((s) => only === undefined || s === only);
       if (!facts) {
-        for (const source of sources) send({ source, window: null, fresh });
+        for (const source of sources) send({ source, window: null, fresh, renew });
         return;
       }
       if (host.agendaShowing?.() !== false) {
         for (const window of visibleWindows(facts.today)) {
-          for (const source of sources) send({ source, window, fresh });
+          for (const source of sources) send({ source, window, fresh, renew });
         }
       }
       for (const window of wantedMonths()) {
-        for (const source of sources) send({ source, window, fresh });
+        for (const source of sources) send({ source, window, fresh, renew });
       }
+    },
+
+    patchReminder(key, reminder) {
+      if (!live) return;
+      patched.set(key, { seq: ++patchSeq, reminder });
+      host.dispatch({ type: 'patchReminder', key, reminder });
     },
 
     retryWindow(window: RangeWindow, only?: SourceName) {

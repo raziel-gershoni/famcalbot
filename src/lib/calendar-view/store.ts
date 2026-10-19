@@ -98,7 +98,7 @@ export interface CalendarStore {
 
 export type StoreAction =
   /** An answer (HTTP 200). `epoch` is the store's epoch when the request was sent. */
-  | { type: 'response'; response: RangeResponse; epoch: number }
+  | { type: 'response'; response: RangeResponse; epoch: number; hold?: ReadonlyMap<string, ItemReminderDTO> }
   /**
    * A request that got no answer to store: 429 (`busy`), 500 or a network error
    * (`error`). Its days that no ok answer covers read as failed, not loading. Needs
@@ -108,7 +108,8 @@ export type StoreAction =
   /**
    * A reminder's new state after done, undo or snooze (POST /api/calendar/reminder): every
    * copy of the item `key` takes it, in the days' items and in carryOvers, with `open`
-   * worked out again (patchedReminder). The next answer confirms it.
+   * worked out again (patchedReminder). The next answer confirms it; one that was asked
+   * before it comes with `hold` (the loader's) and leaves that key's state as patched.
    */
   | { type: 'patchReminder'; key: string; reminder: ItemReminderDTO }
   /** The midnight timer in tz: drop everything and start over. */
@@ -193,7 +194,12 @@ function dedupeSorted(items: readonly ItemDTO[]): ItemDTO[] {
 const failedCoverage = (failure: SourceFailure): DayCoverage => ({ ok: false, failed: true, partial: false, failure });
 
 /** Merges an answer whose facts match `state.facts` (already pinned). */
-function merge(state: CalendarStore, r: RangeResponse): CalendarStore {
+function merge(state: CalendarStore, r: RangeResponse, hold?: ReadonlyMap<string, ItemReminderDTO>): CalendarStore {
+  // An answer asked before a patch: its copy of a patched reminder is the older state.
+  const held = (item: ItemDTO, place: 'carryOver' | 'today' | 'other'): ItemDTO => {
+    const reminder = item.kind === 'reminder' ? hold?.get(item.key) : undefined;
+    return reminder ? { ...item, reminder: patchedReminder(item.reminder, reminder, place) } : item;
+  };
   const ok: SourceName[] = [];
   const failures: SourceFailure[] = [];
   const status = { ...state.status };
@@ -231,7 +237,8 @@ function merge(state: CalendarStore, r: RangeResponse): CalendarStore {
     if (ok.length > 0) {
       // Only the ok sources' items are read from the answer, and only theirs are replaced.
       const kept = items.filter((i) => !ok.includes(i.source));
-      const fresh = (incoming.get(date) ?? NO_ITEMS).filter((i) => ok.includes(i.source));
+      const place = date === state.facts?.today ? 'today' : 'other';
+      const fresh = (incoming.get(date) ?? NO_ITEMS).filter((i) => ok.includes(i.source)).map((i) => (hold ? held(i, place) : i));
       items = dedupeSorted([...kept, ...fresh]);
       for (const s of ok) coverage[s] = { ok: true, failed: false, partial: s === 'google' && partial, failure: null };
     }
@@ -246,7 +253,7 @@ function merge(state: CalendarStore, r: RangeResponse): CalendarStore {
       ? SOURCE_ORDER.flatMap((s) => (ok.includes(s) ? r.calendars : state.calendars).filter((c) => c.source === s))
       : state.calendars;
   const partner = ok.includes('famcal') ? (r.partner ? { name: r.partner.name } : null) : state.partner;
-  const carryOvers = r.carryOvers ? [...r.carryOvers] : state.carryOvers;
+  const carryOvers = r.carryOvers ? r.carryOvers.map((i) => (hold ? held(i, 'carryOver') : i)) : state.carryOvers;
   const reconnect = google?.status === 'reconnect' ? (google.reason === 'scopes' ? 'scopes' : 'token') : state.reconnect;
   const gone = ok.includes('google') ? r.calendars.filter((c) => c.source === 'google' && c.unavailable === true).map((c) => c.id) : [];
   const added = gone.filter((id, i) => !state.unavailable.includes(id) && gone.indexOf(id) === i);
@@ -254,7 +261,7 @@ function merge(state: CalendarStore, r: RangeResponse): CalendarStore {
   return { ...state, days, status, lastFailure, calendars, reconnect, unavailable, partner, carryOvers };
 }
 
-function receive(state: CalendarStore, r: RangeResponse, epoch: number): CalendarStore {
+function receive(state: CalendarStore, r: RangeResponse, epoch: number, hold?: ReadonlyMap<string, ItemReminderDTO>): CalendarStore {
   const facts = factsOf(r);
   let base: CalendarStore;
   if (state.facts && samePinnedFacts(state.facts, facts)) {
@@ -266,7 +273,7 @@ function receive(state: CalendarStore, r: RangeResponse, epoch: number): Calenda
     // The first answer pins the facts; a mismatch drops the store and pins the new ones.
     base = { ...emptyStore(state.facts ? state.epoch + 1 : state.epoch), facts };
   }
-  return merge(base, r);
+  return merge(base, r, hold);
 }
 
 function markFailed(state: CalendarStore, a: Extract<StoreAction, { type: 'windowFailed' }>): CalendarStore {
@@ -329,7 +336,7 @@ export function reduceStore(state: CalendarStore, action: StoreAction): Calendar
     case 'reset':
       return emptyStore(state.epoch + 1);
     case 'response':
-      return receive(state, action.response, action.epoch);
+      return receive(state, action.response, action.epoch, action.hold);
     case 'windowFailed':
       return markFailed(state, action);
     case 'patchReminder':

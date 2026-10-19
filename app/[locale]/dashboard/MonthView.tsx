@@ -21,7 +21,7 @@
 //   answered (§5); browse does the same for each of its months.
 
 import { useTranslations } from 'next-intl';
-import type { AgendaRow } from '@/src/lib/calendar-view/agenda';
+import { sameItemRow, type AgendaRow } from '@/src/lib/calendar-view/agenda';
 import { monthGrid, type MonthKey } from '@/src/lib/calendar-view/grid';
 import { backToBrowse, canStep, loadingMonth, pickDay, pickToday, stepMonth, type MonthModel, type MonthUi } from '@/src/lib/calendar-view/month';
 import type { DayStatus } from '@/src/lib/calendar-view/store';
@@ -75,7 +75,7 @@ function modelFor(getMonth: MonthViewProps['getMonth'], month: MonthKey, weekSta
 
 /** The open sheet's item as the picked day's latest rows have it (a refetch may have changed it), else as it was tapped. */
 function latestRow(rows: readonly AgendaRow[], selected: AgendaRow): AgendaRow {
-  return rows.find((row) => row.item.key === selected.item.key) ?? selected;
+  return sameItemRow(rows, selected) ?? selected;
 }
 
 function StateIcon() {
