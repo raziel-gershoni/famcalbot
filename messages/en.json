@@ -186,6 +186,7 @@
       "stateSnoozed": "Snoozed until {time}",
       "stateLater": "Not due yet",
       "openInGoogle": "Open in Google Calendar",
+      "googleOnly": "This one can only be changed in Google Calendar",
       "edit": "Edit",
       "deleteEvent": "Delete event",
       "deleteReminder": "Delete reminder",
@@ -240,7 +241,17 @@
         "monthly": "Every month on the {day, selectordinal, one {#st} two {#nd} few {#rd} other {#th}}",
         "monthlyPlain": "Every month",
         "yearly": "Every year on {date}",
-        "yearlyPlain": "Every year"
+        "yearlyPlain": "Every year",
+        "current": "{words} (current)",
+        "currentPlain": "Current repeat",
+        "until": "{rule}, until {date}",
+        "fromHere": "From {date} on. Earlier ones stay as they were.",
+        "every": {
+          "daily": "{count, plural, one {Every day} other {Every # days}}",
+          "weekly": "{count, plural, one {Every week} other {Every # weeks}}",
+          "monthly": "{count, plural, one {Every month} other {Every # months}}",
+          "yearly": "{count, plural, one {Every year} other {Every # years}}"
+        }
       },
       "repeats": {
         "daily": "Repeats every day",
@@ -257,6 +268,7 @@
         }
       },
       "calendar": "Calendar",
+      "dayMoveAlone": "Save the day change on its own first.",
       "partnerCalendar": "{calendar} · {name}",
       "forLabel": "For",
       "forMe": "Me",
@@ -273,7 +285,8 @@
         "notAllowed": "You can’t change this one",
         "changed": "This changed in the meantime — reopen it",
         "failed": "Couldn’t save. Try again.",
-        "busy": "Too many changes at once. Try again in a minute."
+        "busy": "Too many changes at once. Try again in a minute.",
+        "reconnect": "Your Google connection expired"
       },
       "discard": {
         "title": "Discard your changes?",
@@ -300,7 +313,8 @@
       "cancel": "Cancel",
       "confirmDelete": "Delete “{title}”?",
       "deleteConfirm": "Delete",
-      "dayMoveNote": "To move all of them to another day, delete the series and create it again."
+      "dayMoveNote": "To move all of them to another day, delete the series and create it again.",
+      "seriesNote": "A calendar or recipient change applies from here on or to all of them."
     },
     "empty": {
       "title": "Nothing planned",

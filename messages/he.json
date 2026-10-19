@@ -186,6 +186,7 @@
       "stateSnoozed": "נדחתה עד {time}",
       "stateLater": "עוד לא הגיע הזמן",
       "openInGoogle": "פתיחה ביומן Google",
+      "googleOnly": "אפשר לשנות את זה רק ביומן Google",
       "edit": "עריכה",
       "deleteEvent": "מחיקת האירוע",
       "deleteReminder": "מחיקת התזכורת",
@@ -240,7 +241,17 @@
         "monthly": "כל חודש ב-{day}",
         "monthlyPlain": "כל חודש",
         "yearly": "כל שנה ב-{date}",
-        "yearlyPlain": "כל שנה"
+        "yearlyPlain": "כל שנה",
+        "current": "{words} (הנוכחית)",
+        "currentPlain": "החזרה הנוכחית",
+        "until": "{rule}, עד {date}",
+        "fromHere": "החל מ-{date}. המופעים הקודמים נשארים כפי שהיו.",
+        "every": {
+          "daily": "{count, plural, one {כל יום} two {כל יומיים} other {כל # ימים}}",
+          "weekly": "{count, plural, one {כל שבוע} two {כל שבועיים} other {כל # שבועות}}",
+          "monthly": "{count, plural, one {כל חודש} two {כל חודשיים} other {כל # חודשים}}",
+          "yearly": "{count, plural, one {כל שנה} two {כל שנתיים} other {כל # שנים}}"
+        }
       },
       "repeats": {
         "daily": "חזרה: כל יום",
@@ -257,6 +268,7 @@
         }
       },
       "calendar": "יומן",
+      "dayMoveAlone": "כדאי לשמור קודם את שינוי היום בנפרד.",
       "partnerCalendar": "{calendar} · {name}",
       "forLabel": "בשביל",
       "forMe": "אני",
@@ -273,7 +285,8 @@
         "notAllowed": "אי אפשר לשנות את זה",
         "changed": "זה השתנה בינתיים. כדאי לפתוח מחדש",
         "failed": "לא הצלחנו לשמור. אפשר לנסות שוב.",
-        "busy": "יותר מדי שינויים בבת אחת. אפשר לנסות שוב בעוד דקה."
+        "busy": "יותר מדי שינויים בבת אחת. אפשר לנסות שוב בעוד דקה.",
+        "reconnect": "פג התוקף של החיבור ל-Google"
       },
       "discard": {
         "title": "לוותר על השינויים?",
@@ -300,7 +313,8 @@
       "cancel": "ביטול",
       "confirmDelete": "למחוק את ״{title}״?",
       "deleteConfirm": "מחיקה",
-      "dayMoveNote": "כדי להעביר את כל המופעים ליום אחר, צריך למחוק את הסדרה וליצור אותה מחדש."
+      "dayMoveNote": "כדי להעביר את כל המופעים ליום אחר, צריך למחוק את הסדרה וליצור אותה מחדש.",
+      "seriesNote": "שינוי של יומן או של הנמען חל מהמופע הזה והלאה, או על כל המופעים."
     },
     "empty": {
       "title": "אין אירועים",
