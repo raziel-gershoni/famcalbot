@@ -481,6 +481,18 @@ export interface UpdateNativeEventInput {
    * the home works out. With 'following' they always say where the cut occurrence goes.
    */
   occurrenceTimes?: boolean;
+  // Series-level changes (3b spec §3.1). Each is refused with 'single' on a series.
+  /**
+   * The new rule (bare, as stored), or null to stop repeating; omitted keeps it. On a series
+   * only with 'following' (from the first occurrence that is the whole series), with the
+   * old rule's end carried; a one-off takes it as itself. A stop's times are where the cut
+   * occurrence goes, never converted.
+   */
+  rrule?: string | null;
+  /** An event's new calendar (a native cuid). A reminder has none to change. */
+  calendarId?: string;
+  /** A reminder's new recipient: the creator's ACTIVE partner, or null for the creator. Only the creator may change it. */
+  forUserId?: number | null;
 }
 
 /** A ping message whose buttons a reminder's time change made stale. */
@@ -529,11 +541,17 @@ export async function isFirstOccurrence(series: NativeEvent, cut: Date): Promise
 
 /**
  * The rule of the part "this one and the ones after" starts at `cut`, now at `newStart`: the
- * series' own, with its UNTIL moved as the cut moved and a COUNT cut to what is left after
- * the slots before the cut (at least 1, the cut being a slot).
+ * series' own, or `newRule` with the old rule's end carried (endCarriedRule), with its UNTIL
+ * moved as the cut moved and a COUNT cut to what is left after the slots before the cut (at
+ * least 1, the cut being a slot).
  */
-function tailRule(series: NativeEvent, cut: Date, newStart: Date): string {
-  const rule = shiftUntil(series.rrule!, cut, newStart, series.timeZone);
+function tailRule(series: NativeEvent, cut: Date, newStart: Date, newRule?: string): string {
+  let base = series.rrule!;
+  if (newRule !== undefined) {
+    base = endCarriedRule(newRule, series.rrule!, series)!;
+    assertStorableRule(base);
+  }
+  const rule = shiftUntil(base, cut, newStart, series.timeZone);
   const count = /(^|;)COUNT=(\d+)/i.exec(rule);
   if (!count) return rule;
   return withCount(rule, Math.max(1, Number(count[2]) - slotsBefore({ ...series, rrule: series.rrule! }, cut)));
@@ -591,6 +609,10 @@ export function followingTimesFor(
  * starts where followingTimesFor puts it. What the edit leaves out stays: a start alone
  * keeps the occurrence's length, an end alone keeps the start.
  */
+/** The rule that places times after an edit: the new one when the edit sets one (null: none). */
+const ruleAfter = (series: Pick<NativeEvent, 'rrule'>, input: Pick<UpdateNativeEventInput, 'rrule'>): string | null =>
+  input.rrule !== undefined ? input.rrule : series.rrule;
+
 async function ownTimes(series: NativeEvent, input: UpdateNativeEventInput): Promise<UpdateNativeEventInput> {
   const slot = input.instanceStartsAt;
   const ofOccurrence = input.scope === 'following' || (input.scope === 'all' && input.occurrenceTimes);
@@ -613,7 +635,7 @@ async function ownTimes(series: NativeEvent, input: UpdateNativeEventInput): Pro
   }
   const length = (moved?.endsAt ?? new Date(slot.getTime() + (series.endsAt.getTime() - series.startsAt.getTime()))).getTime() - from.getTime();
   const to = { startsAt: input.startsAt, endsAt: input.endsAt ?? new Date(input.startsAt.getTime() + length), allDay };
-  return { ...input, ...(input.scope === 'all' ? seriesTimesFor(base, from, to) : followingTimesFor(series, slot, from, to)) };
+  return { ...input, ...(input.scope === 'all' ? seriesTimesFor(base, from, to) : followingTimesFor({ rrule: ruleAfter(series, input), timeZone: series.timeZone }, slot, from, to)) };
 }
 
 /**
@@ -621,7 +643,7 @@ async function ownTimes(series: NativeEvent, input: UpdateNativeEventInput): Pro
  * occurrence: the series' own start ('all') or the new series' ('following') off its day.
  */
 function movesFixedDays(series: NativeEvent, input: UpdateNativeEventInput): boolean {
-  if (input.startsAt === undefined || !fixesDays(series.rrule)) return false;
+  if (input.startsAt === undefined || !fixesDays(ruleAfter(series, input))) return false;
   const tz = series.timeZone || TIMEZONE;
   if (input.scope === 'all') return localDate(input.startsAt, tz) !== localDate(series.startsAt, tz);
   if (input.scope === 'following' && input.instanceStartsAt) return localDate(input.startsAt, tz) !== localDate(input.instanceStartsAt, tz);
@@ -635,8 +657,10 @@ function movesFixedDays(series: NativeEvent, input: UpdateNativeEventInput): boo
  */
 export async function refusesFixedDays(given: UpdateNativeEventInput): Promise<boolean> {
   const series = await prisma.nativeEvent.findUnique({ where: { id: given.seriesCuid } });
-  if (!series || series.isDeleted || !fixesDays(series.rrule)) return false;
-  return movesFixedDays(series, await ownTimes(series, given));
+  if (!series || series.isDeleted) return false;
+  const input = changesOnly(series, given);
+  if (!fixesDays(ruleAfter(series, input))) return false;
+  return movesFixedDays(series, input.rrule === null ? input : await ownTimes(series, input));
 }
 
 /**
@@ -687,6 +711,165 @@ async function moveInstances(
   }
 }
 
+/** The edit without the series-level fields that equal what the series already has. */
+function changesOnly(series: NativeEvent, input: UpdateNativeEventInput): UpdateNativeEventInput {
+  const out = { ...input };
+  if (out.rrule !== undefined && (out.rrule ?? null) === (series.rrule ?? null)) delete out.rrule;
+  if (out.calendarId !== undefined && out.calendarId === series.calendarId) delete out.calendarId;
+  if (out.forUserId !== undefined && (out.forUserId ?? null) === (series.forUserId ?? null)) delete out.forUserId;
+  return out;
+}
+
+/**
+ * Refuse a series-level change (a rule, a calendar, a recipient) the store can't make
+ * (3b spec §3.1), before anything is written: the scope, the rule, the destination
+ * calendar (write access there too, never the user's own private one for the partner's
+ * event) and the recipient (only the creator changes it, to their partner who can be
+ * pinged, or back to themselves).
+ */
+async function checkSeriesFields(
+  series: NativeEvent,
+  calendar: NativeCalendar,
+  actor: Pick<User, 'id' | 'pairingId'>,
+  input: UpdateNativeEventInput
+): Promise<void> {
+  const seriesLevel = input.rrule !== undefined || input.calendarId !== undefined || input.forUserId !== undefined;
+  if (!seriesLevel) return;
+  if (series.rrule) {
+    // An occurrence has no rule, calendar or recipient of its own.
+    if (input.scope === 'single') throw new NativeScopeError('scope');
+    // A rule changes from an occurrence on: the earlier ones keep theirs.
+    if (input.rrule !== undefined && (input.scope !== 'following' || !input.instanceStartsAt)) throw new NativeScopeError('scope');
+  }
+  if (input.rrule) assertStorableRule(input.rrule);
+  const isReminder = series.kind === 'REMINDER';
+  if (input.calendarId !== undefined) {
+    // A reminder lives on its creator's main calendar.
+    if (isReminder) throw new NativeScopeError('calendarId');
+    const dest = await prisma.nativeCalendar.findUnique({ where: { id: input.calendarId } });
+    if (!dest || dest.isDeleted) throw new NativeDestinationError('Destination calendar not found');
+    if (!canWriteAccess(await getCalendarAccess(actor, dest))) throw new NativeDestinationError('Destination calendar not writable');
+    // The partner's event would silently leave their view.
+    if (calendar.ownerUserId !== actor.id && dest.ownerUserId === actor.id && dest.privacy === 'PRIVATE') {
+      throw new NativeDestinationError('A partner\'s event cannot move to a private calendar');
+    }
+  }
+  if (input.forUserId !== undefined) {
+    if (!isReminder) throw new NativeRecipientError('Only a reminder has a recipient');
+    if (series.creatorUserId !== actor.id) throw new NativePermissionDeniedError('Only the creator changes who a reminder is for');
+    if (input.forUserId !== null) {
+      // As resolve.ts targetFor: the ACTIVE partner, on the built-in calendar, on Telegram.
+      const partner = await getActivePartnerSummary(actor.id, actor.pairingId ?? null);
+      if (!partner || partner.id !== input.forUserId || partner.calendarSource !== 'NATIVE' || partner.telegramId === null) {
+        throw new NativeRecipientError();
+      }
+    }
+  }
+}
+
+/**
+ * One occurrence of a series as it stands (its override applied), by its slot, or
+ * undefined when the series has none there (cancelled, cut off, or never one). The window
+ * reaches wherever an override moved it.
+ */
+export function occurrenceAt(series: NativeEvent, overrides: NativeEventInstance[], slot: Date): VirtualInstance | undefined {
+  const override = overrides.find((o) => o.originalStartsAt.getTime() === slot.getTime());
+  const length = Math.max(0, series.endsAt.getTime() - series.startsAt.getTime());
+  const moved = [slot, override?.startsAt, override?.endsAt].filter((d): d is Date => d instanceof Date).map((d) => d.getTime());
+  const from = new Date(Math.min(...moved) - 2 * DAY_MS);
+  const to = new Date(Math.max(...moved) + 2 * DAY_MS + length);
+  return expandSeries(series, { from, to }, overrides).find((i) => i.instanceStartsAt.getTime() === slot.getTime());
+}
+
+/** Delete the state rows `where` matches, for occurrences that no longer exist; their live pings ("changed"). */
+async function dropStates(tx: Prisma.TransactionClient, where: Prisma.NativeReminderStateWhereInput): Promise<ClearedPing[]> {
+  const rows = await tx.nativeReminderState.findMany({ where, select: { pingChatId: true, pingMessageId: true } });
+  if (rows.length === 0) return [];
+  await tx.nativeReminderState.deleteMany({ where });
+  return pingsOf(rows);
+}
+
+/**
+ * Stop repeating (3b spec §3.1): from a later occurrence the series is cut there and the
+ * opened occurrence becomes a one-off of its own; from the first, the series row itself
+ * becomes that one-off (no rule, no skips, no rows). The one-off has the occurrence's own
+ * values with the edit's on top, the series' creator and kind, and the edit's calendar and
+ * recipient when it changes them. The later occurrences go. The opened one's reminder state
+ * moves with it only when its time is unchanged (done and snooze kept); otherwise it goes,
+ * as a time change re-arms.
+ */
+async function stopRepeating(series: NativeEvent, input: UpdateNativeEventInput, first: boolean): Promise<UpdateNativeEventResult> {
+  const cut = input.instanceStartsAt!;
+  const isReminder = series.kind === 'REMINDER';
+  const tz = series.timeZone || TIMEZONE;
+  const overrides = await prisma.nativeEventInstance.findMany({ where: { seriesEventId: series.id } });
+  const occ = occurrenceAt(series, overrides, cut);
+  if (!occ) throw new NativeNotFoundError('Occurrence not found');
+  const allDay = input.allDay ?? occ.allDay;
+  const start = input.startsAt ?? occ.startsAt;
+  const end = input.endsAt ?? (input.startsAt ? new Date(start.getTime() + (occ.endsAt.getTime() - occ.startsAt.getTime())) : occ.endsAt);
+  const times = isReminder ? normalizeReminderTimes(start, allDay, tz) : { startsAt: start, endsAt: end };
+  const moved = times.startsAt.getTime() !== occ.startsAt.getTime() || allDay !== occ.allDay;
+  const reassign = isReminder && input.forUserId !== undefined;
+  const values = {
+    title: input.title ?? occ.title,
+    description: input.description !== undefined ? input.description : (occ.description ?? null),
+    location: input.location !== undefined ? input.location : (occ.location ?? null),
+    ...times,
+    allDay,
+    calendarId: input.calendarId ?? series.calendarId,
+    ...(isReminder
+      ? { forUserId: reassign ? input.forUserId! : series.forUserId, armedAt: moved ? new Date() : series.armedAt }
+      : {}),
+  };
+  const pings = { clearedPings: [] as ClearedPing[], changedPings: [] as ClearedPing[], reassignedPings: [] as ClearedPing[] };
+  /** The opened occurrence's state row, once the one-off `to` is its home. */
+  const settleOpened = async (tx: Prisma.TransactionClient, to: string) => {
+    const row = await tx.nativeReminderState.findUnique({
+      where: { seriesEventId_originalStartsAt: { seriesEventId: series.id, originalStartsAt: cut } },
+      select: { id: true, doneAt: true, pingChatId: true, pingMessageId: true },
+    });
+    if (!row) return;
+    const startsAfresh = reassign && row.doneAt === null;
+    if (moved || startsAfresh) {
+      await tx.nativeReminderState.deleteMany({ where: { id: row.id } });
+      (startsAfresh ? pings.reassignedPings : pings.clearedPings).push(...pingsOf([row]));
+      return;
+    }
+    await tx.nativeReminderState.update({ where: { id: row.id }, data: { seriesEventId: to, originalStartsAt: times.startsAt } });
+  };
+  const oneOffId = await prisma.$transaction(async (tx) => {
+    if (first) {
+      if (isReminder) {
+        // The others go first, so the re-key can't land on one of their keys.
+        pings.changedPings = await dropStates(tx, { seriesEventId: series.id, originalStartsAt: { not: cut } });
+        await settleOpened(tx, series.id);
+      }
+      await tx.nativeEventInstance.deleteMany({ where: { seriesEventId: series.id } });
+      await tx.nativeEvent.update({ where: { id: series.id }, data: { ...values, rrule: null, exdates: [] } });
+      return series.id;
+    }
+    await tx.nativeEvent.update({ where: { id: series.id }, data: { rrule: truncateRruleBefore(series.rrule!, cut, series.timeZone) } });
+    const oneOff = await tx.nativeEvent.create({
+      data: {
+        ...values,
+        creatorUserId: series.creatorUserId,
+        kind: series.kind,
+        timeZone: series.timeZone,
+        reminderMinutes: series.reminderMinutes,
+        rrule: null,
+      },
+    });
+    await tx.nativeEventInstance.deleteMany({ where: { seriesEventId: series.id, originalStartsAt: { gte: cut } } });
+    if (isReminder) {
+      pings.changedPings = await dropStates(tx, { seriesEventId: series.id, originalStartsAt: { gt: cut } });
+      await settleOpened(tx, oneOff.id);
+    }
+    return oneOff.id;
+  });
+  return resultOf(encodeEventId(oneOffId), { seriesId: oneOffId, slot: null }, pings);
+}
+
 /**
  * Update an event with scope semantics that mirror the GCal flow.
  * Returns the canonical id the caller should reference afterwards (the series
@@ -713,11 +896,20 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
   if (!canWriteAccess(access) && !(isReminder && series.creatorUserId === actor.id)) {
     throw new NativePermissionDeniedError();
   }
-  input = await ownTimes(series, input);
+  input = changesOnly(series, input);
+  await checkSeriesFields(series, calendar, actor, input);
+  // A stop's times are where the cut occurrence goes, as they are (3b spec §3.1).
+  const stop = input.rrule === null && !!series.rrule;
+  if (!stop) input = await ownTimes(series, input);
   if (movesFixedDays(series, input)) throw new NativeFixedDaysError();
   // "This one and the ones after" from the first occurrence is the whole series, changed in
   // place: no empty series is left behind (3b spec §3.1).
   const first = input.scope === 'following' && !!series.rrule && !!input.instanceStartsAt && (await isFirstOccurrence(series, input.instanceStartsAt));
+  if (stop) {
+    const result = await stopRepeating(series, input, first);
+    if (isReminder) invalidateDueGate();
+    return result;
+  }
   if (isReminder) {
     const result = await updateNativeReminder(series, input, first);
     invalidateDueGate();
@@ -725,13 +917,17 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
   }
 
   // Field update bag for series-level changes
-  const seriesUpdate: Prisma.NativeEventUpdateInput = {};
+  const seriesUpdate: Prisma.NativeEventUncheckedUpdateInput = {};
   if (input.title !== undefined) seriesUpdate.title = input.title;
   if (input.description !== undefined) seriesUpdate.description = input.description;
   if (input.location !== undefined) seriesUpdate.location = input.location;
   if (input.startsAt !== undefined) seriesUpdate.startsAt = input.startsAt;
   if (input.endsAt !== undefined) seriesUpdate.endsAt = input.endsAt;
   if (input.allDay !== undefined) seriesUpdate.allDay = input.allDay;
+  if (input.calendarId !== undefined) seriesUpdate.calendarId = input.calendarId;
+  // A one-off that starts repeating keeps its row; its key gains its start.
+  if (input.rrule && !series.rrule) seriesUpdate.rrule = input.rrule;
+  const oneOffSlot = input.rrule && !series.rrule ? (input.startsAt ?? series.startsAt) : null;
 
   // Single occurrence (recurring): write/upsert NativeEventInstance OVERRIDE
   if (input.scope === 'single' && series.rrule && input.instanceStartsAt) {
@@ -767,7 +963,7 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
   // Single occurrence on a non-recurring event: act on the series itself.
   if (input.scope === 'single' && !series.rrule) {
     await prisma.nativeEvent.update({ where: { id: series.id }, data: seriesUpdate });
-    return resultOf(encodeEventId(series.id), { seriesId: series.id, slot: null });
+    return resultOf(encodeEventId(series.id), { seriesId: series.id, slot: oneOffSlot });
   }
 
   // 'all': update the series. New times reach every occurrence: the ones moved on their
@@ -815,7 +1011,7 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
     });
     // The opened occurrence is where its slot went (the series' first, when none was given).
     const opened = input.instanceStartsAt ?? series.startsAt;
-    const slot = !series.rrule ? null : start !== undefined ? shiftOnWall(opened, series.startsAt, start, series.timeZone) : opened;
+    const slot = !series.rrule ? oneOffSlot : start !== undefined ? shiftOnWall(opened, series.startsAt, start, series.timeZone) : opened;
     return resultOf(encodeEventId(series.id), { seriesId: series.id, slot });
   }
 
@@ -825,7 +1021,7 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
     if (!series.rrule || !input.instanceStartsAt) {
       // Fallback: nothing to truncate; treat as 'all'
       await prisma.nativeEvent.update({ where: { id: series.id }, data: seriesUpdate });
-      return resultOf(encodeEventId(series.id), { seriesId: series.id, slot: series.rrule ? series.startsAt : null });
+      return resultOf(encodeEventId(series.id), { seriesId: series.id, slot: series.rrule ? series.startsAt : oneOffSlot });
     }
     const cut = input.instanceStartsAt;
     // What was done to the occurrences from the cut one by one comes along: the skipped stay
@@ -836,7 +1032,7 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
     const newStarts = input.startsAt ?? cut;
     const newEnds = input.endsAt ?? new Date(newStarts.getTime() + (series.endsAt.getTime() - series.startsAt.getTime()));
     const slotOf = (d: Date) => shiftOnWall(d, cut, newStarts, series.timeZone);
-    const rrule = tailRule(series, cut, newStarts);
+    const rrule = tailRule(series, cut, newStarts, input.rrule ?? undefined);
     const shape: NativeEvent = { ...series, rrule, startsAt: newStarts, endsAt: newEnds, allDay: input.allDay ?? series.allDay };
     const retimed = input.startsAt !== undefined || input.endsAt !== undefined || input.allDay !== undefined;
     const clear: Prisma.NativeEventInstanceUncheckedUpdateInput = {
@@ -873,7 +1069,7 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
       // 2. Insert new series starting from the instance, with overrides applied.
       const newSeries = await tx.nativeEvent.create({
         data: {
-          calendarId: series.calendarId,
+          calendarId: input.calendarId ?? series.calendarId,
           creatorUserId: input.actingUserId,
           title: input.title ?? series.title,
           description: input.description ?? series.description,
@@ -982,20 +1178,41 @@ async function updateNativeReminder(
   }
 
   // 'following' from an occurrence: cut the series there and start a new one. The new
-  // series stays the creator's reminder for the same person, whoever made the edit.
+  // series stays the creator's reminder, for the same person unless the edit changes it,
+  // whoever made the edit.
+  const newRule = input.rrule ?? undefined;
+  const reassign = input.forUserId !== undefined;
+  const forUserId = reassign ? input.forUserId! : series.forUserId;
   if (input.scope === 'following' && series.rrule && input.instanceStartsAt) {
     const cut = input.instanceStartsAt;
     const edit = reminderTimeEdit({ startsAt: cut, allDay: series.allDay }, input, series.timeZone);
     const target = edit ?? { startsAt: cut, endsAt: cut, allDay: series.allDay, changed: false };
     const slotOf = (slot: Date) => shiftOnWall(slot, cut, target.startsAt, series.timeZone);
-    const rrule = tailRule(series, cut, target.startsAt);
+    const rrule = tailRule(series, cut, target.startsAt, newRule);
     const shape: NativeEvent = { ...series, rrule, startsAt: target.startsAt, endsAt: target.endsAt, allDay: target.allDay };
     const cleared = {
       ...(input.title !== undefined ? { title: null } : {}),
       ...(input.description !== undefined ? { description: null } : {}),
       ...(input.location !== undefined ? { location: null } : {}),
     };
+    // A new time starts the occurrences afresh; so does a new rule, which may make some in
+    // the past: armed from now, those don't ping (3b spec §3.1, Re-arm).
+    const armedAt = target.changed || newRule !== undefined ? new Date() : series.armedAt;
     const key = (seriesId: string) => ({ seriesId, slot: target.startsAt });
+    /**
+     * The state of the occurrences from the cut, once they belong to `seriesId`: all gone
+     * when the time moved; else those the rule no longer yields gone; and with a new
+     * recipient the open ones start afresh for them.
+     */
+    const settleStates = async (tx: Prisma.TransactionClient, seriesId: string, since?: Date) => {
+      const where = { seriesEventId: series.id, ...(since ? { originalStartsAt: { gte: since } } : {}) };
+      if (target.changed) return takeStates(tx, where, reassign, newRule !== undefined ? { slotOf, shape } : undefined);
+      const changedPings = newRule !== undefined || seriesId === series.id
+        ? await keepYieldedStates(tx, { fromSeries: series.id, toSeries: seriesId, since, shape })
+        : (await tx.nativeReminderState.updateMany({ where, data: { seriesEventId: seriesId } }), []);
+      const reassignedPings = reassign ? await reassignOpenStates(tx, { seriesEventId: seriesId, ...(since ? { originalStartsAt: { gte: since } } : {}) }) : [];
+      return { changedPings, reassignedPings };
+    };
     if (first) {
       // From the first occurrence it is the whole series, changed in place (3b spec §3.1):
       // its start goes where the cut goes and its rows are re-keyed and checked in place.
@@ -1009,16 +1226,16 @@ async function updateNativeReminder(
             allDay: target.allDay,
             rrule,
             exdates: carriedExdates(series.exdates, undefined, slotOf, shape),
-            ...(target.changed ? { armedAt: new Date() } : {}),
+            armedAt,
+            forUserId,
           },
         });
         await moveInstances(tx, { fromSeries: series.id, toSeries: series.id, slotOf, shape, dropOverrides: target.changed, clear: target.changed ? {} : cleared });
-        if (target.changed) return { clearedPings: await clearReminderStates(tx, { seriesEventId: series.id }) };
-        return { changedPings: await keepYieldedStates(tx, { fromSeries: series.id, toSeries: series.id, shape }) };
+        return settleStates(tx, series.id);
       });
       return resultOf(encodeEventId(series.id), key(series.id), pings);
     }
-    const { newSeriesId, clearedPings } = await prisma.$transaction(async (tx) => {
+    const { newSeriesId, pings } = await prisma.$transaction(async (tx) => {
       await tx.nativeEvent.update({
         where: { id: series.id },
         data: { rrule: truncateRruleBefore(series.rrule!, cut, series.timeZone) },
@@ -1037,8 +1254,8 @@ async function updateNativeReminder(
           rrule,
           reminderMinutes: series.reminderMinutes,
           kind: 'REMINDER',
-          forUserId: series.forUserId,
-          armedAt: target.changed ? new Date() : series.armedAt,
+          forUserId,
+          armedAt,
           // The occurrences skipped after the cut stay skipped, keyed where they went.
           exdates: carriedExdates(series.exdates, cut, slotOf, shape),
         },
@@ -1048,20 +1265,20 @@ async function updateNativeReminder(
         // Moved, the new series starts afresh: what was moved on its own goes; the
         // cancellations follow, keyed where the new series puts them.
         await moveInstances(tx, { fromSeries: series.id, toSeries: newSeries.id, since: cut, slotOf, shape, dropOverrides: true, clear: {} });
+      } else if (newRule !== undefined) {
+        // A new rule: the rows follow where it still has an occurrence, and the others go,
+        // since an override the rule doesn't yield would show, and ping, on its own.
+        await moveInstances(tx, { fromSeries: series.id, toSeries: newSeries.id, since: cut, slotOf, shape, dropOverrides: false, clear: cleared });
       } else {
         // Same keys under the new series, so skipped and moved occurrences follow it.
         // A field this edit sets wins over an older per-occurrence value.
         await tx.nativeEventInstance.updateMany({ where: fromCut, data: { seriesEventId: newSeries.id, ...cleared } });
       }
-      if (target.changed) {
-        return { newSeriesId: newSeries.id, clearedPings: await clearReminderStates(tx, fromCut) };
-      }
-      // Unmoved, the new series' occurrences keep the same instants, so their
-      // done/snoozed state follows them to it.
-      await tx.nativeReminderState.updateMany({ where: fromCut, data: { seriesEventId: newSeries.id } });
-      return { newSeriesId: newSeries.id, clearedPings: [] };
+      // Unmoved, the new series' occurrences keep the same instants, so their done/snoozed
+      // state follows them to it.
+      return { newSeriesId: newSeries.id, pings: await settleStates(tx, newSeries.id, cut) };
     });
-    return resultOf(encodeEventId(newSeriesId), key(newSeriesId), { clearedPings });
+    return resultOf(encodeEventId(newSeriesId), key(newSeriesId), pings);
   }
 
   // The series itself: a one-off reminder, every occurrence ('all'), or 'following'
@@ -1071,17 +1288,25 @@ async function updateNativeReminder(
     return resultOf(encodeEventId(series.id), { seriesId: series.id, slot: series.startsAt });
   }
   const edit = reminderTimeEdit({ startsAt: series.startsAt, allDay: series.allDay }, input, series.timeZone);
-  const clearedPings = await prisma.$transaction(async (tx) => {
+  // A one-off that starts repeating keeps its row, and its state at its start.
+  const startsRepeating = !!input.rrule && !series.rrule;
+  const pings = await prisma.$transaction(async (tx) => {
     await tx.nativeEvent.update({
       where: { id: series.id },
       data: {
         ...text,
         ...(edit ? { startsAt: edit.startsAt, endsAt: edit.endsAt, allDay: edit.allDay } : {}),
         ...(edit?.changed ? { armedAt: new Date() } : {}),
+        ...(startsRepeating ? { rrule: input.rrule } : {}),
+        ...(reassign ? { forUserId } : {}),
       },
     });
-    // Every occurrence at the series' time, which stays: the ones moved on their own come back to it.
-    if (!edit?.changed) return edit && input.scope === 'all' ? unmoveOccurrences(tx, series) : [];
+    if (!edit?.changed) {
+      // Every occurrence at the series' time, which stays: the ones moved on their own come back to it.
+      const clearedPings = edit && input.scope === 'all' && series.rrule ? await unmoveOccurrences(tx, series) : [];
+      const reassignedPings = reassign ? await reassignOpenStates(tx, { seriesEventId: series.id }) : [];
+      return { clearedPings, reassignedPings };
+    }
     // Every occurrence moves and starts afresh: what was moved on its own goes, and what
     // was skipped stays skipped, keyed where it went.
     if (input.scope === 'all' && series.rrule) {
@@ -1094,12 +1319,52 @@ async function updateNativeReminder(
       });
       await moveInstances(tx, { fromSeries: series.id, toSeries: series.id, slotOf, shape, dropOverrides: true, clear: {} });
     }
-    return clearReminderStates(tx, { seriesEventId: series.id });
+    return takeStates(tx, { seriesEventId: series.id }, reassign);
   });
   // The opened occurrence is where its slot went (the series' first, when none was given).
   const opened = input.instanceStartsAt ?? series.startsAt;
-  const slot = !series.rrule ? null : edit?.changed ? shiftOnWall(opened, series.startsAt, edit.startsAt, series.timeZone) : opened;
-  return resultOf(encodeEventId(series.id), { seriesId: series.id, slot }, { clearedPings });
+  const start = edit?.startsAt ?? series.startsAt;
+  const slot = startsRepeating ? start : !series.rrule ? null : edit?.changed ? shiftOnWall(opened, series.startsAt, edit.startsAt, series.timeZone) : opened;
+  return resultOf(encodeEventId(series.id), { seriesId: series.id, slot }, pings);
+}
+
+/**
+ * Delete the state rows `where` matches, as a time change does (each pings again at its new
+ * time), and return their live pings: "moved", or, with `reassign` (a new recipient in the
+ * same save), "now for" for the open ones. With a new rule (`rule`: where each slot goes and
+ * the series as it will be), an occurrence the rule no longer yields didn't move, it is
+ * gone: "changed".
+ */
+async function takeStates(
+  tx: Prisma.TransactionClient,
+  where: Prisma.NativeReminderStateWhereInput,
+  reassign: boolean,
+  rule?: { slotOf: (slot: Date) => Date; shape: NativeEvent }
+): Promise<{ clearedPings: ClearedPing[]; reassignedPings: ClearedPing[]; changedPings: ClearedPing[] }> {
+  const rows = await tx.nativeReminderState.findMany({ where, select: { originalStartsAt: true, doneAt: true, pingChatId: true, pingMessageId: true } });
+  if (rows.length === 0) return { clearedPings: [], reassignedPings: [], changedPings: [] };
+  await tx.nativeReminderState.deleteMany({ where });
+  const yields = rule ? yieldsSlots(rule.shape, rows.map((r) => rule.slotOf(r.originalStartsAt))) : null;
+  const gone = (r: { originalStartsAt: Date }) => yields !== null && !yields.has(rule!.slotOf(r.originalStartsAt).getTime());
+  const open = (r: { doneAt: Date | null }) => reassign && r.doneAt === null;
+  return {
+    changedPings: pingsOf(rows.filter(gone)),
+    reassignedPings: pingsOf(rows.filter((r) => !gone(r) && open(r))),
+    clearedPings: pingsOf(rows.filter((r) => !gone(r) && !open(r))),
+  };
+}
+
+/**
+ * A new recipient (3b spec §3.1): the open (not done) state rows `where` matches are
+ * deleted, so each occurrence starts afresh for them, and their live pings come back for
+ * "now for". Done ones stay done.
+ */
+async function reassignOpenStates(tx: Prisma.TransactionClient, where: Prisma.NativeReminderStateWhereInput): Promise<ClearedPing[]> {
+  const open = { ...where, doneAt: null };
+  const rows = await tx.nativeReminderState.findMany({ where: open, select: { pingChatId: true, pingMessageId: true } });
+  if (rows.length === 0) return [];
+  await tx.nativeReminderState.deleteMany({ where: open });
+  return pingsOf(rows);
 }
 
 /**
