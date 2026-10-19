@@ -881,6 +881,45 @@ async function main() {
     assert(iso(eventRow(id).endsAt) === iso(at('2026-10-20 13:30')) && iso(eventRow(id).startsAt) === iso(at('2026-10-20 11:30')), 'only the end moved');
   });
 
+  await check('edit event, all of them, the start where it was: a new end reaches an occurrence with its own times too; its title, another one\'s location and a cancelled one stay', async () => {
+    seed();
+    const { id, occ } = await weeklySeries();
+    const longer = await patch({ key: occ('2026-10-27'), scope: 'single', changes: { title: 'Dentist, longer', end: '2026-10-27T11:30' } });
+    assert(longer.status === 200 && iso(overrides(id)[0].endsAt) === iso(at('2026-10-27 11:30')), `single: ${longer.status} ${longer.text}`);
+    await patch({ key: occ('2026-11-03'), scope: 'single', changes: { location: 'Home' } });
+    await patch({ key: occ('2026-11-10'), scope: 'single', changes: { start: '2026-11-10T09:00' } });
+    await del({ key: occ('2026-11-10'), scope: 'single' });
+    const all = await patch({ key: occ('2026-10-27'), scope: 'all', changes: { end: '2026-10-27T12:00' } });
+    assert(all.status === 200 && all.body.key === occ('2026-10-27'), `all: ${all.status} ${all.text}`);
+    assertSame([iso(eventRow(id).startsAt), iso(eventRow(id).endsAt)], [iso(at('2026-10-20 10:00')), iso(at('2026-10-20 12:00'))], 'the series: same start, the new end');
+    for (const d of ['2026-10-20', '2026-10-27', '2026-11-03', '2026-11-17']) {
+      const read = await itemOf(occ(d));
+      assertSame([read.body.occurrence.start, read.body.occurrence.end], [`${d}T10:00`, `${d}T12:00`], `${d} has the new end`);
+    }
+    assertSame([(await itemOf(occ('2026-10-27'))).body.occurrence.title, (await itemOf(occ('2026-11-03'))).body.occurrence.location], ['Dentist, longer', 'Home'], 'what else the overrides carry stays');
+    assertSame([(await itemOf(occ('2026-11-10'))).status, overrides(id).find((o) => iso(o.originalStartsAt) === iso(at('2026-11-10 10:00')))?.status], [404, 'CANCELLED'], 'the cancelled one stays cancelled');
+  });
+
+  await check('edit reminder, all of them back at the series\' time: the occurrence moved on its own comes back, its state goes and its ping is stripped', async () => {
+    seed();
+    const created = await post(reminderBody({ repeat: 'daily' }));
+    const id = idOf(created.body.key);
+    const day = (d: string) => `famcal|${id}#${iso(at(`${d} 17:30`))}`;
+    const moved = await patch({ key: day('2026-10-21'), scope: 'single', changes: { title: 'Plumber, later', start: '2026-10-21T19:00' } });
+    assert(moved.status === 200, `single: ${moved.status} ${moved.text}`);
+    seedState(id, at('2026-10-21 17:30'), 61, { lastPingedAt: at('2026-10-21 19:00') });
+    seedState(id, at('2026-10-22 17:30'), 62);
+    stripped.length = 0;
+    eventRow(id).armedAt = OLD;
+    const back = await patch({ key: day('2026-10-21'), scope: 'all', changes: { start: '2026-10-21T17:30' } });
+    assert(back.status === 200 && back.body.key === day('2026-10-21'), `all: ${back.status} ${back.text}`);
+    const read = await itemOf(day('2026-10-21'));
+    assertSame([read.body.occurrence.start, read.body.occurrence.title, iso(eventRow(id).startsAt)], ['2026-10-21T17:30', 'Plumber, later', iso(at('2026-10-20 17:30'))], 'back at 17:30, its title kept, the series where it was');
+    assertSame(tables.nativeReminderState.map((r) => r.pingMessageId), [62], 'only the moved one\'s state went');
+    assertSame(stripped.map((x) => x.pings.map((p: Row) => p.messageId)), [[61]], 'and its ping was stripped');
+    assert(eventRow(id).armedAt.getTime() > OLD.getTime(), 'armed again');
+  });
+
   await check('edit event, all of them, to another day: the series shifts by those days, and the weekday follows', async () => {
     seed();
     const { id, occ } = await weeklySeries();

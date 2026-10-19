@@ -497,12 +497,19 @@ export async function updateNativeEvent(
   }
 
   // 'all': update the series. If startsAt changes we wipe orphan overrides
-  // (matches GCal behavior; documented in the plan).
+  // (matches GCal behavior; documented in the plan). A new end or form with the start
+  // where it was reaches every occurrence too: the ones moved on their own lose their own
+  // times, and keep what else they carry (a title, a cancellation).
   if (input.scope === 'all') {
     await prisma.$transaction(async (tx) => {
       await tx.nativeEvent.update({ where: { id: series.id }, data: seriesUpdate });
       if (input.startsAt !== undefined) {
         await tx.nativeEventInstance.deleteMany({ where: { seriesEventId: series.id } });
+      } else if (input.endsAt !== undefined || input.allDay !== undefined) {
+        await tx.nativeEventInstance.updateMany({
+          where: { seriesEventId: series.id, status: 'OVERRIDE' },
+          data: { startsAt: null, endsAt: null, allDay: null },
+        });
       }
     });
     return { canonicalEventId: encodeEventId(series.id), clearedPings: [] };
@@ -716,7 +723,8 @@ async function updateNativeReminder(
         ...(edit?.changed ? { armedAt: new Date() } : {}),
       },
     });
-    if (!edit?.changed) return [];
+    // Every occurrence at the series' time, which stays: the ones moved on their own come back to it.
+    if (!edit?.changed) return edit && input.scope === 'all' ? unmoveOccurrences(tx, series) : [];
     // Moving every occurrence orphans the overrides, as for an event.
     if (input.scope === 'all') {
       await tx.nativeEventInstance.deleteMany({ where: { seriesEventId: series.id } });
@@ -724,6 +732,27 @@ async function updateNativeReminder(
     return clearReminderStates(tx, { seriesEventId: series.id });
   });
   return { canonicalEventId: encodeEventId(series.id), clearedPings };
+}
+
+/**
+ * The occurrences of a reminder that were moved on their own go back to the series' time:
+ * their overrides lose their times (a title stays), and each moved one loses its state, so
+ * it pings again there, armed from now. Returns their live pings.
+ */
+async function unmoveOccurrences(tx: Prisma.TransactionClient, series: NativeEvent): Promise<ClearedPing[]> {
+  const overrides = await tx.nativeEventInstance.findMany({ where: { seriesEventId: series.id, status: 'OVERRIDE' } });
+  const timed = overrides.filter((o) => o.startsAt !== null || o.endsAt !== null || o.allDay !== null);
+  if (timed.length === 0) return [];
+  await tx.nativeEventInstance.updateMany({
+    where: { id: { in: timed.map((o) => o.id) } },
+    data: { startsAt: null, endsAt: null, allDay: null },
+  });
+  const moved = timed.filter(
+    (o) => (o.startsAt !== null && o.startsAt.getTime() !== o.originalStartsAt.getTime()) || (o.allDay !== null && o.allDay !== series.allDay)
+  );
+  if (moved.length === 0) return [];
+  await tx.nativeEvent.update({ where: { id: series.id }, data: { armedAt: new Date() } });
+  return clearReminderStates(tx, { seriesEventId: series.id, originalStartsAt: { in: moved.map((o) => o.originalStartsAt) } });
 }
 
 // --- Events: delete ---------------------------------------------------------

@@ -386,6 +386,49 @@ async function main() {
     assert(fresh(row.armedAt), `armedAt ${iso(row.armedAt)}`);
   });
 
+  await check('every occurrence, the start where it was: one moved on its own comes back to the series\' time (an event\'s new end, a reminder\'s time); what else its override carries, and a cancellation, stay', async () => {
+    const ov = (id: string, day: string, fields: Row) => ({ ...DEFAULTS.nativeEventInstance(), id, seriesEventId: 'daily', originalStartsAt: at(`${day} 08:00`), ...fields });
+    const seed = (kind: 'REMINDER' | 'EVENT') => {
+      reset();
+      seedEvent('daily', { kind, calendarId: 'raziel', creatorUserId: 1, title: 'Feed the cat', startsAt: at('2026-10-10 08:00'), rrule: 'FREQ=DAILY' });
+      tables.nativeEventInstance.push(
+        ov('moved', '2026-10-13', { status: 'OVERRIDE', title: 'Later today', startsAt: at('2026-10-13 12:00'), endsAt: at('2026-10-13 12:00') }),
+        ov('named', '2026-10-14', { status: 'OVERRIDE', location: 'Garden' }),
+        ov('skip', '2026-10-15', { status: 'CANCELLED', startsAt: at('2026-10-15 09:00'), endsAt: at('2026-10-15 09:00') }),
+      );
+    };
+    const ovs = (id: string) => tables.nativeEventInstance.find((r) => r.id === id)!;
+    // An event: a new end for every one, the start where it was.
+    seed('EVENT');
+    const ev = await updateNativeEvent({ seriesCuid: 'daily', scope: 'all', actingUserId: 1, endsAt: at('2026-10-10 10:00'), allDay: false });
+    assert(ev.clearedPings.length === 0 && iso(eventRow('daily').endsAt) === iso(at('2026-10-10 10:00')), `series end ${iso(eventRow('daily').endsAt)}`);
+    assert(ovs('moved').startsAt === null && ovs('moved').endsAt === null && ovs('moved').title === 'Later today', `moved ${JSON.stringify(ovs('moved'))}`);
+    assert(ovs('named').location === 'Garden' && ovs('skip').status === 'CANCELLED', 'the location or the cancellation went');
+    const days = expandSeries(eventRow('daily') as never, { from: at('2026-10-13 00:00'), to: at('2026-10-16 00:00') }, tables.nativeEventInstance as never)
+      .map((i) => `${iso(i.startsAt)}-${iso(i.endsAt)}`);
+    assert(days.join() === ['2026-10-13', '2026-10-14'].map((d) => `${iso(at(`${d} 08:00`))}-${iso(at(`${d} 10:00`))}`).join(), `expanded ${days.join()}`);
+    // A text change for every one leaves the moved one where it is.
+    seed('EVENT');
+    await updateNativeEvent({ seriesCuid: 'daily', scope: 'all', actingUserId: 1, title: 'Feed the dog' });
+    assert(iso(ovs('moved').startsAt) === iso(at('2026-10-13 12:00')), 'a rename moved it');
+    // A reminder: every one at 08:00, where the series already is. The moved one pings again there.
+    seed('REMINDER');
+    seedState('daily', at('2026-10-13 08:00'), 71);
+    seedState('daily', at('2026-10-14 08:00'), 72);
+    closeGate();
+    const rem = await updateNativeEvent({ seriesCuid: 'daily', scope: 'all', actingUserId: 1, startsAt: at('2026-10-10 08:00'), endsAt: at('2026-10-10 09:00') });
+    assert(pings(rem.clearedPings) === '5001/71', `cleared ${pings(rem.clearedPings)}`);
+    assert(stateKeys('daily').join() === iso(at('2026-10-14 08:00')), `states left ${stateKeys('daily').join()}`);
+    assert(ovs('moved').startsAt === null && ovs('moved').title === 'Later today' && ovs('skip').status === 'CANCELLED', `moved ${JSON.stringify(ovs('moved'))}`);
+    assert(fresh(eventRow('daily').armedAt) && gateCleared(), `armedAt ${iso(eventRow('daily').armedAt)}`);
+    // Nothing moved on its own: nothing is cleared, nor re-armed.
+    seed('REMINDER');
+    tables.nativeEventInstance = tables.nativeEventInstance.filter((r) => r.id !== 'moved');
+    seedState('daily', at('2026-10-14 08:00'), 73);
+    const none = await updateNativeEvent({ seriesCuid: 'daily', scope: 'all', actingUserId: 1, startsAt: at('2026-10-10 08:00') });
+    assert(none.clearedPings.length === 0 && stateKeys('daily').length === 1 && iso(eventRow('daily').armedAt) === iso(OLD_ARMED), 'the same time re-armed it');
+  });
+
   await check('following, by the partner: rows from the cut go, earlier ones stay; the new series keeps kind, person and creator', async () => {
     reset();
     seedEvent('daily', { kind: 'REMINDER', calendarId: 'raziel', creatorUserId: 1, forUserId: 2, title: 'Feed the cat', startsAt: at('2026-10-10 08:00'), rrule: 'FREQ=DAILY' });
