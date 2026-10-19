@@ -33,6 +33,7 @@ import {
   moveStart,
   repeatWords,
   setAllDay,
+  spanOf,
   updateBody,
   weekdayId,
   type EditorForm,
@@ -82,6 +83,10 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
   /** The last real start day: the repeat choices keep their words while a date is being typed. */
   const [lastDay, setLastDay] = useState(isRealDay(initial.startDay) ? initial.startDay : '');
   if (isRealDay(form.startDay) && form.startDay !== lastDay) setLastDay(form.startDay);
+  /** The last real length: what a start typed through years that aren't real moves the end by. */
+  const [heldSpan, setHeldSpan] = useState(() => spanOf(initial));
+  const span = spanOf(form);
+  if (span && (span.allDay !== heldSpan?.allDay || span.size !== heldSpan.size)) setHeldSpan(span);
 
   const edit = mode === 'edit';
   const reminder = form.kind === 'reminder';
@@ -226,8 +231,8 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
                   day={form.startDay}
                   time={form.startTime}
                   showTime={!form.allDay}
-                  onDay={(startDay) => change(moveStart(form, { startDay }))}
-                  onTime={(startTime) => change(moveStart(form, { startTime }))}
+                  onDay={(startDay) => change(moveStart(form, { startDay }, heldSpan))}
+                  onTime={(startTime) => change(moveStart(form, { startTime }, heldSpan))}
                   error={errorOf('start')}
                 />
                 <SwitchRow label={t('editor.atTime')} hint={t('editor.atTimeHint', { time: REMINDER_DEFAULT_TIME })} checked={!form.allDay} onChange={(on) => change(setAllDay(form, !on))} />
@@ -243,8 +248,8 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
                   day={form.startDay}
                   time={form.startTime}
                   showTime={!form.allDay}
-                  onDay={(startDay) => change(moveStart(form, { startDay }))}
-                  onTime={(startTime) => change(moveStart(form, { startTime }))}
+                  onDay={(startDay) => change(moveStart(form, { startDay }, heldSpan))}
+                  onTime={(startTime) => change(moveStart(form, { startTime }, heldSpan))}
                   error={errorOf('start')}
                 />
                 <PillRow

@@ -100,6 +100,9 @@ export function isRealDay(day: string): boolean {
 
 const isRealTime = (time: string) => wallMs('2000-01-01', time) !== null;
 
+/** wallMs of a day the server accepts (isRealDay), else null: a year being typed (0002, 0202) is not one. */
+const realWallMs = (day: string, time: string) => (isRealDay(day) ? wallMs(day, time) : null);
+
 /** `day` moved by `n` days; `day` itself when it isn't a real date. */
 export function addDays(day: string, n: number): string {
   const ms = wallMs(day, '00:00');
@@ -233,23 +236,39 @@ export function editItemForm(info: ItemEditInfoResponse): EditorForm {
 
 // ---- Edits ----
 
+/** How long the form's item lasts: the days between start and end all day, the minutes timed. */
+export interface FormSpan {
+  allDay: boolean;
+  size: number;
+}
+
+/** The form's span, or null while its start or end is not a real date and time (isRealDay). */
+export function spanOf(form: EditorForm): FormSpan | null {
+  if (form.allDay) {
+    const days = isRealDay(form.startDay) && isRealDay(form.endDay) ? daysApart(form.startDay, form.endDay) : null;
+    return days === null ? null : { allDay: true, size: days };
+  }
+  const from = realWallMs(form.startDay, form.startTime);
+  const to = realWallMs(form.endDay, form.endTime);
+  return from === null || to === null ? null : { allDay: false, size: Math.round((to - from) / MINUTE_MS) };
+}
+
 /**
  * The form after the start moved (a new day or time): the end keeps its distance from the
- * start. All day, that is the days between them; timed, the minutes. A start that is not
- * a real date or time leaves the end where it is.
+ * start. All day, that is the days between them; timed, the minutes. While a date is being
+ * typed its year passes through ones that aren't real (0002, 0020, 0202): the distance is
+ * then the last real one, `held` (the editor keeps it), never one measured from those. A
+ * start that is not a real date or time leaves the end where it is.
  */
-export function moveStart(form: EditorForm, patch: { startDay?: string; startTime?: string }): EditorForm {
+export function moveStart(form: EditorForm, patch: { startDay?: string; startTime?: string }, held: FormSpan | null = null): EditorForm {
   const next = { ...form, ...patch };
+  const span = spanOf(form) ?? (held && held.allDay === form.allDay ? held : null);
+  if (span === null) return next;
   if (form.allDay) {
-    const span = daysApart(form.startDay, form.endDay);
-    if (span === null || !isRealDay(next.startDay)) return next;
-    return { ...next, endDay: addDays(next.startDay, span) };
+    return isRealDay(next.startDay) ? { ...next, endDay: addDays(next.startDay, span.size) } : next;
   }
-  const from = wallMs(form.startDay, form.startTime);
-  const to = wallMs(form.endDay, form.endTime);
-  const moved = wallMs(next.startDay, next.startTime);
-  if (from === null || to === null || moved === null) return next;
-  const end = shiftWall(next.startDay, next.startTime, Math.round((to - from) / MINUTE_MS));
+  if (realWallMs(next.startDay, next.startTime) === null) return next;
+  const end = shiftWall(next.startDay, next.startTime, span.size);
   return { ...next, endDay: end.day, endTime: end.time };
 }
 

@@ -125,7 +125,7 @@ import { calendarVars } from '../src/lib/calendar-view/colours';
 import { postReminderAction } from '../src/lib/calendar-view/reminder-client';
 import { REAL_EDITING } from '../src/lib/calendar-view/editor-client';
 import type { EditorInfoResponse, ItemEditInfoResponse, RepeatInfo } from '../src/lib/calendar-view/editor-types';
-import { checkForm, moveStart, newItemForm, setAllDay, type NewItemContext } from '../src/lib/calendar-view/editor-model';
+import { checkForm, moveStart, newItemForm, setAllDay, spanOf, type EditorForm, type NewItemContext } from '../src/lib/calendar-view/editor-model';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -4224,6 +4224,48 @@ async function main() {
     assert(show(checkForm({ ...f, title: 'x', allDay: true, startTime: '', endTime: '' })) === show({}), 'all day needs no times');
     assert(show(checkForm({ ...f, kind: 'reminder', title: 'x', endDay: '', endTime: '' })) === show({}), 'a reminder has no end');
     assert(show(checkForm({ ...f, title: 'x', location: 'y'.repeat(201), notes: 'z'.repeat(2001) })) === show({ location: 'errTooLong', notes: 'errTooLong' }), 'long location and notes');
+  });
+
+  await check('#76a a year typed into the start date (0002, 0020, 0202, then 2027) keeps the end the last real length after the start, timed and all day; a year outside 2000-2100 is never measured from; in the editor too', async () => {
+    const base = { today: TODAY, pickedDay: null, nowMs: Date.parse('2026-10-15T07:00:00Z'), tz: TZ, kinds: { event: true, reminder: true }, calendars: EDITOR_INFO.calendars };
+    /** Each value in turn, as a date input sends them, with the editor's last real length held. */
+    const typeYear = (from: EditorForm, days: string[]) => {
+      let form = from;
+      let held = spanOf(from);
+      for (const startDay of days) {
+        form = moveStart(form, { startDay }, held);
+        held = spanOf(form) ?? held;
+      }
+      return form;
+    };
+    const timed = { ...newItemForm(base), endTime: '13:30' };
+    const t = typeYear(timed, ['0002-10-15', '0020-10-15', '0202-10-15', '2027-10-15']);
+    assert(`${t.startDay} ${t.startTime} → ${t.endDay} ${t.endTime}` === '2027-10-15 11:00 → 2027-10-15 13:30', `timed: ${t.startDay} ${t.startTime} → ${t.endDay} ${t.endTime}`);
+    const allDay = { ...newItemForm(base), allDay: true, endDay: '2026-10-17' };
+    const a = typeYear(allDay, ['0002-10-20', '0020-10-20', '0202-10-20', '2028-10-20']);
+    assert(`${a.startDay} → ${a.endDay}` === '2028-10-20 → 2028-10-22', `all day: ${a.startDay} → ${a.endDay}`);
+    // A start in a year the server refuses is not measured from, held length or not.
+    const odd = { ...timed, startDay: '1999-10-15' };
+    assert(spanOf(odd) === null && spanOf({ ...timed, endDay: '2101-01-01' }) === null, 'a span from 1999 or to 2101');
+    const fromOdd = moveStart(odd, { startDay: '2026-10-16' });
+    assert(fromOdd.endDay === timed.endDay && fromOdd.endTime === timed.endTime, `no length from 1999: ${fromOdd.endDay} ${fromOdd.endTime}`);
+    assert(moveStart(odd, { startDay: '2026-10-16' }, { allDay: false, size: 90 }).endTime === '12:30', 'the held length instead');
+    assert(moveStart(odd, { startDay: '2026-10-16' }, { allDay: true, size: 1 }).endTime === timed.endTime, 'an all-day length is not a timed one');
+    // In the editor: each value through the date input's onChange.
+    const { m } = await editingHome('en');
+    try {
+      tapPlus(m);
+      await settle();
+      await typeInto(inDialog(m, 'End time'), '13:30');
+      for (const v of ['0002-10-15', '0020-10-15', '0202-10-15', '2027-10-15']) await typeInto(inDialog(m, 'Start date'), v);
+      assert(fieldValue(m, 'End date') === '2027-10-15' && fieldValue(m, 'End time') === '13:30', `the end: ${fieldValue(m, 'End date')} ${fieldValue(m, 'End time')}`);
+      m.click(switchOf(m, 'All day'));
+      await typeInto(inDialog(m, 'End date'), '2027-10-17');
+      for (const v of ['0002-10-20', '0020-10-20', '0202-10-20', '2028-10-20']) await typeInto(inDialog(m, 'Start date'), v);
+      assert(fieldValue(m, 'End date') === '2028-10-22', `all day, the end: ${fieldValue(m, 'End date')}`);
+    } finally {
+      m.unmount();
+    }
   });
 
   await check('#77 the event editor in use: fields by kind (a reminder has When, At a set time, Repeat and For, no location, all day or notes); the start moves the end; all day hides the times; the repeat choices name the start day', async () => {
