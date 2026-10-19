@@ -3341,6 +3341,29 @@ async function main() {
     }
   });
 
+  await check('#62 the "Google · <calendar>" chip in its calendar\'s colour, as a Month chip: has-cal with the calendar\'s tones inline, filled for the viewer\'s calendar, outlined (is-partner) for the spouse\'s; no usable colour keeps the grey outline with no style; the CSS fills the viewer\'s with --cal-fill under --cal-text and outlines the partner\'s in --cal-line', () => {
+    const styleOf = (color: string | null) => {
+      const vars = calendarVars(color);
+      return vars ? Object.entries(vars).map(([k, v]) => `${k}:${v}`).join(';') : null;
+    };
+    const PLAIN = item('plain', { source: 'google', readOnly: true, tz: null, title: 'Plain', start: '2026-10-15T12:00:00+03:00', end: '2026-10-15T13:00:00+03:00', calendar: { ...G_FAMILY, color: null }, htmlLink: null, birthday: false });
+    const html = renderAgenda('en', model([ok(googleAnswer({ items: { [day(0)]: [DINNER, PLAIN], [day(1)]: [YOGA] } }))]));
+    const chips = [...html.matchAll(/<span class="(ch-chip ch-chip-outline ch-cal-chip[^"]*)"(?: style="([^"]*)")? dir="auto">([^<]*)<\/span>/g)].map((m) => ({ cls: m[1], style: m[2] ?? null, text: m[3] }));
+    // In time order: Plain (12:00), then Dinner (19:30); Yoga the next day.
+    const want = [
+      { cls: 'ch-chip ch-chip-outline ch-cal-chip', style: null, text: 'Google · Family' },
+      { cls: 'ch-chip ch-chip-outline ch-cal-chip has-cal', style: styleOf(G_FAMILY.color), text: 'Google · Family' },
+      { cls: 'ch-chip ch-chip-outline ch-cal-chip is-partner has-cal', style: styleOf(G_NOA.color), text: 'Google · Noa' },
+    ];
+    assert(show(chips) === show(want), `chips: ${show(chips)}`);
+    const rule = (selector: string) => {
+      const at = AGENDA_CSS.indexOf(`${selector} {`);
+      return at < 0 ? '' : AGENDA_CSS.slice(at, AGENDA_CSS.indexOf('}', at));
+    };
+    assert(/border-color: var\(--cal-fill\);\s*background: var\(--cal-fill\);\s*color: var\(--cal-text\);/.test(rule('.ch-cal-chip.has-cal')), 'the viewer\'s: filled');
+    assert(/border-color: var\(--cal-line\);\s*background: transparent;/.test(rule('.ch-cal-chip.has-cal.is-partner')), 'the partner\'s: outlined, its text still --cal-text');
+  });
+
   let failed = 0;
   for (const r of results) {
     process.stdout.write(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}\n`);

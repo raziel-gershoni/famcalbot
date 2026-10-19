@@ -305,6 +305,16 @@ export const AGENDA_CSS = `
   border-color: var(--cal-line);
   background: transparent;
 }
+.ch-cal-chip.has-cal {
+  border-color: var(--cal-fill);
+  background: var(--cal-fill);
+  color: var(--cal-text);
+  font-weight: 500;
+}
+.ch-cal-chip.has-cal.is-partner {
+  border-color: var(--cal-line);
+  background: transparent;
+}
 .ch-time {
   flex: none;
   inline-size: 56px;

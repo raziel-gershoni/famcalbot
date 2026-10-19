@@ -74,6 +74,7 @@ A coloured mark carries both looks' tones as inline custom properties (`calendar
 | Place | Your item | Partner's item |
 |---|---|---|
 | Agenda row and picked list | a 4 px stripe at the row's start in `line` | the same stripe hollow (1.5 px `line` border), plus "from {name}" |
+| A Google row's "Google · {calendar}" chip (owner, 2026-10-19) | `fill` with `text` | outlined in `line`, with `text` |
 | Month chip | `fill` with `text` | the ground with a 1 px `line` border (today's width) and `text` |
 | Multi-day bar | as a chip, joined across days (logical radii, so RTL mirrors; the chip keeps the grid's direction and only its title is isolated, in `<bdi>`) | as a chip, outlined |
 | Picked dot | filled `line` | a `line` ring |

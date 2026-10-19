@@ -14,6 +14,8 @@
 // - A stripe at the row's start in the calendar's colour (spec 2026-10-19 §3.3): solid
 //   for the viewer's item, hollow for the partner's, so whose it is never rests on
 //   colour alone. No usable colour keeps today's tones (the accent, or orange).
+// - The "Google · <calendar>" chip in the same colour, as a Month chip: filled for the
+//   viewer's calendar, outlined for the partner's; no usable colour keeps the grey outline.
 
 import { Fragment, type CSSProperties } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
@@ -43,6 +45,17 @@ export function calendarMark(color: string | null): { className: string; style: 
 export function CalendarStripe({ color, mine }: { color: string | null; mine: boolean }) {
   const cal = calendarMark(color);
   return <span className={`ch-stripe${mine ? '' : ' is-partner'}${cal.className}`} style={cal.style} aria-hidden="true" />;
+}
+
+/** "Google · <calendar>" in the calendar's colour: filled for the viewer's calendar, outlined for the partner's. */
+function GoogleChip({ item, mine }: { item: ItemDTO; mine: boolean }) {
+  const t = useTranslations('calendarHome');
+  const cal = calendarMark(item.calendar.color);
+  return (
+    <span className={`ch-chip ch-chip-outline ch-cal-chip${mine ? '' : ' is-partner'}${cal.className}`} style={cal.style} dir="auto">
+      {t('row.googleCalendar', { calendar: item.calendar.name })}
+    </span>
+  );
 }
 
 /** The reminder's icon (decorative: the state is also in text beside it). */
@@ -192,11 +205,7 @@ export function ItemRow({ row, day, tz, onOpen }: ItemRowProps) {
                 </>
               ) : null}
               <PersonChip whose={whose} />
-              {item.source === 'google' ? (
-                <span className="ch-chip ch-chip-outline" dir="auto">
-                  {t('row.googleCalendar', { calendar: item.calendar.name })}
-                </span>
-              ) : null}
+              {item.source === 'google' ? <GoogleChip item={item} mine={whose.mine} /> : null}
             </span>
           ) : null}
         </span>
