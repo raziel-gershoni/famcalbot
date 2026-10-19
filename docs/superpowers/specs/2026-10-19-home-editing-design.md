@@ -1,0 +1,148 @@
+# Adding, editing and deleting in the calendar home (first pass)
+
+Status: designed 2026-10-19 under the owner's delegation ("go with it … proceed fast, don't pause"). Mockups: https://claude.ai/artifact/KJQjWZ7MFRRCr3A4raAQos, third row (Done, snooze and editing). This is roadmap step 3, first pass. Step 3b, later, covers changing how something repeats, moving an item to another calendar, and Google items.
+
+## 1. Scope
+
+**In:**
+- Add, edit and delete **FamCal** events and reminders from the home.
+- For a repeating item, the choice of which occurrences a change or a delete applies to.
+- Repeats can be chosen when creating.
+
+**Out (3b or later):**
+- Changing a series' repeat rule, or moving an item to another calendar. The store can't do either today (`updateNativeEvent` edits only title, description, location, start, end and all-day).
+- Changing a reminder's recipient.
+- Editing Google items (they stay view-only). Google-source users' event creation, which the Google-connection spec decides.
+- Alerts per event (`reminderMinutes` is unused).
+- Drag to move.
+
+## 2. What people see
+
+**Add.**
+- A "+" button in the home's header, beside Send and ⋯, opens the editor ("New").
+- It is prefilled for the day in view:
+  - the selected day in Month picked;
+  - otherwise today, at the next round hour, lasting one hour.
+- An Event | Reminder switch heads the editor. It shows only when the user can create both: events need `calendarSource === 'NATIVE'`, reminders need the home's reminders hint. If only one kind applies, the editor opens on it with no switch. With neither, there is no "+".
+
+**The editor (event):**
+- Title (required) and location.
+- All day.
+- Starts: date and time. Ends: date and time.
+  - Moving the start keeps the duration.
+  - All day hides the times.
+- Repeat: Never, Every day, Every week on <weekday>, Every month on the <n>th, Every year on <date>. A choice on create only.
+- Calendar: the user's writable calendars, own and the partner's SHARED_EDITOR, each with its colour, defaulting to the main calendar. A choice on create only.
+- Notes.
+- A Save button in a sticky bottom bar, and Cancel in the header. Cancel asks to discard only when something changed.
+
+**The editor (reminder):**
+- Title.
+- When: a date, plus "At a set time" with a time. With no time it arrives at 09:00, as the bot's date-only reminders do.
+- Repeat, as for events.
+- For: Me | <partner>. It shows only when the partner can receive reminders (active, FamCal, on Telegram, as `resolve.ts` rules), on create only.
+
+**Edit.** A pencil in the item sheet's header opens the editor prefilled.
+- What can't change in this pass is shown as text, not a control: "Repeats every Tuesday", "Family", "For Noa".
+- On Save, a repeating item asks "This event repeats. Save the change to:"
+  - Only this one (Tue 20 Oct)
+  - This one and the ones after
+  - Every Tuesday, or "All of them" when there's no short name
+
+**Delete.** "Delete event" or "Delete reminder" at the bottom of the item sheet asks the same three choices for a repeating item. For a single item it asks "Delete «title»?" with Delete and Cancel.
+
+**Who may do what** follows the store's rules:
+- edit or delete: the calendar's owner, or an editor of the partner's shared calendar;
+- a reminder: its creator can edit it, and its creator or the person it's for can delete it.
+
+A viewer who can't do anything sees no pencil and no Delete.
+
+**After Save or Delete,** the editor closes and the home refreshes FamCal. The new or changed item shows, and the item sheet shows the changed item (or closes if it is gone).
+
+**Errors:**
+- inline, under the field: "Add a title", "It ends before it starts";
+- above Save: "You can't change this one", "This changed in the meantime — reopen it", "Couldn't save. Try again".
+
+## 3. Server
+
+**`GET /api/calendar/editor?user_id=`** is what the "+" needs:
+- `{ kinds: { event, reminder } }`;
+- `calendars: [{ id, name, color, main }]`, the writable ones;
+- `partner: { name, canRemind } | null`;
+- `tz`, which is the range's `resolveUserTimezone`.
+
+**`GET /api/calendar/item?user_id=&key=`** is the edit info for one FamCal item. It is read live from the store; the DTO lacks the rule and the permissions:
+- `{ kind, canEdit, canDelete }`;
+- `occurrence: { start, end, allDay, title, location, description }`;
+- `series: { recurring, start, repeatText }`;
+- `calendar: { id | null, name, color }`;
+- `forName`;
+- `scopes`: ['single'] or ['single', 'following', 'all'].
+
+Unknown or not visible gives 404 `not_found`.
+
+**`POST /api/calendar/items`** creates: `{ kind, title, location?, description?, allDay, start, end?, repeat?, calendarId?, forPartner? }`.
+- Times are wall times in the user's tz, as `YYYY-MM-DDTHH:mm` (or `YYYY-MM-DD` for all-day). The server converts them with the user's zone.
+- `repeat` is one of `none | daily | weekly | monthly | yearly`, built with `buildRecurrenceRule`, anchored on the start.
+- Events go through `createNativeEvent` (with access checks).
+- Reminders go through the bot's reminder create path (`resolve.ts` / the native-reminders create function). That keeps the main calendar, `forUserId`, `armedAt` and the due gate as the bot does them.
+
+**`PATCH /api/calendar/items`** edits: `{ key, scope, changes: { title?, location?, description?, allDay?, start?, end? } }`.
+- Events go through `updateNativeEvent`.
+- Reminders go through `updateNativeReminder`, then `stripMovedPings(clearedPings)`, as the bot does.
+
+**`DELETE /api/calendar/items`** deletes: `{ key, scope }` through `deleteNativeEvent`.
+
+**Every write:**
+- goes through `verifyUserAuth` with a new 20-per-minute `calendarWriteRateLimiter`;
+- validates on the server: title 1–200 characters after trim; location up to 200; notes up to 2,000; valid dates; a timed event's end after its start; all-day end on or after its start;
+- calls `clearRecurrenceCacheForUser` for the user and for the partner when the calendar is shared;
+- tracks analytics with `source: 'app'`, reusing the bot's create, edit and delete action names;
+- returns 200 `{ status: 'ok', key? }`, or 403 `not_allowed`, 404 `not_found`, 409 `changed` (the occurrence is gone), 400 `invalid` with a field, or 500.
+
+The bot's flows don't change.
+
+## 4. Client
+
+- **New components:** `EditorSheet.tsx` (the editor) and `ScopeSheet.tsx` (the three choices). The item sheet gets the pencil and Delete when the edit info allows them. The edit info is fetched when the sheet opens, and the controls show once it arrives.
+- **Form kit,** in the home's CSS (`ch-form-*`), to be lifted into F1 later:
+  - grouped cards;
+  - a text field;
+  - a switch row (the whole row is the target, `role="switch"`);
+  - a segmented control;
+  - a value row with a native `<select>` over it;
+  - date and time pills that are native `<input type="date|time">` styled as pills;
+  - a radio pair;
+  - a sticky Save bar.
+
+  Every target is at least 44 px, with logical properties, no `:hover` and nothing under 11 px.
+- **The editor** is a full-height BottomSheet variant (`full`): a header with Cancel and the title, a scrolling body, and the Save bar. Telegram's BackButton cancels.
+- **After a write,** `refetchVisible({ only: 'famcal' })`. The open item sheet re-derives from the store by key (done/snooze adds this).
+
+## 5. Copy
+
+The `calendarHome.editor.*` and `calendarHome.scope.*` keys are written in en, he and ru, natural and with gender-neutral Hebrew.
+
+## 6. Tests
+
+- **`smoke-calendar-editor-api`:**
+  - every route's auth, validation and limits;
+  - create event (timed, all-day, each repeat, partner's shared calendar, a viewer calendar refused);
+  - create reminder (timed, date-only, for the partner);
+  - edit for each scope, events and reminders; a reminder's time change clears state and strips the ping;
+  - delete for each scope, plus the reminder's owner may delete while the creator edits;
+  - wall times in Asia/Jerusalem across a DST change; the 409 on a gone occurrence;
+  - recurrence cache cleared; nothing logs a title.
+- **Render (`smoke-calendar-home-render`):**
+  - the "+" by kinds;
+  - the editor's fields by kind, its defaults, the duration kept, all-day hiding the times;
+  - the scope sheet for repeating items only;
+  - the pencil and Delete by permission;
+  - inline errors;
+  - the Save bar disabled in flight;
+  - 44 px; no untranslated key in en, he or ru; RTL;
+  - the BackButton cancels.
+
+## 7. Risks
+
+The scope semantics live in the store, which the bot already uses, so the app inherits their behaviour, including the quirk that "following" makes the editor the new series' creator for events. Date and time inputs vary across Telegram webviews (iOS, Android, Desktop). The device check covers them.
