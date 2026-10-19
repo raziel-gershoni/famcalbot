@@ -399,6 +399,16 @@ async function main() {
     assertEqual([when(e.startTime), when(e.endTime)], ['2027-01-23 19:00', '2027-01-23 20:00'], 'times');
   });
 
+  await check('parse: a timed Hebrew-date event that runs past midnight ends the day after the resolved start', () => {
+    const hd = { day: 15, month: "Sh'vat", year: null };
+    const e = parse({ startDate: null, endDate: null, startTime: '22:00', endTime: '01:00', allDay: false, hebrewDate: hd, recurrence: birthday }).event!;
+    assertEqual([when(e.startTime), when(e.endTime)], ['2027-01-23 22:00', '2027-01-24 01:00'], 'overnight');
+    const same = parse({ startDate: null, endDate: null, startTime: '19:00', endTime: '19:00', allDay: false, hebrewDate: hd, recurrence: birthday }).event!;
+    assertEqual([when(same.startTime), when(same.endTime)], ['2027-01-23 19:00', '2027-01-23 19:00'], 'equal times stay zero-length');
+    const span = parse({ startDate: '2026-12-01', endDate: '2026-12-03', startTime: '22:00', endTime: '01:00', allDay: false, hebrewDate: hd, recurrence: birthday }).event!;
+    assertEqual(when(span.endTime), '2027-01-25 01:00', 'a model span still wins');
+  });
+
   await check('parse: the next occurrence counts today, and a day already past this year goes to the next', () => {
     const today = parse(hebrewAllDay({ day: 9, month: 'Cheshvan' }, null)).event!;
     assertEqual(when(today.startTime), '2026-10-20 00:00', 'today');

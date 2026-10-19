@@ -541,7 +541,7 @@ function daysBetweenDates(from: unknown, to: unknown): number | null {
  *
  * A Hebrew date the user spoke is resolved here, with hebcal, never by the model: the given
  * year, or the next occurrence on or after today in `timezone`. It sets the start day (and moves
- * the end day with it). One that cannot be read or does not exist is logged and ignored, so the
+ * the end day with it, or to the next day for a timed event that ends before it starts). One that cannot be read or does not exist is logged and ignored, so the
  * model's own startDate, if it gave one, stands.
  *
  * `calendar: 'hebrew'` is kept only with frequency 'yearly', and `hebrewKind` only with it; the
@@ -569,6 +569,12 @@ function readRepeat(
     if (resolved) {
       const shift = daysBetweenDates(eventData.startDate, eventData.endDate);
       endDate = shift !== null && shift > 0 ? addDaysToDate(resolved.date, shift) : undefined;
+      // The model nulls both days for a Hebrew date, so a timed event that runs past midnight
+      // ("22:00 to 01:00") has no span to move: it ends the day after the resolved start
+      const clock = /^\d{2}:\d{2}$/;
+      if (!endDate && !eventData.allDay && clock.test(eventData.startTime ?? '') && clock.test(eventData.endTime ?? '') && eventData.endTime < eventData.startTime) {
+        endDate = nextDate(resolved.date);
+      }
       startDate = resolved.date;
       hasYear = resolved.hasYear;
       spoken = true;
