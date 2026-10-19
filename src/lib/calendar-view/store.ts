@@ -112,6 +112,12 @@ export type StoreAction =
    * before it comes with `hold` (the loader's) and leaves that key's state as patched.
    */
   | { type: 'patchReminder'; key: string; reminder: ItemReminderDTO }
+  /**
+   * A Google write answered that the connection needs the user (a dead token, or a write
+   * scope not granted): the Reconnect banner shows, as a failed Google read raises it. It
+   * holds until the store drops, like the banner a read raises.
+   */
+  | { type: 'reconnect'; reason: 'token' | 'scopes' }
   /** The midnight timer in tz: drop everything and start over. */
   | { type: 'reset' };
 
@@ -341,6 +347,8 @@ export function reduceStore(state: CalendarStore, action: StoreAction): Calendar
       return markFailed(state, action);
     case 'patchReminder':
       return patchReminder(state, action.key, action.reminder);
+    case 'reconnect':
+      return state.reconnect === action.reason ? state : { ...state, reconnect: action.reason };
   }
 }
 

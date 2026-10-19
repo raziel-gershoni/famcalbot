@@ -20,6 +20,7 @@ import {
   type ItemKind,
   type RepeatChoice,
   type RepeatInfo,
+  type RuleChoice,
   type UpdateItemBody,
 } from './editor-types';
 
@@ -52,10 +53,14 @@ export interface EditorForm {
   startTime: string;
   endDay: string;
   endTime: string;
-  repeat: RepeatChoice;
-  /** A new event's calendar: 'native:<cuid>'. */
+  /**
+   * A new item's repeat; on an edit, the stored rule as the Repeat row names it. 'custom' is
+   * the rule the five can't say, kept as it is until another choice is picked (3b spec §2.1).
+   */
+  repeat: RuleChoice;
+  /** The event's calendar: a new one's, or the edited one's current calendar (a native id or a Google id). */
   calendarId: string | null;
-  /** A new reminder is for the partner. */
+  /** The reminder is for the partner (a new one's, or the edited one's current recipient). */
   forPartner: boolean;
 }
 
@@ -253,10 +258,16 @@ export function editItemForm(info: ItemEditInfoResponse): EditorForm {
     startTime: allDay ? DEFAULT_EVENT_TIME : start.time,
     endDay: end.day,
     endTime: allDay ? shiftWall(start.day, DEFAULT_EVENT_TIME, DEFAULT_EVENT_MINUTES).time : end.time,
-    repeat: 'none',
+    repeat: storedChoice(info),
     calendarId: info.calendar.id,
-    forPartner: false,
+    forPartner: info.forPartner === true,
   };
+}
+
+/** The Repeat row's current choice: the stored rule's (3b spec §2.1), 'none' for a one-off, 'custom' for a rule the server did not classify. */
+export function storedChoice(info: ItemEditInfoResponse): RuleChoice {
+  if (info.series.rule) return info.series.rule.choice;
+  return info.series.recurring ? 'custom' : 'none';
 }
 
 // ---- Edits ----
@@ -372,7 +383,7 @@ export function createBody(form: EditorForm): Omit<CreateItemBody, 'user_id' | '
     title: form.title.trim(),
     allDay,
     start: wallOf(form.startDay, form.startTime, allDay),
-    repeat: form.repeat,
+    repeat: form.repeat === 'custom' ? 'none' : form.repeat,
   };
   const location = form.location.trim();
   const notes = form.notes.trim();
@@ -412,7 +423,54 @@ export function updateBody(
     changes.start = now;
     if (!reminder) changes.end = nowEnd;
   }
+  // The series-level fields go only when the person changed them (3b spec §4). A rule kept
+  // as it is ('custom' untouched, or the stored choice) is never sent: the server would read
+  // a stored bot rule that classifies as one of the five as a repeat change.
+  const repeat = pickedRepeat(form, initial);
+  if (repeat !== null) changes.repeat = repeat;
+  if (!reminder && form.calendarId && form.calendarId !== initial.calendarId) changes.calendarId = form.calendarId;
+  if (reminder && form.forPartner !== initial.forPartner) changes.forPartner = form.forPartner;
+  // A stop makes this occurrence a one-off: it always carries the occurrence's own times,
+  // with the form's edits on top, never the series' (3b spec §3.1).
+  if (repeat === 'none' && initial.repeat !== 'none') {
+    changes.start ??= now;
+    if (!reminder) changes.end ??= nowEnd;
+  }
   return Object.keys(changes).length === 0 ? null : { key, scope, changes };
+}
+
+/** The repeat the person picked, or null while the row is as it was (including a custom rule left alone). */
+function pickedRepeat(form: EditorForm, initial: EditorForm): RepeatChoice | null {
+  return form.repeat !== 'custom' && form.repeat !== initial.repeat ? form.repeat : null;
+}
+
+/** Which occurrences a Save applies to, and whether to ask (3b spec §4). */
+export type ScopePlan =
+  /** Nothing to ask: this item alone (a one-off, or no series-level change). */
+  | { kind: 'none' }
+  /** A repeat change applies from the opened occurrence on: 'following', with no question. */
+  | { kind: 'following' }
+  /** Ask, with these choices; `note` is the line the sheet adds. */
+  | { kind: 'sheet'; choices: EditScope[]; note?: 'dayMove' | 'series' }
+  /** Can't be saved as it is: a day move on a set-weekdays series cannot ride with a calendar or recipient change. */
+  | { kind: 'refuse'; note: 'dayMoveAlone' };
+
+/**
+ * What Save does for the form against where it started. A repeat change is always from this
+ * occurrence on; a calendar or recipient change on a series asks 'following' or 'all' (an
+ * occurrence has neither of its own); a day move on a set-weekdays series (the bot's "every
+ * Tuesday") can apply to this one alone, so it can't share a save with those. A repeat pick
+ * writes a rule that names no days, so a move that also picks one is never refused.
+ */
+export function scopePlan(form: EditorForm, initial: EditorForm, info: ItemEditInfoResponse): ScopePlan {
+  if (!info.series.recurring) return { kind: 'none' };
+  if (pickedRepeat(form, initial) !== null) return { kind: 'following' };
+  const reminder = form.kind === 'reminder';
+  const seriesLevel = (!reminder && !!form.calendarId && form.calendarId !== initial.calendarId) || (reminder && form.forPartner !== initial.forPartner);
+  const dayMove = info.series.fixedDays && movesDay(form, initial, info.tz, info.series.zone);
+  if (seriesLevel) return dayMove ? { kind: 'refuse', note: 'dayMoveAlone' } : { kind: 'sheet', choices: ['following', 'all'], note: 'series' };
+  if (info.scopes.length <= 1) return { kind: 'none' };
+  return dayMove ? { kind: 'sheet', choices: ['single'], note: 'dayMove' } : { kind: 'sheet', choices: ['single', 'following', 'all'] };
 }
 
 // ---- Words for a repeat ----

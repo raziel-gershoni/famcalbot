@@ -28,6 +28,8 @@ export type WriteOutcome =
   | { kind: 'notFound' }
   | { kind: 'changed' }
   | { kind: 'busy' }
+  /** 3b, Google: the connection needs the user (a dead token, or a write scope not granted). */
+  | { kind: 'reconnect'; reason: 'token' | 'scopes' }
   | { kind: 'failed' };
 
 /** The home's dependency for the editing requests, so a smoke can fake them. */
@@ -63,7 +65,29 @@ function isItemInfo(value: unknown): value is ItemEditInfoResponse {
     typeof value.series.start === 'string' &&
     typeof value.series.zone === 'string' &&
     typeof value.tz === 'string' &&
-    Array.isArray(value.scopes)
+    Array.isArray(value.scopes) &&
+    isItemInfoExtras(value)
+  );
+}
+
+const optional = (value: unknown, type: 'boolean' | 'string') => value === undefined || typeof value === type;
+
+/** The 3b fields are optional (an older server omits them), but a present one must be the type the editor reads. */
+function isItemInfoExtras(value: Record<string, unknown>): boolean {
+  const series = value.series as Record<string, unknown>;
+  const rule = series.rule;
+  const ruleOk =
+    rule === undefined ||
+    (isObject(rule) && ['none', 'daily', 'weekly', 'monthly', 'yearly', 'custom'].includes(rule.choice as string) && optional(rule.words, 'string') && optional(rule.until, 'string'));
+  return (
+    ruleOk &&
+    optional(series.first, 'boolean') &&
+    optional(value.canMoveCalendar, 'boolean') &&
+    (value.moveTargets === undefined || (Array.isArray(value.moveTargets) && value.moveTargets.every((id) => typeof id === 'string'))) &&
+    optional(value.canChangeRecipient, 'boolean') &&
+    optional(value.forPartner, 'boolean') &&
+    optional(value.editableInGoogleOnly, 'boolean') &&
+    (value.source === undefined || value.source === 'famcal' || value.source === 'google')
   );
 }
 
@@ -107,6 +131,7 @@ function outcomeOf(res: { status: number; body: unknown } | null): WriteOutcome 
   if (res.status === 200) return body.status === 'ok' ? { kind: 'ok', key: typeof body.key === 'string' ? body.key : null } : { kind: 'failed' };
   if (res.status === 400 && body.error === 'invalid') return { kind: 'invalid', field: typeof body.field === 'string' ? body.field : null };
   if (res.status === 403 && body.error === 'not_allowed') return { kind: 'notAllowed' };
+  if (res.status === 403 && body.error === 'reconnect') return { kind: 'reconnect', reason: body.reason === 'scopes' ? 'scopes' : 'token' };
   if (res.status === 404) return { kind: 'notFound' };
   if (res.status === 409) return { kind: 'changed' };
   if (res.status === 429) return { kind: 'busy' };
