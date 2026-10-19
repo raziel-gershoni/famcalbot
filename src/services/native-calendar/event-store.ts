@@ -19,7 +19,7 @@ import { localDate, startOfLocalDay } from '../../utils/day-events';
 import { invalidateDueGate } from '../native-reminders/due-gate';
 import { effectiveOwnerId, getActivePartnerSummary } from '../native-reminders/ownership';
 import { ensurePrimaryNativeCalendar } from './onboarding';
-import { expandSeries, truncateRruleBefore, VirtualInstance } from './recurrence';
+import { expandSeries, shiftOnWall, truncateRruleBefore, VirtualInstance } from './recurrence';
 
 export const NATIVE_CALENDAR_ID_PREFIX = 'native:';
 export const NATIVE_EVENT_INSTANCE_SEP = '#';
@@ -523,15 +523,21 @@ export async function updateNativeEvent(
       await prisma.nativeEvent.update({ where: { id: series.id }, data: seriesUpdate });
       return { canonicalEventId: encodeEventId(series.id), clearedPings: [] };
     }
+    const cut = input.instanceStartsAt;
     const newSeriesId = await prisma.$transaction(async (tx) => {
       // 1. Truncate parent rrule
       await tx.nativeEvent.update({
         where: { id: series.id },
-        data: { rrule: truncateRruleBefore(series.rrule!, input.instanceStartsAt!, series.timeZone) },
+        data: { rrule: truncateRruleBefore(series.rrule!, cut, series.timeZone) },
       });
-      // 2. Insert new series starting from the instance, with overrides applied
-      const newStarts = input.startsAt ?? input.instanceStartsAt!;
+      // 2. Insert new series starting from the instance, with overrides applied.
+      //    What was done to the occurrences from the cut one by one comes along: the
+      //    skipped stay skipped (exdates, CANCELLED) and the moved or renamed keep it,
+      //    each keyed where the new series puts it (its slot shifted on the wall clock as
+      //    the cut occurrence moved). A field this edit sets wins over an occurrence's own.
+      const newStarts = input.startsAt ?? cut;
       const newEnds = input.endsAt ?? new Date(newStarts.getTime() + (series.endsAt.getTime() - series.startsAt.getTime()));
+      const slotOf = (d: Date) => shiftOnWall(d, cut, newStarts, series.timeZone);
       const newSeries = await tx.nativeEvent.create({
         data: {
           calendarId: series.calendarId,
@@ -545,19 +551,27 @@ export async function updateNativeEvent(
           timeZone: series.timeZone,
           rrule: series.rrule,
           reminderMinutes: series.reminderMinutes,
+          exdates: series.exdates.filter((d) => d.getTime() >= cut.getTime()).map(slotOf),
         },
       });
-      // 3. Migrate overrides at-or-after the cut point to the new series and
-      //    rebase their originalStartsAt onto the new series' rrule cycle.
-      //    Simplest correct behavior: drop those overrides — the new series
-      //    already carries the new defaults from the cut point. (Edits to
-      //    individual instances post-cut can be reapplied later.)
-      await tx.nativeEventInstance.deleteMany({
-        where: {
-          seriesEventId: series.id,
-          originalStartsAt: { gte: input.instanceStartsAt! },
-        },
+      // 3. Move the overrides at-or-after the cut point to the new series.
+      const retimed = input.startsAt !== undefined || input.endsAt !== undefined || input.allDay !== undefined;
+      const fromCut = await tx.nativeEventInstance.findMany({
+        where: { seriesEventId: series.id, originalStartsAt: { gte: cut } },
       });
+      for (const o of fromCut) {
+        await tx.nativeEventInstance.update({
+          where: { id: o.id },
+          data: {
+            seriesEventId: newSeries.id,
+            originalStartsAt: slotOf(o.originalStartsAt),
+            ...(input.title !== undefined ? { title: null } : {}),
+            ...(input.description !== undefined ? { description: null } : {}),
+            ...(input.location !== undefined ? { location: null } : {}),
+            ...(retimed ? { startsAt: null, endsAt: null, allDay: null } : {}),
+          },
+        });
+      }
       return newSeries.id;
     });
     return { canonicalEventId: encodeEventId(newSeriesId), clearedPings: [] };

@@ -999,6 +999,26 @@ async function main() {
     assert(textOnly.status === 200 && textOnly.body.key.endsWith(`#${iso(at('2026-10-27 10:00'))}`), `a text-only cut keeps the slot: ${textOnly.body.key}`);
   });
 
+  await check('edit event, this one and the ones after: what was deleted or moved after the cut stays so, on the new series, with the time or without', async () => {
+    seed();
+    const { occ } = await weeklySeries();
+    await del({ key: occ('2026-11-10'), scope: 'single' });
+    await patch({ key: occ('2026-11-17'), scope: 'single', changes: { title: 'x' } });
+    await del({ key: occ('2026-11-17'), scope: 'single' });
+    await patch({ key: occ('2026-11-24'), scope: 'single', changes: { start: '2026-11-25T15:00', end: '2026-11-25T16:00' } });
+    const renamed = await patch({ key: occ('2026-11-03'), scope: 'following', changes: { title: 'Dentist, new clinic' } });
+    assert(renamed.status === 200, `${renamed.status} ${renamed.text}`);
+    const fresh = (d: string, time = '10:00') => `famcal|${lastEvent().id}#${iso(at(`${d} ${time}`))}`;
+    assertSame([(await itemOf(fresh('2026-11-10'))).status, (await itemOf(fresh('2026-11-17'))).status], [404, 404], 'the deleted ones stay deleted');
+    const moved = await itemOf(fresh('2026-11-24'));
+    assertSame([moved.body.occurrence?.start, moved.body.occurrence?.title], ['2026-11-25T15:00', 'Dentist, new clinic'], 'the moved one stays moved, with the new title');
+    const retimed = await patch({ key: fresh('2026-11-03'), scope: 'following', changes: { start: '2026-11-03T08:30', end: '2026-11-03T09:30' } });
+    assert(retimed.status === 200, `${retimed.status} ${retimed.text}`);
+    const later = (d: string) => `famcal|${lastEvent().id}#${iso(at(`${d} 08:30`))}`;
+    assertSame([(await itemOf(later('2026-11-10'))).status, (await itemOf(later('2026-11-17'))).status], [404, 404], 'a new time: still deleted');
+    assertSame((await itemOf(later('2026-11-24'))).body.occurrence?.start, '2026-11-24T08:30', 'a new time: the moved one takes it');
+  });
+
   await check('edit event: a one-off takes any scope as itself; no change is a no-op that writes nothing', async () => {
     seed();
     const created = await post(eventBody());

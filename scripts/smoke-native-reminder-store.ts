@@ -477,7 +477,7 @@ async function main() {
     assert(iso(eventRow(splitId).armedAt) === iso(OLD_ARMED), `new series armedAt ${iso(eventRow(splitId).armedAt)}`);
   });
 
-  await check('a "from now on" edit that keeps the time keeps what was skipped or moved after the cut; one that moves the time drops them', async () => {
+  await check('a "from now on" reminder edit that keeps the time keeps what was skipped or moved after the cut; one that moves the time drops them', async () => {
     const seed = (kind: 'REMINDER' | 'EVENT') => {
       reset();
       seedEvent('daily', { kind, calendarId: 'raziel', creatorUserId: 1, title: 'Feed the cat', startsAt: at('2026-10-10 08:00'), rrule: 'FREQ=DAILY', exdates: [at('2026-10-12 08:00'), at('2026-10-17 08:00')] });
@@ -509,11 +509,51 @@ async function main() {
     const moved = await updateNativeEvent({ seriesCuid: 'daily', instanceStartsAt: cut, scope: 'following', actingUserId: 1, startsAt: at('2026-10-14 09:00') });
     assert((eventRow(moved.canonicalEventId).exdates as Date[]).length === 0, 'a time change kept exdates');
     assert(tables.nativeEventInstance.map((r) => r.id).join() === 'before', `overrides left ${tables.nativeEventInstance.map((r) => r.id).join()}`);
-    // An event split is as it was: its overrides after the cut are dropped.
-    seed('EVENT');
-    const ev = await updateNativeEvent({ seriesCuid: 'daily', instanceStartsAt: cut, scope: 'following', actingUserId: 1, title: 'Feed the dog' });
-    assert((eventRow(ev.canonicalEventId).exdates as Date[]).length === 0, 'an event split got exdates');
-    assert(tables.nativeEventInstance.map((r) => r.id).join() === 'before', `event overrides left ${tables.nativeEventInstance.map((r) => r.id).join()}`);
+  });
+
+  await check('a "from now on" event split carries what was skipped or moved after the cut to its new series: kept where it was with the time, keyed where the new series puts it when the time moves (the moved ones back on the new time), across a DST change too', async () => {
+    const ov = { ...DEFAULTS.nativeEventInstance(), seriesEventId: 'daily' };
+    const seed = () => {
+      reset();
+      seedEvent('daily', { calendarId: 'raziel', creatorUserId: 1, title: 'Feed the cat', startsAt: at('2026-10-10 08:00'), rrule: 'FREQ=DAILY', exdates: [at('2026-10-12 08:00'), at('2026-10-17 08:00')] });
+      tables.nativeEventInstance.push(
+        { ...ov, id: 'skip', originalStartsAt: at('2026-10-16 08:00'), status: 'CANCELLED' },
+        { ...ov, id: 'moved', originalStartsAt: at('2026-10-18 08:00'), status: 'OVERRIDE', startsAt: at('2026-10-18 12:00'), endsAt: at('2026-10-18 13:00'), title: 'Old title', location: 'Home' },
+        { ...ov, id: 'before', originalStartsAt: at('2026-10-13 08:00'), status: 'CANCELLED' },
+      );
+    };
+    const cut = at('2026-10-14 08:00');
+    const ovs = (id: string) => tables.nativeEventInstance.find((r) => r.id === id)!;
+    const starts = (seriesId: unknown, from: string, to: string) =>
+      expandSeries(eventRow(String(seriesId)) as never, { from: at(from), to: at(to) }, tables.nativeEventInstance.filter((r) => r.seriesEventId === seriesId) as never).map((i) => iso(i.startsAt));
+    // A new title from the cut: the same keys, under the new series.
+    seed();
+    const kept = await updateNativeEvent({ seriesCuid: 'daily', instanceStartsAt: cut, scope: 'following', actingUserId: 1, title: 'Feed the dog' });
+    const split = eventRow(kept.canonicalEventId);
+    assert((split.exdates as Date[]).map(iso).join() === iso(at('2026-10-17 08:00')), `exdates ${(split.exdates as Date[]).map(iso).join()}`);
+    assert(ovs('skip').seriesEventId === split.id && iso(ovs('skip').originalStartsAt) === iso(at('2026-10-16 08:00')) && ovs('skip').status === 'CANCELLED', `skip ${JSON.stringify(ovs('skip'))}`);
+    assert(ovs('moved').seriesEventId === split.id && iso(ovs('moved').startsAt) === iso(at('2026-10-18 12:00')), 'the moved one did not follow');
+    assert(ovs('moved').title === null && ovs('moved').location === 'Home', `title ${ovs('moved').title}, location ${ovs('moved').location}`);
+    assert(ovs('before').seriesEventId === 'daily', 'an override before the cut moved');
+    assert(starts(split.id, '2026-10-14 00:00', '2026-10-19 00:00').join() === ['2026-10-14 08:00', '2026-10-15 08:00', '2026-10-18 12:00'].map((d) => iso(at(d))).join(), `expanded ${starts(split.id, '2026-10-14 00:00', '2026-10-19 00:00').join()}`);
+    // A new time from the cut: each keyed at the new time; the moved one takes it; its location stays.
+    seed();
+    const retimed = await updateNativeEvent({ seriesCuid: 'daily', instanceStartsAt: cut, scope: 'following', actingUserId: 1, startsAt: at('2026-10-14 09:30'), endsAt: at('2026-10-14 10:30') });
+    const later = eventRow(retimed.canonicalEventId);
+    assert((later.exdates as Date[]).map(iso).join() === iso(at('2026-10-17 09:30')), `exdates ${(later.exdates as Date[]).map(iso).join()}`);
+    assert(iso(ovs('skip').originalStartsAt) === iso(at('2026-10-16 09:30')) && ovs('skip').seriesEventId === later.id, `skip at ${iso(ovs('skip').originalStartsAt)}`);
+    assert(iso(ovs('moved').originalStartsAt) === iso(at('2026-10-18 09:30')) && ovs('moved').startsAt === null && ovs('moved').endsAt === null, `moved ${JSON.stringify(ovs('moved'))}`);
+    assert(ovs('moved').title === 'Old title' && ovs('moved').location === 'Home', 'what the edit did not set stays');
+    assert(starts(later.id, '2026-10-14 00:00', '2026-10-19 00:00').join() === ['2026-10-14 09:30', '2026-10-15 09:30', '2026-10-18 09:30'].map((d) => iso(at(d))).join(), `expanded ${starts(later.id, '2026-10-14 00:00', '2026-10-19 00:00').join()}`);
+    assert(starts('daily', '2026-10-10 00:00', '2026-10-19 00:00').length === 2, `the old series: ${starts('daily', '2026-10-10 00:00', '2026-10-19 00:00').join()}`);
+    // A weekly one moved from Saturday 24 October (summer time) to Sunday the 25th (winter
+    // time): the skipped Saturday 31st is the skipped Sunday 1 November, still at 08:00.
+    reset();
+    seedEvent('weekly', { calendarId: 'raziel', creatorUserId: 1, title: 'Market', startsAt: at('2026-10-17 08:00'), rrule: 'FREQ=WEEKLY', exdates: [at('2026-10-31 08:00')] });
+    const dst = await updateNativeEvent({ seriesCuid: 'weekly', instanceStartsAt: at('2026-10-24 08:00'), scope: 'following', actingUserId: 1, startsAt: at('2026-10-25 08:00'), endsAt: at('2026-10-25 09:00') });
+    const sunday = eventRow(dst.canonicalEventId);
+    assert((sunday.exdates as Date[]).map(iso).join() === iso(at('2026-11-01 08:00')), `exdates ${(sunday.exdates as Date[]).map(iso).join()}`);
+    assert(starts(sunday.id, '2026-10-24 00:00', '2026-11-09 00:00').join() === ['2026-10-25 08:00', '2026-11-08 08:00'].map((d) => iso(at(d))).join(), `expanded ${starts(sunday.id, '2026-10-24 00:00', '2026-11-09 00:00').join()}`);
   });
 
   await check('following on an event is unchanged: the editor becomes the creator, the length is kept, nothing is for anyone', async () => {

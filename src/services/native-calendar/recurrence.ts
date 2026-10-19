@@ -81,6 +81,18 @@ function fromFloating(floating: Date, tz: string): Date {
 }
 
 /**
+ * Where an occurrence lands when its series moves as `from` (an occurrence's slot) moved
+ * to `to`: the same shift on the wall clock in `tz`, so 10:00 moved to 09:00 is 09:00 on
+ * every later day too, across a DST change. A "this one and the ones after" split keys
+ * what it carries over to its new series this way.
+ */
+export function shiftOnWall(instant: Date, from: Date, to: Date, tz: string): Date {
+  const zone = tz || TIMEZONE;
+  const shiftMs = toFloating(to, zone).getTime() - toFloating(from, zone).getTime();
+  return fromFloating(new Date(toFloating(instant, zone).getTime() + shiftMs), zone);
+}
+
+/**
  * Compute the duration of a series's default occurrence (endsAt - startsAt).
  * Used to derive end times for instances when the override doesn't specify one.
  */
