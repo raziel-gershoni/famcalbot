@@ -618,6 +618,46 @@ function exceptionValueAt(value: string, tzid: string | undefined, zone: string)
 }
 
 /**
+ * An UNTIL, EXDATE or RDATE instant moved as its series moved, `from` to `to` on `zone`'s
+ * wall clock (shiftOnWall, FamCal's arithmetic), written as the series will be: a date all
+ * day, else a UTC stamp.
+ */
+function movedStamp(at: Date, from: Date, to: Date, zone: string, allDay: boolean): string {
+  const moved = shiftOnWall(at, from, to, zone);
+  return allDay ? compactDay(localDate(moved, zone)) : utcStamp(moved);
+}
+
+/** An exception line's values moved as the series moved (movedStamp), as one line. */
+function movedExceptionLine(head: string, values: readonly string[], from: Date, to: Date, zone: string, allDay: boolean): string {
+  const tzid = /TZID=([^;:]+)/i.exec(head)?.[1];
+  const name = head.split(';')[0].toUpperCase();
+  const moved = values.map((v) => {
+    const at = exceptionValueAt(v, tzid, zone);
+    return movedStamp(at.date ? startOfLocalDay(at.date, zone) : at.instant!, from, to, zone, allDay);
+  });
+  return allDay ? `${name};VALUE=DATE:${moved.join(',')}` : `${name}:${moved.join(',')}`;
+}
+
+/** A rule line's UNTIL moved as the series moved (movedStamp), so it keeps its last occurrence; a COUNT, or no end, stays. */
+function movedRuleLine(line: string, from: Date, to: Date, zone: string, allDay: boolean): string {
+  return line.replace(/([:;])UNTIL=([^;]+)/i, (_m, lead: string, until: string) => `${lead}UNTIL=${movedStamp(untilInstant(until, zone), from, to, zone, allDay)}`);
+}
+
+/**
+ * A series' recurrence moved as its start moved, `from` to `to` ('all' with a time change,
+ * as FamCal's shiftUntil and carriedExdates): its UNTIL and every EXDATE and RDATE value
+ * shift with it, so it keeps its last occurrence and its exclusions stay on their slots.
+ */
+function movedRecurrence(lines: readonly string[], from: Date, to: Date, zone: string, allDay: boolean): string[] {
+  return lines.map((line) => {
+    if (/^RRULE:/i.test(line)) return movedRuleLine(line, from, to, zone, allDay);
+    if (!/^(EXDATE|RDATE)[:;]/i.test(line)) return line;
+    const colon = line.indexOf(':');
+    return movedExceptionLine(line.slice(0, colon), line.slice(colon + 1).split(',').filter(Boolean), from, to, zone, allDay);
+  });
+}
+
+/**
  * A recurrence's EXDATE and RDATE lines split at the cut (3b spec §3.2 "Exclusion lines"):
  * the values before it stay with the master, those at or after it go to the new part.
  * `shift` moves the new part's values when its occurrences moved (a new time or day).
@@ -650,13 +690,7 @@ function splitExceptionLines(
       continue;
     }
     // The new part moved: its excluded occurrences move with it, written in UTC (or as dates).
-    const name = head.split(';')[0].toUpperCase();
-    const moved = late.map((v) => {
-      const at = exceptionValueAt(v, tzid, zone);
-      if (at.date) return compactDay(addDaysToDate(at.date, daysFromTo(cutDay, localDate(shift.to, zone))));
-      return utcStamp(shiftOnWall(at.instant!, cut, shift.to, zone));
-    });
-    after.push(shift.allDay ? `${name};VALUE=DATE:${moved.join(',')}` : `${name}:${moved.join(',')}`);
+    after.push(movedExceptionLine(head, late, cut, shift.to, zone, shift.allDay));
   }
   return { before, after };
 }
@@ -672,7 +706,8 @@ function headRecurrence(lines: readonly string[], cut: Date, zone: string, allDa
 
 /**
  * The new part's recurrence for the same rule (3b spec §3.2 "Tail recurrence"): the
- * original UNTIL if there was one; else what is left of its COUNT, counted in rule slots
+ * original UNTIL if there was one (moved as the cut moved, so it keeps its last occurrence,
+ * as FamCal's tailRule); else what is left of its COUNT, counted in rule slots
  * from the master's start in its zone (exclusions ignored, at least 1); else no end. Never
  * UNTIL and COUNT together. Its exclusion lines are those at or after the cut.
  */
@@ -681,7 +716,8 @@ function tailRecurrence(lines: readonly string[], master: Times, cut: Date, zone
   const rules = lines.filter((l) => /^RRULE:/i.test(l)).map((l) => {
     const rule = bareRule(l);
     const count = /(^|;)COUNT=(\d+)/i.exec(rule);
-    if (/(^|;)UNTIL=/i.test(rule) || !count) return `RRULE:${rule}`;
+    if (/(^|;)UNTIL=/i.test(rule)) return tailStart.getTime() === cut.getTime() ? `RRULE:${rule}` : movedRuleLine(`RRULE:${rule}`, cut, tailStart, zone, master.allDay);
+    if (!count) return `RRULE:${rule}`;
     const before = slotsBefore({ rrule: nativeRuleOf(rule, zone), startsAt: master.start, timeZone: zone }, cut);
     return `RRULE:${withCount(rule, Math.max(1, Number(count[2]) - before))}`;
   });
@@ -816,8 +852,9 @@ async function updateOne(calendar: GClient, calendarId: string, eventId: string,
  * Every occurrence (3b spec §3.2 "'all' with a time change"): the master's fields, and for
  * a time change its start moved as the occurrence moved (seriesTimesFor, FamCal's
  * arithmetic): by the days from where it is shown to where it goes, at its new time of day
- * on the event's wall clock (whole days, all day). A day move on a rule with fixed days is
- * refused before anything is written.
+ * on the event's wall clock (whole days, all day). Its recurrence moves with it
+ * (movedRecurrence): the UNTIL and every EXDATE and RDATE value. A day move on a rule with
+ * fixed days is refused before anything is written.
  */
 async function updateSeries(calendar: GClient, calendarId: string, instanceId: string, masterId: string, updates: UpdateEventData): Promise<UpdateEventResult> {
   const body = textFields(updates);
@@ -832,8 +869,14 @@ async function updateSeries(calendar: GClient, calendarId: string, instanceId: s
     const to = requestedTimes(updates, shown, zone, updates.timeZone ?? zone)!;
     if (fixesDays(ruleOf(master.recurrence)) && movesDay(shown.start, to.start, zone)) return FIXED_DAYS_FAILURE;
     const target = { startsAt: to.start, endsAt: to.end, allDay: to.allDay };
-    const moved = seriesTimesFor({ startsAt: timesOf(master, zone).start, timeZone: zone }, shown.start, target);
+    const masterTimes = timesOf(master, zone);
+    const moved = seriesTimesFor({ startsAt: masterTimes.start, timeZone: zone }, shown.start, target);
     Object.assign(body, googleTimes({ start: moved.startsAt, end: moved.endsAt, allDay: to.allDay }, zone));
+    const lines = master.recurrence ?? [];
+    if (masterTimes.start.getTime() !== moved.startsAt.getTime() || masterTimes.allDay !== to.allDay) {
+      const recurrence = movedRecurrence(lines, masterTimes.start, moved.startsAt, zone, to.allDay);
+      if (recurrence.some((l, i) => l !== lines[i])) body.recurrence = recurrence;
+    }
     newSlot = { at: seriesTimesFor({ startsAt: slotOf(instance, zone), timeZone: zone }, shown.start, target).startsAt, allDay: to.allDay, zone };
   }
   const response = await calendar.events.patch({ calendarId, eventId: masterId, requestBody: body });
@@ -905,7 +948,19 @@ async function updateFromOccurrence(calendar: GClient, calendarId: string, insta
     const body = textFields(updates);
     if (to) Object.assign(body, googleTimes(tail, zone), { recurrence: [...tailRecurrence(lines, masterTimes, cut, zone, tail.start), ...lines.filter((l) => !RECURRENCE_LINE.test(l))] });
     let link = master.htmlLink ?? undefined;
-    if (Object.keys(body).length > 0) link = (await calendar.events.patch({ calendarId: onCalendar, eventId: masterId, requestBody: body })).data.htmlLink ?? link;
+    if (Object.keys(body).length > 0) {
+      try {
+        link = (await calendar.events.patch({ calendarId: onCalendar, eventId: masterId, requestBody: body })).data.htmlLink ?? link;
+      } catch (error) {
+        // After a move that took (3b spec §3.2 "Move"): the series is on the destination now,
+        // so the failure is logged and its key there returned, the occurrence as it was.
+        if (!destination) throw error;
+        captureError(scrubbedGoogleError(error, classifyGoogleError(error)), 'calendar-update-following-patch-after-move', {
+          calendar_id: onCalendar, event_id: masterId,
+        });
+        return { success: true, eventId: masterId, eventLink: link, instanceId, calendarId: onCalendar };
+      }
+    }
     return {
       success: true,
       eventId: masterId,

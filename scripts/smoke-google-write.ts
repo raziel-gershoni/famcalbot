@@ -648,6 +648,47 @@ async function main() {
     assertSame([new Date(m.start.dateTime).toISOString(), m.start.timeZone], [at('2026-10-27T10:00:00', NY).toISOString(), NY], '10:00 EDT');
   });
 
+  await check('all: a day move carries the UNTIL with the series, so its last occurrence stays', async () => {
+    WEEKLY_TUE({ recurrence: ['RRULE:FREQ=WEEKLY;UNTIL=20261124T215959Z'] });
+    const before = visible(NOA_CAL, 'wk').length;
+    const r = await update(NOA, NOA_CAL, inst('wk', '2026-10-20T10:00:00'), { startTime: at('2026-10-21T10:00:00'), endTime: at('2026-10-21T11:00:00'), scope: 'all', recurringEventId: 'wk' });
+    assert(r.success, `update ${show(r)}`);
+    const shown = visible(NOA_CAL, 'wk').map((i) => new Date(i.start.dateTime).toISOString());
+    assertSame([before, shown.length, shown[shown.length - 1]], [8, 8, at('2026-11-25T10:00:00').toISOString()], 'occurrences');
+    assertSame(stored(NOA_CAL, 'wk')!.recurrence, ['RRULE:FREQ=WEEKLY;UNTIL=20261125T215959Z'], 'rule');
+    seed(NOA_CAL, 'adu', { start: '2026-10-10', allDay: true, recurrence: ['RRULE:FREQ=DAILY;UNTIL=20261020'] });
+    await update(NOA, NOA_CAL, instDay('adu', '2026-10-15'), { startTime: at('2026-10-17T00:00:00'), endTime: at('2026-10-17T23:59:00'), allDay: true, scope: 'all', recurringEventId: 'adu' });
+    assertSame([stored(NOA_CAL, 'adu')!.recurrence, visible(NOA_CAL, 'adu').length], [['RRULE:FREQ=DAILY;UNTIL=20261022'], 11], 'all-day');
+  });
+
+  await check('following: a day move carries the UNTIL with the new part (from a later occurrence, and from the first, run as "all"), so the last occurrence stays', async () => {
+    const until = ['RRULE:FREQ=WEEKLY;UNTIL=20261124T215959Z'];
+    WEEKLY_TUE({ recurrence: until });
+    const r = await update(NOA, NOA_CAL, inst('wk', '2026-10-27T10:00:00'), { startTime: at('2026-10-28T10:00:00'), endTime: at('2026-10-28T11:00:00'), scope: 'following', recurringEventId: 'wk' });
+    assert(r.success, `later ${show(r)}`);
+    const tail = visible(NOA_CAL, r.eventId).map((i) => new Date(i.start.dateTime).toISOString());
+    assertSame([visible(NOA_CAL, 'wk').length + tail.length, tail[tail.length - 1]], [8, at('2026-11-25T10:00:00').toISOString()], 'later');
+    reset();
+    WEEKLY_TUE({ recurrence: until });
+    const f = await update(NOA, NOA_CAL, inst('wk', '2026-10-06T10:00:00'), { startTime: at('2026-10-07T10:00:00'), endTime: at('2026-10-07T11:00:00'), scope: 'following', recurringEventId: 'wk' });
+    assert(f.success && f.eventId === 'wk', `first ${show(f)}`);
+    assertSame(visible(NOA_CAL, 'wk').length, 8, 'first');
+  });
+
+  await check('all: a time or day change moves the EXDATE and RDATE values with the series, so an excluded occurrence stays excluded', async () => {
+    WEEKLY_TUE({ recurrence: ['RRULE:FREQ=WEEKLY;COUNT=5', 'EXDATE;TZID=Asia/Jerusalem:20261013T100000', 'RDATE:20261231T080000Z'] });
+    assertSame(visible(NOA_CAL, 'wk').length, 4, 'before');
+    const r = await update(NOA, NOA_CAL, inst('wk', '2026-10-20T10:00:00'), { startTime: at('2026-10-20T11:00:00'), endTime: at('2026-10-20T12:00:00'), scope: 'all', recurringEventId: 'wk' });
+    assert(r.success, `update ${show(r)}`);
+    const shown = visible(NOA_CAL, 'wk').map((i) => new Date(i.start.dateTime).toISOString());
+    assertSame(shown.length, 4, `after (got ${show(shown)})`);
+    assert(!shown.includes(at('2026-10-13T11:00:00').toISOString()), 'the excluded occurrence came back');
+    assertSame(stored(NOA_CAL, 'wk')!.recurrence, ['RRULE:FREQ=WEEKLY;COUNT=5', `EXDATE:${utcStamp(at('2026-10-13T11:00:00'))}`, `RDATE:${utcStamp(at('2026-12-31T11:00:00'))}`], 'lines');
+    seed(NOA_CAL, 'adx', { start: '2026-10-10', allDay: true, recurrence: ['RRULE:FREQ=DAILY;COUNT=5', 'EXDATE;VALUE=DATE:20261012'] });
+    await update(NOA, NOA_CAL, instDay('adx', '2026-10-11'), { startTime: at('2026-10-13T00:00:00'), endTime: at('2026-10-13T23:59:00'), allDay: true, scope: 'all', recurringEventId: 'adx' });
+    assertSame([stored(NOA_CAL, 'adx')!.recurrence, visible(NOA_CAL, 'adx').length], [['RRULE:FREQ=DAILY;COUNT=5', 'EXDATE;VALUE=DATE:20261014'], 4], 'all-day');
+  });
+
   await check('all: a day move on a series with fixed days (BYDAY, BYMONTHDAY) is FIXED_DAYS, and nothing is written; a time alone is fine', async () => {
     WEEKLY_TUE({ recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=TU'] });
     const r = await update(NOA, NOA_CAL, inst('wk', '2026-10-20T10:00:00'), { startTime: at('2026-10-21T10:00:00'), endTime: at('2026-10-21T11:00:00'), scope: 'all', recurringEventId: 'wk' });
@@ -1014,6 +1055,15 @@ async function main() {
     assertSame(b, { status: 'ok', key: gkey(FAMILY, 'one') }, 'ok after the move');
     assert(captured.some((c) => c.ctx === 'calendar-google-item-patch-after-move'), `not logged: ${show(captured.map((c) => c.ctx))}`);
     assert(stamps.length >= 2, `stamps ${stamps.length}`);
+  });
+
+  await check('move: "following" from the first occurrence with a calendar change (run as "all"): a patch that fails after the move is logged, and the new key is returned', async () => {
+    WEEKLY_TUE();
+    failOn((r) => r.method === 'PATCH', fail(500, 'backendError', 'Backend Error'));
+    const first = inst('wk', '2026-10-06T10:00:00');
+    const r = await write.updateItem(NOA, patchCmd({ key: gkey(NOA_CAL, first), scope: 'following', changes: { calendarId: FAMILY, title: 'x' } }), IL);
+    assertSame([r, Boolean(stored(FAMILY, 'wk'))], [{ status: 'ok', key: gkey(FAMILY, first) }, true], 'ok after the move');
+    assert(captured.some((c) => c.ctx === 'calendar-update-following-patch-after-move'), `not logged: ${show(captured.map((c) => c.ctx))}`);
   });
 
   await check('delete: each scope goes to Google; a refused one is notAllowed, a gone one changed', async () => {
