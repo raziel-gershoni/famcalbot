@@ -738,7 +738,7 @@ async function main() {
     assert(captured.some(c => c.startsWith('calendar-home-hints: ') && c.includes('voice_events')), `captured: ${show(captured)}`);
   });
 
-  await check('#15 the hints are a read, not a block: a Basic user (no reminders, no voice events) opening the dashboard on an empty feature cache logs no feature_blocked row and no Sentry capture; a direct checkFeatureAccess miss still does', async () => {
+  await check('#15 the hints are a read, not a block: a Basic user (no reminders, no voice events) opening the dashboard on an empty feature cache logs no feature_blocked row and no Sentry capture, and caches nothing; the next real checkFeatureAccess still misses and logs what it blocked', async () => {
     seed();
     rollout('ALL');
     DB.subscription = [{ id: 'sub-basic', userId: 1, plan: 'BASIC', status: 'ACTIVE', currentPeriodStart: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, trialStartedAt: null, trialEndsAt: new Date(0) }];
@@ -754,9 +754,12 @@ async function main() {
       if (hintsOf(props) !== 'reminders=false voiceEvents=false') problems.push(`hints ${hintsOf(props)}`);
       if (blocked() !== 0) problems.push(`${blocked()} feature_blocked rows from the hints`);
       if (messages.length) problems.push(`Sentry captures ${show(messages)}`);
+      // A quiet read caches nothing: a cached answer is never logged, so a hint cached here would hide the next real block.
+      for (const feature of ['reminders', 'voice_events'] as const) {
+        if (redisStore.has(REDIS_KEYS.featureAccess(1, feature))) problems.push(`the hint cached ${feature}`);
+      }
       assert(problems.length === 0, problems.join('; '));
-      // The control: a real gate on a miss still logs what it blocked.
-      redisStore.delete(REDIS_KEYS.featureAccess(1, 'reminders'));
+      // The real gate right after: still a miss, so it logs what it blocked.
       const direct = await (await load('src/services/subscription-service.ts')).checkFeatureAccess(1, 'reminders');
       await new Promise(resolve => setTimeout(resolve, 20));
       assert(direct.allowed === false && blocked() === 1 && messages.includes('User Activity: feature_blocked'),

@@ -709,7 +709,10 @@ async function readFeatureAccess(
   // 2. Compute feature access (existing logic)
   const result = await computeFeatureAccess(userId, feature, track);
 
-  // 3. Cache the result (fire and forget)
+  // 3. Cache the result (fire and forget). A quiet read leaves the cache alone: a cached
+  // answer is never logged, so a hint cached here would hide the next real block's
+  // feature_blocked for a day.
+  if (!track) return result;
   redis.set(cacheKey, result, { ex: FEATURE_ACCESS_CACHE_TTL }).catch(error => {
     console.error('[Feature Access] Cache write error:', error);
     captureError(error, 'subscription-cache-write', { user_id: userId, feature }, 'warning');
