@@ -101,6 +101,9 @@ const store = new Map<string, Stored>();
 const redisLog: { cmd: string; key: string }[] = [];
 /** Commands that throw while listed, as an Upstash outage does. */
 const redisFaults = new Set<string>();
+/** Commands that are sent and never answered, as a Redis the shared client keeps retrying looks to its caller. */
+const redisHangs = new Set<string>();
+const hangs = (cmd: string) => (redisHangs.has(cmd) ? new Promise<never>(() => {}) : undefined);
 
 function live(key: string): Stored | undefined {
   const s = store.get(key);
@@ -130,6 +133,7 @@ const fakeRedis = {
   mget: async (...keys: (string | string[])[]) => {
     const flat = keys.flat();
     command('mget', flat.join(' '));
+    await hangs('mget');
     return flat.map(k => decode(live(k)?.value));
   },
   get: async (key: string) => {
@@ -138,6 +142,7 @@ const fakeRedis = {
   },
   set: async (key: string, value: unknown, opts?: { nx?: boolean; ex?: number }) => {
     command('set', key);
+    await hangs(opts?.nx ? 'set-nx' : 'set');
     if (opts?.nx && live(key)) return null;
     put(key, value, opts?.ex);
     return 'OK';
@@ -423,6 +428,7 @@ function reset() {
   store.clear();
   redisLog.length = 0;
   redisFaults.clear();
+  redisHangs.clear();
   stampMode = 'ok';
   stampRequests.length = 0;
   google = {
@@ -848,6 +854,39 @@ async function main() {
     redisFaults.add('set');
     const r = await read();
     assert(r.read.status === 'ok' && r.items.length === 3, show(r.read));
+    assert(cacheWarned(), `captured: ${show(captured)}`);
+  });
+
+  await check('a Redis that never answers the cache read: the live answer after about 750 ms, one warning, one Google read', async () => {
+    reset();
+    redisHangs.add('mget');
+    const started = performance.now();
+    const r = await read();
+    const took = performance.now() - started;
+    assert(r.read.status === 'ok' && r.items.length === 3 && listed() === 2, `${show(r.read)}, ${listed()} lists`);
+    assert(took >= 700 && took < 2000, `took ${Math.round(took)} ms`);
+    assert(captured.filter(c => c.context === 'calendar-read-google-cache' && c.severity === 'warning' && /750 ms/.test(c.message)).length === 1, `captured: ${show(captured)}`);
+    assert(!redisLog.some(c => c.cmd === 'set'), `an entry was written after a cache miss by timeout: ${show(redisLog)}`);
+  });
+
+  await check('a fresh-limit set that never answers (refresh): the same, 750 ms then the live read', async () => {
+    reset();
+    redisHangs.add('set-nx');
+    const started = performance.now();
+    const r = await read(googleUser(), { googleCache: 'refresh' });
+    const took = performance.now() - started;
+    assert(r.read.status === 'ok' && r.items.length === 3 && listed() === 2, `${show(r.read)}, ${listed()} lists`);
+    assert(took >= 700 && took < 2000 && cacheWarned(), `took ${Math.round(took)} ms, captured: ${show(captured)}`);
+  });
+
+  await check('an entry write that never answers: the read still returns, within about 750 ms, with a warning', async () => {
+    reset();
+    redisHangs.add('set');
+    const started = performance.now();
+    const r = await read();
+    const took = performance.now() - started;
+    assert(r.read.status === 'ok' && r.items.length === 3 && listed() === 2, show(r.read));
+    assert(took >= 700 && took < 2000, `took ${Math.round(took)} ms`);
     assert(cacheWarned(), `captured: ${show(captured)}`);
   });
 

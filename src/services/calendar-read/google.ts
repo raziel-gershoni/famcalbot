@@ -487,6 +487,24 @@ const FRESH_LIMIT_S = 30;
 const REFRESH_DEADLINE_MS = 6_000;
 const STAMP_TIMEOUT_MS = 750;
 
+/** The cached read's own Redis calls (the fresh limit, the entry read, the entry write) wait this long; the shared client retries for seconds. */
+const CACHE_TIMEOUT_MS = 750;
+
+/** p, or a rejection once CACHE_TIMEOUT_MS has passed; the caller falls back to the uncached read. */
+async function withinCacheTimeout<T>(p: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`The Google cache took over ${CACHE_TIMEOUT_MS} ms`)), CACHE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** readGoogle's options: the live read's, plus the cache's (ReadRangeOptions, spec §2.2). */
 export interface GoogleHalfOptions extends GoogleReadOptions {
   googleCache?: ReadRangeOptions['googleCache'];   // default 'bypass'; only the range route passes 'use' or 'refresh'
@@ -600,7 +618,7 @@ async function afterRead(r: CachedRead, flight: Flight, result: GoogleReadResult
   if (Buffer.byteLength(value, 'utf8') > MAX_ENTRY_BYTES) return;
   rememberWrite(r.key, flight.startedAt);
   try {
-    await redis.set(r.key, value, { ex: ENTRY_TTL_S });
+    await withinCacheTimeout(redis.set(r.key, value, { ex: ENTRY_TTL_S }));
   } catch (err) {
     captureError(err, CACHE_LOG_CONTEXT, { user_id: r.user.id }, 'warning');
   }
@@ -679,8 +697,8 @@ export async function readGoogle(
   try {
     // fresh=1 once per 30 s per user and window; past that it reads as 'use'.
     refresh = mode === 'refresh'
-      && (await redis.set(REDIS_KEYS.gcalFresh(user.id, from, to), 1, { nx: true, ex: FRESH_LIMIT_S })) === 'OK';
-    const [rawStamp, rawEntry] = await redis.mget<[unknown, unknown]>(REDIS_KEYS.gcalStamp(user.id), key);
+      && (await withinCacheTimeout(redis.set(REDIS_KEYS.gcalFresh(user.id, from, to), 1, { nx: true, ex: FRESH_LIMIT_S }))) === 'OK';
+    const [rawStamp, rawEntry] = await withinCacheTimeout(redis.mget<[unknown, unknown]>(REDIS_KEYS.gcalStamp(user.id), key));
     stamp = stampValue(rawStamp);
     entry = entryValue(rawEntry);
   } catch (err) {
