@@ -852,9 +852,9 @@ async function checkSeriesFields(
     if (!isReminder) throw new NativeRecipientError('Only a reminder has a recipient');
     if (series.creatorUserId !== actor.id) throw new NativePermissionDeniedError('Only the creator changes who a reminder is for');
     if (input.forUserId !== null) {
-      // As resolve.ts targetFor: the ACTIVE partner, on the built-in calendar, on Telegram.
+      // As resolve.ts targetFor: the ACTIVE partner, on Telegram.
       const partner = await getActivePartnerSummary(actor.id, actor.pairingId ?? null);
-      if (!partner || partner.id !== input.forUserId || partner.calendarSource !== 'NATIVE' || partner.telegramId === null) {
+      if (!partner || partner.id !== input.forUserId || partner.telegramId === null) {
         throw new NativeRecipientError();
       }
     }

@@ -60,7 +60,7 @@ const il = (local: string) => fromZonedTime(local, IL);
 
 // ---- Viewers: Raziel (1) and his ACTIVE partner Dana (2), both on the built-in calendar ----
 
-const dana: PartnerSummary = { id: 2, name: 'Dana', englishName: 'Dana', gender: 'female', calendarSource: 'NATIVE', telegramId: null, language: 'en' };
+const dana: PartnerSummary = { id: 2, name: 'Dana', englishName: 'Dana', gender: 'female', telegramId: null, language: 'en' };
 const razielCtx: ViewerContext = { viewerId: 1, partner: dana };
 
 const OWN: ReminderInfo = { ownerIsViewer: true, creatorIsViewer: true };
@@ -404,14 +404,14 @@ async function main() {
     }), JSON.stringify(findManyCalls[0]));
   });
 
-  await check('fetch: unpaired, only the viewer\'s own; a Google user is never read', async () => {
+  await check('fetch: unpaired, only the viewer\'s own; a Google user\'s are read too (Google as a connection)', async () => {
     findManyCalls.length = 0;
     reminderRows = [];
     await fetchOpenReminders(raziel, { viewerId: 1, partner: null }, cutoff, WEDNESDAY, IL);
     assert(JSON.stringify((findManyCalls[0]?.where as Row)?.OR) === '[{"creatorUserId":1}]', JSON.stringify(findManyCalls[0]));
     findManyCalls.length = 0;
-    const none = await fetchOpenReminders(googleUser, { viewerId: 7, partner: null }, cutoff, WEDNESDAY, IL);
-    assert(none.events.length === 0 && findManyCalls.length === 0, 'read for a Google user');
+    await fetchOpenReminders(googleUser, { viewerId: 7, partner: null }, cutoff, WEDNESDAY, IL);
+    assert(JSON.stringify((findManyCalls[0]?.where as Row)?.OR) === '[{"creatorUserId":7}]', `read for a Google user ${JSON.stringify(findManyCalls[0])}`);
   });
 
   // Daily at 08:00 from Thursday 15 Oct, the day after the summary day, set at `setAt`.
@@ -466,11 +466,12 @@ async function main() {
     assert(linesOf([after], WEDNESDAY)[0] === 'Buy stamps (Reminder (all day, open)) [Calendar: Raziel]', linesOf([after], WEDNESDAY)[0]);
   });
 
-  await check('digest: a Google user\'s events come back as they were, with no read', async () => {
+  await check('digest: a Google user\'s digest gets its reminders read as anyone\'s; with none, the events come back as they were', async () => {
     findManyCalls.length = 0;
+    reminderRows = [];
     const events = [meeting];
     const result = await addDigestReminders(googleUser, events, WEDNESDAY, IL, MORNING);
-    assert(result.events === events && result.moreCount === 0 && findManyCalls.length === 0, 'touched a Google digest');
+    assert(JSON.stringify(result.events) === JSON.stringify(events) && result.moreCount === 0 && findManyCalls.length === 1, `a Google digest ${JSON.stringify(result)} reads ${findManyCalls.length}`);
   });
 
   await check('digest: the day\'s reminders shaped, then the open ones after them, with the count past the cap', async () => {

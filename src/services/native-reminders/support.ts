@@ -17,7 +17,7 @@ import { invalidateDueGate } from './due-gate';
 
 const FLAG_KEY = REDIS_KEYS.NATIVE_REMINDERS_ENABLED;
 
-export type ReminderSupportReason = 'not_native' | 'no_telegram' | 'disabled' | 'no_access';
+export type ReminderSupportReason = 'no_telegram' | 'disabled' | 'no_access';
 
 export interface ReminderSupport {
   supported: boolean;
@@ -78,18 +78,18 @@ function hasTelegram(telegramId: bigint | number | string | null | undefined): b
 }
 
 /**
- * Whether this user gets reminders and, if not, the first reason why. The checks run
- * cheapest first, so a Google or WhatsApp-only user costs no Redis read. checkFeatureAccess
+ * Whether this user gets reminders and, if not, the first reason why. Reminders live in
+ * FamCal, which everyone has ("Google as a connection" spec §4), so a Google user gets
+ * them too; the Telegram and plan gates stay. The checks run cheapest first, so a
+ * WhatsApp-only user costs no Redis read. checkFeatureAccess
  * caches its answer in Redis for 24h; a caller that needs the answer more than once per
  * message keeps the result. An error in the feature check fails closed: without
  * reminders the user gets today's behaviour.
  */
 export async function getReminderSupport(user: {
   id: number;
-  calendarSource: string;
   telegramId?: bigint | number | string | null;
 }, options: { quiet?: boolean } = {}): Promise<ReminderSupport> {
-  if (user.calendarSource !== 'NATIVE') return { supported: false, reason: 'not_native' };
   if (!hasTelegram(user.telegramId)) return { supported: false, reason: 'no_telegram' };
   if (!(await isNativeRemindersEnabled())) return { supported: false, reason: 'disabled' };
 

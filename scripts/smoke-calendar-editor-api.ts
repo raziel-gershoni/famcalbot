@@ -509,7 +509,7 @@ async function main() {
     assert(eventsAll().length === 0 && tables.nativeCalendar.length === 7, 'the editor info wrote');
   });
 
-  await check('editor: no partner, a partner who cannot be pinged, no plan for reminders, no Telegram, Google', async () => {
+  await check('editor: no partner, a partner who cannot be pinged, no plan for reminders, no Telegram; a Google user gets FamCal (made lazily) and reminders', async () => {
     seed();
     const solo = await editorOf({ tg: TG.solo });
     assertSame([solo.body.kinds, solo.body.partner, solo.body.calendars.length], [{ event: true, reminder: true }, null, 1], 'a solo user');
@@ -520,7 +520,7 @@ async function main() {
     const lone = await editorOf({ userId: 14, header: false }).catch(() => null);
     assert(lone === null || lone.status === 401, 'no credential for a Telegram-less user');
     const dan = await editorOf({ tg: TG.dan });
-    assertSame([dan.body.kinds, dan.body.calendars], [{ event: false, reminder: false }, []], 'a Google user has neither');
+    assertSame([dan.body.kinds, dan.body.calendars.map((c: Row) => [c.mine, c.main])], [{ event: true, reminder: true }, [[true, true]]], 'a Google user: the FamCal main and reminders');
   });
 
   // ================= validation =================
@@ -746,7 +746,7 @@ async function main() {
     assert(tracked[tracked.length - 1].meta.for_partner === true, 'analytics for_partner');
   });
 
-  await check('create reminder: for a partner who cannot be pinged is invalid; with no plan, no Telegram or on Google it is 403', async () => {
+  await check('create reminder: for a partner who cannot be pinged is invalid; with no plan or no Telegram it is 403; a Google user\'s goes to their FamCal main', async () => {
     seed();
     tables.user.find((u) => u.id === NOA)!.telegramId = null;
     const r = await post(reminderBody({ forPartner: true }));
@@ -758,9 +758,9 @@ async function main() {
     noReminderPlan.add(TAL);
     const noPlan = await post(reminderBody());
     assertSame([noPlan.status, noPlan.body.error], [403, 'not_allowed'], 'no plan');
-    const dan = await post(reminderBody(), { tg: TG.dan });
-    assertSame([dan.status, dan.body.error], [403, 'not_allowed'], 'Google');
     assert(eventsAll().length === 0, 'a refused reminder wrote');
+    const dan = await post(reminderBody(), { tg: TG.dan });
+    assertSame([dan.status, eventsAll().length], [200, 1], 'a Google user\'s reminder');
     const events = await post(eventBody());
     assert(events.status === 200, 'events stay available without the reminders plan');
   });
@@ -1902,7 +1902,8 @@ async function main() {
     tables.user.find((u) => u.id === NOA)!.telegramId = BigInt(TG.noa);
     tables.user.find((u) => u.id === NOA)!.calendarSource = 'GOOGLE';
     const google = await patch({ key: `famcal|${onShared.id}`, scope: 'single', changes: { forPartner: true } });
-    assertSame(google.body, { error: 'invalid', field: 'forPartner' }, 'a partner on Google');
+    assertSame([google.status, onShared.forUserId], [200, NOA], 'a partner with Google connected (Google as a connection)');
+    onShared.forUserId = null;
     const solo = await post(reminderBody(), { tg: TG.solo });
     const alone = await patch({ key: solo.body.key, scope: 'single', changes: { forPartner: true } }, { tg: TG.solo });
     assertSame(alone.body, { error: 'invalid', field: 'forPartner' }, 'no partner');

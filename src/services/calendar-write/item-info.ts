@@ -30,6 +30,8 @@ import { effectiveOwnerForViewer, loadViewerContext, type ViewerContext } from '
 import { getReminderSupport } from '../native-reminders/support';
 import type { AnyItemKey, ItemKey } from './validate';
 import { sourcesFor } from '../calendar-read/index';
+import { defaultCalendarIdFor } from '../calendar-provider/user-calendars';
+import { ensurePrimaryNativeCalendar } from '../native-calendar/onboarding';
 import { instantToWall, lastDayOf, localDate } from './walltime';
 
 
@@ -67,25 +69,41 @@ export async function writableCalendars(user: UserConfig): Promise<EditorCalenda
   return (await writableCalendarRows(user)).map((r) => r.entry);
 }
 
+/** writableCalendars, with the FamCal main made first (lazily) when the user owns none. */
+async function ownedWritableCalendars(user: UserConfig): Promise<EditorCalendar[]> {
+  const calendars = await writableCalendars(user);
+  if (calendars.some((c) => c.mine)) return calendars;
+  await ensurePrimaryNativeCalendar(user.id);
+  return writableCalendars(user);
+}
+
 /**
  * GET /api/calendar/editor: what the user can add, to which calendars, and for whom. Per
  * calendar (3b spec §3.3, and "Google as a connection" §4): the union of a FamCal part
  * (its calendars, reminders and the partner, by FamCal's rules) when the user reads FamCal,
  * and a Google part (the chosen calendars they can write, read live) when they read
  * Google. A Google list that can't be read drops only the Google rows, and is logged.
+ * main is the default (defaultCalendarFor, §3) for both kinds; a user with no FamCal
+ * calendar of their own gets the main one made here, lazily.
  */
 export async function editorInfo(user: UserConfig, tz: string): Promise<EditorInfoResponse> {
   const sources = sourcesFor(user);
   const famcal = sources.includes('famcal');
   const google = sources.includes('google');
   const [famcalCalendars, googleCalendars, reminders, ctx] = await Promise.all([
-    famcal ? writableCalendars(user) : Promise.resolve([]),
+    famcal ? ownedWritableCalendars(user) : Promise.resolve([]),
     google ? import('./google-item').then(async (m) => (await m.googleEditorCalendars(user)).calendars) : Promise.resolve([]),
     // quiet: a hint, not a gate, so a plan without reminders logs nothing
     getReminderSupport(user, { quiet: true }),
     famcal ? loadViewerContext({ id: user.id, pairingId: user.pairingId ?? null }) : Promise.resolve(null),
   ]);
-  const calendars = [...famcalCalendars, ...googleCalendars];
+  // After the FamCal part, which may have made the main. The default when it is listed;
+  // else (the FamCal main by the rule, or a Google default whose list failed or that
+  // can't be written) the FamCal main, which writableCalendars marks.
+  const defaultId = await defaultCalendarIdFor(user);
+  const listed = [...famcalCalendars, ...googleCalendars];
+  const mainId = listed.some((c) => c.id === defaultId) ? defaultId : famcalCalendars.find((c) => c.main)?.id;
+  const calendars = listed.map((c) => ({ ...c, main: c.id === mainId }));
   const partner = ctx?.partner ? { name: ctx.partner.name, canRemind: partnerCanRemind(ctx) } : null;
   return {
     kinds: { event: calendars.length > 0, reminder: reminders.supported },
@@ -230,7 +248,7 @@ export function isForPartner(series: Pick<NativeEvent, 'kind' | 'creatorUserId' 
 
 /** Whether the viewer's partner can be pinged, so a reminder can be for them (resolve.ts targetFor). */
 export const partnerCanRemind = (ctx: ViewerContext): boolean =>
-  ctx.partner !== null && ctx.partner.calendarSource === 'NATIVE' && ctx.partner.telegramId !== null;
+  ctx.partner !== null && ctx.partner.telegramId !== null;
 
 /**
  * Where an event may move (3b spec §2.2): the calendars the user can write, its own among

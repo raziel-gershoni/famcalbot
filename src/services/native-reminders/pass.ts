@@ -39,7 +39,6 @@ const USER_SELECT = {
   language: true,
   telegramId: true,
   location: true,
-  calendarSource: true,
   pairingId: true,
   suspendedAt: true,
   unreachableSince: true,

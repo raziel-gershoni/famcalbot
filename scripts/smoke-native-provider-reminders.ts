@@ -323,11 +323,11 @@ async function main() {
     ]);
   });
 
-  await check('a partner who moved to Google: Dana\'s reminder for him is hers again', async () => {
+  await check('a partner with Google connected (the legacy column says GOOGLE): Dana\'s reminder for him stays his (Google as a connection)', async () => {
     household();
     db.users.find((u) => u.id === RAZIEL)!.calendarSource = 'GOOGLE';
     const events = await fetchDay(DANA, ['native:cal-dana']);
-    assert(events.map(describe).includes('Call the bank (mine, by me)'), events.map(describe).join(' | '));
+    assert(events.map(describe).includes('Call the bank (for Raziel, by me)'), events.map(describe).join(' | '));
   });
 
   await check('an unpaired user with no reminders: no partner, state or extra event queries', async () => {

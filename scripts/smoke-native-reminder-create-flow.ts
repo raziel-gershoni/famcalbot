@@ -112,7 +112,7 @@ const flags = { autoCreate: false };
 let support: { supported: boolean; reason?: string } = { supported: true };
 
 const raziel: PartnerSummary = {
-  id: 2, name: 'Raziel', englishName: 'Raziel', gender: 'male', calendarSource: 'NATIVE', telegramId: BigInt(1002), language: 'he',
+  id: 2, name: 'Raziel', englishName: 'Raziel', gender: 'male', telegramId: BigInt(1002), language: 'he',
 };
 let partner: PartnerSummary | null = raziel;
 let partnerLookups = 0;
@@ -395,10 +395,10 @@ async function main() {
     assert(r.ok && r.forUserId === null && r.notice === 'partner_not_on_telegram', JSON.stringify(r));
   });
 
-  await check('resolve: a partner on Google, or no partner, leaves it the creator\'s with no notice', async () => {
-    partner = { ...raziel, calendarSource: 'GOOGLE' };
+  await check('resolve: a partner with Google connected is reminded as any partner (Google as a connection); no partner leaves it the creator\'s with no notice', async () => {
+    partner = { ...raziel };
     const google = await resolveReminderForCreate(dana, parsedReminder({ forPerson: 'partner' }), IL);
-    assert(google.ok && google.forUserId === null && google.notice === undefined, `google ${JSON.stringify(google)}`);
+    assert(google.ok && google.forUserId === 2 && google.notice === undefined, `google ${JSON.stringify(google)}`);
     partner = null;
     const unpaired = await resolveReminderForCreate(dana, parsedReminder({ forPerson: 'partner' }), IL);
     assert(unpaired.ok && unpaired.forUserId === null && unpaired.notice === undefined, `unpaired ${JSON.stringify(unpaired)}`);

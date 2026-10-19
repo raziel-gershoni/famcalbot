@@ -443,14 +443,13 @@ async function main() {
     assert(stateRow(MILK).doneByUserId === RAZIEL, `state ${show(stateRow(MILK))}`);
   });
 
-  await check('the partner moved to Google: their old ping says "changed"', async () => {
+  await check('the partner with Google connected (the legacy column says GOOGLE): their ping still works (Google as a connection)', async () => {
     reset();
     user(DANA).calendarSource = 'GOOGLE';
     const q = tap(DANA, `nr:s15:${MILK}`, MILK_MSG);
     await handleNativeReminderCallback(q, NOW);
-    assert(toastOf(q) === 'This reminder changed or no longer exists.', `toast ${toastOf(q)}`);
-    assertUntouched(MILK);
-    assertButtonsRemoved(tg(DANA), MILK_MSG);
+    assert(toastOf(q) === undefined, `toast ${toastOf(q)}`);
+    assert(show(stateRow(MILK).snoozedUntil) === show(new Date(NOW.getTime() + 15 * MIN)), `snoozedUntil ${show(stateRow(MILK).snoozedUntil)}`);
   });
 
   // ---- Stale buttons ----

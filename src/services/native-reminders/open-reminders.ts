@@ -172,7 +172,6 @@ export async function fetchOpenReminders(
   timezone: string,
   cap: number = OPEN_REMINDERS_DIGEST_CAP
 ): Promise<{ events: CalendarEvent[]; moreCount: number }> {
-  if (user.calendarSource !== 'NATIVE') return { events: [], moreCount: 0 };
   const candidates = await loadOpenReminderCandidates(ctx, cutoff);
   return selectOpenReminders(candidates, ctx, cutoff, summaryDay, timezone, new Date(), cap);
 }
@@ -190,7 +189,6 @@ export async function fetchOpenReminderItems(
   timezone: string,
   cap: number = OPEN_REMINDERS_DIGEST_CAP
 ): Promise<{ items: OpenReminderItem[]; moreCount: number }> {
-  if (user.calendarSource !== 'NATIVE') return { items: [], moreCount: 0 };
   const candidates = await loadOpenReminderCandidates(ctx, cutoff);
   return selectOpenReminderItems(candidates, ctx, cutoff, summaryDay, timezone, new Date(), cap);
 }
@@ -238,7 +236,6 @@ export async function addDigestReminders(
   timezone: string,
   now: Date = new Date()
 ): Promise<{ events: CalendarEvent[]; moreCount: number }> {
-  if (user.calendarSource !== 'NATIVE') return { events: dayEvents, moreCount: 0 };
   const events = shapeDayReminders(dayEvents, now, timezone);
   try {
     const ctx = await loadViewerContext(user);

@@ -183,26 +183,26 @@ async function main() {
 
   // ---- getReminderSupport: the reasons, in order ----
 
-  await check('a Google user is not_native, with no Redis read and no feature check', async () => {
+  await check('a Google user gets reminders too (they live in FamCal, Google as a connection): supported through the same switch and feature checks', async () => {
     reset();
     access[1] = true;
-    const support = await getReminderSupport({ id: 1, calendarSource: 'GOOGLE', telegramId: 1001 });
-    assert(!support.supported && support.reason === 'not_native', JSON.stringify(support));
-    assert(redisState.reads === 0 && accessChecks.length === 0, `redis reads ${redisState.reads}, feature checks ${accessChecks}`);
+    const support = await getReminderSupport({ id: 1, telegramId: 1001 });
+    assert(support.supported && support.reason === undefined, JSON.stringify(support));
+    assert(accessChecks.join() === '1:reminders', `feature checks ${accessChecks}`);
   });
 
-  await check('the first failing reason wins: a Google user with no Telegram and the switch off is not_native', async () => {
+  await check('the first failing reason wins: no Telegram and the switch off is no_telegram', async () => {
     reset();
     store.set(FLAG, 'false');
-    const support = await getReminderSupport({ id: 2, calendarSource: 'GOOGLE', telegramId: null });
-    assert(support.reason === 'not_native', JSON.stringify(support));
+    const support = await getReminderSupport({ id: 2, telegramId: null });
+    assert(support.reason === 'no_telegram', JSON.stringify(support));
   });
 
-  await check('a WhatsApp-only built-in user is no_telegram, with no Redis read', async () => {
+  await check('a WhatsApp-only user is no_telegram, with no Redis read', async () => {
     reset();
     access[3] = true;
     for (const telegramId of [null, undefined]) {
-      const support = await getReminderSupport({ id: 3, calendarSource: 'NATIVE', telegramId });
+      const support = await getReminderSupport({ id: 3, telegramId });
       assert(!support.supported && support.reason === 'no_telegram', `${telegramId}: ${JSON.stringify(support)}`);
     }
     assert(redisState.reads === 0 && accessChecks.length === 0, `redis reads ${redisState.reads}, feature checks ${accessChecks}`);
@@ -212,7 +212,7 @@ async function main() {
     reset();
     store.set(FLAG, 'false');
     access[4] = true;
-    const support = await getReminderSupport({ id: 4, calendarSource: 'NATIVE', telegramId: 1004 });
+    const support = await getReminderSupport({ id: 4, telegramId: 1004 });
     assert(!support.supported && support.reason === 'disabled', JSON.stringify(support));
     assert(accessChecks.length === 0, `feature checks ${accessChecks}`);
   });
@@ -220,7 +220,7 @@ async function main() {
   await check('no Pro, trial, override or early adoption: no_access, from the reminders feature', async () => {
     reset();
     access[5] = false;
-    const support = await getReminderSupport({ id: 5, calendarSource: 'NATIVE', telegramId: 1005 });
+    const support = await getReminderSupport({ id: 5, telegramId: 1005 });
     assert(!support.supported && support.reason === 'no_access', JSON.stringify(support));
     assert(accessChecks.join() === '5:reminders', `feature checks ${accessChecks}`);
   });
@@ -229,7 +229,7 @@ async function main() {
     reset();
     access[6] = true;
     for (const telegramId of [1006, BigInt(1006), '1006']) {
-      const support = await getReminderSupport({ id: 6, calendarSource: 'NATIVE', telegramId });
+      const support = await getReminderSupport({ id: 6, telegramId });
       assert(support.supported && support.reason === undefined, `${typeof telegramId}: ${JSON.stringify(support)}`);
     }
   });
@@ -237,7 +237,7 @@ async function main() {
   await check('a failing feature check fails closed as no_access instead of throwing', async () => {
     reset();
     access[7] = new Error('db is down');
-    const support = await getReminderSupport({ id: 7, calendarSource: 'NATIVE', telegramId: 1007 });
+    const support = await getReminderSupport({ id: 7, telegramId: 1007 });
     assert(!support.supported && support.reason === 'no_access', JSON.stringify(support));
   });
 
@@ -246,9 +246,9 @@ async function main() {
     access[8] = true;
     access[9] = false;
     access[10] = new Error('db is down');
-    const yes = await getReminderSupport({ id: 8, calendarSource: 'NATIVE', telegramId: 1008 }, { quiet: true });
-    const no = await getReminderSupport({ id: 9, calendarSource: 'NATIVE', telegramId: 1009 }, { quiet: true });
-    const down = await getReminderSupport({ id: 10, calendarSource: 'NATIVE', telegramId: 1010 }, { quiet: true });
+    const yes = await getReminderSupport({ id: 8, telegramId: 1008 }, { quiet: true });
+    const no = await getReminderSupport({ id: 9, telegramId: 1009 }, { quiet: true });
+    const down = await getReminderSupport({ id: 10, telegramId: 1010 }, { quiet: true });
     assert(yes.supported && !no.supported && no.reason === 'no_access', JSON.stringify({ yes, no }));
     assert(!down.supported && down.reason === 'no_access', JSON.stringify(down));
     assert(accessChecks.join() === 'peek 8:reminders,peek 9:reminders,peek 10:reminders', `feature checks ${accessChecks}`);

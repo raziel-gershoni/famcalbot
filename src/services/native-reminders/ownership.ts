@@ -1,10 +1,10 @@
 // Who a native reminder belongs to (spec §2, ruling R2).
 //
 // The effective owner is worked out on every read, never stored: forUserId counts
-// only while that user is still the creator's ACTIVE partner and still on the
-// built-in calendar. Unlinking, a switch to Google or a deleted account (forUserId
-// goes null) all hand the reminder back to its creator with no write, and
-// re-pairing with the same person restores the link.
+// only while that user is still the creator's ACTIVE partner. Unlinking or a
+// deleted account (forUserId goes null) hands the reminder back to its creator
+// with no write, and re-pairing with the same person restores the link. Google is
+// a connection beside FamCal, so it changes nothing here.
 //
 // This file reads Pairing itself and never imports event-store.ts: event-store
 // imports this file, and a cycle between the two breaks partial store stubs in the
@@ -19,7 +19,6 @@ export interface PartnerSummary {
   /** '' when unset (Prisma's String @default("")), so fall back with ||, not ??. */
   englishName: string;
   gender: string;
-  calendarSource: 'GOOGLE' | 'NATIVE';
   telegramId: bigint | null;
   language: string;
 }
@@ -45,7 +44,7 @@ export async function getActivePartnerSummary(userId: number, pairingId: string 
   if (partnerId == null) return null;
   return prisma.user.findUnique({
     where: { id: partnerId },
-    select: { id: true, name: true, englishName: true, gender: true, calendarSource: true, telegramId: true, language: true },
+    select: { id: true, name: true, englishName: true, gender: true, telegramId: true, language: true },
   });
 }
 
@@ -54,28 +53,28 @@ export async function loadViewerContext(user: { id: number; pairingId: string | 
   return { viewerId: user.id, partner: await getActivePartnerSummary(user.id, user.pairingId ?? null) };
 }
 
-/** forUserId counts only while it is the creator's ACTIVE partner and that partner is NATIVE; otherwise the creator. */
+/** forUserId counts only while it is the creator's ACTIVE partner; otherwise the creator. */
 export function effectiveOwnerId(
   series: { creatorUserId: number; forUserId: number | null },
-  creatorPartner: { id: number; calendarSource: string } | null
+  creatorPartner: { id: number } | null
 ): number {
   if (series.forUserId == null || !creatorPartner) return series.creatorUserId;
-  if (series.forUserId !== creatorPartner.id || creatorPartner.calendarSource !== 'NATIVE') return series.creatorUserId;
+  if (series.forUserId !== creatorPartner.id) return series.creatorUserId;
   return creatorPartner.id;
 }
 
 /**
  * effectiveOwnerId seen from a viewer, with no extra query. The viewer's ACTIVE
  * partner is the creator's partner when the viewer created it, and the viewer is
- * the creator's partner when the partner created it (the viewer reads the built-in
- * calendar, so is NATIVE). Anyone else's reminder stays its creator's.
+ * the creator's partner when the partner created it. Anyone else's reminder stays its
+ * creator's.
  */
 export function effectiveOwnerForViewer(series: { creatorUserId: number; forUserId: number | null }, ctx: ViewerContext): number {
   const creatorPartner =
     series.creatorUserId === ctx.viewerId
       ? ctx.partner
       : ctx.partner && series.creatorUserId === ctx.partner.id
-        ? { id: ctx.viewerId, calendarSource: 'NATIVE' }
+        ? { id: ctx.viewerId }
         : null;
   return effectiveOwnerId(series, creatorPartner);
 }

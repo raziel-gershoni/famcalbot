@@ -83,8 +83,8 @@ const fakePrisma = {
 
 // ---- Viewers ----
 
-const partnerSummary = (id: number, calendarSource: 'GOOGLE' | 'NATIVE' = 'NATIVE'): PartnerSummary =>
-  ({ id, name: `User ${id}`, englishName: '', gender: 'female', calendarSource, telegramId: null, language: 'en' });
+const partnerSummary = (id: number): PartnerSummary =>
+  ({ id, name: `User ${id}`, englishName: '', gender: 'female', telegramId: null, language: 'en' });
 const viewer = (viewerId: number, partner: PartnerSummary | null): ViewerContext => ({ viewerId, partner });
 
 /** A reminder by `creatorUserId`, for `forUserId` (null = the creator). */
@@ -111,13 +111,13 @@ async function main() {
 
   await check('partner summary: the inviter gets the invitee, with exactly the fields reminders need', async () => {
     assertSame(await getActivePartnerSummary(1, 'pair-1'), {
-      id: 2, name: 'Dana', englishName: 'Dana', gender: 'female', calendarSource: 'NATIVE', telegramId: null, language: 'en',
+      id: 2, name: 'Dana', englishName: 'Dana', gender: 'female', telegramId: null, language: 'en',
     });
   });
 
   await check('partner summary: the invitee gets the inviter', async () => {
     assertSame(await getActivePartnerSummary(2, 'pair-1'), {
-      id: 1, name: 'רזיאל', englishName: 'Raziel', gender: 'male', calendarSource: 'NATIVE', telegramId: BigInt(1001), language: 'he',
+      id: 1, name: 'רזיאל', englishName: 'Raziel', gender: 'male', telegramId: BigInt(1001), language: 'he',
     });
   });
 
@@ -137,7 +137,7 @@ async function main() {
   await check('loadViewerContext: the viewer and their ACTIVE partner, a Google one included', async () => {
     const ctx = await loadViewerContext({ id: 4, pairingId: 'pair-2' });
     assert(ctx.viewerId === 4, `viewerId ${ctx.viewerId}`);
-    assert(ctx.partner?.id === 3 && ctx.partner.calendarSource === 'GOOGLE', `partner ${show(ctx.partner)}`);
+    assert(ctx.partner?.id === 3 && !('calendarSource' in ctx.partner), `partner ${show(ctx.partner)}`);
     const alone = await loadViewerContext({ id: 1, pairingId: null });
     assertSame(alone, { viewerId: 1, partner: null });
   });
@@ -148,12 +148,12 @@ async function main() {
     assert(effectiveOwnerId(reminder(1, null), partnerSummary(2)) === 1, 'not the creator');
   });
 
-  await check('owner: forUserId = the ACTIVE NATIVE partner is the partner', () => {
+  await check('owner: forUserId = the ACTIVE partner is the partner', () => {
     assert(effectiveOwnerId(reminder(1, 2), partnerSummary(2)) === 2, 'not the partner');
   });
 
-  await check('owner: a partner who switched to Google hands it back to the creator', () => {
-    assert(effectiveOwnerId(reminder(1, 2), partnerSummary(2, 'GOOGLE')) === 1, 'still the partner');
+  await check('owner: a partner with Google connected keeps it (Google as a connection: the source column is not read)', () => {
+    assert(effectiveOwnerId(reminder(1, 2), { ...partnerSummary(2), calendarSource: 'GOOGLE' } as PartnerSummary) === 2, 'not the partner');
   });
 
   await check('owner: after unlinking (no partner) it is the creator\'s', () => {
@@ -191,8 +191,8 @@ async function main() {
     assert(effectiveOwnerForViewer(reminder(1, 2), viewer(2, null)) === 1, 'ex-partner still owns it');
   });
 
-  await check('viewer whose partner switched to Google: the creator\'s', () => {
-    assert(effectiveOwnerForViewer(reminder(1, 2), viewer(1, partnerSummary(2, 'GOOGLE'))) === 1, 'Google partner owns it');
+  await check('viewer whose partner has Google connected: still the partner\'s', () => {
+    assert(effectiveOwnerForViewer(reminder(1, 2), viewer(1, { ...partnerSummary(2), calendarSource: 'GOOGLE' } as PartnerSummary)) === 2, 'the creator owns it');
   });
 
   // ---- Due gate ----

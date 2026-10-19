@@ -279,7 +279,8 @@ const stubs: Record<string, object> = {
   [`${SRC}/services/native-reminders/support.ts`]: {
     getReminderSupport: async (user: UserConfig) => {
       supportChecks.push(user.id);
-      if (user.calendarSource !== 'NATIVE') return { supported: false, reason: 'not_native' };
+      // The Google user here has no reminders by plan (a Google user may have them now: they live in FamCal)
+      if (user.calendarSource !== 'NATIVE') return { supported: false, reason: 'no_access' };
       if (user.id === 4) return { supported: false, reason: 'no_access' };
       return { supported: true };
     },

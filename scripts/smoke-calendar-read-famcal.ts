@@ -605,11 +605,11 @@ async function main() {
     assert(items.length === 2 && moreCount === 1 && old.moreCount === 1, `${items.length} items, moreCount ${moreCount}/${old.moreCount}`);
   });
 
-  await check('fetchOpenReminderItems: a Google user is never read', async () => {
+  await check('fetchOpenReminderItems: a Google user\'s are read as anyone\'s (reminders live in FamCal, Google as a connection)', async () => {
     household();
     const none = await fetchOpenReminderItems(viewer(GALI), { viewerId: GALI, partner: null }, CUTOFF, cutoffDay, IL, Infinity);
-    assertJson(none, { items: [], moreCount: 0 }, 'result');
-    assertJson(queries, [], 'queries');
+    assertJson(none, { items: [], moreCount: 0 }, 'result: Gali set none');
+    assertJson(queries, ['nativeEvent.findMany'], 'queries');
   });
 
   await check('carryOverReadItems: masked off the legend, named on it; originalStart is the occurrence\'s', async () => {

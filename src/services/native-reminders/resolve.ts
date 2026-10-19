@@ -78,12 +78,12 @@ async function resolveWithPartner(
   };
 }
 
-/** Who "remind Dana…" is for: the partner only when they are on the built-in calendar and can be pinged. */
+/** Who "remind Dana…" is for: the active partner, only when they can be pinged (on Telegram). */
 function targetFor(
   event: ParsedEvent,
   partner: PartnerSummary | null
 ): { forUserId: number | null; notice?: 'partner_not_on_telegram' } {
-  if (event.forPerson !== 'partner' || !partner || partner.calendarSource !== 'NATIVE') return { forUserId: null };
+  if (event.forPerson !== 'partner' || !partner) return { forUserId: null };
   if (partner.telegramId === null) return { forUserId: null, notice: 'partner_not_on_telegram' };
   return { forUserId: partner.id };
 }

@@ -371,7 +371,6 @@ export async function findMatchingEvent(
  * week back. Only the built-in calendar has reminders. A failed lookup costs only these.
  */
 async function openReminderCandidates(user: UserConfig, now: Date, timezone: string): Promise<CalendarEvent[]> {
-  if (user.calendarSource !== 'NATIVE') return [];
   try {
     const ctx = await loadViewerContext({ id: user.id, pairingId: user.pairingId ?? null });
     const { events } = await fetchOpenReminders(user, ctx, now, localDate(now, timezone), timezone, Infinity);

@@ -356,7 +356,7 @@ async function main() {
     assert(matcherPrompts[0].includes('\n6. Items tagged [reminder] are reminders'), 'no reminder rule in the prompt');
   });
 
-  await check('open reminders of any age are offered, once each, to a native user\'s edit or delete only', async () => {
+  await check('open reminders of any age are offered, once each, to an edit or delete, a Google user\'s too (Google as a connection)', async () => {
     reset();
     const plumber = reminder('Pay the plumber', '2026-09-20T07:00:00.000Z', { info: { openSince: '2026-09-20' } });
     const cake = reminder('Order the cake', '2026-10-12T07:00:00.000Z', { info: { openSince: '2026-10-12' } });
@@ -370,11 +370,13 @@ async function main() {
     assert(openCalls.length === 1 && call.viewerId === 1 && call.cutoff === NOW.toISOString() && call.summaryDay === '2026-10-14' && call.timezone === IL && call.cap === Infinity,
       `fetchOpenReminders called ${JSON.stringify(openCalls)} (cap ${call?.cap})`);
 
-    // Without the option (an anchor lookup passes only `eligible`), and for a Google user, nothing is fetched
+    // Without the option (an anchor lookup passes only `eligible`) nothing is fetched; a Google user's are
     openCalls.length = 0;
     const plain = await findMatchingEvent(raziel, ['native:c1'], byDescription('plumber'), 'en', NOW);
+    assert(openCalls.length === 0 && picked(plain) === 'no_match', `calls ${openCalls.length}, ${picked(plain)}`);
     const google = await findMatchingEvent(googleUser, ['primary'], byDescription('plumber'), 'en', NOW, { openReminders: true });
-    assert(openCalls.length === 0 && picked(plain) === 'no_match' && picked(google) === 'no_match', `calls ${openCalls.length}, ${picked(plain)}, ${picked(google)}`);
+    const googleCalls = [...openCalls];
+    assert(googleCalls.length === 1 && googleCalls[0].viewerId === googleUser.id && picked(google) === 'Pay the plumber 2026-09-20T07:00:00.000Z', `calls ${JSON.stringify(googleCalls)}, ${picked(google)}`);
   });
 
   await check('with nothing in the range, an open reminder is still found', async () => {

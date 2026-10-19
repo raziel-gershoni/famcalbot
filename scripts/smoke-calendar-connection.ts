@@ -544,17 +544,17 @@ async function main() {
   await check('D1 reminders for a Google user: supported on Telegram with the plan; no Telegram and a plan without reminders still say no', async () => {
     seed();
     const { getReminderSupport } = await load('src/services/native-reminders/support.ts');
-    const ok = await getReminderSupport({ id: 3, calendarSource: 'GOOGLE', telegramId: BigInt(5550003) });
-    const noTg = await getReminderSupport({ id: 3, calendarSource: 'GOOGLE', telegramId: null });
+    const ok = await getReminderSupport(await configOf(3));
+    const noTg = await getReminderSupport({ ...(await configOf(3)), telegramId: null });
     redisStore.set('feature:access:4:reminders', JSON.stringify({ allowed: false }));
-    const noPlan = await getReminderSupport({ id: 4, calendarSource: 'GOOGLE', telegramId: BigInt(5550004) });
+    const noPlan = await getReminderSupport(await configOf(4));
     eq([ok, noTg.reason, noPlan.reason], [{ supported: true }, 'no_telegram', 'no_access'], 'support');
   });
 
   await check('D2 a reminder for a Google partner: the partner can be reminded, and owns it', async () => {
     const { effectiveOwnerId } = await load('src/services/native-reminders/ownership.ts');
     const { partnerCanRemind } = await load('src/services/calendar-write/item-info.ts');
-    const partner = { id: 3, name: 'Gil', englishName: '', gender: 'male', calendarSource: 'GOOGLE', telegramId: BigInt(5550003), language: 'en' };
+    const partner = { id: 3, name: 'Gil', englishName: '', gender: 'male', telegramId: BigInt(5550003), language: 'en', calendarSource: 'GOOGLE' };
     eq(effectiveOwnerId({ creatorUserId: 1, forUserId: 3 }, partner), 3, 'owner');
     eq(partnerCanRemind({ viewerId: 1, partner }), true, 'canRemind');
   });
@@ -722,12 +722,12 @@ async function main() {
     eq([info.kinds, info.partner?.name, info.partner?.canRemind], [{ event: true, reminder: true }, 'Pele', true], 'kinds/partner');
   });
 
-  await check('H3 a failed Google calendar list drops only the Google rows; a legacy Google user gets the FamCal main row (made lazily) and reminders', async () => {
+  await check('H3 a failed Google calendar list drops only the Google rows; a legacy Google user gets the FamCal main row (made lazily, the default while the Google one is unlisted) and reminders', async () => {
     seed();
     googleEditorAnswer = { calendars: [], failure: 'token' };
     const { editorInfo } = await load('src/services/calendar-write/item-info.ts');
     const info = await editorInfo(await configOf(3), 'Asia/Jerusalem');
-    eq(info.calendars.map((c: Row) => [c.id.startsWith('native:'), c.main]), [[true, false]], 'rows');
+    eq(info.calendars.map((c: Row) => [c.id.startsWith('native:'), c.main]), [[true, true]], 'rows');
     eq(info.kinds, { event: true, reminder: true }, 'kinds');
   });
 

@@ -670,9 +670,9 @@ async function main() {
     if (keysOf(gina.user ?? {}) !== 'id,isAdmin,location,name') problems.push(`user keys ${keysOf(gina.user ?? {})}`);
     // The always-7-days setting rides along for the Send sheet's week dates (false for a user who never set it)
     if (gina.lookahead7 !== false) problems.push(`lookahead7 ${show(gina.lookahead7)}`);
-    // A Google user: getReminderSupport answers not_native before any feature check
-    if (hintsOf(gina) !== 'reminders=false voiceEvents=true' || keysOf(gina.hints ?? {}) !== 'reminders,voiceEvents') problems.push(`hints ${show(gina.hints)}`);
-    if (show(featureChecks) !== show(['voice_events(4)']) || show(supportChecks) !== show([4])) problems.push(`hint checks ${show({ featureChecks, supportChecks })}`);
+    // A Google user gets reminders too (they live in FamCal): the same feature checks as anyone
+    if (hintsOf(gina) !== 'reminders=true voiceEvents=true' || keysOf(gina.hints ?? {}) !== 'reminders,voiceEvents') problems.push(`hints ${show(gina.hints)}`);
+    if (show([...featureChecks].sort()) !== show(['reminders(4)', 'voice_events(4)']) || show(supportChecks) !== show([4])) problems.push(`hint checks ${show({ featureChecks, supportChecks })}`);
     const opened = await opens();
     if (show(opened) !== show([4])) problems.push(`webapp_opened for ${show(opened)} (want [4]: the DB id, once)`);
     assert(problems.length === 0, problems.join('; '));

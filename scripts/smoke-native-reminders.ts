@@ -601,12 +601,12 @@ async function main() {
     assert(sent.length === 1 && sent[0].chatId === '1001' && sent[0].text === '⏰ <b>Call the plumber</b>', sentLines());
   });
 
-  await check('pass: a partner who moved to Google (the pairing still ACTIVE) hands it back to its creator', async () => {
+  await check('pass: a partner with Google connected (the legacy column says GOOGLE, the pairing ACTIVE) is still pinged (Google as a connection)', async () => {
     reset();
     db.users[1].calendarSource = 'GOOGLE';
     reminder({ startsAt: today('10:00'), forUserId: 2 });
     await pass(today('10:00'));
-    assert(sent.length === 1 && sent[0].chatId === '1001', sentLines());
+    assert(sent.length === 1 && sent[0].chatId === '1002', sentLines());
   });
 
   await check('pass: one live ping per series; a daily reminder snoozed into the next morning pings once, for the new day', async () => {

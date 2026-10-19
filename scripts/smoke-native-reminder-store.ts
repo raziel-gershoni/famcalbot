@@ -858,7 +858,7 @@ async function main() {
     assert(eventRow('for-raziel').isDeleted === true, 'not deleted');
   });
 
-  await check('a stranger, an ex-partner and a partner now on Google are refused', async () => {
+  await check('a stranger and an ex-partner are refused; a partner with Google connected is not (Google as a connection)', async () => {
     reset();
     seedEvent('mine', { kind: 'REMINDER', calendarId: 'dana', creatorUserId: 2, forUserId: 1, title: 'Call the bank', startsAt: at('2026-10-15 09:00') });
     seedEvent('for-noa', { kind: 'REMINDER', calendarId: 'avi', creatorUserId: 5, forUserId: 4, title: 'Pick up the bike', startsAt: at('2026-10-15 09:00') });
@@ -866,8 +866,9 @@ async function main() {
     await refused('a stranger updating', () => updateNativeEvent({ seriesCuid: 'mine', scope: 'single', actingUserId: 3, title: 'x' }));
     await refused('a stranger deleting', () => deleteNativeEvent({ seriesCuid: 'mine', scope: 'all', actingUserId: 3 }));
     await refused('an ex-partner deleting', () => deleteNativeEvent({ seriesCuid: 'for-noa', scope: 'all', actingUserId: 4 }));
-    await refused('a partner on Google deleting', () => deleteNativeEvent({ seriesCuid: 'for-maya', scope: 'all', actingUserId: 7 }));
     assert(tables.nativeEvent.every((r) => r.isDeleted === false && r.title !== 'x'), 'a refused write still landed');
+    await deleteNativeEvent({ seriesCuid: 'for-maya', scope: 'all', actingUserId: 7 });
+    assert(tables.nativeEvent.find((r) => r.id === 'for-maya')?.isDeleted === true, 'the partner with Google connected could not delete their reminder');
   });
 
   await check('deleting one occurrence of a reminder clears the gate; deleting an event does not', async () => {
