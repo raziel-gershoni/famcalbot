@@ -14,21 +14,19 @@
 // the Mini App, back to the chat whose buttons reopen it. A stale or used magic link used
 // to land on /en/dashboard and a hard-coded English card with no link; it now gets the
 // same card, in the link's language or the browser's, or that browser's own dashboard
-// while its session cookie is still valid. The dashboard's "open in Telegram"
-// banner never showed, since the SDK defines Telegram.WebApp in any browser.
+// while its session cookie is still valid.
 //
-// The dashboard's two homes (calendar-home spec §7.1; Plan D, Task D7; #16-#20): the
-// props' calendarHome picks CalendarHome or today's DashboardClient, each with exactly the
-// props it takes. The new home loads behind the dashboard's purple loader, and both
-// chunks start loading while the data is in flight. The new home's chunk sits inside
+// The dashboard (calendar-home spec §7.1; Plan D, Task D7; #16-#19): always the calendar
+// home, with exactly the props it takes. It loads behind the dashboard's purple loader,
+// and its chunk starts loading while the data is in flight. The home's chunk sits inside
 // PageGate's own boundary (spec §5); what it does with a failed import is the render
 // smoke's #40, in real React (next/dynamic under tsx is the pages-router loadable, which
 // never throws on a failed import).
 //
 // The pages, PageGate's cards and its dashboard branch, the magic-link route and its
 // service run for real. Faked at the boundaries: Redis (in memory), Prisma (the one user
-// lookup the magic route makes), the two dashboard homes (placeholders that record their
-// props; DashboardClient cannot load under tsx), and the browser window. No network, no DB.
+// lookup the magic route makes), the calendar home (a placeholder that records its
+// props), and the browser window. No network, no DB.
 //
 // Run with the fake env from the task brief (no dotenv):
 //   npx tsx scripts/smoke-miniapp-gate.ts
@@ -115,24 +113,16 @@ const fakeRedis = new Proxy(redisImpl, {
   get: (t, p) => (typeof p !== 'string' || p === 'then' ? undefined : t[p] ?? (async () => null)),
 });
 
-/** What PageGate's dashboard branch rendered: each home's placeholder records its props (#16-#18). */
-const rendered: { home: 'DashboardClient' | 'CalendarHome'; props: Row }[] = [];
+/** What PageGate's dashboard branch rendered: the home's placeholder records its props (#16-#17). */
+const rendered: { props: Row }[] = [];
 
 function installStubs() {
-  // DashboardClient imports @hebcal/core, which ships ESM only with no require entry, so
-  // it cannot load under tsx. It and the calendar home are placeholders at their real
-  // paths: each records the props PageGate hands it and renders one marker line.
-  stub('app/[locale]/dashboard/DashboardClient.tsx', {
-    __esModule: true,
-    default: function DashboardClient(props: Row) {
-      rendered.push({ home: 'DashboardClient', props });
-      return 'smoke:DashboardClient';
-    },
-  });
+  // The calendar home is a placeholder at its real path: it records the props PageGate
+  // hands it and renders one marker line.
   stub('app/[locale]/dashboard/CalendarHome.tsx', {
     __esModule: true,
     default: function CalendarHome(props: Row) {
-      rendered.push({ home: 'CalendarHome', props });
+      rendered.push({ props });
       return 'smoke:CalendarHome';
     },
   });
@@ -460,16 +450,6 @@ async function main() {
     assert(src.includes('router.push(`/${locale}/dashboard?user_id=${userId}`)'), 'Telegram users are no longer pushed to their dashboard');
   });
 
-  await check('#14 the dashboard\'s "open in Telegram" banner keys on readInitData() === \'\', not on window.Telegram.WebApp', () => {
-    const src = readSource('app/[locale]/dashboard/DashboardClient.tsx');
-    const at = src.indexOf('setShowTelegramBanner(true)');
-    assert(at >= 0, 'no banner effect');
-    const effect = src.slice(src.lastIndexOf('useEffect(', at), at);
-    assert(effect.includes("readInitData() === ''"), `the banner effect: ${effect.trim()}`);
-    assert(!effect.includes('window.Telegram'), 'the banner still checks window.Telegram');
-    assert(src.includes("from '@/src/lib/read-init-data'"), 'DashboardClient does not import readInitData');
-  });
-
   await check('#15 a stale or used magic link in a browser still signed in (valid famcal_session) goes to that user\'s dashboard; a bad cookie still gets the card', async () => {
     const { NextRequest } = nodeRequire('next/server');
     const { createSessionToken } = await load('src/lib/session-auth.ts');
@@ -493,15 +473,15 @@ async function main() {
 
   /** The dashboard's props as page-data sends them before the calendar home (the trial end as an ISO string). */
   const DASHBOARD: Row = {
-    user: { id: 5550001, name: 'Dana', location: 'Tel Aviv', calendarsCount: 0, isAdmin: true },
-    calendarAssignments: [],
+    user: { id: 5550001, name: 'Dana', location: 'Tel Aviv', isAdmin: true },
     locale: 'he',
     calendarSource: 'NATIVE',
     needsOAuth: false,
     needsCalendars: false,
-    subscription: { plan: 'FREE', status: 'TRIALING', effectivePlan: 'PRO' },
     trial: { isTrialing: true, daysRemaining: 5, trialEndsAt: '2026-10-21T12:00:00.000Z' },
     isEarlyAdopter: false,
+    hints: { reminders: true, voiceEvents: false },
+    lookahead7: false,
   };
   /** JSON with sorted keys, so a comparison ignores key order. */
   const canon = (value: unknown): string => JSON.stringify(value, (_k, v: unknown) =>
@@ -509,9 +489,9 @@ async function main() {
       ? Object.fromEntries(Object.keys(v as Row).sort().map(k => [k, (v as Row)[k]]))
       : v);
   /**
-   * renderPage('dashboard', props), server-rendered once the chosen home's dynamic() chunk
-   * has loaded. The first pass starts the import and shows the loader while the chunk is
-   * not in yet; later passes wait for a placeholder to record its props.
+   * renderPage('dashboard', props), server-rendered once the home's dynamic() chunk has
+   * loaded. The first pass starts the import and shows the loader while the chunk is not
+   * in yet; later passes wait for the placeholder to record its props.
    */
   const renderDashboard = async (props: Row): Promise<{ first: string; html: string }> => {
     const { renderPage } = await load('app/[locale]/PageGate.tsx');
@@ -527,12 +507,11 @@ async function main() {
     return { first, html };
   };
 
-  await check('#16 calendarHome true: the purple dashboard loader while the new home loads, then CalendarHome with exactly CalendarHomeProps (user.id is the page\'s user_id), never DashboardClient', async () => {
-    // The first check that renders the new home, so its chunk is not loaded yet
-    const { first, html } = await renderDashboard({ ...DASHBOARD, calendarHome: true, hints: { reminders: true, voiceEvents: false } });
+  await check('#16 the purple dashboard loader while the home loads, then CalendarHome with exactly CalendarHomeProps (user.id is the page\'s user_id)', async () => {
+    // The first check that renders the home, so its chunk is not loaded yet
+    const { first, html } = await renderDashboard(DASHBOARD);
     assert(first.includes('linear-gradient(135deg, #667eea 0%, #764ba2 100%)') && !first.includes('smoke:'), `the first pass: ${first.slice(0, 200)}`);
     assert(html.includes('smoke:CalendarHome'), `rendered: ${html.slice(0, 200)}`);
-    assert(rendered.every(r => r.home === 'CalendarHome'), `rendered ${show(rendered.map(r => r.home))}`);
     const want = {
       user: { id: 5550001, name: 'Dana', isAdmin: true },
       locale: 'he',
@@ -542,33 +521,24 @@ async function main() {
       hints: { reminders: true, voiceEvents: false },
       trialDaysLeft: 5,
       hasLocation: true,
+      lookahead7: false,
     };
     assert(canon(rendered[0]?.props) === canon(want), `CalendarHome got ${canon(rendered[0]?.props)}`);
   });
 
-  await check('#17 calendarHome false: today\'s DashboardClient with exactly today\'s props (the trial end back as a Date), never CalendarHome', async () => {
-    const { html } = await renderDashboard({ ...DASHBOARD, calendarHome: false });
-    assert(html.includes('smoke:DashboardClient'), `rendered: ${html.slice(0, 200)}`);
-    assert(rendered.every(r => r.home === 'DashboardClient'), `rendered ${show(rendered.map(r => r.home))}`);
-    const got = rendered[0].props;
-    assert(Object.keys(got).sort().join(',') === Object.keys(DASHBOARD).sort().join(','), `DashboardClient's props: ${Object.keys(got).sort().join(',')}`);
-    assert(got.trial.trialEndsAt instanceof Date && got.trial.trialEndsAt.toISOString() === DASHBOARD.trial.trialEndsAt, `trial: ${show(got.trial)}`);
-    assert(canon({ ...got, trial: { ...got.trial, trialEndsAt: DASHBOARD.trial.trialEndsAt } }) === canon(DASHBOARD), `DashboardClient got ${canon(got)}`);
-  });
-
-  await check('#18 a Google user\'s home: calendarSource and the setup flags pass through, no hints promise nothing (R10), and an early adopter with no location gets no trial days and hasLocation false', async () => {
+  await check('#17 a Google user\'s home: calendarSource and the setup flags pass through, the hints are the page\'s, and an early adopter with no location gets no trial days and hasLocation false', async () => {
     const { html } = await renderDashboard({
-      ...DASHBOARD, calendarSource: 'GOOGLE', needsOAuth: true, needsCalendars: true, calendarHome: true,
+      ...DASHBOARD, calendarSource: 'GOOGLE', needsOAuth: true, needsCalendars: true,
       user: { ...DASHBOARD.user, location: '' }, isEarlyAdopter: true,
     });
     assert(html.includes('smoke:CalendarHome'), `rendered: ${html.slice(0, 200)}`);
     const got = rendered[0].props;
     assert(got.calendarSource === 'GOOGLE' && got.needsOAuth === true && got.needsCalendars === true, `CalendarHome got ${canon(got)}`);
-    assert(canon(got.hints) === canon({ reminders: false, voiceEvents: false }), `hints ${canon(got.hints)}`);
+    assert(canon(got.hints) === canon({ reminders: true, voiceEvents: false }), `hints ${canon(got.hints)}`);
     assert(got.trialDaysLeft === null && got.hasLocation === false, `trialDaysLeft ${show(got.trialDaysLeft)}, hasLocation ${show(got.hasLocation)}`);
   });
 
-  await check('#19 PRELOAD.dashboard starts both homes\' chunks, and LOOK.dashboard stays telegram (the loader\'s look)', () => {
+  await check('#18 PRELOAD.dashboard starts the home\'s chunk, and LOOK.dashboard stays telegram (the loader\'s look)', () => {
     const src = readSource('app/[locale]/PageGate.tsx');
     const block = (name: string) => {
       const at = src.indexOf(`const ${name}`);
@@ -576,21 +546,18 @@ async function main() {
     };
     const preload = block('PRELOAD');
     const entry = preload.slice(preload.indexOf('dashboard:'), preload.indexOf('settings:'));
-    for (const chunk of ["import('./dashboard/DashboardClient')", "import('./dashboard/CalendarHome')"]) {
-      assert(entry.includes(chunk), `no ${chunk} in PRELOAD.dashboard: ${entry.trim() || '(not found)'}`);
-    }
+    assert(entry.includes("import('./dashboard/CalendarHome')"), `no CalendarHome chunk in PRELOAD.dashboard: ${entry.trim() || '(not found)'}`);
+    assert(!entry.includes('DashboardClient'), `PRELOAD.dashboard: ${entry.trim()}`);
     assert(/\n\s*dashboard: 'telegram',/.test(block('LOOK')), `LOOK: ${block('LOOK')}`);
   });
 
-  await check('#20 the calendar home\'s chunk sits inside PageGate\'s own boundary (the home\'s boundary lives inside that chunk), which reads the reload guard from the leaf reload-guard, never the home\'s code; DashboardClient gets no boundary', async () => {
+  await check('#19 the calendar home\'s chunk sits inside PageGate\'s own boundary (the home\'s boundary lives inside that chunk), which reads the reload guard from the leaf reload-guard, never the home\'s code', async () => {
     const { renderPage, HomeChunkBoundary } = await load('app/[locale]/PageGate.tsx');
     assert(typeof HomeChunkBoundary === 'function', 'PageGate exports no HomeChunkBoundary');
-    const on = renderPage('dashboard', { ...DASHBOARD, calendarHome: true, hints: { reminders: true, voiceEvents: false } });
-    assert(on?.type === HomeChunkBoundary, `the switch on: the root is ${on?.type?.name ?? show(on?.type)}`);
+    const on = renderPage('dashboard', DASHBOARD);
+    assert(on?.type === HomeChunkBoundary, `the root is ${on?.type?.name ?? show(on?.type)}`);
     const home = on.props.children;
     assert(home?.props?.user?.id === 5550001 && home.props.hints?.reminders === true, `inside it, the home with its props: ${canon(home?.props)}`);
-    const off = renderPage('dashboard', { ...DASHBOARD, calendarHome: false });
-    assert(!elementsIn(off).some(e => e.type === HomeChunkBoundary), 'the switch off: no boundary around DashboardClient');
     const src = readSource('app/[locale]/PageGate.tsx');
     assert(src.includes("from '@/src/lib/calendar-view/reload-guard'"), 'the guard does not come from reload-guard');
     assert(!/calendar-view\/(?:home-client|home-loader|store|format)'|dashboard\/HomeErrorBoundary'/.test(src), 'PageGate imports the home\'s client code, which every page would then load');

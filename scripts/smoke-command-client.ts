@@ -1,10 +1,9 @@
 // Smoke test for send to chat on the calendar home (src/lib/command-client.ts, spec §7.2
 // and Ruling R5).
 //
-// The old dashboard's call closes the Mini App whatever the answer (DashboardClient.tsx
-// executeCommand: close() in a finally), so a 429 or a 500 vanishes with the app. It
-// also closes in a plain browser, since the SDK defines Telegram.WebApp there. sendToChat
-// treats a call as Telegram only when readInitData() is non-empty, closes only on a 2xx,
+// The old dashboard's call closed the Mini App whatever the answer, so a 429 or a 500
+// vanished with the app. It also closed in a plain browser, since the SDK defines
+// Telegram.WebApp there. sendToChat treats a call as Telegram only when readInitData() is non-empty, closes only on a 2xx,
 // answers busy on a 429 and failed otherwise, and in a browser stays open with "sent".
 // The initData goes in the X-Telegram-Init-Data header, with the body copy as the
 // fallback the route also reads.
@@ -17,7 +16,6 @@
 // Run with the fake env from the task brief (no dotenv):
 //   npx tsx scripts/smoke-command-client.ts
 
-import fs from 'fs';
 import path from 'path';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -42,7 +40,6 @@ function assert(cond: unknown, message: string): asserts cond {
 }
 
 const show = (value: unknown) => JSON.stringify(value);
-const readSource = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const load = (rel: string): Promise<Row> => import(path.join(ROOT, rel));
 const client = () => load('src/lib/command-client.ts');
 
@@ -114,7 +111,7 @@ const inTelegram = (log: string[]) => fakeWebApp(log, INIT_DATA);
 const browserSdk = (log: string[]) => fakeWebApp(log, '');
 
 async function main() {
-  await check('#1 the five send items, in the sheet\'s order, run exactly the old dashboard\'s five commands', async () => {
+  await check('#1 the five send items, in the sheet\'s order, run exactly these five commands', async () => {
     const { SEND_ITEMS, SEND_COMMANDS } = await client();
     assert(show(SEND_ITEMS) === show(['today', 'tomorrow', 'thisWeek', 'nextWeek', 'weather']), `SEND_ITEMS: ${show(SEND_ITEMS)}`);
     const want = show({
@@ -125,13 +122,6 @@ async function main() {
       weather: { command: 'weather' },
     });
     assert(show(SEND_COMMANDS) === want, `SEND_COMMANDS: ${show(SEND_COMMANDS)}`);
-    const src = readSource('app/[locale]/dashboard/DashboardClient.tsx');
-    const old = [...src.matchAll(/executeCommand\('(\w+)'(?:, '(\w+)')?\)/g)].map(m => (m[2] ? `${m[1]} ${m[2]}` : m[1]));
-    const now = (SEND_ITEMS as string[]).map(i => {
-      const c = SEND_COMMANDS[i];
-      return c.args ? `${c.command} ${c.args}` : c.command;
-    });
-    assert(show([...old].sort()) === show([...now].sort()), `old dashboard ${show(old)}, home ${show(now)}`);
   });
 
   await check('#2 Telegram, 200 and 202: one POST to /api/execute-command with the initData header and the body copy, then close() once', async () => {
@@ -245,14 +235,6 @@ async function main() {
       assert(show(env.log) === show(['fetch', 'close()']), `calls: ${show(env.log)}`);
       assert(env.errors.some(e => e.includes('close: not now')), `logged: ${show(env.errors)}`);
     });
-  });
-
-  await check('#11 [guard] the old dashboard keeps its own executeCommand, which closes in its finally, and does not use command-client', () => {
-    const src = readSource('app/[locale]/dashboard/DashboardClient.tsx');
-    assert(src.includes('const executeCommand = async (command: string, args?: string) => {'), 'executeCommand is gone');
-    assert(src.includes("await fetch('/api/execute-command', {"), 'the old fetch is gone');
-    assert(src.includes('window.Telegram.WebApp.close();'), 'the old close is gone');
-    assert(!src.includes('command-client'), 'DashboardClient imports command-client');
   });
 
   let failed = 0;

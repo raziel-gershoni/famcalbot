@@ -13,15 +13,12 @@
 //  - calendarHome as its own top-level object between dashboard and admin, away from the
 //    bot.errors keys Plan C adds;
 //  - spec §9's fixes on the old screens: the Header's aria-labels and admin badge (also
-//    on Subscription and Select calendars), the dashboard loader's "Loading Dashboard...",
-//    and the old home's "Free" plan badge;
+//    on Subscription and Select calendars) and the dashboard loader's "Loading Dashboard...";
 //  - scripts/check-i18n-parity.ts's ICU check, run on fixture files in a temp directory,
 //    with E1's three fixes: bot.* read as getBotMessage fills it, '' inside a quoted
 //    literal, and =N forms standing in for a category that holds N alone.
 //
-// Faked at the boundaries: the dashboard client (it imports @hebcal/core, which has no
-// require entry, so it can't load under tsx; nothing here renders it). No DB, Redis or
-// network.
+// Nothing is faked: no DB, Redis or network.
 //
 // Run with the fake env from the task brief (no dotenv):
 //   npx tsx scripts/smoke-calendar-home-copy.ts
@@ -31,7 +28,6 @@ import os from 'os';
 import path from 'path';
 import { spawnSync } from 'child_process';
 import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -271,32 +267,6 @@ const valuesFor = (args: readonly string[]): Row => Object.fromEntries(args.map(
 
 // ---- Rendering (the providers the [locale] layout gives a client page) ----
 
-const Module = nodeRequire('module');
-const stubs: Record<string, Row> = {};
-(globalThis as Row).__smokeStubs = stubs;
-if (typeof Module.registerHooks !== 'function') throw new Error('This smoke needs Node 22.15+ (module.registerHooks)');
-Module.registerHooks({
-  load(url: string, context: unknown, nextLoad: (u: string, c: unknown) => unknown) {
-    const file = url.startsWith('file:') ? fileURLToPath(url.split('?')[0]) : '';
-    if (!(file in stubs)) return nextLoad(url, context);
-    const names = Object.keys(stubs[file]).filter(n => n !== 'default' && /^[A-Za-z_$][\w$]*$/.test(n));
-    const source = [
-      `const s = globalThis.__smokeStubs[${JSON.stringify(file)}];`,
-      ...names.map(n => `export const ${n} = s[${JSON.stringify(n)}];`),
-      'export default (s.__esModule ? s.default : s);',
-    ].join('\n');
-    return { format: 'module', source, shortCircuit: true };
-  },
-});
-
-function stub(rel: string, exports: Row) {
-  const filename = path.join(ROOT, rel);
-  stubs[filename] = exports;
-  const mod = new Module(filename);
-  Object.assign(mod, { filename, loaded: true, exports });
-  Module._cache[filename] = mod;
-}
-
 /** Text as React writes it into HTML. */
 const asHtml = (text: string) =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
@@ -353,8 +323,6 @@ const GOOD_PLURALS: Record<Locale, string> = {
 };
 
 async function main() {
-  stub('app/[locale]/dashboard/DashboardClient.tsx', { __esModule: true, default: () => null });
-
   await check('#1 calendarHome is its own top-level object in en/he/ru, right after dashboard and before admin (away from bot.errors)', () => {
     const problems: string[] = [];
     for (const locale of LOCALES) {
@@ -511,7 +479,7 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
-  await check('#7 Header (old home, Subscription, Select calendars): translated aria-labels and admin badge in en/he/ru, no English left in he/ru', async () => {
+  await check('#7 Header (Subscription, Select calendars): translated aria-labels and admin badge in en/he/ru, no English left in he/ru', async () => {
     const React = nodeRequire('react');
     const Header = (await load('components/Layout/Header.tsx')).default;
     const noop = () => undefined;
@@ -548,14 +516,6 @@ async function main() {
       if (html.includes('Loading Dashboard')) problems.push(`${locale}: still "Loading Dashboard..."`);
     }
     assert(problems.length === 0, problems.join('; '));
-  });
-
-  await check('#9 the old home\'s plan badge reads subscription.plans.free.name, not a hard-coded "Free"', () => {
-    const src = readSource('app/[locale]/dashboard/DashboardClient.tsx');
-    assert(src.includes(`<span className="subscription-badge free">{tSub('plans.free.name')}</span>`), 'the free badge does not read subscription.plans.free.name');
-    assert(!/>\s*Free\s*</.test(src), 'a hard-coded "Free" is still in DashboardClient');
-    const names = LOCALES.map(l => messagesOf(l).subscription?.plans?.free?.name);
-    assert(names.every(n => typeof n === 'string' && n.trim()) && names[1] !== 'Free' && names[2] !== 'Free', `plans.free.name: ${show(names)}`);
   });
 
   await check('#10 check-i18n-parity passes messages/ and a fixture with well-formed plurals in each language', () => {

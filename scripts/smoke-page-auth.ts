@@ -15,12 +15,11 @@
 // id with no credential and showed their name.
 //
 // The dashboard branch (calendar-home spec §7.1, §7.3; Plan D, Task D7; #11-#14): the
-// dashboard's props gain calendarHome from the rollout switch and, only when it is on,
-// the empty state's hints and one webapp_opened activity. The switch, the two hint gates
-// (getReminderSupport, checkFeatureAccess) and the activity log run for real over the
-// fakes. The gates are wrapped in recorders, so a check can see they never run while the
-// switch is off.
-//
+// dashboard's props are the calendar home's own (the empty state's hints, lookahead7) and
+// each load logs one webapp_opened activity. The two hint gates (getReminderSupport,
+// checkFeatureAccess) and the activity log run for real over the fakes, the gates inside
+// recorders.
+
 // Every check here fails until the fix lands. Numbers follow the design's smoke list.
 //
 // Run with the fake env from the task brief (no dotenv):
@@ -339,11 +338,6 @@ function installStubs() {
       return [{ id: 'CAL-SECRET-google@group.calendar.google.com', name: 'CAL-SECRET-google', description: '', primary: false, accessRole: 'writer', backgroundColor: '#123456' }];
     },
   });
-  // DashboardClient imports @hebcal/core, which ships ESM only with no require entry, so
-  // it cannot load under tsx. A named placeholder stands in; the checks read the props
-  // the page hands it, which is what the RSC payload would carry.
-  const DashboardClient = () => null;
-  stub('app/[locale]/dashboard/DashboardClient.tsx', { __esModule: true, default: DashboardClient });
   // The calendar home's hint gates run for real inside recorders. The support module loads
   // after the wrapped subscription service, so its own 'reminders' check is recorded too.
   const subscriptionService = nodeRequire(path.join(ROOT, 'src/services/subscription-service.ts'));
@@ -408,8 +402,6 @@ function seed() {
   featureChecks.length = 0;
   supportChecks.length = 0;
   featureError = null;
-  // The rollout switch's 30 s memo lives on globalThis: each check starts from its own row
-  delete (globalThis as Row).__calendarHomeRolloutMemo;
   sent.length = 0;
   captured.length = 0;
   DB.user = [
@@ -643,17 +635,14 @@ async function main() {
     assert(body.includes('"/refresh-token?user_id=8880004"'), `the redirect is not to /refresh-token?user_id=8880004: ${await bodyOf(res)}`);
   });
 
-  // ---- The dashboard branch: the calendar home's switch, hints and open (spec §7.1, §7.3) ----
+  // ---- The dashboard branch: the calendar home's props, hints and open (spec §7.1, §7.3) ----
 
   const { REDIS_KEYS } = await load('src/config/redis-keys.ts');
   const show = (value: unknown) => JSON.stringify(value);
-  /** The dashboard's props as page-data sent them before the calendar home. */
-  const TODAY_KEYS = ['user', 'calendarAssignments', 'locale', 'calendarSource', 'needsOAuth', 'needsCalendars', 'subscription', 'trial', 'isEarlyAdopter'];
+  /** The dashboard's props on the wire: the calendar home's, nothing of the old dashboard's. */
+  const DASHBOARD_KEYS = ['user', 'locale', 'calendarSource', 'needsOAuth', 'needsCalendars', 'trial', 'isEarlyAdopter', 'hints', 'lookahead7'];
   const keysOf = (value: Row) => Object.keys(value).sort().join(',');
   const hintsOf = (props: Row) => `reminders=${props.hints?.reminders} voiceEvents=${props.hints?.voiceEvents}`;
-  const rollout = (value: string) => {
-    DB.adminSettings = [{ id: 'global', calendarHomeRollout: value, nativeRemindersEnabled: true }];
-  };
   /** A feature check's answer in the 24 h cache checkFeatureAccess reads first. */
   const cacheFeature = (userId: number, feature: string, allowed: boolean) => {
     redisStore.set(REDIS_KEYS.featureAccess(userId, feature), JSON.stringify({ allowed }));
@@ -671,52 +660,30 @@ async function main() {
     return body.props as Row;
   };
 
-  await check('#11 dashboard with the switch OFF (no row): today\'s props plus calendarHome false, no hints; no hint check runs and no open is logged', async () => {
+  await check('#11 the dashboard for a Google user: exactly the calendar home\'s props (no calendarHome flag, no old-dashboard data), the hints, lookahead7 and one webapp_opened under the DB id', async () => {
     seed();
-    (DB.user.find((u: Row) => u.id === 1) as Row).isAdmin = true; // an admin too: only the switch decides
-    const problems: string[] = [];
-    for (const [tgId, locale] of [[5550001, 'he'], [8880004, 'en']] as const) {
-      const props = await dashboardFor(tgId, locale);
-      const want = [...TODAY_KEYS, 'calendarHome'].sort().join(',');
-      if (keysOf(props) !== want) problems.push(`${tgId}: keys ${keysOf(props)} (want ${want})`);
-      if (props.calendarHome !== false) problems.push(`${tgId}: calendarHome ${show(props.calendarHome)}`);
-    }
-    if (featureChecks.length || supportChecks.length) problems.push(`hint checks ran: ${show({ featureChecks, supportChecks })}`);
-    const opened = await opens();
-    if (opened.length) problems.push(`webapp_opened for ${show(opened)}`);
-    assert(problems.length === 0, problems.join('; '));
-  });
-
-  await check('#12 the switch at ADMINS: a non-admin keeps today\'s dashboard with no hint check; an admin gets calendarHome, the hints and one webapp_opened under the DB id', async () => {
-    seed();
-    rollout('ADMINS');
-    (DB.user.find((u: Row) => u.id === 4) as Row).isAdmin = true;
     cacheFeature(4, 'voice_events', true);
     const problems: string[] = [];
-    const dana = await dashboardFor(5550001, 'he');
-    if (dana.calendarHome !== false || 'hints' in dana) problems.push(`non-admin: calendarHome ${show(dana.calendarHome)}, hints ${show(dana.hints)}`);
-    if (featureChecks.length || supportChecks.length) problems.push(`hint checks ran for the non-admin: ${show({ featureChecks, supportChecks })}`);
     const gina = await dashboardFor(8880004, 'en');
-    const want = [...TODAY_KEYS, 'calendarHome', 'hints', 'lookahead7'].sort().join(',');
-    if (gina.calendarHome !== true || keysOf(gina) !== want) problems.push(`admin: calendarHome ${show(gina.calendarHome)}, keys ${keysOf(gina)} (want ${want})`);
+    const want = [...DASHBOARD_KEYS].sort().join(',');
+    if (keysOf(gina) !== want) problems.push(`keys ${keysOf(gina)} (want ${want})`);
+    if (keysOf(gina.user ?? {}) !== 'id,isAdmin,location,name') problems.push(`user keys ${keysOf(gina.user ?? {})}`);
     // The always-7-days setting rides along for the Send sheet's week dates (false for a user who never set it)
-    if (gina.lookahead7 !== false) problems.push(`admin lookahead7 ${show(gina.lookahead7)}`);
+    if (gina.lookahead7 !== false) problems.push(`lookahead7 ${show(gina.lookahead7)}`);
     // A Google user: getReminderSupport answers not_native before any feature check
-    if (hintsOf(gina) !== 'reminders=false voiceEvents=true' || keysOf(gina.hints ?? {}) !== 'reminders,voiceEvents') problems.push(`admin hints ${show(gina.hints)}`);
+    if (hintsOf(gina) !== 'reminders=false voiceEvents=true' || keysOf(gina.hints ?? {}) !== 'reminders,voiceEvents') problems.push(`hints ${show(gina.hints)}`);
     if (show(featureChecks) !== show(['voice_events(4)']) || show(supportChecks) !== show([4])) problems.push(`hint checks ${show({ featureChecks, supportChecks })}`);
     const opened = await opens();
     if (show(opened) !== show([4])) problems.push(`webapp_opened for ${show(opened)} (want [4]: the DB id, once)`);
     assert(problems.length === 0, problems.join('; '));
   });
 
-  await check('#13 the hints are the real gates (R10): a FamCal user on Telegram with reminders and no voice events; the native-reminders switch off clears reminders; ALL covers non-admins; one open per load', async () => {
+  await check('#12 the hints are the real gates (R10): a FamCal user on Telegram with reminders and no voice events; the native-reminders switch off clears reminders; one open per load', async () => {
     seed();
-    rollout('ALL');
     cacheFeature(1, 'reminders', true);
     cacheFeature(1, 'voice_events', false);
     const problems: string[] = [];
     const first = await dashboardFor(5550001, 'he');
-    if (first.calendarHome !== true) problems.push(`calendarHome ${show(first.calendarHome)}`);
     if (hintsOf(first) !== 'reminders=true voiceEvents=false') problems.push(`hints ${hintsOf(first)}`);
     if (!featureChecks.includes('reminders(1)') || !featureChecks.includes('voice_events(1)')) problems.push(`feature checks ${show(featureChecks)}`);
     redisStore.set(REDIS_KEYS.NATIVE_REMINDERS_ENABLED, 'false');
@@ -727,20 +694,17 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
-  await check('#14 a failing voice-events check reads as no hint: the page still answers, voiceEvents false, with a warning', async () => {
+  await check('#13 a failing voice-events check reads as no hint: the page still answers, voiceEvents false, with a warning', async () => {
     seed();
-    rollout('ALL');
     cacheFeature(1, 'reminders', true);
     featureError = 'voice_events';
     const props = await dashboardFor(5550001, 'he');
-    assert(props.calendarHome === true && hintsOf(props) === 'reminders=true voiceEvents=false',
-      `calendarHome ${show(props.calendarHome)}, ${hintsOf(props)}`);
+    assert(hintsOf(props) === 'reminders=true voiceEvents=false', hintsOf(props));
     assert(captured.some(c => c.startsWith('calendar-home-hints: ') && c.includes('voice_events')), `captured: ${show(captured)}`);
   });
 
-  await check('#15 the hints are a read, not a block: a Basic user (no reminders, no voice events) opening the dashboard on an empty feature cache logs no feature_blocked row and no Sentry capture, and caches nothing; the next real checkFeatureAccess still misses and logs what it blocked', async () => {
+  await check('#14 the hints are a read, not a block: a Basic user (no reminders, no voice events) opening the dashboard on an empty feature cache logs no feature_blocked row and no Sentry capture, and caches nothing; the next real checkFeatureAccess still misses and logs what it blocked', async () => {
     seed();
-    rollout('ALL');
     DB.subscription = [{ id: 'sub-basic', userId: 1, plan: 'BASIC', status: 'ACTIVE', currentPeriodStart: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, trialStartedAt: null, trialEndsAt: new Date(0) }];
     const sentry = nodeRequire('@sentry/nextjs');
     const messages: string[] = [];

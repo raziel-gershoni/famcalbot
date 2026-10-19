@@ -1,7 +1,6 @@
 /**
  * Send to chat from the calendar home (spec §7.2, Ruling R5): POST /api/execute-command,
- * and the bot posts the answer in the user's chat. The old dashboard keeps its own call
- * (DashboardClient.tsx executeCommand), unchanged.
+ * and the bot posts the answer in the user's chat.
  *
  * - The call is a Telegram one only when readInitData() is non-empty: the SDK defines
  *   Telegram.WebApp in any browser. The initData goes in the X-Telegram-Init-Data header,

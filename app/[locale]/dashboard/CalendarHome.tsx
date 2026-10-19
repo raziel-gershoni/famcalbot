@@ -1,9 +1,9 @@
 'use client';
 
 // The calendar home (spec §5, §7.1, §7.2, §7.4, §7.6; Rulings R5, R6, R8, R19; Plan E
-// Rulings 1, 2, 6, 7 and 9): what /dashboard shows the users the rollout switch covers.
-// PageGate renders it with CalendarHomeProps once page-data says calendarHome; everyone
-// else keeps today's DashboardClient. Plan E adds the tab bar and the Month.
+// Rulings 1, 2, 6, 7 and 9): what /dashboard shows.
+// PageGate renders it with CalendarHomeProps from page-data. Plan E adds the tab bar and
+// the Month.
 //
 // The container owns the data and the Telegram calls; the parts are presentational:
 // - the store (D3's reducer) and the loader (./home-loader): one range request per
