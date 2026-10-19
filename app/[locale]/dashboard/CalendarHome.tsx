@@ -60,6 +60,15 @@
 //   (import()): PageGate preloads this file's chunk on every /dashboard open. The chunk
 //   is fetched once the first answer is in,
 //   and the Month shows its placeholders until it is there;
+// - editing (home editing spec §2, §4): the editor info (what the user can add, where, for
+//   whom) is asked once for a FamCal user, and the header's "+" shows by it; the open
+//   FamCal item's edit info is asked when its sheet opens, and the sheet shows its pencil
+//   and Delete by it. The editor is a sheet of the container's (EditorSheet; ScopeSheet and
+//   ConfirmSheet for which occurrences and for "Delete «title»?"). A write posts through
+//   deps.editing, and on success the editor closes and FamCal's windows are asked again
+//   (renew), so the new or changed item shows; the item sheet re-derives from the store,
+//   or closes when its item has gone or its key changed (a "following" edit starts a new
+//   series). The BackButton cancels the editor (which asks to discard only after a change);
 // - an error boundary around all of it; a chunk-load error reloads once.
 //
 // user.id is the page's own user_id (a Telegram id or a DB id), sent as it is to the
@@ -78,6 +87,9 @@ import { readHomeTab, readMonthLayout, writeHomeTab, writeMonthLayout, type Home
 import { backToBrowse, clampMonthUi, dayRows, initialMonthUi, monthModels, wantedMonths, type MonthUi } from '@/src/lib/calendar-view/month';
 import { dayStatus, emptyStore, homeNotices, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
 import { postReminderAction, type ReminderActionFn, type ReminderActionName } from '@/src/lib/calendar-view/reminder-client';
+import { REAL_EDITING, type EditingApi, type WriteOutcome } from '@/src/lib/calendar-view/editor-client';
+import { allOfThem, createBody, editItemForm, newItemForm, updateBody, type EditorForm } from '@/src/lib/calendar-view/editor-model';
+import type { EditScope, EditorInfoResponse, ItemEditInfoResponse } from '@/src/lib/calendar-view/editor-types';
 import type { ItemReminderDTO, SourceName } from '@/src/lib/calendar-view/types';
 import { DEFAULT_BOT_USERNAME, DEFAULT_WA_NUMBER, type GateLinks } from '@/src/lib/gate-links';
 import { hapticSuccess, isInTelegram, onTelegramEvent, useTelegramBackButton, useTelegramTheme, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
@@ -90,8 +102,10 @@ import { HomeHeader } from './HomeHeader';
 import { HomeTabs, PANEL_IDS, TAB_IDS } from './HomeTabs';
 import { HOME_SHELL_CSS } from './home-shell';
 import { HOME_THEME_CSS } from './home-theme';
-import type { SheetActions, SheetNote } from './ItemSheet';
+import { EditorSheet, type SaveOutcome } from './EditorSheet';
+import type { SheetActions, SheetEditing, SheetNote } from './ItemSheet';
 import { MenuSheet } from './MenuSheet';
+import { ConfirmSheet, ScopeSheet, type SubmitError } from './ScopeSheet';
 import { SendSheet } from './SendSheet';
 
 /**
@@ -119,6 +133,8 @@ export interface HomeDeps {
   deviceTimeZone: () => string | null;
   /** Done, undo and snooze from the item sheet: the fetch. */
   reminderAction: ReminderActionFn;
+  /** The editing requests: the editor info, an item's edit info, create, edit and delete. */
+  editing: EditingApi;
 }
 
 const REAL_DEPS: HomeDeps = {
@@ -129,6 +145,7 @@ const REAL_DEPS: HomeDeps = {
   },
   deviceTimeZone,
   reminderAction: postReminderAction,
+  editing: REAL_EDITING,
 };
 
 /** Nothing to subscribe to: the value is read once on the client. */
@@ -149,6 +166,36 @@ function withReminder(row: AgendaRow, reminder: ItemReminderDTO): AgendaRow {
   const next = { ...reminder, open: !reminder.done && (reminder.open || !!prev?.open), openSince: prev?.openSince ?? reminder.openSince };
   const item = { ...row.item, reminder: next };
   return { ...row, item, mark: reminderMark(item) };
+}
+
+/** The editor on screen: a new item, or an edit of the open one. */
+type EditorState =
+  | { mode: 'create'; initial: EditorForm; info: EditorInfoResponse; kinds: { event: boolean; reminder: boolean } }
+  | { mode: 'edit'; initial: EditorForm; info: ItemEditInfoResponse; key: string };
+
+/** A delete asked for from the item sheet. */
+type DeleteState = { key: string; info: ItemEditInfoResponse; title: string };
+
+/** The editor's field a server field name belongs to. */
+const FIELD_OF: Record<string, 'title' | 'location' | 'notes' | 'start' | 'end'> = { title: 'title', location: 'location', description: 'notes', start: 'start', end: 'end' };
+
+/** A write's outcome as the editor shows it. */
+function saveOutcome(out: WriteOutcome): SaveOutcome {
+  switch (out.kind) {
+    case 'ok':
+      return { kind: 'ok' };
+    case 'invalid':
+      return { kind: 'error', error: 'failed', ...(out.field && FIELD_OF[out.field] ? { field: FIELD_OF[out.field] } : {}) };
+    case 'notAllowed':
+      return { kind: 'error', error: 'notAllowed' };
+    case 'notFound':
+    case 'changed':
+      return { kind: 'error', error: 'changed' };
+    case 'busy':
+      return { kind: 'error', error: 'busy' };
+    default:
+      return { kind: 'error', error: 'failed' };
+  }
 }
 
 /** The facts the Month last drew with, and the unavailable calendars then: kept through a store drop. */
@@ -258,6 +305,7 @@ export type CalendarHomeContainerProps = CalendarHomeProps & { deps?: Partial<Ho
 export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeContainerProps) {
   const { user, locale, calendarSource, needsOAuth, needsCalendars, hints, trialDaysLeft, hasLocation, lookahead7 } = props;
   const userId = user.id;
+  const t = useTranslations('calendarHome');
   const router = useRouter();
   const scheme = useTelegramTheme();
   const [deps] = useState<HomeDeps>(() => ({ ...REAL_DEPS, ...depsIn }));
@@ -270,6 +318,19 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const [acting, setActing] = useState<{ key: string; action: ReminderActionName } | null>(null);
   const [note, setNote] = useState<{ key: string; kind: SheetNote } | null>(null);
   const actingRef = useRef(false);
+  /** What the user can add (null until asked, and for a Google user: no "+"). */
+  const [editorInfo, setEditorInfo] = useState<EditorInfoResponse | null>(null);
+  /** The open item's edit info, with the key it was asked for; bumped to ask again after an edit. */
+  const [itemInfo, setItemInfo] = useState<{ key: string; info: ItemEditInfoResponse } | null>(null);
+  const [infoTick, setInfoTick] = useState(0);
+  const [editor, setEditor] = useState<EditorState | null>(null);
+  const [deleting, setDeleting] = useState<DeleteState | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<SubmitError | null>(null);
+  /** The item sheet closes when this key's item is gone from the store (after an edit of it). */
+  const [watchGone, setWatchGone] = useState<string | null>(null);
+  const writingRef = useRef(false);
+  const editorCancel = useRef<(() => void) | null>(null);
   const [firstLoad, setFirstLoad] = useState<'busy' | 'error' | null>(null);
   const [blocked, setBlocked] = useState<'noCredential' | null>(null);
   const inTelegram = useSyncExternalStore(subscribeNothing, isInTelegram, assumeTelegram);
@@ -339,6 +400,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
         setBlocked('noCredential');
         setSheet(null);
         setSelected(null);
+        setEditor(null);
+        setDeleting(null);
       },
       setTimer: deps.setTimer,
       // The Month's windows while the Month is on screen (Ruling 7), most wanted first.
@@ -467,11 +530,56 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   useEffect(() => {
     setNote(null);
   }, [selectedKey]);
+  // What the user can add: asked once for a FamCal user. A failure leaves the header without "+".
+  useEffect(() => {
+    if (calendarSource !== 'NATIVE') return;
+    let live = true;
+    deps.editing
+      .editor(userId)
+      .then((info) => {
+        if (live) setEditorInfo(info);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [calendarSource, userId, deps]);
+  const kinds = {
+    event: calendarSource === 'NATIVE' && !!editorInfo?.kinds.event,
+    reminder: calendarSource === 'NATIVE' && !!editorInfo?.kinds.reminder && hints.reminders,
+  };
+  const canAdd = editorInfo !== null && (kinds.event || kinds.reminder) && facts !== null && card === null && blocked === null && !setupNeeded;
+
+  // The open FamCal item's edit info, asked when its sheet opens (and again after an edit of it).
+  const selectedFamcal = selected?.item.source === 'famcal' && calendarSource === 'NATIVE';
+  useEffect(() => {
+    if (!selectedKey || !selectedFamcal) return;
+    let live = true;
+    deps.editing
+      .item(userId, selectedKey)
+      .then((info) => {
+        if (live) setItemInfo(info ? { key: selectedKey, info } : null);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [selectedKey, selectedFamcal, infoTick, userId, deps]);
+  const openInfo = itemInfo && itemInfo.key === selectedKey ? itemInfo.info : null;
+
   // An item the store no longer holds: its note shows, then the sheet closes.
   useEffect(() => {
     if (!selectedGone || note === null || note.key !== selectedKey) return;
     return deps.setTimer(() => setSelected(null), GONE_NOTE_MS);
   }, [selectedGone, note, selectedKey, deps]);
+
+  // An edited item that has left the store (moved out of view, or cut off) closes its sheet.
+  useEffect(() => {
+    if (watchGone !== null && selectedGone && selectedKey === watchGone) {
+      setSelected(null);
+      setWatchGone(null);
+    }
+  }, [watchGone, selectedGone, selectedKey]);
 
   // Done, undo or snooze on the open sheet's item. One request at a time. An answer with a
   // reminder patches the store at once and FamCal's windows confirm it; changed and
@@ -510,12 +618,95 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     }
     loaderRef.current?.refetchVisible({ only: 'famcal', renew: true });
   };
+  // After a write: FamCal's windows again, so the new or changed item shows.
+  const refreshFamcal = () => loaderRef.current?.refetchVisible({ only: 'famcal', renew: true });
+
+  const openAdd = () => {
+    if (!editorInfo || !facts) return;
+    const initial = newItemForm({
+      today: facts.today,
+      pickedDay: pickedShown ? (monthUi?.selected ?? null) : null,
+      nowMs: deps.now(),
+      tz: editorInfo.tz,
+      kinds,
+      calendars: editorInfo.calendars,
+    });
+    setSheet(null);
+    setEditor({ mode: 'create', initial, info: editorInfo, kinds });
+  };
+  const openEdit = () => {
+    if (!openInfo || !selectedKey) return;
+    setEditor({ mode: 'edit', initial: editItemForm(openInfo), info: openInfo, key: selectedKey });
+  };
+  const openDelete = () => {
+    if (!openInfo || !selectedKey) return;
+    setDeleteError(null);
+    setDeleting({ key: selectedKey, info: openInfo, title: openInfo.occurrence.title });
+  };
+
+  // Save from the editor: one write at a time. Success closes the editor and asks FamCal again;
+  // a "following" edit moves the item to a new series, so the open sheet closes; otherwise it
+  // follows the store and closes if its item is gone. Never throws.
+  const saveEditor = async (form: EditorForm, scope: EditScope): Promise<SaveOutcome> => {
+    if (!editor || writingRef.current) return { kind: 'error', error: 'busy' };
+    writingRef.current = true;
+    let out: WriteOutcome;
+    try {
+      if (editor.mode === 'create') out = await deps.editing.create(userId, createBody(form));
+      else {
+        const body = updateBody(form, editor.initial, editor.key, scope);
+        out = body ? await deps.editing.update(userId, body) : { kind: 'ok', key: editor.key };
+      }
+    } catch {
+      out = { kind: 'failed' };
+    }
+    writingRef.current = false;
+    const result = saveOutcome(out);
+    if (result.kind === 'ok') {
+      if (editor.mode === 'edit') {
+        if (out.kind === 'ok' && out.key && out.key !== editor.key) setSelected(null);
+        else setWatchGone(editor.key);
+        setInfoTick((n) => n + 1);
+      } else hapticSuccess();
+      setEditor(null);
+      refreshFamcal();
+    }
+    return result;
+  };
+
+  const runDelete = async (scope: EditScope) => {
+    if (!deleting || writingRef.current) return;
+    writingRef.current = true;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    let out: WriteOutcome;
+    try {
+      out = await deps.editing.remove(userId, { key: deleting.key, scope });
+    } catch {
+      out = { kind: 'failed' };
+    }
+    writingRef.current = false;
+    setDeleteBusy(false);
+    const result = saveOutcome(out);
+    if (result.kind === 'ok') {
+      setDeleting(null);
+      setSelected((cur) => (cur && cur.item.key === deleting.key ? null : cur));
+      hapticSuccess();
+      refreshFamcal();
+    } else setDeleteError(result.error);
+  };
+  const editing: SheetEditing | undefined =
+    openInfo && (openInfo.canEdit || openInfo.canDelete)
+      ? { canEdit: openInfo.canEdit, canDelete: openInfo.canDelete, kind: openInfo.kind, onEdit: openEdit, onDelete: openDelete }
+      : undefined;
+
   const sheetActions: SheetActions = {
     busy: acting !== null,
     pending: acting && acting.key === selectedKey ? acting.action : null,
     note: note && note.key === selectedKey ? note.kind : null,
     now: deps.now(),
     onAction: (action) => void runAction(action),
+    editing,
   };
 
   // A tab switch (Ruling 2): any sheet and the item sheet close; leaving browse keeps the
@@ -556,11 +747,14 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const itemOpen =
     selected !== null && (activeTab === 'agenda' ? blocked === null && card === null && agenda !== null && !setupNeeded : pickedShown);
   const back = () => {
-    if (sheet !== null) setSheet(null);
+    if (deleting !== null) {
+      if (!deleteBusy) setDeleting(null);
+    } else if (editor !== null) editorCancel.current?.();
+    else if (sheet !== null) setSheet(null);
     else if (itemOpen) setSelected(null);
     else if (pickedShown && monthUi !== null) changeUi(backToBrowse(monthUi));
   };
-  useTelegramBackButton(itemOpen || pickedShown || (blocked !== 'noCredential' && sheet !== null), back);
+  useTelegramBackButton(itemOpen || pickedShown || (blocked !== 'noCredential' && (sheet !== null || editor !== null || deleting !== null)), back);
   // Ruling 9: no swipe-down to minimize while the Month shows browse (its loading
   // included): there a drag down scrolls the months. The header and the tab bar stick
   // over browse at the same time.
@@ -633,6 +827,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
           menuOpen={sheet === 'menu'}
           onSend={() => setSheet('send')}
           onMenu={() => setSheet('menu')}
+          onAdd={canAdd ? openAdd : undefined}
+          addOpen={editor?.mode === 'create'}
         />
         {tabsShown ? <HomeTabs tab={tab} onTab={switchTab} /> : null}
       </HomeTop>
@@ -672,6 +868,43 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
           onNavigate={navigate}
           onRefresh={refresh}
           onClose={closeSheet}
+        />
+      ) : null}
+      {editor ? (
+        <EditorSheet
+          mode={editor.mode}
+          initial={editor.initial}
+          {...(editor.mode === 'create'
+            ? { kinds: editor.kinds, calendars: editor.info.calendars, partner: editor.info.partner }
+            : { info: editor.info, itemKey: editor.key })}
+          onSave={saveEditor}
+          onClose={() => setEditor(null)}
+          cancelRef={editorCancel}
+        />
+      ) : null}
+      {deleting && deleting.info.scopes.length > 1 ? (
+        <ScopeSheet
+          kind={deleting.info.kind}
+          mode="delete"
+          title={deleting.title}
+          day={deleting.info.occurrence.start.slice(0, 10)}
+          all={allOfThem(deleting.info.series.repeat, deleting.info.series.start)}
+          busy={deleteBusy}
+          error={deleteError}
+          onPick={(scope) => void runDelete(scope)}
+          onClose={() => !deleteBusy && setDeleting(null)}
+        />
+      ) : null}
+      {deleting && deleting.info.scopes.length <= 1 ? (
+        <ConfirmSheet
+          heading={t('scope.confirmDelete', { title: deleting.title })}
+          confirmLabel={t('scope.deleteConfirm')}
+          cancelLabel={t('scope.cancel')}
+          danger
+          busy={deleteBusy}
+          error={deleteError}
+          onConfirm={() => void runDelete('single')}
+          onClose={() => !deleteBusy && setDeleting(null)}
         />
       ) : null}
     </div>

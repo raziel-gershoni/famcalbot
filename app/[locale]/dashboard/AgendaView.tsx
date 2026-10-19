@@ -472,6 +472,26 @@ export const AGENDA_CSS = `
 .ch-sheet-head .ch-icon {
   margin-block-start: 4px;
 }
+.ch-sheet-head .ch-sheet-title {
+  flex: 1;
+  min-inline-size: 0;
+}
+.ch-sheet-head .ch-sheet-edit {
+  flex: none;
+  margin-block-start: -6px;
+  color: var(--ch-accent);
+}
+.ch-sheet-delete {
+  display: flex;
+  inline-size: 100%;
+  margin-block-start: 12px;
+  background: transparent;
+  color: var(--ch-danger);
+}
+.ch-sheet-delete:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 .ch-sheet-title {
   margin: 0;
   font-size: 20px;

@@ -64,6 +64,19 @@
 // once above the Month; a tab switch from picked and back; Telegram's activated on the
 // Month; the item sheet keeping focus over picked.
 //
+// Editing in the home (home editing spec §2, §4, §6; #74-#87), in real React on the same fake
+// DOM, with the editing routes served by a fake (the older checks leave them unserved, so
+// the "+" and the pencil never show): the "+" by kinds (events, reminders, both, neither, a
+// failed read, a Google user, before the first answer); the editor's defaults for the day in
+// view (today at the next round hour for an hour, the Month's picked day), its fields by
+// kind, the start moving the end, all day hiding the times, the repeat and calendar choices;
+// inline errors, the request bodies (the init data in the header and the body), Save
+// disabled and busy in flight and every failure above Save; the item sheet's pencil and
+// Delete by permission; the edit prefill and what is shown as text; the scope sheet for
+// repeating items only (every choice, Delete's too, "Delete «title»?" for a single one); the
+// item sheet following the store after a write; Cancel, the discard question and the
+// BackButton; copy in en, he and ru, RTL; the form kit's CSS.
+//
 // React must log no warning. No network, no DB, no Redis.
 //
 // Run with the fake env from the task brief (no dotenv), under three clocks:
@@ -75,6 +88,7 @@
 import CalendarHome, { CalendarHomeContainer, GONE_NOTE_MS, HOME_TOP_CSS, type HomeDeps } from '../app/[locale]/dashboard/CalendarHome';
 import { AgendaView, AGENDA_CSS, type AgendaViewProps } from '../app/[locale]/dashboard/AgendaView';
 import { ItemSheet, type SheetActions } from '../app/[locale]/dashboard/ItemSheet';
+import { FORM_CSS } from '../app/[locale]/dashboard/form-kit';
 import { SendSheet } from '../app/[locale]/dashboard/SendSheet';
 import { BottomSheet } from '../app/[locale]/dashboard/BottomSheet';
 
@@ -109,6 +123,9 @@ import { BROWSE_CELL_PX, monthBarPx, monthOffsets } from '../src/lib/calendar-vi
 import { formatDayLong } from '../src/lib/calendar-view/format';
 import { calendarVars } from '../src/lib/calendar-view/colours';
 import { postReminderAction } from '../src/lib/calendar-view/reminder-client';
+import { REAL_EDITING } from '../src/lib/calendar-view/editor-client';
+import type { EditorInfoResponse, ItemEditInfoResponse, RepeatInfo } from '../src/lib/calendar-view/editor-types';
+import { checkForm, moveStart, newItemForm, setAllDay, type NewItemContext } from '../src/lib/calendar-view/editor-model';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -554,6 +571,10 @@ class FakeElement extends FakeNode {
     walk(this);
     return out;
   }
+  /** A select's options, which React walks to set the chosen one. */
+  get options(): FakeElement[] {
+    return this.childNodes.filter((c): c is FakeElement => c instanceof FakeElement && c.localName === 'option');
+  }
   focus() {
     fakeDocument.activeElement = this;
   }
@@ -850,6 +871,14 @@ const fetchCalls: FetchCall[] = [];
 /** What the fake fetch answers; each check sets it. A promise holds the answer back. */
 let answerFetch: (call: FetchCall) => FetchAnswer | Promise<FetchAnswer> = () => ({ status: 500, body: { error: 'no answer set' } });
 
+/**
+ * What the editing routes (the editor info, an item's edit info, the writes) answer. Apart from
+ * answerFetch, which the older checks set for the range route alone: by default none of them is
+ * served (the "+" and the pencil never show), and the editing checks (#74 on) set their own.
+ */
+const EDITING_PATHS = ['/api/calendar/editor', '/api/calendar/item', '/api/calendar/items'];
+let serveEditing: (call: FetchCall) => FetchAnswer | Promise<FetchAnswer> = () => ({ status: 500, body: { error: 'not served' } });
+
 async function fakeFetch(input: unknown, init: Row = {}): Promise<Row> {
   const url = String(input);
   const parsed = new URL(url, 'https://famcal.test');
@@ -865,7 +894,7 @@ async function fakeFetch(input: unknown, init: Row = {}): Promise<Row> {
     signal: init.signal,
   };
   fetchCalls.push(call);
-  const reply = await answerFetch(call);
+  const reply = await (EDITING_PATHS.includes(call.path) ? serveEditing(call) : answerFetch(call));
   if (reply === 'throw') throw new TypeError('Failed to fetch (smoke)');
   return { status: reply.status, ok: reply.status >= 200 && reply.status < 300, json: async () => reply.body };
 }
@@ -904,6 +933,7 @@ function fakeClock(startIso: string, deviceZone: string | null = TZ) {
     },
     deviceTimeZone: () => deviceZone,
     reminderAction: postReminderAction,
+    editing: REAL_EDITING,
   };
   return {
     deps,
@@ -1056,6 +1086,7 @@ const reloads: string[] = [];
 function resetHome() {
   (globalThis as Row).fetch = fakeFetch;
   fetchCalls.length = 0;
+  serveEditing = () => ({ status: 500, body: { error: 'not served' } });
   pushes.length = 0;
   reloads.length = 0;
   fakeWindow.sessionStorage = fakeStorage();
@@ -3930,6 +3961,936 @@ async function main() {
 
   await check('#73 React logged no warning in #66-#72c (keys, nesting, attributes, act)', () => {
     assert(reactWarnings.length === warnedBeforeActions, `React warned: ${show(reactWarnings.slice(warnedBeforeActions, warnedBeforeActions + 3))}`);
+  });
+
+  // ---- Editing in the home (home editing spec §2, §4, §6) ----
+
+  const warnedBeforeEditing = reactWarnings.length;
+
+  const EDITOR_INFO: EditorInfoResponse = {
+    kinds: { event: true, reminder: true },
+    calendars: [
+      { id: 'native:cal_me_7f3a', name: 'Family', color: '#039BE5', main: true, mine: true },
+      { id: 'native:cal_noa_91b2', name: 'Noa and the kids', color: '#F4511E', main: false, mine: false, ownerName: 'Noa' },
+    ],
+    partner: { name: 'Noa', canRemind: true },
+    tz: TZ,
+  };
+  const editorWith = (o: Omit<Partial<EditorInfoResponse>, 'kinds'> & { kinds?: Partial<EditorInfoResponse['kinds']> } = {}): EditorInfoResponse => ({ ...EDITOR_INFO, ...o, kinds: { ...EDITOR_INFO.kinds, ...o.kinds } });
+  /** An item's edit info: the Dentist, a one-off event the viewer may change and delete. */
+  const infoFor = (o: Partial<ItemEditInfoResponse> = {}): ItemEditInfoResponse => ({
+    kind: 'event',
+    canEdit: true,
+    canDelete: true,
+    occurrence: { start: `${day(0)}T09:30`, end: `${day(0)}T10:30`, allDay: false, title: 'Dentist', location: 'Clinic on Herzl St', description: 'Bring the X-rays' },
+    series: { recurring: false, start: `${day(0)}T09:30`, repeat: null },
+    calendar: { id: 'native:cal_me_7f3a', name: 'Family', color: '#039BE5' },
+    forName: null,
+    scopes: ['single'],
+    ...o,
+  });
+  /** A weekly Tuesday event: Swimming, 20 October at 17:00. */
+  const SWIM = item('swim', { title: 'Swimming', start: at(5, '17:00'), end: at(5, '18:00'), seriesId: 'series_swim', recurring: true });
+  const swimInfo = (o: Partial<ItemEditInfoResponse> = {}) =>
+    infoFor({
+      occurrence: { start: `${day(5)}T17:00`, end: `${day(5)}T18:00`, allDay: false, title: 'Swimming', location: '', description: '' },
+      series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: [], ends: false } },
+      scopes: ['single', 'following', 'all'],
+      ...o,
+    });
+
+  /** What the editing routes answer in a check: the editor info, an item's edit info by key, and the writes. */
+  type EditingServer = { editor?: FetchAnswer; item?: (key: string) => FetchAnswer; write?: (call: FetchCall) => FetchAnswer | Promise<FetchAnswer> };
+  let editingKeys: string[] = [];
+  function serveEditingWith(o: EditingServer = {}) {
+    editingKeys = [];
+    serveEditing = (c) => {
+      if (c.path === '/api/calendar/editor') return o.editor ?? ok200(EDITOR_INFO);
+      if (c.path === '/api/calendar/item') {
+        editingKeys.push(c.query.get('key') ?? '');
+        return o.item ? o.item(c.query.get('key') ?? '') : { status: 404, body: { error: 'not_found' } };
+      }
+      return o.write ? o.write(c) : ok200({ status: 'ok' });
+    };
+  }
+  const writes = () => fetchCalls.filter((c) => c.path === '/api/calendar/items');
+  const editorCalls = () => fetchCalls.filter((c) => c.path === '/api/calendar/editor');
+  const itemCalls = () => fetchCalls.filter((c) => c.path === '/api/calendar/item');
+
+  /** The home on a fake clock (10:00 in Jerusalem on 15 October) with FamCal's week and the editing routes served. */
+  async function editingHome(locale: Locale, server: EditingServer = {}, props: Partial<CalendarHomeProps> = {}, week: Record<DayKey, ItemDTO[]> = { ...WEEK, [day(5)]: [...WEEK[day(5)], SWIM] }) {
+    resetHome();
+    const tg = fakeTelegramHome();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    // FamCal's windows come from `world.week`: a check changes it before the refetch that follows a write.
+    const world = { week };
+    answerFetch = (c) => answerFor(c, { items: world.week });
+    serveEditingWith(server);
+    const m = await mountHome(locale, props, fakeClock('2026-10-15T07:00:00Z'));
+    return { m, tg, world };
+  }
+
+  // The fake DOM has no events for inputs: a field's change goes through the props React gave it.
+  type Fake = FakeElement;
+  const propsOf = (el: Fake): Row => (el as unknown as Row)[Object.keys(el).find((k) => k.startsWith('__reactProps$')) as string];
+  const typeInto = (el: Fake, value: string) => React.act(() => propsOf(el).onChange({ target: { value } }));
+  const topDialog = (m: Home) => {
+    const all = byRole(m.container, 'dialog');
+    assert(all.length > 0, 'no dialog open');
+    return all[all.length - 1];
+  };
+  const topText = (m: Home) => textOf(htmlOf(topDialog(m)));
+  const inDialog = (m: Home, label: string) => {
+    const found = elements(topDialog(m)).filter((e) => e.getAttribute('aria-label') === label);
+    assert(found.length > 0, `nothing labelled ${show(label)} in the dialog: ${show(topText(m).slice(0, 300))}`);
+    return found[0];
+  };
+  const tapIn = (m: Home, text: string) => {
+    const found = elements(topDialog(m)).filter((e) => e.localName === 'button' && e.textContent.trim() === text);
+    assert(found.length > 0, `no button ${show(text)} in the dialog: ${show(elements(topDialog(m)).filter((e) => e.localName === 'button').map((e) => e.textContent))}`);
+    m.click(found[0]);
+  };
+  const tapPlus = (m: Home, label = 'Add') => m.click(byLabel(m.container, label));
+  const fieldValue = (m: Home, label: string): unknown => propsOf(inDialog(m, label)).value;
+  const hasField = (m: Home, label: string) => elements(topDialog(m)).some((e) => e.getAttribute('aria-label') === label);
+  const hasPlus = (m: Home, label = 'Add') => elements(m.container).some((e) => e.getAttribute('aria-label') === label);
+
+  await check('#74 the "+" in the header by kinds: shown when the user can add an event, a reminder or both; with neither, a failed editor read, or a Google user, no "+" (and a Google user is not asked); not before the first answer; en/he/ru label', async () => {
+    const cases: [string, EditorInfoResponse, Partial<CalendarHomeProps>, boolean][] = [
+      ['both', editorWith(), {}, true],
+      ['events only', editorWith({ kinds: { reminder: false } }), {}, true],
+      ['reminders only', editorWith({ kinds: { event: false }, calendars: [] }), {}, true],
+      ['reminders only, but the home hints none', editorWith({ kinds: { event: false }, calendars: [] }), { hints: { reminders: false, voiceEvents: true } }, false],
+      ['neither', editorWith({ kinds: { event: false, reminder: false }, calendars: [] }), {}, false],
+    ];
+    for (const [what, info, props, want] of cases) {
+      const { m } = await editingHome('en', { editor: ok200(info) }, props);
+      try {
+        assert(hasPlus(m) === want, `${what}: "+" ${hasPlus(m) ? 'shown' : 'missing'}`);
+        assert(editorCalls().length === 1, `${what}: one editor read: ${editorCalls().length}`);
+        assert(editorCalls()[0].query.get('user_id') === '5550001' && editorCalls()[0].method === 'GET', `${what}: the editor request ${editorCalls()[0].url}`);
+      } finally {
+        m.unmount();
+      }
+    }
+    const failed = await editingHome('en', { editor: { status: 500, body: { error: 'internal_error' } } });
+    try {
+      assert(!hasPlus(failed.m), 'a failed editor read: no "+"');
+    } finally {
+      failed.m.unmount();
+    }
+    const google = await editingHome('en', {}, GOOGLE_HOME);
+    try {
+      assert(!hasPlus(google.m) && editorCalls().length === 0, `a Google user: no "+", no editor read (${editorCalls().length})`);
+    } finally {
+      google.m.unmount();
+    }
+    // Before the first answer there is no day to start from.
+    resetHome();
+    answerFetch = () => new Promise<FetchAnswer>(noop);
+    serveEditingWith();
+    const early = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      assert(!hasPlus(early), 'no "+" before the first answer');
+    } finally {
+      early.unmount();
+    }
+    for (const locale of LOCALES) {
+      const { m } = await editingHome(locale);
+      try {
+        const label = messages[locale].calendarHome.header.add;
+        assert(hasPlus(m, label), `${locale}: "+" labelled ${show(label)}`);
+        if (locale !== 'en') assert(label !== messages.en.calendarHome.header.add, `${locale}: translated`);
+        const btn = byLabel(m.container, label);
+        assert(btn.localName === 'button' && btn.getAttribute('type') === 'button' && btn.className.includes('ch-icon-btn'), `${locale}: a 44 px icon button`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('#75 the "+" opens "New" on today at the next round hour for an hour (Event | Reminder switch, the event\'s fields and defaults); with one kind no switch', async () => {
+    const { m } = await editingHome('en');
+    try {
+      tapPlus(m);
+      await settle();
+      const dlg = topDialog(m);
+      assert(dlg.getAttribute('aria-label') === 'New' && dlg.getAttribute('aria-modal') === 'true', 'a modal dialog named New');
+      const text = topText(m);
+      assertHas(text, ['Cancel', 'New', 'Event', 'Reminder', 'All day', 'Starts', 'Ends', 'Repeat', 'Never', 'Calendar', 'Family', 'Save'], 'the event editor');
+      const kinds = byRole(dlg, 'radio').map((e) => [e.textContent, e.getAttribute('aria-checked')]);
+      assert(show(kinds) === show([['Event', 'true'], ['Reminder', 'false']]), `the switch: ${show(kinds)}`);
+      assert(fieldValue(m, 'Start date') === TODAY && fieldValue(m, 'Start time') === '11:00', `starts: ${fieldValue(m, 'Start date')} ${fieldValue(m, 'Start time')}`);
+      assert(fieldValue(m, 'End date') === TODAY && fieldValue(m, 'End time') === '12:00', `ends: ${fieldValue(m, 'End date')} ${fieldValue(m, 'End time')}`);
+      assert(fieldValue(m, 'Title') === '' && fieldValue(m, 'Location') === '' && fieldValue(m, 'Notes') === '', 'empty text fields');
+      const sw = byRole(dlg, 'switch');
+      assert(sw.length === 1 && sw[0].getAttribute('aria-checked') === 'false' && sw[0].textContent.includes('All day'), 'the All day switch, off');
+      assertLacks(text, ['calendarHome.'], 'no untranslated key');
+      // The header's + shows it is open; the day behind is the home's.
+      assert(byLabel(m.container, 'Add').getAttribute('aria-expanded') === 'true', 'the + knows the editor is open');
+    } finally {
+      m.unmount();
+    }
+    for (const [what, info, label] of [
+      ['events only', editorWith({ kinds: { reminder: false } }), 'Event'],
+      ['reminders only', editorWith({ kinds: { event: false }, calendars: [] }), 'Reminder'],
+    ] as const) {
+      const { m } = await editingHome('en', { editor: ok200(info) });
+      try {
+        tapPlus(m);
+        await settle();
+        assert(!elements(topDialog(m)).some((e) => e.getAttribute('aria-label') === 'Type'), `${what}: no Event | Reminder switch`);
+        assertHas(topText(m), [label === 'Event' ? 'All day' : 'At a set time'], `${what}: opens on its kind`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  const sameBody = (got: unknown, want: Row) => {
+    const norm = (o: unknown): unknown => (o && typeof o === 'object' && !Array.isArray(o) ? Object.fromEntries(Object.entries(o as Row).sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, v]) => [k, norm(v)])) : o);
+    return show(norm(got)) === show(norm(want));
+  };
+  const INIT = 'query_id=AAE&user=%7B%22id%22%3A5550001%7D&auth_date=1792000000&hash=abc';
+  const heldAnswer = () => {
+    let release: (a: FetchAnswer) => void = noop;
+    const promise = new Promise<FetchAnswer>((resolve) => (release = resolve));
+    return { promise, release: (a: FetchAnswer) => React.act(async () => release(a)) };
+  };
+  const switchOf = (m: Home, text: string) => {
+    const found = byRole(topDialog(m), 'switch').filter((e) => e.textContent.includes(text));
+    assert(found.length === 1, `no switch ${show(text)}`);
+    return found[0];
+  };
+  const selects = (m: Home) => elements(topDialog(m)).filter((e) => e.localName === 'select');
+  const saveButton = (m: Home) => {
+    const found = elements(topDialog(m)).filter((e) => e.localName === 'button' && byClass(e, 'ch-save').length + (e.className.includes('ch-save') ? 1 : 0) > 0);
+    assert(found.length === 1, 'the Save button');
+    return found[0];
+  };
+  const alerts = (m: Home) => byRole(topDialog(m), 'alert').map((e) => e.textContent);
+  const hasDialog = (m: Home) => byRole(m.container, 'dialog').length > 0;
+
+  await check('#75a on the Month with a day picked, the "+" starts on that day at 09:00; on today\'s picked day, at the next round hour', async () => {
+    const { m } = await editingHome('en');
+    try {
+      await openMonth(m);
+      await tap(m, dayButton(m, '2026-10-20'));
+      assert(pickedShown(m), 'a day is picked');
+      tapPlus(m);
+      await settle();
+      assert(fieldValue(m, 'Start date') === '2026-10-20' && fieldValue(m, 'Start time') === '09:00' && fieldValue(m, 'End time') === '10:00', `picked day: ${fieldValue(m, 'Start date')} ${fieldValue(m, 'Start time')}`);
+      tapIn(m, 'Cancel');
+      await tap(m, dayButton(m, TODAY));
+      tapPlus(m);
+      await settle();
+      assert(fieldValue(m, 'Start date') === TODAY && fieldValue(m, 'Start time') === '11:00', `today picked: ${fieldValue(m, 'Start date')} ${fieldValue(m, 'Start time')}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#76 the editor\'s defaults for the day in view: the Month\'s picked day, else today at the next round hour for an hour (a late hour rolls into tomorrow); a reminder form; the start moves the end with it; all day keeps the days between', () => {
+    const base = { today: TODAY, pickedDay: null, nowMs: Date.parse('2026-10-15T07:00:00Z'), tz: TZ, kinds: { event: true, reminder: true }, calendars: EDITOR_INFO.calendars };
+    const pick = (o: Partial<NewItemContext>) => {
+      const f = newItemForm({ ...base, ...o });
+      return `${f.startDay} ${f.startTime} → ${f.endDay} ${f.endTime}`;
+    };
+    assert(pick({}) === '2026-10-15 11:00 → 2026-10-15 12:00', `today: ${pick({})}`);
+    assert(pick({ nowMs: Date.parse('2026-10-15T07:59:00Z') }) === '2026-10-15 11:00 → 2026-10-15 12:00', 'still the next hour at 10:59');
+    assert(pick({ nowMs: Date.parse('2026-10-15T20:30:00Z') }) === '2026-10-16 00:00 → 2026-10-16 01:00', `23:30 rolls into tomorrow: ${pick({ nowMs: Date.parse('2026-10-15T20:30:00Z') })}`);
+    assert(pick({ pickedDay: '2026-10-20' }) === '2026-10-20 09:00 → 2026-10-20 10:00', `a picked day: ${pick({ pickedDay: '2026-10-20' })}`);
+    assert(pick({ pickedDay: TODAY }) === '2026-10-15 11:00 → 2026-10-15 12:00', 'today picked is today');
+    const f = newItemForm(base);
+    assert(f.kind === 'event' && f.repeat === 'none' && f.calendarId === 'native:cal_me_7f3a' && !f.allDay && !f.forPartner, `defaults: ${show(f)}`);
+    assert(newItemForm({ ...base, kinds: { event: false, reminder: true }, calendars: [] }).kind === 'reminder', 'reminders only opens on a reminder');
+    // Moving the start keeps the duration; all day keeps the days between.
+    const moved = moveStart({ ...f, endTime: '12:30' }, { startTime: '15:00' });
+    assert(moved.startTime === '15:00' && moved.endTime === '16:30' && moved.endDay === TODAY, `timed: ${show(moved)}`);
+    const over = moveStart(f, { startTime: '23:30' });
+    assert(over.endDay === '2026-10-16' && over.endTime === '00:30', `across midnight: ${over.endDay} ${over.endTime}`);
+    const dayMove = moveStart({ ...f, allDay: true, endDay: '2026-10-17' }, { startDay: '2026-10-20' });
+    assert(dayMove.endDay === '2026-10-22', `all day: ${dayMove.endDay}`);
+    assert(moveStart(f, { startTime: '' }).endTime === f.endTime, 'a cleared time leaves the end');
+    assert(setAllDay(setAllDay(f, true), false).endTime === '12:00', 'all day off again brings the times back');
+    // The checks.
+    assert(show(checkForm({ ...f, title: '  ' })) === show({ title: 'errTitle' }), 'an empty title');
+    assert(show(checkForm({ ...f, title: 'x'.repeat(201) })) === show({ title: 'errTitleLong' }), 'a long title');
+    assert(show(checkForm({ ...f, title: 'x', endTime: '10:00' })) === show({ end: 'errEnd' }), 'ends before it starts');
+    assert(show(checkForm({ ...f, title: 'x', endTime: '11:00' })) === show({ end: 'errEnd' }), 'ends as it starts');
+    assert(show(checkForm({ ...f, title: 'x', startDay: '' })) === show({ start: 'errDate' }), 'a cleared date');
+    assert(show(checkForm({ ...f, title: 'x', startDay: '0026-10-15' })) === show({ start: 'errDate' }), 'a year the server refuses');
+    assert(show(checkForm({ ...f, title: 'x', allDay: true, endDay: '2026-10-14' })) === show({ end: 'errEnd' }), 'all day ends the day before');
+    assert(show(checkForm({ ...f, title: 'x', allDay: true, startTime: '', endTime: '' })) === show({}), 'all day needs no times');
+    assert(show(checkForm({ ...f, kind: 'reminder', title: 'x', endDay: '', endTime: '' })) === show({}), 'a reminder has no end');
+    assert(show(checkForm({ ...f, title: 'x', location: 'y'.repeat(201), notes: 'z'.repeat(2001) })) === show({ location: 'errTooLong', notes: 'errTooLong' }), 'long location and notes');
+  });
+
+  await check('#77 the event editor in use: fields by kind (a reminder has When, At a set time, Repeat and For, no location, all day or notes); the start moves the end; all day hides the times; the repeat choices name the start day', async () => {
+    const { m } = await editingHome('en');
+    try {
+      tapPlus(m);
+      await settle();
+      // The start moves the end with it.
+      await typeInto(inDialog(m, 'Start time'), '15:00');
+      assert(fieldValue(m, 'End time') === '16:00' && fieldValue(m, 'End date') === TODAY, `end follows: ${fieldValue(m, 'End time')}`);
+      await typeInto(inDialog(m, 'End time'), '18:30');
+      await typeInto(inDialog(m, 'Start time'), '16:00');
+      assert(fieldValue(m, 'End time') === '19:30', `the duration kept: ${fieldValue(m, 'End time')}`);
+      // The repeat choices read from the start day (Thursday 15 October).
+      const options = (sel: Fake) => elements(sel).filter((e) => e.localName === 'option').map((e) => [propsOf(e).value, e.textContent]);
+      assert(show(options(selects(m)[0])) === show([['none', 'Never'], ['daily', 'Every day'], ['weekly', 'Every week on Thursday'], ['monthly', 'Every month on the 15th'], ['yearly', 'Every year on 15 Oct']]), `repeat: ${show(options(selects(m)[0]))}`);
+      await typeInto(inDialog(m, 'Start date'), '2026-10-22');
+      assert(fieldValue(m, 'End date') === '2026-10-22', 'a later day carries the end');
+      assert(options(selects(m)[0])[3][1] === 'Every month on the 22nd', 'the ordinal follows the day');
+      assert(show(options(selects(m)[1])) === show([['native:cal_me_7f3a', 'Family'], ['native:cal_noa_91b2', 'Noa and the kids · Noa']]), `calendars: ${show(options(selects(m)[1]))}`);
+      assertHas(topText(m), ['Family'], 'the main calendar is the default');
+      // All day hides the times.
+      assert(elements(topDialog(m)).filter((e) => e.getAttribute('type') === 'time').length === 2, 'two time pills');
+      m.click(switchOf(m, 'All day'));
+      assert(switchOf(m, 'All day').getAttribute('aria-checked') === 'true', 'all day is on');
+      assert(elements(topDialog(m)).filter((e) => e.getAttribute('type') === 'time').length === 0, 'no time pills all day');
+      assert(elements(topDialog(m)).filter((e) => e.getAttribute('type') === 'date').length === 2, 'the dates stay');
+      m.click(switchOf(m, 'All day'));
+      assert(fieldValue(m, 'Start time') === '16:00' && fieldValue(m, 'End time') === '19:30', 'the times come back');
+      // A reminder.
+      tapIn(m, 'Reminder');
+      const text = topText(m);
+      assertHas(text, ['When', 'At a set time', 'Without a time, the reminder arrives at 09:00', 'Repeat', 'For', 'Me', 'Noa', 'Save'], 'the reminder editor');
+      assertLacks(text, ['All day', 'Ends', 'Calendar'], 'a reminder has no such fields');
+      assert(!hasField(m, 'Location') && !hasField(m, 'Notes'), 'no location or notes on a reminder');
+      assert(switchOf(m, 'At a set time').getAttribute('aria-checked') === 'true', 'a set time by default');
+      assert(fieldValue(m, 'Date') === '2026-10-22' && fieldValue(m, 'Time') === '16:00', `when: ${fieldValue(m, 'Date')} ${fieldValue(m, 'Time')}`);
+      assert(byRole(topDialog(m), 'radio').filter((e) => e.getAttribute('aria-checked') === 'true').map((e) => e.textContent).includes('Me'), 'for me by default');
+      m.click(switchOf(m, 'At a set time'));
+      assert(elements(topDialog(m)).filter((e) => e.getAttribute('type') === 'time').length === 0, 'no time pill without a set time');
+      tapIn(m, 'Event');
+      assertHas(topText(m), ['All day'], 'back to an event');
+      assert(hasField(m, 'Location') && hasField(m, 'Notes'), 'location and notes are back');
+    } finally {
+      m.unmount();
+    }
+    // For appears only when the partner can be reminded.
+    const alone = await editingHome('en', { editor: ok200(editorWith({ partner: { name: 'Noa', canRemind: false } })) });
+    try {
+      tapPlus(alone.m);
+      await settle();
+      tapIn(alone.m, 'Reminder');
+      assertLacks(topText(alone.m), ['For'], 'a partner who cannot be pinged');
+    } finally {
+      alone.m.unmount();
+    }
+    const single = await editingHome('en', { editor: ok200(editorWith({ partner: null })) });
+    try {
+      tapPlus(single.m);
+      await settle();
+      tapIn(single.m, 'Reminder');
+      assertLacks(topText(single.m), ['For'], 'no partner');
+    } finally {
+      single.m.unmount();
+    }
+  });
+
+  await check('#78 Save: inline errors under the fields (no request until it is valid), the body sent (event and reminder, the init data in the header and the body), the button disabled and busy while it flies, then the editor closes and FamCal is asked again; every failure shows above Save and keeps the form', async () => {
+    const { m, tg } = await editingHome('en');
+    try {
+      tapPlus(m);
+      await settle();
+      m.click(saveButton(m));
+      await settle();
+      assert(show(alerts(m)) === show(['Add a title']), `title error: ${show(alerts(m))}`);
+      assert(writes().length === 0, 'nothing sent');
+      assert(inDialog(m, 'Title').getAttribute('aria-invalid') === 'true', 'the field is marked invalid');
+      await typeInto(inDialog(m, 'Title'), '  Parents’ evening ');
+      assert(alerts(m).length === 0, 'the error goes once the title is there');
+      await typeInto(inDialog(m, 'End time'), '10:30');
+      m.click(saveButton(m));
+      assert(show(alerts(m)) === show(['It ends before it starts']), `end error: ${show(alerts(m))}`);
+      await typeInto(inDialog(m, 'End time'), '12:30');
+      await typeInto(selects(m)[0], 'weekly');
+      await typeInto(selects(m)[1], 'native:cal_noa_91b2');
+      await typeInto(inDialog(m, 'Location'), ' School hall ');
+      await typeInto(inDialog(m, 'Notes'), 'Bring the form');
+      const hold = heldAnswer();
+      serveEditingWith({ write: () => hold.promise });
+      const before = rangeCalls().length;
+      m.click(saveButton(m));
+      await settle();
+      assert(writes().length === 1, `one write: ${writes().length}`);
+      const post = writes()[0];
+      assert(post.method === 'POST' && post.headers['Content-Type'] === 'application/json' && post.credentials === 'same-origin', 'POST, JSON, same-origin');
+      assert(post.headers['X-Telegram-Init-Data'] === INIT, 'the init data in the header');
+      const want = { user_id: 5550001, initData: INIT, kind: 'event', title: 'Parents’ evening', location: 'School hall', description: 'Bring the form', allDay: false, start: `${TODAY}T11:00`, end: `${TODAY}T12:30`, repeat: 'weekly', calendarId: 'native:cal_noa_91b2' };
+      assert(sameBody(post.body, want), `body: ${show(post.body)}`);
+      const save = saveButton(m);
+      assert(save.hasAttribute('disabled') && save.getAttribute('aria-busy') === 'true' && byClass(save, 'ch-form-spinner').length === 1, 'Save is disabled and busy while it flies');
+      m.click(save);
+      await settle();
+      assert(writes().length === 1, 'a tap on the disabled Save sends nothing');
+      await hold.release(ok200({ status: 'ok', key: 'famcal|new1#2026-10-15T08:00:00.000Z' }));
+      await settle();
+      assert(!hasDialog(m), 'the editor closes');
+      assert(rangeCalls().slice(before).some((c) => c.query.get('sources') === 'famcal'), `FamCal is asked again: ${show(ranges().slice(before))}`);
+      assert(tg.calls.includes('haptic(success)'), 'a haptic on success');
+      // Every failure: the message above Save, the form kept, Save live again.
+      const failures: [FetchAnswer, string][] = [
+        [{ status: 403, body: { error: 'not_allowed' } }, 'You can’t change this one'],
+        [{ status: 409, body: { error: 'changed' } }, 'This changed in the meantime — reopen it'],
+        [{ status: 404, body: { error: 'not_found' } }, 'This changed in the meantime — reopen it'],
+        [{ status: 500, body: { error: 'internal_error' } }, 'Couldn’t save. Try again.'],
+        [{ status: 429, body: { error: 'Too many requests' } }, 'Too many changes at once. Try again in a minute.'],
+        [{ status: 400, body: { error: 'invalid', field: 'title' } }, 'Couldn’t save. Try again.'],
+        ['throw', 'Couldn’t save. Try again.'],
+        [{ status: 200, body: { nope: true } }, 'Couldn’t save. Try again.'],
+      ];
+      for (const [reply, text] of failures) {
+        tapPlus(m);
+        await settle();
+        await typeInto(inDialog(m, 'Title'), 'Retry me');
+        serveEditingWith({ write: () => reply });
+        m.click(saveButton(m));
+        await settle();
+        assert(hasDialog(m) && alerts(m).includes(text), `${show(reply)}: ${show(alerts(m))} (want ${show(text)})`);
+        assert(fieldValue(m, 'Title') === 'Retry me' && !saveButton(m).hasAttribute('disabled'), 'the form is kept and Save is live');
+        if (reply !== 'throw' && (reply as { body: Row }).body.field === 'title') assert(alerts(m).includes('Check this one'), 'the server\'s field is marked');
+        await typeInto(inDialog(m, 'Title'), 'Retry me too');
+        assert(alerts(m).length === 0 || alerts(m).every((a) => a === 'Check this one'), 'editing clears the message');
+        tapIn(m, 'Cancel');
+        tapIn(m, 'Discard');
+      }
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#79 a new reminder: with a time (and for the partner), a date only (arrives at 09:00); the body carries no end, location, notes or calendar; a reminder alone for me', async () => {
+    const { m } = await editingHome('en');
+    try {
+      tapPlus(m);
+      await settle();
+      tapIn(m, 'Reminder');
+      await typeInto(inDialog(m, 'Title'), 'Buy a gift');
+      tapIn(m, 'Noa');
+      assert(byRole(topDialog(m), 'radio').some((e) => e.textContent === 'Noa' && e.getAttribute('aria-checked') === 'true'), 'for Noa');
+      await typeInto(inDialog(m, 'Date'), '2026-10-21');
+      await typeInto(inDialog(m, 'Time'), '18:00');
+      await typeInto(selects(m)[0], 'yearly');
+      m.click(saveButton(m));
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, kind: 'reminder', title: 'Buy a gift', allDay: false, start: '2026-10-21T18:00', repeat: 'yearly', forPartner: true }), `timed: ${show(writes()[0].body)}`);
+      assert(!hasDialog(m), 'closed');
+      tapPlus(m);
+      await settle();
+      tapIn(m, 'Reminder');
+      await typeInto(inDialog(m, 'Title'), 'Call the plumber');
+      m.click(switchOf(m, 'At a set time'));
+      m.click(saveButton(m));
+      await settle();
+      assert(sameBody(writes()[1].body, { user_id: 5550001, initData: INIT, kind: 'reminder', title: 'Call the plumber', allDay: true, start: TODAY, repeat: 'none' }), `date only: ${show(writes()[1].body)}`);
+    } finally {
+      m.unmount();
+    }
+    // An event with nothing but a title: no location or notes in the body; all day keeps the day.
+    const plain = await editingHome('en');
+    try {
+      tapPlus(plain.m);
+      await settle();
+      await typeInto(inDialog(plain.m, 'Title'), 'Day off');
+      plain.m.click(switchOf(plain.m, 'All day'));
+      plain.m.click(saveButton(plain.m));
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, kind: 'event', title: 'Day off', allDay: true, start: TODAY, end: TODAY, repeat: 'none', calendarId: 'native:cal_me_7f3a' }), `all day: ${show(writes()[0].body)}`);
+    } finally {
+      plain.m.unmount();
+    }
+  });
+
+  /** Opens an item's sheet from its row (by title) and lets the edit info arrive. */
+  const openItem = async (m: Home, title: string) => {
+    m.click(button(m.container, title));
+    await settle();
+  };
+  const sheetButtons = (m: Home) => elements(topDialog(m)).filter((e) => e.localName === 'button').map((e) => e.getAttribute('aria-label') ?? e.textContent.trim());
+  const dentistInfo = (o: Partial<ItemEditInfoResponse> = {}) => (key: string) => (key === 'famcal|dentist' ? ok200(infoFor(o)) : { status: 404, body: { error: 'not_found' } } as FetchAnswer);
+
+  await check('#80 the item sheet\'s pencil and Delete by permission: the pencil for who may edit, Delete event / Delete reminder for who may delete, neither for a viewer; nothing before the edit info arrives, none for a Google item or when the read fails or says 404; asked once per sheet with the key and the init data', async () => {
+    const cases: [string, Partial<ItemEditInfoResponse>, string[]][] = [
+      ['owner', {}, ['Edit', 'Delete event']],
+      ['may edit only', { canDelete: false }, ['Edit']],
+      ['may delete only', { canEdit: false }, ['Delete event']],
+      ['a viewer', { canEdit: false, canDelete: false }, []],
+      ['a reminder', { kind: 'reminder' }, ['Edit', 'Delete reminder']],
+    ];
+    for (const [what, over, want] of cases) {
+      const { m } = await editingHome('en', { item: dentistInfo(over) });
+      try {
+        await openItem(m, 'Dentist');
+        const got = sheetButtons(m).filter((b) => b === 'Edit' || b.startsWith('Delete'));
+        assert(show(got) === show(want), `${what}: ${show(got)}`);
+        assert(itemCalls().length === 1 && itemCalls()[0].query.get('key') === 'famcal|dentist' && itemCalls()[0].query.get('user_id') === '5550001', `${what}: one read of the item: ${show(itemCalls().map((c) => c.url))}`);
+        assert(itemCalls()[0].headers['X-Telegram-Init-Data'] === INIT && itemCalls()[0].method === 'GET', `${what}: the init data in the header`);
+        if (want.includes('Edit')) {
+          const pencil = byLabel(topDialog(m), 'Edit');
+          assert(pencil.localName === 'button' && pencil.className.includes('ch-icon-btn') && byClass(byClass(topDialog(m), 'ch-sheet-head')[0], 'ch-sheet-edit').length === 1, `${what}: a 44 px icon button in the header`);
+        }
+        if (want.includes('Delete event') || want.includes('Delete reminder')) {
+          const buttons = sheetButtons(m);
+          assert(buttons.indexOf(want[want.length - 1]) < buttons.indexOf('Close'), `${what}: Delete sits above Close`);
+        }
+      } finally {
+        m.unmount();
+      }
+    }
+    // Nothing before the answer; the Done button of a reminder keeps working beside them.
+    const slow = heldAnswer();
+    const wait = await editingHome('en', { item: () => slow.promise as unknown as FetchAnswer });
+    try {
+      await openItem(wait.m, 'Dentist');
+      assert(!sheetButtons(wait.m).includes('Edit') && !sheetButtons(wait.m).some((b) => b.startsWith('Delete')), 'no pencil or Delete before the edit info');
+      await slow.release(ok200(infoFor()));
+      await settle();
+      assert(sheetButtons(wait.m).includes('Edit'), 'the pencil comes with the answer');
+    } finally {
+      wait.m.unmount();
+    }
+    for (const [what, reply] of [['a 404', { status: 404, body: { error: 'not_found' } }], ['a 500', { status: 500, body: {} }], ['a garbled body', { status: 200, body: { kind: 'event' } }], ['no answer', 'throw']] as [string, FetchAnswer][]) {
+      const { m } = await editingHome('en', { item: () => reply });
+      try {
+        await openItem(m, 'Dentist');
+        assert(!sheetButtons(m).includes('Edit') && !sheetButtons(m).some((b) => b.startsWith('Delete')), `${what}: no controls`);
+        assertHas(topText(m), ['Dentist'], `${what}: the sheet is still there`);
+      } finally {
+        m.unmount();
+      }
+    }
+    // A Google item is view-only: no read at all.
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    answerFetch = (c) => ok200(googleAnswer({ from: c.query.get('from') ?? TODAY, to: c.query.get('to') ?? day(7), items: { [day(0)]: [DINNER] } }));
+    serveEditingWith({ item: () => ok200(infoFor()) });
+    const g = await mountHome('en', GOOGLE_HOME, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      await openItem(g, 'Dinner with the Cohens');
+      assert(itemCalls().length === 0 && !sheetButtons(g).includes('Edit'), 'a Google item: nothing asked, no pencil');
+    } finally {
+      g.unmount();
+    }
+    // The labels in he and ru.
+    for (const locale of ['he', 'ru'] as const) {
+      const { m } = await editingHome(locale, { item: dentistInfo() });
+      try {
+        m.click(button(m.container, 'Dentist'));
+        await settle();
+        const l = messages[locale].calendarHome.sheet;
+        assert(sheetButtons(m).includes(l.edit) && sheetButtons(m).includes(l.deleteEvent), `${locale}: ${show(sheetButtons(m))}`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('#81 the pencil opens the editor on the item: prefilled, the kind fixed, no repeat or calendar control (shown as text: the calendar, "Repeats every Tuesday", "For Noa"); Save with nothing changed just closes; a one-off sends only what changed, with no scope question', async () => {
+    const { m } = await editingHome('en', { item: dentistInfo() });
+    try {
+      await openItem(m, 'Dentist');
+      m.click(byLabel(topDialog(m), 'Edit'));
+      await settle();
+      assert(topDialog(m).getAttribute('aria-label') === 'Edit', 'the editor is named Edit');
+      assert(fieldValue(m, 'Title') === 'Dentist' && fieldValue(m, 'Location') === 'Clinic on Herzl St' && fieldValue(m, 'Notes') === 'Bring the X-rays', 'text fields prefilled');
+      assert(fieldValue(m, 'Start date') === TODAY && fieldValue(m, 'Start time') === '09:30' && fieldValue(m, 'End time') === '10:30', 'times prefilled');
+      assert(!elements(topDialog(m)).some((e) => e.getAttribute('aria-label') === 'Type') && selects(m).length === 0, 'no kind switch, no repeat or calendar select');
+      assertHas(topText(m), ['Family', 'All day', 'Starts', 'Ends'], 'the calendar as text');
+      assertLacks(topText(m), ['Repeat', 'Never'], 'a one-off has no repeat line');
+      // Nothing changed: Save just closes the editor.
+      m.click(saveButton(m));
+      await settle();
+      assert(writes().length === 0 && byRole(m.container, 'dialog').length === 1, 'nothing sent; the item sheet is behind');
+      // A change: only it goes.
+      m.click(byLabel(topDialog(m), 'Edit'));
+      await settle();
+      await typeInto(inDialog(m, 'Title'), '  Dentist (moved) ');
+      serveEditingWith({ item: dentistInfo(), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
+      m.click(saveButton(m));
+      await settle();
+      assert(writes().length === 1 && writes()[0].method === 'PATCH', `a PATCH: ${show(writes().map((c) => c.method))}`);
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { title: 'Dentist (moved)' } }), `body: ${show(writes()[0].body)}`);
+      assert(byRole(m.container, 'dialog').length === 1, 'the editor closed with no scope question');
+      // Timed changes carry start and end together; a cleared location is sent as empty.
+      m.click(byLabel(topDialog(m), 'Edit'));
+      await settle();
+      await typeInto(inDialog(m, 'Start time'), '10:00');
+      await typeInto(inDialog(m, 'Location'), '');
+      m.click(saveButton(m));
+      await settle();
+      assert(sameBody(writes()[1].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { location: '', start: `${TODAY}T10:00`, end: `${TODAY}T11:00` } }), `body 2: ${show(writes()[1].body)}`);
+    } finally {
+      m.unmount();
+    }
+    // An all-day event made timed, and a timed one made all day.
+    const allDayInfo = infoFor({ occurrence: { start: day(1), end: day(1), allDay: true, title: 'Grandma visits', location: '', description: '' } });
+    const g = await editingHome('en', { item: (k) => (k === 'famcal|grandma' ? ok200(allDayInfo) : { status: 404, body: {} }) });
+    try {
+      await openItem(g.m, 'Grandma visits');
+      g.m.click(byLabel(topDialog(g.m), 'Edit'));
+      await settle();
+      assert(switchOf(g.m, 'All day').getAttribute('aria-checked') === 'true' && elements(topDialog(g.m)).filter((e) => e.getAttribute('type') === 'time').length === 0, 'an all-day event opens all day');
+      g.m.click(switchOf(g.m, 'All day'));
+      assert(fieldValue(g.m, 'Start time') === '09:00' && fieldValue(g.m, 'End time') === '10:00', 'timed again from 09:00 for an hour');
+      g.m.click(saveButton(g.m));
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|grandma', scope: 'single', changes: { allDay: false, start: `${day(1)}T09:00`, end: `${day(1)}T10:00` } }), `timed: ${show(writes()[0].body)}`);
+    } finally {
+      g.m.unmount();
+    }
+    // A reminder for Noa: its time only, no end; "For Noa" as text; "Repeats every Tuesday" for a series.
+    const remInfo = infoFor({
+      kind: 'reminder',
+      occurrence: { start: `${day(5)}T17:00`, end: `${day(5)}T17:00`, allDay: false, title: 'Book the plumber', location: '', description: '' },
+      series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: ['TU'], ends: false } },
+      calendar: { id: 'native:cal_me_7f3a', name: 'Family', color: '#039BE5' },
+      forName: 'Noa',
+      scopes: ['single', 'following', 'all'],
+    });
+    const r = await editingHome('en', { item: (k) => (k === 'famcal|recycling' ? ok200(remInfo) : { status: 404, body: {} }) });
+    try {
+      await openItem(r.m, 'Take out the recycling');
+      r.m.click(byLabel(topDialog(r.m), 'Edit'));
+      await settle();
+      assertHas(topText(r.m), ['For Noa', 'Repeats every Tuesday', 'At a set time'], 'the fixed lines');
+      assertLacks(topText(r.m), ['Family'], 'a reminder shows no calendar line');
+      assert(!hasField(r.m, 'Location') && !hasField(r.m, 'Notes') && selects(r.m).length === 0, 'no event fields, no selects');
+      assert(!byRole(topDialog(r.m), 'radio').length, 'no For choice on an edit');
+      await typeInto(inDialog(r.m, 'Time'), '17:30');
+      r.m.click(saveButton(r.m));
+      await settle();
+      assertHas(topText(r.m), ['This reminder repeats'], 'a series asks');
+      tapIn(r.m, 'Only this one (Tue 20 Oct)');
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|recycling', scope: 'single', changes: { start: `${day(5)}T17:30` } }), `reminder body: ${show(writes()[0].body)}`);
+    } finally {
+      r.m.unmount();
+    }
+  });
+
+  await check('#82 the scope sheet, for repeating items only: "This event repeats" with Only this one (date), This one and the ones after, Every Tuesday (or All of them with no short name); each choice sends its scope; Cancel returns to the editor; Delete asks the same three; a single item asks "Delete “title”?"', async () => {
+    const swim = (o: Partial<ItemEditInfoResponse> = {}) => (key: string) => (key === 'famcal|swim' ? ok200(swimInfo(o)) : ({ status: 404, body: {} } as FetchAnswer));
+    const { m } = await editingHome('en', { item: swim() });
+    try {
+      await openItem(m, 'Swimming');
+      m.click(byLabel(topDialog(m), 'Edit'));
+      await settle();
+      assertHas(topText(m), ['Repeats every Tuesday'], 'the series\' repeat as text');
+      await typeInto(inDialog(m, 'Location'), 'The pool');
+      m.click(saveButton(m));
+      await settle();
+      assert(writes().length === 0, 'nothing sent before the choice');
+      const dlg = topDialog(m);
+      assert(dlg.getAttribute('aria-label') === 'This event repeats', 'the scope sheet is a dialog');
+      const choices = elements(dlg).filter((e) => e.localName === 'button').map((e) => e.textContent.trim());
+      assert(show(choices) === show(['Only this one (Tue 20 Oct)', 'This one and the ones after', 'Every Tuesday', 'Cancel']), `choices: ${show(choices)}`);
+      assertHas(topText(m), ['Swimming', 'Save the change to:'], 'the item named');
+      tapIn(m, 'Cancel');
+      assert(topDialog(m).getAttribute('aria-label') === 'Edit' && fieldValue(m, 'Location') === 'The pool', 'Cancel returns to the editor with its form');
+      for (const [choice, scope] of [['This one and the ones after', 'following'], ['Every Tuesday', 'all'], ['Only this one (Tue 20 Oct)', 'single']] as const) {
+        m.click(saveButton(m));
+        await settle();
+        tapIn(m, choice);
+        await settle();
+        const last = writes()[writes().length - 1];
+        assert(last.method === 'PATCH' && last.body?.scope === scope && last.body?.key === 'famcal|swim#2026-10-20T14:00:00.000Z' || last.body?.key === 'famcal|swim', `${scope}: ${show(last.body)}`);
+        assert(!byRole(m.container, 'dialog').some((d) => d.getAttribute('aria-label') === 'Edit'), `${scope}: the editor closed`);
+        m.click(byLabel(topDialog(m), 'Edit'));
+        await settle();
+        await typeInto(inDialog(m, 'Location'), `The pool ${scope}`);
+      }
+      assert(writes().map((c) => c.body?.scope).join() === 'following,all,single', `scopes: ${writes().map((c) => c.body?.scope).join()}`);
+      // A failure keeps the editor, and the message is above Save.
+      serveEditingWith({ item: swim(), write: () => ({ status: 403, body: { error: 'not_allowed' } }) });
+      m.click(saveButton(m));
+      await settle();
+      tapIn(m, 'Every Tuesday');
+      await settle();
+      assert(topDialog(m).getAttribute('aria-label') === 'Edit' && alerts(m).includes('You can’t change this one'), `a refused save: ${show(alerts(m))}`);
+    } finally {
+      m.unmount();
+    }
+    // With no short name: all of them.
+    const noShortName: [string, RepeatInfo][] = [
+      ['monthly', { freq: 'monthly', interval: 1, byDay: [], ends: false }],
+      ['a series cut by "following"', { freq: 'weekly', interval: 1, byDay: [], ends: true }],
+      ['every other week', { freq: 'weekly', interval: 2, byDay: [], ends: false }],
+    ];
+    for (const [what, repeat] of noShortName) {
+      const w = await editingHome('en', { item: swim({ series: { recurring: true, start: `${day(5)}T17:00`, repeat } }) });
+      try {
+        await openItem(w.m, 'Swimming');
+        tapIn(w.m, 'Delete event');
+        const choices = elements(topDialog(w.m)).filter((e) => e.localName === 'button').map((e) => e.textContent.trim());
+        assert(show(choices) === show(['Only this one (Tue 20 Oct)', 'This one and the ones after', 'All of them', 'Cancel']), `${what}: ${show(choices)}`);
+      } finally {
+        w.m.unmount();
+      }
+    }
+    const daily = await editingHome('en', { item: swim({ series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'daily', interval: 1, byDay: [], ends: false } } }) });
+    try {
+      await openItem(daily.m, 'Swimming');
+      tapIn(daily.m, 'Delete event');
+      assertHas(topText(daily.m), ['Every day'], 'a daily series: Every day');
+    } finally {
+      daily.m.unmount();
+    }
+    // Delete of a series: the same three choices; each sends its scope; the item sheet goes.
+    const del = await editingHome('en', { item: swim() });
+    try {
+      await openItem(del.m, 'Swimming');
+      tapIn(del.m, 'Delete event');
+      assert(topDialog(del.m).getAttribute('aria-label') === 'This event repeats', 'the scope sheet asks');
+      assertHas(topText(del.m), ['Delete:'], 'delete wording');
+      del.world.week = { ...del.world.week, [day(5)]: del.world.week[day(5)].filter((i) => i.id !== 'swim') };
+      const before = rangeCalls().length;
+      tapIn(del.m, 'This one and the ones after');
+      await settle();
+      assert(writes().length === 1 && writes()[0].method === 'DELETE' && sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following' }), `delete body: ${show(writes()[0]?.body)}`);
+      assert(!hasDialog(del.m), 'the sheets are gone');
+      assert(rangeCalls().slice(before).some((c) => c.query.get('sources') === 'famcal'), 'FamCal is asked again');
+    } finally {
+      del.m.unmount();
+    }
+    // A single item: "Delete “Dentist”?"; Cancel sends nothing; Delete sends scope single.
+    const one = await editingHome('en', { item: dentistInfo() });
+    try {
+      await openItem(one.m, 'Dentist');
+      tapIn(one.m, 'Delete event');
+      assert(topDialog(one.m).getAttribute('aria-label') === 'Delete “Dentist”?', `the question: ${topDialog(one.m).getAttribute('aria-label')}`);
+      const choices = elements(topDialog(one.m)).filter((e) => e.localName === 'button').map((e) => e.textContent.trim());
+      assert(show(choices) === show(['Delete', 'Cancel']), `buttons: ${show(choices)}`);
+      tapIn(one.m, 'Cancel');
+      await settle();
+      assert(writes().length === 0 && topDialog(one.m).getAttribute('aria-label') === 'Details', 'Cancel sends nothing and keeps the item sheet');
+      tapIn(one.m, 'Delete event');
+      const hold = heldAnswer();
+      serveEditingWith({ item: dentistInfo(), write: () => hold.promise });
+      tapIn(one.m, 'Delete');
+      await settle();
+      assert(elements(topDialog(one.m)).filter((e) => e.localName === 'button').every((e) => e.hasAttribute('disabled') || e.textContent.trim() === 'Cancel'), 'Delete is disabled while it flies');
+      await hold.release({ status: 500, body: {} });
+      await settle();
+      assert(topDialog(one.m).getAttribute('aria-label') === 'Delete “Dentist”?' && alerts(one.m).includes('Couldn’t save. Try again.'), `a failed delete says so: ${show(alerts(one.m))}`);
+      serveEditingWith({ item: dentistInfo(), write: () => ok200({ status: 'ok' }) });
+      tapIn(one.m, 'Delete');
+      await settle();
+      assert(writes().length === 2 && writes()[1].method === 'DELETE' && sameBody(writes()[1].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single' }), `body: ${show(writes()[1].body)}`);
+      assert(!hasDialog(one.m), 'the item sheet closes after a delete');
+    } finally {
+      one.m.unmount();
+    }
+    // A reminder says Delete reminder, and the scope sheet says "This reminder repeats".
+    const rem = await editingHome('en', { item: (k) => (k === 'famcal|recycling' ? ok200(swimInfo({ kind: 'reminder' })) : { status: 404, body: {} }) });
+    try {
+      await openItem(rem.m, 'Take out the recycling');
+      tapIn(rem.m, 'Delete reminder');
+      assert(topDialog(rem.m).getAttribute('aria-label') === 'This reminder repeats', 'the reminder wording');
+    } finally {
+      rem.m.unmount();
+    }
+  });
+
+  await check('#83 after a write the item sheet follows the store: a changed title shows when FamCal answers; a "following" edit (a new key) closes it; an item that is gone (moved out of view, or deleted elsewhere) closes it', async () => {
+    const swim = (key: string) => (key === 'famcal|swim' ? ok200(swimInfo()) : ({ status: 404, body: {} } as FetchAnswer));
+    const edited = { ...SWIM, title: 'Swimming lesson' };
+    // Same key: the sheet shows the new title.
+    const a = await editingHome('en', { item: dentistInfo(), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
+    try {
+      await openItem(a.m, 'Dentist');
+      a.world.week = { ...a.world.week, [day(0)]: a.world.week[day(0)].map((i) => (i.id === 'dentist' ? { ...DENTIST, title: 'Dentist (moved)' } : i)) };
+      a.m.click(byLabel(topDialog(a.m), 'Edit'));
+      await settle();
+      await typeInto(inDialog(a.m, 'Title'), 'Dentist (moved)');
+      a.m.click(saveButton(a.m));
+      await settle();
+      assert(topDialog(a.m).getAttribute('aria-label') === 'Details' && topText(a.m).includes('Dentist (moved)'), `the sheet shows the change: ${topText(a.m).slice(0, 120)}`);
+      assert(itemCalls().length === 2, `the edit info is asked again: ${itemCalls().length}`);
+    } finally {
+      a.m.unmount();
+    }
+    // A new key (following): the sheet closes.
+    const b = await editingHome('en', { item: swim, write: () => ok200({ status: 'ok', key: 'famcal|swim2#2026-10-20T14:00:00.000Z' }) });
+    try {
+      await openItem(b.m, 'Swimming');
+      b.m.click(byLabel(topDialog(b.m), 'Edit'));
+      await settle();
+      await typeInto(inDialog(b.m, 'Title'), 'Swimming lesson');
+      b.m.click(saveButton(b.m));
+      await settle();
+      tapIn(b.m, 'This one and the ones after');
+      await settle();
+      assert(!hasDialog(b.m), 'the item sheet closes when the series changed under it');
+    } finally {
+      b.m.unmount();
+    }
+    // Gone from the store after the refetch: it closes.
+    const c = await editingHome('en', { item: dentistInfo(), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
+    try {
+      await openItem(c.m, 'Dentist');
+      c.world.week = { ...c.world.week, [day(0)]: c.world.week[day(0)].filter((i) => i.id !== 'dentist') };
+      c.m.click(byLabel(topDialog(c.m), 'Edit'));
+      await settle();
+      await typeInto(inDialog(c.m, 'Start date'), day(20));
+      c.m.click(saveButton(c.m));
+      await settle();
+      assert(!hasDialog(c.m), 'the item sheet closes when its item has left the window');
+    } finally {
+      c.m.unmount();
+    }
+    void edited;
+  });
+
+  await check('#84 Cancel and Telegram\'s BackButton: Cancel closes at once when nothing changed and asks "Discard your changes?" after a change; Keep editing returns; the BackButton shows with the editor and does the same, closing a sheet on top first (the scope sheet, then the editor); Escape cancels too; the item sheet behind stays', async () => {
+    const swim = (key: string) => (key === 'famcal|swim' ? ok200(swimInfo()) : ({ status: 404, body: {} } as FetchAnswer));
+    const { m, tg } = await editingHome('en', { item: swim });
+    try {
+      tapPlus(m);
+      await settle();
+      assert(tg.calls.includes('BackButton.show()') && tg.backHandlers() === 1, 'the BackButton shows with the editor');
+      tapIn(m, 'Cancel');
+      assert(!hasDialog(m), 'Cancel on an untouched form closes it');
+      tapPlus(m);
+      await settle();
+      await typeInto(inDialog(m, 'Title'), 'Half written');
+      tapIn(m, 'Cancel');
+      assert(topDialog(m).getAttribute('aria-label') === 'Discard your changes?', 'asks to discard');
+      assert(show(elements(topDialog(m)).filter((e) => e.localName === 'button').map((e) => e.textContent.trim())) === show(['Discard', 'Keep editing']), 'Discard or Keep editing');
+      tapIn(m, 'Keep editing');
+      assert(topDialog(m).getAttribute('aria-label') === 'New' && fieldValue(m, 'Title') === 'Half written', 'Keep editing returns to the form');
+      // The BackButton asks the same.
+      await React.act(async () => tg.fire('backButtonClicked'));
+      await settle();
+      assert(topDialog(m).getAttribute('aria-label') === 'Discard your changes?', 'the BackButton asks to discard');
+      await React.act(async () => tg.fire('backButtonClicked'));
+      await settle();
+      assert(topDialog(m).getAttribute('aria-label') === 'New', 'a second back closes the question');
+      m.key(topDialog(m), 'Escape');
+      await settle();
+      assert(topDialog(m).getAttribute('aria-label') === 'Discard your changes?', 'Escape cancels too');
+      tapIn(m, 'Discard');
+      assert(!hasDialog(m) && writes().length === 0, 'discarded: nothing sent');
+      assert(tg.calls.includes('BackButton.hide()'), 'the BackButton hides again');
+      // From the item sheet: the scope sheet closes first, then the editor, then the item sheet.
+      await openItem(m, 'Swimming');
+      m.click(byLabel(topDialog(m), 'Edit'));
+      await settle();
+      await typeInto(inDialog(m, 'Title'), 'Swim');
+      m.click(saveButton(m));
+      await settle();
+      assert(topDialog(m).getAttribute('aria-label') === 'This event repeats', 'the scope sheet');
+      await React.act(async () => tg.fire('backButtonClicked'));
+      await settle();
+      assert(topDialog(m).getAttribute('aria-label') === 'Edit', 'back closed the scope sheet only');
+      await React.act(async () => tg.fire('backButtonClicked'));
+      await settle();
+      tapIn(m, 'Discard');
+      assert(topDialog(m).getAttribute('aria-label') === 'Details', 'the item sheet is still there');
+      await React.act(async () => tg.fire('backButtonClicked'));
+      await settle();
+      assert(!hasDialog(m), 'and the BackButton closes it');
+      // A delete question closes with back, too.
+      await openItem(m, 'Swimming');
+      tapIn(m, 'Delete event');
+      await React.act(async () => tg.fire('backButtonClicked'));
+      await settle();
+      assert(topDialog(m).getAttribute('aria-label') === 'Details' && writes().length === 0, 'back cancels the delete question');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#85 the editing copy in en, he and ru: no untranslated key in the editor, the scope sheet, the discard and delete questions; dir="rtl" in Hebrew with the time pills left to right; the Hebrew and Russian copy is translated', async () => {
+    for (const locale of LOCALES) {
+      const swim = (key: string) => (key === 'famcal|swim' ? ok200(swimInfo()) : ({ status: 404, body: {} } as FetchAnswer));
+      const { m } = await editingHome(locale, { item: swim });
+      try {
+        const l = messages[locale].calendarHome;
+        const seen: string[] = [];
+        const look = (what: string) => {
+          const html = htmlOf(topDialog(m));
+          assertLacks(html + textOf(html), ['calendarHome.', '[missing', 'undefined'], `${locale} ${what}`);
+          seen.push(textOf(html));
+        };
+        const cancelBtn = () => elements(topDialog(m)).find((e) => e.className.includes('ch-editor-cancel')) as Fake;
+        const sheetBtns = () => elements(topDialog(m)).filter((e) => e.localName === 'button');
+        m.click(byLabel(m.container, l.header.add));
+        await settle();
+        look('new event');
+        assert(topDialog(m).getAttribute('aria-label') === l.editor.titleNew, `${locale}: the editor is named ${l.editor.titleNew}`);
+        assert(m.html().startsWith('<div class="ch-home" data-theme="light" dir="' + (locale === 'he' ? 'rtl' : 'ltr') + '"'), `${locale}: the root's direction`);
+        assert(elements(topDialog(m)).filter((e) => e.getAttribute('type') === 'time').every((e) => e.getAttribute('dir') === 'ltr'), `${locale}: times run left to right`);
+        m.click(byRole(topDialog(m), 'radio').find((e) => e.textContent === l.editor.kind.reminder) as Fake);
+        look('new reminder');
+        m.click(byRole(topDialog(m), 'radio').find((e) => e.textContent === l.editor.kind.event) as Fake);
+        await typeInto(inDialog(m, l.editor.fields.title), 'x');
+        m.click(cancelBtn());
+        look('discard');
+        m.click(sheetBtns()[sheetBtns().length - 1]); // keep editing
+        assert(topDialog(m).getAttribute('aria-label') === l.editor.titleNew, `${locale}: back in the editor`);
+        m.click(cancelBtn());
+        m.click(sheetBtns()[0]); // discard
+        assert(!hasDialog(m), `${locale}: discarded`);
+        await openItem(m, 'Swimming');
+        look('item sheet');
+        m.click(byLabel(topDialog(m), l.sheet.edit));
+        await settle();
+        look('edit');
+        await typeInto(inDialog(m, l.editor.fields.title), 'Swim');
+        m.click(saveButton(m));
+        await settle();
+        look('scope (save)');
+        assertHas(seen[seen.length - 1], [l.scope.save.event, l.scope.following, l.scope.save.ask], `${locale} scope copy`);
+        m.click(sheetBtns()[sheetBtns().length - 1]); // cancel
+        m.click(cancelBtn());
+        m.click(sheetBtns()[0]); // discard
+        m.click(elements(topDialog(m)).find((e) => e.className.includes('ch-sheet-delete')) as Fake);
+        look('scope (delete)');
+        assertHas(seen[seen.length - 1], [l.scope.delete.ask], `${locale} delete copy`);
+        if (locale !== 'en') {
+          for (const key of ['editor.save', 'editor.cancel', 'scope.following', 'scope.cancel', 'editor.discard.title'] as const) {
+            const get = (loc: Locale) => key.split('.').reduce<Row>((o, k) => o[k], messages[loc].calendarHome) as unknown as string;
+            assert(get(locale) !== get('en'), `${locale}: ${key} is translated`);
+          }
+        }
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('#86 the form kit\'s CSS (spec §4): every tap at least 44 px, nothing under 11 px, logical properties only, no hover, the date and time pills and the select over a value row, the editor panel full height with a sticky Save bar', () => {
+    const css = [FORM_CSS, HOME_THEME_CSS, AGENDA_CSS].join('\n');
+    const rule = (selector: string) => {
+      const m = new RegExp(`(?:^|\\n)${selector.replace(/[.[\]]/g, '\\$&')} \\{([^}]*)\\}`).exec(css);
+      assert(m, `no rule for ${selector}`);
+      return m[1];
+    };
+    for (const selector of ['.ch-pill', '.ch-segment', '.ch-radio', '.ch-editor-cancel']) {
+      const min = /min-block-size:\s*(\d+)px/.exec(rule(selector));
+      assert(min && Number(min[1]) >= 44, `${selector} min-block-size ${min?.[1]}`);
+    }
+    for (const selector of ['.ch-form-row', '.ch-form-field', '.ch-scope-choice', '.ch-save']) {
+      const min = /min-block-size:\s*(\d+)px/.exec(rule(selector));
+      assert(min && Number(min[1]) >= 44, `${selector} min-block-size ${min?.[1]}`);
+    }
+    assert(/\.ch-icon-btn \{[^}]*block-size: 44px/.test(HOME_SHELL_CSS), '.ch-icon-btn 44 px')
+    const physical = FORM_CSS.match(/(?:margin|padding|border)-(?:left|right)|(?:^|[\s;{])(?:left|right)\s*:|text-align:\s*(?:left|right)|float:|(?:^|[\s;{])(?:width|height)\s*:|(?:min|max)-(?:width|height)\s*:/gm);
+    assert(!physical, `physical properties: ${show(physical)}`);
+    assert(!/:hover/.test(FORM_CSS), 'no hover styles');
+    assert([...FORM_CSS.matchAll(/font-size:\s*(\d+)px/g)].every((m) => Number(m[1]) >= 11), 'nothing under 11 px');
+    assert(/\.ch-form-select \{[^}]*opacity:\s*0[^}]*\}/.test(FORM_CSS) && /\.ch-form-select \{[^}]*inset:\s*0/.test(FORM_CSS), 'the select sits over the row');
+    assert(/\.ch-sheet-full \{[^}]*flex:\s*1[^}]*max-block-size:\s*none/.test(HOME_THEME_CSS), 'the editor panel fills the screen');
+    assert(/\.ch-save-bar \{[^}]*flex:\s*none/.test(FORM_CSS) && /\.ch-editor-body \{[^}]*overflow-y:\s*auto/.test(FORM_CSS), 'a scrolling body over a fixed Save bar');
+    assert(/prefers-reduced-motion/.test(HOME_THEME_CSS), 'reduced motion');
+  });
+
+  await check('#87 React logged no warning in #74-#86 (keys, nesting, attributes, act)', () => {
+    assert(reactWarnings.length === warnedBeforeEditing, `React warned: ${show(reactWarnings.slice(warnedBeforeEditing, warnedBeforeEditing + 3))}`);
   });
 
   let failed = 0;

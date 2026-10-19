@@ -12,12 +12,19 @@
 // (reminderStateAt), never the per-day mark of the row it was opened from. The container owns the request (`actions`): this sheet only draws the
 // buttons, disabled while one is in flight, and the note after a tap that could not apply.
 //
+// Editing (home editing spec §2): a FamCal item the viewer may change shows a pencil in the
+// header, and one they may delete shows "Delete event" / "Delete reminder" at the bottom,
+// both from `actions.editing`, which the container fills once the item's edit info has
+// arrived (none before, none for Google items). The sheet only draws them; the container
+// opens the editor and asks before deleting.
+//
 // Telegram's BackButton closes it: the container owns the button (useTelegramBackButton)
 // and the selection, so this sheet only renders. In a browser, the Close button, a tap on
 // the scrim and Escape do the same.
 
 import { useLocale, useTranslations } from 'next-intl';
 import { reminderStateAt, type AgendaRow } from '@/src/lib/calendar-view/agenda';
+import type { ItemKind } from '@/src/lib/calendar-view/editor-types';
 import type { ReminderActionName } from '@/src/lib/calendar-view/reminder-client';
 import type { DayKey, ItemDTO } from '@/src/lib/calendar-view/types';
 import {
@@ -39,6 +46,15 @@ const HEX_COLOUR = /^#[0-9a-f]{3,8}$/i;
 /** Why a tap changed nothing (calendarHome.sheet.actionNotes). */
 export type SheetNote = 'changed' | 'alreadyDone' | 'notYours' | 'failed';
 
+/** What the container gives the sheet for editing: the viewer's rights on this item, from its edit info. */
+export interface SheetEditing {
+  canEdit: boolean;
+  canDelete: boolean;
+  kind: ItemKind;
+  onEdit: () => void;
+  onDelete: () => void;
+}
+
 /** What the container gives the sheet for the reminder actions. Without it the sheet shows none. */
 export interface SheetActions {
   /** A request is in flight (for any item): every button is disabled. */
@@ -49,6 +65,8 @@ export interface SheetActions {
   /** The clock (ms) the reminder's state is read at: due or not yet. */
   now: number;
   onAction: (action: ReminderActionName) => void;
+  /** The viewer's editing rights on the open item, once known. */
+  editing?: SheetEditing;
 }
 
 export interface ItemSheetProps {
@@ -79,6 +97,15 @@ function CheckIcon() {
   return (
     <svg className="ch-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
       <path d="M5 12.5l4.5 4.5L19 7.5" />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3z" />
+      <path d="M13.5 8.5l3 3" />
     </svg>
   );
 }
@@ -178,6 +205,7 @@ export function ItemSheet({ row, today, tz, onClose, actions }: ItemSheetProps) 
   const mark = actions ? reminderStateAt(item, actions.now, tz) : row.mark;
   const title = useItemTitle(item);
   const state = useReminderState(item, mark, today, tz);
+  const editing = actions?.editing;
 
   const tags: string[] = [];
   if (item.kind === 'reminder') tags.push(t('row.reminder'));
@@ -208,6 +236,11 @@ export function ItemSheet({ row, today, tz, onClose, actions }: ItemSheetProps) 
         <h2 className="ch-sheet-title" dir="auto">
           {title}
         </h2>
+        {editing?.canEdit ? (
+          <button type="button" className="ch-icon-btn ch-sheet-edit" aria-label={t('sheet.edit')} onClick={editing.onEdit}>
+            <PencilIcon />
+          </button>
+        ) : null}
       </div>
       <When item={item} tz={tz} />
       {tags.length > 0 || whose.person ? (
@@ -249,6 +282,11 @@ export function ItemSheet({ row, today, tz, onClose, actions }: ItemSheetProps) 
           </div>
         ) : null}
       </dl>
+      {editing?.canDelete ? (
+        <button type="button" className="ch-btn ch-sheet-delete" disabled={actions?.busy} onClick={editing.onDelete}>
+          {t(editing.kind === 'reminder' ? 'sheet.deleteReminder' : 'sheet.deleteEvent')}
+        </button>
+      ) : null}
       {googleLink ? (
         <button type="button" className="ch-btn ch-btn-primary ch-sheet-action" onClick={() => openExternalLink(googleLink)}>
           {t('sheet.openInGoogle')}
