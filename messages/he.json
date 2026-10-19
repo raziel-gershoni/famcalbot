@@ -184,7 +184,21 @@
       "stateDoneAt": "בוצעה ב-{time}",
       "stateSnoozed": "נדחתה עד {time}",
       "stateLater": "עוד לא הגיע הזמן",
-      "openInGoogle": "פתיחה ביומן Google"
+      "openInGoogle": "פתיחה ביומן Google",
+      "actions": {
+        "done": "בוצע",
+        "undo": "לא בוצע",
+        "snoozeLabel": "דחייה",
+        "snooze15": "15 דק׳",
+        "snooze60": "שעה",
+        "snoozeTomorrow": "מחר"
+      },
+      "actionNotes": {
+        "changed": "התזכורת הזו השתנתה. היומן מעודכן עכשיו.",
+        "alreadyDone": "כבר בוצע",
+        "notYours": "התזכורת הזו כבר לא שלך",
+        "failed": "לא הצלחנו לשמור. אפשר לנסות שוב."
+      }
     },
     "empty": {
       "title": "אין אירועים",

@@ -178,6 +178,17 @@ const KEYS: Record<string, readonly string[]> = {
   'sheet.stateSnoozed': ['time'],
   'sheet.stateLater': [],
   'sheet.openInGoogle': [],
+  // The reminder actions in the sheet (done, undo, snooze) and the notes after a tap that could not apply
+  'sheet.actions.done': [],
+  'sheet.actions.undo': [],
+  'sheet.actions.snoozeLabel': [],
+  'sheet.actions.snooze15': [],
+  'sheet.actions.snooze60': [],
+  'sheet.actions.snoozeTomorrow': [],
+  'sheet.actionNotes.changed': [],
+  'sheet.actionNotes.alreadyDone': [],
+  'sheet.actionNotes.notYours': [],
+  'sheet.actionNotes.failed': [],
   // The empty state (D5), Ruling R10
   'empty.title': [],
   'empty.hintEvents': [],

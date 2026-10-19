@@ -184,7 +184,21 @@
       "stateDoneAt": "Выполнено в {time}",
       "stateSnoozed": "Отложено до {time}",
       "stateLater": "Время ещё не пришло",
-      "openInGoogle": "Открыть в Google Календаре"
+      "openInGoogle": "Открыть в Google Календаре",
+      "actions": {
+        "done": "Готово",
+        "undo": "Не выполнено",
+        "snoozeLabel": "Отложить",
+        "snooze15": "15 мин",
+        "snooze60": "1 час",
+        "snoozeTomorrow": "Завтра"
+      },
+      "actionNotes": {
+        "changed": "Это напоминание изменилось. Календарь уже обновлён.",
+        "alreadyDone": "Уже сделано",
+        "notYours": "Это напоминание больше не твоё",
+        "failed": "Не удалось сохранить. Попробуй ещё раз."
+      }
     },
     "empty": {
       "title": "Ничего не запланировано",

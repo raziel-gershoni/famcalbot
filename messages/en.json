@@ -184,7 +184,21 @@
       "stateDoneAt": "Done at {time}",
       "stateSnoozed": "Snoozed until {time}",
       "stateLater": "Not due yet",
-      "openInGoogle": "Open in Google Calendar"
+      "openInGoogle": "Open in Google Calendar",
+      "actions": {
+        "done": "Done",
+        "undo": "Not done",
+        "snoozeLabel": "Snooze",
+        "snooze15": "15 min",
+        "snooze60": "1 hour",
+        "snoozeTomorrow": "Tomorrow"
+      },
+      "actionNotes": {
+        "changed": "This reminder changed. The calendar is up to date now.",
+        "alreadyDone": "Already done",
+        "notYours": "This reminder isn’t yours anymore",
+        "failed": "Couldn’t save. Try again."
+      }
     },
     "empty": {
       "title": "Nothing planned",
