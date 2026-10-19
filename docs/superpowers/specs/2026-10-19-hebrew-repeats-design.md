@@ -81,6 +81,13 @@ Status: designed 2026-10-19 under the owner's delegation, then revised after an 
 - **One helper,** `recurrenceFields(user, target, ev)`, returns `{ recurrence, hebrewRule, hebrewAnchor, notice? }`. It's used by all five create sites: webhook-handlers.ts:1067, :1156, :1285; voice/bulk-confirmations.ts:219; voice/callbacks.ts:102. `CreateEventInput` gains the two fields.
 - **A Google target** gets no recurrence and a notice. The event is created once, on the date. The confirmation card shows the notice before Confirm: "Google Calendar can't repeat by the Hebrew date, so this is added once". The copy is new, in en/he/ru.
 - **The confirmation line** gives the Hebrew date (gematriya in he, transliterated in en/ru) and the kind.
+- **As built (H3).**
+  - **Six create sites, not five.** `voice/auto-create.ts` also builds a rule from a parse. It never sees a repeat today (the handlers skip auto-create for recurring events), but it goes through `recurrenceFields` like the rest, and the smoke pins all six.
+  - **The helper.** `recurrenceFields(user, target, ev)` is async (the anchor is the start's day in the user's zone); `target` is the provider name. It returns only the keys that apply, so an ordinary event's create input is unchanged; the sites spread `repeatInput(...)`, which leaves out the card's `notice`. The Google provider also refuses a create that carries `hebrewRule`.
+  - **The date.** The model returns `hebrewDate: { day, month, year? }` on the event; `src/services/hebrew-date-resolve.ts` validates it and resolves it with hebcal. Plain "Adar" is Adar II in a leap year. A date that does not exist (30 Cheshvan in a short year, Adar I in a common year) is logged and ignored, or skipped when searching for the next occurrence. A three-digit year (786) reads as 5786.
+  - **The "no year" note** travels on the recurrence as `hebrewNoYear` (yahrzeit only), so the pending card keeps it.
+  - **The cards.** The Hebrew line replaces "Yearly" on the single card, the reminder card, the created messages and the WhatsApp card; the bulk card keeps its repeat mark and gets the Google notice once. Copy is `bot.hebrewRepeat` in messages/{en,he,ru}.json.
+  - **The prompt snapshot.** `scripts/fixtures/extraction-prompts.json` was retaken: the Hebrew repeats are in every user's base prompt.
 
 ## 6. Tests
 - **smoke-hebrew-repeats** (new), under UTC, Asia/Jerusalem, Pacific/Kiritimati and America/Los_Angeles:

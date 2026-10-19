@@ -1011,6 +1011,16 @@
       "buttonLabel": "WhatsApp",
       "startOn": "Начать в WhatsApp"
     },
+    "hebrewRepeat": {
+      "line": {
+        "anniversary": "Каждый год {date}",
+        "yahrzeit": "Йорцайт, каждый год {date}"
+      },
+      "notice": {
+        "google": "Google Календарь не умеет повторять по еврейской дате, поэтому событие будет добавлено один раз.",
+        "yahrzeitNext": "Год не указан, поэтому серия начнётся с ближайшего йорцайта."
+      }
+    },
     "nativeReminders": {
       "ping": {
         "from": "от: {name}"

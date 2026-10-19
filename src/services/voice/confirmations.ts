@@ -22,6 +22,8 @@ import { captureError } from '../../lib/error-capture';
 import { daysBetween, describeEdit, EditSpan } from './event-resolution';
 import { isReminderEvent } from '../../utils/event-formatter';
 import { escapeHtml } from '../../utils/html';
+import { hebrewRepeatCard } from './hebrew-repeat-card';
+import { targetOf } from '../recurrence-fields';
 
 // Voice modules import escapeHtml from here; anything outside voice imports src/utils/html.
 export { escapeHtml } from '../../utils/html';
@@ -256,7 +258,8 @@ export function formatEditChanges(
  * Format recurrence pattern for display
  */
 function formatRecurrence(recurrence: ParsedEvent['recurrence'], language: string): string | null {
-  if (!recurrence?.frequency) return null;
+  // A Hebrew repeat is worded by hebrewRepeatCard (the Hebrew date and the kind), never as "Yearly"
+  if (!recurrence?.frequency || recurrence.calendar === 'hebrew') return null;
 
   const dayNames: Record<string, Record<string, string>> = {
     en: { MO: 'Mon', TU: 'Tue', WE: 'Wed', TH: 'Thu', FR: 'Fri', SA: 'Sat', SU: 'Sun' },
@@ -285,6 +288,21 @@ function formatRecurrence(recurrence: ParsedEvent['recurrence'], language: strin
   }
 
   return result;
+}
+
+/**
+ * What an event's card says about a repeat by the Hebrew date: the line with the Hebrew date and
+ * the kind, and the notes (a Google user's event is added once; a yahrzeit with no year starts
+ * from the next one). Nothing for any other event, which also costs no provider lookup.
+ */
+export async function hebrewCardParts(
+  event: Pick<ParsedEvent, 'recurrence' | 'startTime'>,
+  user: UserConfig,
+  language: string,
+  timezone: string
+): Promise<{ line: string | null; notices: string[] }> {
+  if (event.recurrence?.calendar !== 'hebrew') return { line: null, notices: [] };
+  return hebrewRepeatCard(event, await targetOf(user), language, timezone);
 }
 
 /**
@@ -391,7 +409,9 @@ export async function formatReminderCard(
     await getBotMessage(language, 'nativeReminders.card.title', { title: m.bold(m.text(event.title)) }),
     `📆 ${formatReminderWhen(event, language, timezone)}${forPartner}`,
   ];
-  const recurrence = formatRecurrence(event.recurrence, language);
+  // A reminder is always the creator's own, on the built-in calendar
+  const hebrew = await hebrewRepeatCard(event, 'native', language, timezone);
+  const recurrence = hebrew.line ?? formatRecurrence(event.recurrence, language);
   if (recurrence) lines.push(recurrence);
   if (event.location) lines.push(`📍 ${m.text(event.location)}`);
   if (event.reminderNotice === 'no_time_set') {
@@ -402,6 +422,7 @@ export async function formatReminderCard(
     const name = m.text(event.forName || '');
     lines.push('', m.italic(await getBotMessage(language, 'nativeReminders.card.partnerNotOnTelegram', { name })));
   }
+  for (const notice of hebrew.notices) lines.push('', m.italic(notice));
   return lines.join('\n');
 }
 
@@ -434,7 +455,7 @@ export async function reminderCreatedLine(
 
 /** What a reminder's card says once the reminder is created (confirmed or auto-created). */
 export async function formatReminderCreated(event: ParsedEvent, language: string, timezone: string): Promise<string> {
-  const recurrence = formatRecurrence(event.recurrence, language);
+  const recurrence = (await hebrewRepeatCard(event, 'native', language, timezone)).line ?? formatRecurrence(event.recurrence, language);
   return `${await reminderCreatedLine(event, language, timezone)}\n\n<b>${escapeHtml(event.title)}</b>` +
     (recurrence ? `\n${recurrence}` : '');
 }
@@ -492,10 +513,12 @@ export async function showEventConfirmation(
   if (reminder) {
     body = await formatReminderCard(shown, user.language || 'en', timezone);
   } else {
-    const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay, timezone);
+    const hebrew = await hebrewCardParts(event, user, user.language || 'en', timezone);
+    const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay, timezone) + (hebrew.line ? `\n${hebrew.line}` : '');
     const locationStr = event.location ? `\n📍 ${escapeHtml(event.location)}` : '';
     const calendarStr = event.calendarName ? `\n📁 ${escapeHtml(event.calendarName)}` : '';
-    body = `${t.voice.confirmTitle}\n\n<b>${escapeHtml(event.title)}</b>\n${dateTimeStr}${locationStr}${calendarStr}`;
+    const noticeStr = hebrew.notices.map(notice => `\n\n<i>${notice}</i>`).join('');
+    body = `${t.voice.confirmTitle}\n\n<b>${escapeHtml(event.title)}</b>\n${dateTimeStr}${locationStr}${calendarStr}${noticeStr}`;
   }
 
   const confirmationMessage =

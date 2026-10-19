@@ -1011,6 +1011,16 @@
       "buttonLabel": "WhatsApp",
       "startOn": "Start on WhatsApp"
     },
+    "hebrewRepeat": {
+      "line": {
+        "anniversary": "Every year on {date}",
+        "yahrzeit": "Yahrzeit, every year on {date}"
+      },
+      "notice": {
+        "google": "Google Calendar can't repeat by the Hebrew date, so this is added once.",
+        "yahrzeitNext": "No year was given, so the yahrzeit starts from the next one."
+      }
+    },
     "nativeReminders": {
       "ping": {
         "from": "from: {name}"

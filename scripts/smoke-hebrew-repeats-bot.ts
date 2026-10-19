@@ -211,6 +211,7 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
     hasUsableCalendar: async () => true,
     getCalendarAssignmentsForUser: async () => CALENDARS,
   },
+  [`${SRC}/services/native-calendar/event-store.ts`]: real => fakeOver(real, { getMainNativeCalendar: async (userId: number) => ({ id: `main-${userId}` }) }),
   [`${SRC}/lib/user-moderation.ts`]: real => fakeOver(real, { isIdentifierBlocked: async () => false }),
   [`${SRC}/services/voice/gemini-voice.ts`]: real => fakeOver(real, { processVoiceWithGemini: fakeVoiceExtraction }),
   [`${SRC}/services/voice/event-resolution.ts`]: real => fakeOver(real, { downloadVoiceFile: async () => Buffer.from('OggS') }),
@@ -299,10 +300,8 @@ const pendingIdOf = (call: Sent, prefix: string) =>
   buttonsOf(call).flat().find(b => b.callback_data.startsWith(prefix))!.callback_data.slice(prefix.length);
 
 async function main() {
-  const realWarn = console.warn;
   console.warn = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
   console.log = () => {};
-  void realWarn;
 
   const { getBotMessage, getBotMessages } = await import('../src/lib/bot-messages');
   const gemini = await import('../src/services/voice/gemini-voice');
@@ -464,7 +463,7 @@ async function main() {
       recurrence: { frequency: 'yearly', calendar: 'hebrew', hebrewKind: 'yahrzeit', interval: 2, count: 3, until: '2040-01-01', daysOfWeek: ['MO'] },
     }).event!;
     assertEqual(when(e.startTime), '2019-03-03 00:00', 'start');
-    assertEqual(e.recurrence, { frequency: 'yearly', calendar: 'hebrew', hebrewKind: 'yahrzeit', interval: 2, count: 3, until: '2040-01-01' }, 'recurrence');
+    assertEqual(e.recurrence, { frequency: 'yearly', interval: 2, until: '2040-01-01', count: 3, calendar: 'hebrew', hebrewKind: 'yahrzeit' }, 'recurrence');
   });
 
   await check('parse: a Hebrew date without a repeat sets only the start (a one-off on a Hebrew date)', () => {
@@ -583,7 +582,6 @@ async function main() {
   const nativeInput = () => created.find(c => c.provider === 'native')!.input;
   const hebrewFieldsOf = (input: Record<string, unknown>) => ({ recurrence: input.recurrence, hebrewRule: input.hebrewRule, hebrewAnchor: input.hebrewAnchor });
   const HEBREW_CREATE = { recurrence: ['RRULE:FREQ=YEARLY'], hebrewRule: 'yahrzeit', hebrewAnchor: '2026-12-20' };
-  const NONE = { recurrence: [] };
 
   await check('site Telegram confirm: a native Hebrew repeat is created with the pair; the input carries nothing else new', async () => {
     await showEventConfirmation(555, undefined, hebrewEvent(), 'yahrzeit', currentUser);
@@ -673,7 +671,9 @@ async function main() {
     await waTap(buttons[0].id.slice('event_create:'.length));
     assert(created.length === 5 && created.every(c => c.provider === 'google'), `${created.length} creates: ${JSON.stringify(created.map(c => c.provider))}`);
     for (const c of created) {
-      assertEqual(Object.keys(c.input), ['title', 'startTime', 'endTime', 'location', 'description', 'allDay', 'recurrence'], 'keys');
+      // The WhatsApp button has never passed a description
+      assert(!Object.keys(c.input).some(k => k.startsWith('hebrew')), `Hebrew key in ${Object.keys(c.input)}`);
+      assert(JSON.stringify(Object.keys(c.input).filter(k => k !== 'description')) === JSON.stringify(['title', 'startTime', 'endTime', 'location', 'allDay', 'recurrence']), `keys ${Object.keys(c.input)}`);
       assertEqual(c.input.recurrence, [], 'recurrence');
     }
   });
@@ -787,6 +787,22 @@ async function main() {
         const text = await getBotMessage(language, key);
         assert(!text.startsWith('hebrewRepeat') && !/\{\w+\}/.test(text), `${language} ${key}: ${text}`);
       }
+    }
+  });
+
+  await check('the Google provider refuses a Hebrew rule outright, so a Gregorian yearly series can never stand in for one', async () => {
+    const { googleProvider } = await import('../src/services/calendar-provider/google-provider');
+    const start = at('2026-12-20 00:00');
+    const realError = console.error;
+    console.error = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
+    try {
+      const refused = await googleProvider.createEvent(googleUser('en'), 'dana@example.com', {
+        title: 'Yahrzeit', startTime: start, endTime: start, allDay: true, recurrence: ['RRULE:FREQ=YEARLY'], hebrewRule: 'yahrzeit', hebrewAnchor: '2026-12-20',
+      });
+      assert(!refused.success && refused.error === 'UNKNOWN_ERROR', JSON.stringify(refused));
+      assert(logs.some(l => l.includes('refusing a Hebrew repeat')), `not logged: ${logs.join(' | ')}`);
+    } finally {
+      console.error = realError;
     }
   });
 

@@ -1011,6 +1011,16 @@
       "buttonLabel": "וואטסאפ",
       "startOn": "התחילו בוואטסאפ"
     },
+    "hebrewRepeat": {
+      "line": {
+        "anniversary": "כל שנה ב{date}",
+        "yahrzeit": "יארצייט, כל שנה ב{date}"
+      },
+      "notice": {
+        "google": "יומן Google לא יודע לחזור לפי התאריך העברי, אז האירוע יתווסף פעם אחת בלבד.",
+        "yahrzeitNext": "לא צוינה שנה, אז הסדרה מתחילה מהיארצייט הקרוב."
+      }
+    },
     "nativeReminders": {
       "ping": {
         "from": "מאת: {name}"
