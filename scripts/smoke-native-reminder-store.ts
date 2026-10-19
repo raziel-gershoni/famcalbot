@@ -525,6 +525,29 @@ async function main() {
     assert(iso(eventRow('daily').startsAt) === iso(at('2026-10-10 09:00')) && (eventRow('daily').exdates as Date[]).map(iso).join() === iso(at('2026-10-12 09:00')), `reminder ${iso(eventRow('daily').startsAt)} ${(eventRow('daily').exdates as Date[]).map(iso).join()}`);
   });
 
+  await check('every one resent with the series\' own start (the bot saying the time it already has): an occurrence moved on its own stays moved, also with the end resent unchanged and through the bot\'s occurrenceTimes; a new end or a new start still resets it', async () => {
+    const seed = () => {
+      reset();
+      seedEvent('swim', { calendarId: 'raziel', creatorUserId: 1, title: 'Swimming', startsAt: at('2026-09-01 17:00'), endsAt: at('2026-09-01 18:00'), rrule: 'FREQ=WEEKLY' });
+      tables.nativeEventInstance.push(instance('moved', 'swim', '2026-10-20 17:00', { status: 'OVERRIDE', title: 'Late swim', startsAt: at('2026-10-21 09:00'), endsAt: at('2026-10-21 10:00') }));
+    };
+    const kept = () => iso(row('moved').startsAt) === iso(at('2026-10-21 09:00')) && iso(row('moved').endsAt) === iso(at('2026-10-21 10:00')) && iso(row('moved').originalStartsAt) === iso(at('2026-10-20 17:00'));
+    seed();
+    await updateNativeEvent({ seriesCuid: 'swim', scope: 'all', actingUserId: 1, startsAt: at('2026-09-01 17:00') });
+    assert(kept(), `start alone: ${JSON.stringify(row('moved'))}`);
+    await updateNativeEvent({ seriesCuid: 'swim', scope: 'all', actingUserId: 1, startsAt: at('2026-09-01 17:00'), endsAt: at('2026-09-01 18:00'), allDay: false });
+    assert(kept(), `start and end: ${JSON.stringify(row('moved'))}`);
+    await updateNativeEvent({ seriesCuid: 'swim', scope: 'all', actingUserId: 1, title: 'Pool', endsAt: at('2026-09-01 18:00') });
+    assert(kept() && eventRow('swim').title === 'Pool', 'a title with the same end');
+    await updateNativeEvent({ seriesCuid: 'swim', instanceStartsAt: at('2026-10-27 17:00'), scope: 'all', actingUserId: 1, occurrenceTimes: true, startsAt: at('2026-10-27 17:00'), endsAt: at('2026-10-27 18:00') });
+    assert(kept(), `occurrenceTimes: ${JSON.stringify(row('moved'))}`);
+    await updateNativeEvent({ seriesCuid: 'swim', scope: 'all', actingUserId: 1, startsAt: at('2026-09-01 17:00'), endsAt: at('2026-09-01 19:00') });
+    assert(row('moved').startsAt === null && row('moved').title === 'Late swim', 'a new end resets the times and keeps the title');
+    seed();
+    await updateNativeEvent({ seriesCuid: 'swim', scope: 'all', actingUserId: 1, startsAt: at('2026-09-01 18:00'), endsAt: at('2026-09-01 19:00') });
+    assert(row('moved').startsAt === null && iso(row('moved').originalStartsAt) === iso(at('2026-10-20 18:00')), 'a new start still moves it');
+  });
+
   await check('a rule with fixed days (BYDAY=MO,WE, as the bot writes): a day move for every one, or this and the ones after, is refused before anything is written, for the bot (FIXED_DAYS) and directly, events and reminders; a new time of day goes for both scopes', async () => {
     const seed = (kind: 'EVENT' | 'REMINDER' = 'EVENT') => {
       reset();

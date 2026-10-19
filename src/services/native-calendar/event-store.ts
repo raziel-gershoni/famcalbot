@@ -662,8 +662,13 @@ export async function updateNativeEvent(
   // what was done to the occurrences one by one with them, shifted on the wall clock as
   // the start moved: the skipped stay skipped (exdates, CANCELLED), the renamed renamed,
   // wherever the rule still has an occurrence; the UNTIL moves too.
+  // A start that is the series' own moves nothing (the bot resends it with a new end, or
+  // with nothing new at all), so what was done to the occurrences one by one stays.
   if (input.scope === 'all') {
-    const start = input.startsAt;
+    const start = input.startsAt && input.startsAt.getTime() === series.startsAt.getTime() ? undefined : input.startsAt;
+    const retimed =
+      (input.endsAt !== undefined && input.endsAt.getTime() !== series.endsAt.getTime()) ||
+      (input.allDay !== undefined && input.allDay !== series.allDay);
     await prisma.$transaction(async (tx) => {
       if (start !== undefined && series.rrule) {
         const slotOf = (slot: Date) => shiftOnWall(slot, series.startsAt, start, series.timeZone);
@@ -688,7 +693,7 @@ export async function updateNativeEvent(
       await tx.nativeEvent.update({ where: { id: series.id }, data: seriesUpdate });
       if (start !== undefined) {
         await tx.nativeEventInstance.deleteMany({ where: { seriesEventId: series.id } });
-      } else if (input.endsAt !== undefined || input.allDay !== undefined) {
+      } else if (retimed) {
         await tx.nativeEventInstance.updateMany({
           where: { seriesEventId: series.id, status: 'OVERRIDE' },
           data: { startsAt: null, endsAt: null, allDay: null },
