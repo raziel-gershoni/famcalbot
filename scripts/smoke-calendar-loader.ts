@@ -431,6 +431,73 @@ async function main() {
     assertSame(sent(start), ['famcal 2026-10-15..2026-10-22', 'famcal 2026-10-01..2026-11-01'], 'no agendaShowing: the weeks, then the months');
   });
 
+  await check('refetchVisible() settles once every request it sent has been answered and applied (after its dispatch, a failure\'s too), never before; one it joined counts, in flight or queued; a queued month dropped settles it; blocked or disposed, it settles at once', async () => {
+    reset();
+    const h = fakeHost();
+    await h.firstLoad();
+    const watch = (p: Promise<void>) => {
+      const w = { done: false, log: [] as string[] };
+      void p.then(() => {
+        w.done = true;
+        w.log = [...h.state.log];
+      });
+      return w;
+    };
+    const renewed = watch(h.loader.refetchVisible({ only: 'famcal', renew: true }));
+    await flush();
+    assert(!renewed.done, 'settled before its answer');
+    await answer(`famcal ${TODAY}..${plusDays(TODAY, 7)}`);
+    assert(renewed.done && renewed.log[renewed.log.length - 1] === `response ${TODAY}..${plusDays(TODAY, 7)} @0`, `after the dispatch: ${show(renewed.log)}`);
+    const failed = watch(h.loader.refetchVisible({ only: 'famcal', renew: true }));
+    await fail(`famcal ${TODAY}..${plusDays(TODAY, 7)}`, { status: 500 });
+    assert(failed.done && failed.log[failed.log.length - 1].startsWith('windowFailed'), `a failure settles it too: ${show(failed.log)}`);
+    // A plain refetch joins the one in flight, and settles with it.
+    const first = watch(h.loader.refetchVisible());
+    const joined = watch(h.loader.refetchVisible());
+    assertSame(calls.filter((c) => !c.settled).length, 1, 'one request');
+    await flush();
+    assert(!first.done && !joined.done, 'settled early');
+    await answer(`famcal ${TODAY}..${plusDays(TODAY, 7)}`);
+    assert(first.done && joined.done, 'both settle with the answer');
+    // Months: September waits for a slot; the refetch joins it, and it is dropped when no longer wanted.
+    reset();
+    const m = fakeHost({ months: [OCT, NOV, SEP], agenda: false });
+    await m.firstLoad();
+    m.loader.ensure();
+    assertSame(sent(calls.length - 2), ['famcal 2026-10-01..2026-11-01', 'famcal 2026-11-01..2026-12-01'], 'September waits');
+    const months = watch(m.loader.refetchVisible());
+    m.state.months = [OCT, NOV];
+    await answer('famcal 2026-10-01..2026-11-01');
+    assert(!months.done, 'November is still out');
+    await answer('famcal 2026-11-01..2026-12-01');
+    assert(months.done && !sent().includes('famcal 2026-09-01..2026-10-01'), `settled with September dropped, never sent: ${show(sent())}`);
+    // A queued renew settles once it has gone and been answered.
+    m.state.months = [OCT, NOV, SEP];
+    m.loader.ensure();
+    const queued = watch(m.loader.refetchVisible({ renew: true }));
+    await answer('famcal 2026-09-01..2026-10-01');
+    await answer('famcal 2026-10-01..2026-11-01');
+    assert(!queued.done, 'the renewed months are still out');
+    await answer('famcal 2026-11-01..2026-12-01');
+    await answer('famcal 2026-09-01..2026-10-01');
+    assert(queued.done, `settled once they were answered: ${show(sent())}`);
+    // Blocked: nothing goes, and it settles at once. Disposed with a month queued: its waiters settle.
+    m.state.blocked = true;
+    const blocked = watch(m.loader.refetchVisible());
+    await flush();
+    assert(blocked.done, 'blocked: settled at once');
+    m.state.blocked = false;
+    const started = watch(m.loader.refetchVisible({ renew: true })); // October and November go, September waits
+    m.loader.refetchVisible({ renew: true }); // all three wait
+    const waiting = watch(m.loader.refetchVisible({ renew: true })); // joins the three waiting
+    m.loader.dispose();
+    await flush();
+    assert(waiting.done && !started.done, `disposed: the queue is dropped (${waiting.done}), what is out still runs (${started.done})`);
+    for (const c of calls.filter((x) => !x.settled)) c.reply(answerFor(c));
+    await flush();
+    assert(started.done && m.state.log[m.state.log.length - 1] === 'response 2026-09-01..2026-10-01 @0', `and settles when answered, with nothing applied: ${show(m.state.log.slice(-2))}`);
+  });
+
   await check('retryWindow() asks a window again for each applicable source (or `only`), through the cap', async () => {
     reset();
     const h = fakeHost({ months: [OCT, NOV, SEP] });

@@ -4801,7 +4801,7 @@ async function main() {
     }
   });
 
-  await check('#83 after a write the item sheet follows the store: a changed title shows when FamCal answers; a "following" edit (a new key) closes it; an item that is gone (moved out of view, or deleted elsewhere) closes it', async () => {
+  await check('#83 after a write the item sheet follows the store: a changed title shows when FamCal answers; a "following" edit or an "all" day move (a new key) shows the item under its new key once the refetch brings it, and closes only if it never does; an item that is gone (moved out of view, or deleted elsewhere) closes it once the edit\'s refetch has landed', async () => {
     const swim = (key: string) => (key === 'famcal|swim' ? ok200(swimInfo()) : ({ status: 404, body: {} } as FetchAnswer));
     const edited = { ...SWIM, title: 'Swimming lesson' };
     // Same key: the sheet shows the new title.
@@ -4819,10 +4819,12 @@ async function main() {
     } finally {
       a.m.unmount();
     }
-    // A new key (following): the sheet closes.
-    const b = await editingHome('en', { item: swim, write: () => ok200({ status: 'ok', key: 'famcal|swim2#2026-10-20T14:00:00.000Z' }) });
+    // A new key (following): the sheet moves to the new series' row once the refetch brings it.
+    const NEW_KEY = 'famcal|swim2#2026-10-20T14:00:00.000Z';
+    const b = await editingHome('en', { item: (key) => (key === NEW_KEY ? ok200(swimInfo({ occurrence: { ...swimInfo().occurrence, title: 'Swimming lesson' } })) : swim(key)), write: () => ok200({ status: 'ok', key: NEW_KEY }) });
     try {
       await openItem(b.m, 'Swimming');
+      b.world.week = { ...b.world.week, [day(5)]: b.world.week[day(5)].map((i) => (i.id === 'swim' ? { ...SWIM, id: 'swim2', key: NEW_KEY, seriesId: 'swim2', title: 'Swimming lesson' } : i)) };
       b.m.click(byLabel(topDialog(b.m), 'Edit'));
       await settle();
       await typeInto(inDialog(b.m, 'Title'), 'Swimming lesson');
@@ -4830,9 +4832,52 @@ async function main() {
       await settle();
       tapIn(b.m, 'This one and the ones after');
       await settle();
-      assert(!hasDialog(b.m), 'the item sheet closes when the series changed under it');
+      assert(hasDialog(b.m) && topDialog(b.m).getAttribute('aria-label') === 'Details' && topText(b.m).includes('Swimming lesson'), `the sheet shows the new series' row: ${hasDialog(b.m) ? topText(b.m).slice(0, 120) : 'closed'}`);
+      assert(editingKeys[editingKeys.length - 1] === NEW_KEY && sheetButtons(b.m).includes('Edit'), `its edit info is the new key's: ${show(editingKeys)}`);
     } finally {
       b.m.unmount();
+    }
+    // An "all" day move (Tuesday to Monday): the moved row, the sheet on it.
+    const MOVED_KEY = 'famcal|swim#2026-10-19T14:00:00.000Z';
+    const dm = await editingHome('en', { item: swim, write: () => ok200({ status: 'ok', key: MOVED_KEY }) });
+    try {
+      await openItem(dm.m, 'Swimming');
+      dm.world.week = { ...dm.world.week, [day(5)]: dm.world.week[day(5)].filter((i) => i.id !== 'swim'), [day(4)]: [...dm.world.week[day(4)], { ...SWIM, key: MOVED_KEY, start: at(4, '17:00'), end: at(4, '18:00'), originalStart: at(4, '17:00') }] };
+      dm.m.click(byLabel(topDialog(dm.m), 'Edit'));
+      await settle();
+      await typeInto(inDialog(dm.m, 'Start date'), day(4));
+      dm.m.click(saveButton(dm.m));
+      await settle();
+      tapIn(dm.m, 'Every Tuesday');
+      await settle();
+      assert(hasDialog(dm.m) && topText(dm.m).includes('Mon 19 Oct 17:00'), `the sheet on the moved row: ${hasDialog(dm.m) ? topText(dm.m).slice(0, 160) : 'closed'}`);
+      assert(editingKeys[editingKeys.length - 1] === MOVED_KEY, `asked for the moved key: ${show(editingKeys)}`);
+    } finally {
+      dm.m.unmount();
+    }
+    // A new key that the refetch doesn't bring (out of view): the sheet stays until that refetch lands, then closes.
+    const lost = await editingHome('en', { item: swim, write: () => ok200({ status: 'ok', key: NEW_KEY }) });
+    try {
+      await openItem(lost.m, 'Swimming');
+      lost.world.week = { ...lost.world.week, [day(5)]: lost.world.week[day(5)].filter((i) => i.id !== 'swim') };
+      const held = gate();
+      answerFetch = async (c) => {
+        await held.promise;
+        return answerFor(c, { items: lost.world.week });
+      };
+      lost.m.click(byLabel(topDialog(lost.m), 'Edit'));
+      await settle();
+      await typeInto(inDialog(lost.m, 'Title'), 'Swimming lesson');
+      lost.m.click(saveButton(lost.m));
+      await settle();
+      tapIn(lost.m, 'This one and the ones after');
+      await settle();
+      assert(hasDialog(lost.m) && topDialog(lost.m).getAttribute('aria-label') === 'Details', 'the sheet waits for the refetch');
+      await React.act(async () => held.release(ok200({})));
+      await settle();
+      assert(!hasDialog(lost.m), 'the refetch landed without it: the sheet closes');
+    } finally {
+      lost.m.unmount();
     }
     // Gone from the store after the refetch: it closes.
     const c = await editingHome('en', { item: dentistInfo(), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
@@ -4849,6 +4894,63 @@ async function main() {
       c.m.unmount();
     }
     void edited;
+  });
+
+  await check('#83a after an edit, only the edit\'s own refetch may close the sheet: a carry-over renamed, then marked Done, keeps its row and its Not done when the next refetch drops it; another item opened ends the watch', async () => {
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    const carry = item('passport', { kind: 'reminder', title: 'Renew the passport', seriesId: 'series_pp', start: at(-3, '10:00'), reminder: rem({ open: true, openSince: day(-3) }) });
+    const renamed = { ...carry, title: 'Renew both passports' };
+    live = { items: {}, carry: [carry] };
+    serveReminders();
+    const passportInfo = infoFor({ kind: 'reminder', occurrence: { start: `${day(-3)}T10:00`, end: `${day(-3)}T10:00`, allDay: false, title: 'Renew the passport', location: '', description: '' } });
+    serveEditingWith({ item: (k) => (k === 'famcal|passport' ? ok200(passportInfo) : { status: 404, body: {} }), write: () => ok200({ status: 'ok', key: 'famcal|passport' }) });
+    reminderReply = () => ok200({ status: 'ok', reminder: rem({ done: true, doneAt: DONE_AT, open: false }) });
+    const c = await mountHome('en', {}, fakeClock('2026-10-15T10:00:00Z'));
+    try {
+      c.click(button(c.container, 'Renew the passport'));
+      await settle();
+      c.click(byLabel(topDialog(c), 'Edit'));
+      await settle();
+      await typeInto(inDialog(c, 'Title'), 'Renew both passports');
+      live = { items: {}, carry: [renamed] };
+      c.click(saveButton(c));
+      await settle();
+      assert(topDialog(c).getAttribute('aria-label') === 'Details' && topText(c).includes('Renew both passports'), `the sheet shows the new title: ${topText(c).slice(0, 120)}`);
+      // Done: the refetch drops the carry-over; the sheet keeps it, done, with Not done.
+      live = { items: {}, carry: [] };
+      c.click(dialogButton(c, 'Done'));
+      await settle();
+      assert(hasDialog(c), 'the sheet closed after the Done that followed an edit');
+      assertHas(dialogText(c.container), ['Renew both passports', 'Done at 13:05'], 'the kept row');
+      assert(dialogButtons(c).includes('Not done'), `Not done is still there to undo: ${show(dialogButtons(c))}`);
+    } finally {
+      c.unmount();
+    }
+    // The watch ends with the sheet: an edit whose refetch is held, the sheet closed and another item opened, then the refetch lands without the first.
+    const w = await editingHome('en', { item: dentistInfo(), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
+    try {
+      await openItem(w.m, 'Dentist');
+      w.m.click(byLabel(topDialog(w.m), 'Edit'));
+      await settle();
+      await typeInto(inDialog(w.m, 'Title'), 'Dentist (moved)');
+      const held = gate();
+      answerFetch = async (c2) => {
+        await held.promise;
+        return answerFor(c2, { items: w.world.week });
+      };
+      w.world.week = { ...w.world.week, [day(0)]: w.world.week[day(0)].filter((i) => i.id !== 'dentist') };
+      w.m.click(saveButton(w.m));
+      await settle();
+      tapIn(w.m, 'Close');
+      await settle();
+      await openItem(w.m, 'Football practice');
+      await React.act(async () => held.release(ok200({})));
+      await settle();
+      assert(hasDialog(w.m) && topText(w.m).includes('Football practice'), 'the other item\'s sheet stays');
+    } finally {
+      w.m.unmount();
+    }
   });
 
   await check('#84 Cancel and Telegram\'s BackButton: Cancel closes at once when nothing changed and asks "Discard your changes?" after a change; Keep editing returns; the BackButton shows with the editor and does the same, closing a sheet on top first (the scope sheet, then the editor); Escape cancels too; the item sheet behind stays', async () => {

@@ -66,9 +66,11 @@
 //   and Delete by it. The editor is a sheet of the container's (EditorSheet; ScopeSheet and
 //   ConfirmSheet for which occurrences and for "Delete «title»?"). A write posts through
 //   deps.editing, and on success the editor closes and FamCal's windows are asked again
-//   (renew), so the new or changed item shows; the item sheet re-derives from the store,
-//   or closes when its item has gone or its key changed (a "following" edit starts a new
-//   series). The BackButton cancels the editor (which asks to discard only after a change);
+//   (renew), so the new or changed item shows. The item sheet re-derives from the store;
+//   after an edit it follows the item to its new key when the write gave one (a
+//   "following" edit starts a new series, "all" can move its slot) once the refetch the
+//   edit started brings that row, and closes if that refetch landed without the item. The
+//   BackButton cancels the editor (which asks to discard only after a change);
 // - an error boundary around all of it; a chunk-load error reloads once.
 //
 // user.id is the page's own user_id (a Telegram id or a DB id), sent as it is to the
@@ -327,8 +329,12 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const [deleting, setDeleting] = useState<DeleteState | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<SubmitError | null>(null);
-  /** The item sheet closes when this key's item is gone from the store (after an edit of it). */
-  const [watchGone, setWatchGone] = useState<string | null>(null);
+  /**
+   * After an edit of the open item: its key, the new key the write gave it (or null), and
+   * whether the refetch the edit started has landed. Only that refetch may close the sheet:
+   * a later Done that drops a carry-over keeps its row, so it can still be undone.
+   */
+  const [follow, setFollow] = useState<{ key: string; next: string | null; landed: boolean } | null>(null);
   const writingRef = useRef(false);
   const editorCancel = useRef<(() => void) | null>(null);
   const [firstLoad, setFirstLoad] = useState<'busy' | 'error' | null>(null);
@@ -573,13 +579,25 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     return deps.setTimer(() => setSelected(null), GONE_NOTE_MS);
   }, [selectedGone, note, selectedKey, deps]);
 
-  // An edited item that has left the store (moved out of view, or cut off) closes its sheet.
+  // After an edit: the sheet shows the item under its new key as soon as the store has that
+  // row; once the edit's refetch has landed, it closes if the item is not there (moved out of
+  // view, or cut off), else it keeps the edited copy as the one to fall back on. Another item
+  // opened, or the sheet closed, ends the watch.
   useEffect(() => {
-    if (watchGone !== null && selectedGone && selectedKey === watchGone) {
-      setSelected(null);
-      setWatchGone(null);
+    if (!follow) return;
+    if (selectedKey !== follow.key) {
+      setFollow(null);
+      return;
     }
-  }, [watchGone, selectedGone, selectedKey]);
+    const moved = follow.next && store.facts ? storeRow(store, follow.next) : null;
+    if (moved) {
+      setSelected(moved);
+      setFollow(null);
+    } else if (follow.landed) {
+      setSelected(follow.next !== null || liveRow === null ? null : liveRow);
+      setFollow(null);
+    }
+  }, [follow, selectedKey, liveRow, store]);
 
   // Done, undo or snooze on the open sheet's item. One request at a time. An answer with a
   // reminder patches the store at once and FamCal's windows confirm it; changed and
@@ -591,6 +609,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     if (!row || !seriesId || !originalStart || actingRef.current) return;
     const key = row.item.key;
     actingRef.current = true;
+    // What happens to the item now is this tap's, not an earlier edit's.
+    setFollow(null);
     setActing({ key, action });
     setNote(null);
     let outcome;
@@ -618,8 +638,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     }
     loaderRef.current?.refetchVisible({ only: 'famcal', renew: true });
   };
-  // After a write: FamCal's windows again, so the new or changed item shows.
-  const refreshFamcal = () => loaderRef.current?.refetchVisible({ only: 'famcal', renew: true });
+  // After a write: FamCal's windows again, so the new or changed item shows. Settles when they have landed.
+  const refreshFamcal = () => loaderRef.current?.refetchVisible({ only: 'famcal', renew: true }) ?? Promise.resolve();
 
   const openAdd = () => {
     if (!editorInfo || !facts) return;
@@ -645,8 +665,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   };
 
   // Save from the editor: one write at a time. Success closes the editor and asks FamCal again;
-  // a "following" edit moves the item to a new series, so the open sheet closes; otherwise it
-  // follows the store and closes if its item is gone. Never throws.
+  // after an edit the open sheet follows the item (follow): to its new key when the write gave
+  // one, or closed if the refetch lands without it. Never throws.
   const saveEditor = async (form: EditorForm, scope: EditScope): Promise<SaveOutcome> => {
     if (!editor || writingRef.current) return { kind: 'error', error: 'busy' };
     writingRef.current = true;
@@ -663,13 +683,15 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     writingRef.current = false;
     const result = saveOutcome(out);
     if (result.kind === 'ok') {
-      if (editor.mode === 'edit') {
-        if (out.kind === 'ok' && out.key && out.key !== editor.key) setSelected(null);
-        else setWatchGone(editor.key);
-        setInfoTick((n) => n + 1);
-      } else hapticSuccess();
       setEditor(null);
-      refreshFamcal();
+      const landed = refreshFamcal();
+      if (editor.mode === 'edit') {
+        const armed = { key: editor.key, next: out.kind === 'ok' && out.key && out.key !== editor.key ? out.key : null, landed: false };
+        setFollow(armed);
+        // The same key's edit info again; a new key's is asked when the sheet moves to it.
+        if (!armed.next) setInfoTick((n) => n + 1);
+        void landed.then(() => setFollow((cur) => (cur === armed ? { ...armed, landed: true } : cur)));
+      } else hapticSuccess();
     }
     return result;
   };
@@ -692,7 +714,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
       setDeleting(null);
       setSelected((cur) => (cur && cur.item.key === deleting.key ? null : cur));
       hapticSuccess();
-      refreshFamcal();
+      void refreshFamcal();
     } else setDeleteError(result.error);
   };
   const editing: SheetEditing | undefined =
