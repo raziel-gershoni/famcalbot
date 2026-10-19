@@ -123,6 +123,20 @@ The pinned-markup checks (browse #4, picked #5/#6/#9/#12, render #14) were updat
 4. A partner's item on a masked calendar (`color: null`): the stripe is hollow orange, and chips and dots keep E4's look.
 5. A user with more than 250 calendarList entries: a chosen calendar past the first page keeps its saved colour.
 
+## Review fixes
+
+The review workflow had 4 reviewers and 4 verifiers. It confirmed 8 findings, 7 of them distinct:
+
+1. **The grounds missed the card as painted** (`color-mix`: the accent mixed 8% into the page). Some "Still open" stripes fell to about 2.6–2.98:1.
+   - *Fix:* the grounds add the card's bound under any accent, the dark surface `#22222e`, and Telegram's `#efeff4` and `#232e3c`.
+   - *Test:* colours smoke #9 reads the painted grounds from HOME_THEME_CSS, not the module's list, and checks the bound over 4,096 accents. Verified: it fails on the old list.
+2. **Bar joins in Hebrew** (predates H1; H1's outlines make it visible). `dir="auto"` gave an untitled segment its own ltr direction, so its logical join flipped.
+   - *Fix:* the chip keeps the grid's direction and the title goes in `<bdi>`.
+   - *Test:* browse #26 checks that no chip carries `dir`, that titles sit in `<bdi>` and that untitled segments are empty. Browse #12's text-leaf check allows `<bdi>`.
+3. **Test gaps.**
+   - Render #61 checks each "Still open" stripe's class and style, and a masked partner's hollow stripe.
+   - The cache smoke checks that ⋯ → Refresh asks calendarList and writes the new colour.
+
 ## Verification
 
 - All smokes under UTC and Asia/Jerusalem; the colour, Month, render and cache smokes also under Pacific/Kiritimati.

@@ -10,6 +10,9 @@
 //    fill and on every ground the look lists, every line at 3:1 on every ground, and the
 //    fill is the colour mixed into the look's ground;
 //  - the floors hold for any colour (a 4,096-colour grid);
+//  - the grounds cover what the home paints: the theme's page, section, surface and card
+//    fallbacks, the card as color-mix paints it, and any accent's card on the listed
+//    pages (the bounds), read from HOME_THEME_CSS rather than from the module's own list;
 //  - the hue stays: a tone that moved is still the colour's hue (a pastel blue's text is a
 //    blue), unless the colour is a grey;
 //  - anything but '#rrggbb' gives null, case doesn't matter, and the answers are memoised;
@@ -27,6 +30,8 @@ import { HOME_THEME_CSS } from '../app/[locale]/dashboard/home-theme';
 import { AGENDA_CSS } from '../app/[locale]/dashboard/AgendaView';
 import { MONTH_PICKED_CSS } from '../app/[locale]/dashboard/MonthPicked';
 import { MONTH_BROWSE_CSS } from '../app/[locale]/dashboard/MonthBrowse';
+import fs from 'fs';
+import path from 'path';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -198,6 +203,61 @@ async function main() {
       }
     }
     assert(low === 0, `${low} below the floor, first ${first}`);
+  });
+
+  await check('#9 the grounds cover what the home paints, read from the theme: the page, section, surface and card fallbacks in each look and the card as color-mix paints it from the fallback accent; every tone keeps its floors on each; and any accent\'s card on a listed page is no harder than a listed ground', () => {
+    const globals = fs.readFileSync(path.join(__dirname, '../app/globals.css'), 'utf8');
+    const blockOf = (selector: string) => {
+      const at = HOME_THEME_CSS.indexOf(`${selector} {`);
+      assert(at >= 0, `no ${selector}`);
+      return HOME_THEME_CSS.slice(at, HOME_THEME_CSS.indexOf('}', at));
+    };
+    /** A token's fallback colour: the last hex in its declaration, or the globals.css token it falls back to. */
+    const fallback = (block: string, token: string): string => {
+      const decl = new RegExp(`${token}: ([^;]+);`).exec(block)?.[1];
+      assert(decl, `no ${token}`);
+      const hexes = decl.match(/#[0-9a-f]{6}/gi);
+      if (hexes) return hexes[hexes.length - 1].toLowerCase();
+      const name = [...decl.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]).filter((n) => !n.startsWith('--tg-')).pop();
+      const value = name && new RegExp(`${name}:\\s*(#[0-9a-f]{6})`, 'i').exec(globals)?.[1];
+      assert(value, `${token}: no fallback in ${show(decl)}`);
+      return value.toLowerCase();
+    };
+    const mix8 = (a: string, b: string) => `#${rgb(a).map((c, i) => Math.round(c * 0.08 + rgb(b)[i] * 0.92).toString(16).padStart(2, '0')).join('')}`;
+    const looks = { light: blockOf('.ch-home'), dark: blockOf(".ch-home[data-theme='dark']") };
+    const grid = Array.from({ length: 16 }, (_, i) => (i * 17).toString(16).padStart(2, '0'));
+    const accents = grid.flatMap((r) => grid.flatMap((g) => grid.map((b) => `#${r}${g}${b}`)));
+    const low: string[] = [];
+    for (const theme of THEMES) {
+      const block = theme === 'light' ? looks.light : `${looks.light}\n${looks.dark}`;
+      // The dark block overrides; a token it leaves alone keeps the light one.
+      const pick = (token: string) => (new RegExp(`${token}: `).test(looks[theme]) ? fallback(looks[theme], token) : fallback(block, token));
+      const bg = pick('--ch-bg');
+      const painted = [bg, pick('--ch-section'), pick('--ch-surface'), pick('--ch-card'), mix8(pick('--ch-accent'), bg)];
+      for (const colour of ALL) {
+        const t = calendarTones(colour, theme) as CalendarTones;
+        for (const ground of painted) {
+          if (contrast(t.line, ground) < LINE_FLOOR) low.push(`${theme} ${colour} line ${t.line} on ${ground}: ${contrast(t.line, ground).toFixed(3)}`);
+          if (contrast(t.text, ground) < TEXT_FLOOR) low.push(`${theme} ${colour} text ${t.text} on ${ground}: ${contrast(t.text, ground).toFixed(3)}`);
+        }
+      }
+      // Any accent's card on a page this look lists is no harder than the listed ground it is bounded by.
+      const lum = (hex: string) => contrast(hex, '#000000');
+      const grounds = toneGrounds(theme);
+      const pages = theme === 'light' ? ['#ffffff'] : ['#15151d', '#000000', '#17212b', '#212121'];
+      for (const page of pages) {
+        assert(grounds.includes(page), `${theme}: ${page} is not a ground`);
+        const hardest = theme === 'light' ? Math.min(...grounds.map(lum)) : Math.max(...grounds.map(lum));
+        for (const accent of accents) {
+          const card = mix8(accent, page);
+          if (theme === 'light' ? lum(card) < hardest - 1e-9 : lum(card) > hardest + 1e-9) {
+            low.push(`${theme} card ${card} (accent ${accent} on ${page}) is harder than every ground`);
+            break;
+          }
+        }
+      }
+    }
+    assert(low.length === 0, `${low.length}: ${show(low.slice(0, 6))}`);
   });
 
   let failed = 0;

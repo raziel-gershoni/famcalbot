@@ -10,8 +10,12 @@
 //   the hue and saturation stay: a pastel blue's text is a deep blue, not a grey;
 // - line: the same, until it reaches 3:1 on every ground, for the stripes, outlines,
 //   dots and rings.
-// The grounds are the home's own fallbacks plus the common Telegram themes' backgrounds,
-// so the floors hold inside Telegram too.
+// The grounds are every background a mark is drawn on: the home's own fallbacks, the
+// common Telegram themes' backgrounds, and the "Still open" card, which the theme paints
+// as the accent mixed 8% into the page (color-mix). The card follows whatever accent the
+// theme has, so each look lists its bound: 8% black into white (no accent makes a darker
+// light card) and 8% white into each dark page (none makes a lighter dark card). The
+// floors then hold on the card under any accent, inside Telegram too.
 //
 // calendarVars carries both looks' tones as custom properties on the element that draws
 // the mark; the element also takes the class 'has-cal', and HOME_THEME_CSS picks the
@@ -43,15 +47,22 @@ const LOOKS: Readonly<Record<ToneTheme, Look>> = {
     ground: '#ffffff',
     fillShare: 0.28,
     direction: -1,
-    // The page, the surface (a failed day) and the "Still open" card.
-    grounds: ['#ffffff', '#f3f2f8', '#f5f2ff'],
+    // The page; the surface (a failed day) and Telegram's grouped background; the card's
+    // fallback and its bound under any accent on white.
+    grounds: ['#ffffff', '#f3f2f8', '#efeff4', '#f5f2ff', '#ebebeb'],
   },
   dark: {
     ground: '#15151d',
     fillShare: 0.3,
     direction: 1,
-    // The home's page, section and card; Telegram's iOS, desktop and Android night backgrounds.
-    grounds: ['#15151d', '#1e1e29', '#221d3a', '#000000', '#17212b', '#212121'],
+    // The home's page, section, surface and card fallback; Telegram's iOS, desktop and
+    // Android night backgrounds and the desktop's secondary one; the card's bound under any
+    // accent on each of those pages.
+    grounds: [
+      '#15151d', '#1e1e29', '#22222e', '#221d3a',
+      '#000000', '#17212b', '#212121', '#232e3c',
+      '#28282f', '#141414', '#2a333c', '#333333',
+    ],
   },
 };
 

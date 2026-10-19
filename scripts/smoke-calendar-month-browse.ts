@@ -295,9 +295,9 @@ function cellOf(html: string, labelStart: string): CellView {
 
 /** A cell's chips: their classes (has-cal aside: #26 checks the colours), their text, and their calendar colour's class and inline style. */
 const chipsOf = (cell: CellView) =>
-  [...cell.inner.matchAll(/<span class="(ch-mb-chip[^"]*?)( has-cal)?" dir="auto"(?: style="([^"]*)")?>([^<]*)<\/span>/g)].map((m) => ({
+  [...cell.inner.matchAll(/<span class="(ch-mb-chip[^"]*?)( has-cal)?"(?: style="([^"]*)")?>(?:<bdi>([^<]*)<\/bdi>)?<\/span>/g)].map((m) => ({
     cls: m[1],
-    text: decode(m[4]),
+    text: decode(m[4] ?? ''),
     cal: !!m[2],
     style: m[3] ?? null,
   }));
@@ -848,7 +848,7 @@ async function main() {
     assert(blanks.length === 4 && blanks.every((b) => b === '<div class="ch-mb-cell is-blank" aria-hidden="true">'), `4 blank cells, aria-hidden, no button: ${show(blanks)}`);
   });
 
-  await check('#4 en chips: whose (E4: mine filled, the partner\'s outlined), done struck through, the daily reminder left out (R11), the Eilat bar\'s shapes with its title on its first day, "+2 more" in the third slot, dir="auto"', () => {
+  await check('#4 en chips: whose (E4: mine filled, the partner\'s outlined), done struck through, the daily reminder left out (R11), the Eilat bar\'s shapes with its title on its first day, "+2 more" in the third slot, each title isolated in <bdi> while the chip keeps the grid\'s direction', () => {
     const html = monthHtml(renderBrowse('en', browseProps(famcalStore())), '2026-10');
     const chips = (d: string) => chipsOf(cellOf(html, d)).map((c) => `${c.cls}|${c.text}`);
     assert(
@@ -1053,7 +1053,9 @@ async function main() {
       const cls = selector.slice(1);
       const found = [...html.matchAll(new RegExp(`<(\\w+) class="${cls}(?: [^"]*)?"[^>]*>([\\s\\S]*?)</\\1>`, 'g'))];
       assert(found.length > 0, `${cls} is in the markup`);
-      assert(found.every((m) => !m[2].replace(/<!-- -->/g, '').includes('<')), `${cls} holds text only: ${show(found.find((m) => m[2].includes('<'))?.[0].slice(0, 200))}`);
+      // Text only: a chip's title may sit in a <bdi> (it isolates the text, no box of its own).
+      const textOnly = (inner: string) => !inner.replace(/<!-- -->/g, '').replace(/<\/?bdi>/g, '').includes('<');
+      assert(found.every((m) => textOnly(m[2])), `${cls} holds text only: ${show(found.find((m) => !textOnly(m[2]))?.[0].slice(0, 200))}`);
     }
     assert(/<section class="ch-mb"[^>]*><style>[\s\S]*?<\/style><div class="ch-mb-bar">/.test(renderBrowse('en', browseProps(famcalStore()))), 'the bar is the root\'s child: its only ancestor here is the root');
     assert(!/(?:^|[\s;{])(?:transform|filter|backdrop-filter|perspective|will-change|contain)\s*:/.test(css), 'no transform or filter (sticky, and D\'s fixed sheets)');
@@ -1460,6 +1462,12 @@ async function main() {
     assert(/background: var\(--cal-fill\);\s*color: var\(--cal-text\);/.test(rule('.ch-mb-chip.has-cal.is-mine-solid')), 'the viewer\'s: --cal-fill under --cal-text');
     assert(/border-color: var\(--cal-line\);\s*background: var\(--ch-bg\);\s*color: var\(--cal-text\);/.test(rule('.ch-mb-chip.has-cal.is-partner-solid')), 'the partner\'s: a --cal-line border on the page, in --cal-text');
     assert(MONTH_BROWSE_CSS.includes('.ch-mb-chip.has-cal.is-mine-timed,\n.ch-mb-chip.has-cal.is-mine-solid {') && MONTH_BROWSE_CSS.includes('.ch-mb-chip.has-cal.is-partner-timed,\n.ch-mb-chip.has-cal.is-partner-solid {'), 'timed and all-day alike');
+    // A bar's joins are logical, so its chips must keep the grid's direction: an untitled
+    // segment with dir="auto" would turn ltr in Hebrew and join on the wrong side.
+    const he = monthHtml(renderBrowse('he', browseProps(famcalStore())), '2026-10');
+    const tags = he.match(/<span class="ch-mb-chip[^>]*>/g) ?? [];
+    assert(tags.length > 10 && tags.every((tag) => !/ dir=/.test(tag)), `a chip with its own direction: ${show(tags.find((tag) => / dir=/.test(tag)))}`);
+    assert(/<span class="ch-mb-chip is-bar[^"]*is-after[^"]*"[^>]*><bdi>/.test(he) && /<span class="ch-mb-chip is-bar[^"]*is-before[^"]*"[^>]*><\/span>/.test(he), 'a titled segment isolates its title in <bdi>; an untitled one is empty');
   });
 
   await check('#27 React logged no warning', () => {

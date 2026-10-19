@@ -63,7 +63,7 @@ Each is its own plan, drafted, verified on a scratch copy, reviewed and landed a
   - `text` is the colour lightened until it reaches 4.5:1 on `fill` and on every dark ground;
   - `line` is the colour lightened until it reaches 3:1 on every dark ground.
 
-Darkening and lightening move only the HSL lightness, so the hue and saturation stay: a pastel blue's text is a deep blue, not a grey. The grounds are the home's page, surface and card, plus Telegram's common night backgrounds (`#000000`, `#17212b`, `#212121`), so the floors hold inside Telegram too. Contrast is computed with WCAG relative luminance. The function is deterministic and memoised per (hex, theme). Bad input (not `#rrggbb`) returns `null`, and `null` means today's look: the accent for yours and orange for the partner's.
+Darkening and lightening move only the HSL lightness, so the hue and saturation stay: a pastel blue's text is a deep blue, not a grey. The grounds are the home's page, section, surface and card, and Telegram's common backgrounds (`#efeff4`; at night `#000000`, `#17212b`, `#212121`, `#232e3c`). The "Still open" card is the accent mixed 8% into the page, so each look also lists its bound under any accent: 8% black into white, and 8% white into each dark page. The floors hold inside Telegram too. Contrast is computed with WCAG relative luminance. The function is deterministic and memoised per (hex, theme). Bad input (not `#rrggbb`) returns `null`, and `null` means today's look: the accent for yours and orange for the partner's.
 
 A coloured mark carries both looks' tones as inline custom properties (`calendarVars`: `--cal-{fill,text,line}-{l,d}`) and the class `has-cal`. The theme CSS picks the light or the dark set by the home's `data-theme`, so the theme never enters React and the server's render matches the client's.
 
@@ -75,7 +75,7 @@ A coloured mark carries both looks' tones as inline custom properties (`calendar
 |---|---|---|
 | Agenda row and picked list | a 4 px stripe at the row's start in `line` | the same stripe hollow (1.5 px `line` border), plus "from {name}" |
 | Month chip | `fill` with `text` | the ground with a 1 px `line` border (today's width) and `text` |
-| Multi-day bar | as a chip, joined across days (logical radii, so RTL mirrors) | as a chip, outlined |
+| Multi-day bar | as a chip, joined across days (logical radii, so RTL mirrors; the chip keeps the grid's direction and only its title is isolated, in `<bdi>`) | as a chip, outlined |
 | Picked dot | filled `line` | a `line` ring |
 | Still-open card | the row's stripe | the row's stripe, hollow |
 | Item sheet | the swatch as today, plus the calendar's name | the same |

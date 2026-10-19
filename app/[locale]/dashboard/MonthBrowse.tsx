@@ -213,6 +213,9 @@ function loadingWeeks(month: MonthKey, weekStart: WeekStart, today: DayKey): Mon
 /**
  * One chip or bar, a spacer's empty line: filled for the viewer's, outlined for the
  * partner's, in the calendar's colour (spec 2026-10-19 §3.3), or E4's tokens without one.
+ * The chip keeps the grid's direction, so a bar's logical joins (is-before, is-after)
+ * meet the next day in Hebrew too; only the title is isolated (<bdi>), so a Hebrew title
+ * in English, or an English one in Hebrew, reads in its own direction.
  */
 function Slot({ slot, noTitle }: { slot: MonthSlot; noTitle: string }) {
   if (slot.kind === 'spacer') return <span className="ch-mb-slot" />;
@@ -231,8 +234,8 @@ function Slot({ slot, noTitle }: { slot: MonthSlot; noTitle: string }) {
   const title = slot.showTitle ? (slot.title && slot.title.trim() !== '' ? slot.title : noTitle) : '';
   return (
     <span className="ch-mb-slot">
-      <span className={className} dir="auto" style={cal.style}>
-        {title}
+      <span className={className} style={cal.style}>
+        {title ? <bdi>{title}</bdi> : null}
       </span>
     </span>
   );

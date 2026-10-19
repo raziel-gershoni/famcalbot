@@ -941,6 +941,18 @@ async function main() {
     assert(coloursOf(next)[KIDS.calendarId] === '#4986e7', `after the refresh: ${show(coloursOf(next))}`);
   });
 
+  await check('colours: ⋯ → Refresh (fresh=1, \'refresh\') over a fresh entry asks calendarList again, answers with the new colour and writes it into the entry', async () => {
+    reset();
+    colourList = LIVE;
+    await read();
+    clock += 60_000;
+    colourList = [{ id: KIDS.calendarId, backgroundColor: '#4986e7' }];
+    const fresh = await read(undefined, { googleCache: 'refresh' });
+    assert(asked() === 2 && listed() === 4, `${asked()} calendarList calls, ${listed()} list calls`);
+    assert(coloursOf(fresh)[KIDS.calendarId] === '#4986e7', show(coloursOf(fresh)));
+    assert(show(entryAt(KEY)?.colours) === show({ [KIDS.calendarId]: '#4986e7' }), `entry colours: ${show(entryAt(KEY)?.colours)}`);
+  });
+
   await check('colours: a failed calendarList, or colours that aren\'t #rrggbb, keep the saved colours and the read: ok, cached (the entry with no colours, so its hits join the saved ones), no Sentry event', async () => {
     reset();
     colourList = 'error';
