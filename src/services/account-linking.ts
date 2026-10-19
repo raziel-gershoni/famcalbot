@@ -194,6 +194,13 @@ function isSameCalendar(a: NativeCalendar, b: NativeCalendar): boolean {
   return a.name === b.name || (a.labels.includes('primary') && b.labels.includes('primary'));
 }
 
+/** The Google choice labelled primary, if any. */
+function googlePrimaryOf(assignments: unknown): string | undefined {
+  return Array.isArray(assignments)
+    ? (assignments as CalendarAssignment[]).find(a => Array.isArray(a?.labels) && a.labels.includes('primary'))?.calendarId
+    : undefined;
+}
+
 /**
  * Fold the WhatsApp-only user W into the Telegram user T and delete W, inside
  * the caller's transaction. Everything W has moves to T, so the delete clears
@@ -211,13 +218,6 @@ function isSameCalendar(a: NativeCalendar, b: NativeCalendar): boolean {
  * Returns T's pairingId after the merge, whether W's Google connection stayed
  * behind, and whether T's language changed.
  */
-/** The Google choice labelled primary, if any. */
-function googlePrimaryOf(assignments: unknown): string | undefined {
-  return Array.isArray(assignments)
-    ? (assignments as CalendarAssignment[]).find(a => Array.isArray(a?.labels) && a.labels.includes('primary'))?.calendarId
-    : undefined;
-}
-
 async function mergeWhatsAppUser(
   tx: Prisma.TransactionClient,
   waOnlyUserId: number,

@@ -1156,12 +1156,13 @@ async function main() {
 
   // ---- The stamp after a reconnect ----
 
-  await check('commitGoogleToken stamps after the transaction and the reminder-cache update', async () => {
+  await check('commitGoogleToken stamps after the token save (no transaction: Google as a connection flips nothing) and the reminder-cache update', async () => {
     reset();
     await commitGoogleToken(7, 'new-refresh-token');
     const at = (e: string) => events.indexOf(e);
     assert(at(`stamp ${STAMP}`) >= 0, `no stamp: ${show(events)}`);
-    assert(at('db.$transaction') >= 0 && at(`stamp ${STAMP}`) > at('db.$transaction'), `order: ${show(events)}`);
+    assert(at('db.$transaction') < 0, `a transaction: ${show(events)}`);
+    assert(at('db.updateUserById') >= 0 && at(`stamp ${STAMP}`) > at('db.updateUserById'), `order: ${show(events)}`);
     assert(at('reminderCache.update') >= 0 && at(`stamp ${STAMP}`) > at('reminderCache.update'), `order: ${show(events)}`);
   });
 

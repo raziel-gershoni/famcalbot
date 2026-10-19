@@ -46,7 +46,7 @@ export async function isUserAuthorized(userId: number | string): Promise<boolean
  * Returns true if a nudge was sent (caller should return early), false otherwise.
  */
 export async function sendSetupNudgeIfNeeded(
-  user: { id: number; telegramId: number | bigint | null; googleRefreshToken: string; location?: string; language?: string },
+  user: { id: number; telegramId: number | bigint | null; location?: string; language?: string },
   chatId: number | string,
   messagingService: IMessagingService,
   platform: MessagingPlatform
@@ -57,10 +57,8 @@ export async function sendSetupNudgeIfNeeded(
   const url = buildUrl(`/${userLanguage}/settings?user_id=${user.telegramId ?? user.id}`);
   const t = await getBotMessages(userLanguage);
   const nudge = t.setupNudge || {};
-  // "Your calendar is ready, just tell me where you live"; a Google user keeps the plain ask.
-  const message = user.googleRefreshToken
-    ? (nudge.noLocation || 'Please set your location first.')
-    : (nudge.noLocationNative || 'Your calendar is ready! Tell me where you live for weather + timezone.');
+  // "Your calendar is ready, just tell me where you live": FamCal is ready for everyone.
+  const message = nudge.noLocationNative || 'Your calendar is ready! Tell me where you live for weather + timezone.';
   const buttonText = nudge.noLocationButton || '📍 Set Location';
   const buttonUrl = platform === MessagingPlatform.WHATSAPP ? await generateMagicLink(user.id, userLanguage) : url;
   await messagingService.sendMessage(chatId, message, {
