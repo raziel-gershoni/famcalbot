@@ -62,6 +62,8 @@ export type DashboardPageProps = Omit<DashboardProps, 'trial'> & {
   calendarHome: boolean;
   /** Set exactly when calendarHome is true: the empty state's how-to-add hints (Ruling R10). */
   hints?: HomeHints;
+  /** With the hints: the user's always-7-days setting, for the Send sheet's week dates. */
+  lookahead7?: boolean;
 };
 
 /** Select-calendars props on the wire: Sets and Maps as arrays. */
@@ -180,7 +182,7 @@ async function dashboard(user: UserConfig, userId: number, locale: string): Prom
  */
 async function calendarHomeFor(
   user: UserConfig
-): Promise<{ calendarHome: false } | { calendarHome: true; hints: HomeHints }> {
+): Promise<{ calendarHome: false } | { calendarHome: true; hints: HomeHints; lookahead7: boolean }> {
   if (!(await isCalendarHomeOn(user))) return { calendarHome: false };
   const [reminders, voiceEvents] = await Promise.all([
     getReminderSupport(user, { quiet: true }).then((support) => support.supported),
@@ -192,7 +194,7 @@ async function calendarHomeFor(
       }
     ),
   ]);
-  return { calendarHome: true, hints: { reminders, voiceEvents } };
+  return { calendarHome: true, hints: { reminders, voiceEvents }, lookahead7: user.lookaheadAlways7Days === true };
 }
 
 async function settings(user: UserConfig, userId: number, userLocale: string): Promise<PageDataResult> {

@@ -11,6 +11,9 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { formatDateSpan } from '@/src/lib/calendar-view/format';
+import { sendWeekRanges } from '@/src/lib/calendar-view/send-weeks';
+import type { DayKey, WeekStart } from '@/src/lib/calendar-view/types';
 import { SEND_ITEMS, sendToChat, type SendItem, type SendResult } from '@/src/lib/command-client';
 import { BottomSheet } from './BottomSheet';
 
@@ -18,6 +21,11 @@ export interface SendSheetProps {
   /** The page's own user_id, as CalendarHomeProps carries it (never swapped). */
   userId: number;
   locale: string;
+  /** The home's pinned today and week start; null before the first answer: no dates. */
+  today?: DayKey | null;
+  weekStart?: WeekStart | null;
+  /** The always-7-days setting; absent means unknown: This week shows no dates. */
+  lookahead7?: boolean;
   onClose: () => void;
 }
 
@@ -71,8 +79,14 @@ function Spinner() {
   );
 }
 
-export function SendSheet({ userId, locale, onClose }: SendSheetProps) {
+export function SendSheet({ userId, locale, today, weekStart, lookahead7, onClose }: SendSheetProps) {
   const t = useTranslations('calendarHome');
+  // The bot's week bounds (week-lookahead.ts), as a short range after the title.
+  const weeks = today && weekStart !== null && weekStart !== undefined ? sendWeekRanges(today, weekStart, lookahead7) : null;
+  const spanOf = (item: SendItem): string => {
+    const span = item === 'thisWeek' ? weeks?.thisWeek : item === 'nextWeek' ? weeks?.nextWeek : null;
+    return span ? formatDateSpan(span.first, span.last, locale) : '';
+  };
   const [sending, setSending] = useState<SendItem | null>(null);
   const [result, setResult] = useState<{ key: string; problem: boolean } | null>(null);
 
@@ -108,7 +122,15 @@ export function SendSheet({ userId, locale, onClose }: SendSheetProps) {
               >
                 <span className="ch-option-icon">{busy ? <Spinner /> : <ItemIcon item={item} />}</span>
                 <span className="ch-option-text">
-                  <span className="ch-option-title">{t(COPY[item].title)}</span>
+                  <span className="ch-option-title">
+                    {t(COPY[item].title)}
+                    {spanOf(item) ? (
+                      <>
+                        {' · '}
+                        <bdi>{spanOf(item)}</bdi>
+                      </>
+                    ) : null}
+                  </span>
                   <span className="ch-option-hint">{busy ? t('send.sending') : t(COPY[item].hint)}</span>
                 </span>
               </button>

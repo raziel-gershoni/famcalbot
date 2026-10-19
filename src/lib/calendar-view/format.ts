@@ -122,6 +122,15 @@ export function formatDayMonth(day: DayKey, locale: string): string {
   return d ? formatter(locale, DAY_MONTH).format(d) : '';
 }
 
+/** "19–24 Oct" / "31 Oct – 6 Nov" / "19–24 באוק׳": a short span of days, one day as formatDayMonth. The Send sheet's weeks. */
+export function formatDateSpan(first: DayKey, last: DayKey, locale: string): string {
+  const a = keyDate(first);
+  const b = keyDate(last);
+  if (!a) return '';
+  if (!b || last <= first) return formatDayMonth(first, locale);
+  return formatter(locale, DAY_MONTH).formatRange(a, b);
+}
+
 /**
  * One day, or `first` to `last`: "Sat 17 Oct"; "Sat 17 – Sun 18 Oct" in one month (spec
  * §7.3's fold line, "שבת 17 – ראשון 18 באוק׳", "сб, 17 – вс, 18 окт."); "Sat 31 Oct – Sun

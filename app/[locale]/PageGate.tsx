@@ -117,8 +117,9 @@ const PRELOAD: Record<PageName, () => Promise<unknown>> = {
  * the old home's trial line, and hasLocation feeds the location banner (spec §7.2).
  */
 function calendarHomeProps(
-  p: Omit<PagePropsMap['dashboard'], 'calendarHome' | 'hints'>,
-  hints: HomeHints | undefined
+  p: Omit<PagePropsMap['dashboard'], 'calendarHome' | 'hints' | 'lookahead7'>,
+  hints: HomeHints | undefined,
+  lookahead7: boolean | undefined
 ): CalendarHomeProps {
   return {
     user: { id: p.user.id, name: p.user.name, isAdmin: p.user.isAdmin },
@@ -129,6 +130,7 @@ function calendarHomeProps(
     hints: hints ?? { reminders: false, voiceEvents: false },
     trialDaysLeft: !p.isEarlyAdopter && p.trial.isTrialing && p.trial.daysRemaining > 0 ? p.trial.daysRemaining : null,
     hasLocation: Boolean(p.user.location),
+    lookahead7,
   };
 }
 
@@ -137,11 +139,11 @@ export function renderPage(page: PageName, props: PagePropsMap[PageName]) {
   switch (page) {
     case 'dashboard': {
       // calendarHome picks the home; DashboardClient gets exactly the props it always had
-      const { calendarHome, hints, ...p } = props as PagePropsMap['dashboard'];
+      const { calendarHome, hints, lookahead7, ...p } = props as PagePropsMap['dashboard'];
       if (calendarHome) {
         return (
           <HomeChunkBoundary>
-            <CalendarHome {...calendarHomeProps(p, hints)} />
+            <CalendarHome {...calendarHomeProps(p, hints, lookahead7)} />
           </HomeChunkBoundary>
         );
       }

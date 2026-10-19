@@ -27,4 +27,10 @@ export type CalendarHomeProps = {
    * Absent means unknown: no banner.
    */
   hasLocation?: boolean;
+  /**
+   * The "always show 7 days" setting, for the Send sheet's This week dates (the bot's week
+   * ends a day before the next one starts, or 7 days on with it). Absent means unknown:
+   * no dates for This week.
+   */
+  lookahead7?: boolean;
 };

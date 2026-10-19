@@ -77,6 +77,7 @@
 import CalendarHome, { CalendarHomeContainer, HOME_TOP_CSS, NOT_ENABLED_RELOAD_KEY, type HomeDeps } from '../app/[locale]/dashboard/CalendarHome';
 import { AgendaView, AGENDA_CSS, type AgendaViewProps } from '../app/[locale]/dashboard/AgendaView';
 import { ItemSheet } from '../app/[locale]/dashboard/ItemSheet';
+import { SendSheet } from '../app/[locale]/dashboard/SendSheet';
 import { BottomSheet } from '../app/[locale]/dashboard/BottomSheet';
 
 /** BottomSheet with its children passed as createElement arguments (the lint rule forbids the prop). */
@@ -92,7 +93,7 @@ import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { buildAgenda, type AgendaModel, type AgendaRow } from '../src/lib/calendar-view/agenda';
 import { addDaysToKey, daysInWindow, emptyStore, reduceStore, type CalendarStore, type StoreAction } from '../src/lib/calendar-view/store';
-import { compareItems, type CalendarDTO, type DayKey, type ItemCalendarDTO, type ItemDTO, type ItemReminderDTO, type RangeResponse } from '../src/lib/calendar-view/types';
+import { compareItems, type CalendarDTO, type DayKey, type ItemCalendarDTO, type ItemDTO, type ItemReminderDTO, type RangeResponse, type WeekStart } from '../src/lib/calendar-view/types';
 import type { CalendarHomeProps, HomeHints } from '../src/lib/calendar-view/home-props';
 import { formatDayRange, formatDayShort } from '../src/lib/calendar-view/format';
 import { CHUNK_RELOAD_KEY, HomeErrorBoundary } from '../app/[locale]/dashboard/HomeErrorBoundary';
@@ -2003,7 +2004,7 @@ async function main() {
       assert(dialog?.getAttribute('aria-label') === 'Send to chat' && dialog.getAttribute('aria-modal') === 'true', 'a modal dialog labelled Send to chat');
       assertHas(
         dialogText(m.container),
-        ['Send to chat FamCal sends it to your chat', 'Today’s summary Events and reminders for today', 'Tomorrow’s summary What’s coming up tomorrow', 'This week Coming up this week', 'Next week Coming up next week', 'Weather Today’s forecast', 'Close'],
+        ['Send to chat FamCal sends it to your chat', 'Today’s summary Events and reminders for today', 'Tomorrow’s summary What’s coming up tomorrow', 'This week Coming up this week', `Next week · ${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }).formatRange(new Date('2026-10-18T12:00:00Z'), new Date('2026-10-24T12:00:00Z'))} Coming up next week`, 'Weather Today’s forecast', 'Close'],
         'the options',
       );
       const order = elements(dialog).filter((e) => e.hasAttribute('data-send')).map((e) => e.getAttribute('data-send'));
@@ -3517,6 +3518,27 @@ async function main() {
     const google = rowOf(googleWeek(), DINNER.key);
     const html = markup(renderSheet('en', google));
     assert(!/<a[\s>]/i.test(html) && /<button[^>]*>Open in Google Calendar/.test(html), 'the Google link is a button');
+  });
+
+  await check('#65 the Send sheet shows the weeks\' dates after This week / Next week (the bot\'s bounds, from today, the week start and always-7), en/he/ru; none for This week while always-7 is unknown, none at all before the facts are pinned', () => {
+    const sheet = (locale: Locale, o: { today?: DayKey | null; weekStart?: WeekStart | null; lookahead7?: boolean }) =>
+      textOf(renderToString(inHome(locale, createElement(SendSheet, { userId: 7, locale, onClose: noop, ...o }))));
+    // Monday 19 Oct 2026, weeks from Sunday: this week to Saturday the 24th, next week 25-31.
+    const pinned = { today: '2026-10-19' as DayKey, weekStart: 0 as WeekStart, lookahead7: false };
+    const span = (locale: Locale, a: DayKey, b: DayKey) =>
+      new Intl.DateTimeFormat({ en: 'en-GB', he: 'he-IL', ru: 'ru-RU' }[locale], { day: 'numeric', month: 'short', timeZone: 'UTC' }).formatRange(new Date(`${a}T12:00:00Z`), new Date(`${b}T12:00:00Z`));
+    const titles = (locale: Locale) => messages[locale].calendarHome.send as { thisWeek: string; nextWeek: string };
+    for (const locale of ['en', 'he', 'ru'] as const) {
+      const { thisWeek, nextWeek } = titles(locale);
+      assertHas(sheet(locale, pinned), [`${thisWeek} · ${span(locale, '2026-10-19', '2026-10-24')}`, `${nextWeek} · ${span(locale, '2026-10-25', '2026-10-31')}`], locale);
+    }
+    assert(spaces(span('en', '2026-10-19', '2026-10-24')).replace(/\s/g, '') === '19–24Oct', `en range: ${span('en', '2026-10-19', '2026-10-24')}`);
+    assertHas(sheet('en', { ...pinned, lookahead7: true }), [`This week · ${span('en', '2026-10-19', '2026-10-26')}`], 'always 7');
+    const unknown = sheet('en', { today: pinned.today, weekStart: 0 });
+    assertHas(unknown, ['This week', `Next week · ${span('en', '2026-10-25', '2026-10-31')}`], 'unknown always-7');
+    assertLacks(unknown, ['This week ·'], 'unknown always-7');
+    assertLacks(sheet('en', {}), [' · '], 'before the facts');
+    assertLacks(sheet('en', { today: null, weekStart: null, lookahead7: false }), [' · '], 'null facts');
   });
 
   let failed = 0;

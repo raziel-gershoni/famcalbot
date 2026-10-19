@@ -237,7 +237,7 @@ export type CalendarHomeContainerProps = CalendarHomeProps & { deps?: Partial<Ho
 
 /** The home without its error boundary; `deps` lets a smoke drive the clock and the timers. */
 export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeContainerProps) {
-  const { user, locale, calendarSource, needsOAuth, needsCalendars, hints, trialDaysLeft, hasLocation } = props;
+  const { user, locale, calendarSource, needsOAuth, needsCalendars, hints, trialDaysLeft, hasLocation, lookahead7 } = props;
   const userId = user.id;
   const router = useRouter();
   const scheme = useTelegramTheme();
@@ -587,7 +587,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
       ) : (
         agendaView
       )}
-      {sheet === 'send' ? <SendSheet userId={userId} locale={locale} onClose={closeSheet} /> : null}
+      {sheet === 'send' ? <SendSheet userId={userId} locale={locale} today={facts?.today ?? null} weekStart={facts?.weekStart ?? null} lookahead7={lookahead7} onClose={closeSheet} /> : null}
       {sheet === 'menu' ? (
         <MenuSheet
           calendarSource={calendarSource}

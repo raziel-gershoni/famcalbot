@@ -697,8 +697,10 @@ async function main() {
     if (dana.calendarHome !== false || 'hints' in dana) problems.push(`non-admin: calendarHome ${show(dana.calendarHome)}, hints ${show(dana.hints)}`);
     if (featureChecks.length || supportChecks.length) problems.push(`hint checks ran for the non-admin: ${show({ featureChecks, supportChecks })}`);
     const gina = await dashboardFor(8880004, 'en');
-    const want = [...TODAY_KEYS, 'calendarHome', 'hints'].sort().join(',');
+    const want = [...TODAY_KEYS, 'calendarHome', 'hints', 'lookahead7'].sort().join(',');
     if (gina.calendarHome !== true || keysOf(gina) !== want) problems.push(`admin: calendarHome ${show(gina.calendarHome)}, keys ${keysOf(gina)} (want ${want})`);
+    // The always-7-days setting rides along for the Send sheet's week dates (false for a user who never set it)
+    if (gina.lookahead7 !== false) problems.push(`admin lookahead7 ${show(gina.lookahead7)}`);
     // A Google user: getReminderSupport answers not_native before any feature check
     if (hintsOf(gina) !== 'reminders=false voiceEvents=true' || keysOf(gina.hints ?? {}) !== 'reminders,voiceEvents') problems.push(`admin hints ${show(gina.hints)}`);
     if (show(featureChecks) !== show(['voice_events(4)']) || show(supportChecks) !== show([4])) problems.push(`hint checks ${show({ featureChecks, supportChecks })}`);
