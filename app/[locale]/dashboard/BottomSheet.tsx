@@ -28,7 +28,7 @@ export interface BottomSheetProps {
 }
 
 type Focusable = { focus?: (options?: { preventScroll?: boolean }) => void };
-type TreeNode = { parentNode: TreeNode | null; childNodes?: ArrayLike<TreeNode>; nodeType?: number };
+type TreeNode = { parentNode: TreeNode | null };
 
 /** Whether `node` is `root` or inside it (a walk up the tree: the target of any event). */
 function inside(root: TreeNode, node: unknown): boolean {
@@ -36,27 +36,13 @@ function inside(root: TreeNode, node: unknown): boolean {
   return false;
 }
 
-/** The panel's controls a keyboard reaches, in document order: enabled buttons, links, inputs, and anything with a tabindex of 0 or more. */
+/** What a keyboard reaches by Tab: enabled controls, links with an href, and anything with a tabindex of 0 or more. */
+const TABBABLE =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex^="-"])';
+
+/** The panel's tabbable controls, in document order. */
 function controlsIn(root: HTMLElement): HTMLElement[] {
-  const out: HTMLElement[] = [];
-  const walk = (node: TreeNode) => {
-    for (const child of Array.from(node.childNodes ?? [])) {
-      if (child.nodeType !== 1) continue;
-      const el = child as unknown as HTMLElement;
-      const tag = el.localName;
-      const tabIndex = el.getAttribute('tabindex');
-      const reachable =
-        tabIndex !== null
-          ? Number(tabIndex) >= 0
-          : (tag === 'button' || tag === 'input' || tag === 'select' || tag === 'textarea')
-            ? !el.hasAttribute('disabled')
-            : tag === 'a' && el.hasAttribute('href');
-      if (reachable) out.push(el);
-      walk(child);
-    }
-  };
-  walk(root as unknown as TreeNode);
-  return out;
+  return Array.from(root.querySelectorAll<HTMLElement>(TABBABLE));
 }
 
 export function BottomSheet({ label, closeLabel, onClose, children }: BottomSheetProps) {

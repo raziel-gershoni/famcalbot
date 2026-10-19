@@ -77,6 +77,7 @@
 import CalendarHome, { CalendarHomeContainer, HOME_TOP_CSS, NOT_ENABLED_RELOAD_KEY, type HomeDeps } from '../app/[locale]/dashboard/CalendarHome';
 import { AgendaView, AGENDA_CSS, type AgendaViewProps } from '../app/[locale]/dashboard/AgendaView';
 import { ItemSheet } from '../app/[locale]/dashboard/ItemSheet';
+import { BottomSheet } from '../app/[locale]/dashboard/BottomSheet';
 import { HOME_THEME_CSS } from '../app/[locale]/dashboard/home-theme';
 import fs from 'fs';
 import path from 'path';
@@ -505,6 +506,50 @@ class FakeElement extends FakeNode {
   }
   set className(value: string) {
     this.setAttribute('class', value);
+  }
+  // React sets an input's type as a property; a browser reflects it as the attribute
+  get type(): string {
+    return this.getAttribute('type') ?? '';
+  }
+  set type(value: string) {
+    this.setAttribute('type', value);
+  }
+  /** The selector forms BottomSheet's TABBABLE uses: a comma list of tag, [attr], [attr^="v"], :not([attr]) and :not([attr="v"]). */
+  querySelectorAll(selector: string): FakeElement[] {
+    const attr = /^\[([\w-]+)(?:(\^?=)"([^"]*)")?\]/;
+    const test = (el: FakeElement, sel: string, wanted: boolean): boolean => {
+      const m = attr.exec(sel);
+      if (!m) throw new Error(`fake querySelectorAll: ${sel}`);
+      const have = el.getAttribute(m[1]);
+      const hit = have !== null && (m[2] === undefined || (m[2] === '=' ? have === m[3] : have.startsWith(m[3])));
+      return hit === wanted;
+    };
+    const matchers = selector.split(',').map((part) => {
+      let rest = part.trim();
+      const tag = /^[a-z]+/.exec(rest)?.[0];
+      rest = rest.slice(tag?.length ?? 0);
+      const rules: ((el: FakeElement) => boolean)[] = [];
+      if (tag) rules.push((el) => el.localName === tag);
+      while (rest) {
+        const not = /^:not\((\[[^\]]*\])\)/.exec(rest);
+        const pos = attr.exec(rest);
+        const piece = not ? not[1] : pos ? pos[0] : '';
+        if (!piece) throw new Error(`fake querySelectorAll: ${rest}`);
+        rules.push((el) => test(el, piece, !not));
+        rest = rest.slice(not ? not[0].length : piece.length);
+      }
+      return (el: FakeElement) => rules.every((r) => r(el));
+    });
+    const out: FakeElement[] = [];
+    const walk = (node: FakeNode) => {
+      for (const child of node.childNodes) {
+        if (!(child instanceof FakeElement)) continue;
+        if (matchers.some((m) => m(child))) out.push(child);
+        walk(child);
+      }
+    };
+    walk(this);
+    return out;
   }
   focus() {
     fakeDocument.activeElement = this;
@@ -3291,6 +3336,37 @@ async function main() {
     } finally {
       m.unmount();
       fakeWindow.Telegram = undefined;
+    }
+  });
+
+  await check('#59b the sheet\'s Tab loop is the tabbable selector: a disabled button, a hidden input and a tabindex=-1 element are skipped; a tabindex=0 div and a link with an href are in', () => {
+    resetHome();
+    const m = mount(
+      createElement(BottomSheet, { label: 'Probe', closeLabel: 'Close', onClose: noop }, [
+        createElement('button', { key: 'd', disabled: true }, 'Disabled'),
+        createElement('input', { key: 'h', type: 'hidden' }),
+        createElement('div', { key: 'n', tabIndex: -1 }, 'Skipped'),
+        createElement('div', { key: 'z', tabIndex: 0 }, 'Zero'),
+        createElement('a', { key: 'a', href: '#x' }, 'Link'),
+      ]),
+    );
+    try {
+      const all = elements(m.container);
+      const zero = all.find((e) => e.textContent === 'Zero') as FakeElement;
+      const link = all.find((e) => e.localName === 'a') as FakeElement;
+      const close = all.find((e) => e.localName === 'button' && e.textContent === 'Close') as FakeElement;
+      assert(zero && link && close, 'the probe controls render');
+      close.focus();
+      m.key(close, 'Tab');
+      assert(fakeDocument.activeElement === zero, `Tab from Close: ${String((fakeDocument.activeElement as FakeElement)?.textContent)}`);
+      m.key(zero, 'Tab', { shiftKey: true });
+      assert(fakeDocument.activeElement === close, 'Shift+Tab from the first control goes to Close');
+      const found = (elements(m.container).find((e) => e.getAttribute('role') === 'dialog') as FakeElement).querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex^="-"])',
+      );
+      assert(show(found.map((e) => e.textContent)) === show(['Zero', 'Link', 'Close']), `tabbables: ${show(found.map((e) => e.textContent))}`);
+    } finally {
+      m.unmount();
     }
   });
 
