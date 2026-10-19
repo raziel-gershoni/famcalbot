@@ -12,7 +12,6 @@ import { captureError } from '@/src/lib/error-capture';
 import { setGlobalRemindersEnabled, setEarlyAdoptionMode, setVoiceAutoCreateHighConf, setVoiceTtsOutcome } from '@/src/services/reminder-cache';
 import { invalidateAllFeatureAccessCaches } from '@/src/services/subscription-service';
 import { setNativeRemindersEnabled } from '@/src/services/native-reminders/support';
-import { isCalendarHomeRolloutValue, setCalendarHomeRollout } from '@/src/services/calendar-read/rollout';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +37,6 @@ export async function GET(request: NextRequest) {
       voiceAutoCreateHighConf: adminSettings?.voiceAutoCreateHighConf ?? false,
       voiceTtsOutcome: adminSettings?.voiceTtsOutcome ?? false,
       nativeRemindersEnabled: adminSettings?.nativeRemindersEnabled ?? true,
-      calendarHomeRollout: adminSettings?.calendarHomeRollout ?? 'OFF',
     });
   } catch (error) {
     captureError(error, 'admin-settings-get', { api_route: '/api/admin/settings' });
@@ -53,7 +51,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { remindersEnabled, earlyAdoptionMode, voiceAutoCreateHighConf, voiceTtsOutcome, nativeRemindersEnabled, calendarHomeRollout, initData } = body;
+    const { remindersEnabled, earlyAdoptionMode, voiceAutoCreateHighConf, voiceTtsOutcome, nativeRemindersEnabled, initData } = body;
 
     // Verify admin access
     const auth = await verifyAdminAccess(initData);
@@ -64,15 +62,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // The calendar home's rollout is one of three values; anything else sent is refused, not ignored
-    const hasRollout = calendarHomeRollout !== undefined;
-    if (hasRollout && !isCalendarHomeRolloutValue(calendarHomeRollout)) {
-      return NextResponse.json(
-        { error: 'calendarHomeRollout must be OFF, ADMINS or ALL' },
-        { status: 400 }
-      );
-    }
-
     // Validate input - at least one field must be provided
     const hasReminders = typeof remindersEnabled === 'boolean';
     const hasEarlyAdoption = typeof earlyAdoptionMode === 'boolean';
@@ -80,7 +69,7 @@ export async function POST(request: NextRequest) {
     const hasVoiceTts = typeof voiceTtsOutcome === 'boolean';
     const hasNativeReminders = typeof nativeRemindersEnabled === 'boolean';
     const hasToggle = hasReminders || hasEarlyAdoption || hasVoiceAutoCreate || hasVoiceTts || hasNativeReminders;
-    if (!hasToggle && !hasRollout) {
+    if (!hasToggle) {
       return NextResponse.json(
         { error: 'At least one setting field must be provided' },
         { status: 400 }
@@ -147,20 +136,11 @@ export async function POST(request: NextRequest) {
         };
       }
 
-      // The rollout's setter writes the DB itself (a failure there is the 503 below), then
-      // Redis. propagated: false means Redis missed it: other processes see the new value
-      // within about a minute, and the panel says so.
-      let rollout: { calendarHomeRollout: string; propagated: boolean } | null = null;
-      if (hasRollout) {
-        rollout = { calendarHomeRollout, propagated: await setCalendarHomeRollout(calendarHomeRollout) };
-      }
-
-      console.log(`[admin-settings] Admin ${auth.adminId} updated settings:`, { remindersEnabled, earlyAdoptionMode, voiceAutoCreateHighConf, voiceTtsOutcome, nativeRemindersEnabled, calendarHomeRollout });
+      console.log(`[admin-settings] Admin ${auth.adminId} updated settings:`, { remindersEnabled, earlyAdoptionMode, voiceAutoCreateHighConf, voiceTtsOutcome, nativeRemindersEnabled });
 
       return NextResponse.json({
         success: true,
         ...toggles,
-        ...rollout,
       });
     } catch (dbError) {
       // Table might not exist yet

@@ -4,7 +4,6 @@ import { useEffect, useState, useMemo, useCallback, useRef, type ReactNode } fro
 import { useTranslations } from 'next-intl';
 import { Activity, AlertTriangle, Crown, Lock, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock, RefreshCw, ChevronDown, MessageSquare } from 'lucide-react';
 import { initDataHeaders } from '@/src/lib/read-init-data';
-import type { CalendarHomeRolloutValue } from '@/src/services/calendar-read/rollout';
 
 interface AdminPanelClientProps {
   /** The page's ?user_id, for the link back to the dashboard. */
@@ -27,7 +26,6 @@ interface AdminPanelProps {
   voiceAutoCreateHighConf: boolean;
   voiceTtsOutcome: boolean;
   nativeRemindersEnabled: boolean;
-  calendarHomeRollout: CalendarHomeRolloutValue;
 }
 
 
@@ -146,13 +144,6 @@ interface FeedbackItem {
   createdAt: string;
 }
 
-/** The calendar home's rollout values, in the control's order (spec §1). */
-const ROLLOUT_CHOICES: readonly CalendarHomeRolloutValue[] = ['OFF', 'ADMINS', 'ALL'];
-
-function isRolloutChoice(value: unknown): value is CalendarHomeRolloutValue {
-  return typeof value === 'string' && (ROLLOUT_CHOICES as readonly string[]).includes(value);
-}
-
 /** What the panel starts from: the toggles and the user counts. */
 type AdminPanelInitial = Omit<AdminPanelProps, 'userId' | 'locale'>;
 
@@ -188,110 +179,12 @@ export async function loadAdminPanel(): Promise<AdminPanelLoad> {
         voiceAutoCreateHighConf: settings.voiceAutoCreateHighConf ?? false,
         voiceTtsOutcome: settings.voiceTtsOutcome ?? false,
         nativeRemindersEnabled: settings.nativeRemindersEnabled ?? true,
-        calendarHomeRollout: isRolloutChoice(settings.calendarHomeRollout) ? settings.calendarHomeRollout : 'OFF',
       },
     };
   } catch (error) {
     console.error('[AdminPanel] load failed:', error);
     return { kind: 'error' };
   }
-}
-
-/** What the rollout control shows after a save. */
-export interface RolloutSaveResult {
-  value: CalendarHomeRolloutValue;
-  /** Saved, but Redis missed it: the other processes take it up within about a minute. */
-  delayed: boolean;
-}
-
-/**
- * Saves the calendar home's rollout through POST /api/admin/settings. A 200 shows the new
- * value, with the "takes effect within a minute" note when the answer says propagated:
- * false. Anything else (400, 401/403, 503, no network) keeps the old value: nothing was saved.
- */
-export async function saveCalendarHomeRollout(
-  previous: CalendarHomeRolloutValue,
-  next: CalendarHomeRolloutValue,
-): Promise<RolloutSaveResult> {
-  try {
-    const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
-    const response = await fetch('/api/admin/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ calendarHomeRollout: next, initData }),
-    });
-    if (!response.ok) return { value: previous, delayed: false };
-    const body = await response.json().catch(() => ({}));
-    return {
-      value: isRolloutChoice(body.calendarHomeRollout) ? body.calendarHomeRollout : next,
-      delayed: body.propagated === false,
-    };
-  } catch (error) {
-    console.error('[AdminPanel] rollout save failed:', error);
-    return { value: previous, delayed: false };
-  }
-}
-
-/**
- * The calendar home's three-way rollout (Off / Admins / Everyone) and its note. It sits
- * inside the panel's toggle row, so its own styles are inline (the panel's CSS is scoped
- * to AdminPanel). Touch-sized buttons, no hover: the panel is a phone Mini App.
- */
-export function CalendarHomeRolloutControl({ value, saving, delayed, onChange }: {
-  value: CalendarHomeRolloutValue;
-  saving: boolean;
-  delayed: boolean;
-  onChange: (next: CalendarHomeRolloutValue) => void;
-}) {
-  const t = useTranslations('admin');
-  const labels: Record<CalendarHomeRolloutValue, string> = {
-    OFF: t('features.calendarHomeOff'),
-    ADMINS: t('features.calendarHomeAdmins'),
-    ALL: t('features.calendarHomeAll'),
-  };
-  return (
-    <>
-      <div role="radiogroup" aria-label={t('features.calendarHome')} style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-        {ROLLOUT_CHOICES.map((choice) => {
-          const selected = value === choice;
-          return (
-            <button
-              key={choice}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              disabled={saving}
-              style={{
-                flex: '1 1 0',
-                minHeight: '44px',
-                padding: '0 8px',
-                borderRadius: '10px',
-                border: `2px solid ${selected ? '#667eea' : '#e5e7eb'}`,
-                background: selected ? '#667eea' : 'white',
-                color: selected ? 'white' : '#374151',
-                fontSize: '14px',
-                fontWeight: 600,
-                cursor: saving ? 'not-allowed' : 'pointer',
-                opacity: saving ? 0.6 : 1,
-              }}
-              onClick={() => {
-                // The shown choice sends too: after a settings read that failed the panel
-                // shows OFF whatever the switch is, and OFF must always be sendable.
-                if (!saving) onChange(choice);
-              }}
-            >
-              {labels[choice]}
-            </button>
-          );
-        })}
-      </div>
-      {delayed && (
-        <p role="status" style={{ fontSize: '13px', color: '#b45309', margin: '8px 0 0 0' }}>
-          {t('features.calendarHomeDelayed')}
-        </p>
-      )}
-    </>
-  );
 }
 
 /** The white card on the purple gradient, as the page's own notices look. */
@@ -414,7 +307,7 @@ export default function AdminPanelClient({ userId, locale }: AdminPanelClientPro
   return <AdminPanel userId={userId} locale={locale} {...load.initial} />;
 }
 
-function AdminPanel({ userId, locale, stats, remindersEnabled: initialRemindersEnabled, earlyAdoptionMode: initialEarlyAdoptionMode, voiceAutoCreateHighConf: initialVoiceAutoCreateHighConf, voiceTtsOutcome: initialVoiceTtsOutcome, nativeRemindersEnabled: initialNativeRemindersEnabled, calendarHomeRollout: initialCalendarHomeRollout }: AdminPanelProps) {
+function AdminPanel({ userId, locale, stats, remindersEnabled: initialRemindersEnabled, earlyAdoptionMode: initialEarlyAdoptionMode, voiceAutoCreateHighConf: initialVoiceAutoCreateHighConf, voiceTtsOutcome: initialVoiceTtsOutcome, nativeRemindersEnabled: initialNativeRemindersEnabled }: AdminPanelProps) {
   const t = useTranslations('admin');
   const [remindersEnabled, setRemindersEnabled] = useState(initialRemindersEnabled);
   const [remindersSaving, setRemindersSaving] = useState(false);
@@ -426,9 +319,6 @@ function AdminPanel({ userId, locale, stats, remindersEnabled: initialRemindersE
   const [voiceTtsOutcomeSaving, setVoiceTtsOutcomeSaving] = useState(false);
   const [nativeRemindersEnabled, setNativeRemindersEnabled] = useState(initialNativeRemindersEnabled);
   const [nativeRemindersSaving, setNativeRemindersSaving] = useState(false);
-  const [calendarHomeRollout, setCalendarHomeRollout] = useState(initialCalendarHomeRollout);
-  const [rolloutSaving, setRolloutSaving] = useState(false);
-  const [rolloutDelayed, setRolloutDelayed] = useState(false);
 
   // User overrides state
   const [userList, setUserList] = useState<UserListItem[]>([]);
@@ -611,17 +501,6 @@ function AdminPanel({ userId, locale, stats, remindersEnabled: initialRemindersE
       }
     } finally {
       setNativeRemindersSaving(false);
-    }
-  };
-
-  const changeCalendarHomeRollout = async (next: CalendarHomeRolloutValue) => {
-    setRolloutSaving(true);
-    try {
-      const saved = await saveCalendarHomeRollout(calendarHomeRollout, next);
-      setCalendarHomeRollout(saved.value);
-      setRolloutDelayed(saved.delayed);
-    } finally {
-      setRolloutSaving(false);
     }
   };
 
@@ -2457,18 +2336,6 @@ function AdminPanel({ userId, locale, stats, remindersEnabled: initialRemindersE
                 }}
               >
                 <div className="toggle-slider" />
-              </div>
-            </div>
-            <div className="toggle-row" style={{ marginTop: '12px' }}>
-              <div className="toggle-info">
-                <p className="toggle-label">{t('features.calendarHome')}</p>
-                <p className="toggle-description">{t('features.calendarHomeDescription')}</p>
-                <CalendarHomeRolloutControl
-                  value={calendarHomeRollout}
-                  saving={rolloutSaving}
-                  delayed={rolloutDelayed}
-                  onChange={changeCalendarHomeRollout}
-                />
               </div>
             </div>
             <div className="toggle-row" style={{ marginTop: '12px' }}>

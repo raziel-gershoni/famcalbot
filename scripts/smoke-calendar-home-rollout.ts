@@ -6,9 +6,7 @@
 // then Redis with EX 60, deletes the key when that SET fails, clears the memo, and says
 // whether Redis took the value. When neither store answers, the OFF is kept 5 s with one
 // warning, so a summary batch asking per user doesn't hit both stores for each of them.
-// The admin settings route accepts only the three values,
-// answers propagated: false when Redis missed, and 503 when the DB write failed. Also: the
-// schema, the hand-written migration, the Redis key and the admin copy.
+// Also: the schema, the hand-written migration, the Redis key and the admin copy.
 //
 // Redis, Prisma, error capture, the admin check and the other toggles' setters are faked;
 // Date.now is moved by hand. No network, no DB.
@@ -177,21 +175,11 @@ const ROLLOUT_FILE = path.join(SRC, 'services/calendar-read/rollout.ts');
 async function main() {
   const rollout: RolloutModule = await import('../src/services/calendar-read/rollout');
   const { getCalendarHomeRollout, isCalendarHomeOn, setCalendarHomeRollout, isCalendarHomeRolloutValue } = rollout;
-  const { GET, POST } = await import('../app/api/admin/settings/route');
-  const { NextRequest } = await import('next/server');
   const { REDIS_KEYS } = await import('../src/config/redis-keys');
 
   // The code under test logs its Redis and DB failures; keep the output to the results.
   const quiet = { log: console.log, error: console.error, warn: console.warn };
   Object.assign(console, { log: () => {}, error: () => {}, warn: () => {} });
-
-  const post = (body: Record<string, unknown>) =>
-    POST(new NextRequest('http://localhost/api/admin/settings', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    }));
-  const get = () => GET(new NextRequest('http://localhost/api/admin/settings', { headers: { 'x-telegram-init-data': 'admin' } }));
 
   // ---- getCalendarHomeRollout: memo, Redis, DB, OFF ----
 
@@ -415,99 +403,6 @@ async function main() {
     try { await setCalendarHomeRollout('EVERYONE' as never); } catch (e) { threw = e instanceof TypeError; }
     assert(threw, 'no TypeError');
     assert(log.length === 0, `log ${log.join(' | ')}`);
-  });
-
-  // ---- The admin settings route ----
-
-  await check('GET: OFF with no settings row, the row value otherwise', async () => {
-    reset();
-    const fresh = await (await get()).json();
-    assert(fresh.calendarHomeRollout === 'OFF', `no row: ${JSON.stringify(fresh)}`);
-    db.row = { ...COLUMN_DEFAULTS, calendarHomeRollout: 'ALL' };
-    const all = await (await get()).json();
-    assert(all.calendarHomeRollout === 'ALL', `row ALL: ${JSON.stringify(all)}`);
-  });
-
-  await check('POST calendarHomeRollout ADMINS: 200 propagated, the DB and Redis hold it, no other toggle touched', async () => {
-    reset();
-    db.row = { ...COLUMN_DEFAULTS };
-    const res = await post({ calendarHomeRollout: 'ADMINS', initData: 'admin' });
-    const body = await res.json();
-    assert(res.status === 200, `status ${res.status}: ${JSON.stringify(body)}`);
-    assert(JSON.stringify(body) === '{"success":true,"calendarHomeRollout":"ADMINS","propagated":true}', `answered ${JSON.stringify(body)}`);
-    assert(log.join(' | ') === `db upsert {"calendarHomeRollout":"ADMINS"} | redis set ${KEY}=ADMINS ex60`, `log ${log.join(' | ')}`);
-    assert(toggleCalls.length === 0, `toggles ${toggleCalls}`);
-  });
-
-  await check('POST with a value outside the three is a 400 and writes nothing', async () => {
-    for (const value of ['admins', 'ON', 'EVERYONE', '', null, true, 1, ['ALL'], {}]) {
-      reset();
-      db.row = { ...COLUMN_DEFAULTS, calendarHomeRollout: 'ADMINS' };
-      const res = await post({ calendarHomeRollout: value, initData: 'admin' });
-      assert(res.status === 400, `${JSON.stringify(value)}: status ${res.status}`);
-      assert(log.length === 0, `${JSON.stringify(value)}: log ${log.join(' | ')}`);
-    }
-  });
-
-  await check('POST with a bad value next to a good toggle is still a 400, and the toggle is not saved', async () => {
-    reset();
-    db.row = { ...COLUMN_DEFAULTS };
-    const res = await post({ calendarHomeRollout: 'all', voiceTtsOutcome: true, initData: 'admin' });
-    assert(res.status === 400, `status ${res.status}`);
-    assert(log.length === 0 && toggleCalls.length === 0, `log ${log.join(' | ')}, toggles ${toggleCalls}`);
-  });
-
-  await check('POST when Redis does not take it: 200 with propagated false, the DB holds the new value', async () => {
-    reset();
-    db.row = { ...COLUMN_DEFAULTS, calendarHomeRollout: 'ADMINS' };
-    redisState.setDown = true;
-    const res = await post({ calendarHomeRollout: 'OFF', initData: 'admin' });
-    const body = await res.json();
-    assert(res.status === 200, `status ${res.status}`);
-    assert(JSON.stringify(body) === '{"success":true,"calendarHomeRollout":"OFF","propagated":false}', `answered ${JSON.stringify(body)}`);
-    assert(db.row?.calendarHomeRollout === 'OFF', `row ${JSON.stringify(db.row)}`);
-  });
-
-  await check('POST with the DB down: 503, and nothing reaches Redis', async () => {
-    reset();
-    db.down = true;
-    const res = await post({ calendarHomeRollout: 'ALL', initData: 'admin' });
-    assert(res.status === 503, `status ${res.status}`);
-    assert(reads('redis') === 0, `log ${log.join(' | ')}`);
-  });
-
-  await check('POST from a non-admin or with no initData is refused before validation and writes nothing', async () => {
-    reset();
-    const user = await post({ calendarHomeRollout: 'ALL', initData: 'user' });
-    const bad = await post({ calendarHomeRollout: 'nonsense', initData: 'user' });
-    const none = await post({ calendarHomeRollout: 'ALL' });
-    assert(user.status === 403 && bad.status === 403 && none.status === 401, `user ${user.status}, bad ${bad.status}, none ${none.status}`);
-    assert(log.length === 0, `log ${log.join(' | ')}`);
-  });
-
-  await check('POST of another toggle answers as before and leaves the rollout alone', async () => {
-    reset();
-    db.row = { ...COLUMN_DEFAULTS, calendarHomeRollout: 'ADMINS' };
-    const res = await post({ voiceTtsOutcome: true, initData: 'admin' });
-    const body = await res.json();
-    assert(res.status === 200, `status ${res.status}`);
-    assert(JSON.stringify(Object.keys(body)) === '["success","remindersEnabled","earlyAdoptionMode","voiceAutoCreateHighConf","voiceTtsOutcome","nativeRemindersEnabled"]', `keys ${Object.keys(body)}`);
-    assert(reads(`redis set ${KEY}`) === 0 && db.row?.calendarHomeRollout === 'ADMINS', `log ${log.join(' | ')}`);
-  });
-
-  await check('POST of a toggle and the rollout together saves both', async () => {
-    reset();
-    db.row = { ...COLUMN_DEFAULTS };
-    const res = await post({ voiceTtsOutcome: true, calendarHomeRollout: 'ALL', initData: 'admin' });
-    const body = await res.json();
-    assert(res.status === 200 && body.voiceTtsOutcome === true && body.calendarHomeRollout === 'ALL' && body.propagated === true, `answered ${res.status} ${JSON.stringify(body)}`);
-    assert(db.row?.voiceTtsOutcome === true && db.row?.calendarHomeRollout === 'ALL', `row ${JSON.stringify(db.row)}`);
-  });
-
-  await check('POST with no field at all is still a 400', async () => {
-    reset();
-    const res = await post({ initData: 'admin' });
-    assert(res.status === 400, `status ${res.status}`);
   });
 
   // ---- Schema, migration, key, copy ----
