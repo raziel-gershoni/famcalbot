@@ -6145,6 +6145,227 @@ async function main() {
     assert(reactWarnings.length === warnedBefore3b, `React warned: ${show(reactWarnings.slice(warnedBefore3b, warnedBefore3b + 3))}`);
   });
 
+  // ---- Hebrew-date repeats in the editor (hebrew-repeats spec §4; #102-#107) ----
+
+  const warnedBeforeHebrew = reactWarnings.length;
+  /** Like editingHome, with the route's `hebrewDates` set (the default answer has it on). */
+  async function hebrewHome(locale: Locale, hebrewDates: boolean, server: EditingServer = {}) {
+    resetHome();
+    const tg = fakeTelegramHome();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    answerFetch = (c) => answerFor(c, { items: { ...WEEK, [day(5)]: [...WEEK[day(5)], SWIM] }, hebrewDates });
+    serveEditingWith(server);
+    const m = await mountHome(locale, {}, fakeClock('2026-10-15T07:00:00Z'));
+    return { m, tg };
+  }
+  /** A Hebrew series' edit info: Swimming, opened on its 20 Oct occurrence, anchored on 30 Cheshvan (24 Nov 2022). */
+  const hebrewSwim = (choice: 'hebrew' | 'yahrzeit' | 'custom' = 'hebrew', o: { interval?: number; until?: string; first?: boolean } = {}) =>
+    swimSeries(
+      {
+        repeat: { freq: 'yearly', interval: o.interval ?? 1, byDay: [], ends: Boolean(o.until), hebrew: { kind: choice === 'yahrzeit' ? 'yahrzeit' : 'anniversary', anchor: '2022-11-24' } },
+        rule: { choice, anchor: '2022-11-24', ...(o.until ? { until: o.until } : {}) },
+        first: o.first ?? true,
+      },
+      {},
+    );
+  const HEBREW_TEXTS: Record<Locale, { hebrew: string; yahrzeit: string }> = {
+    en: { hebrew: 'Every year on 4 Cheshvan', yahrzeit: 'Yahrzeit, every year on 4 Cheshvan' },
+    he: { hebrew: 'כל שנה בד׳ בחשון', yahrzeit: 'יארצייט, כל שנה בד׳ בחשון' },
+    ru: { hebrew: 'Каждый год 4 хешвана', yahrzeit: 'Йорцайт, каждый год 4 хешвана' },
+  };
+
+  await check('#102 create: the two Hebrew choices follow the five when the home shows Hebrew dates, worded from the form\'s start day in each language (gematriya in Hebrew), and follow the day when it changes; a pick is sent as repeat', async () => {
+    for (const locale of LOCALES) {
+      const l = messages[locale].calendarHome;
+      const { m } = await hebrewHome(locale, true, { write: () => ok200({ status: 'ok', key: 'famcal|new' }) });
+      try {
+        tapPlus(m, l.header.add);
+        await settle();
+        const opts = optionsIn(m, l.editor.repeat.label);
+        assert(show(opts.slice(0, 5).map((o) => o[0])) === show(['none', 'daily', 'weekly', 'monthly', 'yearly']), `${locale}: the five first: ${show(opts)}`);
+        assert(show(opts.slice(5)) === show([['hebrew', HEBREW_TEXTS[locale].hebrew], ['yahrzeit', HEBREW_TEXTS[locale].yahrzeit]]), `${locale}: the Hebrew choices: ${show(opts.slice(5))}`);
+        if (locale === 'en') {
+          await typeInto(inDialog(m, 'Start date'), '2026-10-22');
+          assert(optionsIn(m, 'Repeat')[5][1] === 'Every year on 11 Cheshvan' && optionsIn(m, 'Repeat')[6][1] === 'Yahrzeit, every year on 11 Cheshvan', `the words follow the day: ${show(optionsIn(m, 'Repeat').slice(5))}`);
+          await typeInto(inDialog(m, 'Title'), 'Grandpa');
+          await pick(m, 'Repeat', 'yahrzeit');
+          assert(shownIn(m, 'Repeat') === 'Yahrzeit, every year on 11 Cheshvan', `the pick shows: ${show(shownIn(m, 'Repeat'))}`);
+          m.click(saveButton(m));
+          await settle();
+          assert(writes().length === 1 && writes()[0].body?.repeat === 'yahrzeit' && writes()[0].body?.kind === 'event', `sent: ${show(writes()[0]?.body)}`);
+        }
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('#102a create: a reminder has the choices too; with Hebrew dates off, or a Google calendar chosen, or a Google user, there are none, and a Hebrew pick falls back to yearly when the calendar becomes a Google one', async () => {
+    const both = editorWith({ calendars: [...EDITOR_INFO.calendars, { id: 'avi@gmail.com', name: 'Avi', color: '#039BE5', main: false, mine: true }] });
+    const a = await hebrewHome('en', true, { editor: ok200(both), write: () => ok200({ status: 'ok', key: 'famcal|new' }) });
+    try {
+      tapPlus(a.m);
+      await settle();
+      await pick(a.m, 'Repeat', 'hebrew');
+      await pick(a.m, 'Calendar', 'avi@gmail.com');
+      assert(show(optionsIn(a.m, 'Repeat').map((o) => o[0])) === show(['none', 'daily', 'weekly', 'monthly', 'yearly']), `a Google calendar: ${show(optionsIn(a.m, 'Repeat'))}`);
+      assert(shownIn(a.m, 'Repeat') === 'Every year on 15 Oct', `the pick fell back to yearly: ${show(shownIn(a.m, 'Repeat'))}`);
+      await pick(a.m, 'Calendar', 'native:cal_me_7f3a');
+      assert(optionsIn(a.m, 'Repeat').length === 7, 'back on FamCal: the choices are back');
+      tapIn(a.m, 'Reminder');
+      await settle();
+      assert(optionsIn(a.m, 'Repeat').length === 7, `a reminder: ${show(optionsIn(a.m, 'Repeat'))}`);
+      await pick(a.m, 'Repeat', 'hebrew');
+      await typeInto(inDialog(a.m, 'Title'), 'Light a candle');
+      a.m.click(saveButton(a.m));
+      await settle();
+      assert(writes().length === 1 && writes()[0].body?.kind === 'reminder' && writes()[0].body?.repeat === 'hebrew', `a reminder sent: ${show(writes()[0]?.body)}`);
+    } finally {
+      a.m.unmount();
+    }
+    const off = await hebrewHome('en', false);
+    try {
+      tapPlus(off.m);
+      await settle();
+      assert(optionsIn(off.m, 'Repeat').length === 5, `Hebrew dates off: ${show(optionsIn(off.m, 'Repeat'))}`);
+    } finally {
+      off.m.unmount();
+    }
+    const g = await googleHome('en');
+    try {
+      tapPlus(g.m);
+      await settle();
+      assert(optionsIn(g.m, 'Repeat').length === 5, `a Google user: ${show(optionsIn(g.m, 'Repeat'))}`);
+    } finally {
+      g.m.unmount();
+    }
+  });
+
+  await check('#103 edit: a Hebrew item opens (the client takes the two choices and the anchor) with its choice selected, worded from the stored anchor and not from the opened (maybe rolled) day; the other kind is offered, and picking it is a repeat change from here on, with no question', async () => {
+    const { m } = await hebrewHome('en', true, { item: serveSwim(hebrewSwim('hebrew')), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
+    try {
+      await openEditor(m, 'Swimming');
+      assert(shownIn(m, 'Repeat') === 'Every year on 30 Cheshvan', `shown: ${show(shownIn(m, 'Repeat'))}`);
+      assert(
+        show(optionsIn(m, 'Repeat')) ===
+          show([['none', 'Never'], ['daily', 'Every day'], ['weekly', 'Every week on Tuesday'], ['monthly', 'Every month on the 20th'], ['yearly', 'Every year on 20 Oct'], ['hebrew', 'Every year on 30 Cheshvan'], ['yahrzeit', 'Yahrzeit, every year on 30 Cheshvan']]),
+        `options: ${show(optionsIn(m, 'Repeat'))}`,
+      );
+      await typeInto(inDialog(m, 'Location'), 'The pool');
+      m.click(saveButton(m));
+      await settle();
+      assert(choiceTexts(m).includes('All of them'), `a plain edit asks the three: ${show(choiceTexts(m))}`);
+      tapIn(m, 'Only this one (Tue 20 Oct)');
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'single', changes: { location: 'The pool' } }), `the stored choice is never sent: ${show(writes()[0]?.body)}`);
+      m.click(byLabel(topDialog(m), 'Edit'));
+      await settle();
+      await pick(m, 'Repeat', 'yahrzeit');
+      m.click(saveButton(m));
+      await settle();
+      assert(sameBody(lastWrite().body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { repeat: 'yahrzeit' } }), `the other kind: ${show(lastWrite().body)}`);
+      m.click(byLabel(topDialog(m), 'Edit'));
+      await settle();
+      await pick(m, 'Repeat', 'yearly');
+      m.click(saveButton(m));
+      await settle();
+      assert(sameBody(lastWrite().body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { repeat: 'yearly' } }), `back to yearly: ${show(lastWrite().body)}`);
+    } finally {
+      m.unmount();
+    }
+    // A Gregorian series picks Hebrew: worded from the day the new part starts on.
+    const yearly = swimSeries({ repeat: { freq: 'yearly', interval: 1, byDay: [], ends: false }, rule: { choice: 'yearly' } });
+    const g = await hebrewHome('en', true, { item: serveSwim(yearly), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
+    try {
+      await openEditor(g.m, 'Swimming');
+      assert(optionsIn(g.m, 'Repeat')[5][1] === 'Every year on 9 Cheshvan', `worded from the opened day: ${show(optionsIn(g.m, 'Repeat').slice(5))}`);
+      await pick(g.m, 'Repeat', 'hebrew');
+      g.m.click(saveButton(g.m));
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { repeat: 'hebrew' } }), `sent: ${show(writes()[0]?.body)}`);
+    } finally {
+      g.m.unmount();
+    }
+    // A day move: the stored choice keeps its anchor's words, the other kind is worded from the new day.
+    const moved = await hebrewHome('en', true, { item: serveSwim(hebrewSwim('hebrew')) });
+    try {
+      await openEditor(moved.m, 'Swimming');
+      await typeInto(inDialog(moved.m, 'Start date'), day(7));
+      assert(optionsIn(moved.m, 'Repeat')[5][1] === 'Every year on 30 Cheshvan' && optionsIn(moved.m, 'Repeat')[6][1] === 'Yahrzeit, every year on 11 Cheshvan', `after a day move: ${show(optionsIn(moved.m, 'Repeat').slice(5))}`);
+    } finally {
+      moved.m.unmount();
+    }
+  });
+
+  await check('#103a edit: a Hebrew rule shows its words to anyone who opens it, with Hebrew dates off too (the stored choice only, selected); a yahrzeit with an end names it; every 2 years is a first, custom choice with the anchor\'s date', async () => {
+    const off = await hebrewHome('en', false, { item: serveSwim(hebrewSwim('yahrzeit')) });
+    try {
+      await openEditor(off.m, 'Swimming');
+      assert(shownIn(off.m, 'Repeat') === 'Yahrzeit, every year on 30 Cheshvan', `shown: ${show(shownIn(off.m, 'Repeat'))}`);
+      assert(show(optionsIn(off.m, 'Repeat').map((o) => o[0])) === show(['none', 'daily', 'weekly', 'monthly', 'yearly', 'yahrzeit']), `only the stored one: ${show(optionsIn(off.m, 'Repeat'))}`);
+    } finally {
+      off.m.unmount();
+    }
+    const ended = await hebrewHome('en', true, { item: serveSwim(hebrewSwim('yahrzeit', { until: day(12) })) });
+    try {
+      await openEditor(ended.m, 'Swimming');
+      assert(shownIn(ended.m, 'Repeat') === 'Yahrzeit, every year on 30 Cheshvan, until 27 Oct (current)', `ended: ${show(shownIn(ended.m, 'Repeat'))}`);
+      assert(optionsIn(ended.m, 'Repeat')[5][1] === 'Every year on 30 Cheshvan, until 27 Oct', `the other kind names the end too: ${show(optionsIn(ended.m, 'Repeat')[5])}`);
+    } finally {
+      ended.m.unmount();
+    }
+    const custom = await hebrewHome('en', true, { item: serveSwim(hebrewSwim('custom', { interval: 2 })) });
+    try {
+      await openEditor(custom.m, 'Swimming');
+      assert(shownIn(custom.m, 'Repeat') === 'Every 2 years on 30 Cheshvan (current)', `custom: ${show(shownIn(custom.m, 'Repeat'))}`);
+      assert(optionsIn(custom.m, 'Repeat')[0][0] === 'custom', 'a first choice of its own');
+    } finally {
+      custom.m.unmount();
+    }
+    for (const locale of ['he', 'ru'] as const) {
+      const h = await hebrewHome(locale, true, { item: serveSwim(hebrewSwim('yahrzeit')) });
+      try {
+        await openEditor(h.m, 'Swimming', messages[locale].calendarHome.sheet.edit);
+        const want = locale === 'he' ? 'יארצייט, כל שנה בל׳ בחשון' : 'Йорцайт, каждый год 30 хешвана';
+        assert(shownIn(h.m, messages[locale].calendarHome.editor.repeat.label) === want, `${locale}: ${show(shownIn(h.m, messages[locale].calendarHome.editor.repeat.label))}`);
+      } finally {
+        h.m.unmount();
+      }
+    }
+  });
+
+  await check('#104 edit: an "all" day move the server refuses for a Hebrew series (from a rolled occurrence, or one whose own start is a rolled year) shows the day note, not "Couldn\'t save"', async () => {
+    const a = await hebrewHome('en', true, { item: serveSwim(hebrewSwim('hebrew')), write: () => ({ status: 400, body: { error: 'invalid', field: 'start' } }) });
+    try {
+      await openEditor(a.m, 'Swimming');
+      await typeInto(inDialog(a.m, 'Start date'), day(7));
+      a.m.click(saveButton(a.m));
+      await settle();
+      assert(choiceTexts(a.m).includes('All of them'), `the three choices: ${show(choiceTexts(a.m))}`);
+      tapIn(a.m, 'All of them');
+      await settle();
+      assert(writes().length === 1 && writes()[0].body?.scope === 'all', `sent: ${show(writes()[0]?.body)}`);
+      assert(alerts(a.m).includes(messages.en.calendarHome.scope.dayMoveNote), `the day note: ${show(alerts(a.m))}`);
+      assert(!alerts(a.m).includes('Couldn’t save. Try again.'), `not the generic text: ${show(alerts(a.m))}`);
+    } finally {
+      a.m.unmount();
+    }
+  });
+
+  await check('#105 the Hebrew copy in en, he and ru: real text, no key left bare, and Hebrew and Russian translated, not copied', () => {
+    for (const locale of LOCALES) {
+      const l = messages[locale].calendarHome.editor.repeat as unknown as Record<string, string>;
+      for (const key of ['hebrew', 'yahrzeit', 'hebrewPlain', 'yahrzeitPlain', 'hebrewEvery', 'yahrzeitEvery']) {
+        assert(typeof l[key] === 'string' && l[key].length > 0, `${locale}: editor.repeat.${key} exists`);
+        if (locale !== 'en') assert(l[key] !== (messages.en.calendarHome.editor.repeat as unknown as Record<string, string>)[key], `${locale}: editor.repeat.${key} is translated`);
+      }
+    }
+  });
+
+  await check('#107 React logged no warning in #102-#105 (keys, nesting, attributes, act)', () => {
+    assert(reactWarnings.length === warnedBeforeHebrew, `React warned: ${show(reactWarnings.slice(warnedBeforeHebrew, warnedBeforeHebrew + 3))}`);
+  });
+
   let failed = 0;
   for (const r of results) {
     process.stdout.write(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}\n`);
