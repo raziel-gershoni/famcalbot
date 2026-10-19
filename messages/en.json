@@ -893,6 +893,7 @@
       "updating": "Updating...",
       "updatingEvent": "⏳ Updating event...",
       "failedToUpdate": "❌ <b>Failed to update event</b>",
+      "fixedDaysMove": "To move all of them to another day, delete the series and create it again.",
       "deleteConfirmTitle": "🗑️ <b>Delete this event?</b>",
       "deleteButton": "🗑️ Delete",
       "keepButton": "❌ Keep",

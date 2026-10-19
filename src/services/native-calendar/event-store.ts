@@ -20,7 +20,7 @@ import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-event
 import { invalidateDueGate } from '../native-reminders/due-gate';
 import { effectiveOwnerId, getActivePartnerSummary } from '../native-reminders/ownership';
 import { ensurePrimaryNativeCalendar } from './onboarding';
-import { expandSeries, shiftOnWall, truncateRruleBefore, VirtualInstance } from './recurrence';
+import { expandSeries, fixesDays, shiftOnWall, shiftUntil, truncateRruleBefore, VirtualInstance, yieldsSlots } from './recurrence';
 
 export const NATIVE_CALENDAR_ID_PREFIX = 'native:';
 export const NATIVE_EVENT_INSTANCE_SEP = '#';
@@ -348,6 +348,18 @@ export class NativeNotFoundError extends Error {
   }
 }
 
+/**
+ * A day move for every occurrence, or this one and the ones after, of a rule with fixed
+ * days (the bot's BYDAY): the rule keeps its days, so the series would start on a day it
+ * doesn't fall on and its occurrences would scramble. Only one occurrence can move.
+ */
+export class NativeFixedDaysError extends Error {
+  constructor(message = 'A series with fixed days cannot move to another day') {
+    super(message);
+    this.name = 'NativeFixedDaysError';
+  }
+}
+
 export async function createNativeEvent(input: CreateNativeEventInput): Promise<NativeEvent> {
   const calendar = await prisma.nativeCalendar.findUnique({
     where: { id: input.calendarCuid },
@@ -411,10 +423,11 @@ export interface UpdateNativeEventInput {
   endsAt?: Date;
   allDay?: boolean;
   /**
-   * startsAt, endsAt and allDay say where the occurrence instanceStartsAt goes, as the bot
-   * says an edit (of the occurrence it was told about). For scope 'all' the store turns them
-   * into the series' own (seriesTimesFor), so the series keeps its place and its earlier
-   * occurrences. Without it they are the series' own times, which the home works out.
+   * With scope 'all': startsAt, endsAt and allDay say where the occurrence
+   * instanceStartsAt goes, as the bot says an edit (of the occurrence it was told about).
+   * The store turns them into the series' own (seriesTimesFor), so the series keeps its
+   * place and its earlier occurrences. Without it they are the series' own times, which
+   * the home works out. With 'following' they always say where the cut occurrence goes.
    */
   occurrenceTimes?: boolean;
 }
@@ -453,47 +466,94 @@ export function seriesTimesFor(
 }
 
 /**
- * An 'all' edit said of one occurrence (occurrenceTimes), as the series' own times. What
- * the edit leaves out stays: a start alone keeps the occurrence's length, an end alone
- * keeps the series' start.
+ * The times an edit gives, as the ones the store writes. A 'following' edit, and an 'all'
+ * one with occurrenceTimes, says where the occurrence instanceStartsAt goes; the new series
+ * ('following') or the series ('all') moves as that occurrence did, from where the rule
+ * puts it (seriesTimesFor): one moved on its own to another day and given a new time takes
+ * the rule's day back. What the edit leaves out stays: a start alone keeps the
+ * occurrence's length, an end alone keeps the start.
  */
-async function withSeriesTimes(series: NativeEvent, input: UpdateNativeEventInput): Promise<UpdateNativeEventInput> {
+async function ownTimes(series: NativeEvent, input: UpdateNativeEventInput): Promise<UpdateNativeEventInput> {
   const slot = input.instanceStartsAt;
-  if (!input.occurrenceTimes || input.scope !== 'all' || !series.rrule || !slot) return input;
+  const ofOccurrence = input.scope === 'following' || (input.scope === 'all' && input.occurrenceTimes);
+  if (!ofOccurrence || !series.rrule || !slot) return input;
   if (input.startsAt === undefined && input.endsAt === undefined) return input;
   const override = await prisma.nativeEventInstance.findUnique({
     where: { seriesEventId_originalStartsAt: { seriesEventId: series.id, originalStartsAt: slot } },
   });
   const moved = override?.status === 'OVERRIDE' ? override : null;
   const from = moved?.startsAt ?? slot;
-  const length = (moved?.endsAt ?? new Date(slot.getTime() + (series.endsAt.getTime() - series.startsAt.getTime()))).getTime() - from.getTime();
+  const tz = series.timeZone || TIMEZONE;
+  const base = { startsAt: input.scope === 'all' ? series.startsAt : slot, timeZone: series.timeZone };
   const allDay = input.allDay ?? moved?.allDay ?? series.allDay;
-  const startsAt = input.startsAt ?? from;
-  const times = seriesTimesFor(series, from, { startsAt, endsAt: input.endsAt ?? new Date(startsAt.getTime() + length), allDay });
-  return input.startsAt === undefined ? { ...input, endsAt: times.endsAt } : { ...input, ...times };
+  if (input.startsAt === undefined) {
+    const end = input.endsAt!;
+    const endsAt = allDay
+      ? endOfLocalDay(addDaysToDate(localDate(base.startsAt, tz), daysFromTo(localDate(from, tz), localDate(end, tz))), tz)
+      : new Date(base.startsAt.getTime() + (end.getTime() - from.getTime()));
+    return { ...input, endsAt };
+  }
+  const length = (moved?.endsAt ?? new Date(slot.getTime() + (series.endsAt.getTime() - series.startsAt.getTime()))).getTime() - from.getTime();
+  const endsAt = input.endsAt ?? new Date(input.startsAt.getTime() + length);
+  return { ...input, ...seriesTimesFor(base, from, { startsAt: input.startsAt, endsAt, allDay }) };
 }
 
 /**
- * Move a series' per-occurrence rows to where its occurrences went (`slotOf`), in an
- * order that never puts two on one key: the latest first when they move later. The
- * series' times are every occurrence's again, so an override keeps only what else it
- * carries; with `dropOverrides` (a reminder starts afresh) only the cancellations stay.
+ * Whether an edit moves a rule with fixed days to another day for more than one
+ * occurrence: the series' own start ('all') or the new series' ('following') off its day.
  */
-async function rekeyInstances(
+function movesFixedDays(series: NativeEvent, input: UpdateNativeEventInput): boolean {
+  if (input.startsAt === undefined || !fixesDays(series.rrule)) return false;
+  const tz = series.timeZone || TIMEZONE;
+  if (input.scope === 'all') return localDate(input.startsAt, tz) !== localDate(series.startsAt, tz);
+  if (input.scope === 'following' && input.instanceStartsAt) return localDate(input.startsAt, tz) !== localDate(input.instanceStartsAt, tz);
+  return false;
+}
+
+/**
+ * A series' exdates (from `since`, if given) where its occurrences went (`slotOf`), kept
+ * only where `shape` (the series as it will be) still has an occurrence.
+ */
+function carriedExdates(dates: readonly Date[], since: Date | undefined, slotOf: (slot: Date) => Date, shape: NativeEvent): Date[] {
+  const moved = dates.filter((d) => !since || d.getTime() >= since.getTime()).map(slotOf);
+  const yields = yieldsSlots(shape, moved);
+  return moved.filter((d) => yields.has(d.getTime()));
+}
+
+/**
+ * Move a series' per-occurrence rows (from `since`, if given) onto `toSeries` where its
+ * occurrences went (`slotOf`). A row whose new key `shape` (the series as it will be)
+ * never yields goes, so none becomes an occurrence of its own. The order never puts two
+ * on one key: the latest first when they move later. `clear` is what each loses (the
+ * times a new time replaces, the fields the edit sets); with `dropOverrides` (a reminder
+ * starts afresh) only the cancellations move.
+ */
+async function moveInstances(
   tx: Prisma.TransactionClient,
-  seriesId: string,
-  slotOf: (slot: Date) => Date,
-  dropOverrides: boolean
+  o: {
+    fromSeries: string;
+    toSeries: string;
+    since?: Date;
+    slotOf: (slot: Date) => Date;
+    shape: NativeEvent;
+    dropOverrides: boolean;
+    clear: Prisma.NativeEventInstanceUncheckedUpdateInput;
+  }
 ): Promise<void> {
-  if (dropOverrides) await tx.nativeEventInstance.deleteMany({ where: { seriesEventId: seriesId, status: 'OVERRIDE' } });
-  const rows = await tx.nativeEventInstance.findMany({ where: { seriesEventId: seriesId } });
-  if (rows.length === 0) return;
-  const later = slotOf(rows[0].originalStartsAt).getTime() > rows[0].originalStartsAt.getTime();
-  rows.sort((a, b) => (a.originalStartsAt.getTime() - b.originalStartsAt.getTime()) * (later ? -1 : 1));
-  for (const o of rows) {
+  const where = { seriesEventId: o.fromSeries, ...(o.since ? { originalStartsAt: { gte: o.since } } : {}) };
+  if (o.dropOverrides) await tx.nativeEventInstance.deleteMany({ where: { ...where, status: 'OVERRIDE' } });
+  const rows = await tx.nativeEventInstance.findMany({ where });
+  const yields = yieldsSlots(o.shape, rows.map((r) => o.slotOf(r.originalStartsAt)));
+  const kept = rows.filter((r) => yields.has(o.slotOf(r.originalStartsAt).getTime()));
+  const gone = rows.filter((r) => !kept.includes(r));
+  if (gone.length > 0) await tx.nativeEventInstance.deleteMany({ where: { id: { in: gone.map((r) => r.id) } } });
+  if (kept.length === 0) return;
+  const later = o.slotOf(kept[0].originalStartsAt).getTime() > kept[0].originalStartsAt.getTime();
+  kept.sort((a, b) => (a.originalStartsAt.getTime() - b.originalStartsAt.getTime()) * (later ? -1 : 1));
+  for (const r of kept) {
     await tx.nativeEventInstance.update({
-      where: { id: o.id },
-      data: { originalStartsAt: slotOf(o.originalStartsAt), startsAt: null, endsAt: null, allDay: null },
+      where: { id: r.id },
+      data: { ...o.clear, seriesEventId: o.toSeries, originalStartsAt: o.slotOf(r.originalStartsAt) },
     });
   }
 }
@@ -526,7 +586,8 @@ export async function updateNativeEvent(
   if (!canWriteAccess(access) && !(isReminder && series.creatorUserId === actor.id)) {
     throw new NativePermissionDeniedError();
   }
-  input = await withSeriesTimes(series, input);
+  input = await ownTimes(series, input);
+  if (movesFixedDays(series, input)) throw new NativeFixedDaysError();
   if (isReminder) {
     const result = await updateNativeReminder(series, input);
     invalidateDueGate();
@@ -582,14 +643,29 @@ export async function updateNativeEvent(
   // 'all': update the series. New times reach every occurrence: the ones moved on their
   // own lose their own times and keep what else they carry (a title). A new start moves
   // what was done to the occurrences one by one with them, shifted on the wall clock as
-  // the start moved: the skipped stay skipped (exdates, CANCELLED), the renamed renamed.
+  // the start moved: the skipped stay skipped (exdates, CANCELLED), the renamed renamed,
+  // wherever the rule still has an occurrence; the UNTIL moves too.
   if (input.scope === 'all') {
     const start = input.startsAt;
     await prisma.$transaction(async (tx) => {
       if (start !== undefined && series.rrule) {
         const slotOf = (slot: Date) => shiftOnWall(slot, series.startsAt, start, series.timeZone);
-        await tx.nativeEvent.update({ where: { id: series.id }, data: { ...seriesUpdate, exdates: series.exdates.map(slotOf) } });
-        await rekeyInstances(tx, series.id, slotOf, false);
+        const rrule = shiftUntil(series.rrule, series.startsAt, start, series.timeZone);
+        const shape: NativeEvent = {
+          ...series,
+          rrule,
+          startsAt: start,
+          endsAt: input.endsAt ?? new Date(start.getTime() + (series.endsAt.getTime() - series.startsAt.getTime())),
+          allDay: input.allDay ?? series.allDay,
+        };
+        await tx.nativeEvent.update({
+          where: { id: series.id },
+          data: { ...seriesUpdate, rrule, exdates: carriedExdates(series.exdates, undefined, slotOf, shape) },
+        });
+        await moveInstances(tx, {
+          fromSeries: series.id, toSeries: series.id, slotOf, shape, dropOverrides: false,
+          clear: { startsAt: null, endsAt: null, allDay: null },
+        });
         return;
       }
       await tx.nativeEvent.update({ where: { id: series.id }, data: seriesUpdate });
@@ -624,10 +700,13 @@ export async function updateNativeEvent(
       //    What was done to the occurrences from the cut one by one comes along: the
       //    skipped stay skipped (exdates, CANCELLED) and the moved or renamed keep it,
       //    each keyed where the new series puts it (its slot shifted on the wall clock as
-      //    the cut occurrence moved). A field this edit sets wins over an occurrence's own.
+      //    the cut occurrence moved), wherever the rule still has an occurrence. A field
+      //    this edit sets wins over an occurrence's own.
       const newStarts = input.startsAt ?? cut;
       const newEnds = input.endsAt ?? new Date(newStarts.getTime() + (series.endsAt.getTime() - series.startsAt.getTime()));
       const slotOf = (d: Date) => shiftOnWall(d, cut, newStarts, series.timeZone);
+      const rrule = shiftUntil(series.rrule!, cut, newStarts, series.timeZone);
+      const shape: NativeEvent = { ...series, rrule, startsAt: newStarts, endsAt: newEnds, allDay: input.allDay ?? series.allDay };
       const newSeries = await tx.nativeEvent.create({
         data: {
           calendarId: series.calendarId,
@@ -637,31 +716,24 @@ export async function updateNativeEvent(
           location: input.location ?? series.location,
           startsAt: newStarts,
           endsAt: newEnds,
-          allDay: input.allDay ?? series.allDay,
+          allDay: shape.allDay,
           timeZone: series.timeZone,
-          rrule: series.rrule,
+          rrule,
           reminderMinutes: series.reminderMinutes,
-          exdates: series.exdates.filter((d) => d.getTime() >= cut.getTime()).map(slotOf),
+          exdates: carriedExdates(series.exdates, cut, slotOf, shape),
         },
       });
       // 3. Move the overrides at-or-after the cut point to the new series.
       const retimed = input.startsAt !== undefined || input.endsAt !== undefined || input.allDay !== undefined;
-      const fromCut = await tx.nativeEventInstance.findMany({
-        where: { seriesEventId: series.id, originalStartsAt: { gte: cut } },
+      await moveInstances(tx, {
+        fromSeries: series.id, toSeries: newSeries.id, since: cut, slotOf, shape, dropOverrides: false,
+        clear: {
+          ...(input.title !== undefined ? { title: null } : {}),
+          ...(input.description !== undefined ? { description: null } : {}),
+          ...(input.location !== undefined ? { location: null } : {}),
+          ...(retimed ? { startsAt: null, endsAt: null, allDay: null } : {}),
+        },
       });
-      for (const o of fromCut) {
-        await tx.nativeEventInstance.update({
-          where: { id: o.id },
-          data: {
-            seriesEventId: newSeries.id,
-            originalStartsAt: slotOf(o.originalStartsAt),
-            ...(input.title !== undefined ? { title: null } : {}),
-            ...(input.description !== undefined ? { description: null } : {}),
-            ...(input.location !== undefined ? { location: null } : {}),
-            ...(retimed ? { startsAt: null, endsAt: null, allDay: null } : {}),
-          },
-        });
-      }
       return newSeries.id;
     });
     return { canonicalEventId: encodeEventId(newSeriesId), clearedPings: [] };
@@ -760,6 +832,8 @@ async function updateNativeReminder(
     const edit = reminderTimeEdit({ startsAt: cut, allDay: series.allDay }, input, series.timeZone);
     const target = edit ?? { startsAt: cut, endsAt: cut, allDay: series.allDay, changed: false };
     const slotOf = (slot: Date) => shiftOnWall(slot, cut, target.startsAt, series.timeZone);
+    const rrule = shiftUntil(series.rrule, cut, target.startsAt, series.timeZone);
+    const shape: NativeEvent = { ...series, rrule, startsAt: target.startsAt, endsAt: target.endsAt, allDay: target.allDay };
     const { newSeriesId, clearedPings } = await prisma.$transaction(async (tx) => {
       await tx.nativeEvent.update({
         where: { id: series.id },
@@ -776,27 +850,20 @@ async function updateNativeReminder(
           endsAt: target.endsAt,
           allDay: target.allDay,
           timeZone: series.timeZone,
-          rrule: series.rrule,
+          rrule,
           reminderMinutes: series.reminderMinutes,
           kind: 'REMINDER',
           forUserId: series.forUserId,
           armedAt: target.changed ? new Date() : series.armedAt,
           // The occurrences skipped after the cut stay skipped, keyed where they went.
-          exdates: series.exdates.filter((d) => d.getTime() >= cut.getTime()).map(slotOf),
+          exdates: carriedExdates(series.exdates, cut, slotOf, shape),
         },
       });
       const fromCut = { seriesEventId: series.id, originalStartsAt: { gte: cut } };
       if (target.changed) {
         // Moved, the new series starts afresh: what was moved on its own goes; the
         // cancellations follow, keyed where the new series puts them.
-        await tx.nativeEventInstance.deleteMany({ where: { ...fromCut, status: 'OVERRIDE' } });
-        const skipped = await tx.nativeEventInstance.findMany({ where: fromCut });
-        for (const o of skipped) {
-          await tx.nativeEventInstance.update({
-            where: { id: o.id },
-            data: { seriesEventId: newSeries.id, originalStartsAt: slotOf(o.originalStartsAt) },
-          });
-        }
+        await moveInstances(tx, { fromSeries: series.id, toSeries: newSeries.id, since: cut, slotOf, shape, dropOverrides: true, clear: {} });
       } else {
         // Same keys under the new series, so skipped and moved occurrences follow it.
         // A field this edit sets wins over an older per-occurrence value.
@@ -843,8 +910,13 @@ async function updateNativeReminder(
     // was skipped stays skipped, keyed where it went.
     if (input.scope === 'all' && series.rrule) {
       const slotOf = (slot: Date) => shiftOnWall(slot, series.startsAt, edit.startsAt, series.timeZone);
-      await tx.nativeEvent.update({ where: { id: series.id }, data: { exdates: series.exdates.map(slotOf) } });
-      await rekeyInstances(tx, series.id, slotOf, true);
+      const rrule = shiftUntil(series.rrule, series.startsAt, edit.startsAt, series.timeZone);
+      const shape: NativeEvent = { ...series, rrule, startsAt: edit.startsAt, endsAt: edit.endsAt, allDay: edit.allDay };
+      await tx.nativeEvent.update({
+        where: { id: series.id },
+        data: { rrule, exdates: carriedExdates(series.exdates, undefined, slotOf, shape) },
+      });
+      await moveInstances(tx, { fromSeries: series.id, toSeries: series.id, slotOf, shape, dropOverrides: true, clear: {} });
     }
     return clearReminderStates(tx, { seriesEventId: series.id });
   });

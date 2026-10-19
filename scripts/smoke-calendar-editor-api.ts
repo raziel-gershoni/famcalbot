@@ -975,6 +975,29 @@ async function main() {
     assert(moved.status === 200 && iso(lastEvent().startsAt) === iso(at('2026-10-29 10:00')) && lastEvent().id !== id, `a rule the editor wrote follows its start: ${moved.status} ${moved.text}`);
   });
 
+  await check('an occurrence moved on its own to another day, then given a new time: "all" answers the key it lands on (back on the rule\'s day), and "this and after" on a rule with fixed days starts the new series on the rule\'s day', async () => {
+    seed();
+    const { id, occ } = await weeklySeries();
+    const alone = await patch({ key: occ('2026-10-27'), scope: 'single', changes: { start: '2026-10-29T10:00', end: '2026-10-29T11:00' } });
+    assert(alone.status === 200, `single ${alone.status} ${alone.text}`);
+    const all = await patch({ key: occ('2026-10-27'), scope: 'all', changes: { start: '2026-10-29T12:00', end: '2026-10-29T13:00' } });
+    assert(all.status === 200 && all.body.key === occ('2026-10-27', '12:00'), `all: ${all.status} ${all.body.key}`);
+    const read = await itemOf(all.body.key);
+    assertSame([read.status, read.body.occurrence?.start], [200, '2026-10-27T12:00'], 'the key reads: Tuesday at 12:00');
+    assert(eventRow(id).startsAt.getTime() === at('2026-10-20 12:00').getTime(), `series ${iso(eventRow(id).startsAt)}`);
+    seed();
+    const series = seedSeries('bot-weekly', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Piano', startsAt: at('2026-10-20 16:00'), rrule: 'FREQ=WEEKLY;BYDAY=TU', exdates: [at('2026-11-10 16:00')] });
+    const k = `famcal|${series.id}#${iso(at('2026-10-27 16:00'))}`;
+    assert((await patch({ key: k, scope: 'single', changes: { start: '2026-10-28T16:00', end: '2026-10-28T17:00' } })).status === 200, 'moved to Wednesday alone');
+    const later = await patch({ key: k, scope: 'following', changes: { start: '2026-10-28T18:00', end: '2026-10-28T19:00' } });
+    const fresh = lastEvent();
+    assert(later.status === 200 && later.body.key === `famcal|${fresh.id}#${iso(at('2026-10-27 18:00'))}`, `following: ${later.status} ${later.text}`);
+    assertSame([iso(fresh.startsAt), fresh.exdates.map(iso)], [iso(at('2026-10-27 18:00')), [iso(at('2026-11-10 18:00'))]], 'the new series: Tuesday the 27th at 18:00, the skipped 10th still skipped');
+    assertSame((await itemOf(later.body.key)).body.occurrence?.start, '2026-10-27T18:00', 'the key reads');
+    const back = await patch({ key: `famcal|${fresh.id}#${iso(at('2026-11-03 18:00'))}`, scope: 'following', changes: { start: '2026-11-04T18:00', end: '2026-11-04T19:00' } });
+    assertSame([back.status, back.body], [400, { error: 'invalid', field: 'start' }], 'a day move on it is still refused');
+  });
+
   await check('edit reminder, a rule with fixed days: a day move for every one is refused; this one moves', async () => {
     seed();
     const series = seedSeries('bot-reminder', { calendarId: 'cal-tal', creatorUserId: TAL, kind: 'REMINDER', title: 'Bins', startsAt: at('2026-10-20 20:00'), rrule: 'FREQ=WEEKLY;BYDAY=TU' });

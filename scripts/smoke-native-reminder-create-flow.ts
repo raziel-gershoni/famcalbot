@@ -145,7 +145,10 @@ const fakeProvider = {
     return { success: true, eventId: `ev${created.length}` };
   },
   deleteEvent: async () => ({ success: true }),
+  updateEvent: async () => updateReply,
 };
+/** What the provider answers an edit. */
+let updateReply: Record<string, unknown> = { success: true, eventId: 'ev1' };
 
 /**
  * The AI matcher: the listed events whose title holds the user's description; one is a
@@ -234,7 +237,7 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
     setUserContext: () => {},
   },
   [`${SRC}/services/subscription-service.ts`]: { checkFeatureAccess: async () => ({ allowed: true }), incrementUsage: async () => {} },
-  [`${SRC}/services/user-service.ts`]: { getUserByTelegramId: async () => currentUser, getUserByWhatsAppId: async () => currentUser },
+  [`${SRC}/services/user-service.ts`]: { getUserByTelegramId: async () => currentUser, getUserByWhatsAppId: async () => currentUser, getUserByWhatsAppPhone: async () => currentUser },
   [`${SRC}/services/messaging/factory.ts`]: real => fakeOver(real, { getWhatsAppService: () => fakeWhatsApp }),
   [`${SRC}/services/reminder-cache.ts`]: { getVoiceAutoCreateHighConf: async () => flags.autoCreate, getVoiceTtsOutcome: async () => false },
   [`${SRC}/services/voice/recent-events-store.ts`]: {
@@ -250,6 +253,7 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   [`${SRC}/services/forward-event/gemini-text.ts`]: { processTextWithGemini: fakeTextExtraction },
   [`${SRC}/services/native-calendar/event-store.ts`]: real => fakeOver(real, { getMainNativeCalendar: async (userId: number) => ({ id: `main-${userId}` }) }),
   [`${SRC}/services/native-reminders/ownership.ts`]: real => fakeOver(real, { getActivePartnerSummary: fakePartnerLookup }),
+  [`${SRC}/lib/user-moderation.ts`]: real => fakeOver(real, { isIdentifierBlocked: async () => false }),
   [`${SRC}/services/voice/gemini-voice.ts`]: real => fakeOver(real, { processVoiceWithGemini: fakeVoiceExtraction }),
   [`${SRC}/services/voice/event-resolution.ts`]: real => fakeOver(real, { downloadVoiceFile: async () => Buffer.from('OggS') }),
 };
@@ -903,6 +907,27 @@ async function main() {
       { userId: 1, maxConfidence: 'high', intentCount: 2, platform: 'whatsapp' },
     ];
     assert(JSON.stringify(held) === JSON.stringify(expected), `tracked ${JSON.stringify(held)}`);
+  });
+
+  await check('whatsapp: an edit the built-in calendar refuses as a day move for a series on set weekdays (FIXED_DAYS) says how to do it, not an error code', async () => {
+    const pendingEdit = (id: string) => fakeRedis.set(`voice:pending:edit:${id}`, {
+      originalEvent: { summary: 'Swimming', start: '2026-10-20T14:00:00.000Z', end: '2026-10-20T15:00:00.000Z', calendarId: 'native:main-1', eventId: 'sw1#2026-10-20T14:00:00.000Z', recurringEventId: 'sw1' },
+      calendarId: 'native:main-1', updates: { startTime: at('2026-10-21 17:00'), endTime: at('2026-10-21 18:00') }, user: dana, transcription: 'move swimming to Wednesdays', scope: 'all',
+    });
+    const tap = (id: string) => handleWhatsAppWebhook(
+      { body: { entry: [{ changes: [{ value: { messages: [{ from: '972500000008', id: `wamid.tap.${id}`, type: 'interactive', interactive: { type: 'button_reply', button_reply: { id: `edit_confirm:${id}`, title: 'Confirm' } } }] } }] }] } },
+      { status: () => ({ json: () => {} }) }
+    );
+    waCalls = [];
+    updateReply = { success: false, error: 'FIXED_DAYS' };
+    await pendingEdit('fx1');
+    await tap('fx1');
+    assert(waCalls[waCalls.length - 1]?.text === t.voice.fixedDaysMove, JSON.stringify(waCalls));
+    updateReply = { success: false, error: 'UNKNOWN_ERROR' };
+    await pendingEdit('fx2');
+    await tap('fx2');
+    assert(waCalls[waCalls.length - 1]?.text.startsWith('❌'), `any other failure as before: ${JSON.stringify(waCalls)}`);
+    updateReply = { success: true, eventId: 'ev1' };
   });
 
   await check('forwarded text: no partner in the prompt, and "remind my husband" stays the forwarder\'s', async () => {

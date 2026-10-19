@@ -18,6 +18,7 @@ import { trackActivityAsync } from '../analytics-service';
 import { clearRecurrenceCacheForUser } from '../recurrence-cache';
 import { toUnifiedEvent } from '../calendar-provider/native-provider';
 import {
+  NativeFixedDaysError,
   NativeNotFoundError,
   NativePermissionDeniedError,
   createNativeEvent,
@@ -34,9 +35,10 @@ import { stripMovedPings } from '../native-reminders/moved-pings';
 import { resolveReminderForCreate } from '../native-reminders/resolve';
 import { getReminderSupport } from '../native-reminders/support';
 import type { ParsedEvent } from '../event-parser';
-import { fixesDays, itemZone, loadItem, wallFor, type LoadedItem } from './item-info';
+import { shiftOnWall } from '../native-calendar/recurrence';
+import { itemZone, loadItem, wallFor, type LoadedItem } from './item-info';
 import { endFollows, itemKeyOf, isTime, type CreateCommand, type DeleteCommand, type UpdateCommand } from './validate';
-import { addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween, instantToWall, localDate, wallToInstant } from './walltime';
+import { addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween, instantToWall, wallToInstant } from './walltime';
 
 export type WriteResult =
   | { status: 'ok'; key?: string }
@@ -61,6 +63,9 @@ export function scrubbed(err: unknown): Error {
 function refusal(err: unknown): WriteResult | null {
   if (err instanceof NativePermissionDeniedError) return NOT_ALLOWED;
   if (err instanceof NativeNotFoundError) return NOT_FOUND;
+  // A day move for more than this one of a rule with fixed days (the bot's BYDAY): the
+  // editor offers only "Only this one" then (series.fixedDays).
+  if (err instanceof NativeFixedDaysError) return { status: 'invalid', field: 'start' };
   return null;
 }
 
@@ -224,24 +229,19 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   const scope = effectiveScope(item, cmd.scope);
   const startsAt = allDay ? dayStart(start, itemTz) : wallToInstant(start, userTz);
   const endsAt = reminder ? startsAt : allDay ? dayEnd(end, itemTz) : wallToInstant(end, userTz);
-  // A rule with fixed days (the bot's BYDAY) keeps them wherever the series starts: moved
-  // to another day, "following" or "all" would start it on a day it doesn't fall on and
-  // lose the occurrences before. Only this one can move; a new time of day is fine.
-  if (scope !== 'single' && fixesDays(series.rrule) && localDate(startsAt, itemTz) !== localDate(occ.startsAt, itemTz)) {
-    return { status: 'invalid', field: 'start' };
-  }
   const input: UpdateNativeEventInput = { seriesCuid: series.id, instanceStartsAt: series.rrule ? cmd.key.slot : undefined, scope, actingUserId: user.id, ...text };
   let key = sameKey;
   if (timeChanged) {
     if (scope === 'all' && series.rrule) {
       // The series moves as this occurrence did (by its days, to its new time of day): a rule
       // with no BYDAY (what the editor writes) follows its start, so the weekday moves with it;
-      // one with fixed days never gets here with a day move (above). Its own start is written
-      // only when it moves, which carries what was skipped or renamed along.
+      // the store refuses a day move on one with fixed days. Its own start is written only
+      // when it moves, which carries what was skipped or renamed along; this occurrence is
+      // then where its slot went (one moved on its own comes back to the rule's day).
       const moved = seriesTimesFor(series, occ.startsAt, { startsAt, endsAt, allDay });
       if (moved.startsAt.getTime() !== series.startsAt.getTime()) {
         input.startsAt = moved.startsAt;
-        key = itemKeyOf(series.id, startsAt);
+        key = itemKeyOf(series.id, shiftOnWall(cmd.key.slot!, series.startsAt, moved.startsAt, itemTz));
       }
       input.endsAt = moved.endsAt;
     } else {
@@ -254,8 +254,10 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   try {
     const result = await updateNativeEvent(input);
     if (scope === 'following' && series.rrule) {
-      // The cut starts a new series at this occurrence, moved or not.
-      key = itemKeyOf(decodeEventId(result.canonicalEventId).seriesCuid, timeChanged ? startsAt : cmd.key.slot);
+      // The cut starts a new series at this occurrence: where the store anchors it, its slot
+      // moved as the occurrence was (one moved on its own to another day keeps the rule's).
+      const anchor = timeChanged ? seriesTimesFor({ startsAt: cmd.key.slot!, timeZone: series.timeZone }, occ.startsAt, { startsAt, endsAt, allDay }).startsAt : cmd.key.slot;
+      key = itemKeyOf(decodeEventId(result.canonicalEventId).seriesCuid, anchor);
     }
     if (result.clearedPings.length > 0) {
       // The pings still on screen say where the reminder went (best-effort, as for the bot).

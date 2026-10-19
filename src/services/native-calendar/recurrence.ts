@@ -301,6 +301,57 @@ export function latestOccurrenceBefore(
 }
 
 /**
+ * Whether a stored rule names its days (BYDAY, BYMONTHDAY, BYMONTH, as the bot's rules
+ * do): its occurrences fall on those days wherever the series starts, so moving one
+ * occurrence to another day can't take the others with it.
+ */
+export function fixesDays(rrule: string | null): boolean {
+  return rrule !== null && /(^|[;:])BY(DAY|MONTHDAY|MONTH|YEARDAY|WEEKNO)=/i.test(rrule);
+}
+
+/**
+ * Which of `slots` a series' rule yields, its exdates and overrides aside, as getTime()s.
+ * What was skipped or renamed is carried to a moved series only where the series still
+ * has an occurrence: a monthly series moved from the 30th to the 31st has no 1 May.
+ */
+export function yieldsSlots(series: NativeEvent, slots: readonly Date[]): Set<number> {
+  if (slots.length === 0 || !series.rrule) return new Set();
+  const times = slots.map((d) => d.getTime());
+  const range = { from: new Date(Math.min(...times)), to: new Date(Math.max(...times) + 1) };
+  const made = new Set(expandSeries({ ...series, exdates: [] }, range, []).map((i) => i.instanceStartsAt.getTime()));
+  return new Set(times.filter((t) => made.has(t)));
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+/** A Date's UTC fields as an RRULE date-time, YYYYMMDDTHHMMSS. */
+const ruleDateTime = (d: Date) => d.toISOString().replace(/[-:]/g, '').slice(0, 15);
+
+/**
+ * A rule's UNTIL moved as its series moved, `from` to `to` on the wall clock, so the
+ * series keeps its last occurrence (and one cut off by "this one and the ones after",
+ * moved earlier, gains none on the cut's day). A date-only UNTIL moves by the days alone;
+ * a COUNT, or no end, is left as it is.
+ */
+export function shiftUntil(rrule: string, from: Date, to: Date, timeZone: string): string {
+  const m = /(^|;)UNTIL=(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z?))?(?=;|$)/.exec(rrule);
+  if (!m) return rrule;
+  const zone = timeZone || TIMEZONE;
+  const [whole, lead, y, mo, d, h, mi, se, z] = m;
+  const shiftMs = toFloating(to, zone).getTime() - toFloating(from, zone).getTime();
+  let until: string;
+  if (h === undefined) {
+    const days = Math.round((Date.parse(`${formatInTimeZone(to, zone, 'yyyy-MM-dd')}T00:00:00Z`) - Date.parse(`${formatInTimeZone(from, zone, 'yyyy-MM-dd')}T00:00:00Z`)) / 86_400_000);
+    const day = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d) + days));
+    until = `${day.getUTCFullYear()}${pad2(day.getUTCMonth() + 1)}${pad2(day.getUTCDate())}`;
+  } else {
+    const stamp = new Date(`${y}-${mo}-${d}T${h}:${mi}:${se}Z`);
+    // A Z-suffixed UNTIL is a real instant; the store writes a floating one (truncateRruleBefore).
+    until = z ? `${ruleDateTime(shiftOnWall(stamp, from, to, zone))}Z` : ruleDateTime(new Date(stamp.getTime() + shiftMs));
+  }
+  return rrule.replace(whole, `${lead}UNTIL=${until}`);
+}
+
+/**
  * Truncate a recurring series' RRULE so it ends before a given instance.
  * Used for scope=following edits/deletes — caller updates NativeEvent.rrule
  * with the returned string.

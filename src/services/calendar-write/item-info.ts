@@ -22,7 +22,7 @@ import {
   mayDeleteReminder,
   type NativeAccess,
 } from '../native-calendar/event-store';
-import { expandSeries, type VirtualInstance } from '../native-calendar/recurrence';
+import { expandSeries, fixesDays, type VirtualInstance } from '../native-calendar/recurrence';
 import { effectiveOwnerForViewer, loadViewerContext, type ViewerContext } from '../native-reminders/ownership';
 import { getReminderSupport } from '../native-reminders/support';
 import type { ItemKey } from './validate';
@@ -169,15 +169,6 @@ export function repeatInfo(rrule: string | null): RepeatInfo | null {
   } catch {
     return null;
   }
-}
-
-/**
- * Whether a stored rule names its days (BYDAY, BYMONTHDAY, BYMONTH, as the bot's rules
- * do): its occurrences fall on those days, wherever the series starts, so moving one
- * occurrence to another day can't take the others with it.
- */
-export function fixesDays(rrule: string | null): boolean {
-  return rrule !== null && /(^|[;:])BY(DAY|MONTHDAY|MONTH|YEARDAY|WEEKNO)=/i.test(rrule);
 }
 
 /** GET /api/calendar/item: the edit info of a loaded item. */

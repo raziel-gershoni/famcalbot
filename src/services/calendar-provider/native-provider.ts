@@ -21,6 +21,7 @@ import { ReminderInfo, UserConfig } from '../../types';
 import {
   FetchRange,
   NativeEventRow,
+  NativeFixedDaysError,
   NativePermissionDeniedError,
   NativeNotFoundError,
   ReminderStateRow,
@@ -225,6 +226,13 @@ function toErrorResult<T extends { success: boolean; error?: string; errorMessag
     return {
       success: false,
       error: 'NOT_FOUND',
+      errorMessage: err.message,
+    } as unknown as T;
+  }
+  if (err instanceof NativeFixedDaysError) {
+    return {
+      success: false,
+      error: 'FIXED_DAYS',
       errorMessage: err.message,
     } as unknown as T;
   }

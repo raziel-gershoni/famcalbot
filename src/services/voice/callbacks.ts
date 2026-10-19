@@ -389,6 +389,16 @@ export async function handleEditCallback(
           parse_mode: 'HTML'
         }
       );
+    } else if (result.error === 'FIXED_DAYS') {
+      // A series on set weekdays can't move its days: only one occurrence, or a new series
+      await bot.editMessageText(
+        t.voice?.fixedDaysMove || 'To move all of them to another day, delete the series and create it again.',
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'HTML'
+        }
+      );
     } else {
       await bot.editMessageText(
         `${t.voice?.failedToUpdate || '❌ Failed to update event'}\n\n${result.errorMessage || t.voice?.unknownError || 'Unknown error'}`,

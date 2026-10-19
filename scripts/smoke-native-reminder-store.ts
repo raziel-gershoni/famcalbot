@@ -525,6 +525,103 @@ async function main() {
     assert(iso(eventRow('daily').startsAt) === iso(at('2026-10-10 09:00')) && (eventRow('daily').exdates as Date[]).map(iso).join() === iso(at('2026-10-12 09:00')), `reminder ${iso(eventRow('daily').startsAt)} ${(eventRow('daily').exdates as Date[]).map(iso).join()}`);
   });
 
+  await check('a rule with fixed days (BYDAY=MO,WE, as the bot writes): a day move for every one, or this and the ones after, is refused before anything is written, for the bot (FIXED_DAYS) and directly, events and reminders; a new time of day goes for both scopes', async () => {
+    const seed = (kind: 'EVENT' | 'REMINDER' = 'EVENT') => {
+      reset();
+      seedEvent('cls', { kind, calendarId: 'raziel', creatorUserId: 1, title: 'Class', startsAt: at('2026-10-05 10:00'), rrule: 'FREQ=WEEKLY;BYDAY=MO,WE', exdates: [at('2026-10-19 10:00')] });
+      tables.nativeEventInstance.push(
+        instance('ren', 'cls', '2026-10-21 10:00', { status: 'OVERRIDE', title: 'Special' }),
+        instance('can', 'cls', '2026-10-26 10:00', { status: 'CANCELLED' }),
+      );
+      return JSON.stringify([tables.nativeEvent, tables.nativeEventInstance]);
+    };
+    const wed = at('2026-10-14 10:00');
+    const outcome = (write: () => Promise<unknown>) => write().then(() => 'allowed', (err: Error) => err.name);
+    for (const kind of ['EVENT', 'REMINDER'] as const) {
+      let before = seed(kind);
+      // The bot: "move all of them to Thursday", said of Wednesday the 14th.
+      const bot = await nativeProvider.updateEvent(tables.user[0] as never, 'native:raziel', encodeEventId('cls', wed), { startTime: at('2026-10-15 10:00'), endTime: at(kind === 'EVENT' ? '2026-10-15 11:00' : '2026-10-15 10:00'), scope: 'all' });
+      assert(!bot.success && bot.error === 'FIXED_DAYS', `${kind} bot: ${JSON.stringify(bot)}`);
+      assert(JSON.stringify([tables.nativeEvent, tables.nativeEventInstance]) === before, `${kind}: the bot's refused move wrote`);
+      for (const scope of ['all', 'following'] as const) {
+        before = seed(kind);
+        const startsAt = scope === 'all' ? at('2026-10-06 10:00') : at('2026-10-15 10:00');
+        const result = await outcome(() => updateNativeEvent({ seriesCuid: 'cls', instanceStartsAt: wed, scope, actingUserId: 1, startsAt, endsAt: new Date(startsAt.getTime() + 3_600_000) }));
+        assert(result === 'NativeFixedDaysError', `${kind} ${scope}: ${result}`);
+        assert(JSON.stringify([tables.nativeEvent, tables.nativeEventInstance]) === before, `${kind} ${scope}: a refused move wrote`);
+      }
+      // A new time of day: every Monday and Wednesday at 11:00, the skipped Monday still skipped.
+      seed(kind);
+      const later = await nativeProvider.updateEvent(tables.user[0] as never, 'native:raziel', encodeEventId('cls', wed), { startTime: at('2026-10-14 11:00'), endTime: at(kind === 'EVENT' ? '2026-10-14 12:00' : '2026-10-14 11:00'), scope: 'all' });
+      assert(later.success && iso(eventRow('cls').startsAt) === iso(at('2026-10-05 11:00')), `${kind} a new time: ${JSON.stringify(later)} ${iso(eventRow('cls').startsAt)}`);
+      const days = startsOf('cls', '2026-10-12 00:00', '2026-10-29 00:00');
+      assert(days.join() === ['2026-10-12', '2026-10-14', '2026-10-21', '2026-10-28'].map((d) => iso(at(`${d} 11:00`))).join(), `${kind} occurrences ${days.join()}`);
+      seed(kind);
+      const split = await outcome(() => updateNativeEvent({ seriesCuid: 'cls', instanceStartsAt: wed, scope: 'following', actingUserId: 1, startsAt: at('2026-10-14 12:00'), endsAt: at('2026-10-14 13:00') }));
+      assert(split === 'allowed', `${kind} following at a new time: ${split}`);
+    }
+  });
+
+  await check('this and the ones after, from an occurrence moved on its own to another day, at a new time: the new series starts on the rule\'s day (the slot\'s), not the day it was moved to', async () => {
+    reset();
+    seedEvent('cls', { calendarId: 'raziel', creatorUserId: 1, title: 'Class', startsAt: at('2026-10-05 10:00'), rrule: 'FREQ=WEEKLY;BYDAY=MO,WE', exdates: [at('2026-10-19 10:00')] });
+    tables.nativeEventInstance.push(instance('mv', 'cls', '2026-10-14 10:00', { status: 'OVERRIDE', startsAt: at('2026-10-15 10:00'), endsAt: at('2026-10-15 11:00') }));
+    const result = await updateNativeEvent({ seriesCuid: 'cls', instanceStartsAt: at('2026-10-14 10:00'), scope: 'following', actingUserId: 1, startsAt: at('2026-10-15 11:00'), endsAt: at('2026-10-15 12:00') });
+    const child = eventRow(result.canonicalEventId);
+    assert(iso(child.startsAt) === iso(at('2026-10-14 11:00')) && iso(child.endsAt) === iso(at('2026-10-14 12:00')), `the new series ${iso(child.startsAt)} - ${iso(child.endsAt)}`);
+    const days = startsOf(child.id, '2026-10-12 00:00', '2026-10-29 00:00');
+    assert(days.join() === ['2026-10-14', '2026-10-21', '2026-10-26', '2026-10-28'].map((d) => iso(at(`${d} 11:00`))).join(), `occurrences ${days.join()}`);
+    // Moved back to its own day from there is a day move: refused.
+    reset();
+    seedEvent('cls', { calendarId: 'raziel', creatorUserId: 1, title: 'Class', startsAt: at('2026-10-05 10:00'), rrule: 'FREQ=WEEKLY;BYDAY=MO,WE' });
+    tables.nativeEventInstance.push(instance('mv', 'cls', '2026-10-14 10:00', { status: 'OVERRIDE', startsAt: at('2026-10-15 10:00'), endsAt: at('2026-10-15 11:00') }));
+    const back = await updateNativeEvent({ seriesCuid: 'cls', instanceStartsAt: at('2026-10-14 10:00'), scope: 'following', actingUserId: 1, startsAt: at('2026-10-14 10:00'), endsAt: at('2026-10-14 11:00') }).then(() => 'allowed', (err: Error) => err.name);
+    assert(back === 'NativeFixedDaysError', `back to its day: ${back}`);
+  });
+
+  await check('a moved series keeps a skipped or renamed occurrence only where its rule still has one: monthly on the 30th moved to the 31st has no 1 May, for every one and for this and the ones after', async () => {
+    const seed = () => {
+      reset();
+      seedEvent('rent', { calendarId: 'raziel', creatorUserId: 1, title: 'Rent', startsAt: at('2026-01-30 09:00'), rrule: 'FREQ=MONTHLY', exdates: [at('2026-03-30 09:00'), at('2026-06-30 09:00')] });
+      tables.nativeEventInstance.push(
+        instance('apr', 'rent', '2026-04-30 09:00', { status: 'OVERRIDE', title: 'Rent (late)' }),
+        instance('jul', 'rent', '2026-07-30 09:00', { status: 'OVERRIDE', title: 'Rent (July)' }),
+      );
+    };
+    seed();
+    await updateNativeEvent({ seriesCuid: 'rent', scope: 'all', actingUserId: 1, startsAt: at('2026-01-31 09:00'), endsAt: at('2026-01-31 10:00') });
+    assert((eventRow('rent').exdates as Date[]).map(iso).join() === iso(at('2026-03-31 09:00')), `exdates ${(eventRow('rent').exdates as Date[]).map(iso).join()}`);
+    assert(tables.nativeEventInstance.map((r) => `${r.id} ${iso(r.originalStartsAt)}`).join() === `jul ${iso(at('2026-07-31 09:00'))}`, `rows ${tables.nativeEventInstance.map((r) => `${r.id} ${iso(r.originalStartsAt)}`).join()}`);
+    const months = startsOf('rent', '2026-03-01 00:00', '2026-08-15 00:00');
+    assert(months.join() === ['2026-05-31', '2026-07-31'].map((d) => iso(at(`${d} 09:00`))).join(), `occurrences ${months.join()}`);
+    seed();
+    const split = await updateNativeEvent({ seriesCuid: 'rent', instanceStartsAt: at('2026-03-30 09:00'), scope: 'following', actingUserId: 1, startsAt: at('2026-03-31 09:00'), endsAt: at('2026-03-31 10:00') });
+    const child = eventRow(split.canonicalEventId);
+    assert((child.exdates as Date[]).map(iso).join() === iso(at('2026-03-31 09:00')), `child exdates ${(child.exdates as Date[]).map(iso).join()}`);
+    assert(tables.nativeEventInstance.map((r) => r.id).join() === 'jul' && row('jul').seriesEventId === child.id, `child rows ${tables.nativeEventInstance.map((r) => r.id).join()}`);
+  });
+
+  await check('a moved series moves its UNTIL: a split parent moved an hour earlier gains no occurrence on the cut\'s day; one "until 24 November" moved to Wednesdays keeps its last week; a COUNT is left alone', async () => {
+    reset();
+    seedEvent('walk', { calendarId: 'raziel', creatorUserId: 1, title: 'Walk', startsAt: at('2026-10-10 10:00'), rrule: 'FREQ=DAILY' });
+    const split = await updateNativeEvent({ seriesCuid: 'walk', instanceStartsAt: at('2026-10-14 10:00'), scope: 'following', actingUserId: 1, title: 'Walk 2' });
+    await updateNativeEvent({ seriesCuid: 'walk', instanceStartsAt: at('2026-10-12 10:00'), scope: 'all', actingUserId: 1, startsAt: at('2026-10-10 09:00'), endsAt: at('2026-10-10 10:00') });
+    const parent = startsOf('walk', '2026-10-12 00:00', '2026-10-16 00:00');
+    assert(parent.join() === ['2026-10-12', '2026-10-13'].map((d) => iso(at(`${d} 09:00`))).join(), `the parent: ${parent.join()}`);
+    assert(startsOf(eventRow(split.canonicalEventId).id, '2026-10-12 00:00', '2026-10-16 00:00')[0] === iso(at('2026-10-14 10:00')), 'the split');
+    reset();
+    seedEvent('swim', { calendarId: 'raziel', creatorUserId: 1, title: 'Swimming', startsAt: at('2026-10-20 17:00'), rrule: 'FREQ=WEEKLY;UNTIL=20261124' });
+    await updateNativeEvent({ seriesCuid: 'swim', scope: 'all', actingUserId: 1, startsAt: at('2026-10-21 17:00'), endsAt: at('2026-10-21 18:00') });
+    assert(eventRow('swim').rrule === 'FREQ=WEEKLY;UNTIL=20261125', `rule ${eventRow('swim').rrule}`);
+    assert(startsOf('swim', '2026-11-15 00:00', '2026-12-10 00:00').join() === ['2026-11-18', '2026-11-25'].map((d) => iso(at(`${d} 17:00`))).join(), 'the last Wednesday stays');
+    const { shiftUntil } = await import('../src/services/native-calendar/recurrence');
+    const from = at('2026-10-20 17:00');
+    const to = at('2026-10-21 16:30');
+    assert(shiftUntil('FREQ=DAILY;UNTIL=20261124T165959', from, to, IL) === 'FREQ=DAILY;UNTIL=20261125T162959', 'a floating UNTIL moves on the wall clock');
+    assert(shiftUntil('FREQ=DAILY;UNTIL=20261124T145959Z', from, to, IL) === 'FREQ=DAILY;UNTIL=20261125T142959Z', 'a UTC one too, across the DST change');
+    assert(shiftUntil('FREQ=DAILY;COUNT=5', from, to, IL) === 'FREQ=DAILY;COUNT=5', 'a COUNT stays');
+  });
+
   await check('following, by the partner: state rows from the cut go, earlier ones stay; a cancellation after the cut follows to the new time; the new series keeps kind, person and creator', async () => {
     reset();
     seedEvent('daily', { kind: 'REMINDER', calendarId: 'raziel', creatorUserId: 1, forUserId: 2, title: 'Feed the cat', startsAt: at('2026-10-10 08:00'), rrule: 'FREQ=DAILY' });

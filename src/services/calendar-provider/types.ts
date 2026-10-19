@@ -74,6 +74,7 @@ export type ProviderErrorCode =
   | 'TOKEN_EXPIRED'
   | 'NOT_FOUND'
   | 'NOT_CONNECTED' // user.calendarSource mismatch / missing credentials
+  | 'FIXED_DAYS' // built-in calendar: a day move for more than one occurrence of a series with fixed days (BYDAY)
   | 'UNKNOWN_ERROR';
 
 export interface CreateEventResult {

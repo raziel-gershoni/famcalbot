@@ -462,6 +462,20 @@ async function main() {
     }
   });
 
+  await check('a day move the built-in calendar refuses for a series on set weekdays (FIXED_DAYS) says how to do it, in the user\'s language, with no button', async () => {
+    const swim = { ...event('Swimming', '2026-10-20T14:00:00.000Z', '2026-10-20T15:00:00.000Z'), calendarId: 'native:c1', eventId: 'sw1#2026-10-20T14:00:00.000Z', recurringEventId: 'sw1' };
+    for (const [by, lang] of [[raziel, 'en'], [dana, 'ru']] as const) {
+      reset();
+      updateResult = { success: false, error: 'FIXED_DAYS' };
+      const shown = await confirm('edit', swim as UnifiedEvent, by, { startTime: at('2026-10-21T17:00:00'), endTime: at('2026-10-21T18:00:00') });
+      const t = await getBotMessages(lang);
+      assert(shown.text === t.voice.fixedDaysMove && !shown.options?.reply_markup, `${lang}: ${JSON.stringify(shown)}`);
+    }
+    const [en, he, ru] = await Promise.all(['en', 'he', 'ru'].map((l) => getBotMessages(l)));
+    assert(en.voice.fixedDaysMove === 'To move all of them to another day, delete the series and create it again.', `en: ${en.voice.fixedDaysMove}`);
+    assert(/[\u0590-\u05FF]/.test(he.voice.fixedDaysMove) && /[\u0400-\u04FF]/.test(ru.voice.fixedDaysMove), 'he and ru are translated');
+  });
+
   await check('a moved reminder\'s pings say where it went, in their reader\'s language and clock, without buttons', async () => {
     reset();
     const callMom = reminder('Call <mom> & dad', '2026-10-14T07:00:00.000Z', { eventId: 'r1' });

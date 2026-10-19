@@ -893,6 +893,7 @@
       "updating": "מעדכן...",
       "updatingEvent": "⏳ מעדכן אירוע...",
       "failedToUpdate": "❌ <b>עדכון האירוע נכשל</b>",
+      "fixedDaysMove": "כדי להעביר את כל המופעים ליום אחר, צריך למחוק את הסדרה וליצור אותה מחדש.",
       "deleteConfirmTitle": "🗑️ <b>למחוק אירוע זה?</b>",
       "deleteButton": "🗑️ מחק",
       "keepButton": "❌ השאר",

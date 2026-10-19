@@ -1345,7 +1345,9 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
       await removePendingEdit(pendingId);
       await waService.sendMessage(phone, result.success
         ? `✅ ${wa.eventUpdated || 'Event updated!'}`
-        : `❌ ${(wa.editFailed || 'Failed to update: {error}').replace('{error}', result.error || '')}`);
+        : result.error === 'FIXED_DAYS'
+          ? t.voice?.fixedDaysMove || 'To move all of them to another day, delete the series and create it again.'
+          : `❌ ${(wa.editFailed || 'Failed to update: {error}').replace('{error}', result.error || '')}`);
       // A moved reminder's pings are on Telegram, whichever chat moved it (spec §7)
       if (result.clearedPings?.length) {
         const { stripMovedPings } = await import('./native-reminders/moved-pings');
