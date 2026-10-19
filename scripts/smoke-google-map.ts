@@ -195,9 +195,11 @@ async function main() {
     assertEq(classifyGoogleError(e), 'scopes', 'class');
   });
 
-  await check('events.list: any other 403 is unknown, not a dead token', async () => {
+  await check('events.list: any other 403 is forbidden (a read-only calendar, not the organizer), not a dead token', async () => {
     const e = await listError(() => ({ status: 403, data: apiBody(403, 'forbidden', 'Forbidden') }));
-    assertEq(classifyGoogleError(e), 'unknown', 'class');
+    assertEq(classifyGoogleError(e), 'forbidden', 'class');
+    const ro = await listError(() => ({ status: 403, data: apiBody(403, 'requiredAccessLevel', 'You need to have writer access to this calendar.') }));
+    assertEq(classifyGoogleError(ro), 'forbidden', 'read-only');
   });
 
   for (const [status, reason] of [[404, 'notFound'], [410, 'deleted']] as const) {

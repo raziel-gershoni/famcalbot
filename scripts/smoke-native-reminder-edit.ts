@@ -472,6 +472,26 @@ async function main() {
     }
   });
 
+  await check('Google refusing a create, edit or delete (a read-only calendar, not the organizer: FORBIDDEN) says "You can\'t change this one" with no button; missing scopes (PERMISSION_DENIED) still offer the grant button', async () => {
+    const meeting = { ...event('Standup', '2026-10-20T07:00:00.000Z', '2026-10-20T07:30:00.000Z'), calendarId: 'primary', eventId: 'g7' } as UnifiedEvent;
+    const t = await getBotMessages('en');
+    for (const kind of ['create', 'edit', 'delete'] as const) {
+      reset();
+      createResult = { success: false, error: 'FORBIDDEN' };
+      updateResult = { success: false, error: 'FORBIDDEN' };
+      deleteResult = { success: false, error: 'FORBIDDEN' };
+      const refused = await confirm(kind, meeting, googleUser, { title: 'Standup 2' });
+      assert(refused.text === t.nativeReminders.permissionDenied && !refused.options?.reply_markup, `${kind} FORBIDDEN: ${JSON.stringify(refused)}`);
+      reset();
+      createResult = { success: false, error: 'PERMISSION_DENIED' };
+      updateResult = { success: false, error: 'PERMISSION_DENIED' };
+      deleteResult = { success: false, error: 'PERMISSION_DENIED' };
+      const grant = await confirm(kind, meeting, googleUser, { title: 'Standup 2' });
+      const button = JSON.stringify(grant.options?.reply_markup ?? '');
+      assert(grant.text.startsWith(t.voice.permissionRequired) && button.includes('scope=write'), `${kind} PERMISSION_DENIED: ${JSON.stringify(grant)}`);
+    }
+  });
+
   await check('a day move the built-in calendar refuses for a series on set weekdays (FIXED_DAYS) says how to do it, in the user\'s language, with no button', async () => {
     const swim = { ...event('Swimming', '2026-10-20T14:00:00.000Z', '2026-10-20T15:00:00.000Z'), calendarId: 'native:c1', eventId: 'sw1#2026-10-20T14:00:00.000Z', recurringEventId: 'sw1' };
     for (const [by, lang] of [[raziel, 'en'], [dana, 'ru']] as const) {
