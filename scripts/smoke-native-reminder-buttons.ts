@@ -115,33 +115,38 @@ const eventRow = (id: string) => world.events.find(e => e.id === id)!;
 const pick = (row: Row | undefined, select?: Record<string, boolean>) =>
   !row ? null : !select ? row : Object.fromEntries(Object.keys(select).filter(k => select[k]).map(k => [k, row[k]]));
 /** A `where` of plain values, where null means "is null". */
-const matches = (row: Row, where: Row) => Object.entries(where).every(([k, v]) => (v === null ? row[k] == null : row[k] === v));
+const matches = (row: Row, where: Row) => Object.entries(where).every(([k, v]) =>
+  v === null ? row[k] == null : v instanceof Date ? (row[k] as Date | null)?.getTime() === v.getTime() : row[k] === v);
 
 let dbDown = false;
 type FindUnique = { where: { id: unknown }; select?: Record<string, boolean> };
-type Include = { seriesEvent: { include: { calendar: { select: Record<string, boolean> }; creator: { select: Record<string, boolean> }; instances: boolean } } };
+type SeriesInclude = { calendar: { select: Record<string, boolean> }; creator: { select: Record<string, boolean> }; instances: boolean };
 const fakePrisma = {
   nativeReminderState: {
-    findUnique: async ({ where, include }: { where: { id: string }; include: Include }) => {
+    findUnique: async ({ where, select }: { where: { id: string }; select: Record<string, boolean> }) => {
       if (dbDown) throw new Error('Can\'t reach database server');
-      const state = world.states.find(s => s.id === where.id);
-      if (!state) return null;
-      const series = eventRow(state.seriesEventId as string);
-      const inc = include.seriesEvent.include;
-      return {
-        ...state,
-        seriesEvent: {
-          ...series,
-          calendar: pick(world.calendars.find(c => c.id === series.calendarId), inc.calendar.select),
-          creator: pick(user(series.creatorUserId as number), inc.creator.select),
-          instances: world.instances.filter(i => i.seriesEventId === series.id),
-        },
-      };
+      return pick(world.states.find(s => s.id === where.id), select);
+    },
+    createMany: async ({ data }: { data: Row[] }) => {
+      for (const row of data) if (!world.states.some(s => matches(s, row))) world.states.push({ id: `new-${world.states.length}`, doneAt: null, doneByUserId: null, snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, ...row });
+      return { count: data.length };
     },
     updateMany: async ({ where, data }: { where: Row; data: Row }) => {
       const rows = world.states.filter(s => matches(s, where));
       for (const row of rows) Object.assign(row, data);
       return { count: rows.length };
+    },
+  },
+  nativeEvent: {
+    findUnique: async ({ where, include }: { where: { id: string }; include: SeriesInclude }) => {
+      const series = world.events.find(e => e.id === where.id);
+      if (!series) return null;
+      return {
+        ...series,
+        calendar: pick(world.calendars.find(c => c.id === series.calendarId), include.calendar.select),
+        creator: pick(user(series.creatorUserId as number), include.creator.select),
+        instances: world.instances.filter(i => i.seriesEventId === series.id),
+      };
     },
   },
   pairing: {
@@ -364,7 +369,7 @@ async function main() {
     assert(notices[0].chatId === tg(RAZIEL) && notices[0].silent && notices[0].html, `notice ${show(notices[0])}`);
     const notice = await copy('he', 'doneBy', { name: 'Dana', title: 'Buy milk' });
     assert(notices[0].text === notice, `notice text ${show(notices[0].text)}, want ${show(notice)}`);
-    assert(show(activity) === show([{ userId: DANA, action: 'native_reminder_done', meta: { series_event_id: 'ev-milk' } }]), `activity ${show(activity)}`);
+    assert(show(activity) === show([{ userId: DANA, action: 'native_reminder_done', meta: { series_event_id: 'ev-milk', source: 'ping' } }]), `activity ${show(activity)}`);
   });
 
   await check('Done twice: the second tap says "already done" and nobody is told again', async () => {
@@ -506,7 +511,7 @@ async function main() {
     assert(stateRow(MILK).doneAt === null, 'marked done');
     assertEditedTo(tg(DANA), MILK_MSG, '💤 Buy milk · until 10:15');
     assert(shouldRunPass(new Date(NOW.getTime() + MIN)), 'gate still closed after the snooze');
-    assert(show(activity) === show([{ userId: DANA, action: 'native_reminder_snoozed', meta: { snooze: 's15' } }]), `activity ${show(activity)}`);
+    assert(show(activity) === show([{ userId: DANA, action: 'native_reminder_snoozed', meta: { snooze: 's15', source: 'ping' } }]), `activity ${show(activity)}`);
   });
 
   await check('snooze 1 hour: now + 60', async () => {

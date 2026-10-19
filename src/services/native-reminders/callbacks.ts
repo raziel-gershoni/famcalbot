@@ -1,4 +1,6 @@
-// ✅ Done and 💤 Snooze on a native reminder ping (spec §5).
+// ✅ Done and 💤 Snooze on a native reminder ping (spec §5). The rules (who may, what
+// still applies, the writes) are actions.ts's; this file is the Telegram side: parsing the
+// tap, the toast and the edit of the tapped message.
 //
 // The buttons never expire. A tap can come days later, after the reminder was
 // moved, deleted or marked done, or after the pair unlinked, so every tap reads
@@ -7,32 +9,20 @@
 // webhook with a 500, and Telegram would deliver the same tap again and again.
 
 import type TelegramBot from 'node-telegram-bot-api';
-import { formatInTimeZone } from 'date-fns-tz';
 import { prisma } from '../../utils/prisma';
 import { getBot } from '../telegram/bot';
 import { getUserByTelegramId } from '../user-service';
 import { getBotMessage } from '../../lib/bot-messages';
-import { resolveUserTimezone } from '../../lib/timezone';
 import { captureError } from '../../lib/error-capture';
-import { describeDeliveryError, isUnreachableError } from '../../lib/delivery-errors';
-import { markUserUnreachable } from '../../lib/user-reachability';
-import { trackActivityAsync } from '../analytics-service';
 import { escapeHtml } from '../../utils/html';
-import { expandSeries } from '../native-calendar/recurrence';
-import { invalidateDueGate } from './due-gate';
-import { tomorrowMorning } from './due';
-import { effectiveOwnerId, getActivePartnerSummary } from './ownership';
 import { stripPingButtons } from './ping';
-import type { UserConfig } from '../../types';
+import { applyReminderAction, loadLiveOccurrence, snoozeLabel, type ReminderAction } from './actions';
 
 type NativeReminderOp = 'd' | 's15' | 's60' | 'st';
-type SnoozeOp = Exclude<NativeReminderOp, 'd'>;
 
 // nr:<op>:<state row id>, as ping.ts builds it; the webhook routes on the same `nr:`.
 // Telegram caps callback data at 64 bytes, and `nr:s15:` leaves 57.
 const CALLBACK_DATA = /^nr:(d|s15|s60|st):([A-Za-z0-9_-]{1,57})$/;
-
-const SNOOZE_MS = { s15: 15 * 60 * 1000, s60: 60 * 60 * 1000 } as const;
 
 export function parseNativeReminderCallback(data: string): { op: NativeReminderOp; stateId: string } | null {
   const match = CALLBACK_DATA.exec(data);
@@ -61,6 +51,10 @@ export async function handleNativeReminderCallback(
 type Say = (key: string, params?: Record<string, string>) => Promise<string>;
 type PingMessage = { chatId: number; messageId: number };
 
+const ACTION_OF: Record<NativeReminderOp, ReminderAction> = {
+  d: 'done', s15: 'snooze15', s60: 'snooze60', st: 'snoozeTomorrow',
+};
+
 /** What a tap does. Returns the toast, or undefined when the edited ping says it all. */
 async function handleTap(query: TelegramBot.CallbackQuery, now: Date): Promise<string | undefined> {
   const parsed = parseNativeReminderCallback(query.data ?? '');
@@ -73,135 +67,49 @@ async function handleTap(query: TelegramBot.CallbackQuery, now: Date): Promise<s
   const language = tapper?.language || 'en';
   const say: Say = (key, params) => getBotMessage(language, `nativeReminders.${key}`, params);
 
-  const state = await loadTap(parsed.stateId);
-  const title = state && liveOccurrenceTitle(state);
-  if (!state || !title) {
+  // A button names a state row; the shared rules work on the occurrence's key.
+  const state = await prisma.nativeReminderState.findUnique({
+    where: { id: parsed.stateId },
+    select: { seriesEventId: true, originalStartsAt: true },
+  });
+  if (!state) {
     await removeButtons(ping);
     return say('changed');
   }
-
-  // The effective owner or the creator may tap (spec §2).
-  const series = state.seriesEvent;
-  if (!tapper) return say('notYours');
-  const creatorPartner = await getActivePartnerSummary(series.creatorUserId, series.creator.pairingId);
-  if (tapper.id !== effectiveOwnerId(series, creatorPartner) && tapper.id !== series.creatorUserId) {
-    // It was theirs when it pinged them. Since then the pair unlinked, or they moved
-    // to Google, and it is the creator's again.
-    if (tapper.id === series.forUserId) {
+  if (!tapper) {
+    if (!(await loadLiveOccurrence(state))) {
       await removeButtons(ping);
       return say('changed');
     }
     return say('notYours');
   }
 
-  return parsed.op === 'd'
-    ? markDone(state, title, tapper, ping, say, now)
-    : snooze(state, title, parsed.op, tapper, ping, say, now);
-}
-
-/** The state row behind a button, with what re-validation and the replies need. */
-function loadTap(stateId: string) {
-  return prisma.nativeReminderState.findUnique({
-    where: { id: stateId },
-    include: {
-      seriesEvent: {
-        include: {
-          calendar: { select: { isDeleted: true } },
-          creator: {
-            select: {
-              id: true, name: true, language: true, pairingId: true,
-              telegramId: true, suspendedAt: true, unreachableSince: true,
-            },
-          },
-          instances: true,
-        },
-      },
-    },
-  });
-}
-
-type TapState = NonNullable<Awaited<ReturnType<typeof loadTap>>>;
-
-/**
- * The title of the occurrence a state row names, or null when its buttons no longer
- * apply: the series was deleted or is no longer a reminder, its calendar was deleted,
- * or the occurrence was cancelled, exdated or cut off by a "following" edit. A time
- * change deletes the row itself (the event store's re-arm). The occurrence is looked
- * up by its key alone, so one moved to another time is still found.
- */
-function liveOccurrenceTitle(state: TapState): string | null {
-  const series = state.seriesEvent;
-  if (series.isDeleted || series.calendar.isDeleted || series.kind !== 'REMINDER') return null;
-  const key = state.originalStartsAt.getTime();
-  const override = series.instances.find(o => o.originalStartsAt.getTime() === key);
-  if (override?.status === 'CANCELLED') return null;
-  const slot = expandSeries(series, { from: state.originalStartsAt, to: new Date(key + 1) });
-  if (!slot.some(occurrence => occurrence.instanceStartsAt.getTime() === key)) return null;
-  return override?.title ?? series.title;
-}
-
-/** ✅ Done, once. When the owner is not the creator, the creator hears about it. */
-async function markDone(
-  state: TapState, title: string, tapper: UserConfig, ping: PingMessage, say: Say, now: Date
-): Promise<string | undefined> {
-  const { count } = await prisma.nativeReminderState.updateMany({
-    where: { id: state.id, doneAt: null },
-    data: { doneAt: now, doneByUserId: tapper.id },
-  });
-  await editPing(ping, await say('done', { title: escapeHtml(title) }));
-  if (count === 0) return say('alreadyDone');
-
-  trackActivityAsync(tapper.id, 'native_reminder_done', { series_event_id: state.seriesEventId });
-  if (tapper.id !== state.seriesEvent.creatorUserId) await notifyCreator(state.seriesEvent.creator, tapper, title);
-  return undefined;
-}
-
-/** 💤 Snooze for 15 minutes, an hour, or until tomorrow 09:00 on the tapper's clock (R6). */
-async function snooze(
-  state: TapState, title: string, op: SnoozeOp, tapper: UserConfig, ping: PingMessage, say: Say, now: Date
-): Promise<string | undefined> {
-  const timeZone = await resolveUserTimezone(tapper);
-  const until = op === 'st' ? tomorrowMorning(now, timeZone) : new Date(now.getTime() + SNOOZE_MS[op]);
-  // lastPingedAt stays as it is: it is now before snoozedUntil, so the pass pings again then.
-  // pingAttempts restarts, so the re-ping the user asked for gets its full retry budget.
-  const { count } = await prisma.nativeReminderState.updateMany({
-    where: { id: state.id, doneAt: null },
-    data: { snoozedUntil: until, pingAttempts: 0 },
-  });
-  if (count === 0) {
-    await editPing(ping, await say('done', { title: escapeHtml(title) }));
-    return say('alreadyDone');
-  }
-
-  invalidateDueGate();
-  const time = snoozeLabel(until, op, tapper.language || 'en', timeZone);
-  await editPing(ping, await say('snoozedUntil', { title: escapeHtml(title), time }));
-  trackActivityAsync(tapper.id, 'native_reminder_snoozed', { snooze: op });
-  return undefined;
-}
-
-/** "15:40", or "Thu 09:00" for tomorrow morning, on the tapper's clock. */
-function snoozeLabel(until: Date, op: SnoozeOp, language: string, timeZone: string): string {
-  const time = formatInTimeZone(until, timeZone, 'HH:mm');
-  if (op !== 'st') return time;
-  const locale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
-  return `${until.toLocaleDateString(locale, { weekday: 'short', timeZone })} ${time}`;
-}
-
-/** The creator's quiet "✅ Done by Dana: Buy milk". Telegram only (R12). */
-async function notifyCreator(
-  creator: TapState['seriesEvent']['creator'], doer: UserConfig, title: string
-): Promise<void> {
-  if (!creator.telegramId || creator.suspendedAt || creator.unreachableSince) return;
-  const text = await getBotMessage(creator.language || 'en', 'nativeReminders.doneBy', {
-    name: escapeHtml(doer.name),
-    title: escapeHtml(title),
-  });
-  try {
-    await getBot().sendMessage(Number(creator.telegramId), text, { parse_mode: 'HTML', disable_notification: true });
-  } catch (error) {
-    if (isUnreachableError(error)) await markUserUnreachable(creator.id, describeDeliveryError(error));
-    else captureError(error, 'native-reminder-done-notice', { user_id: creator.id }, 'warning');
+  const op = parsed.op;
+  const result = await applyReminderAction(tapper, state, ACTION_OF[op], now, 'ping');
+  switch (result.status) {
+    case 'changed':
+      await removeButtons(ping);
+      return say('changed');
+    case 'not_yours':
+      // It was theirs when it pinged them; since then it is the creator's again.
+      if (result.wasTarget) {
+        await removeButtons(ping);
+        return say('changed');
+      }
+      return say('notYours');
+    case 'already_done':
+      await editPing(ping, await say('done', { title: escapeHtml(result.title) }));
+      return say('alreadyDone');
+    case 'not_done':
+      return undefined; // a ping button never undoes
+    case 'ok':
+      if (op === 'd') {
+        await editPing(ping, await say('done', { title: escapeHtml(result.title) }));
+      } else if (result.until && result.timeZone) {
+        const time = snoozeLabel(result.until, ACTION_OF[op] as 'snooze15', language, result.timeZone);
+        await editPing(ping, await say('snoozedUntil', { title: escapeHtml(result.title), time }));
+      }
+      return undefined;
   }
 }
 

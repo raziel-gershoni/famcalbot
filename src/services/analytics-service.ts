@@ -42,6 +42,7 @@ export type ActivityAction =
   | 'native_reminder_pinged'
   | 'native_reminder_done'
   | 'native_reminder_snoozed'
+  | 'native_reminder_undone'
   // Settings & config
   | 'settings_changed'
   | 'calendar_connected'
@@ -111,7 +112,7 @@ export interface ActivityMetadata {
   limit?: number;
 
   // Feedback
-  source?: 'telegram' | 'dashboard';
+  source?: 'telegram' | 'dashboard' | 'ping' | 'app';
   text_length?: number;
 
   // Admin actions
