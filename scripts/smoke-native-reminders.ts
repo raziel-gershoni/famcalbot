@@ -613,6 +613,22 @@ async function main() {
     assert(row.pingMessageId === sent[1].messageId && row.pingAttempts === 2, show(row));
   });
 
+  await check('pass: a snooze on a never-pinged occurrence (an in-app row with lastPingedAt null) pings at snoozedUntil, not before', async () => {
+    reset();
+    const r = reminder({ startsAt: today('10:00') });
+    // 💤 1 hour in the home at 10:03, before any ping: the row is made by the snooze.
+    const row = state({ seriesEventId: r.id, originalStartsAt: today('10:00'), snoozedUntil: today('11:03') });
+    await pass(today('10:05'));
+    await pass(today('11:02'));
+    assert(sent.length === 0, `early: ${sentLines()}`);
+    await pass(today('11:03'));
+    assert(sent.length === 1 && sent[0].chatId === '1001', sentLines());
+    assert(callbacks(sent[0].keyboard).every((c) => c.endsWith(`:${row.id}`)), 'buttons on the same row');
+    assertTime(row.lastPingedAt as Date, today('11:03'), 'claimed');
+    await pass(today('11:04'));
+    assert(sent.length === 1, `once: ${sentLines()}`);
+  });
+
   await check('pass: a ping snoozed days after its time still comes back, though the occurrence is long past', async () => {
     reset();
     const r = reminder({ startsAt: at('2026-10-11 10:00') });
