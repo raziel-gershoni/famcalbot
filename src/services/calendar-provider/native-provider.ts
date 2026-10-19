@@ -5,8 +5,7 @@
 // provider for everyone. PR 4 will branch on user.calendarSource.
 
 import type { NativeEvent } from '@prisma/client';
-import { format } from 'date-fns';
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
+import { formatInTimeZone } from 'date-fns-tz';
 import {
   CalendarProvider,
   CreateEventInput,
@@ -44,17 +43,6 @@ import { TIMEZONE } from '../../config/constants';
 import { addDaysToDate } from '../../utils/day-events';
 
 const PROVIDER_NAME = 'native' as const;
-
-function ownDayBoundaries(daysOffset: number, tz: string): { from: Date; to: Date } {
-  const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
-  const target = new Date(nowLocal);
-  target.setDate(target.getDate() + daysOffset);
-  const dateStr = format(target, 'yyyy-MM-dd');
-  return {
-    from: fromZonedTime(`${dateStr} 00:00:00`, tz),
-    to: fromZonedTime(`${dateStr} 23:59:59.999`, tz),
-  };
-}
 
 /**
  * Translate stored NativeCalendar + VirtualInstance into the UnifiedEvent shape
@@ -254,22 +242,6 @@ function mapScope(s?: 'single' | 'all' | 'following'): UpdateScope {
 
 export const nativeProvider: CalendarProvider = {
   name: PROVIDER_NAME,
-
-  async fetchTodayEvents(user: UserConfig, calendarIds: string[], timezone?: string): Promise<UnifiedEvent[]> {
-    const tz = timezone || TIMEZONE;
-    const cuids = filterCalendarCuids(calendarIds);
-    if (cuids.length === 0) return [];
-    const range = ownDayBoundaries(0, tz);
-    return fetchForViewer(user, cuids, range);
-  },
-
-  async fetchTomorrowEvents(user: UserConfig, calendarIds: string[], timezone?: string): Promise<UnifiedEvent[]> {
-    const tz = timezone || TIMEZONE;
-    const cuids = filterCalendarCuids(calendarIds);
-    if (cuids.length === 0) return [];
-    const range = ownDayBoundaries(1, tz);
-    return fetchForViewer(user, cuids, range);
-  },
 
   async fetchEventsInRange(
     user: UserConfig,

@@ -104,8 +104,6 @@ export interface DeleteEventResult {
 export interface CalendarProvider {
   readonly name: CalendarProviderName;
 
-  fetchTodayEvents(user: UserConfig, calendarIds: string[], timezone?: string): Promise<UnifiedEvent[]>;
-  fetchTomorrowEvents(user: UserConfig, calendarIds: string[], timezone?: string): Promise<UnifiedEvent[]>;
   fetchEventsInRange(user: UserConfig, calendarIds: string[], startDate: Date, endDate: Date): Promise<UnifiedEvent[]>;
 
   listCalendars(user: UserConfig): Promise<UnifiedCalendar[]>;

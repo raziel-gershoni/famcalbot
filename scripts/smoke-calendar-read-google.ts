@@ -9,8 +9,8 @@
 // each item, joins the calendar legend from the user's choices, and turns every outcome
 // into one status for the half.
 //
-// calendar.ts's fetchTodayEvents (today's summary fetch) runs against the same fake list,
-// so the reader's events are checked against what the summaries read now.
+// The reader's events are held to what calendar.ts's fetchTodayEvents (the summaries'
+// Google read before the shared reader) made of the same list.
 //
 // Faked: @googleapis/calendar (its OAuth2 client, calendars.get and events.list), Redis
 // (in memory, expiring on a stepped clock), error capture and the admin notifier
@@ -32,7 +32,7 @@ import type { calendar_v3 } from '@googleapis/calendar';
 import { nextDate, startOfLocalDay } from '../src/utils/day-events';
 import { toRangeDays } from '../src/services/calendar-read/dto';
 import { REDIS_KEYS } from '../src/config/redis-keys';
-import type { CalendarAssignment, CalendarEvent, UserConfig } from '../src/types';
+import type { CalendarAssignment, UserConfig } from '../src/types';
 import type { GoogleReadOptions, GoogleReadResult } from '../src/services/calendar-read/google';
 import type { CalendarRef } from '../src/services/calendar-read/types';
 
@@ -408,11 +408,20 @@ function statusOf(r: GoogleReadResult): Record<string, unknown> {
 const OK = { status: 'ok', goneIds: [], partial: null, stale: false };
 const ids = (r: GoogleReadResult) => r.items.map(i => i.event.eventId);
 const listedCalendars = () => google.calls.map(c => c.params.calendarId);
-const withoutReminders = (e: CalendarEvent) => {
-  const copy = { ...e };
-  delete copy.reminders;
-  return copy;
-};
+/**
+ * What calendar.ts's fetchTodayEvents made of the day's list in New York, plus provider,
+ * minus reminders: taken from it before it was removed.
+ */
+const DAY_READ = [
+  { summary: "Mom's birthday", start: '2026-10-14', end: '2026-10-15', calendarName: TITLES[AVI], calendarId: AVI, eventType: 'birthday', eventId: 'mom-birthday', provider: 'google' },
+  { summary: 'School run', start: '2026-10-14T07:30:00-04:00', end: '2026-10-14T08:00:00-04:00', description: 'Bring the permission slip', location: 'Oak Street School', calendarName: TITLES[DANA], calendarId: DANA, eventId: 'school-run', provider: 'google' },
+  { summary: 'Dentist', start: '2026-10-14T09:00:00-04:00', end: '2026-10-14T10:00:00-04:00', calendarName: TITLES[DANA], calendarId: DANA, eventId: 'dentist', provider: 'google' },
+  { summary: 'Standup', start: '2026-10-14T09:00:00-04:00', end: '2026-10-14T09:15:00-04:00', calendarName: TITLES[AVI], calendarId: AVI, eventType: 'default', eventId: 'standup', provider: 'google' },
+  { summary: 'No title', start: '2026-10-14T12:00:00-04:00', end: '2026-10-14T12:30:00-04:00', calendarName: TITLES[DANA], calendarId: DANA, eventId: 'untitled', provider: 'google' },
+  { summary: 'Pickup', start: '2026-10-14T15:00:00-04:00', end: '2026-10-14T15:30:00-04:00', calendarName: TITLES[KIDS], calendarId: KIDS, eventId: 'pickup', provider: 'google' },
+  { summary: 'Gym', start: '2026-10-14T18:00:00-04:00', end: '2026-10-14T19:00:00-04:00', calendarName: TITLES[DANA], calendarId: DANA, recurringEventId: 'gym', eventId: 'gym_20261014T220000Z', provider: 'google' },
+  { summary: 'Flight to Boston', start: '2026-10-14T21:00:00-04:00', end: '2026-10-15T01:30:00-04:00', calendarName: TITLES[AVI], calendarId: AVI, eventType: 'fromGmail', eventId: 'flight', provider: 'google' },
+];
 
 async function main() {
   // A read that never settles would end the process with nothing printed; fail loudly instead.
@@ -494,14 +503,10 @@ async function main() {
 
   // ---- Mapping ----
 
-  await check("mapping: the reader's events equal today's fetchTodayEvents on the same list, plus provider, minus reminders", async () => {
-    const today = await calendar.fetchTodayEvents('refresh-7', [DANA, AVI, KIDS], NY);
-    assert(today.length === 8 && today.some(e => e.reminders), 'the fixture did not reach fetchTodayEvents');
-    assert(google.log.includes(`get:${DANA}`), "today's fetch did not ask calendars.get");
-    google.log = [];
+  await check("mapping: the reader's events are what the summaries' old day read (calendar.ts fetchTodayEvents) made of the same list, plus provider, minus reminders", async () => {
     const r = await read();
     assertSame(statusOf(r), OK, 'status');
-    assertSame(r.items.map(i => i.event), today.map(e => ({ ...withoutReminders(e), provider: 'google' })), 'events');
+    assertSame(r.items.map(i => i.event), DAY_READ, 'events');
     assert(!google.log.some(entry => entry.startsWith('get:')), 'the reader asked calendars.get');
   });
 

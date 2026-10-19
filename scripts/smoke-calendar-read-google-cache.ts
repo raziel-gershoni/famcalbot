@@ -303,8 +303,6 @@ const stubs: Record<string, object> = {
     createEvent: fakeWrite('create'),
     updateEvent: fakeWrite('update'),
     deleteEvent: fakeWrite('delete'),
-    fetchTodayEvents: notInThisSmoke('fetchTodayEvents'),
-    fetchTomorrowEvents: notInThisSmoke('fetchTomorrowEvents'),
     fetchEventsInRange: notInThisSmoke('fetchEventsInRange'),
     listUserCalendars: notInThisSmoke('listUserCalendars'),
   },

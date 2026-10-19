@@ -5,17 +5,16 @@
 // The errors are real: the installed Google client (@googleapis/calendar with its own
 // google-auth-library and gaxios) runs for real, and only its HTTP adapter is replaced,
 // so every error below is what that library throws for that answer from Google. The
-// parity check runs calendar.ts's fetchTodayEvents (today's mapper) against the same
-// fake answers. No network: a request to anything but the fake fails the smoke.
+// mapping is held to what calendar.ts's day read (the summaries' Google read before the
+// shared reader) made of the same items. No network: a request to anything but the fake
+// fails the smoke.
 //
 // Run under both clocks; the output must not depend on the server's timezone:
 //   TZ=UTC npx tsx scripts/smoke-google-map.ts
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-google-map.ts
 
-import path from 'path';
 import { createRequire } from 'module';
 import type { calendar_v3 } from '@googleapis/calendar';
-import type { CalendarEvent } from '../src/types';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -81,33 +80,12 @@ function installFakeGoogle(): void {
   };
 }
 
-/** The calendar id and resource of a Calendar API URL ('get' for calendars.get, 'events' for events.list). */
-function apiTarget(url: string): { calendarId: string; resource: 'get' | 'events' } {
-  const m = new URL(url).pathname.match(/^\/calendar\/v3\/calendars\/([^/]+)(\/events)?$/);
-  if (!m) throw new Error(`unexpected URL ${url}`);
-  return { calendarId: decodeURIComponent(m[1]), resource: m[2] ? 'events' : 'get' };
-}
-
 async function main() {
   installFakeGoogle();
-
-  // calendar.ts loads Sentry through error-capture; the stub goes into require's cache first.
-  const Module = (await import('module')).default as unknown as {
-    new (id: string): { filename: string; loaded: boolean; exports: unknown };
-    _cache: Record<string, unknown>;
-  };
-  const stub = (file: string, exports: Record<string, unknown>) => {
-    const filename = path.resolve(__dirname, '../src', file);
-    const mod = new Module(filename);
-    Object.assign(mod, { filename, loaded: true, exports });
-    Module._cache[filename] = mod;
-  };
-  stub('lib/error-capture.ts', { captureError: () => {} });
 
   const { auth, calendar: googleCalendar } = await import('@googleapis/calendar');
   const { classifyGoogleError, keepGoogleEvent, mapGoogleEvent } = await import('../src/services/calendar-read/google-map');
   const { htmlToText } = await import('../src/utils/html');
-  const { fetchTodayEvents } = await import('../src/services/calendar');
 
   const newAuth = () => {
     const client = new auth.OAuth2('fake-client-id', 'fake-client-secret');
@@ -428,25 +406,31 @@ async function main() {
   /** Sorted keys, so the comparison is about values only. */
   const canon = (o: object) => JSON.stringify(o, Object.keys(o).sort());
 
-  await check('mapGoogleEvent: event equals today\'s day mapper (calendar.ts fetchTodayEvents) plus provider, minus reminders', async () => {
-    route = (opts) => {
-      const url = String(opts.url);
-      if (url === TOKEN_URL) return TOKEN_OK;
-      const { calendarId, resource } = apiTarget(url);
-      const list = LISTS[calendarId];
-      if (!list) return { status: 404, data: apiBody(404, 'notFound', 'Not Found') };
-      return resource === 'get' ? { status: 200, data: { id: calendarId, summary: list.summary } } : { status: 200, data: { items: list.items } };
-    };
-    const today: CalendarEvent[] = await fetchTodayEvents('fake-refresh-token', [FAMILY, DANA], 'Asia/Jerusalem');
-    assertEq(today.length, 6, 'events from today\'s mapper');
-    for (const old of today) {
-      const raw = LISTS[old.calendarId].items.find((r) => r.id === old.eventId);
-      assert(raw !== undefined, `no fixture for ${old.eventId}`);
-      const want: Record<string, unknown> = { ...old, provider: 'google' };
-      delete want.reminders;
-      const got = mapGoogleEvent(raw, old.calendarId, calendarNameOf(old.calendarId)).event;
-      assert(canon(got) === canon(want), `${old.eventId}\n     got  ${canon(got)}\n     want ${canon(want)}`);
+  /**
+   * What calendar.ts's day read (fetchTodayEvents, in Israel) made of each item, plus
+   * provider, minus reminders: taken from it before it was removed.
+   */
+  const DAY_READ: Record<string, Record<string, string>> = {
+    'ev-dentist': { calendarId: FAMILY, calendarName: 'Family', description: 'Bring the forms', end: '2026-10-16T10:00:00+03:00', eventId: 'ev-dentist', location: 'Haifa', provider: 'google', start: '2026-10-16T09:00:00+03:00', summary: 'Dentist' },
+    'ev-trip': { calendarId: FAMILY, calendarName: 'Family', end: '2026-10-19', eventId: 'ev-trip', provider: 'google', start: '2026-10-16', summary: 'Trip' },
+    'ev-untitled': { calendarId: FAMILY, calendarName: 'Family', end: '2026-10-16T12:30:00+03:00', eventId: 'ev-untitled', provider: 'google', start: '2026-10-16T12:00:00+03:00', summary: 'No title' },
+    'ev-swim_20261016T150000Z': { calendarId: FAMILY, calendarName: 'Family', end: '2026-10-16T19:30:00+03:00', eventId: 'ev-swim_20261016T150000Z', provider: 'google', recurringEventId: 'ev-swim', start: '2026-10-16T18:30:00+03:00', summary: 'Swim' },
+    'ev-bday': { calendarId: DANA, calendarName: DANA, end: '2026-10-17', eventId: 'ev-bday', eventType: 'birthday', provider: 'google', recurringEventId: 'ev-bday-series', start: '2026-10-16', summary: 'Noa' },
+    'ev-holiday': { calendarId: DANA, calendarName: DANA, end: '2026-10-17', eventId: 'ev-holiday', eventType: 'default', provider: 'google', start: '2026-10-16', summary: 'Sukkot' },
+  };
+
+  await check('mapGoogleEvent: event is what the summaries\' old day read (calendar.ts fetchTodayEvents) made of the same items, plus provider, minus reminders', () => {
+    const mapped: string[] = [];
+    for (const [calendarId, list] of Object.entries(LISTS)) {
+      for (const raw of list.items) {
+        const want = DAY_READ[raw.id ?? ''];
+        assert(want !== undefined, `nothing pinned for ${raw.id}`);
+        const got = mapGoogleEvent(raw, calendarId, calendarNameOf(calendarId)).event;
+        assert(canon(got) === canon(want), `${raw.id}\n     got  ${canon(got)}\n     want ${canon(want)}`);
+        mapped.push(raw.id ?? '');
+      }
     }
+    assertEq(mapped.sort(), Object.keys(DAY_READ).sort(), 'the items mapped');
   });
 
   await check('mapGoogleEvent: the reader fields', () => {

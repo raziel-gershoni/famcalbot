@@ -2,12 +2,12 @@
 // and its zone table, src/config/week-start-zones.ts. This is the locale part of the
 // spec's pure reader smoke.
 //
-// Today the bot's weeks have two shapes: Jewish culture runs Sunday to Saturday,
-// everyone else Monday to Sunday (week-lookahead.ts:80-99 and :435-451). The new rule
-// takes the week start from the country of the user's timezone, then the language, so a
-// week can also start on Saturday (Egypt, Iran, ...) or Friday (the Maldives). The
-// boundary functions take any week start and must give today's days for 0 and 1; the
-// reference copies of today's functions below are what they are held to.
+// The bot's weeks used to have two shapes: Jewish culture ran Sunday to Saturday,
+// everyone else Monday to Sunday (week-lookahead.ts:80-99 and :435-451 at main@858886c).
+// The rule takes the week start from the country of the user's timezone, then the
+// language, so a week can also start on Saturday (Egypt, Iran, ...) or Friday (the
+// Maldives). The boundary functions take any week start and must give the old days for 0
+// and 1; the reference copies of the old functions below are what they are held to.
 //
 // Pure: no database, Redis, network or AI. Every input is a yyyy-MM-dd string, so the
 // output must not depend on the server's timezone:
@@ -17,7 +17,6 @@
 
 import {
   hebrewDatesFor,
-  legacyWeekStart,
   nextWeekBoundaries,
   nextWeekBoundary,
   tzKnownFor,
@@ -132,13 +131,6 @@ async function main() {
     assertEqual(tzKnownFor({}), false, 'neither (absent)');
   });
 
-  await check('legacyWeekStart: today\'s rule, jewish → Sunday, anything else → Monday', () => {
-    assertEqual(legacyWeekStart('jewish'), 0, 'jewish');
-    assertEqual(legacyWeekStart('default'), 1, 'default');
-    assertEqual(legacyWeekStart(undefined), 1, 'undefined');
-    assertEqual(legacyWeekStart('Jewish'), 1, 'compared strictly');
-  });
-
   await check('weekStartFor: Jewish culture always starts on Sunday', () => {
     assertEqual(weekStartFor(known('Europe/London', 'en', 'jewish')), 0, 'London');
     assertEqual(weekStartFor(known('Africa/Cairo', 'ru', 'jewish')), 0, 'Cairo');
@@ -235,17 +227,6 @@ async function main() {
     for (const day of DAYS) {
       assertEqual(nextWeekBoundaries(0, day), refNextWeekBoundaries('jewish', day), `ws 0 ${day}`);
       assertEqual(nextWeekBoundaries(1, day), refNextWeekBoundaries('default', day), `ws 1 ${day}`);
-    }
-  });
-
-  await check('legacyWeekStart fed to the boundaries gives today\'s days for any culture string', () => {
-    for (const culture of ['jewish', 'default', undefined, 'Jewish', '']) {
-      for (const day of DAYS) {
-        assertEqual(nextWeekBoundaries(legacyWeekStart(culture), day), refNextWeekBoundaries(culture, day), `${culture} ${day}`);
-        for (const always7 of [true, false, undefined]) {
-          assertEqual(nextWeekBoundary(legacyWeekStart(culture), always7, day), refNextWeekBoundary(culture, always7, day), `${culture} ${day} ${always7}`);
-        }
-      }
     }
   });
 

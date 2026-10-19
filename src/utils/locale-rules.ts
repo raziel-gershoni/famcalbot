@@ -38,11 +38,6 @@ export function tzKnownFor(u: { location?: string | null; googleRefreshToken?: s
   return !!u.location || !!u.googleRefreshToken;
 }
 
-/** Today's rule for the bot's weeks: Jewish culture starts on Sunday, everyone else on Monday. */
-export function legacyWeekStart(culture?: string): 0 | 1 {
-  return culture === 'jewish' ? 0 : 1;
-}
-
 /** Intl's name for a zone (Asia/Tel_Aviv → Asia/Jerusalem), or null when Intl rejects it. */
 function canonicalZone(tz: string): string | null {
   try {

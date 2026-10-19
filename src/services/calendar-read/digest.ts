@@ -51,9 +51,9 @@ const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
 type DigestWindow = { fromKey: DayKey; toKey: DayKey; notBefore?: Date };
 
 /**
- * A Google user with no refresh token gets no Google events, as the provider gives
- * today (google-provider.ts:74, :80, :86). The reader would answer reconnect('token'),
- * which reads as an expired token.
+ * A Google user with no refresh token gets no Google events, as the provider's reads
+ * give (google-provider.ts fetchEventsInRange). The reader would answer
+ * reconnect('token'), which reads as an expired token.
  */
 function googleWithoutToken(user: UserConfig): boolean {
   return user.calendarSource === 'GOOGLE' && !user.googleRefreshToken;
@@ -134,9 +134,9 @@ function throwForDigest(result: RangeRead, user: UserConfig, day: DayKey, read: 
 
 /**
  * The events of `day` (yyyy-MM-dd in `tz`) for a daily or tomorrow summary:
- * readRange over [day, next day) on the calendars the summary resolved (`ids`). The
- * summary still shapes them (shapeEventsForDay), as it shapes the provider's today.
- * Throws as throwForDigest says; GOOGLE_FETCH_FAILED carries `day`.
+ * readRange over [day, next day) on the calendars the summary resolved (`ids`), for the
+ * summary to shape (shapeEventsForDay). Throws as throwForDigest says;
+ * GOOGLE_FETCH_FAILED carries `day`.
  */
 export async function readDigestDay(
   user: UserConfig,
@@ -155,7 +155,7 @@ export async function readDigestDay(
  * instant `start` (This week starts now; the tomorrow block at the summary day's noon)
  * to `end`, the inclusive last instant of the range's last day (week-lookahead.ts's
  * endOfLocalDay). That is readRange over [start's day, the day after end's day),
- * clipped to start, so it covers [start, end] as today's Google read does. Throws as
+ * clipped to start, so it covers [start, end] as the old Google read did. Throws as
  * throwForDigest says; GOOGLE_FETCH_FAILED carries start's day in `tz`.
  */
 export async function readLookaheadEvents(

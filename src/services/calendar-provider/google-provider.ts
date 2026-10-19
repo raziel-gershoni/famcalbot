@@ -4,8 +4,6 @@
 // home's cache stamp after every write.
 
 import {
-  fetchTodayEvents as gcalFetchToday,
-  fetchTomorrowEvents as gcalFetchTomorrow,
   fetchEventsInRange as gcalFetchRange,
   listUserCalendars as gcalListCalendars,
   createEvent as gcalCreate,
@@ -69,18 +67,6 @@ function notConnected(action: string): {
 
 export const googleProvider: CalendarProvider = {
   name: PROVIDER_NAME,
-
-  async fetchTodayEvents(user: UserConfig, calendarIds: string[], timezone?: string): Promise<UnifiedEvent[]> {
-    if (!user.googleRefreshToken || calendarIds.length === 0) return [];
-    const events = await gcalFetchToday(user.googleRefreshToken, calendarIds, timezone);
-    return events.map((e) => ({ ...e, provider: PROVIDER_NAME }));
-  },
-
-  async fetchTomorrowEvents(user: UserConfig, calendarIds: string[], timezone?: string): Promise<UnifiedEvent[]> {
-    if (!user.googleRefreshToken || calendarIds.length === 0) return [];
-    const events = await gcalFetchTomorrow(user.googleRefreshToken, calendarIds, timezone);
-    return events.map((e) => ({ ...e, provider: PROVIDER_NAME }));
-  },
 
   async fetchEventsInRange(user: UserConfig, calendarIds: string[], startDate: Date, endDate: Date): Promise<UnifiedEvent[]> {
     if (!user.googleRefreshToken || calendarIds.length === 0) return [];
