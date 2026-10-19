@@ -124,14 +124,15 @@ export async function listUserCalendars(refreshToken: string): Promise<CalendarI
     console.error('Error listing user calendars:', error);
     captureError(error, 'calendar-list-calendars');
 
-    // If it's an insufficient scopes error, re-throw with specific message
+    // If it's an insufficient scopes error, re-throw with specific message (the cause keeps
+    // Google's error, which the home classifies by its own table)
     if (isInsufficientScopesError(error)) {
-      throw new Error('GOOGLE_INSUFFICIENT_SCOPES');
+      throw new Error('GOOGLE_INSUFFICIENT_SCOPES', { cause: error });
     }
 
     // If it's a token error, re-throw with specific message
     if (isTokenError(error)) {
-      throw new Error('GOOGLE_TOKEN_EXPIRED');
+      throw new Error('GOOGLE_TOKEN_EXPIRED', { cause: error });
     }
 
     // Re-throw other errors

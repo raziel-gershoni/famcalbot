@@ -691,7 +691,7 @@ async function main() {
     assert(eventsAll().length === before, 'a refused create wrote');
   });
 
-  await check('create event: on a private calendar the partner\'s cache stays; on a shared one it goes; a Google user is refused', async () => {
+  await check('create event: on a private calendar the partner\'s cache stays; on a shared one it goes; a Google user with no token is asked to reconnect', async () => {
     seed();
     seedRecurrenceCache();
     await post(eventBody());
@@ -700,7 +700,7 @@ async function main() {
     await post(eventBody({ calendarId: 'native:cal-tal-family' }));
     assertSame(cacheUsers(), [11], 'a shared calendar clears the partner\'s too');
     const dan = await post(eventBody(), { tg: TG.dan });
-    assert(dan.status === 403 && dan.body.error === 'not_allowed', `Google user ${dan.status} ${dan.text}`);
+    assert(dan.status === 403 && dan.body.error === 'reconnect' && dan.body.reason === 'token', `Google user ${dan.status} ${dan.text}`);
   });
 
   await check('create event: analytics with source app under the bot\'s action name, no title in them', async () => {

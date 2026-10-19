@@ -80,7 +80,7 @@ export async function editorInfo(user: UserConfig, tz: string): Promise<EditorIn
   const google = sources.includes('google');
   const [famcalCalendars, googleCalendars, reminders, ctx] = await Promise.all([
     famcal ? writableCalendars(user) : Promise.resolve([]),
-    google ? import('./google-item').then((m) => m.googleEditorCalendars(user)) : Promise.resolve([]),
+    google ? import('./google-item').then(async (m) => (await m.googleEditorCalendars(user)).calendars) : Promise.resolve([]),
     // quiet: a hint, not a gate, so a plan without reminders logs nothing
     getReminderSupport(user, { quiet: true }),
     famcal ? loadViewerContext({ id: user.id, pairingId: user.pairingId ?? null }) : Promise.resolve(null),

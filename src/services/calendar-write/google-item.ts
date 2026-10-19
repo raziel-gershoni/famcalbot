@@ -21,7 +21,7 @@ import { nativeRuleOf, readEventForEdit, ruleOf, type GoogleItemRead } from '../
 import { googleCalendarRef, googleCalendarSet } from '../calendar-read/google';
 import { sourcesFor } from '../calendar-read/index';
 import { resolveUserTimezone } from '../../lib/timezone';
-import { classifyGoogleError } from '../calendar-read/google-map';
+import { classifyGoogleError, type GoogleErrorClass } from '../calendar-read/google-map';
 import { classifyRule, fixesDays } from '../native-calendar/recurrence';
 import { repeatInfo, wallFor } from './item-info';
 import { googleKeyOf, parseGoogleKey, type CreateCommand, type DeleteCommand, type GoogleItemKey, type UpdateCommand } from './validate';
@@ -44,28 +44,46 @@ function assignmentOf(user: UserConfig, calendarId: string): CalendarAssignment 
   return readsGoogle(user) ? googleCalendarSet(user, [calendarId])[0] : undefined;
 }
 
+/** The editor's Google calendars, or, when the live list couldn't be read, none and the failure's class. */
+export type GoogleEditorCalendars = { calendars: EditorCalendar[]; failure?: GoogleErrorClass };
+
+/**
+ * A calendar list's failure by Google's own error: the list's reader rewrites a token or
+ * scope failure to the bot's message and keeps Google's error as the cause.
+ */
+function listFailureClass(error: unknown): GoogleErrorClass {
+  const cause = error instanceof Error ? error.cause : undefined;
+  if (cause !== undefined) return classifyGoogleError(cause);
+  if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') return 'token';
+  if (error instanceof Error && error.message === 'GOOGLE_INSUFFICIENT_SCOPES') return 'scopes';
+  return classifyGoogleError(error);
+}
+
 /**
  * The Google calendars the editor offers (3b spec §2.4): the user's chosen ones they can
  * write, by the live role (one calendarList.list), in the order chosen. main is the
- * primary. A list that can't be read gives none (no "+"), and is logged.
+ * primary. A list that can't be read gives none (no "+") with its failure's class, and is
+ * logged; a write that needs the list answers by that class (failureOutcome).
  */
-export async function googleEditorCalendars(user: UserConfig): Promise<EditorCalendar[]> {
+export async function googleEditorCalendars(user: UserConfig): Promise<GoogleEditorCalendars> {
   const chosen = readsGoogle(user) ? googleCalendarSet(user) : [];
-  if (chosen.length === 0) return [];
+  if (chosen.length === 0) return { calendars: [] };
   let live: Awaited<ReturnType<typeof googleProvider.listCalendars>>;
   try {
     live = await googleProvider.listCalendars(user);
   } catch (error) {
-    captureError(error instanceof Error ? new Error(error.message) : error, 'calendar-editor-google', { user_id: user.id }, 'warning');
-    return [];
+    const failure = listFailureClass(error);
+    captureError(new Error(`Google ${failure} reading the calendar list`), 'calendar-editor-google', { user_id: user.id }, failure === 'transient' ? 'warning' : 'error');
+    return { calendars: [], failure };
   }
   const byId = new Map(live.map((c) => [c.id, c]));
-  return chosen.flatMap((a) => {
+  const calendars = chosen.flatMap((a) => {
     const c = byId.get(a.calendarId);
     if (!c || !WRITABLE_ROLES.has(c.accessRole)) return [];
     const ref = googleCalendarRef(a, [], { [a.calendarId]: c.backgroundColor });
     return [{ id: a.calendarId, name: ref.name, color: ref.color, main: c.primary, mine: ref.mine, ...(ref.ownerName ? { ownerName: ref.ownerName } : {}) }];
   });
+  return { calendars };
 }
 
 /**
@@ -89,15 +107,20 @@ type Loaded =
   | { status: 'not_found' }
   | { status: 'error'; result: WriteResult };
 
+/** A failed Google read's class as a write's outcome (3b spec §2.6): token or scopes reconnect, refused notAllowed, anything else failed. */
+function failureOutcome(cls: GoogleErrorClass): WriteResult {
+  if (cls === 'token') return { status: 'reconnect', reason: 'token' };
+  if (cls === 'scopes') return { status: 'reconnect', reason: 'scopes' };
+  if (cls === 'forbidden') return NOT_ALLOWED;
+  return { status: 'failed' };
+}
+
 /** A Google read's failure as a write's outcome (and logged, by class and ids). */
 function readFailure(error: unknown, user: UserConfig, key: GoogleItemKey): Loaded {
   const cls = classifyGoogleError(error);
   if (cls === 'gone') return { status: 'not_found' };
   captureError(new Error(`Google ${cls} reading an item`), 'calendar-google-item', { user_id: user.id, calendar_id: key.calendarId, event_id: key.eventId }, cls === 'transient' ? 'warning' : 'error');
-  if (cls === 'token') return { status: 'error', result: { status: 'reconnect', reason: 'token' } };
-  if (cls === 'scopes') return { status: 'error', result: { status: 'reconnect', reason: 'scopes' } };
-  if (cls === 'forbidden') return { status: 'error', result: NOT_ALLOWED };
-  return { status: 'error', result: { status: 'failed' } };
+  return { status: 'error', result: failureOutcome(cls) };
 }
 
 /** One Google item, read live: the key's calendar must be one the user chose. */
@@ -165,7 +188,8 @@ export async function googleEditInfo(user: UserConfig, key: GoogleItemKey, userT
   const series = occurrenceOf(read.master ?? read.event, userTz);
   const first = wallFor(series.startsAt, series.endsAt, series.allDay, userTz, userTz);
   const rule = ruleInfo(read, userTz);
-  const calendars = editable ? await googleEditorCalendars(user) : [];
+  // A list that can't be read (logged) leaves the sheet with no move.
+  const calendars = editable ? (await googleEditorCalendars(user)).calendars : [];
   const moveTargets = calendars.some((c) => c.id === key.calendarId) ? calendars.map((c) => c.id) : [];
   const live = calendars.find((c) => c.id === key.calendarId);
   const ref = googleCalendarRef(assignment, []);
@@ -228,10 +252,19 @@ const googleRuleFor = (repeat: CreateCommand['repeat']): string | null => {
   return rule ? `RRULE:${rule}` : null;
 };
 
-/** POST /api/calendar/items for a Google calendar: checked against the editor's writable list, created in the user's zone. */
+/**
+ * POST /api/calendar/items for a Google calendar: checked against the editor's writable
+ * list, created in the user's zone. A Google user with no token, or a list that can't be
+ * read, answers by the failure (reconnect or failed), not as a bad calendar.
+ */
 export async function createGoogleItem(user: UserConfig, cmd: CreateCommand, tz: string): Promise<WriteResult> {
   if (cmd.kind !== 'event') return NOT_ALLOWED; // reminders always live in FamCal
-  const calendars = await googleEditorCalendars(user);
+  if (sourcesFor(user).includes('google') && !user.googleRefreshToken) {
+    captureError(new Error('Google create with no refresh token'), 'calendar-google-item', { user_id: user.id }, 'warning');
+    return { status: 'reconnect', reason: 'token' };
+  }
+  const { calendars, failure } = await googleEditorCalendars(user);
+  if (failure) return failureOutcome(failure);
   if (calendars.length === 0) return cmd.calendarId ? { status: 'invalid', field: 'calendarId' } : NOT_ALLOWED;
   const target = cmd.calendarId ?? (calendars.find((c) => c.main) ?? calendars[0]).id;
   if (!calendars.some((c) => c.id === target)) return { status: 'invalid', field: 'calendarId' };
@@ -284,7 +317,11 @@ export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { 
   const repeat = c.repeat !== undefined && repeatChanges(c.repeat, rule.rule, rule.choice) ? c.repeat : undefined;
   if (c.forPartner === true) return { status: 'invalid', field: 'forPartner' };
   const moveTo = c.calendarId !== undefined && c.calendarId !== key.calendarId ? c.calendarId : undefined;
-  if (moveTo !== undefined && !(await googleEditorCalendars(user)).some((cal) => cal.id === moveTo)) return { status: 'invalid', field: 'calendarId' };
+  if (moveTo !== undefined) {
+    const { calendars, failure } = await googleEditorCalendars(user);
+    if (failure) return failureOutcome(failure);
+    if (!calendars.some((cal) => cal.id === moveTo)) return { status: 'invalid', field: 'calendarId' };
+  }
   const sameKey = googleKeyOf(key.calendarId, key.eventId);
   const fieldsChange = timeChanged || Object.keys(text).length > 0 || repeat !== undefined;
   if (!fieldsChange && moveTo === undefined) return { status: 'ok', key: sameKey };

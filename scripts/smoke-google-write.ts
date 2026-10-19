@@ -867,7 +867,7 @@ async function main() {
   // ---- The home: editor calendars, item info, eligibility ----
 
   await check('editor: the chosen Google calendars the user can write, read live; main is the primary; a spouse\'s is marked', async () => {
-    const list = await gitem.googleEditorCalendars(NOA);
+    const list = (await gitem.googleEditorCalendars(NOA)).calendars;
     assertSame(list, [
       { id: NOA_CAL, name: 'Noa', color: '#9fc6e7', main: true, mine: true },
       { id: FAMILY, name: 'Family', color: '#33b679', main: false, mine: true },
@@ -880,7 +880,7 @@ async function main() {
 
   await check('editor: under today\'s model a user reads one kind: a built-in calendar user with a leftover token and choices gets no Google row, item or write', async () => {
     const native = user(9, IL, { calendarSource: 'NATIVE' });
-    assertSame(await gitem.googleEditorCalendars(native), [], 'no Google rows');
+    assertSame(await gitem.googleEditorCalendars(native), { calendars: [] }, 'no Google rows');
     seed(NOA_CAL, 'e1', { start: '2026-10-20T10:00:00' });
     assertSame(await editInfo(native, gkey(NOA_CAL, 'e1')), 'not_found', 'no Google item');
     assertSame(await write.createItem(native, createCmd({ kind: 'event', title: 'x', allDay: false, start: '2026-10-22T18:00', calendarId: NOA_CAL }), IL), { status: 'invalid', field: 'calendarId' }, 'no Google create');
@@ -1097,6 +1097,45 @@ async function main() {
     assertSame([res.status, await res.json()], [403, { error: 'reconnect', reason: 'token' }], 'wire: reconnect');
     const failed = writeResponse({ status: 'failed' });
     assertSame([failed.status, await failed.json()], [500, { error: 'internal_error' }], 'wire: failed');
+  });
+
+  await check('outcomes: a create whose calendar list can\'t be read answers by the failure (dead token reconnect, missing token reconnect, Google down failed), not a bad calendar', async () => {
+    const create = (o: Row = {}) => write.createItem(NOA, createCmd({ kind: 'event', title: 'x', allDay: false, start: '2026-10-22T18:00', ...o }), IL);
+    const list = (r: Req) => r.method === 'GET' && r.path === '/users/me/calendarList';
+    tokenAnswer = { status: 400, data: { error: 'invalid_grant', error_description: 'Token has been expired or revoked.' } };
+    assertSame(await create({ calendarId: FAMILY }), { status: 'reconnect', reason: 'token' }, 'invalid_grant, a calendar');
+    assertSame(await create(), { status: 'reconnect', reason: 'token' }, 'invalid_grant, no calendar');
+    tokenAnswer = null;
+    failOn(list, fail(403, 'insufficientPermissions', 'Request had insufficient authentication scopes.'), 20);
+    assertSame(await create({ calendarId: FAMILY }), { status: 'reconnect', reason: 'scopes' }, 'scopes');
+    rules = [];
+    failOn(list, fail(503, 'backendError', 'Backend Error'), 50);
+    assertSame(await create({ calendarId: FAMILY }), { status: 'failed' }, '503, a calendar');
+    assertSame(await create(), { status: 'failed' }, '503, no calendar');
+    rules = [];
+    // The list's reader rewrites any 403 to GOOGLE_TOKEN_EXPIRED; Google's own error says it is a rate limit.
+    failOn(list, fail(403, 'rateLimitExceeded', 'Rate Limit Exceeded'), 20);
+    assertSame(await create({ calendarId: FAMILY }), { status: 'failed' }, 'a 403 rate limit');
+    rules = [];
+    const noToken = user(10, IL, { googleRefreshToken: undefined });
+    assertSame(await write.createItem(noToken, createCmd({ kind: 'event', title: 'x', allDay: false, start: '2026-10-22T18:00', calendarId: FAMILY }), IL), { status: 'reconnect', reason: 'token' }, 'no refresh token, a calendar');
+    assertSame(await write.createItem(noToken, createCmd({ kind: 'event', title: 'x', allDay: false, start: '2026-10-22T18:00' }), IL), { status: 'reconnect', reason: 'token' }, 'no refresh token, no calendar');
+    assertSame(writes().length, 0, 'something was written');
+    assert(captured.some((c) => c.ctx === 'calendar-editor-google'), 'the failed list was not logged');
+  });
+
+  await check('outcomes: a move whose calendar list can\'t be read answers by the failure (dead token reconnect, Google down failed), not a bad calendar', async () => {
+    seed(NOA_CAL, 'e1', { start: '2026-10-20T10:00:00' });
+    const move = () => write.updateItem(NOA, patchCmd({ key: gkey(NOA_CAL, 'e1'), scope: 'single', changes: { calendarId: FAMILY } }), IL);
+    const list = (r: Req) => r.method === 'GET' && r.path === '/users/me/calendarList';
+    failOn(list, fail(401, 'authError', 'Invalid Credentials'), 20);
+    assertSame(await move(), { status: 'reconnect', reason: 'token' }, 'token');
+    rules = [];
+    failOn(list, fail(503, 'backendError', 'Backend Error'), 50);
+    assertSame(await move(), { status: 'failed' }, '503');
+    rules = [];
+    assertSame([writes().length, alive(NOA_CAL, 'e1')], [0, true], 'written');
+    assertSame(await move(), { status: 'ok', key: gkey(FAMILY, 'e1') }, 'the move once the list reads');
   });
 
   await check('keys: the item route reads famcal| and google| keys; a PATCH or DELETE body takes either; a Google key needs a Google calendar id to move', async () => {
