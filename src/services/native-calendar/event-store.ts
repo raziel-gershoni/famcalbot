@@ -754,9 +754,8 @@ async function moveInstances(
 function changesOnly(series: NativeEvent, input: UpdateNativeEventInput): UpdateNativeEventInput {
   const out = { ...input };
   // The rule is the pair (hebrew-repeats spec §2): a kind alone keeps the rule string, a rule
-  // alone is Gregorian, and the same rule with another kind is a change.
+  // alone is Gregorian (no kind), and the same rule with another kind is a change.
   if (out.rrule === undefined && out.hebrewRule !== undefined) out.rrule = series.rrule;
-  if (out.rrule !== undefined && out.hebrewRule === undefined) out.hebrewRule = null;
   if (out.rrule !== undefined && (out.rrule ?? null) === (series.rrule ?? null) && (out.hebrewRule ?? null) === (series.hebrewRule ?? null)) {
     delete out.rrule;
     delete out.hebrewRule;

@@ -2144,6 +2144,19 @@ async function main() {
     assertSame(pairOf(lastEvent()), ['FREQ=YEARLY', 'yahrzeit', '2022-11-24'], 'the other kind, the anchor kept');
     assertSame(await daysOf(lastEvent().id, '2026-01-01', '2029-01-01'), ['2026-11-10', '2027-11-30', '2028-11-18'], 'the yahrzeit\'s days from there');
     seed();
+    const one = seedSeries('one', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Bar mitzvah', startsAt: at('2026-02-02 10:00') });
+    await store.updateNativeEvent({ seriesCuid: one.id, scope: 'all', actingUserId: TAL, rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', startsAt: at('2026-02-03 10:00'), endsAt: at('2026-02-03 11:00') });
+    assertSame(pairOf(eventRow(one.id)), ['FREQ=YEARLY', 'anniversary', '2026-02-03'], 'a one-off that starts repeating is anchored on its (new) start');
+    const rem = seedSeries('one-rem', { calendarId: 'cal-tal', creatorUserId: TAL, kind: 'REMINDER', title: 'Candle', startsAt: at('2026-02-02 18:00') });
+    await store.updateNativeEvent({ seriesCuid: rem.id, scope: 'all', actingUserId: TAL, rrule: 'FREQ=YEARLY', hebrewRule: 'yahrzeit' });
+    assertSame(pairOf(eventRow(rem.id)), ['FREQ=YEARLY', 'yahrzeit', '2026-02-02'], 'a reminder too');
+    const plain = seedSeries('plain', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Plain', startsAt: at('2026-02-02 10:00') });
+    for (const bad of [{ rrule: 'FREQ=WEEKLY', hebrewRule: 'anniversary' }, { rrule: null, hebrewRule: 'yahrzeit' }, { hebrewRule: 'monthly' }]) {
+      const e = await thrownBy(() => store.updateNativeEvent({ seriesCuid: plain.id, scope: 'all', actingUserId: TAL, ...bad }));
+      assert(e instanceof rec.NativeRuleError, `${show(bad)}: ${e}`);
+    }
+    assertSame(pairOf(eventRow(plain.id)), [null, null, null], 'a bad pair is refused, nothing written');
+    seed();
     const same = hebrewSeries('heb-same');
     // A rule change takes 'following': sent for every occurrence, only a real change is refused.
     const all = (o: Row) => thrownBy(() => store.updateNativeEvent({ seriesCuid: same.id, instanceStartsAt: at('2023-11-14 10:00'), scope: 'all', actingUserId: TAL, title: 'Saba', ...o }));
