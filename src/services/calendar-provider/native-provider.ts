@@ -284,7 +284,9 @@ export async function wouldRefuseFixedDays(user: UserConfig, calendarId: string,
   if (!isNativeCalendarId(calendarId)) return false;
   try {
     return await refusesFixedDays(updateInput(user, eventId, data));
-  } catch {
+  } catch (error) {
+    // The early answer only: the confirmation's write asks the store again and answers then.
+    captureError(error, 'native-fixed-days-check', { user_id: user.id, calendar_id: calendarId, event_id: eventId }, 'warning');
     return false;
   }
 }

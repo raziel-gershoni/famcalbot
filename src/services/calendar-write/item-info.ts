@@ -14,6 +14,7 @@ import type {
 import type { UserConfig } from '../../types';
 import { TIMEZONE } from '../../config/constants';
 import { prisma } from '../../utils/prisma';
+import { captureError } from '../../lib/error-capture';
 import {
   canWriteAccess,
   encodeCalendarId,
@@ -132,7 +133,14 @@ export async function loadItem(user: UserConfig, key: ItemKey): Promise<LoadedIt
   const overrides = await prisma.nativeEventInstance.findMany({ where: { seriesEventId: series.id } });
   const slot = key.slot ?? series.startsAt;
   const override = key.slot ? overrides.find((o) => o.originalStartsAt.getTime() === slot.getTime()) : undefined;
-  const occurrence = occurrenceAt(series, overrides, slot);
+  let occurrence: VirtualInstance | undefined;
+  try {
+    occurrence = occurrenceAt(series, overrides, slot);
+  } catch (error) {
+    // A stored rule that can't be read: logged by id, and there's nothing to show or change.
+    captureError(error, 'calendar-item-series', { series_id: series.id, user_id: user.id });
+    return { status: 'not_found' };
+  }
   if (!occurrence) return { status: 'changed' };
 
   const canEdit = canWriteAccess(access) || (isReminder && series.creatorUserId === user.id);
@@ -169,7 +177,8 @@ export function repeatInfo(rrule: string | null): RepeatInfo | null {
       return typeof n === 'number' && WEEKDAYS[n] ? [WEEKDAYS[n]] : [];
     });
     return { freq, interval: opts.interval ?? 1, byDay, ends: opts.until != null || opts.count != null };
-  } catch {
+  } catch (error) {
+    captureError(error, 'native-rule-repeat-info', {}, 'warning');
     return null;
   }
 }

@@ -15,6 +15,7 @@ import type {
   User,
 } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
+import { captureError } from '../../lib/error-capture';
 import { TIMEZONE } from '../../config/constants';
 import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
 import { invalidateDueGate } from '../native-reminders/due-gate';
@@ -230,7 +231,15 @@ async function expandCandidates(
     const calendar = calendarsById.get(s.calendarId);
     if (!calendar) continue;
     const overrides = instancesBySeries.get(s.id) ?? [];
-    const expanded = expandSeries(s, range, overrides);
+    let expanded: VirtualInstance[];
+    try {
+      expanded = expandSeries(s, range, overrides);
+    } catch (error) {
+      // A stored rule that can't be read fails the same way every time: report it by id
+      // (never its title) and read the rest, so one series can't blank everyone's view.
+      captureError(error, 'native-calendar-series', { series_id: s.id });
+      continue;
+    }
     for (const inst of expanded) {
       out.push({ calendar, series: s, instance: inst });
     }

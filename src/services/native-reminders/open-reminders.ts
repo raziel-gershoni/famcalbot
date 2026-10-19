@@ -120,9 +120,18 @@ function selectOpenReminderItems(
   for (const { series, calendar, overrides, states } of candidates) {
     // R1: carried over only to its effective owner and its creator
     if (effectiveOwnerForViewer(series, ctx) !== ctx.viewerId && series.creatorUserId !== ctx.viewerId) continue;
-    const occurrence = latestOccurrenceBefore(series, overrides, cutoff);
+    let occurrence: ReturnType<typeof latestOccurrenceBefore>;
+    let onSummaryDay: boolean;
+    try {
+      occurrence = latestOccurrenceBefore(series, overrides, cutoff);
+      onSummaryDay = !!series.rrule && expandSeries(series, summaryRange, overrides).length > 0;
+    } catch (error) {
+      // A stored rule that can't be read: report it by id and carry the rest (3b spec §3.1).
+      captureError(error, 'native-reminders-open-series', { series_id: series.id });
+      continue;
+    }
     if (!occurrence) continue;
-    if (series.rrule && expandSeries(series, summaryRange, overrides).length > 0) continue;
+    if (onSummaryDay) continue;
     const event = toUnifiedEvent(calendar, occurrence);
     const due = reminderDueAt(event, timezone);
     if (due >= cutoff) continue; // a date-only one whose morning has not come yet

@@ -79,7 +79,14 @@ function liveOccurrenceTitle(series: Series, originalStartsAt: Date): string | n
   const key = originalStartsAt.getTime();
   const override = series.instances.find(o => o.originalStartsAt.getTime() === key);
   if (override?.status === 'CANCELLED') return null;
-  const slot = expandSeries(series, { from: originalStartsAt, to: new Date(key + 1) });
+  let slot: ReturnType<typeof expandSeries>;
+  try {
+    slot = expandSeries(series, { from: originalStartsAt, to: new Date(key + 1) });
+  } catch (error) {
+    // A stored rule that can't be read: the buttons answer "changed" (3b spec §3.1).
+    captureError(error, 'native-reminder-action-series', { series_id: series.id });
+    return null;
+  }
   if (!slot.some(occurrence => occurrence.instanceStartsAt.getTime() === key)) return null;
   return override?.title ?? series.title;
 }
