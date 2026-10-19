@@ -406,7 +406,7 @@
       "hasOAuth": "Google подключён",
       "hasCalendars": "Календари выбраны",
       "hasLocation": "Местоположение указано",
-      "sendReminder_oauth": "Отправить напоминание OAuth",
+      "sendReminder_reconnect": "Напоминание о переподключении",
       "sendReminder_calendars": "Напоминание о календарях",
       "sendReminder_location": "Напоминание о местоположении",
       "sendingReminder": "Отправка...",

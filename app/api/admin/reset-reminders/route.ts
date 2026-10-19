@@ -8,21 +8,13 @@ import { prisma } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { redis } from '@/src/utils/redis';
-import { REDIS_KEYS } from '@/src/config/redis-keys';
+import { GOOGLE_NUDGE_WHERE, setupTrackKeys } from '@/src/services/setup-tracks';
 
 export const dynamic = 'force-dynamic';
 
-const TYPES = ['oauth', 'calendars', 'location'];
-const MAX_ATTEMPTS = 4;
-
+/** Every setup track's attempts, and the Google tracks' starts (setup-tracks.ts). */
 async function clearReminderKeys(userId: number): Promise<number> {
-  let deleted = 0;
-  for (const type of TYPES) {
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      deleted += await redis.del(REDIS_KEYS.setupReminder(userId, type, attempt));
-    }
-  }
-  return deleted;
+  return redis.del(...setupTrackKeys(userId));
 }
 
 async function resetReminderStart(userId: number): Promise<void> {
@@ -46,32 +38,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Reset all incomplete users. "Incomplete" means different things by source:
-    //   GOOGLE: missing OAuth, missing calendars, OR missing location.
-    //   NATIVE: missing location only (calendar is auto-bootstrapped at signup;
-    //     OAuth and per-calendar selection are not part of native onboarding).
+    // Reset all incomplete users: a missing location, or a Google state that asks for a
+    // nudge (a token with no chosen calendars, or no token with calendars stored).
+    // Connecting Google is optional, so a never-connected user with a location is complete.
     if (reset_all) {
-      const { Prisma } = await import('@prisma/client');
       const incompleteUsers = await prisma.user.findMany({
         where: {
           AND: {
             OR: [{ telegramId: { not: null } }, { whatsappPhone: { not: null } }, { whatsappBsuid: { not: null } }],
           },
-          OR: [
-            // GOOGLE — incomplete on any of OAuth / calendars / location
-            {
-              calendarSource: 'GOOGLE',
-              OR: [
-                { googleRefreshToken: '' },
-                { calendarAssignments: { equals: Prisma.JsonNull } },
-                { calendarAssignments: { equals: Prisma.DbNull } },
-                { calendarAssignments: { equals: [] } },
-                { location: '' },
-              ],
-            },
-            // NATIVE — incomplete only when location is missing
-            { calendarSource: 'NATIVE', location: '' },
-          ],
+          OR: [{ location: '' }, ...GOOGLE_NUDGE_WHERE],
         },
         select: { id: true, name: true },
       });

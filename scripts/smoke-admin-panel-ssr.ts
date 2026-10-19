@@ -62,13 +62,18 @@ const show = (value: unknown) => JSON.stringify(value, (_k, v) => (typeof v === 
 const DB: Record<string, Row[]> = {};
 
 const num = (x: unknown) => (x instanceof Date ? x.getTime() : Number(x));
+/** Prisma's JSON null filters (Prisma.JsonNull, DbNull, AnyNull) read as null; a JSON list compares by value. */
+const isPrismaNull = (v: unknown) => v !== null && typeof v === 'object' && /^(JsonNull|DbNull|AnyNull)$/.test(v.constructor?.name ?? '');
 function same(a: unknown, b: unknown): boolean {
+  if (isPrismaNull(a)) a = null;
+  if (isPrismaNull(b)) b = null;
+  if (Array.isArray(a) || Array.isArray(b)) return JSON.stringify(a) === JSON.stringify(b);
   if (a instanceof Date || b instanceof Date) return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
   if (typeof a === 'bigint' || typeof b === 'bigint') return a != null && b != null && String(a) === String(b);
   return a === b;
 }
 const isPlain = (v: unknown): v is Row =>
-  v !== null && typeof v === 'object' && !(v instanceof Date) && !Array.isArray(v);
+  v !== null && typeof v === 'object' && !(v instanceof Date) && !Array.isArray(v) && !isPrismaNull(v);
 
 function matches(row: Row, where?: Row): boolean {
   if (!where) return true;
@@ -494,9 +499,11 @@ async function main() {
       `none ${none.status}, user ${user.status}, admin in the query ${query.status}`);
     assert(!('stats' in (await json(user))) && !('stats' in (await json(none))), 'a refused call carries stats');
     const s = body.stats ?? {};
-    assert(admin.status === 200 && s.totalUsers === 5 && s.usersWithOAuth === 1 && s.needSetup === 2 && s.nativeUsers === 3
+    // Google as a connection: needSetup is a missing location or a Google state that asks for a nudge (NoLocation);
+    // a never-connected user (NoToken) is set up, and there is no source count
+    assert(admin.status === 200 && s.totalUsers === 5 && s.usersWithOAuth === 1 && s.needSetup === 1
       && typeof s.usersWithCalendars === 'number', `admin: ${admin.status} ${show(body)} ${captured.join(' | ')}`);
-    assert(show(Object.keys(s).sort()) === show(['nativeUsers', 'needSetup', 'totalUsers', 'usersWithCalendars', 'usersWithOAuth']), `keys ${show(Object.keys(s))}`);
+    assert(show(Object.keys(s).sort()) === show(['needSetup', 'totalUsers', 'usersWithCalendars', 'usersWithOAuth']), `keys ${show(Object.keys(s))}`);
   });
 
   await check('#3 GET /api/admin/settings with the header: a user\'s initData 403, the admin\'s 200 with the toggles', async () => {
@@ -517,7 +524,7 @@ async function main() {
     assert(out.kind === 'ready', `loader: ${show(out)} ${captured.join(' | ')}`);
     const toggles = Object.fromEntries(Object.keys(TOGGLES).map(k => [k, initial[k]]));
     assert(show(toggles) === show(TOGGLES), `toggles ${show(toggles)}`);
-    assert(initial.stats?.totalUsers === 5 && initial.stats?.needSetup === 2, `stats ${show(initial.stats)}`);
+    assert(initial.stats?.totalUsers === 5 && initial.stats?.needSetup === 1, `stats ${show(initial.stats)}`);
     const paths = requests.map(r => r.url).sort();
     assert(show(paths) === show(['/api/admin/settings', '/api/admin/stats']), `requests ${show(paths)}`);
     assert(requests.every(r => r.headers['x-telegram-init-data'] === initData), `headers ${show(requests)}`);

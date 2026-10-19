@@ -406,7 +406,7 @@
       "hasOAuth": "Google Connected",
       "hasCalendars": "Calendars Selected",
       "hasLocation": "Location Set",
-      "sendReminder_oauth": "Send OAuth Reminder",
+      "sendReminder_reconnect": "Send Reconnect Reminder",
       "sendReminder_calendars": "Send Calendars Reminder",
       "sendReminder_location": "Send Location Reminder",
       "sendingReminder": "Sending...",

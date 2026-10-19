@@ -10,6 +10,7 @@ import { prisma } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
 import { captureError } from '@/src/lib/error-capture';
+import { GOOGLE_NUDGE_WHERE } from '@/src/services/setup-tracks';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,17 +24,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // "Need setup" must be computed source-aware:
-    //   GOOGLE: missing OAuth, missing calendars, OR missing location.
-    //   NATIVE: missing location only (calendar is auto-bootstrapped at signup).
-    const [
-      totalUsers,
-      usersWithOAuth,
-      usersWithCalendars,
-      googleIncompleteCount,
-      nativeIncompleteCount,
-      nativeUsers,
-    ] = await Promise.all([
+    // "Need setup": a missing location, or a Google state that asks for a nudge (a token
+    // with no chosen calendars, or no token with calendars stored). Connecting Google is
+    // optional; "with OAuth" counts tokens (Google connected).
+    const [totalUsers, usersWithOAuth, usersWithCalendars, needSetup] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({
         where: { NOT: { googleRefreshToken: '' } }
@@ -42,21 +36,8 @@ export async function GET(request: NextRequest) {
         where: { calendarAssignments: { not: Prisma.JsonNull } }
       }),
       prisma.user.count({
-        where: {
-          calendarSource: 'GOOGLE',
-          OR: [
-            { googleRefreshToken: '' },
-            { calendarAssignments: { equals: Prisma.JsonNull } },
-            { calendarAssignments: { equals: Prisma.DbNull } },
-            { calendarAssignments: { equals: [] } },
-            { location: '' },
-          ],
-        },
+        where: { OR: [{ location: '' }, ...GOOGLE_NUDGE_WHERE] },
       }),
-      prisma.user.count({
-        where: { calendarSource: 'NATIVE', location: '' },
-      }),
-      prisma.user.count({ where: { calendarSource: 'NATIVE' } }),
     ]);
 
     return NextResponse.json({
@@ -65,8 +46,7 @@ export async function GET(request: NextRequest) {
         totalUsers,
         usersWithOAuth,
         usersWithCalendars,
-        needSetup: googleIncompleteCount + nativeIncompleteCount,
-        nativeUsers,
+        needSetup,
       },
     });
   } catch (error) {

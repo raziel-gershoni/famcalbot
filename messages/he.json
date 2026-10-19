@@ -406,7 +406,7 @@
       "hasOAuth": "Google מחובר",
       "hasCalendars": "יומנים נבחרו",
       "hasLocation": "מיקום הוגדר",
-      "sendReminder_oauth": "שלח תזכורת OAuth",
+      "sendReminder_reconnect": "שליחת תזכורת לחיבור מחדש",
       "sendReminder_calendars": "שלח תזכורת יומנים",
       "sendReminder_location": "שלח תזכורת מיקום",
       "sendingReminder": "שולח...",

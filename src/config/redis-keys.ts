@@ -66,6 +66,8 @@ export const REDIS_KEYS = {
   // Setup reminder tracking (multi-attempt, prevents duplicate sends)
   setupReminder: (userId: number, type: string, attempt: number) =>
     `setup:reminder:${userId}:${type}:${attempt}`,
+  // When a Google setup track (calendars, reconnect) started: the day the 07:00 run first saw the state
+  setupTrackStart: (userId: number, track: string) => `setup:start:${userId}:${track}`,
 
   // Story sharing (cached images and stashed text for share-to-story)
   storyImage: (userId: number | string) => `story:img:${userId}`,

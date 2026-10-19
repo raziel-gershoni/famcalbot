@@ -11,10 +11,11 @@ import { getMessagingService } from '@/src/services/telegram';
 import { getBotMessages } from '@/src/lib/bot-messages';
 import { MessageFormat } from '@/src/services/messaging';
 import { buildUrl } from '@/src/config/urls';
+import type { SetupTrack } from '@/src/services/setup-tracks';
 
 export const dynamic = 'force-dynamic';
 
-type ReminderType = 'oauth' | 'calendars' | 'location';
+type ReminderType = SetupTrack;
 
 /**
  * Get the reminder message content based on type
@@ -28,12 +29,13 @@ function getReminderContent(
   const setupReminders = messages.setupReminders;
 
   switch (reminderType) {
-    case 'oauth':
+    case 'reconnect':
+      // The summary's token copy and refresh button: /refresh-token picks the language itself
       return {
-        title: setupReminders.oauth.title,
-        body: setupReminders.oauth.body,
-        button: setupReminders.oauth.button,
-        url: buildUrl(`/${locale}/dashboard?user_id=${telegramId}`),
+        title: messages.tokenExpired.title,
+        body: messages.tokenExpired.message,
+        button: messages.buttons.refreshGoogle,
+        url: buildUrl(`/refresh-token?user_id=${telegramId}`),
       };
     case 'calendars':
       return {
@@ -76,10 +78,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate reminder_type
-    const validTypes: ReminderType[] = ['oauth', 'calendars', 'location'];
+    // Connecting Google is optional, so there is no OAuth nudge ("Google as a connection")
+    const validTypes: ReminderType[] = ['calendars', 'reconnect', 'location'];
     if (!reminder_type || !validTypes.includes(reminder_type)) {
       return NextResponse.json(
-        { error: 'reminder_type must be one of: oauth, calendars, location' },
+        { error: 'reminder_type must be one of: calendars, reconnect, location' },
         { status: 400 }
       );
     }
@@ -94,7 +97,6 @@ export async function POST(request: NextRequest) {
         whatsappBsuid: true,
         language: true,
         name: true,
-        calendarSource: true,
       },
     });
 
@@ -102,16 +104,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'User not found' },
         { status: 404 }
-      );
-    }
-
-    // Source guard: oauth/calendars reminders are GOOGLE-only. Sending them
-    // to a NATIVE user would point them at /dashboard or /select-calendars,
-    // which are GCal-specific and confusing. Reject with a clear error.
-    if (user.calendarSource === 'NATIVE' && (reminder_type === 'oauth' || reminder_type === 'calendars')) {
-      return NextResponse.json(
-        { error: `${reminder_type} reminder is not applicable to NATIVE users` },
-        { status: 400 }
       );
     }
 

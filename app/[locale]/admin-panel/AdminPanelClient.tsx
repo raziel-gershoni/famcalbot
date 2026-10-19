@@ -19,7 +19,6 @@ interface AdminPanelProps {
     usersWithOAuth: number;
     usersWithCalendars: number;
     needSetup: number;
-    nativeUsers?: number;
   };
   remindersEnabled: boolean;
   earlyAdoptionMode: boolean;
@@ -106,15 +105,15 @@ interface UserOverrideDetails {
     hasOAuth: boolean;
     hasCalendars: boolean;
     hasLocation: boolean;
-    applicableReminder: 'oauth' | 'calendars' | 'location' | null;
-    calendarSource?: 'GOOGLE' | 'NATIVE';
+    applicableReminder: 'calendars' | 'reconnect' | 'location' | null;
+    googleState: 'none' | 'choose' | 'reconnect' | 'connected';
   };
   setupReminders: {
     daysSinceCreated: number;
     daysSinceStart: number;
     wasReset: boolean;
-    oauth: Array<{ day: number; sent: boolean; due: boolean }>;
     calendars: Array<{ day: number; sent: boolean; due: boolean }>;
+    reconnect: Array<{ day: number; sent: boolean; due: boolean }>;
     location: Array<{ day: number; sent: boolean; due: boolean }>;
   };
 }
@@ -793,7 +792,7 @@ function AdminPanel({ userId, locale, stats, remindersEnabled: initialRemindersE
   };
 
   // Send registration reminder
-  const sendReminder = async (reminderType: 'oauth' | 'calendars' | 'location') => {
+  const sendReminder = async (reminderType: 'calendars' | 'reconnect' | 'location') => {
     if (!selectedUser) return;
     setIsSendingReminder(true);
     setReminderFeedback(null);
@@ -2657,7 +2656,8 @@ function AdminPanel({ userId, locale, stats, remindersEnabled: initialRemindersE
                 <div className="user-card-section">
                   <div className="user-card-section-title">
                     {t('overrides.registrationTitle')}
-                    {selectedUser.registrationStatus.calendarSource && (
+                    {/* Everyone has FamCal; Google is a connection, badged by its token */}
+                    {selectedUser.registrationStatus.hasOAuth && (
                       <span
                         style={{
                           marginLeft: 8,
@@ -2665,21 +2665,18 @@ function AdminPanel({ userId, locale, stats, remindersEnabled: initialRemindersE
                           borderRadius: 4,
                           fontSize: 11,
                           fontWeight: 600,
-                          backgroundColor:
-                            selectedUser.registrationStatus.calendarSource === 'NATIVE' ? '#dcfce7' : '#dbeafe',
-                          color:
-                            selectedUser.registrationStatus.calendarSource === 'NATIVE' ? '#166534' : '#1e40af',
+                          backgroundColor: '#dbeafe',
+                          color: '#1e40af',
                         }}
                       >
-                        {selectedUser.registrationStatus.calendarSource === 'NATIVE' ? '📅 Native' : '🟢 Google'}
+                        {t('overrides.hasOAuth')}
                       </span>
                     )}
                   </div>
                   <div className="registration-status-grid">
-                    {/* OAuth and per-calendar selection only matter for GOOGLE users.
-                        NATIVE users have an auto-bootstrapped primary calendar at signup,
-                        so showing those rows would be misleading. */}
-                    {selectedUser.registrationStatus.calendarSource !== 'NATIVE' && (
+                    {/* Google connected and calendars chosen only matter once the user has
+                        touched Google: it is optional, and FamCal is everyone's. */}
+                    {selectedUser.registrationStatus.googleState !== 'none' && (
                       <>
                         <div className={`registration-status-item ${selectedUser.registrationStatus.hasOAuth ? 'complete' : 'incomplete'}`}>
                           {selectedUser.registrationStatus.hasOAuth ? <Check size={16} /> : <X size={16} />}
@@ -2714,11 +2711,11 @@ function AdminPanel({ userId, locale, stats, remindersEnabled: initialRemindersE
                         )}
                       </div>
                       {[
-                        // OAuth + calendars rows only apply to GOOGLE users.
-                        ...(selectedUser.registrationStatus.calendarSource !== 'NATIVE'
+                        // The Google tracks only apply once the user has touched Google.
+                        ...(selectedUser.registrationStatus.googleState !== 'none'
                           ? [
-                              { label: t('overrides.hasOAuth'), attempts: selectedUser.setupReminders.oauth, done: selectedUser.registrationStatus.hasOAuth },
                               { label: t('overrides.hasCalendars'), attempts: selectedUser.setupReminders.calendars, done: selectedUser.registrationStatus.hasCalendars },
+                              { label: t('overrides.hasOAuth'), attempts: selectedUser.setupReminders.reconnect, done: selectedUser.registrationStatus.hasOAuth },
                             ]
                           : []),
                         { label: t('overrides.hasLocation'), attempts: selectedUser.setupReminders.location, done: selectedUser.registrationStatus.hasLocation },

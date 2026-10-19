@@ -21,6 +21,7 @@ import { escapeHtml } from '../utils/html';
 import { normalizeLocale, type Locale } from '../utils/locale';
 import { getUserById, getUserByTelegramId, updateUserById } from './user-service';
 import { updateUserInCache } from './reminder-cache';
+import { clearGoogleTracks } from './setup-tracks';
 import { stampGoogleCache } from './calendar-read/google';
 import { getWhatsAppService, MessageFormat } from './messaging';
 import type { UserConfig } from '../types';
@@ -108,8 +109,9 @@ export async function claimPendingGoogleToken(
 
 /**
  * Save a Google refresh token on its owner, as the OAuth callback used to: the encrypted
- * token, the reminder cache and the admin note. Then the flag the Mini App polls for.
- * Nothing else changes: Google is a connection beside FamCal.
+ * token, the reminder cache, a fresh start for the Google setup nudges and the admin
+ * note. Then the flag the Mini App polls for. Nothing else changes: Google is a
+ * connection beside FamCal.
  */
 export async function commitGoogleToken(ownerUserId: number, refreshToken: string): Promise<void> {
   const user = await getUserById(ownerUserId);
@@ -120,6 +122,8 @@ export async function commitGoogleToken(ownerUserId: number, refreshToken: strin
 
   // Google is a connection ("Google as a connection" spec §1): the user keeps their FamCal
   // calendars, partner and reminders, and calendarSource is left as it was (a legacy column).
+  // A fresh connect starts the Google setup nudges over (choose calendars, reconnect).
+  await clearGoogleTracks(user.id);
   // Update reminder cache if user has reminders enabled
   if (user.remindersEnabled) {
     await updateUserInCache({

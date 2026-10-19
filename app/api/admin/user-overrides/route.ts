@@ -10,39 +10,45 @@ import { prisma } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
 import { captureError } from '@/src/lib/error-capture';
-import { getSubscriptionWithUsage, invalidateFeatureAccessCache } from '@/src/services/subscription-service';
+import { calendarTotal, getSubscriptionWithUsage, invalidateFeatureAccessCache } from '@/src/services/subscription-service';
+import { applicableSetupReminder, daysSince, readGoogleTrackStart, SETUP_SCHEDULES, type SetupTrack } from '@/src/services/setup-tracks';
+import { googleStateOf } from '@/src/lib/google-state';
 import { getPlanLimits } from '@/src/config/plans';
 import { redis } from '@/src/utils/redis';
 import { REDIS_KEYS } from '@/src/config/redis-keys';
 
 export const dynamic = 'force-dynamic';
 
-const OAUTH_SCHEDULE = [1, 3, 7, 14];
-const CALENDARS_SCHEDULE = [3, 6, 10];
-const LOCATION_SCHEDULE = [5, 10];
-
+/**
+ * Each setup track's attempts, sent and due (setup-tracks.ts): location by days since
+ * signup (or the admin reset), a Google track by days since the cron first saw the state
+ * (none due before it has).
+ */
 async function getSetupReminderStatus(userId: number, createdAt: Date, reminderStartAt: Date | null) {
   const startDate = reminderStartAt ?? createdAt;
-  const daysSinceSignup = Math.floor((Date.now() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+  const daysSinceSignup = daysSince(startDate);
 
-  async function getAttempts(type: string, schedule: number[]) {
-    const attempts = await Promise.all(
-      schedule.map(async (day, i) => ({
+  async function getAttempts(type: SetupTrack, days: number | null) {
+    return Promise.all(
+      SETUP_SCHEDULES[type].map(async (day, i) => ({
         day,
         sent: !!(await redis.get(REDIS_KEYS.setupReminder(userId, type, i))),
-        due: daysSinceSignup >= day,
+        due: days !== null && days >= day,
       }))
     );
-    return attempts;
   }
+  const googleDays = async (track: 'calendars' | 'reconnect') => {
+    const start = await readGoogleTrackStart(userId, track);
+    return start ? daysSince(start) : null;
+  };
 
   return {
-    daysSinceCreated: Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24)),
+    daysSinceCreated: daysSince(createdAt),
     daysSinceStart: daysSinceSignup,
     wasReset: reminderStartAt !== null,
-    oauth: await getAttempts('oauth', OAUTH_SCHEDULE),
-    calendars: await getAttempts('calendars', CALENDARS_SCHEDULE),
-    location: await getAttempts('location', LOCATION_SCHEDULE),
+    calendars: await getAttempts('calendars', await googleDays('calendars')),
+    reconnect: await getAttempts('reconnect', await googleDays('reconnect')),
+    location: await getAttempts('location', daysSinceSignup),
   };
 }
 
@@ -213,27 +219,18 @@ export async function GET(request: NextRequest) {
       const effectivePlan = subscription?.status === 'TRIALING' && trialDaysRemaining ? 'PRO' : (subscription?.plan || 'FREE');
       const limits = getPlanLimits(effectivePlan as 'FREE' | 'BASIC' | 'PRO');
 
-      // Count calendars from calendarAssignments JSON
+      // Both kinds, as the shared limit counts them: own FamCal calendars plus Google choices
       const calendarAssignments = user.calendarAssignments as Array<{ calendarId: string }> | null;
-      const calendarsCount = calendarAssignments?.length ?? 0;
+      const ownFamcal = await prisma.nativeCalendar.count({ where: { ownerUserId: userId, isDeleted: false } });
+      const calendarsCount = calendarTotal(ownFamcal, calendarAssignments?.length ?? 0);
 
-      // Calculate registration status. The applicableReminder differs by
-      // calendarSource: GOOGLE walks oauth → calendars → location, while
-      // NATIVE only ever needs location (calendar is auto-bootstrapped at
-      // signup; OAuth is irrelevant).
-      const isNativeUser = user.calendarSource === 'NATIVE';
+      // Registration by the user's Google state (Google is optional): Google connected is a
+      // token, and the nudge offered is the Google state's, else a missing location.
       const hasOAuth = user.googleRefreshToken !== '';
-      const hasCalendars = isNativeUser ? true : calendarsCount > 0;
+      const hasCalendars = (calendarAssignments?.length ?? 0) > 0;
       const hasLocation = user.location !== '';
-
-      let applicableReminder: 'oauth' | 'calendars' | 'location' | null = null;
-      if (isNativeUser) {
-        if (!hasLocation) applicableReminder = 'location';
-      } else {
-        if (!hasOAuth) applicableReminder = 'oauth';
-        else if (!hasCalendars) applicableReminder = 'calendars';
-        else if (!hasLocation) applicableReminder = 'location';
-      }
+      const applicableReminder = applicableSetupReminder(user);
+      const googleState = googleStateOf(user);
 
       // Get setup reminder status from Redis
       const setupReminders = await getSetupReminderStatus(userId, user.createdAt, user.reminderStartAt);
@@ -282,7 +279,7 @@ export async function GET(request: NextRequest) {
             hasCalendars,
             hasLocation,
             applicableReminder,
-            calendarSource: user.calendarSource,
+            googleState,
           },
           setupReminders,
         },

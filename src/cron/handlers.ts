@@ -5,6 +5,7 @@
 
 import { prisma } from '../utils/prisma';
 import { captureError } from '../lib/error-capture';
+import type { SetupTrack } from '../services/setup-tracks';
 
 export interface CronResult {
   success: boolean;
@@ -265,24 +266,23 @@ export async function handleNativeReminders(): Promise<void> {
 }
 
 /**
- * Setup reminders handler
- * Sends reminders to users who haven't completed their setup flow
+ * Setup reminders handler ("Google as a connection" spec §2): the location nudge for
+ * anyone without one (from signup), and the Google nudges by the user's Google state at
+ * any account age (choose calendars; reconnect a cleared token). Connecting Google is
+ * optional, so nobody is asked to. Days and starts come from setup-tracks.ts.
  */
 export async function handleSetupReminders(): Promise<CronResult> {
   const { buildUrl } = await import('../config/urls');
-  const { Prisma } = await import('@prisma/client');
   const { redis } = await import('../utils/redis');
   const { REDIS_KEYS } = await import('../config/redis-keys');
+  const { googleStateOf } = await import('../lib/google-state');
+  const tracks = await import('../services/setup-tracks');
+  const { SETUP_SCHEDULES } = tracks;
 
-  // Multi-attempt schedules: days after signup when each reminder is sent
-  const OAUTH_SCHEDULE = [1, 3, 7, 14];    // 4 attempts
-  const CALENDARS_SCHEDULE = [3, 6, 10];    // 3 attempts (only if OAuth done)
-  const LOCATION_SCHEDULE = [5, 10];        // 2 attempts (only if calendars done)
-  const MAX_DAYS = 14;                      // Stop looking after 14 days
-  const REMINDER_TTL = 30 * 24 * 3600;     // 30-day TTL for Redis keys
+  const MAX_DAYS = 14;                      // The location track looks this far back from signup
 
   interface ReminderResult {
-    type: 'oauth' | 'calendars' | 'location';
+    type: SetupTrack;
     userId: number;
     name: string;
     attempt: number;
@@ -290,9 +290,9 @@ export async function handleSetupReminders(): Promise<CronResult> {
     error?: string;
   }
 
-  async function getSetupMessages(language: string) {
+  async function getBotCopy(language: string) {
     const { default: messages } = await import(`@/messages/${language}.json`);
-    return messages.bot.setupReminders;
+    return messages.bot;
   }
 
   // Pick the right message body based on attempt number
@@ -300,14 +300,6 @@ export async function handleSetupReminders(): Promise<CronResult> {
     if (attempt >= maxAttempts - 1 && messages.bodyFinal) return messages.bodyFinal;
     if (attempt > 0 && messages.bodyReminder) return messages.bodyReminder;
     return messages.body;
-  }
-
-  // Determine which attempt is due for a user given days since signup
-  function getDueAttempt(daysSinceSignup: number, schedule: number[]): number | null {
-    for (let i = schedule.length - 1; i >= 0; i--) {
-      if (daysSinceSignup >= schedule[i]) return i;
-    }
-    return null;
   }
 
   const results: ReminderResult[] = [];
@@ -320,7 +312,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
   async function sendSetupReminder(
     user: { id: number; telegramId: bigint | null; whatsappPhone: string | null; whatsappBsuid: string | null; language: string; name: string },
     title: string, body: string, buttonText: string, url: string,
-    type: ReminderResult['type'], attempt: number
+    type: ReminderResult['type'], attempt: number, ttlSeconds: number
   ): Promise<void> {
     const message = `${title}\n\n${body}`;
 
@@ -342,7 +334,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
     }
 
     // Mark this attempt as sent in Redis
-    await redis.set(REDIS_KEYS.setupReminder(user.id, type, attempt), '1', { ex: REMINDER_TTL });
+    await redis.set(REDIS_KEYS.setupReminder(user.id, type, attempt), '1', { ex: ttlSeconds });
     results.push({ type, userId: user.id, name: user.name, attempt, success: true });
   }
 
@@ -370,125 +362,74 @@ export async function handleSetupReminders(): Promise<CronResult> {
     return user.reminderStartAt ?? user.createdAt;
   }
 
-  // 1. OAuth reminders — GOOGLE-source users within window without a token.
-  // NATIVE users skip this entire track (their calendar is auto-bootstrapped
-  // at signup; OAuth is irrelevant for them).
-  const needsOAuthUsers = await prisma.user.findMany({
+  // 1. The Google tracks, at any account age: a token with no chosen calendars (choose
+  // calendars), or no token while calendars are stored (reconnect). Their days count from
+  // the day this run first sees the state. The token is read only for being set.
+  const googleTrackUsers = await prisma.user.findMany({
     where: {
-      ...isWithinWindow,
-      calendarSource: 'GOOGLE',
-      googleRefreshToken: '',
       suspendedAt: null,
-      ...hasMessagingPlatform,
+      AND: [hasMessagingPlatform, { OR: tracks.GOOGLE_NUDGE_WHERE }],
     },
-    select: dateSelect,
+    select: { ...userSelect, googleRefreshToken: true, calendarAssignments: true },
   });
 
-  for (const user of needsOAuthUsers) {
+  for (const user of googleTrackUsers) {
+    const track = tracks.googleTrackOf(googleStateOf(user));
+    if (!track) continue;
     try {
-      const daysSinceSignup = Math.floor((Date.now() - getReminderStart(user).getTime()) / (1000 * 60 * 60 * 24));
-      const dueAttempt = getDueAttempt(daysSinceSignup, OAUTH_SCHEDULE);
-      if (dueAttempt === null) continue;
+      const start = await tracks.googleTrackStart(user.id, track);
+      const attempt = tracks.dueAttempt(tracks.daysSince(start), SETUP_SCHEDULES[track]);
+      if (attempt === null) continue;
 
-      // Check if this attempt was already sent
-      const alreadySent = await redis.get(REDIS_KEYS.setupReminder(user.id, 'oauth', dueAttempt));
+      const alreadySent = await redis.get(REDIS_KEYS.setupReminder(user.id, track, attempt));
       if (alreadySent) continue;
 
-      const t = await getSetupMessages(user.language || 'en');
-      const body = pickBody(t.oauth, dueAttempt, OAUTH_SCHEDULE.length);
-      const dashboardUrl = buildUrl(`/${user.language || 'en'}/dashboard?user_id=${user.telegramId ?? user.id}`);
-      await sendSetupReminder(user, t.oauth.title, body, t.oauth.button, dashboardUrl, 'oauth', dueAttempt);
+      const t = await getBotCopy(user.language || 'en');
+      const userParam = `user_id=${user.telegramId ?? user.id}`;
+      if (track === 'calendars') {
+        const copy = t.setupReminders.calendars;
+        const body = pickBody(copy, attempt, SETUP_SCHEDULES.calendars.length);
+        const calendarsUrl = buildUrl(`/${user.language || 'en'}/select-calendars?${userParam}`);
+        await sendSetupReminder(user, copy.title, body, copy.button, calendarsUrl, track, attempt, tracks.GOOGLE_TRACK_TTL_SECONDS);
+      } else {
+        // The summary's token copy and refresh button: /refresh-token picks the language itself
+        const refreshUrl = buildUrl(`/refresh-token?${userParam}`);
+        await sendSetupReminder(user, t.tokenExpired.title, t.tokenExpired.message, t.buttons.refreshGoogle, refreshUrl, track, attempt, tracks.GOOGLE_TRACK_TTL_SECONDS);
+      }
     } catch (error) {
+      captureError(error, 'cron-setup-reminders', { user_id: user.id, track }, 'warning');
       results.push({
-        type: 'oauth', userId: user.id, name: user.name, attempt: -1,
+        type: track, userId: user.id, name: user.name, attempt: -1,
         success: false, error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
   }
 
-  // 2. Calendars reminders — GOOGLE users with OAuth done but no calendars
-  // selected. NATIVE users skip: their primary calendar is auto-created and
-  // multi-calendar management lives in the miniapp /calendars page (not part
-  // of the new-user setup nudge).
-  const needsCalendarsUsers = await prisma.user.findMany({
-    where: {
-      ...isWithinWindow,
-      calendarSource: 'GOOGLE',
-      googleRefreshToken: { not: '' },
-      suspendedAt: null,
-      OR: [
-        { calendarAssignments: { equals: Prisma.JsonNull } },
-        { calendarAssignments: { equals: Prisma.DbNull } },
-        { calendarAssignments: { equals: [] } },
-      ],
-      AND: hasMessagingPlatform,
-    },
-    select: dateSelect,
-  });
-
-  for (const user of needsCalendarsUsers) {
-    try {
-      const daysSinceSignup = Math.floor((Date.now() - getReminderStart(user).getTime()) / (1000 * 60 * 60 * 24));
-      const dueAttempt = getDueAttempt(daysSinceSignup, CALENDARS_SCHEDULE);
-      if (dueAttempt === null) continue;
-
-      const alreadySent = await redis.get(REDIS_KEYS.setupReminder(user.id, 'calendars', dueAttempt));
-      if (alreadySent) continue;
-
-      const t = await getSetupMessages(user.language || 'en');
-      const body = pickBody(t.calendars, dueAttempt, CALENDARS_SCHEDULE.length);
-      const calendarsUrl = buildUrl(`/${user.language || 'en'}/select-calendars?user_id=${user.telegramId ?? user.id}`);
-      await sendSetupReminder(user, t.calendars.title, body, t.calendars.button, calendarsUrl, 'calendars', dueAttempt);
-    } catch (error) {
-      results.push({
-        type: 'calendars', userId: user.id, name: user.name, attempt: -1,
-        success: false, error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  }
-
-  // 3. Location reminders — fires for both sources, but with different
-  // prerequisites:
-  //   - GOOGLE: must have OAuth + at least one selected calendar before
-  //     we ask about location (existing chained behavior).
-  //   - NATIVE: only the location is missing (calendar is auto-bootstrapped).
-  // Selecting both groups together so a single track sends one location
-  // nudge per user regardless of source.
+  // 2. Location reminders, from signup, for everyone without one (FamCal is everyone's).
   const needsLocationUsers = await prisma.user.findMany({
     where: {
       ...isWithinWindow,
       location: '',
       suspendedAt: null,
-      ...hasMessagingPlatform,
-      OR: [
-        // GOOGLE: chained behind OAuth + calendars (filtered post-query below)
-        { calendarSource: 'GOOGLE', googleRefreshToken: { not: '' } },
-        // NATIVE: calendar is implicit
-        { calendarSource: 'NATIVE' },
-      ],
+      AND: hasMessagingPlatform,
     },
-    select: { ...dateSelect, calendarAssignments: true, calendarSource: true },
+    select: dateSelect,
   });
 
-  const locationUsersFiltered = needsLocationUsers.filter(u => {
-    if (u.calendarSource === 'NATIVE') return true;
-    const assignments = u.calendarAssignments as unknown[];
-    return Array.isArray(assignments) && assignments.length > 0;
-  });
-
-  for (const user of locationUsersFiltered) {
+  for (const user of needsLocationUsers) {
     try {
-      const daysSinceSignup = Math.floor((Date.now() - getReminderStart(user).getTime()) / (1000 * 60 * 60 * 24));
-      const dueAttempt = getDueAttempt(daysSinceSignup, LOCATION_SCHEDULE);
-      if (dueAttempt === null) continue;
+      const daysSinceSignup = tracks.daysSince(getReminderStart(user));
+      const attempt = tracks.dueAttempt(daysSinceSignup, SETUP_SCHEDULES.location);
+      if (attempt === null) continue;
 
-      const alreadySent = await redis.get(REDIS_KEYS.setupReminder(user.id, 'location', dueAttempt));
+      const alreadySent = await redis.get(REDIS_KEYS.setupReminder(user.id, 'location', attempt));
       if (alreadySent) continue;
 
-      const t = await getSetupMessages(user.language || 'en');
+      const t = (await getBotCopy(user.language || 'en')).setupReminders;
       const settingsUrl = buildUrl(`/${user.language || 'en'}/settings?user_id=${user.telegramId ?? user.id}`);
-      await sendSetupReminder(user, t.location.title, t.location.body, t.location.button, settingsUrl, 'location', dueAttempt);
+      await sendSetupReminder(user, t.location.title, t.location.body, t.location.button, settingsUrl, 'location', attempt, tracks.LOCATION_ATTEMPT_TTL_SECONDS);
     } catch (error) {
+      captureError(error, 'cron-setup-reminders', { user_id: user.id, track: 'location' }, 'warning');
       results.push({
         type: 'location', userId: user.id, name: user.name, attempt: -1,
         success: false, error: error instanceof Error ? error.message : 'Unknown error'
@@ -511,8 +452,8 @@ export async function handleSetupReminders(): Promise<CronResult> {
         return `${type.charAt(0).toUpperCase() + type.slice(1)} (${users.length}):\n${userNames}`;
       };
       const details = [
-        formatUserList('oauth'),
         formatUserList('calendars'),
+        formatUserList('reconnect'),
         formatUserList('location'),
       ].filter(Boolean).join('\n\n');
       await notifyAdminWarning(
@@ -531,8 +472,8 @@ export async function handleSetupReminders(): Promise<CronResult> {
     remindersSent: successCount,
     remindersFailed: failCount,
     details: {
-      oauth: results.filter(r => r.type === 'oauth').length,
       calendars: results.filter(r => r.type === 'calendars').length,
+      reconnect: results.filter(r => r.type === 'reconnect').length,
       location: results.filter(r => r.type === 'location').length,
     },
   };
