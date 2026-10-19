@@ -601,12 +601,12 @@ async function main() {
     assert(!body.includes('LOC-SECRET-42'), `the redirect carries props: ${await bodyOf(res)}`);
   });
 
-  await check('#8 page-data calendars for a GOOGLE user: notice notNative, no calendars', async () => {
+  await check('#8 page-data calendars for a GOOGLE user: their own FamCal calendars (Google as a connection), never another user\'s', async () => {
     seed();
     const res = await pageData({ page: 'calendars', user_id: 8880004, locale: 'en', initData: initDataFor(8880004) });
     const body = await fullBody(res);
-    assert(body.includes('notNative'), `status ${res.status} ${await bodyOf(res)}`);
-    assert(!body.includes('CAL-SECRET'), `the notice carries calendars: ${await bodyOf(res)}`);
+    assert(res.status === 200 && body.includes('CAL-SECRET-gina-native') && !body.includes('notNative'), `status ${res.status} ${await bodyOf(res)}`);
+    assert(!/CAL-SECRET-(?!gina)/.test(body), `another user's calendar: ${await bodyOf(res)}`);
   });
 
   // ---- Review fix: the dead /oauth-success route ----

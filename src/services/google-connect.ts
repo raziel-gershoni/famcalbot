@@ -13,7 +13,6 @@
 import crypto from 'crypto';
 import { redis } from '../utils/redis';
 import { REDIS_KEYS } from '../config/redis-keys';
-import { prisma } from '../utils/prisma';
 import { encrypt, decrypt } from '../utils/encryption';
 import { buildUrl } from '../config/urls';
 import { captureError } from '../lib/error-capture';
@@ -109,8 +108,8 @@ export async function claimPendingGoogleToken(
 
 /**
  * Save a Google refresh token on its owner, as the OAuth callback used to: the encrypted
- * token, the NATIVE→GOOGLE switch, the reminder cache and the admin note. Then the flag
- * the Mini App polls for.
+ * token, the reminder cache and the admin note. Then the flag the Mini App polls for.
+ * Nothing else changes: Google is a connection beside FamCal.
  */
 export async function commitGoogleToken(ownerUserId: number, refreshToken: string): Promise<void> {
   const user = await getUserById(ownerUserId);
@@ -119,24 +118,8 @@ export async function commitGoogleToken(ownerUserId: number, refreshToken: strin
   // Save new refresh token on the owner, by DB id (updateUserById encrypts it)
   await updateUserById(user.id, { googleRefreshToken: refreshToken });
 
-  // If the user was previously on NATIVE, completing OAuth is an explicit
-  // opt-in to GOOGLE. Flip calendarSource and soft-delete the auto-created
-  // native calendar so the model stays "either/or per user" (locked
-  // product decision). The native calendar row is preserved (isDeleted=true)
-  // in case the user ever switches back; the in-bot calendar UI hides it.
-  if (user.calendarSource === 'NATIVE') {
-    await prisma.$transaction(async (tx) => {
-      await tx.user.update({
-        where: { id: user.id },
-        data: { calendarSource: 'GOOGLE' },
-      });
-      await tx.nativeCalendar.updateMany({
-        where: { ownerUserId: user.id, isDeleted: false },
-        data: { isDeleted: true },
-      });
-    });
-  }
-
+  // Google is a connection ("Google as a connection" spec §1): the user keeps their FamCal
+  // calendars, partner and reminders, and calendarSource is left as it was (a legacy column).
   // Update reminder cache if user has reminders enabled
   if (user.remindersEnabled) {
     await updateUserInCache({
@@ -144,7 +127,7 @@ export async function commitGoogleToken(ownerUserId: number, refreshToken: strin
       telegramId: user.telegramId?.toString() ?? '',
       googleRefreshToken: refreshToken, // Fresh token (not encrypted)
       calendarAssignments: user.calendarAssignments,
-      calendarSource: 'GOOGLE', // Completing OAuth switches a NATIVE user to Google (above)
+      calendarSource: user.calendarSource, // Legacy, unread
       pairingId: user.pairingId,
       defaultReminderMinutes: user.defaultReminderMinutes ?? null,
       language: user.language,

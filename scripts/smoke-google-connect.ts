@@ -727,15 +727,15 @@ async function main() {
 
   // ---- B3: claims ----
 
-  await check('#6 owner claims over Telegram: /start gc_… commits (token, NATIVE→GOOGLE, cache, admin note), sets the flag, replies with "Choose calendars"', async () => {
+  await check('#6 owner claims over Telegram: /start gc_… commits (token, cache, admin note; the user stays NATIVE with FamCal, Google is a connection), sets the flag, replies with "Choose calendars"', async () => {
     seed();
     const id = await pendingFor(9);
     await tgWebhook(tgText(TAL_TG, `/start gc_${id}`));
     assert(await savedToken(9) === 'google-rt-new', `row 9 token: ${userRow(9).googleRefreshToken}; ${captured.join(' | ')}`);
-    assert(userRow(9).calendarSource === 'GOOGLE', `calendarSource ${userRow(9).calendarSource}`);
-    assert(DB.nativeCalendar.find(c => c.id === 'cal-9')?.isDeleted === true, 'the native calendar is not soft-deleted');
+    assert(userRow(9).calendarSource === 'NATIVE', `calendarSource ${userRow(9).calendarSource}`);
+    assert(DB.nativeCalendar.find(c => c.id === 'cal-9')?.isDeleted === false, 'the native calendar was soft-deleted');
     const cached = decode(redisStore.get('reminders:users')) as Row[] | null;
-    assert(cached?.some(u => u.id === 9 && u.googleRefreshToken === 'google-rt-new' && u.calendarSource === 'GOOGLE'), `reminder cache ${show(cached)}`);
+    assert(cached?.some(u => u.id === 9 && u.googleRefreshToken === 'google-rt-new' && u.calendarSource === 'NATIVE'), `reminder cache ${show(cached)}`);
     assert(adminNotes.some(n => n.includes(String(TAL_TG))), `admin notes ${show(adminNotes)}`);
     assert(redisStore.has('googleConnected:9') && redisTtl.get('googleConnected:9') === 15 * 60, `flag ${redisStore.get('googleConnected:9')} ttl ${redisTtl.get('googleConnected:9')}`);
     assert(pendingKeys().length === 0, 'the pending entry is still there');
@@ -750,7 +750,7 @@ async function main() {
     const id = await pendingFor(42);
     await waWebhook(waText(WA_BSUID, `לסיים את החיבור ליומן Google: gc_${id}`, { bsuid: WA_BSUID }));
     assert(await savedToken(42) === 'google-rt-new', `row 42 token: ${userRow(42).googleRefreshToken}; ${captured.join(' | ')}`);
-    assert(userRow(42).calendarSource === 'GOOGLE', `calendarSource ${userRow(42).calendarSource}`);
+    assert(userRow(42).calendarSource === 'NATIVE', `calendarSource ${userRow(42).calendarSource}`);
     assert(redisStore.has('googleConnected:42'), 'no flag for 42');
     const reply = sentTo(WA_BSUID).at(-1);
     const url = reply?.options?.whatsappUrlButton?.url ?? '';
@@ -1103,23 +1103,25 @@ async function main() {
     assert(wa.status === 200, `WhatsApp webhook ${wa.status}`);
   });
 
-  await check('#23 a commit that fails half-way (token saved, NATIVE→GOOGLE switch throws) doesn\'t say nothing was connected', async () => {
-    const calendars = fakePrisma.nativeCalendar as Row;
-    const updateMany = calendars.updateMany;
+  await check('#23 a commit whose follow-ups fail after the token is saved (the reminder cache and the flag, Redis down) still says it connected, never that nothing was', async () => {
+    const set = redisImpl.set;
     const NOTHING_SAVED = { en: /nothing was connected/i, he: /לא חיברנו כלום/, ru: /ничего не подключено/i };
-    const DASHBOARD = { en: /dashboard/i, he: /לוח הבקרה/, ru: /панел/i };
     for (const locale of ['en', 'he', 'ru'] as const) {
       seed();
       userRow(9).language = locale;
-      calendars.updateMany = async () => { throw new Error('db down (smoke)'); };
+      const id = await pendingFor(9);
+      redisImpl.set = async (k: string, ...rest: unknown[]) => {
+        if (/^(reminders:users|googleConnected:)/.test(k)) throw new Error('redis down (smoke)');
+        return set(k, ...rest);
+      };
       try {
-        await tgWebhook(tgText(TAL_TG, `/start gc_${await pendingFor(9)}`));
+        await tgWebhook(tgText(TAL_TG, `/start gc_${id}`));
       } finally {
-        calendars.updateMany = updateMany;
+        redisImpl.set = set;
       }
-      assert(await savedToken(9) === 'google-rt-new', `${locale}: the token was not saved before the switch failed`);
+      assert(await savedToken(9) === 'google-rt-new', `${locale}: the token was not saved`);
       const reply = sentTo(TAL_TG).at(-1)?.text ?? '';
-      assert(reply && !NOTHING_SAVED[locale].test(reply) && DASHBOARD[locale].test(reply), `${locale} reply: ${show(reply)}`);
+      assert(reply && !NOTHING_SAVED[locale].test(reply), `${locale} reply: ${show(reply)}`);
     }
   });
 

@@ -28,6 +28,7 @@ import { captureError } from '@/src/lib/error-capture';
 import { listUserCalendars, scrubbedGoogleError } from '@/src/services/calendar';
 import { classifyGoogleError } from '@/src/services/calendar-read/google-map';
 import { listVisibleCalendars } from '@/src/services/native-calendar/event-store';
+import { ensurePrimaryNativeCalendar } from '@/src/services/native-calendar/onboarding';
 import { getActivePartner, getActiveInvite } from '@/src/services/pairing-service';
 import { getPlanLimits } from '@/src/config/plans';
 import { buildUrl } from '@/src/config/urls';
@@ -44,7 +45,7 @@ export function isPageName(value: unknown): value is PageName {
 }
 
 /** A static notice the page renders instead of its client component. */
-export type PageNotice = 'notNative' | 'noGoogleToken' | 'error';
+export type PageNotice = 'noGoogleToken' | 'error';
 
 type SelectCalendarsProps = ComponentProps<typeof SelectCalendarsClient>;
 
@@ -342,14 +343,14 @@ async function selectCalendars(user: UserConfig, userId: number, userLocale: str
 }
 
 async function calendars(user: UserConfig, userId: number, userLocale: string): Promise<PageDataResult> {
-  // Native-only page: GCal users keep using select-calendars/. We render an
-  // explanation rather than redirecting because the page may be reachable via
-  // a stale link.
-  if (user.calendarSource !== 'NATIVE') {
-    return { kind: 'notice', notice: 'notNative' };
+  // The FamCal calendars page, for everyone (Google as a connection). A user with no FamCal
+  // calendar of their own (a legacy Google user's were hidden by an old connect) gets the
+  // main one made here, lazily, as reminders and the editor make it.
+  let visible = await listVisibleCalendars(user.id, user.pairingId ?? null);
+  if (!visible.some((c) => c.ownerUserId === user.id)) {
+    await ensurePrimaryNativeCalendar(user.id);
+    visible = await listVisibleCalendars(user.id, user.pairingId ?? null);
   }
-
-  const visible = await listVisibleCalendars(user.id, user.pairingId ?? null);
 
   // Serialize for the client component (Date → ISO).
   const initial = visible.map((c) => ({
@@ -372,10 +373,6 @@ async function calendars(user: UserConfig, userId: number, userLocale: string): 
 }
 
 async function pair(user: UserConfig, userId: number, userLocale: string): Promise<PageDataResult> {
-  if (user.calendarSource !== 'NATIVE') {
-    return { kind: 'notice', notice: 'notNative' };
-  }
-
   const [partnerInfo, activeInvite] = await Promise.all([
     getActivePartner(user.id),
     getActiveInvite(user.id),

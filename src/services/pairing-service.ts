@@ -18,9 +18,7 @@ export type PairingErrorCode =
   | 'INVITE_EXPIRED'
   | 'INVITE_ALREADY_USED'
   | 'INVITE_REVOKED'
-  | 'INVITER_NOT_NATIVE'
   | 'INVITER_ALREADY_PAIRED'
-  | 'INVITEE_NOT_NATIVE'
   | 'INVITEE_ALREADY_PAIRED'
   | 'ALREADY_PAIRED_TOGETHER'
   | 'CANNOT_ACCEPT_OWN_INVITE'
@@ -41,15 +39,15 @@ export class PairingError extends Error {
 /**
  * Create a fresh invite for the user. Revokes any prior un-accepted, un-revoked,
  * un-expired invites first so a user only ever has one "active link" at a time.
- * Caller is responsible for verifying the user is NATIVE and not already paired.
+ * Anyone may pair ("Google as a connection": every user has FamCal); the partner sees only
+ * FamCal calendars, never the other's Google ones.
  */
 export async function createInvite(inviterUserId: number): Promise<PairingInvite> {
   const inviter = await prisma.user.findUnique({
     where: { id: inviterUserId },
-    select: { id: true, calendarSource: true, pairingId: true },
+    select: { id: true, pairingId: true },
   });
   if (!inviter) throw new PairingError('UNKNOWN_ERROR', 'Inviter not found');
-  if (inviter.calendarSource !== 'NATIVE') throw new PairingError('INVITER_NOT_NATIVE');
   if (inviter.pairingId) throw new PairingError('INVITER_ALREADY_PAIRED');
 
   const token = crypto.randomBytes(32).toString('hex');
@@ -80,7 +78,7 @@ export async function createInvite(inviterUserId: number): Promise<PairingInvite
  *  invite-landing page to render preview info). */
 export async function getInviteByToken(token: string): Promise<{
   invite: PairingInvite;
-  inviter: Pick<User, 'id' | 'name' | 'englishName' | 'language' | 'calendarSource' | 'pairingId'>;
+  inviter: Pick<User, 'id' | 'name' | 'englishName' | 'language' | 'pairingId'>;
 } | null> {
   const invite = await prisma.pairingInvite.findUnique({ where: { token } });
   if (!invite) return null;
@@ -89,7 +87,7 @@ export async function getInviteByToken(token: string): Promise<{
   if (invite.expiresAt.getTime() <= Date.now()) return null;
   const inviter = await prisma.user.findUnique({
     where: { id: invite.inviterUserId },
-    select: { id: true, name: true, englishName: true, language: true, calendarSource: true, pairingId: true },
+    select: { id: true, name: true, englishName: true, language: true, pairingId: true },
   });
   if (!inviter) return null;
   return { invite, inviter };
@@ -200,18 +198,16 @@ export async function acceptInvite(token: string, acceptingUserId: number): Prom
     const [inviter, invitee] = await Promise.all([
       tx.user.findUnique({
         where: { id: invite.inviterUserId },
-        select: { id: true, calendarSource: true, pairingId: true },
+        select: { id: true, pairingId: true },
       }),
       tx.user.findUnique({
         where: { id: acceptingUserId },
-        select: { id: true, calendarSource: true, pairingId: true },
+        select: { id: true, pairingId: true },
       }),
     ]);
     if (!inviter) throw new PairingError('UNKNOWN_ERROR', 'Inviter no longer exists');
     if (!invitee) throw new PairingError('UNKNOWN_ERROR', 'Acceptor no longer exists');
 
-    if (inviter.calendarSource !== 'NATIVE') throw new PairingError('INVITER_NOT_NATIVE');
-    if (invitee.calendarSource !== 'NATIVE') throw new PairingError('INVITEE_NOT_NATIVE');
     if (inviter.pairingId || invitee.pairingId) {
       if (await pairedWithEachOther(tx, inviter.id, invitee.id)) throw new PairingError('ALREADY_PAIRED_TOGETHER');
       throw new PairingError(inviter.pairingId ? 'INVITER_ALREADY_PAIRED' : 'INVITEE_ALREADY_PAIRED');
@@ -226,7 +222,7 @@ export async function acceptInvite(token: string, acceptingUserId: number): Prom
       },
     });
 
-    // Link each side only while it is still unpaired and NATIVE; a concurrent accept
+    // Link each side only while it is still unpaired; a concurrent accept
     // that paired either user first leaves count 0 and this one rolls back. Lowest
     // user id first: with inviter-then-invitee, A taking B's invite while B took A's
     // locked the two User rows in opposite orders and deadlocked. Count 0 comes only
@@ -234,7 +230,7 @@ export async function acceptInvite(token: string, acceptingUserId: number): Prom
     // pairedWithEachOther see it.
     for (const userId of [inviter.id, invitee.id].sort((a, b) => a - b)) {
       const linked = await tx.user.updateMany({
-        where: { id: userId, pairingId: null, calendarSource: 'NATIVE' },
+        where: { id: userId, pairingId: null },
         data: { pairingId: pairing.id },
       });
       if (linked.count !== 1) {

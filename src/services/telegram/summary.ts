@@ -552,21 +552,11 @@ async function sendSummaryToAll(
         console.log(`[Summary] User ${user.id}: platform=${platform} waPhone=${user.whatsappPhone || 'null'} waBsuid=${user.whatsappBsuid || 'null'} waChatId=${getWhatsAppChatId(user) || 'null'}`);
       }
 
-      // A NATIVE user has googleRefreshToken = '' by definition, so gating on the
-      // token alone skipped every one of them on every scheduled run - no daily
-      // summary, no tomorrow summary, not even the weather-only fallback below.
-      const isNative = user.calendarSource === 'NATIVE';
-      const hasBackend = isNative || !!user.googleRefreshToken;
-      const assignments = isNative
-        ? await getCalendarAssignmentsForUser(user)
-        : (user.calendarAssignments ?? []);
+      // Everyone has FamCal ("Google as a connection"), so no Google token skips nobody:
+      // the calendars are the union, FamCal's then the Google choices.
+      const assignments = await getCalendarAssignmentsForUser(user);
       const hasCalendars = assignments.length > 0;
       const hasLocation = !!user.location;
-
-      if (!hasBackend) {
-        console.log(`[Summary] Skipping user ${user.id}: No Google token`);
-        return;
-      }
 
       if (!hasCalendars && !hasLocation) {
         console.log(`[Summary] Skipping user ${user.id}: No calendars or location`);

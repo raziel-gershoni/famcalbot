@@ -19,6 +19,8 @@ import { removeUserFromCache, updateUserInCache } from './reminder-cache';
 import { invalidateDueGate } from './native-reminders/due-gate';
 import { clearDeletedUserCaches } from '../lib/user-moderation';
 import { setUserMenuButton } from './telegram/bot';
+import { clearOtherPrimaries } from './calendar-provider/primary';
+import type { CalendarAssignment } from '../types';
 
 const LINK_CODE_TTL = 300; // 5 minutes
 
@@ -97,9 +99,9 @@ function runsLonger(a: Subscription, b: Subscription): boolean {
  * Never copied: ids and bookkeeping (id, telegramId, createdAt, updatedAt,
  * reminderStartAt), admin and moderation state (isAdmin, suspendedAt/By/Reason) and
  * Telegram delivery state (unreachableSince). Set by the merge itself: the WhatsApp ids,
- * messagingPlatform, pairingId, and the calendar setup (calendarSource,
- * googleRefreshToken, calendarAssignments). There is no timezone column: it is resolved
- * from location.
+ * messagingPlatform, pairingId, and the Google connection (googleRefreshToken,
+ * calendarAssignments; calendarSource is a legacy column the merge leaves). There is
+ * no timezone column: it is resolved from location.
  */
 const NEW_ACCOUNT = {
   englishName: '', gender: 'male', culture: 'default', globalRules: [] as string[],
@@ -196,18 +198,26 @@ function isSameCalendar(a: NativeCalendar, b: NativeCalendar): boolean {
  * Fold the WhatsApp-only user W into the Telegram user T and delete W, inside
  * the caller's transaction. Everything W has moves to T, so the delete clears
  * the schema's ON DELETE RESTRICT relations (calendars, created events,
- * pairings, the per-user rows); T takes W's setup (setupFromW) and, when T can
- * take it, W's Google connection. T's primary calendar gives way to W's when
+ * pairings, the per-user rows); T takes W's setup (setupFromW) and, when T has
+ * none of its own, W's Google connection. T's primary calendar gives way to W's when
  * it holds no live events and T keeps no partner of its own, and otherwise
  * W's folds into it or comes over as another calendar. A moved pairing
  * shares T's own calendars, as accepting an invite does. Otherwise a moved
  * calendar keeps its privacy (W's go PRIVATE when W's pairing ends, by the
  * merge or by P meanwhile, and P's too when the merge ends it) and a fold
  * needs the same privacy on both sides, so the merge shows nobody an event
- * their pairing did not share.
+ * their pairing did not share. Anyone pairs and keeps FamCal beside Google ("Google
+ * as a connection"), and T ends with one primary across both lists (T's own wins).
  * Returns T's pairingId after the merge, whether W's Google connection stayed
  * behind, and whether T's language changed.
  */
+/** The Google choice labelled primary, if any. */
+function googlePrimaryOf(assignments: unknown): string | undefined {
+  return Array.isArray(assignments)
+    ? (assignments as CalendarAssignment[]).find(a => Array.isArray(a?.labels) && a.labels.includes('primary'))?.calendarId
+    : undefined;
+}
+
 async function mergeWhatsAppUser(
   tx: Prisma.TransactionClient,
   waOnlyUserId: number,
@@ -215,13 +225,12 @@ async function mergeWhatsAppUser(
 ): Promise<{ pairingId: string | null; reconnectGoogle: boolean; languageChanged: boolean }> {
   const w = await tx.user.findUniqueOrThrow({ where: { id: waOnlyUserId } });
   const t = await tx.user.findUniqueOrThrow({ where: { id: telegramUserId } });
-  const tIsNative = t.calendarSource === 'NATIVE';
   // What T takes from W's setup (written last; the calendar fold names T's calendar by it).
   const setup = setupFromW(w, t);
   // Read before W's arrive: T's live calendars, its primary (the one
-  // getMainNativeCalendar picks), and whether they hold live events (the
-  // primary step, the Google step).
-  const wHasGoogle = w.calendarSource === 'GOOGLE' && !!w.googleRefreshToken;
+  // getMainNativeCalendar picks), and whether it holds live events (the
+  // primary step). W's Google connection is its token.
+  const wHasGoogle = !!w.googleRefreshToken;
   const tCalendarsBefore = await tx.nativeCalendar.findMany({
     where: { ownerUserId: t.id, isDeleted: false },
     orderBy: { createdAt: 'asc' },
@@ -230,14 +239,13 @@ async function mergeWhatsAppUser(
   const liveEvents = async (calendarIds: string[]) =>
     calendarIds.length ? tx.nativeEvent.count({ where: { calendarId: { in: calendarIds }, isDeleted: false } }) : 0;
   const tPrimaryEmpty = !!tPrimary && (await liveEvents([tPrimary.id])) === 0;
-  const tHasEvents = wHasGoogle && (await liveEvents(tCalendarsBefore.map(c => c.id))) > 0;
 
-  // Pairing: only NATIVE users pair, one partner each. W's pairing moves to T
+  // Pairing: one partner each. W's pairing moves to T
   // when T can take it; otherwise W is unpaired with unlink()'s writes. Each
   // step is a conditional write, as acceptInvite's are. Taking the pairing row
   // waits for an unlink of it in flight and re-checks it is still ACTIVE (count
   // 0: P unlinked after the read, so W is unpaired). T's write refuses a T that
-  // accepted an invite or switched to Google after the read above.
+  // accepted an invite after the read above.
   let pairingId = t.pairingId;
   let moved = false;
   const wPairing = w.pairingId ? await tx.pairing.findUnique({ where: { id: w.pairingId } }) : null;
@@ -247,8 +255,8 @@ async function mergeWhatsAppUser(
     data: wInvited ? { inviterUserId: t.id } : { inviteeUserId: t.id },
   })).count === 1;
   if (wPairing && taken) {
-    moved = !t.pairingId && tIsNative && (await tx.user.updateMany({
-      where: { id: t.id, pairingId: null, calendarSource: 'NATIVE' },
+    moved = !t.pairingId && (await tx.user.updateMany({
+      where: { id: t.id, pairingId: null },
       data: { pairingId: wPairing.id },
     })).count === 1;
     if (moved) {
@@ -286,8 +294,8 @@ async function mergeWhatsAppUser(
     await tx.nativeCalendar.updateMany({ where: { ownerUserId: w.id }, data: { privacy: 'PRIVATE' } });
   }
 
-  // Calendars. A Google user has no live native calendars (oauth-callback
-  // soft-deletes them), so for one W's arrive deleted. T's primary calendar,
+  // Calendars. A legacy Google W's were soft-deleted by an old connect, so they
+  // arrive deleted and stay hidden. T's primary calendar,
   // if it held no live events before W's arrived (a fresh T's empty default),
   // gives way to W's: T's goes (its soft-deleted events cascade) and W's comes
   // over as it is, privacy and setup, as the main calendar. Not while T stays
@@ -296,7 +304,7 @@ async function mergeWhatsAppUser(
   // what T adds stays where the partner sees it.
   const live = (ownerUserId: number) =>
     tx.nativeCalendar.findMany({ where: { ownerUserId, isDeleted: false }, orderBy: { createdAt: 'asc' } });
-  const wCalendars = tIsNative ? await live(w.id) : [];
+  const wCalendars = await live(w.id);
   const tKeepsPartner = !!pairingId && !moved;
   const wPrimary = tPrimaryEmpty && !tKeepsPartner ? wCalendars.find(c => c.labels.includes('primary')) : undefined;
   if (tPrimary && wPrimary) await tx.nativeCalendar.delete({ where: { id: tPrimary.id } });
@@ -316,32 +324,30 @@ async function mergeWhatsAppUser(
   // each profile, so the names rarely match), and T's row takes W's calendar
   // setup where T's is as it started (calendarSetupFromW); the rest move over,
   // soft-deleted ones too. T keeps one primary calendar.
-  if (tIsNative) {
-    const tCalendars = await live(t.id);
-    const names = { t: t.name, w: w.name, merged: setup.name ?? t.name };
-    const folded = new Set<string>();
-    let tHasPrimary = tCalendars.some(c => c.labels.includes('primary'));
-    for (const wCalendar of wCalendars) {
-      const into = wCalendar === wPrimary ? undefined : tCalendars.find(c => !folded.has(c.id) && isSameCalendar(c, wCalendar));
-      if (into) {
-        folded.add(into.id);
-        await tx.nativeEvent.updateMany({ where: { calendarId: wCalendar.id }, data: { calendarId: into.id } });
-        await tx.nativeCalendar.update({ where: { id: into.id }, data: calendarSetupFromW(wCalendar, into, names) });
-        await tx.nativeCalendar.delete({ where: { id: wCalendar.id } });
-      } else if (wCalendar.labels.includes('primary')) {
-        if (tHasPrimary) {
-          await tx.nativeCalendar.update({
-            where: { id: wCalendar.id },
-            data: { labels: wCalendar.labels.filter(l => l !== 'primary') },
-          });
-        }
-        tHasPrimary = true;
+  const tCalendars = await live(t.id);
+  const names = { t: t.name, w: w.name, merged: setup.name ?? t.name };
+  const folded = new Set<string>();
+  let tHasPrimary = tCalendars.some(c => c.labels.includes('primary'));
+  for (const wCalendar of wCalendars) {
+    const into = wCalendar === wPrimary ? undefined : tCalendars.find(c => !folded.has(c.id) && isSameCalendar(c, wCalendar));
+    if (into) {
+      folded.add(into.id);
+      await tx.nativeEvent.updateMany({ where: { calendarId: wCalendar.id }, data: { calendarId: into.id } });
+      await tx.nativeCalendar.update({ where: { id: into.id }, data: calendarSetupFromW(wCalendar, into, names) });
+      await tx.nativeCalendar.delete({ where: { id: wCalendar.id } });
+    } else if (wCalendar.labels.includes('primary')) {
+      if (tHasPrimary) {
+        await tx.nativeCalendar.update({
+          where: { id: wCalendar.id },
+          data: { labels: wCalendar.labels.filter(l => l !== 'primary') },
+        });
       }
+      tHasPrimary = true;
     }
   }
   await tx.nativeCalendar.updateMany({
     where: { ownerUserId: w.id },
-    data: { ownerUserId: t.id, ...(tIsNative ? {} : { isDeleted: true }) },
+    data: { ownerUserId: t.id },
   });
 
   // Events and reminders W created, was reminded of, or marked done.
@@ -379,30 +385,36 @@ async function mergeWhatsAppUser(
   // A Google sign-in W left half-done is minutes old; it is restarted from T.
   await tx.oAuthState.deleteMany({ where: { userId: BigInt(w.id) } });
 
-  // W's Google connection moves when T has none, is unpaired (only NATIVE users
-  // pair) and has no native setup of its own to lose: T's calendars held no
-  // live events (however young T is). It moves as stored: the token, still
-  // encrypted, and W's calendar choices. T is then on Google, so its native
-  // calendars, W's moved ones included, are soft-deleted as commitGoogleToken
-  // does (either/or per user). The write re-checks the pairing and the token, as
-  // the pairing move does. Otherwise T keeps its setup, and the user is told to
+  // W's Google connection moves when T has none of its own: the token, still
+  // encrypted, and W's calendar choices. T keeps its FamCal calendars, partner and
+  // events beside it (Google is a connection). The write re-checks the token, as
+  // the pairing move does. Otherwise T keeps its own, and the user is told to
   // reconnect Google.
   let reconnectGoogle = false;
+  let tookGoogle = false;
   if (wHasGoogle) {
-    const tookGoogle = !pairingId && !t.googleRefreshToken && !tHasEvents && (await tx.user.updateMany({
-      where: { id: t.id, pairingId: null, googleRefreshToken: '' },
+    tookGoogle = !t.googleRefreshToken && (await tx.user.updateMany({
+      where: { id: t.id, googleRefreshToken: '' },
       data: {
-        calendarSource: 'GOOGLE',
         googleRefreshToken: w.googleRefreshToken,
         calendarAssignments: w.calendarAssignments ?? Prisma.DbNull,
       },
     })).count === 1;
-    if (tookGoogle) {
-      await tx.nativeCalendar.updateMany({ where: { ownerUserId: t.id, isDeleted: false }, data: { isDeleted: true } });
-    } else {
-      reconnectGoogle = true;
-    }
+    reconnectGoogle = !tookGoogle;
   }
+
+  // One primary across T's two lists, once (spec §3, §4): T's own wins, its Google
+  // primary, else the FamCal primary T established. A fresh T's empty default gives
+  // way here as it does to W's calendar above, so a moved Google primary stays the
+  // default W had.
+  const tGooglePrimary = t.googleRefreshToken ? googlePrimaryOf(t.calendarAssignments) : undefined;
+  const tFamcalPrimary = tPrimary && !wPrimary && !(tPrimaryEmpty && !tKeepsPartner) ? tPrimary.id : undefined;
+  const wGooglePrimary = tookGoogle ? googlePrimaryOf(w.calendarAssignments) : undefined;
+  const keep = tGooglePrimary ? { googleCalendarId: tGooglePrimary }
+    : tFamcalPrimary ? { famcalId: tFamcalPrimary }
+    : wGooglePrimary ? { googleCalendarId: wGooglePrimary }
+    : undefined;
+  if (keep) await clearOtherPrimaries(t.id, keep, tx);
 
   // W goes before T takes its WhatsApp ids: they are unique. W was found by the
   // id the link came from, so W's ids are the ones to take; a BSUID-only W has
@@ -441,8 +453,7 @@ async function afterMerge(wUserId: number, tUserId: number, languageChanged: boo
     if (!t) return;
     if (languageChanged && t.telegramId) await setUserMenuButton(t.telegramId, t.language);
     // Who belongs in the cache is the hourly sync's rule, as in the settings route.
-    const remindable = t.remindersEnabled && t.telegramId !== null && !t.suspendedAt && !t.unreachableSince &&
-      (!!t.googleRefreshToken || t.calendarSource === 'NATIVE');
+    const remindable = t.remindersEnabled && t.telegramId !== null && !t.suspendedAt && !t.unreachableSince;
     if (!remindable) {
       await removeUserFromCache(t.id);
       return;

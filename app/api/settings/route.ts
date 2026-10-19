@@ -102,14 +102,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Update reminder cache (no extra DB query - uses data from updateUserById). Who belongs
-    // in it is the hourly sync's rule (handleDailySummary): a NATIVE user has no Google
-    // token by definition, and a save must not put back a suspended or unreachable user
+    // in it is the hourly sync's rule (handleDailySummary): everyone has FamCal, with or
+    // without a Google token, and a save must not put back a suspended or unreachable user
     // the sync left out (Telegram refuses an unreachable chat every 5 minutes).
     const remindable = updatedUser.remindersEnabled &&
       updatedUser.telegramId !== null &&
       !updatedUser.suspendedAt &&
-      !updatedUser.unreachableSince &&
-      (!!updatedUser.googleRefreshToken || updatedUser.calendarSource === 'NATIVE');
+      !updatedUser.unreachableSince;
     if (remindable) {
       await updateUserInCache({
         id: updatedUser.id,

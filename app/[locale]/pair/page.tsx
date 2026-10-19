@@ -31,29 +31,6 @@ export default async function PairPage({ params, searchParams }: PageProps) {
       userId={userId}
       locale={locale}
       links={gateLinks()}
-      notices={{
-        notNative: (
-          <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 p-6">
-            <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md text-center">
-              <div className="mb-4 text-4xl">🤝</div>
-              <h1 className="text-xl font-bold text-gray-800 mb-2">
-                {locale === 'he'
-                  ? 'חיבור פרטנר זמין רק ביומן הפנימי'
-                  : locale === 'ru'
-                  ? 'Привязка партнёра доступна только во внутреннем календаре'
-                  : 'Pairing is for the in-bot calendar only'}
-              </h1>
-              <p className="text-gray-600 text-sm">
-                {locale === 'he'
-                  ? 'אתה מחובר ליומן Google. שיתוף יומנים מתבצע דרך Google Calendar עצמו.'
-                  : locale === 'ru'
-                  ? 'Вы используете Google Calendar — общий доступ управляется в самом Google Calendar.'
-                  : 'You are using Google Calendar. Use Google Calendar sharing instead.'}
-              </p>
-            </div>
-          </div>
-        ),
-      }}
     />
   );
 }

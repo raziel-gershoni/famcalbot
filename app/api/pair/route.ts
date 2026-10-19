@@ -18,10 +18,7 @@ export async function GET(request: NextRequest) {
     if (!auth.success) return auth.response;
 
     const user = auth.user;
-    if (user.calendarSource !== 'NATIVE') {
-      return NextResponse.json({ paired: false, native: false });
-    }
-
+    // native stays true for the client: everyone has FamCal, so anyone can pair.
     const result = await getActivePartner(user.id);
     if (!result) return NextResponse.json({ paired: false, native: true });
 

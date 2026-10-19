@@ -645,7 +645,7 @@ async function main() {
 
   // ---- Mutual accept: users are linked lowest id first ----
 
-  await check('#7 both directions (2 takes 1\'s invite; 1 takes 2\'s) link user 1 first, then 2, each only while unpaired and NATIVE', async () => {
+  await check('#7 both directions (2 takes 1\'s invite; 1 takes 2\'s) link user 1 first, then 2, each only while unpaired (any user pairs: Google as a connection)', async () => {
     const { acceptInvite } = await load('src/services/pairing-service.ts');
     const problems: string[] = [];
     for (const [token, acceptor] of [[TOKEN_1, 2], [TOKEN_2, 1]] as const) {
@@ -654,7 +654,7 @@ async function main() {
       const links = userWrites.filter(w => w.method === 'updateMany');
       const order = links.flatMap(w => w.hit);
       if (show(order) !== show([1, 2])) problems.push(`user ${acceptor} accepting linked ${show(order)}`);
-      const loose = links.filter(w => w.where.pairingId !== null || w.where.calendarSource !== 'NATIVE');
+      const loose = links.filter(w => w.where.pairingId !== null || 'calendarSource' in w.where);
       if (loose.length) problems.push(`user ${acceptor} accepting linked with ${show(loose.map(w => w.where))}`);
     }
     assert(problems.length === 0, problems.join('; '));

@@ -48,13 +48,8 @@ async function syncRemindersAndCleanUp(): Promise<void> {
     const users = await prisma.user.findMany({
       where: {
         remindersEnabled: true,
-        // A NATIVE user has googleRefreshToken = '' by definition, so filtering
-        // on the token alone kept every one of them out of the reminder cache -
-        // meaning event reminders never fired for them at all.
-        OR: [
-          { googleRefreshToken: { not: '' } },
-          { calendarSource: 'NATIVE' },
-        ],
+        // Everyone has FamCal ("Google as a connection"), so a missing Google token
+        // keeps nobody out: their FamCal events alert too.
         telegramId: { not: null },
         suspendedAt: null,
         // Telegram refuses delivery to these chats; reminders would 403 every 5 minutes.

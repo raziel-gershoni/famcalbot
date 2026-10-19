@@ -32,6 +32,11 @@
 // merge ending W's pairing left P's (and T's, when T and W were paired with each other),
 // and the hard delete left the partner's.
 //
+// Google as a connection (#7, #25, #26, #29, #31-#33 rewritten; #50, #51): Google never
+// replaces FamCal. W's token moves when T has none, whatever T's pairing or events; T's
+// calendars are never soft-deleted; anyone pairs; and T ends with one primary across its
+// FamCal calendars and Google choices (T's own wins; a fresh T's empty default gives way).
+//
 // account-linking, user-moderation, user-service, subscription-service, the reminder
 // cache and event-store run for real. Faked at the boundaries: Prisma (in memory, and it
 // enforces the schema: a delete hits ON DELETE RESTRICT / CASCADE / SET NULL as the
@@ -925,7 +930,7 @@ async function main() {
     assert(wCalendars.length === 0 && pEvents.length === 0, `Q sees ${show(visible)}; P's events among them ${show(pEvents)}`);
   });
 
-  await check('#7 T on Google: W\'s calendars move soft-deleted (either/or per user) and W\'s pairing is unlinked, not moved', async () => {
+  await check('#7 T a legacy Google user (its FamCal hidden by an old connect): W\'s calendars come over live, W\'s primary is T\'s FamCal main, and W\'s pairing moves to T (anyone pairs: Google as a connection)', async () => {
     seed();
     pairWithP();
     Object.assign(userRow(T), { calendarSource: 'GOOGLE' });
@@ -933,9 +938,10 @@ async function main() {
     const result = await link();
     assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
     const live = DB.nativeCalendar.filter(c => c.ownerUserId === T && !c.isDeleted);
-    assert(live.length === 0, `T has live native calendars ${show(live.map(c => c.id))}`);
+    assert(show(live.map(c => c.id)) === show(['cal-w', 'cal-w-kids']) && rowOf('nativeCalendar', 'cal-w')?.labels.includes('primary'), `T's live calendars ${show(live)}`);
+    assert(rowOf('nativeCalendar', 'cal-t')?.isDeleted === true, 'T\'s hidden calendar came back');
     assert(rowOf('nativeEvent', 'ev-w')?.creatorUserId === T, `ev-w ${show(rowOf('nativeEvent', 'ev-w'))}`);
-    assert(userRow(T).pairingId === null && rowOf('pairing', 'pair-wp')?.status === 'UNLINKED', `T.pairingId ${userRow(T).pairingId}; pairing ${show(rowOf('pairing', 'pair-wp'))}`);
+    assert(userRow(T).pairingId === 'pair-wp' && userRow(P).pairingId === 'pair-wp' && rowOf('pairing', 'pair-wp')?.status === 'ACTIVE', `T.pairingId ${userRow(T).pairingId}; pairing ${show(rowOf('pairing', 'pair-wp'))}`);
   });
 
   await check('#15 P invited W, and P set a reminder for W: the pairing moves with T as the invitee, and the reminder is now for T', async () => {
@@ -991,19 +997,18 @@ async function main() {
     assert(referencesTo(W).length === 0, `still pointing at W: ${show(referencesTo(W))}`);
   });
 
-  await check('#29 T switches to Google after the merge read T: the pairing does not move to a Google user, W\'s is unlinked', async () => {
+  await check('#29 T connects Google while the merge runs (after it read T): the pairing still moves to T, as Google never gates pairing', async () => {
     seed();
     pairWithP();
     concurrent = (name, method, args) => {
       if (name !== 'user' || !method.startsWith('findUnique') || args.where?.id !== T) return;
       concurrent = null;
-      userRow(T).calendarSource = 'GOOGLE';
-      rowOf('nativeCalendar', 'cal-t')!.isDeleted = true;
+      userRow(T).googleRefreshToken = TOKENS.t;
     };
     const result = await link();
     assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
-    assert(userRow(T).pairingId === null && userRow(P).pairingId === null, `T=${userRow(T).pairingId} P=${userRow(P).pairingId}`);
-    assert(rowOf('pairing', 'pair-wp')?.status === 'UNLINKED', `W's pairing ${show(rowOf('pairing', 'pair-wp'))}`);
+    assert(userRow(T).pairingId === 'pair-wp' && userRow(P).pairingId === 'pair-wp', `T=${userRow(T).pairingId} P=${userRow(P).pairingId}`);
+    assert(rowOf('pairing', 'pair-wp')?.status === 'ACTIVE', `W's pairing ${show(rowOf('pairing', 'pair-wp'))}`);
   });
 
   await check('#35 P unlinks while the merge moves the pairing to T (after unlink read it): the pairing ends UNLINKED by P and T is not left on it', async () => {
@@ -1183,33 +1188,33 @@ async function main() {
     assert(userRow(T).name === 'Dana Cohen', `T's name ${show(userRow(T).name)}`);
   });
 
-  await check('#25 W on Google, fresh T: T moves to Google with W\'s stored (encrypted) token and calendar choices, T\'s native calendars are soft-deleted, and T\'s reminder-cache entry reads Google', async () => {
+  await check('#25 W on Google, fresh T: T takes W\'s stored (encrypted) token and calendar choices and stays NATIVE with its FamCal calendars (Google is a connection), and T\'s reminder-cache entry has W\'s token', async () => {
     seed();
     freshT();
     googleW();
     const result = await link();
     assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
     const t = userRow(T);
-    assert(t.calendarSource === 'GOOGLE' && t.googleRefreshToken === TOKENS.w && show(t.calendarAssignments) === show(W_ASSIGNMENTS),
+    assert(t.calendarSource === 'NATIVE' && t.googleRefreshToken === TOKENS.w && show(t.calendarAssignments) === show(W_ASSIGNMENTS),
       `T ${show({ calendarSource: t.calendarSource, token: t.googleRefreshToken === TOKENS.w ? 'W\'s' : t.googleRefreshToken, calendarAssignments: t.calendarAssignments })}`);
     const live = DB.nativeCalendar.filter(c => c.ownerUserId === T && !c.isDeleted).map(c => c.id);
-    assert(live.length === 0, `T still has live native calendars ${show(live)}`);
+    assert(show(live) === show(['cal-t']), `T's live native calendars ${show(live)}`);
     assert(!result.reconnectGoogle, 'the result asks for a Google reconnect');
     const cached = JSON.parse(redisStore.get('reminders:users') ?? '[]').find((u: Row) => u.id === T);
-    assert(cached?.calendarSource === 'GOOGLE' && cached.googleRefreshToken === 'google-rt-w' && show(cached.calendarAssignments) === show(W_ASSIGNMENTS),
+    assert(cached?.googleRefreshToken === 'google-rt-w' && show(cached.calendarAssignments) === show(W_ASSIGNMENTS),
       `reminder cache entry for T ${show(cached)}`);
   });
 
-  await check('#26 W on Google, T paired with Q: T stays NATIVE with its calendars, and the result asks the user to reconnect Google', async () => {
+  await check('#26 W on Google, T paired with Q: T takes W\'s Google connection and keeps Q and its calendars', async () => {
     seed();
     googleW();
     pairTWithQ();
     const result = await link();
     assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
     const t = userRow(T);
-    assert(t.calendarSource === 'NATIVE' && t.googleRefreshToken === '' && t.pairingId === 'pair-tq', `T ${show({ calendarSource: t.calendarSource, token: t.googleRefreshToken, pairingId: t.pairingId })}`);
+    assert(t.calendarSource === 'NATIVE' && t.googleRefreshToken === TOKENS.w && t.pairingId === 'pair-tq', `T ${show({ calendarSource: t.calendarSource, token: t.googleRefreshToken === TOKENS.w ? 'W\'s' : t.googleRefreshToken, pairingId: t.pairingId })}`);
     assert(rowOf('nativeCalendar', 'cal-t')?.isDeleted === false, 'T\'s calendar was soft-deleted');
-    assert(result.reconnectGoogle === true, `reconnectGoogle ${show(result.reconnectGoogle)}`);
+    assert(!result.reconnectGoogle, `reconnectGoogle ${show(result.reconnectGoogle)}`);
   });
 
   await check('#27 W on Google, T has its own Google token: T keeps its token and choices, and the result asks the user to reconnect Google', async () => {
@@ -1225,19 +1230,19 @@ async function main() {
     assert(result.reconnectGoogle === true, `reconnectGoogle ${show(result.reconnectGoogle)}`);
   });
 
-  await check('#32 W on Google, an established unpaired T with events of its own: T keeps its native calendars and events, and the result asks the user to reconnect Google', async () => {
+  await check('#32 W on Google, an established unpaired T with events of its own: T takes W\'s Google connection and keeps its native calendars and events', async () => {
     seed();
     googleW();
     const result = await link();
     assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
     const t = userRow(T);
-    assert(t.calendarSource === 'NATIVE' && t.googleRefreshToken === '' && t.calendarAssignments === null,
+    assert(t.calendarSource === 'NATIVE' && t.googleRefreshToken === TOKENS.w && show(t.calendarAssignments) === show(W_ASSIGNMENTS),
       `T ${show({ calendarSource: t.calendarSource, token: t.googleRefreshToken === TOKENS.w ? 'W\'s' : t.googleRefreshToken, calendarAssignments: t.calendarAssignments })}`);
     assert(rowOf('nativeCalendar', 'cal-t')?.isDeleted === false && rowOf('nativeEvent', 'ev-t')?.isDeleted === false, `T's calendar ${show(rowOf('nativeCalendar', 'cal-t'))}`);
-    assert(result.reconnectGoogle === true, `reconnectGoogle ${show(result.reconnectGoogle)}`);
+    assert(!result.reconnectGoogle, `reconnectGoogle ${show(result.reconnectGoogle)}`);
   });
 
-  await check('#33 W on Google: an unpaired T with no live events (a deleted one, one in a deleted calendar) moves to Google with W\'s token; a fresh T that already added one keeps it, and the result asks the user to reconnect Google', async () => {
+  await check('#33 W on Google: T takes the connection whatever its events (a fresh T that already added one, an established T with none), and keeps every FamCal calendar and event', async () => {
     for (const fresh of [false, true]) {
       seed();
       googleW();
@@ -1246,20 +1251,49 @@ async function main() {
         DB.nativeEvent.push(event('ev-t-new', 'cal-t', T));
       } else {
         rowOf('nativeEvent', 'ev-t')!.isDeleted = true;
-        DB.nativeCalendar.push(calendar('cal-t-old', T, 'Old', { isDeleted: true }));
-        DB.nativeEvent.push(event('ev-t-old', 'cal-t-old', T));
       }
       const result = await link();
       assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
       const t = userRow(T);
-      const tookGoogle = !fresh;
-      assert(t.calendarSource === (tookGoogle ? 'GOOGLE' : 'NATIVE') && t.googleRefreshToken === (tookGoogle ? TOKENS.w : '') &&
-        show(t.calendarAssignments) === show(tookGoogle ? W_ASSIGNMENTS : null),
-        `${fresh ? 'fresh' : 'established'} T ${show({ calendarSource: t.calendarSource, token: t.googleRefreshToken === TOKENS.w ? 'W\'s' : t.googleRefreshToken })}`);
-      assert(rowOf('nativeCalendar', 'cal-t')?.isDeleted === tookGoogle && !!result.reconnectGoogle === !tookGoogle,
-        `${fresh ? 'fresh' : 'established'} T's calendar ${show(rowOf('nativeCalendar', 'cal-t'))}; reconnectGoogle ${show(result.reconnectGoogle)}`);
+      assert(t.googleRefreshToken === TOKENS.w && show(t.calendarAssignments) === show(W_ASSIGNMENTS) && !result.reconnectGoogle,
+        `${fresh ? 'fresh' : 'established'} T ${show({ token: t.googleRefreshToken === TOKENS.w ? 'W\'s' : t.googleRefreshToken, reconnectGoogle: result.reconnectGoogle })}`);
+      assert(rowOf('nativeCalendar', 'cal-t')?.isDeleted === false, `${fresh ? 'fresh' : 'established'} T's calendar ${show(rowOf('nativeCalendar', 'cal-t'))}`);
       if (fresh) assert(rowOf('nativeEvent', 'ev-t-new')?.isDeleted === false, `T's event ${show(rowOf('nativeEvent', 'ev-t-new'))}`);
     }
+  });
+
+  await check('#50 W on FamCal with a Google token (connected as a connection), fresh T: T takes the token and choices, and W\'s FamCal comes over live as T\'s main', async () => {
+    seed();
+    freshT();
+    Object.assign(userRow(W), { googleRefreshToken: TOKENS.w, calendarAssignments: W_ASSIGNMENTS });
+    const result = await link();
+    assert(result.success === true && !result.reconnectGoogle, `result ${show(result)}; captured ${show(captured)}`);
+    const t = userRow(T);
+    assert(t.calendarSource === 'NATIVE' && t.googleRefreshToken === TOKENS.w && show(t.calendarAssignments) === show(W_ASSIGNMENTS), `T ${show({ token: t.googleRefreshToken === TOKENS.w ? 'W\'s' : t.googleRefreshToken, calendarAssignments: t.calendarAssignments })}`);
+    const live = DB.nativeCalendar.filter(c => c.ownerUserId === T && !c.isDeleted).map(c => c.id).sort();
+    assert(show(live) === show(['cal-w', 'cal-w-kids']) && rowOf('nativeCalendar', 'cal-w')?.labels.includes('primary'), `T's live calendars ${show(live)}`);
+  });
+
+  await check('#51 one primary after the merge: W\'s Google primary stays over a fresh T\'s empty default; an established T\'s FamCal primary wins over it', async () => {
+    const withPrimary = [{ ...W_ASSIGNMENTS[0], labels: ['primary', 'yours'] }, W_ASSIGNMENTS[1]];
+    const primaries = () => [
+      DB.nativeCalendar.filter(c => c.ownerUserId === T && !c.isDeleted && c.labels.includes('primary')).map(c => c.id),
+      (userRow(T).calendarAssignments ?? []).filter((a: Row) => a.labels.includes('primary')).map((a: Row) => a.calendarId),
+    ];
+    seed();
+    freshT();
+    googleW();
+    userRow(W).calendarAssignments = withPrimary;
+    await link();
+    const fresh = primaries();
+    seed();
+    googleW();
+    userRow(W).calendarAssignments = withPrimary;
+    await link();
+    const established = primaries();
+    assert(show(fresh) === show([[], ['dana@example.com']]), `fresh T ${show(fresh)}`);
+    assert(show(established) === show([['cal-t'], []]), `established T ${show(established)}`);
+    assert(rowOf('nativeCalendar', 'cal-t')?.labels.includes('yours'), 'yours went with primary');
   });
 
   // ---- Merge: subscription ----
@@ -1398,7 +1432,7 @@ async function main() {
     for (const googleStaysBehind of [false, true]) {
       seed();
       Object.assign(userRow(W), { whatsappPhone: `+${PHONE}`, language: 'he' });
-      if (googleStaysBehind) { googleW(); pairTWithQ(); }
+      if (googleStaysBehind) { googleW(); userRow(T).googleRefreshToken = TOKENS.t; }
       const message = { from: PHONE, id: `wamid.link-${googleStaysBehind}`, timestamp: '0', type: 'text', text: { body: `link ${CODE}` } };
       const body = { object: 'whatsapp_business_account', entry: [{ changes: [{ field: 'messages', value: { contacts: [{ profile: { name: 'Dana' }, wa_id: PHONE }], messages: [message] } }] }] };
       await handleWhatsAppWebhook({ body }, { status: () => ({ json: () => undefined }) });
