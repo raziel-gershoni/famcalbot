@@ -10,6 +10,9 @@
 //   npx tsx scripts/smoke-native-reminder-creation.ts --write-prompt-fixture
 // It refuses to overwrite the file. Take a new snapshot only when the prompt for users
 // without reminders is meant to change: delete the file, then run it again.
+// Retaken once, for hebrew-repeats spec §5, which teaches every user's prompt the Hebrew
+// repeats and the Hebrew date (the recurrence schema line, the RECURRENCE DETECTION list, the
+// Hebrew-date rules, four examples, and the image prompt's Hebrew-only date line).
 //
 // Run under both clocks; the output must not depend on the server's timezone:
 //   TZ=UTC npx tsx scripts/smoke-native-reminder-creation.ts

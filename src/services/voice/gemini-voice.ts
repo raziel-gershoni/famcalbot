@@ -8,11 +8,12 @@
 import { getGemini, extractionConfig } from '../ai-provider';
 import { isSilent } from './audio-level';
 import { detectAddressedSpeech, detectSpeech, NO_SPEECH } from './speech-presence';
-import { VoiceIntentResult, VoiceIntent, ParsedEvent } from '../event-parser';
+import { VoiceIntentResult, VoiceIntent, ParsedEvent, RecurrencePattern, HebrewKind } from '../event-parser';
 import { CalendarAssignment } from '../../types';
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import { AI_MODEL_ID } from '../../config/ai-models';
-import { nextDate, startOfLocalDay } from '../../utils/day-events';
+import { addDaysToDate, localDate, nextDate, startOfLocalDay } from '../../utils/day-events';
+import { readSpokenHebrewDate, resolveSpokenHebrewDate } from '../hebrew-date-resolve';
 
 const VOICE_RETRY_CONFIG = {
   maxRetries: 1,
@@ -77,7 +78,7 @@ IMAGE-SPECIFIC RULES:
 - Extract the ACTUAL event date and start time. If the invitation also shows an RSVP / reply-by / confirmation deadline (e.g. "אישור הגעה", "RSVP by", "просьба подтвердить до"), that is NOT the event date — never use it as the event start; you may mention it in "description".
 - If the year is not printed, choose the nearest FUTURE date consistent with the current date/time below.
 - Put the venue name and/or address into "location".
-- CONFIDENCE: return "high" ONLY when the event date AND start time are explicitly and unambiguously printed. If the year is not printed, it is still clear - keep "high" - when the nearest future date falls later this year or within the next 2 months, unless that day and month also fell within the last 2 months. Otherwise the printed date has most likely passed already (e.g. an old flyer): return "medium". A printed year is never lowered by this rule, but a fully printed date that is already past also gets "medium". Keep the day and month as printed - never move them to fit a printed weekday - and return "medium" when the printed weekday does not fall on that date. A date printed only in the Hebrew calendar (e.g. "כ"ח בכסלו") gets "medium", since the Gregorian date is your own conversion. Return "medium" or "low" as well when you guessed the time or are unsure whether a printed date is the event date or an RSVP date. (Lower confidence routes the event to a manual confirmation card instead of auto-creating it.)
+- CONFIDENCE: return "high" ONLY when the event date AND start time are explicitly and unambiguously printed. If the year is not printed, it is still clear - keep "high" - when the nearest future date falls later this year or within the next 2 months, unless that day and month also fell within the last 2 months. Otherwise the printed date has most likely passed already (e.g. an old flyer): return "medium". A printed year is never lowered by this rule, but a fully printed date that is already past also gets "medium". Keep the day and month as printed - never move them to fit a printed weekday - and return "medium" when the printed weekday does not fall on that date. A date printed only in the Hebrew calendar (e.g. "כ"ח בכסלו") gets "medium", and you return it as "hebrewDate" (see HEBREW DATES below) instead of converting it yourself. Return "medium" or "low" as well when you guessed the time or are unsure whether a printed date is the event date or an RSVP date. (Lower confidence routes the event to a manual confirmation card instead of auto-creating it.)
 - Intent is ONLY "create" or "none" — never "edit" or "delete" for an image.`
     : `You are a calendar assistant. Parse the following forwarded text message and extract calendar event information.
 The text may be conversational (e.g. "Hey, can you come to dinner at our place on Friday at 7pm?"). Look for dates, times, event names, and locations.
@@ -114,6 +115,17 @@ INTENT DETECTION RULES:
      * "every Tuesday" (כל יום שלישי, каждый вторник) → frequency: "weekly", daysOfWeek: ["TU"]
      * "every Monday and Wednesday" → frequency: "weekly", daysOfWeek: ["MO", "WE"]
      * Day codes: MO, TU, WE, TH, FR, SA, SU
+     * "every year", "yearly", "every birthday" (כל שנה, каждый год) → frequency: "yearly". This is the Gregorian date: leave "calendar" out.
+     * By the Hebrew calendar: "every year on the Hebrew date", "Hebrew birthday" (יום הולדת עברי, כל שנה לפי התאריך העברי, на еврейскую дату, по еврейскому календарю) → frequency: "yearly", "calendar": "hebrew", "hebrewKind": "anniversary"
+     * "yahrzeit" (יארצייט, יום פטירה, йорцайт, годовщина смерти по еврейскому календарю) → frequency: "yearly", "calendar": "hebrew", "hebrewKind": "yahrzeit"
+     * "calendar": "hebrew" goes only with frequency "yearly", and "hebrewKind" only with "calendar": "hebrew". Never use them for a daily, weekly or monthly repeat.
+
+   - HEBREW DATES: when the user says a date of the Hebrew calendar ("15 Shvat", "the 10th of Tevet", "ט״ו בשבט", "י׳ בטבת", "15 швата"), NEVER convert it to a Gregorian date yourself. Return "hebrewDate": {"day": 15, "month": "Sh'vat", "year": null} and set "startDate" and "endDate" to null; the server works out the Gregorian date.
+     * "day" is a whole number from 1 to 30.
+     * "month" is exactly one of: "Tishrei", "Cheshvan", "Kislev", "Tevet", "Sh'vat", "Adar", "Adar I", "Adar II", "Nisan", "Iyyar", "Sivan", "Tamuz", "Av", "Elul", whatever language the user said it in. Use "Adar I" or "Adar II" only when the user says which; otherwise "Adar".
+     * "year" is the Hebrew year as a number (תשפ״ו → 5786), only when the user said one; otherwise null. The year of a person's death or birth in the Hebrew calendar is a "year"; a Gregorian year is not.
+     * The time of day stays in "startTime" and "endTime" as always. With no time, "allDay": true.
+     * If the user gives a Gregorian date for a Hebrew birthday or yahrzeit ("Hebrew birthday, born March 3 2019"), put it in "startDate" and leave "hebrewDate" null.
 
 4. "that", "את זה", "это" or similar references to "last event" mean the most recently created event
 
@@ -167,7 +179,8 @@ RESPOND IN JSON FORMAT ONLY:
     "description": "Description if mentioned" or null,
     "calendarId": "matched calendar ID" or "primary",
     "calendarName": "matched calendar name" or "Primary",
-    "recurrence": {"frequency": "daily"/"weekly"/"monthly"/"yearly", "daysOfWeek": ["MO",...], "interval": number} or null
+    "recurrence": {"frequency": "daily"/"weekly"/"monthly"/"yearly", "daysOfWeek": ["MO",...], "interval": number, "calendar": "hebrew" (only with "yearly"), "hebrewKind": "anniversary"/"yahrzeit" (only with "calendar": "hebrew")} or null,
+    "hebrewDate": {"day": 1-30, "month": "Tishrei"/"Cheshvan"/"Kislev"/"Tevet"/"Sh'vat"/"Adar"/"Adar I"/"Adar II"/"Nisan"/"Iyyar"/"Sivan"/"Tamuz"/"Av"/"Elul", "year": Hebrew year as a number or null} or null (a Hebrew date the user said; then "startDate" and "endDate" are null)
   },
 
   // For EDIT intent - what to change:
@@ -208,6 +221,18 @@ Output: {"transcription": "Meeting with David tomorrow at 3pm", "intent": "creat
 
 Input audio: "Team meeting every Tuesday at 2pm"
 Output: {"transcription": "Team meeting every Tuesday at 2pm", "intent": "create", "confidence": "high", "event": {"title": "Team meeting", "startDate": "YYYY-MM-DD", "startTime": "14:00", "endDate": "YYYY-MM-DD", "endTime": "15:00", "allDay": false, "calendarId": "primary", "calendarName": "Primary", "recurrence": {"frequency": "weekly", "daysOfWeek": ["TU"]}}}
+
+Input audio: "יארצייט לאבא בעשרה בטבת" (Hebrew: Yahrzeit for Dad on the 10th of Tevet)
+Output: {"transcription": "יארצייט לאבא בעשרה בטבת", "intent": "create", "confidence": "high", "event": {"title": "יארצייט לאבא", "startDate": null, "startTime": null, "endDate": null, "endTime": null, "allDay": true, "calendarId": "primary", "calendarName": "Primary", "hebrewDate": {"day": 10, "month": "Tevet", "year": null}, "recurrence": {"frequency": "yearly", "calendar": "hebrew", "hebrewKind": "yahrzeit"}}}
+
+Input audio: "Hebrew birthday for Noa every year on 15 Shvat"
+Output: {"transcription": "Hebrew birthday for Noa every year on 15 Shvat", "intent": "create", "confidence": "high", "event": {"title": "Noa's Hebrew birthday", "startDate": null, "startTime": null, "endDate": null, "endTime": null, "allDay": true, "calendarId": "primary", "calendarName": "Primary", "hebrewDate": {"day": 15, "month": "Sh'vat", "year": null}, "recurrence": {"frequency": "yearly", "calendar": "hebrew", "hebrewKind": "anniversary"}}}
+
+Input audio: "йорцайт дедушки каждый год, он умер 3 нисана 5780 года" (Russian: Grandfather's yahrzeit every year, he died on 3 Nisan 5780)
+Output: {"transcription": "йорцайт дедушки каждый год, он умер 3 нисана 5780 года", "intent": "create", "confidence": "high", "event": {"title": "Йорцайт дедушки", "startDate": null, "startTime": null, "endDate": null, "endTime": null, "allDay": true, "calendarId": "primary", "calendarName": "Primary", "hebrewDate": {"day": 3, "month": "Nisan", "year": 5780}, "recurrence": {"frequency": "yearly", "calendar": "hebrew", "hebrewKind": "yahrzeit"}}}
+
+Input audio: "Dana's birthday every year, March 3" (the Gregorian date, so no "calendar")
+Output: {"transcription": "Dana's birthday every year, March 3", "intent": "create", "confidence": "high", "event": {"title": "Dana's birthday", "startDate": "YYYY-03-03", "startTime": null, "endDate": "YYYY-03-03", "endTime": null, "allDay": true, "calendarId": "primary", "calendarName": "Primary", "recurrence": {"frequency": "yearly"}}}
 
 Input audio: "תבטל את זה" (Hebrew: Cancel that)
 Output: {"transcription": "תבטל את זה", "intent": "delete", "confidence": "high", "eventReference": {"type": "last_created"}}
@@ -403,14 +428,15 @@ function sleep(ms: number): Promise<void> {
  * always expect a single intent can read `[0]`.
  *
  * Caps at 10 entries per the locked product decision.
- * `remindersOn` as in parseGeminiEventResponse.
+ * `remindersOn` and `now` as in parseGeminiEventResponse.
  */
 export function extractIntents(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw model JSON, read field by field
   parsed: any,
   calendars: CalendarAssignment[],
   timezone: string,
-  remindersOn = false
+  remindersOn = false,
+  now: Date = new Date()
 ): VoiceIntentResult[] {
   if (Array.isArray(parsed.intents) && parsed.intents.length > 1) {
     const capped = parsed.intents.slice(0, 10);
@@ -421,11 +447,12 @@ export function extractIntents(
         { ...(it as object), transcription: parsed.transcription },
         calendars,
         timezone,
-        remindersOn
+        remindersOn,
+        now
       )
     );
   }
-  return [parseGeminiEventResponse(parsed, calendars, timezone, remindersOn)];
+  return [parseGeminiEventResponse(parsed, calendars, timezone, remindersOn, now)];
 }
 
 /**
@@ -490,6 +517,106 @@ export function buildReminderTimes(
   return { start, allDay: dateOnly };
 }
 
+const HEBREW_KINDS: readonly HebrewKind[] = ['anniversary', 'yahrzeit'];
+
+/** The recurrence and the start the model's event reads as (hebrew-repeats spec §5). */
+interface ReadRepeat {
+  recurrence?: RecurrencePattern;
+  /** The start day: the Hebrew date resolved on the server when the user spoke one, else the model's own. */
+  startDate?: string;
+  /** The end day, moved with the start when the Hebrew date set it. */
+  endDate?: string;
+}
+
+/** The days from one 'yyyy-MM-dd' to another, or null when either is not one. */
+function daysBetweenDates(from: unknown, to: unknown): number | null {
+  const isDay = (d: unknown): d is string => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
+  if (!isDay(from) || !isDay(to)) return null;
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
+/**
+ * The model's `recurrence` and `hebrewDate` for one event.
+ *
+ * A Hebrew date the user spoke is resolved here, with hebcal, never by the model: the given
+ * year, or the next occurrence on or after today in `timezone`. It sets the start day (and moves
+ * the end day with it). One that cannot be read or does not exist is logged and ignored, so the
+ * model's own startDate, if it gave one, stands.
+ *
+ * `calendar: 'hebrew'` is kept only with frequency 'yearly', and `hebrewKind` only with it; the
+ * rest is dropped with a log line and the repeat stays what it was. An ordinary repeat is returned
+ * as the model wrote it.
+ */
+function readRepeat(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw model JSON, read field by field
+  eventData: any,
+  timezone: string,
+  now: Date
+): ReadRepeat {
+  let startDate: string | undefined = eventData.startDate || undefined;
+  let endDate: string | undefined = eventData.endDate || undefined;
+
+  let hasYear = false;
+  let spoken = false;
+  if (eventData.hebrewDate !== undefined && eventData.hebrewDate !== null) {
+    const read = readSpokenHebrewDate(eventData.hebrewDate);
+    for (const problem of read.problems) console.warn(`[Gemini] ${problem}`);
+    const resolved = read.date ? resolveSpokenHebrewDate(read.date, localDate(now, timezone)) : null;
+    if (read.date && !resolved) {
+      console.warn(`[Gemini] hebrewDate ${JSON.stringify(read.date)} has no such day (or none in the next 20 years); ignored`);
+    }
+    if (resolved) {
+      const shift = daysBetweenDates(eventData.startDate, eventData.endDate);
+      endDate = shift !== null && shift > 0 ? addDaysToDate(resolved.date, shift) : undefined;
+      startDate = resolved.date;
+      hasYear = resolved.hasYear;
+      spoken = true;
+    }
+  }
+
+  const raw = eventData.recurrence;
+  if (!raw?.frequency) {
+    if (raw && (raw.calendar || raw.hebrewKind)) {
+      console.warn(`[Gemini] recurrence has calendar/hebrewKind but no frequency; dropped: ${JSON.stringify(raw)}`);
+    }
+    return { startDate, endDate };
+  }
+  // An ordinary repeat is the model's object, untouched
+  if (!('calendar' in raw) && !('hebrewKind' in raw)) return { recurrence: raw, startDate, endDate };
+
+  const { frequency, daysOfWeek, interval, until, count } = raw;
+  const ends = {
+    ...(interval != null ? { interval } : {}),
+    ...(until != null ? { until } : {}),
+    ...(count != null ? { count } : {}),
+  };
+  const gregorian: RecurrencePattern = { frequency, ...(daysOfWeek != null ? { daysOfWeek } : {}), ...ends };
+  if (raw.calendar !== 'hebrew') {
+    if (raw.calendar != null) console.warn(`[Gemini] recurrence.calendar ${JSON.stringify(raw.calendar)} is not "hebrew"; dropped`);
+    if (raw.hebrewKind != null) console.warn(`[Gemini] recurrence.hebrewKind ${JSON.stringify(raw.hebrewKind)} without calendar "hebrew"; dropped`);
+    return { recurrence: gregorian, startDate, endDate };
+  }
+  if (frequency !== 'yearly') {
+    console.warn(`[Gemini] recurrence.calendar "hebrew" needs frequency "yearly", got ${JSON.stringify(frequency)}; the Hebrew calendar is dropped`);
+    return { recurrence: gregorian, startDate, endDate };
+  }
+  let kind: HebrewKind = 'anniversary';
+  if (HEBREW_KINDS.includes(raw.hebrewKind)) kind = raw.hebrewKind;
+  else if (raw.hebrewKind != null) console.warn(`[Gemini] recurrence.hebrewKind ${JSON.stringify(raw.hebrewKind)} is not a Hebrew rule; read as "anniversary"`);
+  // A Hebrew yearly rule has no BY parts, so daysOfWeek is left out
+  return {
+    recurrence: {
+      frequency,
+      ...ends,
+      calendar: 'hebrew',
+      hebrewKind: kind,
+      ...(kind === 'yahrzeit' && spoken && !hasYear ? { hebrewNoYear: true as const } : {}),
+    },
+    startDate,
+    endDate,
+  };
+}
+
 /** The model's anchor ("an hour before the dentist"), or undefined when it is missing or unreadable. */
 function readAnchor(raw: unknown): ParsedEvent['anchor'] {
   if (!raw || typeof raw !== 'object') return undefined;
@@ -509,18 +636,20 @@ function parseReminderCreate(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw model JSON, read field by field
   parsed: any,
   calendars: CalendarAssignment[],
-  timezone: string
+  timezone: string,
+  now: Date
 ): VoiceIntentResult {
   const eventData = parsed.event;
   const confidence = parsed.confidence || 'medium';
   const anchor = readAnchor(eventData.anchor);
-  if (!anchor && eventData.anchor && !eventData.startDate) {
+  const repeat = readRepeat(eventData, timezone, now);
+  if (!anchor && eventData.anchor && !repeat.startDate) {
     return { intent: 'create', confidence: 'low', error: 'Missing date/time fields' };
   }
 
   const { start, allDay } = anchor
     ? { start: new Date(NaN), allDay: false }
-    : buildReminderTimes(eventData.startDate, eventData.startTime, !!eventData.allDay, timezone);
+    : buildReminderTimes(repeat.startDate, eventData.startTime, !!eventData.allDay, timezone, now);
   if (!anchor && isNaN(start.getTime())) {
     return { intent: 'create', confidence: 'low', error: 'Invalid date/time parsed' };
   }
@@ -536,7 +665,7 @@ function parseReminderCreate(
     calendarId: own?.calendarId || 'primary',
     calendarName: own?.name || 'Primary',
     confidence,
-    recurrence: eventData.recurrence?.frequency ? eventData.recurrence : undefined,
+    recurrence: repeat.recurrence,
     kind: 'reminder',
     forPerson: eventData.forPerson === 'partner' ? 'partner' : 'self',
     ...(anchor ? { anchor } : {}),
@@ -563,7 +692,8 @@ export function parseGeminiEventResponse(
   parsed: any,
   calendars: CalendarAssignment[],
   timezone: string,
-  remindersOn = false
+  remindersOn = false,
+  now: Date = new Date()
 ): VoiceIntentResult {
   const intent: VoiceIntent | 'none' = parsed.intent || 'create';
   const confidence = parsed.confidence || 'medium';
@@ -579,7 +709,7 @@ export function parseGeminiEventResponse(
 
   if (intent === 'create' && parsed.event) {
     if (remindersOn && parsed.event.kind === 'reminder') {
-      return parseReminderCreate(parsed, calendars, timezone);
+      return parseReminderCreate(parsed, calendars, timezone, now);
     }
     const eventData = parsed.event;
 
@@ -603,8 +733,11 @@ export function parseGeminiEventResponse(
     const resolvedCalendarId = matchedCalendar?.calendarId || calendars[0]?.calendarId || 'primary';
     const resolvedCalendarName = matchedCalendar?.name || calendars[0]?.name || 'Primary';
 
+    // A Hebrew date the user spoke becomes the start day here, on the server
+    const repeat = readRepeat(eventData, timezone, now);
+
     // All-day events may not have startTime/endTime from Gemini
-    if (!eventData.startDate || (!eventData.allDay && (!eventData.startTime || !eventData.endTime))) {
+    if (!repeat.startDate || (!eventData.allDay && (!eventData.startTime || !eventData.endTime))) {
       return {
         intent: 'create',
         confidence: 'low',
@@ -613,7 +746,7 @@ export function parseGeminiEventResponse(
     }
 
     const { start: startDateTime, end: endDateTime } = buildEventTimes(
-      eventData.startDate, eventData.startTime, eventData.endDate, eventData.endTime, !!eventData.allDay, timezone
+      repeat.startDate, eventData.startTime, repeat.endDate, eventData.endTime, !!eventData.allDay, timezone
     );
 
     if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
@@ -634,7 +767,7 @@ export function parseGeminiEventResponse(
       calendarId: resolvedCalendarId,
       calendarName: resolvedCalendarName,
       confidence,
-      recurrence: eventData.recurrence?.frequency ? eventData.recurrence : undefined,
+      recurrence: repeat.recurrence,
     };
 
     return {
