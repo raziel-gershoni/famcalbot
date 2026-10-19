@@ -511,7 +511,7 @@ async function main() {
     assert(stateRow(MILK).doneAt === null, 'marked done');
     assertEditedTo(tg(DANA), MILK_MSG, '💤 Buy milk · until 10:15');
     assert(shouldRunPass(new Date(NOW.getTime() + MIN)), 'gate still closed after the snooze');
-    assert(show(activity) === show([{ userId: DANA, action: 'native_reminder_snoozed', meta: { snooze: 's15', source: 'ping' } }]), `activity ${show(activity)}`);
+    assert(show(activity) === show([{ userId: DANA, action: 'native_reminder_snoozed', meta: { series_event_id: 'ev-milk', snooze: 's15', source: 'ping' } }]), `activity ${show(activity)}`);
   });
 
   await check('snooze 1 hour: now + 60', async () => {
