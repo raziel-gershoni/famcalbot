@@ -25,7 +25,7 @@ import type { AgendaModel, AgendaRow } from '@/src/lib/calendar-view/agenda';
 import type { HomeHints } from '@/src/lib/calendar-view/home-props';
 import type { SourceName } from '@/src/lib/calendar-view/types';
 import { DayList, PlaceholderRows } from './DayList';
-import { ItemSheet } from './ItemSheet';
+import { ItemSheet, type SheetActions } from './ItemSheet';
 import { StillOpenCard } from './StillOpenCard';
 
 export interface AgendaViewProps {
@@ -43,6 +43,8 @@ export interface AgendaViewProps {
   selected: AgendaRow | null;
   /** A tap on a row: open its sheet (the row), or close it (null). */
   onSelect: (row: AgendaRow | null) => void;
+  /** The open sheet's reminder actions (the container owns the request). */
+  sheetActions?: SheetActions;
   /** "Show next week": the container adds a week and fetches agendaWeekWindow(today, weeks). */
   onShowNextWeek: () => void;
   /** Retry on a state row or the partial row: refetch that source's visible windows. */
@@ -138,7 +140,7 @@ function AgendaLoading() {
   );
 }
 
-export function AgendaView({ agenda, hints, setupNeeded, selected, onSelect, onShowNextWeek, onRetry, onChooseCalendars }: AgendaViewProps) {
+export function AgendaView({ agenda, hints, setupNeeded, selected, onSelect, sheetActions, onShowNextWeek, onRetry, onChooseCalendars }: AgendaViewProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   const openSheet = useCallback((row: AgendaRow) => onSelect(row), [onSelect]);
@@ -166,7 +168,7 @@ export function AgendaView({ agenda, hints, setupNeeded, selected, onSelect, onS
           </button>
         </>
       )}
-      {agenda && sheetRow ? <ItemSheet row={sheetRow} today={agenda.today} tz={agenda.tz} onClose={closeSheet} /> : null}
+      {agenda && sheetRow ? <ItemSheet row={sheetRow} today={agenda.today} tz={agenda.tz} onClose={closeSheet} actions={sheetActions} /> : null}
     </section>
   );
 }
@@ -540,5 +542,53 @@ export const AGENDA_CSS = `
   inline-size: 100%;
   min-height: 48px;
   margin-block-start: 16px;
+}
+.ch-actions {
+  margin-block-start: 4px;
+}
+.ch-actions .ch-sheet-action {
+  margin-block-start: 12px;
+}
+.ch-snooze {
+  margin-block-start: 12px;
+}
+.ch-snooze-label {
+  display: block;
+  margin-block-end: 6px;
+  font-size: 13px;
+  color: var(--ch-muted);
+}
+.ch-snooze-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.ch-actions .ch-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.ch-spinner {
+  flex: none;
+  inline-size: 14px;
+  block-size: 14px;
+  border: 2px solid currentColor;
+  border-inline-end-color: transparent;
+  border-radius: 50%;
+  animation: ch-spin 0.8s linear infinite;
+}
+@keyframes ch-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ch-spinner {
+    animation-duration: 3s;
+  }
+}
+.ch-sheet-note {
+  margin: 12px 0 0;
+  font-size: 14px;
+  color: var(--ch-muted);
 }
 `;

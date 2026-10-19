@@ -27,7 +27,7 @@ import { backToBrowse, canStep, loadingMonth, pickDay, pickToday, stepMonth, typ
 import type { DayStatus } from '@/src/lib/calendar-view/store';
 import type { DayKey, SourceName, WeekStart } from '@/src/lib/calendar-view/types';
 import { AGENDA_CSS } from './AgendaView';
-import { ItemSheet } from './ItemSheet';
+import { ItemSheet, type SheetActions } from './ItemSheet';
 import { MonthBrowse } from './MonthBrowse';
 import { MonthPicked } from './MonthPicked';
 
@@ -53,6 +53,8 @@ export interface MonthViewProps {
   selected: AgendaRow | null;
   /** A tap on a row: open its sheet (the row), or close it (null). */
   onSelect: (row: AgendaRow | null) => void;
+  /** The open sheet's reminder actions (the container owns the request). */
+  sheetActions?: SheetActions;
   /** The next MonthUi: a day picked, a chevron, Today, "All months". */
   onUi: (ui: MonthUi) => void;
   /** MonthBrowse's near months and month in view, for the container's wantedMonths. */
@@ -117,6 +119,7 @@ export function MonthView({
   unavailableCalendars,
   selected,
   onSelect,
+  sheetActions,
   onUi,
   onNearMonths,
   onMonthInView,
@@ -173,7 +176,7 @@ export function MonthView({
         onRetryMonth={onRetryMonth}
         onChooseCalendars={onChooseCalendars}
       />
-      {sheetRow ? <ItemSheet row={sheetRow} today={today} tz={tz} onClose={() => onSelect(null)} /> : null}
+      {sheetRow ? <ItemSheet row={sheetRow} today={today} tz={tz} onClose={() => onSelect(null)} actions={sheetActions} /> : null}
     </>
   );
 }

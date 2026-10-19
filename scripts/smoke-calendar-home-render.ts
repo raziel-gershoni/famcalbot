@@ -72,9 +72,9 @@
 //   TZ=Pacific/Kiritimati npx tsx scripts/smoke-calendar-home-render.ts
 
 // The views first: the import-rule checks walk what these load.
-import CalendarHome, { CalendarHomeContainer, HOME_TOP_CSS, type HomeDeps } from '../app/[locale]/dashboard/CalendarHome';
+import CalendarHome, { CalendarHomeContainer, GONE_NOTE_MS, HOME_TOP_CSS, type HomeDeps } from '../app/[locale]/dashboard/CalendarHome';
 import { AgendaView, AGENDA_CSS, type AgendaViewProps } from '../app/[locale]/dashboard/AgendaView';
-import { ItemSheet } from '../app/[locale]/dashboard/ItemSheet';
+import { ItemSheet, type SheetActions } from '../app/[locale]/dashboard/ItemSheet';
 import { SendSheet } from '../app/[locale]/dashboard/SendSheet';
 import { BottomSheet } from '../app/[locale]/dashboard/BottomSheet';
 
@@ -108,6 +108,7 @@ import { monthSpan, monthWindow, type MonthKey } from '../src/lib/calendar-view/
 import { BROWSE_CELL_PX, monthBarPx, monthOffsets } from '../src/lib/calendar-view/month';
 import { formatDayLong } from '../src/lib/calendar-view/format';
 import { calendarVars } from '../src/lib/calendar-view/colours';
+import { postReminderAction } from '../src/lib/calendar-view/reminder-client';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -902,6 +903,7 @@ function fakeClock(startIso: string, deviceZone: string | null = TZ) {
       };
     },
     deviceTimeZone: () => deviceZone,
+    reminderAction: postReminderAction,
   };
   return {
     deps,
@@ -950,6 +952,7 @@ function fakeTelegramHome(o: { version?: string; scheme?: 'light' | 'dark'; clos
       events.get(e)?.delete(h);
     },
     openLink: (url: string) => calls.push(`openLink(${url})`),
+    HapticFeedback: { notificationOccurred: (type: string) => calls.push(`haptic(${type})`) },
     close: () => {
       calls.push('close()');
       if (o.closeThrows) throw new Error('close() failed in the smoke');
@@ -3473,6 +3476,384 @@ async function main() {
     assertLacks(unknown, ['This week ·'], 'unknown always-7');
     assertLacks(sheet('en', {}), [' · '], 'before the facts');
     assertLacks(sheet('en', { today: null, weekStart: null, lookahead7: false }), [' · '], 'null facts');
+  });
+
+  // ---- Reminder actions in the item sheet (reminder-actions spec §1, §4, §5, §6) ----
+
+  const warnedBeforeActions = reactWarnings.length;
+
+  const ACT = (o: Partial<ItemReminderDTO> = {}, extra: Partial<ItemDTO> = {}) =>
+    item('act', { kind: 'reminder', title: 'Act on me', seriesId: 'series_act', start: at(0, '13:00'), reminder: rem(o), ...extra });
+  const sheetWith = (locale: Locale, it: ItemDTO, actions?: SheetActions) => {
+    const row = rowOf(model([ok(it.source === 'google' ? googleAnswer({ items: { [day(0)]: [it] } }) : answer({ items: { [day(0)]: [it] } }))]), it.key);
+    return renderToString(inHome(locale, createElement(ItemSheet, { row, today: TODAY, tz: TZ, onClose: noop, actions })));
+  };
+  const IDLE: SheetActions = { busy: false, pending: null, note: null, onAction: noop };
+  const buttonsIn = (html: string) => [...markup(html).matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)].map((m) => ({ attrs: m[1], text: textOf(m[2]) }));
+  const actionTexts = (locale: Locale, html: string) => buttonsIn(html).map((b) => b.text).filter((t) => t !== messages[locale].calendarHome.actions.close);
+  const labelsOf = (locale: Locale) => messages[locale].calendarHome.sheet.actions as Record<'done' | 'undo' | 'snoozeLabel' | 'snooze15' | 'snooze60' | 'snoozeTomorrow', string>;
+
+  await check('#66 the sheet\'s actions by state and by who views, en/he/ru: Done + Snooze 15 min / 1 hour / Tomorrow while open or snoozed, Done alone before it is due, Not done once done; only for the owner or the creator; none on events, Google items, a reminder with no series, or without the container\'s actions; no untranslated key', () => {
+    for (const locale of LOCALES) {
+      const l = labelsOf(locale);
+      const all = [l.done, l.snooze15, l.snooze60, l.snoozeTomorrow];
+      const open = sheetWith(locale, ACT({ open: true }), IDLE);
+      assert(show(actionTexts(locale, open)) === show(all), `${locale} open: ${show(actionTexts(locale, open))}`);
+      assert(show(actionTexts(locale, sheetWith(locale, ACT({ open: true, snoozedUntil: at(0, '15:30') }), IDLE))) === show(all), `${locale} snoozed`);
+      assert(show(actionTexts(locale, sheetWith(locale, ACT(), IDLE))) === show([l.done]), `${locale} not due yet: Done alone`);
+      assert(show(actionTexts(locale, sheetWith(locale, ACT({ done: true, doneAt: at(0, '12:00') }), IDLE))) === show([l.undo]), `${locale} done: Not done alone`);
+      assertHas(textOf(open), [l.snoozeLabel], `${locale} the Snooze label`);
+      assert(/role="group"/.test(open) && open.includes(`aria-label="${l.snoozeLabel}"`), `${locale}: the snooze row is a labelled group`);
+      assertLacks(textOf(open), ['sheet.actions', 'actionNotes', 'calendarHome.'], `${locale} untranslated key`);
+      if (locale !== 'en') assert(l.done !== labelsOf('en').done && l.snooze60 !== labelsOf('en').snooze60, `${locale}: copy is translated`);
+    }
+    const none = (what: string, it: ItemDTO, given: SheetActions | null = IDLE) => {
+      const actions = given ?? undefined;
+      const names = actionTexts('en', sheetWith('en', it, actions));
+      assert(names.length === 0 || names.every((n) => n === 'Open in Google Calendar'), `${what}: ${show(names)}`);
+      assertLacks(textOf(sheetWith('en', it, actions)), ['Snooze'], what);
+    };
+    const yes = (what: string, it: ItemDTO) => assert(actionTexts('en', sheetWith('en', it, IDLE)).includes('Done'), `${what}: no Done`);
+    yes('the owner and creator', ACT({ open: true }));
+    yes('the owner, made by Noa', ACT({ open: true, creatorIsViewer: false, creatorName: 'Noa' }));
+    yes('the creator, for Noa', ACT({ open: true, ownerIsViewer: false, ownerName: 'Noa' }, { calendar: NOA_CAL }));
+    none('neither owner nor creator', ACT({ open: true, ownerIsViewer: false, creatorIsViewer: false, ownerName: 'Noa' }, { calendar: NOA_CAL }));
+    none('an event', item('ev', { title: 'Event', start: at(0, '13:00'), seriesId: 'series_ev' }));
+    none('a Google item', DINNER);
+    none('a reminder with no series', ACT({ open: true }, { seriesId: null }));
+    none('no actions from the container', ACT({ open: true }), null);
+    // The CSS: the buttons are the home's ch-btn (44 px), Done 48 px; nothing under 11 px; no hover; logical properties.
+    assert(/\.ch-btn \{[^}]*min-height: 44px/.test(HOME_THEME_CSS), 'ch-btn is 44 px');
+    assert(/\.ch-sheet-action \{[^}]*min-height: 48px/.test(AGENDA_CSS), 'Done is 48 px');
+    const mine = AGENDA_CSS.slice(AGENDA_CSS.indexOf('.ch-actions {'));
+    assert(!/:hover/.test(mine) && !/\b(margin|padding)-(left|right|top|bottom)\b|\b(left|right):/.test(mine), 'no hover, no physical property');
+    assert([...mine.matchAll(/font-size: (\d+)px/g)].every((m) => Number(m[1]) >= 11), 'nothing under 11 px');
+  });
+
+  await check('#67 in flight, every action button is disabled and the tapped one alone has the spinner; the four notes show, role=status, in en/he/ru and none without a note', () => {
+    for (const locale of LOCALES) {
+      const html = sheetWith(locale, ACT({ open: true }), { busy: true, pending: 'snooze60', note: null, onAction: noop });
+      const l = labelsOf(locale);
+      const acts = buttonsIn(html).filter((b) => [l.done, l.snooze15, l.snooze60, l.snoozeTomorrow].includes(b.text));
+      assert(acts.length === 4 && acts.every((b) => /\bdisabled=""/.test(b.attrs)), `${locale}: all four disabled`);
+      const busy = acts.filter((b) => /aria-busy="true"/.test(b.attrs));
+      assert(busy.length === 1 && busy[0].text === l.snooze60, `${locale}: spinner on the tapped one: ${show(busy)}`);
+      assert((markup(html).match(/ch-spinner/g) ?? []).length === 1, `${locale}: one spinner`);
+      const idle = sheetWith(locale, ACT({ open: true }), IDLE);
+      assert(!/disabled=""/.test(buttonsIn(idle).filter((b) => b.text === l.done)[0].attrs) && !idle.includes('ch-spinner'), `${locale}: idle`);
+      assert(!/role="status"/.test(idle), `${locale}: no note, no status`);
+      for (const note of ['changed', 'alreadyDone', 'notYours', 'failed'] as const) {
+        const text = messages[locale].calendarHome.sheet.actionNotes[note] as string;
+        const html2 = sheetWith(locale, ACT({ open: true }), { ...IDLE, note });
+        assert(new RegExp(`<p class="ch-sheet-note" role="status">${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</p>`).test(html2.replace(/&#x27;/g, "'")), `${locale} ${note}: ${show(textOf(html2).slice(0, 300))}`);
+      }
+    }
+  });
+
+  // The server, as the home sees it: the range route serves `live`; the reminder route answers `reminderReply`.
+  const FORM2 = item('form2', { kind: 'reminder', title: 'Send the form', seriesId: 'series_form2', start: at(0, '13:00'), reminder: rem({ open: true }) });
+  const form2 = (r: Partial<ItemReminderDTO> = {}): ItemDTO => ({ ...FORM2, reminder: rem({ open: true, ...r }) });
+  const DONE_AT = at(0, '13:05');
+  const doneReminder = rem({ done: true, doneAt: DONE_AT, open: false });
+  let live: { items: Record<DayKey, ItemDTO[]>; carry: ItemDTO[] } = { items: {}, carry: [] };
+  let reminderReply: (c: FetchCall) => FetchAnswer | Promise<FetchAnswer> = () => ({ status: 500 });
+  let rangeGate: Promise<void> | null = null;
+  const reminderCalls = () => fetchCalls.filter((c) => c.path === '/api/calendar/reminder');
+  const serveReminders = () => {
+    answerFetch = async (c) => {
+      if (c.path === '/api/calendar/reminder') return reminderReply(c);
+      if (rangeGate) await rangeGate;
+      return answerFor(c, { items: live.items, carryOvers: live.carry });
+    };
+  };
+  const gate = () => {
+    let release: (v: FetchAnswer) => void = noop;
+    const promise = new Promise<FetchAnswer>((resolve) => (release = resolve));
+    return { promise, release };
+  };
+  const dialogButtons = (m: Home) => elements(byRole(m.container, 'dialog')[0]).filter((e) => e.localName === 'button').map((e) => e.textContent);
+  const dialogButton = (m: Home, text: string) => {
+    const found = elements(byRole(m.container, 'dialog')[0]).filter((e) => e.localName === 'button' && e.textContent.includes(text));
+    assert(found.length === 1, `no single ${show(text)} button in the dialog: ${show(dialogButtons(m))}`);
+    return found[0];
+  };
+  const stillOpenText = (m: Home) => byClass(m.container, 'ch-card')[0]?.textContent ?? '';
+
+  await check('#68 a tap on Done in the Agenda: the request carries the init data (header and body) and the page\'s user_id; buttons are disabled with a spinner while it flies; the answer patches the sheet, the row and the Still open card before the refetch returns; then undo and snooze; a haptic success after done only, on a 6.1+ client', async () => {
+    resetHome();
+    const tg = fakeTelegramHome();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    live = { items: { [day(0)]: [form2()] }, carry: [] };
+    serveReminders();
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T10:00:00Z'));
+    try {
+      assertHas(stillOpenText(m), ['Send the form'], 'the card has it');
+      m.click(button(m.container, 'Send the form'));
+      assertHas(dialogText(m.container), ['Not done yet'], 'the sheet');
+      assert(show(dialogButtons(m)) === show(['Done', '15 min', '1 hour', 'Tomorrow', 'Close']) || dialogButtons(m).slice(0, 4).join() === 'Done,15 min,1 hour,Tomorrow', `buttons: ${show(dialogButtons(m))}`);
+
+      const first = gate();
+      reminderReply = () => first.promise;
+      m.click(dialogButton(m, 'Done'));
+      await settle();
+      assert(reminderCalls().length === 1, `one request: ${reminderCalls().length}`);
+      const post = reminderCalls()[0];
+      assert(post.method === 'POST' && post.headers['Content-Type'] === 'application/json', `method and type: ${post.method}`);
+      assert(post.headers['X-Telegram-Init-Data'] === tg.webApp.initData, 'the init data rides in the header');
+      assert(show(post.body) === show({ user_id: 5550001, seriesId: 'series_form2', originalStart: FORM2.originalStart, action: 'done', initData: tg.webApp.initData }), `body: ${show(post.body)}`);
+      assert(post.credentials === 'same-origin', 'same-origin credentials');
+      const dlg = byRole(m.container, 'dialog')[0];
+      const acts = elements(dlg).filter((e) => e.localName === 'button' && !['Close'].includes(e.textContent));
+      assert(acts.length >= 4 && acts.slice(0, 4).every((e) => e.hasAttribute('disabled')), 'all four disabled in flight');
+      assert(byClass(dlg, 'ch-spinner').length === 1 && byClass(acts[0], 'ch-spinner').length === 1, 'the spinner is on Done alone');
+      m.click(acts[1]);
+      await settle();
+      assert(reminderCalls().length === 1, 'a tap on a disabled button sends nothing');
+
+      // The refetch is held back: the patch alone must already show the new state.
+      const hold = gate();
+      rangeGate = hold.promise.then(noop);
+      const before = rangeCalls().length;
+      await React.act(async () => first.release(ok200({ status: 'ok', reminder: doneReminder })));
+      await settle();
+      assert(rangeCalls().length === before + 1 && rangeCalls().at(-1)?.query.get('sources') === 'famcal', `the confirming refetch is FamCal's: ${show(ranges().slice(before))}`);
+      assertHas(dialogText(m.container), ['Done at 13:05'], 'the sheet at once');
+      assert(show(dialogButtons(m).filter((t) => t !== 'Close')) === show(['Not done']), `only Not done: ${show(dialogButtons(m))}`);
+      assert(!stillOpenText(m).includes('Send the form'), 'the card dropped it at once');
+      assert(byClass(m.container, 'ch-row').some((r) => r.className.includes('is-done') && r.textContent.includes('Send the form')), 'the row is struck');
+      assert(show(tg.calls.filter((c) => c.startsWith('haptic'))) === show(['haptic(success)']), `haptic: ${show(tg.calls)}`);
+      live = { items: { [day(0)]: [form2({ done: true, doneAt: DONE_AT, open: false })] }, carry: [] };
+      rangeGate = null;
+      hold.release({ status: 200 });
+      await settle();
+      assertHas(dialogText(m.container), ['Done at 13:05'], 'still done after the refetch confirms');
+
+      // Undo: back to open, on the card again; no haptic.
+      reminderReply = () => ok200({ status: 'ok', reminder: rem({ open: true }) });
+      live = { items: { [day(0)]: [form2()] }, carry: [] };
+      m.click(dialogButton(m, 'Not done'));
+      await settle();
+      assert(reminderCalls()[1].body?.action === 'undo', 'undo posted');
+      assertHas(dialogText(m.container), ['Not done yet'], 'undone');
+      assertHas(stillOpenText(m), ['Send the form'], 'back on the card');
+
+      // Snooze: "Snoozed until 14:30", still open.
+      const until = at(0, '14:30');
+      reminderReply = () => ok200({ status: 'ok', reminder: rem({ open: true, snoozedUntil: until }) });
+      live = { items: { [day(0)]: [form2({ snoozedUntil: until })] }, carry: [] };
+      m.click(dialogButton(m, '15 min'));
+      await settle();
+      assert(reminderCalls()[2].body?.action === 'snooze15', 'snooze posted');
+      assertHas(dialogText(m.container), ['Snoozed until 14:30'], 'snoozed');
+      assertHas(stillOpenText(m), ['Send the form'], 'a snoozed past-due item stays on the card');
+      reminderReply = () => ok200({ status: 'ok', reminder: rem({ open: true, snoozedUntil: at(1, '09:00') }) });
+      m.click(dialogButton(m, 'Tomorrow'));
+      await settle();
+      assert(show(reminderCalls().map((c) => c.body?.action)) === show(['done', 'undo', 'snooze15', 'snoozeTomorrow']), `actions: ${show(reminderCalls().map((c) => c.body?.action))}`);
+      assert(tg.calls.filter((c) => c.startsWith('haptic')).length === 1, 'haptic after done only');
+    } finally {
+      m.unmount();
+    }
+
+    // An old client has no haptics (6.0): nothing is called, nothing throws.
+    resetHome();
+    const old = fakeTelegramHome({ version: '6.0' });
+    fakeWindow.Telegram = { WebApp: old.webApp };
+    live = { items: { [day(0)]: [form2()] }, carry: [] };
+    serveReminders();
+    reminderReply = () => {
+      live = { items: { [day(0)]: [form2({ done: true, doneAt: DONE_AT, open: false })] }, carry: [] };
+      return ok200({ status: 'ok', reminder: doneReminder });
+    };
+    const o = await mountHome('en', {}, fakeClock('2026-10-15T10:00:00Z'));
+    try {
+      o.click(button(o.container, 'Send the form'));
+      o.click(dialogButton(o, 'Done'));
+      await settle();
+      assertHas(dialogText(o.container), ['Done at 13:05'], '6.0 client, done');
+      assert(old.calls.every((c) => !c.startsWith('haptic')), `no haptic on 6.0: ${show(old.calls)}`);
+    } finally {
+      o.unmount();
+    }
+  });
+
+  await check('#69 a tap that cannot apply: changed and not_yours show their note and only refetch; already_done shows its note with the new state; a 500, a 429, no answer and a garbled body show "Couldn\'t save. Try again." with the state unchanged and the buttons live again; the note goes with the next tap, and in en/he/ru', async () => {
+    const tryReply = async (locale: Locale, reply: FetchAnswer | 'throw', truth: ItemDTO = form2()) => {
+      resetHome();
+      fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+      live = { items: { [day(0)]: [form2()] }, carry: [] };
+      serveReminders();
+      reminderReply = () => {
+        live = { items: { [day(0)]: [truth] }, carry: [] };
+        return reply;
+      };
+      const m = await mountHome(locale, {}, fakeClock('2026-10-15T10:00:00Z'));
+      const rowName = 'Send the form';
+      m.click(button(m.container, rowName));
+      const l = labelsOf(locale);
+      const before = rangeCalls().length;
+      m.click(dialogButton(m, l.done));
+      await settle();
+      return { m, l, before, notes: messages[locale].calendarHome.sheet.actionNotes as Record<SheetNoteName, string> };
+    };
+    type SheetNoteName = 'changed' | 'alreadyDone' | 'notYours' | 'failed';
+    for (const locale of LOCALES) {
+      for (const [status, note] of [['changed', 'changed'], ['not_yours', 'notYours']] as const) {
+        const { m, l, before, notes } = await tryReply(locale, ok200({ status }));
+        try {
+          assertHas(dialogText(m.container), [notes[note]], `${locale} ${status}`);
+          assert(rangeCalls().length === before + 1 && rangeCalls().at(-1)?.query.get('sources') === 'famcal', `${locale} ${status}: only a FamCal refetch`);
+          assertHas(dialogText(m.container), [messages[locale].calendarHome.sheet.stateOpen], `${locale} ${status}: the state is as it was`);
+          assert(dialogButtons(m).includes(l.done), `${locale} ${status}: the item is still there, so the sheet stays`);
+        } finally {
+          m.unmount();
+        }
+      }
+      const done = await tryReply(locale, ok200({ status: 'already_done', reminder: doneReminder }), form2({ done: true, doneAt: DONE_AT, open: false }));
+      try {
+        assertHas(dialogText(done.m.container), [done.notes.alreadyDone, done.l.undo], `${locale} already_done`);
+      } finally {
+        done.m.unmount();
+      }
+      for (const [what, reply] of [['500', { status: 500, body: { error: 'internal_error' } }], ['429', { status: 429 }], ['no answer', 'throw'], ['garbled', ok200({ nope: true })], ['unknown status', ok200({ status: 'weird' })]] as const) {
+        const f = await tryReply(locale, reply);
+        try {
+          assertHas(dialogText(f.m.container), [f.notes.failed, messages[locale].calendarHome.sheet.stateOpen], `${locale} ${what}`);
+          assert(rangeCalls().length === f.before, `${locale} ${what}: no refetch`);
+          assert(!dialogButtons(f.m).includes(f.l.undo) && f.m.container && !elements(byRole(f.m.container, 'dialog')[0]).some((e) => e.localName === 'button' && e.hasAttribute('disabled')), `${locale} ${what}: buttons live again`);
+          // The next tap clears the note while it flies.
+          const hold = gate();
+          reminderReply = () => hold.promise;
+          f.m.click(dialogButton(f.m, f.l.snooze15));
+          await settle();
+          assertLacks(dialogText(f.m.container), [f.notes.failed], `${locale} ${what}: the note goes with the next tap`);
+          hold.release({ status: 500 });
+          await settle();
+        } finally {
+          f.m.unmount();
+        }
+      }
+    }
+  });
+
+  await check('#70 an item the store no longer holds: "changed" shows its note, the answer without it leaves the sheet up for GONE_NOTE_MS, then it closes; with the item still there it stays', async () => {
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    live = { items: { [day(0)]: [form2()] }, carry: [] };
+    serveReminders();
+    reminderReply = () => ok200({ status: 'changed' });
+    const clock = fakeClock('2026-10-15T10:00:00Z');
+    const m = await mountHome('en', {}, clock);
+    try {
+      m.click(button(m.container, 'Send the form'));
+      live = { items: {}, carry: [] };
+      m.click(dialogButton(m, 'Done'));
+      await settle();
+      assertHas(dialogText(m.container), ['This reminder changed. The calendar is up to date now.', 'Send the form'], 'the note over the last known item');
+      await clock.advance(GONE_NOTE_MS - 100);
+      assert(byRole(m.container, 'dialog').length === 1, 'still up just before');
+      await clock.advance(200);
+      assert(byRole(m.container, 'dialog').length === 0, 'closed after the note');
+      assertLacks(m.text(), ['Send the form'], 'the home no longer lists it');
+    } finally {
+      m.unmount();
+    }
+
+    // Still there: no close, however long.
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    live = { items: { [day(0)]: [form2()] }, carry: [] };
+    serveReminders();
+    reminderReply = () => ok200({ status: 'changed' });
+    const c2 = fakeClock('2026-10-15T10:00:00Z');
+    const k = await mountHome('en', {}, c2);
+    try {
+      k.click(button(k.container, 'Send the form'));
+      k.click(dialogButton(k, 'Done'));
+      await settle();
+      await c2.advance(GONE_NOTE_MS * 4);
+      assert(byRole(k.container, 'dialog').length === 1, 'the sheet stays while the item is there');
+    } finally {
+      k.unmount();
+    }
+  });
+
+  await check('#71 the open sheet re-derives from the store by key: a foreground refetch that brings the reminder done by someone else changes the sheet with no tap; a carry-over marked done leaves the card, and the sheet keeps its done state (and its Not done) after the refetch drops it', async () => {
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    live = { items: { [day(0)]: [form2()] }, carry: [] };
+    serveReminders();
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T10:00:00Z'));
+    try {
+      m.click(button(m.container, 'Send the form'));
+      assertHas(dialogText(m.container), ['Not done yet'], 'before');
+      live = { items: { [day(0)]: [form2({ done: true, doneAt: DONE_AT, open: false, ownerIsViewer: true })] }, carry: [] };
+      await fireDocument('visibilitychange');
+      await settle();
+      assertHas(dialogText(m.container), ['Done at 13:05'], 'the sheet followed the store');
+      assert(dialogButtons(m).includes('Not done') && !dialogButtons(m).includes('Done'), `and its actions: ${show(dialogButtons(m))}`);
+    } finally {
+      m.unmount();
+    }
+
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    const carry = item('passport', { kind: 'reminder', title: 'Renew the passport', seriesId: 'series_pp', start: at(-3, '10:00'), reminder: rem({ open: true, openSince: day(-3) }) });
+    live = { items: {}, carry: [carry] };
+    serveReminders();
+    reminderReply = () => ok200({ status: 'ok', reminder: rem({ done: true, doneAt: DONE_AT, open: false }) });
+    const c = await mountHome('en', {}, fakeClock('2026-10-15T10:00:00Z'));
+    try {
+      assertHas(stillOpenText(c), ['Renew the passport'], 'on the card');
+      c.click(button(c.container, 'Renew the passport'));
+      live = { items: {}, carry: [] };
+      c.click(dialogButton(c, 'Done'));
+      await settle();
+      assertLacks(stillOpenText(c), ['Renew the passport'], 'off the card');
+      assertHas(dialogText(c.container), ['Done at 13:05'], 'the sheet, after the refetch dropped the carry-over');
+      assert(dialogButtons(c).includes('Not done'), `Not done is still there to undo: ${show(dialogButtons(c))}`);
+      assert(!dialogText(c.container).includes('This reminder changed'), 'no note for a plain done');
+      // Undo from the kept row: the answer reopens it, and the sheet shows it with the actions back.
+      reminderReply = () => ok200({ status: 'ok', reminder: rem({ open: true, openSince: day(-3) }) });
+      live = { items: {}, carry: [carry] };
+      c.click(dialogButton(c, 'Not done'));
+      await settle();
+      assertHas(dialogText(c.container), ['Not done yet'], 'undone');
+      assertHas(stillOpenText(c), ['Renew the passport'], 'back on the card');
+    } finally {
+      c.unmount();
+    }
+  });
+
+  await check('#72 the Month follows a tap: from a picked day, Done patches the sheet and the day\'s row, and the confirming refetch is FamCal\'s windows', async () => {
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    live = { items: { [day(0)]: [form2()] }, carry: [] };
+    serveReminders();
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T10:00:00Z'));
+    try {
+      await openMonth(m);
+      await tap(m, dayButton(m, TODAY));
+      assert(pickedShown(m), 'picked');
+      m.click(button(byClass(m.container, 'ch-mp')[0], 'Send the form'));
+      assert(dialogButtons(m).includes('Done'), `actions in picked: ${show(dialogButtons(m))}`);
+      reminderReply = () => ok200({ status: 'ok', reminder: doneReminder });
+      live = { items: { [day(0)]: [form2({ done: true, doneAt: DONE_AT, open: false })] }, carry: [] };
+      const before = rangeCalls().length;
+      m.click(dialogButton(m, 'Done'));
+      await settle();
+      flushFrames();
+      await settle();
+      assertHas(dialogText(m.container), ['Done at 13:05'], 'the sheet');
+      assert(byClass(byClass(m.container, 'ch-mp')[0], 'ch-row').some((r) => r.className.includes('is-done') && r.textContent.includes('Send the form')), 'the picked day\'s row is struck');
+      assert(rangeCalls().slice(before).length >= 1 && rangeCalls().slice(before).every((c) => c.query.get('sources') === 'famcal'), `FamCal only: ${show(ranges().slice(before))}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#73 React logged no warning in #66-#72 (keys, nesting, attributes, act)', () => {
+    assert(reactWarnings.length === warnedBeforeActions, `React warned: ${show(reactWarnings.slice(warnedBeforeActions, warnedBeforeActions + 3))}`);
   });
 
   let failed = 0;

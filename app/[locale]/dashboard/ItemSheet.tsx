@@ -5,12 +5,19 @@
 // as plain text, whose it is or who set it, and the reminder's state. Google items add
 // "Open in Google Calendar" (Telegram's openLink, through D4's openExternalLink).
 //
+// A FamCal reminder the viewer may act on (its owner or its creator, from the DTO's
+// flags) also shows its actions under the state line (reminder-actions spec §1): Done and
+// Snooze while it is open, snoozed or not yet due (Done only before its time), Not done
+// once it is done. The container owns the request (`actions`): this sheet only draws the
+// buttons, disabled while one is in flight, and the note after a tap that could not apply.
+//
 // Telegram's BackButton closes it: the container owns the button (useTelegramBackButton)
 // and the selection, so this sheet only renders. In a browser, the Close button, a tap on
 // the scrim and Escape do the same.
 
 import { useLocale, useTranslations } from 'next-intl';
 import type { AgendaRow } from '@/src/lib/calendar-view/agenda';
+import type { ReminderActionName } from '@/src/lib/calendar-view/reminder-client';
 import type { DayKey, ItemDTO } from '@/src/lib/calendar-view/types';
 import {
   allDayLastDay,
@@ -28,11 +35,86 @@ import { PersonChip, ReminderIcon, useItemTitle } from './ItemRow';
 /** A calendar's colour is only an accent (Ruling R7), and only a plain hex one is drawn. */
 const HEX_COLOUR = /^#[0-9a-f]{3,8}$/i;
 
+/** Why a tap changed nothing (calendarHome.sheet.actionNotes). */
+export type SheetNote = 'changed' | 'alreadyDone' | 'notYours' | 'failed';
+
+/** What the container gives the sheet for the reminder actions. Without it the sheet shows none. */
+export interface SheetActions {
+  /** A request is in flight (for any item): every button is disabled. */
+  busy: boolean;
+  /** The action in flight on this item, which shows the spinner. */
+  pending: ReminderActionName | null;
+  note: SheetNote | null;
+  onAction: (action: ReminderActionName) => void;
+}
+
 export interface ItemSheetProps {
   row: AgendaRow;
   today: DayKey;
   tz: string;
   onClose: () => void;
+  actions?: SheetActions;
+}
+
+/** Whether the viewer can act on this item: a FamCal reminder that is theirs or that they made. */
+function canAct(item: ItemDTO): boolean {
+  const r = item.reminder;
+  return item.source === 'famcal' && item.kind === 'reminder' && !!r && (r.ownerIsViewer || r.creatorIsViewer) && !!item.seriesId && !!item.originalStart;
+}
+
+const SNOOZES = [
+  ['snooze15', 'sheet.actions.snooze15'],
+  ['snooze60', 'sheet.actions.snooze60'],
+  ['snoozeTomorrow', 'sheet.actions.snoozeTomorrow'],
+] as const;
+
+function Spinner() {
+  return <span className="ch-spinner" aria-hidden="true" />;
+}
+
+function CheckIcon() {
+  return (
+    <svg className="ch-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M5 12.5l4.5 4.5L19 7.5" />
+    </svg>
+  );
+}
+
+/** Done / Snooze / Not done, by the reminder's state. */
+function ReminderActions({ mark, actions }: { mark: AgendaRow['mark']; actions: SheetActions }) {
+  const t = useTranslations('calendarHome');
+  const { busy, pending, onAction } = actions;
+  if (mark === 'done') {
+    return (
+      <div className="ch-actions">
+        <button type="button" className="ch-btn ch-sheet-action ch-action-undo" disabled={busy} aria-busy={pending === 'undo' || undefined} onClick={() => onAction('undo')}>
+          {pending === 'undo' ? <Spinner /> : null}
+          {t('sheet.actions.undo')}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="ch-actions">
+      <button type="button" className="ch-btn ch-btn-primary ch-sheet-action" disabled={busy} aria-busy={pending === 'done' || undefined} onClick={() => onAction('done')}>
+        {pending === 'done' ? <Spinner /> : <CheckIcon />}
+        {t('sheet.actions.done')}
+      </button>
+      {mark === 'later' ? null : (
+        <div className="ch-snooze" role="group" aria-label={t('sheet.actions.snoozeLabel')}>
+          <span className="ch-snooze-label">{t('sheet.actions.snoozeLabel')}</span>
+          <div className="ch-snooze-row">
+            {SNOOZES.map(([action, key]) => (
+              <button key={action} type="button" className="ch-btn" disabled={busy} aria-busy={pending === action || undefined} onClick={() => onAction(action)}>
+                {pending === action ? <Spinner /> : null}
+                {t(key)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** When it happens: a date line, and a time line for a timed item that starts and ends on one day. */
@@ -86,7 +168,7 @@ function useReminderState(item: ItemDTO, mark: AgendaRow['mark'], today: DayKey,
   return t('sheet.stateLater');
 }
 
-export function ItemSheet({ row, today, tz, onClose }: ItemSheetProps) {
+export function ItemSheet({ row, today, tz, onClose, actions }: ItemSheetProps) {
   const t = useTranslations('calendarHome');
   const { item, whose, mark } = row;
   const title = useItemTitle(item);
@@ -130,6 +212,12 @@ export function ItemSheet({ row, today, tz, onClose }: ItemSheetProps) {
         </p>
       ) : null}
       {state ? <p className="ch-sheet-state">{state}</p> : null}
+      {actions && canAct(item) ? <ReminderActions mark={mark} actions={actions} /> : null}
+      {actions?.note ? (
+        <p className="ch-sheet-note" role="status">
+          {t(`sheet.actionNotes.${actions.note}`)}
+        </p>
+      ) : null}
       <dl className="ch-facts">
         <div className="ch-fact">
           <dt>{t('sheet.calendar')}</dt>

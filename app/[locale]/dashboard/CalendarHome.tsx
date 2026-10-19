@@ -37,6 +37,13 @@
 //   the foreground and Refresh ask the Month's windows, not the Agenda's weeks; Retry
 //   asks one month again. Through a store drop the Month keeps the last facts, so it
 //   stays where it is with its cells loading until the new answer;
+// - the item sheet's reminder actions (reminder-actions spec §4): a tap posts through
+//   deps.reminderAction; the answer's reminder patches every copy of the item in the
+//   store (patchReminder) so the sheet, the rows, the card and the Month follow at once,
+//   and FamCal's windows are asked again to confirm. A changed or lost reminder only
+//   shows its note and refetches. The open sheet's row is re-derived from the store by
+//   key on every render (the tapped row is only the fallback), and a sheet whose item has
+//   left the store closes a moment after its note;
 // - Telegram's one BackButton (spec §7.6): shown while the item sheet, the Send sheet or
 //   the ⋯ menu is open, or while the Month is in picked. A tap closes the sheet on top,
 //   else the item sheet, else goes back to browse (Android's back gesture too). Vertical
@@ -62,7 +69,7 @@
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { buildAgenda, type AgendaRow } from '@/src/lib/calendar-view/agenda';
+import { buildAgenda, reminderMark, storeRow, type AgendaRow } from '@/src/lib/calendar-view/agenda';
 import { monthSpan, monthWindow, type MonthKey } from '@/src/lib/calendar-view/grid';
 import { deviceTimeZone, homeSources, isPastDay, msUntilAheadCheck, msUntilDayCheck, zoneDiffers } from '@/src/lib/calendar-view/home-client';
 import { createHomeLoader, type HomeLoader } from '@/src/lib/calendar-view/home-loader';
@@ -70,9 +77,10 @@ import type { CalendarHomeProps } from '@/src/lib/calendar-view/home-props';
 import { readHomeTab, readMonthLayout, writeHomeTab, writeMonthLayout, type HomeTab } from '@/src/lib/calendar-view/home-storage';
 import { backToBrowse, clampMonthUi, dayRows, initialMonthUi, monthModels, wantedMonths, type MonthUi } from '@/src/lib/calendar-view/month';
 import { dayStatus, emptyStore, homeNotices, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
-import type { SourceName } from '@/src/lib/calendar-view/types';
+import { postReminderAction, type ReminderActionFn, type ReminderActionName } from '@/src/lib/calendar-view/reminder-client';
+import type { ItemReminderDTO, SourceName } from '@/src/lib/calendar-view/types';
 import { DEFAULT_BOT_USERNAME, DEFAULT_WA_NUMBER, type GateLinks } from '@/src/lib/gate-links';
-import { isInTelegram, onTelegramEvent, useTelegramBackButton, useTelegramTheme, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
+import { hapticSuccess, isInTelegram, onTelegramEvent, useTelegramBackButton, useTelegramTheme, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
 import { NoCredentialCard } from '../PageGate';
 import { AGENDA_CSS, AgendaView } from './AgendaView';
 import { PlaceholderRows } from './DayList';
@@ -82,6 +90,7 @@ import { HomeHeader } from './HomeHeader';
 import { HomeTabs, PANEL_IDS, TAB_IDS } from './HomeTabs';
 import { HOME_SHELL_CSS } from './home-shell';
 import { HOME_THEME_CSS } from './home-theme';
+import type { SheetActions, SheetNote } from './ItemSheet';
 import { MenuSheet } from './MenuSheet';
 import { SendSheet } from './SendSheet';
 
@@ -108,6 +117,8 @@ export interface HomeDeps {
   now: () => number;
   setTimer: (run: () => void, ms: number) => () => void;
   deviceTimeZone: () => string | null;
+  /** Done, undo and snooze from the item sheet: the fetch. */
+  reminderAction: ReminderActionFn;
 }
 
 const REAL_DEPS: HomeDeps = {
@@ -117,6 +128,7 @@ const REAL_DEPS: HomeDeps = {
     return () => clearTimeout(id);
   },
   deviceTimeZone,
+  reminderAction: postReminderAction,
 };
 
 /** Nothing to subscribe to: the value is read once on the client. */
@@ -127,6 +139,17 @@ const noZone = () => null;
 
 /** What stands in for the Agenda: busy or a retry before any answer. */
 type Card = 'busy' | 'error';
+
+/** How long a sheet whose item has gone stays up after its note. */
+export const GONE_NOTE_MS = 2500;
+
+/** The tapped row with the reminder an action answered, for when the store no longer holds the item. */
+function withReminder(row: AgendaRow, reminder: ItemReminderDTO): AgendaRow {
+  const prev = row.item.reminder;
+  const next = { ...reminder, open: !reminder.done && (reminder.open || !!prev?.open), openSince: prev?.openSince ?? reminder.openSince };
+  const item = { ...row.item, reminder: next };
+  return { ...row, item, mark: reminderMark(item) };
+}
 
 /** The facts the Month last drew with, and the unavailable calendars then: kept through a store drop. */
 type HeldFacts = { facts: StoreFacts; unavailable: number };
@@ -243,6 +266,10 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const [sheet, setSheet] = useState<'send' | 'menu' | null>(null);
   /** The row whose item sheet is open (AgendaView or the Month's picked renders it; the BackButton here closes it). */
   const [selected, setSelected] = useState<AgendaRow | null>(null);
+  /** The sheet's reminder action in flight (one at a time), and the note after a tap that changed nothing. */
+  const [acting, setActing] = useState<{ key: string; action: ReminderActionName } | null>(null);
+  const [note, setNote] = useState<{ key: string; kind: SheetNote } | null>(null);
+  const actingRef = useRef(false);
   const [firstLoad, setFirstLoad] = useState<'busy' | 'error' | null>(null);
   const [blocked, setBlocked] = useState<'noCredential' | null>(null);
   const inTelegram = useSyncExternalStore(subscribeNothing, isInTelegram, assumeTelegram);
@@ -397,6 +424,14 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   // good, so it doesn't open again by itself when the new answer arrives.
   if (agenda === null && selected !== null) setSelected(null);
 
+  // The open sheet follows the store: its row is re-derived by key on every render, and the
+  // tapped row is only the fallback while the store holds no copy (a carry-over a refetch
+  // dropped after done, which the sheet keeps showing so it can be undone). `gone` is an item
+  // the store answered without.
+  const liveRow = selected && store.facts ? storeRow(store, selected.item.key) : null;
+  const selectedNow = selected && liveRow ? liveRow : selected;
+  const selectedGone = selected !== null && store.facts !== null && liveRow === null;
+
   // The Month: the window around the held today, each month's model (memoized per store),
   // and the picked day's list.
   const heldToday = held?.facts.today ?? null;
@@ -426,6 +461,61 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const retryCard = useCallback(() => {
     setFirstLoad(null);
   }, []);
+
+  // The sheet's note belongs to the item it was shown for.
+  const selectedKey = selected?.item.key ?? null;
+  useEffect(() => {
+    setNote(null);
+  }, [selectedKey]);
+  // An item the store no longer holds: its note shows, then the sheet closes.
+  useEffect(() => {
+    if (!selectedGone || note === null || note.key !== selectedKey) return;
+    return deps.setTimer(() => setSelected(null), GONE_NOTE_MS);
+  }, [selectedGone, note, selectedKey, deps]);
+
+  // Done, undo or snooze on the open sheet's item. One request at a time. An answer with a
+  // reminder patches the store at once and FamCal's windows confirm it; changed and
+  // not_yours only show their note and refetch. Never throws: a failed request is a note.
+  const runAction = async (action: ReminderActionName) => {
+    const row = selectedNow;
+    const seriesId = row?.item.seriesId;
+    const originalStart = row?.item.originalStart;
+    if (!row || !seriesId || !originalStart || actingRef.current) return;
+    const key = row.item.key;
+    actingRef.current = true;
+    setActing({ key, action });
+    setNote(null);
+    let outcome;
+    try {
+      outcome = await deps.reminderAction(userId, { seriesId, originalStart, action });
+    } catch {
+      outcome = { kind: 'failed' as const };
+    }
+    actingRef.current = false;
+    setActing(null);
+    if (outcome.kind === 'failed') {
+      setNote({ key, kind: 'failed' });
+      return;
+    }
+    const { status, reminder } = outcome;
+    if (status === 'changed' || status === 'not_yours') {
+      setNote({ key, kind: status === 'changed' ? 'changed' : 'notYours' });
+    } else {
+      if (reminder) {
+        dispatch({ type: 'patchReminder', key, reminder });
+        setSelected((cur) => (cur && cur.item.key === key ? withReminder(cur, reminder) : cur));
+      }
+      if (status === 'already_done') setNote({ key, kind: 'alreadyDone' });
+      else if (status === 'ok' && action === 'done') hapticSuccess();
+    }
+    loaderRef.current?.refetchVisible({ only: 'famcal' });
+  };
+  const sheetActions: SheetActions = {
+    busy: acting !== null,
+    pending: acting && acting.key === selectedKey ? acting.action : null,
+    note: note && note.key === selectedKey ? note.kind : null,
+    onAction: (action) => void runAction(action),
+  };
 
   // A tab switch (Ruling 2): any sheet and the item sheet close; leaving browse keeps the
   // month in view for the next time; the Agenda opens at the top.
@@ -494,8 +584,9 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
       agenda={agenda}
       hints={hints}
       setupNeeded={setupNeeded}
-      selected={selected}
+      selected={selectedNow}
       onSelect={setSelected}
+      sheetActions={sheetActions}
       onShowNextWeek={showNextWeek}
       onRetry={retrySource}
       onChooseCalendars={chooseCalendars}
@@ -514,8 +605,9 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
         start={{ month: monthUi.month, peek: monthFresh }}
         dayRows={pickedList}
         unavailableCalendars={held.unavailable}
-        selected={selected}
+        selected={selectedNow}
         onSelect={setSelected}
+        sheetActions={sheetActions}
         onUi={changeUi}
         onNearMonths={setNear}
         onMonthInView={setInView}

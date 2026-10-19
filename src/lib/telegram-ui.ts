@@ -16,6 +16,7 @@ import { readInitData } from './read-init-data';
 const BACK_BUTTON = '6.1';
 const COLOURS = '6.1';
 const OPEN_LINK = '6.1';
+const HAPTIC = '6.1';
 const VERTICAL_SWIPES = '7.7';
 
 /** Events newer than the first SDK (6.0). */
@@ -242,4 +243,9 @@ export function openExternalLink(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** The success tap after a reminder is marked done (Bot API 6.1+). Silent where the client has none. */
+export function hapticSuccess(): void {
+  tgCall(HAPTIC, 'HapticFeedback', (tg) => tg.HapticFeedback?.notificationOccurred('success'));
 }
