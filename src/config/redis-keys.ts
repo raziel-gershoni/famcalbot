@@ -78,9 +78,6 @@ export const REDIS_KEYS = {
   // WA typing indicator (stashed inbound message ID for voice typing)
   waLastMsg: (chatId: string) => `wa:lastmsg:${chatId}`,
 
-  // Holiday cache (CalBrew API responses, 24h TTL)
-  holidays: (date: string, lang: string) => `holidays:${date}:${lang}`,
-
   // Calendar home, Google reader (src/services/calendar-read/google.ts): the route's range
   // cache, the per-user stamp that invalidates it after a write, the once-a-day "chosen
   // calendars are gone" warning, the per-window fresh=1 limit, and the once-an-hour admin
