@@ -7,6 +7,9 @@
 // is kept and ranked; everything else (parashot, special Shabbatot, the Omer) is dropped.
 // (hebcal writes its English apostrophes as ’.) Hebrew titles are written without nikud and with the year in gematriya.
 //
+// GET /api/calendar/holidays?from&to&lang (app/api/calendar/holidays/route.ts) serves it to the
+// home: public data with no user in it, so no auth, at most 100 days a request, a day's cache.
+//
 // Pure: no database, Redis, network or env, and nothing is stubbed. Run it under three clocks;
 // the day keys must not depend on the server's timezone (they come from hebcal's own civil
 // dates, never through ISO or UTC):
@@ -79,6 +82,16 @@ function assertEqual<T>(got: T, want: T, label: string) {
 /** The holidays of one day, in a language. */
 function on(day: string, lang: string): Holiday[] {
   return holidaysInRange(day, day, lang)[day] ?? [];
+}
+
+/** GET /api/calendar/holidays with this query, through the real route. */
+async function ask(query: string): Promise<{ status: number; body: Record<string, unknown>; cache: string | null }> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { NextRequest } = require('next/server') as typeof import('next/server');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { GET } = require('../app/api/calendar/holidays/route') as { GET: (req: import('next/server').NextRequest) => Promise<Response> };
+  const res = await GET(new NextRequest(`http://localhost/api/calendar/holidays${query}`));
+  return { status: res.status, body: (await res.json()) as Record<string, unknown>, cache: res.headers.get('Cache-Control') };
 }
 
 const ZONES = ['UTC', 'Asia/Jerusalem', 'Pacific/Kiritimati'];
@@ -207,6 +220,40 @@ async function main() {
         const unknown = [...text.matchAll(/\{(\w+)\}/g)].map(m => m[1]).filter(a => !['year', 'month', 'n'].includes(a));
         assertEqual(unknown, [], `${lang}.${id} arguments`);
       }
+    }
+  });
+
+  await check('the route answers a month of holidays, with a day of public cache and no auth', async () => {
+    const res = await ask('?from=2026-09-01&to=2026-09-30&lang=he');
+    assertEqual(res.status, 200, 'status');
+    assertEqual(res.cache, 'public, max-age=86400, s-maxage=86400', 'Cache-Control');
+    const days = res.body.days as Record<string, Holiday[]>;
+    assertEqual(days['2026-09-12'].map(h => h.title), ['ראש השנה תשפ״ז'], 'rosh hashana in he');
+    assertEqual(days, holidaysInRange('2026-09-01', '2026-09-30', 'he'), 'the same as the module');
+    assertEqual(Object.keys(res.body), ['days'], 'only days');
+    const noLang = await ask('?from=2026-09-12&to=2026-09-12');
+    assertEqual((noLang.body.days as Record<string, Holiday[]>)['2026-09-12'][0].title, 'Rosh Hashana 5787', 'no lang reads as en');
+    const unknown = await ask('?from=2026-09-12&to=2026-09-12&lang=fr');
+    assertEqual((unknown.body.days as Record<string, Holiday[]>)['2026-09-12'][0].title, 'Rosh Hashana 5787', 'an unknown lang reads as en');
+    const ru = await ask('?from=2026-09-21&to=2026-09-21&lang=ru');
+    assertEqual((ru.body.days as Record<string, Holiday[]>)['2026-09-21'][0].title, 'Йом-Кипур', 'ru');
+    const empty = await ask('?from=2026-09-16&to=2026-09-16&lang=en');
+    assertEqual([empty.status, empty.body], [200, { days: {} }], 'a plain day is an empty map');
+  });
+
+  await check('the route takes up to 100 days and answers 400 invalid with the field for anything else', async () => {
+    assertEqual((await ask('?from=2026-09-01&to=2026-12-09&lang=en')).status, 200, '100 days');
+    const long = await ask('?from=2026-09-01&to=2026-12-10&lang=en');
+    assertEqual([long.status, long.body, long.cache === 'public, max-age=86400, s-maxage=86400'], [400, { error: 'invalid', field: 'to' }, false], '101 days');
+    const bad: [string, string][] = [
+      ['', 'from'], ['?to=2026-09-12', 'from'], ['?from=2026-09-12', 'to'],
+      ['?from=2026-02-30&to=2026-03-02', 'from'], ['?from=2026-1-05&to=2026-03-02', 'from'],
+      ['?from=2026-09-12&to=nope', 'to'], ['?from=2026-09-12&to=2026-13-01', 'to'],
+      ['?from=2026-09-13&to=2026-09-12', 'to'],
+    ];
+    for (const [query, field] of bad) {
+      const res = await ask(query);
+      assertEqual([res.status, res.body], [400, { error: 'invalid', field }], `query "${query}"`);
     }
   });
 
