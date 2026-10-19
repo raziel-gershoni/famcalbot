@@ -45,6 +45,7 @@ import { createRequire } from 'module';
 import React, { createElement, type ComponentProps, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
+import { calendarVars } from '../src/lib/calendar-view/colours';
 import { BROWSE_CELL_PX, monthBarPx, monthBlockPx, monthModels, monthTitlePx } from '../src/lib/calendar-view/month';
 import { monthGrid, monthSpan, type MonthKey } from '../src/lib/calendar-view/grid';
 import { daysInWindow, emptyStore, reduceStore, type CalendarStore, type GoogleStatus, type StoreAction } from '../src/lib/calendar-view/store';
@@ -292,8 +293,14 @@ function cellOf(html: string, labelStart: string): CellView {
   return found[0];
 }
 
-/** A cell's chips: their classes and their text. */
-const chipsOf = (cell: CellView) => [...cell.inner.matchAll(/<span class="(ch-mb-chip[^"]*)" dir="auto">([^<]*)<\/span>/g)].map((m) => ({ cls: m[1], text: decode(m[2]) }));
+/** A cell's chips: their classes (has-cal aside: #26 checks the colours), their text, and their calendar colour's class and inline style. */
+const chipsOf = (cell: CellView) =>
+  [...cell.inner.matchAll(/<span class="(ch-mb-chip[^"]*?)( has-cal)?" dir="auto"(?: style="([^"]*)")?>([^<]*)<\/span>/g)].map((m) => ({
+    cls: m[1],
+    text: decode(m[4]),
+    cal: !!m[2],
+    style: m[3] ?? null,
+  }));
 const headOf = (cell: CellView) => {
   const m = /<span class="ch-mb-head" aria-hidden="true"><span class="ch-mb-day" dir="ltr">(\d+)<\/span>(?:<span class="ch-mb-hday">([^<]*)<\/span>)?<\/span><span class="ch-mb-hmonth" aria-hidden="true">([^<]*)<\/span>/.exec(cell.inner);
   assert(m, `no head line in ${show(cell.inner.slice(0, 300))}`);
@@ -871,7 +878,7 @@ async function main() {
     assert(show(chips('Wednesday, 14 October').map((c) => c.split('|')[1])) === show(['Gym', 'Call the plumber', 'Pilates']) && moreOf(cellOf(html, 'Wednesday, 14 October')) === null, 'a day of 3 shows 3 chips on a wide screen');
     // Under week start 1 the trip crosses a row: its title shows again at the second row's start.
     const ws1 = monthHtml(renderBrowse('en', browseProps(famcalStore({ weekStart: 1 }))), '2026-10');
-    assert(show(chipsOf(cellOf(ws1, 'Monday, 26 October'))[0]) === show({ cls: 'ch-mb-chip is-bar is-mine-solid is-before is-after', text: 'Eilat trip' }), 'the bar\'s title at a week row\'s start');
+    assert(show(chipsOf(cellOf(ws1, 'Monday, 26 October')).map(({ cls, text }) => ({ cls, text }))[0]) === show({ cls: 'ch-mb-chip is-bar is-mine-solid is-before is-after', text: 'Eilat trip' }), 'the bar\'s title at a week row\'s start');
   });
 
   await check('#5 he: dir="rtl"; the bar, the titles and the Hebrew ranges in Hebrew with gematriya years; the labels in Hebrew; the Hebrew day in gematriya and the month line', () => {
@@ -1414,7 +1421,48 @@ async function main() {
     }
   });
 
-  await check('#26 React logged no warning', () => {
+  await check('#26 each chip and bar in its calendar\'s colour (spec 2026-10-19 §3.3): filled or outlined by whose as before, with has-cal and the calendar\'s tones for both looks inline (calendarVars), every day of a bar alike; a masked calendar (color null) or a colour that isn\'t #rrggbb keeps E4\'s look, with no style; the CSS draws the viewer\'s in --cal-fill and --cal-text and the partner\'s on the page in --cal-line and --cal-text', () => {
+    const styleOf = (color: string | null) => {
+      const vars = calendarVars(color);
+      return vars ? Object.entries(vars).map(([k, v]) => `${k}:${v}`).join(';') : null;
+    };
+    const html = monthHtml(renderBrowse('en', browseProps(famcalStore())), '2026-10');
+    const chips = (d: string) => chipsOf(cellOf(html, d)).map((c) => ({ text: c.text, cal: c.cal, style: c.style }));
+    assert(
+      show(chips('Thursday, 15 October')) ===
+        show([
+          { text: 'Dentist', cal: true, style: styleOf(MY_CAL.color) },
+          { text: 'Send the school form', cal: true, style: styleOf(MY_CAL.color) },
+          { text: 'Football practice', cal: true, style: styleOf(NOA_CAL.color) },
+        ]),
+      `15 Oct: ${show(chips('Thursday, 15 October'))}`,
+    );
+    for (const d of ['Sunday, 25 October', 'Monday, 26 October', 'Thursday, 29 October']) {
+      const bar = chipsOf(cellOf(html, d)).find((c) => c.cls.includes('is-bar'));
+      assert(bar?.cal && bar.style === styleOf(MY_CAL.color), `${d}: the Eilat bar ${show(bar)}`);
+    }
+    const plain = storeOf([ok(answer('2026-10', { '2026-10-21': [
+      timed('masked', 'Masked', '2026-10-21', '10:00', '11:00', { id: null, name: 'Noa', color: null, mine: false, inLegend: false }),
+      timed('named', 'Named', '2026-10-21', '12:00', '13:00', { ...MY_CAL, color: 'red' }),
+    ] }))]);
+    const plainChips = chipsOf(cellOf(monthHtml(renderBrowse('en', browseProps(plain)), '2026-10'), 'Wednesday, 21 October'));
+    assert(
+      show(plainChips) === show([
+        { cls: 'ch-mb-chip is-timed is-partner-timed', text: 'Masked', cal: false, style: null },
+        { cls: 'ch-mb-chip is-timed is-mine-timed', text: 'Named', cal: false, style: null },
+      ]),
+      `21 Oct: ${show(plainChips)}`,
+    );
+    const rule = (selector: string) => {
+      const at = MONTH_BROWSE_CSS.indexOf(`${selector} {`);
+      return at < 0 ? '' : MONTH_BROWSE_CSS.slice(at, MONTH_BROWSE_CSS.indexOf('}', at));
+    };
+    assert(/background: var\(--cal-fill\);\s*color: var\(--cal-text\);/.test(rule('.ch-mb-chip.has-cal.is-mine-solid')), 'the viewer\'s: --cal-fill under --cal-text');
+    assert(/border-color: var\(--cal-line\);\s*background: var\(--ch-bg\);\s*color: var\(--cal-text\);/.test(rule('.ch-mb-chip.has-cal.is-partner-solid')), 'the partner\'s: a --cal-line border on the page, in --cal-text');
+    assert(MONTH_BROWSE_CSS.includes('.ch-mb-chip.has-cal.is-mine-timed,\n.ch-mb-chip.has-cal.is-mine-solid {') && MONTH_BROWSE_CSS.includes('.ch-mb-chip.has-cal.is-partner-timed,\n.ch-mb-chip.has-cal.is-partner-solid {'), 'timed and all-day alike');
+  });
+
+  await check('#27 React logged no warning', () => {
     assert(reactWarnings.length === 0, show(reactWarnings));
   });
 

@@ -11,11 +11,15 @@
 //   badge while snoozed; a bell for later ones.
 // - The person chip carries the partner's name (Ruling R7): "From Noa", "For Noa", or
 //   the bare name on a partner's event. Calendar ids never reach the markup.
+// - A stripe at the row's start in the calendar's colour (spec 2026-10-19 §3.3): solid
+//   for the viewer's item, hollow for the partner's, so whose it is never rests on
+//   colour alone. No usable colour keeps today's tones (the accent, or orange).
 
-import { Fragment } from 'react';
+import { Fragment, type CSSProperties } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import type { AgendaRow, ReminderMark, Whose } from '@/src/lib/calendar-view/agenda';
 import type { DayKey, ItemDTO } from '@/src/lib/calendar-view/types';
+import { calendarVars } from '@/src/lib/calendar-view/colours';
 import { allDayLastDay, formatDayShort, formatTime, formatWeekdayTime, instantDay } from '@/src/lib/calendar-view/format';
 
 export interface ItemRowProps {
@@ -24,6 +28,21 @@ export interface ItemRowProps {
   day: DayKey;
   tz: string;
   onOpen: (row: AgendaRow) => void;
+}
+
+/**
+ * A coloured mark's class suffix and style: ' has-cal' and the calendar's tones as
+ * custom properties (calendarVars), or nothing when the colour isn't usable.
+ */
+export function calendarMark(color: string | null): { className: string; style: CSSProperties | undefined } {
+  const vars = calendarVars(color);
+  return vars ? { className: ' has-cal', style: vars as CSSProperties } : { className: '', style: undefined };
+}
+
+/** The row's stripe in its calendar's colour: solid for the viewer's item, hollow for the partner's. Decorative. */
+export function CalendarStripe({ color, mine }: { color: string | null; mine: boolean }) {
+  const cal = calendarMark(color);
+  return <span className={`ch-stripe${mine ? '' : ' is-partner'}${cal.className}`} style={cal.style} aria-hidden="true" />;
 }
 
 /** The reminder's icon (decorative: the state is also in text beside it). */
@@ -133,6 +152,7 @@ export function ItemRow({ row, day, tz, onOpen }: ItemRowProps) {
   return (
     <li className="ch-row-li">
       <button type="button" className={`ch-row ch-tap${mark === 'done' ? ' is-done' : ''}`} onClick={() => onOpen(row)}>
+        <CalendarStripe color={item.calendar.color} mine={whose.mine} />
         <span className="ch-time">
           <span className="ch-time-main" dir={mainIsTime ? 'ltr' : undefined}>
             {main}

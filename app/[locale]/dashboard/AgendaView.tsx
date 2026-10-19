@@ -287,6 +287,24 @@ export const AGENDA_CSS = `
   cursor: pointer;
   touch-action: manipulation;
 }
+.ch-stripe {
+  flex: none;
+  align-self: stretch;
+  inline-size: 4px;
+  border-radius: 2px;
+  background: var(--ch-dot-mine);
+}
+.ch-stripe.is-partner {
+  border: 1.5px solid var(--ch-dot-partner);
+  background: transparent;
+}
+.ch-stripe.has-cal {
+  background: var(--cal-line);
+}
+.ch-stripe.has-cal.is-partner {
+  border-color: var(--cal-line);
+  background: transparent;
+}
 .ch-time {
   flex: none;
   inline-size: 56px;

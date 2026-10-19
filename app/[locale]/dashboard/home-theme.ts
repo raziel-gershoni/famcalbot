@@ -47,6 +47,10 @@
 //   background, swapped).
 // - The Today pill: --ch-pill-bg, --ch-pill-line and --ch-pill-text. Month titles:
 //   --ch-month-title. Both are the accent pulled a fifth towards the text.
+// - Each calendar's own colour (spec 2026-10-19 §3.2, §3.3): a mark drawn in it carries
+//   the class has-cal and its tones for both looks as --cal-{fill,text,line}-{l,d}
+//   (colours.ts, calendarVars); the rules below pick the set as --cal-fill, --cal-text
+//   and --cal-line by data-theme. Without a usable colour a mark keeps the tokens above.
 // - A disabled chevron: --ch-disabled, faint on purpose (the button is also disabled). It
 //   is the only new colour that reads the hint straight. Every text colour keeps D's
 //   floor: an unselected tab's label reads --ch-muted.
@@ -171,6 +175,16 @@ export const HOME_THEME_CSS = `
     --ch-mine-soft: color-mix(in srgb, var(--ch-accent) 22%, var(--ch-bg));
     --ch-pill-line: color-mix(in srgb, var(--ch-accent) 30%, var(--ch-bg));
   }
+}
+.ch-home .has-cal {
+  --cal-fill: var(--cal-fill-l);
+  --cal-text: var(--cal-text-l);
+  --cal-line: var(--cal-line-l);
+}
+.ch-home[data-theme='dark'] .has-cal {
+  --cal-fill: var(--cal-fill-d);
+  --cal-text: var(--cal-text-d);
+  --cal-line: var(--cal-line-d);
 }
 html:has(.ch-home) {
   background-color: var(--tg-theme-bg-color, var(--bg-white));

@@ -63,6 +63,7 @@ import {
   type MonthSlot,
 } from '@/src/lib/calendar-view/month';
 import type { DayKey, SourceName, WeekStart } from '@/src/lib/calendar-view/types';
+import { calendarMark } from './ItemRow';
 
 export interface MonthBrowseProps {
   /** The window, oldest first: monthSpan(today), 12 months back to 18 ahead. */
@@ -209,9 +210,13 @@ function loadingWeeks(month: MonthKey, weekStart: WeekStart, today: DayKey): Mon
   );
 }
 
-/** One chip or bar, a spacer's empty line, coloured by whose it is (E4's tokens). */
+/**
+ * One chip or bar, a spacer's empty line: filled for the viewer's, outlined for the
+ * partner's, in the calendar's colour (spec 2026-10-19 §3.3), or E4's tokens without one.
+ */
 function Slot({ slot, noTitle }: { slot: MonthSlot; noTitle: string }) {
   if (slot.kind === 'spacer') return <span className="ch-mb-slot" />;
+  const cal = calendarMark(slot.color);
   const look = slot.kind === 'timed' ? (slot.mine ? 'is-mine-timed' : 'is-partner-timed') : slot.mine ? 'is-mine-solid' : 'is-partner-solid';
   const className = [
     'ch-mb-chip',
@@ -222,11 +227,11 @@ function Slot({ slot, noTitle }: { slot: MonthSlot; noTitle: string }) {
     slot.done ? 'is-done' : '',
   ]
     .filter(Boolean)
-    .join(' ');
+    .join(' ') + cal.className;
   const title = slot.showTitle ? (slot.title && slot.title.trim() !== '' ? slot.title : noTitle) : '';
   return (
     <span className="ch-mb-slot">
-      <span className={className} dir="auto">
+      <span className={className} dir="auto" style={cal.style}>
         {title}
       </span>
     </span>
@@ -893,6 +898,17 @@ button.ch-mb-cell:active {
   border-color: var(--ch-partner-line);
   background: var(--ch-partner-soft);
   color: var(--ch-partner-soft-text);
+}
+.ch-mb-chip.has-cal.is-mine-timed,
+.ch-mb-chip.has-cal.is-mine-solid {
+  background: var(--cal-fill);
+  color: var(--cal-text);
+}
+.ch-mb-chip.has-cal.is-partner-timed,
+.ch-mb-chip.has-cal.is-partner-solid {
+  border-color: var(--cal-line);
+  background: var(--ch-bg);
+  color: var(--cal-text);
 }
 .ch-mb-chip.is-before {
   margin-inline-start: -2px;

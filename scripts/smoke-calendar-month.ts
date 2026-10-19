@@ -316,6 +316,7 @@ const slot = (kind: MonthSlot['kind'], id: string | null): MonthSlot => ({
   title: id,
   showTitle: kind !== 'spacer',
   mine: true,
+  color: null,
   done: false,
   continuesBefore: false,
   continuesAfter: false,
@@ -323,11 +324,11 @@ const slot = (kind: MonthSlot['kind'], id: string | null): MonthSlot => ({
 const chips = (n: number) => Array.from({ length: n }, (_, i) => slot('timed', `c${i}`));
 
 async function main() {
-  await check('whose and done: the viewer\'s chips filled, the partner\'s outlined (whoseItem), a done reminder struck through; dots and counts follow', () => {
+  await check('whose, colour and done: the viewer\'s chips filled, the partner\'s outlined (whoseItem), each in its calendar\'s colour, a done reminder struck through; dots and counts follow; a spacer has no colour', () => {
     const oct = modelOf(STORE_0, '2026-10');
     const cell = cellOf(oct, '2026-10-14');
     assertJson(cell.slots.map(show), ['timed:gym*', 'timed:bill*x', 'timed:plumber*', 'timed:flowers*~', 'timed:pilates*~'], '14 October');
-    assertJson(cell.dots, [true, true, true, false, false], 'dots');
+    assertJson(cell.dots.map((d) => d.mine), [true, true, true, false, false], 'dots');
     assert(cell.count === 5 && cell.fromPartner === 2, `count ${cell.count}, fromPartner ${cell.fromPartner}`);
     assert(oct.partner === 'Noa', `partner ${oct.partner}`);
     // Every drawn slot of the month against the Agenda's rules for the same item.
@@ -340,9 +341,11 @@ async function main() {
         assert(s.mine === whoseItem(item, 'Noa').mine, `${c.day} ${s.key}: mine ${s.mine}`);
         assert(s.done === (reminderMark(item) === 'done'), `${c.day} ${s.key}: done ${s.done}`);
         assert(s.title === item.title, `${c.day} ${s.key}: title ${s.title}`);
+        assert(s.color === item.calendar.color, `${c.day} ${s.key}: color ${s.color}`);
       }
+      for (const s of c.slots) if (s.kind === 'spacer') assert(s.color === null, `${c.day}: a spacer with a colour`);
       const drawn = c.slots.filter((s) => s.kind !== 'spacer');
-      assertJson(c.dots, drawn.map((s) => s.mine), `${c.day} dots`);
+      assertJson(c.dots, drawn.map((s) => ({ mine: s.mine, color: s.color })), `${c.day} dots`);
       assert(c.count === drawn.length && c.fromPartner === drawn.filter((s) => !s.mine).length, `${c.day} counts`);
     }
   });
@@ -532,7 +535,7 @@ async function main() {
     assert(view(limitSlots(cellOf(oct, '2026-10-26').slots, BROWSE_CHIPS_NARROW)) === 'bar:eilat<> timed:snorkel*~ +1', 'the 26th, narrow');
     assertJson(limitDots([true, false, true]), { shown: [true, false, true], more: 0 }, '3 dots');
     assertJson(limitDots([true, false, true, false, true]), { shown: [true, false, true], more: 2 }, '5 dots');
-    assertJson(limitDots(cellOf(oct, '2026-10-14').dots), { shown: [true, true, true], more: 2 }, 'the 14th\'s dots');
+    assertJson(limitDots(cellOf(oct, '2026-10-14').dots.map((d) => d.mine)), { shown: [true, true, true], more: 2 }, 'the 14th\'s dots');
   });
 
   await check('limitRow (Ruling 3) on three overlapping bars, Alpha 5–7, Beta 6–8 and Gamma 7–9 October: on a 360 px screen the 9th shows Gamma with its title, not "+1" under two empty lines, and a bar drawn out of its lane or after a day that hid it shows its title; wide, the three keep their lanes; over every row of the fixtures, at both widths, no spacer over "+N", no "+N" while the items fit, no item lost and no bar drawn nameless', () => {

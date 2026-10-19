@@ -163,6 +163,8 @@ export interface MonthSlot {
   showTitle: boolean;
   /** Filled (the viewer's) or outlined (the partner's), by whoseItem. */
   mine: boolean;
+  /** The item's calendar colour (spec 2026-10-19 §3.3); null for a spacer, a masked calendar or none. */
+  color: string | null;
   /** A done reminder: struck through. */
   done: boolean;
   /** A bar that goes on from the day before / to the day after (flat edges). */
@@ -181,13 +183,19 @@ export interface MonthCell {
   status: DayStatus;
   /** Every slot, bars by lane first; the view limits them (limitSlots). Empty on a blank cell. */
   slots: MonthSlot[];
-  /** Whether each drawn item is the viewer's, in slot order, spacers left out (picked's dots). */
-  dots: boolean[];
+  /** Picked's dots: each drawn item's, in slot order, spacers left out. */
+  dots: MonthDot[];
   /** Drawn items (Ruling 5: daily reminders not counted), and how many of them aren't the viewer's. */
   count: number;
   fromPartner: number;
   /** Hebrew day 1, or the month's first day: the cells that name the Hebrew month (Ruling 3). */
   hebrewMonthStart: boolean;
+}
+
+/** One of picked's dots: filled (the viewer's) or a ring (the partner's), in the calendar's colour. */
+export interface MonthDot {
+  mine: boolean;
+  color: string | null;
 }
 
 /** A pill over the grid (Ruling 4). A reconnect never makes one: the Reconnect banner says it. */
@@ -223,6 +231,7 @@ const SPACER: MonthSlot = Object.freeze({
   title: null,
   showTitle: false,
   mine: false,
+  color: null,
   done: false,
   continuesBefore: false,
   continuesAfter: false,
@@ -352,6 +361,7 @@ function slotOf(d: Drawn, kind: SlotKind, showTitle: boolean): MonthSlot {
     title: d.item.title,
     showTitle,
     mine: d.mine,
+    color: d.item.calendar.color,
     done: d.done,
     continuesBefore: bar && d.before,
     continuesAfter: bar && d.after,
@@ -378,7 +388,7 @@ function buildRow(store: CalendarStore, row: readonly DayKey[], month: MonthKey,
     }
     const singles = drawn.filter((d) => !isBar(d)).map((d) => slotOf(d, d.item.allDay ? 'allDay' : 'timed', true));
     const slots = [...lanes, ...singles];
-    const dots = slots.filter((s) => s.kind !== 'spacer').map((s) => s.mine);
+    const dots = slots.filter((s) => s.kind !== 'spacer').map((s): MonthDot => ({ mine: s.mine, color: s.color }));
     return {
       day,
       inMonth: true,
@@ -387,7 +397,7 @@ function buildRow(store: CalendarStore, row: readonly DayKey[], month: MonthKey,
       slots,
       dots,
       count: dots.length,
-      fromPartner: dots.filter((mine) => !mine).length,
+      fromPartner: dots.filter((dot) => !dot.mine).length,
       hebrewMonthStart: day === first || isHebrewMonthStart(day),
     };
   });
@@ -501,7 +511,7 @@ export function limitRow(cells: readonly MonthCell[], maxChips: number): { shown
 }
 
 /** The dots a picked cell shows: PICKED_DOTS, then "+N" for the rest. */
-export function limitDots(dots: readonly boolean[]): { shown: boolean[]; more: number } {
+export function limitDots<T>(dots: readonly T[]): { shown: T[]; more: number } {
   return { shown: dots.slice(0, PICKED_DOTS), more: Math.max(0, dots.length - PICKED_DOTS) };
 }
 

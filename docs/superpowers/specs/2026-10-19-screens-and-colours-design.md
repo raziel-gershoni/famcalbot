@@ -1,6 +1,6 @@
 # Calendar colours in the home, and every screen in the home's design
 
-Status: draft for the owner's review of the mockups (2026-10-19). The scope survey and the owner's decisions from 2026-10-17 are summarised in §1. Mockups: https://claude.ai/artifact/KJQjWZ7MFRRCr3A4raAQos.
+Status: approved by the owner on 2026-10-19 (the mockups, and §6's defaults). The scope survey and the owner's decisions from 2026-10-17 are summarised in §1. Mockups: https://claude.ai/artifact/KJQjWZ7MFRRCr3A4raAQos. H1's plan: `docs/superpowers/plans/2026-10-19-calendar-colours-H1.md`; §3 reads as built.
 
 ## 1. Decisions already made (owner, 2026-10-17/18)
 
@@ -41,10 +41,12 @@ Each is its own plan, drafted, verified on a scratch copy, reviewed and landed a
   - FamCal calendars carry their own colour from `NativeCalendar`.
   - Google calendars carry the colour saved when the user chose them (`SelectCalendarsClient.tsx:179`, Google's `backgroundColor`, else `#4285f4`).
 - **The gap:** assignments saved before that code have no colour, and a colour changed later in Google never reaches FamCal.
-- **The fix:** on a Google read through the cache (`'use'` / `'refresh'`), the reader also asks `calendarList.list` (fields `items(id,backgroundColor)`, `maxResults: 250`). The answer is kept per user under `gcal:colors:v1:{userId}` with `EX 21600` (6 h).
+- **The fix:** every live read the range route makes (`'use'` / `'refresh'`: a miss, a stale entry's refresh, or a read with Redis down) also asks `calendarList.list` (fields `items(id,backgroundColor)`, `maxResults: 250`, `showHidden: true`), in parallel with the event lists.
+  - Only the chosen calendars' colours are kept, and only `#rrggbb` (lower-cased).
+  - They go into that read's cache entry (`colours`), so a hit joins the colours its read got, and they die with the entry (3–30 minutes, or a stamp). An entry without them (written before H1, or after the call failed) joins the saved colours. *(Ruling, H1: the entry instead of a per-user `gcal:colors:v1` key with a 6-hour TTL. There is no new key or TTL, a colour changed in Google shows within the entry's life rather than within 6 hours, and calendar ids reach no new place.)*
   - The calendar's ref takes the live colour, then the saved one, then `null`.
-  - A failed or slow list call (it shares the read's deadline and abort signal) drops back to the saved colour and never fails the read.
-  - Summary reads (`'bypass'`) are unchanged: they never touch Redis and have no use for colour.
+  - A failed or slow list call (it shares the read's deadline and abort signal) drops back to the saved colour and never fails the read. A failure is a console warning, not a Sentry event. A call still waiting holds the read to its deadline at most, as a list would.
+  - Summary reads (`'bypass'`) are unchanged: they never ask, never touch Redis and have no use for colour.
 - **Per-event `colorId` stays ignored** (spec 2026-10-16 §2.5).
 - **Open, for the device check:** the API's `backgroundColor` uses Google's older palette, which can look paler than Google Calendar's own app. If the owner sees a mismatch on the phone, a follow-up maps the 24 calendar colorIds to Google's current palette.
 
@@ -53,15 +55,17 @@ Each is its own plan, drafted, verified on a scratch copy, reviewed and landed a
 `calendarTones(hex, theme)` is a pure function in `src/lib/calendar-view/colours.ts` with no imports. From a calendar colour it returns `{ fill, text, line }`:
 
 - **light:**
-  - `fill` is the colour mixed about 28% into the ground;
-  - `text` is the colour darkened until it reaches 4.5:1 on `fill` and on the ground;
-  - `line` is the colour darkened until it reaches 3:1 on the ground.
+    - `fill` is the colour mixed 28% into the ground (`#ffffff`);
+  - `text` is the colour darkened until it reaches 4.5:1 on `fill` and on every light ground;
+  - `line` is the colour darkened until it reaches 3:1 on every light ground.
 - **dark:**
-  - `fill` is the colour mixed about 25–35% into the dark ground;
-  - `text` is the colour lightened until it reaches 4.5:1 on `fill`;
-  - `line` is the colour lightened until it reaches 3:1.
+  - `fill` is the colour mixed 30% into the dark ground (`#15151d`);
+  - `text` is the colour lightened until it reaches 4.5:1 on `fill` and on every dark ground;
+  - `line` is the colour lightened until it reaches 3:1 on every dark ground.
 
-Contrast is computed with WCAG relative luminance. The function is deterministic and memoised per (hex, theme). Bad input (not `#rrggbb`) returns `null`, and `null` means today's look: the accent for yours and orange for the partner's.
+Darkening and lightening move only the HSL lightness, so the hue and saturation stay: a pastel blue's text is a deep blue, not a grey. The grounds are the home's page, surface and card, plus Telegram's common night backgrounds (`#000000`, `#17212b`, `#212121`), so the floors hold inside Telegram too. Contrast is computed with WCAG relative luminance. The function is deterministic and memoised per (hex, theme). Bad input (not `#rrggbb`) returns `null`, and `null` means today's look: the accent for yours and orange for the partner's.
+
+A coloured mark carries both looks' tones as inline custom properties (`calendarVars`: `--cal-{fill,text,line}-{l,d}`) and the class `has-cal`. The theme CSS picks the light or the dark set by the home's `data-theme`, so the theme never enters React and the server's render matches the client's.
 
 ### 3.3 Where colour is drawn
 
@@ -70,7 +74,7 @@ Contrast is computed with WCAG relative luminance. The function is deterministic
 | Place | Your item | Partner's item |
 |---|---|---|
 | Agenda row and picked list | a 4 px stripe at the row's start in `line` | the same stripe hollow (1.5 px `line` border), plus "from {name}" |
-| Month chip | `fill` with `text` | the ground with a 1.5 px `line` border and `text` |
+| Month chip | `fill` with `text` | the ground with a 1 px `line` border (today's width) and `text` |
 | Multi-day bar | as a chip, joined across days (logical radii, so RTL mirrors) | as a chip, outlined |
 | Picked dot | filled `line` | a `line` ring |
 | Still-open card | the row's stripe | the row's stripe, hollow |
@@ -142,6 +146,8 @@ The screens:
 - **The admin panel:** split the file first with no visual change, then the shell and switches, then the lists.
 
 ## 6. Questions for the owner (with the default)
+
+Answered on 2026-10-19: all four defaults.
 
 1. **Colour rule:** filled for yours, outlined for the partner's, with the calendar's colour on both. (Default: yes, as in the mockups.)
 2. **Agenda rows:** a colour stripe at the start, not a tinted row background. (Default: the stripe; a tinted background makes long lists heavy.)

@@ -104,6 +104,7 @@ import { homeTabKey, monthLayoutKey } from '../src/lib/calendar-view/home-storag
 import { monthSpan, monthWindow, type MonthKey } from '../src/lib/calendar-view/grid';
 import { BROWSE_CELL_PX, monthBarPx, monthOffsets } from '../src/lib/calendar-view/month';
 import { formatDayLong } from '../src/lib/calendar-view/format';
+import { calendarVars } from '../src/lib/calendar-view/colours';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -1351,7 +1352,9 @@ async function main() {
     // §7.1 Look: Telegram's theme params over globals.css's tokens, so the brand palette lives in one place.
     const globals = fs.readFileSync(path.join(ROOT, 'app/globals.css'), 'utf8');
     const defined = new Set([...globals.matchAll(/^\s*(--[\w-]+):/gm)].map((m) => m[1]));
-    const read = [...new Set([...HOME_THEME_CSS.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]))].filter((n) => !/^--(?:tg|ch)-/.test(n));
+    // A calendar's tones are set inline on the mark that draws them (calendarVars), not by the theme.
+    const inline = new Set(Object.keys(calendarVars('#000000') ?? {}));
+    const read = [...new Set([...HOME_THEME_CSS.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]))].filter((n) => !/^--(?:tg|ch)-/.test(n) && !inline.has(n));
     assert(read.length >= 4 && read.every((n) => defined.has(n)), `the fallbacks read ${show(read)}, globals.css defines ${show(read.filter((n) => defined.has(n)))}`);
     for (const [token, brand] of [['--ch-bg', '--bg-white'], ['--ch-text', '--text-primary'], ['--ch-accent', '--brand-primary-dark'], ['--ch-button', '--brand-primary-dark']]) {
       assert(new RegExp(`${token}: var\\(--tg-theme-[\\w-]+, (?:var\\(--tg-theme-[\\w-]+, )?var\\(${brand}\\)\\)`).test(HOME_THEME_CSS), `${token} falls back to ${brand}`);
@@ -3293,6 +3296,33 @@ async function main() {
 
   await check('#60 React logged no warning in #43-#59 (keys, nesting, attributes, act)', () => {
     assert(reactWarnings.length === warnedBeforeMonth, `warnings: ${show(reactWarnings.slice(warnedBeforeMonth, warnedBeforeMonth + 5))}`);
+  });
+
+  await check('#61 each row starts with a stripe in its calendar\'s colour (spec 2026-10-19 §3.3): solid for the viewer\'s item, hollow (is-partner) for the partner\'s, with has-cal and the calendar\'s tones for both looks inline (calendarVars); a masked calendar (color null) keeps today\'s tones, with no style; the "Still open" rows have one too; decorative', () => {
+    const week = famcalWeek();
+    const html = renderAgenda('en', week);
+    const escaped = (text: string) => text.replace(/&/g, '&amp;').replace(/'/g, '&#x27;').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const stripeOf = (title: string) => {
+      const m = new RegExp(`<button type="button" class="ch-row ch-tap[^"]*"><span class="(ch-stripe[^"]*)"(?: style="([^"]*)")? aria-hidden="true"></span>(?:(?!</button>).)*?<span class="ch-title" dir="auto">${escaped(title)}</span>`).exec(html);
+      assert(m, `no stripe on ${show(title)}`);
+      return { cls: m[1], style: m[2] ?? null };
+    };
+    const styleOf = (vars: Readonly<Record<string, string>>) => Object.entries(vars).map(([k, v]) => `${k}:${v}`).join(';');
+    const seen = new Set<string>();
+    for (const key of ['famcal|dentist', 'famcal|football', 'famcal|parcel']) {
+      const row = rowOf(week, key);
+      const vars = calendarVars(row.item.calendar.color);
+      const want = { cls: `ch-stripe${row.whose.mine ? '' : ' is-partner'}${vars ? ' has-cal' : ''}`, style: vars ? styleOf(vars) : null };
+      const got = stripeOf(row.item.title ?? '');
+      assert(show(got) === show(want), `${key}: ${show(got)}, wanted ${show(want)}`);
+      seen.add(want.cls);
+    }
+    assert(show([...seen].sort()) === show(['ch-stripe', 'ch-stripe has-cal', 'ch-stripe is-partner has-cal']), `the cases covered: ${show([...seen])}`);
+    const rows = html.match(/<button type="button" class="ch-row ch-tap[^"]*">/g) ?? [];
+    const striped = html.match(/<button type="button" class="ch-row ch-tap[^"]*"><span class="ch-stripe/g) ?? [];
+    assert(rows.length > 5 && striped.length === rows.length, `${striped.length} of ${rows.length} rows striped`);
+    const card = html.slice(html.indexOf('class="ch-card"'), html.indexOf('class="ch-days"'));
+    assert((card.match(/<span class="ch-stripe/g) ?? []).length === week.stillOpen?.shown.length, 'every "Still open" row has its stripe');
   });
 
   let failed = 0;

@@ -64,6 +64,7 @@ import { monthWindow } from '../src/lib/calendar-view/grid';
 import { formatDayLong } from '../src/lib/calendar-view/format';
 import { hebrewDayLabel } from '../src/lib/calendar-view/hebrew-date';
 import { daysInWindow, dayStatus, emptyStore, reduceStore, type CalendarStore, type StoreAction } from '../src/lib/calendar-view/store';
+import { calendarVars } from '../src/lib/calendar-view/colours';
 import { compareItems, type CalendarDTO, type DayKey, type ItemCalendarDTO, type ItemDTO, type ItemReminderDTO, type RangeResponse, type WeekStart } from '../src/lib/calendar-view/types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -301,7 +302,8 @@ const attr = (tag: string, name: string) => {
   return m ? decode(m[1]) : null;
 };
 
-type CellHtml = { label: string | null; pressed: string | null; current: string | null; className: string; num: string; heb: string | null; dots: string[]; more: string | null; ghost: boolean };
+/** dots: whose (is-mine, is-partner); colours: each dot's ' has-cal' and inline style (null without). */
+type CellHtml = { label: string | null; pressed: string | null; current: string | null; className: string; num: string; heb: string | null; dots: string[]; colours: { cal: boolean; style: string | null }[]; more: string | null; ghost: boolean };
 
 /** The grid's cells in order: blanks as null, each day's button parsed. */
 function gridOf(html: string): (CellHtml | null)[] {
@@ -325,7 +327,8 @@ function gridOf(html: string): (CellHtml | null)[] {
       className: attr(open, 'class') ?? '',
       num: /<span class="ch-mp-num" aria-hidden="true">(\d+)<\/span>/.exec(inner)?.[1] ?? '',
       heb: /<span class="ch-mp-heb" aria-hidden="true">([^<]*)<\/span>/.exec(inner)?.[1] ?? null,
-      dots: [...inner.matchAll(/class="ch-mp-dot (is-mine|is-partner)"/g)].map((d) => d[1]),
+      dots: [...inner.matchAll(/class="ch-mp-dot (is-mine|is-partner)(?: has-cal)?"/g)].map((d) => d[1]),
+      colours: [...inner.matchAll(/class="ch-mp-dot (?:is-mine|is-partner)( has-cal)?"(?: style="([^"]*)")?/g)].map((d) => ({ cal: !!d[1], style: d[2] ?? null })),
       more: /<span class="ch-mp-more" dir="ltr">([^<]*)<\/span>/.exec(inner)?.[1] ?? null,
       ghost: inner.includes('class="ch-mp-ghost"'),
     });
@@ -1036,7 +1039,7 @@ async function main() {
     assert(/background: var\(--ch-pill-bg\)/.test(rule('.ch-mp-today-pill')) && /color: var\(--ch-pill-text\)/.test(rule('.ch-mp-today-pill')), 'the pill');
     assert(/outline: 2px solid var\(--ch-accent\)/.test(css), 'a focus ring');
     assert(/\.ch-home\[dir='rtl'\] \.ch-flip \{\s*transform: scaleX\(-1\);/.test(HOME_SHELL_CSS), 'the shell flips .ch-flip in RTL');
-    const defined = new Set([...(HOME_THEME_CSS + HOME_SHELL_CSS + AGENDA_CSS).matchAll(/(--ch-[\w-]+)\s*:/g)].map((m) => m[1]));
+    const defined = new Set([...(HOME_THEME_CSS + HOME_SHELL_CSS + AGENDA_CSS).matchAll(/(--(?:ch|cal)-[\w-]+)\s*:/g)].map((m) => m[1]));
     const used = [...new Set([...css.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]))];
     const undefinedTokens = used.filter((n) => !n.startsWith('--tg-') && !defined.has(n));
     assert(used.length >= 15 && undefinedTokens.length === 0, `tokens read but not defined: ${show(undefinedTokens)}`);
@@ -1125,7 +1128,30 @@ async function main() {
     }
   });
 
-  await check('#14 React logged no warning in any render (keys, nesting, attributes, act)', () => {
+  await check('#14 each dot in its calendar\'s colour (spec 2026-10-19 §3.3): filled or a ring as before, with has-cal and the calendar\'s tones for both looks inline (calendarVars); a masked calendar (color null) or a colour that isn\'t #rrggbb keeps today\'s dot, with no style', () => {
+    const styleOf = (color: string) => Object.entries(calendarVars(color) ?? {}).map(([k, v]) => `${k}:${v}`).join(';');
+    const html = render('en', propsFor(octoberStore(), picked('2026-10-16')));
+    const mine = new Set<string>();
+    const partner = new Set<string>();
+    for (const cell of days(html)) {
+      cell.dots.forEach((whose, i) => {
+        const c = cell.colours[i];
+        assert(c.cal && c.style !== null, `day ${cell.num} dot ${i}: no colour`);
+        (whose === 'is-mine' ? mine : partner).add(c.style);
+      });
+    }
+    const known = [styleOf(MY_CAL.color ?? ''), styleOf(NOA_CAL.color ?? '')];
+    assert(mine.size > 0 && partner.size > 0 && [...mine, ...partner].every((s) => known.includes(s)), `the dots' styles: ${show([...mine, ...partner])}`);
+    assert(cellOn(html, 15).colours[2].style === styleOf(NOA_CAL.color ?? ''), 'the 15th\'s ring is Noa\'s calendar\'s');
+    const plain = storeOf([ok(answer({ items: { '2026-10-21': [
+      item('masked', { start: at('2026-10-21', '10:00'), end: at('2026-10-21', '11:00'), calendar: { id: null, name: 'Noa', color: null, mine: false, inLegend: false } }),
+      item('named', { start: at('2026-10-21', '12:00'), end: at('2026-10-21', '13:00'), calendar: { ...MY_CAL, color: 'red' } }),
+    ] } }))]);
+    const cell21 = cellOn(render('en', propsFor(plain, picked('2026-10-16'))), 21);
+    assert(show(cell21.dots) === show(['is-partner', 'is-mine']) && show(cell21.colours) === show([{ cal: false, style: null }, { cal: false, style: null }]), `the 21st: ${show(cell21)}`);
+  });
+
+  await check('#15 React logged no warning in any render (keys, nesting, attributes, act)', () => {
     assert(reactWarnings.length === 0, show(reactWarnings));
   });
 

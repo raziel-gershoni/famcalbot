@@ -16,7 +16,8 @@
 // - the weekday row from the week start, then the compact grid: one 48 px button per
 //   day of the month, with the Gregorian day, the Hebrew day at 11 px (with the month's
 //   short name on Hebrew day 1 and on the month's first day), and up to 3 dots, filled
-//   for the viewer's items and a ring for the partner's, then "+N". Daily reminders get
+//   for the viewer's items and a ring for the partner's, in the calendar's colour
+//   (spec 2026-10-19 §3.3), then "+N". Daily reminders get
 //   no dot (Ruling 5). A loading day shows a placeholder and a failed one is dimmed, so
 //   a day looks free only once it is answered;
 // - the day: "Today · Thursday, 15 October" (or the weekday and date) with the Hebrew
@@ -55,7 +56,7 @@ import type { DayStatus } from '@/src/lib/calendar-view/store';
 import type { DayKey, SourceName, WeekStart } from '@/src/lib/calendar-view/types';
 import { AGENDA_CSS } from './AgendaView';
 import { PlaceholderRows } from './DayList';
-import { ItemRow } from './ItemRow';
+import { ItemRow, calendarMark } from './ItemRow';
 
 export interface MonthPickedProps {
   /** The picked month's model (monthModels(store)(ui.month)). */
@@ -177,9 +178,10 @@ function Marks({ cell }: { cell: MonthCell }) {
   const { shown, more } = limitDots(cell.dots);
   return (
     <>
-      {shown.map((mine, i) => (
-        <span key={i} className={`ch-mp-dot ${mine ? 'is-mine' : 'is-partner'}`} />
-      ))}
+      {shown.map((dot, i) => {
+        const cal = calendarMark(dot.color);
+        return <span key={i} className={`ch-mp-dot ${dot.mine ? 'is-mine' : 'is-partner'}${cal.className}`} style={cal.style} />;
+      })}
       {more > 0 ? (
         <span className="ch-mp-more" dir="ltr">
           {t('month.moreShort', { count: more })}
@@ -614,6 +616,12 @@ export const MONTH_PICKED_CSS = `
 }
 .ch-mp-dot.is-partner {
   border: 1.5px solid var(--ch-dot-partner);
+}
+.ch-mp-dot.has-cal.is-mine {
+  background: var(--cal-line);
+}
+.ch-mp-dot.has-cal.is-partner {
+  border-color: var(--cal-line);
 }
 .ch-mp-more {
   font-size: 11px;

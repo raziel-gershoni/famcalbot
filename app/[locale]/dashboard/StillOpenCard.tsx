@@ -10,7 +10,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import type { AgendaRow, StillOpenCard as StillOpenModel, StillOpenRow } from '@/src/lib/calendar-view/agenda';
 import type { DayKey } from '@/src/lib/calendar-view/types';
 import { daysBetween, formatDayMonth, formatTime, weekdayOf } from '@/src/lib/calendar-view/format';
-import { PersonChip, ReminderIcon, useItemTitle } from './ItemRow';
+import { CalendarStripe, PersonChip, ReminderIcon, useItemTitle } from './ItemRow';
 
 export interface StillOpenCardProps {
   card: StillOpenModel;
@@ -40,6 +40,7 @@ function OpenRow({ row, today, tz, onOpen }: { row: StillOpenRow } & Omit<StillO
   return (
     <li className="ch-row-li">
       <button type="button" className="ch-row ch-tap ch-row-open" onClick={() => onOpen(row)}>
+        <CalendarStripe color={row.item.calendar.color} mine={row.whose.mine} />
         <span className="ch-body">
           <span className="ch-title-line">
             <ReminderIcon mark={mark} />
