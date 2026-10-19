@@ -8,10 +8,13 @@
 //   all day, starts, ends (moving the start keeps the duration), repeat, calendar and
 //   notes; a reminder has title, when (a date, and a time with "At a set time"), repeat,
 //   and For when the partner can be pinged.
-// - Edit: the same fields prefilled from the item's edit info. What cannot change in this
-//   pass (the repeat rule, the calendar, who it is for) is shown as text. A repeating item
-//   asks which occurrences on Save (ScopeSheet); when its rule fixes its days and the
-//   start moved to another day, only this one can take the change.
+// - Edit: the same fields prefilled from the item's edit info, with the Repeat row (the
+//   stored rule selected; a rule the five can't say is a sixth, first choice; an end is
+//   kept and named), the Calendar row (the item's move targets) and, for a reminder's
+//   creator, the For row. Where the info doesn't allow a row, its value stays text. What a
+//   Save applies to is editor-model's scopePlan: a repeat change is from this occurrence on
+//   with no question, a calendar or recipient change on a series asks 'this one and the
+//   ones after' or 'all', a day move on a set-weekdays series can only be this one's.
 // - Cancel asks "Discard your changes?" only when something changed. The container's
 //   BackButton calls the same thing through `cancelRef`: it closes a sheet on top first,
 //   then cancels.
@@ -21,7 +24,7 @@
 //   is disabled while a request is in flight.
 // - Nothing is sent when an edit changed nothing: Save just closes.
 
-import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   REMINDER_DEFAULT_TIME,
@@ -31,17 +34,20 @@ import {
   isDirty,
   isRealDay,
   moveStart,
-  movesDay,
   repeatWords,
+  scopePlan,
   setAllDay,
   spanOf,
+  storedChoice,
   updateBody,
   weekdayId,
   type EditorForm,
   type FieldErrors,
   type FieldName,
+  type RepeatWords,
+  type ScopePlan,
 } from '@/src/lib/calendar-view/editor-model';
-import type { EditScope, EditorCalendar, ItemEditInfoResponse, ItemKind, RepeatChoice } from '@/src/lib/calendar-view/editor-types';
+import type { EditScope, EditorCalendar, ItemEditInfoResponse, ItemKind, RepeatChoice, RuleChoice } from '@/src/lib/calendar-view/editor-types';
 import { formatDayMonth } from '@/src/lib/calendar-view/format';
 import { BottomSheet } from './BottomSheet';
 import { FORM_CSS, FormCard, PillRow, RadioPair, SaveBar, Segmented, SwitchRow, TextField, ValueRow, type SelectOption } from './form-kit';
@@ -53,7 +59,7 @@ export type SaveOutcome = { kind: 'ok' } | { kind: 'error'; error: SubmitError; 
 export interface EditorSheetProps {
   mode: 'create' | 'edit';
   initial: EditorForm;
-  /** New: which kinds apply, the writable calendars and the partner. */
+  /** The kinds that apply (new), the writable calendars (new, and the names of an edit's move targets) and the partner. */
   kinds?: { event: boolean; reminder: boolean };
   calendars?: EditorCalendar[];
   partner?: { name: string; canRemind: boolean } | null;
@@ -80,6 +86,8 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
   const [error, setError] = useState<SubmitError | null>(null);
   const [scopeOpen, setScopeOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
+  /** The inline line Save shows when it can't save as it is (a day move beside a calendar or recipient change). */
+  const [inlineNote, setInlineNote] = useState<'dayMoveAlone' | null>(null);
   const errorText = useErrorText(error);
   /** The last real start day: the repeat choices keep their words while a date is being typed. */
   const [lastDay, setLastDay] = useState(isRealDay(initial.startDay) ? initial.startDay : '');
@@ -102,6 +110,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
     setForm(next);
     setError(null);
     setServerField(null);
+    setInlineNote(null);
   };
 
   // Cancel: a sheet on top closes first, then the editor, asking only when something changed.
@@ -143,57 +152,82 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
       void run('single');
       return;
     }
-    if (!itemKey || updateBody(form, start, itemKey, 'single') === null) {
+    if (!itemKey || !info || updateBody(form, start, itemKey, 'single') === null) {
       onClose();
       return;
     }
-    if (info && info.scopes.length > 1) setScopeOpen(true);
-    else void run('single');
+    const decided: ScopePlan = scopePlan(form, start, info);
+    if (decided.kind === 'refuse') setInlineNote(decided.note);
+    else if (decided.kind === 'sheet') setScopeOpen(true);
+    else void run(decided.kind === 'following' ? 'following' : 'single');
   };
+  const plan: ScopePlan | null = edit && info ? scopePlan(form, start, info) : null;
 
-  // The repeat choices, worded for the start day.
+  // The repeat choices, worded for the start day. On an edit the stored rule is selected; one
+  // the five can't say is a first choice of its own, and a stored end is named on every choice
+  // (picking another of the five keeps it, 3b spec §2.1).
   const day = lastDay;
   const weekday = weekdayId(day);
-  const repeatOptions: SelectOption[] = useMemo(() => {
-    const date = day ? formatDayMonth(day, locale) : '';
-    const dom = dayOfMonth(day) ?? 1;
-    const text = (r: RepeatChoice): string => {
-      if (r === 'none') return t('editor.repeat.none');
-      if (r === 'daily') return t('editor.repeat.daily');
-      if (r === 'weekly') return weekday ? t('editor.repeat.weekly', { weekday }) : t('editor.repeat.weeklyPlain');
-      if (r === 'monthly') return day ? t('editor.repeat.monthly', { day: dom }) : t('editor.repeat.monthlyPlain');
-      return day ? t('editor.repeat.yearly', { date }) : t('editor.repeat.yearlyPlain');
-    };
-    return REPEATS.map((r) => ({ value: r, text: text(r) }));
-  }, [t, locale, day, weekday]);
+  const stored: RuleChoice = edit && info ? storedChoice(info) : 'none';
+  const untilDay = edit && info ? (info.series.rule?.until ?? null) : null;
+  const wordsOf = (w: RepeatWords): string | null => {
+    switch (w.key) {
+      case 'daily':
+        return t('scope.everyDay');
+      case 'weekday':
+        return t('scope.everyWeekday', { weekday: w.weekday });
+      case 'interval':
+        return t(`editor.repeat.every.${w.unit}`, { count: w.count });
+      case 'weekly':
+        return t('editor.repeat.weeklyPlain');
+      case 'monthly':
+        return t('editor.repeat.monthlyPlain');
+      case 'yearly':
+        return t('editor.repeat.yearlyPlain');
+      default:
+        return null;
+    }
+  };
+  const date = day ? formatDayMonth(day, locale) : '';
+  const dom = dayOfMonth(day) ?? 1;
+  const until = untilDay ? formatDayMonth(untilDay, locale) : null;
+  const withEnd = (text: string) => (until ? t('editor.repeat.until', { rule: text, date: until }) : text);
+  const choiceText = (r: RepeatChoice): string => {
+    if (r === 'none') return t('editor.repeat.none');
+    if (r === 'daily') return t('editor.repeat.daily');
+    if (r === 'weekly') return weekday ? t('editor.repeat.weekly', { weekday }) : t('editor.repeat.weeklyPlain');
+    if (r === 'monthly') return day ? t('editor.repeat.monthly', { day: dom }) : t('editor.repeat.monthlyPlain');
+    return day ? t('editor.repeat.yearly', { date }) : t('editor.repeat.yearlyPlain');
+  };
+  const repeatOptions: SelectOption[] = REPEATS.map((r): SelectOption => {
+    if (r === 'none' || !until) return { value: r, text: choiceText(r) };
+    const ended = withEnd(choiceText(r));
+    return { value: r, text: stored === r ? t('editor.repeat.current', { words: ended }) : ended };
+  });
+  if (stored === 'custom' && info) {
+    const own = info.series.rule?.words ?? wordsOf(repeatWords(info.series.repeat, info.series.start));
+    repeatOptions.unshift({ value: 'custom', text: own === null ? t('editor.repeat.currentPlain') : t('editor.repeat.current', { words: withEnd(own) }) });
+  }
+  /** Under the Repeat row, once the rule is changed from a later occurrence: the earlier ones keep theirs. */
+  const repeatHint =
+    edit && info && info.series.recurring && info.series.first === false && form.repeat !== 'custom' && form.repeat !== start.repeat
+      ? t('editor.repeat.fromHere', { date: formatDayMonth(info.occurrence.start.slice(0, 10), locale) })
+      : undefined;
 
-  const calendarOptions: SelectOption[] = calendars.map((c) => ({
+  const toOption = (c: EditorCalendar): SelectOption => ({
     value: c.id,
     text: c.mine || !c.ownerName ? c.name : t('editor.partnerCalendar', { calendar: c.name, name: c.ownerName }),
     color: c.color,
-  }));
-
-  // What an edit cannot change this pass, as text.
-  const repeatText = (() => {
-    if (!edit || !info || !info.series.recurring) return null;
-    const words = repeatWords(info.series.repeat, info.series.start);
-    switch (words.key) {
-      case 'weekday':
-        return t('editor.repeats.weekday', { weekday: words.weekday });
-      case 'interval':
-        return t(`editor.repeats.interval.${words.unit}`, { count: words.count });
-      case 'daily':
-        return t('editor.repeats.daily');
-      case 'weekly':
-        return t('editor.repeats.weekly');
-      case 'monthly':
-        return t('editor.repeats.monthly');
-      case 'yearly':
-        return t('editor.repeats.yearly');
-      default:
-        return t('editor.repeats.other');
-    }
-  })();
+  });
+  const calendarOptions: SelectOption[] = calendars.map(toOption);
+  /** An edit's Calendar row: the calendars the item may be on, its own included; fewer than two and it stays text. */
+  const moveOptions: SelectOption[] =
+    edit && info?.canMoveCalendar && info.moveTargets
+      ? info.moveTargets.flatMap((id) => {
+          const c = calendars.find((x) => x.id === id);
+          return c ? [toOption(c)] : [];
+        })
+      : [];
 
   const kindOptions: { value: ItemKind; text: string }[] = [
     { value: 'event', text: t('editor.kind.event') },
@@ -201,6 +235,9 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
   ];
   const showKindSwitch = !edit && !!kinds && kinds.event && kinds.reminder;
   const canPartner = !edit && reminder && !!partner && partner.canRemind;
+  /** An edit's For row, for the reminder's creator: Me | the partner (by the name the info or the editor gave). */
+  const partnerName = edit && reminder && info?.canChangeRecipient ? (info.forName ?? partner?.name ?? null) : null;
+  const showCalendarRow = !reminder && (edit ? moveOptions.length > 1 : calendarOptions.length > 0);
   const heading = edit ? t('editor.titleEdit') : t('editor.titleNew');
 
   return (
@@ -237,7 +274,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
                   error={errorOf('start')}
                 />
                 <SwitchRow label={t('editor.atTime')} hint={t('editor.atTimeHint', { time: REMINDER_DEFAULT_TIME })} checked={!form.allDay} onChange={(on) => change(setAllDay(form, !on))} />
-                {edit ? null : <ValueRow label={t('editor.repeat.label')} value={form.repeat} options={repeatOptions} onChange={(repeat) => change({ ...form, repeat: repeat as RepeatChoice })} />}
+                <ValueRow label={t('editor.repeat.label')} hint={repeatHint} value={form.repeat} options={repeatOptions} onChange={(repeat) => change({ ...form, repeat: repeat as RuleChoice })} />
               </FormCard>
             ) : (
               <FormCard>
@@ -264,14 +301,31 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
                   onTime={(endTime) => change({ ...form, endTime })}
                   error={errorOf('end')}
                 />
-                {edit ? null : <ValueRow label={t('editor.repeat.label')} value={form.repeat} options={repeatOptions} onChange={(repeat) => change({ ...form, repeat: repeat as RepeatChoice })} />}
+                <ValueRow label={t('editor.repeat.label')} hint={repeatHint} value={form.repeat} options={repeatOptions} onChange={(repeat) => change({ ...form, repeat: repeat as RuleChoice })} />
               </FormCard>
             )}
 
-            {!edit && !reminder && calendarOptions.length > 0 ? (
+            {showCalendarRow ? (
               <FormCard>
-                <ValueRow label={t('editor.calendar')} value={form.calendarId ?? calendarOptions[0].value} options={calendarOptions} onChange={(calendarId) => change({ ...form, calendarId })} />
+                <ValueRow
+                  label={t('editor.calendar')}
+                  value={form.calendarId ?? (edit ? moveOptions : calendarOptions)[0].value}
+                  options={edit ? moveOptions : calendarOptions}
+                  onChange={(calendarId) => change({ ...form, calendarId })}
+                />
               </FormCard>
+            ) : null}
+
+            {partnerName !== null ? (
+              <RadioPair
+                label={t('editor.forLabel')}
+                value={form.forPartner ? 'partner' : 'me'}
+                options={[
+                  { value: 'me', text: t('editor.forMe') },
+                  { value: 'partner', text: partnerName },
+                ]}
+                onChange={(who) => change({ ...form, forPartner: who === 'partner' })}
+              />
             ) : null}
 
             {canPartner && partner ? (
@@ -292,16 +346,15 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
               </FormCard>
             )}
 
-            {repeatText ? <p className="ch-form-fixed">{repeatText}</p> : null}
-            {edit && info && info.calendar.name && !reminder ? (
+            {edit && info && info.calendar.name && !reminder && !showCalendarRow ? (
               <p className="ch-form-fixed" dir="auto">
                 {info.calendar.name}
               </p>
             ) : null}
-            {edit && info?.forName ? <p className="ch-form-fixed">{t('editor.forName', { name: info.forName })}</p> : null}
+            {edit && info?.forName && partnerName === null ? <p className="ch-form-fixed">{t('editor.forName', { name: info.forName })}</p> : null}
           </div>
         </div>
-        <SaveBar label={t('editor.save')} busy={saving} error={errorText} onSave={save} />
+        <SaveBar label={t('editor.save')} busy={saving} error={errorText ?? (inlineNote ? t('editor.dayMoveAlone') : null)} onSave={save} />
       </BottomSheet>
       {scopeOpen && info && itemKey ? (
         <ScopeSheet
@@ -310,7 +363,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
           title={form.title.trim() || info.occurrence.title}
           day={info.occurrence.start.slice(0, 10)}
           all={allOfThem(info.series.repeat, info.series.start)}
-          singleOnly={info.series.fixedDays && movesDay(form, start, info.tz, info.series.zone)}
+          {...(plan?.kind === 'sheet' ? { choices: plan.choices, ...(plan.note ? { note: plan.note } : {}) } : {})}
           busy={saving}
           error={error}
           onPick={(scope) => void run(scope)}

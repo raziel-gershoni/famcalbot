@@ -475,13 +475,14 @@ export interface SelectOption {
 }
 
 /** A value row: the label, the chosen value and a chevron, with a native <select> over the row. */
-export function ValueRow({ label, value, options, onChange }: { label: string; value: string; options: SelectOption[]; onChange: (value: string) => void }) {
+export function ValueRow({ label, hint, value, options, onChange }: { label: string; hint?: string; value: string; options: SelectOption[]; onChange: (value: string) => void }) {
   const chosen = options.find((o) => o.value === value) ?? options[0];
   const dot = chosen?.color && /^#[0-9a-f]{3,8}$/i.test(chosen.color) ? chosen.color : null;
   return (
     <label className="ch-form-row">
       <span className="ch-form-label">
         <span>{label}</span>
+        {hint ? <span className="ch-form-hint">{hint}</span> : null}
       </span>
       <span className="ch-form-value">
         {chosen?.color !== undefined ? <span className="ch-swatch-dot" style={dot ? { background: dot } : undefined} aria-hidden="true" /> : null}
