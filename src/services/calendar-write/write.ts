@@ -26,6 +26,7 @@ import {
   decodeEventId,
   deleteNativeEvent,
   getMainNativeCalendar,
+  followingTimesFor,
   getPartnerUserId,
   seriesTimesFor,
   updateNativeEvent,
@@ -254,9 +255,9 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   try {
     const result = await updateNativeEvent(input);
     if (scope === 'following' && series.rrule) {
-      // The cut starts a new series at this occurrence: where the store anchors it, its slot
-      // moved as the occurrence was (one moved on its own to another day keeps the rule's).
-      const anchor = timeChanged ? seriesTimesFor({ startsAt: cmd.key.slot!, timeZone: series.timeZone }, occ.startsAt, { startsAt, endsAt, allDay }).startsAt : cmd.key.slot;
+      // The cut starts a new series at this occurrence, where the store starts it: on the
+      // date entered, or for a new time alone on its own slot's day (followingTimesFor).
+      const anchor = timeChanged ? followingTimesFor(series, cmd.key.slot!, occ.startsAt, { startsAt, endsAt, allDay }).startsAt : cmd.key.slot;
       key = itemKeyOf(decodeEventId(result.canonicalEventId).seriesCuid, anchor);
     }
     if (result.clearedPings.length > 0) {

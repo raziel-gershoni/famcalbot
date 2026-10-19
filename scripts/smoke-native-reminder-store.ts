@@ -562,7 +562,7 @@ async function main() {
     }
   });
 
-  await check('this and the ones after, from an occurrence moved on its own to another day, at a new time: the new series starts on the rule\'s day (the slot\'s), not the day it was moved to', async () => {
+  await check('this and the ones after, from an occurrence moved on its own to another day: a new time starts the new series on the rule\'s day (the slot\'s), not the day it was moved to; on a rule that follows its start, a new day starts it on the date entered, for the bot too', async () => {
     reset();
     seedEvent('cls', { calendarId: 'raziel', creatorUserId: 1, title: 'Class', startsAt: at('2026-10-05 10:00'), rrule: 'FREQ=WEEKLY;BYDAY=MO,WE', exdates: [at('2026-10-19 10:00')] });
     tables.nativeEventInstance.push(instance('mv', 'cls', '2026-10-14 10:00', { status: 'OVERRIDE', startsAt: at('2026-10-15 10:00'), endsAt: at('2026-10-15 11:00') }));
@@ -571,6 +571,25 @@ async function main() {
     assert(iso(child.startsAt) === iso(at('2026-10-14 11:00')) && iso(child.endsAt) === iso(at('2026-10-14 12:00')), `the new series ${iso(child.startsAt)} - ${iso(child.endsAt)}`);
     const days = startsOf(child.id, '2026-10-12 00:00', '2026-10-29 00:00');
     assert(days.join() === ['2026-10-14', '2026-10-21', '2026-10-26', '2026-10-28'].map((d) => iso(at(`${d} 11:00`))).join(), `occurrences ${days.join()}`);
+    // On a rule that follows its start, a new day starts the new series on the date entered
+    // (Friday), through the bot's path too; a new time alone keeps the slot's day.
+    for (const [what, write] of [
+      ['the store', () => updateNativeEvent({ seriesCuid: 'swim', instanceStartsAt: at('2026-10-27 10:00'), scope: 'following', actingUserId: 1, startsAt: at('2026-10-30 10:00'), endsAt: at('2026-10-30 11:00') })],
+      ['the bot', () => nativeProvider.updateEvent(tables.user[0] as never, 'native:raziel', encodeEventId('swim', at('2026-10-27 10:00')), { startTime: at('2026-10-30 10:00'), endTime: at('2026-10-30 11:00'), scope: 'following' })],
+    ] as const) {
+      reset();
+      seedEvent('swim', { calendarId: 'raziel', creatorUserId: 1, title: 'Swimming', startsAt: at('2026-10-20 10:00'), rrule: 'FREQ=WEEKLY' });
+      tables.nativeEventInstance.push(instance('thu', 'swim', '2026-10-27 10:00', { status: 'OVERRIDE', startsAt: at('2026-10-29 10:00'), endsAt: at('2026-10-29 11:00') }));
+      await write();
+      const fri = tables.nativeEvent.find((e) => e.id !== 'swim')!;
+      assert(iso(fri.startsAt) === iso(at('2026-10-30 10:00')), `${what}: the new series starts ${iso(fri.startsAt)}`);
+      assert(startsOf(fri.id, '2026-10-27 00:00', '2026-11-14 00:00').join() === ['2026-10-30', '2026-11-06', '2026-11-13'].map((d) => iso(at(`${d} 10:00`))).join(), `${what}: Fridays`);
+    }
+    reset();
+    seedEvent('swim', { calendarId: 'raziel', creatorUserId: 1, title: 'Swimming', startsAt: at('2026-10-20 10:00'), rrule: 'FREQ=WEEKLY' });
+    tables.nativeEventInstance.push(instance('thu', 'swim', '2026-10-27 10:00', { status: 'OVERRIDE', startsAt: at('2026-10-29 10:00'), endsAt: at('2026-10-29 11:00') }));
+    const timeOnly = await updateNativeEvent({ seriesCuid: 'swim', instanceStartsAt: at('2026-10-27 10:00'), scope: 'following', actingUserId: 1, startsAt: at('2026-10-29 12:00'), endsAt: at('2026-10-29 13:00') });
+    assert(iso(eventRow(timeOnly.canonicalEventId).startsAt) === iso(at('2026-10-27 12:00')), `a new time alone: ${iso(eventRow(timeOnly.canonicalEventId).startsAt)}`);
     // Moved back to its own day from there is a day move: refused.
     reset();
     seedEvent('cls', { calendarId: 'raziel', creatorUserId: 1, title: 'Class', startsAt: at('2026-10-05 10:00'), rrule: 'FREQ=WEEKLY;BYDAY=MO,WE' });
@@ -618,7 +637,7 @@ async function main() {
     const from = at('2026-10-20 17:00');
     const to = at('2026-10-21 16:30');
     assert(shiftUntil('FREQ=DAILY;UNTIL=20261124T165959', from, to, IL) === 'FREQ=DAILY;UNTIL=20261125T162959', 'a floating UNTIL moves on the wall clock');
-    assert(shiftUntil('FREQ=DAILY;UNTIL=20261124T145959Z', from, to, IL) === 'FREQ=DAILY;UNTIL=20261125T142959Z', 'a UTC one too, across the DST change');
+    assert(shiftUntil('FREQ=DAILY;UNTIL=20261124T145959Z', from, to, IL) === 'FREQ=DAILY;UNTIL=20261125T142959Z', 'a Z one moves as wall time too');
     assert(shiftUntil('FREQ=DAILY;COUNT=5', from, to, IL) === 'FREQ=DAILY;COUNT=5', 'a COUNT stays');
   });
 

@@ -9,7 +9,7 @@
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-recurrence.ts
 
 import { fromZonedTime } from 'date-fns-tz';
-import { expandSeries, latestOccurrenceBefore, truncateRruleBefore, VirtualInstance } from '../src/services/native-calendar/recurrence';
+import { expandSeries, latestOccurrenceBefore, shiftUntil, truncateRruleBefore, VirtualInstance } from '../src/services/native-calendar/recurrence';
 import { localDate, nextDate, startOfLocalDay } from '../src/utils/day-events';
 import type { NativeEvent, NativeEventInstance } from '@prisma/client';
 
@@ -274,6 +274,21 @@ check('post-DST exdate still cancels its occurrence', () => {
     to: new Date('2026-11-12T00:00:00Z'),
   });
   assert(out.length === 0, `exdate did not match; got ${out.length} occurrence(s)`);
+});
+
+check('shiftUntil: a Z UNTIL moves as wall time, as expansion reads it, so a move across the DST change keeps the same last occurrence', () => {
+  const TZ = 'Asia/Jerusalem';
+  const wall = (local: string) => fromZonedTime(`${local}:00`, TZ);
+  // Two days later, across the change on 25 October: 20:00 stays 20:00.
+  const later = shiftUntil('FREQ=DAILY;UNTIL=20261024T200000Z', wall('2026-10-20 10:00'), wall('2026-10-22 10:00'), TZ);
+  assert(later === 'FREQ=DAILY;UNTIL=20261026T200000Z', `later: ${later}`);
+  // Daily at 20:00 until the 26th (its last occurrence), moved two days earlier: the 24th is the last.
+  const rrule = shiftUntil('FREQ=DAILY;UNTIL=20261026T200000Z', wall('2026-10-20 20:00'), wall('2026-10-18 20:00'), TZ);
+  const series = makeSeries({ timeZone: TZ, startsAt: wall('2026-10-18 20:00'), endsAt: wall('2026-10-18 21:00'), rrule });
+  const last = expandSeries(series, { from: wall('2026-10-18 00:00'), to: wall('2026-10-30 00:00') }).map((i) => i.startsAt.toISOString()).pop();
+  assert(last === wall('2026-10-24 20:00').toISOString(), `last ${last} (${rrule})`);
+  // The floating form the store writes reads the same way.
+  assert(shiftUntil('FREQ=DAILY;UNTIL=20261024T200000', wall('2026-10-20 10:00'), wall('2026-10-22 10:00'), TZ) === 'FREQ=DAILY;UNTIL=20261026T200000', 'floating');
 });
 
 // --- Overlap: a window takes every event still running inside it -------------

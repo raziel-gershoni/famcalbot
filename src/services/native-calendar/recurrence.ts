@@ -329,8 +329,10 @@ const ruleDateTime = (d: Date) => d.toISOString().replace(/[-:]/g, '').slice(0, 
 /**
  * A rule's UNTIL moved as its series moved, `from` to `to` on the wall clock, so the
  * series keeps its last occurrence (and one cut off by "this one and the ones after",
- * moved earlier, gains none on the cut's day). A date-only UNTIL moves by the days alone;
- * a COUNT, or no end, is left as it is.
+ * moved earlier, gains none on the cut's day). A date-time UNTIL moves as expansion reads
+ * it, as wall time (floating, with a Z or without), so a move across a DST change keeps
+ * the same last occurrence; a date-only one moves by the days alone; a COUNT, or no end,
+ * is left as it is.
  */
 export function shiftUntil(rrule: string, from: Date, to: Date, timeZone: string): string {
   const m = /(^|;)UNTIL=(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z?))?(?=;|$)/.exec(rrule);
@@ -344,9 +346,9 @@ export function shiftUntil(rrule: string, from: Date, to: Date, timeZone: string
     const day = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d) + days));
     until = `${day.getUTCFullYear()}${pad2(day.getUTCMonth() + 1)}${pad2(day.getUTCDate())}`;
   } else {
+    // The stamp's fields are its wall time: expansion compares it with floating occurrences.
     const stamp = new Date(`${y}-${mo}-${d}T${h}:${mi}:${se}Z`);
-    // A Z-suffixed UNTIL is a real instant; the store writes a floating one (truncateRruleBefore).
-    until = z ? `${ruleDateTime(shiftOnWall(stamp, from, to, zone))}Z` : ruleDateTime(new Date(stamp.getTime() + shiftMs));
+    until = `${ruleDateTime(new Date(stamp.getTime() + shiftMs))}${z}`;
   }
   return rrule.replace(whole, `${lead}UNTIL=${until}`);
 }

@@ -998,6 +998,17 @@ async function main() {
     assertSame([back.status, back.body], [400, { error: 'invalid', field: 'start' }], 'a day move on it is still refused');
   });
 
+  await check('this and the ones after to another day, from an occurrence moved on its own: the new series starts on the date entered, and the key says so', async () => {
+    seed();
+    const { id, occ } = await weeklySeries();
+    assert((await patch({ key: occ('2026-10-27'), scope: 'single', changes: { start: '2026-10-29T10:00', end: '2026-10-29T11:00' } })).status === 200, 'moved to Thursday alone');
+    const r = await patch({ key: occ('2026-10-27'), scope: 'following', changes: { start: '2026-10-30T10:00', end: '2026-10-30T11:00' } });
+    const fri = tables.nativeEvent.find((e) => e.id !== id)!;
+    assert(r.status === 200 && r.body.key === `famcal|${fri.id}#${iso(at('2026-10-30 10:00'))}`, `following: ${r.status} ${r.text}`);
+    assertSame([(await itemOf(r.body.key)).body.occurrence?.start, iso(fri.startsAt)], ['2026-10-30T10:00', iso(at('2026-10-30 10:00'))], 'Friday the 30th, and it reads');
+    assertSame((await itemOf(`famcal|${fri.id}#${iso(at('2026-11-06 10:00'))}`)).status, 200, 'and every Friday after');
+  });
+
   await check('edit reminder, a rule with fixed days: a day move for every one is refused; this one moves', async () => {
     seed();
     const series = seedSeries('bot-reminder', { calendarId: 'cal-tal', creatorUserId: TAL, kind: 'REMINDER', title: 'Bins', startsAt: at('2026-10-20 20:00'), rrule: 'FREQ=WEEKLY;BYDAY=TU' });

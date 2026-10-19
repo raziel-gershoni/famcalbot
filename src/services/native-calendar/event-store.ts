@@ -466,12 +466,29 @@ export function seriesTimesFor(
 }
 
 /**
+ * Where "this one and the ones after" starts its new series when the cut occurrence goes
+ * to `to` (it is now at `occurrenceStart`): on the date entered when that is another day,
+ * as a rule that follows its start moves its weekday with it (one with fixed days is
+ * refused a day move); a new time alone keeps the cut's own slot, so an occurrence moved
+ * on its own to another day and given a new time takes the rule's day back.
+ */
+export function followingTimesFor(
+  series: Pick<NativeEvent, 'rrule' | 'timeZone'>,
+  slot: Date,
+  occurrenceStart: Date,
+  to: { startsAt: Date; endsAt: Date; allDay: boolean }
+): { startsAt: Date; endsAt: Date } {
+  const tz = series.timeZone || TIMEZONE;
+  if (!fixesDays(series.rrule) && localDate(to.startsAt, tz) !== localDate(occurrenceStart, tz)) return { startsAt: to.startsAt, endsAt: to.endsAt };
+  return seriesTimesFor({ startsAt: slot, timeZone: series.timeZone }, occurrenceStart, to);
+}
+
+/**
  * The times an edit gives, as the ones the store writes. A 'following' edit, and an 'all'
- * one with occurrenceTimes, says where the occurrence instanceStartsAt goes; the new series
- * ('following') or the series ('all') moves as that occurrence did, from where the rule
- * puts it (seriesTimesFor): one moved on its own to another day and given a new time takes
- * the rule's day back. What the edit leaves out stays: a start alone keeps the
- * occurrence's length, an end alone keeps the start.
+ * one with occurrenceTimes, says where the occurrence instanceStartsAt goes: the series
+ * ('all') moves as that occurrence did (seriesTimesFor), and the new series ('following')
+ * starts where followingTimesFor puts it. What the edit leaves out stays: a start alone
+ * keeps the occurrence's length, an end alone keeps the start.
  */
 async function ownTimes(series: NativeEvent, input: UpdateNativeEventInput): Promise<UpdateNativeEventInput> {
   const slot = input.instanceStartsAt;
@@ -494,8 +511,8 @@ async function ownTimes(series: NativeEvent, input: UpdateNativeEventInput): Pro
     return { ...input, endsAt };
   }
   const length = (moved?.endsAt ?? new Date(slot.getTime() + (series.endsAt.getTime() - series.startsAt.getTime()))).getTime() - from.getTime();
-  const endsAt = input.endsAt ?? new Date(input.startsAt.getTime() + length);
-  return { ...input, ...seriesTimesFor(base, from, { startsAt: input.startsAt, endsAt, allDay }) };
+  const to = { startsAt: input.startsAt, endsAt: input.endsAt ?? new Date(input.startsAt.getTime() + length), allDay };
+  return { ...input, ...(input.scope === 'all' ? seriesTimesFor(base, from, to) : followingTimesFor(series, slot, from, to)) };
 }
 
 /**
