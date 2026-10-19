@@ -1544,6 +1544,38 @@ async function main() {
     assertSame(strips(), { moved: [86], changed: [85], reassigned: [], names: [] }, 'the Tuesday moved, the Wednesday is gone');
   });
 
+  await check('3b repeat, reminder, from the first occurrence: the series changes in place, re-armed; what the rule drops goes, its pings read "changed"', async () => {
+    seed();
+    const created = await post(reminderBody({ repeat: 'daily' }));
+    const id = idOf(created.body.key);
+    const day = (d: string) => `famcal|${id}#${iso(at(`${d} 17:30`))}`;
+    await patch({ key: day('2026-10-21'), scope: 'single', changes: { title: 'A Wednesday' } });
+    seedState(id, at('2026-10-20 17:30'), 87, { doneAt: at('2026-10-20 17:35') });
+    seedState(id, at('2026-10-21 17:30'), 88);
+    eventRow(id).armedAt = OLD;
+    stripped.length = 0;
+    const before = Date.now();
+    const r = await patch({ key: day('2026-10-20'), scope: 'following', changes: { repeat: 'weekly' } });
+    assertSame([r.body, tables.nativeEvent.length, eventRow(id).rrule, overrides(id).length], [{ status: 'ok', key: day('2026-10-20') }, 1, 'FREQ=WEEKLY', 0], 'in place, the Wednesday\'s override gone');
+    assert(eventRow(id).armedAt.getTime() >= before, 'armed from now');
+    assertSame([statesOf(id).map((s) => s.pingMessageId), strips()], [[87], { moved: [], changed: [88], reassigned: [], names: [] }], 'the done first one stays; the Wednesday\'s ping reads "changed"');
+  });
+
+  await check('3b stop repeating with a calendar or recipient change in the same save: the one-off takes them', async () => {
+    seed();
+    const { occ } = await weeklySeries();
+    const r = await patch({ key: occ('2026-11-03'), scope: 'following', changes: { repeat: 'none', calendarId: 'native:cal-tal-family' } });
+    assertSame([r.status, lastEvent().rrule, lastEvent().calendarId], [200, null, 'cal-tal-family'], 'an event, on the new calendar');
+    const reminder = await post(reminderBody({ repeat: 'daily' }));
+    const rid = idOf(reminder.body.key);
+    seedState(rid, at('2026-10-22 17:30'), 89, { lastPingedAt: at('2026-10-22 17:30') });
+    stripped.length = 0;
+    const p2 = await patch({ key: `famcal|${rid}#${iso(at('2026-10-22 17:30'))}`, scope: 'following', changes: { repeat: 'none', forPartner: true } });
+    const one = lastEvent();
+    assertSame([p2.status, one.rrule, one.forUserId, eventRow(rid).forUserId, statesOf(one.id).length], [200, null, NOA, null, 0], 'a reminder, for Noa; the earlier ones stay Tal\'s');
+    assertSame(strips(), { moved: [], changed: [], reassigned: [89], names: ['Noa'] }, 'its open ping says "now for Noa"');
+  });
+
   await check('3b stop repeating from a later occurrence: the earlier ones keep repeating up to it, the opened one is a one-off with its own values, the later ones go', async () => {
     seed();
     const { id, occ } = await weeklySeries({ calendarId: 'native:cal-tal-family' });
