@@ -549,18 +549,20 @@ export async function isFirstOccurrence(series: NativeEvent, cut: Date): Promise
 }
 
 /**
- * The rule of the part "this one and the ones after" starts at `cut`, now at `newStart`: the
- * series' own, or `newRule` with the old rule's end carried (endCarriedRule), with its UNTIL
- * moved as the cut moved and a COUNT cut to what is left after the slots before the cut (at
- * least 1, the cut being a slot).
+ * The rule of the part "this one and the ones after" starts at `cut`, now at `newStart`.
+ * With `newRule`, it is that rule with the old rule's end carried (endCarriedRule) and left
+ * where it is, however the cut moved: the series still ends on the day the item info names
+ * (3b spec §2.1). Without, it is the series' own, its UNTIL moved as the cut moved (so it
+ * keeps its last occurrence) and a COUNT cut to what is left after the slots before the cut
+ * (at least 1, the cut being a slot).
  */
 function tailRule(series: NativeEvent, cut: Date, newStart: Date, newRule?: string): string {
-  let base = series.rrule!;
   if (newRule !== undefined) {
-    base = endCarriedRule(newRule, series.rrule!, series)!;
-    assertStorableRule(base);
+    const carried = endCarriedRule(newRule, series.rrule!, series)!;
+    assertStorableRule(carried);
+    return carried;
   }
-  const rule = shiftUntil(base, cut, newStart, series.timeZone);
+  const rule = shiftUntil(series.rrule!, cut, newStart, series.timeZone);
   const count = /(^|;)COUNT=(\d+)/i.exec(rule);
   if (!count) return rule;
   return withCount(rule, Math.max(1, Number(count[2]) - slotsBefore({ ...series, rrule: series.rrule! }, cut)));

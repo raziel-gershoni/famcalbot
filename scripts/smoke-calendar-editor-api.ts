@@ -20,7 +20,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
-import { fromZonedTime } from 'date-fns-tz';
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -1369,7 +1369,8 @@ async function main() {
     for (const ok of [
       'FREQ=DAILY', 'FREQ=WEEKLY', 'FREQ=MONTHLY', 'FREQ=YEARLY', 'RRULE:FREQ=WEEKLY;BYDAY=TU', 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,TH;UNTIL=20261231',
       'FREQ=DAILY;COUNT=10', 'FREQ=DAILY;INTERVAL=1', 'FREQ=WEEKLY;UNTIL=20261019T075959', 'FREQ=DAILY;UNTIL=20261019T075959Z', 'FREQ=WEEKLY;WKST=MO;BYDAY=MO',
-      'FREQ=YEARLY;BYMONTH=10;BYMONTHDAY=20',
+      'FREQ=YEARLY;BYMONTH=10;BYMONTHDAY=20', 'FREQ=MONTHLY;BYDAY=+1TU', 'FREQ=MONTHLY;BYDAY=-1FR', 'FREQ=MONTHLY;BYMONTHDAY=-1', 'FREQ=MONTHLY;BYMONTHDAY=1,15',
+      'FREQ=YEARLY;BYMONTH=1,12',
     ]) {
       const e = await thrownBy(() => rec.assertStorableRule(ok));
       assert(e === null, `${ok} refused: ${e}`);
@@ -1378,6 +1379,9 @@ async function main() {
       'FREQ=WEEKLY;INTERVAL=-1', 'FREQ=DAILY;INTERVAL=0', 'FREQ=DAILY;INTERVAL=1.5', 'FREQ=DAILY;INTERVAL=', 'FREQ=DAILY;COUNT=0', 'FREQ=DAILY;COUNT=-3',
       'FREQ=HOURLY', 'FREQ=MONTHLY;BYSETPOS=1;BYDAY=MO', 'FREQ=DAILY;BYHOUR=8', 'FREQ=DAILY;TZID=Asia/Jerusalem', 'X-HEBREW=1', 'FREQ=WEEKLY;BYDAY=Tuesday',
       '', 'COUNT=3', 'DTSTART:20260101T000000Z\nRRULE:FREQ=DAILY',
+      // BY values parseString takes but no reader can expand (a hole that throws) or no date has.
+      'FREQ=WEEKLY;BYDAY=tu', 'FREQ=WEEKLY;BYDAY=TU,XX', 'FREQ=MONTHLY;BYMONTHDAY=0', 'FREQ=MONTHLY;BYMONTHDAY=99', 'FREQ=MONTHLY;BYMONTHDAY=1.5',
+      'FREQ=YEARLY;BYMONTH=13', 'FREQ=YEARLY;BYMONTH=0', 'FREQ=MONTHLY;BYDAY=+60TU',
     ]) {
       const e = await thrownBy(() => rec.assertStorableRule(bad));
       assert(e instanceof store.NativeRuleError, `${JSON.stringify(bad)}: ${e}`);
@@ -1508,6 +1512,21 @@ async function main() {
     assertSame([lastEvent().rrule, count.rrule], ['FREQ=WEEKLY;UNTIL=20261029', 'FREQ=DAILY;UNTIL=20261022T095959'], 'the COUNT is its last day; the head has only an UNTIL');
     const info = await itemOf(`famcal|${count.id}#${iso(at('2026-10-21 10:00'))}`);
     assertSame(info.body.series.rule, { choice: 'daily', until: '2026-10-21' }, 'the head reads as daily until its last day');
+    // A repeat change and a day move in one save: the carried end stays on its day (§2.1), it doesn't move with the cut.
+    const weekly = seedSeries('until-weekly', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Course', startsAt: at('2026-10-20 10:00'), rrule: 'FREQ=WEEKLY;UNTIL=20261124' });
+    assertSame((await itemOf(`famcal|${weekly.id}#${iso(at('2026-10-20 10:00'))}`)).body.series.rule, { choice: 'weekly', until: '2026-11-24' }, 'until 24 Nov');
+    const moved = await patch({ key: `famcal|${weekly.id}#${iso(at('2026-10-20 10:00'))}`, scope: 'following', changes: { repeat: 'daily', start: '2026-10-22T10:00', end: '2026-10-22T11:00' } });
+    assert(moved.status === 200, `${moved.status} ${moved.text}`);
+    assertSame([eventRow(weekly.id).rrule, iso(eventRow(weekly.id).startsAt)], ['FREQ=DAILY;UNTIL=20261124', iso(at('2026-10-22 10:00'))], 'from the first: daily from the 22nd, still until the 24th');
+    assertSame((await itemOf(`famcal|${weekly.id}#${iso(at('2026-10-22 10:00'))}`)).body.series.rule, { choice: 'daily', until: '2026-11-24' }, 'reads until 24 Nov');
+    const six = seedSeries('count-weekly-6', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Course', startsAt: at('2026-10-20 10:00'), rrule: 'FREQ=WEEKLY;COUNT=6' });
+    const sixMoved = await patch({ key: `famcal|${six.id}#${iso(at('2026-10-27 10:00'))}`, scope: 'following', changes: { repeat: 'daily', start: '2026-10-29T10:00', end: '2026-10-29T11:00' } });
+    assert(sixMoved.status === 200, `${sixMoved.status} ${sixMoved.text}`);
+    assertSame([lastEvent().rrule, iso(lastEvent().startsAt)], ['FREQ=DAILY;UNTIL=20261124', iso(at('2026-10-29 10:00'))], 'a COUNT\'s last day, from a later one, not moved');
+    const rem = seedSeries('until-weekly-reminder', { calendarId: 'cal-tal', creatorUserId: TAL, kind: 'REMINDER', title: 'Pills', startsAt: at('2026-10-20 17:30'), rrule: 'FREQ=WEEKLY;UNTIL=20261124' });
+    const remMoved = await patch({ key: `famcal|${rem.id}#${iso(at('2026-10-27 17:30'))}`, scope: 'following', changes: { repeat: 'daily', start: '2026-10-29T17:30' } });
+    assert(remMoved.status === 200, `${remMoved.status} ${remMoved.text}`);
+    assertSame([lastEvent().rrule, iso(lastEvent().startsAt)], ['FREQ=DAILY;UNTIL=20261124', iso(at('2026-10-29 17:30'))], 'a reminder\'s too');
   });
 
   await check('3b repeat, reminder: from a later occurrence the new rule re-arms the new series; overrides and state at keys it does not yield go, their pings read "changed"', async () => {
@@ -1619,6 +1638,25 @@ async function main() {
     assertSame(strips(), { moved: [91], changed: [92], reassigned: [], names: [] }, 'its ping reads "moved"');
   });
 
+  await check('3b stop repeating, reminder: a moved one-off is armed from now (moved into the past beyond the grace, it stays silent); an unmoved one keeps the series\' armedAt', async () => {
+    seed();
+    const created = await post(reminderBody({ repeat: 'daily' }));
+    const id = idOf(created.body.key);
+    eventRow(id).armedAt = OLD;
+    const past = formatInTimeZone(new Date(Date.now() - 30 * 60_000), IL, "yyyy-MM-dd'T'HH:mm");
+    const before = Date.now();
+    const m = await patch({ key: `famcal|${id}#${iso(at('2026-10-22 17:30'))}`, scope: 'following', changes: { repeat: 'none', start: past } });
+    const one = lastEvent();
+    assertSame([m.status, one.rrule, iso(one.startsAt)], [200, null, iso(at(past.replace('T', ' ')))], 'a one-off 30 minutes ago');
+    assert(one.armedAt.getTime() >= before && one.armedAt.getTime() > one.startsAt.getTime(), `armed from now, after its time: ${iso(one.armedAt)}`);
+    seed();
+    const again = await post(reminderBody({ repeat: 'daily' }));
+    const id2 = idOf(again.body.key);
+    eventRow(id2).armedAt = OLD;
+    const u = await patch({ key: `famcal|${id2}#${iso(at('2026-10-22 17:30'))}`, scope: 'following', changes: { repeat: 'none' } });
+    assertSame([u.status, lastEvent().rrule, iso(lastEvent().armedAt)], [200, null, iso(OLD)], 'unmoved: the series\' armedAt stays');
+  });
+
   await check('3b stop repeating from the first occurrence: the series row is the one-off (no rule, no skips, no rows); its state is re-keyed after the others go, with no collision', async () => {
     seed();
     const created = await post(reminderBody({ repeat: 'daily', start: '2026-10-20T08:00' }));
@@ -1675,6 +1713,22 @@ async function main() {
     await del({ key: second.occ('2026-10-20'), scope: 'single' });
     await del({ key: second.occ('2026-10-27'), scope: 'following' });
     assert(second.row.isDeleted === true, 'the first visible one counts');
+    // An overridden first occurrence deleted on its own is a CANCELLED row, not an exdate: it counts as gone too.
+    const cancelledFirst = async () => {
+      seed();
+      const s = await weeklySeries();
+      await patch({ key: s.occ('2026-10-20'), scope: 'single', changes: { title: 'Only this' } });
+      await del({ key: s.occ('2026-10-20'), scope: 'single' });
+      assertSame([overrides(s.id).map((o) => [iso(o.originalStartsAt), o.status]), s.row.exdates.length], [[[iso(at('2026-10-20 10:00')), 'CANCELLED']], 0], 'a CANCELLED row, no exdate');
+      assertSame((await itemOf(s.occ('2026-10-27'))).body.series.first, true, 'the second reads as the first');
+      return s;
+    };
+    const cancelled = await cancelledFirst();
+    await del({ key: cancelled.occ('2026-10-27'), scope: 'following' });
+    assert(cancelled.row.isDeleted === true, 'a CANCELLED first one counts: the whole series goes');
+    const edited = await cancelledFirst();
+    const inPlace = await patch({ key: edited.occ('2026-10-27'), scope: 'following', changes: { title: 'Dentist visit' } });
+    assertSame([inPlace.body, tables.nativeEvent.length, edited.row.title, edited.row.rrule], [{ status: 'ok', key: edited.occ('2026-10-27') }, 1, 'Dentist visit', 'FREQ=WEEKLY'], 'an edit from there changes the series in place');
     seed();
     const third = await weeklySeries();
     await del({ key: third.occ('2026-11-03'), scope: 'following' });
@@ -1860,6 +1914,9 @@ async function main() {
     const base = { calendarCuid: 'cal-tal', creatorUserId: TAL, title: 'x', startsAt: at('2026-10-20 10:00'), endsAt: at('2026-10-20 11:00'), timeZone: IL };
     const e1 = await thrownBy(() => store.createNativeEvent({ ...base, rrule: 'FREQ=WEEKLY;INTERVAL=-1' }));
     assert(e1 instanceof store.NativeRuleError && tables.nativeEvent.length === 0, `create: ${e1}`);
+    // The bot's voice create joins the LLM's days unchecked: a lowercase day must not be stored.
+    const eDay = await thrownBy(() => store.createNativeEvent({ ...base, rrule: 'RRULE:FREQ=WEEKLY;BYDAY=tu' }));
+    assert(eDay instanceof store.NativeRuleError && tables.nativeEvent.length === 0, `create, BYDAY=tu: ${eDay}`);
     const one = await post(eventBody());
     const e2 = await thrownBy(() => store.updateNativeEvent({ seriesCuid: idOf(one.body.key), scope: 'single', actingUserId: TAL, rrule: 'FREQ=DAILY;COUNT=0' }));
     assert(e2 instanceof store.NativeRuleError && eventRow(idOf(one.body.key)).rrule === null, `update: ${e2}`);

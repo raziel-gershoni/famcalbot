@@ -408,8 +408,9 @@ const STORABLE_FREQS: readonly number[] = [RRule.DAILY, RRule.WEEKLY, RRule.MONT
  * Throw NativeRuleError unless `rule` (bare, or with an RRULE: prefix) is one every reader
  * can expand: it parses, its parts are within freq, interval, byweekday, bymonthday,
  * bymonth, until, count and wkst, its FREQ is daily to yearly, and INTERVAL and COUNT,
- * when present, are whole numbers of at least 1. Checked on the parsed options, so a
- * prefix or the order of the parts doesn't matter.
+ * when present, are whole numbers of at least 1, each BYDAY is a weekday (with an ordinal of
+ * ±1..53 or none), each BYMONTHDAY ±1..31 and each BYMONTH 1..12. Checked on the parsed
+ * options, so a prefix or the order of the parts doesn't matter.
  */
 export function assertStorableRule(rule: string): void {
   let opts: Record<string, unknown>;
@@ -425,6 +426,24 @@ export function assertStorableRule(rule: string): void {
     if (part in opts && !(Number.isInteger(opts[part]) && (opts[part] as number) >= 1)) {
       throw new NativeRuleError(`Repeat rule ${part} must be a whole number of at least 1`);
     }
+  }
+  // parseString takes a BY value it can't read (BYDAY=tu, BYMONTHDAY=0) and leaves a hole or
+  // a value no date has, which throws on every expansion or yields nothing, so each is checked.
+  const listOf = (v: unknown): unknown[] => (Array.isArray(v) ? v : [v]);
+  const whole = (v: unknown, ok: (n: number) => boolean) => typeof v === 'number' && Number.isInteger(v) && ok(v);
+  const weekday = (v: unknown) => {
+    if (whole(v, (n) => n >= 0 && n <= 6)) return true;
+    if (!v || typeof v !== 'object') return false;
+    const { weekday: day, n } = v as { weekday?: unknown; n?: unknown };
+    return whole(day, (d) => d >= 0 && d <= 6) && (n === undefined || whole(n, (k) => k !== 0 && Math.abs(k) <= 53));
+  };
+  const valid: Record<string, (v: unknown) => boolean> = {
+    byweekday: weekday,
+    bymonthday: (v) => whole(v, (n) => n !== 0 && Math.abs(n) <= 31),
+    bymonth: (v) => whole(v, (n) => n >= 1 && n <= 12),
+  };
+  for (const [part, ok] of Object.entries(valid)) {
+    if (part in opts && !listOf(opts[part]).every(ok)) throw new NativeRuleError(`Repeat rule ${part} has a value no date has`);
   }
 }
 
