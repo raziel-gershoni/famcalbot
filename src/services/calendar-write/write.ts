@@ -4,9 +4,11 @@
 // calendar, forUserId, armedAt and the due gate are the bot's. Validation of the body is
 // validate.ts; what this file adds is the wall times in the user's zone, the diff against
 // the item as it stands (only what changed is written, so a one-field edit pins nothing
-// into an override), the scope arithmetic the store leaves to its caller, and the caches.
+// into an override), the scope arithmetic the store leaves to its caller, the caches, and
+// the analytics of a write that took.
 //
-// No title reaches a log or an error context: a failure is reported by its class and code.
+// No title reaches a log, an error context or analytics: a failure is reported by its
+// class and code.
 
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import type { NativeCalendar } from '@prisma/client';
@@ -280,6 +282,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
       await stripMovedPings(result.clearedPings, original, { title: text.title, startTime: startsAt, endTime: endsAt, allDay }, user);
     }
     await clearCaches(user, item.calendar, series.forUserId);
+    trackActivityAsync(user.id, 'calendar_item_edited', { kind: reminder ? 'reminder' : 'event', scope, source: 'app' });
     return { status: 'ok', key };
   } catch (err) {
     const refused = refusal(err);
@@ -292,14 +295,16 @@ export async function deleteItem(user: UserConfig, cmd: DeleteCommand): Promise<
   const item = await loadItem(user, cmd.key);
   if (item.status !== 'ok') return { status: item.status };
   if (!item.canDelete) return NOT_ALLOWED;
+  const scope = effectiveScope(item, cmd.scope);
   try {
     await deleteNativeEvent({
       seriesCuid: item.series.id,
       instanceStartsAt: item.series.rrule ? cmd.key.slot : undefined,
-      scope: effectiveScope(item, cmd.scope),
+      scope,
       actingUserId: user.id,
     });
     await clearCaches(user, item.calendar, item.series.forUserId);
+    trackActivityAsync(user.id, 'calendar_item_deleted', { kind: item.series.kind === 'REMINDER' ? 'reminder' : 'event', scope, source: 'app' });
     return { status: 'ok' };
   } catch (err) {
     const refused = refusal(err);

@@ -43,6 +43,9 @@ export type ActivityAction =
   | 'native_reminder_done'
   | 'native_reminder_snoozed'
   | 'native_reminder_undone'
+  // The calendar home's editor (metadata: kind, scope, source 'app'); its creates are voice_event_created
+  | 'calendar_item_edited'
+  | 'calendar_item_deleted'
   // Settings & config
   | 'settings_changed'
   | 'calendar_connected'

@@ -1194,6 +1194,36 @@ async function main() {
 
   // ================= DST =================
 
+  await check('analytics: an edit and a delete are tracked after the write with the kind, the scope applied and source app, nothing more; a refused, gone, invalid or no-op write tracks nothing', async () => {
+    seed();
+    const { occ } = await weeklySeries({ title: SECRET_TITLE });
+    const reminder = await post(reminderBody({ title: SECRET_TITLE }));
+    const oneOff = await post(eventBody({ title: SECRET_TITLE }));
+    tracked.length = 0;
+    await patch({ key: occ('2026-10-27'), scope: 'following', changes: { title: `${SECRET_TITLE} 2` } });
+    await patch({ key: reminder.body.key, scope: 'all', changes: { start: '2026-10-20T18:00' } });
+    await patch({ key: oneOff.body.key, scope: 'all', changes: { location: 'Clinic' } });
+    await del({ key: occ('2026-10-20'), scope: 'single' });
+    await del({ key: reminder.body.key, scope: 'following' });
+    assertSame(tracked.map((t) => [t.userId, t.action, t.meta]), [
+      [TAL, 'calendar_item_edited', { kind: 'event', scope: 'following', source: 'app' }],
+      [TAL, 'calendar_item_edited', { kind: 'reminder', scope: 'single', source: 'app' }],
+      [TAL, 'calendar_item_edited', { kind: 'event', scope: 'single', source: 'app' }],
+      [TAL, 'calendar_item_deleted', { kind: 'event', scope: 'single', source: 'app' }],
+      [TAL, 'calendar_item_deleted', { kind: 'reminder', scope: 'single', source: 'app' }],
+    ], 'one each, a one-off\'s scope being single');
+    assert(!show(tracked).includes(SECRET_TITLE), 'a title reached analytics');
+    tracked.length = 0;
+    const onViewer = seedSeries('on-viewer', { calendarId: 'cal-noa-view', creatorUserId: NOA, title: 'Viewed', startsAt: at('2026-10-21 12:00') });
+    await patch({ key: `famcal|${onViewer.id}`, scope: 'single', changes: { title: 'x' } });
+    await del({ key: `famcal|${onViewer.id}`, scope: 'single' });
+    await patch({ key: oneOff.body.key, scope: 'single', changes: { location: 'Clinic' } });
+    const gone = await patch({ key: occ('2026-11-03'), scope: 'single', changes: { title: 'x' } });
+    const invalid = await patch({ key: oneOff.body.key, scope: 'single', changes: { start: '2026-10-20T12:00', end: '2026-10-20T11:00' } });
+    assertSame([gone.status, invalid.status], [409, 400], 'cut off by the split; ends before it starts');
+    assertSame(tracked, [], 'refused (403), a no-op, a gone occurrence (409) and an invalid body track nothing');
+  });
+
   await check('Asia/Jerusalem across the spring change: a weekly 10:00 stays 10:00 on the wall; edits are read on the wall', async () => {
     seed();
     const created = await post(eventBody({ repeat: 'weekly', start: '2026-03-20T10:00', end: '2026-03-20T11:00' }));
