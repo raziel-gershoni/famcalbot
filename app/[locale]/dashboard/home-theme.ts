@@ -320,11 +320,6 @@ html:has(.ch-home[data-theme='dark']) {
 .ch-day-holiday.is-chag {
   color: var(--ch-accent);
 }
-.ch-day-head .ch-day-holiday::before,
-.ch-mp-day .ch-day-holiday::before {
-  content: '\\00b7';
-  margin-inline-end: 4px;
-}
 @keyframes ch-sheet-in {
   from { transform: translateY(24px); opacity: 0; }
   to { transform: none; opacity: 1; }

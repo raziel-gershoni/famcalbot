@@ -45,7 +45,7 @@ type Mod = {
 const { holidaysInRange, getHolidaysForDate, holidayNameKey } = require('../src/services/hebrew-holidays') as Mod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { HebrewCalendar, flags } = require('@hebcal/core') as {
-  HebrewCalendar: { calendar(options: object): HebcalEvent[] };
+  HebrewCalendar: { calendar: (options: object) => HebcalEvent[] };
   flags: Record<string, number>;
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -173,7 +173,7 @@ async function main() {
     assertEqual(ru('2026-09-21'), ['Йом-Кипур'], 'yom kippur');
     assertEqual(ru('2026-09-28'), ['Суккот III (холь а-моэд)'], 'sukkot chol hamoed');
     assertEqual(ru('2026-10-02'), ['Хошана раба'], 'hoshana raba');
-    assertEqual(ru('2026-12-11'), ['Ханука: 8 Свечей', 'Рош ходеш Тевет'], 'hanukkah and rosh chodesh');
+    assertEqual(ru('2026-12-11'), ['Ханука: 8-я свеча', 'Рош ходеш Тевет'], 'hanukkah and rosh chodesh');
     assertEqual(ru('2026-12-12'), ['Ханука: 8-й день'], 'hanukkah 8th day');
     assertEqual(ru('2027-04-23'), ['Песах II (холь а-моэд)'], 'pesach chol hamoed');
     assertEqual(ru('2027-03-09'), ['Рош ходеш Адар II'], 'rosh chodesh adar II');
@@ -181,6 +181,14 @@ async function main() {
     assertEqual(ru('2027-08-12'), ['Тиша бе-Ав'], "tish'a b'av");
     assertEqual(on('2027-04-23', 'ru')[0].brief, 'Песах II (холь а-моэд)', 'brief mirrors the title');
     assertEqual(on('2026-09-28', 'he').map(h => h.title), ['סוכות ג׳ (חוה״מ)'], 'he chol hamoed letter');
+  });
+
+  await check('the eight Hanukkah nights read in Russian with a lower-case noun, not hebcal\'s "1 Свеча" / "5 Свечей"', () => {
+    const nights = holidaysInRange('2026-12-04', '2026-12-11', 'ru');
+    const titles = Object.values(nights).flat().filter(h => h.title.startsWith('Ханука')).map(h => [h.title, h.brief]);
+    assertEqual(titles.map(t => t[0]), [1, 2, 3, 4, 5, 6, 7, 8].map(n => `Ханука: ${n}-я свеча`), 'titles');
+    assertEqual(titles.map(t => t[1]), titles.map(t => t[0]), 'briefs mirror the titles');
+    assert(!titles.some(t => /Свеч/.test(t[0])), 'no capitalised noun');
   });
 
   await check('no Russian title keeps a Latin word of hebcal (roman numerals aside)', () => {
@@ -244,7 +252,7 @@ async function main() {
   await check('the route takes up to 100 days and answers 400 invalid with the field for anything else', async () => {
     assertEqual((await ask('?from=2026-09-01&to=2026-12-09&lang=en')).status, 200, '100 days');
     const long = await ask('?from=2026-09-01&to=2026-12-10&lang=en');
-    assertEqual([long.status, long.body, long.cache === 'public, max-age=86400, s-maxage=86400'], [400, { error: 'invalid', field: 'to' }, false], '101 days');
+    assertEqual([long.status, long.body, long.cache], [400, { error: 'invalid', field: 'to' }, 'no-store'], '101 days');
     const bad: [string, string][] = [
       ['', 'from'], ['?to=2026-09-12', 'from'], ['?from=2026-09-12', 'to'],
       ['?from=2026-02-30&to=2026-03-02', 'from'], ['?from=2026-1-05&to=2026-03-02', 'from'],
@@ -253,8 +261,29 @@ async function main() {
     ];
     for (const [query, field] of bad) {
       const res = await ask(query);
-      assertEqual([res.status, res.body], [400, { error: 'invalid', field }], `query "${query}"`);
+      assertEqual([res.status, res.body, res.cache], [400, { error: 'invalid', field }, 'no-store'], `query "${query}"`);
     }
+  });
+
+  await check('a failure inside hebcal answers 500 { error: "failed" } uncached and is captured (logged to the console and Sentry)', async () => {
+    const calendar = HebrewCalendar.calendar;
+    const consoleError = console.error;
+    const logged: unknown[][] = [];
+    HebrewCalendar.calendar = () => { throw new Error('hebcal exploded'); };
+    console.error = (...args: unknown[]) => { logged.push(args); };
+    let res: Awaited<ReturnType<typeof ask>>;
+    try {
+      res = await ask('?from=2026-09-12&to=2026-09-12&lang=en');
+    } finally {
+      HebrewCalendar.calendar = calendar;
+      console.error = consoleError;
+    }
+    assertEqual([res.status, res.body, res.cache], [500, { error: 'failed' }, 'no-store'], '500');
+    assertEqual(logged.length, 1, 'one capture');
+    assertEqual(logged[0][0], '[calendar-holidays]', 'the capture context');
+    assert(logged[0][1] instanceof Error && logged[0][1].message === 'hebcal exploded', 'the error itself is captured');
+    // Restored: the route answers again.
+    assertEqual((await ask('?from=2026-09-12&to=2026-09-12&lang=en')).status, 200, 'back to 200');
   });
 
   await check('a range returns only days with holidays, inside the range, with sorted keys', () => {

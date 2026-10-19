@@ -5391,6 +5391,8 @@ async function main() {
     assert(/\.ch-day-holiday \{\s*color: var\(--ch-muted\);\s*\}/.test(HOME_THEME_CSS) && /\.ch-day-holiday\.is-chag \{\s*color: var\(--ch-accent\);\s*\}/.test(HOME_THEME_CSS), 'the colours');
     const holidayCss = [...css.matchAll(/[^{}]*(?:ch-day-holiday|has-chag)[^{}]*\{[^}]*\}/g)].map((m) => m[0]).join('\n');
     assert(holidayCss.length > 0 && !/(?:margin|padding|border)-(?:left|right)|(?:^|[\s;{])(?:left|right)\s*:|text-align:\s*(?:left|right)|(?:^|[\s;{])(?:width|height)\s*:/.test(holidayCss), `physical properties in ${holidayCss}`);
+    // The holiday span is a flex item of a wrapping header: a dot drawn inside it would start the wrapped line, so the 8px gap alone separates it.
+    assert(!/ch-day-holiday[^{]*::(?:before|after)/.test(css), 'no separator pseudo-element on the holiday span (a wrapped line would start with a stray dot)');
     assert(!/:hover/.test(holidayCss) && [...holidayCss.matchAll(/font-size:\s*(\d+)px/g)].every((m) => Number(m[1]) >= 11), 'no hover, nothing under 11 px');
   });
 
