@@ -111,7 +111,7 @@ export function useTelegramBackButton(active: boolean, onBack: () => void): void
 
 /**
  * Lets the BackButton go at once, outside React: offClick(the live handler, if any), then
- * hide(). For a page reload (spec §5: 404 not_enabled, a chunk-load error), which runs no
+ * hide(). For a page reload (spec §5: a chunk-load error), which runs no
  * React cleanup while the client keeps the button across it (§7.6): otherwise the page
  * after the reload would show a back button that does nothing.
  */
@@ -150,8 +150,8 @@ export function useTelegramVerticalSwipes(locked: boolean): void {
 }
 
 /**
- * Lets Telegram's controls go at once, outside React, before a page reload (spec §5: 404
- * not_enabled, a chunk-load error): releaseTelegramBackButton(), then
+ * Lets Telegram's controls go at once, outside React, before a page reload (spec §5: a
+ * chunk-load error): releaseTelegramBackButton(), then
  * enableVerticalSwipes(). A reload runs no React cleanup, and the client can keep both
  * across it, so the page after it could otherwise show a back button that does nothing,
  * or keep swipes off where nothing locks them.

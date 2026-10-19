@@ -210,7 +210,6 @@ function fakeHost(o: HostOptions = {}) {
       state.log.push(`firstLoadFailed ${kind}`);
     },
     onNoCredential: () => state.log.push('noCredential'),
-    onNotEnabled: () => state.log.push('notEnabled'),
     setTimer: (run, ms) => {
       const id = ++seq;
       timers.push({ id, at: now + ms, run });

@@ -12,8 +12,7 @@
 //   foreground (visibilitychange, Telegram's activated) refetches them; ⋯ → Refresh
 //   sends fresh=1; a stale Google answer asks once more after about 3 s; a Google error
 //   retries once after about 5 s;
-// - the answers: 404 not_enabled reloads once (PageGate then shows today's dashboard);
-//   401, 403 and any other 404 show PageGate's NoCredentialCard; 429 is busy and a 500
+// - the answers: 401, 403 and any 404 show PageGate's NoCredentialCard; 429 is busy and a 500
 //   is a retry, as a state row once the facts are pinned, else as a card;
 // - the shell: the theme (D4's useTelegramTheme: Telegram's bg_color for the header and
 //   background, data-theme for the tokens), the direction, document-level scroll and
@@ -42,7 +41,7 @@
 //   the ⋯ menu is open, or while the Month is in picked. A tap closes the sheet on top,
 //   else the item sheet, else goes back to browse (Android's back gesture too). Vertical
 //   swipes are off while the Month shows browse, its loading included (Ruling 9), and on
-//   everywhere else. Before a reload (not_enabled, a chunk-load error) both are let go,
+//   everywhere else. Before a reload (a chunk-load error) both are let go,
 //   since a reload runs no cleanup and the client keeps them;
 // - a return to the foreground after the day has ended in tz (iOS suspends the midnight
 //   timer with the app) drops the store at once, rather than asking for yesterday's
@@ -65,7 +64,7 @@ import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { buildAgenda, type AgendaRow } from '@/src/lib/calendar-view/agenda';
 import { monthSpan, monthWindow, type MonthKey } from '@/src/lib/calendar-view/grid';
-import { deviceTimeZone, homeSources, isPastDay, msUntilAheadCheck, msUntilDayCheck, reloadOnce, zoneDiffers } from '@/src/lib/calendar-view/home-client';
+import { deviceTimeZone, homeSources, isPastDay, msUntilAheadCheck, msUntilDayCheck, zoneDiffers } from '@/src/lib/calendar-view/home-client';
 import { createHomeLoader, type HomeLoader } from '@/src/lib/calendar-view/home-loader';
 import type { CalendarHomeProps } from '@/src/lib/calendar-view/home-props';
 import { readHomeTab, readMonthLayout, writeHomeTab, writeMonthLayout, type HomeTab } from '@/src/lib/calendar-view/home-storage';
@@ -73,7 +72,7 @@ import { backToBrowse, clampMonthUi, dayRows, initialMonthUi, monthModels, wante
 import { dayStatus, emptyStore, homeNotices, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
 import type { SourceName } from '@/src/lib/calendar-view/types';
 import { DEFAULT_BOT_USERNAME, DEFAULT_WA_NUMBER, type GateLinks } from '@/src/lib/gate-links';
-import { isInTelegram, onTelegramEvent, releaseTelegramControls, useTelegramBackButton, useTelegramTheme, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
+import { isInTelegram, onTelegramEvent, useTelegramBackButton, useTelegramTheme, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
 import { NoCredentialCard } from '../PageGate';
 import { AGENDA_CSS, AgendaView } from './AgendaView';
 import { PlaceholderRows } from './DayList';
@@ -88,15 +87,12 @@ import { SendSheet } from './SendSheet';
 
 /**
  * The Month's views, in a chunk of their own: PageGate preloads this file's chunk on
- * every /dashboard open (the users the switch doesn't cover included), so the Month's
+ * every /dashboard open (every user), so the Month's
  * three views come only when the home asks for them. A chunk that fails to load reloads
  * the page once (HomeErrorBoundary).
  */
 const loadMonthView = () => import('./MonthView');
 const MonthView = lazy(() => loadMonthView().then((m) => ({ default: m.MonthView })));
-
-/** The reload-once guard for 404 not_enabled (the switch was turned back). */
-export const NOT_ENABLED_RELOAD_KEY = 'famcal:calendarHome:notEnabledReload:v1';
 
 /**
  * The no-credential card's links. The server's env isn't in the browser, so these are
@@ -129,8 +125,8 @@ const subscribeNothing = () => () => {};
 const assumeTelegram = () => true;
 const noZone = () => null;
 
-/** What stands in for the Agenda: busy or a retry before any answer, or the switch-off card. */
-type Card = 'busy' | 'error' | 'disabled';
+/** What stands in for the Agenda: busy or a retry before any answer. */
+type Card = 'busy' | 'error';
 
 /** The facts the Month last drew with, and the unavailable calendars then: kept through a store drop. */
 type HeldFacts = { facts: StoreFacts; unavailable: number };
@@ -248,7 +244,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   /** The row whose item sheet is open (AgendaView or the Month's picked renders it; the BackButton here closes it). */
   const [selected, setSelected] = useState<AgendaRow | null>(null);
   const [firstLoad, setFirstLoad] = useState<'busy' | 'error' | null>(null);
-  const [blocked, setBlocked] = useState<'noCredential' | 'disabled' | null>(null);
+  const [blocked, setBlocked] = useState<'noCredential' | null>(null);
   const inTelegram = useSyncExternalStore(subscribeNothing, isInTelegram, assumeTelegram);
   const deviceZone = useSyncExternalStore(subscribeNothing, deps.deviceTimeZone, noZone);
   /** The tab this session last showed (sessionStorage; Ruling 2). */
@@ -266,7 +262,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
 
   const facts = store.facts;
   const notices = homeNotices(store);
-  const card: Card | null = blocked === 'disabled' ? 'disabled' : !facts && firstLoad ? firstLoad : null;
+  const card: Card | null = !facts && firstLoad ? firstLoad : null;
   const setupNeeded = calendarSource === 'GOOGLE' && (needsOAuth || needsCalendars);
   // Ruling 1: the tab bar shows only while a panel can show. Otherwise the home is D's:
   // the Agenda (or the card), with no tab bar; the remembered tab is left as it is.
@@ -316,12 +312,6 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
         setBlocked('noCredential');
         setSheet(null);
         setSelected(null);
-      },
-      onNotEnabled: () => {
-        // PageGate renders today's dashboard after the reload, which keeps Telegram's
-        // BackButton and swipe setting: let both go first. If the guard says it already
-        // reloaded, the card's Retry reloads by hand.
-        if (!reloadOnce(NOT_ENABLED_RELOAD_KEY, Date.now(), releaseTelegramControls)) setBlocked('disabled');
       },
       setTimer: deps.setTimer,
       // The Month's windows while the Month is on screen (Ruling 7), most wanted first.
@@ -434,14 +424,6 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const retryMonth = useCallback((month: MonthKey, source: SourceName) => loaderRef.current?.retryWindow(monthWindow(month), source), []);
   const chooseCalendars = useCallback(() => router.push(`/${locale}/select-calendars?user_id=${userId}`), [router, locale, userId]);
   const retryCard = useCallback(() => {
-    if (blockedRef.current === 'disabled') {
-      try {
-        window.location.reload();
-      } catch {
-        // The card stays.
-      }
-      return;
-    }
     setFirstLoad(null);
   }, []);
 

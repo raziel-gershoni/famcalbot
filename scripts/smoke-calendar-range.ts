@@ -1,15 +1,13 @@
 // Smoke test for the calendar home's range route, GET /api/calendar/range (calendar home
 // spec §4), and the reader's entry point readRange (src/services/calendar-read/index.ts,
-// §2.2-§2.3). The route answers only users the rollout switch covers, works its facts
-// out on the server (timezone, today, week start, Hebrew dates), validates the window,
+// §2.2-§2.3). The route works its facts out on the server (timezone, today, week start, Hebrew dates), validates the window,
 // reads each applicable source, and answers the days with each source's status. The
 // JSON never carries the user row or a masked calendar's real name or id.
 //
 // The route, readRange, the DTO code, the carry-overs' masking (carryOverReadItems),
 // api-auth, telegram-auth, user-service, the timezone resolver and the locale rules run
 // for real. Faked at the boundaries: Prisma and Redis (in memory, every Prisma call
-// recorded), the rate limiter (records each key), the rollout switch (a variable, with
-// B1's rule), the reader's two halves readFamcal and readGoogle (recording fakes; their
+// recorded), the rate limiter (records each key), the reader's two halves readFamcal and readGoogle (recording fakes; their
 // own smokes cover them), the carry-over query fetchOpenReminderItems, error capture,
 // Next's after() (queued), and fetch (blocked and recorded; #24 answers or stalls
 // Nominatim and Open-Meteo for the timezone resolver). No network, no DB.
@@ -141,15 +139,11 @@ const rateChecks: string[] = [];
 let rateAllow = true;
 /** Every captureError / captureWarning: the context, the severity and the extras. */
 const captured: { ctx: string; severity: string; extra: Row | undefined; message: string }[] = [];
-/** The rollout switch, and every user the route asked it about. */
-let rollout: 'OFF' | 'ADMINS' | 'ALL' = 'ALL';
-let rolloutThrows = false;
-const rolloutAsked: Row[] = [];
 /** The reader halves' and the carry-over query's calls. */
 const famcalCalls: { user: Row; window: { from: Date; to: Date }; opts: Row }[] = [];
 const googleCalls: { user: Row; window: { from: Date; to: Date }; opts: Row }[] = [];
 const carryCalls: { userId: number; ctx: Row; cutoff: Date; summaryDay: string; tz: string; cap: number }[] = [];
-let famcalMode: 'ok' | 'error' | 'reject' = 'ok';
+let famcalMode: 'ok' | 'error' | 'reject' | 'broken' = 'ok';
 let googleMode: 'ok' | 'partialStale' | 'gone' | 'unsorted' | 'reject' = 'ok';
 let carryMode: 'ok' | 'throw' = 'ok';
 /** What readRange's caller handed after(). */
@@ -288,11 +282,9 @@ function googleItem(calendar: Row, id: string, title: string, start: string, end
 function seed() {
   for (const k of Object.keys(DB)) delete DB[k];
   redisStore.clear();
-  for (const list of [prismaCalls, rateChecks, captured, rolloutAsked, famcalCalls, googleCalls, carryCalls, afterQueue, fetched] as unknown[][]) list.length = 0;
+  for (const list of [prismaCalls, rateChecks, captured, famcalCalls, googleCalls, carryCalls, afterQueue, fetched] as unknown[][]) list.length = 0;
   clock = RealDate.parse('2026-10-16T06:00:00Z');
   rateAllow = true;
-  rollout = 'ALL';
-  rolloutThrows = false;
   famcalMode = 'ok';
   googleMode = 'ok';
   carryMode = 'ok';
@@ -353,18 +345,6 @@ function installStubs() {
     getRateLimitHeaders: () => ({}),
   });
 
-  // B1's rule, on a variable: ALL, or ADMINS and an admin.
-  stub('src/services/calendar-read/rollout.ts', {
-    getCalendarHomeRollout: async () => rollout,
-    isCalendarHomeOn: async (user: Row) => {
-      rolloutAsked.push(user);
-      if (rolloutThrows) throw new Error('rollout store exploded');
-      return rollout === 'ALL' || (rollout === 'ADMINS' && user.isAdmin === true);
-    },
-    setCalendarHomeRollout: async () => true,
-    isCalendarHomeRolloutValue: (v: unknown) => v === 'OFF' || v === 'ADMINS' || v === 'ALL',
-  });
-
   // readFamcal is faked; carryOverReadItems (the carry-overs' masking) is the real one.
   const famcalHalf = nodeRequire(path.join(ROOT, 'src/services/calendar-read/famcal.ts'));
   stub('src/services/calendar-read/famcal.ts', {
@@ -372,6 +352,8 @@ function installStubs() {
     readFamcal: async (user: Row, window: { from: Date; to: Date }, opts: Row) => {
       famcalCalls.push({ user, window, opts });
       if (famcalMode === 'reject') throw new Error('famcal half rejected');
+      // An answer the route cannot build its legend from: its own unexpected error (#17).
+      if (famcalMode === 'broken') return { read: { status: 'ok', ctx: { viewerId: user.id, partner: null }, calendars: null, partner: null }, items: [] };
       if (famcalMode === 'error') return { read: { status: 'error', cause: new Error('db down') }, items: [] };
       const tal = user.id === 9;
       return {
@@ -492,7 +474,7 @@ async function main() {
     const inQuery = await get('', { header: false, queryInitData: true });
     assert(none.status === 401 && inQuery.status === 401, `no header ${none.status}, query ${inQuery.status} ${inQuery.text}`);
     assert(none.res.headers.get('cache-control') === 'private, no-store', `401 cache-control: ${none.res.headers.get('cache-control')}`);
-    assert(famcalCalls.length + googleCalls.length + rolloutAsked.length + rateChecks.length === 0, 'a refused request read or counted');
+    assert(famcalCalls.length + googleCalls.length + rateChecks.length === 0, 'a refused request read or counted');
   });
 
   await check('#2 403 for a suspended user', async () => {
@@ -508,25 +490,15 @@ async function main() {
     const r = await get('');
     assert(r.status === 429, `status ${r.status} ${r.text}`);
     assert(r.res.headers.get('cache-control') === 'private, no-store', `cache-control: ${r.res.headers.get('cache-control')}`);
-    assert(famcalCalls.length === 0 && rolloutAsked.length === 0, 'read after a 429');
+    assert(famcalCalls.length === 0, 'read after a 429');
   });
 
-  await check('#4 404 not_enabled with the switch OFF, and for a non-admin under ADMINS; admins under ADMINS and everyone under ALL get 200', async () => {
+  await check('#4 everyone gets 200: an admin, a non-admin, no switch to ask', async () => {
     seed();
-    const got: Row = {};
-    rollout = 'OFF';
-    got.offAdmin = await get('', { tg: TG.tal });
-    rollout = 'ADMINS';
-    got.adminsUser = await get('', { tg: TG.gil });
-    got.adminsAdmin = await get('', { tg: TG.tal });
-    rollout = 'ALL';
-    got.allUser = await get('', { tg: TG.gil });
-    const statuses = Object.fromEntries(Object.entries(got).map(([k, v]) => [k, v.status]));
-    assertSame(statuses, { offAdmin: 404, adminsUser: 404, adminsAdmin: 200, allUser: 200 }, 'statuses');
-    assertSame(got.offAdmin.body, { error: 'not_enabled' }, 'OFF body');
-    assertSame(got.adminsUser.body, { error: 'not_enabled' }, 'ADMINS non-admin body');
-    assertSame(rolloutAsked.map((u) => [u.id, u.isAdmin]), [[9, true], [42, false], [9, true], [42, false]], 'the switch is asked with the DB row');
-    assertSame(famcalCalls.map((c) => c.user.id), [9, 42], 'only enabled requests read');
+    const tal = await get('', { tg: TG.tal });
+    const gil = await get('', { tg: TG.gil });
+    assertSame([tal.status, gil.status], [200, 200], 'statuses');
+    assertSame(famcalCalls.map((c) => c.user.id), [9, 42], 'both read');
   });
 
   await check('#5 400 for a bad window or source, before any read', async () => {
@@ -689,23 +661,21 @@ async function main() {
       await get('', { tg: TG.dana }),
       await get('from=bad&to=2026-10-20', { tg: TG.tal }),
     ];
-    rollout = 'OFF';
-    answers.push(await get('', { tg: TG.tal }));
     const forbidden = [PRIVATE_NAME, PRIVATE_ID, 'cal-noa-private', 'googleRefreshToken', TOKEN, PHONE, 'whatsappPhone', 'pairingId', PAIRING, String(TG.tal), String(TG.dana), 'telegramId'];
     const leaks = answers.flatMap((a, i) => forbidden.filter((f) => a.text.includes(f)).map((f) => `answer ${i}: ${f}`));
     assert(leaks.length === 0, leaks.join('; '));
     assert(answers[0].text.includes('Call the plumber') && answers[1].text.includes('Return the library books'), 'the fixtures were not in the answers');
     const cc = answers.map((a) => [a.status, a.res.headers.get('cache-control')]);
-    assertSame(cc, [[200, 'private, no-store'], [200, 'private, no-store'], [200, 'private, no-store'], [400, 'private, no-store'], [404, 'private, no-store']], 'cache-control');
+    assertSame(cc, [[200, 'private, no-store'], [200, 'private, no-store'], [200, 'private, no-store'], [400, 'private, no-store']], 'cache-control');
   });
 
   await check('#17 an unexpected error is a 500 with only the user id in the capture context; no capture anywhere names a title', async () => {
     seed();
-    rolloutThrows = true;
+    famcalMode = 'broken';
     const r = await get('', { tg: TG.tal });
     assertSame([r.status, r.body], [500, { error: 'internal_error' }], 'answer');
-    assertSame(captured.map((c) => [c.ctx, c.severity, c.extra]), [['calendar-range', 'error', { user_id: 9 }]], 'captured');
-    rolloutThrows = false;
+    // The broken answer also fails its carry-over masking (a warning); the route's own error follows.
+    assertSame(captured.map((c) => [c.ctx, c.severity, c.extra]), [['calendar-range-carryovers', 'warning', { user_id: 9 }], ['calendar-range', 'error', { user_id: 9 }]], 'captured');
     famcalMode = 'error';
     await get('', { tg: TG.tal });
     famcalMode = 'ok';

@@ -5,9 +5,8 @@
 //
 // - One GET /api/calendar/range per source. The init data goes in the header only
 //   (a GET has no body), never in the URL; in a browser the session cookie rides along.
-// - The answer is read into one of five outcomes: ok (a RangeResponse), notEnabled (404
-//   not_enabled: the switch was turned back), noCredential (401, 403, any other 404),
-//   busy (429, also when the limiter's Redis is down) and error (500, any other status, a
+// - The answer is read into one of four outcomes: ok (a RangeResponse), noCredential
+//   (401, 403, 404), busy (429, also when the limiter's Redis is down) and error (500, any other status, a
 //   body that isn't a RangeResponse, or no answer at all).
 // - A request that hasn't settled within its time limit (a network handover, or iOS
 //   suspending the webview mid-request) is aborted and reads as no answer, so it never
@@ -27,7 +26,6 @@ export interface RangeWindow {
 
 export type RangeOutcome =
   | { kind: 'ok'; response: RangeResponse }
-  | { kind: 'notEnabled' }
   | { kind: 'noCredential'; status: number }
   | { kind: 'busy' }
   | { kind: 'error'; status: number | null };
@@ -136,11 +134,7 @@ async function askRange(userId: number, source: SourceName, window: RangeWindow 
   }
   if (res.status === 429) return { kind: 'busy' };
   if (res.status === 401 || res.status === 403) return { kind: 'noCredential', status: res.status };
-  if (res.status === 404) {
-    const body = await bodyOf(res);
-    const notEnabled = !!body && typeof body === 'object' && (body as { error?: unknown }).error === 'not_enabled';
-    return notEnabled ? { kind: 'notEnabled' } : { kind: 'noCredential', status: 404 };
-  }
+  if (res.status === 404) return { kind: 'noCredential', status: 404 };
   return { kind: 'error', status: res.status };
 }
 

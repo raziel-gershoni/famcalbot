@@ -4,10 +4,8 @@
  *   ?user_id=<id>[&from=yyyy-MM-dd&to=yyyy-MM-dd][&sources=famcal|google|famcal,google][&fresh=1]
  *   X-Telegram-Init-Data: <initData>   (or the famcal_session cookie in a browser)
  *
- * Only for users the rollout switch covers; everyone else gets 404 not_enabled, and the
- * client then falls back to today's dashboard. The facts (timezone, today, week start,
- * Hebrew dates) are worked out here, never taken from the client, and so are the
- * calendars: the legend is the reader's. The answer is built field by field, so the
+ * The facts (timezone, today, week start, Hebrew dates) are worked out here, never taken
+ * from the client, and so are the calendars: the legend is the reader's. The answer is built field by field, so the
  * user row (Google token, phone, pairing) never reaches the JSON, and neither does a
  * masked calendar's real name or id.
  */
@@ -19,7 +17,6 @@ import { requestInitData } from '@/src/lib/request-init-data';
 import { captureError } from '@/src/lib/error-capture';
 import { resolveUserTimezone } from '@/src/lib/timezone';
 import { TIMEZONE } from '@/src/config/constants';
-import { isCalendarHomeOn } from '@/src/services/calendar-read/rollout';
 import { readRange, sourcesFor } from '@/src/services/calendar-read';
 import { carryOverReadItems } from '@/src/services/calendar-read/famcal';
 import { toCalendarDto, toCarryOverDto, toRangeDays } from '@/src/services/calendar-read/dto';
@@ -151,8 +148,6 @@ export async function GET(request: NextRequest) {
   const user = auth.user;
 
   try {
-    if (!(await isCalendarHomeOn(user))) return json({ error: 'not_enabled' }, 404);
-
     const now = new Date();
     // A slow lookup costs this answer the user's zone, never the answer: the fallback zone
     // with tzKnown false, so the week start and Hebrew dates follow the language (R15).

@@ -1,8 +1,7 @@
-// The calendar home's reload-once guard (spec §5): a failed chunk load, or the rollout
-// switch turned back (404 not_enabled), reloads the page once. A leaf with no imports, so
-// PageGate's boundary around the home's chunk (D7) can use it without pulling the home's
-// code into the chunk every page loads. Client components only; nothing here touches
-// window at import.
+// The calendar home's reload-once guard (spec §5): a failed chunk load reloads the page
+// once. A leaf with no imports, so PageGate's boundary around the home's chunk (D7) can
+// use it without pulling the home's code into the chunk every page loads. Client
+// components only; nothing here touches window at import.
 
 /** The chunk-load guard's sessionStorage key, shared by PageGate's boundary and the home's own. */
 export const CHUNK_RELOAD_KEY = 'famcal:calendarHome:chunkReload:v1';

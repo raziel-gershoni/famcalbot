@@ -29,8 +29,7 @@
 // - Every request has a time limit (about 15 s, on the host's timer): one that never
 //   settles reads as no answer, so it leaves the in-flight set (and frees its month slot)
 //   and the next foreground or Retry asks again instead of being deduped behind it forever.
-// - 404 not_enabled → the host reloads once; 401, 403, any other 404 → the host's
-//   no-credential card; 429 → busy, a 500 or no answer → error: a state row for the
+// - 401, 403, 404 → the host's no-credential card; 429 → busy, a 500 or no answer → error: a state row for the
 //   window once the facts are pinned, else the host's busy or retry card. A failure
 //   from before the last store drop changes nothing: the loader asks again anyway.
 
@@ -57,7 +56,7 @@ export interface LoaderHost {
   getStore(): CalendarStore;
   getWeeks(): number;
   dispatch(action: StoreAction): void;
-  /** The home shows a no-credential card or the switch-off card: nothing more is fetched. */
+  /** The home shows a no-credential card: nothing more is fetched. */
   isBlocked(): boolean;
   /** No answer yet and the first load failed: the host's busy or retry card is up. */
   firstLoadFailed(): boolean;
@@ -65,7 +64,6 @@ export interface LoaderHost {
   onAnswer(): void;
   onFirstLoadFailed(kind: 'busy' | 'error'): void;
   onNoCredential(): void;
-  onNotEnabled(): void;
   setTimer(run: () => void, ms: number): () => void;
   /** Month windows wanted now (on screen or next to it), most wanted first; absent or [] = none. */
   getMonths?(): readonly RangeWindow[];
@@ -153,9 +151,6 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
         }
         return;
       }
-      case 'notEnabled':
-        host.onNotEnabled();
-        return;
       case 'noCredential':
         host.onNoCredential();
         return;

@@ -38,8 +38,7 @@
 // elsewhere); RTL; "Show next week", the foreground refetch, ⋯ → Refresh with fresh=1,
 // the stale re-request and the Google error retry; midnight, also when the app comes
 // back after a night with its timers suspended, and with a device clock that runs ahead;
-// a range request that never settles timing out; 404 not_enabled reloading once, with
-// Telegram's BackButton let go first;
+// a range request that never settles timing out;
 // 401/403/404 on PageGate's card; the busy and retry cards; the send sheet's answers
 // (R5); the menu (R6); the banners (§7.2), with no Agenda under a Google setup banner;
 // Telegram's BackButton for the item, send and menu sheets; the shell's CSS; the error
@@ -61,8 +60,7 @@
 // client and never touched on a 7.0 one; picked and its BackButton, with the item sheet
 // over it closing first; the layout kept on the device, a restored picked opening on
 // today; the foreground and Refresh asking the Month's windows; a failed month's Retry;
-// midnight on the Month; no tab bar while a Google user sets up; not_enabled letting
-// both controls go; no clipping ancestor above the Month; the unavailable-calendars row
+// midnight on the Month; no tab bar while a Google user sets up; no clipping ancestor above the Month; the unavailable-calendars row
 // once above the Month; a tab switch from picked and back; Telegram's activated on the
 // Month; the item sheet keeping focus over picked.
 //
@@ -74,7 +72,7 @@
 //   TZ=Pacific/Kiritimati npx tsx scripts/smoke-calendar-home-render.ts
 
 // The views first: the import-rule checks walk what these load.
-import CalendarHome, { CalendarHomeContainer, HOME_TOP_CSS, NOT_ENABLED_RELOAD_KEY, type HomeDeps } from '../app/[locale]/dashboard/CalendarHome';
+import CalendarHome, { CalendarHomeContainer, HOME_TOP_CSS, type HomeDeps } from '../app/[locale]/dashboard/CalendarHome';
 import { AgendaView, AGENDA_CSS, type AgendaViewProps } from '../app/[locale]/dashboard/AgendaView';
 import { ItemSheet } from '../app/[locale]/dashboard/ItemSheet';
 import { SendSheet } from '../app/[locale]/dashboard/SendSheet';
@@ -1886,45 +1884,7 @@ async function main() {
     assert(delay > 30 * 60_000 && delay <= 31 * 60_000 && isPastDay(santiago + delay, 'America/Santiago', '2026-09-05'), `Santiago: ${delay} ms`);
   });
 
-  await check('#28 404 not_enabled reloads once (PageGate then shows today\'s dashboard), and with the item sheet open Telegram\'s BackButton is let go (offClick, hide) before the reload; within the guard, the retry card, whose Retry reloads by hand; 401, 403 and any other 404 show PageGate\'s card and nothing more is asked', async () => {
-    resetHome();
-    answerFetch = () => ({ status: 404, body: { error: 'not_enabled' } });
-    const a = await mountHome('en');
-    a.unmount();
-    assert(show(reloads) === show(['reload']) && fakeWindow.sessionStorage.getItem(NOT_ENABLED_RELOAD_KEY) !== null, `one reload, guarded: ${show(reloads)}`);
-    const b = await mountHome('en');
-    try {
-      assert(show(reloads) === show(['reload']), `no second reload within the minute: ${show(reloads)}`);
-      assertHas(b.text(), ['Something went wrong Your calendar didn’t load. Try again. Retry'], 'the card');
-      b.click(button(b.container, 'Retry'));
-      assert(show(reloads) === show(['reload', 'reload']), 'Retry reloads by hand');
-    } finally {
-      b.unmount();
-    }
-
-    // The switch turned back while the item sheet is open (say, back from "Open in Google
-    // Calendar"): a reload runs no cleanup and the client keeps the button, so it goes first.
-    resetHome();
-    const open = fakeTelegramHome();
-    fakeWindow.Telegram = { WebApp: open.webApp };
-    fakeWindow.location = { hash: '', reload: () => void open.calls.push('location.reload()') };
-    answerFetch = (c) => answerFor(c, { items: WEEK });
-    const o = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
-    try {
-      o.click(button(o.container, 'Dentist'));
-      assert(open.calls.includes('BackButton.show()') && open.backHandlers() === 1, `the sheet shows the BackButton: ${show(open.calls)}`);
-      open.calls.length = 0;
-      answerFetch = () => ({ status: 404, body: { error: 'not_enabled' } });
-      fireDocument('visibilitychange');
-      await settle();
-      const steps = open.calls.filter((c) => c.startsWith('BackButton') || c === 'location.reload()');
-      assert(show(steps.slice(0, 3)) === show(['BackButton.offClick', 'BackButton.hide()', 'location.reload()']), `before the reload: ${show(steps)}`);
-      assert(open.backHandlers() === 0, 'no handler left');
-    } finally {
-      o.unmount();
-      fakeWindow.Telegram = undefined;
-    }
-
+  await check('#28 401, 403 and any 404 show PageGate\'s card and nothing more is asked', async () => {
     for (const [status, error] of [[401, 'Unauthorized'], [403, 'Account suspended'], [404, 'User not found']] as const) {
       resetHome();
       const tg = fakeTelegramHome();
@@ -3070,32 +3030,6 @@ async function main() {
       assertLacks(b.html(), ['role="tablist"', 'role="tabpanel"', 'Loading your calendar'], 'no tab bar over a card');
     } finally {
       b.unmount();
-    }
-  });
-
-  await check('#53 404 not_enabled on the Month lets both of Telegram\'s controls go before the reload: the BackButton (offClick, hide), then swipes back on, then the reload', async () => {
-    resetHome();
-    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
-    const tg = fakeTelegramHome({ version: '7.7' });
-    fakeWindow.Telegram = { WebApp: tg.webApp };
-    fakeWindow.location = { hash: '', reload: () => void tg.calls.push('location.reload()') };
-    answerFetch = (c) => answerFor(c, { items: WEEK });
-    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
-    try {
-      flushFrames();
-      assert(swipeCalls(tg.calls).at(-1) === 'disableVerticalSwipes()', `browse locked the swipes: ${show(swipeCalls(tg.calls))}`);
-      m.click(byLabel(m.container, 'Menu'));
-      assert(tg.backHandlers() === 1, 'the menu shows the BackButton');
-      tg.calls.length = 0;
-      answerFetch = () => ({ status: 404, body: { error: 'not_enabled' } });
-      fireDocument('visibilitychange');
-      await settle();
-      const steps = tg.calls.filter((c) => c.startsWith('BackButton') || /VerticalSwipes/.test(c) || c === 'location.reload()');
-      assert(show(steps.slice(0, 4)) === show(['BackButton.offClick', 'BackButton.hide()', 'enableVerticalSwipes()', 'location.reload()']), `before the reload: ${show(steps)}`);
-      assert(tg.backHandlers() === 0, 'no handler left');
-    } finally {
-      m.unmount();
-      fakeWindow.Telegram = undefined;
     }
   });
 
