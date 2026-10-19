@@ -79,12 +79,16 @@ const fakeRedis = {
 };
 
 /** geocodeLocation's calls, each waiting until the check answers it. */
-type Geocode = { location: string; answer: (timezone: string) => void };
+type Geocode = { location: string; answer: (timezone: string) => void; fail: () => void };
 const geocodes: Geocode[] = [];
 const fakeGeocoding = {
   geocodeLocation: (location: string) =>
-    new Promise((resolve) => {
-      geocodes.push({ location, answer: (timezone) => resolve({ latitude: 0, longitude: 0, timezone }) });
+    new Promise((resolve, reject) => {
+      geocodes.push({
+        location,
+        answer: (timezone) => resolve({ latitude: 0, longitude: 0, timezone }),
+        fail: () => reject(new Error('geocoding is down')),
+      });
     }),
   fetchWithTimeout: async () => {
     throw new Error('the lookup asked the network');
@@ -93,6 +97,8 @@ const fakeGeocoding = {
 
 /** Every console line written while the checks ran. */
 const consoleLines: string[] = [];
+/** What error capture was asked to send (a Sentry event's message, context and extra). */
+const captures: { level: string; message: string; context: unknown; extra: unknown }[] = [];
 
 function installStubs() {
   const Module = nodeRequire('module');
@@ -105,7 +111,10 @@ function installStubs() {
   stub('src/utils/redis.ts', { redis: fakeRedis });
   stub('src/services/weather/geocoding.ts', fakeGeocoding);
   stub('src/services/calendar.ts', { getUserCalendarTimezone: async () => null });
-  stub('src/lib/error-capture.ts', { captureError: () => {}, captureWarning: () => {}, captureInfo: () => {} });
+  const record = (level: string) => (message: string, context: unknown, extra: unknown) => {
+    captures.push({ level, message, context, extra });
+  };
+  stub('src/lib/error-capture.ts', { captureError: record('error'), captureWarning: record('warning'), captureInfo: record('info') });
   for (const level of ['log', 'info', 'warn', 'error'] as const) {
     console[level] = (...args: unknown[]) => void consoleLines.push(args.map(String).join(' '));
   }
@@ -250,6 +259,30 @@ async function main() {
     } finally {
       performance.now = realNow;
     }
+  });
+
+  await check('the default-zone warning and info carry no location: the user_id and hasToken stay, the free text never reaches error capture', async () => {
+    seed();
+    captures.length = 0;
+    const SECRET = 'Springfield, Secret Street 5';
+    // A location whose geocoding fails twice (the retry waits 2 s), then no source at all.
+    const failing = resolveUserTimezone({ id: 31, location: SECRET });
+    await flush();
+    geocodeFor(SECRET).fail();
+    await new Promise((resolve) => setTimeout(resolve, 2100));
+    assert(geocodes.length === 2, `${geocodes.length} geocode calls`);
+    geocodes[1].fail();
+    const none = resolveUserTimezone({ id: 32 });
+    const zones = [await failing, await none];
+    assert(zones.every((z) => z === 'UTC' || typeof z === 'string'), `zones ${show(zones)}`);
+    const levels = captures.map((c) => c.level).join();
+    assert(levels === 'warning,info' || levels === 'info,warning', `captures ${levels}`);
+    for (const c of captures) {
+      const ctx = c.extra as Row;
+      assert(!('location' in ctx), `a location key in ${show(ctx)}`);
+      assert(typeof ctx.user_id === 'number' && 'hasToken' in ctx, `context ${show(ctx)}`);
+    }
+    assert(!JSON.stringify(captures).includes('Secret Street') && !JSON.stringify(captures).includes('Springfield'), 'the location reached error capture');
   });
 
   await check('the shared lookup prints nothing: no console line names a location', () => {

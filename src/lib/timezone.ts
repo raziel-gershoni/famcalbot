@@ -144,7 +144,7 @@ async function lookUpUserTimezone(user: TimezoneUser): Promise<string> {
     user_id: user.id,
     service: 'timezone',
     hasToken: !!user.googleRefreshToken,
-    location: user.location || '(none)',
+    hasLocation: !!user.location,
   };
   if (attemptedSource) {
     captureWarning('Timezone sources failed; using default', 'timezone-resolution', ctx);
