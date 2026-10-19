@@ -13,6 +13,9 @@
 //   and Shift+Tab go round its own controls, and focus that lands outside it (a
 //   keyboard's or a screen reader's) comes back to the panel.
 // - Escape (wherever focus is), a tap on the scrim and the Close button all call onClose.
+// - `variant="full"` (the editor): the panel fills the screen, with no grab bar and no Close
+//   button of its own, since its content brings a Cancel in a header and a Save bar. The
+//   rest (the dialog, the focus, Escape, the scrim) is the same.
 // - Rendered in place, not in a portal, so it inherits the home's tokens and direction.
 //   It is position: fixed: no ancestor of the home may set transform or filter.
 
@@ -24,6 +27,8 @@ export interface BottomSheetProps {
   /** The Close button's text. */
   closeLabel: string;
   onClose: () => void;
+  /** 'full' fills the screen and brings its own controls (the editor). Default 'sheet'. */
+  variant?: 'sheet' | 'full';
   children: ReactNode;
 }
 
@@ -48,7 +53,7 @@ function controlsIn(root: HTMLElement): HTMLElement[] {
 /** The mounted sheets, oldest first: only the last one owns the focus trap and Escape. */
 const openSheets: object[] = [];
 
-export function BottomSheet({ label, closeLabel, onClose, children }: BottomSheetProps) {
+export function BottomSheet({ label, closeLabel, onClose, variant = 'sheet', children }: BottomSheetProps) {
   const panel = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   useEffect(() => {
@@ -110,12 +115,14 @@ export function BottomSheet({ label, closeLabel, onClose, children }: BottomShee
   return (
     <div className="ch-sheet-layer">
       <div className="ch-sheet-backdrop" aria-hidden="true" onClick={onClose} />
-      <div ref={panel} className="ch-sheet" role="dialog" aria-modal="true" aria-label={label} tabIndex={-1} onKeyDown={onKeyDown}>
-        <div className="ch-sheet-grab" aria-hidden="true" />
+      <div ref={panel} className={variant === 'full' ? 'ch-sheet ch-sheet-full' : 'ch-sheet'} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1} onKeyDown={onKeyDown}>
+        {variant === 'full' ? null : <div className="ch-sheet-grab" aria-hidden="true" />}
         {children}
-        <button type="button" className="ch-btn ch-sheet-close" onClick={onClose}>
-          {closeLabel}
-        </button>
+        {variant === 'full' ? null : (
+          <button type="button" className="ch-btn ch-sheet-close" onClick={onClose}>
+            {closeLabel}
+          </button>
+        )}
       </div>
     </div>
   );

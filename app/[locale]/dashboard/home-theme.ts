@@ -301,6 +301,19 @@ html:has(.ch-home[data-theme='dark']) {
   margin-block-start: 16px;
   color: var(--ch-text);
 }
+.ch-sheet-full {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  max-block-size: none;
+  overflow: hidden;
+  padding: 0;
+  border-radius: 0;
+  background: var(--ch-surface);
+}
+.ch-home[data-theme='dark'] .ch-sheet-full {
+  background: var(--ch-bg);
+}
 @keyframes ch-sheet-in {
   from { transform: translateY(24px); opacity: 0; }
   to { transform: none; opacity: 1; }

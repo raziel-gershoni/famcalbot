@@ -1,0 +1,326 @@
+'use client';
+
+// The editor (home editing spec §2, §4; the mockups' NewEvent, NewReminder and Edit): a
+// full-height sheet with Cancel and the title in a header, a scrolling body of grouped
+// cards, and a sticky Save bar. One form for a new item and for an edit.
+//
+// - New: an Event | Reminder switch when both kinds apply; an event has title, location,
+//   all day, starts, ends (moving the start keeps the duration), repeat, calendar and
+//   notes; a reminder has title, when (a date, and a time with "At a set time"), repeat,
+//   and For when the partner can be pinged.
+// - Edit: the same fields prefilled from the item's edit info. What cannot change in this
+//   pass (the repeat rule, the calendar, who it is for) is shown as text. A repeating item
+//   asks which occurrences on Save (ScopeSheet).
+// - Cancel asks "Discard your changes?" only when something changed. The container's
+//   BackButton calls the same thing through `cancelRef`: it closes a sheet on top first,
+//   then cancels.
+// - The container owns the request (`onSave`): this sheet validates first (the inline
+//   errors, which stay live after the first tap on Save), and shows what the request came
+//   to: an error above Save, or nothing, because on success the container closes it. Save
+//   is disabled while a request is in flight.
+// - Nothing is sent when an edit changed nothing: Save just closes.
+
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
+import {
+  REMINDER_DEFAULT_TIME,
+  allOfThem,
+  checkForm,
+  dayOfMonth,
+  isDirty,
+  isRealDay,
+  moveStart,
+  repeatWords,
+  setAllDay,
+  updateBody,
+  weekdayId,
+  type EditorForm,
+  type FieldErrors,
+  type FieldName,
+} from '@/src/lib/calendar-view/editor-model';
+import type { EditScope, EditorCalendar, ItemEditInfoResponse, ItemKind, RepeatChoice } from '@/src/lib/calendar-view/editor-types';
+import { formatDayMonth } from '@/src/lib/calendar-view/format';
+import { BottomSheet } from './BottomSheet';
+import { FORM_CSS, FormCard, PillRow, RadioPair, SaveBar, Segmented, SwitchRow, TextField, ValueRow, type SelectOption } from './form-kit';
+import { ConfirmSheet, ScopeSheet, useErrorText, type SubmitError } from './ScopeSheet';
+
+/** What the container's request came to. On `ok` the container closes the editor. */
+export type SaveOutcome = { kind: 'ok' } | { kind: 'error'; error: SubmitError; field?: FieldName };
+
+export interface EditorSheetProps {
+  mode: 'create' | 'edit';
+  initial: EditorForm;
+  /** New: which kinds apply, the writable calendars and the partner. */
+  kinds?: { event: boolean; reminder: boolean };
+  calendars?: EditorCalendar[];
+  partner?: { name: string; canRemind: boolean } | null;
+  /** Edit: the item's edit info and key. */
+  info?: ItemEditInfoResponse;
+  itemKey?: string;
+  onSave: (form: EditorForm, scope: EditScope) => Promise<SaveOutcome>;
+  /** Closes the editor, with no save. */
+  onClose: () => void;
+  /** The container's BackButton asks the editor to cancel through this. */
+  cancelRef: MutableRefObject<(() => void) | null>;
+}
+
+const REPEATS: RepeatChoice[] = ['none', 'daily', 'weekly', 'monthly', 'yearly'];
+
+export function EditorSheet({ mode, initial, kinds, calendars = [], partner, info, itemKey, onSave, onClose, cancelRef }: EditorSheetProps) {
+  const t = useTranslations('calendarHome');
+  const locale = useLocale();
+  const [start] = useState(initial);
+  const [form, setForm] = useState<EditorForm>(initial);
+  const [showErrors, setShowErrors] = useState(false);
+  const [serverField, setServerField] = useState<FieldName | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<SubmitError | null>(null);
+  const [scopeOpen, setScopeOpen] = useState(false);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const errorText = useErrorText(error);
+  /** The last real start day: the repeat choices keep their words while a date is being typed. */
+  const [lastDay, setLastDay] = useState(isRealDay(initial.startDay) ? initial.startDay : '');
+  if (isRealDay(form.startDay) && form.startDay !== lastDay) setLastDay(form.startDay);
+
+  const edit = mode === 'edit';
+  const reminder = form.kind === 'reminder';
+  const errors: FieldErrors = showErrors ? checkForm(form) : {};
+  if (serverField && !errors[serverField]) errors[serverField] = 'errField';
+  const errorOf = (field: FieldName): string | null => {
+    const key = errors[field];
+    return key ? t(`editor.errors.${key}`, { max: field === 'title' ? 200 : field === 'location' ? 200 : 2000 }) : null;
+  };
+
+  const change = (next: EditorForm) => {
+    setForm(next);
+    setError(null);
+    setServerField(null);
+  };
+
+  // Cancel: a sheet on top closes first, then the editor, asking only when something changed.
+  const cancel = () => {
+    if (saving) return;
+    if (scopeOpen) setScopeOpen(false);
+    else if (discardOpen) setDiscardOpen(false);
+    else if (isDirty(form, start)) setDiscardOpen(true);
+    else onClose();
+  };
+  const cancelNow = useRef(cancel);
+  useEffect(() => {
+    cancelNow.current = cancel;
+  });
+  useEffect(() => {
+    const ref = cancelRef;
+    ref.current = () => cancelNow.current();
+    return () => {
+      ref.current = null;
+    };
+  }, [cancelRef]);
+
+  const run = async (scope: EditScope) => {
+    setSaving(true);
+    setError(null);
+    const outcome = await onSave(form, scope);
+    setSaving(false);
+    if (outcome.kind === 'error') {
+      setScopeOpen(false);
+      setError(outcome.error);
+      if (outcome.field) setServerField(outcome.field);
+    }
+  };
+  const save = () => {
+    if (saving) return;
+    setShowErrors(true);
+    if (Object.keys(checkForm(form)).length > 0) return;
+    if (!edit) {
+      void run('single');
+      return;
+    }
+    if (!itemKey || updateBody(form, start, itemKey, 'single') === null) {
+      onClose();
+      return;
+    }
+    if (info && info.scopes.length > 1) setScopeOpen(true);
+    else void run('single');
+  };
+
+  // The repeat choices, worded for the start day.
+  const day = lastDay;
+  const weekday = weekdayId(day);
+  const repeatOptions: SelectOption[] = useMemo(() => {
+    const date = day ? formatDayMonth(day, locale) : '';
+    const dom = dayOfMonth(day) ?? 1;
+    const text = (r: RepeatChoice): string => {
+      if (r === 'none') return t('editor.repeat.none');
+      if (r === 'daily') return t('editor.repeat.daily');
+      if (r === 'weekly') return weekday ? t('editor.repeat.weekly', { weekday }) : t('editor.repeat.weeklyPlain');
+      if (r === 'monthly') return day ? t('editor.repeat.monthly', { day: dom }) : t('editor.repeat.monthlyPlain');
+      return day ? t('editor.repeat.yearly', { date }) : t('editor.repeat.yearlyPlain');
+    };
+    return REPEATS.map((r) => ({ value: r, text: text(r) }));
+  }, [t, locale, day, weekday]);
+
+  const calendarOptions: SelectOption[] = calendars.map((c) => ({
+    value: c.id,
+    text: c.mine || !c.ownerName ? c.name : t('editor.partnerCalendar', { calendar: c.name, name: c.ownerName }),
+    color: c.color,
+  }));
+
+  // What an edit cannot change this pass, as text.
+  const repeatText = (() => {
+    if (!edit || !info || !info.series.recurring) return null;
+    const words = repeatWords(info.series.repeat, info.series.start);
+    switch (words.key) {
+      case 'weekday':
+        return t('editor.repeats.weekday', { weekday: words.weekday });
+      case 'interval':
+        return t(`editor.repeats.interval.${words.unit}`, { count: words.count });
+      case 'daily':
+        return t('editor.repeats.daily');
+      case 'weekly':
+        return t('editor.repeats.weekly');
+      case 'monthly':
+        return t('editor.repeats.monthly');
+      case 'yearly':
+        return t('editor.repeats.yearly');
+      default:
+        return t('editor.repeats.other');
+    }
+  })();
+
+  const kindOptions: { value: ItemKind; text: string }[] = [
+    { value: 'event', text: t('editor.kind.event') },
+    { value: 'reminder', text: t('editor.kind.reminder') },
+  ];
+  const showKindSwitch = !edit && !!kinds && kinds.event && kinds.reminder;
+  const canPartner = !edit && reminder && !!partner && partner.canRemind;
+  const heading = edit ? t('editor.titleEdit') : t('editor.titleNew');
+
+  return (
+    <>
+      <BottomSheet label={heading} closeLabel={t('editor.cancel')} onClose={cancel} variant="full">
+        <style>{FORM_CSS}</style>
+        <header className="ch-editor-head">
+          <button type="button" className="ch-editor-cancel" onClick={cancel}>
+            {t('editor.cancel')}
+          </button>
+          <h1 className="ch-editor-title">{heading}</h1>
+          <span aria-hidden="true" />
+        </header>
+        <div className="ch-editor-body">
+          <div className="ch-form-page">
+            {showKindSwitch ? <Segmented label={t('editor.kind.label')} value={form.kind} options={kindOptions} onChange={(kind) => change({ ...form, kind })} /> : null}
+
+            <FormCard>
+              <TextField label={t('editor.fields.title')} value={form.title} large onChange={(title) => change({ ...form, title })} error={errorOf('title')} />
+              {reminder ? null : <TextField label={t('editor.fields.location')} placeholder={t('editor.fields.location')} value={form.location} onChange={(location) => change({ ...form, location })} error={errorOf('location')} />}
+            </FormCard>
+
+            {reminder ? (
+              <FormCard>
+                <PillRow
+                  label={t('editor.when')}
+                  dateLabel={t('editor.whenDate')}
+                  timeLabel={t('editor.whenTime')}
+                  day={form.startDay}
+                  time={form.startTime}
+                  showTime={!form.allDay}
+                  onDay={(startDay) => change(moveStart(form, { startDay }))}
+                  onTime={(startTime) => change(moveStart(form, { startTime }))}
+                  error={errorOf('start')}
+                />
+                <SwitchRow label={t('editor.atTime')} hint={t('editor.atTimeHint', { time: REMINDER_DEFAULT_TIME })} checked={!form.allDay} onChange={(on) => change(setAllDay(form, !on))} />
+                {edit ? null : <ValueRow label={t('editor.repeat.label')} value={form.repeat} options={repeatOptions} onChange={(repeat) => change({ ...form, repeat: repeat as RepeatChoice })} />}
+              </FormCard>
+            ) : (
+              <FormCard>
+                <SwitchRow label={t('editor.allDay')} checked={form.allDay} onChange={(on) => change(setAllDay(form, on))} />
+                <PillRow
+                  label={t('editor.starts')}
+                  dateLabel={t('editor.startsDate')}
+                  timeLabel={t('editor.startsTime')}
+                  day={form.startDay}
+                  time={form.startTime}
+                  showTime={!form.allDay}
+                  onDay={(startDay) => change(moveStart(form, { startDay }))}
+                  onTime={(startTime) => change(moveStart(form, { startTime }))}
+                  error={errorOf('start')}
+                />
+                <PillRow
+                  label={t('editor.ends')}
+                  dateLabel={t('editor.endsDate')}
+                  timeLabel={t('editor.endsTime')}
+                  day={form.endDay}
+                  time={form.endTime}
+                  showTime={!form.allDay}
+                  onDay={(endDay) => change({ ...form, endDay })}
+                  onTime={(endTime) => change({ ...form, endTime })}
+                  error={errorOf('end')}
+                />
+                {edit ? null : <ValueRow label={t('editor.repeat.label')} value={form.repeat} options={repeatOptions} onChange={(repeat) => change({ ...form, repeat: repeat as RepeatChoice })} />}
+              </FormCard>
+            )}
+
+            {!edit && !reminder && calendarOptions.length > 0 ? (
+              <FormCard>
+                <ValueRow label={t('editor.calendar')} value={form.calendarId ?? calendarOptions[0].value} options={calendarOptions} onChange={(calendarId) => change({ ...form, calendarId })} />
+              </FormCard>
+            ) : null}
+
+            {canPartner && partner ? (
+              <RadioPair
+                label={t('editor.forLabel')}
+                value={form.forPartner ? 'partner' : 'me'}
+                options={[
+                  { value: 'me', text: t('editor.forMe') },
+                  { value: 'partner', text: partner.name },
+                ]}
+                onChange={(who) => change({ ...form, forPartner: who === 'partner' })}
+              />
+            ) : null}
+
+            {reminder ? null : (
+              <FormCard>
+                <TextField label={t('editor.fields.notes')} placeholder={t('editor.fields.notes')} value={form.notes} multiline onChange={(notes) => change({ ...form, notes })} error={errorOf('notes')} />
+              </FormCard>
+            )}
+
+            {repeatText ? <p className="ch-form-fixed">{repeatText}</p> : null}
+            {edit && info && info.calendar.name && !reminder ? (
+              <p className="ch-form-fixed" dir="auto">
+                {info.calendar.name}
+              </p>
+            ) : null}
+            {edit && info?.forName ? <p className="ch-form-fixed">{t('editor.forName', { name: info.forName })}</p> : null}
+          </div>
+        </div>
+        <SaveBar label={t('editor.save')} busy={saving} error={errorText} onSave={save} />
+      </BottomSheet>
+      {scopeOpen && info && itemKey ? (
+        <ScopeSheet
+          kind={info.kind}
+          mode="save"
+          title={form.title.trim() || info.occurrence.title}
+          day={info.occurrence.start.slice(0, 10)}
+          all={allOfThem(info.series.repeat, info.series.start)}
+          busy={saving}
+          error={error}
+          onPick={(scope) => void run(scope)}
+          onClose={() => setScopeOpen(false)}
+        />
+      ) : null}
+      {discardOpen ? (
+        <ConfirmSheet
+          heading={t('editor.discard.title')}
+          confirmLabel={t('editor.discard.confirm')}
+          cancelLabel={t('editor.discard.keep')}
+          danger
+          busy={false}
+          error={null}
+          onConfirm={onClose}
+          onClose={() => setDiscardOpen(false)}
+        />
+      ) : null}
+    </>
+  );
+}
