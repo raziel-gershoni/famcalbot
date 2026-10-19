@@ -4,7 +4,8 @@
 // (calendar-provider/google-provider.ts) and after a reconnect (google-connect.ts).
 //
 // Only the range route reads through the cache; the summaries pass 'bypass' and never
-// touch it. An entry is { startedAt, items, goneIds } under
+// touch it. The range route's reads also ask calendarList for the calendars' live
+// colours (spec 2026-10-19 §3.1), and an entry keeps the colours its read got. An entry is { startedAt, items, goneIds } under
 // gcal:range:v1:{userId}:{setHash}:{tz}:{from}:{to}. It is served for 3 minutes, then
 // served stale with one background refresh until 30 minutes, and only while its startedAt
 // is later than the user's stamp. The stamp moves after each bot write to Google, a
@@ -238,6 +239,21 @@ const fakeCalendarApi = {
   },
 };
 
+/** calendarList's items (an unchosen calendar's too); 'error' throws a 500; 'hang' never answers. */
+let colourList: { id: string; backgroundColor?: unknown }[] | 'error' | 'hang' = [];
+/** Each calendarList call: its parameters and the request timeout the read gave it. */
+const colourCalls: Record<string, unknown>[] = [];
+/** How many calendarList calls Google got (a function, as listed()). */
+const asked = () => colourCalls.length;
+(fakeCalendarApi as Record<string, unknown>).calendarList = {
+  list: async (params: Record<string, unknown>, options?: { timeout?: number }) => {
+    colourCalls.push({ ...params, timeout: options?.timeout });
+    if (colourList === 'hang') return new Promise<never>(() => {});
+    if (colourList === 'error') throw httpError(500, 'Backend Error', 'backendError');
+    return { data: { items: colourList } };
+  },
+};
+
 /** How many list calls Google got (a function, so an assert on one count doesn't narrow the next). */
 const listed = () => listCalls.length;
 
@@ -388,7 +404,7 @@ function keyFor(ids: string[], window: { from: Date; to: Date }, tz = TZ): strin
 const KEY = keyFor([KIDS.calendarId, SPOUSE.calendarId], WEEK);
 const STAMP = 'gcal:stamp:7';
 
-type Entry = { startedAt: number; items: Record<string, unknown>[]; goneIds: string[] };
+type Entry = { startedAt: number; items: Record<string, unknown>[]; goneIds: string[]; colours?: Record<string, string> };
 const entryAt = (key: string) => decode(live(key)?.value) as Entry | null;
 const rangeKeys = () => [...store.keys()].filter(k => k.startsWith('gcal:range:'));
 const cacheWarned = () => captured.some(c => c.context === 'calendar-read-google-cache' && c.severity === 'warning');
@@ -418,6 +434,8 @@ function reset() {
   tokenSteps = 0;
   authThrows = false;
   listCalls.length = 0;
+  colourList = [];
+  colourCalls.length = 0;
   holdLists = false;
   held.length = 0;
   writeOutcome = { kind: 'result', value: { success: true, eventId: 'g1' } };
@@ -879,6 +897,101 @@ async function main() {
     const next = await read();
     assert(tokenSteps === 2, `${tokenSteps} token steps: the next read joined the hung one`);
     assert(next.read.status === 'ok' && listed() === 2, `${show(next.read)}, ${listed()} list calls`);
+  });
+
+  // ---- Calendar colours (spec 2026-10-19 §3.1) ----
+
+  /** The legend's and the items' colours by calendar id; the two must agree. */
+  const coloursOf = (r: Awaited<ReturnType<typeof read>>) => {
+    assert(r.read.status === 'ok', show(r.read));
+    const legend = Object.fromEntries(r.read.calendars.map(c => [c.id, c.color]));
+    for (const i of r.items) assert(i.calendar.color === legend[i.calendar.id ?? ''], `${i.key}: ${i.calendar.color}, the legend says ${legend[i.calendar.id ?? '']}`);
+    return legend;
+  };
+  const LIVE = [{ id: KIDS.calendarId, backgroundColor: '#7BD148' }, { id: 'boss@corp.example', backgroundColor: '#ff0000' }];
+
+  await check('colours: a cached read asks calendarList once (one page of 250, ids and colours only, hidden calendars included, the lists\' timeout); Google\'s live colour wins over the saved one, a calendar it gives none keeps its saved colour, one with neither has none; the entry keeps the set\'s live colours only', async () => {
+    reset();
+    colourList = LIVE;
+    const r = await read();
+    assert(show(colourCalls) === show([{ maxResults: 250, showHidden: true, fields: 'items(id,backgroundColor)', timeout: 5500 }]), `calls: ${show(colourCalls)}`);
+    assert(show(coloursOf(r)) === show({ [KIDS.calendarId]: '#7bd148', [SPOUSE.calendarId]: '#f4511e' }), `colours: ${show(coloursOf(r))}`);
+    assert(show(entryAt(KEY)?.colours) === show({ [KIDS.calendarId]: '#7bd148' }), `entry colours: ${show(entryAt(KEY)?.colours)}`);
+    assert(!live(KEY)!.value.includes('boss@corp.example'), 'an unchosen calendar\'s id reached the cache');
+    reset();
+    colourList = LIVE;
+    const bare = await read(googleUser({ calendarAssignments: [{ ...KIDS, color: '' }, { ...SPOUSE, color: '' }] }));
+    assert(show(coloursOf(bare)) === show({ [KIDS.calendarId]: '#7bd148', [SPOUSE.calendarId]: null }), `no saved colours: ${show(coloursOf(bare))}`);
+  });
+
+  await check('colours: a hit joins its entry\'s colours with no calendarList call; a stale hit\'s refresh asks again and writes the new ones', async () => {
+    reset();
+    colourList = LIVE;
+    await read();
+    clock += 60_000;
+    colourList = [{ id: KIDS.calendarId, backgroundColor: '#4986e7' }];
+    const hit = await read();
+    assert(asked() === 1 && coloursOf(hit)[KIDS.calendarId] === '#7bd148', `${asked()} calls, ${show(coloursOf(hit))}`);
+    clock += 3 * 60_000;
+    const stale = await read();
+    assert(stale.read.status === 'ok' && stale.read.stale && coloursOf(stale)[KIDS.calendarId] === '#7bd148', show(coloursOf(stale)));
+    await Promise.all(deferred.splice(0).map(task => task()));
+    assert(asked() === 2 && show(entryAt(KEY)?.colours) === show({ [KIDS.calendarId]: '#4986e7' }), `${asked()} calls, entry ${show(entryAt(KEY)?.colours)}`);
+    const next = await read();
+    assert(coloursOf(next)[KIDS.calendarId] === '#4986e7', `after the refresh: ${show(coloursOf(next))}`);
+  });
+
+  await check('colours: a failed calendarList, or colours that aren\'t #rrggbb, keep the saved colours and the read: ok, cached (the entry with no colours, so its hits join the saved ones), no Sentry event', async () => {
+    reset();
+    colourList = 'error';
+    const failed = await read();
+    assert(failed.read.status === 'ok' && failed.read.partial === null && failed.items.length === 3, show(failed.read));
+    assert(show(coloursOf(failed)) === show({ [KIDS.calendarId]: '#33b679', [SPOUSE.calendarId]: '#f4511e' }), show(coloursOf(failed)));
+    assert(entryAt(KEY) !== null && entryAt(KEY)?.colours === undefined, `entry: ${show(entryAt(KEY))}`);
+    assert(captured.length === 0, `captured: ${show(captured)}`);
+    clock += 60_000;
+    colourList = LIVE;
+    const hit = await read();
+    assert(asked() === 1 && coloursOf(hit)[KIDS.calendarId] === '#33b679', `an entry without colours: ${show(coloursOf(hit))}`);
+    reset();
+    colourList = [{ id: KIDS.calendarId, backgroundColor: 'red' }, { id: SPOUSE.calendarId, backgroundColor: 123 }, { id: SPOUSE.calendarId }];
+    const odd = await read();
+    assert(show(coloursOf(odd)) === show({ [KIDS.calendarId]: '#33b679', [SPOUSE.calendarId]: '#f4511e' }), `odd colours: ${show(coloursOf(odd))}`);
+  });
+
+  await check('colours: an entry whose colours are unreadable is still a hit, with the saved colours; a colour in it that isn\'t #rrggbb is ignored', async () => {
+    reset();
+    await read();
+    for (const colours of ['#7bd148', ['#7bd148'], { [KIDS.calendarId]: 'url(x)' }]) {
+      const entry = { ...entryAt(KEY)!, colours };
+      store.get(KEY)!.value = JSON.stringify(entry);
+      clock += 1000;
+      const r = await read();
+      assert(listed() === 2 && coloursOf(r)[KIDS.calendarId] === '#33b679', `${show(colours)}: ${listed()} list calls, ${show(coloursOf(r))}`);
+    }
+  });
+
+  await check('colours: a calendarList that never answers holds the read to its deadline at most; the read is ok with every list\'s items and the saved colours, and leaves nothing in flight', async () => {
+    reset();
+    colourList = 'hang';
+    const started = performance.now();
+    const r = await read(undefined, { deadlineMs: 600 });
+    const ms = performance.now() - started;
+    assert(ms >= 550 && ms < 900, `took ${Math.round(ms)} ms`);
+    assert(r.read.status === 'ok' && r.read.partial === null && r.items.length === 3, show(r.read));
+    assert(coloursOf(r)[KIDS.calendarId] === '#33b679', show(coloursOf(r)));
+    assert(shared().__gcalInflight?.size === 0, 'a read left in flight');
+  });
+
+  await check('colours: the summaries (bypass) never ask calendarList, and keep the saved colours; Redis down, the range route\'s live read still asks', async () => {
+    reset();
+    colourList = LIVE;
+    const summary = await readGoogle(googleUser(), WEEK, { tz: TZ, deadlineMs: 6000 });
+    assert(asked() === 0 && summary.read.status === 'ok', `${asked()} calls`);
+    assert(summary.read.calendars.find(c => c.id === KIDS.calendarId)?.color === '#33b679' && summary.colours === undefined, show(summary.read.calendars));
+    redisFaults.add('mget');
+    const down = await read();
+    assert(asked() === 1 && coloursOf(down)[KIDS.calendarId] === '#7bd148', `Redis down: ${asked()} calls, ${show(coloursOf(down))}`);
   });
 
   // ---- stampGoogleCache ----

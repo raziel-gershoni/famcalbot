@@ -7,7 +7,8 @@
 // stuck token server never answers, and lists still waiting. So nothing keeps running,
 // retries or holds a timer after the answer, also in a scheduled batch during a stall. The
 // token request also gets a timeout no longer than the deadline, and every list request a
-// timeout of at least 1 s.
+// timeout of at least 1 s. The range route's reads also ask calendarList for the
+// calendars' colours (spec 2026-10-19 §3.1): that request is cancelled the same way.
 //
 // The real google.ts, calendar.ts (getGoogleAuth), @googleapis/calendar, its
 // google-auth-library and gaxios run, retries included. Only gaxios's HTTP adapter is
@@ -72,6 +73,8 @@ const nodeFetch = createRequire(calendarRequire.resolve('gaxios'))('node-fetch')
 type Behaviour = 'answer' | 'hang';
 let tokenBehaviour: Behaviour = 'answer';
 let listBehaviour: Behaviour = 'answer';
+/** calendarList's, when it differs from the lists'. */
+let colourBehaviour: Behaviour | null = null;
 
 /** Every request the client made: what it was, its timeout, whether it carried a signal, and how it ended. */
 type Request = { what: string; timeout: number | null; signal: boolean; ended: string };
@@ -96,8 +99,9 @@ function installFakeGoogle(): void {
   gaxiosModule.Gaxios.prototype._defaultAdapter = async function (opts: GaxiosOpts) {
     const url = String(opts.url);
     const isToken = url === TOKEN_URL;
+    const isColours = url.startsWith('https://www.googleapis.com/calendar/v3/users/me/calendarList');
     const request: Request = {
-      what: isToken ? 'token' : `list ${decodeURIComponent(new URL(url).pathname.split('/')[4] ?? '?')}`,
+      what: isToken ? 'token' : isColours ? 'colours' : `list ${decodeURIComponent(new URL(url).pathname.split('/')[4] ?? '?')}`,
       timeout: typeof opts.timeout === 'number' && opts.timeout > 0 ? opts.timeout : null,
       signal: opts.signal !== undefined,
       ended: 'waiting',
@@ -108,10 +112,12 @@ function installFakeGoogle(): void {
       request.ended = 'answered';
       return { config: opts, data, headers: {}, status, statusText: String(status), request: { responseURL: url } };
     };
-    if ((isToken ? tokenBehaviour : listBehaviour) === 'answer') {
+    if ((isToken ? tokenBehaviour : isColours ? (colourBehaviour ?? listBehaviour) : listBehaviour) === 'answer') {
       return isToken
         ? respond(200, { access_token: 'fake-access', expires_in: 3600, token_type: 'Bearer' })
-        : respond(200, { summary: 'Family', items: [] });
+        : isColours
+          ? respond(200, { items: [{ id: 'gali@example.com', backgroundColor: '#7bd148' }] })
+          : respond(200, { summary: 'Family', items: [] });
     }
     waiting++;
     try {
@@ -187,15 +193,15 @@ async function main() {
   };
 
   /** One read, timed, with what it left behind once its rejections have run out. */
-  async function read(deadlineMs: number) {
+  async function read(deadlineMs: number, colours = false) {
     requests = [];
     captured.length = 0;
     const timersBefore = pendingTimers();
     const started = performance.now();
-    const result = await readGoogleUncached(user, WINDOW, { tz: NY, deadlineMs });
+    const result = await readGoogleUncached(user, WINDOW, { tz: NY, deadlineMs, colours });
     const ms = performance.now() - started;
     await settle();
-    return { status: { ...result.read, cause: undefined }, ms, waiting, timersLeft: pendingTimers() - timersBefore };
+    return { status: { ...result.read, cause: undefined }, colours: result.colours, ms, waiting, timersLeft: pendingTimers() - timersBefore };
   }
 
   await check('a token server that never answers: error timeout at the deadline; the token request is cancelled then, with no retry, no request and no timer left', async () => {
@@ -254,6 +260,29 @@ async function main() {
       'list family@group.calendar.google.com answered',
     ], 'the requests');
     assertEq([r.waiting, r.timersLeft], [0, 0], 'requests still waiting, timers still pending');
+  });
+
+  await check('the range route\'s reads ask calendarList too, on the same client: with the cancel signal and the lists\' timeout; one still waiting when the read answers at the deadline is cancelled then, the read ok with no colours; without colours asked, no calendarList', async () => {
+    tokenBehaviour = 'answer';
+    listBehaviour = 'answer';
+    colourBehaviour = null;
+    const r = await read(6000, true);
+    assert(r.status.status === 'ok' && show(r.colours) === show({ 'gali@example.com': '#7bd148' }), `${show(r.status)} ${show(r.colours)}`);
+    assertEq(requests.map(q => `${q.what} ${q.timeout} ${q.ended}${q.signal ? '' : ' (no signal)'}`), [
+      'token 6000 answered',
+      'colours 5500 answered',
+      'list gali@example.com 5500 answered',
+      'list family@group.calendar.google.com 5500 answered',
+    ], 'the requests');
+    colourBehaviour = 'hang';
+    const late = await read(900, true);
+    colourBehaviour = null;
+    assert(late.status.status === 'ok' && late.colours === undefined, `${show(late.status)} ${show(late.colours)}`);
+    assert(late.ms >= 850 && late.ms < 1400, `answered after ${late.ms.toFixed(0)} ms`);
+    assertEq(requests.map(q => `${q.what} ${q.ended}`), ['token answered', 'colours aborted', 'list gali@example.com answered', 'list family@group.calendar.google.com answered'], 'the requests');
+    assertEq([late.waiting, late.timersLeft], [0, 0], 'requests still waiting, timers still pending');
+    const summary = await read(6000);
+    assert(!requests.some(q => q.what === 'colours') && summary.colours === undefined, `a summary asked: ${show(requests)}`);
   });
 
   await check('nothing reached the network', async () => {
