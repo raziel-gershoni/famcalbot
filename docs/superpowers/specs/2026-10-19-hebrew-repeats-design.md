@@ -67,7 +67,8 @@ Status: designed 2026-10-19 under the owner's delegation, then revised after an 
   - ru: "Каждый год 15 швата" and "Йорцайт, каждый год 15 швата".
 - **`RepeatChoice`** gains 'hebrew' | 'yahrzeit'. Create and PATCH accept them for FamCal targets only. For a Google key or a non-native `calendarId`, they return 400 invalid `repeat`.
 - **3b's end carry.** A switch between Gregorian yearly and Hebrew yearly (either way) carries a COUNT as the remaining COUNT (original minus slots before the cut, at least 1) instead of converting it to an UNTIL, because the dates shift by up to a month. A date UNTIL is carried unchanged.
-- **Edit info** reports the choice and the anchor. The sheet's repeat line uses the same words and names the kind.
+- **Edit info** reports the choice and the anchor. The item sheet's repeat tag (in place of the generic "Repeats"), like the editor's Repeat row, uses the same words and names the kind.
+- **Switching the kind** (birthday to yahrzeit or back) from an occurrence where the two kinds fall on different days (an Adar anchor in a leap year, a 30 Cheshvan or 30 Kislev year that rolled) is refused: the tail keeps the stored anchor, so its first day under the new kind is not the opened one. The store throws `NativeHebrewKindError` (a `NativeRuleError`), the route answers 400 invalid `repeatKind`, and the editor shows `editor.repeat.kindDay` in en/he/ru ("make the change from an occurrence where both fall on the same day") instead of "Couldn't save". The cut occurrence is never moved silently. From the first occurrence the whole series changes in place and the two kinds always agree there.
 - **Who sees the choices.** They show only with Hebrew dates. An item that already has a Hebrew rule shows its words to anyone who opens it.
 
 ## 5. Bot

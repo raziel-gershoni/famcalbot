@@ -31,6 +31,7 @@ import {
   hebrewSeriesOf,
   hebrewSlotMap,
   type HebrewRule,
+  NativeHebrewKindError,
   NativeRuleError,
   seriesTimesFor,
   shiftOnWall,
@@ -43,7 +44,7 @@ import {
   yieldsSlots,
 } from './recurrence';
 
-export { NativeRuleError, seriesTimesFor, followingTimesFor };
+export { NativeHebrewKindError, NativeRuleError, seriesTimesFor, followingTimesFor };
 
 export const NATIVE_CALENDAR_ID_PREFIX = 'native:';
 export const NATIVE_EVENT_INSTANCE_SEP = '#';
@@ -593,6 +594,12 @@ export async function isFirstOccurrence(series: NativeEvent, cut: Date): Promise
 function tailRule(series: NativeEvent, cut: Date, newStart: Date, newRule: string | undefined, pair: HebrewPair): string {
   const endsAt = new Date(newStart.getTime() + (series.endsAt.getTime() - series.startsAt.getTime()));
   const startsWith = (rule: string) => yieldsSlots({ ...series, ...pair, rrule: rule, startsAt: newStart, endsAt }, [newStart]).size > 0;
+  // The other Hebrew kind is why a rule has no occurrence at the start when the series' own kind has one.
+  const refuse = (rule: string): never => {
+    const otherKind = !!series.hebrewRule && !!pair.hebrewRule && series.hebrewRule !== pair.hebrewRule;
+    if (otherKind && yieldsSlots({ ...series, rrule: rule, startsAt: newStart, endsAt }, [newStart]).size > 0) throw new NativeHebrewKindError();
+    throw new NativeRuleError('The new repeat has no occurrence at its start');
+  };
   // The stored string with another kind keeps the series' own end: its COUNT, word for word, would start over in the tail.
   if (newRule !== undefined && newRule !== series.rrule) {
     const carried = endCarriedRule(newRule, series.rrule!, series, { cut, hebrewRule: pair.hebrewRule })!;
@@ -600,14 +607,14 @@ function tailRule(series: NativeEvent, cut: Date, newStart: Date, newRule: strin
     if (startsWith(carried)) return carried;
     const pushed = withUntilOnDayOf(carried, newStart, series.timeZone);
     if (startsWith(pushed)) return pushed;
-    throw new NativeRuleError('The new repeat has no occurrence at its start');
+    return refuse(pushed);
   }
   const shifted = shiftUntil(series.rrule!, cut, newStart, series.timeZone);
   const count = /(^|;)COUNT=(\d+)/i.exec(shifted);
   const rule = count ? withCount(shifted, Math.max(1, Number(count[2]) - slotsBefore({ ...series, rrule: series.rrule! }, cut))) : shifted;
   if (newRule !== undefined) {
     assertStorableRule(rule, pair.hebrewRule);
-    if (!startsWith(rule)) throw new NativeRuleError('The new repeat has no occurrence at its start');
+    if (!startsWith(rule)) return refuse(rule);
   }
   return rule;
 }

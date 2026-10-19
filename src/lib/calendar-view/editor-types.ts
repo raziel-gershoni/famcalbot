@@ -181,7 +181,8 @@ export interface DeleteItemBody {
 /**
  * What a write answers (private, no-store):
  * 200 { status: 'ok', key? }: key names the created or changed item when it lives on;
- * 400 { error: 'invalid', field } or { error: 'bad_request' } for a body that isn't JSON;
+ * 400 { error: 'invalid', field } (field 'repeatKind': the other Hebrew kind falls on another day than
+ * this occurrence, hebrew-repeats spec §4) or { error: 'bad_request' } for a body that isn't JSON;
  * 403 { error: 'not_allowed' }; 404 { error: 'not_found' }; 409 { error: 'changed' } (the
  * occurrence is gone); 500 { error: 'internal_error' }. Auth and the rate limit answer
  * 400/401/403/404/429 with { error } as every route does. 3b, a Google item: 403

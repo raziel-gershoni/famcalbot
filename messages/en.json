@@ -251,6 +251,7 @@
         "current": "{words} (current)",
         "currentPlain": "Current repeat",
         "until": "{rule}, until {date}",
+        "kindDay": "The other rule falls on a different day this year. Make the change from an occurrence where both fall on the same day.",
         "fromHere": "From {date} on. Earlier ones stay as they were.",
         "every": {
           "daily": "{count, plural, one {Every day} other {Every # days}}",

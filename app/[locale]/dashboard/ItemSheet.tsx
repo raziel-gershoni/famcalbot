@@ -39,6 +39,7 @@ import {
 } from '@/src/lib/calendar-view/format';
 import { openExternalLink } from '@/src/lib/telegram-ui';
 import { BottomSheet } from './BottomSheet';
+import { hebrewRepeatText, type HebrewRepeat } from './hebrew-repeat-words';
 import { PersonChip, ReminderIcon, useItemTitle } from './ItemRow';
 
 /** A calendar's colour is only an accent (Ruling R7), and only a plain hex one is drawn. */
@@ -70,6 +71,8 @@ export interface SheetActions {
   onAction: (action: ReminderActionName) => void;
   /** The viewer's editing rights on the open item, once known. */
   editing?: SheetEditing;
+  /** The open item's Hebrew-date repeat (its kind, interval and anchor), once its info is known: the repeat tag names it (hebrew-repeats spec §1, §4). */
+  hebrewRepeat?: HebrewRepeat;
 }
 
 export interface ItemSheetProps {
@@ -203,6 +206,7 @@ function useReminderState(item: ItemDTO, mark: AgendaRow['mark'], today: DayKey,
 
 export function ItemSheet({ row, today, tz, onClose, actions }: ItemSheetProps) {
   const t = useTranslations('calendarHome');
+  const locale = useLocale();
   const { item, whose } = row;
   // A reminder's state as it is now; a row's own mark is for its day's list.
   const mark = actions ? reminderStateAt(item, actions.now, tz) : row.mark;
@@ -214,7 +218,7 @@ export function ItemSheet({ row, today, tz, onClose, actions }: ItemSheetProps) 
   if (item.kind === 'reminder') tags.push(t('row.reminder'));
   if (item.birthday) tags.push(t('row.birthday'));
   if (item.repeatsDaily) tags.push(t('sheet.everyDay'));
-  else if (item.recurring) tags.push(t('sheet.repeats'));
+  else if (item.recurring) tags.push(actions?.hebrewRepeat ? hebrewRepeatText(t, locale, actions.hebrewRepeat) : t('sheet.repeats'));
 
   // A masked calendar (a partner's private one) has no id; the DTO puts the partner's name in its name,
   // which is blank when there is no partner. A blank name never reaches the sheet as an empty line.

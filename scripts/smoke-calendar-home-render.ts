@@ -6394,6 +6394,75 @@ async function main() {
     }
   });
 
+  await check('#104a edit: switching the Hebrew kind from an occurrence where the other kind falls on another day (the server answers 400 repeatKind) says why and what to do, not "Couldn\'t save"; changing the form clears it; the copy exists in en, he and ru, translated', async () => {
+    const a = await hebrewHome('en', true, { item: serveSwim(hebrewSwim('hebrew')), write: () => ({ status: 400, body: { error: 'invalid', field: 'repeatKind' } }) });
+    try {
+      await openEditor(a.m, 'Swimming');
+      await pick(a.m, 'Repeat', 'yahrzeit');
+      a.m.click(saveButton(a.m));
+      await settle();
+      assert(writes().length === 1 && writes()[0].body?.scope === 'following' && writes()[0].body?.changes?.repeat === 'yahrzeit', `sent: ${show(writes()[0]?.body)}`);
+      assert(alerts(a.m).includes(messages.en.calendarHome.editor.repeat.kindDay), `the kind note: ${show(alerts(a.m))}`);
+      assert(!alerts(a.m).includes('Couldn’t save. Try again.'), `not the generic text: ${show(alerts(a.m))}`);
+      await pick(a.m, 'Repeat', 'hebrew');
+      assert(!alerts(a.m).includes(messages.en.calendarHome.editor.repeat.kindDay), `a change clears it: ${show(alerts(a.m))}`);
+    } finally {
+      a.m.unmount();
+    }
+    for (const locale of LOCALES) {
+      const text = (messages[locale].calendarHome.editor.repeat as unknown as Record<string, string>).kindDay;
+      assert(typeof text === 'string' && text.length > 0, `${locale}: editor.repeat.kindDay exists`);
+      if (locale !== 'en') assert(text !== messages.en.calendarHome.editor.repeat.kindDay, `${locale}: editor.repeat.kindDay is translated`);
+    }
+  });
+
+  await check('#104b the item sheet names the kind (spec §1, §4): a Hebrew series says "Every year on 30 Cheshvan" or "Yahrzeit, every year on 30 Cheshvan" (the stored anchor, gematriya in Hebrew, every 2 years named) in place of the generic "Repeats", to a viewer who cannot edit too, with Hebrew dates off too; a Gregorian series keeps "Repeats"', async () => {
+    const WORDS: Record<Locale, Record<'hebrew' | 'yahrzeit', string>> = {
+      en: { hebrew: 'Every year on 30 Cheshvan', yahrzeit: 'Yahrzeit, every year on 30 Cheshvan' },
+      he: { hebrew: 'כל שנה בל׳ בחשון', yahrzeit: 'יארצייט, כל שנה בל׳ בחשון' },
+      ru: { hebrew: 'Каждый год 30 хешвана', yahrzeit: 'Йорцайт, каждый год 30 хешвана' },
+    };
+    const words = (locale: Locale, kind: 'hebrew' | 'yahrzeit'): string => WORDS[locale][kind];
+    for (const locale of LOCALES) {
+      for (const kind of ['hebrew', 'yahrzeit'] as const) {
+        const a = await hebrewHome(locale, true, { item: serveSwim(hebrewSwim(kind)) });
+        try {
+          await openItem(a.m, 'Swimming');
+          const text = topText(a.m);
+          assert(text.includes(words(locale, kind)), `${locale} ${kind}: ${show(text)} lacks ${show(words(locale, kind))}`);
+          assert(!text.includes(messages[locale].calendarHome.sheet.repeats), `${locale} ${kind}: the generic tag is gone: ${show(text)}`);
+        } finally {
+          a.m.unmount();
+        }
+      }
+    }
+    // Every 2 years, a viewer who cannot edit, Hebrew dates off: the words still show.
+    const viewer = { ...hebrewSwim('yahrzeit', { interval: 2 }), canEdit: false, canDelete: false };
+    const v = await hebrewHome('en', false, { item: serveSwim(viewer) });
+    try {
+      await openItem(v.m, 'Swimming');
+      assert(topText(v.m).includes('Yahrzeit, every 2 years on 30 Cheshvan') && !topText(v.m).includes('Repeats'), `viewer: ${show(topText(v.m))}`);
+    } finally {
+      v.m.unmount();
+    }
+    // A Gregorian series is unchanged.
+    const g = await hebrewHome('en', true, { item: serveSwim(swimSeries({ repeat: { freq: 'yearly', interval: 1, byDay: [], ends: false }, rule: { choice: 'yearly' } })) });
+    try {
+      await openItem(g.m, 'Swimming');
+      assert(topText(g.m).includes('Repeats') && !topText(g.m).includes('Every year on'), `yearly: ${show(topText(g.m))}`);
+    } finally {
+      g.m.unmount();
+    }
+    // Before the edit info arrives the generic tag stands.
+    const none = await hebrewHome('en', true, { item: () => ({ status: 404, body: {} }) });
+    try {
+      await openItem(none.m, 'Swimming');
+      assert(topText(none.m).includes('Repeats'), `no info: ${show(topText(none.m))}`);
+    } finally {
+      none.m.unmount();
+    }
+  });
+
   await check('#105 the Hebrew copy in en, he and ru: real text, no key left bare, and Hebrew and Russian translated, not copied', () => {
     for (const locale of LOCALES) {
       const l = messages[locale].calendarHome.editor.repeat as unknown as Record<string, string>;

@@ -406,6 +406,21 @@ export class NativeRuleError extends Error {
   }
 }
 
+/**
+ * A Hebrew series switched to the other Hebrew kind from an occurrence where the other kind
+ * has no occurrence (hebrew-repeats spec §4): the birthday and yahrzeit rules fall on
+ * different days in a leap year for an Adar anchor, and where a month is a day short. The
+ * tail keeps the stored anchor, so its first day under the new kind is another day than the
+ * opened one. The switch can be made from an occurrence where the two kinds agree. A rule
+ * error of its own so the home can say why, not just "Couldn't save".
+ */
+export class NativeHebrewKindError extends NativeRuleError {
+  constructor(message = 'The other Hebrew repeat falls on another day than this occurrence') {
+    super(message);
+    this.name = 'NativeHebrewKindError';
+  }
+}
+
 const RULE_PREFIX = 'RRULE:';
 const bare = (rule: string) => (rule.startsWith(RULE_PREFIX) ? rule.slice(RULE_PREFIX.length) : rule);
 const isYearlyRule = (rule: string) => /(^|;)FREQ=YEARLY(;|$)/i.test(bare(rule));

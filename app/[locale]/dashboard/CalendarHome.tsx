@@ -187,6 +187,8 @@ function saveOutcome(out: WriteOutcome): SaveOutcome {
     case 'ok':
       return { kind: 'ok' };
     case 'invalid':
+      // The other Hebrew kind falls on another day here (hebrew-repeats spec §4): the editor says so.
+      if (out.field === 'repeatKind') return { kind: 'error', error: 'failed', kindDay: true };
       return { kind: 'error', error: 'failed', ...(out.field && FIELD_OF[out.field] ? { field: FIELD_OF[out.field] } : {}) };
     case 'notAllowed':
       return { kind: 'error', error: 'notAllowed' };
@@ -739,6 +741,10 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     now: deps.now(),
     onAction: (action) => void runAction(action),
     editing,
+    // The sheet's repeat tag names a Hebrew rule's kind, to a viewer who can't edit too (hebrew-repeats spec §1).
+    hebrewRepeat: openInfo?.series.repeat?.hebrew
+      ? { kind: openInfo.series.repeat.hebrew.kind, count: openInfo.series.repeat.interval, anchor: openInfo.series.repeat.hebrew.anchor }
+      : undefined,
   };
 
   // A tab switch (Ruling 2): any sheet and the item sheet close; leaving browse keeps the

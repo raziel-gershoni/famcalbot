@@ -25,6 +25,7 @@ import {
   NativeNotFoundError,
   NativePermissionDeniedError,
   NativeRecipientError,
+  NativeHebrewKindError,
   NativeRuleError,
   NativeScopeError,
   createNativeEvent,
@@ -79,6 +80,9 @@ export function refusalOf(err: unknown): WriteResult | null {
   // 3b's series-level fields (spec §3.1): a rule the store won't keep, a scope that can't
   // carry the change, a recipient who can't be pinged, a calendar it can't move to (never
   // not_found: the item is still there).
+  // A Hebrew series switched to the other kind from an occurrence where that kind falls on
+  // another day (hebrew-repeats spec §4): the editor says so, and retrying can't work.
+  if (err instanceof NativeHebrewKindError) return { status: 'invalid', field: 'repeatKind' };
   if (err instanceof NativeRuleError) return { status: 'invalid', field: 'repeat' };
   if (err instanceof NativeScopeError) return { status: 'invalid', field: err.field };
   if (err instanceof NativeRecipientError) return { status: 'invalid', field: 'forPartner' };

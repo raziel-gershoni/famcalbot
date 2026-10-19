@@ -58,13 +58,16 @@ import {
 } from '@/src/lib/calendar-view/editor-model';
 import type { EditScope, EditorCalendar, ItemEditInfoResponse, ItemKind, RepeatChoice, RuleChoice } from '@/src/lib/calendar-view/editor-types';
 import { formatDayMonth } from '@/src/lib/calendar-view/format';
-import { hebrewDayLabel } from '@/src/lib/calendar-view/hebrew-date';
 import { BottomSheet } from './BottomSheet';
+import { hebrewLabelOf, hebrewRepeatText } from './hebrew-repeat-words';
 import { FORM_CSS, FormCard, PillRow, RadioPair, SaveBar, Segmented, SwitchRow, TextField, ValueRow, type SelectOption } from './form-kit';
 import { ConfirmSheet, ScopeSheet, useErrorText, type SubmitError } from './ScopeSheet';
 
 /** What the container's request came to. On `ok` the container closes the editor. */
-export type SaveOutcome = { kind: 'ok' } | { kind: 'error'; error: SubmitError; field?: FieldName };
+export type SaveOutcome =
+  | { kind: 'ok' }
+  // `kindDay`: the server refused the other Hebrew kind from this occurrence (it falls on another day there): a note, not "Couldn't save".
+  | { kind: 'error'; error: SubmitError; field?: FieldName; kindDay?: true };
 
 export interface EditorSheetProps {
   mode: 'create' | 'edit';
@@ -85,6 +88,9 @@ export interface EditorSheetProps {
   cancelRef: MutableRefObject<(() => void) | null>;
 }
 
+/** The copy of each inline note under the Save button. */
+const INLINE_NOTE_KEY = { dayMove: 'scope.dayMoveNote', dayMoveAlone: 'editor.dayMoveAlone', kindDay: 'editor.repeat.kindDay' } as const;
+
 const REPEATS: RepeatChoice[] = ['none', 'daily', 'weekly', 'monthly', 'yearly'];
 
 export function EditorSheet({ mode, initial, kinds, calendars = [], partner, hebrewDates = false, info, itemKey, onSave, onClose, cancelRef }: EditorSheetProps) {
@@ -99,7 +105,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   const [scopeOpen, setScopeOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
   /** The inline line Save shows when it can't save as it is (a day move beside a calendar or recipient change). */
-  const [inlineNote, setInlineNote] = useState<'dayMoveAlone' | 'dayMove' | null>(null);
+  const [inlineNote, setInlineNote] = useState<'dayMoveAlone' | 'dayMove' | 'kindDay' | null>(null);
   const errorText = useErrorText(error);
   /** The last real start day: the repeat choices keep their words while a date is being typed. */
   const [lastDay, setLastDay] = useState(isRealDay(initial.startDay) ? initial.startDay : '');
@@ -155,6 +161,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
       // A refused day move for more than this one: the rule fixes the days (it changed after
       // the sheet opened, so the choices offered it), and retrying would fail the same way.
       if (edit && info && outcome.field === 'start' && scope !== 'single' && movesDay(form, start, info.tz, info.series.zone)) setInlineNote('dayMove');
+      else if (outcome.kindDay) setInlineNote('kindDay');
       else setError(outcome.error);
       if (outcome.field) setServerField(outcome.field);
     }
@@ -186,8 +193,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   const stored: RuleChoice = edit && info ? storedChoice(info) : 'none';
   const untilDay = edit && info ? (info.series.rule?.until ?? null) : null;
   /** The Hebrew date of a day, in the language's own form (gematriya in Hebrew); Russian reads its month genitives. */
-  const genitive = locale === 'ru' ? (t.raw('hebrewMonthGenitive') as string[]) : undefined;
-  const hebrewLabel = (d: string): string => (d ? hebrewDayLabel(d, locale, genitive) : '');
+  const hebrewLabel = (d: string): string => hebrewLabelOf(t, locale, d);
   const wordsOf = (w: RepeatWords): string | null => {
     switch (w.key) {
       case 'daily':
@@ -202,10 +208,8 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
         return t('editor.repeat.monthlyPlain');
       case 'yearly':
         return t('editor.repeat.yearlyPlain');
-      case 'hebrewEvery': {
-        const when = hebrewLabel(w.anchor);
-        return when ? t(w.kind === 'yahrzeit' ? 'editor.repeat.yahrzeitEvery' : 'editor.repeat.hebrewEvery', { count: w.count, date: when }) : t('editor.repeat.every.yearly', { count: w.count });
-      }
+      case 'hebrewEvery':
+        return hebrewRepeatText(t, locale, w);
       default:
         return null;
     }
@@ -394,7 +398,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
             {edit && info?.forName && partnerName === null ? <p className="ch-form-fixed">{t('editor.forName', { name: info.forName })}</p> : null}
           </div>
         </div>
-        <SaveBar label={t('editor.save')} busy={saving} error={errorText ?? (inlineNote ? t(inlineNote === 'dayMove' ? 'scope.dayMoveNote' : 'editor.dayMoveAlone') : null)} onSave={save} />
+        <SaveBar label={t('editor.save')} busy={saving} error={errorText ?? (inlineNote ? t(INLINE_NOTE_KEY[inlineNote]) : null)} onSave={save} />
       </BottomSheet>
       {scopeOpen && info && itemKey ? (
         <ScopeSheet

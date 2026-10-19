@@ -2229,7 +2229,7 @@ async function main() {
     const early = hebrewSeries('heb-e');
     // 5789: the birthday is 1 Kislev (2028-11-19), the yahrzeit 29 Cheshvan (2028-11-18), before the cut.
     const e = await thrownBy(() => update(early.id, '2028-11-19', { hebrewRule: 'yahrzeit' }));
-    assertSame([e instanceof rec.NativeRuleError, tables.nativeEvent.length, eventRow(early.id).rrule], [true, 1, 'FREQ=YEARLY'], 'the other kind with no occurrence at the cut: refused, nothing written');
+    assertSame([e instanceof rec.NativeHebrewKindError, tables.nativeEvent.length, eventRow(early.id).rrule], [true, 1, 'FREQ=YEARLY'], 'the other kind with no occurrence at the cut: refused, nothing written');
     seed();
     const one = seedSeries('one', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Bar mitzvah', startsAt: at('2026-02-02 10:00') });
     await store.updateNativeEvent({ seriesCuid: one.id, scope: 'all', actingUserId: TAL, rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', startsAt: at('2026-02-03 10:00'), endsAt: at('2026-02-03 11:00') });
@@ -2321,6 +2321,32 @@ async function main() {
     const rem = hebrewSeries('heb-rem', { kind: 'REMINDER', title: 'Light a candle' });
     const remKind = await patch({ key: rem.occ('2026-11-10'), scope: 'following', changes: { repeat: 'yahrzeit' } });
     assertSame([remKind.status, pairOf(lastEvent())], [200, ['FREQ=YEARLY', 'yahrzeit', '2022-11-24']], 'a reminder too');
+  });
+
+  await check('H2 edit: switching the Hebrew kind from an occurrence where the two kinds fall on different days (an Adar anchor in a leap year) is refused with its own field (repeatKind), nothing written; from one where they agree it works', async () => {
+    seed();
+    // 10 Adar 5785 (a common year). Anniversary days 2025-03-10, 2026-02-27, 2027-03-19 (Adar II 5787), 2028-03-08;
+    // yahrzeit days 2025-03-10, 2026-02-27, 2027-02-17 (Adar I 5787), 2028-03-08.
+    const adar = hebrewSeries('adar', { startsAt: at('2025-03-10 10:00'), hebrewAnchor: '2025-03-10' });
+    assertSame(await daysOf(adar.id, '2025-01-01', '2029-01-01'), ['2025-03-10', '2026-02-27', '2027-03-19', '2028-03-08'], 'the anniversary days');
+    const refused = await patch({ key: adar.occ('2027-03-19'), scope: 'following', changes: { repeat: 'yahrzeit' } });
+    assertSame([refused.status, refused.body, tables.nativeEvent.length, pairOf(eventRow(adar.id))], [400, { error: 'invalid', field: 'repeatKind' }, 1, ['FREQ=YEARLY', 'anniversary', '2025-03-10']], 'a leap-year Adar II occurrence to yahrzeit');
+    const e = await thrownBy(() => store.updateNativeEvent({ seriesCuid: adar.id, instanceStartsAt: at('2027-03-19 10:00'), scope: 'following', actingUserId: TAL, hebrewRule: 'yahrzeit' }));
+    assertSame([e instanceof rec.NativeHebrewKindError, e instanceof rec.NativeRuleError], [true, true], 'its own error, still a rule error');
+    const agree = await patch({ key: adar.occ('2026-02-27'), scope: 'following', changes: { repeat: 'yahrzeit' } });
+    assertSame([agree.status, pairOf(lastEvent())], [200, ['FREQ=YEARLY', 'yahrzeit', '2025-03-10']], 'a common-year occurrence, where they agree');
+    seed();
+    const yz = hebrewSeries('adar-y', { startsAt: at('2025-03-10 10:00'), hebrewAnchor: '2025-03-10', hebrewRule: 'yahrzeit' });
+    const back = await patch({ key: yz.occ('2027-02-17'), scope: 'following', changes: { repeat: 'hebrew' } });
+    assertSame([back.status, back.body, tables.nativeEvent.length], [400, { error: 'invalid', field: 'repeatKind' }, 1], 'yahrzeit to birthday from its leap-year Adar I day');
+    seed();
+    const other = hebrewSeries('heb-bad');
+    const gone = await patch({ key: other.occ('2028-11-19'), scope: 'following', changes: { repeat: 'yahrzeit' } });
+    assertSame([gone.status, gone.body], [400, { error: 'invalid', field: 'repeatKind' }], 'a rolled 1 Kislev: the yahrzeit is the day before');
+    seed();
+    const moved = hebrewSeries('adar-m', { startsAt: at('2025-03-10 10:00'), hebrewAnchor: '2025-03-10' });
+    const withDay = await patch({ key: moved.occ('2027-03-19'), scope: 'following', changes: { repeat: 'yahrzeit', start: '2027-03-19T10:00', end: '2027-03-19T11:00' } });
+    assertSame(withDay.status, 400, 'an unchanged start restated is not a day move');
   });
 
   await check('H2 edit: a COUNT carried between Gregorian yearly, Hebrew yearly and the other kind is the remaining COUNT, an UNTIL is kept; the other frequencies still turn a COUNT into its last day', async () => {
