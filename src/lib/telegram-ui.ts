@@ -203,8 +203,11 @@ export function applyTelegramColours(): void {
  */
 export function useTelegramTheme(): ColorScheme {
   useEffect(() => {
-    applyTelegramColours();
-    return onTelegramEvent('themeChanged', applyTelegramColours);
+    // Its own handler: the SDK keys handlers by function, so a shared one would be
+    // registered once and the first unmount would remove it for every other user.
+    const apply = () => applyTelegramColours();
+    apply();
+    return onTelegramEvent('themeChanged', apply);
   }, []);
   return useSyncExternalStore(subscribeColorScheme, colorSchemeNow, serverColorScheme);
 }

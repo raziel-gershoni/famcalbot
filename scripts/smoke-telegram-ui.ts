@@ -417,6 +417,24 @@ async function main() {
     });
   });
 
+  await check('#8b theme: two mounted users register their own handlers; the first unmount leaves the other re-applying the colours', async () => {
+    await ui();
+    const tg = fakeTelegram({ version: '8.0' });
+    await withEnv({ webApp: tg.webApp }, () => {
+      const a = mount(React.createElement(ThemeProbe, { seen: [] }));
+      const b = mount(React.createElement(ThemeProbe, { seen: [] }));
+      assert(tg.count('themeChanged') === 4, `${tg.count('themeChanged')} themeChanged handlers for two users (colours + scheme each)`);
+      a.unmount();
+      assert(tg.count('themeChanged') === 2, `${tg.count('themeChanged')} handlers after one unmount`);
+      const before = tg.calls.filter(c => c.startsWith('set')).length;
+      act(() => tg.fire('themeChanged'));
+      const after = tg.calls.filter(c => c.startsWith('set')).slice(before);
+      assert(show(after) === show(['setHeaderColor(bg_color)', 'setBackgroundColor(bg_color)']), `after the first unmount: ${show(after)}`);
+      b.unmount();
+      assert(tg.count('themeChanged') === 0, `${tg.count('themeChanged')} handlers left`);
+    });
+  });
+
   await check('#9 theme on a 6.0 client: no colour call (the scheme still follows colorScheme); a setHeaderColor that throws still lets setBackgroundColor run', async () => {
     await ui();
     const old = fakeTelegram({ version: '6.0', colorScheme: 'dark' });
