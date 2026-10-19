@@ -585,6 +585,30 @@ async function main() {
     }
   });
 
+  await check('asking whether an edit would be refused as a fixed-days move (the bot asks before its card) agrees with the write and writes nothing: Thursday for every Wednesday is refused, a new time or one occurrence is not, a rule that follows its start is not, and a gone series is not', async () => {
+    reset();
+    seedEvent('cls', { calendarId: 'raziel', creatorUserId: 1, title: 'Class', startsAt: at('2026-10-05 10:00'), rrule: 'FREQ=WEEKLY;BYDAY=MO,WE' });
+    seedEvent('open', { calendarId: 'raziel', creatorUserId: 1, title: 'Swim', startsAt: at('2026-10-06 10:00'), rrule: 'FREQ=WEEKLY' });
+    const before = JSON.stringify([tables.nativeEvent, tables.nativeEventInstance]);
+    const wed = at('2026-10-14 10:00');
+    const asks = (seriesCuid: string, scope: 'single' | 'all' | 'following', startsAt: Date, instanceStartsAt = wed) =>
+      store.refusesFixedDays({ seriesCuid, instanceStartsAt, scope, actingUserId: 1, occurrenceTimes: true, startsAt, endsAt: new Date(startsAt.getTime() + 3_600_000) });
+    for (const scope of ['all', 'following'] as const) {
+      assert(await asks('cls', scope, at('2026-10-15 10:00')), `${scope}: Thursday for every Wednesday`);
+      assert(!(await asks('cls', scope, at('2026-10-14 11:00'))), `${scope}: a new time of day`);
+    }
+    assert(!(await asks('cls', 'single', at('2026-10-15 10:00'))), 'one occurrence');
+    assert(!(await asks('open', 'all', at('2026-10-14 10:00'), at('2026-10-13 10:00'))), 'a rule that follows its start');
+    assert(!(await asks('missing', 'all', at('2026-10-15 10:00'))), 'a series that is gone');
+    assert(JSON.stringify([tables.nativeEvent, tables.nativeEventInstance]) === before, 'asking wrote');
+    const asked = await nativeProvider.updateEvent(tables.user[0] as never, 'native:raziel', encodeEventId('cls', wed), { startTime: at('2026-10-15 10:00'), endTime: at('2026-10-15 11:00'), scope: 'all' });
+    assert(!asked.success && asked.error === 'FIXED_DAYS', 'the write agrees');
+    const { wouldRefuseFixedDays } = await import('../src/services/calendar-provider/native-provider');
+    const thursday = { startTime: at('2026-10-15 10:00'), endTime: at('2026-10-15 11:00'), scope: 'all' as const };
+    assert(await wouldRefuseFixedDays(tables.user[0] as never, 'native:raziel', encodeEventId('cls', wed), thursday), 'the provider asks for the bot');
+    assert(!(await wouldRefuseFixedDays(tables.user[0] as never, 'primary', 'x', thursday)), 'another calendar is not asked');
+  });
+
   await check('this and the ones after, from an occurrence moved on its own to another day: a new time starts the new series on the rule\'s day (the slot\'s), not the day it was moved to; on a rule that follows its start, a new day starts it on the date entered, for the bot too', async () => {
     reset();
     seedEvent('cls', { calendarId: 'raziel', creatorUserId: 1, title: 'Class', startsAt: at('2026-10-05 10:00'), rrule: 'FREQ=WEEKLY;BYDAY=MO,WE', exdates: [at('2026-10-19 10:00')] });

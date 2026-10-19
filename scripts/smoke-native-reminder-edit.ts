@@ -178,6 +178,10 @@ const fakePing = {
   },
 };
 
+/** Whether the store would refuse an edit as a day move on fixed days, and the edits it was asked about. */
+let storeRefuses = false;
+const refusalAsked: object[] = [];
+
 /** What the native event store's update answers (for the provider's own check). */
 let storeUpdate = { canonicalEventId: 'r1', clearedPings: [] as Array<{ chatId: bigint; messageId: number }> };
 
@@ -234,6 +238,10 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   }),
   [`${SRC}/services/native-calendar/event-store.ts`]: real => fakeOver(real, {
     updateNativeEvent: async () => storeUpdate,
+    refusesFixedDays: async (input: object) => {
+      refusalAsked.push(input);
+      return storeRefuses;
+    },
   }),
 };
 
@@ -288,13 +296,15 @@ function reset() {
   updateResult = { success: true };
   deleteResult = { success: true };
   storeUpdate = { canonicalEventId: 'r1', clearedPings: [] };
+  storeRefuses = false;
+  refusalAsked.length = 0;
 }
 
 async function main() {
   const {
     collapseReminderSeries, describeEventForMatching, findMatchingEvent, buildMatchPrompt, isLastCreatedEvent,
   } = await import('../src/services/voice/event-resolution');
-  const { handleDeleteIntent } = await import('../src/services/voice/handler');
+  const { handleDeleteIntent, handleEditIntent } = await import('../src/services/voice/handler');
   const { handleEventCallback, handleEditCallback, handleDeleteCallback } = await import('../src/services/voice/callbacks');
   const { nativeProvider } = await import('../src/services/calendar-provider/native-provider');
   const { getBotMessages } = await import('../src/lib/bot-messages');
@@ -474,6 +484,44 @@ async function main() {
     const [en, he, ru] = await Promise.all(['en', 'he', 'ru'].map((l) => getBotMessages(l)));
     assert(en.voice.fixedDaysMove === 'To move all of them to another day, delete the series and create it again.', `en: ${en.voice.fixedDaysMove}`);
     assert(/[\u0590-\u05FF]/.test(he.voice.fixedDaysMove) && /[\u0400-\u04FF]/.test(ru.voice.fixedDaysMove), 'he and ru are translated');
+  });
+
+  await check('a day move for every one, or this and the ones after, of a series on set weekdays is answered when it is asked for, before any card: the way to do it, in the user\'s language; the same words for one occurrence, or for a series that follows its start, bring the card as before', async () => {
+    const swim = { ...event('Swimming', '2026-10-20T14:00:00.000Z', '2026-10-20T15:00:00.000Z'), calendarId: 'native:c1', eventId: 'sw1#2026-10-20T14:00:00.000Z', recurringEventId: 'sw1' };
+    const ask = async (by: UserConfig, scope: 'single' | 'all' | 'following', item: UnifiedEvent = swim as UnifiedEvent) => {
+      calendar = [item];
+      await fakeRedis.set(REDIS_KEYS.lastCreatedEvent(by.telegramId as number), {
+        eventId: item.eventId, calendarId: 'native:c1', title: item.summary, startTime: item.start, endTime: item.end, createdAt: NOW,
+      });
+      const intent = { intent: 'edit', confidence: 'high', scope, eventReference: { type: 'last_created' }, editRequest: { newStartDate: '2026-10-21' } } as unknown as VoiceIntentResult;
+      await handleEditIntent(by.telegramId as number, undefined, intent, 'move swimming to wednesday', by, await getBotMessages(by.language ?? 'en'));
+    };
+    const cardsSent = () => sent.filter(s => JSON.stringify(s.options?.reply_markup ?? '').includes('edit_confirm'));
+    for (const [by, lang] of [[raziel, 'en'], [dana, 'ru']] as const) {
+      for (const scope of ['all', 'following'] as const) {
+        reset();
+        storeRefuses = true;
+        await ask(by, scope);
+        const t = await getBotMessages(lang);
+        assert(sent.length === 1 && sent[0].text === t.voice.fixedDaysMove && cardsSent().length === 0, `${lang} ${scope}: ${JSON.stringify(sent)}`);
+        assert(refusalAsked.length === 1 && JSON.stringify(refusalAsked[0]).includes(`"scope":"${scope}"`), `asked ${JSON.stringify(refusalAsked)}`);
+        assert([...store.keys()].every(k => !k.startsWith('voice:pending:edit:')), 'a pending edit was stored');
+      }
+    }
+    // One occurrence: the store is not asked, the card comes.
+    reset();
+    storeRefuses = true;
+    await ask(raziel, 'single');
+    assert((refusalAsked.length as number) === 0 && cardsSent().length === 1, `single: asked ${refusalAsked.length}, cards ${cardsSent().length}`);
+    // A move the store would allow: the card comes, with the scope on it.
+    reset();
+    await ask(raziel, 'all');
+    assert(refusalAsked.length === 1 && cardsSent().length === 1, `allowed: asked ${refusalAsked.length}, cards ${cardsSent().length}`);
+    // A one-off event has no series to refuse.
+    reset();
+    storeRefuses = true;
+    await ask(raziel, 'all', event('Dentist', '2026-10-20T14:00:00.000Z', '2026-10-20T15:00:00.000Z', { calendarId: 'native:c1', eventId: 'den1' }));
+    assert((refusalAsked.length as number) === 0 && cardsSent().length === 1, `one-off: asked ${refusalAsked.length}`);
   });
 
   await check('a moved reminder\'s pings say where it went, in their reader\'s language and clock, without buttons', async () => {

@@ -36,7 +36,9 @@ import {
   fetchRemindersForUserInRange,
   isNativeCalendarId,
   listVisibleCalendars,
+  refusesFixedDays,
   updateNativeEvent,
+  type UpdateNativeEventInput,
   UpdateScope,
 } from '../native-calendar/event-store';
 import { effectiveOwnerForViewer, loadViewerContext, ViewerContext } from '../native-reminders/ownership';
@@ -248,6 +250,38 @@ function mapScope(s?: 'single' | 'all' | 'following'): UpdateScope {
   return s ?? 'single';
 }
 
+/** What the store is asked for an edit of the bot's: the times are those of the occurrence it was told about. */
+function updateInput(user: UserConfig, eventId: string, data: UpdateEventInput): UpdateNativeEventInput {
+  const { seriesCuid, instanceStartsAt } = decodeEventId(eventId);
+  return {
+    seriesCuid,
+    instanceStartsAt: data.instanceStartsAt ?? instanceStartsAt,
+    scope: mapScope(data.scope),
+    actingUserId: user.id,
+    // For 'all' the store moves the series by as much as that occurrence moved.
+    occurrenceTimes: true,
+    title: data.title,
+    description: data.description,
+    location: data.location,
+    startsAt: data.startTime,
+    endsAt: data.endTime,
+    allDay: data.allDay,
+  };
+}
+
+/**
+ * Whether `updateEvent` would refuse this edit as a day move for a series on set days
+ * (FIXED_DAYS), asked before the confirmation card. False for any other calendar.
+ */
+export async function wouldRefuseFixedDays(user: UserConfig, calendarId: string, eventId: string, data: UpdateEventInput): Promise<boolean> {
+  if (!isNativeCalendarId(calendarId)) return false;
+  try {
+    return await refusesFixedDays(updateInput(user, eventId, data));
+  } catch {
+    return false;
+  }
+}
+
 export const nativeProvider: CalendarProvider = {
   name: PROVIDER_NAME,
 
@@ -322,22 +356,7 @@ export const nativeProvider: CalendarProvider = {
       return { success: false, error: 'NOT_FOUND', errorMessage: `Not a native calendar id: ${calendarId}` };
     }
     try {
-      const { seriesCuid, instanceStartsAt } = decodeEventId(eventId);
-      const occ = data.instanceStartsAt ?? instanceStartsAt;
-      const result = await updateNativeEvent({
-        seriesCuid,
-        instanceStartsAt: occ,
-        scope: mapScope(data.scope),
-        actingUserId: user.id,
-        // The bot's times are the occurrence's it was told about; for 'all' the store moves the series by as much.
-        occurrenceTimes: true,
-        title: data.title,
-        description: data.description,
-        location: data.location,
-        startsAt: data.startTime,
-        endsAt: data.endTime,
-        allDay: data.allDay,
-      });
+      const result = await updateNativeEvent(updateInput(user, eventId, data));
       return {
         success: true,
         eventId: result.canonicalEventId,

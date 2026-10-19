@@ -528,6 +528,17 @@ function movesFixedDays(series: NativeEvent, input: UpdateNativeEventInput): boo
 }
 
 /**
+ * Whether `updateNativeEvent` would refuse this edit as a day move on a rule with fixed
+ * days, asked without writing anything (the bot asks before its confirmation card). False
+ * for anything it would refuse otherwise, or answer another way.
+ */
+export async function refusesFixedDays(given: UpdateNativeEventInput): Promise<boolean> {
+  const series = await prisma.nativeEvent.findUnique({ where: { id: given.seriesCuid } });
+  if (!series || series.isDeleted || !fixesDays(series.rrule)) return false;
+  return movesFixedDays(series, await ownTimes(series, given));
+}
+
+/**
  * A series' exdates (from `since`, if given) where its occurrences went (`slotOf`), kept
  * only where `shape` (the series as it will be) still has an occurrence.
  */

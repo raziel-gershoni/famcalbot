@@ -132,6 +132,19 @@ export async function handleEditIntent(
   const timezone = await resolveUserTimezone(user);
   const updates = convertEditRequestToUpdates(intentResult.editRequest, targetEvent, timezone);
 
+  // A series on set weekdays can't have its days moved for more than one occurrence: say so
+  // now, not after a card the user would confirm for nothing.
+  if ((intentResult.scope === 'all' || intentResult.scope === 'following') && targetEvent.recurringEventId && targetEvent.eventId) {
+    const { wouldRefuseFixedDays } = await import('../calendar-provider/native-provider');
+    if (await wouldRefuseFixedDays(user, targetCalendarId, targetEvent.eventId, { ...updates, scope: intentResult.scope, recurringEventId: targetEvent.recurringEventId })) {
+      await messagingService.sendMessage(chatId,
+        t.voice?.fixedDaysMove || 'To move all of them to another day, delete the series and create it again.',
+        { format: MessageFormat.HTML }
+      );
+      return;
+    }
+  }
+
   await showEditConfirmation(chatId, messageId, targetEvent, targetCalendarId, updates, transcription, user, intentResult.scope, adminFooter);
 }
 
