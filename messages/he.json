@@ -253,20 +253,6 @@
           "yearly": "{count, plural, one {כל שנה} two {כל שנתיים} other {כל # שנים}}"
         }
       },
-      "repeats": {
-        "daily": "חזרה: כל יום",
-        "weekday": "חזרה: כל {weekday, select, sun {יום ראשון} mon {יום שני} tue {יום שלישי} wed {יום רביעי} thu {יום חמישי} fri {יום שישי} sat {שבת} other {}}",
-        "weekly": "חזרה: כל שבוע",
-        "monthly": "חזרה: כל חודש",
-        "yearly": "חזרה: כל שנה",
-        "other": "חלק מסדרה חוזרת",
-        "interval": {
-          "daily": "{count, plural, one {חזרה: כל יום} two {חזרה: כל יומיים} other {חזרה: כל # ימים}}",
-          "weekly": "{count, plural, one {חזרה: כל שבוע} two {חזרה: כל שבועיים} other {חזרה: כל # שבועות}}",
-          "monthly": "{count, plural, one {חזרה: כל חודש} two {חזרה: כל חודשיים} other {חזרה: כל # חודשים}}",
-          "yearly": "{count, plural, one {חזרה: כל שנה} two {חזרה: כל שנתיים} other {חזרה: כל # שנים}}"
-        }
-      },
       "calendar": "יומן",
       "dayMoveAlone": "כדאי לשמור קודם את שינוי היום בנפרד.",
       "partnerCalendar": "{calendar} · {name}",

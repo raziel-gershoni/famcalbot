@@ -253,20 +253,6 @@
           "yearly": "{count, plural, one {Every year} other {Every # years}}"
         }
       },
-      "repeats": {
-        "daily": "Repeats every day",
-        "weekday": "Repeats every {weekday, select, sun {Sunday} mon {Monday} tue {Tuesday} wed {Wednesday} thu {Thursday} fri {Friday} sat {Saturday} other {}}",
-        "weekly": "Repeats every week",
-        "monthly": "Repeats every month",
-        "yearly": "Repeats every year",
-        "other": "Part of a repeating series",
-        "interval": {
-          "daily": "{count, plural, one {Repeats every day} other {Repeats every # days}}",
-          "weekly": "{count, plural, one {Repeats every week} other {Repeats every # weeks}}",
-          "monthly": "{count, plural, one {Repeats every month} other {Repeats every # months}}",
-          "yearly": "{count, plural, one {Repeats every year} other {Repeats every # years}}"
-        }
-      },
       "calendar": "Calendar",
       "dayMoveAlone": "Save the day change on its own first.",
       "partnerCalendar": "{calendar} · {name}",
