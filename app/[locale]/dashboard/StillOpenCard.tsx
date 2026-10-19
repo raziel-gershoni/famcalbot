@@ -5,7 +5,7 @@
 // row says since when it is open, and who set it when that wasn't the viewer ("From
 // Noa"), or whom the viewer set it for ("For Noa"). A tap opens the item sheet.
 
-import { useState } from 'react';
+import { useEffect, useRef, useState, type Ref } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import type { AgendaRow, StillOpenCard as StillOpenModel, StillOpenRow } from '@/src/lib/calendar-view/agenda';
 import type { DayKey } from '@/src/lib/calendar-view/types';
@@ -33,13 +33,13 @@ function useSinceText(row: StillOpenRow, today: DayKey, tz: string): string {
   return t('stillOpen.sinceDate', { date: formatDayMonth(row.since, locale) });
 }
 
-function OpenRow({ row, today, tz, onOpen }: { row: StillOpenRow } & Omit<StillOpenCardProps, 'card'>) {
+function OpenRow({ row, today, tz, onOpen, buttonRef }: { row: StillOpenRow; buttonRef?: Ref<HTMLButtonElement> } & Omit<StillOpenCardProps, 'card'>) {
   const title = useItemTitle(row.item);
   const since = useSinceText(row, today, tz);
   const mark = row.mark ?? 'open';
   return (
     <li className="ch-row-li">
-      <button type="button" className="ch-row ch-tap ch-row-open" onClick={() => onOpen(row)}>
+      <button ref={buttonRef} type="button" className="ch-row ch-tap ch-row-open" onClick={() => onOpen(row)}>
         <CalendarStripe color={row.item.calendar.color} mine={row.whose.mine} />
         <span className="ch-body">
           <span className="ch-title-line">
@@ -61,6 +61,11 @@ function OpenRow({ row, today, tz, onOpen }: { row: StillOpenRow } & Omit<StillO
 export function StillOpenCard({ card, today, tz, onOpen }: StillOpenCardProps) {
   const t = useTranslations('calendarHome');
   const [expanded, setExpanded] = useState(false);
+  // "N more" goes away when it is pressed; focus moves to the first row it revealed
+  const firstRevealed = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (expanded) firstRevealed.current?.focus({ preventScroll: true });
+  }, [expanded]);
   const rows = expanded ? [...card.shown, ...card.more] : card.shown;
   const total = card.shown.length + card.more.length;
   return (
@@ -72,8 +77,8 @@ export function StillOpenCard({ card, today, tz, onOpen }: StillOpenCardProps) {
         <span className="ch-card-count">{t('stillOpen.count', { count: total })}</span>
       </div>
       <ul className="ch-list" role="list">
-        {rows.map((row) => (
-          <OpenRow key={row.item.key} row={row} today={today} tz={tz} onOpen={onOpen} />
+        {rows.map((row, i) => (
+          <OpenRow key={row.item.key} row={row} today={today} tz={tz} onOpen={onOpen} buttonRef={i === card.shown.length ? firstRevealed : undefined} />
         ))}
       </ul>
       {!expanded && card.more.length > 0 ? (

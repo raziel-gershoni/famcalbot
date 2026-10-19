@@ -78,6 +78,9 @@ import CalendarHome, { CalendarHomeContainer, HOME_TOP_CSS, NOT_ENABLED_RELOAD_K
 import { AgendaView, AGENDA_CSS, type AgendaViewProps } from '../app/[locale]/dashboard/AgendaView';
 import { ItemSheet } from '../app/[locale]/dashboard/ItemSheet';
 import { BottomSheet } from '../app/[locale]/dashboard/BottomSheet';
+
+/** BottomSheet with its children passed as createElement arguments (the lint rule forbids the prop). */
+const SheetProbe = BottomSheet as unknown as (props: Omit<ComponentProps<typeof BottomSheet>, 'children'>) => ReactElement;
 import { HOME_THEME_CSS } from '../app/[locale]/dashboard/home-theme';
 import fs from 'fs';
 import path from 'path';
@@ -1542,7 +1545,10 @@ async function main() {
       assert(byClass(card, 'ch-row-li').length === 5, '5 shown');
       const more = button(card, 'Ещё 3');
       assert(more.getAttribute('aria-expanded') === 'false', 'aria-expanded');
+      assert(!byClass(card, 'ch-row-li').some((li) => elements(li).includes(fakeDocument.activeElement as FakeElement)), 'no row has focus before the tap');
       c.click(more);
+      const sixth = elements(byClass(card, 'ch-row-li')[5]).find((e) => e.localName === 'button');
+      assert(sixth && fakeDocument.activeElement === sixth, `focus goes to the first revealed row, not the body: ${String((fakeDocument.activeElement as FakeElement)?.textContent)}`);
       assert(byClass(card, 'ch-row-li').length === 8, `all 8 after "Ещё 3": ${byClass(card, 'ch-row-li').length}`);
       assert(!card.textContent.includes('Ещё 3'), 'the button is gone');
     } finally {
@@ -3342,7 +3348,7 @@ async function main() {
   await check('#59b the sheet\'s Tab loop is the tabbable selector: a disabled button, a hidden input and a tabindex=-1 element are skipped; a tabindex=0 div and a link with an href are in', () => {
     resetHome();
     const m = mount(
-      createElement(BottomSheet, { label: 'Probe', closeLabel: 'Close', onClose: noop }, [
+      createElement(SheetProbe, { label: 'Probe', closeLabel: 'Close', onClose: noop }, [
         createElement('button', { key: 'd', disabled: true }, 'Disabled'),
         createElement('input', { key: 'h', type: 'hidden' }),
         createElement('div', { key: 'n', tabIndex: -1 }, 'Skipped'),
@@ -3373,7 +3379,7 @@ async function main() {
   await check('#59c two sheets at once: only the top one traps focus and answers an outside Escape (no ping-pong); when it goes, the lower one\'s trap works again', () => {
     resetHome();
     const closed: string[] = [];
-    const sheet = (label: string) => createElement(BottomSheet, { label, closeLabel: 'Close', onClose: () => closed.push(label) }, createElement('button', { type: 'button' }, `In ${label}`));
+    const sheet = (label: string) => createElement(SheetProbe, { label, closeLabel: 'Close', onClose: () => void closed.push(label) }, createElement('button', { type: 'button' }, `In ${label}`));
     const focusIn = (target: FakeNode) => React.act(() => docListeners.filter((l) => l.type === 'focusin').forEach((l) => l.fn({ type: 'focusin', target })));
     const docKey = (key: string, target: FakeNode) => React.act(() => docListeners.filter((l) => l.type === 'keydown').forEach((l) => l.fn({ type: 'keydown', key, target, preventDefault: noop })));
     const lower = mount(sheet('lower'));
