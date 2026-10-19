@@ -31,13 +31,30 @@ ModuleInternals._resolveFilename = function (request: string, ...rest: unknown[]
   return resolveFilename.call(this, request, ...rest);
 };
 
+type HebcalEvent = { getDesc(): string; getFlags(): number; render(locale: string): string; getDate(): { greg(): Date } };
 type Holiday = { title: string; brief: string; chag: boolean; kind: string };
 type Mod = {
   holidaysInRange: (from: string, to: string, lang: string) => Record<string, Holiday[]>;
+  holidayNameKey: (desc: string, locale: string) => { id: string; args: Record<string, string> };
   getHolidaysForDate: (date: Date, language: string, timezone: string) => Promise<string[]>;
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { holidaysInRange, getHolidaysForDate } = require('../src/services/hebrew-holidays') as Mod;
+const { holidaysInRange, getHolidaysForDate, holidayNameKey } = require('../src/services/hebrew-holidays') as Mod;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { HebrewCalendar, flags } = require('@hebcal/core') as {
+  HebrewCalendar: { calendar(options: object): HebcalEvent[] };
+  flags: Record<string, number>;
+};
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { gematriya } = require('@hebcal/hdate') as { gematriya: (n: number) => string };
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const messages = { en: require('../messages/en.json'), he: require('../messages/he.json'), ru: require('../messages/ru.json') } as Record<string, { holidays: { names: Record<string, string> } }>;
+
+/** Hebcal's own events for 5787 (Elul 5786 through Elul 5787), the kinds the module keeps. */
+function hebcalYear(): HebcalEvent[] {
+  const kept = flags.CHAG | flags.MAJOR_FAST | flags.MINOR_FAST | flags.EREV | flags.CHOL_HAMOED | flags.MINOR_HOLIDAY | flags.MODERN_HOLIDAY | flags.ROSH_CHODESH;
+  return HebrewCalendar.calendar({ start: new Date(2026, 8, 1), end: new Date(2027, 9, 31), il: true }).filter(ev => ev.getFlags() & kept);
+}
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -133,6 +150,64 @@ async function main() {
     assert(ru.title !== en.title && /[а-яё]/i.test(ru.title), `ru title is Russian: ${ru.title}`);
     assertEqual(on('2026-09-21', 'fr'), on('2026-09-21', 'en'), 'fr reads as en');
     assertEqual(on('2026-09-21', ''), on('2026-09-21', 'en'), 'empty reads as en');
+  });
+
+  await check('Russian reads the way Russian speakers in Israel say it (holidays.names overrides)', () => {
+    const ru = (day: string) => on(day, 'ru').map(h => h.title);
+    assertEqual(ru('2026-09-12'), ['Рош а-Шана 5787'], 'rosh hashana');
+    assertEqual(ru('2026-09-13'), ['Рош а-Шана II'], 'rosh hashana II');
+    assertEqual(ru('2026-09-20'), ['Канун Йом-Кипура'], 'erev yom kippur');
+    assertEqual(ru('2026-09-21'), ['Йом-Кипур'], 'yom kippur');
+    assertEqual(ru('2026-09-28'), ['Суккот III (холь а-моэд)'], 'sukkot chol hamoed');
+    assertEqual(ru('2026-10-02'), ['Хошана раба'], 'hoshana raba');
+    assertEqual(ru('2026-12-11'), ['Ханука: 8 Свечей', 'Рош ходеш Тевет'], 'hanukkah and rosh chodesh');
+    assertEqual(ru('2026-12-12'), ['Ханука: 8-й день'], 'hanukkah 8th day');
+    assertEqual(ru('2027-04-23'), ['Песах II (холь а-моэд)'], 'pesach chol hamoed');
+    assertEqual(ru('2027-03-09'), ['Рош ходеш Адар II'], 'rosh chodesh adar II');
+    assertEqual(ru('2026-02-18'), ['Рош ходеш Адар'], 'rosh chodesh adar of a common year');
+    assertEqual(ru('2027-08-12'), ['Тиша бе-Ав'], "tish'a b'av");
+    assertEqual(on('2027-04-23', 'ru')[0].brief, 'Песах II (холь а-моэд)', 'brief mirrors the title');
+    assertEqual(on('2026-09-28', 'he').map(h => h.title), ['סוכות ג׳ (חוה״מ)'], 'he chol hamoed letter');
+  });
+
+  await check('no Russian title keeps a Latin word of hebcal (roman numerals aside)', () => {
+    const year = holidaysInRange('2026-09-01', '2027-10-31', 'ru');
+    const left: string[] = [];
+    for (const list of Object.values(year)) for (const h of list) {
+      if (/[A-Za-z]/.test(h.title.replace(/\b[IVX]+\b/g, ''))) left.push(h.title);
+    }
+    assertEqual([...new Set(left)], [], 'Latin titles in ru');
+  });
+
+  await check("English and Hebrew overrides mirror hebcal's own wording for the whole year", () => {
+    for (const [lang, locale] of [['en', 'en'], ['he', 'he-x-NoNikud']] as const) {
+      const days = holidaysInRange('2026-09-01', '2027-10-31', lang);
+      const want: Record<string, string[]> = {};
+      for (const ev of hebcalYear()) {
+        const d = ev.getDate().greg();
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        (want[key] ??= []).push(ev.render(locale).replace(/\b5\d{3}\b/g, y => (lang === 'he' ? gematriya(Number(y)) : y)));
+      }
+      for (const [key, titles] of Object.entries(want)) {
+        assertEqual([...(days[key] ?? []).map(h => h.title)].sort(), [...titles].sort(), `${lang} ${key}`);
+      }
+      assertEqual(Object.keys(days), Object.keys(want).sort(), `${lang} day keys`);
+    }
+  });
+
+  await check('every holidays.names entry is used by some holiday of the year, and en, he and ru hold the same ids', () => {
+    const used = new Set(hebcalYear().map(ev => holidayNameKey(ev.getDesc(), 'en').id));
+    const ids = Object.keys(messages.en.holidays.names);
+    assertEqual(ids.filter(id => !used.has(id)), [], 'ids no holiday uses');
+    assertEqual(Object.keys(messages.he.holidays.names).sort(), [...ids].sort(), 'he ids');
+    assertEqual(Object.keys(messages.ru.holidays.names).sort(), [...ids].sort(), 'ru ids');
+    for (const lang of ['en', 'he', 'ru']) {
+      for (const [id, text] of Object.entries(messages[lang].holidays.names)) {
+        assert(!/'/.test(text), `${lang}.${id} has an ASCII apostrophe`);
+        const unknown = [...text.matchAll(/\{(\w+)\}/g)].map(m => m[1]).filter(a => !['year', 'month', 'n'].includes(a));
+        assertEqual(unknown, [], `${lang}.${id} arguments`);
+      }
+    }
   });
 
   await check('a range returns only days with holidays, inside the range, with sorted keys', () => {
