@@ -708,7 +708,7 @@ async function main() {
 
   // ---- Concurrency: a Google stall costs the batch one wait per four users, not one per user ----
 
-  await check('six Google users behind a stalled Google: four reads in flight at once, in order; every user delivered once, the set-aside ones retried once after one wait, four at a time; a user whose read throws leaves the others alone; the counts equal the one-at-a-time run', async () => {
+  await check('six Google users behind a stalled Google: four reads in flight at once, the first four users first; every user delivered once, the set-aside ones retried once after one wait, four at a time; a user whose read throws leaves the others alone; the counts equal the one-at-a-time run', async () => {
     const gs = [21, 22, 23, 24, 25, 26].map(id => google(id, `G${id - 20}`));
     const boom = google(27, 'G7');
     EVERYONE.push(...gs, boom);
@@ -732,7 +732,9 @@ async function main() {
         await until(() => readsHeld >= 4);
         await new Promise(resolve => setTimeout(resolve, 30));
         phases.unshift(peakHeld);
-        const firstWave = log.filter(l => l.startsWith('read ')).map(l => l.split(' ')[1]).join();
+        // The pool takes users in order; within a wave the reads may start in any order (Node 22
+        // and 24 schedule the users' first awaits differently), so the wave is compared as a set.
+        const firstWave = log.filter(l => l.startsWith('read ')).map(l => l.split(' ')[1]).sort().join();
         assert(firstWave === 'G1,G2,G3,G4', `the first reads ${firstWave}`);
         hold = null;
         release();
