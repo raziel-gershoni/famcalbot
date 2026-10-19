@@ -1,6 +1,6 @@
 # Editing in the calendar home, step 3b: repeats, calendars, recipients and Google items
 
-Status: designed 2026-10-19 under the owner's delegation ("you can proceed with development. i'll test everything when i start using the system"), then revised after three adversarial reviews: store, Google API and UX. The reviews are in session scratchpad next/review-3b-*.md.
+Status: shipped 2026-10-19/20, on main. Designed under the owner's delegation ("you can proceed with development. i'll test everything when i start using the system"), then revised after three adversarial reviews (store, Google API, UX). Where the code differs from the text below, the Known limitations say how it shipped.
 
 This builds on the shipped first pass, docs/superpowers/specs/2026-10-19-home-editing-design.md (called "3a" here), and reuses its editor, scope sheet, form kit and routes.
 
@@ -341,3 +341,9 @@ New keys in en, he and ru, natural for each: gender-neutral Hebrew, and the form
 - **Google repeat changes** give the event a new id. The Meet link, attachments and extended properties don't carry over to the new part. Neither do they on a 'following' split.
 - **Google events** with other guests, on read-only calendars or of special types stay view-only in the home.
 - **Moving between FamCal and Google** waits for "Google as a connection".
+- **Google's real behaviour is untested** (instance ids after a repeat change, strays past a new UNTIL, `events.move` of a master). A failure is logged and shown as "Couldn't save"; the owner's prod test is the check.
+- **A Google repeat change is several writes.** A failure in the middle can leave a partial state, which is logged and shown as failed.
+- **Moving a Google series' time on "all"** leaves its existing exceptions at their old slots, as the bot does today. FamCal shifts them.
+- **A repeat change keeps the old end** when it still fits. If the moved start is past it, the end moves to that day, and if no occurrence is left the save is refused.
+- **The "From <date> on" line** shows only after the repeat is changed. The Calendar row's native list has no colour dots.
+- **The bot's 'following' edit from the first occurrence** drops the state rows of earlier cancelled slots. A ping still on screen for one of them answers "changed".

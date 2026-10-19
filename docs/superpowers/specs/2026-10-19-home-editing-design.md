@@ -167,7 +167,7 @@ The scope semantics live in the store, which the bot already uses, so the app in
 ### Known limitations (shipped on purpose)
 
 - The date and time pills show each webview's native format, not the mockups'.
-- Out until 3b: the repeat rule, the calendar, Google items, a reminder's recipient, per-event alerts and drag.
+- Shipped later in 3b (see `2026-10-19-home-editing-3b-design.md`): the repeat rule, the calendar, Google items and a reminder's recipient. Still out: per-event alerts and drag.
 - A fixed-days series' day move is for this one only.
 - The calendar choice's native `<select>` list has no colour dots; only the chosen value shows one.
 - Spring-forward: a stored key inside the skipped hour (02:xx) is read back as 03:xx floating, so a carried exdate or override of a moved series can be dropped (the deleted occurrence comes back, or its rename is lost).
