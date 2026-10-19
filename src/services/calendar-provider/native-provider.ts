@@ -321,6 +321,8 @@ export const nativeProvider: CalendarProvider = {
         instanceStartsAt: occ,
         scope: mapScope(data.scope),
         actingUserId: user.id,
+        // The bot's times are the occurrence's it was told about; for 'all' the store moves the series by as much.
+        occurrenceTimes: true,
         title: data.title,
         description: data.description,
         location: data.location,

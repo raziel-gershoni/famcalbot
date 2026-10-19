@@ -10,7 +10,6 @@
 // No title reaches a log, an error context or analytics: a failure is reported by its
 // class and code.
 
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import type { NativeCalendar } from '@prisma/client';
 import type { UserConfig } from '../../types';
 import { prisma } from '../../utils/prisma';
@@ -27,6 +26,7 @@ import {
   deleteNativeEvent,
   getMainNativeCalendar,
   getPartnerUserId,
+  seriesTimesFor,
   updateNativeEvent,
   type UpdateNativeEventInput,
 } from '../native-calendar/event-store';
@@ -170,28 +170,6 @@ type Ok = Extract<LoadedItem, { status: 'ok' }>;
 /** The scope the store is given: a one-off has only itself. */
 const effectiveScope = (item: Ok, scope: UpdateCommand['scope']) => (item.series.rrule ? scope : 'single');
 
-/**
- * Where "every one of them" lands when this occurrence moves: the series keeps its place
- * in the rule, so it shifts by the days this occurrence moved and takes its new time of
- * day. A rule with no BYDAY (what the editor writes) follows its start, so the weekday
- * moves with it; one with fixed days never gets here with a day move (updateItem).
- */
-function shiftedSeries(
-  item: Ok,
-  now: { allDay: boolean; startsAt: Date; endsAt: Date; start: string; end: string },
-  reminder: boolean
-): { startsAt: Date; endsAt: Date } {
-  const tz = itemZone(item.series);
-  const dayDelta = daysBetween(localDate(item.occurrence.startsAt, tz), localDate(now.startsAt, tz));
-  const seriesDay = addDaysToDate(localDate(item.series.startsAt, tz), dayDelta);
-  if (now.allDay) {
-    const span = reminder ? 0 : daysBetween(now.start, now.end);
-    return { startsAt: dayStart(seriesDay, tz), endsAt: dayEnd(addDaysToDate(seriesDay, span), tz) };
-  }
-  const startsAt = fromZonedTime(`${seriesDay}T${formatInTimeZone(now.startsAt, tz, 'HH:mm')}:00`, tz);
-  return { startsAt, endsAt: new Date(startsAt.getTime() + (now.endsAt.getTime() - now.startsAt.getTime())) };
-}
-
 export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: string): Promise<WriteResult> {
   const item = await loadItem(user, cmd.key);
   if (item.status !== 'ok') return { status: item.status };
@@ -256,8 +234,11 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   let key = sameKey;
   if (timeChanged) {
     if (scope === 'all' && series.rrule) {
-      // The series' own start is written only when it moves: a start in the input drops the overrides.
-      const moved = shiftedSeries(item, { allDay, startsAt, endsAt, start, end }, reminder);
+      // The series moves as this occurrence did (by its days, to its new time of day): a rule
+      // with no BYDAY (what the editor writes) follows its start, so the weekday moves with it;
+      // one with fixed days never gets here with a day move (above). Its own start is written
+      // only when it moves, which carries what was skipped or renamed along.
+      const moved = seriesTimesFor(series, occ.startsAt, { startsAt, endsAt, allDay });
       if (moved.startsAt.getTime() !== series.startsAt.getTime()) {
         input.startsAt = moved.startsAt;
         key = itemKeyOf(series.id, startsAt);

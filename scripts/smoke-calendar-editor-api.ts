@@ -865,7 +865,7 @@ async function main() {
     assert((await itemOf(occ('2026-11-03'))).body.occurrence.end === '2026-11-03T10:00', 'a moved start keeps the length');
   });
 
-  await check('edit event, all of them: a title change keeps the overrides; a time change shifts the series and drops them', async () => {
+  await check('edit event, all of them: a title change keeps the overrides; a time change shifts the series, and an override keeps what it carries at the new time', async () => {
     seed();
     const { id, occ } = await weeklySeries();
     await patch({ key: occ('2026-11-03'), scope: 'single', changes: { location: 'Home' } });
@@ -874,7 +874,9 @@ async function main() {
     assertSame([eventRow(id).title, overrides(id).length, iso(eventRow(id).startsAt)], ['Dentist visit', 1, iso(at('2026-10-20 10:00'))], 'title: the series, the override stays, the start stays');
     const time = await patch({ key: occ('2026-10-27'), scope: 'all', changes: { start: '2026-10-27T11:30', end: '2026-10-27T12:30' } });
     assert(time.status === 200 && time.body.key === occ('2026-10-27', '11:30'), `time: ${time.status} ${time.text}`);
-    assertSame([iso(eventRow(id).startsAt), iso(eventRow(id).endsAt), overrides(id).length], [iso(at('2026-10-20 11:30')), iso(at('2026-10-20 12:30')), 0], 'time: every occurrence moves, overrides go');
+    assertSame([iso(eventRow(id).startsAt), iso(eventRow(id).endsAt)], [iso(at('2026-10-20 11:30')), iso(at('2026-10-20 12:30'))], 'time: every occurrence moves');
+    assertSame(overrides(id).map((o) => [iso(o.originalStartsAt), o.location, o.startsAt]), [[iso(at('2026-11-03 11:30')), 'Home', null]], 'the override follows to the new time with its location');
+    assert((await itemOf(occ('2026-11-03', '11:30'))).body.occurrence.location === 'Home', 'and reads there');
     assert((await itemOf(time.body.key)).body.occurrence.start === '2026-10-27T11:30', 'the returned key reads');
     const longer = await patch({ key: time.body.key, scope: 'all', changes: { end: '2026-10-27T13:30' } });
     assert(longer.body.key === time.body.key, 'a longer event keeps its key');
@@ -981,6 +983,25 @@ async function main() {
     assertSame([all.status, all.body, iso(series.startsAt)], [400, { error: 'invalid', field: 'start' }, iso(at('2026-10-20 20:00'))], 'all');
     const single = await patch({ key, scope: 'single', changes: { start: '2026-10-28T20:00' } });
     assert(single.status === 200 && iso(overrides(series.id)[0]?.startsAt) === iso(at('2026-10-28 20:00')), `single: ${single.status} ${single.text}`);
+  });
+
+  await check('a deleted occurrence stays deleted when its series moves: an event\'s "all" to Thursdays, a reminder\'s "this and after" to a new time', async () => {
+    seed();
+    const { occ } = await weeklySeries();
+    await del({ key: occ('2026-11-03'), scope: 'single' });
+    await patch({ key: occ('2026-11-10'), scope: 'single', changes: { title: 'x' } });
+    await del({ key: occ('2026-11-10'), scope: 'single' });
+    const moved = await patch({ key: occ('2026-10-27'), scope: 'all', changes: { start: '2026-10-29T10:00', end: '2026-10-29T11:00' } });
+    assert(moved.status === 200, `${moved.status} ${moved.text}`);
+    assertSame([(await itemOf(occ('2026-11-05'))).status, (await itemOf(occ('2026-11-12'))).status, (await itemOf(occ('2026-11-19'))).status], [404, 404, 200], 'the Thursdays of the deleted Tuesdays stay deleted');
+    const created = await post(reminderBody({ repeat: 'daily' }));
+    const id = idOf(created.body.key);
+    const day = (d: string, time = '17:30') => `famcal|${id}#${iso(at(`${d} ${time}`))}`;
+    await del({ key: day('2026-10-23'), scope: 'single' });
+    const later = await patch({ key: day('2026-10-21'), scope: 'following', changes: { start: '2026-10-21T19:00' } });
+    assert(later.status === 200, `${later.status} ${later.text}`);
+    const fresh = (d: string) => `famcal|${lastEvent().id}#${iso(at(`${d} 19:00`))}`;
+    assertSame([(await itemOf(fresh('2026-10-22'))).status, (await itemOf(fresh('2026-10-23'))).status], [200, 404], 'the reminder skipped on the 23rd stays skipped at 19:00');
   });
 
   await check('edit event, this one and the ones after: the series is cut and a new one starts here, by the editor', async () => {
