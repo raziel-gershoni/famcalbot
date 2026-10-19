@@ -775,7 +775,7 @@ export async function deleteNativeEvent(input: DeleteNativeEventInput): Promise<
  * its creator, or the person it is for ("stop reminding me"). That person is worked out
  * on every read (spec R2), so an ex-partner or a partner now on Google can't.
  */
-async function mayDeleteReminder(series: NativeEvent, actorId: number): Promise<boolean> {
+export async function mayDeleteReminder(series: NativeEvent, actorId: number): Promise<boolean> {
   if (series.kind !== 'REMINDER') return false;
   if (series.creatorUserId === actorId) return true;
   if (series.forUserId !== actorId) return false;

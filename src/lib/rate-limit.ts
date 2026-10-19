@@ -55,6 +55,15 @@ export const reminderActionRateLimiter = new Ratelimit({
   prefix: 'ratelimit:reminder-action',
 });
 
+// calendar/items: 20 writes per minute, on a budget of its own. A person adds, edits or
+// deletes one thing at a time; the budget is for a slip of the thumb or a stuck retry,
+// and keeps a script from filling a calendar
+export const calendarWriteRateLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(20, '1 m'),
+  prefix: 'ratelimit:calendar-write',
+});
+
 export interface RateLimitResult {
   success: boolean;
   remaining: number;
