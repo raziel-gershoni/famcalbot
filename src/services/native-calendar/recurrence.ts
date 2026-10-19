@@ -565,6 +565,16 @@ export function endCarriedRule(
   return newRule;
 }
 
+/**
+ * A rule whose UNTIL is the day of `start` (date-only, read as the end of that day). A
+ * repeat change keeps its carried end unless the opened occurrence moved past it; then the
+ * end goes to that occurrence's day, so the new part still has it. A rule with no UNTIL is
+ * left as it is.
+ */
+export function withUntilOnDayOf(rule: string, start: Date, timeZone: string | null): string {
+  return rule.replace(/(^|;)UNTIL=[^;]+/i, `$1UNTIL=${formatInTimeZone(start, timeZone || TIMEZONE, 'yyyyMMdd')}`);
+}
+
 /** A rule with its COUNT replaced (the rest of a series cut by "this one and the ones after"). */
 export function withCount(rule: string, count: number): string {
   return rule.replace(/(^|;)COUNT=\d+/i, `$1COUNT=${count}`);

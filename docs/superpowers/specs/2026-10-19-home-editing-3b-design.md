@@ -124,6 +124,7 @@ As in 3a. The editor closes and the home refreshes the item's source. The sheet 
 **New rule ('following', or 'all' at the first occurrence).**
 - **The split.** The existing split runs with the new rule on the tail.
 - **The end carry.** The tail's end follows §2.1: an untouched UNTIL is carried over; a COUNT becomes the UNTIL of the old rule's last occurrence; Never has none.
+  When the same save moves the opened occurrence past that end, the end goes to the occurrence's new day (date-only UNTIL), so the tail never starts empty after the parent was cut. A rule that still has no occurrence at the tail's start is refused (`NativeRuleError`).
 - **Validation.** Every instance row, exdate and reminder state row of the tail is moved and validated through `moveInstances` / `carriedExdates`, with the new shape, even when no time changed. That includes the reminder branches that skip it today (ee:897-913, ee:931-933). Rows the new rule doesn't yield are deleted, because an orphan override renders, and pings, as a ghost.
 - **The ping copy.** The deleted occurrences' live pings are stripped with the existing `nativeReminders.changed` copy, not "moved".
 - **Re-arm.** A reminder tail gets `armedAt = now`, so occurrences the new rule creates in the past don't ping. One due within the 15-minute grace still pings. The tail's open past occurrence also leaves the open carry-over. That is accepted: the change resets the series from there.

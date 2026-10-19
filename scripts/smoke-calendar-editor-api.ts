@@ -1529,6 +1529,38 @@ async function main() {
     assertSame([lastEvent().rrule, iso(lastEvent().startsAt)], ['FREQ=DAILY;UNTIL=20261124', iso(at('2026-10-29 17:30'))], 'a reminder\'s too');
   });
 
+  await check('3b repeat: a repeat change that moves the opened occurrence past the carried end keeps it: the end goes to its new day, never an empty series', async () => {
+    seed();
+    const yields = async (key: string) => (await itemOf(key)).status;
+    // The last of a COUNT, moved a day later with a new rule (the end carried is its old day).
+    const count = seedSeries('count-daily-5', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Course', startsAt: at('2026-10-19 08:00'), rrule: 'FREQ=DAILY;COUNT=5' });
+    const r = await patch({ key: `famcal|${count.id}#${iso(at('2026-10-23 08:00'))}`, scope: 'following', changes: { repeat: 'weekly', start: '2026-10-24T08:00', end: '2026-10-24T09:00' } });
+    assert(r.status === 200, `${r.status} ${r.text}`);
+    const tail = lastEvent();
+    assertSame([tail.rrule, iso(tail.startsAt), r.body.key], ['FREQ=WEEKLY;UNTIL=20261024', iso(at('2026-10-24 08:00')), `famcal|${tail.id}#${iso(at('2026-10-24 08:00'))}`], 'the end is the new day');
+    assertSame(await yields(r.body.key), 200, 'the key points at an occurrence');
+    // A series an earlier split cut (a date-time UNTIL 1 s before the next slot), its last moved onto the UNTIL's day.
+    const cut = seedSeries('cut-daily', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Course', startsAt: at('2026-10-19 08:00'), rrule: 'FREQ=DAILY;UNTIL=20261023T075959' });
+    const c = await patch({ key: `famcal|${cut.id}#${iso(at('2026-10-22 08:00'))}`, scope: 'following', changes: { repeat: 'weekly', start: '2026-10-23T08:00', end: '2026-10-23T09:00' } });
+    assert(c.status === 200, `${c.status} ${c.text}`);
+    assertSame([lastEvent().rrule, await yields(c.body.key)], ['FREQ=WEEKLY;UNTIL=20261023', 200], 'a cut series: the end is the new day');
+    // From the first occurrence (in place).
+    const only = seedSeries('until-only', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Course', startsAt: at('2026-10-19 08:00'), rrule: 'FREQ=DAILY;UNTIL=20261019' });
+    const f = await patch({ key: `famcal|${only.id}#${iso(at('2026-10-19 08:00'))}`, scope: 'following', changes: { repeat: 'weekly', start: '2026-10-21T08:00', end: '2026-10-21T09:00' } });
+    assert(f.status === 200, `${f.status} ${f.text}`);
+    assertSame([eventRow(only.id).rrule, iso(eventRow(only.id).startsAt), await yields(f.body.key)], ['FREQ=WEEKLY;UNTIL=20261021', iso(at('2026-10-21 08:00')), 200], 'from the first, in place');
+    // A reminder.
+    const rem = seedSeries('until-weekly-last', { calendarId: 'cal-tal', creatorUserId: TAL, kind: 'REMINDER', title: 'Pills', startsAt: at('2026-10-20 17:30'), rrule: 'FREQ=WEEKLY;UNTIL=20261027' });
+    const m = await patch({ key: `famcal|${rem.id}#${iso(at('2026-10-27 17:30'))}`, scope: 'following', changes: { repeat: 'daily', start: '2026-10-29T17:30' } });
+    assert(m.status === 200, `${m.status} ${m.text}`);
+    assertSame([lastEvent().rrule, await yields(m.body.key)], ['FREQ=DAILY;UNTIL=20261029', 200], 'a reminder\'s too');
+    // A rule that never yields the opened occurrence, given straight to the store, is refused and nothing is written.
+    const mondays = seedSeries('daily-for-mondays', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Course', startsAt: at('2026-10-19 08:00'), rrule: 'FREQ=DAILY' });
+    const before = tables.nativeEvent.length;
+    const e = await thrownBy(() => store.updateNativeEvent({ seriesCuid: mondays.id, instanceStartsAt: at('2026-10-20 08:00'), scope: 'following', actingUserId: TAL, rrule: 'FREQ=WEEKLY;BYDAY=MO' }));
+    assertSame([e instanceof store.NativeRuleError, eventRow(mondays.id).rrule, tables.nativeEvent.length], [true, 'FREQ=DAILY', before], 'refused, nothing written');
+  });
+
   await check('3b repeat, reminder: from a later occurrence the new rule re-arms the new series; overrides and state at keys it does not yield go, their pings read "changed"', async () => {
     seed();
     const created = await post(reminderBody({ repeat: 'daily' }));

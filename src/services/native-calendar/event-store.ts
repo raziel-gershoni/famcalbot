@@ -33,6 +33,7 @@ import {
   truncateRruleBefore,
   VirtualInstance,
   withCount,
+  withUntilOnDayOf,
   yieldsSlots,
 } from './recurrence';
 
@@ -552,15 +553,22 @@ export async function isFirstOccurrence(series: NativeEvent, cut: Date): Promise
  * The rule of the part "this one and the ones after" starts at `cut`, now at `newStart`.
  * With `newRule`, it is that rule with the old rule's end carried (endCarriedRule) and left
  * where it is, however the cut moved: the series still ends on the day the item info names
- * (3b spec §2.1). Without, it is the series' own, its UNTIL moved as the cut moved (so it
- * keeps its last occurrence) and a COUNT cut to what is left after the slots before the cut
- * (at least 1, the cut being a slot).
+ * (3b spec §2.1). Only when the opened occurrence moved past that end does the end go to
+ * its new day, so the new part never starts empty (the parent is already cut there); a rule
+ * that still has no occurrence at its start is refused. Without, it is the series' own, its
+ * UNTIL moved as the cut moved (so it keeps its last occurrence) and a COUNT cut to what is
+ * left after the slots before the cut (at least 1, the cut being a slot).
  */
 function tailRule(series: NativeEvent, cut: Date, newStart: Date, newRule?: string): string {
   if (newRule !== undefined) {
     const carried = endCarriedRule(newRule, series.rrule!, series)!;
     assertStorableRule(carried);
-    return carried;
+    const endsAt = new Date(newStart.getTime() + (series.endsAt.getTime() - series.startsAt.getTime()));
+    const startsWith = (rule: string) => yieldsSlots({ ...series, rrule: rule, startsAt: newStart, endsAt }, [newStart]).size > 0;
+    if (startsWith(carried)) return carried;
+    const pushed = withUntilOnDayOf(carried, newStart, series.timeZone);
+    if (startsWith(pushed)) return pushed;
+    throw new NativeRuleError('The new repeat has no occurrence at its start');
   }
   const rule = shiftUntil(series.rrule!, cut, newStart, series.timeZone);
   const count = /(^|;)COUNT=(\d+)/i.exec(rule);
