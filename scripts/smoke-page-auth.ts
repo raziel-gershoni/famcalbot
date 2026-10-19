@@ -733,6 +733,29 @@ async function main() {
     }
   });
 
+  await check('#15 an open of the dashboard runs the lazy trial expiry (the answer is not on the wire, the side effect is the point): a trial past its end is expired to FREE with its activity row and its cached feature answers cleared; a trial still running is left alone', async () => {
+    seed();
+    // Both hint answers cached: no hint check reaches the subscription, so only the page's own call can expire the trial.
+    cacheFeature(1, 'reminders', true);
+    cacheFeature(1, 'voice_events', true);
+    DB.subscription = [{ id: 'sub-trial', userId: 1, plan: 'PRO', status: 'TRIALING', currentPeriodStart: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, trialStartedAt: new Date(Date.now() - 20 * 86_400_000), trialEndsAt: new Date(Date.now() - 86_400_000) }];
+    const problems: string[] = [];
+    const props = await dashboardFor(5550001, 'he');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const sub = DB.subscription.find((r: Row) => r.userId === 1);
+    if (sub?.status !== 'EXPIRED' || sub?.plan !== 'FREE') problems.push(`subscription ${show({ status: sub?.status, plan: sub?.plan })}`);
+    if (!(DB.userActivity ?? []).some((r: Row) => r.action === 'subscription_expired' && Number(r.userId) === 1)) problems.push('no subscription_expired row');
+    if (redisStore.has(REDIS_KEYS.featureAccess(1, 'reminders')) || redisStore.has(REDIS_KEYS.featureAccess(1, 'voice_events'))) problems.push('a cached feature answer stayed');
+    if ('subscription' in props || 'usage' in props || 'effectivePlan' in props) problems.push(`the answer reached the wire: ${keysOf(props)}`);
+    // A trial still running is left as it is.
+    seed();
+    DB.subscription = [{ id: 'sub-trial', userId: 1, plan: 'PRO', status: 'TRIALING', currentPeriodStart: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, trialStartedAt: new Date(), trialEndsAt: new Date(Date.now() + 5 * 86_400_000) }];
+    await dashboardFor(5550001, 'he');
+    const running = DB.subscription.find((r: Row) => r.userId === 1);
+    if (running?.status !== 'TRIALING') problems.push(`a running trial became ${running?.status}`);
+    assert(problems.length === 0, problems.join('; '));
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);
