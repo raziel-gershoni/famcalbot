@@ -46,6 +46,15 @@ export const calendarRateLimiter = new Ratelimit({
   prefix: 'ratelimit:calendar',
 });
 
+// calendar/reminder: 30 requests per minute, on a budget of its own. Done, undo and
+// snooze are single taps, but a run through a list of reminders is bursty, and the
+// home's other reads must not be starved by it
+export const reminderActionRateLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(30, '1 m'),
+  prefix: 'ratelimit:reminder-action',
+});
+
 export interface RateLimitResult {
   success: boolean;
   remaining: number;
