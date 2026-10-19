@@ -2,6 +2,12 @@
 
 Status: designed 2026-10-19 under the owner's delegation ("you can proceed with development"). This is roadmap step 4 under the calendar UI: "a Hebrew holidays layer in-process (ends the dependency on CalBrew's API)". The research notes are in session scratchpad next/facts-hebrew-holidays.md.
 
+Shipped 2026-10-19 on `feat/holidays`, with these deviations from the design:
+- `holidaysInRange` is synchronous, so the natural-name overrides (`holidays.names.<id>`, Russian mostly) are read from `messages/{en,he,ru}.json` by static import, not through the async bot-messages loader. en and he mirror hebcal's wording; a smoke pins that for a whole year.
+- An override is a plain `{arg}` template (`{year}`, `{month}`, `{n}`), not ICU plural; Hanukkah's candle counts keep hebcal's own Russian wording ("Ханука: 3 Свечи").
+- On the month's first Gregorian cell, when it is not Hebrew day 1, a holiday takes the second line from the month name (only a real Hebrew day 1 keeps its name, unless it is a yom tov).
+- The holidays hook (`useHolidays`) is called by each view that shows them (header, day list, picked day, each mounted month), and `holidays-client.ts` keeps one cache and one request per language and month.
+
 ## 1. Scope
 
 **In:**

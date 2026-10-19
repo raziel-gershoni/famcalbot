@@ -296,6 +296,8 @@ async function main() {
     assertEqual(await getHolidaysForDate(at, 'he', 'Asia/Jerusalem'), ['ראש השנה תשפ״ז'], 'Jerusalem is already the 12th');
     // New York is still the 11th (evening): that is Erev Rosh Hashana.
     assertEqual(await getHolidaysForDate(at, 'en', 'America/New_York'), ['Erev Rosh Hashana'], 'New York is the 11th');
+    // The summaries' call (src/services/claude.ts), unstubbed: no env, no network, no Redis.
+    assertEqual(await getHolidaysForDate(new Date('2026-09-12T09:00:00Z'), 'en', 'Asia/Jerusalem'), ['Rosh Hashana 5787'], 'the summary entry point for 2026-09-12');
     assertEqual(await getHolidaysForDate(new Date('2026-09-16T10:00:00Z'), 'en', 'Asia/Jerusalem'), [], 'a plain day');
     assertEqual(await getHolidaysForDate(new Date('2026-12-11T10:00:00Z'), 'en', 'Asia/Jerusalem'), ['Chanukah: 8 Candles', 'Rosh Chodesh Tevet'], 'two titles');
   });

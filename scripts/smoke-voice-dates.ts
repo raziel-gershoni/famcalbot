@@ -52,9 +52,11 @@ async function fakeMatcher(prompt: string) {
 }
 
 // The voice modules reach src/services/claude.ts, which imports @hebcal/core. That package
-// ships ESM only and tsx cannot require it; nothing under test uses it. Google's client,
+// ships ESM only and tsx cannot require it; nothing under test uses it, and the holidays
+// module (which reads its flags when it loads) is stubbed with it. Google's client,
 // the timezone lookup and the AI completion are faked.
 const timezoneModule = path.resolve(__dirname, '../src/lib/timezone.ts');
+const holidaysModule = path.resolve(__dirname, '../src/services/hebrew-holidays.ts');
 const aiProviderModule = path.resolve(__dirname, '../src/services/ai-provider.ts');
 const fakeTimezone = { resolveUserTimezone: async (user: { id: number }) => USER_TIMEZONES[user.id] };
 let fakeAiProvider: object | undefined;
@@ -66,6 +68,7 @@ const loader = Module as unknown as { _load: Loader; _resolveFilename: (request:
 const load = loader._load;
 loader._load = function (this: unknown, request: string, parent: unknown, ...rest: unknown[]) {
   if (request.startsWith('@hebcal/')) return {};
+  if (request.endsWith('/hebrew-holidays') && loader._resolveFilename(request, parent) === holidaysModule) return { getHolidaysForDate: async () => [] };
   if (request === '@googleapis/calendar') return fakeGoogle;
   if (request.endsWith('/lib/timezone') && loader._resolveFilename(request, parent) === timezoneModule) return fakeTimezone;
   if (request.endsWith('/ai-provider') && loader._resolveFilename(request, parent) === aiProviderModule) {
