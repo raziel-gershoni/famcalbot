@@ -126,7 +126,7 @@ import { postReminderAction } from '../src/lib/calendar-view/reminder-client';
 import { REAL_EDITING } from '../src/lib/calendar-view/editor-client';
 import { resetHolidaysCache } from '../src/lib/calendar-view/holidays-client';
 import type { EditorInfoResponse, ItemEditInfoResponse, RepeatInfo } from '../src/lib/calendar-view/editor-types';
-import { checkForm, editItemForm, moveStart, movesDay, newItemForm, scopePlan, setAllDay, spanOf, updateBody, type EditorForm, type NewItemContext } from '../src/lib/calendar-view/editor-model';
+import { checkForm, editItemForm, moveStart, movesDay, newItemForm, scopePlan, setAllDay, setKind, spanOf, updateBody, type EditorForm, type NewItemContext } from '../src/lib/calendar-view/editor-model';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -4259,6 +4259,15 @@ async function main() {
     assert(dayMove.endDay === '2026-10-22', `all day: ${dayMove.endDay}`);
     assert(moveStart(f, { startTime: '' }).endTime === f.endTime, 'a cleared time leaves the end');
     assert(setAllDay(setAllDay(f, true), false).endTime === '12:00', 'all day off again brings the times back');
+    // The kind switch: a Hebrew repeat does not survive a switch to an event on a Google calendar.
+    const gFam = { ...f, calendarId: 'avi@gmail.com', repeat: 'yahrzeit' as const };
+    assert(setKind({ ...gFam, kind: 'reminder' }, 'event').repeat === 'yearly', 'reminder to event on a Google calendar: Hebrew falls back to yearly');
+    assert(setKind({ ...gFam, kind: 'reminder', repeat: 'hebrew' }, 'event').repeat === 'yearly', 'the other Hebrew kind too');
+    assert(setKind({ ...gFam, kind: 'reminder' }, 'event').kind === 'event', 'the kind is switched');
+    assert(setKind({ ...f, kind: 'reminder', repeat: 'hebrew' }, 'event').repeat === 'hebrew', 'a FamCal calendar keeps it');
+    assert(setKind({ ...f, kind: 'reminder', calendarId: null, repeat: 'hebrew' }, 'event').repeat === 'hebrew', 'no calendar (FamCal default) keeps it');
+    assert(setKind(gFam, 'reminder').repeat === 'yahrzeit', 'to a reminder keeps it (always FamCal)');
+    assert(setKind({ ...gFam, kind: 'reminder', repeat: 'weekly' }, 'event').repeat === 'weekly', 'a Gregorian repeat is untouched');
     // The checks.
     assert(show(checkForm({ ...f, title: '  ' })) === show({ title: 'errTitle' }), 'an empty title');
     assert(show(checkForm({ ...f, title: 'x'.repeat(201) })) === show({ title: 'errTitleLong' }), 'a long title');
@@ -6241,6 +6250,36 @@ async function main() {
       assert(optionsIn(g.m, 'Repeat').length === 5, `a Google user: ${show(optionsIn(g.m, 'Repeat'))}`);
     } finally {
       g.m.unmount();
+    }
+  });
+
+  await check('#102b create: switching Reminder to Event while a Google calendar is the target drops a Hebrew pick to yearly (Google as the default calendar, or picked first), and the save sends it so', async () => {
+    const google = { id: 'avi@gmail.com', name: 'Avi', color: '#039BE5', main: false, mine: true };
+    const gMain = editorWith({ calendars: [{ ...google, main: true }, ...EDITOR_INFO.calendars.map((c) => ({ ...c, main: false }))] });
+    const flows: [string, EditorInfoResponse, boolean][] = [
+      ['Google is the default calendar', gMain, false],
+      ['a Google calendar picked first', editorWith({ calendars: [...EDITOR_INFO.calendars, google] }), true],
+    ];
+    for (const [label, info, pickFirst] of flows) {
+      const a = await hebrewHome('en', true, { editor: ok200(info), write: () => ok200({ status: 'ok', key: 'famcal|new' }) });
+      try {
+        tapPlus(a.m);
+        await settle();
+        if (pickFirst) await pick(a.m, 'Calendar', 'avi@gmail.com');
+        tapIn(a.m, 'Reminder');
+        await settle();
+        await pick(a.m, 'Repeat', 'yahrzeit');
+        tapIn(a.m, 'Event');
+        await settle();
+        assert(optionsIn(a.m, 'Repeat').length === 5, `${label}: no Hebrew choices on an event: ${show(optionsIn(a.m, 'Repeat'))}`);
+        assert(shownIn(a.m, 'Repeat') === 'Every year on 15 Oct', `${label}: the pick fell back to yearly: ${show(shownIn(a.m, 'Repeat'))}`);
+        await typeInto(inDialog(a.m, 'Title'), 'Visit');
+        a.m.click(saveButton(a.m));
+        await settle();
+        assert(writes().length === 1 && writes()[0].body?.repeat === 'yearly' && writes()[0].body?.calendarId === 'avi@gmail.com', `${label}: sent: ${show(writes()[0]?.body)}`);
+      } finally {
+        a.m.unmount();
+      }
     }
   });
 

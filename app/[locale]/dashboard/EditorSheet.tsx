@@ -38,12 +38,14 @@ import {
   hebrewAnchorOf,
   isDirty,
   isHebrewRepeat,
+  isNativeCalendar,
   isRealDay,
   moveStart,
   movesDay,
   repeatWords,
   scopePlan,
   setAllDay,
+  setKind,
   spanOf,
   storedChoice,
   updateBody,
@@ -210,7 +212,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   };
   // The Hebrew choices (hebrew-repeats spec §4): offered with Hebrew dates and a FamCal calendar
   // (a reminder is always FamCal's); an item that already has one shows its words to anyone.
-  const famcalTarget = edit ? info?.source !== 'google' : reminder || !form.calendarId || form.calendarId.startsWith('native:');
+  const famcalTarget = edit ? info?.source !== 'google' : reminder || isNativeCalendar(form.calendarId);
   const hebrewOffered = hebrewDates && famcalTarget;
   /** Where a new part would be anchored: the form's start day, in the series' zone on an edit. */
   const startDayInZone = edit && info && day ? dayInZone(day, form.allDay ? '00:00' : form.startTime, info.tz, info.series.zone) : day;
@@ -290,7 +292,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
         </header>
         <div className="ch-editor-body">
           <div className="ch-form-page">
-            {showKindSwitch ? <Segmented label={t('editor.kind.label')} value={form.kind} options={kindOptions} onChange={(kind) => change({ ...form, kind })} /> : null}
+            {showKindSwitch ? <Segmented label={t('editor.kind.label')} value={form.kind} options={kindOptions} onChange={(kind) => change(setKind(form, kind))} /> : null}
 
             <FormCard>
               <TextField label={t('editor.fields.title')} value={form.title} large onChange={(title) => change({ ...form, title })} error={errorOf('title')} />

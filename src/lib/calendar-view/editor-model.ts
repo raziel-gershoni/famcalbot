@@ -325,6 +325,20 @@ export function setAllDay(form: EditorForm, allDay: boolean): EditorForm {
   return { ...form, allDay };
 }
 
+/** Whether a calendar id is FamCal's own (a Hebrew-date repeat is only offered there; null is the default, FamCal's). */
+export const isNativeCalendar = (calendarId: string | null): boolean => !calendarId || calendarId.startsWith('native:');
+
+/**
+ * The Event | Reminder switch. A reminder is always FamCal's, so it keeps any repeat; an event
+ * is on its chosen calendar, and on a Google one a Hebrew-date repeat is not offered, so the
+ * pick falls back to the Gregorian yearly one (as the Calendar row does), never sent with it.
+ */
+export function setKind(form: EditorForm, kind: EditorForm['kind']): EditorForm {
+  if (kind === form.kind) return form;
+  const repeat = kind === 'event' && isHebrewRepeat(form.repeat) && !isNativeCalendar(form.calendarId) ? 'yearly' : form.repeat;
+  return { ...form, kind, repeat };
+}
+
 /** Whether the form differs from where it started (Cancel asks to discard only then). */
 export function isDirty(form: EditorForm, initial: EditorForm): boolean {
   const keys = Object.keys(initial) as (keyof EditorForm)[];
