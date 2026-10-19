@@ -125,7 +125,7 @@ import { calendarVars } from '../src/lib/calendar-view/colours';
 import { postReminderAction } from '../src/lib/calendar-view/reminder-client';
 import { REAL_EDITING } from '../src/lib/calendar-view/editor-client';
 import type { EditorInfoResponse, ItemEditInfoResponse, RepeatInfo } from '../src/lib/calendar-view/editor-types';
-import { checkForm, moveStart, newItemForm, setAllDay, spanOf, type EditorForm, type NewItemContext } from '../src/lib/calendar-view/editor-model';
+import { checkForm, editItemForm, moveStart, movesDay, newItemForm, setAllDay, spanOf, type EditorForm, type NewItemContext } from '../src/lib/calendar-view/editor-model';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -3983,8 +3983,9 @@ async function main() {
     canEdit: true,
     canDelete: true,
     occurrence: { start: `${day(0)}T09:30`, end: `${day(0)}T10:30`, allDay: false, title: 'Dentist', location: 'Clinic on Herzl St', description: 'Bring the X-rays' },
-    series: { recurring: false, start: `${day(0)}T09:30`, repeat: null, fixedDays: false },
+    series: { recurring: false, start: `${day(0)}T09:30`, repeat: null, fixedDays: false, zone: 'UTC' },
     calendar: { id: 'native:cal_me_7f3a', name: 'Family', color: '#039BE5' },
+    tz: 'UTC',
     forName: null,
     scopes: ['single'],
     ...o,
@@ -3994,7 +3995,7 @@ async function main() {
   const swimInfo = (o: Partial<ItemEditInfoResponse> = {}) =>
     infoFor({
       occurrence: { start: `${day(5)}T17:00`, end: `${day(5)}T18:00`, allDay: false, title: 'Swimming', location: '', description: '' },
-      series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: [], ends: false }, fixedDays: false },
+      series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: [], ends: false }, fixedDays: false, zone: 'UTC' },
       scopes: ['single', 'following', 'all'],
       ...o,
     });
@@ -4588,7 +4589,7 @@ async function main() {
     const remInfo = infoFor({
       kind: 'reminder',
       occurrence: { start: `${day(5)}T17:00`, end: `${day(5)}T17:00`, allDay: false, title: 'Book the plumber', location: '', description: '' },
-      series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: ['TU'], ends: false }, fixedDays: true },
+      series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: ['TU'], ends: false }, fixedDays: true, zone: 'UTC' },
       calendar: { id: 'native:cal_me_7f3a', name: 'Family', color: '#039BE5' },
       forName: 'Noa',
       scopes: ['single', 'following', 'all'],
@@ -4663,7 +4664,7 @@ async function main() {
       ['every other week', { freq: 'weekly', interval: 2, byDay: [], ends: false }],
     ];
     for (const [what, repeat] of noShortName) {
-      const w = await editingHome('en', { item: swim({ series: { recurring: true, start: `${day(5)}T17:00`, repeat, fixedDays: false } }) });
+      const w = await editingHome('en', { item: swim({ series: { recurring: true, start: `${day(5)}T17:00`, repeat, fixedDays: false, zone: 'UTC' } }) });
       try {
         await openItem(w.m, 'Swimming');
         tapIn(w.m, 'Delete event');
@@ -4673,7 +4674,7 @@ async function main() {
         w.m.unmount();
       }
     }
-    const daily = await editingHome('en', { item: swim({ series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'daily', interval: 1, byDay: [], ends: false }, fixedDays: false } }) });
+    const daily = await editingHome('en', { item: swim({ series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'daily', interval: 1, byDay: [], ends: false }, fixedDays: false, zone: 'UTC' } }) });
     try {
       await openItem(daily.m, 'Swimming');
       tapIn(daily.m, 'Delete event');
@@ -4738,7 +4739,7 @@ async function main() {
   });
 
   await check('#82a a series whose rule fixes its days (the bot\'s "every Tuesday"): a change that moves the date offers only "Only this one", with a line on how to move them all, in en, he and ru; a new time of day, or a series that follows its start, keeps the three choices', async () => {
-    const fixed = swimInfo({ series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: ['TU'], ends: false }, fixedDays: true } });
+    const fixed = swimInfo({ series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: ['TU'], ends: false }, fixedDays: true, zone: 'UTC' } });
     const serve = (info: ItemEditInfoResponse) => (key: string) => (key === 'famcal|swim' ? ok200(info) : ({ status: 404, body: {} } as FetchAnswer));
     const choicesOf = (m: Home) => elements(topDialog(m)).filter((e) => e.localName === 'button').map((e) => e.textContent.trim());
     const NOTE = 'To move all of them to another day, delete the series and create it again.';
@@ -4799,6 +4800,38 @@ async function main() {
         l.m.unmount();
       }
     }
+  });
+
+  await check('#82b the date move that limits a fixed-day series to "Only this one" is read in the series\' own zone, as the store reads it, not on the user\'s clock: the same day for the user can be another day there (and the reverse)', async () => {
+    // A series kept in Jerusalem, seen from New York (seven hours behind until 25 October): 17:00 here is midnight there.
+    const fixed = swimInfo({ series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: ['TU'], ends: false }, fixedDays: true, zone: 'Asia/Jerusalem' }, tz: 'America/New_York' });
+    const serve = (key: string) => (key === 'famcal|swim' ? ok200(fixed) : ({ status: 404, body: {} } as FetchAnswer));
+    const choicesOf = (m: Home) => elements(topDialog(m)).filter((e) => e.localName === 'button').map((e) => e.textContent.trim());
+    const tryEdit = async (startDay: string, startTime: string) => {
+      const { m } = await editingHome('en', { item: serve, write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
+      try {
+        await openItem(m, 'Swimming');
+        m.click(byLabel(topDialog(m), 'Edit'));
+        await settle();
+        await typeInto(inDialog(m, 'Start date'), startDay);
+        await typeInto(inDialog(m, 'Start time'), startTime);
+        m.click(saveButton(m));
+        await settle();
+        return choicesOf(m).length;
+      } finally {
+        m.unmount();
+      }
+    };
+    assert((await tryEdit(day(5), '16:00')) === 2, 'the same day here, the day before there: only this one');
+    assert((await tryEdit(day(5), '18:00')) === 4, 'the same day here and there: the three choices');
+    assert((await tryEdit(day(6), '00:30')) === 4, 'another day here, the same day there: the three choices');
+    assert((await tryEdit(day(7), '17:00')) === 2, 'another day in both: only this one');
+    // The pure rule, with a zone the clock of an all-day item does not touch.
+    const at1 = editItemForm(fixed);
+    assert(movesDay({ ...at1, startTime: '16:00' }, at1, 'America/New_York', 'Asia/Jerusalem'), 'the pure rule: 16:00');
+    assert(!movesDay({ ...at1, startTime: '16:00' }, at1, 'Asia/Jerusalem', 'Asia/Jerusalem'), 'one zone: the same day');
+    assert(movesDay({ ...at1, allDay: true, startDay: day(6) }, { ...at1, allDay: true }, 'America/New_York', 'Asia/Jerusalem'), 'all day: the day as written');
+    assert(!movesDay({ ...at1, startDay: '2026-1' }, { ...at1, startDay: '2026-1' }, 'America/New_York', 'Asia/Jerusalem'), 'a day being typed is no move');
   });
 
   await check('#83 after a write the item sheet follows the store: a changed title shows when FamCal answers; a "following" edit or an "all" day move (a new key) shows the item under its new key once the refetch brings it, and closes only if it never does; an item that is gone (moved out of view, or deleted elsewhere) closes it once the edit\'s refetch has landed', async () => {

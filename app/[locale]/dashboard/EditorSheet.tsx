@@ -31,6 +31,7 @@ import {
   isDirty,
   isRealDay,
   moveStart,
+  movesDay,
   repeatWords,
   setAllDay,
   spanOf,
@@ -309,7 +310,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, inf
           title={form.title.trim() || info.occurrence.title}
           day={info.occurrence.start.slice(0, 10)}
           all={allOfThem(info.series.repeat, info.series.start)}
-          singleOnly={info.series.fixedDays && form.startDay !== start.startDay}
+          singleOnly={info.series.fixedDays && movesDay(form, start, info.tz, info.series.zone)}
           busy={saving}
           error={error}
           onPick={(scope) => void run(scope)}

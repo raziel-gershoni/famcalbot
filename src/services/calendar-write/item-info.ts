@@ -192,7 +192,8 @@ export function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, userTz
       location: occurrence.location ?? '',
       description: occurrence.description ?? '',
     },
-    series: { recurring: Boolean(series.rrule), start: first.start, repeat: repeatInfo(series.rrule), fixedDays: fixesDays(series.rrule) },
+    series: { recurring: Boolean(series.rrule), start: first.start, repeat: repeatInfo(series.rrule), fixedDays: fixesDays(series.rrule), zone: itemTz },
+    tz: userTz,
     calendar: masked
       ? { id: null, name: ctx.partner?.name ?? '', color: null }
       : { id: encodeCalendarId(calendar.id), name: calendar.name, color: calendar.color },

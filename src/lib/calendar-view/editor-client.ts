@@ -61,6 +61,8 @@ function isItemInfo(value: unknown): value is ItemEditInfoResponse {
     typeof o.title === 'string' &&
     typeof value.series.recurring === 'boolean' &&
     typeof value.series.start === 'string' &&
+    typeof value.series.zone === 'string' &&
+    typeof value.tz === 'string' &&
     Array.isArray(value.scopes)
   );
 }

@@ -149,6 +149,31 @@ export function clockIn(nowMs: number, tz: string): { day: string; time: string 
   return { day: `${part('year')}-${part('month')}-${part('day')}`, time: `${part('hour')}:${part('minute')}` };
 }
 
+/** The day, in `to`, of a wall time on `from`'s clock. A time that is no real time keeps its day. */
+export function dayInZone(day: string, time: string, from: string, to: string): string {
+  if (from === to) return day;
+  const wall = Date.parse(`${day}T${time}:00Z`);
+  if (Number.isNaN(wall)) return day;
+  // The instant whose clock in `from` reads `wall`: the zone's offset at it, found from a guess.
+  const offsetAt = (ms: number) => {
+    const c = clockIn(ms, from);
+    return Date.parse(`${c.day}T${c.time}:00Z`) - ms;
+  };
+  let instant = wall - offsetAt(wall);
+  instant = wall - offsetAt(instant);
+  return clockIn(instant, to).day;
+}
+
+/**
+ * Whether the form's start is on another day than the item's was, as the store reads it:
+ * in the series' own zone (`zone`), not on the user's clock (`tz`). An all-day start is
+ * already a day of the item's zone.
+ */
+export function movesDay(form: EditorForm, initial: EditorForm, tz: string, zone: string): boolean {
+  const dayOf = (f: EditorForm) => (f.allDay ? f.startDay : dayInZone(f.startDay, f.startTime, tz, zone));
+  return dayOf(form) !== dayOf(initial);
+}
+
 // ---- Defaults ----
 
 /** What a new item starts from: the day in view (spec §2). */

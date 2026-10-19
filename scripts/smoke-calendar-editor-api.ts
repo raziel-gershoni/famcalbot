@@ -755,7 +755,8 @@ async function main() {
     assertSame(r.body, {
       kind: 'event', canEdit: true, canDelete: true,
       occurrence: { start: '2026-10-20T10:00', end: '2026-10-20T11:00', allDay: false, title: 'Dentist', location: 'Clinic', description: 'Card' },
-      series: { recurring: false, start: '2026-10-20T10:00', repeat: null, fixedDays: false },
+      series: { recurring: false, start: '2026-10-20T10:00', repeat: null, fixedDays: false, zone: IL },
+      tz: IL,
       calendar: { id: 'native:cal-tal', name: 'Tal', color: '#039BE5' },
       forName: null, scopes: ['single'],
     }, 'a one-off');
@@ -763,8 +764,8 @@ async function main() {
     const occurrence = `famcal|${idOf(weekly.body.key)}#${iso(at('2026-11-03 10:00'))}`;
     const w = await itemOf(occurrence);
     assertSame(
-      [w.body.occurrence.start, w.body.series, w.body.scopes],
-      ['2026-11-03T10:00', { recurring: true, start: '2026-10-20T10:00', repeat: { freq: 'weekly', interval: 1, byDay: [], ends: false }, fixedDays: false }, ['single', 'following', 'all']],
+      [w.body.occurrence.start, w.body.series, w.body.scopes, w.body.tz],
+      ['2026-11-03T10:00', { recurring: true, start: '2026-10-20T10:00', repeat: { freq: 'weekly', interval: 1, byDay: [], ends: false }, fixedDays: false, zone: IL }, ['single', 'following', 'all'], IL],
       'an occurrence of a weekly series'
     );
     const allDay = await post(eventBody({ allDay: true, start: '2026-10-20', end: '2026-10-22' }));

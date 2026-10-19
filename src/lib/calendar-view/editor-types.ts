@@ -78,7 +78,11 @@ export interface ItemEditInfoResponse {
      * other scopes answer 400 invalid, field 'start'.
      */
     fixedDays: boolean;
+    /** The series' own zone: where the store reads days (a day move is a move of the day there). */
+    zone: string;
   };
+  /** The user's zone, as the wall times above are read (EditorInfoResponse.tz). */
+  tz: string;
   /** id is null when the calendar is the partner's private one (a reminder they set for the user). */
   calendar: { id: string | null; name: string; color: string | null };
   /** A reminder for the partner: their name. Otherwise null. */
