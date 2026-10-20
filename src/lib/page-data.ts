@@ -27,6 +27,8 @@ import { trackActivityAsync } from '@/src/services/analytics-service';
 import { captureError } from '@/src/lib/error-capture';
 import { listUserCalendars, scrubbedGoogleError } from '@/src/services/calendar';
 import { classifyGoogleError } from '@/src/services/calendar-read/google-map';
+import { sourcesFor } from '@/src/services/calendar-read';
+import { googleStateOf, type GoogleState } from '@/src/lib/google-state';
 import { listVisibleCalendars } from '@/src/services/native-calendar/event-store';
 import { ensurePrimaryNativeCalendar } from '@/src/services/native-calendar/onboarding';
 import { getActivePartner, getActiveInvite } from '@/src/services/pairing-service';
@@ -36,6 +38,7 @@ import { normalizeLocale } from '@/src/utils/locale';
 import { prisma } from '@/src/utils/prisma';
 import type { CalendarAssignment, CalendarLabel, UserConfig } from '@/src/types';
 import type { HomeHints } from '@/src/lib/calendar-view/home-props';
+import type { SourceName } from '@/src/lib/calendar-view/types';
 
 export const PAGE_NAMES = ['dashboard', 'settings', 'select-calendars', 'calendars', 'pair', 'subscription'] as const;
 export type PageName = (typeof PAGE_NAMES)[number];
@@ -57,9 +60,12 @@ type SelectCalendarsProps = ComponentProps<typeof SelectCalendarsClient>;
 export interface DashboardPageProps {
   user: { id: number; name: string; location: string; isAdmin: boolean };
   locale: string;
-  calendarSource?: 'GOOGLE' | 'NATIVE';
-  needsOAuth: boolean;
-  needsCalendars: boolean;
+  /** The sources the home reads (the server's sourcesFor): FamCal for everyone, Google when there is a token. */
+  sources: SourceName[];
+  /** A Google token is stored (the location banner reads it: Google tells the zone). */
+  googleConnected: boolean;
+  /** Where the user is with Google: the banners, the menu and the nudges follow it (googleStateOf). */
+  googleState: GoogleState;
   trial: { isTrialing: boolean; daysRemaining: number; trialEndsAt: string | null };
   isEarlyAdopter: boolean;
   hints: HomeHints;
@@ -133,12 +139,10 @@ export async function loadPageData(
 }
 
 async function dashboard(user: UserConfig, userId: number, locale: string): Promise<PageDataResult> {
-  // Check setup status. OAuth and calendar selection are GOOGLE-only — for
-  // NATIVE users the calendar is auto-bootstrapped at signup, so the only
-  // setup gap is location (handled in SettingsClient, not here).
-  const isNative = user.calendarSource === 'NATIVE';
-  const needsOAuth = !isNative && !user.googleRefreshToken;
-  const needsCalendars = !isNative && (!user.calendarAssignments || user.calendarAssignments.length === 0);
+  // Google is a connection beside FamCal (spec "Google as a connection" §2), so the home
+  // gets facts, not a source: what it reads, whether a token is stored, and the state the
+  // banners and the menu follow. A cleared token with calendars stored is 'reconnect':
+  // sourcesFor drops Google then, so the range answer cannot say it.
 
   // The trial and early-adopter lines, and the home's hints. getSubscriptionWithUsage's
   // answer isn't on the wire; it runs for its side effect: an open after the trial's end
@@ -158,9 +162,9 @@ async function dashboard(user: UserConfig, userId: number, locale: string): Prom
       isAdmin: user.isAdmin || false,
     },
     locale,
-    calendarSource: user.calendarSource,
-    needsOAuth,
-    needsCalendars,
+    sources: sourcesFor(user),
+    googleConnected: Boolean(user.googleRefreshToken),
+    googleState: googleStateOf(user),
     trial: { ...trialStatus, trialEndsAt: trialStatus.trialEndsAt?.toISOString() ?? null },
     isEarlyAdopter,
     ...home,

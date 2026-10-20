@@ -26,8 +26,8 @@
 //    container's callbacks;
 //  - the mockups' day forms: a fold line in one month names it once ("Sat 17 – Sun 18
 //    Oct"), and Hebrew labels read "חמישי 15 באוק׳";
-//  - a Google user still setting up (setupNeeded) gets no Agenda: no "Nothing planned",
-//    no hint, no fold, no placeholders;
+//  - the Agenda has no setup shape any more (Google as a connection): FamCal is everyone's,
+//    so a user still choosing Google calendars sees their FamCal days under the banner;
 //  - the colours: the brand fallbacks are globals.css's tokens, and the page's root takes
 //    the theme's background while the home is mounted.
 //
@@ -40,7 +40,7 @@
 // back after a night with its timers suspended, and with a device clock that runs ahead;
 // a range request that never settles timing out;
 // 401/403/404 on PageGate's card; the busy and retry cards; the send sheet's answers
-// (R5); the menu (R6); the banners (§7.2), with no Agenda under a Google setup banner;
+// (R5); the menu (R6); the banners (§7.2), with the Agenda under a Google setup banner;
 // Telegram's BackButton for the item, send and menu sheets; the shell's CSS; the error
 // boundary.
 //
@@ -60,7 +60,7 @@
 // client and never touched on a 7.0 one; picked and its BackButton, with the item sheet
 // over it closing first; the layout kept on the device, a restored picked opening on
 // today; the foreground and Refresh asking the Month's windows; a failed month's Retry;
-// midnight on the Month; no tab bar while a Google user sets up; no clipping ancestor above the Month; the unavailable-calendars row
+// midnight on the Month; the tab bar for a Google user with no token; no clipping ancestor above the Month; the unavailable-calendars row
 // once above the Month; a tab switch from picked and back; Telegram's activated on the
 // Month; the item sheet keeping focus over picked.
 //
@@ -91,6 +91,7 @@ import { ItemSheet, type SheetActions } from '../app/[locale]/dashboard/ItemShee
 import { FORM_CSS } from '../app/[locale]/dashboard/form-kit';
 import { SendSheet } from '../app/[locale]/dashboard/SendSheet';
 import { BottomSheet } from '../app/[locale]/dashboard/BottomSheet';
+import SelectCalendarsClient from '../app/[locale]/select-calendars/SelectCalendarsClient';
 
 /** BottomSheet with its children passed as createElement arguments (the lint rule forbids the prop). */
 const SheetProbe = BottomSheet as unknown as (props: Omit<ComponentProps<typeof BottomSheet>, 'children'>) => ReactElement;
@@ -327,7 +328,7 @@ function inHome(locale: Locale, el: ReactElement): ReactElement {
 }
 
 function agendaProps(agenda: AgendaModel | null, o: Partial<AgendaViewProps> = {}): AgendaViewProps {
-  return { agenda, hints: HINTS_ALL, setupNeeded: false, selected: null, onSelect: noop, onShowNextWeek: noop, onRetry: noop, onChooseCalendars: noop, ...o };
+  return { agenda, hints: HINTS_ALL, selected: null, onSelect: noop, onShowNextWeek: noop, onRetry: noop, onChooseCalendars: noop, ...o };
 }
 
 function renderAgenda(locale: Locale, agenda: AgendaModel | null, o: Partial<AgendaViewProps> = {}): string {
@@ -1062,12 +1063,37 @@ function inApp(locale: Locale, el: ReactElement): ReactElement {
 const FAMCAL_HOME: CalendarHomeProps = {
   user: { id: 5550001, name: 'Dana', isAdmin: false },
   locale: 'en',
-  calendarSource: 'NATIVE',
-  needsOAuth: false,
-  needsCalendars: false,
+  sources: ['famcal'],
+  googleConnected: false,
+  googleState: 'none',
   hints: HINTS_ALL,
 };
-const GOOGLE_HOME: CalendarHomeProps = { ...FAMCAL_HOME, user: { id: 5550002, name: 'Avi', isAdmin: true }, calendarSource: 'GOOGLE' };
+/**
+ * A home that reads Google alone: the fixture for Google's own rendering paths (the server's
+ * sources always list famcal first, so no real user has this; the home is source-agnostic and
+ * reads whatever the `sources` prop lists). BOTH_HOME below is the real connected user.
+ */
+const GOOGLE_HOME: CalendarHomeProps = { ...FAMCAL_HOME, user: { id: 5550002, name: 'Avi', isAdmin: true }, sources: ['google'], googleConnected: true, googleState: 'connected' };
+
+/** A FamCal user with Google connected beside it (the server's sources for a user with a token), with calendars chosen. */
+const BOTH_HOME: CalendarHomeProps = { ...FAMCAL_HOME, user: { id: 5550003, name: 'Hila', isAdmin: false }, sources: ['famcal', 'google'], googleConnected: true, googleState: 'connected' };
+
+/**
+ * The route's answer to one source's request for a user with both: the asked source as given, the other
+ * 'pending' (it applies but wasn't requested), each with its own legend. A source with no entry in `o` is ok and empty.
+ */
+function answerSource(
+  c: FetchCall,
+  o: { famcal?: Partial<RangeResponse> & { items?: Record<DayKey, ItemDTO[]> }; google?: Partial<RangeResponse> & { items?: Record<DayKey, ItemDTO[]> } } = {},
+): FetchAnswer {
+  const window = { from: c.query.get('from') ?? TODAY, to: c.query.get('to') ?? day(7) };
+  if (c.query.get('sources') === 'google') {
+    const g = o.google ?? {};
+    return ok200(googleAnswer({ ...window, ...g, sources: { famcal: { status: 'pending' }, google: g.sources?.google ?? { status: 'ok' } } }));
+  }
+  const f = o.famcal ?? {};
+  return ok200(answer({ ...window, ...f, sources: { famcal: { status: 'ok' }, google: { status: 'pending' } } }));
+}
 
 /** Mounts the home (the default export, or the container on a fake clock) and lets its first effects run. */
 async function mountHome(locale: Locale, props: Partial<CalendarHomeProps> = {}, clock?: ReturnType<typeof fakeClock>) {
@@ -1357,7 +1383,7 @@ async function main() {
     assert((busyText.match(/Nothing planned/g) ?? []).length === 1, `only week 0's fold: ${busyText}`);
   });
 
-  await check('#11 the empty state (Ruling R10) names only the ways this user can add things; a Google user still setting up (setupNeeded) gets no Agenda at all', () => {
+  await check('#11 the empty state (Ruling R10) names only the ways this user can add things; a connected user with no Google calendars chosen still gets their FamCal Agenda (an ok answer with nothing is an empty week)', () => {
     const empty = model([ok(answer())]);
     assert(empty.empty, 'the fixture week is empty');
     const all = textOf(renderAgenda('en', empty, { hints: { reminders: true, voiceEvents: true } }));
@@ -1371,15 +1397,12 @@ async function main() {
     assert(!markup(none).includes('ch-empty-hint'), 'no hint at all when the plan allows neither');
     assertHas(textOf(renderAgenda('he', empty)), ['אין אירועים', 'הודעה קולית', 'תזכיר לי'], 'he hints');
     // Connected to Google with no calendars chosen: the route answers ok with nothing (spec §2.5 step 2).
+    // To the Agenda that is an empty week like any other: the setup shape is gone (FamCal is everyone's).
     const unchosen = model([ok(googleAnswer({ calendars: [] }))]);
     assert(unchosen.empty, 'to the model, an ok answer with nothing chosen is empty');
-    const setup = renderAgenda('en', unchosen, { setupNeeded: true });
-    assertLacks(textOf(setup), ['Nothing planned', 'voice message', 'Remind me', 'Show next week', 'Today', 'Tomorrow'], 'setup');
-    assert(!/ch-(?:fold|ghost|empty|day-head)/.test(markup(setup)), 'setup: no fold, no placeholder, no empty state, no day');
-    assertLacks(textOf(renderAgenda('he', unchosen, { setupNeeded: true })), ['אין אירועים', 'היום'], 'he setup');
-    assertLacks(textOf(renderAgenda('ru', unchosen, { setupNeeded: true })), ['Ничего не запланировано', 'Сегодня'], 'ru setup');
-    const before = renderAgenda('en', null, { setupNeeded: true });
-    assert(!before.includes('aria-busy') && !markup(before).includes('ch-ghost'), 'no placeholders before the answer either');
+    assertHas(textOf(renderAgenda('en', unchosen)), ['Nothing planned', 'send the bot a voice message', 'Show next week'], 'an empty week, not a setup screen');
+    assertHas(textOf(renderAgenda('he', unchosen)), ['אין אירועים'], 'he');
+    assertHas(textOf(renderAgenda('ru', unchosen)), ['Ничего не запланировано'], 'ru');
   });
 
   await check('#12 Hebrew dates show only when the route says so', () => {
@@ -2076,12 +2099,18 @@ async function main() {
     }
   });
 
-  await check('#31 the ⋯ menu (R6): FamCal users get Calendars and Partner, Google users Choose calendars and Reconnect Google, admins the Admin panel; each opens its page with the page\'s user_id, and the sheet closes', async () => {
-    const famcal = menuEntries({ calendarSource: 'NATIVE', isAdmin: false, locale: 'en', userId: 5550001 });
-    assert(show(famcal.map((e) => e.id)) === show(['settings', 'calendars', 'partner', 'subscription', 'refresh', 'feedback']), `FamCal: ${show(famcal)}`);
-    const google = menuEntries({ calendarSource: 'GOOGLE', isAdmin: true, locale: 'ru', userId: 5550002 });
+  await check('#31 the ⋯ menu (R6, Google as a connection §2): everyone gets Calendars and Partner; a user who never connected gets Connect Google, one with a token Choose calendars and Reconnect Google, one with a cleared token only Reconnect Google; admins the Admin panel; each opens its page with the page\'s user_id, and the sheet closes', async () => {
+    const famcal = menuEntries({ googleState: 'none', isAdmin: false, locale: 'en', userId: 5550001 });
+    assert(show(famcal.map((e) => [e.id, e.href])) === show([['settings', '/en/settings?user_id=5550001'], ['calendars', '/en/calendars?user_id=5550001'], ['partner', '/en/pair?user_id=5550001'], ['connectGoogle', '/refresh-token?user_id=5550001'], ['subscription', '/en/subscription?user_id=5550001'], ['refresh', null], ['feedback', '/en/feedback?user_id=5550001']]), `never connected: ${show(famcal)}`);
+    const idsFor = (googleState: 'none' | 'choose' | 'reconnect' | 'connected') => menuEntries({ googleState, isAdmin: false, locale: 'en', userId: 1 }).map((e) => e.id);
+    assert(show(idsFor('choose')) === show(['settings', 'calendars', 'partner', 'chooseCalendars', 'reconnectGoogle', 'subscription', 'refresh', 'feedback']), `choose: ${show(idsFor('choose'))}`);
+    assert(show(idsFor('reconnect')) === show(['settings', 'calendars', 'partner', 'reconnectGoogle', 'subscription', 'refresh', 'feedback']), `a cleared token: ${show(idsFor('reconnect'))}`);
+    assert(show(idsFor('connected')) === show(['settings', 'calendars', 'partner', 'chooseCalendars', 'reconnectGoogle', 'subscription', 'refresh', 'feedback']), `connected: ${show(idsFor('connected'))}`);
+    const google = menuEntries({ googleState: 'connected', isAdmin: true, locale: 'ru', userId: 5550002 });
     const want = [
       ['settings', '/ru/settings?user_id=5550002'],
+      ['calendars', '/ru/calendars?user_id=5550002'],
+      ['partner', '/ru/pair?user_id=5550002'],
       ['chooseCalendars', '/ru/select-calendars?user_id=5550002'],
       ['reconnectGoogle', '/refresh-token?user_id=5550002'],
       ['subscription', '/ru/subscription?user_id=5550002'],
@@ -2097,8 +2126,8 @@ async function main() {
     try {
       m.click(byLabel(m.container, 'Menu'));
       assert(byRole(m.container, 'dialog')[0]?.getAttribute('aria-label') === 'Menu', 'a dialog labelled Menu');
-      assertHas(dialogText(m.container), ['Settings Calendars Partner Subscription Refresh Feedback Close'], 'the FamCal menu');
-      assertLacks(dialogText(m.container), ['Choose calendars', 'Reconnect Google', 'Admin panel'], 'no Google entry, no admin entry');
+      assertHas(dialogText(m.container), ['Settings Calendars Partner Connect Google Calendar Subscription Refresh Feedback Close'], 'the never-connected menu');
+      assertLacks(dialogText(m.container), ['Choose calendars', 'Reconnect Google', 'Admin panel'], 'only the Connect entry, no admin entry');
       m.click(byData(m.container, 'menu', 'partner'));
       assert(show(pushes) === show(['/en/pair?user_id=5550001']), `push: ${show(pushes)}`);
       assert(byRole(m.container, 'dialog').length === 0, 'the menu closed');
@@ -2110,7 +2139,7 @@ async function main() {
     const g = await mountHome('ru', GOOGLE_HOME);
     try {
       g.click(byLabel(g.container, 'Меню'));
-      assertHas(dialogText(g.container), ['Настройки Выбрать календари Переподключить Google Подписка Обновить Обратная связь Панель администратора'], 'the Google admin\'s menu (ru)');
+      assertHas(dialogText(g.container), ['Настройки Календари Партнёр Выбрать календари Переподключить Google Подписка Обновить Обратная связь Панель администратора'], 'the Google admin\'s menu (ru)');
       g.click(byData(g.container, 'menu', 'admin'));
       assert(show(pushes) === show(['/ru/admin-panel?user_id=5550002']), `push: ${show(pushes)}`);
     } finally {
@@ -2118,19 +2147,26 @@ async function main() {
     }
   });
 
-  await check('#32 the banners (§7.2), in order: trial, location, the Google setup card, Reconnect (token or scopes; never with Connect, never for FamCal) and, in a browser, Open FamCal in Telegram; each opens its page', async () => {
-    const base: BannerFacts = { calendarSource: 'NATIVE', needsOAuth: false, needsCalendars: false, reconnect: null, inTelegram: true };
+  await check('#32 the banners (§7.2, Google as a connection §2), in order: trial, location, Choose your calendars (a token, none chosen), Reconnect (a cleared token with calendars stored, or a Google answer that asked: token or scopes) and, in a browser, Open FamCal in Telegram; never a Connect banner, never a Google banner for a user who never connected; each opens its page', async () => {
+    const base: BannerFacts = { googleState: 'none', googleConnected: false, reconnect: null, inTelegram: true };
     const cases: [Partial<BannerFacts>, string[]][] = [
       [{}, []],
       [{ trialDaysLeft: 5, hasLocation: false, inTelegram: false }, ['trial', 'location', 'openInTelegram']],
       [{ trialDaysLeft: 0, hasLocation: true }, []],
       [{ trialDaysLeft: null }, []],
       [{ reconnect: 'token' }, []],
-      [{ calendarSource: 'GOOGLE', hasLocation: false }, []],
-      [{ calendarSource: 'GOOGLE', needsOAuth: true, needsCalendars: true, hasLocation: false, reconnect: 'token' }, ['location', 'connectGoogle']],
-      [{ calendarSource: 'GOOGLE', needsCalendars: true }, ['chooseCalendars']],
-      [{ calendarSource: 'GOOGLE', reconnect: 'token' }, ['reconnect']],
-      [{ calendarSource: 'GOOGLE', reconnect: 'scopes', inTelegram: false }, ['reconnectScopes', 'openInTelegram']],
+      // Never connected: the location banner follows the missing location, and nothing else about Google.
+      [{ hasLocation: false }, ['location']],
+      // A token with no calendars chosen.
+      [{ googleState: 'choose', googleConnected: true, hasLocation: false }, ['chooseCalendars']],
+      [{ googleState: 'choose', googleConnected: true, reconnect: 'token' }, ['chooseCalendars', 'reconnect']],
+      // A cleared token while calendars are stored: Reconnect from the page's state, with the location banner (no token to read a zone from).
+      [{ googleState: 'reconnect', hasLocation: false }, ['location', 'reconnect']],
+      [{ googleState: 'reconnect', reconnect: 'scopes' }, ['reconnect']],
+      // Connected: a Google answer's reconnect.
+      [{ googleState: 'connected', googleConnected: true, hasLocation: false }, []],
+      [{ googleState: 'connected', googleConnected: true, reconnect: 'token' }, ['reconnect']],
+      [{ googleState: 'connected', googleConnected: true, reconnect: 'scopes', inTelegram: false }, ['reconnectScopes', 'openInTelegram']],
     ];
     for (const [facts, want] of cases) {
       const got = homeBanners({ ...base, ...facts });
@@ -2342,28 +2378,36 @@ async function main() {
     }
   });
 
-  await check('#38 a Google user who connected but hasn\'t chosen calendars (the route answers ok with 7 empty days): the Choose your calendars banner, and under it no "Nothing planned", no hint, no fold, no "Show next week"; before connecting, the Connect banner the same way', async () => {
-    const cases: [Locale, Partial<CalendarHomeProps>, RangeResponse, string, string, string[]][] = [
-      ['en', { needsCalendars: true }, googleAnswer({ calendars: [] }), 'chooseCalendars', 'Choose your calendars Pick the Google calendars to show here and in your summaries.', ['Nothing planned', 'voice message', 'Remind me', 'Show next week', 'Today', 'Tomorrow']],
-      ['he', { needsCalendars: true }, googleAnswer({ calendars: [] }), 'chooseCalendars', 'בחירת יומנים אילו יומני Google להציג כאן ובסיכומים?', ['אין אירועים', 'הודעה קולית', 'תזכיר לי', 'להציג את השבוע הבא', 'היום', 'מחר']],
-      ['en', { needsOAuth: true, needsCalendars: true }, googleAnswer({ sources: { google: { status: 'reconnect', reason: 'token' } }, calendars: [] }), 'connectGoogle', 'Connect Google Calendar Your calendar shows up here once it’s connected.', ['Nothing planned', 'Reconnect', 'Show next week', 'Today', 'Tomorrow']],
+  await check('#38 a user who connected Google but hasn\'t chosen calendars (a token, none chosen; Google answers ok with 7 empty days): the Choose your calendars banner, and under it the FamCal Agenda as for anyone (their events, the tab bar, no setup shape); both sources are asked; a user who never connected has no Google banner at all', async () => {
+    const cases: [Locale, string, string][] = [
+      ['en', 'Choose your calendars Pick the Google calendars to show here and in your summaries.', 'Grandma visits'],
+      ['he', 'בחירת יומנים אילו יומני Google להציג כאן ובסיכומים?', 'Grandma visits'],
     ];
-    for (const [locale, setup, reply, banner, title, absent] of cases) {
+    for (const [locale, title, event] of cases) {
       resetHome();
-      answerFetch = () => ok200(reply);
-      const m = await mountHome(locale, { ...GOOGLE_HOME, ...setup });
+      answerFetch = (c) => answerSource(c, { famcal: { items: WEEK }, google: { calendars: [] } });
+      const m = await mountHome(locale, { ...BOTH_HOME, googleState: 'choose' });
       try {
-        assertHas(m.text(), [title], `${locale} ${banner}`);
-        assert(m.html().includes(`data-banner="${banner}"`), `${locale}: the ${banner} banner`);
-        assertLacks(m.text(), absent, `${locale} ${banner}: no Agenda under the banner`);
-        assert(!/class="ch-(?:fold|ghost|empty|day-head|more)\b/.test(markup(m.html())), `${locale} ${banner}: no fold, placeholder, empty state, day or button`);
-        assert(show(ranges()) === show(['google default']), `${locale}: one request: ${show(ranges())}`);
-        m.click(byData(m.container, 'banner', banner));
-        const want = banner === 'chooseCalendars' ? `/${locale}/select-calendars?user_id=5550002` : '/refresh-token?user_id=5550002';
-        assert(show(pushes) === show([want]), `${banner} opens ${want}: ${show(pushes)}`);
+        assertHas(m.text(), [title, event], `${locale}: the banner, and FamCal's own events under it`);
+        assert(m.html().includes('data-banner="chooseCalendars"'), `${locale}: the chooseCalendars banner`);
+        assert(m.html().includes('role="tablist"'), `${locale}: the tab bar`);
+        assert(show(ranges()) === show(['famcal default', 'google default']), `${locale}: both sources asked: ${show(ranges())}`);
+        m.click(byData(m.container, 'banner', 'chooseCalendars'));
+        assert(show(pushes) === show([`/${locale}/select-calendars?user_id=5550003`]), `chooseCalendars opens its page: ${show(pushes)}`);
       } finally {
         m.unmount();
       }
+    }
+    // Never connected: nothing about Google on the home (Connect lives in the menu).
+    resetHome();
+    answerFetch = () => ok200(answer({ items: WEEK }));
+    const n = await mountHome('en');
+    try {
+      assert(!/data-banner="(?:connectGoogle|chooseCalendars|reconnect|reconnectScopes)"/.test(n.html()), 'no Google banner');
+      assertLacks(n.text(), ['Connect Google', 'Choose your calendars', 'Reconnect'], 'never connected: no Google words on the home');
+      assert(show(ranges()) === show(['famcal default']), `FamCal alone: ${show(ranges())}`);
+    } finally {
+      n.unmount();
     }
   });
 
@@ -3053,19 +3097,21 @@ async function main() {
     }
   });
 
-  await check('#52 a Google user still setting up (Ruling 1): no tab bar and no tab panel even with the Month remembered, which is left as it is; the Agenda\'s setup shape as in D, no month request, and swipes stay on', async () => {
+  await check('#52 a Google user whose token was cleared (calendars stored; Ruling 1 no longer hides the tabs): the tab bar and the remembered Month show, only FamCal is asked (the month\'s windows too), the Reconnect banner comes from the page\'s state, and the Month behaves as for any home; the busy card still shows no tab bar', async () => {
     resetHome();
     fakeWindow.sessionStorage.setItem(homeTabKey(5550002), 'month');
     const tg = fakeTelegramHome({ version: '7.7' });
     fakeWindow.Telegram = { WebApp: tg.webApp };
-    answerFetch = () => ok200(googleAnswer({ calendars: [] }));
-    const m = await mountHome('en', { ...GOOGLE_HOME, needsCalendars: true });
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const m = await mountHome('en', { ...FAMCAL_HOME, user: { id: 5550002, name: 'Avi', isAdmin: true }, googleState: 'reconnect' }, fakeClock('2026-10-15T07:00:00Z'));
     try {
-      assertLacks(m.html(), ['role="tablist"', 'role="tab"', 'role="tabpanel"', 'class="ch-mb', 'class="ch-mp'], 'no tabs, no Month');
-      assert(m.html().includes('data-banner="chooseCalendars"') && byClass(m.container, 'ch-agenda').length === 1, 'the banner and the (empty) Agenda');
-      assert(show(ranges()) === show(['google default']), `one request: ${show(ranges())}`);
-      assert(fakeWindow.sessionStorage.getItem(homeTabKey(5550002)) === 'month', 'the stored tab is left as it is');
-      assert(show(swipeCalls(tg.calls)) === show(['enableVerticalSwipes()']), `swipes on: ${show(swipeCalls(tg.calls))}`);
+      assert(m.html().includes('role="tablist"') && m.html().includes('role="tabpanel"'), 'the tab bar and its panel');
+      assert(m.html().includes('data-banner="reconnect"') && m.text().includes('Your Google connection expired'), 'the Reconnect banner, with no Google answer asking for it');
+      assert(ranges().length > 0 && ranges().every((r) => r.startsWith('famcal ')), `FamCal alone is asked, the Month\'s windows too: ${show(ranges())}`);
+      assert(fakeWindow.sessionStorage.getItem(homeTabKey(5550002)) === 'month', 'the stored tab is kept');
+      assert(swipeCalls(tg.calls).includes('disableVerticalSwipes()'), `browse turns swipes off as for any home: ${show(swipeCalls(tg.calls))}`);
+      m.click(byData(m.container, 'banner', 'reconnect'));
+      assert(show(pushes) === show(['/refresh-token?user_id=5550002']), `Reconnect opens the token page: ${show(pushes)}`);
     } finally {
       m.unmount();
       fakeWindow.Telegram = undefined;
@@ -6475,6 +6521,286 @@ async function main() {
 
   await check('#107 React logged no warning in #102-#105 (keys, nesting, attributes, act)', () => {
     assert(reactWarnings.length === warnedBeforeHebrew, `React warned: ${show(reactWarnings.slice(warnedBeforeHebrew, warnedBeforeHebrew + 3))}`);
+  });
+
+  // ---- Google as a connection (G3): the client reads facts, never calendarSource ----
+
+  const warnedBeforeConnection = reactWarnings.length;
+  const GOOGLE_FAMILY_ID = 'family@group.calendar.google.com';
+
+  /** The union editor info the server answers a connected user (G1): FamCal's kinds and partner, plus the writable Google rows; `main` marks the default. */
+  const unionEditor = (main: 'famcal' | 'google'): EditorInfoResponse => ({
+    kinds: { event: true, reminder: true },
+    calendars: [
+      { id: 'native:cal_me_7f3a', name: 'Family', color: '#039BE5', main: main === 'famcal', mine: true },
+      { id: 'native:cal_noa_91b2', name: 'Noa and the kids', color: '#F4511E', main: false, mine: false, ownerName: 'Noa' },
+      { id: GOOGLE_FAMILY_ID, name: 'Google Family', color: '#7986CB', main: false, mine: true },
+      { id: 'avi@gmail.com', name: 'Avi', color: '#039BE5', main: main === 'google', mine: true },
+    ],
+    partner: { name: 'Noa', canRemind: true },
+    tz: TZ,
+  });
+  /** The home for a user with FamCal and Google both: each source's windows from `world`, the editing routes from `server`. */
+  async function bothHome(locale: Locale, server: EditingServer = {}, props: Partial<CalendarHomeProps> = {}) {
+    resetHome();
+    const tg = fakeTelegramHome();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    const world = { famcal: WEEK as Record<DayKey, ItemDTO[]>, google: { [day(0)]: [DINNER], [day(1)]: [BIRTHDAY, YOGA] } as Record<DayKey, ItemDTO[]> };
+    answerFetch = (c) => answerSource(c, { famcal: { items: world.famcal }, google: { items: world.google } });
+    serveEditingWith({ editor: ok200(unionEditor('google')), ...server });
+    const m = await mountHome(locale, { ...BOTH_HOME, ...props }, fakeClock('2026-10-15T07:00:00Z'));
+    return { m, tg, world };
+  }
+
+  await check('#108 a connected user\'s home reads both sources: FamCal and Google are each asked, their items share the Agenda, "Show next week" and the foreground ask both, and a Google outage leaves FamCal\'s days in place', async () => {
+    const { m } = await bothHome('en');
+    try {
+      assert(show(ranges()) === show(['famcal default', 'google default']), `first load: ${show(ranges())}`);
+      assert(rangeCalls().every((c) => c.query.get('user_id') === '5550003'), 'under the page\'s user_id');
+      assertHas(m.text(), ['Grandma visits', 'Dinner with the Cohens'], 'both sources\' events, one list');
+      assert(m.html().includes('role="tablist"'), 'the tab bar');
+      fetchCalls.length = 0;
+      m.click(button(m.container, 'Show next week'));
+      await settle();
+      assert(show(ranges().slice().sort()) === show([`famcal ${day(7)}→${day(14)}`, `google ${day(7)}→${day(14)}`]), `next week asks both: ${show(ranges())}`);
+      fetchCalls.length = 0;
+      await fireDocument('visibilitychange');
+      await settle();
+      assert(ranges().some((r) => r.startsWith('famcal ')) && ranges().some((r) => r.startsWith('google ')), `the foreground asks both: ${show(ranges())}`);
+    } finally {
+      m.unmount();
+    }
+    // Google down: its error row shows, and FamCal's days stay (review focus 2).
+    resetHome();
+    answerFetch = (c) => answerSource(c, { famcal: { items: WEEK }, google: { sources: { google: { status: 'error', reason: 'transient' } }, calendars: [] } });
+    const down = await mountHome('en', BOTH_HOME);
+    try {
+      assertHas(down.text(), ['Grandma visits', 'Couldn’t load Google Calendar Retry'], 'FamCal\'s events and the Google error row');
+      assertLacks(down.text(), ['Couldn’t load FamCal', 'Busy right now'], 'FamCal is fine');
+    } finally {
+      down.unmount();
+    }
+    // A dead token (Google answers reconnect): the Reconnect banner, FamCal untouched.
+    resetHome();
+    answerFetch = (c) => answerSource(c, { famcal: { items: WEEK }, google: { sources: { google: { status: 'reconnect', reason: 'token' } }, calendars: [] } });
+    const dead = await mountHome('en', BOTH_HOME);
+    try {
+      assert(dead.html().includes('data-banner="reconnect"'), 'the Reconnect banner, once Google asked for it');
+      assertHas(dead.text(), ['Grandma visits'], 'FamCal\'s events');
+      assert(!dead.html().includes('data-banner="chooseCalendars"'), 'and not Choose calendars');
+    } finally {
+      dead.unmount();
+    }
+  });
+
+  await check('#109 the "+" and reminders for a user with Google: the Event | Reminder switch, one Calendar row of both kinds in the server\'s order, the default from the server\'s main (a Google primary, or the FamCal main), a reminder carrying no calendar; a create refreshes the source of the calendar it went to', async () => {
+    const { m } = await bothHome('en');
+    try {
+      assert(hasPlus(m), 'the "+" for a user with Google');
+      tapPlus(m);
+      await settle();
+      assert(show(byRole(topDialog(m), 'radio').map((e) => e.textContent)) === show(['Event', 'Reminder']), 'the Event | Reminder switch');
+      assert(show(optionsIn(m, 'Calendar')) === show([['native:cal_me_7f3a', 'Family'], ['native:cal_noa_91b2', 'Noa and the kids · Noa'], [GOOGLE_FAMILY_ID, 'Google Family'], ['avi@gmail.com', 'Avi']]), `calendars: ${show(optionsIn(m, 'Calendar'))}`);
+      assert(shownIn(m, 'Calendar') === 'Avi', `the Google primary is the default: ${shownIn(m, 'Calendar')}`);
+      // An event on a FamCal calendar: FamCal's windows are asked again, not Google's.
+      await typeInto(inDialog(m, 'Title'), 'Lunch');
+      await pick(m, 'Calendar', 'native:cal_me_7f3a');
+      fetchCalls.length = 0;
+      serveEditing = (c) => (c.path === '/api/calendar/editor' ? ok200(unionEditor('google')) : ok200({ status: 'ok', key: 'famcal|new1' }));
+      m.click(saveButton(m));
+      await settle();
+      assert(writes().length === 1 && writes()[0].body?.calendarId === 'native:cal_me_7f3a' && writes()[0].body?.kind === 'event', `FamCal create: ${show(writes()[0]?.body)}`);
+      const afterFamcal = rangeCalls().map((c) => c.query.get('sources'));
+      assert(afterFamcal.length > 0 && afterFamcal.every((s2) => s2 === 'famcal'), `only FamCal is asked: ${show(afterFamcal)}`);
+      // An event on a Google calendar: Google's windows.
+      tapPlus(m);
+      await settle();
+      await typeInto(inDialog(m, 'Title'), 'Dinner');
+      await pick(m, 'Calendar', GOOGLE_FAMILY_ID);
+      fetchCalls.length = 0;
+      serveEditing = (c) => (c.path === '/api/calendar/editor' ? ok200(unionEditor('google')) : ok200({ status: 'ok', key: 'google|x|new2' }));
+      m.click(saveButton(m));
+      await settle();
+      assert(writes()[0].body?.calendarId === GOOGLE_FAMILY_ID, `Google create: ${show(writes()[0]?.body)}`);
+      const afterGoogle = rangeCalls().map((c) => c.query.get('sources'));
+      assert(afterGoogle.length > 0 && afterGoogle.every((s2) => s2 === 'google'), `only Google is asked: ${show(afterGoogle)}`);
+      // A reminder: no Calendar row, no calendar in the body (the server pins it to FamCal), FamCal refreshed.
+      tapPlus(m);
+      await settle();
+      tapIn(m, 'Reminder');
+      assert(!hasField(m, 'Calendar') && !elements(topDialog(m)).some((e) => e.localName === 'select' && e.getAttribute('aria-label') === 'Calendar'), 'a reminder has no Calendar row');
+      await typeInto(inDialog(m, 'Title'), 'Call Grandma');
+      fetchCalls.length = 0;
+      serveEditing = (c) => (c.path === '/api/calendar/editor' ? ok200(unionEditor('google')) : ok200({ status: 'ok', key: 'famcal|rem' }));
+      m.click(saveButton(m));
+      await settle();
+      assert(writes()[0].body?.kind === 'reminder' && !('calendarId' in (writes()[0].body ?? {})), `reminder body: ${show(writes()[0]?.body)}`);
+      const afterReminder = rangeCalls().map((c) => c.query.get('sources'));
+      assert(afterReminder.length > 0 && afterReminder.every((s2) => s2 === 'famcal'), `a reminder lives in FamCal: ${show(afterReminder)}`);
+    } finally {
+      m.unmount();
+    }
+    // The default follows the server's main: a user whose default is the FamCal main sees it selected.
+    const famcalMain = await bothHome('en', { editor: ok200(unionEditor('famcal')) });
+    try {
+      tapPlus(famcalMain.m);
+      await settle();
+      assert(shownIn(famcalMain.m, 'Calendar') === 'Family', `the FamCal main: ${shownIn(famcalMain.m, 'Calendar')}`);
+    } finally {
+      famcalMain.m.unmount();
+    }
+    // A user with a token but no usable reminders (the plan\'s hints): events only, still a "+".
+    const noReminders = await bothHome('en', {}, { hints: { reminders: false, voiceEvents: true } });
+    try {
+      tapPlus(noReminders.m);
+      await settle();
+      assert(!elements(topDialog(noReminders.m)).some((e) => e.getAttribute('aria-label') === 'Type'), 'no switch without reminders');
+      assertHas(topText(noReminders.m), ['All day', 'Avi'], 'an event form on the default');
+    } finally {
+      noReminders.m.unmount();
+    }
+    // A cleared token (state reconnect, FamCal alone): the "+" is there and FamCal is all it offers.
+    const cleared = await editingHome('en', { editor: ok200(EDITOR_INFO) }, { googleState: 'reconnect' });
+    try {
+      assert(hasPlus(cleared.m), 'the "+" without a token');
+      assert(cleared.m.html().includes('role="tablist"'), 'the tab bar without a token');
+    } finally {
+      cleared.m.unmount();
+    }
+  });
+
+  await check('#110 the item sheet\'s edit info is asked for FamCal and Google items alike on every home (a user with both can change both); no read of the old calendarSource anywhere in the client', async () => {
+    const { m } = await bothHome('en', {
+      item: (key) => ok200(infoFor({ source: key.startsWith('google|') ? 'google' : 'famcal', occurrence: { start: `${day(0)}T19:30`, end: `${day(0)}T22:00`, allDay: false, title: 'Dinner with the Cohens', location: '', description: '' } })),
+    });
+    try {
+      await openItem(m, 'Dinner with the Cohens');
+      assert(itemCalls().some((c) => c.query.get('key')?.startsWith('google|')), `the Google item's info is asked: ${show(itemCalls().map((c) => c.query.get('key')))}`);
+      assert(sheetButtons(m).includes('Edit'), `the pencil on a Google item: ${show(sheetButtons(m))}`);
+      m.click(dialogButton(m, 'Close'));
+      await settle();
+      await openItem(m, 'Grandma visits');
+      assert(itemCalls().some((c) => c.query.get('key')?.startsWith('famcal|')), `the FamCal item's info is asked too: ${show(itemCalls().map((c) => c.query.get('key')))}`);
+      assert(sheetButtons(m).includes('Edit'), `the pencil on a FamCal item: ${show(sheetButtons(m))}`);
+    } finally {
+      m.unmount();
+    }
+    // The client's own code reads no calendarSource (the legacy column stays on the server, unread).
+    for (const rel of ['app/[locale]/PageGate.tsx', 'app/[locale]/dashboard/CalendarHome.tsx', 'app/[locale]/dashboard/HomeBanners.tsx', 'app/[locale]/dashboard/MenuSheet.tsx', 'src/lib/calendar-view/home-client.ts', 'src/lib/calendar-view/home-props.ts', 'src/lib/page-data.ts']) {
+      const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+      assert(!/\bcalendarSource\b|\bneedsOAuth\b|\bneedsCalendars\b/.test(src), `${rel} still reads the legacy source`);
+    }
+  });
+
+  await check('#111 the Google states in en, he and ru: Choose calendars and Reconnect banners and the menu\'s Connect entry read real text, none of them for the wrong state', async () => {
+    const wants: [Locale, string, string][] = [
+      ['en', 'Connect Google Calendar', 'Reconnect Google'],
+      ['he', 'חיבור ליומן Google', 'חיבור מחדש ל-Google'],
+      ['ru', 'Подключить Google Календарь', 'Переподключить Google'],
+    ];
+    for (const [locale, connect, reconnect] of wants) {
+      resetHome();
+      answerFetch = () => ok200(answer({ items: WEEK }));
+      const never = await mountHome(locale);
+      try {
+        never.click(byLabel(never.container, messages[locale].calendarHome.header.menu));
+        const text = dialogText(never.container);
+        assertHas(text, [connect], `${locale}: the Connect entry`);
+        assertLacks(text, [reconnect], `${locale}: no Reconnect for a user who never connected`);
+        never.click(byData(never.container, 'menu', 'connectGoogle'));
+        assert(show(pushes) === show(['/refresh-token?user_id=5550001']), `${locale}: Connect opens the token page: ${show(pushes)}`);
+      } finally {
+        never.unmount();
+      }
+      resetHome();
+      answerFetch = () => ok200(answer({ items: WEEK }));
+      const cleared = await mountHome(locale, { googleState: 'reconnect' });
+      try {
+        assertHas(cleared.text(), [messages[locale].calendarHome.banner.reconnect], `${locale}: the Reconnect banner`);
+        cleared.click(byLabel(cleared.container, messages[locale].calendarHome.header.menu));
+        const text = dialogText(cleared.container);
+        assertHas(text, [reconnect], `${locale}: the menu's Reconnect`);
+        assertLacks(text, [connect], `${locale}: no Connect for a user with calendars stored`);
+      } finally {
+        cleared.unmount();
+      }
+    }
+  });
+
+  await check('#111a select-calendars: ticking primary on a Google calendar while a FamCal calendar holds the default says "New events will go to <name>" (once, in en, he and ru); with no FamCal primary, or on a calendar that already had it, the old "set as primary" line stays', async () => {
+    const calendars = [
+      { id: 'avi@gmail.com', name: 'Avi', backgroundColor: '#039BE5', primary: true },
+      { id: GOOGLE_FAMILY_ID, name: 'Google Family', backgroundColor: '#7986CB' },
+    ];
+    const selections = (primary: boolean) => ({
+      selectedCalendars: new Set(['avi@gmail.com', GOOGLE_FAMILY_ID]),
+      calendarLabels: new Map([
+        ['avi@gmail.com', new Set(primary ? ['primary', 'yours'] : ['yours'])],
+        [GOOGLE_FAMILY_ID, new Set(['yours'])],
+      ]) as unknown as ComponentProps<typeof SelectCalendarsClient>['currentSelections']['calendarLabels'],
+      spouseInfo: null,
+      calendarRules: new Map<string, string>(),
+      globalRules: [],
+    });
+    // The page's <style jsx> is rewritten by Next's compiler; under tsx React sees the bare attribute and warns. Those two warnings are not the page's.
+    const warnedBefore = reactWarnings.length;
+    const dropStyledJsx = () => {
+      const mine = reactWarnings.splice(warnedBefore);
+      reactWarnings.push(...mine.filter((w) => !(w.includes('non-boolean attribute') && /(?:jsx|global)$/.test(w))));
+    };
+    const wants: [Locale, string][] = [
+      ['en', 'New events will go to Google Family'],
+      ['he', 'אירועים חדשים יתווספו ליומן Google Family'],
+      ['ru', 'Новые события будут добавляться в календарь «Google Family»'],
+    ];
+    const mountPage = async (locale: Locale, famcalPrimaryName: string | null, primary = false) => {
+      resetHome();
+      answerFetch = () => ok200({ success: true });
+      const m = mount(inApp(locale, createElement(SelectCalendarsClient, { userId: 5550001, userName: 'Dana', availableCalendars: calendars, currentSelections: selections(primary), locale, calendarLimit: -1, famcalPrimaryName })));
+      await settle();
+      return m;
+    };
+    const tapPrimary = async (m: Awaited<ReturnType<typeof mountPage>>, calendarName: string) => {
+      const row = elements(m.container).filter((e) => e.className.includes('calendar-item') && e.textContent.includes(calendarName))[0];
+      assert(row, `no row for ${calendarName}`);
+      const icon = elements(row).filter((e) => e.getAttribute('aria-label')?.toLowerCase().includes('primary') || e.getAttribute('title')?.toLowerCase().includes('primary'))[0];
+      assert(icon, `no primary icon in ${calendarName}'s row: ${htmlOf(row).slice(0, 400)}`);
+      m.click(icon);
+      await settle();
+    };
+    const textNow = (m: Awaited<ReturnType<typeof mountPage>>) => textOf(innerHtml(m.container));
+    for (const [locale, line] of wants) {
+      const m = await mountPage(locale, 'Family');
+      try {
+        await tapPrimary(m, 'Google Family');
+        assertHas(textNow(m), [line], `${locale}: the note`);
+        assert(!(textNow(m).match(new RegExp(line.replace(/[.*+?^${}()|[\]\\«»]/g, '\\$&'), 'g')) ?? []).slice(1).length, `${locale}: once`);
+        assert(fetchCalls.some((c) => c.path === '/api/select-calendars' && c.method === 'POST'), `${locale}: the save went out`);
+      } finally {
+        m.unmount();
+      }
+    }
+    const none = await mountPage('en', null);
+    try {
+      await tapPrimary(none, 'Google Family');
+      assertHas(textNow(none), ['Google Family set as primary'], 'no FamCal primary: the old line');
+      assertLacks(textNow(none), ['New events will go to'], 'no note');
+    } finally {
+      none.unmount();
+    }
+    const same = await mountPage('en', 'Family', true);
+    try {
+      await tapPrimary(same, 'Avi');
+      assertHas(textNow(same), ['Avi set as primary'], 'already primary: the old line');
+      assertLacks(textNow(same), ['New events will go to'], 'no note');
+    } finally {
+      same.unmount();
+    }
+    dropStyledJsx();
+  });
+
+  await check('#112 React logged no warning in #108-#111 (keys, nesting, attributes, act)', () => {
+    assert(reactWarnings.length === warnedBeforeConnection, `React warned: ${show(reactWarnings.slice(warnedBeforeConnection, warnedBeforeConnection + 3))}`);
   });
 
   let failed = 0;

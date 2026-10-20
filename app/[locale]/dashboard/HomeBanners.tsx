@@ -5,24 +5,27 @@
 // - trial days left, during a trial (→ Subscription);
 // - "Set your location for the right times", when the server can't know the user's
 //   timezone: no location, and no Google connection to read it from (→ Settings);
-// - the Google setup card: Connect Google Calendar (no token), else Choose your
-//   calendars (none chosen); Google users only;
-// - Reconnect Google, once a Google answer in this epoch asked for it (it holds until the
-//   store drops): a dead token, or missing permission (the scopes copy); never with the
-//   Connect card, never for FamCal;
+// - Choose your calendars: a Google token with no calendars chosen;
+// - Reconnect Google: a token cleared while calendars are stored (the page's state, since
+//   the range read has no Google half then), or, once a Google answer in this epoch asked
+//   for it (it holds until the store drops), a dead token or missing permission (the
+//   scopes copy);
 // - in a browser, "Open FamCal in Telegram" (WhatsApp stays secondary to Telegram).
 // Each banner is one button (or, for Telegram, a link) with a 44 px or taller target.
-// FamCal users never see a Google entry.
+// Google is a connection beside FamCal (spec "Google as a connection" §2): a user who never
+// connected sees no Google banner at all, and Connect Google lives in the ⋯ menu only.
 
 import { useTranslations } from 'next-intl';
 import { DEFAULT_BOT_USERNAME } from '@/src/lib/gate-links';
+import type { GoogleState } from '@/src/lib/google-state';
 
-export type BannerId = 'trial' | 'location' | 'connectGoogle' | 'chooseCalendars' | 'reconnect' | 'reconnectScopes' | 'openInTelegram';
+export type BannerId = 'trial' | 'location' | 'chooseCalendars' | 'reconnect' | 'reconnectScopes' | 'openInTelegram';
 
 export interface BannerFacts {
-  calendarSource: 'GOOGLE' | 'NATIVE';
-  needsOAuth: boolean;
-  needsCalendars: boolean;
+  /** The page's Google state (googleStateOf). */
+  googleState: GoogleState;
+  /** A Google token is stored. */
+  googleConnected: boolean;
   /** Days left in a trial; null or absent: no trial banner. */
   trialDaysLeft?: number | null;
   /** false: no location set; absent: unknown, no location banner. */
@@ -35,13 +38,14 @@ export interface BannerFacts {
 
 /** Which banners show, in order. */
 export function homeBanners(f: BannerFacts): BannerId[] {
-  const google = f.calendarSource === 'GOOGLE';
   const out: BannerId[] = [];
   if (typeof f.trialDaysLeft === 'number' && f.trialDaysLeft > 0) out.push('trial');
-  if (f.hasLocation === false && (!google || f.needsOAuth)) out.push('location');
-  if (google && f.needsOAuth) out.push('connectGoogle');
-  else if (google && f.needsCalendars) out.push('chooseCalendars');
-  if (google && !f.needsOAuth && f.reconnect) out.push(f.reconnect === 'scopes' ? 'reconnectScopes' : 'reconnect');
+  // With a Google token the zone comes from Google; without one, only a location tells it.
+  if (f.hasLocation === false && !f.googleConnected) out.push('location');
+  if (f.googleState === 'choose') out.push('chooseCalendars');
+  // A cleared token has no Google half in the read, so the page's state says it; otherwise a Google answer does.
+  if (f.googleState === 'reconnect') out.push('reconnect');
+  else if (f.googleState !== 'none' && f.reconnect) out.push(f.reconnect === 'scopes' ? 'reconnectScopes' : 'reconnect');
   if (!f.inTelegram) out.push('openInTelegram');
   return out;
 }
@@ -141,8 +145,6 @@ export function HomeBanners({ userId, locale, onNavigate, ...facts }: HomeBanner
             return button(id, 'accent', page('subscription'), t('banner.trial', { count: facts.trialDaysLeft ?? 0 }), undefined, t('banner.trialAction'));
           case 'location':
             return button(id, 'plain', page('settings'), t('banner.location'), undefined, t('banner.locationAction'));
-          case 'connectGoogle':
-            return button(id, 'accent', refreshToken, t('banner.connectGoogle'), t('banner.connectGoogleBody'));
           case 'chooseCalendars':
             return button(id, 'accent', page('select-calendars'), t('banner.chooseCalendars'), t('banner.chooseCalendarsBody'));
           case 'reconnect':

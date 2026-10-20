@@ -19,7 +19,7 @@
 //   the safe areas (./home-shell), the header, the tab bar, the banners, the tab on
 //   screen (AgendaView, or the Month's MonthView), and the send and menu sheets;
 // - the tabs (Ruling 1): the bar sits under the header and above the banners, and shows
-//   only while a panel can show (no card, no block, not setupNeeded). The tab on screen
+//   only while a panel can show (no card, no block). The tab on screen
 //   is kept in sessionStorage for the session (Ruling 2). A switch closes any sheet and
 //   the item sheet, and the Agenda opens at the top. Only the tab on screen is mounted;
 //   the other one's tabpanel is there, empty and hidden, for the tab's aria-controls.
@@ -53,9 +53,10 @@
 // - a return to the foreground after the day has ended in tz (iOS suspends the midnight
 //   timer with the app) drops the store at once, rather than asking for yesterday's
 //   windows and labelling yesterday "Today" until they answer;
-// - a Google user still setting up (needsOAuth, needsCalendars) gets the setup banner, no
-//   tab bar and no Agenda under it (an Agenda with nothing chosen would only say
-//   "Nothing planned"); a remembered Month tab is left as it is;
+// - Google is a connection beside FamCal (spec "Google as a connection"): the home reads
+//   the sources the server lists (FamCal for everyone, Google with a token), and a Google
+//   state that needs the user (choose calendars, reconnect) is a banner over the Agenda,
+//   never a screen without one. The Agenda, the tabs and the "+" are FamCal's for everyone;
 // - the Month's views (MonthView, MonthBrowse, MonthPicked) are a chunk of their own
 //   (import()): PageGate preloads this file's chunk on every /dashboard open. The chunk
 //   is fetched once the first answer is in,
@@ -82,7 +83,7 @@ import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { buildAgenda, reminderMark, storeRow, type AgendaRow } from '@/src/lib/calendar-view/agenda';
 import { monthSpan, monthWindow, type MonthKey } from '@/src/lib/calendar-view/grid';
-import { deviceTimeZone, homeSources, isPastDay, msUntilAheadCheck, msUntilDayCheck, zoneDiffers } from '@/src/lib/calendar-view/home-client';
+import { deviceTimeZone, isPastDay, msUntilAheadCheck, msUntilDayCheck, zoneDiffers } from '@/src/lib/calendar-view/home-client';
 import { createHomeLoader, type HomeLoader } from '@/src/lib/calendar-view/home-loader';
 import type { CalendarHomeProps } from '@/src/lib/calendar-view/home-props';
 import { readHomeTab, readMonthLayout, writeHomeTab, writeMonthLayout, type HomeTab } from '@/src/lib/calendar-view/home-storage';
@@ -90,7 +91,7 @@ import { backToBrowse, clampMonthUi, dayRows, initialMonthUi, monthModels, wante
 import { dayStatus, emptyStore, homeNotices, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
 import { postReminderAction, type ReminderActionFn, type ReminderActionName } from '@/src/lib/calendar-view/reminder-client';
 import { REAL_EDITING, type EditingApi, type WriteOutcome } from '@/src/lib/calendar-view/editor-client';
-import { allOfThem, createBody, editItemForm, newItemForm, updateBody, type EditorForm } from '@/src/lib/calendar-view/editor-model';
+import { allOfThem, createBody, editItemForm, isNativeCalendar, newItemForm, updateBody, type EditorForm } from '@/src/lib/calendar-view/editor-model';
 import type { EditScope, EditorInfoResponse, ItemEditInfoResponse } from '@/src/lib/calendar-view/editor-types';
 import type { ItemReminderDTO, SourceName } from '@/src/lib/calendar-view/types';
 import { DEFAULT_BOT_USERNAME, DEFAULT_WA_NUMBER, type GateLinks } from '@/src/lib/gate-links';
@@ -309,7 +310,7 @@ export type CalendarHomeContainerProps = CalendarHomeProps & { deps?: Partial<Ho
 
 /** The home without its error boundary; `deps` lets a smoke drive the clock and the timers. */
 export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeContainerProps) {
-  const { user, locale, calendarSource, needsOAuth, needsCalendars, hints, trialDaysLeft, hasLocation, lookahead7 } = props;
+  const { user, locale, sources, googleConnected, googleState, hints, trialDaysLeft, hasLocation, lookahead7 } = props;
   const userId = user.id;
   const t = useTranslations('calendarHome');
   const router = useRouter();
@@ -361,10 +362,9 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const facts = store.facts;
   const notices = homeNotices(store);
   const card: Card | null = !facts && firstLoad ? firstLoad : null;
-  const setupNeeded = calendarSource === 'GOOGLE' && (needsOAuth || needsCalendars);
   // Ruling 1: the tab bar shows only while a panel can show. Otherwise the home is D's:
   // the Agenda (or the card), with no tab bar; the remembered tab is left as it is.
-  const tabsShown = card === null && blocked === null && !setupNeeded;
+  const tabsShown = card === null && blocked === null;
   const activeTab: HomeTab = tabsShown ? tab : 'agenda';
 
   // New facts (the first answer, a hebrewDates change, the next answer after a drop):
@@ -398,7 +398,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   useEffect(() => {
     const loader = createHomeLoader({
       userId,
-      sources: homeSources(calendarSource),
+      sources,
       getStore: () => storeRef.current,
       getWeeks: () => weeksRef.current,
       dispatch,
@@ -427,7 +427,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
       loader.dispose();
       loaderRef.current = null;
     };
-  }, [userId, calendarSource, deps]);
+  }, [userId, sources, deps]);
 
   // Every visible window a source hasn't answered in this epoch: the first load, "Show
   // next week", the refetch after a drop, and the Month's windows as it comes on screen,
@@ -557,11 +557,12 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     event: !!editorInfo?.kinds.event,
     reminder: !!editorInfo?.kinds.reminder && hints.reminders,
   };
-  const canAdd = editorInfo !== null && (kinds.event || kinds.reminder) && facts !== null && card === null && blocked === null && !setupNeeded;
+  const canAdd = editorInfo !== null && (kinds.event || kinds.reminder) && facts !== null && card === null && blocked === null;
 
-  // The open item's edit info (FamCal's, or Google's for a Google user), asked when its sheet
-  // opens (and again after an edit of it).
-  const selectedEditable = selected !== null && ((selected.item.source === 'famcal' && calendarSource === 'NATIVE') || (selected.item.source === 'google' && calendarSource === 'GOOGLE'));
+  // The open item's edit info (FamCal's, or Google's), asked when its sheet opens (and again
+  // after an edit of it). An item of either source is one the user may be able to change:
+  // the server answers per item.
+  const selectedEditable = selected !== null;
   useEffect(() => {
     if (!selectedKey || !selectedEditable) return;
     let live = true;
@@ -643,8 +644,9 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     loaderRef.current?.refetchVisible({ only: 'famcal', renew: true });
   };
   // After a write: the item's source's windows again, so the new or changed item shows (a new
-  // item: every source this user reads, which is one). Settles when they have landed. A
-  // Google write stamps the server's cache, so this read is not a stale one.
+  // item: the source of the calendar it went to, else every source this user reads). Settles
+  // when they have landed. A Google write stamps the server's cache, so this read is not a stale one.
+  const createdIn = (form: EditorForm): SourceName | undefined => (form.kind === 'reminder' ? 'famcal' : form.calendarId ? (isNativeCalendar(form.calendarId) ? 'famcal' : 'google') : undefined);
   const refreshWritten = (source?: SourceName) => loaderRef.current?.refetchVisible({ ...(source ? { only: source } : {}), renew: true }) ?? Promise.resolve();
   // A write that needs the user's Google connection raises the same banner a failed read does.
   const raiseReconnect = (out: WriteOutcome) => {
@@ -695,7 +697,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     const result = saveOutcome(out);
     if (result.kind === 'ok') {
       setEditor(null);
-      const landed = refreshWritten(editor.mode === 'edit' ? (editor.key.startsWith('google|') ? 'google' : 'famcal') : undefined);
+      const landed = refreshWritten(editor.mode === 'edit' ? (editor.key.startsWith('google|') ? 'google' : 'famcal') : createdIn(form));
       if (editor.mode === 'edit') {
         const armed = { key: editor.key, next: out.kind === 'ok' && out.key && out.key !== editor.key ? out.key : null, landed: false };
         setFollow(armed);
@@ -783,7 +785,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   // The one BackButton (§7.6): a tap closes the send or menu sheet, else the item sheet,
   // else takes picked back to browse.
   const itemOpen =
-    selected !== null && (activeTab === 'agenda' ? blocked === null && card === null && agenda !== null && !setupNeeded : pickedShown);
+    selected !== null && (activeTab === 'agenda' ? blocked === null && card === null && agenda !== null : pickedShown);
   const back = () => {
     if (deleting !== null) {
       if (!deleteBusy) setDeleting(null);
@@ -816,7 +818,6 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     <AgendaView
       agenda={agenda}
       hints={hints}
-      setupNeeded={setupNeeded}
       selected={selectedNow}
       onSelect={setSelected}
       sheetActions={sheetActions}
@@ -871,9 +872,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
         {tabsShown ? <HomeTabs tab={tab} onTab={switchTab} /> : null}
       </HomeTop>
       <HomeBanners
-        calendarSource={calendarSource}
-        needsOAuth={needsOAuth}
-        needsCalendars={needsCalendars}
+        googleState={googleState}
+        googleConnected={googleConnected}
         trialDaysLeft={trialDaysLeft}
         hasLocation={hasLocation}
         reconnect={notices.reconnect}
@@ -899,7 +899,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
       {sheet === 'send' ? <SendSheet userId={userId} locale={locale} today={facts?.today ?? null} weekStart={facts?.weekStart ?? null} lookahead7={lookahead7} onClose={closeSheet} /> : null}
       {sheet === 'menu' ? (
         <MenuSheet
-          calendarSource={calendarSource}
+          googleState={googleState}
           isAdmin={user.isAdmin}
           locale={locale}
           userId={userId}

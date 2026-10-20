@@ -36,6 +36,11 @@ interface SelectCalendarsClientProps {
   };
   locale: string;
   calendarLimit: number; // -1 means unlimited
+  /**
+   * The name of the user's FamCal calendar that is the default for new events (labelled
+   * primary), or null. Ticking primary here moves the default off it, so the page says so.
+   */
+  famcalPrimaryName?: string | null;
 }
 
 interface FeedbackMessage {
@@ -50,7 +55,8 @@ export default function SelectCalendarsClient({
   availableCalendars,
   currentSelections,
   locale,
-  calendarLimit
+  calendarLimit,
+  famcalPrimaryName = null
 }: SelectCalendarsClientProps) {
   const t = useTranslations('calendars');
   const router = useRouter();
@@ -74,6 +80,9 @@ export default function SelectCalendarsClient({
       : ['', '', '']
   );
   const [feedbackMessages, setFeedbackMessages] = useState<FeedbackMessage[]>([]);
+  // The FamCal calendar that holds the default today. The first primary tick here takes it
+  // away (the server clears it on save), so the note shows once.
+  const [famcalPrimary, setFamcalPrimary] = useState<string | null>(famcalPrimaryName);
   // Feedback ids (React keys) come from a ref: the save callbacks below keep an older
   // render's showFeedback, which would reuse an id if the counter lived in state.
   const messageIdRef = useRef(0);
@@ -442,7 +451,11 @@ export default function SelectCalendarsClient({
     // Save and show feedback
     const success = await saveToServer(selectedCalendars, newLabels);
     if (success) {
-      if (label === 'primary') {
+      if (label === 'primary' && !hadLabel && famcalPrimary !== null) {
+        // Spec "Google as a connection" §3: the default moves off the FamCal calendar.
+        showFeedback(t('feedback.newEventsGoTo', { name: calendarName }));
+        setFamcalPrimary(null);
+      } else if (label === 'primary') {
         showFeedback(`${calendarName} ${t('feedback.setPrimary')}`);
       } else if (hadLabel) {
         showFeedback(`${calendarName} ${t('feedback.removedFrom')} ${labelName}`);

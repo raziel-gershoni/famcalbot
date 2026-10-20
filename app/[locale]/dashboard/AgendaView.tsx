@@ -33,12 +33,6 @@ export interface AgendaViewProps {
   agenda: AgendaModel | null;
   /** CalendarHomeProps.hints: which ways of adding things the empty state may name (Ruling R10). */
   hints: HomeHints;
-  /**
-   * A Google user with no connection or no calendars chosen (needsOAuth, needsCalendars):
-   * no days, no placeholders, no empty state, no fold and no "Show next week". The setup
-   * banner above says what to do.
-   */
-  setupNeeded: boolean;
   /** The row whose item sheet is open, or null. The container holds it (its BackButton closes the sheet). */
   selected: AgendaRow | null;
   /** A tap on a row: open its sheet (the row), or close it (null). */
@@ -136,19 +130,19 @@ function AgendaLoading() {
   );
 }
 
-export function AgendaView({ agenda, hints, setupNeeded, selected, onSelect, sheetActions, onShowNextWeek, onRetry, onChooseCalendars }: AgendaViewProps) {
+export function AgendaView({ agenda, hints, selected, onSelect, sheetActions, onShowNextWeek, onRetry, onChooseCalendars }: AgendaViewProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   const openSheet = useCallback((row: AgendaRow) => onSelect(row), [onSelect]);
   const closeSheet = useCallback(() => onSelect(null), [onSelect]);
   // No model (before the first answer, or after a store drop): no sheet. The container
   // clears the selection on a drop, so the sheet doesn't open again by itself.
-  const sheetRow = agenda && selected && !setupNeeded ? latestRow(agenda, selected) : null;
+  const sheetRow = agenda && selected ? latestRow(agenda, selected) : null;
 
   return (
-    <section className="ch-agenda" dir={locale === 'he' ? 'rtl' : 'ltr'} aria-busy={(agenda === null && !setupNeeded) || undefined}>
+    <section className="ch-agenda" dir={locale === 'he' ? 'rtl' : 'ltr'} aria-busy={agenda === null || undefined}>
       <style>{AGENDA_CSS}</style>
-      {setupNeeded ? null : agenda === null ? (
+      {agenda === null ? (
         <AgendaLoading />
       ) : (
         <>

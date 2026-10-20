@@ -30,11 +30,6 @@ export type RangeOutcome =
   | { kind: 'busy' }
   | { kind: 'error'; status: number | null };
 
-/** The sources the home asks for, from the user's calendar source (the server's sourcesFor). */
-export function homeSources(calendarSource: 'GOOGLE' | 'NATIVE'): SourceName[] {
-  return calendarSource === 'GOOGLE' ? ['google'] : ['famcal'];
-}
-
 /**
  * The range route's URL for one source. No window means no dates: the server's
  * [today, today+7). `fresh` asks the server to skip its Google cache (⋯ → Refresh).

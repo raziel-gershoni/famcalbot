@@ -107,6 +107,8 @@ const PRELOAD: Record<PageName, () => Promise<unknown>> = {
   pair: () => import('./pair/PairClient'),
 };
 
+const FAMCAL_ONLY: CalendarHomeProps['sources'] = ['famcal'];
+
 /**
  * The calendar home's props from the dashboard's (spec §7.1). user.id stays the page's
  * ?user_id. The trial's days left show only for a trialing user who isn't an early
@@ -116,9 +118,9 @@ function calendarHomeProps(p: PagePropsMap['dashboard']): CalendarHomeProps {
   return {
     user: { id: p.user.id, name: p.user.name, isAdmin: p.user.isAdmin },
     locale: p.locale,
-    calendarSource: p.calendarSource ?? 'NATIVE',
-    needsOAuth: p.needsOAuth,
-    needsCalendars: p.needsCalendars,
+    sources: p.sources ?? FAMCAL_ONLY,
+    googleConnected: p.googleConnected ?? false,
+    googleState: p.googleState ?? 'none',
     hints: p.hints,
     trialDaysLeft: !p.isEarlyAdopter && p.trial.isTrialing && p.trial.daysRemaining > 0 ? p.trial.daysRemaining : null,
     hasLocation: Boolean(p.user.location),

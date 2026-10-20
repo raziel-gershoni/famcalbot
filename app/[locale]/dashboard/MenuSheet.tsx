@@ -1,15 +1,17 @@
 'use client';
 
 // The ⋯ menu (spec §7.2, Ruling R6): a bottom sheet with Settings; Calendars and Partner
-// for FamCal users; Choose calendars and Reconnect Google for Google users; Subscription;
-// Refresh (fresh=1 on every visible window); Feedback; and Admin panel for admins.
-// Calendars and Partner open the existing pages as they are. FamCal users never see a
-// Google entry, so they can't be switched to Google by accident.
+// for everyone (FamCal is everyone's); the Google entries by the user's Google state (spec
+// "Google as a connection" §2): Connect Google Calendar for a user who never connected,
+// Choose calendars and Reconnect Google with a token, Reconnect Google alone for a cleared
+// token; Subscription; Refresh (fresh=1 on every visible window); Feedback; and Admin panel
+// for admins. Calendars and Partner open the existing pages as they are.
 
 import { useTranslations } from 'next-intl';
+import type { GoogleState } from '@/src/lib/google-state';
 import { BottomSheet } from './BottomSheet';
 
-export type MenuEntryId = 'settings' | 'calendars' | 'partner' | 'chooseCalendars' | 'reconnectGoogle' | 'subscription' | 'refresh' | 'feedback' | 'admin';
+export type MenuEntryId = 'settings' | 'calendars' | 'partner' | 'connectGoogle' | 'chooseCalendars' | 'reconnectGoogle' | 'subscription' | 'refresh' | 'feedback' | 'admin';
 
 export interface MenuEntry {
   id: MenuEntryId;
@@ -18,14 +20,14 @@ export interface MenuEntry {
 }
 
 /** The menu's entries, in order. `userId` is the page's own user_id (never swapped). */
-export function menuEntries(o: { calendarSource: 'GOOGLE' | 'NATIVE'; isAdmin: boolean; locale: string; userId: number }): MenuEntry[] {
+export function menuEntries(o: { googleState: GoogleState; isAdmin: boolean; locale: string; userId: number }): MenuEntry[] {
   const page = (name: string) => `/${o.locale}/${name}?user_id=${o.userId}`;
-  const out: MenuEntry[] = [{ id: 'settings', href: page('settings') }];
-  if (o.calendarSource === 'GOOGLE') {
-    out.push({ id: 'chooseCalendars', href: page('select-calendars') }, { id: 'reconnectGoogle', href: `/refresh-token?user_id=${o.userId}` });
-  } else {
-    out.push({ id: 'calendars', href: page('calendars') }, { id: 'partner', href: page('pair') });
-  }
+  const token = `/refresh-token?user_id=${o.userId}`;
+  const out: MenuEntry[] = [{ id: 'settings', href: page('settings') }, { id: 'calendars', href: page('calendars') }, { id: 'partner', href: page('pair') }];
+  // Connecting and reconnecting are the same trip to Google's consent screen.
+  if (o.googleState === 'none') out.push({ id: 'connectGoogle', href: token });
+  else if (o.googleState === 'reconnect') out.push({ id: 'reconnectGoogle', href: token });
+  else out.push({ id: 'chooseCalendars', href: page('select-calendars') }, { id: 'reconnectGoogle', href: token });
   out.push({ id: 'subscription', href: page('subscription') }, { id: 'refresh', href: null }, { id: 'feedback', href: page('feedback') });
   if (o.isAdmin) out.push({ id: 'admin', href: page('admin-panel') });
   return out;
@@ -38,6 +40,7 @@ const ICONS: Record<MenuEntryId, string[]> = {
   ],
   calendars: ['M6 5h12a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3z', 'M3 10h18M8 3v4M16 3v4'],
   chooseCalendars: ['M6 5h12a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3z', 'M3 10h18M8 3v4M16 3v4', 'M9 15l2 2 4-4'],
+  connectGoogle: ['M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1', 'M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1'],
   partner: ['M9 11.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z', 'M2.5 20a6.5 6.5 0 0 1 13 0', 'M17 11.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z', 'M17 14.5a5 5 0 0 1 4.5 5'],
   reconnectGoogle: ['M21 12a9 9 0 0 1-15.4 6.4', 'M3 12a9 9 0 0 1 15.4-6.4', 'M18 2v4h-4', 'M6 22v-4h4'],
   subscription: ['M12 3l2.7 5.5 6 .9-4.3 4.2 1 6L12 16.8 6.6 19.6l1-6L3.3 9.4l6-.9z'],
@@ -50,6 +53,7 @@ const LABELS: Record<MenuEntryId, string> = {
   settings: 'menu.settings',
   calendars: 'menu.calendars',
   partner: 'menu.partner',
+  connectGoogle: 'menu.connectGoogle',
   chooseCalendars: 'menu.chooseCalendars',
   reconnectGoogle: 'menu.reconnectGoogle',
   subscription: 'menu.subscription',
@@ -59,7 +63,7 @@ const LABELS: Record<MenuEntryId, string> = {
 };
 
 export interface MenuSheetProps {
-  calendarSource: 'GOOGLE' | 'NATIVE';
+  googleState: GoogleState;
   isAdmin: boolean;
   locale: string;
   userId: number;
@@ -70,9 +74,9 @@ export interface MenuSheetProps {
   onClose: () => void;
 }
 
-export function MenuSheet({ calendarSource, isAdmin, locale, userId, onNavigate, onRefresh, onClose }: MenuSheetProps) {
+export function MenuSheet({ googleState, isAdmin, locale, userId, onNavigate, onRefresh, onClose }: MenuSheetProps) {
   const t = useTranslations('calendarHome');
-  const entries = menuEntries({ calendarSource, isAdmin, locale, userId });
+  const entries = menuEntries({ googleState, isAdmin, locale, userId });
   return (
     <BottomSheet label={t('header.menu')} closeLabel={t('actions.close')} onClose={onClose}>
       <ul className="ch-options" role="list">

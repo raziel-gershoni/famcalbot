@@ -1,7 +1,10 @@
 // The calendar home's props: what the dashboard's page-data hands PageGate, and PageGate
 // hands CalendarHome (Plan D). Type-only and
-// client-safe: it imports nothing, so page-data, PageGate and the home's client bundle
+// client-safe: it imports only types, so page-data, PageGate and the home's client bundle
 // can all read it.
+
+import type { GoogleState } from '../google-state';
+import type { SourceName } from './types';
 
 /**
  * Which ways of adding things this user can use, for the empty Agenda's hint (Ruling
@@ -13,9 +16,12 @@ export type HomeHints = { reminders: boolean; voiceEvents: boolean };
 export type CalendarHomeProps = {
   user: { id: number; name: string; isAdmin: boolean };
   locale: string;
-  calendarSource: 'GOOGLE' | 'NATIVE';
-  needsOAuth: boolean;
-  needsCalendars: boolean;
+  /** The sources the home asks for (the server's sourcesFor): FamCal for everyone, Google with a token. */
+  sources: readonly SourceName[];
+  /** A Google token is stored: the location banner is not needed when Google can tell the zone. */
+  googleConnected: boolean;
+  /** Never connected, choosing calendars, reconnecting, or connected (spec §2). The banners and the menu follow it. */
+  googleState: GoogleState;
   hints: HomeHints;
   /**
    * The trial's days left, for the home's trial banner (spec §7.2); null when there is no
