@@ -265,6 +265,59 @@ export async function handleNativeReminders(): Promise<void> {
   }
 }
 
+// The copy-to-Google worker (google-sync spec §4) ticks every minute too, with the same
+// guards as the native reminder pass, on its own globalThis state: a tick that finds the last
+// pass still running skips (one taken for dead after GOOGLE_SYNC_STUCK_MS is replaced; the
+// per-user Redis locks keep two passes off one user), and a failing pass tells the admin at
+// most once an hour.
+const GOOGLE_SYNC_ALERT_INTERVAL_MS = 60 * 60 * 1000;
+const GOOGLE_SYNC_STUCK_MS = 15 * 60 * 1000;
+const googleSyncCron = ((globalThis as { __googleSyncCron?: NativeRemindersCronState }).__googleSyncCron ??= {
+  running: false,
+  startedAt: 0,
+  alertedAt: 0,
+});
+
+/**
+ * Copy-to-Google handler: one worker pass, run only while the sync gate is open (a FamCal
+ * write marked something, an earlier pass left a retry due, or the hour's ceiling came). A
+ * pass that fails leaves the gate open, so the next tick tries again.
+ */
+export async function handleGoogleSync(): Promise<void> {
+  const now = new Date();
+  if (googleSyncCron.running) {
+    if (now.getTime() - googleSyncCron.startedAt <= GOOGLE_SYNC_STUCK_MS) return;
+    captureError(new Error('google sync pass stuck >15m'), 'google-sync-stuck', {}, 'warning');
+    googleSyncCron.running = false;
+  }
+  const startedAt = now.getTime();
+  googleSyncCron.running = true;
+  googleSyncCron.startedAt = startedAt;
+  try {
+    const { shouldRunSync, setNextSync } = await import('../services/google-sync/gate');
+    if (!shouldRunSync(now)) return;
+    const { runGoogleSyncPass } = await import('../services/google-sync/worker');
+    const result = await runGoogleSyncPass(now);
+    if (googleSyncCron.startedAt === startedAt) setNextSync(result.next, now);
+    if (result.users || result.pushed || result.failed) {
+      console.log(`[GoogleSync] ${result.users} users, ${result.pushed} pushed, ${result.failed} failed`);
+    }
+  } catch (error) {
+    captureError(error, 'cron-google-sync');
+    if (now.getTime() - googleSyncCron.alertedAt >= GOOGLE_SYNC_ALERT_INTERVAL_MS) {
+      googleSyncCron.alertedAt = now.getTime();
+      try {
+        const { notifyAdminError } = await import('../utils/error-notifier');
+        await notifyAdminError('Cron Job', error, 'Job: Google Sync');
+      } catch (notifyError) {
+        captureError(notifyError, 'cron-admin-notify', { job: 'Google Sync' }, 'warning');
+      }
+    }
+  } finally {
+    if (googleSyncCron.startedAt === startedAt) googleSyncCron.running = false;
+  }
+}
+
 /**
  * Setup reminders handler ("Google as a connection" spec §2): the location nudge for
  * anyone without one (from signup), and the Google nudges by the user's Google state at

@@ -721,6 +721,18 @@
     "nextweek": "מביא את אירועי השבוע הבא"
   },
   "bot": {
+    "googleSync": {
+      "calendarName": "FamCal · {name}",
+      "descriptionManaged": "FamCal מעדכן את היומן הזה לפי היומן „{name}” ב-FamCal. ההעתקה היא בכיוון אחד: שינויים שנעשים כאן יוחלפו בשינוי הבא ב-FamCal, וההתראות מגיעות מ-FamCal.",
+      "descriptionKept": "FamCal כבר לא מעדכן את היומן הזה. אפשר להשאיר אותו, לשנות אותו או למחוק אותו.",
+      "reconnect": {
+        "title": "<b>ההעתקה ל-Google מושהית</b>",
+        "messageToken": "כרגע אין ל-FamCal גישה ליומן Google, ולכן היומנים מ-FamCal לא מועתקים אליו. אחרי חיבור מחדש של Google ההעתקים יתעדכנו מעצמם.",
+        "messageScopes": "ל-FamCal כבר אין הרשאה מ-Google לנהל את היומנים שנוצרו בשביל ההעתקה. אפשר לאשר אותה מחדש במסך היומנים, וההעתקים יתעדכנו מעצמם.",
+        "buttonReconnect": "חיבור מחדש ל-Google",
+        "buttonOpen": "למסך היומנים"
+      }
+    },
     "start": {
       "welcome": "👋 <b>שלום {name}, ברוכים הבאים ל-FamCal!</b>",
       "tapButton": "לחץ על הכפתור למטה כדי לפתוח את לוח הבקרה:",

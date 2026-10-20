@@ -17,6 +17,8 @@
 // OAuth part (Task S2): in smoke-google-connect.ts (#31-#42), whose fakes run oauth/start, the
 // callback and the claim end to end. The read filters: smoke-google-map, smoke-calendar-read-google
 // (readGoogle, fetchEventsInRange, listUserCalendars) and smoke-calendar-connection (F1s).
+// The worker (Task S3): in smoke-google-sync-worker.ts; the hard delete's Remove in
+// smoke-account-merge.ts (#59-#61).
 //
 // The event store, the calendar route, the marks, the gate and the subscription service run
 // for real. Faked at the boundaries: Prisma (in memory; it keeps the schema's foreign keys,

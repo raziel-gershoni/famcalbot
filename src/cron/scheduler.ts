@@ -38,6 +38,20 @@ export function startScheduler(): void {
     }
   });
 
+  // Copy to Google — every minute. The pass reads the database only while the sync gate is
+  // open (a FamCal write marked a copy, a retry is due, or the hour's ceiling), and handles
+  // its own errors.
+  cron.schedule('* * * * *', async () => {
+    try {
+      const { handleGoogleSync } = await import('./handlers');
+      await handleGoogleSync();
+    } catch (error) {
+      console.error('[Scheduler] Google sync failed:', error);
+      captureError(error, 'cron-google-sync');
+      notifyAdmin('Google Sync', error);
+    }
+  });
+
   // Daily summary — every hour (filters by user preferred hour)
   cron.schedule('0 * * * *', async () => {
     try {
@@ -93,6 +107,7 @@ export function startScheduler(): void {
   console.log('[Scheduler] Cron jobs registered:');
   console.log('  */5 * * * *  Event reminders');
   console.log('  * * * * *    Native reminders (gated: reads the DB only when one may be due)');
+  console.log('  * * * * *    Copy to Google (gated: reads the DB only while a copy may have work)');
   console.log('  0 * * * *    Daily summary (hourly, filters by user preferred hour)');
   console.log('  0 * * * *    Tomorrow summary (hourly, filters by user preferred hour)');
   console.log('  0 7 * * *    Setup reminders (UTC 7:00 = Israel ~10:00)');

@@ -142,6 +142,41 @@ export async function enableSyncLink(userId: number, consent: SyncConsent, scope
 }
 
 /**
+ * "Create it again" for a copy whose Google calendar is gone, and "Copy again from scratch?"
+ * for one whose token is another Google account's (spec §4): in one transaction, every item
+ * forgets its Google event and hashes and goes dirty with its retries cleared (the items
+ * before the link, as the merge writes them), and the link forgets its Google calendar and
+ * account, back to 'creating' with backfilledAt cleared. The worker then makes a new calendar
+ * in the token's account and copies everything again. Only the user's own copy that is on and
+ * in 'gone' or 'otherAccount'; false when there is none. Opens the gate.
+ */
+export async function recreateSyncLink(userId: number, linkId: string): Promise<boolean> {
+  const done = await prisma.$transaction(async (tx) => {
+    const link = await tx.googleSyncLink.findFirst({
+      where: { id: linkId, userId, enabled: true, state: { in: ['gone', 'otherAccount'] }, nativeCalendar: { ownerUserId: userId, isDeleted: false } },
+      select: { id: true },
+    });
+    if (!link) return false;
+    await tx.googleSyncItem.updateMany({
+      where: { linkId },
+      data: { googleEventId: null, masterHash: null, slotHashes: {}, dirtySeq: { increment: 1 }, attempts: 0, nextAttemptAt: null, status: 'ok', lastError: null },
+    });
+    await tx.googleSyncLink.update({
+      where: { id: linkId },
+      data: { googleCalendarId: null, googleAccount: null, state: 'creating', backfilledAt: null, pushedName: null, lastError: null, dirtySeq: { increment: 1 } },
+    });
+    return true;
+  });
+  if (done) {
+    console.log(`[google-sync] user ${userId}: copy ${linkId} is made again from scratch`);
+    openSyncGate();
+  } else {
+    console.warn(`[google-sync] user ${userId}: no copy ${linkId} to make again (not theirs, off, or not gone or another account)`);
+  }
+  return done;
+}
+
+/**
  * The Google calendar ids of every link the user has, on or off: FamCal's own copies,
  * which its Google lists (listUserCalendars, the select-calendars POST) never offer.
  */

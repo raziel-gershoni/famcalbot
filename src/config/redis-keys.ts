@@ -123,4 +123,9 @@ export const REDIS_KEYS = {
   // The cross-source move's lock ("Google as a connection" spec §5): one move per source
   // series at a time. Fail-closed, its own prefix (never the voice lock's, which fails open).
   calendarMoveLock: (source: 'famcal' | 'google', seriesId: string) => `calendar-move:lock:${source}:${seriesId}`,
+
+  // The copy-to-Google worker (google-sync spec §4): one run per user at a time, fail-closed,
+  // its own prefix; and the admin alert for an item that keeps failing, once per link per day.
+  googleSyncLock: (userId: number) => `google-sync:lock:${userId}`,
+  googleSyncAlert: (linkId: string, day: string) => `google-sync:alert:${linkId}:${day}`,
 } as const;

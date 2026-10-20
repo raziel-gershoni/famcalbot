@@ -721,6 +721,18 @@
     "nextweek": "Fetching next week events"
   },
   "bot": {
+    "googleSync": {
+      "calendarName": "FamCal · {name}",
+      "descriptionManaged": "FamCal keeps this calendar in step with your FamCal calendar “{name}”. It copies one way: changes made here are replaced by the next change in FamCal, and alerts come from FamCal.",
+      "descriptionKept": "FamCal no longer updates this calendar. It's yours to keep, change or delete.",
+      "reconnect": {
+        "title": "<b>Copies to Google are paused</b>",
+        "messageToken": "FamCal can't reach your Google Calendar right now, so your FamCal calendars aren't being copied there. Reconnect Google and the copies will catch up on their own.",
+        "messageScopes": "FamCal no longer has Google's permission to manage the calendars it made for your copies. Open your calendars to approve it again, and the copies will catch up on their own.",
+        "buttonReconnect": "Reconnect Google",
+        "buttonOpen": "Open calendars"
+      }
+    },
     "start": {
       "welcome": "👋 <b>Welcome to FamCal, {name}!</b>",
       "tapButton": "Tap the button below to open your dashboard:",
