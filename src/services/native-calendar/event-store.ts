@@ -488,6 +488,86 @@ export async function createNativeEvent(input: CreateNativeEventInput): Promise<
   return event;
 }
 
+/** An OVERRIDE row of a series written whole (createNativeSeries): null fields follow the series. */
+export interface NativeSeriesOverrideInput {
+  originalStartsAt: Date;
+  title: string | null;
+  description: string | null;
+  location: string | null;
+  startsAt: Date | null;
+  endsAt: Date | null;
+  allDay: boolean | null;
+}
+
+/** An event written whole, with its exceptions ("Google as a connection" spec §5: a Google event moved to FamCal). */
+export interface CreateNativeSeriesInput {
+  calendarCuid: string;
+  creatorUserId: number;
+  title: string;
+  description: string | null;
+  location: string | null;
+  startsAt: Date;
+  endsAt: Date;
+  allDay: boolean;
+  timeZone: string;
+  rrule: string | null;
+  exdates: Date[];
+  overrides: NativeSeriesOverrideInput[];
+}
+
+/**
+ * An event, a one-off or a series with its exdates and OVERRIDE rows, written in one
+ * transaction: all of it or nothing. The creator must be able to write the calendar, and
+ * the rule must be one every reader can expand (it is never a Hebrew one: Google holds
+ * none). Exceptions need a rule.
+ */
+export async function createNativeSeries(input: CreateNativeSeriesInput): Promise<NativeEvent> {
+  assertStorableRule(input.rrule, null);
+  if (!input.rrule && (input.exdates.length > 0 || input.overrides.length > 0)) throw new NativeRuleError('Exceptions need a repeat rule');
+  const calendar = await prisma.nativeCalendar.findUnique({
+    where: { id: input.calendarCuid },
+    select: { id: true, ownerUserId: true, privacy: true, isDeleted: true },
+  });
+  if (!calendar || calendar.isDeleted) throw new NativeNotFoundError('Calendar not found');
+  const creator = await prisma.user.findUnique({ where: { id: input.creatorUserId }, select: { id: true, pairingId: true } });
+  if (!creator) throw new NativeNotFoundError('Creator user not found');
+  if (!canWriteAccess(await getCalendarAccess(creator, calendar))) throw new NativePermissionDeniedError();
+
+  return prisma.$transaction(async (tx) => {
+    const event = await tx.nativeEvent.create({
+      data: {
+        calendarId: input.calendarCuid,
+        creatorUserId: input.creatorUserId,
+        title: input.title,
+        description: input.description,
+        location: input.location,
+        startsAt: input.startsAt,
+        endsAt: input.endsAt,
+        allDay: input.allDay,
+        timeZone: input.timeZone,
+        rrule: input.rrule,
+        exdates: input.exdates,
+      },
+    });
+    for (const o of input.overrides) {
+      await tx.nativeEventInstance.create({
+        data: {
+          seriesEventId: event.id,
+          originalStartsAt: o.originalStartsAt,
+          status: 'OVERRIDE',
+          title: o.title,
+          description: o.description,
+          location: o.location,
+          startsAt: o.startsAt,
+          endsAt: o.endsAt,
+          allDay: o.allDay,
+        },
+      });
+    }
+    return event;
+  });
+}
+
 // --- Events: update ---------------------------------------------------------
 
 export type UpdateScope = 'single' | 'all' | 'following';
