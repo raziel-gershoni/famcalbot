@@ -815,6 +815,33 @@ async function main() {
     ], 'reads');
   });
 
+  await check('G6 an unreachable user (blocked the bot) gets no 07:00 nudge: not reconnect, not choose calendars, not location', async () => {
+    seed();
+    for (const id of [1, 2, 3, 4]) userRow(id).location = 'Tel Aviv';
+    Object.assign(userRow(5), { unreachableSince: days(-90) }); // reconnect, start 2 days ago
+    Object.assign(userRow(6), { unreachableSince: days(-90), location: 'Tel Aviv' }); // choose, start 4 days ago
+    redisStore.set('setup:start:6:calendars', String(days(-4).getTime()));
+    redisStore.set('setup:start:5:reconnect', String(days(-2).getTime()));
+    table('user').push(baseUser({ id: 8, name: 'Dov', telegramId: BigInt(5550008), location: '', createdAt: days(-6), unreachableSince: days(-1) }));
+    const { handleSetupReminders } = await load('src/cron/handlers.ts');
+    await handleSetupReminders();
+    assert(sent.length === 0, `sent ${show(sent)}`);
+  });
+
+  await check('H8 admin switch-platform clears every setup track key (reconnect attempts and the Google starts too)', async () => {
+    seed();
+    const { setupTrackKeys } = await load('src/services/setup-tracks.ts');
+    for (const k of setupTrackKeys(5) as string[]) redisStore.set(k, '1');
+    const { POST } = await load('app/api/admin/switch-platform/route.ts');
+    const { NextRequest } = await import('next/server');
+    const res = await POST(new NextRequest('https://famcal.test/api/admin/switch-platform', {
+      method: 'POST', body: JSON.stringify({ initData: 'x', user_id: 5, whatsapp_phone: '+15550000005' }),
+    }));
+    assert(res.status === 200, `status ${res.status}`);
+    const left = [...redisStore.keys()].filter(k => /^setup:(start|reminder):5:/.test(k));
+    eq(left, [], 'keys left');
+  });
+
   // ---- Report ----
   const failed = results.filter(r => !r.ok);
   for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'} ${r.name}${r.ok ? '' : `\n     ${r.reason}`}`);

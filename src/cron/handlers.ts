@@ -365,9 +365,12 @@ export async function handleSetupReminders(): Promise<CronResult> {
   // 1. The Google tracks, at any account age: a token with no chosen calendars (choose
   // calendars), or no token while calendars are stored (reconnect). Their days count from
   // the day this run first sees the state. The token is read only for being set.
+  // Like the summary and reminder runs, skip a user who blocked the bot: a failed send records
+  // no attempt, so it would be tried (and fail) again every day.
   const googleTrackUsers = await prisma.user.findMany({
     where: {
       suspendedAt: null,
+      unreachableSince: null,
       AND: [hasMessagingPlatform, { OR: tracks.GOOGLE_NUDGE_WHERE }],
     },
     select: { ...userSelect, googleRefreshToken: true, calendarAssignments: true },
@@ -411,6 +414,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
       ...isWithinWindow,
       location: '',
       suspendedAt: null,
+      unreachableSince: null,
       AND: hasMessagingPlatform,
     },
     select: dateSelect,

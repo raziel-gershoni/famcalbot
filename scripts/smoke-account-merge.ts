@@ -1320,6 +1320,30 @@ async function main() {
     assert(show(partnered) === show({ primaries: [['cal-t'], []], default: 'native:cal-t' }), `partnered T ${show(partnered)}`);
   });
 
+  await check('#53 T a legacy Google user with no Google primary (its default the first Google "yours"), W on FamCal: W\'s calendar comes over without primary, so T\'s default stays its Google one, with the token or after it was cleared', async () => {
+    const { defaultCalendarFor } = await load('src/utils/calendar-helpers.ts');
+    const { getCalendarAssignmentsForUser } = await load('src/services/calendar-provider/user-calendars.ts');
+    const { getUserById } = await load('src/services/user-service.ts');
+    const tAssignments = [
+      { calendarId: 'me@gmail.com', labels: ['yours'], name: 'Me' },
+      { calendarId: 'kids@group.calendar.google.com', labels: ['kids'], name: 'Kids' },
+    ];
+    const run = async (token: string) => {
+      seed();
+      Object.assign(userRow(T), { calendarSource: 'GOOGLE', googleRefreshToken: token, calendarAssignments: tAssignments });
+      rowOf('nativeCalendar', 'cal-t')!.isDeleted = true;
+      const result = await link();
+      assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+      const famcalPrimaries = DB.nativeCalendar.filter(c => c.ownerUserId === T && !c.isDeleted && c.labels.includes('primary')).map(c => c.id);
+      return { famcalPrimaries, wLabels: rowOf('nativeCalendar', 'cal-w')?.labels, default: defaultCalendarFor(await getCalendarAssignmentsForUser(await getUserById(T))) };
+    };
+    const want = { famcalPrimaries: [], wLabels: ['yours'], default: 'me@gmail.com' };
+    const withToken = await run(TOKENS.t);
+    const cleared = await run('');
+    assert(show(withToken) === show(want), `with a token ${show(withToken)}`);
+    assert(show(cleared) === show(want), `token cleared ${show(cleared)}`);
+  });
+
   // ---- Merge: subscription ----
 
   await check('#8 W\'s subscription runs longer (paid, 20 days left; T is on a 3-day trial): T ends up with W\'s', async () => {

@@ -329,6 +329,7 @@ async function mergeWhatsAppUser(
   const names = { t: t.name, w: w.name, merged: setup.name ?? t.name };
   const folded = new Set<string>();
   let tHasPrimary = tCalendars.some(c => c.labels.includes('primary'));
+  let wKeptPrimary: string | undefined; // W's primary, kept as T's only FamCal primary
   for (const wCalendar of wCalendars) {
     const into = wCalendar === wPrimary ? undefined : tCalendars.find(c => !folded.has(c.id) && isSameCalendar(c, wCalendar));
     if (into) {
@@ -342,6 +343,8 @@ async function mergeWhatsAppUser(
           where: { id: wCalendar.id },
           data: { labels: wCalendar.labels.filter(l => l !== 'primary') },
         });
+      } else {
+        wKeptPrimary = wCalendar.id;
       }
       tHasPrimary = true;
     }
@@ -425,6 +428,18 @@ async function mergeWhatsAppUser(
     if (row?.labels.includes('primary')) {
       await tx.nativeCalendar.update({ where: { id: tFreshMain }, data: { labels: row.labels.filter(l => l !== 'primary') } });
       console.log(`[AccountLink] User ${t.id}: primary off the fresh FamCal default ${tFreshMain}; W's Google has no primary`);
+    }
+  }
+
+  // The mirror case: T keeps Google choices of its own (with or without the token) and had
+  // no FamCal primary (a legacy Google user's FamCal was hidden), so T's default was its
+  // Google one (spec §3 rule 1 or 2). W's FamCal primary, which came over as T's only one,
+  // gives up primary then, as the lazy FamCal main beside Google choices has none.
+  if (!keep && !tookGoogle && !tPrimary && wKeptPrimary && hasGoogleChoices(t.calendarAssignments)) {
+    const row = await tx.nativeCalendar.findUnique({ where: { id: wKeptPrimary }, select: { labels: true } });
+    if (row?.labels.includes('primary')) {
+      await tx.nativeCalendar.update({ where: { id: wKeptPrimary }, data: { labels: row.labels.filter(l => l !== 'primary') } });
+      console.log(`[AccountLink] User ${t.id}: primary off W's FamCal calendar ${wKeptPrimary}; T's Google choices keep the default`);
     }
   }
 

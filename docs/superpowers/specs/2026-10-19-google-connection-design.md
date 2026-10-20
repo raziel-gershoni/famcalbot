@@ -72,7 +72,7 @@ Status: designed 2026-10-19 under the owner's delegation, then revised after cod
 - **WA→TG merge** (account-linking.ts):
   - `wHasGoogle` is "W has a token". W's Google moves when T has no token. The T-unpaired and T-has-no-events conditions go, and T's calendars are never soft-deleted.
   - The pairing move drops `tIsNative` and the source condition.
-  - After the merge, primary uniqueness runs once, and T's primary wins. When W's Google moves with no `primary`, a fresh T's empty default (one W's calendar did not replace) gives up `primary` too, so W's default stays the first Google `yours`.
+  - After the merge, primary uniqueness runs once, and T's primary wins. When W's Google moves with no `primary`, a fresh T's empty default (one W's calendar did not replace) gives up `primary` too, so W's default stays the first Google `yours`. The mirror case: when T keeps Google choices of its own (token or not) and had no FamCal primary (a legacy Google user's FamCal was hidden), W's FamCal primary comes over without `primary`, so T's default stays its Google one.
   - `afterMerge`'s `remindable` drops the source term.
 - **Native reminders.**
   - `getReminderSupport` drops `not_native`, and the open-reminder readers and voice's `openReminderCandidates` serve everyone. The plan and Telegram gates stay, so a Basic user sees no reminders section.

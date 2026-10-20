@@ -7,6 +7,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { captureError } from '@/src/lib/error-capture';
+import { redis } from '@/src/utils/redis';
+import { setupTrackKeys } from '@/src/services/setup-tracks';
 
 export const dynamic = 'force-dynamic';
 
@@ -80,14 +82,8 @@ export async function POST(request: NextRequest) {
     });
 
     // Clear existing reminder tracking so cron sends fresh reminders via WhatsApp
-    const { redis } = await import('@/src/utils/redis');
-    const { REDIS_KEYS } = await import('@/src/config/redis-keys');
-    const types = ['oauth', 'calendars', 'location'];
-    for (const type of types) {
-      for (let i = 0; i < 4; i++) {
-        await redis.del(REDIS_KEYS.setupReminder(user_id, type, i));
-      }
-    }
+    // (every track's attempts and the Google tracks' starts, as the admin reset does)
+    await redis.del(...setupTrackKeys(user_id));
 
     console.log(`[switch-platform] Admin ${auth.adminId} set WhatsApp ${cleaned} for user ${user_id} (${user.name}), switched platform to whatsapp, reminders reset`);
 
