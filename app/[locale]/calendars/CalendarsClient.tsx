@@ -180,6 +180,8 @@ export default function CalendarsClient(props: Props) {
   const loading = useRef(false);
   /** A refresh asked while one was in flight: that one may have read the rows before a change, so one more runs after it. */
   const refreshAgain = useRef(false);
+  // Each copy-rows GET's number, in the order sent: a consent wait keeps the last one asked when it began.
+  const asks = useRef(0);
 
   const copyOf = (calendarId: string): CopyRow | undefined => copies?.rows.find((r) => r.calendarId === calendarId);
   const setBusyFor = (calendarId: string, value: 'on' | 'off' | 'working' | null) =>
@@ -207,13 +209,13 @@ export default function CalendarsClient(props: Props) {
       do {
         refreshAgain.current = false;
         try {
-          const askedAt = Date.now();
+          const ask = ++asks.current;
           const view = await loadCopies(userId);
           setCopies(view);
           setCopyLoadFailed(false);
           // A wait ends once its consent can't be used (landed, used, expired): the row shows its own action again.
           const now = Date.now();
-          setWaiting((w) => Object.fromEntries(Object.entries(w).filter(([id, wait]) => waitHolds(wait, view.rows.find((r) => r.calendarId === id), askedAt, now))));
+          setWaiting((w) => Object.fromEntries(Object.entries(w).filter(([id, wait]) => waitHolds(wait, view.rows.find((r) => r.calendarId === id), ask, now))));
         } catch (err) {
           console.error('[calendars] loading the Google copies failed:', err);
           setCopyLoadFailed(true);
@@ -246,7 +248,7 @@ export default function CalendarsClient(props: Props) {
     try {
       const result = await startCopy(userId, calendarId);
       if (result.kind === 'consent') {
-        const wait = consentWait(result.oauthUrl, copyOf(calendarId), Date.now());
+        const wait = consentWait(result.oauthUrl, copyOf(calendarId), Date.now(), asks.current);
         setWaiting((w) => ({ ...w, [calendarId]: wait }));
       }
       else if (result.kind === 'error') setErrorFor(calendarId, result.code);

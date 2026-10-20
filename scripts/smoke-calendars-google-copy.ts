@@ -308,18 +308,20 @@ async function main() {
   await check('client: a consent wait holds only while its consent can still be used: its state token\'s 10 minutes, the row unchanged since it began, and the server still holding the consent; a wait begun after the GET was sent is kept as is', () => {
     const t0 = 1_000_000;
     const off = baseRow({ on: false, status: 'off', linkId: null });
-    const w = consentWait('https://accounts.google.com/x', off, t0);
-    assert(w.url === 'https://accounts.google.com/x' && w.startedAt === t0, `wait ${show(w)}`);
-    const asked = t0 + 1000;
+    // GETs are numbered in the order sent; the wait began after GET 3 was asked, so GET 4 is the first that knows its consent.
+    const w = consentWait('https://accounts.google.com/x', off, t0, 3);
+    assert(w.url === 'https://accounts.google.com/x' && w.startedAt === t0 && w.afterAsk === 3, `wait ${show(w)}`);
+    const asked = 4;
     assert(waitHolds(w, { ...off, consentOpen: true }, asked, t0 + 2000), 'a live consent on an unchanged row');
     assert(!waitHolds(w, { ...off, consentOpen: false }, asked, t0 + 2000), 'the consent was used or expired on the server');
     assert(!waitHolds(w, baseRow({ status: 'approve', consentOpen: true }), asked, t0 + 2000), 'the row turned on in approve (a commit without the permission)');
     assert(!waitHolds(w, baseRow({ status: 'copying', consentOpen: true }), asked, t0 + 2000), 'the copy landed');
     assert(!waitHolds(w, undefined, asked, t0 + 2000), 'the calendar is gone');
-    assert(!waitHolds(w, { ...off, consentOpen: true }, t0 + OAUTH_STATE_TTL_MS, t0 + OAUTH_STATE_TTL_MS), 'past the state\'s 10 minutes');
-    assert(waitHolds(w, { ...off, consentOpen: false }, t0, t0 + 10), 'a GET sent before the wait began can\'t know its consent');
+    assert(!waitHolds(w, { ...off, consentOpen: true }, asked, t0 + OAUTH_STATE_TTL_MS), 'past the state\'s 10 minutes');
+    assert(waitHolds(w, { ...off, consentOpen: false }, 3, t0), 'a GET sent before the wait began can\'t know its consent, even in the same millisecond');
+    assert(!waitHolds(w, { ...off, consentOpen: false }, 4, t0), 'a GET sent after the wait began, even in the same millisecond, ends it once the consent is used');
     assert(!waitExpired(w, t0 + OAUTH_STATE_TTL_MS - 1) && waitExpired(w, t0 + OAUTH_STATE_TTL_MS), 'expiry');
-    const stopped = consentWait('https://accounts.google.com/y', baseRow({ status: 'approve' }), t0);
+    const stopped = consentWait('https://accounts.google.com/y', baseRow({ status: 'approve' }), t0, 3);
     assert(waitHolds(stopped, baseRow({ status: 'approve', consentOpen: true }), asked, t0 + 2000), 'a stopped copy\'s wait while its consent is live');
     assert(!waitHolds(stopped, baseRow({ status: 'approve', consentOpen: false }), asked, t0 + 2000), 'a stopped copy\'s consent used without the permission: the row is unchanged, but the consent is gone');
   });

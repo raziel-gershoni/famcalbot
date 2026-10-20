@@ -97,17 +97,23 @@ export function needsPolling(rows: ReadonlyArray<{ status: CopyStatus }>, waitin
   return waiting > 0 || rows.some((r) => r.status === 'copying');
 }
 
-/** A started consent the row waits on: Google's URL for the Open Google tap, when it began, and the row as it was then. */
+/**
+ * A started consent the row waits on: Google's URL for the Open Google tap, when it began (for
+ * the 10 minutes), the number of the last copy-rows GET asked by then (GETs are numbered in the
+ * order they are sent, so the order never rests on two clock readings in one millisecond), and
+ * the row as it was then.
+ */
 export interface ConsentWait {
   url: string;
   startedAt: number;
+  afterAsk: number;
   rowState: string;
 }
 
 const rowState = (row: Pick<CopyRow, 'on' | 'status'> | undefined) => (row ? `${row.on ? 'on' : 'off'}:${row.status}` : 'none');
 
-export function consentWait(url: string, row: CopyRow | undefined, now: number): ConsentWait {
-  return { url, startedAt: now, rowState: rowState(row) };
+export function consentWait(url: string, row: CopyRow | undefined, now: number, lastAsk: number): ConsentWait {
+  return { url, startedAt: now, afterAsk: lastAsk, rowState: rowState(row) };
 }
 
 /** The consent's one-time state lasts 10 minutes: after that its URL only leads to "expired". */
@@ -121,8 +127,8 @@ export function waitExpired(wait: ConsentWait, now: number): boolean {
  * state's 10 minutes, the server no longer holds it (used or expired), or the row changed since
  * the wait began (the copy landed, or a commit without the permission put it in "Approve in Google").
  */
-export function waitHolds(wait: ConsentWait, row: CopyRow | undefined, askedAt: number, now: number): boolean {
+export function waitHolds(wait: ConsentWait, row: CopyRow | undefined, ask: number, now: number): boolean {
   if (waitExpired(wait, now)) return false;
-  if (wait.startedAt >= askedAt) return true;
+  if (ask <= wait.afterAsk) return true;
   return row !== undefined && row.consentOpen && rowState(row) === wait.rowState;
 }
