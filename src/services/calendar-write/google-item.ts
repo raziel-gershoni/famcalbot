@@ -23,7 +23,9 @@ import { sourcesFor } from '../calendar-read/index';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { classifyGoogleError, type GoogleErrorClass } from '../calendar-read/google-map';
 import { classifyRule, fixesDays } from '../native-calendar/recurrence';
-import { repeatInfo, wallFor } from './item-info';
+import { repeatInfo, wallFor, writableCalendarRows } from './item-info';
+import { getPartnerUserId } from '../native-calendar/event-store';
+import { googleCrossRefusal, type CrossRefusal } from '../calendar-move/mapper';
 import { googleKeyOf, isHebrewChoice, parseGoogleKey, type CreateCommand, type DeleteCommand, type GoogleItemKey, type UpdateCommand } from './validate';
 import { dayEnd, dayStart, localDate, wallToInstant } from './walltime';
 import { createTimes, repeatChanges, resolveWallTimes, ruleFor, type WriteResult } from './write';
@@ -194,7 +196,9 @@ export async function googleEditInfo(user: UserConfig, key: GoogleItemKey, userT
   const rule = ruleInfo(read, userTz);
   // A list that can't be read (logged) leaves the sheet with no move.
   const calendars = editable ? (await googleEditorCalendars(user)).calendars : [];
-  const moveTargets = calendars.some((c) => c.id === key.calendarId) ? calendars.map((c) => c.id) : [];
+  const googleTargets = calendars.some((c) => c.id === key.calendarId) ? calendars.map((c) => c.id) : [];
+  const cross = googleTargets.length > 0 ? await famcalTargetsOf(user, read, userTz) : { ids: [], shared: [] };
+  const moveTargets = [...googleTargets, ...cross.ids];
   const live = calendars.find((c) => c.id === key.calendarId);
   const ref = googleCalendarRef(assignment, []);
   return {
@@ -228,6 +232,25 @@ export async function googleEditInfo(user: UserConfig, key: GoogleItemKey, userT
     forPartner: false,
     editableInGoogleOnly: writable && !editable,
     source: 'google',
+    ...(cross.reason ? { moveReason: cross.reason } : {}),
+    ...(cross.shared.length > 0 ? { sharedTargets: cross.shared } : {}),
+  };
+}
+
+/**
+ * The FamCal calendars an editable Google event may move to ("Google as a connection" §5):
+ * every FamCal calendar the user can write, and which of them the partner sees (shared, or
+ * the partner's own) while there is one; or, when it can't cross (a video call or files, a
+ * repeat FamCal can't hold), none and why. Read from the event alone: its exceptions are
+ * listed only by the move, which refuses then what this can't see.
+ */
+async function famcalTargetsOf(user: UserConfig, read: GoogleItemRead, userTz: string): Promise<{ ids: string[]; shared: string[]; reason?: CrossRefusal }> {
+  const reason = googleCrossRefusal({ ...read.event, recurrence: undefined }) ?? googleCrossRefusal(read.master ?? read.event, zoneOf(read, userTz));
+  if (reason) return { ids: [], shared: [], reason };
+  const [rows, partnerId] = await Promise.all([writableCalendarRows(user), getPartnerUserId(user.id, user.pairingId ?? null)]);
+  return {
+    ids: rows.map((r) => r.entry.id),
+    shared: partnerId === null ? [] : rows.filter((r) => r.calendar.ownerUserId !== user.id || r.calendar.privacy !== 'PRIVATE').map((r) => r.entry.id),
   };
 }
 

@@ -33,6 +33,7 @@ import { sourcesFor } from '../calendar-read/index';
 import { defaultCalendarIdFor } from '../calendar-provider/user-calendars';
 import { ensurePrimaryNativeCalendar } from '../native-calendar/onboarding';
 import { instantToWall, lastDayOf, localDate } from './walltime';
+import { famcalCrossRefusal, type CrossRefusal } from '../calendar-move/mapper';
 
 
 /** The viewer's writable calendars, each with its row: own, and the partner's SHARED_EDITOR, the viewer's first. */
@@ -265,6 +266,22 @@ async function moveTargetsOf(user: UserConfig, item: Extract<LoadedItem, { statu
     .map(({ entry }) => entry.id);
 }
 
+/**
+ * The Google calendars a FamCal event may move to ("Google as a connection" §5): the user's
+ * writable chosen ones, for the user's own event on their own calendar; or, when it can't
+ * cross (a Hebrew rule, a repeat Google wouldn't yield the same way), none and why. A
+ * partner's event lists none: it never leaves the partner's view.
+ */
+async function googleTargetsOf(user: UserConfig, item: Extract<LoadedItem, { status: 'ok' }>): Promise<{ ids: string[]; reason?: CrossRefusal }> {
+  if (item.series.kind === 'REMINDER' || !canWriteAccess(item.access) || item.calendar.ownerUserId !== user.id) return { ids: [] };
+  if (!sourcesFor(user).includes('google')) return { ids: [] };
+  // A list that can't be read is logged by googleEditorCalendars, and leaves the row its own kind.
+  const { calendars } = await (await import('./google-item')).googleEditorCalendars(user);
+  if (calendars.length === 0) return { ids: [] };
+  const reason = famcalCrossRefusal(item.series, item.overrides);
+  return reason ? { ids: [], reason } : { ids: calendars.map((c) => c.id) };
+}
+
 /** GET /api/calendar/item: the edit info of a loaded item. */
 export async function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, userTz: string, user: UserConfig): Promise<ItemEditInfoResponse> {
   const { series, calendar, ctx, occurrence, masked } = item;
@@ -280,7 +297,9 @@ export async function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, 
     // The words of a Hebrew series name its anchor, never the opened occurrence's day (a rolled year's).
     ...(series.rrule && series.hebrewRule && series.hebrewAnchor ? { anchor: series.hebrewAnchor } : {}),
   };
-  const moveTargets = await moveTargetsOf(user, item);
+  const ownKind = await moveTargetsOf(user, item);
+  const cross = ownKind.length > 0 ? await googleTargetsOf(user, item) : { ids: [] };
+  const moveTargets = [...ownKind, ...cross.ids];
   const forPartner = isForPartner(series, ctx);
   const creator = isReminder && series.creatorUserId === user.id;
   return {
@@ -317,5 +336,6 @@ export async function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, 
     canChangeRecipient: creator && (partnerCanRemind(ctx) || forPartner),
     forPartner,
     source: 'famcal',
+    ...(cross.reason ? { moveReason: cross.reason } : {}),
   };
 }

@@ -953,7 +953,7 @@ async function main() {
     }, 'series');
     assertSame({ calendar: r.calendar, forName: r.forName, scopes: r.scopes, canMoveCalendar: r.canMoveCalendar, moveTargets: r.moveTargets, canChangeRecipient: r.canChangeRecipient, source: r.source, googleOnly: r.editableInGoogleOnly ?? false, tz: r.tz }, {
       calendar: { id: NOA_CAL, name: 'Noa', color: '#9fc6e7' }, forName: null, scopes: ['single', 'following', 'all'], canMoveCalendar: true,
-      moveTargets: [NOA_CAL, FAMILY, NY_CAL, DANA], canChangeRecipient: false, source: 'google', googleOnly: false, tz: IL,
+      moveTargets: [NOA_CAL, FAMILY, NY_CAL, DANA, 'native:fam-7'], canChangeRecipient: false, source: 'google', googleOnly: false, tz: IL,
     }, 'the rest');
     const first = await editInfo(NOA, gkey(NOA_CAL, inst('wk', '2026-10-06T10:00:00')));
     assert(first !== 'not_found' && first.series.first === true, 'first');
