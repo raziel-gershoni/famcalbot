@@ -324,12 +324,13 @@ async function main() {
     }
   });
 
-  await check('a Google user with no token reads nothing and gets no events, as the provider today', async () => {
-    reset({ result: reconnect('token') });
+  await check("a Google user with no token reads their FamCal half (sourcesFor leaves Google out), not nothing (G2: googleWithoutToken is gone)", async () => {
+    reset({ result: famcalOk([DENTIST]) });
     const dayGot = await day(tokenlessGoogleUser, ON_DEMAND);
     const weekGot = await readLookaheadEvents(tokenlessGoogleUser, new Date(clock), endOfLocalDay('2026-10-17', IL), IL, GOOGLE_IDS, SCHEDULED_READ);
-    assert(dayGot.length === 0 && weekGot.length === 0, `${show(dayGot)} ${show(weekGot)}`);
-    assert(reader.calls.length === 0, `${reader.calls.length} reads`);
+    assertSameEvents(dayGot, eventsOf([DENTIST]), 'day');
+    assertSameEvents(weekGot, eventsOf([DENTIST]), 'week');
+    assert(count(reader.calls) === 2, `${reader.calls.length} reads`);
   });
 
   await check('every chosen calendar gone: no events and one warning, with no retry and no outage code (R18)', async () => {
@@ -492,6 +493,81 @@ async function main() {
     reset({ result: googleError('calendars_gone') });
     const gone = await readLookaheadEvents(googleUser, start, end, IL, GOOGLE_IDS, ON_DEMAND);
     assert(gone.length === 0 && warnings().length === 1, `gone: ${show(gone)} ${show(captured)}`);
+  });
+
+  // ---- G2: a failed Google half never hides the FamCal half ("Google as a connection" spec §4 Summaries) ----
+
+  /** A connected user's read: the FamCal half ok with `famcal`, the Google half as given. */
+  const both = (google: GoogleRead, famcal: ReadItem[], googleItems: ReadItem[] = []): RangeRead => ({
+    window: WINDOW, items: [...famcal, ...googleItems], famcal: { status: 'ok', ctx: CTX, calendars: [], partner: null }, google,
+  });
+  const connectedUser = { ...googleUser, calendarSource: 'NATIVE' } as UserConfig;
+  const MIXED_IDS = [...FAMCAL_IDS, ...GOOGLE_IDS];
+  const gapOf = (events: unknown) => (events as { googleGap?: unknown }).googleGap;
+
+  await check('G2 reconnect with FamCal items: the FamCal events come back (no throw), marked with the reconnect kind, on demand and scheduled, day and week', async () => {
+    for (const reason of ['token', 'scopes'] as const) {
+      for (const read of [ON_DEMAND, SCHEDULED_READ]) {
+        reset({ result: both({ status: 'reconnect', reason }, [DENTIST]) });
+        const got = await day(connectedUser, read, DAY, MIXED_IDS);
+        assertSameEvents(got, eventsOf([DENTIST]), `${reason} ${read.mode} day`);
+        assert(gapOf(got) === reason, `${reason} ${read.mode}: gap ${show(gapOf(got))}`);
+        reset({ result: both({ status: 'reconnect', reason }, [DENTIST]) });
+        const week = await readLookaheadEvents(connectedUser, new Date(clock), endOfLocalDay('2026-10-17', IL), IL, MIXED_IDS, read);
+        assertSameEvents(week, eventsOf([DENTIST]), `${reason} ${read.mode} week`);
+        assert(gapOf(week) === reason, `${reason} ${read.mode} week: gap ${show(gapOf(week))}`);
+      }
+    }
+  });
+
+  await check('G2 [guard] reconnect with an empty FamCal half still throws the reconnect code (a Google-only user sees no change)', async () => {
+    reset({ result: both({ status: 'reconnect', reason: 'token' }, []) });
+    assert((await thrown(day(connectedUser, ON_DEMAND, DAY, MIXED_IDS))).message === 'GOOGLE_TOKEN_EXPIRED', 'token');
+    reset({ result: both({ status: 'reconnect', reason: 'scopes' }, []) });
+    assert((await thrown(day(connectedUser, SCHEDULED_READ, DAY, MIXED_IDS))).message === 'GOOGLE_INSUFFICIENT_SCOPES', 'scopes');
+  });
+
+  await check('G2 on demand, a Google outage with FamCal items: the FamCal events come back marked "unavailable" after the quick retry, with a warning; no throw', async () => {
+    const failing = both({ status: 'error', reason: 'transient', cause: new Error('rate limit (smoke)') }, [DENTIST]);
+    reset({ result: failing, takesMs: 300 });
+    const got = await day(connectedUser, ON_DEMAND, DAY, MIXED_IDS);
+    assertSameEvents(got, eventsOf([DENTIST]), 'events');
+    assert(gapOf(got) === 'unavailable', `gap ${show(gapOf(got))}`);
+    assert(count(reader.calls) === 2, `${reader.calls.length} reads (the quick retry runs as before)`);
+    assert(warnings().length === 1 && warnings()[0].extra?.user_id === 12, `warnings ${show(captured)}`);
+  });
+
+  await check('G2 scheduled, a Google outage with FamCal items: GOOGLE_FETCH_FAILED with the day, for the retry queue as today', async () => {
+    for (const read of [SCHEDULED_READ, SCHEDULED_RETRY_READ]) {
+      reset({ result: both({ status: 'error', reason: 'transient', cause: new Error('x') }, [DENTIST]) });
+      const err = await thrown(day(connectedUser, read, TOMORROW, MIXED_IDS));
+      assert(err.message === 'GOOGLE_FETCH_FAILED' && err.day === TOMORROW, `${read.deadlineMs}: ${err.message} ${show(err.day)}`);
+    }
+  });
+
+  await check('G2 [guard] on demand, a Google outage with an empty FamCal half still throws GOOGLE_FETCH_FAILED', async () => {
+    reset({ result: both({ status: 'error', reason: 'transient', cause: new Error('x') }, []), takesMs: 300 });
+    const err = await thrown(day(connectedUser, ON_DEMAND, DAY, MIXED_IDS));
+    assert(err.message === 'GOOGLE_FETCH_FAILED' && err.day === DAY, `${err.message} ${show(err.day)}`);
+  });
+
+  await check('G2 [guard] a healthy read carries no gap mark, for a FamCal user and a connected one', async () => {
+    reset({ result: famcalOk([DENTIST]) });
+    const famcal = await day(famcalUser, ON_DEMAND, DAY, FAMCAL_IDS);
+    reset({ result: both(GOOGLE_OK, [DENTIST], [SWIM]) });
+    const connected = await day(connectedUser, ON_DEMAND, DAY, MIXED_IDS);
+    assertSameEvents(connected, eventsOf([DENTIST, SWIM]), 'connected events');
+    assert(gapOf(famcal) === undefined && gapOf(connected) === undefined, `gaps ${show([gapOf(famcal), gapOf(connected)])}`);
+  });
+
+  await check("G2 the outage run's sources: readDigestDay and readLookaheadEvents hand ['famcal'] to the reader when asked, and nothing otherwise", async () => {
+    reset({ result: famcalOk([DENTIST]) });
+    await readDigestDay(connectedUser, DAY, IL, MIXED_IDS, SCHEDULED_RETRY_READ, ['famcal']);
+    await readLookaheadEvents(connectedUser, new Date(clock), endOfLocalDay('2026-10-17', IL), IL, MIXED_IDS, SCHEDULED_RETRY_READ, ['famcal']);
+    assert(count(reader.calls) === 2, `${reader.calls.length} reads`);
+    for (const call of reader.calls) assert(show(call.opts.sources) === show(['famcal']), `sources ${show(call.opts.sources)}`);
+    // Only these two may carry sources: the last check below looks at every other read.
+    for (const call of reader.calls) reader.allCalls.splice(reader.allCalls.indexOf(call), 1);
   });
 
   await check('no summary read asks for the Google cache or hands the reader a background task', async () => {

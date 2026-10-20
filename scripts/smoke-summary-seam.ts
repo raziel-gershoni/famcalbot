@@ -134,11 +134,13 @@ const NOON_18TH = '2026-10-18T09:00:00.000Z';
 
 // ---- What the fakes saw ----
 
-type DigestCall = { user: UserConfig; day: string; tz: string; ids: string[]; read: DigestRead };
+type DigestCall = { user: UserConfig; day: string; tz: string; ids: string[]; read: DigestRead; sources?: readonly string[] };
 const digestCalls: DigestCall[] = [];
 const lookedUp: UserConfig[] = [];
 const reminderDays: string[] = [];
 const lookaheadRefs: string[] = [];
+/** The sources each week block was asked to read (undefined: every applicable one). */
+const lookaheadSources: (readonly string[] | undefined)[] = [];
 type AiCall = { events: string[][]; dayNoon: string; context: SummaryUserContext; weekLookahead: unknown };
 const aiCalls: AiCall[] = [];
 const headers: { date: string; tz: unknown }[] = [];
@@ -164,7 +166,7 @@ const failWith = (message: string) => async (): Promise<CalendarEvent[]> => {
 
 function reset() {
   clock = MORNING;
-  for (const list of [digestCalls, lookedUp, reminderDays, lookaheadRefs, aiCalls, headers, sent, voice, admin, cleared, captured]) {
+  for (const list of [digestCalls, lookedUp, reminderDays, lookaheadRefs, lookaheadSources, aiCalls, headers, sent, voice, admin, cleared, captured]) {
     list.length = 0;
   }
   readOutcome = async () => READ.map(e => ({ ...e }));
@@ -228,8 +230,8 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   },
   [`${SRC}/services/calendar-read/digest.ts`]: real => ({
     ...real,
-    readDigestDay: async (u: UserConfig, day: string, tz: string, ids: readonly string[], read: DigestRead) => {
-      digestCalls.push({ user: u, day, tz, ids: [...ids], read });
+    readDigestDay: async (u: UserConfig, day: string, tz: string, ids: readonly string[], read: DigestRead, sources?: readonly string[]) => {
+      digestCalls.push({ user: u, day, tz, ids: [...ids], read, ...(sources ? { sources: [...sources] } : {}) });
       return readOutcome();
     },
   }),
@@ -241,8 +243,9 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
     },
   },
   [`${SRC}/services/week-lookahead.ts`]: {
-    getWeekLookahead: async (_u: UserConfig, _calendars: unknown, referenceDate: Date) => {
+    getWeekLookahead: async (_u: UserConfig, _calendars: unknown, referenceDate: Date, _read?: unknown, opts?: { sources?: readonly string[] }) => {
       lookaheadRefs.push(referenceDate.toISOString());
+      lookaheadSources.push(opts?.sources);
       return { events: await lookaheadOutcome() };
     },
     formatTomorrowLookahead: () => 'Looking ahead: Monday',
@@ -456,17 +459,18 @@ async function main() {
     assertEqual(aiEvents(), [['mon']], 'the events the AI got');
   });
 
-  await check('googleUnavailable, Google user: no read, an empty day, the prompt flagged, no week block, and the outage line under the text', async () => {
+  await check("googleUnavailable, Google user: the day is read from FamCal only, the prompt flagged, the week block FamCal only, and the outage line under the text (G2)", async () => {
     clock = PAST_MIDNIGHT;
+    readOutcome = async () => [ev('sun-home', '2026-10-18T09:00:00+03:00', '2026-10-18T10:00:00+03:00', HOME)];
     const result = await summary.prepareSummaryForUser(GOOGLE_USER, summary.readSummaryDay, tomorrowFlag(), undefined, undefined, undefined, {
       day: '2026-10-18',
       read: digest.SCHEDULED_RETRY_READ,
       googleUnavailable: true,
     });
-    assertEqual(digestCalls.length, 0, 'reader reads');
-    assertEqual(aiCalls.map(a => a.events), [[[], [], []]], 'the events the AI got');
+    assertEqual(digestCalls.map(c => [c.day, c.sources]), [['2026-10-18', ['famcal']]], 'reader reads (day, sources)');
+    assertEqual(aiCalls.map(a => a.events), [[[], [], ['sun-home']]], 'the events the AI got');
     assert(aiCalls[0].context.googleUnavailable === true, `the prompt context has no googleUnavailable: true: ${show(aiCalls[0].context)}`);
-    assertEqual([lookaheadRefs, aiCalls[0].weekLookahead], [[], undefined], 'the week block (reads, text)');
+    assertEqual([lookaheadRefs, lookaheadSources, aiCalls[0].weekLookahead], [[NOON_18TH], [['famcal']], 'Looking ahead: Monday'], 'the week block (reads, sources, text)');
     assertEqual(aiCalls[0].dayNoon, NOON_18TH, "the prompt's date");
     assertEqual(result.summary, `AI summary\n\n<i>${text('he', 'googleOutageNote')}</i>`, 'the summary text');
   });
@@ -479,7 +483,7 @@ async function main() {
       });
       assertEqual(result.summary, `AI summary\n\n<i>${text(lang, 'googleOutageNote')}</i>`, `the ${lang} summary text`);
     }
-    assertEqual(digestCalls.length, 0, 'reader reads');
+    assertEqual(digestCalls.map(c => c.sources), [['famcal'], ['famcal']], 'reader reads (sources)');
   });
 
   await check('googleUnavailable with an empty AI answer: nothing is added, so delivery still answers "could not generate"', async () => {
@@ -586,6 +590,35 @@ async function main() {
       'what the user got'
     );
     assertEqual(admin, ['error: Summary Generation', 'error: Summary Generation'], 'admin pages');
+  });
+
+  // ---- G2: a failed Google half never hides the FamCal half (spec §4 Summaries) ----
+
+  /** A day read whose Google half had a gap: the FamCal events, marked as digest.ts marks them. */
+  const withGap = (gap: string) => async () => Object.assign([ev('sat-home', '2026-10-17T09:00:00+03:00', '2026-10-17T10:00:00+03:00', HOME)], { googleGap: gap });
+
+  await check('G2 on demand, a dead token with FamCal events: the summary goes out with them, then the token text, and the admin is warned', async () => {
+    readOutcome = withGap('token');
+    await summary.sendDailySummaryToUser(1003);
+    assertEqual(aiEvents(), [['sat-home']], 'the events the AI got');
+    assertEqual(messages(), [['telegram', 'sendMessage', 1003, 'AI summary'], ['telegram', 'sendMessage', 1003, 'he:tokenExpired']], 'what the user got');
+    assertEqual(admin, ['warning: Token Expired'], 'admin pages');
+  });
+
+  await check('G2 on demand, missing scopes with FamCal events: the summary, then the scopes text, and the token cleared', async () => {
+    readOutcome = withGap('scopes');
+    await summary.sendDailySummaryToUser(1003);
+    assertEqual(messages(), [['telegram', 'sendMessage', 1003, 'AI summary'], ['telegram', 'sendMessage', 1003, 'he:insufficientScopes']], 'what the user got');
+    assertEqual(cleared, [BigInt(1003)], 'tokens cleared');
+  });
+
+  await check('G2 on demand, Google unreachable with FamCal events: the summary goes out with them, the prompt flagged and the outage line under it', async () => {
+    readOutcome = withGap('unavailable');
+    await summary.sendDailySummaryToUser(1003);
+    assertEqual(aiEvents(), [['sat-home']], 'the events the AI got');
+    assert(aiCalls[0].context.googleUnavailable === true, `the prompt context: ${show(aiCalls[0].context)}`);
+    assertEqual(messages(), [['telegram', 'sendMessage', 1003, `AI summary\n\n<i>${text('he', 'googleOutageNote')}</i>`]], 'what the user got');
+    assertEqual(admin, [], 'admin pages');
   });
 
   await check('scheduled: the reader reads today with the scheduled 30 s deadline; the text and the voice note go out', async () => {

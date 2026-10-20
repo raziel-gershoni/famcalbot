@@ -127,7 +127,9 @@ const OMER = google(14, 'Omer');
 const ITAI = google(15, 'Itai');
 /** Her tomorrow summary comes at 23:00. */
 const LIOR = google(16, 'Lior', { preferredEveningHour: 23 });
-const EVERYONE = [NOA, YAEL, DANA, OMER, ITAI, LIOR];
+/** A FamCal user who connected Google ("Google as a connection"): FamCal and Google in one read. */
+const ZOE = person(17, 'Zoe', { calendarSource: 'NATIVE', googleRefreshToken: 'refresh-token', calendarAssignments: [cal('zoe@gmail.com', 'Zoe G')] });
+const EVERYONE = [NOA, YAEL, DANA, OMER, ITAI, LIOR, ZOE];
 const nameOf = (chatId: unknown) => EVERYONE.find(u => u.telegramId === Number(chatId))?.name ?? `chat ${String(chatId)}`;
 
 let batch: UserConfig[] = [];
@@ -161,6 +163,14 @@ let readsHeld = 0;
 let peakHeld = 0;
 
 async function readRange(user: UserConfig, fromKey: string, toKey: string, opts: ReadRangeOptions): Promise<RangeRead> {
+  // The outage run reads FamCal only (G2). It is the database, not Google: it takes no time
+  // on the smoke's clock and has no planned outcome; a connected user's FamCal event is there.
+  if (opts.sources && opts.sources.length === 1 && opts.sources[0] === 'famcal') {
+    log.push(`read ${user.name} ${fromKey}..${toKey} ${opts.deadlineMs} famcal`);
+    const window = { from: new RealDate(il(`${fromKey} 00:00:00`)), to: new RealDate(il(`${toKey} 00:00:00`)) };
+    const items = user.calendarSource === 'NATIVE' ? [item(user, dentist(user, fromKey))] : [];
+    return { window, items, famcal: { status: 'ok', ctx: { viewerId: user.id, partner: null }, calendars: [], partner: null } };
+  }
   log.push(`read ${user.name} ${fromKey}..${toKey} ${opts.deadlineMs}`);
   if (hold) {
     peakHeld = Math.max(peakHeld, ++readsHeld);
@@ -173,6 +183,18 @@ async function readRange(user: UserConfig, fromKey: string, toKey: string, opts:
   if (outcome === 'boom') throw new Error(`the read for ${user.name} broke`);
   const window = { from: new RealDate(il(`${fromKey} 00:00:00`)), to: new RealDate(il(`${toKey} 00:00:00`)) };
   const items = outcome === 'ok' ? [item(user, dentist(user, fromKey))] : [];
+  if (user.calendarSource === 'NATIVE' && user.googleRefreshToken) {
+    // A connected user: the FamCal half always answers, with their FamCal event; Google as planned.
+    const google: RangeRead['google'] =
+      outcome === 'fail' ? { status: 'error', reason: 'transient', cause: new Error('rateLimitExceeded') }
+      : outcome === 'token' ? { status: 'reconnect', reason: 'token' }
+      : outcome === 'scopes' ? { status: 'reconnect', reason: 'scopes' }
+      : { status: 'ok', calendars: [], goneIds: [], partial: null, stale: false };
+    return {
+      window, items: [item(user, dentist(user, fromKey))], google,
+      famcal: { status: 'ok', ctx: { viewerId: user.id, partner: null }, calendars: [], partner: null },
+    };
+  }
   if (user.calendarSource === 'NATIVE') {
     return { window, items, famcal: { status: 'ok', ctx: { viewerId: user.id, partner: null }, calendars: [], partner: null } };
   }
@@ -240,7 +262,8 @@ const stubs: Record<string, object> = {
   },
   [`${SRC}/services/calendar-provider/index.ts`]: {
     getCalendarAssignmentsForUser: async (u: UserConfig) =>
-      u.calendarSource === 'NATIVE' ? [cal('native:cal-dana', 'Dana')] : (u.calendarAssignments ?? []),
+      u.id === ZOE.id ? [cal('native:cal-zoe', 'Zoe'), ...(u.calendarAssignments ?? [])]
+      : u.calendarSource === 'NATIVE' ? [cal('native:cal-dana', 'Dana')] : (u.calendarAssignments ?? []),
   },
   [`${SRC}/services/user-service.ts`]: {
     getAllUsers: async () => batch,
@@ -450,6 +473,7 @@ async function main() {
       'send Noa summary',
       'mark Noa daily 2026-10-16',
       'read Yael 2026-10-16..2026-10-17 15000',
+      'read Yael 2026-10-16..2026-10-17 15000 famcal',
       'send Yael summary',
       'mark Yael daily 2026-10-16',
       'read Omer 2026-10-16..2026-10-17 15000',
@@ -470,7 +494,11 @@ async function main() {
   });
 
   await check('retry fails again: the summary goes out without Google, with the outage line in the text and the voice note (Hebrew)', () => {
-    assert(readsOf('Yael').length === 2, `Yael was read ${readsOf('Yael').length} times; the outage run must not read Google`);
+    assertList(readsOf('Yael'), [
+      'read Yael 2026-10-16..2026-10-17 30000',
+      'read Yael 2026-10-16..2026-10-17 15000',
+      'read Yael 2026-10-16..2026-10-17 15000 famcal',
+    ], 'Yael\'s reads: the outage run reads FamCal only');
     assert(textOf('Yael').length === 1 && textOf('Yael')[0].startsWith('Summary for Yael'), `Yael's messages ${JSON.stringify(textOf('Yael'))}`);
     assert(textOf('Yael')[0].includes(OUTAGE_HE), `no Hebrew outage line in ${JSON.stringify(textOf('Yael')[0])}`);
     assert(voiceOf('Yael').length === 1 && voiceOf('Yael')[0].includes(OUTAGE_HE), `voice ${JSON.stringify(voiceOf('Yael'))}`);
@@ -720,6 +748,40 @@ async function main() {
     assert(narrow.result.processed === wide.result.processed && count(narrow.log, 'mark ') === wideMarks && narrow.sleeps.length === wide.sleeps.length,
       `one at a time: processed ${narrow.result.processed}, marks ${count(narrow.log, 'mark ')}, sleeps ${narrow.sleeps.length}`);
     summary.__setSummaryConcurrencyForTests(1);
+  });
+
+  // ---- G2: a connected user's FamCal half is never hidden by Google ----
+
+  reset([ZOE], [[ZOE, ['token']]]);
+  await summary.sendDailySummaryToAll({ filterByHour: true });
+  const zoeTokenLog = log;
+  const zoeTokenSent = sent;
+  const zoePrompts = promptsOf('Zoe');
+
+  await check('G2 a dead token for a FamCal user with Google: the summary goes out with the FamCal events, then the token text with the refresh button, and it is marked sent', () => {
+    assertList(zoeTokenLog.filter(l => !l.startsWith('housekeeping')), [
+      'read Zoe 2026-10-16..2026-10-17 30000',
+      'send Zoe summary',
+      'send Zoe token',
+      'admin Token Expired',
+      'mark Zoe daily 2026-10-16',
+    ], 'the run');
+    assert(zoePrompts.length === 1 && zoePrompts[0].includes('Dentist (Zoe)'), 'the FamCal event is not in the prompt');
+    assert(zoeTokenSent[1]?.text === TOKEN_TEXT && zoeTokenSent[1]?.button === 'https://famcal.test/refresh-token?user_id=1017', `token message ${JSON.stringify(zoeTokenSent[1])}`);
+  });
+
+  reset([ZOE], [[ZOE, ['fail', 'fail']]]);
+  await summary.sendDailySummaryToAll({ filterByHour: true });
+
+  await check('G2 Google down twice for a FamCal user with Google: the outage run reads FamCal only, and the summary has the FamCal event and the outage line', () => {
+    assertList(readsOf('Zoe'), [
+      'read Zoe 2026-10-16..2026-10-17 30000',
+      'read Zoe 2026-10-16..2026-10-17 15000',
+      'read Zoe 2026-10-16..2026-10-17 15000 famcal',
+    ], 'reads');
+    assert(promptsOf('Zoe').length === 1 && promptsOf('Zoe')[0].includes('Dentist (Zoe)'), 'the FamCal event is not in the outage prompt');
+    assert(textOf('Zoe').length === 1 && textOf('Zoe')[0].includes(OUTAGE_EN), `texts ${JSON.stringify(textOf('Zoe'))}`);
+    assert(log.includes('mark Zoe daily 2026-10-16'), 'not marked sent');
   });
 
   await check('nothing above reached the network or sent an admin error notice', () => {

@@ -120,21 +120,21 @@ const RRULES: Record<string, string> = {
 // Native events as the provider hands them over: all-day as dates in the event's own
 // timezone, timed as UTC instants.
 const NATIVE_EVENTS: CalendarEvent[] = [
-  { summary: 'Teacher day', start: '2026-10-16', end: '2026-10-17', calendarName: 'Family', calendarId: 'native-family' },
-  { summary: 'Standup', start: '2026-10-14T13:00:00.000Z', end: '2026-10-14T13:15:00.000Z', calendarName: 'Family', calendarId: 'native-family', recurringEventId: 'standup' },
-  { summary: 'Anniversary', start: '2026-10-17T23:00:00.000Z', end: '2026-10-18T01:00:00.000Z', calendarName: 'Family', calendarId: 'native-family', recurringEventId: 'anniv' },
+  { summary: 'Teacher day', start: '2026-10-16', end: '2026-10-17', calendarName: 'Family', calendarId: 'native:fam1' },
+  { summary: 'Standup', start: '2026-10-14T13:00:00.000Z', end: '2026-10-14T13:15:00.000Z', calendarName: 'Family', calendarId: 'native:fam1', recurringEventId: 'standup' },
+  { summary: 'Anniversary', start: '2026-10-17T23:00:00.000Z', end: '2026-10-18T01:00:00.000Z', calendarName: 'Family', calendarId: 'native:fam1', recurringEventId: 'anniv' },
 ];
 
 // Built-in calendar reminders for an Israeli native user, as the provider hands them
 // over: zero length, with whose they are from the viewer's side.
 const nativeReminder = (summary: string, start: string, end: string, info: ReminderInfo, extra: Partial<CalendarEvent> = {}): CalendarEvent =>
-  ({ summary, start, end, calendarName: 'Family', calendarId: 'native-family', eventType: 'reminder', reminder: info, ...extra });
+  ({ summary, start, end, calendarName: 'Family', calendarId: 'native:fam1', eventType: 'reminder', reminder: info, ...extra });
 const OWN_REMINDER: ReminderInfo = { ownerIsViewer: true, creatorIsViewer: true };
 const NATIVE_REMINDERS: CalendarEvent[] = [
   nativeReminder('Renew passport', '2026-10-14T09:00:00.000Z', '2026-10-14T09:00:00.000Z', { ...OWN_REMINDER, done: true }),
   nativeReminder('Take vitamins', '2026-10-14T05:00:00.000Z', '2026-10-14T05:00:00.000Z', OWN_REMINDER, { recurringEventId: 'vitamins' }),
   nativeReminder('Call the plumber', '2026-10-15T07:00:00.000Z', '2026-10-15T07:00:00.000Z', OWN_REMINDER),
-  { summary: 'Dentist', start: '2026-10-15T08:00:00.000Z', end: '2026-10-15T09:00:00.000Z', calendarName: 'Family', calendarId: 'native-family' },
+  { summary: 'Dentist', start: '2026-10-15T08:00:00.000Z', end: '2026-10-15T09:00:00.000Z', calendarName: 'Family', calendarId: 'native:fam1' },
   nativeReminder('Buy milk', '2026-10-16T14:00:00.000Z', '2026-10-16T14:00:00.000Z', { ownerIsViewer: false, creatorIsViewer: true, ownerName: 'Dana' }),
   nativeReminder('Pick up the cake', '2026-10-17', '2026-10-18', { ownerIsViewer: true, creatorIsViewer: false, creatorName: 'Dana' }),
 ];
@@ -143,7 +143,7 @@ const NATIVE_BY_USER: Record<number, CalendarEvent[]> = { 5: NATIVE_REMINDERS, 7
 const TIMEZONES: Record<number, string> = {
   1: IL, 2: NY, 3: NY, 4: NY, 5: IL, 6: IL, 66: IL,
   7: IL, 9: LONDON, 10: CAIRO, 11: IL, 12: IL, 13: IL, 14: IL, 15: IL,
-  16: IL, 17: IL, 18: IL, 19: IL,
+  16: IL, 17: IL, 18: IL, 19: IL, 20: NY, 21: IL,
 };
 
 /** Every events.list request, to see which timezone, window, fields and timeout it asked for. */
@@ -963,6 +963,25 @@ async function main() {
       'rate limit, scheduled: GOOGLE_FETCH_FAILED (day 2026-10-13) | lists 10000',
       "built-in calendar, database down: Can't reach database server | lists none",
     ]);
+  });
+
+  // (i) "Google as a connection" (G2): the union of calendars, each series looked up by its calendar's id
+  await check('(i) a FamCal user who connected Google: a FamCal series is read from FamCal, a Google series asked of Google, in one /week', async () => {
+    clearRecurrenceCache();
+    masterCalls.length = 0;
+    nativeCalls.length = 0;
+    const connected = user(20, { culture: 'default', googleRefreshToken: 'token-ny', calendarSource: 'NATIVE', calendarAssignments: calendars });
+    const lookahead = await getWeekLookahead(connected, [...nativeCalendars, ...calendars], nyTuesdayNight);
+    assert(lookahead.events.some(e => e.summary === 'Teacher day') && lookahead.events.some(e => e.summary === 'Late dinner'), `events ${lookahead.events.map(e => e.summary).join(', ')}`);
+    assertList(masterCalls, ['token-ny:gym']);
+    assertList(nativeCalls, ['standup', 'anniv']);
+  });
+
+  await check('(i) a legacy Google user whose token was cleared still gets their FamCal week (no early return on the token)', async () => {
+    clearRecurrenceCache();
+    const tokenless = user(21, { culture: 'default', googleRefreshToken: '', calendarSource: 'GOOGLE', calendarAssignments: calendars });
+    const lookahead = await getWeekLookahead(tokenless, [...nativeCalendars, ...calendars], new Date('2026-10-13T09:00:00+03:00'));
+    assert(lookahead.events.some(e => e.summary === 'Teacher day'), `events ${lookahead.events.map(e => e.summary).join(', ') || 'none'}`);
   });
 
   let failed = 0;

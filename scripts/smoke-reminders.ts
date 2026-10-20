@@ -629,6 +629,37 @@ async function main() {
     assert(sendAttempts === 1, `tried again: ${sendAttempts} send attempts`);
   });
 
+  // "Google as a connection" (G2): the fetch is split by calendar id, and a failed half is logged, never thrown.
+  await check('a FamCal user who connected Google gets alerts from both: the FamCal event and the Google one', async () => {
+    reset({ id: 20, calendarSource: 'NATIVE' });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(20), IL);
+    nativeCalendars = [{ id: 'cal20', name: 'Dana', labels: ['primary', 'yours'] }];
+    nativeEvents = [{ calendarId: 'cal20', id: 'n20', title: 'Swim', startsAt: at('2026-10-13 10:00', IL), endsAt: at('2026-10-13 11:00', IL), timeZone: IL }];
+    googleEvents = [{ calendarId: kidsCal, id: 'k20', summary: 'Kindergarten', start: at('2026-10-13 08:00', IL), end: at('2026-10-13 16:00', IL) }];
+    await syncCache(handlers, at('2026-10-13 07:00', IL));
+    await runTicks(handlers, at('2026-10-13 07:00', IL), at('2026-10-13 17:00', IL));
+    const lines = sentLines(IL);
+    assert(lines.join(' | ') === '07:45 🤖 Auto-Reminder: Kindergarten | 09:45 🤖 Auto-Reminder: Swim | 15:45 🤖🚗 Auto-Pickup Reminder: Noa', `got ${lines.join(' | ') || '(nothing)'}`);
+  });
+
+  await check('Google down: a Google user\'s FamCal alert still goes out, and the failed Google half is reported', async () => {
+    reset({ id: 21 });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(21), IL);
+    nativeCalendars = [{ id: 'cal21', name: 'Dana', labels: ['yours'] }];
+    nativeEvents = [{ calendarId: 'cal21', id: 'n21', title: 'Swim', startsAt: at('2026-10-13 10:00', IL), endsAt: at('2026-10-13 11:00', IL), timeZone: IL }];
+    googleEvents = [{ calendarId: kidsCal, id: 'k21', summary: 'Kindergarten', start: at('2026-10-13 08:00', IL), end: at('2026-10-13 16:00', IL) }];
+    googleCalls.failing[kidsCal] = Object.assign(new Error('Backend Error'), { code: 503 });
+    try {
+      await syncCache(handlers, at('2026-10-13 07:00', IL));
+      await runTicks(handlers, at('2026-10-13 09:40', IL), at('2026-10-13 09:50', IL));
+    } finally {
+      delete googleCalls.failing[kidsCal];
+    }
+    const lines = sentLines(IL);
+    assert(lines.join(' | ') === '09:45 🤖 Auto-Reminder: Swim', `got ${lines.join(' | ') || '(nothing)'}`);
+    assert(captured.includes('calendar-provider-fetch'), `captured ${captured.join(', ') || '(nothing)'}`);
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

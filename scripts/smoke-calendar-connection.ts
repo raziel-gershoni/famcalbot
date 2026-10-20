@@ -14,8 +14,10 @@
 // - the Google states and the 07:00 nudges (no OAuth track; choose calendars at any age;
 //   reconnect for a cleared token with stored calendars), the bot's nudges, the admin;
 // - the daily reminder-cache sync and the summary batch take a Google user without a token.
-// The provider split by calendar id (spec §4 Providers) is Task G2's; the WA->TG merge
-// carrying a token from a NATIVE W is in smoke-account-merge (its FK-faithful fake).
+// Task G2, section I: providers by calendar id and the split fetch, where a create goes when
+// nothing placed it (and a reminder), the parser's default, and the union in the kid-name
+// follow-up and the voice show. The bot's own paths are in smoke-calendar-routing. The WA->TG
+// merge carrying a token from a NATIVE W is in smoke-account-merge (its FK-faithful fake).
 //
 // Real code runs over fakes at the boundaries: Prisma (in memory), Redis (in memory), error
 // capture, the admin notifier, the auth checks, Telegram and WhatsApp (record every send),
@@ -222,6 +224,8 @@ const fakeRedis = new Proxy(redisImpl, {
 
 type Sent = { via: string; chatId: unknown; text?: string; options?: Row };
 const sent: Sent[] = [];
+/** What the bot object (getBot) was asked to send or edit: kid-name answers. */
+const botSent: { method: string; args: unknown[] }[] = [];
 const captured: string[] = [];
 const recorder = (prefix: string): Row =>
   new Proxy({} as Row, {
@@ -233,6 +237,16 @@ const recorder = (prefix: string): Row =>
             return { message_id: 1 };
           },
   });
+
+const botRecorder: Row = new Proxy({} as Row, {
+  get: (_t, p) =>
+    typeof p !== 'string' || p === 'then'
+      ? undefined
+      : async (...args: unknown[]) => {
+          botSent.push({ method: p, args });
+          return { message_id: 1 };
+        },
+});
 
 /** What the editor's Google calendar list answers next (google-item.ts is faked). */
 let googleEditorAnswer: Row = { calendars: [] };
@@ -299,7 +313,7 @@ function installStubs() {
   });
   stub('src/lib/admin-auth.ts', { verifyAdminAccess: async () => ({ authorized: true, adminId: 1 }) });
   const telegram = {
-    getMessagingService: () => recorder('tg'), setUserMenuButton: async () => {}, getBot: () => ({}), initBot: () => ({}),
+    getMessagingService: () => recorder('tg'), setUserMenuButton: async () => {}, getBot: () => botRecorder, initBot: () => ({}),
     // The daily cron handler's batch; H6 checks only its reminder-cache sync beside it.
     sendDailySummaryToAll: async () => ({ processed: 0, skippedHour: 0, skippedDay: 0, skippedDedup: 0 }),
   };
@@ -359,6 +373,7 @@ function seed() {
   DB = {};
   redisStore.clear();
   sent.length = 0;
+  botSent.length = 0;
   captured.length = 0;
   googleEditorAnswer = { calendars: [] };
   DB.user = [
@@ -840,6 +855,152 @@ async function main() {
     assert(res.status === 200, `status ${res.status}`);
     const left = [...redisStore.keys()].filter(k => /^setup:(start|reminder):5:/.test(k));
     eq(left, [], 'keys left');
+  });
+
+  // ---- I. Providers by calendar id (Task G2, spec §3 and §4 Providers) ----
+
+  /** Runs `fn` with the two providers' fetches replaced, then puts the real ones back. */
+  async function withFetches(native: (ids: string[]) => Promise<Row[]>, google: (ids: string[]) => Promise<Row[]>, fn: () => Promise<void>) {
+    const { nativeProvider } = await load('src/services/calendar-provider/native-provider.ts');
+    const { googleProvider } = await load('src/services/calendar-provider/google-provider.ts');
+    const real = [nativeProvider.fetchEventsInRange, googleProvider.fetchEventsInRange];
+    nativeProvider.fetchEventsInRange = (_u: Row, ids: string[]) => native(ids);
+    googleProvider.fetchEventsInRange = (_u: Row, ids: string[]) => google(ids);
+    try {
+      await fn();
+    } finally {
+      [nativeProvider.fetchEventsInRange, googleProvider.fetchEventsInRange] = real;
+    }
+  }
+  const MIXED = ['native:cal-1', 'native:cal-7', 'nava@gmail.com', 'kids@group.calendar.google.com'];
+
+  await check('I1 providerForCalendar: a native: id goes to FamCal, every other id (the literal primary too) to Google', async () => {
+    const { providerForCalendar } = await load('src/services/calendar-provider/index.ts');
+    eq(['native:cal-1', 'nava@gmail.com', 'kids@group.calendar.google.com', 'primary'].map(id => providerForCalendar(id).name), ['native', 'google', 'google', 'google'], 'providers');
+  });
+
+  await check('I2 the split fetch: each provider is asked for its own ids only; FamCal events, then Google, and no failed half', async () => {
+    seed();
+    const { fetchEventsInRange } = await load('src/services/calendar-provider/index.ts');
+    const asked: string[] = [];
+    await withFetches(
+      async ids => { asked.push(`native ${ids.join(',')}`); return [{ eventId: 'n1' }]; },
+      async ids => { asked.push(`google ${ids.join(',')}`); return [{ eventId: 'g1' }]; },
+      async () => {
+        const got = await fetchEventsInRange(await configOf(1), MIXED, days(0), days(1));
+        eq({ events: got.events.map((e: Row) => e.eventId), failed: got.failed }, { events: ['n1', 'g1'], failed: [] }, 'result');
+      },
+    );
+    eq(asked.sort(), ['google nava@gmail.com,kids@group.calendar.google.com', 'native native:cal-1,native:cal-7'], 'asked');
+  });
+
+  await check('I3 the split fetch: a failed half is reported (Sentry) and named in failed, never thrown; the other half\'s events stay', async () => {
+    seed();
+    const { fetchEventsInRange } = await load('src/services/calendar-provider/index.ts');
+    const user = await configOf(1);
+    let googleDown: Row = {};
+    await withFetches(async () => [{ eventId: 'n1' }], async () => { throw new Error('GOOGLE_TOKEN_EXPIRED'); }, async () => {
+      googleDown = await fetchEventsInRange(user, MIXED, days(0), days(1));
+    });
+    let famcalDown: Row = {};
+    await withFetches(async () => { throw new Error('db down'); }, async () => [{ eventId: 'g1' }], async () => {
+      famcalDown = await fetchEventsInRange(user, MIXED, days(0), days(1));
+    });
+    eq([googleDown.events.map((e: Row) => e.eventId), googleDown.failed], [['n1'], ['google']], 'Google down');
+    eq([famcalDown.events.map((e: Row) => e.eventId), famcalDown.failed], [['g1'], ['famcal']], 'FamCal down');
+    assert(captured.some(c => c.startsWith('error:calendar-provider-fetch:GOOGLE_TOKEN_EXPIRED')) && captured.some(c => c.startsWith('error:calendar-provider-fetch:db down')), `captured ${show(captured)}`);
+  });
+
+  await check('I4 [guard-ish] the split fetch asks no provider for an empty half: FamCal ids only never reach Google', async () => {
+    seed();
+    const { fetchEventsInRange } = await load('src/services/calendar-provider/index.ts');
+    const asked: string[] = [];
+    await withFetches(async () => { asked.push('native'); return []; }, async () => { asked.push('google'); return []; }, async () => {
+      await fetchEventsInRange(await configOf(1), ['native:cal-1'], days(0), days(1));
+    });
+    eq(asked, ['native'], 'asked');
+  });
+
+  await check('I5 createCalendarFor: a placed event keeps its calendar; an unplaced one takes the default (Google for Google users, FamCal primary otherwise); a reminder always the FamCal main', async () => {
+    seed();
+    const { createCalendarFor } = await load('src/services/calendar-provider/index.ts');
+    const got = [
+      await createCalendarFor(await configOf(4), { calendarId: 'kids4@group.calendar.google.com' }),
+      await createCalendarFor(await configOf(1), {}),
+      await createCalendarFor(await configOf(4), {}),
+      await createCalendarFor(await configOf(3), { calendarId: '' }),
+    ];
+    eq(got, ['kids4@group.calendar.google.com', 'native:cal-1', 'hila@gmail.com', 'gil@gmail.com'], 'events');
+    const reminder = await createCalendarFor(await configOf(3), { calendarId: 'gil@gmail.com', kind: 'reminder' });
+    eq([reminder, live(3).length], [`native:${live(3)[0]?.id}`, 1], 'reminder: on the FamCal main, made lazily');
+    eq(await createCalendarFor(await configOf(1), { calendarId: 'native:cal-1', kind: 'reminder' }), 'native:cal-1', 'a reminder already on FamCal');
+  });
+
+  await check('I6 the parser: an unmatched calendar is the default of the union (not calendars[0]); a match is kept', async () => {
+    seed();
+    const { getMainNativeCalendar } = await load('src/services/native-calendar/event-store.ts');
+    await getMainNativeCalendar(4);
+    const { getCalendarAssignmentsForUser } = await load('src/services/calendar-provider/user-calendars.ts');
+    const { parseGeminiEventResponse } = await load('src/services/voice/gemini-voice.ts');
+    const hila = await getCalendarAssignmentsForUser(await configOf(4));
+    assert(hila[0].calendarId.startsWith('native:'), `fixture: Hila's union starts with ${hila[0].calendarId}`);
+    const nava = await getCalendarAssignmentsForUser(await configOf(1));
+    const parse = (calendarId: string, calendars: Row[]) => parseGeminiEventResponse({
+      intent: 'create', confidence: 'high',
+      event: { title: 'Dentist', startDate: '2026-10-21', startTime: '10:00', endDate: '2026-10-21', endTime: '11:00', calendarId, calendarName: '' },
+    }, calendars, 'Asia/Jerusalem').event;
+    eq([parse('nope', hila).calendarId, parse('nope', hila).calendarName], ['hila@gmail.com', 'Hila'], 'Hila (Google, no primary)');
+    eq(parse('nope', nava).calendarId, 'native:cal-1', 'Nava (FamCal primary)');
+    eq(parse('kids4@group.calendar.google.com', hila).calendarId, 'kids4@group.calendar.google.com', 'a match');
+  });
+
+  await check('I7 the parser: a reminder never takes a Google calendar; with reminders off it is an ordinary event in the default calendar', async () => {
+    seed();
+    const { getMainNativeCalendar } = await load('src/services/native-calendar/event-store.ts');
+    await getMainNativeCalendar(3);
+    const { getCalendarAssignmentsForUser } = await load('src/services/calendar-provider/user-calendars.ts');
+    const { parseGeminiEventResponse } = await load('src/services/voice/gemini-voice.ts');
+    const gil = await getCalendarAssignmentsForUser(await configOf(3));
+    const json = { intent: 'create', confidence: 'high', event: { kind: 'reminder', title: 'Call mom', startDate: '2026-10-21', startTime: '20:00', endTime: '20:30' } };
+    const on = parseGeminiEventResponse(json, gil, 'Asia/Jerusalem', true).event;
+    assert(on.kind === 'reminder' && !(on.calendarId ?? '').includes('@'), `reminder on ${on.calendarId}`);
+    const off = parseGeminiEventResponse(json, gil, 'Asia/Jerusalem', false).event;
+    eq([off.kind, off.calendarId], [undefined, 'gil@gmail.com'], 'reminders off');
+  });
+
+  await check('I8 kid-name follow-up reads the union: a FamCal kids calendar\'s child and the partner are known, a new name is asked', async () => {
+    seed();
+    Object.assign(table('nativeCalendar').find(c => c.id === 'cal-7') as Row, { personName: 'Noa' });
+    const { detectUnknownKidName } = await load('src/services/kid-name-detection.ts');
+    const ev = (summary: string, calendarId: string) => ({ summary, start: '2026-10-21', end: '2026-10-22', calendarId, calendarName: 'x' });
+    const got = await detectUnknownKidName([ev('Swim - Noa', 'native:cal-7'), ev('Lunch - Pele', 'native:cal-2'), ev('Ballet - Tom', 'native:cal-7')], await configOf(1));
+    eq(got?.name, 'Tom', 'candidate');
+  });
+
+  await check('I9 kid-name "yes" on a FamCal calendar names its person (NativeCalendar.personName), with the FamCal copy and the calendars page; a partner\'s calendar is left alone', async () => {
+    seed();
+    const { handleKidNameCallback } = await load('src/services/kid-name-callbacks.ts');
+    redisStore.set('kidname:pending:kn:1:1', JSON.stringify({ name: 'Tom', calendarId: 'native:cal-7', userId: 1 }));
+    await handleKidNameCallback(5550001, 9, 'q', 'kidname_yes', 'kn:1:1');
+    eq((table('nativeCalendar').find(c => c.id === 'cal-7') as Row).personName, 'Tom', 'personName');
+    const edit = botSent.find(b => b.method === 'editMessageText');
+    const { getBotMessages } = await load('src/lib/bot-messages.ts');
+    const t = await getBotMessages('en');
+    const want = String(t.kidNameDetection.confirmedFamcal).replace('{calendar}', 'Nava kids').replace('{name}', 'Tom');
+    assert(edit && edit.args[0] === want, `edit ${show(edit?.args[0])} (want ${show(want)})`);
+    assert(show(edit.args[1]).includes('/en/calendars?user_id=5550001'), `link ${show(edit.args[1])}`);
+    redisStore.set('kidname:pending:kn:1:2', JSON.stringify({ name: 'Ido', calendarId: 'native:cal-2', userId: 1 }));
+    await handleKidNameCallback(5550001, 9, 'q', 'kidname_yes', 'kn:1:2');
+    eq((table('nativeCalendar').find(c => c.id === 'cal-2') as Row).personName, null, 'the partner\'s calendar');
+  });
+
+  await check('I10 the voice show reads the union for a Google user too (it named nobody before)', async () => {
+    seed();
+    const { resolveShowCalendars } = await load('src/services/voice-show/context.ts');
+    const got = await resolveShowCalendars(await configOf(3));
+    eq(got?.map((c: Row) => c.calendarId), ['gil@gmail.com', 'kids@group.calendar.google.com'], 'Gil (no FamCal yet)');
+    const nava = await resolveShowCalendars(await configOf(1));
+    eq(nava?.map((c: Row) => c.calendarId), ['native:cal-1', 'native:cal-2', 'native:cal-7'], 'Nava');
   });
 
   // ---- Report ----
