@@ -45,9 +45,10 @@ It builds on Google as a connection (2026-10-19-google-connection-design.md) and
   - from every event-store write (create, update, delete, and the 3b and Hebrew paths, shared with the bot and the home);
   - from `createNativeSeries` (the move);
   - from the calendar PATCH (a rename marks the link) and DELETE routes;
-  - from the WA→TG merge's event and calendar moves (account-linking.ts) and from hardDeleteUser, which also turn the link off and remove the Google calendar, as with Remove, because the token goes with the user.
+  - from the WA→TG merge's event and calendar moves (account-linking.ts), which also turns W's links off with Remove queued.
+  - **hardDeleteUser** can't queue anything: the token goes with the user, and the links cascade with it. So before its transaction it carries out, synchronously, each of the user's copies with work queued: Remove for an enabled one, the queued choice for one turned off and not yet carried out, with `link.unlinkToken ?? the user's token` and the worker's own Remove and Keep code. It is best effort: a failure (token, scopes, Google down) is logged with the link id and sent to Sentry, and the delete goes on. Chosen at the S1 review (option a) over a tombstone table with no FK to User for the worker to carry out: it keeps one Remove code path and stores no third copy of the token.
   - In the merge, W's token, with its `googleScopes`, moves to T when T has none. When T keeps its own (perhaps another Google account), W's copies with a turn-off queued carry W's encrypted token in `GoogleSyncLink.unlinkToken`; the worker uses it only to carry out that Remove or Keep in the account the copy lives in, then clears it.
-  - Every marked writer locks the FamCal rows first and the sync rows last (the mark is the transaction's last write), so two writers on one series never deadlock.
+  - Every marked writer locks the FamCal rows first and the sync rows last (the mark is the transaction's last write), so two writers on one series never deadlock. The merge too: its marks, W's links' turn-off and their move to T (a `userId` change locks the link FOR UPDATE, being in its unique index) and `unlinkToken` all come after its last FamCal write. A calendar delete's SET NULL on its links is fine where it falls: it locks the calendar first.
 
   Store writes that run outside a transaction today are wrapped. A push records the `dirtySeq` it pushed, and the item is clean only when `pushedSeq === dirtySeq`, so a write that lands mid-push is never lost.
 - **The gate.** A mark opens a gate on globalThis (like the reminders' due gate), and the worker runs only when the gate is open, so FamCal doesn't query the DB every minute and Neon can sleep. A 60-minute ceiling catches anything missed. The DB stays the source of truth.
@@ -124,6 +125,7 @@ New keys, natural in en, he and ru: gender-neutral Hebrew, formal вы in Russia
   - backfill with progress;
   - creating with adopt by token;
   - Remove with and without user events, Keep, re-enable, recreate;
+  - the hard delete's Remove before its transaction (account-merge smoke): each copy with work queued carried out with `unlinkToken ?? the user's token`; a failed one logged and sent to Sentry, with the delete still going through; no Google call for a user with no copies;
   - the read filter (home, digest, voice, alerts);
   - `listUserCalendars` hiding copy calendars;
   - no titles in logs.

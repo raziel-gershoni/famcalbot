@@ -17,7 +17,7 @@ import { convertPrismaUserToConfig, UserConfig } from '../types';
 import { invalidateFeatureAccessCache } from './subscription-service';
 import { removeUserFromCache, updateUserInCache } from './reminder-cache';
 import { invalidateDueGate } from './native-reminders/due-gate';
-import { markSyncDirty, unlinkSync } from './google-sync/marks';
+import { markSyncDirty, unlinkSync, type SyncSeries } from './google-sync/marks';
 import { openSyncGate } from './google-sync/gate';
 import { clearDeletedUserCaches } from '../lib/user-moderation';
 import { setUserMenuButton } from './telegram/bot';
@@ -311,21 +311,24 @@ async function mergeWhatsAppUser(
   const wCalendars = await live(w.id);
   const tKeepsPartner = !!pairingId && !moved;
   const wPrimary = tPrimaryEmpty && !tKeepsPartner ? wCalendars.find(c => c.labels.includes('primary')) : undefined;
-  // W's copies to Google stop: W's token goes with W (or becomes T's), so each turns off
-  // with Remove queued and comes over to T with the token's account on it, for the worker to
-  // carry out (google-sync spec §2). Turned-off ones keep the choice made for them. Those with
-  // work queued (just turned off, or a turn-off not yet carried out) are the ones W's token
-  // must still reach when it stays behind (below).
+  // Copies to Google (google-sync spec §2). The merge writes their rows last, after every
+  // FamCal write (below, before W goes), the lock order every marked writer keeps: moving a
+  // link's userId (in its unique index) locks the row FOR UPDATE, and a partner's create in a
+  // calendar the fold then deletes locks that calendar before its mark needs the link. Here
+  // they are only read. Those of W's with work queued (enabled, so turned off below, or a
+  // turn-off not yet carried out) are the ones W's token must still reach when it stays behind.
   const wQueued = wHasGoogle
     ? (await tx.googleSyncLink.findMany({ where: { userId: w.id }, select: { id: true, enabled: true, dirtySeq: true, pushedSeq: true } }))
       .filter(l => l.enabled || l.dirtySeq > l.pushedSeq).map(l => l.id)
     : [];
-  const wCopies = await unlinkSync(tx, { userId: w.id }, 'remove');
-  await tx.googleSyncLink.updateMany({ where: { userId: w.id }, data: { userId: t.id } });
-  if (wCopies > 0) console.log(`[AccountLink] User ${t.id}: ${wCopies} Google copies of W ${w.id} turned off (remove)`);
+  // The fold's marks on T's copies, made once the FamCal writes are done.
+  const foldMarks: SyncSeries[] = [];
+  const renamedCopies: string[] = [];
+  let tPrimaryCopies: string[] = [];
   if (tPrimary && wPrimary) {
-    // T's empty primary goes, and its copy with it.
-    await unlinkSync(tx, { calendarIds: [tPrimary.id] }, 'remove');
+    // T's empty primary goes, and its copy with it: the delete clears the copy's calendar, so
+    // the copy is found first and turned off at the end.
+    tPrimaryCopies = (await tx.googleSyncLink.findMany({ where: { nativeCalendarId: tPrimary.id, enabled: true }, select: { id: true } })).map(l => l.id);
     await tx.nativeCalendar.delete({ where: { id: tPrimary.id } });
   }
 
@@ -359,10 +362,10 @@ async function mergeWhatsAppUser(
         select: { id: true, kind: true },
       });
       await tx.nativeEvent.updateMany({ where: { calendarId: wCalendar.id }, data: { calendarId: into.id } });
-      await markSyncDirty(tx, { series: arriving.map(e => ({ id: e.id, kind: e.kind, calendarIds: [into.id] })) });
+      foldMarks.push(...arriving.map(e => ({ id: e.id, kind: e.kind, calendarIds: [into.id] })));
       const setupFromW = calendarSetupFromW(wCalendar, into, names);
       await tx.nativeCalendar.update({ where: { id: into.id }, data: setupFromW });
-      if (setupFromW.name !== undefined && setupFromW.name !== into.name) await markSyncDirty(tx, { calendarId: into.id });
+      if (setupFromW.name !== undefined && setupFromW.name !== into.name) renamedCopies.push(into.id);
       await tx.nativeCalendar.delete({ where: { id: wCalendar.id } });
     } else if (wCalendar.labels.includes('primary')) {
       if (tHasPrimary) {
@@ -435,14 +438,6 @@ async function mergeWhatsAppUser(
     })).count === 1;
     reconnectGoogle = !tookGoogle;
   }
-  // W's token stays behind (T keeps its own, maybe another Google account): W's copies with
-  // work queued carry it, still encrypted, so the worker can carry out their Remove or Keep in
-  // the account they live in, then clears it. Without it nothing could reach them.
-  if (reconnectGoogle && wQueued.length) {
-    await tx.googleSyncLink.updateMany({ where: { id: { in: wQueued } }, data: { unlinkToken: w.googleRefreshToken } });
-    console.log(`[AccountLink] User ${t.id}: W ${w.id}'s Google token kept on ${wQueued.length} turned-off copies (${wQueued.join(', ')}) for their queued Remove/Keep`);
-  }
-
   // One primary across T's two lists, once (spec §3, §4): T's own wins, its Google
   // primary, else the FamCal primary T established. A fresh T's empty default gives
   // way here as it does to W's calendar above, so a moved Google primary stays the
@@ -478,6 +473,25 @@ async function mergeWhatsAppUser(
       await tx.nativeCalendar.update({ where: { id: wKeptPrimary }, data: { labels: row.labels.filter(l => l !== 'primary') } });
       console.log(`[AccountLink] User ${t.id}: primary off W's FamCal calendar ${wKeptPrimary}; T's Google choices keep the default`);
     }
+  }
+
+  // The copy rows, last (see wQueued above). The series the fold brought into a copied
+  // calendar of T's are marked on its copy, and a rename marks the copy itself. W's copies
+  // stop: W's token goes with W (or becomes T's), so each turns off with Remove queued and
+  // comes over to T with the token's account on it, for the worker to carry out. Turned-off
+  // ones keep the choice made for them. T's empty primary's copy turns off the same way.
+  await markSyncDirty(tx, { series: foldMarks });
+  for (const calendarId of renamedCopies) await markSyncDirty(tx, { calendarId });
+  const wCopies = await unlinkSync(tx, { userId: w.id }, 'remove');
+  await tx.googleSyncLink.updateMany({ where: { userId: w.id }, data: { userId: t.id } });
+  if (wCopies > 0) console.log(`[AccountLink] User ${t.id}: ${wCopies} Google copies of W ${w.id} turned off (remove)`);
+  await unlinkSync(tx, { linkIds: tPrimaryCopies }, 'remove');
+  // W's token stays behind (T keeps its own, maybe another Google account): W's copies with
+  // work queued carry it, still encrypted, so the worker can carry out their Remove or Keep in
+  // the account they live in, then clears it. Without it nothing could reach them.
+  if (reconnectGoogle && wQueued.length) {
+    await tx.googleSyncLink.updateMany({ where: { id: { in: wQueued } }, data: { unlinkToken: w.googleRefreshToken } });
+    console.log(`[AccountLink] User ${t.id}: W ${w.id}'s Google token kept on ${wQueued.length} turned-off copies (${wQueued.join(', ')}) for their queued Remove/Keep`);
   }
 
   // W goes before T takes its WhatsApp ids: they are unique. W was found by the

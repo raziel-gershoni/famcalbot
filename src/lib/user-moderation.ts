@@ -68,9 +68,12 @@ export async function unsuspendUser(userId: number, adminId: number): Promise<vo
  *      go; where they were the invitee the row stays with no invitee.
  * NativeEvent.forUserId, NativeReminderState.doneByUserId and
  * PairingInvite.acceptedByUserId are SET NULL and their invites CASCADE in the
- * database, as do their copies to Google (GoogleSyncLink, and its items): the
- * Google token goes with the user, so nothing can carry a copy out afterwards, and
- * the Google calendars stay in their Google account (the delete logs their links).
+ * database, as do their copies to Google (GoogleSyncLink, and its items). The Google
+ * token goes with the user, so nothing can reach a copy afterwards: google-sync S3 adds,
+ * before this transaction, a best-effort Remove of each copy with work queued, carried out
+ * synchronously with the user's own token (or the link's unlinkToken), a failure logged and
+ * sent to Sentry, and the delete going on (spec §2). Until then the Google calendars stay
+ * in their Google account and the delete logs their links.
  * Admin ids they left in compedBy, grantedBy, suspendedBy and bannedBy stay: they
  * are plain audit columns, and compedBy != null is what marks a comp.
  * Also clears Redis caches keyed by userId.

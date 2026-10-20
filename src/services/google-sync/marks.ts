@@ -96,7 +96,7 @@ export async function markSyncDirty(db: Db, target: SyncMarkTarget): Promise<num
 }
 
 /**
- * Turn the enabled copies of these calendars, or of this user, off, inside the caller's
+ * Turn the enabled copies of these calendars, of this user, or these links, off, inside the caller's
  * transaction: enabled = false with the choice for the worker to carry out (Remove deletes
  * the Google calendar, or only FamCal's events when the user added their own; Keep marks
  * its description as no longer updated). The link row stays, so the Google calendar stays
@@ -104,11 +104,14 @@ export async function markSyncDirty(db: Db, target: SyncMarkTarget): Promise<num
  */
 export async function unlinkSync(
   db: Db,
-  where: { calendarIds: string[] } | { userId: number },
+  where: { calendarIds: string[] } | { userId: number } | { linkIds: string[] },
   choice: UnlinkChoice
 ): Promise<number> {
-  const scope = 'userId' in where ? { userId: where.userId } : { nativeCalendarId: { in: where.calendarIds } };
+  const scope = 'userId' in where ? { userId: where.userId }
+    : 'linkIds' in where ? { id: { in: where.linkIds } }
+    : { nativeCalendarId: { in: where.calendarIds } };
   if ('calendarIds' in where && where.calendarIds.length === 0) return 0;
+  if ('linkIds' in where && where.linkIds.length === 0) return 0;
   const { count } = await db.googleSyncLink.updateMany({
     where: { ...scope, enabled: true },
     data: { enabled: false, unlinkChoice: choice, dirtySeq: { increment: 1 } },

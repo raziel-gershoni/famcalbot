@@ -43,6 +43,8 @@
 // copied calendar of T's that the merge deletes has its copy turned off the same way. W's
 // token moves to T with its scopes; when T keeps its own, W's copies with work queued carry
 // W's token for the worker. The hard delete goes through with copies and their items (they cascade).
+// The merge writes the copy rows last, after every FamCal write (#58), the lock order every
+// marked writer keeps.
 //
 // account-linking, user-moderation, user-service, subscription-service, the reminder
 // cache and event-store run for real. Faked at the boundaries: Prisma (in memory, and it
@@ -343,6 +345,7 @@ async function executeRaw(strings: TemplateStringsArray, ...values: unknown[]): 
     throw new Error(`fake prisma: unexpected raw SQL ${sql}`);
   }
   const vals = query.values as string[];
+  concurrent?.('googleSyncItem', 'upsert', {});
   for (let i = 0; i < vals.length; i += 3) {
     const [id, linkId, nativeEventId] = vals.slice(i, i + 3);
     const existing = table('googleSyncItem').find(r => r.linkId === linkId && r.nativeEventId === nativeEventId);
@@ -1655,6 +1658,52 @@ async function main() {
     assert(result.success === true && !result.reconnectGoogle, `result ${show(result)}; captured ${show(captured)}`);
     const moved = syncRow('link-w');
     assert(moved?.userId === T && moved.unlinkChoice === 'remove' && moved.unlinkToken == null, `W's token moved to T, yet the copy carries one: ${show(moved)}`);
+  });
+
+  await check('#58 the merge writes the copy rows last: no FamCal write follows its first write to a link or an item (the lock order every marked writer keeps)', async () => {
+    // Postgres locks a link row FOR UPDATE when its userId (part of the unique index) changes,
+    // and a concurrent mark's item insert needs KEY SHARE on it after locking its FamCal row:
+    // a link write before the fold's calendar delete deadlocks with a partner's create there.
+    // A calendar delete's SET NULL on its copies is not counted: it locks the calendar first.
+    const FAMCAL = ['nativeCalendar', 'nativeEvent', 'nativeEventInstance', 'nativeReminderState'];
+    const lastFirst = (writes: string[]) => {
+      const first = writes.findIndex(w => w.startsWith('googleSync'));
+      return { first, late: first < 0 ? [] : writes.slice(first).filter(w => FAMCAL.includes(w)) };
+    };
+
+    // The fold (W's primary into T's copied primary, with a rename), W's copies turned off and
+    // moved to T, and W's token kept on them because T keeps its own.
+    seed();
+    rowOf('nativeCalendar', 'cal-w')!.name = 'Family';
+    Object.assign(userRow(W), { googleRefreshToken: TOKENS.w });
+    userRow(T).googleRefreshToken = TOKENS.t;
+    DB.googleSyncLink = [syncLink('link-t', T, 'cal-t', { pushedName: 'Dana Cohen' }), syncLink('link-w', W, 'cal-w'), syncLink('link-w-kids', W, 'cal-w-kids')];
+    DB.googleSyncItem = [];
+    let writes = recordWrites();
+    let result = await link();
+    concurrent = null;
+    assert(result.success === true && result.reconnectGoogle === true, `result ${show(result)}; captured ${show(captured)}`);
+    assert(show(syncItems()) === show(['link-t/ev-w=1']) && syncRow('link-t')!.dirtySeq === 1, `the fold's marks ${show(syncItems())} ${show(syncRow('link-t'))}`);
+    for (const id of ['link-w', 'link-w-kids']) {
+      const row = syncRow(id);
+      assert(row?.userId === T && row.enabled === false && row.unlinkChoice === 'remove' && row.unlinkToken === TOKENS.w, `${id}: ${show({ ...row, unlinkToken: row?.unlinkToken ? 'set' : null })}`);
+    }
+    let order = lastFirst(writes);
+    assert(order.first >= 0 && order.late.length === 0, `FamCal writes after the first copy write: ${show(writes)}`);
+
+    // A fresh T's empty copied primary gives way to W's: its copy turns off after the delete.
+    seed();
+    freshT();
+    DB.googleSyncLink = [syncLink('link-t', T, 'cal-t'), syncLink('link-w', W, 'cal-w')];
+    DB.googleSyncItem = [];
+    writes = recordWrites();
+    result = await link();
+    concurrent = null;
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    const t = syncRow('link-t');
+    assert(!rowOf('nativeCalendar', 'cal-t') && t?.enabled === false && t.unlinkChoice === 'remove' && t.dirtySeq === 1 && t.nativeCalendarId === null, `T's copy ${show(t)}`);
+    order = lastFirst(writes);
+    assert(order.first >= 0 && order.late.length === 0, `FamCal writes after the first copy write: ${show(writes)}`);
   });
 
   await check('#55 hardDeleteUser with copies and their items goes through: they cascade with the user, and the partner\'s copy is untouched', async () => {

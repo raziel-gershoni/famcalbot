@@ -38,7 +38,7 @@
 - `src/services/native-calendar/event-store.ts` (every write; wrap the non-transactional ones)
 - `src/services/calendar-move/*` (`createNativeSeries`)
 - `app/api/native-calendars/[id]/route.ts` (PATCH rename marks the link; DELETE asks Remove/Keep through a body flag)
-- `src/services/account-linking.ts`, `src/services/user-moderation.ts` (turn links off and queue the Google calendar's removal)
+- `src/services/account-linking.ts` (turn links off and queue the Google calendar's removal), `src/lib/user-moderation.ts` (the delete goes through with copies; their removal is S3's)
 - a new `src/services/google-sync/{marks.ts,gate.ts}`
 - Tests: a new `scripts/smoke-google-sync.ts` (marks part)
 
@@ -76,7 +76,8 @@
 - `src/services/google-sync/{worker.ts,push.ts,calendars.ts,hebrew.ts}`
 - `src/cron/scheduler.ts` and `src/cron/handlers.ts` (`handleGoogleSync`, the same pattern as handleNativeReminders: globalThis running flag, admin alert)
 - `src/lib/cron-handler.ts` (manual trigger)
-- Tests: the sync smoke (worker part)
+- `src/lib/user-moderation.ts` (hardDeleteUser's Remove before its transaction, spec §2)
+- Tests: the sync smoke (worker part), account-merge (the hard delete's Remove)
 
 - [ ] Write failing checks from spec §6's worker list. Watch them fail.
 - [ ] Calendars:
@@ -86,7 +87,8 @@
   - Remove, both forms;
   - Keep;
   - re-enable;
-  - recreate.
+  - recreate;
+  - hardDeleteUser: before its transaction, carry out each of the user's copies with work queued synchronously (Remove for an enabled one, the queued choice otherwise) with `unlinkToken ?? the user's token`, best effort: log and `captureError` a failure and delete anyway. Update its doc comment and drop the "left N Google copies" log.
 - [ ] Push:
   - the deterministic id (base32hex of sha256(`linkId:seriesId:generation`), 26+ chars, a–v and 0–9) with 409 adopt;
   - the structural vs patch branches with instance replay and slot hashes;
