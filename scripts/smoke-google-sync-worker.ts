@@ -12,9 +12,16 @@
 //     after a FamCal change), the Hebrew RDATE horizon, no alerts on copies, the dirtySeq race;
 //   - failures: the 404 split (calendars.get), a second 404, backoff with jitter, the rate-limit
 //     pause, token, scopes, otherAccount and plan states, the reconnect message once per
-//     outage, suspended users, the admin alert after 10 attempts once per link per day;
-//   - pace: the lock (NX, TTL, renew, release, fail-closed), 100 calls per user per run, 3
-//     users at a time, serial calendar creation, backfill with progress counts;
+//     outage, suspended users, the admin alert after 10 attempts once per link per day; a
+//     copy's own steps (account check, create, rename, turn-off) backed off per link with the
+//     same alert, one copy's failure never holding back the others; a rename on a deleted
+//     calendar going 'gone'; a commit re-checking 'otherAccount'; a turned-off copy with no
+//     stored calendar id looked up by its token; a 409 on a deleted event's id taking the next
+//     generation, and a Remove that keeps the calendar keeping each item's generation;
+//     googleAccountOf's 403 reasons;
+//   - pace: the lock (NX, TTL, renew, release, fail-closed, owned by the run's token), 100
+//     calls per user per run, 3 users at a time, serial calendar creation, backfill with
+//     progress counts (what it marked, before push drains);
 //   - the cron handler's gate, and no titles in logs.
 //
 // The worker, push, calendars, hebrew, the marks, the mapper and the recurrence code run for
@@ -367,6 +374,35 @@ const fakeRedis: Row = {
     redisLog.push(`del ${ks.flat().join(',')}`);
     return ks.flat().reduce((n: number, k) => n + (redisStore.delete(String(k)) ? 1 : 0), 0);
   },
+  /** The links' retries (retries.ts): read once per pass, so not in redisLog (which tracks the lock). */
+  mget: async (...ks: unknown[]) => {
+    if (redisFail === 'mget') throw new Error('redis down');
+    return ks.flat().map((k) => redisStore.get(String(k))?.value ?? null);
+  },
+  /** The lock's two scripts (worker.ts RENEW_LOCK, RELEASE_LOCK): act only while the key holds the run's token. */
+  eval: async (script: string, keys: string[], args: unknown[]) => {
+    const [k] = keys;
+    const renew = /'expire'/.test(script);
+    assert(renew || /'del'/.test(script), `unexpected script ${script}`);
+    assert(/redis\.call\('get', KEYS\[1\]\) == ARGV\[1\]/.test(script), `the script doesn't check the owner: ${script}`);
+    if (redisFail === 'expire' && renew) {
+      redisLog.push(`expire ${k} ${args[1]}`);
+      throw new Error('redis down');
+    }
+    const e = redisStore.get(k);
+    if (!e || e.value !== String(args[0])) {
+      redisLog.push(`${renew ? 'expire' : 'del'} ${k} refused (not the owner)`);
+      return 0;
+    }
+    if (renew) {
+      redisLog.push(`expire ${k} ${args[1]}`);
+      e.ex = Number(args[1]);
+    } else {
+      redisLog.push(`del ${k}`);
+      redisStore.delete(k);
+    }
+    return 1;
+  },
 };
 
 // ---- Fake Google ----
@@ -467,6 +503,13 @@ function fakeGoogle(token: string): Row {
         c.events.set(id, { ...structuredClone(a.requestBody), id, status: a.requestBody.status ?? 'confirmed', exceptions: new Map() });
         return { id };
       }),
+      get: (a: Row) => op('events.get', a, () => {
+        const c = cal(a.calendarId);
+        const e = c.events.get(a.eventId);
+        if (!e) throw gErr(404, 'notFound');
+        // Google returns a deleted event too, as 'cancelled'.
+        return { ...e, exceptions: undefined };
+      }),
       update: (a: Row) => op('events.update', a, () => {
         const c = cal(a.calendarId);
         const e = c.events.get(a.eventId);
@@ -505,7 +548,19 @@ function fakeGoogle(token: string): Row {
       }),
     },
   };
-  return { api, account: async () => { google.calls.push(`account ${token}`); await new Promise((r) => setImmediate(r)); return account(); } };
+  return {
+    api,
+    account: async () => {
+      google.calls.push(`account ${token}`);
+      await new Promise((r) => setImmediate(r));
+      const f = google.failures.find((x) => x.op === 'account' && x.left > 0);
+      if (f) {
+        f.left -= 1;
+        throw f.error;
+      }
+      return account();
+    },
+  };
 }
 
 const gcalls = (prefix = '') => google.calls.map((c) => c.split(' ')[0]).filter((c) => c.startsWith(prefix));
@@ -765,7 +820,31 @@ async function main() {
     await pass();
     assert(google.calendars.has('g-home') && gcalls('calendars.delete').length === 0, `calendar deleted ${show(google.calls)}`);
     assert(c.events.get('evl')!.status === 'cancelled' && c.events.get('mine')!.status === 'confirmed' && c.events.get('other')!.status === 'confirmed', `events ${show([...c.events.values()])}`);
-    assert(link('L').googleCalendarId === 'g-home' && link('L').pushedSeq === 2 && table('googleSyncItem').length === 0, `link ${show(link('L'))}`);
+    assert(link('L').googleCalendarId === 'g-home' && link('L').pushedSeq === 2, `link ${show(link('L'))}`);
+    // The calendar keeps the deleted event's id: the item keeps its row, its generation moved past it.
+    const it = item('wk');
+    assert(it && it.googleEventId === null && it.generation === 1 && it.masterHash === null && show(it.slotHashes) === '{}', `item ${show(DB.googleSyncItem)}`);
+  });
+
+  await check('Remove that leaves the calendar (the user\'s own events in it), then copying on again: every series goes in under the next generation\'s id, never the deleted master\'s (no 409, no revived event)', async () => {
+    seedCopy();
+    seriesRow('wk', 'home', { title: TITLES[1], startsAt: at('2026-10-05 10:00'), rrule: 'FREQ=WEEKLY' });
+    override('wk', at('2026-10-12 10:00'), { title: 'Swim, pool B' });
+    itemRow('L', 'wk');
+    await pass();
+    const c = google.calendars.get('g-home')!;
+    const first = eventId('L', 'wk', 0);
+    assert(c.events.get(first)?.status === 'confirmed' && c.events.get(first)!.exceptions.size === 1, `copied ${show(gEvents())}`);
+    c.events.set('mine', { id: 'mine', status: 'confirmed', summary: 'my own', exceptions: new Map() });
+    Object.assign(link('L'), { enabled: false, unlinkChoice: 'remove', dirtySeq: link('L').dirtySeq + 1 });
+    await pass();
+    assert(c.events.get(first)!.status === 'cancelled' && google.calendars.has('g-home'), `emptied ${show(gEvents())}`);
+    assert((await links.enableSyncLink(TAL, { nativeCalendarId: 'home', googleAccount: ACCOUNT }, SCOPES)).status === 'reenabled', 'not re-enabled');
+    google.calls = [];
+    await pass();
+    const next = eventId('L', 'wk', 1);
+    assert(next !== first && c.events.get(next)?.status === 'confirmed' && c.events.get(next)!.exceptions.size === 1 && item('wk')!.googleEventId === next, `re-enabled ${show(gEvents())} ${show(item('wk'))}`);
+    assert(c.events.get(first)!.status === 'cancelled' && gcalls('events.insert').length === 1 && gcalls('events.get').length === 0 && gcalls('events.update').length === 0, `calls ${show(google.calls)}`);
   });
 
   await check('Remove safety: a calendar under the link\'s id whose description lacks the link\'s token is never touched (state error, Sentry)', async () => {
@@ -857,11 +936,32 @@ async function main() {
     seriesRow('one', 'home');
     itemRow('L', 'one');
     const id = eventId('L', 'one', 0);
-    google.calendars.get('g-home')!.events.set(id, { id, status: 'cancelled', summary: 'stale', exceptions: new Map() });
+    google.calendars.get('g-home')!.events.set(id, { id, status: 'confirmed', summary: 'stale', exceptions: new Map() });
     await pass();
-    assert(gcalls('events.insert').length === 1 && gcalls('events.update').length === 1, `calls ${show(google.calls)}`);
+    assert(gcalls('events.insert').length === 1 && gcalls('events.get').length === 1 && gcalls('events.update').length === 1, `calls ${show(google.calls)}`);
     const e = google.calendars.get('g-home')!.events.get(id)!;
     assert(gEvents().length === 1 && e.summary === TITLES[0] && e.status === 'confirmed' && item('one')!.googleEventId === id, `events ${show(gEvents())}`);
+  });
+
+  await check('push: a 409 whose event is a deleted one (a series that left the copy and came back, its row and generation gone) goes in under the next generation; the deleted event is never revived', async () => {
+    seedCopy();
+    seriesRow('wk', 'home', { title: TITLES[1], startsAt: at('2026-10-05 10:00'), rrule: 'FREQ=WEEKLY' });
+    itemRow('L', 'wk');
+    await pass();
+    const c = google.calendars.get('g-home')!;
+    const first = eventId('L', 'wk', 0);
+    const series = DB.nativeEvent.find((x) => x.id === 'wk')!;
+    series.calendarId = 'work';
+    bump('wk');
+    await pass();
+    assert(c.events.get(first)?.status === 'cancelled' && !item('wk'), `moved out ${show(gEvents())} ${show(DB.googleSyncItem)}`);
+    series.calendarId = 'home';
+    itemRow('L', 'wk');
+    google.calls = [];
+    await pass();
+    const next = eventId('L', 'wk', 1);
+    assert(c.events.get(first)!.status === 'cancelled' && c.events.get(next)?.status === 'confirmed' && item('wk')!.googleEventId === next && item('wk')!.generation === 1, `back ${show(gEvents())} ${show(item('wk'))}`);
+    assert(gcalls('events.update').length === 0 && show(gcalls('events.')) === show(['events.insert', 'events.get', 'events.insert']), `calls ${show(google.calls)}`);
   });
 
   /** A weekly series with one override, copied once. */
@@ -1347,10 +1447,180 @@ async function main() {
     assert(link('L').backfilledAt?.getTime() === NOW.getTime(), 'backfilledAt');
     const after = await worker.syncProgress('L');
     assert(after.total === 3 && after.copied === 3 && after.unsupported === 0, `progress ${show(after)}`);
+    // What the backfill itself marked, before push drained anything (push drops an old one-off or a reminder too, so the items alone can't tell).
+    assert(logs.some((l) => l === '[google-sync] link L: backfill marked 3 series'), `backfill marks ${show(logs.filter((l) => l.includes('backfill')))}`);
     item('future')!.dirtySeq += 1;
     item('series')!.status = 'unsupported';
     const mid = await worker.syncProgress('L');
     assert(mid.copied === 1 && mid.unsupported === 1 && mid.total === 3, `progress mid ${show(mid)}`);
+  });
+
+
+  // ---- A copy's own steps (review fixes) ----
+
+  await check('rename: a FamCal rename whose Google calendar was deleted in Google sets the link gone (calendar_gone, a Sentry warning, no error), and the user\'s other copies still run', async () => {
+    seedCopy({ pushedName: 'Old', dirtySeq: 3, pushedSeq: 2 });
+    google.calendars.delete('g-home');
+    googleCalendar('g-work', 'L2', { summary: 'FamCal · Work' });
+    DB.googleSyncLink.push(linkRow('L2', TAL, 'work', { googleCalendarId: 'g-work', pushedName: 'Work' }));
+    seriesRow('w1', 'work');
+    itemRow('L2', 'w1');
+    await pass();
+    assert(link('L').state === 'gone' && link('L').lastError === 'calendar_gone', `link ${show(link('L'))}`);
+    assert(item('w1')!.pushedSeq === 1 && liveEvents('g-work').length === 1, `the other copy ${show(item('w1'))} ${show(google.calls)}`);
+    assert(captured.some((x) => x.ctx === 'google-sync-gone' && x.level === 'warning') && captured.every((x) => x.level === 'warning'), `captured ${show(captured)}`);
+    google.calls = [];
+    await pass();
+    assert(google.calls.length === 0, `a gone copy was worked again ${show(google.calls)}`);
+  });
+
+  await check('a copy\'s own step (calendars.insert) failing transiently backs off per link (30–60 s, a Sentry warning, lastError), makes no call while it waits (the gate sleeps till then), and clears once it works', async () => {
+    seed();
+    DB.googleSyncLink.push(linkRow('L', TAL, 'home', { state: 'creating', backfilledAt: null }));
+    google.failures.push({ op: 'calendars.insert', error: gErr(503, 'backendError'), left: 1 });
+    await pass();
+    const key = 'google-sync:link-retry:L';
+    const [attempts, at] = String(redisStore.get(key)?.value).split(':').map(Number);
+    assert(attempts === 1 && at >= NOW.getTime() + 30_000 && at <= NOW.getTime() + 60_000 && redisStore.get(key)?.ex === 2 * 86_400, `retry ${show(redisStore.get(key))}`);
+    assert(link('L').state === 'creating' && link('L').lastError === 'transient', `link ${show(link('L'))}`);
+    assert(captured.some((x) => x.ctx === 'google-sync-link' && x.level === 'warning') && !captured.some((x) => x.ctx === 'google-sync-user'), `captured ${show(captured)}`);
+    google.calls = [];
+    const waiting = await pass(new Date(NOW.getTime() + 20_000));
+    assert(google.calls.length === 0 && waiting.next?.getTime() === at, `while backed off ${show(google.calls)} next ${show(waiting.next)} vs ${at}`);
+    await pass(new Date(at + 1));
+    assert(link('L').state === 'ok' && link('L').googleCalendarId && link('L').lastError === null && !redisStore.has(key), `after ${show(link('L'))} ${show(redisStore.get(key))}`);
+  });
+
+  await check('a copy\'s own step failing for the 10th time in a row tells the admin, once per link per day; one that isn\'t transient (403 forbidden) is an error in Sentry and doesn\'t hold back the user\'s other copies', async () => {
+    seed();
+    DB.googleSyncLink.push(linkRow('L', TAL, 'home', { state: 'creating', backfilledAt: null }));
+    googleCalendar('g-work', 'L2', { summary: 'FamCal · Work' });
+    DB.googleSyncLink.push(linkRow('L2', TAL, 'work', { googleCalendarId: 'g-work', pushedName: 'Work' }));
+    seriesRow('w1', 'work');
+    itemRow('L2', 'w1');
+    redisStore.set('google-sync:link-retry:L', { value: `9:${NOW.getTime() - 1}` });
+    google.failures.push({ op: 'calendars.insert', error: gErr(403, 'forbidden'), left: 2 });
+    await pass();
+    assert(String(redisStore.get('google-sync:link-retry:L')?.value).startsWith('10:') && link('L').lastError === 'forbidden', `retry ${show(redisStore.get('google-sync:link-retry:L'))}`);
+    assert(adminWarnings.length === 1 && adminWarnings[0].includes('link L') && adminWarnings[0].includes('10 times'), `warnings ${show(adminWarnings)}`);
+    assert(captured.some((x) => x.ctx === 'google-sync-link' && x.level === 'error'), `captured ${show(captured)}`);
+    assert(item('w1')!.pushedSeq === 1 && liveEvents('g-work').length === 1, `the other copy ${show(item('w1'))}`);
+    await pass(new Date(NOW.getTime() + 7 * HOUR));
+    assert(String(redisStore.get('google-sync:link-retry:L')?.value).startsWith('11:') && adminWarnings.length === 1, `the same day ${show(adminWarnings)}`);
+  });
+
+  await check('the account check failing transiently backs off every copy of the user; a 403 rate limit on it pauses the run with nothing counted or sent to Sentry', async () => {
+    seedCopy();
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    google.failures.push({ op: 'account', error: gErr(503, 'backendError'), left: 1 });
+    await pass();
+    assert(String(redisStore.get('google-sync:link-retry:L')?.value).startsWith('1:') && item('a')!.pushedSeq === 0, `retry ${show(redisStore.get('google-sync:link-retry:L'))}`);
+    seedCopy();
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    google.failures.push({ op: 'account', error: gErr(403, 'userRateLimitExceeded', 'usageLimits'), left: 1 });
+    const result = await pass();
+    assert(result.next?.getTime() === NOW.getTime() + 60_000 && captured.length === 0 && !redisStore.has('google-sync:link-retry:L'), `rate limit ${show(result)} ${show(captured)}`);
+  });
+
+  await check('googleAccountOf: a 403 carries Google\'s reasons, so usageLimits is a rate limit and insufficientPermissions a missing scope; a body that isn\'t JSON still keeps its status', async () => {
+    const account = await load('src/services/google-sync/account.ts');
+    const map = await load('src/services/calendar-read/google-map.ts');
+    const blocked = globalThis.fetch;
+    const answer = (status: number, body: string) => { globalThis.fetch = (async () => new Response(body, { status, headers: { 'content-type': 'application/json' } })) as typeof fetch; };
+    const thrown = async () => {
+      try {
+        await account.googleAccountOf('access-token');
+      } catch (error) {
+        return error;
+      }
+      throw new Error('no error');
+    };
+    const googleBody = (reason: string, domain: string) => JSON.stringify({ error: { code: 403, message: reason, errors: [{ domain, reason, message: reason }] } });
+    try {
+      answer(403, googleBody('rateLimitExceeded', 'usageLimits'));
+      const limit = await thrown();
+      answer(403, googleBody('userRateLimitExceeded', 'usageLimits'));
+      const userLimit = await thrown();
+      answer(403, googleBody('insufficientPermissions', 'global'));
+      const scopes = await thrown();
+      answer(502, '<html>Bad Gateway</html>');
+      const html = await thrown();
+      assert(map.isGoogleRateLimit(limit) && map.isGoogleRateLimit(userLimit), `rate limit ${show(limit)}`);
+      assert(map.classifyGoogleError(scopes) === 'scopes' && !map.isGoogleRateLimit(scopes), `scopes ${show(scopes)}`);
+      assert(map.classifyGoogleError(html) === 'transient', `html ${show(html)}`);
+    } finally {
+      globalThis.fetch = blocked;
+    }
+  });
+
+  await check('lock: a run whose lock was taken by another run (it lapsed) stops before its next item, and its release leaves the other run\'s lock in place', async () => {
+    seedCopy();
+    for (const id of ['a', 'b', 'c']) {
+      seriesRow(id, 'home');
+      itemRow('L', id);
+    }
+    let swapped = false;
+    google.during = (op) => {
+      if (op === 'events.insert' && !swapped) {
+        swapped = true;
+        redisStore.set('google-sync:lock:1', { value: 'OTHER-RUN', ex: 600 });
+      }
+    };
+    await pass();
+    assert(gcalls('events.insert').length === 1 && redisStore.get('google-sync:lock:1')?.value === 'OTHER-RUN', `inserts ${gcalls('events.insert').length} lock ${show(redisStore.get('google-sync:lock:1'))}`);
+  });
+
+  await check('outage: no token with a queued turn-off and a copy that is on sends the reconnect message once in the pass', async () => {
+    seedCopy();
+    DB.user[0].googleRefreshToken = '';
+    googleCalendar('g-work', 'L2', { summary: 'FamCal · Work' });
+    DB.googleSyncLink.push(linkRow('L2', TAL, 'work', { googleCalendarId: 'g-work', enabled: false, unlinkChoice: 'remove', dirtySeq: 2, pushedSeq: 1 }));
+    DB.googleSyncLink.push(linkRow('L3', TAL, 'noa', { googleCalendarId: 'g-x', enabled: false, unlinkChoice: 'keep', dirtySeq: 2, pushedSeq: 1 }));
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    await pass();
+    assert(sent.length === 1 && link('L').state === 'token' && link('L2').state === 'token', `sent ${show(sent)} links ${show(DB.googleSyncLink.map((l) => [l.id, l.state]))}`);
+  });
+
+  await check('otherAccount: reconnecting the copy\'s own account (a commit) puts its copies back: the one that is on resumes, the turned-off one\'s queued Remove is carried out; the wrong account again goes back to otherAccount', async () => {
+    seedCopy();
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    googleCalendar('g-work', 'L2', { summary: 'FamCal · Work' });
+    DB.googleSyncLink.push(linkRow('L2', TAL, 'work', { googleCalendarId: 'g-work', enabled: false, unlinkChoice: 'remove', dirtySeq: 2, pushedSeq: 1 }));
+    google.accounts.set('tok-1', 'other@example.com');
+    await pass();
+    assert(link('L').state === 'otherAccount' && link('L2').state === 'otherAccount', `links ${show(DB.googleSyncLink.map((l) => [l.id, l.state]))}`);
+    google.accounts.set('tok-1', 'other@example.com');
+    await links.restoreSyncLinks(TAL, SCOPES);
+    await pass();
+    assert(link('L').state === 'otherAccount' && link('L2').state === 'otherAccount' && google.calendars.has('g-work'), `the wrong account again ${show(DB.googleSyncLink.map((l) => [l.id, l.state]))}`);
+    google.accounts.set('tok-1', ACCOUNT);
+    await links.restoreSyncLinks(TAL, SCOPES);
+    await pass();
+    assert(link('L').state === 'ok' && item('a')!.pushedSeq === 1 && liveEvents().length === 1, `on ${show(link('L'))} ${show(item('a'))}`);
+    assert(!google.calendars.has('g-work') && link('L2').pushedSeq === 2, `turned off ${show(link('L2'))}`);
+  });
+
+  await check('a turned-off copy with no stored Google calendar id (a create that failed before storing it) is looked up by its token: Remove deletes that calendar, Keep marks it and keeps its id; none found is clean', async () => {
+    seedCopy({ googleCalendarId: null, state: 'creating', enabled: false, unlinkChoice: 'remove', dirtySeq: 2, pushedSeq: 1 });
+    await pass();
+    assert(!google.calendars.has('g-home') && link('L').pushedSeq === 2 && link('L').googleCalendarId === null, `remove ${show(link('L'))} ${show(google.calls)}`);
+    seedCopy({ googleCalendarId: null, state: 'creating', enabled: false, unlinkChoice: 'keep', dirtySeq: 2, pushedSeq: 1 });
+    await pass();
+    assert(google.calendars.get('g-home')!.description.startsWith('FamCal no longer updates') && link('L').googleCalendarId === 'g-home' && link('L').pushedSeq === 2, `keep ${show(link('L'))}`);
+    seedCopy({ googleCalendarId: null, state: 'creating', enabled: false, unlinkChoice: 'remove', dirtySeq: 2, pushedSeq: 1 });
+    google.calendars.delete('g-home');
+    await pass();
+    assert(link('L').pushedSeq === 2 && gcalls('calendars.delete').length === 0 && gcalls('calendarList.list').length === 1, `none ${show(link('L'))} ${show(google.calls)}`);
+  });
+
+  await check('hard delete: a copy that is on with no stored Google calendar id is looked up by its token and removed before the delete', async () => {
+    seedCopy({ googleCalendarId: null, state: 'creating' });
+    await worker.carryOutCopiesBeforeDelete(TAL);
+    assert(!google.calendars.has('g-home') && gcalls('calendars.delete').length === 1, `calls ${show(google.calls)}`);
   });
 
   // ---- The cron handler ----

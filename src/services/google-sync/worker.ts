@@ -4,8 +4,10 @@
 //
 // Pace:
 // - Users with work run at most 3 at a time, each under a fail-closed Redis NX lock of its own
-//   prefix (10-minute TTL, renewed per item, released in finally). A locked user is skipped;
-//   a Redis error skips the user's run.
+//   prefix (10-minute TTL, renewed per item, released in finally). The lock holds the run's
+//   own token, and renewing or releasing it checks the token first (a Lua script), so a run
+//   whose lock lapsed and was taken by a newer run stops, and never frees the newer run's
+//   lock. A locked user is skipped; a Redis error skips the user's run.
 // - Each user's run makes at most 100 Google calls; the rest waits for the next tick.
 // - Calendars are created one at a time (serially, across the users running).
 // - A rate-limit answer ends the user's run without counting an attempt.
@@ -16,16 +18,21 @@
 // or no calendar.app.created sets 'token' or 'scopes' on every link of the user, with the
 // reconnect message once per outage (User.googleSyncNotifiedAt; a commit clears it and puts
 // the links back); a token of another Google account than the copy's sets 'otherAccount'
-// (a copy with no account yet adopts the token's). Each copy: its Google calendar created or
+// (a copy with no account yet adopts the token's; a commit puts it back to be checked again). Each copy: its Google calendar created or
 // adopted ('creating' or no googleCalendarId), renamed when FamCal's name moved on, backfilled
 // when backfilledAt is null, and its dirty items pushed (push.ts).
 //
 // Failures: an item's transient error backs off exponentially with jitter, and its 10th
 // attempt in a row alerts the admin once per link per day; a transient error also ends the
-// user's run (Google is likely down for the rest). The copy calendar gone sets 'gone'.
+// user's run (Google is likely down for the rest). A copy's own steps (the account check,
+// creating or renaming its calendar, a queued Remove/Keep) back off the same way per link
+// (retries.ts), with the same alert; a failure there that isn't transient only skips that
+// copy, so the user's other copies still run. The copy calendar gone (a write's 404 split,
+// or a rename's 404/410) sets 'gone'.
 // An 'unsupported' or 'error' item is tried again only once FamCal changed it (its dirtySeq
 // moved past pushedSeq), with its attempts reset. Every catch logs ids, never a title.
 
+import { randomUUID } from 'crypto';
 import type { Prisma } from '@prisma/client';
 import { TIMEZONE } from '../../config/constants';
 import { REDIS_KEYS } from '../../config/redis-keys';
@@ -39,17 +46,18 @@ import { redis } from '../../utils/redis';
 import { scrubbedGoogleError } from '../calendar';
 import { classifyGoogleError, isGoogleRateLimit, type GoogleErrorClass } from '../calendar-read/google-map';
 import { peekFeatureAccess } from '../subscription-service';
-import { ensureCopyCalendar, keepCopyCalendar, removeCopyCalendar, renameCopyCalendar, type TurnOffOutcome } from './calendars';
+import { ensureCopyCalendar, findCopyCalendarId, keepCopyCalendar, removeCopyCalendar, renameCopyCalendar, type TurnOffOutcome } from './calendars';
 import { BudgetSpent, CALLS_PER_RUN, counted, syncGoogle, type CallBudget, type SyncGoogle } from './client';
 import { hebrewHorizonFrom, storedHebrewFrom } from './hebrew';
 import { markSyncDirty, markedTransaction, type UnlinkChoice } from './marks';
 import { CalendarGone, ONE_OFF_LOOKBACK_MS, pushItem, type PushItem } from './push';
+import { clearLinkRetries, readLinkRetries, writeLinkRetry, type LinkRetry } from './retries';
 import { hasSyncScope } from './scopes';
 
 /** The lock outlives any one item; it is renewed before each. */
 export const SYNC_LOCK_TTL_S = 600;
 export const USERS_AT_ONCE = 3;
-/** The admin hears of an item failing this many times in a row. */
+/** The admin hears of an item (or a copy's own step) failing this many times in a row. */
 export const ALERT_AFTER_ATTEMPTS = 10;
 const BACKOFF_BASE_MS = 60_000;
 const BACKOFF_CAP_MS = 6 * 60 * 60 * 1000;
@@ -94,6 +102,10 @@ interface UserRun {
   budget: CallBudget;
   now: Date;
   lockKey: string;
+  /** This run's own value in the lock: renew and release act only while the lock still holds it. */
+  lockToken: string;
+  /** The user's backed-off links (retries.ts), read by the pass. */
+  retries: Map<string, LinkRetry>;
   pushed: number;
   failed: number;
   /** Work is left that the next tick should take: the gate stays open. */
@@ -187,15 +199,26 @@ export async function runGoogleSyncPass(now: Date = new Date()): Promise<SyncPas
   const hasWork = (l: LinkRow) =>
     !l.enabled || l.state === 'plan' || !l.googleCalendarId || !l.backfilledAt || l.dirtySeq > l.pushedSeq
     || (l.nativeCalendar !== null && l.nativeCalendar.name !== l.pushedName) || dueLinks.has(l.id);
+  const withWork = links.filter(hasWork);
+  // A copy whose own step failed waits out its backoff (retries.ts); its time is the gate's next.
+  const retries = await readLinkRetries(withWork.map((l) => l.id));
   const byUser = new Map<number, LinkRow[]>();
-  for (const l of links.filter(hasWork)) byUser.set(l.userId, [...(byUser.get(l.userId) ?? []), l]);
+  for (const l of withWork) {
+    const retry = retries.get(l.id);
+    if (retry && retry.at > now.getTime()) {
+      sooner(new Date(retry.at));
+      continue;
+    }
+    byUser.set(l.userId, [...(byUser.get(l.userId) ?? []), l]);
+  }
   if (byUser.size === 0) return { users: 0, pushed: 0, failed: 0, next };
 
   const users = await prisma.user.findMany({ where: { id: { in: [...byUser.keys()] } }, select: USER_SELECT });
   let pushed = 0;
   let failed = 0;
   await pool(users, USERS_AT_ONCE, async (user) => {
-    const run = await runUser(user, byUser.get(user.id) ?? [], now);
+    const own = byUser.get(user.id) ?? [];
+    const run = await runUser(user, own, now, new Map(own.flatMap((l) => (retries.has(l.id) ? [[l.id, retries.get(l.id)!] as const] : []))));
     pushed += run.pushed;
     failed += run.failed;
     if (run.again) sooner(new Date(now.getTime() + AGAIN_MS));
@@ -204,14 +227,16 @@ export async function runGoogleSyncPass(now: Date = new Date()): Promise<SyncPas
 }
 
 /** One user's run, under the user's lock. Never throws: what stops it is logged here. */
-async function runUser(user: UserRow, links: LinkRow[], now: Date): Promise<UserRun> {
-  const run: UserRun = { user, budget: { left: CALLS_PER_RUN }, now, lockKey: REDIS_KEYS.googleSyncLock(user.id), pushed: 0, failed: 0, again: false };
+async function runUser(user: UserRow, links: LinkRow[], now: Date, retries: Map<string, LinkRetry>): Promise<UserRun> {
+  const run: UserRun = {
+    user, budget: { left: CALLS_PER_RUN }, now, lockKey: REDIS_KEYS.googleSyncLock(user.id), lockToken: randomUUID(), retries, pushed: 0, failed: 0, again: false,
+  };
   if (user.suspendedAt) {
     console.log(`[google-sync] user ${user.id}: suspended; copies skipped`);
     return run;
   }
   try {
-    const took = await redis.set(run.lockKey, String(now.getTime()), { nx: true, ex: SYNC_LOCK_TTL_S });
+    const took = await redis.set(run.lockKey, run.lockToken, { nx: true, ex: SYNC_LOCK_TTL_S });
     if (took !== 'OK') {
       console.log(`[google-sync] user ${user.id}: another run holds the lock; skipped`);
       run.again = true;
@@ -231,7 +256,9 @@ async function runUser(user: UserRow, links: LinkRow[], now: Date): Promise<User
     await stopUser(run, error);
   } finally {
     try {
-      await redis.del(run.lockKey);
+      // Only while it is still this run's: a lock a newer run took after this one's lapsed stays.
+      const freed = await redis.eval(RELEASE_LOCK, [run.lockKey], [run.lockToken]);
+      if (freed !== 1) console.warn(`[google-sync] user ${user.id}: the lock was no longer this run's at release; left to its holder`);
     } catch (error) {
       // The TTL frees it.
       captureError(error, 'google-sync-lock', { user_id: user.id, step: 'release' }, 'warning');
@@ -286,6 +313,8 @@ async function outage(run: UserRun, reason: 'token' | 'scopes'): Promise<void> {
   if (user.googleSyncNotifiedAt) return;
   try {
     if (await sendReconnect(user, reason)) {
+      // The run's snapshot too: another outage call in this run (a queued turn-off, then the copies that are on) sends nothing more.
+      user.googleSyncNotifiedAt = run.now;
       await prisma.user.update({ where: { id: user.id }, data: { googleSyncNotifiedAt: run.now } });
       console.log(`[google-sync] user ${user.id}: reconnect message sent (${reason})`);
     }
@@ -329,19 +358,75 @@ async function sendReconnect(user: UserRow, reason: 'token' | 'scopes'): Promise
   return false;
 }
 
-/** Renew the user's lock before an item; fail-closed when it can't be. */
+/** The lock's TTL renewed only while it still holds this run's token: 1 renewed, 0 not ours (lapsed, or a newer run's). */
+const RENEW_LOCK = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end";
+/** The lock deleted only while it still holds this run's token: 1 freed, 0 not ours. */
+const RELEASE_LOCK = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+
+/** Renew the user's lock before an item; fail-closed when it can't be, or when it is no longer this run's. */
 async function renewLock(run: UserRun): Promise<void> {
   let kept: unknown;
   try {
-    kept = await redis.expire(run.lockKey, SYNC_LOCK_TTL_S);
+    kept = await redis.eval(RENEW_LOCK, [run.lockKey], [run.lockToken, String(SYNC_LOCK_TTL_S)]);
   } catch (error) {
     captureError(error, 'google-sync-lock', { user_id: run.user.id, step: 'renew' });
     throw new LockLost();
   }
-  if (kept === 0 || kept === false) {
-    console.warn(`[google-sync] user ${run.user.id}: the run's lock expired; stopping`);
+  if (kept !== 1) {
+    console.warn(`[google-sync] user ${run.user.id}: the run's lock lapsed or another run holds it; stopping`);
     throw new LockLost();
   }
+}
+
+// ---- A copy's own steps: backoff, alert, and back to normal ----
+
+/** Errors that end the user's whole run, not just one copy's step. */
+function stopsRun(error: unknown): boolean {
+  if (error instanceof BudgetSpent || error instanceof LockLost || error instanceof TransientStop || isGoogleRateLimit(error)) return true;
+  const cls = classOf(error);
+  return cls === 'token' || cls === 'scopes';
+}
+
+/**
+ * A copy's own step failed (spec §4 Failures): each link's attempt counted and its next one
+ * backed off (exponential with jitter, retries.ts), lastError set, Sentry told (a warning when
+ * transient), and the admin at the 10th attempt in a row, once per link per day. Throws
+ * TransientStop when transient (Google is likely down for the rest of the run).
+ */
+async function linkFailed(run: UserRun, failing: LinkRow[], error: unknown, step: string): Promise<void> {
+  const cls = classOf(error);
+  run.failed += failing.length;
+  const counts: string[] = [];
+  for (const link of failing) {
+    const attempts = (run.retries.get(link.id)?.attempts ?? 0) + 1;
+    const retry = { attempts, at: run.now.getTime() + backoffMs(attempts) };
+    run.retries.set(link.id, retry);
+    await writeLinkRetry(link.id, retry);
+    counts.push(`${link.id}#${attempts}`);
+    if (attempts >= ALERT_AFTER_ATTEMPTS) {
+      await alertAdminOnce(run, link, `Copy to Google: link ${link.id} failed its ${step} ${attempts} times in a row (${cls}).`);
+    }
+  }
+  await prisma.googleSyncLink.updateMany({ where: { id: { in: failing.map((l) => l.id) } }, data: { lastError: cls } });
+  console.warn(`[google-sync] user ${run.user.id}: ${step} failed (${cls}) for [${counts.join(',')}]; backed off`);
+  captureError(loggable(error), 'google-sync-link', { user_id: run.user.id, links: failing.map((l) => l.id).join(','), step }, cls === 'transient' ? 'warning' : 'error');
+  if (cls === 'transient') throw new TransientStop();
+}
+
+/** A copy that was backed off worked again: its retry and lastError cleared. */
+async function linkRecovered(run: UserRun, link: LinkRow): Promise<void> {
+  if (!run.retries.has(link.id)) return;
+  run.retries.delete(link.id);
+  await clearLinkRetries([link.id]);
+  await prisma.googleSyncLink.update({ where: { id: link.id }, data: { lastError: null } });
+  console.log(`[google-sync] link ${link.id}: works again; its backoff cleared`);
+}
+
+/** The copy calendar is gone from Google: the link waits in 'gone' for "Create it again". */
+async function calendarGone(run: UserRun, link: LinkRow, error: unknown): Promise<void> {
+  await prisma.googleSyncLink.update({ where: { id: link.id }, data: { state: 'gone', lastError: 'calendar_gone' } });
+  console.warn(`[google-sync] link ${link.id}: its Google calendar is gone; waiting for "Create it again"`);
+  captureError(loggable(error), 'google-sync-gone', { user_id: run.user.id, link_id: link.id }, 'warning');
 }
 
 // ---- Turned-off copies: the queued Remove or Keep ----
@@ -353,33 +438,41 @@ async function renewLock(run: UserRun): Promise<void> {
  * on the link's own.
  */
 export async function turnOffInGoogle(
-  g: SyncGoogle, budget: CallBudget, link: { id: string; googleCalendarId: string; googleAccount: string | null }, choice: UnlinkChoice, language: string,
-): Promise<TurnOffOutcome | 'otherAccount'> {
+  g: SyncGoogle, budget: CallBudget, link: { id: string; googleCalendarId: string | null; googleAccount: string | null }, choice: UnlinkChoice, language: string,
+): Promise<{ outcome: TurnOffOutcome | 'otherAccount'; googleCalendarId: string | null }> {
   const account = await counted(budget, () => g.account());
-  if (link.googleAccount && account !== link.googleAccount) return 'otherAccount';
-  return choice === 'remove' ? removeCopyCalendar(g, budget, link) : keepCopyCalendar(g, budget, link, language);
+  if (link.googleAccount && account !== link.googleAccount) return { outcome: 'otherAccount', googleCalendarId: link.googleCalendarId };
+  // No id stored: a create may have made the calendar and failed before storing it, so the
+  // user's calendar list is searched for the link's token (as a 'creating' retry adopts it).
+  const googleCalendarId = link.googleCalendarId ?? (await findCopyCalendarId(g, budget, link.id));
+  if (!googleCalendarId) return { outcome: 'gone', googleCalendarId: null };
+  const target = { id: link.id, googleCalendarId };
+  const outcome = choice === 'remove' ? await removeCopyCalendar(g, budget, target) : await keepCopyCalendar(g, budget, target, language);
+  return { outcome, googleCalendarId };
 }
 
 /** A turned-off copy with its Remove/Keep queued, carried out with link.unlinkToken ?? the user's token, then unlinkToken cleared. */
 async function turnOffLink(run: UserRun, link: LinkRow): Promise<void> {
   const readSeq = link.dirtySeq;
   const choice = link.unlinkChoice === 'keep' ? 'keep' : 'remove';
-  if (!link.googleCalendarId) {
-    await prisma.googleSyncLink.update({ where: { id: link.id }, data: { pushedSeq: readSeq, unlinkToken: null } });
-    console.log(`[google-sync] link ${link.id}: turned off with no Google calendar; nothing to ${choice}`);
-    return;
-  }
   const own = !link.unlinkToken;
   const token = own ? tokenOf(run.user.googleRefreshToken) : tokenOf(link.unlinkToken);
+  if (!link.googleCalendarId && !token) {
+    // No id and no token to look one up with: nothing known in Google (a link with no token
+    // is never made 'creating', links.ts), so it is clean.
+    await prisma.googleSyncLink.update({ where: { id: link.id }, data: { pushedSeq: readSeq, unlinkToken: null } });
+    console.log(`[google-sync] link ${link.id}: turned off with no Google calendar and no token; nothing to ${choice}`);
+    return;
+  }
   if (!token) {
     if (own) return outage(run, 'token');
     await prisma.googleSyncLink.update({ where: { id: link.id }, data: { state: 'token' } });
     return;
   }
   await renewLock(run);
-  let outcome: TurnOffOutcome | 'otherAccount';
+  let done: Awaited<ReturnType<typeof turnOffInGoogle>>;
   try {
-    outcome = await turnOffInGoogle(syncGoogle(token), run.budget, { ...link, googleCalendarId: link.googleCalendarId }, choice, run.user.language);
+    done = await turnOffInGoogle(syncGoogle(token), run.budget, link, choice, run.user.language);
   } catch (error) {
     if (error instanceof BudgetSpent || isGoogleRateLimit(error)) throw error;
     const cls = classOf(error);
@@ -390,16 +483,15 @@ async function turnOffLink(run: UserRun, link: LinkRow): Promise<void> {
       captureError(new Error(`Google ${cls} on a merged copy's token`), 'google-sync-turn-off', { user_id: run.user.id, link_id: link.id, choice }, 'warning');
       return;
     }
-    run.failed += 1;
-    captureError(loggable(error), 'google-sync-turn-off', { user_id: run.user.id, link_id: link.id, choice }, cls === 'transient' ? 'warning' : 'error');
-    if (cls === 'transient') throw new TransientStop();
+    await linkFailed(run, [link], error, `turn-off (${choice})`);
     return;
   }
-  await finishTurnOff(run, link, outcome, readSeq);
+  await finishTurnOff(run, link, done.outcome, done.googleCalendarId, readSeq);
+  await linkRecovered(run, link);
 }
 
 /** The rows after a turn-off's Google side. */
-async function finishTurnOff(run: UserRun, link: LinkRow, outcome: TurnOffOutcome | 'otherAccount', readSeq: number): Promise<void> {
+async function finishTurnOff(run: UserRun, link: LinkRow, outcome: TurnOffOutcome | 'otherAccount', googleCalendarId: string | null, readSeq: number): Promise<void> {
   const ids = `user ${run.user.id} link ${link.id}`;
   if (outcome === 'otherAccount') {
     await prisma.googleSyncLink.update({ where: { id: link.id }, data: { state: 'otherAccount' } });
@@ -412,13 +504,22 @@ async function finishTurnOff(run: UserRun, link: LinkRow, outcome: TurnOffOutcom
     captureError(new Error('A copy calendar without its link token was left alone'), 'google-sync-turn-off', { user_id: run.user.id, link_id: link.id }, 'error');
     return;
   }
-  const calendarGone = outcome === 'deleted' || outcome === 'gone';
+  const gone = outcome === 'deleted' || outcome === 'gone';
   await prisma.$transaction(async (tx) => {
     // The items before the link, the order every writer takes (marks.ts).
-    if (outcome !== 'kept') await tx.googleSyncItem.deleteMany({ where: { linkId: link.id } });
+    if (gone) {
+      await tx.googleSyncItem.deleteMany({ where: { linkId: link.id } });
+    } else if (outcome === 'emptied') {
+      // The calendar stays, holding FamCal's deleted events, and Google keeps a deleted
+      // event's id: each item keeps its row with its generation moved on past the deleted
+      // event, so a re-enable inserts under fresh ids (spec §4: no stale exception survives).
+      await tx.googleSyncItem.updateMany({ where: { linkId: link.id, googleEventId: { not: null } }, data: { googleEventId: null, generation: { increment: 1 } } });
+      await tx.googleSyncItem.updateMany({ where: { linkId: link.id }, data: { masterHash: null, slotHashes: {}, attempts: 0, nextAttemptAt: null, status: 'ok', lastError: null } });
+    }
     await tx.googleSyncLink.update({
       where: { id: link.id },
-      data: { pushedSeq: readSeq, unlinkToken: null, ...(calendarGone ? { googleCalendarId: null } : {}) },
+      // A calendar found by its token (no id was stored) is kept on the link, so it stays hidden and a re-enable reuses it.
+      data: { pushedSeq: readSeq, unlinkToken: null, googleCalendarId: gone ? null : googleCalendarId },
     });
   });
   run.pushed += 1;
@@ -447,10 +548,26 @@ async function syncLinks(run: UserRun, links: LinkRow[]): Promise<void> {
   if (!token) return outage(run, 'token');
   if (!hasSyncScope(user.googleScopes)) return outage(run, 'scopes');
   const g = syncGoogle(token);
-  const account = await counted(run.budget, () => g.account());
+  let account: string;
+  try {
+    account = await counted(run.budget, () => g.account());
+  } catch (error) {
+    if (stopsRun(error)) throw error;
+    // The account check is every copy's first step: each one backs off.
+    await linkFailed(run, links, error, 'account check');
+    return;
+  }
   for (const link of links) {
     if (!(await sameAccount(link, account))) continue;
-    await syncLink(run, g, link, token);
+    try {
+      await syncLink(run, g, link, token);
+    } catch (error) {
+      if (stopsRun(error)) throw error;
+      // This copy's own step (create, rename) failed: it backs off, and the user's other copies still run.
+      await linkFailed(run, [link], error, 'calendar step');
+      continue;
+    }
+    await linkRecovered(run, link);
   }
 }
 
@@ -499,7 +616,14 @@ async function syncLink(run: UserRun, g: SyncGoogle, link: LinkRow, token: strin
     link.googleCalendarId = made.googleCalendarId;
   } else if (link.dirtySeq > link.pushedSeq || link.pushedName !== cal.name) {
     await renewLock(run);
-    await renameCopyCalendar(g, run.budget, { id: link.id, googleCalendarId: link.googleCalendarId }, facts);
+    try {
+      await renameCopyCalendar(g, run.budget, { id: link.id, googleCalendarId: link.googleCalendarId }, facts);
+    } catch (error) {
+      // calendars.patch names only the calendar: a 404/410 is the calendar gone (spec §4's 404 split).
+      if (isGoogleRateLimit(error) || classOf(error) !== 'gone') throw error;
+      await calendarGone(run, link, error);
+      return;
+    }
     await prisma.googleSyncLink.update({ where: { id: link.id }, data: { pushedName: cal.name, pushedSeq: link.dirtySeq, ...(link.state === 'creating' ? { state: 'ok' } : {}) } });
     console.log(`[google-sync] link ${link.id}: Google calendar renamed`);
   }
@@ -515,11 +639,11 @@ async function syncLink(run: UserRun, g: SyncGoogle, link: LinkRow, token: strin
 async function backfill(run: UserRun, link: LinkRow, calendarId: string): Promise<void> {
   const rows = await prisma.nativeEvent.findMany({
     where: { calendarId, isDeleted: false, kind: 'EVENT', OR: [{ rrule: { not: null } }, { endsAt: { gte: new Date(run.now.getTime() - ONE_OFF_LOOKBACK_MS) } }] },
-    select: { id: true },
+    select: { id: true, kind: true },
   });
   for (let i = 0; i < rows.length; i += BACKFILL_CHUNK) {
     const chunk = rows.slice(i, i + BACKFILL_CHUNK);
-    await markedTransaction((tx) => markSyncDirty(tx, { series: chunk.map((r) => ({ id: r.id, kind: 'EVENT', calendarIds: [calendarId] })) }));
+    await markedTransaction((tx) => markSyncDirty(tx, { series: chunk.map((r) => ({ id: r.id, kind: r.kind, calendarIds: [calendarId] })) }));
   }
   await prisma.googleSyncLink.update({ where: { id: link.id }, data: { backfilledAt: run.now } });
   console.log(`[google-sync] link ${link.id}: backfill marked ${rows.length} series`);
@@ -543,9 +667,7 @@ async function pushItems(run: UserRun, g: SyncGoogle, link: LinkRow & { googleCa
       if (outcome !== 'clean') run.pushed += 1;
     } catch (error) {
       if (error instanceof CalendarGone) {
-        await prisma.googleSyncLink.update({ where: { id: link.id }, data: { state: 'gone', lastError: 'calendar_gone' } });
-        console.warn(`[google-sync] link ${link.id}: its Google calendar is gone; waiting for "Create it again"`);
-        captureError(error, 'google-sync-gone', { user_id: run.user.id, link_id: link.id }, 'warning');
+        await calendarGone(run, link, error);
         return;
       }
       if (error instanceof BudgetSpent || error instanceof LockLost || isGoogleRateLimit(error)) throw error;
@@ -572,11 +694,13 @@ async function itemFailed(run: UserRun, link: LinkRow, item: { id: string; nativ
   const ids = { user_id: run.user.id, link_id: link.id, item_id: item.id, series_id: item.nativeEventId, attempts };
   console.warn(`[google-sync] link ${link.id} item ${item.id}: push failed (${cls}), attempt ${attempts}; next in ${Math.round(wait / 1000)} s`);
   captureError(loggable(error), 'google-sync-push', ids, cls === 'transient' ? 'warning' : 'error');
-  if (attempts >= ALERT_AFTER_ATTEMPTS) await alertAdminOnce(run, link, item, attempts, cls);
+  if (attempts >= ALERT_AFTER_ATTEMPTS) {
+    await alertAdminOnce(run, link, `Copy to Google: item ${item.id} (series ${item.nativeEventId}) of link ${link.id} failed ${attempts} times in a row (${cls}).`);
+  }
 }
 
-/** The admin alert for an item that keeps failing, once per link per day (a Redis NX key). */
-async function alertAdminOnce(run: UserRun, link: LinkRow, item: { id: string; nativeEventId: string }, attempts: number, cls: GoogleErrorClass): Promise<void> {
+/** The admin alert for an item or a copy's step that keeps failing, once per link per day (a Redis NX key). The message carries ids, never a title. */
+async function alertAdminOnce(run: UserRun, link: { id: string }, message: string): Promise<void> {
   const day = run.now.toISOString().slice(0, 10);
   try {
     const first = await redis.set(REDIS_KEYS.googleSyncAlert(link.id, day), '1', { nx: true, ex: 2 * 86_400 });
@@ -587,7 +711,7 @@ async function alertAdminOnce(run: UserRun, link: LinkRow, item: { id: string; n
   }
   try {
     const { notifyAdminWarning } = await import('../../utils/error-notifier');
-    await notifyAdminWarning('google-sync', `Copy to Google: item ${item.id} (series ${item.nativeEventId}) of link ${link.id} failed ${attempts} times in a row (${cls}).`, { userId: run.user.id, name: run.user.name });
+    await notifyAdminWarning('google-sync', message, { userId: run.user.id, name: run.user.name });
   } catch (error) {
     captureError(error, 'google-sync-alert', { user_id: run.user.id, link_id: link.id }, 'warning');
   }
@@ -632,12 +756,13 @@ async function refreshHebrewHorizons(now: Date): Promise<void> {
  * Google now, since the token goes with the user and the links cascade with it. Remove for a
  * copy that is on; the queued choice for one turned off and not yet carried out. With
  * link.unlinkToken ?? the user's token, through turnOffInGoogle (the worker's own Remove and
- * Keep). Best effort: a failure is logged with the link id and sent to Sentry, and the delete
- * goes on. No Google call for a user with no such copy.
+ * Keep). A copy with no stored Google calendar id is looked up by its token first (a create
+ * that failed before storing it). Best effort: a failure is logged with the link id and sent
+ * to Sentry, and the delete goes on. No Google call for a user with no such copy.
  */
 export async function carryOutCopiesBeforeDelete(userId: number): Promise<void> {
   const links = await prisma.googleSyncLink.findMany({
-    where: { userId, googleCalendarId: { not: null } },
+    where: { userId },
     select: { id: true, googleCalendarId: true, googleAccount: true, enabled: true, unlinkChoice: true, unlinkToken: true, dirtySeq: true, pushedSeq: true },
   });
   const queued = links.filter((l) => l.enabled || (l.unlinkChoice !== null && l.dirtySeq > l.pushedSeq));
@@ -649,12 +774,17 @@ export async function carryOutCopiesBeforeDelete(userId: number): Promise<void> 
     const token = link.unlinkToken ? tokenOf(link.unlinkToken) : tokenOf(user?.googleRefreshToken);
     const extra = { user_id: userId, link_id: link.id, choice };
     if (!token) {
+      if (!link.googleCalendarId) {
+        console.log(`[google-sync] hard delete of user ${userId}: link ${link.id} has no Google calendar and no token; nothing to carry out`);
+        continue;
+      }
       console.warn(`[google-sync] hard delete of user ${userId}: no token for link ${link.id}; its Google calendar stays`);
       captureError(new Error('No Google token to carry out a copy before a hard delete'), 'google-sync-hard-delete', extra, 'warning');
       continue;
     }
     try {
-      const outcome = await turnOffInGoogle(syncGoogle(token), budget, { id: link.id, googleCalendarId: link.googleCalendarId!, googleAccount: link.googleAccount }, choice, user?.language ?? 'en');
+      // A link with no stored id is looked up by its token (a create that failed before storing it).
+      const { outcome } = await turnOffInGoogle(syncGoogle(token), budget, link, choice, user?.language ?? 'en');
       console.log(`[google-sync] hard delete of user ${userId}: link ${link.id} ${choice}: ${outcome}`);
       if (outcome === 'otherAccount' || outcome === 'foreign') {
         captureError(new Error(`A copy was left in Google before a hard delete (${outcome})`), 'google-sync-hard-delete', extra, 'warning');

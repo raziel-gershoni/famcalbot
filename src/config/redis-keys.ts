@@ -125,7 +125,10 @@ export const REDIS_KEYS = {
   calendarMoveLock: (source: 'famcal' | 'google', seriesId: string) => `calendar-move:lock:${source}:${seriesId}`,
 
   // The copy-to-Google worker (google-sync spec §4): one run per user at a time, fail-closed,
-  // its own prefix; and the admin alert for an item that keeps failing, once per link per day.
+  // its own prefix; the admin alert for an item or a copy that keeps failing, once per link
+  // per day; and a copy's own failing step (create, rename, turn-off, the account check):
+  // its attempts in a row and when it may run again (retries.ts).
   googleSyncLock: (userId: number) => `google-sync:lock:${userId}`,
   googleSyncAlert: (linkId: string, day: string) => `google-sync:alert:${linkId}:${day}`,
+  googleSyncLinkRetry: (linkId: string) => `google-sync:link-retry:${linkId}`,
 } as const;

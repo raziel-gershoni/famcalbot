@@ -1,14 +1,17 @@
 // The copy links' side of a Google commit (google-sync spec §3 Asked only on first use, §4
 // Token or scopes), and the copy calendars FamCal never shows back (§2 Never shown back).
 //
-// - A commit puts the user's links that stopped on the token or the permission back to
-//   work, with their items' retries cleared, so the worker picks them up at once.
+// - A commit puts the user's links that stopped on the token, the permission or another
+//   Google account back to work, with their retries cleared, so the worker picks them up at
+//   once (and checks the account again: a token still of another account goes back to
+//   'otherAccount').
 // - A 'sync' consent's commit turns the copy on: a new link, or the one kept from an
 //   earlier turn-off (re-enable), after re-checking the calendar is still the user's own.
 // - Every Google calendar a link of the user ever held is hidden from FamCal's Google lists.
 
 import { prisma } from '../../utils/prisma';
 import { openSyncGate } from './gate';
+import { clearLinkRetries } from './retries';
 import { hasSyncScope } from './scopes';
 
 /** What a 'sync' consent carries from the callback to the commit (the pending entry). */
@@ -18,8 +21,13 @@ export interface SyncConsent {
   googleAccount: string | null;
 }
 
-/** The states a commit ends: the token was dead, or the permission was missing. */
-const COMMIT_ENDS = ['token', 'scopes'];
+/**
+ * The states a commit ends: the token was dead, the permission was missing, or the token was
+ * another Google account's. A new token may be the copy's own account again, and nothing
+ * else ever re-checks a link in 'otherAccount' (the worker leaves it alone), so the commit
+ * puts it back to work and the worker's account check decides again.
+ */
+const COMMIT_ENDS = ['token', 'scopes', 'otherAccount'];
 
 /** Where a link goes when it works again: 'ok', or 'creating' while it has no Google calendar yet; 'scopes' without the permission. */
 function workingState(googleCalendarId: string | null, scopes: readonly string[]): string {
@@ -42,12 +50,13 @@ function restoredState(
 }
 
 /**
- * After a commit saved a token with these granted scopes: the user's links in 'token' or
- * 'scopes' go back to work ('ok' or 'creating'), or to 'scopes' when the grant still lacks
- * calendar.app.created, and their items' nextAttemptAt is cleared. A turned-off link goes
- * back only to carry out its queued Remove/Keep (restoredState); one with no Google calendar
- * is left as it is. Other states ('gone', 'otherAccount', 'plan', 'error') are the worker's
- * to decide. Opens the gate when a link changed. Returns the link ids it changed.
+ * After a commit saved a token with these granted scopes: the user's links in 'token',
+ * 'scopes' or 'otherAccount' go back to work ('ok' or 'creating'), or to 'scopes' when the
+ * grant still lacks calendar.app.created, and their items' nextAttemptAt and the links' own
+ * backoff (retries.ts) are cleared. A turned-off link goes back only to carry out its queued
+ * Remove/Keep (restoredState); one with no Google calendar is left as it is. Other states
+ * ('gone', 'plan', 'error') are the worker's to decide. Opens the gate when a link changed.
+ * Returns the link ids it changed.
  */
 export async function restoreSyncLinks(userId: number, scopes: readonly string[]): Promise<string[]> {
   const found = await prisma.googleSyncLink.findMany({
@@ -68,6 +77,7 @@ export async function restoreSyncLinks(userId: number, scopes: readonly string[]
   const working = links.filter((l) => l.next !== 'scopes').map((l) => l.id);
   if (working.length > 0) {
     await prisma.googleSyncItem.updateMany({ where: { linkId: { in: working }, nextAttemptAt: { not: null } }, data: { nextAttemptAt: null } });
+    await clearLinkRetries(working);
   }
   if (changed.length > 0 || working.length > 0) {
     console.log(`[google-sync] user ${userId}: commit restored links [${changed.map((l) => l.id).join(',')}] (${working.length} working)`);
@@ -136,6 +146,8 @@ export async function enableSyncLink(userId: number, consent: SyncConsent, scope
     console.warn(`[google-sync] user ${userId}: no copy made of calendar ${consent.nativeCalendarId}: not their own live calendar at commit`);
   } else {
     console.log(`[google-sync] user ${userId}: copy ${result.status} for calendar ${consent.nativeCalendarId} (link ${result.linkId})`);
+    // A backoff left from the dropped turn-off doesn't hold the copy back.
+    if (result.status === 'reenabled') await clearLinkRetries([result.linkId]);
     if (result.status !== 'already') openSyncGate();
   }
   return result;
@@ -169,6 +181,7 @@ export async function recreateSyncLink(userId: number, linkId: string): Promise<
   });
   if (done) {
     console.log(`[google-sync] user ${userId}: copy ${linkId} is made again from scratch`);
+    await clearLinkRetries([linkId]);
     openSyncGate();
   } else {
     console.warn(`[google-sync] user ${userId}: no copy ${linkId} to make again (not theirs, off, or not gone or another account)`);

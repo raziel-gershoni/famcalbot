@@ -62,6 +62,21 @@ async function ownedCalendars(g: SyncGoogle, budget: CallBudget): Promise<calend
   return out;
 }
 
+/** The user's own calendar carrying this link's token in its description, if any. */
+function tokenCalendar(owned: readonly calendar_v3.Schema$CalendarListEntry[], linkId: string): string | null {
+  const token = linkToken(linkId);
+  return owned.find((c) => c.id && (c.description ?? '').includes(token))?.id ?? null;
+}
+
+/**
+ * The link's Google calendar found by its token in the user's calendar list, for a link with
+ * no stored id: a create can make the calendar and fail before the id is stored, so a
+ * turn-off or the hard delete looks before taking "no id" for "nothing in Google".
+ */
+export async function findCopyCalendarId(g: SyncGoogle, budget: CallBudget, linkId: string): Promise<string | null> {
+  return tokenCalendar(await ownedCalendars(g, budget), linkId);
+}
+
 /** `base`, or "<base> (2)", "(3)", … when another of the user's calendars already has the name. */
 function freeName(base: string, taken: ReadonlySet<string>): string {
   if (!taken.has(base)) return base;
@@ -86,13 +101,12 @@ export async function ensureCopyCalendar(
   link: CopyLink,
   facts: { language: string; name: string; zone: string },
 ): Promise<{ googleCalendarId: string; adopted: boolean }> {
-  const token = linkToken(link.id);
   const owned = await ownedCalendars(g, budget);
-  const found = owned.find((c) => c.id && (c.description ?? '').includes(token));
+  const found = tokenCalendar(owned, link.id);
   let id: string;
   let adopted = false;
-  if (found?.id) {
-    id = found.id;
+  if (found) {
+    id = found;
     adopted = true;
   } else {
     const base = await copyName(facts.language, facts.name);
@@ -106,7 +120,7 @@ export async function ensureCopyCalendar(
   return { googleCalendarId: id, adopted };
 }
 
-/** A FamCal rename on the copy calendar (spec §3 Rename): the name and the description that quotes it. */
+/** A FamCal rename on the copy calendar (spec §3 Rename): the name and the description that quotes it. A 404/410 (the calendar gone) reaches the caller, which sets the link 'gone'. */
 export async function renameCopyCalendar(g: SyncGoogle, budget: CallBudget, link: CopyLink & { googleCalendarId: string }, facts: { language: string; name: string }): Promise<void> {
   await counted(budget, async () =>
     g.api.calendars.patch({ calendarId: link.googleCalendarId, requestBody: { summary: await copyName(facts.language, facts.name), description: await managedDescription(facts.language, facts.name, link.id) } }));

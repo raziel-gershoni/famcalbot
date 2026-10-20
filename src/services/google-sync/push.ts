@@ -7,7 +7,8 @@
 //   done; never inserted: just dropped. A one-off that ended over 30 days ago and was never
 //   copied is dropped too.
 // - New: inserted under a deterministic id (syncEventId); a 409 means it is there already
-//   (a retry after a timeout or a deploy), so it is adopted and written in full.
+//   (a retry after a timeout or a deploy), so it is adopted and written in full. A 409 whose
+//   event is a deleted one (events.get: 'cancelled') takes the next generation instead.
 // - Structural change (the rule, the start or all-day of a series, a removed override or
 //   exdate, a one-off becoming a series or back): the master is deleted and inserted again
 //   with the next generation, so no stale exception survives.
@@ -214,6 +215,23 @@ async function deleteEvent(g: SyncGoogle, budget: CallBudget, calendarId: string
   }
 }
 
+/** Generations an insert moves past when each id answers 409 with a deleted event under it. */
+const DEAD_ID_TRIES = 3;
+
+/**
+ * Whether the event under this id is live. events.get returns a deleted event too, as
+ * 'cancelled' (Google: "The get method always returns them"); a 404/410 is deleted too.
+ */
+async function liveEvent(g: SyncGoogle, budget: CallBudget, calendarId: string, eventId: string): Promise<boolean> {
+  try {
+    const res = await counted(budget, () => g.api.events.get({ calendarId, eventId }));
+    return res.data.status !== 'cancelled';
+  } catch (error) {
+    if (classifyGoogleError(error) === 'gone') return false;
+    throw error;
+  }
+}
+
 /** A 409 from an insert: an event with that id is there already. */
 function isDuplicate(error: unknown): boolean {
   const e = error as { status?: unknown; code?: unknown; response?: { status?: unknown } } | null;
@@ -296,15 +314,28 @@ async function pushOnce(g: SyncGoogle, budget: CallBudget, link: PushLink, item:
       eventId = null;
     }
     if (mode === 'insert' || mode === 'rebuild') {
-      const id = syncEventId(link.id, series.id, generation);
-      try {
-        await counted(budget, () => g.api.events.insert({ calendarId, requestBody: { ...planned.body, id } }));
-      } catch (error) {
-        if (!isDuplicate(error)) throw error;
-        // Already there (a retry): adopted and written whole, which also undoes a delete made
-        // in Google. One Google won't write (gone) is left for the next generation, below.
-        eventId = id;
-        await counted(budget, () => g.api.events.update({ calendarId, eventId: id, requestBody: planned.body }));
+      let id = syncEventId(link.id, series.id, generation);
+      for (let tries = 1; ; tries++) {
+        try {
+          await counted(budget, () => g.api.events.insert({ calendarId, requestBody: { ...planned.body, id } }));
+          break;
+        } catch (error) {
+          if (!isDuplicate(error)) throw error;
+        }
+        if (await liveEvent(g, budget, calendarId, id)) {
+          // Already there (a retry after a timeout or a deploy): adopted and written whole.
+          // One Google won't write (gone) is left for the next generation, below.
+          eventId = id;
+          await counted(budget, () => g.api.events.update({ calendarId, eventId: id, requestBody: planned.body }));
+          break;
+        }
+        // A deleted event holds the id (Google keeps deleted ids): a copy removed from this
+        // calendar whose generation was lost with its row (the series left the copy and came
+        // back). Reviving it could bring back its old exceptions, so the next generation goes in.
+        if (tries >= DEAD_ID_TRIES) throw new Error(`events.insert answered 409 on ${DEAD_ID_TRIES} generations in a row, each id held by a deleted event`);
+        console.log(`[google-sync] ${ids}: the id of generation ${generation} is a deleted event's; inserting generation ${generation + 1}`);
+        generation += 1;
+        id = syncEventId(link.id, series.id, generation);
       }
       eventId = id;
       // Stored at once, so a failure in the replay below never loses the event: the master is

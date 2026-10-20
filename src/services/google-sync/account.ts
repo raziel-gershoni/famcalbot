@@ -18,9 +18,25 @@ const PRIMARY_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary?fi
  */
 export async function googleAccountOf(accessToken: string): Promise<string> {
   const res = await fetch(PRIMARY_URL, { headers: { Authorization: `Bearer ${accessToken}` } });
-  // The status rides on the error, so classifyGoogleError sorts it (401 token, 429 rate limit, 5xx transient).
-  if (!res.ok) throw Object.assign(new Error(`calendars.get(primary) answered HTTP ${res.status}`), { status: res.status });
+  if (!res.ok) {
+    // The status and Google's error body ride on the error as the API client shapes them
+    // (response: { status, data }), so classifyGoogleError and isGoogleRateLimit read the 403's
+    // reasons too: usageLimits (rateLimitExceeded, userRateLimitExceeded) is a rate limit,
+    // insufficientPermissions a missing scope; 401 is the token, 429 a rate limit, 5xx transient.
+    const data = await errorBody(res);
+    throw Object.assign(new Error(`calendars.get(primary) answered HTTP ${res.status}`), { status: res.status, response: { status: res.status, data } });
+  }
   const body = (await res.json()) as { id?: unknown };
   if (typeof body.id !== 'string' || body.id === '') throw new Error('calendars.get(primary) answered with no id');
   return body.id;
+}
+
+/** Google's JSON error body ({ error: { code, message, errors: [{ domain, reason }] } }), or null when it isn't JSON. */
+async function errorBody(res: Response): Promise<unknown> {
+  try {
+    return await res.json();
+  } catch (error) {
+    console.warn(`[google-sync] calendars.get(primary) answered HTTP ${res.status} with a body that isn't JSON`, error instanceof Error ? error.message : error);
+    return null;
+  }
 }
