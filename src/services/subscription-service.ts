@@ -23,7 +23,7 @@ const FEATURE_ACCESS_CACHE_TTL = 86400; // 24 hours (invalidated on subscription
 // TYPES
 // ============================================
 
-export type FeatureType = 'text_summary' | 'voice_summary' | 'reminders' | 'voice_events' | 'calendars';
+export type FeatureType = 'text_summary' | 'voice_summary' | 'reminders' | 'voice_events' | 'calendars' | 'google_sync';
 
 export interface FeatureAccessResult {
   allowed: boolean;
@@ -594,6 +594,9 @@ function checkOverrideGrant(override: UserFeatureOverride, feature: FeatureType)
     case 'voice_summary':
       return override.unlimitedSummaries === true;
     case 'reminders':
+    // The copy to Google is on the plans reminders are on (google-sync spec §1), so the
+    // admin's reminders grant gives it too.
+    case 'google_sync':
       return override.remindersEnabled === true;
     case 'voice_events':
       return override.voiceEventsEnabled === true;
@@ -613,7 +616,7 @@ function checkOverrideGrant(override: UserFeatureOverride, feature: FeatureType)
  * Call this when subscription status changes
  */
 export async function invalidateFeatureAccessCache(userId: number): Promise<void> {
-  const features: FeatureType[] = ['text_summary', 'voice_summary', 'reminders', 'voice_events', 'calendars'];
+  const features: FeatureType[] = ['text_summary', 'voice_summary', 'reminders', 'voice_events', 'calendars', 'google_sync'];
   try {
     await Promise.all([
       ...features.map(f => redis.del(REDIS_KEYS.featureAccess(userId, f))),
@@ -822,6 +825,18 @@ async function computeFeatureAccess(
         if (track) {
           await trackActivity(userId, 'feature_blocked', {
             feature: 'reminders',
+          });
+        }
+        return { allowed: false, reason: 'upgrade_required' };
+      }
+      return { allowed: true };
+    }
+
+    case 'google_sync': {
+      if (!limits.googleSync) {
+        if (track) {
+          await trackActivity(userId, 'feature_blocked', {
+            feature: 'google_sync',
           });
         }
         return { allowed: false, reason: 'upgrade_required' };

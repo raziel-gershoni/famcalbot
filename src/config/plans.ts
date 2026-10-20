@@ -11,6 +11,7 @@ export interface PlanLimits {
   calendars: number;          // max calendars
   reminders: boolean;         // feature enabled
   voiceEvents: boolean;       // voice event creation
+  googleSync: boolean;        // copy FamCal calendars to Google (google-sync spec §1: the plans reminders are on)
 }
 
 export interface PlanConfig {
@@ -34,6 +35,7 @@ export const PLAN_CONFIGS: Record<PlanId, PlanConfig> = {
       calendars: 3,
       reminders: false,
       voiceEvents: false,
+      googleSync: false,
     },
     features: [
       '10 text summaries/month',
@@ -52,6 +54,7 @@ export const PLAN_CONFIGS: Record<PlanId, PlanConfig> = {
       calendars: 5,
       reminders: false,
       voiceEvents: false,
+      googleSync: false,
     },
     features: [
       'Unlimited text summaries',
@@ -70,6 +73,7 @@ export const PLAN_CONFIGS: Record<PlanId, PlanConfig> = {
       calendars: Infinity,
       reminders: true,
       voiceEvents: true,
+      googleSync: true,
     },
     features: [
       'Unlimited text summaries',
@@ -103,7 +107,7 @@ export function getPlanLimits(planId: PlanId): PlanLimits {
  */
 export function planHasFeature(
   planId: PlanId,
-  feature: keyof Pick<PlanLimits, 'reminders' | 'voiceEvents'>
+  feature: keyof Pick<PlanLimits, 'reminders' | 'voiceEvents' | 'googleSync'>
 ): boolean {
   return PLAN_CONFIGS[planId].limits[feature];
 }
