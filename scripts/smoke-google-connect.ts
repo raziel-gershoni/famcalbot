@@ -885,6 +885,32 @@ async function main() {
     assert(el.props.translations.waitingTelegram && el.props.translations.waitingWhatsApp, 'no waiting copy passed to the client');
   });
 
+  await check("#15b /refresh-token's copy follows the Google state: a first connect (state 'none') is told to connect, never that access expired; a cleared token with stored calendars keeps the reconnect copy", async () => {
+    const page = (await load('app/refresh-token/page.tsx')).default;
+    const messages: Record<string, Row> = {
+      en: JSON.parse(fs.readFileSync(path.join(ROOT, 'messages/en.json'), 'utf8')).refreshToken,
+      he: JSON.parse(fs.readFileSync(path.join(ROOT, 'messages/he.json'), 'utf8')).refreshToken,
+    };
+    const copyOf = async (userId: number) => {
+      const el = (await page({ searchParams: Promise.resolve({ user_id: String(userId) }) })) as Row;
+      const t = el.props.translations;
+      return [t.title, t.subtitle, t.step3];
+    };
+    seed();
+    const talNone = await copyOf(TAL_TG);
+    userRow(9).language = 'he';
+    const talHeNone = await copyOf(TAL_TG);
+    userRow(9).language = 'en';
+    Object.assign(userRow(9), { calendarAssignments: [{ calendarId: 'tal@gmail.com', labels: ['primary', 'yours'], name: 'Tal', color: '#4285F4' }] });
+    const talReconnect = await copyOf(TAL_TG);
+    for (const lang of ['en', 'he']) {
+      for (const key of ['connectTitle', 'connectSubtitle', 'connectStep3']) assert(typeof messages[lang][key] === 'string' && messages[lang][key], `${lang} ${key} missing`);
+    }
+    assert(show(talNone) === show([messages.en.connectTitle, messages.en.connectSubtitle, messages.en.connectStep3]), `Tal, never connected: ${show(talNone)}`);
+    assert(show(talHeNone) === show([messages.he.connectTitle, messages.he.connectSubtitle, messages.he.connectStep3]), `Tal in Hebrew, never connected: ${show(talHeNone)}`);
+    assert(show(talReconnect) === show([messages.en.title, messages.en.subtitle, messages.en.step3]), `Tal, token cleared: ${show(talReconnect)}`);
+  });
+
   // ---- B5: the webhook route ----
 
   const APP_SECRET = 'test-app-secret';

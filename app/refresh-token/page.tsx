@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getUserByTelegramId, getUserById } from '@/src/services/user-service';
 import { XCircle } from 'lucide-react';
+import { googleStateOf } from '@/src/lib/google-state';
 import RefreshTokenClient from './RefreshTokenClient';
 import enMessages from '@/messages/en.json';
 import heMessages from '@/messages/he.json';
@@ -58,8 +59,13 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
   const user = await getUserByTelegramId(parseInt(user_id)) ?? await getUserById(parseInt(user_id));
   const locale = user?.language || 'en';
   const messages = { en: enMessages, he: heMessages, ru: ruMessages }[locale] ?? enMessages;
+  // A user who never connected Google (the menu's Connect entry) is asked to connect; everyone
+  // else is reconnecting, so the page says their access expired.
+  const rt = messages.refreshToken;
+  const connecting = !!user && googleStateOf(user) === 'none';
+  const copy = connecting ? { ...rt, title: rt.connectTitle, subtitle: rt.connectSubtitle, step3: rt.connectStep3 } : rt;
   // With no credential the page says what the gate on the [locale] pages says
-  const t = { ...messages.refreshToken, gate: messages.pageGate };
+  const t = { ...copy, gate: messages.pageGate };
 
   // No OAuth state here: the client asks POST /api/oauth/start for the Google URL with
   // its credential (initData or the WhatsApp session), and the state is bound to the
