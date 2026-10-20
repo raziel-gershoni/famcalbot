@@ -37,11 +37,12 @@
 // calendars are never soft-deleted; anyone pairs; and T ends with one primary across its
 // FamCal calendars and Google choices (T's own wins; a fresh T's empty default gives way).
 //
-// Copy to Google (#52-#55, google-sync spec §2): the merge marks the series it folds into a
+// Copy to Google (#52-#57, google-sync spec §2): the merge marks the series it folds into a
 // copied calendar of T's on that copy, in the merge's transaction, and a rename of T's
-// calendar marks its copy; W's copies come over to T turned off with Remove queued (W's
-// token goes with W), and a copied calendar of T's that the merge deletes has its copy turned
-// off the same way. The hard delete goes through with copies and their items (they cascade).
+// calendar marks its copy; W's copies come over to T turned off with Remove queued, and a
+// copied calendar of T's that the merge deletes has its copy turned off the same way. W's
+// token moves to T with its scopes; when T keeps its own, W's copies with work queued carry
+// W's token for the worker. The hard delete goes through with copies and their items (they cascade).
 //
 // account-linking, user-moderation, user-service, subscription-service, the reminder
 // cache and event-store run for real. Faked at the boundaries: Prisma (in memory, and it
@@ -1541,7 +1542,7 @@ async function main() {
 
   const syncLink = (id: string, userId: number, nativeCalendarId: string, o: Row = {}): Row => ({
     id, userId, nativeCalendarId, googleCalendarId: `g-${id}`, googleAccount: `sub-${userId}`, enabled: true, state: 'ok',
-    unlinkChoice: null, dirtySeq: 0, pushedSeq: 0, pushedName: null, lastError: null, lastSyncedAt: null, backfilledAt: null,
+    unlinkChoice: null, unlinkToken: null, dirtySeq: 0, pushedSeq: 0, pushedName: null, lastError: null, lastSyncedAt: null, backfilledAt: null,
     createdAt: days(-3), updatedAt: days(-3), ...o,
   });
   const syncRow = (id: string) => rowOf('googleSyncLink', id);
@@ -1596,6 +1597,64 @@ async function main() {
     assert(!rowOf('nativeCalendar', 'cal-t'), 'the fixture kept T\'s primary');
     const row = syncRow('link-t');
     assert(row?.enabled === false && row.unlinkChoice === 'remove' && row.dirtySeq === 1 && row.nativeCalendarId === null, `T's copy ${show(row)}`);
+  });
+
+  const SYNC_SCOPE = 'https://www.googleapis.com/auth/calendar.app.created';
+  const READ_SCOPES = ['https://www.googleapis.com/auth/calendar.readonly', 'https://www.googleapis.com/auth/calendar.events'];
+
+  await check('#56 W\'s Google token moves to T with the scopes it carries; when T keeps its own token, T\'s scopes stay', async () => {
+    seed();
+    freshT();
+    googleW();
+    userRow(W).googleScopes = [...READ_SCOPES, SYNC_SCOPE];
+    userRow(T).googleScopes = [];
+    let result = await link();
+    assert(result.success === true && !result.reconnectGoogle, `result ${show(result)}; captured ${show(captured)}`);
+    assert(userRow(T).googleRefreshToken === TOKENS.w && show(userRow(T).googleScopes) === show([...READ_SCOPES, SYNC_SCOPE]),
+      `T took W's token with scopes ${show(userRow(T).googleScopes)}`);
+
+    seed();
+    googleW();
+    userRow(W).googleScopes = [...READ_SCOPES, SYNC_SCOPE];
+    Object.assign(userRow(T), { googleRefreshToken: TOKENS.t, googleScopes: READ_SCOPES });
+    result = await link();
+    assert(result.success === true && result.reconnectGoogle === true, `result ${show(result)}; captured ${show(captured)}`);
+    assert(userRow(T).googleRefreshToken === TOKENS.t && show(userRow(T).googleScopes) === show(READ_SCOPES), `T kept its token with scopes ${show(userRow(T).googleScopes)}`);
+  });
+
+  await check('#57 W\'s token stays behind (T keeps its own): W\'s copies with work queued carry W\'s encrypted token for the worker to carry it out; a copy already done carries none, and none does when W\'s token moves to T', async () => {
+    seed();
+    googleW();
+    userRow(T).googleRefreshToken = TOKENS.t;
+    DB.googleSyncLink = [
+      syncLink('link-w', W, 'cal-w'),
+      syncLink('link-w-kids', W, 'cal-w-kids'),
+      syncLink('link-w-keep', W, 'cal-w-old', { enabled: false, unlinkChoice: 'keep', dirtySeq: 3, pushedSeq: 2 }),
+      syncLink('link-w-done', W, null as unknown as string, { enabled: false, unlinkChoice: 'remove', dirtySeq: 2, pushedSeq: 2 }),
+      syncLink('link-t', T, 'cal-t'),
+    ];
+    DB.googleSyncItem = [];
+    let result = await link();
+    assert(result.success === true && result.reconnectGoogle === true, `result ${show(result)}; captured ${show(captured)}`);
+    for (const id of ['link-w', 'link-w-kids', 'link-w-keep']) {
+      const row = syncRow(id);
+      assert(row?.userId === T && row.enabled === false && row.unlinkToken === TOKENS.w, `${id} carries W's token: ${show({ ...row, unlinkToken: row?.unlinkToken === TOKENS.w ? 'W\'s' : row?.unlinkToken })}`);
+    }
+    assert(syncRow('link-w')!.unlinkChoice === 'remove' && syncRow('link-w-keep')!.unlinkChoice === 'keep', 'the choices changed');
+    for (const id of ['link-w-done', 'link-t']) {
+      assert(syncRow(id)?.unlinkToken == null, `${id} carries a token: ${show(syncRow(id))}`);
+    }
+    assert(syncRow('link-t')!.enabled === true && syncRow('link-t')!.dirtySeq === 0, `T's own copy ${show(syncRow('link-t'))}`);
+
+    seed();
+    freshT();
+    googleW();
+    DB.googleSyncLink = [syncLink('link-w', W, 'cal-w')];
+    DB.googleSyncItem = [];
+    result = await link();
+    assert(result.success === true && !result.reconnectGoogle, `result ${show(result)}; captured ${show(captured)}`);
+    const moved = syncRow('link-w');
+    assert(moved?.userId === T && moved.unlinkChoice === 'remove' && moved.unlinkToken == null, `W's token moved to T, yet the copy carries one: ${show(moved)}`);
   });
 
   await check('#55 hardDeleteUser with copies and their items goes through: they cascade with the user, and the partner\'s copy is untouched', async () => {

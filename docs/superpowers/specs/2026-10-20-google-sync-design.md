@@ -46,6 +46,8 @@ It builds on Google as a connection (2026-10-19-google-connection-design.md) and
   - from `createNativeSeries` (the move);
   - from the calendar PATCH (a rename marks the link) and DELETE routes;
   - from the WA→TG merge's event and calendar moves (account-linking.ts) and from hardDeleteUser, which also turn the link off and remove the Google calendar, as with Remove, because the token goes with the user.
+  - In the merge, W's token, with its `googleScopes`, moves to T when T has none. When T keeps its own (perhaps another Google account), W's copies with a turn-off queued carry W's encrypted token in `GoogleSyncLink.unlinkToken`; the worker uses it only to carry out that Remove or Keep in the account the copy lives in, then clears it.
+  - Every marked writer locks the FamCal rows first and the sync rows last (the mark is the transaction's last write), so two writers on one series never deadlock.
 
   Store writes that run outside a transaction today are wrapped. A push records the `dirtySeq` it pushed, and the item is clean only when `pushedSeq === dirtySeq`, so a write that lands mid-push is never lost.
 - **The gate.** A mark opens a gate on globalThis (like the reminders' due gate), and the worker runs only when the gate is open, so FamCal doesn't query the DB every minute and Neon can sleep. A 60-minute ceiling catches anything missed. The DB stays the source of truth.

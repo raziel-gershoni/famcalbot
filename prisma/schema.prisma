@@ -299,6 +299,7 @@ model GoogleSyncLink {
   enabled          Boolean         @default(true)
   state            String          @default("creating") // 'creating' | 'ok' | 'token' | 'scopes' | 'gone' | 'otherAccount' | 'plan' | 'error'
   unlinkChoice     String? // 'remove' | 'keep': what turning the copy off asked for, carried out by the worker
+  unlinkToken      String?         @db.Text // Encrypted refresh token of a merged-away user whose token stayed behind: only the queued Remove/Keep uses it, then clears it
   dirtySeq         Int             @default(0) // +1 on a link-level change (rename, turned off) in the write's transaction
   pushedSeq        Int             @default(0) // The dirtySeq the worker last carried out; clean when equal
   pushedName       String? // The calendar name last sent to Google

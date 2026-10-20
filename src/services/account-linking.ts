@@ -313,7 +313,13 @@ async function mergeWhatsAppUser(
   const wPrimary = tPrimaryEmpty && !tKeepsPartner ? wCalendars.find(c => c.labels.includes('primary')) : undefined;
   // W's copies to Google stop: W's token goes with W (or becomes T's), so each turns off
   // with Remove queued and comes over to T with the token's account on it, for the worker to
-  // carry out (google-sync spec §2). Turned-off ones keep the choice made for them.
+  // carry out (google-sync spec §2). Turned-off ones keep the choice made for them. Those with
+  // work queued (just turned off, or a turn-off not yet carried out) are the ones W's token
+  // must still reach when it stays behind (below).
+  const wQueued = wHasGoogle
+    ? (await tx.googleSyncLink.findMany({ where: { userId: w.id }, select: { id: true, enabled: true, dirtySeq: true, pushedSeq: true } }))
+      .filter(l => l.enabled || l.dirtySeq > l.pushedSeq).map(l => l.id)
+    : [];
   const wCopies = await unlinkSync(tx, { userId: w.id }, 'remove');
   await tx.googleSyncLink.updateMany({ where: { userId: w.id }, data: { userId: t.id } });
   if (wCopies > 0) console.log(`[AccountLink] User ${t.id}: ${wCopies} Google copies of W ${w.id} turned off (remove)`);
@@ -423,9 +429,18 @@ async function mergeWhatsAppUser(
       data: {
         googleRefreshToken: w.googleRefreshToken,
         calendarAssignments: w.calendarAssignments ?? Prisma.DbNull,
+        // The scopes describe the token, so they travel with it.
+        googleScopes: w.googleScopes,
       },
     })).count === 1;
     reconnectGoogle = !tookGoogle;
+  }
+  // W's token stays behind (T keeps its own, maybe another Google account): W's copies with
+  // work queued carry it, still encrypted, so the worker can carry out their Remove or Keep in
+  // the account they live in, then clears it. Without it nothing could reach them.
+  if (reconnectGoogle && wQueued.length) {
+    await tx.googleSyncLink.updateMany({ where: { id: { in: wQueued } }, data: { unlinkToken: w.googleRefreshToken } });
+    console.log(`[AccountLink] User ${t.id}: W ${w.id}'s Google token kept on ${wQueued.length} turned-off copies (${wQueued.join(', ')}) for their queued Remove/Keep`);
   }
 
   // One primary across T's two lists, once (spec §3, §4): T's own wins, its Google

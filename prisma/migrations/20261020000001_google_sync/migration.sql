@@ -5,6 +5,7 @@
 -- nativeEventId has no foreign key, so a series can vanish under its item; the link's
 -- calendar is SET NULL and the user CASCADE, so neither blocks a merge or a hard delete.
 -- User gets the Google scopes saved at commit, and the once-per-outage message stamp.
+-- unlinkToken: a merged-away user's encrypted token, kept only for a queued Remove/Keep.
 -- Existing rows are unchanged: no link means nothing is copied.
 --
 -- Hand-written and idempotent, like the other recent migrations: the statements Prisma's
@@ -23,6 +24,7 @@ CREATE TABLE IF NOT EXISTS "GoogleSyncLink" (
     "enabled" BOOLEAN NOT NULL DEFAULT true,
     "state" TEXT NOT NULL DEFAULT 'creating',
     "unlinkChoice" TEXT,
+    "unlinkToken" TEXT,
     "dirtySeq" INTEGER NOT NULL DEFAULT 0,
     "pushedSeq" INTEGER NOT NULL DEFAULT 0,
     "pushedName" TEXT,
