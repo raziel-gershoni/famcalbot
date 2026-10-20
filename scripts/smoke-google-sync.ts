@@ -233,6 +233,8 @@ let writes: { name: string; method: string; tx: number | null }[] = [];
 let failNext: string | null = null;
 /** Set by a check: runs after a transaction's callback returns, before it commits. */
 let beforeCommit: (() => void) | null = null;
+/** Set by a check: errors thrown, one per attempt, before a transaction starts (nothing runs). */
+let failStart: Error[] = [];
 
 const WRITE = /^(create|update|upsert|delete|\$executeRaw)/;
 let txSeq = 0;
@@ -352,6 +354,8 @@ function client(isTx: boolean): Row {
       if (prop === '$transaction') {
         if (isTx) return undefined;
         return async (arg: unknown) => {
+          const startError = failStart.shift();
+          if (startError) throw startError;
           const before = structuredClone(DB);
           try {
             if (typeof arg !== 'function') throw new Error('fake prisma: only interactive transactions');
@@ -433,7 +437,7 @@ function stub(rel: string, exports: Row) {
 }
 
 function installStubs() {
-  stub('src/utils/prisma.ts', { prisma: fakePrisma, withRetry: (fn: () => unknown) => fn() });
+  stub('src/utils/prisma.ts', { prisma: fakePrisma, withRetry: nodeRequire(path.join(ROOT, 'src/utils/db-retry.ts')).withRetry });
   stub('src/utils/redis.ts', { redis: fakeRedis });
   const capture = (e: unknown, ctx: string) => { captured.push(`${ctx}: ${e instanceof Error ? e.message : String(e)}`); };
   stub('src/lib/error-capture.ts', { captureError: capture, captureWarning: capture, captureInfo: () => undefined });
@@ -828,6 +832,38 @@ async function main() {
     await create();
     assert(beforeCommit === null, 'the worker tick never ran');
     assert(gateOpen(), 'the gate stayed closed after the commit');
+  });
+
+  await check('gate: a transaction that could not start (P2028 "Unable to start a transaction") is retried; the write, its mark and the gate come out of the attempt that committed', async () => {
+    seed();
+    closeGate();
+    failStart = [new Prisma.PrismaClientKnownRequestError('Unable to start a transaction in the given time.', { code: 'P2028', clientVersion: 'x' })];
+    const before = table('nativeEvent').length;
+    const started = Date.now();
+    await create();
+    assert(failStart.length === 0, 'the first attempt never failed');
+    assert(Date.now() - started >= 1500, 'no backoff before the retry');
+    assert(table('nativeEvent').length === before + 1, `events ${table('nativeEvent').length} (was ${before})`);
+    assert(items().length === 1 && items()[0].endsWith('=1'), `items ${show(items())}`);
+    assert(gateOpen(), 'the gate stayed closed');
+  });
+
+  await check('gate: a P2028 "Transaction already closed" is not retried: the error reaches the caller and the write ran once', async () => {
+    seed();
+    closeGate();
+    const { markedTransaction } = await load('src/services/google-sync/marks.ts');
+    let ran = 0;
+    beforeCommit = () => {
+      beforeCommit = null;
+      throw new Prisma.PrismaClientKnownRequestError('Transaction API error: Transaction already closed.', { code: 'P2028', clientVersion: 'x' });
+    };
+    let thrown: unknown;
+    try {
+      await markedTransaction(async () => { ran++; });
+    } catch (e) { thrown = e; }
+    beforeCommit = null;
+    assert(thrown instanceof Prisma.PrismaClientKnownRequestError && /already closed/.test(thrown.message), `thrown ${show(thrown)}`);
+    assert(ran === 1, `the write ran ${ran} times`);
   });
 
   // ---- The calendar route ----

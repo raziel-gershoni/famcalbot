@@ -257,7 +257,7 @@ async function main() {
   };
   const prismaFile = path.resolve(__dirname, '../src/utils/prisma.ts');
   const prismaModule = new Module(prismaFile);
-  Object.assign(prismaModule, { filename: prismaFile, loaded: true, exports: { prisma: fakePrisma } });
+  Object.assign(prismaModule, { filename: prismaFile, loaded: true, exports: { prisma: fakePrisma, withRetry: (fn: () => unknown) => fn() } });
   Module._cache[prismaFile] = prismaModule;
 
   const store = await import('../src/services/native-calendar/event-store');

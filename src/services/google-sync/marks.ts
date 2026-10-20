@@ -17,7 +17,7 @@
 
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
-import { prisma } from '../../utils/prisma';
+import { prisma, withRetry } from '../../utils/prisma';
 import { openSyncGate } from './gate';
 
 /** A series a write touched: every calendar it was in before the write or is in after it. */
@@ -128,10 +128,12 @@ export async function unlinkSync(
  */
 export async function markedTransaction<T>(write: (tx: Db) => Promise<T>): Promise<T> {
   let client: object | undefined;
-  const result = await prisma.$transaction(async (tx) => {
+  // A transaction that never started (Neon waking up, P2028) is retried by withRetry; each
+  // attempt overwrites `client`, so it ends as the one that committed.
+  const result = await withRetry(() => prisma.$transaction(async (tx) => {
     client = tx;
     return write(tx);
-  });
+  }));
   if (client && markedIn.has(client)) {
     markedIn.delete(client);
     openSyncGate();
