@@ -9,7 +9,7 @@ import { verifyUserAuth } from '@/src/lib/api-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { updateUserInCache } from '@/src/services/reminder-cache';
 import { calendarTotal, checkCalendarLimit, countCalendars } from '@/src/services/subscription-service';
-import { addsPrimary, clearOtherPrimaries } from '@/src/services/calendar-provider/primary';
+import { addsPrimary, clearOtherPrimaries, dropFreshFamcalPrimary } from '@/src/services/calendar-provider/primary';
 
 /**
  * Sync spouse metadata across all spouse calendars
@@ -130,6 +130,12 @@ export async function POST(request: NextRequest) {
       addsPrimary(currentUser.calendarAssignments?.find((s) => s.calendarId === a.calendarId)?.labels, a.labels)
     );
     if (newPrimary) await clearOtherPrimaries(currentUser.id, { googleCalendarId: newPrimary.calendarId });
+    // The first Google choices, with no Google primary: a fresh, empty FamCal main made before
+    // them gives up primary, so unplaced events go to the first Google "yours" (spec §2, §3).
+    const firstChoices = !(currentUser.calendarAssignments?.length);
+    if (firstChoices && syncedAssignments.length > 0 && !syncedAssignments.some((a) => a.labels.includes('primary'))) {
+      await dropFreshFamcalPrimary(currentUser);
+    }
 
     // Update reminder cache if user has reminders enabled (no extra DB query)
     if (currentUser.remindersEnabled && currentUser.googleRefreshToken) {

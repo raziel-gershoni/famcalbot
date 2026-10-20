@@ -669,6 +669,33 @@ async function main() {
     eq(calsOf(3).find(c => c.id === 'cal-9')?.labels, ['primary', 'yours'], 'FamCal');
   });
 
+  await check('F2b select-calendars, the first Google choices with no Google primary: a fresh, empty FamCal main gives up primary (yours kept), so unplaced events go to the first Google "yours"', async () => {
+    seed();
+    // Tami: a token, no choices yet, and the lazy FamCal main made before she chose ['primary','yours'], no events
+    const res = await route('app/api/select-calendars/route.ts', 'POST', 6, { calendarAssignments: [gcal('tami@gmail.com', ['yours'], 'Tami G')] });
+    assert(res.status === 200, show(res));
+    eq(calsOf(6).find(c => c.id === 'cal-6')?.labels, ['yours'], 'FamCal main');
+    const { getCalendarAssignmentsForUser } = await load('src/services/calendar-provider/user-calendars.ts');
+    const { defaultCalendarFor } = await load('src/utils/calendar-helpers.ts');
+    eq(defaultCalendarFor(await getCalendarAssignmentsForUser(await configOf(6))), 'tami@gmail.com', 'the default');
+  });
+
+  await check('F2c [guard] the first Google choices with no Google primary keep a FamCal primary that holds events, is shared with a partner, or was not the first save', async () => {
+    seed();
+    // Tami's main has a live event: she has used FamCal, so it stays her default
+    table('nativeEvent').push({ id: 'evt-1', calendarId: 'cal-6', creatorUserId: 6, title: 'x', isDeleted: false, startsAt: days(1), endsAt: days(1) });
+    const used = await route('app/api/select-calendars/route.ts', 'POST', 6, { calendarAssignments: [gcal('tami@gmail.com', ['yours'], 'Tami G')] });
+    // Nava: paired, her empty main is shared with Pele
+    Object.assign(userRow(1), { googleRefreshToken: TOKENS.a });
+    const paired = await route('app/api/select-calendars/route.ts', 'POST', 1, { calendarAssignments: [gcal('nava@gmail.com', ['yours'], 'Nava G')] });
+    // Hila: a re-save of choices she already had, beside an empty FamCal primary
+    table('nativeCalendar').push(cal('cal-10', 4, 'Hila', { labels: ['primary', 'yours'] }));
+    const resave = await route('app/api/select-calendars/route.ts', 'POST', 4, { calendarAssignments: userRow(4).calendarAssignments });
+    eq([used.status, paired.status, resave.status], [200, 200, 200], 'statuses');
+    eq([calsOf(6).find(c => c.id === 'cal-6')?.labels, calsOf(1).find(c => c.id === 'cal-1')?.labels, calsOf(4).find(c => c.id === 'cal-10')?.labels],
+      [['primary', 'yours'], ['primary', 'yours'], ['primary', 'yours']], 'FamCal primaries');
+  });
+
   await check('F3 [guard] FamCal PATCH: renaming a primary calendar (labels resent as they were) leaves the Google primary', async () => {
     seed();
     table('nativeCalendar').push(cal('cal-9', 3, 'Gil', { labels: ['primary', 'yours'] }));

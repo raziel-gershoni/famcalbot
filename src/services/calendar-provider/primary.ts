@@ -58,3 +58,26 @@ export async function clearOtherPrimaries(
   }
   return cleared;
 }
+
+/**
+ * The first Google choices came with no Google primary: the user's FamCal main, if it is
+ * still the fresh, empty default (their only own primary, with no live events or reminders,
+ * and not shared with a partner), gives up primary (yours stays). The lazy main made before
+ * the choices got ['primary', 'yours']; made after, it would have had ['yours'] only (spec §3),
+ * so the default is then the first Google "yours" either way. The WA→TG merge applies the same
+ * rule to a fresh T's empty default. Returns the calendar it changed, if any.
+ */
+export async function dropFreshFamcalPrimary(user: { id: number; pairingId?: string | null }, db: Db = prisma): Promise<string | null> {
+  if (user.pairingId) return null;
+  const primaries = await db.nativeCalendar.findMany({
+    where: { ownerUserId: user.id, isDeleted: false, labels: { has: 'primary' } },
+    select: { id: true, labels: true },
+  });
+  if (primaries.length !== 1) return null;
+  const main = primaries[0];
+  const events = await db.nativeEvent.count({ where: { calendarId: main.id, isDeleted: false } });
+  if (events > 0) return null;
+  await db.nativeCalendar.update({ where: { id: main.id }, data: { labels: main.labels.filter((l) => l !== 'primary') } });
+  console.log(`[Primary] User ${user.id}: primary off the fresh FamCal default ${main.id}; the first Google choices have no primary`);
+  return main.id;
+}
