@@ -799,13 +799,5 @@ export async function carryOutCopiesBeforeDelete(userId: number): Promise<void> 
 
 // ---- For the calendars page (S4) ----
 
-/** A copy's progress (spec §1 "Copying… 340 of 1,200", "N can't be copied"): items in all, copied, unsupported, in error. */
-export async function syncProgress(linkId: string): Promise<{ total: number; copied: number; unsupported: number; failing: number }> {
-  const [total, copied, unsupported, failing] = await Promise.all([
-    prisma.googleSyncItem.count({ where: { linkId } }),
-    prisma.googleSyncItem.count({ where: { linkId, status: 'ok', dirtySeq: { equals: prisma.googleSyncItem.fields.pushedSeq } } }),
-    prisma.googleSyncItem.count({ where: { linkId, status: 'unsupported' } }),
-    prisma.googleSyncItem.count({ where: { linkId, status: 'error' } }),
-  ]);
-  return { total, copied, unsupported, failing };
-}
+/** How far a copy is: moved to view.ts (the calendars page's view), kept here for the worker's callers. */
+export { syncProgress } from './view';

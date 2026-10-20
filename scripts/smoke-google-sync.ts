@@ -19,6 +19,10 @@
 // (readGoogle, fetchEventsInRange, listUserCalendars) and smoke-calendar-connection (F1s).
 // The worker (Task S3): in smoke-google-sync-worker.ts; the hard delete's Remove in
 // smoke-account-merge.ts (#59-#61).
+// Route part (Task S4, spec §1, §3): app/api/google-sync's GET (a row per own calendar with its
+// state and progress, the non-owner line's name, the plan), POST enable (a link when the
+// permission is held, else a 'sync' consent) and recreate, and DELETE (Remove/Keep), with the
+// caller's own calendars and links only. The calendars page's rows: smoke-calendars-google-copy.ts.
 //
 // The event store, the calendar route, the marks, the gate and the subscription service run
 // for real. Faked at the boundaries: Prisma (in memory; it keeps the schema's foreign keys,
@@ -131,6 +135,12 @@ function same(a: unknown, b: unknown): boolean {
   return (a ?? null) === (b ?? null);
 }
 const isPlain = (v: unknown): v is Row => v !== null && typeof v === 'object' && !(v instanceof Date) && !Array.isArray(v);
+/** prisma.<model>.fields.<name> (S4's syncProgress): a column compared with another column of the same row. */
+const FIELD_REF = Symbol('fieldRef');
+const fieldRef = (name: string) => ({ [FIELD_REF]: name });
+const isRef = (v: unknown): v is Record<symbol, string> => isPlain(v) && FIELD_REF in v;
+/** To-one relations a where can filter on (S4's recreateSyncLink: `nativeCalendar: { ownerUserId, isDeleted }`). */
+const WHERE_RELATIONS: Record<string, string> = { nativeCalendar: 'nativeCalendar' };
 
 function matches(row: Row, where?: Row): boolean {
   if (!where) return true;
@@ -140,9 +150,15 @@ function matches(row: Row, where?: Row): boolean {
     if (k === 'OR') return (cond as Row[]).some((c) => matches(row, c));
     if (k === 'NOT') return !([] as Row[]).concat(cond).some((c) => matches(row, c));
     if (k in COMPOUND_KEYS) return matches(row, cond as Row);
+    if (k in WHERE_RELATIONS && `${k}Id` in row && isPlain(cond)) {
+      const related = table(WHERE_RELATIONS[k]).find((r) => same(r.id, row[`${k}Id`]));
+      return related !== undefined && matches(related, cond);
+    }
     const v = row[k];
+    if (isRef(cond)) return same(v, row[cond[FIELD_REF]]);
     if (isPlain(cond)) {
-      return Object.entries(cond).every(([op, arg]) => {
+      return Object.entries(cond).every(([op, rawArg]) => {
+        const arg = isRef(rawArg) ? row[rawArg[FIELD_REF]] : rawArg;
         switch (op) {
           case 'equals': return same(v, arg);
           case 'in': return (arg as unknown[]).some((x) => same(v, x));
@@ -302,7 +318,8 @@ function model(name: string): Row {
       return { count: rows.length };
     },
   };
-  return Object.fromEntries(Object.entries(impl).map(([method, fn]) => [method, async (a: Row) => run(name, method, () => fn(a))]));
+  const methods = Object.fromEntries(Object.entries(impl).map(([method, fn]) => [method, async (a: Row) => run(name, method, () => fn(a))]));
+  return { ...methods, fields: new Proxy({}, { get: (_t, p) => fieldRef(String(p)) }) };
 }
 
 function run<T>(name: string, method: string, fn: () => T): T {
@@ -407,6 +424,8 @@ const fakeRedis = new Proxy(redisImpl, { get: (t, p) => (typeof p !== 'string' |
 const captured: string[] = [];
 const tracked: string[] = [];
 let authUserId = 1;
+/** Every verifyUserAuth call (S4): "<endpoint>:<limiter>". */
+const authUses: string[] = [];
 let earlyAdoption = false;
 
 const Module = nodeRequire('module');
@@ -447,9 +466,12 @@ function installStubs() {
   const capture = (e: unknown, ctx: string) => { captured.push(`${ctx}: ${e instanceof Error ? e.message : String(e)}`); };
   stub('src/lib/error-capture.ts', { captureError: capture, captureWarning: capture, captureInfo: () => undefined });
   stub('src/lib/api-auth.ts', {
-    verifyUserAuth: async () => ({ success: true, user: { ...table('user').find((u) => u.id === authUserId) } }),
+    verifyUserAuth: async (_req: unknown, _userId: unknown, _initData: unknown, limiter: Row, endpoint: string) => {
+      authUses.push(`${endpoint}:${limiter?.name}`);
+      return { success: true, user: { ...table('user').find((u) => u.id === authUserId) } };
+    },
   });
-  stub('src/lib/rate-limit.ts', { settingsRateLimiter: { name: 'settings' } });
+  stub('src/lib/rate-limit.ts', { settingsRateLimiter: { name: 'settings' }, generalRateLimiter: { name: 'general' } });
   stub('src/services/analytics-service.ts', {
     trackActivity: async (userId: number, action: string, meta: Row) => { tracked.push(`${userId}:${action}:${meta?.feature ?? ''}`); },
     trackActivityAsync: () => undefined,
@@ -507,6 +529,7 @@ function seed() {
   beforeCommit = null;
   captured.length = 0;
   tracked.length = 0;
+  authUses.length = 0;
   redisStore.clear();
   authUserId = TAL;
   earlyAdoption = false;
@@ -996,6 +1019,230 @@ async function main() {
     redisStore.set(`feature:access:${TAL}:google_sync`, JSON.stringify({ allowed: true }));
     await subs.invalidateFeatureAccessCache(TAL);
     assert(![...redisStore.keys()].some((k) => k.endsWith(':google_sync')), `keys ${show([...redisStore.keys()])}`);
+  });
+
+  // ---- The copy-to-Google route (Task S4, spec §1, §3): GET states, POST enable/recreate, DELETE turn-off ----
+
+  const syncRoute = await load('app/api/google-sync/route.ts');
+  const SYNC_SCOPE = 'https://www.googleapis.com/auth/calendar.app.created';
+  const BOTH = ['https://www.googleapis.com/auth/calendar.readonly', 'https://www.googleapis.com/auth/calendar.events'];
+  /** Tal on Pro, connected to Google with the given scopes. */
+  const proTal = (scopes: string[] = [...BOTH, SYNC_SCOPE], token = 'tal-refresh') => {
+    DB.subscription = [sub({ plan: 'PRO', status: 'ACTIVE', currentPeriodEnd: new Date(Date.now() + 10 * day) })];
+    DB.usageCounter = [{ id: 'use-1', userId: TAL, textSummariesUsed: 0, voiceSummariesUsed: 0, voiceEventsCreated: 0, remindersTriggered: 0, cycleStartDate: new Date(), updatedAt: new Date() }];
+    DB.userFeatureOverride = [];
+    Object.assign(table('user').find((u) => u.id === TAL)!, { googleRefreshToken: token, googleScopes: scopes });
+  };
+  const freeTal = () => {
+    proTal();
+    DB.subscription = [sub({})];
+  };
+  const syncReq = (method: string, body: Row | null) =>
+    new NextRequest(`http://localhost/api/google-sync?user_id=${TAL}`, {
+      method, headers: { 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+  const call = async (method: 'GET' | 'POST' | 'DELETE', body: Row | null = null) => {
+    const res: Response = await syncRoute[method](syncReq(method, body));
+    return { status: res.status, body: await res.json() };
+  };
+  const item = (linkId: string, nativeEventId: string, o: Row = {}) =>
+    table('googleSyncItem').push({ ...DEFAULTS.googleSyncItem(), id: `it-${linkId}-${nativeEventId}`, linkId, nativeEventId, ...o });
+  const rowOf = (body: Row, calendarId: string) => (body.rows as Row[]).find((r) => r.calendarId === calendarId);
+
+  await check('route GET: one row per own live calendar (never a partner\'s, even with a link of the user\'s on it), the partner\'s first name for the non-owner line, the general limiter', async () => {
+    seed();
+    proTal();
+    table('nativeCalendar').push(calendar('gone-cal', TAL));
+    table('nativeCalendar').at(-1)!.isDeleted = true;
+    const { status, body } = await call('GET');
+    assert(status === 200, `status ${status} ${show(body)}`);
+    assert(body.shown === true && body.ownerName === 'Noa', `view ${show(body)}`);
+    assert(show((body.rows as Row[]).map((r) => r.calendarId).sort()) === show(['off', 'own', 'own2', 'plain']), `rows ${show(body.rows)}`);
+    assert(rowOf(body, 'plain')!.status === 'off' && rowOf(body, 'plain')!.linkId === null, `plain ${show(rowOf(body, 'plain'))}`);
+    assert(rowOf(body, 'off')!.status === 'off' && rowOf(body, 'off')!.on === false, `off ${show(rowOf(body, 'off'))}`);
+    assert(show(authUses) === show(['google-sync-get:general']), `auth ${show(authUses)}`);
+    assert(!show(body).includes('g-link-own') && !show(body).includes('Home'), `Google ids or names on the wire: ${show(body)}`);
+  });
+
+  await check('route GET: each link state shows as its row status (creating/backfill → copying, token → reconnect, scopes → approve, plan, gone, otherAccount, error)', async () => {
+    const cases: Array<[Row, string]> = [
+      [{ state: 'creating', googleCalendarId: null }, 'copying'],
+      [{ state: 'ok', backfilledAt: null }, 'copying'],
+      [{ state: 'ok', backfilledAt: new Date() }, 'copied'],
+      [{ state: 'token' }, 'reconnect'],
+      [{ state: 'scopes' }, 'approve'],
+      [{ state: 'plan' }, 'plan'],
+      [{ state: 'gone' }, 'gone'],
+      [{ state: 'otherAccount' }, 'otherAccount'],
+      [{ state: 'error' }, 'error'],
+    ];
+    for (const [o, want] of cases) {
+      seed();
+      proTal();
+      Object.assign(linkRow(LINK), o);
+      const { body } = await call('GET');
+      assert(rowOf(body, 'own')?.status === want && rowOf(body, 'own')?.on === true, `${show(o)}: ${show(rowOf(body, 'own'))}`);
+    }
+  });
+
+  await check('route GET: progress from the items: "copying 1 of 3" while one waits, then "copied" with "1 can\'t be copied"', async () => {
+    seed();
+    proTal();
+    Object.assign(linkRow(LINK), { backfilledAt: new Date() });
+    item(LINK, 'a', { dirtySeq: 2, pushedSeq: 2 });
+    item(LINK, 'b', { dirtySeq: 1, pushedSeq: 0 });
+    item(LINK, 'c', { status: 'unsupported', dirtySeq: 1, pushedSeq: 1 });
+    let { body } = await call('GET');
+    assert(show(rowOf(body, 'own')) === show({ calendarId: 'own', linkId: LINK, on: true, status: 'copying', copied: 1, total: 3, unsupported: 1 }), `mid ${show(rowOf(body, 'own'))}`);
+    Object.assign(table('googleSyncItem').find((i) => i.nativeEventId === 'b')!, { pushedSeq: 1 });
+    ({ body } = await call('GET'));
+    assert(rowOf(body, 'own')?.status === 'copied' && rowOf(body, 'own')?.copied === 2 && rowOf(body, 'own')?.unsupported === 1, `done ${show(rowOf(body, 'own'))}`);
+  });
+
+  await check('route GET: on a plan without google_sync a copy that is on shows "paused on your plan" and the off ones aren\'t offered; with no Google and no copy on, nothing is shown; a copy on with the token gone still shows', async () => {
+    seed();
+    freeTal();
+    let { body } = await call('GET');
+    assert(show((body.rows as Row[]).map((r) => `${r.calendarId}:${r.status}`).sort()) === show(['own2:plan', 'own:plan']), `free ${show(body.rows)}`);
+    assert(!tracked.some((t) => t.includes('feature_blocked')), `GET logged a block: ${show(tracked)}`);
+    seed();
+    proTal([], '');
+    DB.googleSyncLink = [];
+    ({ body } = await call('GET'));
+    assert(body.shown === false && (body.rows as Row[]).length === 0, `not connected ${show(body)}`);
+    seed();
+    proTal([], '');
+    Object.assign(linkRow(LINK), { state: 'token' });
+    ({ body } = await call('GET'));
+    assert(body.shown === true && rowOf(body, 'own')?.status === 'reconnect', `token ${show(body)}`);
+  });
+
+  await check('route POST enable with the permission held: a new link (enabled, creating, dirty), the gate opens, no consent; again is "already"; a copy turned off earlier is re-enabled on its row', async () => {
+    seed();
+    proTal();
+    closeGate();
+    let r = await call('POST', { action: 'enable', nativeCalendarId: 'plain' });
+    assert(r.status === 200 && r.body.status === 'created' && !r.body.oauthUrl, `enable ${show(r)}`);
+    const made = table('googleSyncLink').find((l) => l.nativeCalendarId === 'plain')!;
+    assert(made.userId === TAL && made.enabled === true && made.state === 'creating' && made.dirtySeq === 1, `link ${show(made)}`);
+    assert(gateOpen() && (DB.oAuthState ?? []).length === 0, 'gate closed, or a consent made');
+    r = await call('POST', { action: 'enable', nativeCalendarId: 'plain' });
+    assert(r.status === 200 && r.body.status === 'already', `again ${show(r)}`);
+    r = await call('POST', { action: 'enable', nativeCalendarId: 'off' });
+    assert(r.status === 200 && r.body.status === 'reenabled' && linkRow('link-off').enabled === true && linkRow('link-off').unlinkChoice === null, `re-enable ${show(r)} ${show(linkRow('link-off'))}`);
+    assert(authUses.every((u) => u === 'google-sync-post:settings'), `auth ${show(authUses)}`);
+  });
+
+  await check('route POST enable without calendar.app.created (or with no Google at all): consent with purpose sync for that calendar, include_granted_scopes and the extra scope; no link yet', async () => {
+    for (const [scopes, token] of [[BOTH, 'tal-refresh'], [[], '']] as const) {
+      seed();
+      proTal([...scopes], token);
+      const r = await call('POST', { action: 'enable', nativeCalendarId: 'plain' });
+      assert(r.status === 200 && r.body.status === 'consent' && typeof r.body.serverTime === 'number', `consent ${show(r)}`);
+      const url = new URL(r.body.oauthUrl);
+      assert(url.searchParams.get('include_granted_scopes') === 'true' && (url.searchParams.get('scope') ?? '').split(' ').includes(SYNC_SCOPE), `url ${url}`);
+      const st = DB.oAuthState ?? [];
+      assert(st.length === 1 && st[0].purpose === 'sync' && st[0].nativeCalendarId === 'plain' && String(st[0].userId) === String(TAL), `state ${show(st)}`);
+      assert(!table('googleSyncLink').some((l) => l.nativeCalendarId === 'plain'), 'a link before the consent');
+    }
+  });
+
+  await check('route POST: a partner\'s calendar, a deleted or unknown one is 404 with nothing written; a bad body is 400; no plan is 403 upgrade_required with no link and no consent', async () => {
+    seed();
+    proTal();
+    const before = show(table('googleSyncLink'));
+    for (const id of ['noa', 'missing']) {
+      const r = await call('POST', { action: 'enable', nativeCalendarId: id });
+      assert(r.status === 404, `${id}: ${show(r)}`);
+    }
+    table('nativeCalendar').find((c) => c.id === 'plain')!.isDeleted = true;
+    assert((await call('POST', { action: 'enable', nativeCalendarId: 'plain' })).status === 404, 'deleted');
+    for (const b of [{ action: 'enable' }, { action: 'enable', nativeCalendarId: 7 }, { action: 'everything', nativeCalendarId: 'own' }, { action: 'recreate' }, {}]) {
+      const r = await call('POST', b);
+      assert(r.status === 400, `${show(b)}: ${show(r)}`);
+    }
+    assert(show(table('googleSyncLink')) === before && (DB.oAuthState ?? []).length === 0, 'something was written');
+    seed();
+    freeTal();
+    const r = await call('POST', { action: 'enable', nativeCalendarId: 'plain' });
+    assert(r.status === 403 && r.body.error === 'upgrade_required', `free ${show(r)}`);
+    assert(!table('googleSyncLink').some((l) => l.nativeCalendarId === 'plain') && (DB.oAuthState ?? []).length === 0, 'free: written');
+  });
+
+  await check('route POST recreate: only the caller\'s own copy in gone or otherAccount is made again from scratch; another\'s link or one in ok is 404; no plan is 403', async () => {
+    seed();
+    proTal();
+    Object.assign(linkRow(LINK), { state: 'gone' });
+    item(LINK, 'a', { googleEventId: 'ev-a', masterHash: 'h', dirtySeq: 1, pushedSeq: 1 });
+    let r = await call('POST', { action: 'recreate', linkId: LINK });
+    assert(r.status === 200 && r.body.status === 'recreated', `recreate ${show(r)}`);
+    assert(linkRow(LINK).state === 'creating' && linkRow(LINK).googleCalendarId === null, `link ${show(linkRow(LINK))}`);
+    assert(table('googleSyncItem')[0].googleEventId === null && table('googleSyncItem')[0].dirtySeq === 2, `item ${show(table('googleSyncItem')[0])}`);
+    r = await call('POST', { action: 'recreate', linkId: LINK2 });
+    assert(r.status === 404, `ok link ${show(r)}`);
+    table('googleSyncLink').push(link('link-noa', NOA, 'noa', { state: 'gone' }));
+    r = await call('POST', { action: 'recreate', linkId: 'link-noa' });
+    assert(r.status === 404 && linkRow('link-noa').state === 'gone', `another's ${show(r)}`);
+    Object.assign(linkRow('link-forged'), { state: 'gone' });
+    r = await call('POST', { action: 'recreate', linkId: 'link-forged' });
+    assert(r.status === 404 && linkRow('link-forged').state === 'gone', `forged ${show(r)}`);
+    seed();
+    freeTal();
+    Object.assign(linkRow(LINK), { state: 'otherAccount' });
+    r = await call('POST', { action: 'recreate', linkId: LINK });
+    assert(r.status === 403 && linkRow(LINK).state === 'otherAccount', `free ${show(r)}`);
+  });
+
+  await check('route DELETE: turns the caller\'s copy off with Remove or Keep queued (dirtySeq + 1, one transaction, the gate opens), also on a plan without google_sync; the link row stays', async () => {
+    for (const choice of ['remove', 'keep']) {
+      seed();
+      freeTal();
+      closeGate();
+      let r: { status: number; body: Row } | undefined;
+      const log = await logged(async () => { r = await call('DELETE', { nativeCalendarId: 'own', googleCopy: choice }); });
+      assert(r?.status === 200 && r.body.status === 'off', `${choice}: ${show(r)}`);
+      const row = linkRow(LINK);
+      assert(row.enabled === false && row.unlinkChoice === choice && row.dirtySeq === 1 && row.googleCalendarId === `g-${LINK}`, `${choice}: ${show(row)}`);
+      assert(linkRow(LINK2).enabled === true, 'another copy was turned off');
+      const txs = [...new Set(log.writes.map((w) => w.tx))];
+      assert(txs.length === 1 && txs[0] !== null, `writes ${show(log.writes)}`);
+      assert(gateOpen(), 'the gate stayed closed');
+      assert(authUses.every((u) => u === 'google-sync-delete:settings'), `auth ${show(authUses)}`);
+    }
+  });
+
+  await check('route DELETE: no choice or an unknown one is 400; a partner\'s calendar (even with the caller\'s own link on it) or a copy already off is 404, and nothing changes', async () => {
+    seed();
+    proTal();
+    const before = show(table('googleSyncLink'));
+    for (const b of [{ nativeCalendarId: 'own' }, { nativeCalendarId: 'own', googleCopy: 'all' }, { googleCopy: 'remove' }]) {
+      const r = await call('DELETE', b);
+      assert(r.status === 400, `${show(b)}: ${show(r)}`);
+    }
+    for (const id of ['noa', 'off', 'plain']) {
+      const r = await call('DELETE', { nativeCalendarId: id, googleCopy: 'remove' });
+      assert(r.status === 404, `${id}: ${show(r)}`);
+    }
+    assert(show(table('googleSyncLink')) === before, 'something changed');
+  });
+
+  await check('route: logs carry ids, never calendar names', async () => {
+    seed();
+    proTal();
+    const lines: string[] = [];
+    const keep = { log: console.log, warn: console.warn, error: console.error };
+    const grab = (...a: unknown[]) => { lines.push(a.map(String).join(' ')); };
+    Object.assign(console, { log: grab, warn: grab, error: grab });
+    try {
+      await call('GET');
+      await call('POST', { action: 'enable', nativeCalendarId: 'plain' });
+      await call('POST', { action: 'enable', nativeCalendarId: 'noa' });
+      await call('DELETE', { nativeCalendarId: 'own', googleCopy: 'remove' });
+    } finally {
+      Object.assign(console, keep);
+    }
+    assert(lines.length > 0, 'nothing logged');
+    for (const name of ['Home', 'Work', 'plain-ev']) assert(!lines.some((l) => l.includes(name)), `"${name}" in ${show(lines)}`);
   });
 
   Object.assign(console, quiet);
