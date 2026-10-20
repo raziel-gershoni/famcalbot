@@ -11,6 +11,7 @@ import { updateUserInCache } from '@/src/services/reminder-cache';
 import { calendarTotal, checkCalendarLimit, countCalendars } from '@/src/services/subscription-service';
 import { addsPrimary, clearOtherPrimaries, dropFreshFamcalPrimary } from '@/src/services/calendar-provider/primary';
 import { liveGoogleChoices } from '@/src/lib/google-state';
+import { syncCopyCalendarIds } from '@/src/services/google-sync/links';
 
 /**
  * Sync spouse metadata across all spouse calendars
@@ -93,16 +94,24 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Sync spouse metadata across all spouse calendars
-    const syncedAssignments = syncSpouseMetadata(calendarAssignments);
-
     // The proved user (verifyUserAuth already returned 404 for a missing row); its
     // decrypted refresh token is re-encrypted below
     const currentUser = auth.user;
 
+    // FamCal's own copies in Google are never a choice (google-sync spec §2): the page
+    // doesn't list them, and a save that names one drops it.
+    const copies = await syncCopyCalendarIds(currentUser.id);
+    const chosen = calendarAssignments.filter(a => !copies.has(a.calendarId));
+    if (chosen.length < calendarAssignments.length) {
+      console.warn(`[select-calendars] user ${currentUser.id}: dropped ${calendarAssignments.length - chosen.length} FamCal copy calendar(s) from the saved choices`);
+    }
+
+    // Sync spouse metadata across all spouse calendars
+    const syncedAssignments = syncSpouseMetadata(chosen);
+
     // The shared calendar total after this save (own FamCal plus these Google choices) vs the limit
     const counts = await countCalendars(currentUser.id);
-    const afterSave = calendarTotal(counts.famcal, calendarAssignments.length);
+    const afterSave = calendarTotal(counts.famcal, chosen.length);
     const calendarLimitResult = await checkCalendarLimit(currentUser.id, afterSave);
     if (!calendarLimitResult.allowed) {
       return NextResponse.json(
@@ -161,7 +170,7 @@ export async function POST(request: NextRequest) {
       success: true,
       user: {
         name: currentUser.name,
-        calendarsCount: calendarAssignments.length
+        calendarsCount: chosen.length
       }
     });
   } catch (error) {

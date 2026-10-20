@@ -298,7 +298,7 @@ async function selectCalendars(user: UserConfig, userId: number, userLocale: str
 
   try {
     const [availableCalendars, subWithUsage, ownFamcal] = await Promise.all([
-      listUserCalendars(user.googleRefreshToken),
+      listUserCalendars(user.googleRefreshToken, user.id),
       getSubscriptionWithUsage(user.id).catch(() => null),
       prisma.nativeCalendar.findMany({
         where: { ownerUserId: user.id, isDeleted: false },

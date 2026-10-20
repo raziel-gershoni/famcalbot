@@ -336,6 +336,8 @@ const ownerIn = (where: Row | undefined): number => where?.ownerUserId ?? where?
 const noDb = new Proxy({}, {
   get: (_t, model) => (model === 'then' ? undefined : model === 'nativeCalendar'
     ? { findMany: async (a: Row) => [famcalMain(ownerIn(a?.where))], findFirst: async (a: Row) => famcalMain(ownerIn(a?.where)) }
+    // listUserCalendars hides FamCal's copy calendars (google-sync S2); nobody here has one
+    : model === 'googleSyncLink' ? { findMany: async () => [] }
     : noModel(String(model))),
 });
 /** The reminders switch is on and no plan here has reminders, so no feature check reaches the database. */

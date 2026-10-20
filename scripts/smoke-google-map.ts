@@ -288,6 +288,14 @@ async function main() {
     for (const r of ['tentative', 'needsAction', 'accepted']) assert(keepGoogleEvent(base({ attendees: [{ self: true, responseStatus: r }] })), `dropped self ${r}`);
   });
 
+  await check('keepGoogleEvent (google-sync S2): drops FamCal\'s own copies (private famcalSync); keeps the move\'s famcalMovedFrom, a shared famcalSync and other private properties', () => {
+    assert(!keepGoogleEvent(base({ extendedProperties: { private: { famcalSync: 'link-1', famcalSeries: 's1' } } })), 'kept a FamCal copy');
+    assert(!keepGoogleEvent(base({ extendedProperties: { private: { famcalSync: 'link-1' } } })), 'kept a FamCal copy without its series');
+    assert(keepGoogleEvent(base({ extendedProperties: { private: { famcalMovedFrom: 's1' } } })), 'dropped a moved event (famcalMovedFrom is no copy)');
+    assert(keepGoogleEvent(base({ extendedProperties: { shared: { famcalSync: 'link-1' } } })), 'dropped a shared property (only private marks a copy)');
+    assert(keepGoogleEvent(base({ extendedProperties: { private: { other: 'x' } } })), 'dropped another private property');
+  });
+
   // ---- htmlToText ---------------------------------------------------------------------
 
   await check('htmlToText: a missing description is empty', () => {

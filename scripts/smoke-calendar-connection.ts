@@ -687,6 +687,23 @@ async function main() {
     eq(calsOf(2).find(c => c.id === 'cal-2')?.labels, ['primary', 'yours'], 'partner');
   });
 
+  await check('F1s select-calendars (google-sync S2): a FamCal copy calendar in the saved choices is dropped (on or off), with the count and the limit taken without it', async () => {
+    seed();
+    Object.assign(userRow(1), { googleRefreshToken: TOKENS.a, calendarAssignments: [gcal('nava@gmail.com', ['yours'], 'Nava G')] });
+    DB.googleSyncLink = [
+      { id: 'l-on', userId: 1, nativeCalendarId: 'cal-1', googleCalendarId: 'copy-on@group.calendar.google.com', enabled: true },
+      { id: 'l-off', userId: 1, nativeCalendarId: null, googleCalendarId: 'copy-off@group.calendar.google.com', enabled: false },
+    ];
+    const res = await route('app/api/select-calendars/route.ts', 'POST', 1, { calendarAssignments: [
+      gcal('nava@gmail.com', ['yours'], 'Nava G'),
+      gcal('copy-on@group.calendar.google.com', ['yours'], 'FamCal · Home'),
+      gcal('copy-off@group.calendar.google.com', ['kids'], 'FamCal · Kids'),
+    ] });
+    assert(res.status === 200, show(res));
+    eq(userRow(1).calendarAssignments.map((a: Row) => a.calendarId), ['nava@gmail.com'], 'saved choices');
+    eq(res.body.user?.calendarsCount, 1, 'calendarsCount');
+  });
+
   await check('F2 [guard] select-calendars: a save that keeps primary where it was never touches FamCal (a legacy double primary stays)', async () => {
     seed();
     table('nativeCalendar').push(cal('cal-9', 3, 'Gil', { labels: ['primary', 'yours'] }));

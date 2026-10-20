@@ -65,7 +65,7 @@ type ErrorClass = ReturnType<typeof classifyGoogleError>;
 
 const LOG_CONTEXT = 'calendar-read-google';
 const FIELDS =
-  'summary,nextPageToken,items(id,status,summary,description,location,start,end,recurringEventId,originalStartTime,eventType,attendees(self,responseStatus),htmlLink)';
+  'summary,nextPageToken,items(id,status,summary,description,location,start,end,recurringEventId,originalStartTime,eventType,attendees(self,responseStatus),htmlLink,extendedProperties(private))';
 const PAGE_SIZE = 2500;
 const MAX_ITEMS_PER_CALENDAR = 5000;
 const MAX_REQUEST_TIMEOUT_MS = 10_000;

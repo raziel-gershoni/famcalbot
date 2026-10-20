@@ -148,12 +148,23 @@ class FakeOAuth2 {
   }
 }
 
+/** calendarList.list's answer (listUserCalendars). */
+let calendarListItems: calendar_v3.Schema$CalendarListEntry[] = [];
+/** The sync links the fake DB holds (listUserCalendars hides their Google calendars). */
+let syncLinks: { userId: number; googleCalendarId: string | null; enabled: boolean }[] = [];
+
 const fakeGoogleModule = {
   __esModule: true,
   auth: { OAuth2: FakeOAuth2 },
   calendar: (options: { version?: string; auth?: unknown }) => {
     google.factory.push(options);
     return {
+      calendarList: {
+        list: async () => {
+          google.log.push('calendarList');
+          return { data: { items: calendarListItems } };
+        },
+      },
       calendars: {
         get: async ({ calendarId }: { calendarId: string }) => {
           google.log.push(`get:${calendarId}`);
@@ -246,6 +257,20 @@ const SRC = path.resolve(__dirname, '../src');
 const stubs: Record<string, object> = {
   '@googleapis/calendar': fakeGoogleModule,
   [`${SRC}/utils/redis.ts`]: { __esModule: true, redis: fakeRedis },
+  // Only the copy links are read here (listUserCalendars); the fake answers that query alone.
+  [`${SRC}/utils/prisma.ts`]: {
+    __esModule: true,
+    prisma: {
+      googleSyncLink: {
+        findMany: async ({ where }: { where: { userId: number; googleCalendarId: { not: null } } }) => {
+          google.log.push('db:googleSyncLink');
+          assert(JSON.stringify(where.googleCalendarId) === '{"not":null}' && Object.keys(where).join(',') === 'userId,googleCalendarId', `unexpected link query ${JSON.stringify(where)}`);
+          return syncLinks.filter(l => l.userId === where.userId && l.googleCalendarId !== null).map(l => ({ googleCalendarId: l.googleCalendarId }));
+        },
+      },
+    },
+    withRetry: (fn: () => unknown) => fn(),
+  },
   [`${SRC}/lib/error-capture.ts`]: {
     __esModule: true,
     captureError: (error: unknown, context: string, extra?: Record<string, unknown>, severity = 'error') => {
@@ -299,7 +324,7 @@ const NY = 'America/New_York';
 const DAY = '2026-10-14';
 const DAY_WINDOW = { from: startOfLocalDay(DAY, NY), to: startOfLocalDay(nextDate(DAY), NY) };
 const FIELDS =
-  'summary,nextPageToken,items(id,status,summary,description,location,start,end,recurringEventId,originalStartTime,eventType,attendees(self,responseStatus),htmlLink)';
+  'summary,nextPageToken,items(id,status,summary,description,location,start,end,recurringEventId,originalStartTime,eventType,attendees(self,responseStatus),htmlLink,extendedProperties(private))';
 
 const DANA = 'dana@example.com';
 const AVI = 'avi.cohen@example.com';
@@ -379,6 +404,8 @@ function reset() {
   google.inFlight = 0;
   google.maxInFlight = 0;
   redisDown = false;
+  calendarListItems = [];
+  syncLinks = [];
   redisStore.clear();
   redisSets.length = 0;
   captures = [];
@@ -806,6 +833,64 @@ async function main() {
     assertSame(statusOf(config), { status: 'error', reason: 'config' }, 'config status');
     await sleep(50);
     assert(adminAlerts.length === 0, 'paged the admin with no once-an-hour gate');
+  });
+
+  // ---- google-sync S2: FamCal's own copies never show back ----
+
+  const copyOf = (id: string, at: string, extra: Raw = {}) =>
+    timed(id, 'Copied', `2026-10-14T${at}:00-04:00`, `2026-10-14T${at.replace(/^(\d+)/, (h) => String(Number(h) + 1).padStart(2, '0'))}:00-04:00`, extra);
+  const MARKED_PAGE = (): Page => ({
+    summary: TITLES[DANA],
+    items: [
+      copyOf('copy', '08', { extendedProperties: { private: { famcalSync: 'link-1', famcalSeries: 'series-1' } } }),
+      copyOf('moved', '09', { extendedProperties: { private: { famcalMovedFrom: 'series-2' } } }),
+      copyOf('shared-prop', '10', { extendedProperties: { shared: { famcalSync: 'link-1' } } }),
+      copyOf('plain', '11'),
+    ],
+  });
+
+  await check('S2 home and digest (readGoogle): an event FamCal copied to Google (private famcalSync) is dropped; a moved one (famcalMovedFrom) and the rest are kept', async () => {
+    google.pages[DANA] = [MARKED_PAGE()];
+    const r = await read(user(), { calendarIds: [DANA] });
+    assertSame(statusOf(r), OK, 'status');
+    assertSame(ids(r), ['moved', 'shared-prop', 'plain'], 'kept');
+  });
+
+  await check('S2 voice and alerts (calendar.ts fetchEventsInRange, and the Google provider over it): a FamCal copy is dropped; a moved one and the rest are kept', async () => {
+    google.pages[DANA] = [MARKED_PAGE()];
+    const events = await calendar.fetchEventsInRange('refresh-7', [DANA], DAY_WINDOW.from, DAY_WINDOW.to);
+    assertSame(events.map((e: { eventId?: string }) => e.eventId), ['moved', 'shared-prop', 'plain'], 'fetchEventsInRange');
+    const { googleProvider } = await import('../src/services/calendar-provider/google-provider');
+    const viaProvider = await googleProvider.fetchEventsInRange(user(), [DANA], DAY_WINDOW.from, DAY_WINDOW.to);
+    assertSame(viaProvider.map(e => e.eventId), ['moved', 'shared-prop', 'plain'], 'googleProvider.fetchEventsInRange');
+  });
+
+  await check('S2 listUserCalendars hides every Google calendar a copy link of this user holds (on or off), in select-calendars and the editor\'s list; others and another user\'s copies stay', async () => {
+    calendarListItems = [
+      { id: DANA, summary: 'Dana', primary: true, accessRole: 'owner', backgroundColor: '#7986cb' },
+      { id: 'copy-on@group.calendar.google.com', summary: 'FamCal · Home', accessRole: 'owner', backgroundColor: '#000000' },
+      { id: 'copy-off@group.calendar.google.com', summary: 'FamCal · Work', accessRole: 'owner', backgroundColor: '#000000' },
+      { id: 'noa-copy@group.calendar.google.com', summary: 'FamCal · Noa', accessRole: 'reader', backgroundColor: '#000000' },
+      { id: KIDS, summary: 'Family', accessRole: 'writer', backgroundColor: '#33b679' },
+    ];
+    syncLinks = [
+      { userId: 7, googleCalendarId: 'copy-on@group.calendar.google.com', enabled: true },
+      { userId: 7, googleCalendarId: 'copy-off@group.calendar.google.com', enabled: false },
+      { userId: 7, googleCalendarId: null, enabled: true },
+      { userId: 8, googleCalendarId: 'noa-copy@group.calendar.google.com', enabled: true },
+    ];
+    const listed = await calendar.listUserCalendars('refresh-7', 7);
+    assertSame(listed.map((c: { id: string }) => c.id), [DANA, 'noa-copy@group.calendar.google.com', KIDS], 'listUserCalendars');
+    const { googleProvider } = await import('../src/services/calendar-provider/google-provider');
+    const viaProvider = await googleProvider.listCalendars(user());
+    assertSame(viaProvider.map(c => c.id), [DANA, 'noa-copy@group.calendar.google.com', KIDS], 'googleProvider.listCalendars');
+  });
+
+  await check('S2 listUserCalendars: a user with no copies gets the list as before (one link lookup, nothing hidden)', async () => {
+    calendarListItems = [{ id: DANA, summary: 'Dana', primary: true, accessRole: 'owner', backgroundColor: '#7986cb' }];
+    const listed = await calendar.listUserCalendars('refresh-7', 7);
+    assertSame(listed, [{ id: DANA, name: 'Dana', description: '', primary: true, accessRole: 'owner', backgroundColor: '#7986cb' }], 'list');
+    assert(google.log.filter(l => l === 'db:googleSyncLink').length === 1, `lookups ${JSON.stringify(google.log)}`);
   });
 
   await check('no unhandled rejection anywhere above', async () => {

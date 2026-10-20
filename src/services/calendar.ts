@@ -6,6 +6,8 @@ import { addDaysToDate, localDate, nextDate, startOfLocalDay } from '../utils/da
 import { isTokenError, isInsufficientScopesError } from '../utils/errors';
 import { captureError } from '../lib/error-capture';
 import { classifyGoogleError, googleErrorFacts, type GoogleErrorClass } from './calendar-read/google-map';
+import { isSyncCopy } from './google-sync/markers';
+import { syncCopyCalendarIds } from './google-sync/links';
 import {
   daysFromTo,
   endCarriedRule,
@@ -90,11 +92,14 @@ export interface CalendarInfo {
 }
 
 /**
- * List all calendars the user has access to
+ * List all calendars the user has access to, but FamCal's own copies (google-sync spec §2:
+ * every Google calendar a copy link of the user holds, on or off), so select-calendars,
+ * the editor's targets and everything chosen from them never offer one.
  * @param refreshToken - Google OAuth refresh token
+ * @param userId - the user's DB id, whose copy links are hidden
  * @returns Array of calendar information
  */
-export async function listUserCalendars(refreshToken: string): Promise<CalendarInfo[]> {
+export async function listUserCalendars(refreshToken: string, userId: number): Promise<CalendarInfo[]> {
   const oauth2Client = new auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET
@@ -107,10 +112,13 @@ export async function listUserCalendars(refreshToken: string): Promise<CalendarI
   const calendar = googleCalendar({ version: 'v3', auth: oauth2Client });
 
   try {
-    const response = await calendar.calendarList.list({
-      showHidden: true,  // Include hidden calendars like birthdays
-    });
-    const calendars = response.data.items || [];
+    const [response, copies] = await Promise.all([
+      calendar.calendarList.list({
+        showHidden: true,  // Include hidden calendars like birthdays
+      }),
+      syncCopyCalendarIds(userId),
+    ]);
+    const calendars = (response.data.items || []).filter(cal => !cal.id || !copies.has(cal.id));
 
     return calendars.map(cal => ({
       id: cal.id || '',
@@ -369,7 +377,8 @@ export async function fetchEventsInRange(
       ]);
       const calendarName = calendarInfo.data.summary || calendarId;
 
-      const events = response.data.items || [];
+      // FamCal's own copies to Google are never read back (google-sync spec §2)
+      const events = (response.data.items || []).filter(event => !isSyncCopy(event));
 
       return events.map((event): CalendarEvent => ({
         summary: event.summary || 'No title',

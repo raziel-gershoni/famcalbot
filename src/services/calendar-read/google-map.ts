@@ -7,6 +7,7 @@ import type { calendar_v3 } from '@googleapis/calendar';
 import { htmlToText } from '../../utils/html';
 import { isInsufficientScopesError } from '../../utils/errors';
 import type { ReadItem } from './types';
+import { isSyncCopy } from '../google-sync/markers';
 
 /**
  * - scopes: the user unticked a permission on Google's consent screen;
@@ -99,11 +100,13 @@ const DROPPED_EVENT_TYPES = new Set(['workingLocation', 'outOfOffice', 'focusTim
 
 /**
  * Whether a listed Google event is shown. Drops cancelled ones, ones with no start, the
- * work-status types, and invites the calendar's owner declined (Ruling R2: `self` is the
- * calendar this copy sits on, so on a spouse's calendar it is the spouse's decline).
+ * work-status types, invites the calendar's owner declined (Ruling R2: `self` is the
+ * calendar this copy sits on, so on a spouse's calendar it is the spouse's decline), and
+ * FamCal's own copies to Google (google-sync spec §2: their FamCal series is shown already).
  */
 export function keepGoogleEvent(raw: calendar_v3.Schema$Event): boolean {
   if (raw.status === 'cancelled') return false;
+  if (isSyncCopy(raw)) return false;
   if (!raw.start?.dateTime && !raw.start?.date) return false;
   if (raw.eventType && DROPPED_EVENT_TYPES.has(raw.eventType)) return false;
   if (raw.attendees?.some((a) => a.self && a.responseStatus === 'declined')) return false;

@@ -83,7 +83,7 @@ export const googleProvider: CalendarProvider = {
 
   async listCalendars(user: UserConfig): Promise<UnifiedCalendar[]> {
     if (!user.googleRefreshToken) return [];
-    const cals = await gcalListCalendars(user.googleRefreshToken);
+    const cals = await gcalListCalendars(user.googleRefreshToken, user.id);
     return cals.map((c) => ({
       id: c.id,
       name: c.name,
