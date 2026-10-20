@@ -58,9 +58,11 @@ model User {
   pickupRemindersEnabled     Boolean   @default(true) // Enable pickup reminders for kids' events
 
   // Calendar integration
-  calendarSource      CalendarSource @default(NATIVE) // GOOGLE for legacy GCal users, NATIVE for in-bot calendar
-  googleRefreshToken  String         @db.Text // Empty string '' for NATIVE users (existing convention for pre-OAuth users)
-  calendarAssignments Json? // GOOGLE only — Array of CalendarAssignment: {calendarId, labels[], name, color, personName?, personEnglishName?, personGender?, rules?[]}
+  calendarSource       CalendarSource @default(NATIVE) // GOOGLE for legacy GCal users, NATIVE for in-bot calendar
+  googleRefreshToken   String         @db.Text // Empty string '' for NATIVE users (existing convention for pre-OAuth users)
+  calendarAssignments  Json? // GOOGLE only — Array of CalendarAssignment: {calendarId, labels[], name, color, personName?, personEnglishName?, personGender?, rules?[]}
+  googleScopes         String[]       @default([]) // The Google scopes granted, written when a token is committed; empty = calendar.app.created not granted
+  googleSyncNotifiedAt DateTime? // The copy-to-Google reconnect message went out for the current outage (once per outage)
 
   // Pairing (NATIVE only — 1:1 partner)
   pairingId String?
@@ -87,6 +89,7 @@ model User {
   pairingsAccepted       Pairing[]             @relation("PairingsAccepted")
   pairingInvitesCreated  PairingInvite[]       @relation("PairingInvitesCreated")
   pairingInvitesAccepted PairingInvite[]       @relation("PairingInvitesAccepted")
+  googleSyncLinks        GoogleSyncLink[]
 
   @@index([telegramId])
   @@index([whatsappPhone])
@@ -192,7 +195,8 @@ model NativeCalendar {
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
 
-  events NativeEvent[]
+  events          NativeEvent[]
+  googleSyncLinks GoogleSyncLink[]
 
   @@index([ownerUserId])
   @@index([ownerUserId, privacy])
@@ -274,6 +278,62 @@ model NativeReminderState {
 
   @@unique([seriesEventId, originalStartsAt])
   @@index([snoozedUntil])
+}
+
+// ============================================
+// FAMCAL → GOOGLE ONE-WAY SYNC
+// (docs/superpowers/specs/2026-10-20-google-sync-design.md §2)
+// ============================================
+
+// One own FamCal calendar copied into its own "FamCal · <name>" Google calendar. Kept
+// after Keep or Remove (enabled = false), so a re-enable reuses the Google calendar and
+// FamCal never shows that calendar back in its reads.
+model GoogleSyncLink {
+  id               String          @id @default(cuid())
+  userId           Int
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nativeCalendarId String?
+  nativeCalendar   NativeCalendar? @relation(fields: [nativeCalendarId], references: [id], onDelete: SetNull)
+  googleCalendarId String? // Set once calendars.insert answered (or the 'creating' retry adopted it)
+  googleAccount    String? // The Google account's `sub` the copy lives in
+  enabled          Boolean         @default(true)
+  state            String          @default("creating") // 'creating' | 'ok' | 'token' | 'scopes' | 'gone' | 'otherAccount' | 'plan' | 'error'
+  unlinkChoice     String? // 'remove' | 'keep': what turning the copy off asked for, carried out by the worker
+  dirtySeq         Int             @default(0) // +1 on a link-level change (rename, turned off) in the write's transaction
+  pushedSeq        Int             @default(0) // The dirtySeq the worker last carried out; clean when equal
+  pushedName       String? // The calendar name last sent to Google
+  lastError        String?         @db.Text
+  lastSyncedAt     DateTime?
+  backfilledAt     DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  items GoogleSyncItem[]
+
+  @@unique([userId, nativeCalendarId])
+  @@index([nativeCalendarId, enabled])
+}
+
+// One FamCal series as copied into a link's Google calendar. nativeEventId is a plain
+// column (no foreign key), so the series can vanish under it and the worker still
+// deletes the copy.
+model GoogleSyncItem {
+  id            String         @id @default(cuid())
+  linkId        String
+  link          GoogleSyncLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  nativeEventId String
+  googleEventId String?
+  generation    Int            @default(0) // +1 on each delete-and-reinsert; part of the deterministic event id
+  masterHash    String?
+  slotHashes    Json           @default("{}") // One hash per override or cancelled slot
+  dirtySeq      Int            @default(0) // +1 on every write to the series, in the write's transaction
+  pushedSeq     Int            @default(0) // The dirtySeq the last push read; clean only when equal
+  attempts      Int            @default(0)
+  nextAttemptAt DateTime?
+  status        String         @default("ok") // 'ok' | 'unsupported' | 'error'
+  lastError     String?        @db.Text
+
+  @@unique([linkId, nativeEventId])
 }
 
 model Pairing {
