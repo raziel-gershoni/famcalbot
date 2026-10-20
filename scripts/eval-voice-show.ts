@@ -6,13 +6,12 @@
 // Needs GEMINI_API_KEY. For each fixture: writes the script with the real writer; checks facts survive, forbidden
 // phrases are absent, the opening leads where it should, no digits are left, sounds
 // stay in budget and genders are right (an LLM judge); synthesizes the
-// show locally with Flash TTS and checks its length. Then runs tts-service's
-// /api/dialogue handler in-process once. Scripts, results and audio go to outDir.
+// show locally with Flash TTS and checks its length. Scripts, results and audio go to outDir.
 
 import fs from 'fs/promises';
 import path from 'path';
 import type { UserConfig } from '../src/types';
-import type { ShowKind, ShowTurn } from '../src/services/voice-show/types';
+import type { ShowKind } from '../src/services/voice-show/types';
 import type { ShowPromptContext } from '../src/prompts/voice-show/types';
 import { AI_MODEL } from '../src/config/ai-models';
 
@@ -550,8 +549,6 @@ async function main() {
   const langs = langFlag >= 0 ? args[langFlag + 1].split(',') : ['he', 'en', 'ru'];
   const outDirArg = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--model' && args[i - 1] !== '--lang')[0];
 
-  // Synthesize here, not on a deployed tts-service.
-  delete process.env.TTS_SERVICE_URL;
   if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not set');
 
   // @hebcal/core is ESM-only (exports has only an "import" condition) and tsx loads src/
@@ -566,14 +563,12 @@ async function main() {
   const { buildShowContext } = await import('../src/services/voice-show/context');
   const { writeShowScript } = await import('../src/services/voice-show/writer');
   const { toShowLines } = await import('../src/services/voice-show/script');
-  const { generateShowVoice, getShowVoices } = await import('../src/services/voice-generator');
+  const { generateShowVoice } = await import('../src/services/voice-generator');
   const { generateAICompletion } = await import('../src/services/ai-provider');
 
   const outDir = outDirArg ?? 'eval-voice-show-out';
   await fs.mkdir(outDir, { recursive: true });
   const report: Array<{ name: string; checks: Check[] }> = [];
-  let firstTurns: ShowTurn[] = [];
-  let firstLanguage = 'he';
 
   for (const fixture of [...FIXTURES, ...FIXTURES_EN_RU].filter(f => langs.includes(f.language ?? 'he'))) {
     console.log(`\n=== ${fixture.name} ===`);
@@ -586,7 +581,6 @@ async function main() {
     try {
       const written = await writeShowScript(context, { modelId });
       const turns = written.script.turns;
-      if (!firstTurns.length) { firstTurns = turns; firstLanguage = language; }
       const text = turns.map(t => t.text).join('\n');
       const lower = text.toLowerCase();
       Object.assign(record, { attempts: written.attempts, warnings: written.script.warnings, turns, writerMs: written.completion.durationMs, writerUsage: written.completion.usage });
@@ -635,40 +629,6 @@ async function main() {
     await fs.writeFile(path.join(outDir, `${fixture.name}.json`), JSON.stringify(record, null, 2));
     for (const c of checks) console.log(`${c.ok ? 'OK  ' : 'FAIL'}  ${c.name}: ${c.detail}`);
     report.push({ name: fixture.name, checks });
-  }
-
-  // The tts-service endpoint, in-process, with the first fixture's opening lines.
-  {
-    console.log('\n=== tts-service /api/dialogue (in-process) ===');
-    const endpointChecks: Check[] = [];
-    try {
-      if (!firstTurns.length) throw new Error('no script to send (every fixture failed)');
-      process.env.TTS_API_KEY = 'eval-key';
-      // Through a variable, so TypeScript does not follow it into tts-service: its
-      // @vercel/node types are not installed for the app, and next build checks scripts/.
-      const handlerPath = '../tts-service/api/dialogue';
-      const { default: handler } = (await import(handlerPath)) as { default: (req: unknown, res: unknown) => Promise<void> };
-      const { toShowLines } = await import('../src/services/voice-show/script');
-      const out = { status: 0, headers: {} as Record<string, string>, body: Buffer.alloc(0), json: undefined as unknown };
-      const res = {
-        status(code: number) { out.status = code; return res; },
-        json(value: unknown) { out.json = value; return res; },
-        send(body: Buffer) { out.body = Buffer.from(body); return res; },
-        setHeader(name: string, value: string) { out.headers[name] = String(value); return res; },
-      };
-      await handler({
-        method: 'POST',
-        headers: { authorization: 'Bearer eval-key' },
-        body: { language: firstLanguage, model: 'gemini-3.8-flash-tts', voices: getShowVoices(firstLanguage), lines: toShowLines(firstTurns.slice(0, 4), firstLanguage, 'male') },
-      } as never, res as never);
-      const ok = out.status === 200 && out.body.subarray(0, 4).toString('ascii') === 'OggS' && Number(out.headers['X-TTS-Audio-Seconds']) > 0;
-      endpointChecks.push({ name: 'endpoint', ok, detail: `status ${out.status}, ${out.headers['X-TTS-Audio-Seconds']}s, ${out.headers['X-TTS-Audio-Tokens']} tokens ${out.json ? JSON.stringify(out.json) : ''}` });
-      if (out.status === 200) await fs.writeFile(path.join(outDir, 'endpoint.ogg'), out.body);
-    } catch (error) {
-      endpointChecks.push({ name: 'endpoint', ok: false, detail: error instanceof Error ? error.message : String(error) });
-    }
-    for (const c of endpointChecks) console.log(`${c.ok ? 'OK  ' : 'FAIL'}  ${c.name}: ${c.detail}`);
-    report.push({ name: 'endpoint', checks: endpointChecks });
   }
 
   const failed = report.flatMap(r => r.checks.filter(c => !c.ok).map(c => `${r.name}/${c.name}`));

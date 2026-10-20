@@ -86,7 +86,7 @@ export interface ShowScript {
   warnings: string[];
 }
 
-/** One line as TTS receives it. Also the wire format of tts-service's /api/dialogue. */
+/** One line as TTS receives it. */
 export interface ShowLine {
   host: ShowHost;
   text: string;

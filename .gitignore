@@ -27,9 +27,5 @@ npm-debug.log*
 .vercel
 *.backup
 
-# TTS service
-tts-service/node_modules/
-tts-service/.vercel
-
 # Claude Code
 .claude/

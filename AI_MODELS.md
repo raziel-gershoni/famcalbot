@@ -108,8 +108,6 @@ The catalog is `src/config/tts-models.ts`; request building and decoding live in
   chunk into a burst of noise.
 
 The REST API is called directly because `@google/genai` 1.x drops both fields.
-`tts-service/` carries an identical copy of `gemini-tts.ts` and must be redeployed
-separately; it honours the `model` and `style` the main app sends.
 
 `npx tsx scripts/smoke-tts.ts` covers the decoding and the request shape.
 

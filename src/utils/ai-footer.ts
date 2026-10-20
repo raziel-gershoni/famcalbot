@@ -25,7 +25,7 @@ export function formatVoiceCaption(
 export function formatShowCaption(
   writer: AICompletionResult,
   writerAttempts: number,
-  show: Pick<ShowVoiceResult, 'ttsMs' | 'ttsModel' | 'voices' | 'lineCount' | 'audioSeconds' | 'audioTokens' | 'via'>,
+  show: Pick<ShowVoiceResult, 'ttsMs' | 'ttsModel' | 'voices' | 'lineCount' | 'audioSeconds' | 'audioTokens'>,
   isAdmin: boolean,
 ): string | undefined {
   if (!isAdmin) return undefined;
@@ -36,7 +36,6 @@ export function formatShowCaption(
     `${show.lineCount} lines`,
     `${show.audioSeconds.toFixed(0)}s audio`,
     `${(show.ttsMs / 1000).toFixed(1)}s`,
-    show.via,
   ];
   const cost = estimateTtsCost(show.ttsModel, show.audioTokens);
   if (cost !== null) tts.push(`~$${cost.toFixed(4)}`);

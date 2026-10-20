@@ -6,6 +6,9 @@ Gemini built-in ones (commit bc485a0), so every mention below of `voice_` ids, t
 designed-voice request shape, the legacy-model substitution and the voice-missing
 narrator fallback is superseded. Hosts now: Hebrew and Russian Schedar + Puck,
 English Rasalgethi + Sadachbia, persona `high-energy, excited sports commentator`.
+On 2026-10-20 the Vercel `tts-service` was removed: shows and single-voice replies
+are synthesized on the app server only, so every mention below of `tts-service`,
+`/api/dialogue`, `TTS_SERVICE_URL` and the remote-first path is superseded.
 English and Russian have their own show prompts.
 
 Every summary voice note stops being one narrator in a user-chosen voice and

@@ -1,10 +1,7 @@
 /**
  * Two-host dialogue synthesis: every line is its own TTS request, run in parallel.
  *
- * Deliberately self-contained - its only import is type-only - so tts-service/ can
- * carry a verbatim copy at tts-service/lib/dialogue-tts.ts. Keep the two copies
- * identical. The synthesize function is passed in rather than imported for the same
- * reason: a runtime import would need a .js extension in the service and none here.
+ * The synthesize function is passed in rather than imported, so tests can fake Gemini.
  *
  * Why one request per line rather than one multi-speaker request: in the 2026-10
  * trial with two male voices, a multi-speaker request blurred them and pulled the
@@ -116,8 +113,7 @@ export async function synthesizeDialogue(input: SynthesizeDialogueInput): Promis
         // Once any line has failed for good the show is lost, so stop retrying too.
         if (failed || !isRetryableTtsError(error)) throw error;
         const delay = baseDelayMs * 2 ** (attempt - 1);
-        // Checked before the attempt count so running out of time is reported as such
-        // (tts-service answers it with a 504).
+        // Checked before the attempt count so running out of time is reported as such.
         if (timeLeft() - delay < minAttemptMs) {
           throw new DialogueDeadlineError(`Dialogue deadline reached on line ${index + 1} after ${attempt} attempt(s)`, error);
         }

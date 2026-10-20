@@ -48,7 +48,7 @@ export async function speakOutcome(
     try {
       await service.sendVoice(chatId, result.filePath);
     } finally {
-      // Local-generation paths leave a /tmp file; remote TTS handles its own.
+      // The voice note is a /tmp file; remove it once sent.
       cleanupVoiceFile(result.filePath).catch(() => {});
     }
   } catch (err) {

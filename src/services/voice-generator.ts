@@ -8,9 +8,6 @@
  *   narrator for a language without show hosts. It speaks in the language's anchor.
  * - generateShowVoice: the two-host show. One TTS request per line, mixed into one
  *   voice note. See docs/superpowers/specs/2026-10-12-two-host-voice-show-design.md.
- *
- * Both run on the Vercel tts-service when TTS_SERVICE_URL is set and fall back to
- * local synthesis on any failure there.
  */
 
 import fs from 'fs/promises';
@@ -60,7 +57,7 @@ const TTS_BASE_DELAY_MS = 500;
 
 /**
  * Retry wrapper for transient TTS errors (503/429).
- * No artificial timeout — relies on SDK-level timeouts and Vercel's maxDuration.
+ * No artificial timeout — relies on SDK-level timeouts.
  */
 async function callWithRetry<T>(
   fn: () => Promise<T>,
@@ -92,82 +89,12 @@ export interface VoiceMessageOptions {
   voiceName?: string;
 }
 
-// Remote TTS timeout (30s — generous but below Vercel's 60s maxDuration)
-const REMOTE_TTS_TIMEOUT_MS = 30_000;
-
 /** Writes an OGG voice note to /tmp and returns its path. */
 async function writeVoiceFile(oggBuffer: Buffer): Promise<string> {
   const randomId = randomBytes(4).toString('hex');
   const filePath = path.join('/tmp', `voice-${Date.now()}-${randomId}.opus`);
   await fs.writeFile(filePath, oggBuffer);
   return filePath;
-}
-
-/**
- * Generate voice via remote serverless TTS function.
- * Returns OGG OPUS binary written to /tmp.
- */
-async function generateVoiceRemote(
-  text: string,
-  language: string,
-  voiceName: string,
-  model: string,
-): Promise<VoiceGenerationResult> {
-  const startTime = Date.now();
-  const url = `${process.env.TTS_SERVICE_URL}/api/tts`;
-
-  console.log('[TTS] Calling remote TTS service:', {
-    url,
-    textLength: text.length,
-    language,
-    voice: voiceName,
-    model,
-  });
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REMOTE_TTS_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.TTS_API_KEY}`,
-      },
-      // The model travels with the request so the remote path speaks with the same
-      // model as the local one, whatever the deployed service's own default is.
-      body: JSON.stringify({ text, language, voiceName, model }),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      throw new Error(`Remote TTS returned ${response.status}: ${body}`);
-    }
-
-    const oggBuffer = Buffer.from(await response.arrayBuffer());
-    const remoteDurationMs = response.headers.get('X-TTS-Duration-Ms');
-    // The model that actually spoke. A tts-service deployed before model selection
-    // existed ignores the request's model and sends no header, so the requested model
-    // is only a best guess in that case - log both so it's visible.
-    const remoteModel = response.headers.get('X-TTS-Model');
-
-    const filePath = await writeVoiceFile(oggBuffer);
-
-    const elapsed = Date.now() - startTime;
-    console.log('[TTS] Remote TTS completed:', {
-      filePath,
-      oggKB: (oggBuffer.length / 1024).toFixed(2),
-      remoteDurationMs,
-      requestedModel: model,
-      remoteModel: remoteModel ?? '(not reported - tts-service predates model selection)',
-      totalMs: elapsed,
-    });
-
-    return { filePath, ttsMs: elapsed, ttsModel: remoteModel ?? model, voiceName };
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 /**
@@ -184,15 +111,6 @@ export async function generateVoiceMessage(
 ): Promise<VoiceGenerationResult> {
   const voiceName = options.voiceName || narratorVoice(language);
   const model = TTS_MODEL;
-
-  // If TTS_SERVICE_URL is set, offload to remote serverless function
-  if (process.env.TTS_SERVICE_URL) {
-    try {
-      return await generateVoiceRemote(condensedText, language, voiceName, model);
-    } catch (error) {
-      console.warn('[TTS] Remote TTS failed, falling back to local:', error);
-    }
-  }
 
   const startTime = Date.now();
 
@@ -247,10 +165,9 @@ export interface ShowVoiceResult {
   audioSeconds: number;
   /** Output audio tokens across all lines; 0 when not reported. */
   audioTokens: number;
-  via: 'remote' | 'local';
 }
 
-/** Test seams: the Gemini call on the local path, and the show's time budget. */
+/** Test seams: the Gemini call, and the show's time budget. */
 export interface ShowVoiceDeps {
   synthesize?: (input: SynthesizeSpeechInput) => Promise<SpeechAudio>;
   /** Defaults to SHOW_DEADLINE_MS. */
@@ -264,13 +181,8 @@ const MAX_CONCURRENT_SHOWS = 3;
 const SHOW_LINE_CONCURRENCY = 8;
 const withShowSlot = createSemaphore(MAX_CONCURRENT_SHOWS);
 
-// Below Vercel's 60s maxDuration, and longer than the narrator's 30s because a show is
-// many requests.
-const REMOTE_SHOW_TIMEOUT_MS = 55_000;
-
-// One budget per show, from the moment it gets a slot: the remote attempt and the local
-// fallback share it. Without it a slow Gemini kept one of the three slots for minutes
-// (55 s remote, then a full local redo with per-line retries) while other users queued.
+// One budget per show, from the moment it gets a slot. Without it a slow Gemini kept
+// one of the three slots for minutes while other users queued.
 const SHOW_DEADLINE_MS = 90_000;
 
 /**
@@ -294,66 +206,9 @@ export async function generateShowVoice(
   return withShowSlot(async () => {
     const deadline = Date.now() + (deps.deadlineMs ?? SHOW_DEADLINE_MS);
     console.log('[TTS] Show got a slot:', { waitedMs: Date.now() - queuedAt, lines: lines.length });
-    if (process.env.TTS_SERVICE_URL) {
-      try {
-        return await generateShowRemote(lines, language, voices, model, deadline);
-      } catch (error) {
-        console.warn('[TTS] Remote show failed, falling back to local:', error);
-      }
-    }
     // Only the time left: synthesizeDialogue fails fast when too little remains.
     return generateShowLocal(lines, voices, model, deps, deadline);
   });
-}
-
-async function generateShowRemote(
-  lines: ShowLine[],
-  language: string,
-  voices: ShowVoices,
-  model: string,
-  deadline: number,
-): Promise<ShowVoiceResult> {
-  const startTime = Date.now();
-  const url = `${process.env.TTS_SERVICE_URL}/api/dialogue`;
-  console.log('[TTS] Calling remote show service:', { url, lines: lines.length, language, model });
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.TTS_API_KEY}`,
-    },
-    body: JSON.stringify({ language, model, voices, lines }),
-    // Also bounds reading the body below.
-    signal: AbortSignal.timeout(Math.max(0, Math.min(REMOTE_SHOW_TIMEOUT_MS, deadline - Date.now()))),
-  });
-
-  if (!response.ok) {
-    // A 404 means the deployed tts-service predates /api/dialogue.
-    const body = await response.text().catch(() => '');
-    throw new Error(`Remote show returned ${response.status}: ${body.slice(0, 300)}`);
-  }
-
-  const oggBuffer = Buffer.from(await response.arrayBuffer());
-  const filePath = await writeVoiceFile(oggBuffer);
-  const result: ShowVoiceResult = {
-    filePath,
-    ttsMs: Date.now() - startTime,
-    ttsModel: response.headers.get('X-TTS-Model') ?? model,
-    voices,
-    lineCount: lines.length,
-    audioSeconds: Number(response.headers.get('X-TTS-Audio-Seconds')) || 0,
-    audioTokens: Number(response.headers.get('X-TTS-Audio-Tokens')) || 0,
-    via: 'remote',
-  };
-  // The service reports its request count; requests beyond one per line were retries.
-  const requests = Number(response.headers.get('X-TTS-Requests')) || undefined;
-  console.log('[TTS] Remote show completed:', {
-    ...result,
-    retries: requests === undefined ? undefined : requests - lines.length,
-    oggKB: (oggBuffer.length / 1024).toFixed(2),
-  });
-  return result;
 }
 
 async function generateShowLocal(
@@ -395,7 +250,6 @@ async function generateShowLocal(
     lineCount: lines.length,
     audioSeconds: pcm.length / 2 / SAMPLE_RATE,
     audioTokens: audio.audioTokens,
-    via: 'local',
   };
   console.log('[TTS] Local show completed:', {
     ...result,

@@ -12,7 +12,7 @@ const config = [
   },
   {
     // Build output and dependencies. dist/ is the local tsc output, never committed.
-    ignores: ['.next/**', 'dist/**', 'node_modules/**', 'tts-service/node_modules/**', 'tts-service/.vercel/**', 'coverage/**', 'next-env.d.ts'],
+    ignores: ['.next/**', 'dist/**', 'node_modules/**', 'coverage/**', 'next-env.d.ts'],
   },
 ];
 

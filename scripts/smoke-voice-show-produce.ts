@@ -49,7 +49,6 @@ const fakeSynth = async (_input: SynthesizeSpeechInput): Promise<SpeechAudio> =>
   ({ pcm: tone(500), sampleRate: RATE, mimeType: 'audio/l16', audioTokens: 12 });
 
 async function main() {
-  delete process.env.TTS_SERVICE_URL;
   const { isShowLanguage, produceShowVoice } = await import('../src/services/voice-show/produce');
 
   await check('cost estimate: 1500 audio tokens on 3.8 Flash TTS', () => {
@@ -61,11 +60,11 @@ async function main() {
   await check('show caption: admin only, with hosts, lines, length, model, cost', () => {
     const show = {
       ttsMs: 6100, ttsModel: 'gemini-3.8-flash-tts', voices: { A: 'voice_a1', B: 'voice_b2' },
-      lineCount: 12, audioSeconds: 52.4, audioTokens: 1500, via: 'local' as const,
+      lineCount: 12, audioSeconds: 52.4, audioTokens: 1500,
     };
     assert(formatShowCaption(writer, 1, show, false) === undefined, 'shown to a non-admin');
     const caption = formatShowCaption(writer, 2, show, true)!;
-    for (const part of ['🎙 Gemini 3.8 Flash', 'rewritten x1', '🔊 TTS gemini-3.8-flash-tts', 'A:voice_a1 B:voice_b2', '12 lines', '52s audio', '6.1s', 'local', '~$0.0135']) {
+    for (const part of ['🎙 Gemini 3.8 Flash', 'rewritten x1', '🔊 TTS gemini-3.8-flash-tts', 'A:voice_a1 B:voice_b2', '12 lines', '52s audio', '6.1s', '~$0.0135']) {
       assert(caption.includes(part), `"${part}" missing from: ${caption}`);
     }
   });
@@ -84,7 +83,7 @@ async function main() {
     try {
       assert((await fs.readFile(voice.filePath)).subarray(0, 4).toString('ascii') === 'OggS', 'not Ogg');
       assert(voice.durationSeconds >= 2, `duration ${voice.durationSeconds}`);
-      assert(!!voice.caption && voice.caption.includes('4 lines') && voice.caption.includes('local'), `caption ${voice.caption}`);
+      assert(!!voice.caption && voice.caption.includes('4 lines'), `caption ${voice.caption}`);
     } finally {
       await fs.unlink(voice.filePath).catch(() => {});
     }

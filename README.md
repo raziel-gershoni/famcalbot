@@ -44,7 +44,7 @@ FamCal is a multi-platform, multilingual calendar assistant for individuals and 
 
 **A calendar model that stands on its own.** The Prisma schema (~370 lines) models a native recurring calendar with RFC-5545 `RRULE` strings, per-instance overrides and cancellations, and series-level exdates; `src/services/native-calendar/recurrence.ts` expands series into virtual instances for any date range using `rrule`. The same schema carries couple pairing with invites and status history, subscriptions/trials/usage counters, and a blocklist that persists across account deletion for moderation.
 
-**Serverless correctness.** Cron-triggered jobs (daily and tomorrow summaries, reminders, token-refresh checks) run behind Upstash Redis distributed locks so a retried or duplicated invocation can't double-send, with Upstash rate limiting on hot paths. Auth spans magic-link/session flows for the dashboard, Telegram login verification, webhook secret validation, and a `CRON_SECRET` guarding internal endpoints. Errors flow to Sentry and to admin alerts. A separate `tts-service/` microservice (its own `vercel.json`, 60-second function budget) generates speech and converts PCM to OGG/Opus for voice replies.
+**Serverless correctness.** Cron-triggered jobs (daily and tomorrow summaries, reminders, token-refresh checks) run behind Upstash Redis distributed locks so a retried or duplicated invocation can't double-send, with Upstash rate limiting on hot paths. Auth spans magic-link/session flows for the dashboard, Telegram login verification, webhook secret validation, and a `CRON_SECRET` guarding internal endpoints. Errors flow to Sentry and to admin alerts. Voice replies and the two-host voice show are synthesized in-process with Gemini TTS and encoded from PCM to OGG/Opus.
 
 ## 🛠️ Tech stack
 
@@ -53,7 +53,7 @@ FamCal is a multi-platform, multilingual calendar assistant for individuals and 
 - **Data:** Prisma ORM, Neon Postgres, Upstash Redis (distributed locks, caching, rate limiting).
 - **AI:** Anthropic Claude, OpenAI GPT, and Google Gemini SDKs behind a unified provider layer; Gemini for voice transcription, photo parsing, and TTS.
 - **Integrations:** Google Calendar API, Open-Meteo (weather/air quality), Hebcal (Hebrew dates/holidays), `rrule` (RFC-5545 recurrence).
-- **Infra:** Vercel hosting, QStash for scheduled triggers, Sentry monitoring; standalone `tts-service` Vercel deployment.
+- **Infra:** Railway hosting, node-cron for scheduled work, Sentry monitoring.
 
 ## 🚀 Getting started
 
@@ -114,7 +114,7 @@ Helper scripts handle one-time setup: `npm run get-google-token` (obtain a Googl
 
 ## 📦 Deployment
 
-Deployed on Vercel. `npm run build` (aliased as `vercel-build`) runs `prisma generate && prisma migrate deploy && next build`, so database migrations are applied on each deploy. Scheduled work (daily/tomorrow summaries, reminders, token-refresh checks) is driven by external cron via QStash hitting authenticated API endpoints guarded by `CRON_SECRET`. The `tts-service/` directory deploys as its own Vercel project with a dedicated `vercel.json` (60-second function budget) for voice generation.
+Deployed on Railway as one long-running Next.js server. `npm run build` runs `prisma generate && prisma migrate deploy && next build`, so database migrations are applied on each deploy. Scheduled work (daily/tomorrow summaries, reminders, token-refresh checks, the Google copy worker) runs in-process on node-cron, started from `instrumentation.ts`; the same handlers sit behind API endpoints guarded by `CRON_SECRET` for manual runs.
 
 ## 📄 License
 

@@ -1,12 +1,9 @@
 // Show generation in src/services/voice-generator.ts with Gemini faked: the semaphore,
-// the host table, and remote-first with local fallback - including a tts-service that
-// predates /api/dialogue and answers 404. Only a local HTTP server; no real network.
+// the host table, and the show made line by line in-process. No network.
 //
 // Run: npx tsx scripts/smoke-voice-generator.ts
 
 import fs from 'fs/promises';
-import http from 'http';
-import type { AddressInfo } from 'net';
 import { createSemaphore } from '../src/utils/semaphore';
 import { TTS_MODEL } from '../src/config/tts-models';
 import type { SpeechAudio, SynthesizeSpeechInput } from '../src/services/gemini-tts';
@@ -52,30 +49,7 @@ const LINES: ShowLine[] = [
   { host: 'B', text: '<whispers> סוד', style: 'high-energy, excited sports commentator, leaning in close', whisper: true },
 ];
 
-type Seen = { method?: string; url?: string; auth?: string; body?: { voices?: { A: string; B: string }; lines?: unknown[]; model?: string } };
-
-async function withServer(respond: (res: http.ServerResponse) => void, fn: (url: string, seen: Seen) => Promise<void>) {
-  const seen: Seen = {};
-  const server = http.createServer((req, res) => {
-    let raw = '';
-    req.on('data', chunk => { raw += chunk; });
-    req.on('end', () => {
-      Object.assign(seen, { method: req.method, url: req.url, auth: req.headers.authorization, body: raw ? JSON.parse(raw) : undefined });
-      respond(res);
-    });
-  });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address() as AddressInfo;
-  try {
-    await fn(`http://127.0.0.1:${port}`, seen);
-  } finally {
-    server.closeAllConnections();
-    await new Promise<void>(resolve => server.close(() => resolve()));
-  }
-}
-
 async function main() {
-  process.env.TTS_API_KEY = 'test-key';
   const { generateShowVoice, getShowVoices } = await import('../src/services/voice-generator');
 
   await check('semaphore caps concurrency and runs every task', async () => {
@@ -114,93 +88,33 @@ async function main() {
     assert(getShowVoices('__proto__') === null && getShowVoices('constructor') === null, 'prototype keys');
   });
 
-  await check('remote 404 (tts-service without /api/dialogue) falls back to local', async () => {
-    await withServer(res => { res.statusCode = 404; res.end('Not Found'); }, async (url, seen) => {
-      process.env.TTS_SERVICE_URL = url;
-      synthCalls.length = 0;
-      const result = await generateShowVoice(LINES, 'he', { synthesize: fakeSynth });
-      try {
-        assert(seen.method === 'POST' && seen.url === '/api/dialogue', `${seen.method} ${seen.url}`);
-        assert(seen.auth === 'Bearer test-key', `auth ${seen.auth}`);
-        assert(seen.body?.voices?.B === 'Puck' && seen.body.lines?.length === 4, 'remote body');
-        assert(seen.body?.model === TTS_MODEL, `remote model ${seen.body?.model}`);
-        assert(result.via === 'local' && result.lineCount === 4 && result.audioTokens === 60, JSON.stringify(result));
-        assert(synthCalls.length === 4, `synth calls ${synthCalls.length}`);
-        assert(synthCalls.every(c => c.model === TTS_MODEL), `local models ${synthCalls.map(c => c.model).join(',')}`);
-        assert(synthCalls.every((c, i) => c.voiceName === (LINES[i].host === 'A' ? 'Schedar' : 'Puck')), 'voices');
-        assert(synthCalls[1].style === 'high-energy, excited sports commentator, amused', `style ${synthCalls[1].style}`);
-        // 4 lines of 0.6 s tone + 2 x 40 ms kept edges, 3 gaps of 0.2 s.
-        assert(Math.abs(result.audioSeconds - 3.32) < 0.05, `audioSeconds ${result.audioSeconds}`);
-        const file = await fs.readFile(result.filePath);
-        assert(file.subarray(0, 4).toString('ascii') === 'OggS', 'not an Ogg file');
-      } finally {
-        await fs.unlink(result.filePath).catch(() => {});
-      }
-    });
-  });
-
-  await check('remote 200 is used as is', async () => {
-    const ogg = Buffer.concat([Buffer.from('OggS'), Buffer.alloc(60, 1)]);
-    await withServer(res => {
-      res.setHeader('Content-Type', 'audio/ogg');
-      res.setHeader('X-TTS-Model', 'gemini-3.8-flash-tts');
-      res.setHeader('X-TTS-Audio-Seconds', '12.50');
-      res.setHeader('X-TTS-Audio-Tokens', '300');
-      res.end(ogg);
-    }, async url => {
-      process.env.TTS_SERVICE_URL = url;
-      synthCalls.length = 0;
-      const result = await generateShowVoice(LINES, 'he', { synthesize: fakeSynth });
-      try {
-        assert(result.via === 'remote' && synthCalls.length === 0, `via ${result.via}, synth ${synthCalls.length}`);
-        assert(result.audioSeconds === 12.5 && result.audioTokens === 300, JSON.stringify(result));
-        assert(result.ttsModel === 'gemini-3.8-flash-tts', `model ${result.ttsModel}`);
-        assert((await fs.readFile(result.filePath)).equals(ogg), 'file differs from the response');
-      } finally {
-        await fs.unlink(result.filePath).catch(() => {});
-      }
-    });
-  });
-
-  await check('a slow remote failure leaves the local fallback only the time the show has left', async () => {
-    await withServer(res => { setTimeout(() => { res.statusCode = 500; res.end('boom'); }, 300); }, async url => {
-      process.env.TTS_SERVICE_URL = url;
-      synthCalls.length = 0;
-      const result = await generateShowVoice(LINES, 'he', { synthesize: fakeSynth, deadlineMs: 3000 });
-      await fs.unlink(result.filePath).catch(() => {});
-      const timeouts = synthCalls.map(c => c.timeoutMs ?? 0);
-      assert(result.via === 'local' && timeouts.length === 4, `via ${result.via}, calls ${timeouts.length}`);
-      assert(timeouts.every(t => t <= 2700 && t > 2000), `local timeouts ${timeouts.join(',')}`);
-    });
-  });
-
-  await check('a hung remote is cut at the show deadline and the local fallback fails fast', async () => {
-    let held: http.ServerResponse | undefined;
-    // Timed from the remote request, so nothing before it counts against the deadline.
-    let receivedAt = 0;
-    await withServer(res => { held = res; receivedAt = Date.now(); }, async url => {
-      process.env.TTS_SERVICE_URL = url;
-      synthCalls.length = 0;
-      let caught: unknown;
-      try {
-        await Promise.race([
-          generateShowVoice(LINES, 'he', { synthesize: fakeSynth, deadlineMs: 400 }),
-          sleep(15_000).then(() => { throw new Error('still waiting after 15 s'); }),
-        ]);
-      } catch (e) { caught = e; }
-      const elapsed = Date.now() - receivedAt;
-      held?.destroy();
-      assert((caught as Error)?.name === 'DialogueDeadlineError', `error ${String(caught)}`);
-      assert(synthCalls.length === 0, `local synth calls ${synthCalls.length}`);
-      assert(receivedAt > 0 && elapsed >= 300 && elapsed < 1500, `rejected ${elapsed} ms after the remote request`);
-    });
-  });
-
-  await check('without TTS_SERVICE_URL the show is made locally', async () => {
+  await check('the show is made in-process, line by line, on the hosts\' voices', async () => {
+    // A leftover TTS_SERVICE_URL from the removed Vercel service changes nothing.
+    process.env.TTS_SERVICE_URL = 'http://127.0.0.1:9';
+    synthCalls.length = 0;
+    const result = await generateShowVoice(LINES, 'he', { synthesize: fakeSynth });
     delete process.env.TTS_SERVICE_URL;
-    const result = await generateShowVoice(LINES.slice(0, 2), 'he', { synthesize: fakeSynth });
+    try {
+      assert(result.lineCount === 4 && result.audioTokens === 60, JSON.stringify(result));
+      assert(synthCalls.length === 4, `synth calls ${synthCalls.length}`);
+      assert(synthCalls.every(c => c.model === TTS_MODEL), `models ${synthCalls.map(c => c.model).join(',')}`);
+      assert(synthCalls.every((c, i) => c.voiceName === (LINES[i].host === 'A' ? 'Schedar' : 'Puck')), 'voices');
+      assert(synthCalls[1].style === 'high-energy, excited sports commentator, amused', `style ${synthCalls[1].style}`);
+      // 4 lines of 0.6 s tone + 2 x 40 ms kept edges, 3 gaps of 0.2 s.
+      assert(Math.abs(result.audioSeconds - 3.32) < 0.05, `audioSeconds ${result.audioSeconds}`);
+      const file = await fs.readFile(result.filePath);
+      assert(file.subarray(0, 4).toString('ascii') === 'OggS', 'not an Ogg file');
+    } finally {
+      await fs.unlink(result.filePath).catch(() => {});
+    }
+  });
+
+  await check('each line gets only the time the show has left', async () => {
+    synthCalls.length = 0;
+    const result = await generateShowVoice(LINES, 'he', { synthesize: fakeSynth, deadlineMs: 3000 });
     await fs.unlink(result.filePath).catch(() => {});
-    assert(result.via === 'local' && result.lineCount === 2, JSON.stringify(result));
+    const timeouts = synthCalls.map(c => c.timeoutMs ?? 0);
+    assert(timeouts.length === 4 && timeouts.every(t => t <= 3000 && t > 2000), `timeouts ${timeouts.join(',')}`);
   });
 
   await check('a language without hosts and an empty show are refused', async () => {

@@ -1,9 +1,6 @@
 /**
  * Joins the separately synthesized lines of a two-host dialogue into one PCM stream.
  *
- * Deliberately self-contained - no imports - so tts-service/ can carry a verbatim copy
- * at tts-service/lib/pcm-mix.ts. Keep the two copies identical.
- *
  * Each TTS line arrives with its own lead-in and tail of silence and its own loudness.
  * Joined raw, the show has long dead air between turns and one host louder than the
  * other. So each line is trimmed to its sound, faded at both ends against clicks,

@@ -4,7 +4,6 @@
 //
 // Run: npx tsx scripts/smoke-tts.ts
 
-import fs from 'fs';
 import { buildTtsRequestBody, decodeSpeechAudio, extractSpeechAudio } from '../src/services/gemini-tts';
 
 type Result = { name: string; ok: boolean; reason?: string };
@@ -188,19 +187,6 @@ check('missing token count leaves audioTokens undefined', () => {
   const audio = extractSpeechAudio({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/l16', data: 'AQA=' } }] } }] }, 'm');
   assert(audio.audioTokens === undefined, `tokens ${audio.audioTokens}`);
 });
-
-// 10. tts-service deploys separately and carries verbatim copies of the shared library.
-const TWINS: Array<[string, string]> = [
-  ['src/services/gemini-tts.ts', 'tts-service/lib/gemini-tts.ts'],
-  ['src/utils/pcm-to-ogg-opus.ts', 'tts-service/lib/pcm-to-ogg-opus.ts'],
-  ['src/services/dialogue-tts.ts', 'tts-service/lib/dialogue-tts.ts'],
-  ['src/utils/pcm-mix.ts', 'tts-service/lib/pcm-mix.ts'],
-];
-for (const [app, service] of TWINS) {
-  check(`${service} is identical to ${app}`, () => {
-    assert(fs.readFileSync(app).equals(fs.readFileSync(service)), 'copies differ - copy the src/ file over the tts-service one');
-  });
-}
 
 // Print results
 let failed = 0;

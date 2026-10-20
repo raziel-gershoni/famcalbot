@@ -1,10 +1,6 @@
 /**
  * Gemini text-to-speech: request building and response decoding.
  *
- * Deliberately self-contained - no imports from this repo - so tts-service/ can carry
- * a verbatim copy at tts-service/lib/gemini-tts.ts. That service deploys separately
- * and cannot import from src/. Keep the two copies identical.
- *
  * Gemini 3.8 TTS reads its input as a verbatim transcript: a prompt such as "Read the
  * following text aloud cheerfully: ..." gets spoken aloud (measured at 6/20 samples on
  * Flash TTS). Style must travel in a per-part `speechMetadata`. It also defaults to WAV
