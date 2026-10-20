@@ -15,12 +15,11 @@ import type { calendar_v3 } from '@googleapis/calendar';
 import { getBotMessages } from '../../lib/bot-messages';
 import { classifyGoogleError } from '../calendar-read/google-map';
 import { counted, type CallBudget, type SyncGoogle } from './client';
-import { SYNC_MARKER } from './markers';
+import { SYNC_MARKER, linkToken } from './markers';
 
 type GEvent = calendar_v3.Schema$Event;
 
-/** The fixed token a copy calendar's description ends with (spec §2 Markers; never translated). */
-export const linkToken = (linkId: string) => `[famcal:${linkId}]`;
+export { linkToken };
 
 /** A Hebrew or Arabic letter: the name is then isolated (FSI … PDI) so "FamCal · " stays put. */
 const RTL = /[֐-ࣿיִ-﷿ﹰ-﻿]/;

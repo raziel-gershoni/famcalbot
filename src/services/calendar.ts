@@ -7,7 +7,7 @@ import { isTokenError, isInsufficientScopesError } from '../utils/errors';
 import { captureError } from '../lib/error-capture';
 import { classifyGoogleError, googleErrorFacts, type GoogleErrorClass } from './calendar-read/google-map';
 import { isSyncCopy } from './google-sync/markers';
-import { syncCopyCalendarIds } from './google-sync/links';
+import { syncCopyFilter } from './google-sync/links';
 import {
   daysFromTo,
   endCarriedRule,
@@ -93,7 +93,8 @@ export interface CalendarInfo {
 
 /**
  * List all calendars the user has access to, but FamCal's own copies (google-sync spec §2:
- * every Google calendar a copy link of the user holds, on or off), so select-calendars,
+ * every Google calendar a copy link of the user holds, on or off, by its id, or by its
+ * description's [famcal:<linkId>] token when the id was never stored), so select-calendars,
  * the editor's targets and everything chosen from them never offer one.
  * @param refreshToken - Google OAuth refresh token
  * @param userId - the user's DB id, whose copy links are hidden
@@ -116,9 +117,9 @@ export async function listUserCalendars(refreshToken: string, userId: number): P
       calendar.calendarList.list({
         showHidden: true,  // Include hidden calendars like birthdays
       }),
-      syncCopyCalendarIds(userId),
+      syncCopyFilter(userId),
     ]);
-    const calendars = (response.data.items || []).filter(cal => !cal.id || !copies.has(cal.id));
+    const calendars = (response.data.items || []).filter(cal => !copies.isCopy(cal));
 
     return calendars.map(cal => ({
       id: cal.id || '',

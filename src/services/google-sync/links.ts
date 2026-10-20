@@ -13,6 +13,7 @@ import { prisma } from '../../utils/prisma';
 import { openSyncGate } from './gate';
 import { clearLinkRetries } from './retries';
 import { hasSyncScope } from './scopes';
+import { linkToken } from './markers';
 
 /** What a 'sync' consent carries from the callback to the commit (the pending entry). */
 export interface SyncConsent {
@@ -201,4 +202,24 @@ export async function syncCopyCalendarIds(userId: number): Promise<Set<string>> 
     select: { googleCalendarId: true },
   });
   return new Set(links.flatMap((l) => (l.googleCalendarId ? [l.googleCalendarId] : [])));
+}
+
+/** What FamCal's Google lists hide of one user: the copy calendars by id, and by token. */
+export interface SyncCopyFilter {
+  /** Whether a Google calendar (a calendarList entry) is one of this user's copy calendars. */
+  isCopy(calendar: { id?: string | null; description?: string | null }): boolean;
+}
+
+/**
+ * Every Google calendar a link of the user holds, on or off, by its stored id; and one whose
+ * id was never stored (a create that crashed mid-'creating', until the worker adopts it) by
+ * the [famcal:<linkId>] token its description carries. One query, as syncCopyCalendarIds.
+ */
+export async function syncCopyFilter(userId: number): Promise<SyncCopyFilter> {
+  const links = await prisma.googleSyncLink.findMany({ where: { userId }, select: { id: true, googleCalendarId: true } });
+  const ids = new Set(links.flatMap((l) => (l.googleCalendarId ? [l.googleCalendarId] : [])));
+  const tokens = links.map((l) => linkToken(l.id));
+  return {
+    isCopy: (cal) => Boolean((cal.id && ids.has(cal.id)) || (cal.description && tokens.some((t) => cal.description!.includes(t)))),
+  };
 }

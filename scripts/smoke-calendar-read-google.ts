@@ -151,7 +151,7 @@ class FakeOAuth2 {
 /** calendarList.list's answer (listUserCalendars). */
 let calendarListItems: calendar_v3.Schema$CalendarListEntry[] = [];
 /** The sync links the fake DB holds (listUserCalendars hides their Google calendars). */
-let syncLinks: { userId: number; googleCalendarId: string | null; enabled: boolean }[] = [];
+let syncLinks: { id?: string; userId: number; googleCalendarId: string | null; enabled: boolean }[] = [];
 
 const fakeGoogleModule = {
   __esModule: true,
@@ -262,10 +262,13 @@ const stubs: Record<string, object> = {
     __esModule: true,
     prisma: {
       googleSyncLink: {
-        findMany: async ({ where }: { where: { userId: number; googleCalendarId: { not: null } } }) => {
+        // Every link of the user, on or off, with or without a stored Google calendar
+        // (S4: a calendar made but whose id was never stored is found by its token).
+        findMany: async ({ where, select }: { where: { userId: number }; select: Record<string, boolean> }) => {
           google.log.push('db:googleSyncLink');
-          assert(JSON.stringify(where.googleCalendarId) === '{"not":null}' && Object.keys(where).join(',') === 'userId,googleCalendarId', `unexpected link query ${JSON.stringify(where)}`);
-          return syncLinks.filter(l => l.userId === where.userId && l.googleCalendarId !== null).map(l => ({ googleCalendarId: l.googleCalendarId }));
+          assert(Object.keys(where).join(',') === 'userId', `unexpected link query ${JSON.stringify(where)}`);
+          assert(Object.keys(select).sort().join(',') === 'googleCalendarId,id', `unexpected link select ${JSON.stringify(select)}`);
+          return syncLinks.filter(l => l.userId === where.userId).map((l, i) => ({ id: l.id ?? `link-${l.userId}-${i}`, googleCalendarId: l.googleCalendarId }));
         },
       },
     },
@@ -884,6 +887,25 @@ async function main() {
     const { googleProvider } = await import('../src/services/calendar-provider/google-provider');
     const viaProvider = await googleProvider.listCalendars(user());
     assertSame(viaProvider.map(c => c.id), [DANA, 'noa-copy@group.calendar.google.com', KIDS], 'googleProvider.listCalendars');
+  });
+
+  await check('S4 listUserCalendars also hides a copy calendar whose id was never stored (a crash mid-creating) by the [famcal:<linkId>] token of one of this user\'s links; another user\'s token, a look-alike or no description stay', async () => {
+    calendarListItems = [
+      { id: DANA, summary: 'Dana', primary: true, accessRole: 'owner', backgroundColor: '#7986cb' },
+      { id: 'orphan@group.calendar.google.com', summary: 'FamCal · Home', description: 'FamCal keeps this calendar in step.\n\n[famcal:cl-own-1]', accessRole: 'owner' },
+      { id: 'stored@group.calendar.google.com', summary: 'FamCal · Work', description: '[famcal:cl-own-2]', accessRole: 'owner' },
+      { id: 'other-user@group.calendar.google.com', summary: 'FamCal · Noa', description: '[famcal:cl-noa-1]', accessRole: 'reader' },
+      { id: 'lookalike@group.calendar.google.com', summary: 'Notes', description: 'see [famcal:cl-own-10] and famcal:cl-own-1', accessRole: 'owner' },
+      { id: KIDS, summary: 'Family', accessRole: 'writer', backgroundColor: '#33b679' },
+    ];
+    syncLinks = [
+      { id: 'cl-own-1', userId: 7, googleCalendarId: null, enabled: true },
+      { id: 'cl-own-2', userId: 7, googleCalendarId: 'stored@group.calendar.google.com', enabled: false },
+      { id: 'cl-noa-1', userId: 8, googleCalendarId: null, enabled: true },
+    ];
+    const listed = await calendar.listUserCalendars('refresh-7', 7);
+    assertSame(listed.map((c: { id: string }) => c.id), [DANA, 'other-user@group.calendar.google.com', 'lookalike@group.calendar.google.com', KIDS], 'listUserCalendars');
+    syncLinks = [];
   });
 
   await check('S2 listUserCalendars: a user with no copies gets the list as before (one link lookup, nothing hidden)', async () => {
