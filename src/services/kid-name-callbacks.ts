@@ -138,9 +138,10 @@ async function confirmOnGoogle(
 
 /**
  * "Yes" on a FamCal calendar ("Google as a connection" spec §4): the child is the calendar's
- * person (NativeCalendar.personName), as the calendars page sets it. A calendar that already
- * names another child gets the rule instead, as a Google one does. Only the user's own
- * calendar is written; a partner's is left as it is.
+ * person (NativeCalendar.personName), as the calendars page sets it, but only on a calendar
+ * labelled kids that names no one yet: personName is read only there. Any other calendar
+ * (unlabelled, birthdays, or a kids one that already names a child) gets the rule instead, as a
+ * Google one does. Only the user's own calendar is written; a partner's is left as it is.
  */
 async function confirmOnFamcal(userId: number, pending: KidNamePending, ruleText: string, kd: KidNameTexts): Promise<string> {
   const cuid = decodeCalendarId(pending.calendarId);
@@ -151,7 +152,7 @@ async function confirmOnFamcal(userId: number, pending: KidNamePending, ruleText
     console.warn(`[KidName] user ${userId}: ${pending.calendarId} is not a FamCal calendar of theirs; nothing written`);
     return kd.declined || 'Got it, thanks!';
   }
-  if (!calendar.personName?.trim()) {
+  if (calendar.labels.includes('kids') && !calendar.personName?.trim()) {
     await prisma.nativeCalendar.update({ where: { id: calendar.id }, data: { personName: pending.name } });
     return (kd.confirmedFamcal || '{calendar} is now {name}\'s calendar')
       .replace('{calendar}', calendar.name)

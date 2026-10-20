@@ -413,6 +413,7 @@ function reset(users: UserConfig[], userPlans: [UserConfig, Outcome[]][], startA
 const OUTAGE_EN = enMessages.bot.errors.googleOutageNote;
 const OUTAGE_HE = heMessages.bot.errors.googleOutageNote;
 const TOKEN_TEXT = `${enMessages.bot.tokenExpired.title}\n\n${enMessages.bot.tokenExpired.message}`;
+const SCOPES_TEXT = `${enMessages.bot.insufficientScopes.title}\n\n${enMessages.bot.insufficientScopes.message}`;
 
 const textOf = (name: string) => sent.filter(s => s.name === name).map(s => s.text);
 const voiceOf = (name: string) => voices.filter(v => v.name === name).map(v => v.text);
@@ -768,6 +769,22 @@ async function main() {
     ], 'the run');
     assert(zoePrompts.length === 1 && zoePrompts[0].includes('Dentist (Zoe)'), 'the FamCal event is not in the prompt');
     assert(zoeTokenSent[1]?.text === TOKEN_TEXT && zoeTokenSent[1]?.button === 'https://famcal.test/refresh-token?user_id=1017', `token message ${JSON.stringify(zoeTokenSent[1])}`);
+  });
+
+  reset([ZOE], [[ZOE, ['scopes']]]);
+  await summary.sendDailySummaryToAll({ filterByHour: true });
+  const zoeScopesLog = log;
+  const zoeScopesSent = sent;
+
+  await check('G2 missing permissions for a FamCal user with Google: the summary goes out, then the missing-permissions text (as on demand), not the token one', () => {
+    assertList(zoeScopesLog.filter(l => !l.startsWith('housekeeping')), [
+      'read Zoe 2026-10-16..2026-10-17 30000',
+      'send Zoe summary',
+      'send Zoe token',
+      'admin Insufficient Scopes',
+      'mark Zoe daily 2026-10-16',
+    ], 'the run');
+    assert(zoeScopesSent[1]?.text === SCOPES_TEXT && zoeScopesSent[1]?.button === 'https://famcal.test/refresh-token?user_id=1017', `scopes message ${JSON.stringify(zoeScopesSent[1])}`);
   });
 
   reset([ZOE], [[ZOE, ['fail', 'fail']]]);

@@ -994,6 +994,24 @@ async function main() {
     eq((table('nativeCalendar').find(c => c.id === 'cal-2') as Row).personName, null, 'the partner\'s calendar');
   });
 
+  await check('I11 kid-name "yes" on an own FamCal calendar not labelled kids (unlabelled, birthdays) writes the rule with the plain copy, never personName', async () => {
+    seed();
+    table('nativeCalendar').push(cal('cal-9', 1, 'Family'), cal('cal-10', 1, 'Birthdays', { labels: ['birthdays'] }));
+    const { handleKidNameCallback } = await load('src/services/kid-name-callbacks.ts');
+    const { getBotMessages } = await load('src/lib/bot-messages.ts');
+    const t = await getBotMessages('en');
+    for (const [id, name] of [['cal-9', 'Family'], ['cal-10', 'Birthdays']]) {
+      botSent.length = 0;
+      redisStore.set(`kidname:pending:kn:${id}`, JSON.stringify({ name: 'Noa', calendarId: `native:${id}`, userId: 1 }));
+      await handleKidNameCallback(5550001, 9, 'q', 'kidname_yes', `kn:${id}`);
+      const row = table('nativeCalendar').find(c => c.id === id) as Row;
+      eq([row.personName, row.rules], [null, ['Noa is my child']], name);
+      const edit = botSent.find(b => b.method === 'editMessageText');
+      const want = String(t.kidNameDetection.confirmed).replace('{calendar}', name).replace('{name}', 'Noa');
+      assert(edit && edit.args[0] === want, `${name}: edit ${show(edit?.args[0])} (want ${show(want)})`);
+    }
+  });
+
   await check('I10 the voice show reads the union for a Google user too (it named nobody before)', async () => {
     seed();
     const { resolveShowCalendars } = await load('src/services/voice-show/context.ts');

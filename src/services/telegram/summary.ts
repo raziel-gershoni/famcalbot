@@ -416,7 +416,8 @@ export interface SummaryBatchResult {
 }
 
 /**
- * The token text with the refresh button (Telegram) or the reconnect template (WhatsApp),
+ * The token text, or the missing-permissions text for 'scopes', with the refresh button
+ * (Telegram), or the reconnect template (WhatsApp),
  * and an admin warning: after a scheduled summary that failed on a dead token, or one that
  * went out with FamCal's events while Google needs reconnecting ("Google as a connection"
  * spec §4 Summaries). A failed send is logged and reported; it never fails the batch.
@@ -425,11 +426,13 @@ async function sendReconnectNotice(user: UserConfig, platform: DeliveryPlatform,
   const messagingService = getMessagingService();
   const t = await getBotMessages(user.language || 'en');
   const refreshUrl = buildUrl(`/refresh-token?user_id=${user.telegramId ?? user.id}`);
-  const expiredMessage = `${t.tokenExpired.title}\n\n${t.tokenExpired.message}`;
+  // The same texts as on demand (answerGoogleReadError): missing permissions are not a dead token.
+  const copy = reason === 'scopes' ? t.insufficientScopes : t.tokenExpired;
+  const noticeMessage = `${copy.title}\n\n${copy.message}`;
 
   try {
     if ((platform === 'telegram' || platform === 'all') && user.telegramId) {
-      await messagingService.sendMessage(user.telegramId, expiredMessage, {
+      await messagingService.sendMessage(user.telegramId, noticeMessage, {
         format: MessageFormat.HTML,
         replyMarkup: {
           inline_keyboard: [[

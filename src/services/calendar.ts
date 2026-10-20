@@ -413,8 +413,14 @@ export async function fetchEventsInRange(
   }
   // Not one calendar answered: Google itself couldn't be read, which is no answer at all. The
   // provider's caller (the split fetch) then knows its Google half failed ("Google as a
-  // connection" spec §4), instead of reading it as a day with no events.
-  if (calendarIds.length > 0 && results.every(r => r.status === 'rejected')) {
+  // connection" spec §4), instead of reading it as a day with no events. Calendars that are
+  // gone (404, 410: deleted, unshared) are no events, not an outage, as the reader's
+  // calendars_gone: only a failure that isn't a gone calendar fails the fetch.
+  if (
+    calendarIds.length > 0 &&
+    results.every(r => r.status === 'rejected') &&
+    results.some(r => r.status === 'rejected' && classifyGoogleError(r.reason) !== 'gone')
+  ) {
     throw new Error('GOOGLE_FETCH_FAILED');
   }
 

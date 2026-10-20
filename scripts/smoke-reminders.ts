@@ -544,6 +544,15 @@ async function main() {
       googleCalls.failing = Object.fromEntries(cals.map(c => [c, Object.assign(new Error('Backend Error'), { code: 503 })]));
       const down = await fetchEventsInRange('refresh-token', cals, ...range).then(() => 'resolved', (err: Error) => err.message);
       assert(down === 'GOOGLE_FETCH_FAILED', `every calendar down: ${down}`);
+      // Calendars that are gone (404, 410: deleted, unshared) are no events, not an outage,
+      // as the reader's calendars_gone; one gone and the rest down is still an outage.
+      const gone = (code: number) => Object.assign(new Error('Not Found'), { code });
+      googleCalls.failing = Object.fromEntries(cals.map((c, i) => [c, gone(i % 2 ? 410 : 404)]));
+      const allGone = await fetchEventsInRange('refresh-token', cals, ...range).then(e => `resolved ${e.length}`, (err: Error) => err.message);
+      assert(allGone === 'resolved 0', `every calendar gone: ${allGone}`);
+      googleCalls.failing = Object.fromEntries(cals.map((c, i) => [c, i === 0 ? gone(404) : Object.assign(new Error('Backend Error'), { code: 503 })]));
+      const goneAndDown = await fetchEventsInRange('refresh-token', cals, ...range).then(() => 'resolved', (err: Error) => err.message);
+      assert(goneAndDown === 'GOOGLE_FETCH_FAILED', `one gone, the rest down: ${goneAndDown}`);
     } finally {
       console.error = error;
       Object.assign(googleCalls, { latencyMs: 0, failing: {} });
