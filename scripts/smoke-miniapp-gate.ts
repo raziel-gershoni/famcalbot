@@ -475,9 +475,9 @@ async function main() {
   const DASHBOARD: Row = {
     user: { id: 5550001, name: 'Dana', location: 'Tel Aviv', isAdmin: true },
     locale: 'he',
-    calendarSource: 'NATIVE',
-    needsOAuth: false,
-    needsCalendars: false,
+    sources: ['famcal'],
+    googleConnected: false,
+    googleState: 'none',
     trial: { isTrialing: true, daysRemaining: 5, trialEndsAt: '2026-10-21T12:00:00.000Z' },
     isEarlyAdopter: false,
     hints: { reminders: true, voiceEvents: false },
@@ -515,9 +515,9 @@ async function main() {
     const want = {
       user: { id: 5550001, name: 'Dana', isAdmin: true },
       locale: 'he',
-      calendarSource: 'NATIVE',
-      needsOAuth: false,
-      needsCalendars: false,
+      sources: ['famcal'],
+      googleConnected: false,
+      googleState: 'none',
       hints: { reminders: true, voiceEvents: false },
       trialDaysLeft: 5,
       hasLocation: true,
@@ -526,14 +526,15 @@ async function main() {
     assert(canon(rendered[0]?.props) === canon(want), `CalendarHome got ${canon(rendered[0]?.props)}`);
   });
 
-  await check('#17 a Google user\'s home: calendarSource and the setup flags pass through, the hints are the page\'s, and an early adopter with no location gets no trial days and hasLocation false', async () => {
+  await check('#17 a user with Google connected: the sources and the Google facts pass through, the hints are the page\'s, and an early adopter with no location gets no trial days and hasLocation false', async () => {
     const { html } = await renderDashboard({
-      ...DASHBOARD, calendarSource: 'GOOGLE', needsOAuth: true, needsCalendars: true,
+      ...DASHBOARD, sources: ['famcal', 'google'], googleConnected: true, googleState: 'choose',
       user: { ...DASHBOARD.user, location: '' }, isEarlyAdopter: true,
     });
     assert(html.includes('smoke:CalendarHome'), `rendered: ${html.slice(0, 200)}`);
     const got = rendered[0].props;
-    assert(got.calendarSource === 'GOOGLE' && got.needsOAuth === true && got.needsCalendars === true, `CalendarHome got ${canon(got)}`);
+    assert(canon(got.sources) === canon(['famcal', 'google']) && got.googleConnected === true && got.googleState === 'choose', `CalendarHome got ${canon(got)}`);
+    assert(!('calendarSource' in got) && !('needsOAuth' in got) && !('needsCalendars' in got), `no legacy fact: ${canon(got)}`);
     assert(canon(got.hints) === canon({ reminders: true, voiceEvents: false }), `hints ${canon(got.hints)}`);
     assert(got.trialDaysLeft === null && got.hasLocation === false, `trialDaysLeft ${show(got.trialDaysLeft)}, hasLocation ${show(got.hasLocation)}`);
   });

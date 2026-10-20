@@ -640,7 +640,7 @@ async function main() {
   const { REDIS_KEYS } = await load('src/config/redis-keys.ts');
   const show = (value: unknown) => JSON.stringify(value);
   /** The dashboard's props on the wire: the calendar home's, nothing of the old dashboard's. */
-  const DASHBOARD_KEYS = ['user', 'locale', 'calendarSource', 'needsOAuth', 'needsCalendars', 'trial', 'isEarlyAdopter', 'hints', 'lookahead7'];
+  const DASHBOARD_KEYS = ['user', 'locale', 'sources', 'googleConnected', 'googleState', 'trial', 'isEarlyAdopter', 'hints', 'lookahead7'];
   const keysOf = (value: Row) => Object.keys(value).sort().join(',');
   const hintsOf = (props: Row) => `reminders=${props.hints?.reminders} voiceEvents=${props.hints?.voiceEvents}`;
   /** A feature check's answer in the 24 h cache checkFeatureAccess reads first. */
@@ -675,6 +675,28 @@ async function main() {
     if (show([...featureChecks].sort()) !== show(['reminders(4)', 'voice_events(4)']) || show(supportChecks) !== show([4])) problems.push(`hint checks ${show({ featureChecks, supportChecks })}`);
     const opened = await opens();
     if (show(opened) !== show([4])) problems.push(`webapp_opened for ${show(opened)} (want [4]: the DB id, once)`);
+    // Google is a connection beside FamCal: the facts, not a source (spec "Google as a connection" §2, §4)
+    if (show(gina.sources) !== show(['famcal', 'google']) || gina.googleConnected !== true || gina.googleState !== 'connected') problems.push(`google facts ${show({ s: gina.sources, c: gina.googleConnected, st: gina.googleState })}`);
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#11a the dashboard\'s Google facts by state: a FamCal user (no token, no calendars) reads FamCal alone and never connected; a token with none chosen is choose; a cleared token with calendars stored is reconnect and reads FamCal alone; no calendarSource, needsOAuth or needsCalendars on the wire', async () => {
+    seed();
+    const problems: string[] = [];
+    const facts = (p: Row) => show({ sources: p.sources, googleConnected: p.googleConnected, googleState: p.googleState });
+    const dana = await dashboardFor(5550001, 'he');
+    if (facts(dana) !== show({ sources: ['famcal'], googleConnected: false, googleState: 'none' })) problems.push(`Dana ${facts(dana)}`);
+    const gina = DB.user.find((u: Row) => u.id === 4);
+    assert(gina, 'the seeded Google user');
+    const assignments = gina.calendarAssignments;
+    gina.calendarAssignments = null;
+    const choose = await dashboardFor(8880004, 'en');
+    if (facts(choose) !== show({ sources: ['famcal', 'google'], googleConnected: true, googleState: 'choose' })) problems.push(`choose ${facts(choose)}`);
+    gina.calendarAssignments = assignments;
+    gina.googleRefreshToken = '';
+    const cleared = await dashboardFor(8880004, 'en');
+    if (facts(cleared) !== show({ sources: ['famcal'], googleConnected: false, googleState: 'reconnect' })) problems.push(`cleared ${facts(cleared)}`);
+    for (const p of [dana, choose, cleared]) if ('calendarSource' in p || 'needsOAuth' in p || 'needsCalendars' in p) problems.push(`a legacy fact on the wire: ${keysOf(p)}`);
     assert(problems.length === 0, problems.join('; '));
   });
 
