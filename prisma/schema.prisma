@@ -115,11 +115,13 @@ model BlockedIdentifier {
 }
 
 model OAuthState {
-  id        String   @id @default(cuid())
-  userId    BigInt
-  token     String   @unique
-  createdAt DateTime @default(now())
-  expiresAt DateTime
+  id               String   @id @default(cuid())
+  userId           BigInt
+  token            String   @unique
+  purpose          String? // null = connect; 'sync' = the first "Copy to Google", which also asks calendar.app.created
+  nativeCalendarId String? // The FamCal calendar a 'sync' consent copies (no FK: the commit re-checks it is the user's own)
+  createdAt        DateTime @default(now())
+  expiresAt        DateTime
 
   @@index([token])
   @@index([userId])

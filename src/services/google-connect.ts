@@ -8,6 +8,13 @@
  * t.me/<bot>?start=gc_<pendingId> and a wa.me message with gc_<pendingId>. The token is
  * committed only when the state's owner sends that from their own Telegram or WhatsApp.
  * Anyone else's claim uses the entry up and connects nothing.
+ *
+ * The consent itself starts here too (createGoogleConsent, for POST /api/oauth/start). Every
+ * consent sends include_granted_scopes, so a later reconnect keeps calendar.app.created.
+ * A 'sync' consent (google-sync spec §3) also asks for that scope and names the FamCal
+ * calendar to copy; the scopes Google granted, and for a sync the calendar and the
+ * account, travel in the pending entry, and the commit saves them (User.googleScopes) and
+ * turns the copy on.
  */
 
 import crypto from 'crypto';
@@ -27,6 +34,10 @@ import { getWhatsAppService, MessageFormat } from './messaging';
 import type { UserConfig } from '../types';
 import { Prisma } from '@prisma/client';
 import { liveGoogleChoices } from '../lib/google-state';
+import { prisma } from '../utils/prisma';
+import { OAUTH_STATE_PREFIX } from '../lib/oauth-state';
+import { consentScopes } from './google-sync/scopes';
+import { enableSyncLink, restoreSyncLinks, type SyncConsent } from './google-sync/links';
 
 /** How long a parked token waits for its owner's tap */
 const PENDING_TTL_SECONDS = 15 * 60;
@@ -37,19 +48,93 @@ const CONNECTED_FLAG_TTL_SECONDS = 15 * 60;
 const PENDING_ID = /^[A-Za-z0-9_-]{32}$/;
 const PENDING_ID_IN_TEXT = /(?:^|[^A-Za-z0-9_-])gc_([A-Za-z0-9_-]{32})(?![A-Za-z0-9_-])/;
 
+/** What Google granted with a token: the token response's scopes, and for a 'sync' consent what to copy. */
+export interface GoogleGrant {
+  scopes: string[];
+  sync?: SyncConsent;
+}
+
 interface PendingGoogleToken {
   ownerUserId: number;
   /** Encrypted as googleRefreshToken is on the user row */
   refreshToken: string;
+  /** Absent on an entry parked before the scopes were carried: its commit leaves googleScopes as they are. */
+  scopes?: string[];
+  sync?: SyncConsent;
+}
+
+/** How long a consent's state is honoured */
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+/** A FamCal calendar id is a cuid; anything longer is not one */
+const MAX_CALENDAR_ID = 64;
+
+export type ConsentRequest = { purpose: 'connect' } | { purpose: 'sync'; nativeCalendarId: string };
+
+/** oauth/start's body as a consent request: no purpose is a connect; null for anything else. */
+export function parseConsentRequest(body: { purpose?: unknown; nativeCalendarId?: unknown }): ConsentRequest | null {
+  if (body.purpose === undefined || body.purpose === null || body.purpose === 'connect') return { purpose: 'connect' };
+  if (body.purpose !== 'sync') return null;
+  const id = body.nativeCalendarId;
+  if (typeof id !== 'string' || id === '' || id.length > MAX_CALENDAR_ID) return null;
+  return { purpose: 'sync', nativeCalendarId: id };
+}
+
+export type GoogleConsent = { status: 'ok'; oauthUrl: string } | { status: 'calendar_not_found' };
+
+/**
+ * Start a Google consent for a proved user: a one-time state (10 minutes) bound to the user's
+ * DB id, and Google's consent URL. A 'sync' consent is only for a live FamCal calendar the
+ * user owns; the commit checks that again.
+ */
+export async function createGoogleConsent(userId: number, request: ConsentRequest): Promise<GoogleConsent> {
+  if (request.purpose === 'sync') {
+    const own = await prisma.nativeCalendar.findFirst({
+      where: { id: request.nativeCalendarId, ownerUserId: userId, isDeleted: false },
+      select: { id: true },
+    });
+    if (!own) {
+      console.warn(`[google-connect] user ${userId}: no sync consent for calendar ${request.nativeCalendarId}: not their own live calendar`);
+      return { status: 'calendar_not_found' };
+    }
+  }
+
+  // Secure random state token, stored with a 10-minute expiry
+  const stateToken = OAUTH_STATE_PREFIX + crypto.randomBytes(32).toString('hex');
+  await prisma.oAuthState.create({
+    data: {
+      userId: BigInt(userId),
+      token: stateToken,
+      expiresAt: new Date(Date.now() + OAUTH_STATE_TTL_MS),
+      ...(request.purpose === 'sync' ? { purpose: 'sync', nativeCalendarId: request.nativeCalendarId } : {}),
+    },
+  });
+
+  const urlParams = new URLSearchParams({
+    client_id: process.env.GOOGLE_CLIENT_ID || '',
+    redirect_uri: buildUrl('/api/refresh-token'),
+    response_type: 'code',
+    scope: consentScopes(request.purpose).join(' '),
+    access_type: 'offline',
+    prompt: 'consent', // Force consent to get refresh token
+    // Incremental authorization: the new token also covers every scope granted before, so a
+    // reconnect never drops calendar.app.created
+    include_granted_scopes: 'true',
+    state: stateToken,
+  });
+  return { status: 'ok', oauthUrl: `https://accounts.google.com/o/oauth2/v2/auth?${urlParams.toString()}` };
 }
 
 const pendingKey = (pendingId: string) =>
   REDIS_KEYS.oauthPending(crypto.createHash('sha256').update(pendingId).digest('hex'));
 
-/** Park a token from the OAuth callback for its owner's tap. Returns the pendingId. */
-export async function createPendingGoogleToken(ownerUserId: number, refreshToken: string): Promise<string> {
+/** Park a token from the OAuth callback, with what Google granted, for its owner's tap. Returns the pendingId. */
+export async function createPendingGoogleToken(ownerUserId: number, refreshToken: string, grant?: GoogleGrant): Promise<string> {
   const pendingId = crypto.randomBytes(24).toString('base64url');
-  const entry: PendingGoogleToken = { ownerUserId, refreshToken: encrypt(refreshToken) };
+  const entry: PendingGoogleToken = {
+    ownerUserId,
+    refreshToken: encrypt(refreshToken),
+    ...(grant ? { scopes: grant.scopes, ...(grant.sync ? { sync: grant.sync } : {}) } : {}),
+  };
   await redis.set(pendingKey(pendingId), JSON.stringify(entry), { ex: PENDING_TTL_SECONDS });
   return pendingId;
 }
@@ -105,7 +190,8 @@ export async function claimPendingGoogleToken(
     (sender.userId !== undefined && owner.id === sender.userId);
   if (!isOwner) return { status: 'not_owner' };
 
-  await commitGoogleToken(owner.id, decrypt(entry.refreshToken));
+  const grant = Array.isArray(entry.scopes) ? { scopes: entry.scopes, ...(entry.sync ? { sync: entry.sync } : {}) } : undefined;
+  await commitGoogleToken(owner.id, decrypt(entry.refreshToken), grant);
   return { status: 'connected', owner };
 }
 
@@ -114,8 +200,13 @@ export async function claimPendingGoogleToken(
  * token, the reminder cache, a fresh start for the Google setup nudges and the admin
  * note. Then the flag the Mini App polls for. Nothing else changes: Google is a
  * connection beside FamCal.
+ *
+ * With the grant (every entry the callback parks now): the granted scopes are saved on the
+ * user (an empty list means calendar.app.created is missing) and the outage notice resets;
+ * the user's copies stopped on the token or the permission go back to work; a 'sync'
+ * consent turns its copy on. Without one (an entry from before), googleScopes stay.
  */
-export async function commitGoogleToken(ownerUserId: number, refreshToken: string): Promise<void> {
+export async function commitGoogleToken(ownerUserId: number, refreshToken: string, grant?: GoogleGrant): Promise<void> {
   const user = await getUserById(ownerUserId);
   if (!user) throw new Error(`User ${ownerUserId} not found`);
 
@@ -130,6 +221,7 @@ export async function commitGoogleToken(ownerUserId: number, refreshToken: strin
   await updateUserById(user.id, {
     googleRefreshToken: refreshToken,
     ...(stale ? { calendarAssignments: Prisma.DbNull as unknown as null } : {}),
+    ...(grant ? { googleScopes: grant.scopes, googleSyncNotifiedAt: null } : {}),
   });
 
   // Google is a connection ("Google as a connection" spec §1): the user keeps their FamCal
@@ -171,6 +263,13 @@ export async function commitGoogleToken(ownerUserId: number, refreshToken: strin
     await redis.set(REDIS_KEYS.googleConnected(user.id), Date.now(), { ex: CONNECTED_FLAG_TTL_SECONDS });
   } catch (err) {
     captureError(err, 'google-connect-flag', { user_id: user.id }, 'warning');
+  }
+
+  // The copies to Google (google-sync spec §3, §4). A failure here throws to the claim,
+  // whose "failed" reply says to check: the token is saved by now.
+  if (grant) {
+    await restoreSyncLinks(user.id, grant.scopes);
+    if (grant.sync) await enableSyncLink(user.id, grant.sync, grant.scopes);
   }
 }
 

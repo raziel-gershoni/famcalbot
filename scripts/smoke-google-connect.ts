@@ -36,6 +36,14 @@
 // blocked), and in #27 the phone (webview, localStorage, a clock off the server's, the
 // poll's interval). No network, no DB.
 //
+// google-sync S2 (#31-#41, spec §3 and §6 "OAuth"): every consent sends
+// include_granted_scopes; a 'sync' consent adds calendar.app.created and carries its FamCal
+// calendar in the state (an own live one only); the callback parks the granted scopes, and
+// for a sync the calendar and the account (calendars.get primary, with the exchange's access
+// token); the commit saves googleScopes, puts the user's links stopped on the token or the
+// permission back to work, and a sync commit re-checks the calendar and creates or
+// re-enables its link. Connecting without the new scope works as before.
+//
 // Checks named [guard] already pass before the fix and must keep passing. The others
 // fail until the fix lands.
 //
@@ -282,6 +290,13 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const BOTH_SCOPES = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events';
 /** What Google's token endpoint answers next; tests override it. */
 let googleAnswer: Row = { refresh_token: 'google-rt-new', scope: BOTH_SCOPES, access_token: 'test' };
+const SYNC_SCOPE = 'https://www.googleapis.com/auth/calendar.app.created';
+/** The account's identity: calendars.get('primary')'s id, asked with the exchange's access token (google-sync S2). */
+const GOOGLE_PRIMARY_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary?fields=id';
+/** What calendars.get('primary') answers next: an id, or an HTTP status it fails with. */
+let primaryAnswer: { id: string } | { status: number } = { id: 'tal@gmail.com' };
+/** The Authorization header each calendars.get('primary') carried. */
+const primaryAuth: string[] = [];
 const Module = nodeRequire('module');
 const stubs: Record<string, Row> = {};
 (globalThis as Row).__smokeStubs = stubs;
@@ -362,11 +377,18 @@ function installStubs() {
   };
   stub('src/services/messaging/index.ts', messaging);
   stub('src/services/messaging/factory.ts', messaging);
-  globalThis.fetch = (async (input: unknown) => {
+  globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
     googleCalls.push(url);
     if (url === GOOGLE_TOKEN_URL) {
       return new Response(JSON.stringify(googleAnswer), { headers: { 'content-type': 'application/json' } });
+    }
+    if (url === GOOGLE_PRIMARY_URL) {
+      primaryAuth.push(String(new Headers(init?.headers).get('authorization')));
+      const a = primaryAnswer;
+      return 'id' in a
+        ? new Response(JSON.stringify(a), { headers: { 'content-type': 'application/json' } })
+        : new Response(JSON.stringify({ error: { code: a.status, message: 'smoke' } }), { status: a.status, headers: { 'content-type': 'application/json' } });
     }
     throw new Error(`network blocked in smoke: ${url}`);
   }) as typeof fetch;
@@ -380,6 +402,7 @@ function baseUser(o: Row): Row {
   return {
     name: 'x', englishName: '', gender: 'male', language: 'en', location: 'Tel Aviv', culture: 'default',
     messagingPlatform: 'telegram', googleRefreshToken: '', calendarAssignments: null, calendarSource: 'NATIVE',
+    googleScopes: [], googleSyncNotifiedAt: null,
     pairingId: null, remindersEnabled: false, suspendedAt: null, unreachableSince: null, whatsappPhone: null,
     whatsappBsuid: null, telegramId: null, isAdmin: false, globalRules: [], voiceInputEnabled: true,
     textSummaryEnabled: true, voiceSummaryEnabled: false, weatherEnabled: true, locationForced: false,
@@ -412,6 +435,10 @@ function seed() {
   failingSends.clear();
   limiterUses.length = 0;
   googleAnswer = { refresh_token: 'google-rt-new', scope: BOTH_SCOPES, access_token: 'test' };
+  primaryAnswer = { id: 'tal@gmail.com' };
+  primaryAuth.length = 0;
+  DB.googleSyncLink = [];
+  DB.googleSyncItem = [];
   DB.user = [
     baseUser({ id: 9, name: 'Tal Cohen', telegramId: BigInt(TAL_TG), remindersEnabled: true }),
     baseUser({ id: 42, name: 'Noa', messagingPlatform: 'whatsapp', whatsappBsuid: WA_BSUID, language: 'he' }),
@@ -1376,6 +1403,240 @@ async function main() {
     await tgWebhook(tgText(TAL_TG, `/start gc_${await pendingFor(9)}`));
     const note = adminNotes.find(n => n.startsWith('Token Refreshed')) ?? '';
     assert(note.includes('(&lt;a href="https://evil.example"&gt;Open admin panel&lt;/a&gt; &amp; co)') && !note.includes('<a'), `note ${show(note)}`);
+  });
+
+
+  // ---- google-sync S2: incremental scopes, the sync purpose, the scopes at commit ----
+
+  /** POST /api/oauth/start as Tal's Mini App does, with extra body fields. */
+  const startOAuth = async (extra: Row = {}) => {
+    const { POST } = await load('app/api/oauth/start/route.ts');
+    const res = await quietly<Response>(() => POST(new NextRequest('http://localhost/api/oauth/start', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-telegram-init-data': initDataFor(TAL_TG) },
+      body: JSON.stringify({ user_id: String(TAL_TG), ...extra }),
+    }))).then(r => r.value);
+    const body = await res.json();
+    const url = body.oauthUrl ? new URL(body.oauthUrl) : null;
+    return { status: res.status, body, params: url?.searchParams ?? new URLSearchParams() };
+  };
+  /** A state row as oauth/start makes it, with a purpose. */
+  const addSyncState = (userId: number, nativeCalendarId: string) => {
+    const token = addState(userId);
+    Object.assign(DB.oAuthState.at(-1)!, { purpose: 'sync', nativeCalendarId });
+    return token;
+  };
+  /** The callback's pending entry, read back from Redis (one only). */
+  const pendingEntry = (): Row => {
+    const keys = pendingKeys();
+    assert(keys.length === 1, `pending keys: ${show(keys)}`);
+    return JSON.parse(redisStore.get(keys[0]) ?? '{}');
+  };
+  /** Consent through the callback, then Tal's /start tap: the whole flow. */
+  const consentAndClaim = async (state: string) => {
+    const { value: end } = await quietly(() => runCallback(state));
+    assert(end.redirect, `callback ended with ${show(end.threw ?? end.element?.type ?? end)}; ${captured.join(' | ')}`);
+    const p = fragmentOf(end.redirect).get('p');
+    await tgWebhook(tgText(TAL_TG, `/start gc_${p}`));
+  };
+  const linksOf = (userId: number) => DB.googleSyncLink.filter(l => l.userId === userId);
+  const { __resetSyncGateForTests, shouldRunSync, setNextSync } = await load('src/services/google-sync/gate.ts');
+  const closeGate = () => { __resetSyncGateForTests(); shouldRunSync(new Date()); setNextSync(null, new Date()); };
+  const gateOpen = () => shouldRunSync(new Date());
+
+  await check('#31 S2 oauth/start (connect): include_granted_scopes=true, only the two calendar scopes, offline with consent; the state has no purpose', async () => {
+    seed();
+    const { status, params, body } = await startOAuth();
+    assert(status === 200, `oauth/start ${status} ${show(body)}`);
+    assert(params.get('include_granted_scopes') === 'true', `include_granted_scopes ${params.get('include_granted_scopes')}`);
+    assert(params.get('scope') === BOTH_SCOPES, `scope ${params.get('scope')}`);
+    assert(params.get('access_type') === 'offline' && params.get('prompt') === 'consent', `params ${params.toString()}`);
+    assert(DB.oAuthState.length === 1 && DB.oAuthState[0].token === params.get('state'), `states ${show(DB.oAuthState)}`);
+    assert(DB.oAuthState[0].purpose == null && DB.oAuthState[0].nativeCalendarId == null, `state ${show(DB.oAuthState[0])}`);
+  });
+
+  await check('#32 S2 oauth/start (sync): the extra calendar.app.created scope beside the two, include_granted_scopes; the state carries purpose and nativeCalendarId', async () => {
+    seed();
+    const { status, params, body } = await startOAuth({ purpose: 'sync', nativeCalendarId: 'cal-9' });
+    assert(status === 200, `oauth/start ${status} ${show(body)}`);
+    assert(params.get('include_granted_scopes') === 'true', `include_granted_scopes ${params.get('include_granted_scopes')}`);
+    assert(params.get('scope') === `${BOTH_SCOPES} ${SYNC_SCOPE}`, `scope ${params.get('scope')}`);
+    const st = DB.oAuthState[0];
+    assert(DB.oAuthState.length === 1 && st.purpose === 'sync' && st.nativeCalendarId === 'cal-9' && String(st.userId) === '9', `state ${show(DB.oAuthState)}`);
+  });
+
+  await check('#33 S2 oauth/start refuses a sync for a calendar the user does not own, a deleted one, none, or an unknown purpose (400), and makes no state', async () => {
+    seed();
+    DB.nativeCalendar.push({ id: 'cal-9-gone', ownerUserId: 9, name: 'Old', isDeleted: true });
+    const bodies: Row[] = [
+      { purpose: 'sync', nativeCalendarId: 'cal-42' },
+      { purpose: 'sync', nativeCalendarId: 'cal-9-gone' },
+      { purpose: 'sync', nativeCalendarId: 'cal-none' },
+      { purpose: 'sync' },
+      { purpose: 'sync', nativeCalendarId: 42 },
+      { purpose: 'other', nativeCalendarId: 'cal-9' },
+    ];
+    for (const b of bodies) {
+      const { status, body } = await startOAuth(b);
+      assert(status === 400 && !body.oauthUrl, `${show(b)}: ${status} ${show(body)}`);
+    }
+    assert(DB.oAuthState.length === 0, `states ${show(DB.oAuthState)}`);
+  });
+
+  await check('#34 S2 callback (connect): the pending entry carries the granted scopes from the token response; no identity call', async () => {
+    seed();
+    googleAnswer = { refresh_token: 'google-rt-new', scope: `${BOTH_SCOPES} ${SYNC_SCOPE}`, access_token: 'at-1' };
+    const { value: end } = await quietly(() => runCallback(addState(9)));
+    assert(end.redirect, `callback ${show(end.threw ?? end)}`);
+    const entry = pendingEntry();
+    assert(show(entry.scopes) === show([...BOTH_SCOPES.split(' '), SYNC_SCOPE]), `scopes ${show(entry.scopes)}`);
+    assert(entry.sync === undefined, `sync ${show(entry.sync)}`);
+    assert(primaryAuth.length === 0 && googleCalls.every(u => u === GOOGLE_TOKEN_URL), `Google calls ${show(googleCalls)}`);
+    assert(userWrites.length === 0, 'the callback wrote the user');
+  });
+
+  await check('#35 S2 callback (sync): asks calendars.get(primary) with the exchange\'s access token; the entry carries the calendar and the account; nothing is saved yet', async () => {
+    seed();
+    googleAnswer = { refresh_token: 'google-rt-new', scope: `${BOTH_SCOPES} ${SYNC_SCOPE}`, access_token: 'at-sync' };
+    const { value: end } = await quietly(() => runCallback(addSyncState(9, 'cal-9')));
+    assert(end.redirect, `callback ${show(end.threw ?? end)}; ${captured.join(' | ')}`);
+    const entry = pendingEntry();
+    assert(show(entry.sync) === show({ nativeCalendarId: 'cal-9', googleAccount: 'tal@gmail.com' }), `sync ${show(entry.sync)}`);
+    assert(show(primaryAuth) === show(['Bearer at-sync']), `identity calls ${show(primaryAuth)}`);
+    assert(userWrites.length === 0 && DB.googleSyncLink.length === 0, 'the callback saved something');
+  });
+
+  await check('#35b S2 callback (sync): an identity call that fails is logged and captured; the consent still parks, with no account', async () => {
+    seed();
+    googleAnswer = { refresh_token: 'google-rt-new', scope: `${BOTH_SCOPES} ${SYNC_SCOPE}`, access_token: 'at-sync' };
+    primaryAnswer = { status: 503 };
+    const { value: end } = await quietly(() => runCallback(addSyncState(9, 'cal-9')));
+    assert(end.redirect, `callback ${show(end.threw ?? end)}`);
+    const entry = pendingEntry();
+    assert(show(entry.sync) === show({ nativeCalendarId: 'cal-9', googleAccount: null }), `sync ${show(entry.sync)}`);
+    assert(captured.some(c => c.startsWith('google-sync-account')), `captured ${show(captured)}`);
+  });
+
+  await check('#36 S2 commit (connect): googleScopes saved from the entry; the user\'s links in token/scopes go back (ok, or creating with no calendar yet) with nextAttemptAt cleared; the outage notice resets; the gate opens; nobody else\'s links move', async () => {
+    seed();
+    googleAnswer = { refresh_token: 'google-rt-new', scope: `${BOTH_SCOPES} ${SYNC_SCOPE}`, access_token: 'at-1' };
+    userRow(9).googleSyncNotifiedAt = new Date();
+    DB.googleSyncLink = [
+      { id: 'l-tok', userId: 9, nativeCalendarId: 'cal-9', googleCalendarId: 'g1', enabled: true, state: 'token', dirtySeq: 0, pushedSeq: 0 },
+      { id: 'l-new', userId: 9, nativeCalendarId: 'cal-9b', googleCalendarId: null, enabled: true, state: 'scopes', dirtySeq: 1, pushedSeq: 0 },
+      { id: 'l-gone', userId: 9, nativeCalendarId: 'cal-9c', googleCalendarId: 'g3', enabled: true, state: 'gone', dirtySeq: 0, pushedSeq: 0 },
+      { id: 'l-noa', userId: 42, nativeCalendarId: 'cal-42', googleCalendarId: 'g4', enabled: true, state: 'token', dirtySeq: 0, pushedSeq: 0 },
+    ];
+    const later = new Date(Date.now() + 3_600_000);
+    DB.googleSyncItem = [
+      { id: 'i1', linkId: 'l-tok', nativeEventId: 'e1', nextAttemptAt: later },
+      { id: 'i2', linkId: 'l-noa', nativeEventId: 'e2', nextAttemptAt: later },
+    ];
+    closeGate();
+    await consentAndClaim(addState(9));
+    assert(await savedToken(9) === 'google-rt-new', `token ${userRow(9).googleRefreshToken}; ${captured.join(' | ')}`);
+    assert(show(userRow(9).googleScopes) === show([...BOTH_SCOPES.split(' '), SYNC_SCOPE]), `googleScopes ${show(userRow(9).googleScopes)}`);
+    assert(userRow(9).googleSyncNotifiedAt === null, `googleSyncNotifiedAt ${show(userRow(9).googleSyncNotifiedAt)}`);
+    const state = Object.fromEntries(DB.googleSyncLink.map(l => [l.id, l.state]));
+    assert(show(state) === show({ 'l-tok': 'ok', 'l-new': 'creating', 'l-gone': 'gone', 'l-noa': 'token' }), `states ${show(state)}`);
+    assert(DB.googleSyncItem.find(i => i.id === 'i1')?.nextAttemptAt === null, `i1 ${show(DB.googleSyncItem[0])}`);
+    assert(DB.googleSyncItem.find(i => i.id === 'i2')?.nextAttemptAt instanceof Date, 'another user\'s item was reset');
+    assert(gateOpen(), 'the gate stayed closed');
+    assert(DB.googleSyncLink.length === 4, 'a connect made a link');
+  });
+
+  await check('#36b S2 commit (connect) without calendar.app.created: links in token go to scopes (the token is fine, the permission is missing); connecting still works with the two scopes', async () => {
+    seed();
+    DB.googleSyncLink = [{ id: 'l-tok', userId: 9, nativeCalendarId: 'cal-9', googleCalendarId: 'g1', enabled: true, state: 'token', dirtySeq: 0, pushedSeq: 0 }];
+    await consentAndClaim(addState(9));
+    assert(await savedToken(9) === 'google-rt-new', `token ${userRow(9).googleRefreshToken}; ${captured.join(' | ')}`);
+    assert(show(userRow(9).googleScopes) === show(BOTH_SCOPES.split(' ')), `googleScopes ${show(userRow(9).googleScopes)}`);
+    assert(DB.googleSyncLink[0].state === 'scopes', `state ${DB.googleSyncLink[0].state}`);
+    const reply = sentTo(TAL_TG).at(-1);
+    assert(reply?.options?.replyMarkup?.inline_keyboard?.[0]?.[0]?.web_app?.url?.endsWith(`/en/select-calendars?user_id=${TAL_TG}`), `reply ${show(reply)}`);
+  });
+
+  await check('#37 S2 commit (sync): creates the link (enabled, creating, the account, dirty), saves the scopes and opens the gate; the stale-choices clear still runs', async () => {
+    seed();
+    Object.assign(userRow(9), { calendarAssignments: [{ calendarId: 'old@gmail.com', labels: ['primary', 'yours'], name: 'Old', color: '#4285F4' }] });
+    googleAnswer = { refresh_token: 'google-rt-new', scope: `${BOTH_SCOPES} ${SYNC_SCOPE}`, access_token: 'at-sync' };
+    closeGate();
+    await consentAndClaim(addSyncState(9, 'cal-9'));
+    assert(await savedToken(9) === 'google-rt-new', `token; ${captured.join(' | ')}`);
+    assert(show(userRow(9).googleScopes) === show([...BOTH_SCOPES.split(' '), SYNC_SCOPE]), `googleScopes ${show(userRow(9).googleScopes)}`);
+    const links = linksOf(9);
+    assert(links.length === 1, `links ${show(DB.googleSyncLink)}`);
+    const l = links[0];
+    assert(l.nativeCalendarId === 'cal-9' && l.enabled === true && l.state === 'creating' && l.googleAccount === 'tal@gmail.com' && l.googleCalendarId == null && l.dirtySeq === 1,
+      `link ${show(l)}`);
+    assert(gateOpen(), 'the gate stayed closed');
+    const after = userRow(9).calendarAssignments;
+    assert(after === null || after === undefined || (typeof after === 'object' && !Array.isArray(after)), `stale choices kept: ${show(after)}`);
+  });
+
+  await check('#38 S2 commit (sync) re-checks the calendar: deleted or given to someone else since the consent, no link is made; the token is still saved', async () => {
+    for (const change of ['deleted', 'transferred'] as const) {
+      seed();
+      googleAnswer = { refresh_token: 'google-rt-new', scope: `${BOTH_SCOPES} ${SYNC_SCOPE}`, access_token: 'at-sync' };
+      const state = addSyncState(9, 'cal-9');
+      const cal = DB.nativeCalendar.find(c => c.id === 'cal-9')!;
+      if (change === 'deleted') cal.isDeleted = true;
+      else cal.ownerUserId = 42;
+      await consentAndClaim(state);
+      assert(await savedToken(9) === 'google-rt-new', `${change}: token; ${captured.join(' | ')}`);
+      assert(DB.googleSyncLink.length === 0, `${change}: links ${show(DB.googleSyncLink)}`);
+    }
+  });
+
+  await check('#39 S2 commit (sync) where the user unticked calendar.app.created: the link is made in scopes, not creating', async () => {
+    seed();
+    googleAnswer = { refresh_token: 'google-rt-new', scope: BOTH_SCOPES, access_token: 'at-sync' };
+    await consentAndClaim(addSyncState(9, 'cal-9'));
+    const links = linksOf(9);
+    assert(links.length === 1 && links[0].state === 'scopes' && links[0].enabled === true, `links ${show(DB.googleSyncLink)}`);
+    assert(show(userRow(9).googleScopes) === show(BOTH_SCOPES.split(' ')), `googleScopes ${show(userRow(9).googleScopes)}`);
+  });
+
+  await check('#40 S2 commit (sync) on a copy turned off earlier: re-enabled on the same row and Google calendar, the queued choice and token dropped, every item dirty with its hashes cleared, backfill again; the stored account is kept', async () => {
+    seed();
+    googleAnswer = { refresh_token: 'google-rt-new', scope: `${BOTH_SCOPES} ${SYNC_SCOPE}`, access_token: 'at-sync' };
+    primaryAnswer = { id: 'other@gmail.com' };
+    DB.googleSyncLink = [{
+      id: 'l-off', userId: 9, nativeCalendarId: 'cal-9', googleCalendarId: 'g1', googleAccount: 'tal@gmail.com', enabled: false, state: 'ok',
+      unlinkChoice: 'remove', unlinkToken: 'enc-token', dirtySeq: 3, pushedSeq: 2, backfilledAt: new Date(), lastError: 'x',
+    }];
+    DB.googleSyncItem = [
+      { id: 'i1', linkId: 'l-off', nativeEventId: 'e1', masterHash: 'h1', slotHashes: { a: 'b' }, dirtySeq: 2, pushedSeq: 2, nextAttemptAt: new Date(), attempts: 4 },
+    ];
+    await consentAndClaim(addSyncState(9, 'cal-9'));
+    assert(DB.googleSyncLink.length === 1, `links ${show(DB.googleSyncLink)}`);
+    const l = DB.googleSyncLink[0];
+    assert(l.id === 'l-off' && l.enabled === true && l.state === 'ok' && l.unlinkChoice === null && l.unlinkToken === null && l.backfilledAt === null && l.dirtySeq === 4 && l.lastError === null,
+      `link ${show(l)}`);
+    assert(l.googleCalendarId === 'g1' && l.googleAccount === 'tal@gmail.com', `calendar/account ${show(l)}`);
+    const i = DB.googleSyncItem[0];
+    assert(i.masterHash === null && show(i.slotHashes) === '{}' && i.dirtySeq === 3 && i.nextAttemptAt === null && i.attempts === 0, `item ${show(i)}`);
+  });
+
+  await check('#40b S2 commit (sync) on a copy that is already on changes nothing on it but a token/scopes state', async () => {
+    seed();
+    googleAnswer = { refresh_token: 'google-rt-new', scope: `${BOTH_SCOPES} ${SYNC_SCOPE}`, access_token: 'at-sync' };
+    DB.googleSyncLink = [{ id: 'l-on', userId: 9, nativeCalendarId: 'cal-9', googleCalendarId: 'g1', googleAccount: 'tal@gmail.com', enabled: true, state: 'ok', dirtySeq: 5, pushedSeq: 5, backfilledAt: new Date(0) }];
+    await consentAndClaim(addSyncState(9, 'cal-9'));
+    const l = DB.googleSyncLink[0];
+    assert(DB.googleSyncLink.length === 1 && l.dirtySeq === 5 && l.state === 'ok' && l.backfilledAt instanceof Date, `link ${show(l)}`);
+  });
+
+  await check('#41 S2 a pending entry parked before this deploy (no scopes) commits as before and leaves googleScopes as they were', async () => {
+    seed();
+    userRow(9).googleScopes = ['https://www.googleapis.com/auth/calendar.readonly'];
+    const id = await pendingFor(9);
+    const key = pendingKeys()[0];
+    const raw = JSON.parse(redisStore.get(key) ?? '{}');
+    redisStore.set(key, JSON.stringify({ ownerUserId: raw.ownerUserId, refreshToken: raw.refreshToken }));
+    await tgWebhook(tgText(TAL_TG, `/start gc_${id}`));
+    assert(await savedToken(9) === 'google-rt-new', `token; ${captured.join(' | ')}`);
+    assert(show(userRow(9).googleScopes) === show(['https://www.googleapis.com/auth/calendar.readonly']), `googleScopes ${show(userRow(9).googleScopes)}`);
   });
 
   let failed = 0;

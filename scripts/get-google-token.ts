@@ -30,6 +30,7 @@ async function main() {
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: SCOPES,
+    include_granted_scopes: true, // as every FamCal consent: keep the scopes granted before
   });
 
   console.log('\n=== Google Calendar OAuth Token Generator ===\n');

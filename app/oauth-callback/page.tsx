@@ -7,7 +7,9 @@ import { buildUrl } from '@/src/config/urls';
 import { getTranslations } from 'next-intl/server';
 import { captureError } from '@/src/lib/error-capture';
 import { OAUTH_STATE_PREFIX } from '@/src/lib/oauth-state';
-import { createPendingGoogleToken, finishPageUrl } from '@/src/services/google-connect';
+import { createPendingGoogleToken, finishPageUrl, type GoogleGrant } from '@/src/services/google-connect';
+import { GOOGLE_CONNECT_SCOPES, parseGrantedScopes } from '@/src/services/google-sync/scopes';
+import { googleAccountOf } from '@/src/services/google-sync/account';
 import { DEFAULT_BOT_USERNAME } from '@/src/lib/gate-links';
 import type { UserConfig } from '@/src/types';
 
@@ -314,14 +316,11 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
 
   const userLocale = normalizeLocale(user.language);
 
-  // Check if all required scopes were granted
-  const REQUIRED_SCOPES = [
-    'https://www.googleapis.com/auth/calendar.readonly',
-    'https://www.googleapis.com/auth/calendar.events'
-  ];
-
-  const grantedScopes = (tokens.scope || '').split(' ');
-  const missingScopes = REQUIRED_SCOPES.filter(s => !grantedScopes.includes(s));
+  // Check if all required scopes were granted. Connecting needs the two calendar scopes
+  // only; a 'sync' consent's calendar.app.created may be unticked, and the copy then waits
+  // in 'scopes' (google-sync spec §3).
+  const grantedScopes = parseGrantedScopes(tokens.scope);
+  const missingScopes = GOOGLE_CONNECT_SCOPES.filter(s => !grantedScopes.includes(s));
 
   if (missingScopes.length > 0) {
     return <InsufficientScopesPage retryHref={retryHref} missingScopes={missingScopes} locale={userLocale} />;
@@ -336,9 +335,24 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   // who started it, and anyone can start one and send the Google URL to someone else. So
   // the token waits in Redis until the state's owner claims it from their own Telegram or
   // WhatsApp (src/services/google-connect.ts).
+  // What the commit saves with the token: the granted scopes, and for a 'sync' consent the
+  // calendar to copy and the account it goes to (googleAccountOf: the token carries no id
+  // token). An account Google doesn't tell stays unknown, logged; the copy still starts.
+  const grant: GoogleGrant = { scopes: grantedScopes };
+  if (stateRecord.purpose === 'sync' && stateRecord.nativeCalendarId) {
+    let googleAccount: string | null = null;
+    try {
+      googleAccount = await googleAccountOf(String(tokens.access_token ?? ''));
+    } catch (error) {
+      console.warn(`[oauth-callback] user ${user.id}: the Google account of a sync consent is unknown:`, error instanceof Error ? error.message : String(error));
+      captureError(error, 'google-sync-account', { user_id: user.id }, 'warning');
+    }
+    grant.sync = { nativeCalendarId: stateRecord.nativeCalendarId, googleAccount };
+  }
+
   let pendingId: string;
   try {
-    pendingId = await createPendingGoogleToken(user.id, tokens.refresh_token);
+    pendingId = await createPendingGoogleToken(user.id, tokens.refresh_token, grant);
   } catch (error) {
     captureError(error, 'oauth-save-token');
     return (

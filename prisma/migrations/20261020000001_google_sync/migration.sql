@@ -6,6 +6,8 @@
 -- calendar is SET NULL and the user CASCADE, so neither blocks a merge or a hard delete.
 -- User gets the Google scopes saved at commit, and the once-per-outage message stamp.
 -- unlinkToken: a merged-away user's encrypted token, kept only for a queued Remove/Keep.
+-- OAuthState gets the consent's purpose and calendar: a 'sync' consent (asked the first time
+-- a copy is turned on) carries the FamCal calendar to copy, so its commit creates the link.
 -- Existing rows are unchanged: no link means nothing is copied.
 --
 -- Hand-written and idempotent, like the other recent migrations: the statements Prisma's
@@ -14,6 +16,9 @@
 
 ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "googleScopes" TEXT[] DEFAULT ARRAY[]::TEXT[];
 ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "googleSyncNotifiedAt" TIMESTAMP(3);
+
+ALTER TABLE "OAuthState" ADD COLUMN IF NOT EXISTS "purpose" TEXT;
+ALTER TABLE "OAuthState" ADD COLUMN IF NOT EXISTS "nativeCalendarId" TEXT;
 
 CREATE TABLE IF NOT EXISTS "GoogleSyncLink" (
     "id" TEXT NOT NULL,
