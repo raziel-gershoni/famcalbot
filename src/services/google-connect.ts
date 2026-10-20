@@ -203,8 +203,8 @@ export async function claimPendingGoogleToken(
  *
  * With the grant (every entry the callback parks now): the granted scopes are saved on the
  * user (an empty list means calendar.app.created is missing) and the outage notice resets;
- * the user's copies stopped on the token or the permission go back to work; a 'sync'
- * consent turns its copy on. Without one (an entry from before), googleScopes stay.
+ * a 'sync' consent turns its copy on first, then the user's copies stopped on the token or
+ * the permission go back to work. Without one (an entry from before), googleScopes stay.
  */
 export async function commitGoogleToken(ownerUserId: number, refreshToken: string, grant?: GoogleGrant): Promise<void> {
   const user = await getUserById(ownerUserId);
@@ -266,10 +266,13 @@ export async function commitGoogleToken(ownerUserId: number, refreshToken: strin
   }
 
   // The copies to Google (google-sync spec §3, §4). A failure here throws to the claim,
-  // whose "failed" reply says to check: the token is saved by now.
+  // whose "failed" reply says to check: the token is saved by now. The 'sync' consent goes
+  // first: a copy turned off with a Remove/Keep still queued is re-enabled with that choice
+  // dropped before restoreSyncLinks could put it in 'ok' and open the gate, where a worker
+  // tick in between would carry out the Remove the user just took back.
   if (grant) {
-    await restoreSyncLinks(user.id, grant.scopes);
     if (grant.sync) await enableSyncLink(user.id, grant.sync, grant.scopes);
+    await restoreSyncLinks(user.id, grant.scopes);
   }
 }
 

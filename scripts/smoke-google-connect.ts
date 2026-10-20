@@ -97,6 +97,8 @@ const show = (value: unknown) => JSON.stringify(value, (_k, v) => (typeof v === 
 
 const DB: Record<string, Row[]> = {};
 const prismaCalls: string[] = [];
+/** Runs before every Prisma call: a test's look at what a worker tick would see at that moment. */
+let beforePrismaCall: (() => void) | null = null;
 /** Every write to the user table: the where it used and the row ids it hit. */
 const userWrites: { method: string; where: Row; data: Row; hit: number[] }[] = [];
 
@@ -206,7 +208,7 @@ function model(name: string): Row {
     aggregate: async () => ({ _count: {}, _sum: {}, _max: {}, _min: {} }),
   };
   return Object.fromEntries(
-    Object.entries(impl).map(([k, fn]) => [k, (...args: unknown[]) => { prismaCalls.push(`${name}.${k}`); return fn(...args); }]),
+    Object.entries(impl).map(([k, fn]) => [k, (...args: unknown[]) => { beforePrismaCall?.(); prismaCalls.push(`${name}.${k}`); return fn(...args); }]),
   );
 }
 
@@ -216,6 +218,7 @@ const fakePrisma: Row = new Proxy({} as Row, {
     if (typeof prop !== 'string' || prop === 'then') return undefined;
     if (prop === '$transaction') {
       return async (arg: unknown) => {
+        beforePrismaCall?.();
         prismaCalls.push('$transaction');
         return typeof arg === 'function' ? arg(fakePrisma) : Promise.all(arg as Promise<unknown>[]);
       };
@@ -1658,6 +1661,32 @@ async function main() {
     await consentAndClaim(addSyncState(9, 'cal-9'));
     const l = DB.googleSyncLink[0];
     assert(DB.googleSyncLink.length === 1 && l.dirtySeq === 5 && l.state === 'ok' && l.backfilledAt instanceof Date, `link ${show(l)}`);
+  });
+
+  await check('#40c S2 commit (sync) on a copy turned off with a Remove queued while the token was dead: the gate never opens while the link still shows turned off in \'ok\' with the Remove queued, so a worker tick in between can\'t carry out the Remove the user just took back', async () => {
+    seed();
+    googleAnswer = { refresh_token: 'google-rt-new', scope: `${BOTH_SCOPES} ${SYNC_SCOPE}`, access_token: 'at-sync' };
+    DB.googleSyncLink = [{
+      id: 'l-off', userId: 9, nativeCalendarId: 'cal-9', googleCalendarId: 'g1', googleAccount: 'tal@gmail.com', enabled: false, state: 'token',
+      unlinkChoice: 'remove', unlinkToken: 'enc-token', dirtySeq: 3, pushedSeq: 2,
+    }];
+    closeGate();
+    const seen: string[] = [];
+    const gateState = (globalThis as { __googleSyncGate?: { nextRunAt: number } }).__googleSyncGate!;
+    beforePrismaCall = () => {
+      if (gateState.nextRunAt > Date.now()) return;
+      const l = DB.googleSyncLink.find(x => x.id === 'l-off');
+      if (l && !l.enabled && l.unlinkChoice && l.state === 'ok') seen.push(show({ enabled: l.enabled, state: l.state, unlinkChoice: l.unlinkChoice }));
+    };
+    try {
+      await consentAndClaim(addSyncState(9, 'cal-9'));
+    } finally {
+      beforePrismaCall = null;
+    }
+    assert(seen.length === 0, `a worker tick could carry out the Remove: gate open on ${seen[0]}`);
+    const l = DB.googleSyncLink[0];
+    assert(l.enabled === true && l.state === 'ok' && l.unlinkChoice === null && l.unlinkToken === null && l.googleCalendarId === 'g1', `link ${show(l)}`);
+    assert(gateOpen(), 'the gate stayed closed');
   });
 
   await check('#41 S2 a pending entry parked before this deploy (no scopes) commits as before and leaves googleScopes as they were', async () => {
