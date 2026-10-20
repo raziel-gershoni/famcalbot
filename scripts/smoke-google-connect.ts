@@ -1639,6 +1639,23 @@ async function main() {
     assert(show(userRow(9).googleScopes) === show(['https://www.googleapis.com/auth/calendar.readonly']), `googleScopes ${show(userRow(9).googleScopes)}`);
   });
 
+  await check('#42 S2 the privacy page names the Google copy in every language: calendar.app.created, the "FamCal ·" calendar, never read back, Remove or Keep; dated October 2026', async () => {
+    const page = (await load('app/[locale]/privacy/page.tsx')).default;
+    const want: Record<string, RegExp[]> = {
+      en: [/calendar\.app\.created/, /FamCal · /, /never read back/, /delete that Google calendar or keep it/, /October 2026/],
+      he: [/calendar\.app\.created/, /FamCal · /, /לא נקראים בחזרה/, /למחוק את יומן ה-Google הזה או להשאיר אותו/, /אוקטובר 2026/],
+      ru: [/calendar\.app\.created/, /FamCal · /, /никогда не читаются обратно/, /удалить этот календарь Google или оставить его/, /октябрь 2026/],
+    };
+    for (const [locale, patterns] of Object.entries(want)) {
+      const text = textOf(elementsOf(await page({ params: Promise.resolve({ locale }) })));
+      for (const re of patterns) assert(re.test(text), `${locale}: no ${re} in the privacy page`);
+    }
+    // Hebrew stays gender-neutral in the new text: no masculine-only "you ask" forms
+    const he = textOf(elementsOf(await page({ params: Promise.resolve({ locale: 'he' }) })));
+    const googleSection = he.slice(he.indexOf('אנו ניגשים ליומן Google באמצעות'), he.indexOf('אחסון נתונים'));
+    assert(!/(^|\s)(אתה|תאשר|תבקש|שלך)(?=[\s,.]|$)/.test(googleSection), `he: a masculine form in the Google section: ${googleSection}`);
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

@@ -29,7 +29,7 @@ export default async function PrivacyPage({ params }: Props) {
   }> = {
     en: {
       title: 'Privacy Policy',
-      lastUpdated: 'Last updated: February 2026',
+      lastUpdated: 'Last updated: October 2026',
       backToHome: 'Back to Home',
       sections: [
         {
@@ -59,7 +59,7 @@ export default async function PrivacyPage({ params }: Props) {
         },
         {
           heading: 'Google Calendar Data',
-          content: 'We access your Google Calendar using the calendar.readonly and calendar.events scopes. We only read calendar data to generate summaries and only write to your calendar when you explicitly request event creation, modification, or deletion. We do not share your calendar data with third parties. Calendar data is processed in real-time and is not permanently stored on our servers beyond the OAuth refresh token needed to maintain access.',
+          content: 'We access your Google Calendar using the calendar.readonly and calendar.events scopes. We only read calendar data to generate summaries and only write to your calendar when you explicitly request event creation, modification, or deletion. If you turn on "Copy to Google" for a FamCal calendar you own, we also ask for the calendar.app.created scope: FamCal then creates a separate Google calendar named "FamCal · <name>" and keeps the events of that FamCal calendar copied into it, including the ones your partner adds. That permission covers only the calendars FamCal created. Copied events are never read back into FamCal. When you turn copying off, you choose whether to delete that Google calendar or keep it. We do not share your calendar data with third parties. Calendar data is processed in real-time and is not permanently stored on our servers beyond the OAuth refresh token needed to maintain access and, for copies, the IDs of the Google calendar and events and the Google account they were copied to.',
         },
         {
           heading: 'Data Storage and Security',
@@ -103,7 +103,7 @@ export default async function PrivacyPage({ params }: Props) {
     },
     he: {
       title: 'מדיניות פרטיות',
-      lastUpdated: 'עודכן לאחרונה: פברואר 2026',
+      lastUpdated: 'עודכן לאחרונה: אוקטובר 2026',
       backToHome: 'חזרה לדף הבית',
       sections: [
         {
@@ -133,7 +133,7 @@ export default async function PrivacyPage({ params }: Props) {
         },
         {
           heading: 'נתוני Google Calendar',
-          content: 'אנו ניגשים ליומן Google שלך באמצעות הרשאות calendar.readonly ו-calendar.events. אנו קוראים נתוני יומן רק כדי ליצור סיכומים וכותבים ליומן רק כאשר אתה מבקש במפורש יצירה, עריכה או מחיקה של אירועים. אנו לא משתפים את נתוני היומן שלך עם צדדים שלישיים. נתוני היומן מעובדים בזמן אמת ואינם נשמרים באופן קבוע בשרתים שלנו מעבר לאסימון OAuth הנדרש לשמירת הגישה.',
+          content: 'אנו ניגשים ליומן Google באמצעות ההרשאות calendar.readonly ו-calendar.events. אנו קוראים נתוני יומן רק כדי ליצור סיכומים, וכותבים ליומן רק לבקשה מפורשת ליצור, לערוך או למחוק אירוע. מי שמפעילים "העתקה ל-Google" ליומן FamCal שבבעלותם מתבקשים לאשר גם את ההרשאה calendar.app.created: FamCal יוצר אז יומן Google נפרד בשם "FamCal · <שם>" ומעתיק אליו את האירועים של אותו יומן FamCal, כולל אלה שבן או בת הזוג מוסיפים. ההרשאה הזו חלה רק על יומנים ש-FamCal יצר. אירועים שהועתקו לא נקראים בחזרה אל FamCal. כשמכבים את ההעתקה, אפשר לבחור אם למחוק את יומן ה-Google הזה או להשאיר אותו. אנו לא משתפים את נתוני היומן עם צדדים שלישיים. נתוני היומן מעובדים בזמן אמת ואינם נשמרים באופן קבוע בשרתים שלנו, מלבד אסימון ה-OAuth הנדרש לשמירת הגישה, ובהעתקה ל-Google: מזהי היומן והאירועים שהועתקו וחשבון ה-Google שאליו הם הועתקו.',
         },
         {
           heading: 'אחסון נתונים ואבטחה',
@@ -177,7 +177,7 @@ export default async function PrivacyPage({ params }: Props) {
     },
     ru: {
       title: 'Политика конфиденциальности',
-      lastUpdated: 'Последнее обновление: февраль 2026',
+      lastUpdated: 'Последнее обновление: октябрь 2026',
       backToHome: 'На главную',
       sections: [
         {
@@ -207,7 +207,7 @@ export default async function PrivacyPage({ params }: Props) {
         },
         {
           heading: 'Данные Google Calendar',
-          content: 'Мы получаем доступ к вашему Google Calendar с использованием разрешений calendar.readonly и calendar.events. Мы читаем данные календаря только для создания сводок и записываем в календарь только когда вы явно запрашиваете создание, редактирование или удаление событий. Мы не передаем данные вашего календаря третьим лицам. Данные календаря обрабатываются в реальном времени и не хранятся постоянно на наших серверах, кроме токена OAuth, необходимого для поддержания доступа.',
+          content: 'Мы получаем доступ к вашему Google Calendar с использованием разрешений calendar.readonly и calendar.events. Мы читаем данные календаря только для создания сводок и записываем в календарь только когда вы явно запрашиваете создание, редактирование или удаление событий. Если вы включите «Копировать в Google» для своего календаря FamCal, мы попросим ещё и разрешение calendar.app.created: FamCal создаст отдельный календарь Google под названием «FamCal · <название>» и будет копировать в него события этого календаря FamCal, в том числе те, что добавляет ваш партнёр. Это разрешение касается только календарей, которые создал FamCal. Скопированные события никогда не читаются обратно в FamCal. Отключая копирование, вы сами решаете, удалить этот календарь Google или оставить его. Мы не передаем данные вашего календаря третьим лицам. Данные календаря обрабатываются в реальном времени и не хранятся постоянно на наших серверах, кроме токена OAuth, необходимого для поддержания доступа, а для копий — идентификаторов календаря и событий в Google и аккаунта Google, в который они скопированы.',
         },
         {
           heading: 'Хранение данных и безопасность',
