@@ -36,7 +36,7 @@
 // blocked), and in #27 the phone (webview, localStorage, a clock off the server's, the
 // poll's interval). No network, no DB.
 //
-// google-sync S2 (#31-#41, spec §3 and §6 "OAuth"): every consent sends
+// google-sync S2 (#31-#43, spec §3 and §6 "OAuth"): every consent sends
 // include_granted_scopes; a 'sync' consent adds calendar.app.created and carries its FamCal
 // calendar in the state (an own live one only); the callback parks the granted scopes, and
 // for a sync the calendar and the account (calendars.get primary, with the exchange's access
@@ -1554,6 +1554,39 @@ async function main() {
     assert(DB.googleSyncLink[0].state === 'scopes', `state ${DB.googleSyncLink[0].state}`);
     const reply = sentTo(TAL_TG).at(-1);
     assert(reply?.options?.replyMarkup?.inline_keyboard?.[0]?.[0]?.web_app?.url?.endsWith(`/en/select-calendars?user_id=${TAL_TG}`), `reply ${show(reply)}`);
+  });
+
+  await check('#36c S2 commit (connect) on turned-off copies: one with a Remove/Keep queued on its Google calendar goes back to work to carry it out; one that never got a Google calendar is left alone, never \'creating\'', async () => {
+    seed();
+    googleAnswer = { refresh_token: 'google-rt-new', scope: `${BOTH_SCOPES} ${SYNC_SCOPE}`, access_token: 'at-1' };
+    const later = new Date(Date.now() + 3_600_000);
+    DB.googleSyncLink = [
+      { id: 'l-offq', userId: 9, nativeCalendarId: 'cal-9', googleCalendarId: 'g1', enabled: false, unlinkChoice: 'remove', state: 'token', dirtySeq: 2, pushedSeq: 1 },
+      { id: 'l-offn', userId: 9, nativeCalendarId: 'cal-9b', googleCalendarId: null, enabled: false, unlinkChoice: 'remove', state: 'scopes', dirtySeq: 2, pushedSeq: 0 },
+    ];
+    DB.googleSyncItem = [
+      { id: 'i1', linkId: 'l-offq', nativeEventId: 'e1', nextAttemptAt: later },
+      { id: 'i2', linkId: 'l-offn', nativeEventId: 'e2', nextAttemptAt: later },
+    ];
+    await consentAndClaim(addState(9));
+    assert(await savedToken(9) === 'google-rt-new', `token; ${captured.join(' | ')}`);
+    const state = Object.fromEntries(DB.googleSyncLink.map(l => [l.id, l.state]));
+    assert(show(state) === show({ 'l-offq': 'ok', 'l-offn': 'scopes' }), `states ${show(state)}`);
+    assert(DB.googleSyncLink.every(l => l.enabled === false), `enabled ${show(DB.googleSyncLink)}`);
+    assert(DB.googleSyncItem.find(i => i.id === 'i1')?.nextAttemptAt === null, 'the queued turn-off\'s item kept its retry');
+    assert(DB.googleSyncItem.find(i => i.id === 'i2')?.nextAttemptAt instanceof Date, 'the turned-off copy with no calendar had its retry cleared');
+  });
+
+  await check('#43 S2 the OAuthState columns come in their own migration: 20261020000001_google_sync has shipped and is unchanged (migrate deploy never re-runs an applied one)', async () => {
+    const dir = path.join(ROOT, 'prisma/migrations');
+    const shipped = fs.readFileSync(path.join(dir, '20261020000001_google_sync/migration.sql'));
+    const sha = crypto.createHash('sha256').update(shipped).digest('hex');
+    assert(sha === '760f0f95c5642b4b384bc48b58b65ad122784f6c47260a73ff7ec3aad08ff337', `20261020000001_google_sync was edited after it shipped (sha256 ${sha})`);
+    const later = fs.readdirSync(dir).filter(d => d > '20261020000001_google_sync' && fs.existsSync(path.join(dir, d, 'migration.sql')))
+      .map(d => fs.readFileSync(path.join(dir, d, 'migration.sql'), 'utf8')).join('\n');
+    for (const col of ['purpose', 'nativeCalendarId']) {
+      assert(new RegExp(`ALTER TABLE "OAuthState" ADD COLUMN IF NOT EXISTS "${col}" TEXT;`).test(later), `no later migration adds OAuthState.${col}`);
+    }
   });
 
   await check('#37 S2 commit (sync): creates the link (enabled, creating, the account, dirty), saves the scopes and opens the gate; the stale-choices clear still runs', async () => {

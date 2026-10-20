@@ -28,23 +28,44 @@ function workingState(googleCalendarId: string | null, scopes: readonly string[]
 }
 
 /**
+ * Where a commit puts a link stopped on the token or the permission, or null to leave it:
+ * an enabled link goes back to work; a turned-off one only when it still has its turn-off
+ * to carry out on a Google calendar (unlinkChoice and googleCalendarId set). A turned-off
+ * link with no Google calendar has nothing to do, so it is never made 'creating'.
+ */
+function restoredState(
+  link: { enabled: boolean; googleCalendarId: string | null; unlinkChoice: string | null },
+  scopes: readonly string[],
+): string | null {
+  if (!link.enabled && !(link.unlinkChoice && link.googleCalendarId)) return null;
+  return workingState(link.googleCalendarId, scopes);
+}
+
+/**
  * After a commit saved a token with these granted scopes: the user's links in 'token' or
  * 'scopes' go back to work ('ok' or 'creating'), or to 'scopes' when the grant still lacks
- * calendar.app.created, and their items' nextAttemptAt is cleared. Other states ('gone',
- * 'otherAccount', 'plan', 'error') are the worker's to decide. Opens the gate when a link
- * changed. Returns the link ids it changed.
+ * calendar.app.created, and their items' nextAttemptAt is cleared. A turned-off link goes
+ * back only to carry out its queued Remove/Keep (restoredState); one with no Google calendar
+ * is left as it is. Other states ('gone', 'otherAccount', 'plan', 'error') are the worker's
+ * to decide. Opens the gate when a link changed. Returns the link ids it changed.
  */
 export async function restoreSyncLinks(userId: number, scopes: readonly string[]): Promise<string[]> {
-  const links = await prisma.googleSyncLink.findMany({
+  const found = await prisma.googleSyncLink.findMany({
     where: { userId, state: { in: COMMIT_ENDS } },
-    select: { id: true, googleCalendarId: true, state: true },
+    select: { id: true, googleCalendarId: true, state: true, enabled: true, unlinkChoice: true },
   });
-  const changed = links.filter((l) => workingState(l.googleCalendarId, scopes) !== l.state);
+  const skipped = found.filter((l) => restoredState(l, scopes) === null).map((l) => l.id);
+  if (skipped.length > 0) console.log(`[google-sync] user ${userId}: commit left turned-off links with no Google calendar [${skipped.join(',')}]`);
+  const links = found.flatMap((l) => {
+    const next = restoredState(l, scopes);
+    return next === null ? [] : [{ ...l, next }];
+  });
+  const changed = links.filter((l) => l.next !== l.state);
   for (const next of ['ok', 'creating', 'scopes']) {
-    const ids = changed.filter((l) => workingState(l.googleCalendarId, scopes) === next).map((l) => l.id);
+    const ids = changed.filter((l) => l.next === next).map((l) => l.id);
     if (ids.length > 0) await prisma.googleSyncLink.updateMany({ where: { id: { in: ids } }, data: { state: next } });
   }
-  const working = links.filter((l) => workingState(l.googleCalendarId, scopes) !== 'scopes').map((l) => l.id);
+  const working = links.filter((l) => l.next !== 'scopes').map((l) => l.id);
   if (working.length > 0) {
     await prisma.googleSyncItem.updateMany({ where: { linkId: { in: working }, nextAttemptAt: { not: null } }, data: { nextAttemptAt: null } });
   }
