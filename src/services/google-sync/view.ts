@@ -22,6 +22,11 @@ export interface CopyRow {
   copied: number;
   total: number;
   unsupported: number;
+  /**
+   * A 'sync' consent for this calendar can still be used: the user's one-time state for it is
+   * neither used (the callback deletes it) nor expired. The page's consent wait holds only while it is.
+   */
+  consentOpen: boolean;
 }
 
 export interface CopiesView {
@@ -82,11 +87,19 @@ export async function copiesView(user: { id: number; pairingId: string | null },
     syncAllowed(user.id, false),
     getActivePartnerSummary(user.id, user.pairingId),
   ]);
-  const links = calendars.length === 0 ? [] : await prisma.googleSyncLink.findMany({
-    where: { userId: user.id, nativeCalendarId: { in: calendars.map((c) => c.id) } },
-    select: { id: true, nativeCalendarId: true, enabled: true, state: true, backfilledAt: true },
-  });
+  const ids = calendars.map((c) => c.id);
+  const [links, openStates] = ids.length === 0 ? [[], []] : await Promise.all([
+    prisma.googleSyncLink.findMany({
+      where: { userId: user.id, nativeCalendarId: { in: ids } },
+      select: { id: true, nativeCalendarId: true, enabled: true, state: true, backfilledAt: true },
+    }),
+    prisma.oAuthState.findMany({
+      where: { userId: BigInt(user.id), purpose: 'sync', nativeCalendarId: { in: ids }, expiresAt: { gt: new Date() } },
+      select: { nativeCalendarId: true },
+    }),
+  ]);
   const byCalendar = new Map(links.map((l) => [l.nativeCalendarId, l]));
+  const consentOpen = new Set(openStates.map((s) => s.nativeCalendarId));
   const rows = await Promise.all(calendars.map(async (c): Promise<CopyRow> => {
     const link = byCalendar.get(c.id) ?? null;
     const progress = link?.enabled ? await syncProgress(link.id) : null;
@@ -98,6 +111,7 @@ export async function copiesView(user: { id: number; pairingId: string | null },
       copied: progress?.copied ?? 0,
       total: progress?.total ?? 0,
       unsupported: progress?.unsupported ?? 0,
+      consentOpen: consentOpen.has(c.id),
     };
   }));
   const anyOn = rows.some((r) => r.on);

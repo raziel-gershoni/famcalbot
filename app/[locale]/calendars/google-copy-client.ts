@@ -5,7 +5,8 @@
 // and is logged with ids only.
 
 import { initDataHeaders } from '@/src/lib/read-init-data';
-import type { CopiesView, CopyStatus } from '@/src/services/google-sync/view';
+import { OAUTH_STATE_TTL_MS } from '@/src/lib/oauth-state';
+import type { CopiesView, CopyRow, CopyStatus } from '@/src/services/google-sync/view';
 import type { UnlinkChoice } from '@/src/services/google-sync/marks';
 
 export type CopyErrorCode = 'failed' | 'upgrade' | 'notFound' | 'openFailed';
@@ -94,4 +95,34 @@ export function deleteCalendarBody(choice: UnlinkChoice | null, initData: string
 /** Whether the page keeps asking: a copy is being made, or a consent waits for the user's tap. */
 export function needsPolling(rows: ReadonlyArray<{ status: CopyStatus }>, waiting: number): boolean {
   return waiting > 0 || rows.some((r) => r.status === 'copying');
+}
+
+/** A started consent the row waits on: Google's URL for the Open Google tap, when it began, and the row as it was then. */
+export interface ConsentWait {
+  url: string;
+  startedAt: number;
+  rowState: string;
+}
+
+const rowState = (row: Pick<CopyRow, 'on' | 'status'> | undefined) => (row ? `${row.on ? 'on' : 'off'}:${row.status}` : 'none');
+
+export function consentWait(url: string, row: CopyRow | undefined, now: number): ConsentWait {
+  return { url, startedAt: now, rowState: rowState(row) };
+}
+
+/** The consent's one-time state lasts 10 minutes: after that its URL only leads to "expired". */
+export function waitExpired(wait: ConsentWait, now: number): boolean {
+  return now - wait.startedAt >= OAUTH_STATE_TTL_MS;
+}
+
+/**
+ * Whether a refresh keeps a row's consent wait. A GET sent before the wait began can't know its
+ * consent, so it keeps it. Otherwise the wait ends once its consent can't be used: past the
+ * state's 10 minutes, the server no longer holds it (used or expired), or the row changed since
+ * the wait began (the copy landed, or a commit without the permission put it in "Approve in Google").
+ */
+export function waitHolds(wait: ConsentWait, row: CopyRow | undefined, askedAt: number, now: number): boolean {
+  if (waitExpired(wait, now)) return false;
+  if (wait.startedAt >= askedAt) return true;
+  return row !== undefined && row.consentOpen && rowState(row) === wait.rowState;
 }

@@ -6988,7 +6988,7 @@ async function main() {
     personName: null, personEnglishName: null, personGender: null, rules: [], createdAt: '2026-01-01T00:00:00.000Z',
   });
   const CALS = [cal('own', 'Home', true), cal('plain', 'Work', true), cal('noa-cal', 'Noa family', false)];
-  const copyRow = (calendarId: string, o: Row = {}) => ({ calendarId, linkId: `link-${calendarId}`, on: true, status: 'copied', copied: 0, total: 0, unsupported: 0, ...o });
+  const copyRow = (calendarId: string, o: Row = {}) => ({ calendarId, linkId: `link-${calendarId}`, on: true, status: 'copied', copied: 0, total: 0, unsupported: 0, consentOpen: false, ...o });
   const VIEW = { shown: true, ownerName: 'Noa', rows: [copyRow('own'), copyRow('plain', { on: false, status: 'off', linkId: null })] };
   const gcm = (locale: Locale) => (messages[locale] as Row).googleCopy as Row & { status: Row; actions: Row; unlink: Row; errors: Row; notes: Row; busy: Row };
   const cardOf = (m: Mounted, name: string) => {
@@ -7251,7 +7251,74 @@ async function main() {
     }
   });
 
-  await check('#125 React logged no warning on the calendars page (#119-#124c); the page\'s own logs are only the failures #120, #122 and #124c caused', () => {
+  await check('#124d calendars page: the consent wait ends once its consent can\'t be used: a refresh that shows the row on in "Approve in Google" (a commit without the permission), or a stopped copy\'s consent the server no longer holds, brings back Approve in Google, never Open Google on the used URL; a wait begun while a GET was in flight survives that GET', async () => {
+    const usedUrl = 'https://accounts.google.com/o/oauth2/v2/auth?state=u1_used';
+    let rows: Row[] = VIEW.rows;
+    serveCopies = (c) => (c.method === 'POST' ? ok200({ status: 'consent', oauthUrl: usedUrl }) : ok200({ shown: true, ownerName: null, rows }));
+    const a = await mountCalendars('en');
+    try {
+      const work = () => cardOf(a.m, 'Work');
+      a.m.click(switchIn(work()));
+      await settle();
+      assertHas(textOf(htmlOf(work())), ['Open Google'], 'the wait');
+      // Unticked in Google, then the bot's link: the commit turned the copy on in 'scopes'.
+      rows = [VIEW.rows[0], copyRow('plain', { status: 'approve', consentOpen: false })];
+      fireDocument('visibilitychange');
+      await settle();
+      assertLacks(textOf(htmlOf(work())), ['Open Google', 'then tap the link FamCal sends you'], 'the wait after the commit');
+      const posts = () => copyCalls().filter((c) => c.method === 'POST').length;
+      const before = posts();
+      a.m.click(buttonIn(work(), 'Approve in Google'));
+      await settle();
+      assert(posts() === before + 1, `Approve in Google sent no fresh consent: ${show(copyCalls().map((c) => c.method))}`);
+      assert(!a.tg.calls.some((c) => c.includes('u1_used') && c.startsWith('openLink')), `the used URL was opened: ${show(a.tg.calls)}`);
+    } finally {
+      a.m.unmount();
+    }
+    // A stopped copy: the row stays 'approve' either way; the server's consentOpen tells.
+    rows = [copyRow('own', { status: 'approve', consentOpen: false }), VIEW.rows[1]];
+    const b = await mountCalendars('en');
+    try {
+      const home = () => cardOf(b.m, 'Home');
+      b.m.click(buttonIn(home(), 'Approve in Google'));
+      await settle();
+      rows = [copyRow('own', { status: 'approve', consentOpen: true }), VIEW.rows[1]];
+      fireDocument('visibilitychange');
+      await settle();
+      assertHas(textOf(htmlOf(home())), ['Open Google'], 'the wait while the consent is live');
+      rows = [copyRow('own', { status: 'approve', consentOpen: false }), VIEW.rows[1]];
+      fireDocument('visibilitychange');
+      await settle();
+      assertLacks(textOf(htmlOf(home())), ['Open Google'], 'the wait after the consent was used');
+      assertHas(textOf(htmlOf(home())), ['Approve in Google'], 'the action back');
+    } finally {
+      b.m.unmount();
+    }
+    // A GET sent before the POST answered can't know the new consent: the wait stays.
+    let hold: ((x: FetchAnswer) => void) | null = null;
+    let gets = 0;
+    rows = VIEW.rows;
+    serveCopies = (c) => {
+      if (c.method === 'POST') return ok200({ status: 'consent', oauthUrl: usedUrl });
+      gets += 1;
+      return gets === 2 ? new Promise<FetchAnswer>((r) => { hold = r; }) : ok200({ shown: true, ownerName: null, rows });
+    };
+    const c = await mountCalendars('en');
+    try {
+      fireDocument('visibilitychange');
+      await settle();
+      assert(hold, 'the second GET is not in flight');
+      c.m.click(switchIn(cardOf(c.m, 'Work')));
+      await settle();
+      (hold as unknown as (x: FetchAnswer) => void)(ok200({ shown: true, ownerName: null, rows }));
+      await settle();
+      assertHas(textOf(htmlOf(cardOf(c.m, 'Work'))), ['Open Google'], 'the wait dropped by an older GET');
+    } finally {
+      c.m.unmount();
+    }
+  });
+
+  await check('#125 React logged no warning on the calendars page (#119-#124d); the page\'s own logs are only the failures #120, #122 and #124c caused', () => {
     const lines = reactWarnings.slice(warnedBeforeCopies);
     const own = lines.filter((w) => /^\[(calendars|google-copy)\]/.test(w));
     assert(lines.length === own.length, `React warned: ${show(lines.filter((w) => !own.includes(w)).slice(0, 3))}`);

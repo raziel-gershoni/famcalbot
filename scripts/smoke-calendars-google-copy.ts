@@ -25,7 +25,8 @@ import { createElement, type ComponentProps, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { GoogleCopyRow, GoogleCopyNotes, NonOwnerCopyLine, type GoogleCopyRowProps } from '../app/[locale]/calendars/GoogleCopyRow';
-import { copyAction, deleteCalendarBody, loadCopies, needsPolling, recreateCopy, startCopy, stopCopy } from '../app/[locale]/calendars/google-copy-client';
+import { consentWait, copyAction, deleteCalendarBody, loadCopies, needsPolling, recreateCopy, startCopy, stopCopy, waitExpired, waitHolds } from '../app/[locale]/calendars/google-copy-client';
+import { OAUTH_STATE_TTL_MS } from '../src/lib/oauth-state';
 import type { CopyRow } from '../src/services/google-sync/view';
 
 type Row = Record<string, unknown>;
@@ -57,7 +58,7 @@ function render(locale: Locale, element: ReactElement): string {
 const textOf = (html: string) =>
   html.replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
 
-const baseRow = (o: Partial<CopyRow> = {}): CopyRow => ({ calendarId: 'cal-1', linkId: 'link-1', on: true, status: 'copied', copied: 0, total: 0, unsupported: 0, ...o });
+const baseRow = (o: Partial<CopyRow> = {}): CopyRow => ({ calendarId: 'cal-1', linkId: 'link-1', on: true, status: 'copied', copied: 0, total: 0, unsupported: 0, consentOpen: false, ...o });
 const noop = () => undefined;
 function props(o: Partial<GoogleCopyRowProps> = {}, row: Partial<CopyRow> = {}): GoogleCopyRowProps {
   return {
@@ -302,6 +303,25 @@ async function main() {
     };
     for (const [status, action] of Object.entries(want)) assert(copyAction(status as CopyRow['status']) === action, `${status}: ${copyAction(status as CopyRow['status'])}`);
     assert(needsPolling([baseRow({ status: 'copying' })], 0) && needsPolling([baseRow()], 1) && !needsPolling([baseRow(), baseRow({ status: 'gone' })], 0), 'polling');
+  });
+
+  await check('client: a consent wait holds only while its consent can still be used: its state token\'s 10 minutes, the row unchanged since it began, and the server still holding the consent; a wait begun after the GET was sent is kept as is', () => {
+    const t0 = 1_000_000;
+    const off = baseRow({ on: false, status: 'off', linkId: null });
+    const w = consentWait('https://accounts.google.com/x', off, t0);
+    assert(w.url === 'https://accounts.google.com/x' && w.startedAt === t0, `wait ${show(w)}`);
+    const asked = t0 + 1000;
+    assert(waitHolds(w, { ...off, consentOpen: true }, asked, t0 + 2000), 'a live consent on an unchanged row');
+    assert(!waitHolds(w, { ...off, consentOpen: false }, asked, t0 + 2000), 'the consent was used or expired on the server');
+    assert(!waitHolds(w, baseRow({ status: 'approve', consentOpen: true }), asked, t0 + 2000), 'the row turned on in approve (a commit without the permission)');
+    assert(!waitHolds(w, baseRow({ status: 'copying', consentOpen: true }), asked, t0 + 2000), 'the copy landed');
+    assert(!waitHolds(w, undefined, asked, t0 + 2000), 'the calendar is gone');
+    assert(!waitHolds(w, { ...off, consentOpen: true }, t0 + OAUTH_STATE_TTL_MS, t0 + OAUTH_STATE_TTL_MS), 'past the state\'s 10 minutes');
+    assert(waitHolds(w, { ...off, consentOpen: false }, t0, t0 + 10), 'a GET sent before the wait began can\'t know its consent');
+    assert(!waitExpired(w, t0 + OAUTH_STATE_TTL_MS - 1) && waitExpired(w, t0 + OAUTH_STATE_TTL_MS), 'expiry');
+    const stopped = consentWait('https://accounts.google.com/y', baseRow({ status: 'approve' }), t0);
+    assert(waitHolds(stopped, baseRow({ status: 'approve', consentOpen: true }), asked, t0 + 2000), 'a stopped copy\'s wait while its consent is live');
+    assert(!waitHolds(stopped, baseRow({ status: 'approve', consentOpen: false }), asked, t0 + 2000), 'a stopped copy\'s consent used without the permission: the row is unchanged, but the consent is gone');
   });
 
   let failed = 0;

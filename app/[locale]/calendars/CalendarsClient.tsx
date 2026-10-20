@@ -23,7 +23,8 @@ import type { CopiesView, CopyRow } from '@/src/services/google-sync/view';
 import type { UnlinkChoice } from '@/src/services/google-sync/marks';
 import { GoogleCopyNotes, GoogleCopyRow, NonOwnerCopyLine } from './GoogleCopyRow';
 import {
-  copyAction, deleteCalendarBody, loadCopies, needsPolling, recreateCopy, startCopy, stopCopy, type CopyErrorCode,
+  consentWait, copyAction, deleteCalendarBody, loadCopies, needsPolling, recreateCopy, startCopy, stopCopy, waitExpired, waitHolds,
+  type ConsentWait, type CopyErrorCode,
 } from './google-copy-client';
 
 /** How often the copy rows are asked again while a copy is being made or a consent waits. */
@@ -172,8 +173,8 @@ export default function CalendarsClient(props: Props) {
   const [copies, setCopies] = useState<CopiesView | null>(null);
   const [copyLoadFailed, setCopyLoadFailed] = useState(false);
   const [copyBusy, setCopyBusy] = useState<Record<string, 'on' | 'off' | 'working'>>({});
-  /** Calendars whose consent was started: Google's URL, opened by the row's Open Google tap. */
-  const [waiting, setWaiting] = useState<Record<string, string>>({});
+  /** Calendars whose consent was started and can still be used: Google's URL, opened by the row's Open Google tap. */
+  const [waiting, setWaiting] = useState<Record<string, ConsentWait>>({});
   const [asking, setAsking] = useState<{ calendarId: string; mode: 'off' | 'delete' } | null>(null);
   const [copyErrors, setCopyErrors] = useState<Record<string, CopyErrorCode>>({});
   const loading = useRef(false);
@@ -206,14 +207,13 @@ export default function CalendarsClient(props: Props) {
       do {
         refreshAgain.current = false;
         try {
+          const askedAt = Date.now();
           const view = await loadCopies(userId);
           setCopies(view);
           setCopyLoadFailed(false);
-          // A consent that landed (the copy is on and has its permission) stops waiting.
-          setWaiting((w) => Object.fromEntries(Object.entries(w).filter(([id]) => {
-            const row = view.rows.find((r) => r.calendarId === id);
-            return row !== undefined && (!row.on || row.status === 'approve');
-          })));
+          // A wait ends once its consent can't be used (landed, used, expired): the row shows its own action again.
+          const now = Date.now();
+          setWaiting((w) => Object.fromEntries(Object.entries(w).filter(([id, wait]) => waitHolds(wait, view.rows.find((r) => r.calendarId === id), askedAt, now))));
         } catch (err) {
           console.error('[calendars] loading the Google copies failed:', err);
           setCopyLoadFailed(true);
@@ -245,7 +245,10 @@ export default function CalendarsClient(props: Props) {
     setErrorFor(calendarId, null);
     try {
       const result = await startCopy(userId, calendarId);
-      if (result.kind === 'consent') setWaiting((w) => ({ ...w, [calendarId]: result.oauthUrl }));
+      if (result.kind === 'consent') {
+        const wait = consentWait(result.oauthUrl, copyOf(calendarId), Date.now());
+        setWaiting((w) => ({ ...w, [calendarId]: wait }));
+      }
       else if (result.kind === 'error') setErrorFor(calendarId, result.code);
       else await refreshCopies();
     } finally {
@@ -275,8 +278,13 @@ export default function CalendarsClient(props: Props) {
   };
 
   const openGoogle = (calendarId: string) => {
-    const url = waiting[calendarId];
-    if (!url || !openExternalLink(url)) setErrorFor(calendarId, 'openFailed');
+    const wait = waiting[calendarId];
+    if (wait && waitExpired(wait, Date.now())) {
+      // Its URL would only lead to "expired": the row offers its own action again.
+      setWaiting((w) => Object.fromEntries(Object.entries(w).filter(([id]) => id !== calendarId)));
+      return;
+    }
+    if (!wait || !openExternalLink(wait.url)) setErrorFor(calendarId, 'openFailed');
   };
 
   /** The answer to "Delete the calendar … from Google too?": a turn-off, or the calendar's delete. */

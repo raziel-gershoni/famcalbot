@@ -1093,10 +1093,34 @@ async function main() {
     item(LINK, 'b', { dirtySeq: 1, pushedSeq: 0 });
     item(LINK, 'c', { status: 'unsupported', dirtySeq: 1, pushedSeq: 1 });
     let { body } = await call('GET');
-    assert(show(rowOf(body, 'own')) === show({ calendarId: 'own', linkId: LINK, on: true, status: 'copying', copied: 1, total: 3, unsupported: 1 }), `mid ${show(rowOf(body, 'own'))}`);
+    assert(show(rowOf(body, 'own')) === show({ calendarId: 'own', linkId: LINK, on: true, status: 'copying', copied: 1, total: 3, unsupported: 1, consentOpen: false }), `mid ${show(rowOf(body, 'own'))}`);
     Object.assign(table('googleSyncItem').find((i) => i.nativeEventId === 'b')!, { pushedSeq: 1 });
     ({ body } = await call('GET'));
     assert(rowOf(body, 'own')?.status === 'copied' && rowOf(body, 'own')?.copied === 2 && rowOf(body, 'own')?.unsupported === 1, `done ${show(rowOf(body, 'own'))}`);
+  });
+
+  await check('route GET: consentOpen only while a sync consent for that calendar can still be used (Tal\'s, purpose sync, unexpired); a used one (deleted), an expired one, a connect consent or another user\'s doesn\'t count', async () => {
+    seed();
+    proTal([...BOTH]);
+    const state = (o: Row) => table('oAuthState').push({ id: `st-${table('oAuthState').length}`, userId: BigInt(TAL), token: `u1_${table('oAuthState').length}`, purpose: 'sync', nativeCalendarId: 'plain', createdAt: new Date(), expiresAt: new Date(Date.now() + 5 * 60_000), ...o });
+    let { body } = await call('GET');
+    assert((body.rows as Row[]).every((r) => r.consentOpen === false), `before any consent ${show(body.rows)}`);
+    const r = await call('POST', { action: 'enable', nativeCalendarId: 'plain' });
+    assert(r.body.status === 'consent', `consent ${show(r)}`);
+    ({ body } = await call('GET'));
+    assert(rowOf(body, 'plain')?.consentOpen === true && rowOf(body, 'own')?.consentOpen === false, `live ${show(body.rows)}`);
+    DB.oAuthState = []; // the callback deleted it (used)
+    ({ body } = await call('GET'));
+    assert(rowOf(body, 'plain')?.consentOpen === false, `used ${show(rowOf(body, 'plain'))}`);
+    state({ expiresAt: new Date(Date.now() - 1000) });
+    state({ purpose: null, nativeCalendarId: null });
+    state({ userId: BigInt(NOA) });
+    state({ nativeCalendarId: 'own2', purpose: 'connect' });
+    ({ body } = await call('GET'));
+    assert((body.rows as Row[]).every((x) => x.consentOpen === false), `none live ${show(body.rows)}`);
+    state({ nativeCalendarId: 'own' });
+    ({ body } = await call('GET'));
+    assert(rowOf(body, 'own')?.consentOpen === true && rowOf(body, 'plain')?.consentOpen === false, `own live ${show(body.rows)}`);
   });
 
   await check('route GET: on a plan without google_sync a copy that is on shows "paused on your plan" and the off ones aren\'t offered; with no Google and no copy on, nothing is shown; a copy on with the token gone still shows', async () => {

@@ -35,7 +35,7 @@ import type { UserConfig } from '../types';
 import { Prisma } from '@prisma/client';
 import { liveGoogleChoices } from '../lib/google-state';
 import { prisma } from '../utils/prisma';
-import { OAUTH_STATE_PREFIX } from '../lib/oauth-state';
+import { OAUTH_STATE_PREFIX, OAUTH_STATE_TTL_MS } from '../lib/oauth-state';
 import { consentScopes, hasSyncScope } from './google-sync/scopes';
 import { enableSyncLink, restoreSyncLinks, type EnableResult, type SyncConsent } from './google-sync/links';
 import { syncAllowed } from './google-sync/access';
@@ -65,8 +65,6 @@ interface PendingGoogleToken {
   sync?: SyncConsent;
 }
 
-/** How long a consent's state is honoured */
-const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 /** A FamCal calendar id is a cuid; anything longer is not one */
 const MAX_CALENDAR_ID = 64;
 
