@@ -1,6 +1,6 @@
 # Calendar colours in the home, and every screen in the home's design
 
-Status: approved by the owner on 2026-10-19 (the mockups, and §6's defaults). H1 is built and live on main (3e13dc8, 99155ce, 29c2c8f, b841371); F1 is next. The scope survey and the owner's decisions from 2026-10-17 are summarised in §1. Mockups: https://claude.ai/artifact/KJQjWZ7MFRRCr3A4raAQos. H1's plan: `docs/superpowers/plans/2026-10-19-calendar-colours-H1.md`; §3 reads as built.
+Status: approved by the owner on 2026-10-19 (the mockups, and §6's defaults). H1 is built and live on main (3e13dc8, 99155ce, 29c2c8f, b841371); F1, W1, W3 and A are deferred by the owner. The scope survey and the owner's decisions from 2026-10-17 are summarised in §1. Mockups: https://claude.ai/artifact/KJQjWZ7MFRRCr3A4raAQos. §3 reads as built.
 
 ## 1. Decisions already made (owner, 2026-10-17/18)
 

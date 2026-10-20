@@ -1,6 +1,6 @@
 # Native reminders: design
 
-**Date:** 2026-10-14 · **Branch:** `feat/native-reminders` · **Status:** approved in conversation, section by section. The owner delegated the remaining choices ("go with your defaults"). Those choices are listed under *Rulings* so they can be reviewed.
+**Date:** 2026-10-14 · **Branch:** `feat/native-reminders` · **Status:** shipped (live on main); approved in conversation, section by section. The owner delegated the remaining choices ("go with your defaults"). Those choices are listed under *Rulings* so they can be reviewed.
 
 ## Goal
 

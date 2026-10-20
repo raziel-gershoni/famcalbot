@@ -1,6 +1,6 @@
 # Hebrew-date repeats
 
-Status: designed 2026-10-19 under the owner's delegation, then revised after an adversarial review (session scratchpad next/review-repeats.md, which includes hebcal probes). This is roadmap step 5 under the calendar UI: "Hebrew-date repeats (birthday/yahrzeit rules from hebcal)". It builds on editing 3b (docs/superpowers/specs/2026-10-19-home-editing-3b-design.md). The research notes are in next/facts-hebrew-repeats.md.
+Status: shipped 2026-10-19/20, on main. Designed 2026-10-19 under the owner's delegation, then revised after an adversarial review (session scratchpad next/review-repeats.md, which includes hebcal probes). This is roadmap step 5 under the calendar UI: "Hebrew-date repeats (birthday/yahrzeit rules from hebcal)". It builds on editing 3b (docs/superpowers/specs/2026-10-19-home-editing-3b-design.md). The research notes are in next/facts-hebrew-repeats.md.
 
 ## 1. Scope
 

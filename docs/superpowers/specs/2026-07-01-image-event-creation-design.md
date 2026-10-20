@@ -1,7 +1,7 @@
 # Image → Calendar Event Creation
 
 - **Date:** 2026-07-01
-- **Status:** Approved design, pending implementation plan
+- **Status:** Shipped (e684d8a, 2026-07).
 - **Author:** Raziel Gershoni (with Claude Code)
 
 ## Summary

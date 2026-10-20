@@ -1,6 +1,6 @@
 # One-way sync: FamCal → Google
 
-Status: designed 2026-10-20 under the owner's delegation. The owner chose option A for where the copies go (§3) on 2026-10-20 ("a"). The spec was revised after a code/API review and a product review (session scratchpad next/review-sync-code-api.md, plus the product findings in the run log).
+Status: shipped 2026-10-20 (S1–S5 on main). Designed under the owner's delegation; the owner chose option A for where the copies go (§3) on 2026-10-20 ("a"). The spec was revised after a code/API review and a product review, and again where the build's reviews found gaps (the Known limitations below list what shipped differently).
 
 The owner's earlier rulings, from 2026-10-14: "sync should be only us to gcal at first, then we'll see if gcal to us is even needed" and "famcal should support more than one cal. so sync should be famcal:personal, famcal:kid1 or smth like this if possible".
 
@@ -79,7 +79,7 @@ It builds on Google as a connection (2026-10-19-google-connection-design.md) and
   - **The scopes are saved at commit,** not at exchange: the granted scope string travels in the pending entry, and `commitGoogleToken` writes `User.googleScopes String[]` (a new migration). An empty list means the scope is missing. A sync-purpose commit creates the link.
   - **Connecting** still requires only the two existing scopes.
 - **Owner steps (Google Cloud Console):**
-  1. Under Google Auth Platform → Data Access, add `…/auth/calendar.app.created`. Check the label it shows: Calendar scopes are sensitive, not restricted.
+  1. Under Google Auth Platform → Data Access, tap "Add or remove scopes". The scope may not be in the picker's list: paste `https://www.googleapis.com/auth/calendar.app.created` under "Manually add scopes", tap "Add to table", then "Update" and "Save". Check which section it lands in: Calendar scopes are sensitive, not restricted; if this one lands under non-sensitive, step 3 doesn't apply.
   2. If the app is **in testing**: test users can grant it right away, but refresh tokens expire after 7 days. That already affects reading, and sync makes it a weekly reconnect. Moving to production is advised.
   3. If the app is **in production and verified**: Google asks for this scope to be verified (a justification and a demo video of the "Copy to Google" flow). Until then, people see Google's "unverified app" screen for this one permission, and unverified grants are capped at about 100 users. Nothing else is blocked meanwhile.
   4. The privacy page (code, done in the build) names the Google copy in its data-use text.
@@ -138,3 +138,12 @@ New keys, natural in en, he and ru: gender-neutral Hebrew, formal вы in Russia
 - Only the owner can copy a calendar.
 - Hebrew series appear in Google as explicit dates (past years drop out of the copy).
 - With the app in testing, Google's 7-day token expiry means weekly reconnects.
+- Three Google behaviours the docs don't settle, checked only against a fake Google: a Hebrew series is written as `RRULE:FREQ=YEARLY;COUNT=1` plus `RDATE` lines with a `TZID`, and a changed date in it is found through `events.instances`. If Google refuses any of these, the series is marked "can't be copied" (counted on the row, logged with ids), never dropped silently.
+- "Copying… N of M" shows whenever items are waiting, not only on the first copy, so a small edit can show "1,199 of 1,200" for a moment.
+- A plan without `googleSync` shows no row, unless a copy is already on; that one says "Copying is paused on your plan."
+- Turning a copy on without the permission takes two taps (the switch, then Open Google): Telegram opens an outside link only straight from a tap, and the consent URL comes back from the server first.
+- The 'error' state has no button of its own; turning the copy off and on again retries it.
+- The WhatsApp reply after a sync consent has no button (a magic link can't open the calendars page); it carries the Telegram tip.
+- The calendars page is light-only, as before; its dark mode comes with the deferred screen redesign.
+- "Copy again" on an 'otherAccount' copy drops the old calendar's id. That calendar stays in the other Google account, and FamCal keeps hiding it by its `[famcal:<linkId>]` token if that account is connected again.
+- Serial calendar creation and the daily Hebrew refresh are per process, which is right for one Railway instance. The admin hard delete carries out each queued Remove inside its own request (best effort; the delete goes ahead when Google fails).

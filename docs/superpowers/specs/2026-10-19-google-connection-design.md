@@ -1,6 +1,6 @@
 # Google becomes a connection, and events move between FamCal and Google
 
-Status: G1–G4 shipped 2026-10-20 (G5 is this cleanup). Designed 2026-10-19 under the owner's delegation and revised after code and product reviews. It follows the model the owner agreed on 2026-10-15, and adds the owner's 2026-10-19 cross-source move idea: "switching events source between gcal and famcal … this way manual move can be a real thing". It builds on editing 3b (docs/superpowers/specs/2026-10-19-home-editing-3b-design.md) and Hebrew repeats (2026-10-19-hebrew-repeats-design.md). Research notes: next/facts-connection.md, facts-google-write.md, facts-critic.md §(b).
+Status: shipped 2026-10-20 (G1–G5 on main). Designed 2026-10-19 under the owner's delegation and revised after code and product reviews. It follows the model the owner agreed on 2026-10-15, and adds the owner's 2026-10-19 cross-source move idea: "switching events source between gcal and famcal … this way manual move can be a real thing". It builds on editing 3b (docs/superpowers/specs/2026-10-19-home-editing-3b-design.md) and Hebrew repeats (2026-10-19-hebrew-repeats-design.md). Research notes: next/facts-connection.md, facts-google-write.md, facts-critic.md §(b).
 
 ## 1. The model (owner rulings, 2026-10-15)
 - **FamCal is for everyone.** Every user has FamCal, created lazily. A Google-only user's FamCal can stay empty, and nothing pushes them into it.

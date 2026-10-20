@@ -1,6 +1,6 @@
 # Hebrew holidays in-process, and a holidays layer in the home
 
-Status: designed 2026-10-19 under the owner's delegation ("you can proceed with development"). This is roadmap step 4 under the calendar UI: "a Hebrew holidays layer in-process (ends the dependency on CalBrew's API)". The research notes are in session scratchpad next/facts-hebrew-holidays.md.
+Status: shipped 2026-10-19, on main. Designed 2026-10-19 under the owner's delegation ("you can proceed with development"). This is roadmap step 4 under the calendar UI: "a Hebrew holidays layer in-process (ends the dependency on CalBrew's API)". The research notes are in session scratchpad next/facts-hebrew-holidays.md.
 
 Shipped 2026-10-19 on `feat/holidays`, with these deviations from the design:
 - `holidaysInRange` is synchronous, so the natural-name overrides (`holidays.names.<id>`, Russian mostly) are read from `messages/{en,he,ru}.json` by static import, not through the async bot-messages loader. en and he mirror hebcal's wording; a smoke pins that for a whole year.
