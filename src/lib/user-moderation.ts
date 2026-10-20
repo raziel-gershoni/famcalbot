@@ -10,6 +10,7 @@ import { redis } from '../utils/redis';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { invalidateFeatureAccessCache } from '../services/subscription-service';
 import { removeUserFromCache } from '../services/reminder-cache';
+import { captureError } from './error-capture';
 
 const BLOCK_CACHE_TTL = 3600; // 1 hour — primed on ban, cleared on unban
 
@@ -69,19 +70,30 @@ export async function unsuspendUser(userId: number, adminId: number): Promise<vo
  * NativeEvent.forUserId, NativeReminderState.doneByUserId and
  * PairingInvite.acceptedByUserId are SET NULL and their invites CASCADE in the
  * database, as do their copies to Google (GoogleSyncLink, and its items). The Google
- * token goes with the user, so nothing can reach a copy afterwards: google-sync S3 adds,
- * before this transaction, a best-effort Remove of each copy with work queued, carried out
- * synchronously with the user's own token (or the link's unlinkToken), a failure logged and
- * sent to Sentry, and the delete going on (spec §2). Until then the Google calendars stay
- * in their Google account and the delete logs their links.
+ * token goes with the user, so nothing can reach a copy afterwards: before this
+ * transaction, each copy with work queued is carried out in Google synchronously
+ * (google-sync spec §2): Remove for a copy that is on, the queued Remove or Keep for one
+ * turned off, with the link's unlinkToken or else the user's own token, through the
+ * worker's own Remove and Keep (carryOutCopiesBeforeDelete). Best effort: a failure is
+ * logged with the link id and sent to Sentry, and the delete goes on.
  * Admin ids they left in compedBy, grantedBy, suspendedBy and bannedBy stay: they
  * are plain audit columns, and compedBy != null is what marks a comp.
  * Also clears Redis caches keyed by userId.
  */
 export async function hardDeleteUser(userId: number, adminId: number): Promise<void> {
-  const copies = await prisma.$transaction(async (tx) => {
+  try {
+    // Loaded here: the worker reaches the Google client and the calendar code, which the
+    // moderation helpers' other callers (the webhooks' blocklist checks) never need.
+    const { carryOutCopiesBeforeDelete } = await import('../services/google-sync/worker');
+    await carryOutCopiesBeforeDelete(userId);
+  } catch (error) {
+    // Reading the copies failed: the delete goes on, and their Google calendars stay.
+    console.error(`[Moderation] Hard delete of user ${userId}: carrying out the copies to Google failed`, error);
+    captureError(error, 'google-sync-hard-delete', { user_id: userId });
+  }
+
+  await prisma.$transaction(async (tx) => {
     const user = await tx.user.findUnique({ where: { id: userId }, select: { pairingId: true } });
-    const copies = await tx.googleSyncLink.findMany({ where: { userId, enabled: true }, select: { id: true } });
 
     if (user?.pairingId) {
       await tx.pairing.updateMany({
@@ -121,13 +133,9 @@ export async function hardDeleteUser(userId: number, adminId: number): Promise<v
     await tx.userFeatureOverride.deleteMany({ where: { userId } });
     await tx.oAuthState.deleteMany({ where: { userId: BigInt(userId) } });
     await tx.user.delete({ where: { id: userId } });
-    return copies;
   });
 
   await clearDeletedUserCaches(userId);
-  if (copies.length > 0) {
-    console.log(`[Moderation] Hard delete of user ${userId} left ${copies.length} Google copies in their Google account (links ${copies.map(c => c.id).join(', ')})`);
-  }
 
   console.log(`[Moderation] Admin ${adminId} hard-deleted user ${userId}`);
 }

@@ -660,7 +660,7 @@ const W_SETUP: Row = {
 };
 
 /** Google refresh tokens as the user row stores them (encrypted); set in main. */
-const TOKENS = { w: '', t: '' };
+const TOKENS = { w: '', t: '', merged: '' };
 const W_ASSIGNMENTS = [
   { calendarId: 'dana@example.com', labels: ['yours'], name: 'Dana' },
   { calendarId: 'kids@group.calendar.google.com', labels: ['kids'], name: 'Kids' },
@@ -713,6 +713,7 @@ async function main() {
   const { encrypt } = await load('src/utils/encryption.ts');
   TOKENS.w = encrypt('google-rt-w');
   TOKENS.t = encrypt('google-rt-t');
+  TOKENS.merged = encrypt('google-rt-merged');
 
   // ---- The fake keeps the schema ----
 
@@ -1721,6 +1722,88 @@ async function main() {
     assert(!syncRow('link-w') && !table('googleSyncItem').some(r => r.linkId === 'link-w'), `W's copy ${show(table('googleSyncLink'))}`);
     const p = syncRow('link-p');
     assert(p?.enabled === true && p.dirtySeq === 0 && show(syncItems()) === show(['link-p/ev-w-in-p=1']), `P's copy ${show(p)} items ${show(syncItems())}`);
+  });
+
+  // The hard delete's Remove before its transaction (google-sync spec §2, plan S3): a fake
+  // Google behind the sync client's test seam, recording each call with the token it came with.
+  type FakeCal = { account: string; description: string; events: Array<{ id: string; mark?: string }> };
+  const gcals = new Map<string, FakeCal>();
+  const gcalls: string[] = [];
+  let gfail: Error | null = null;
+  const accounts: Record<string, string> = { 'google-rt-w': 'w@example.com', 'google-rt-merged': 'm@example.com' };
+  const { __useSyncGoogleForTests } = await load('src/services/google-sync/client.ts');
+  __useSyncGoogleForTests((token: string) => {
+    const call = async <T>(op: string, fn: () => T): Promise<{ data: T }> => {
+      gcalls.push(`${op} ${token}`);
+      if (gfail) throw gfail;
+      return { data: fn() };
+    };
+    const cal = (id: string) => {
+      const c = gcals.get(id);
+      if (!c || c.account !== accounts[token]) throw Object.assign(new Error('Not Found'), { response: { status: 404, data: {} } });
+      return c;
+    };
+    return {
+      account: async () => { gcalls.push(`account ${token}`); if (gfail) throw gfail; return accounts[token]; },
+      api: {
+        calendars: {
+          get: (a: Row) => call('calendars.get', () => ({ id: a.calendarId, description: cal(a.calendarId).description })),
+          delete: (a: Row) => call('calendars.delete', () => { cal(a.calendarId); gcals.delete(a.calendarId); return {}; }),
+          patch: (a: Row) => call('calendars.patch', () => { cal(a.calendarId).description = a.requestBody.description; return {}; }),
+        },
+        events: {
+          list: (a: Row) => call('events.list', () => ({ items: cal(a.calendarId).events.map(e => ({ id: e.id, extendedProperties: e.mark ? { private: { famcalSync: e.mark } } : undefined })) })),
+          delete: (a: Row) => call('events.delete', () => { const c = cal(a.calendarId); c.events = c.events.filter(e => e.id !== a.eventId); return {}; }),
+        },
+      },
+    };
+  });
+  const seedCopies = () => {
+    seed();
+    userRow(W).googleRefreshToken = TOKENS.w;
+    gcals.clear();
+    gcalls.length = 0;
+    gfail = null;
+    gcals.set('g-link-w', { account: 'w@example.com', description: 'Managed.\n\n[famcal:link-w]', events: [{ id: 'e1', mark: 'link-w' }] });
+    gcals.set('g-link-k', { account: 'm@example.com', description: 'Managed.\n\n[famcal:link-k]', events: [] });
+    gcals.set('g-link-done', { account: 'w@example.com', description: 'Kept.\n\n[famcal:link-done]', events: [] });
+    DB.googleSyncLink = [
+      syncLink('link-w', W, 'cal-w', { googleAccount: 'w@example.com' }),
+      syncLink('link-k', W, 'cal-w-kids', { enabled: false, unlinkChoice: 'keep', dirtySeq: 2, pushedSeq: 1, googleAccount: 'm@example.com', unlinkToken: TOKENS.merged }),
+      syncLink('link-done', W, 'cal-w-old', { enabled: false, unlinkChoice: 'keep', dirtySeq: 1, pushedSeq: 1, googleAccount: 'w@example.com' }),
+    ];
+    DB.googleSyncItem = [{ id: 'it-w', linkId: 'link-w', nativeEventId: 'ev-w', dirtySeq: 1, pushedSeq: 1, generation: 0, attempts: 0, status: 'ok' }];
+  };
+
+  await check('#59 hardDeleteUser carries out each copy with work queued in Google before its transaction: Remove for the copy that is on (the user\'s token), the queued Keep with the link\'s unlinkToken, nothing for one already carried out; then the delete goes through', async () => {
+    seedCopies();
+    let deletedFirst = false;
+    concurrent = (name, method) => { if (name === 'user' && method === 'delete' && gcalls.length === 0) deletedFirst = true; };
+    const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
+    await hardDeleteUser(W, 1);
+    concurrent = null;
+    assert(!deletedFirst && !userRow(W) && !syncRow('link-w'), `order ${show(gcalls)}; W ${show(userRow(W))}`);
+    assert(!gcals.has('g-link-w') && gcalls.includes('calendars.delete google-rt-w'), `Remove ${show(gcalls)}`);
+    assert(gcals.get('g-link-k')!.description.endsWith('[famcal:link-k]') && gcals.get('g-link-k')!.description.startsWith('FamCal no longer updates') && gcalls.includes('calendars.patch google-rt-merged'), `Keep ${show(gcals.get('g-link-k'))} ${show(gcalls)}`);
+    assert(!gcalls.some(c => c.includes('link-done')) && gcals.get('g-link-done')!.description.startsWith('Kept.') && gcalls.filter(c => c.startsWith('calendars.get')).length === 2, `carried-out copy touched ${show(gcalls)}`);
+  });
+
+  await check('#60 hardDeleteUser: a copy that fails in Google (Google down) is logged and sent to Sentry with its link id, and the delete still goes through', async () => {
+    seedCopies();
+    gfail = Object.assign(new Error('Backend Error'), { response: { status: 503, data: {} } });
+    const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
+    await hardDeleteUser(W, 1);
+    assert(!userRow(W) && !syncRow('link-w'), `W ${show(userRow(W))}`);
+    assert(captured.filter(c => c.startsWith('google-sync-hard-delete:')).length === 2 && gcals.has('g-link-w'), `captured ${show(captured)}`);
+  });
+
+  await check('#61 hardDeleteUser of a user with no copies makes no Google call', async () => {
+    seed();
+    gcalls.length = 0;
+    DB.googleSyncLink = [];
+    const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
+    await hardDeleteUser(W, 1);
+    assert(!userRow(W) && gcalls.length === 0, `calls ${show(gcalls)}`);
   });
 
   // ---- Admin hard delete ----
