@@ -102,14 +102,29 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
   // Set when Google opens: when, and whether the finish is in Telegram or WhatsApp
   const [waiting, setWaiting] = useState<{ since: number; telegram: boolean } | null>(null);
   const checkInFlight = useRef(false);
+  // A later prepare (after a tap, or the timer) failed: Connect stays, and its tap prepares again
+  const [retry, setRetry] = useState(false);
   // Only the latest prepare's answer counts, and none after the page is gone
   const prepared = useRef(0);
   const mounted = useRef(true);
 
-  const prepare = useCallback(async () => {
+  // first: the page's own load, whose failure is the page's answer (startErrorLines). A later
+  // one's failure must not end the page: a consent may be open in the browser, and a 429 or a
+  // dropped network passes, so Connect stays and retries.
+  const prepare = useCallback(async (first = false) => {
     const run = ++prepared.current;
     setStart(null);
+    setRetry(false);
     const initData = readInitData();
+    const failed = (lines: string[], why: string) => {
+      if (!mounted.current || run !== prepared.current) return;
+      if (first) {
+        setStartError(lines);
+      } else {
+        console.warn(`[refresh-token] preparing the next Google sign-in failed (${why}); Connect retries`);
+        setRetry(true);
+      }
+    };
     try {
       const response = await fetch('/api/oauth/start', {
         method: 'POST',
@@ -123,17 +138,17 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
       if (attempt) {
         setStart(attempt);
       } else {
-        setStartError(startErrorLines(response.status, initData, t));
+        failed(startErrorLines(response.status, initData, t), `HTTP ${response.status}`);
       }
     } catch (error) {
       console.error('Error starting Google sign-in:', error);
-      if (mounted.current && run === prepared.current) setStartError([t.startFailed]);
+      failed([t.startFailed], error instanceof Error ? error.message : String(error));
     }
   }, [userId, t]);
 
   useEffect(() => {
     mounted.current = true;
-    void prepare();
+    void prepare(true);
     return () => {
       mounted.current = false;
     };
@@ -183,7 +198,10 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
   }, [locale]);
 
   const startOAuth = useCallback(() => {
-    if (!start) return;
+    if (!start) {
+      if (retry) void prepare();
+      return;
+    }
     if (Date.now() - start.preparedAt >= URL_FRESH_MS) {
       // Its state is about to end: Google would only lead to "expired". The next tap gets a new one.
       void prepare();
@@ -206,7 +224,7 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     setWaiting({ since: Date.now(), telegram: readInitData() !== '' });
     // This URL's state is spent once its consent finishes: the next tap opens a new one
     void prepare();
-  }, [start, userId, prepare]);
+  }, [start, retry, userId, prepare]);
 
   useEffect(() => {
     // Initialize Telegram WebApp if available
@@ -247,10 +265,10 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
   }, [waiting, checkTokenRefresh]);
 
   useEffect(() => {
-    // The Telegram MainButton shows while a Google URL is ready, like the page's button
+    // The Telegram MainButton shows while the page's button works: a Google URL is ready, or a retry
     const tg = typeof window !== 'undefined' ? window.Telegram?.WebApp : undefined;
     if (!tg) return;
-    if (!oauthUrl) {
+    if (!oauthUrl && !retry) {
       tg.MainButton.hide();
       return;
     }
@@ -260,7 +278,7 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     return () => {
       tg.MainButton.offClick(startOAuth);
     };
-  }, [oauthUrl, startOAuth]);
+  }, [oauthUrl, retry, startOAuth]);
 
   return (
     <>
@@ -500,9 +518,9 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
           <button
             onClick={startOAuth}
             className="btn"
-            disabled={!oauthUrl}
+            disabled={!oauthUrl && !retry}
           >
-            {oauthUrl ? <KeyRound size={20} /> : <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />}
+            {oauthUrl || retry ? <KeyRound size={20} /> : <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />}
             {t.button}
           </button>
         )}

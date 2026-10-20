@@ -1084,7 +1084,7 @@ async function main() {
     const storage = new Map<string, string>();
     const intervals = new Map<number, () => void>();
     const inflight: Promise<unknown>[] = [];
-    const phone: Row = { storage, opened: [] as string[], mainButton: 'hidden', location: { href: 'http://localhost/en/refresh-token', hash: '' } };
+    const phone: Row = { storage, opened: [] as string[], mainButton: 'hidden', refuse: new Set<string>(), location: { href: 'http://localhost/en/refresh-token', hash: '' } };
     phone.serverNow = () => realNow() + serverShift;
     /** The phone's clock moves on by `ms` (the page left open); the server's with it. */
     phone.advance = (ms: number) => { phoneShift += ms; serverShift += ms; };
@@ -1132,6 +1132,8 @@ async function main() {
       const url = String(input);
       const file = routes[url.split('?')[0]];
       if (!file) return serverFetch(input as string, init);
+      // phone.refuse: the next call to this route fails as a rate limit would
+      if (phone.refuse.delete(url.split('?')[0])) return new Response(JSON.stringify({ error: 'Too many requests' }), { status: 429 });
       const call = phone.asServer(async () => {
         const mod = await load(file);
         return mod[(init?.method ?? 'GET').toUpperCase()](new NextRequest(`http://localhost${url}`, init));
@@ -1854,6 +1856,30 @@ async function main() {
       await phone.settle();
       const third = stateOf(phone.opened[2]);
       assert(phone.opened.length === 3 && third !== ready && DB.oAuthState.some((r: Row) => r.token === third), `after the stale tap: ${show(phone.opened)}`);
+    });
+  });
+
+  await check('#51 a failed oauth/start after a tap (429) leaves Connect working: no final error beside the waiting text; the tap prepares a new URL (opening nothing), the next tap opens it', async () => {
+    const client = await load('app/refresh-token/RefreshTokenClient.tsx');
+    const TRANSLATIONS = new Proxy({}, { get: (_t, key) => (key === 'gate' ? new Proxy({}, { get: (_g, k) => String(k) }) : String(key)) });
+    seed();
+    await onPhone(0, initDataFor(TAL_TG), async phone => {
+      const app = runClient(client.default, { userId: String(TAL_TG), locale: 'en', translations: TRANSLATIONS });
+      await phone.settle();
+      const connect = () => elementsOf(app.tree()).find(e => e.type === 'button' && e.props?.className === 'btn');
+      const alerts = () => elementsOf(app.tree()).filter(e => e.props?.role === 'alert');
+      phone.refuse.add('/api/oauth/start');
+      connect()!.props.onClick();
+      await phone.settle();
+      assert(phone.opened.length === 1, `opened ${show(phone.opened)}`);
+      assert(alerts().length === 0 && connect()?.props.disabled === false && phone.mainButton === 'shown', `after the failed prepare: alerts ${alerts().length}, button ${show(connect()?.props ?? null)}, MainButton ${phone.mainButton}`);
+      connect()!.props.onClick();
+      assert(phone.opened.length === 1, `the retry tap opened ${show(phone.opened)}`);
+      await phone.settle();
+      connect()!.props.onClick();
+      await phone.settle();
+      const opened = new URL(String(phone.opened[1] ?? 'https://x/')).searchParams.get('state') ?? '';
+      assert(phone.opened.length === 2 && opened !== new URL(phone.opened[0]).searchParams.get('state') && DB.oAuthState.some((r: Row) => r.token === opened), `after the retry: ${show(phone.opened)}`);
     });
   });
 
