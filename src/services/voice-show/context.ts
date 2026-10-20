@@ -6,10 +6,11 @@
 import type { CalendarAssignment, UserConfig } from '../../types';
 import type { ShowPerson, ShowPromptContext } from '../../prompts/voice-show/types';
 import type { ShowKind } from './types';
+import { captureError } from '../../lib/error-capture';
 
 /**
- * @param calendars - The user's resolved calendars (resolveShowCalendars); a Google
- *   user's are the ones on the user row.
+ * @param calendars - The user's resolved calendars (resolveShowCalendars); without them, the
+ *   Google choices on the user row.
  */
 export function buildShowContext(
   summary: string,
@@ -45,17 +46,17 @@ export function buildShowContext(
 }
 
 /**
- * A NATIVE user's calendars, which name the partner and the kids; they are not on the
- * user row. Undefined for a Google user, and when the lookup fails: the show then goes
- * on without the family's names rather than not at all.
+ * The user's calendars, which name the partner and the kids: the union of FamCal and the Google
+ * choices ("Google as a connection"), for everyone. Undefined when the lookup fails: the show
+ * then goes on with the Google choices on the user row rather than not at all.
  */
 export async function resolveShowCalendars(user: UserConfig): Promise<CalendarAssignment[] | undefined> {
-  if (user.calendarSource !== 'NATIVE') return undefined;
   try {
     const { getCalendarAssignmentsForUser } = await import('../calendar-provider/user-calendars');
     return await getCalendarAssignmentsForUser(user);
   } catch (err) {
     console.warn(`[VoiceShow] Could not resolve calendars for user ${user.id}:`, err);
+    captureError(err, 'voice-show-calendars', { user_id: user.id }, 'warning');
     return undefined;
   }
 }

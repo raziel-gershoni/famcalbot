@@ -955,6 +955,7 @@
       "yes": "כן",
       "no": "לא",
       "confirmed": "הוספתי כלל ביומן {calendar}: \"{name} הוא ילד/ה שלי\"",
+      "confirmedFamcal": "רשמתי: היומן {calendar} שייך עכשיו ל{name}",
       "declined": "הבנתי, תודה!",
       "expired": "הבקשה פגה.",
       "openSettings": "פתח הגדרות"

@@ -40,12 +40,11 @@ async function produceNarratorVoice(summary: string, user: UserConfig, kind: Sho
   const { buildVoiceCondenserPrompt, buildWeeklyVoiceCondenserPrompt } = await import('../../prompts/voice-condenser');
   const { generateAICompletion } = await import('../ai-provider');
 
-  const spouseCalendar = user.calendarAssignments?.find(cal =>
-    cal.labels.includes('spouse')
-  );
-  const hasKidsCalendars = user.calendarAssignments?.some(cal =>
-    cal.labels.includes('kids')
-  ) ?? false;
+  // The union of FamCal and the Google choices, as the voice show reads it
+  const { resolveShowCalendars } = await import('../voice-show/context');
+  const calendars = (await resolveShowCalendars(user)) ?? user.calendarAssignments ?? [];
+  const spouseCalendar = calendars.find(cal => cal.labels.includes('spouse'));
+  const hasKidsCalendars = calendars.some(cal => cal.labels.includes('kids'));
 
   const condenserContext: VoiceCondenserContext = {
     summary,

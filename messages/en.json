@@ -955,6 +955,7 @@
       "yes": "Yes",
       "no": "No",
       "confirmed": "Added a rule to {calendar}: \"{name} is my child\"",
+      "confirmedFamcal": "Got it: {calendar} is now {name}’s calendar",
       "declined": "Got it, thanks!",
       "expired": "This request has expired.",
       "openSettings": "Open Settings"

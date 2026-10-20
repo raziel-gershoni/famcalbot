@@ -11,6 +11,8 @@ import { getUserById } from './user-service';
 import { getBotMessages } from '../lib/bot-messages';
 import { buildUrl } from '../config/urls';
 import { CalendarAssignment } from '../types';
+import { isFamcalId } from '../utils/calendar-helpers';
+import { decodeCalendarId } from './native-calendar/event-store';
 
 interface KidNamePending {
   name: string;
@@ -64,41 +66,18 @@ export async function handleKidNameCallback(
   const kd = t.kidNameDetection || {};
 
   if (action === 'kidname_yes') {
-    // Find the CalendarAssignment matching calendarId
-    const assignments: CalendarAssignment[] = user.calendarAssignments ? [...user.calendarAssignments] : [];
-    const assignmentIndex = assignments.findIndex(a => a.calendarId === pending.calendarId);
-
-    if (assignmentIndex !== -1) {
-      // Build rule string based on language
-      const ruleTemplate = RULE_TEMPLATES[lang] || RULE_TEMPLATES.en;
-      const rule = ruleTemplate.replace('{name}', pending.name);
-
-      // Set rules on the assignment
-      assignments[assignmentIndex] = {
-        ...assignments[assignmentIndex],
-        rules: [rule],
-      };
-
-      // Save via prisma
-      await prisma.user.update({
-        where: { id: pending.userId },
-        data: { calendarAssignments: assignments as unknown as object[] },
-      });
-    }
-
-    // Build confirmation text with settings link
-    const calendarName = assignments[assignmentIndex]?.name || pending.calendarId;
     const ruleTemplate = RULE_TEMPLATES[lang] || RULE_TEMPLATES.en;
     const ruleText = ruleTemplate.replace('{name}', pending.name);
-    const confirmedText = (kd.confirmed || 'Added a rule to {calendar}: "{name} is my child"')
-      .replace('{calendar}', calendarName)
-      .replace('{name}', pending.name);
+    const answer = isFamcalId(pending.calendarId)
+      ? await confirmOnFamcal(user.id, pending, ruleText, kd)
+      : await confirmOnGoogle(user.id, user.calendarAssignments, pending, ruleText, kd);
 
-    const settingsUrl = buildUrl(`/${lang}/select-calendars?user_id=${user.telegramId ?? user.id}`);
+    const settingsPage = isFamcalId(pending.calendarId) ? 'calendars' : 'select-calendars';
+    const settingsUrl = buildUrl(`/${lang}/${settingsPage}?user_id=${user.telegramId ?? user.id}`);
     const openSettingsText = kd.openSettings || 'Open Settings';
 
     await bot.answerCallbackQuery(queryId, { text: ruleText });
-    await bot.editMessageText(confirmedText, {
+    await bot.editMessageText(answer, {
       chat_id: chatId,
       message_id: messageId,
       parse_mode: 'HTML',
@@ -124,4 +103,62 @@ export async function handleKidNameCallback(
     // Delete pending from Redis
     await redis.del(REDIS_KEYS.kidNamePending(pendingId));
   }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type KidNameTexts = any;
+
+/**
+ * "Yes" on a Google calendar: the rule goes on its assignment (User.calendarAssignments), and
+ * the answer says so.
+ */
+async function confirmOnGoogle(
+  userId: number,
+  stored: CalendarAssignment[] | undefined | null,
+  pending: KidNamePending,
+  ruleText: string,
+  kd: KidNameTexts
+): Promise<string> {
+  const assignments: CalendarAssignment[] = stored ? [...stored] : [];
+  const assignmentIndex = assignments.findIndex(a => a.calendarId === pending.calendarId);
+  if (assignmentIndex !== -1) {
+    assignments[assignmentIndex] = { ...assignments[assignmentIndex], rules: [ruleText] };
+    await prisma.user.update({
+      where: { id: userId },
+      data: { calendarAssignments: assignments as unknown as object[] },
+    });
+  } else {
+    console.warn(`[KidName] user ${userId}: the Google calendar of the question is no longer chosen; nothing written`);
+  }
+  const calendarName = assignments[assignmentIndex]?.name || pending.calendarId;
+  return (kd.confirmed || 'Added a rule to {calendar}: "{name} is my child"')
+    .replace('{calendar}', calendarName)
+    .replace('{name}', pending.name);
+}
+
+/**
+ * "Yes" on a FamCal calendar ("Google as a connection" spec §4): the child is the calendar's
+ * person (NativeCalendar.personName), as the calendars page sets it. A calendar that already
+ * names another child gets the rule instead, as a Google one does. Only the user's own
+ * calendar is written; a partner's is left as it is.
+ */
+async function confirmOnFamcal(userId: number, pending: KidNamePending, ruleText: string, kd: KidNameTexts): Promise<string> {
+  const cuid = decodeCalendarId(pending.calendarId);
+  const calendar = cuid
+    ? await prisma.nativeCalendar.findFirst({ where: { id: cuid, ownerUserId: userId, isDeleted: false } })
+    : null;
+  if (!calendar) {
+    console.warn(`[KidName] user ${userId}: ${pending.calendarId} is not a FamCal calendar of theirs; nothing written`);
+    return kd.declined || 'Got it, thanks!';
+  }
+  if (!calendar.personName?.trim()) {
+    await prisma.nativeCalendar.update({ where: { id: calendar.id }, data: { personName: pending.name } });
+    return (kd.confirmedFamcal || '{calendar} is now {name}\'s calendar')
+      .replace('{calendar}', calendar.name)
+      .replace('{name}', pending.name);
+  }
+  await prisma.nativeCalendar.update({ where: { id: calendar.id }, data: { rules: [ruleText] } });
+  return (kd.confirmed || 'Added a rule to {calendar}: "{name} is my child"')
+    .replace('{calendar}', calendar.name)
+    .replace('{name}', pending.name);
 }

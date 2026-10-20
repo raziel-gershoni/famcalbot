@@ -322,10 +322,11 @@ async function main() {
     assert(buildShowContext('summary', raziel, 'daily').spouse === undefined, 'spouse without calendars');
   });
 
-  await check('voice show: resolveShowCalendars reads a NATIVE user\'s calendars, never a Google user\'s', async () => {
+  await check('voice show: resolveShowCalendars reads the union for everyone ("Google as a connection"): a Google user\'s FamCal rows (none here), then their Google choices', async () => {
     storeCalls.length = 0;
-    assert((await resolveShowCalendars(googleUser)) === undefined, 'Google user resolved');
-    assert(storeCalls.length === 0, 'Google user hit the native store');
+    const google = await resolveShowCalendars(googleUser);
+    assert(google?.length === googleCalendars.length && google.every((a, i) => a === googleCalendars[i]), `Google user resolved ${JSON.stringify(google)}`);
+    assert(storeCalls.length === 1, 'the Google user\'s FamCal half was not read');
     const calendars = await resolveShowCalendars(raziel);
     assertList(calendars?.find(c => c.calendarId === 'native:dana-main')?.labels, ['spouse']);
     assertList(buildShowContext('s', googleUser, 'daily'), buildShowContext('s', googleUser, 'daily', false, googleCalendars));

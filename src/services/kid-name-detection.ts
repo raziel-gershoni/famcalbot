@@ -3,7 +3,8 @@
  * Detects potential kid names from calendar events and prompts user to confirm
  */
 
-import { CalendarEvent, UserConfig } from '../types';
+import { CalendarAssignment, CalendarEvent, UserConfig } from '../types';
+import { getCalendarAssignmentsForUser } from './calendar-provider/user-calendars';
 import { redis } from '../utils/redis';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { getBot } from './telegram/bot';
@@ -97,31 +98,31 @@ export function extractPotentialNames(title: string, language: string): string[]
  */
 export async function detectUnknownKidName(
   otherEvents: CalendarEvent[],
-  user: UserConfig
+  user: UserConfig,
+  // The union (getCalendarAssignmentsForUser): FamCal rows, then the Google choices. The user
+  // row holds only the Google choices, so a FamCal user's kids and partner went unseen.
+  calendars?: CalendarAssignment[]
 ): Promise<KidNameCandidate | null> {
   const lang = user.language || 'en';
+  const assignments = calendars ?? (await getCalendarAssignmentsForUser(user));
 
-  // Get known kid names from calendarAssignments with label 'kids'
+  // Known kid names: a kids calendar's own name, and the child it names (FamCal's personName)
   const knownKidNames = new Set<string>();
-  if (user.calendarAssignments) {
-    for (const assignment of user.calendarAssignments) {
-      if (assignment.labels.includes('kids')) {
-        // The calendar `name` field is the kid's name
-        knownKidNames.add(assignment.name.toLowerCase());
-      }
+  for (const assignment of assignments) {
+    if (assignment.labels.includes('kids')) {
+      knownKidNames.add(assignment.name.toLowerCase());
+      if (assignment.personName) knownKidNames.add(assignment.personName.toLowerCase());
     }
   }
 
   // Get spouse name to exclude
   const spouseNames = new Set<string>();
-  if (user.calendarAssignments) {
-    for (const assignment of user.calendarAssignments) {
-      if (assignment.labels.includes('spouse')) {
-        if (assignment.personName) spouseNames.add(assignment.personName.toLowerCase());
-        if (assignment.personEnglishName) spouseNames.add(assignment.personEnglishName.toLowerCase());
-        // Also use the calendar name
-        spouseNames.add(assignment.name.toLowerCase());
-      }
+  for (const assignment of assignments) {
+    if (assignment.labels.includes('spouse')) {
+      if (assignment.personName) spouseNames.add(assignment.personName.toLowerCase());
+      if (assignment.personEnglishName) spouseNames.add(assignment.personEnglishName.toLowerCase());
+      // Also use the calendar name
+      spouseNames.add(assignment.name.toLowerCase());
     }
   }
 

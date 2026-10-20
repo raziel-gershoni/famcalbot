@@ -424,7 +424,7 @@ function weekFamilyContext(calendars: CalendarAssignment[]) {
 
 /**
  * Build week lookahead prompt data from lookahead events and user info
- * @param calendars - The user's resolved calendars; a NATIVE user's are not on the user row
+ * @param calendars - The user's calendars, the union (getCalendarAssignmentsForUser); the user row holds only the Google choices
  */
 function buildWeekLookaheadPromptData(
   lookahead: WeekLookahead,
@@ -575,7 +575,7 @@ export async function generateWeekLookahead(
 
 /**
  * Build prompt data for next week summary
- * @param calendars - The user's resolved calendars; a NATIVE user's are not on the user row
+ * @param calendars - The user's calendars, the union (getCalendarAssignmentsForUser); the user row holds only the Google choices
  */
 function buildNextWeekPromptData(
   lookahead: WeekLookahead,
