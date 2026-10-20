@@ -1190,8 +1190,7 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
     const retimed =
       (input.endsAt !== undefined && input.endsAt.getTime() !== series.endsAt.getTime()) ||
       (input.allDay !== undefined && input.allDay !== series.allDay);
-    await markedTransaction(async (tx) => {
-      await markSyncDirty(tx, { series: [synced(series, series.calendarId, input.calendarId)] });
+    const updateAll = async (tx: Prisma.TransactionClient) => {
       if (start !== undefined && series.rrule) {
         const rrule = shiftUntil(series.rrule, series.startsAt, start, series.timeZone);
         const hebrewAnchor = shiftedAnchor(series, start);
@@ -1223,6 +1222,12 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
           data: { startsAt: null, endsAt: null, allDay: null },
         });
       }
+    };
+    // The mark goes last, as in every other writer: the event row is locked before the item
+    // row, so two writers on one series never take the two locks in opposite orders.
+    await markedTransaction(async (tx) => {
+      await updateAll(tx);
+      await markSyncDirty(tx, { series: [synced(series, series.calendarId, input.calendarId)] });
     });
     // The opened occurrence is where its slot went (the series' first, when none was given).
     const opened = input.instanceStartsAt ?? series.startsAt;

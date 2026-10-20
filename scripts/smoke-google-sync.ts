@@ -546,6 +546,12 @@ function oneTransaction(log: { writes: typeof writes }, what: string) {
   assert(txs.length === 1 && txs[0] !== null, `${what}: writes in ${show(txs)}: ${show(log.writes)}`);
   assert(log.writes.some((w) => w.name === 'googleSyncItem' || w.name === 'googleSyncLink'), `${what}: no mark among ${show(log.writes)}`);
   assert(log.writes.some((w) => !w.name.startsWith('googleSync')), `${what}: no FamCal write among ${show(log.writes)}`);
+  // One lock order for every writer: the FamCal rows first, the sync rows last. A mark taken
+  // before the event's own write locks the item row first, and a concurrent writer that took
+  // the event row first then waits on it: the two deadlock (Postgres 40P01).
+  const firstMark = log.writes.findIndex((w) => w.name.startsWith('googleSync'));
+  const late = log.writes.slice(firstMark).filter((w) => !w.name.startsWith('googleSync'));
+  assert(late.length === 0, `${what}: FamCal writes after the mark: ${show(log.writes)}`);
 }
 
 const lookups = (log: { calls: string[] }) => log.calls.filter((c) => c.startsWith('googleSyncLink.')).length;
