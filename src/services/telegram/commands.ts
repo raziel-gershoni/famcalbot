@@ -519,11 +519,17 @@ export async function handleLookaheadCommand(
       const onTextDelta = streamHandle
         ? (_delta: string, accumulated: string) => streamHandle.pushDelta(accumulated)
         : undefined;
-      return generateWeekLookahead(lookahead, user, userLanguage, undefined, user.isAdmin, onTextDelta, calendars);
+      const text = await generateWeekLookahead(lookahead, user, userLanguage, undefined, user.isAdmin, onTextDelta, calendars);
+      return { text, googleGap: lookahead.googleGap };
     },
-    onSuccess: async (formattedLookahead) => {
+    onSuccess: async ({ text: formattedLookahead, googleGap }) => {
       const deliveryPlatform = platform === MessagingPlatform.TELEGRAM ? 'telegram' : 'whatsapp';
       await routeTextMessage(chatId, formattedLookahead, user, deliveryPlatform as 'telegram' | 'whatsapp', false, undefined, streamHandle);
+      // The week kept FamCal's events without Google's: say why, as a failed read would
+      if (googleGap) {
+        const { googleGapError } = await import('../calendar-read/digest');
+        await answerGoogleReadError(googleGapError(googleGap), { chatId, user, userLanguage, messagingService });
+      }
 
       // Generate voice message if enabled
       if (user.voiceSummaryEnabled) {
@@ -618,11 +624,17 @@ export async function handleNextWeekCommand(
       const onTextDelta = streamHandle
         ? (_delta: string, accumulated: string) => streamHandle.pushDelta(accumulated)
         : undefined;
-      return generateNextWeekSummary(lookahead, user, userLanguage, undefined, user.isAdmin, onTextDelta, calendars);
+      const text = await generateNextWeekSummary(lookahead, user, userLanguage, undefined, user.isAdmin, onTextDelta, calendars);
+      return { text, googleGap: lookahead.googleGap };
     },
-    onSuccess: async (formattedSummary) => {
+    onSuccess: async ({ text: formattedSummary, googleGap }) => {
       const deliveryPlatform = platform === MessagingPlatform.TELEGRAM ? 'telegram' : 'whatsapp';
       await routeTextMessage(chatId, formattedSummary, user, deliveryPlatform as 'telegram' | 'whatsapp', false, undefined, streamHandle);
+      // Next week kept FamCal's events without Google's: say why, as a failed read would
+      if (googleGap) {
+        const { googleGapError } = await import('../calendar-read/digest');
+        await answerGoogleReadError(googleGapError(googleGap), { chatId, user, userLanguage, messagingService });
+      }
 
       // Generate voice message if enabled
       if (user.voiceSummaryEnabled) {

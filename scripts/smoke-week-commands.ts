@@ -120,11 +120,16 @@ function makeDraft(): StreamMessageHandle {
 
 /** What the next lookahead throws; unset, it answers with one event. */
 let lookaheadError: Error | undefined;
+/** The gap the next lookahead's read reports ("Google as a connection": FamCal kept without Google). */
+let lookaheadGap: string | undefined;
 const lookaheadCalls: string[] = [];
 const lookahead = (kind: string) => async () => {
   lookaheadCalls.push(kind);
   if (lookaheadError) throw lookaheadError;
-  return { events: [{ summary: 'Book fair' }], dateRange: { start: new Date(), end: new Date() }, timezone: 'Asia/Jerusalem' };
+  return {
+    events: [{ summary: 'Book fair' }], dateRange: { start: new Date(), end: new Date() }, timezone: 'Asia/Jerusalem',
+    ...(lookaheadGap ? { googleGap: lookaheadGap } : {}),
+  };
 };
 const codeError = (code: string) => new Error(code);
 const outage = () => Object.assign(new Error('GOOGLE_FETCH_FAILED'), { day: '2026-10-13' });
@@ -211,7 +216,7 @@ Module.registerHooks({
 
 type Command = 'week' | 'nextweek';
 
-async function run(command: Command, opts: { error?: Error; platform?: MessagingPlatform; draft?: boolean; user?: UserConfig } = {}) {
+async function run(command: Command, opts: { error?: Error; gap?: string; platform?: MessagingPlatform; draft?: boolean; user?: UserConfig } = {}) {
   const { handleLookaheadCommand, handleNextWeekCommand } = await import('../src/services/telegram/commands');
   sent = [];
   adminWarnings = [];
@@ -220,6 +225,7 @@ async function run(command: Command, opts: { error?: Error; platform?: Messaging
   deliveries = [];
   lookaheadCalls.length = 0;
   lookaheadError = opts.error;
+  lookaheadGap = opts.gap;
   user = opts.user ?? makeUser();
   const platform = opts.platform ?? MessagingPlatform.TELEGRAM;
   const chatId = platform === MessagingPlatform.WHATSAPP ? WA_CHAT : TG_CHAT;
@@ -300,6 +306,19 @@ async function main() {
       `telegram.sendMessage ${TG_CHAT} html: ${SCOPES_TEXT}`,
       'admin warnings: Insufficient Scopes: User 21 has a token with insufficient scopes. Token cleared, awaiting re-authorization.',
       'admin errors: none', `tokens cleared: ${TG_CHAT}`,
+      `telegram.sendMessage ${TG_CHAT} html: ${EN.errors.googleUnreachable}`, 'admin warnings: none', 'admin errors: none', 'tokens cleared: none',
+    ]);
+  });
+
+  await check('G2: a week that kept FamCal without Google is delivered, then the dead-token or outage answer, /week and /nextweek', async () => {
+    await run('week', { gap: 'token' });
+    const week = [...deliveries, ...outcome()];
+    await run('nextweek', { gap: 'unavailable' });
+    assertList([...week, ...deliveries, ...outcome()], [
+      'This week: the book fair on Friday.',
+      `telegram.sendMessage ${TG_CHAT} html: ${TOKEN_TEXT}`,
+      'admin warnings: Token Expired: User 21 needs to refresh their Google Calendar token', 'admin errors: none', 'tokens cleared: none',
+      'Next week: the book fair on Friday.',
       `telegram.sendMessage ${TG_CHAT} html: ${EN.errors.googleUnreachable}`, 'admin warnings: none', 'admin errors: none', 'tokens cleared: none',
     ]);
   });

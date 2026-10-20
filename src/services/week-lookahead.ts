@@ -5,7 +5,9 @@
 
 import { CalendarEvent, CalendarAssignment, CalendarLabel, ReminderInfo, UserConfig } from '../types';
 import { getCalendarClient } from './calendar';
-import { DEFAULT_ON_DEMAND_READ, readLookaheadEvents, type DigestRead } from './calendar-read/digest';
+import { DEFAULT_ON_DEMAND_READ, readLookaheadEvents, type DigestRead, type GoogleGap } from './calendar-read/digest';
+import type { SourceName } from './calendar-read/types';
+import { isFamcalId } from '../utils/calendar-helpers';
 import { getNativeSeriesRrule } from './native-calendar/event-store';
 import {
   RECURRENCE_ANSWER_TTL_MS,
@@ -54,6 +56,13 @@ export interface WeekLookahead {
   dateRange: { start: Date; end: Date };
   /** The user's timezone; the lookahead's days are their local days. */
   timezone: string;
+  /** Set when the read kept FamCal's events without Google's (calendar-read/digest.ts). */
+  googleGap?: GoogleGap;
+}
+
+/** What a lookahead reads: every source that applies, or only those named (the outage run: FamCal). */
+export interface LookaheadReadOptions {
+  sources?: readonly SourceName[];
 }
 
 /** The user's days a lookahead lists, and the day "In N days" counts from (yyyy-MM-dd). */
@@ -152,12 +161,12 @@ async function fetchMasterEventRecurrence(
   calendarId: string,
   recurringEventId: string
 ): Promise<{ value: string[] | null; ttlMs: number }> {
-  // NATIVE: the series rule lives in our own table. Falling through to the
-  // Google client here would authenticate with an empty refresh token, fail,
-  // and land in the catch below - which classifies the event as 'daily' and
-  // therefore filters every recurring native event out of the lookahead,
+  // A FamCal calendar's series rule lives in our own table, whatever else the user has
+  // ("Google as a connection": by the calendar's id, not the user). Falling through to the
+  // Google client here would fail and land in the catch below - which classifies the event
+  // as 'daily' and therefore filters every recurring FamCal event out of the lookahead,
   // including the monthly and yearly ones that ought to show.
-  if (user.calendarSource === 'NATIVE') {
+  if (isFamcalId(calendarId)) {
     try {
       const rrule = await getNativeSeriesRrule(recurringEventId);
       // parseRecurrence only looks at entries prefixed 'RRULE:', which is how
@@ -326,7 +335,8 @@ export async function getWeekLookahead(
   user: UserConfig,
   calendars: CalendarAssignment[],
   referenceDate?: Date,
-  read: DigestRead = DEFAULT_ON_DEMAND_READ
+  read: DigestRead = DEFAULT_ON_DEMAND_READ,
+  options: LookaheadReadOptions = {}
 ): Promise<WeekLookahead> {
   const startDate = referenceDate || new Date();
   // The week is made of the user's days, from the reference day to the end of the last.
@@ -338,13 +348,15 @@ export async function getWeekLookahead(
   // Get all calendar IDs (including birthdays)
   const calendarIds = calendars.map(c => c.calendarId);
 
-  if (calendarIds.length === 0 || (user.calendarSource !== 'NATIVE' && !user.googleRefreshToken)) {
+  // Everyone has FamCal; the reader leaves Google out for a user without a token (sourcesFor)
+  if (calendarIds.length === 0) {
     return { events: [], dateRange: { start: startDate, end: endDate }, timezone };
   }
 
-  // The shared reader (spec §3.1): the user's own source over [start, the end of the last
-  // day), Google's clean-up, and Google's failures thrown for the command to answer.
-  const events = await readLookaheadEvents(user, startDate, endDate, timezone, calendarIds, read);
+  // The shared reader (spec §3.1): the user's sources over [start, the end of the last day),
+  // Google's clean-up, and Google's failures thrown for the command to answer, or marked when
+  // FamCal's events are kept without Google's.
+  const events = await readLookaheadEvents(user, startDate, endDate, timezone, calendarIds, read, options.sources);
 
   const lookaheadEvents = await filterAndBuildLookaheadEvents(events, user, calendars, {
     timezone, today, first: today, last: lastDay,
@@ -354,6 +366,7 @@ export async function getWeekLookahead(
     events: lookaheadEvents,
     dateRange: { start: startDate, end: endDate },
     timezone,
+    ...(events.googleGap ? { googleGap: events.googleGap } : {}),
   };
 }
 
@@ -399,7 +412,8 @@ export async function getNextWeekLookahead(
   user: UserConfig,
   calendars: CalendarAssignment[],
   referenceDate?: Date,
-  read: DigestRead = DEFAULT_ON_DEMAND_READ
+  read: DigestRead = DEFAULT_ON_DEMAND_READ,
+  options: LookaheadReadOptions = {}
 ): Promise<WeekLookahead> {
   // Next week's days run from the user's midnight to the end of their last day.
   const timezone = await resolveUserTimezone(user);
@@ -411,12 +425,13 @@ export async function getNextWeekLookahead(
   // Get all calendar IDs (including birthdays)
   const calendarIds = calendars.map(c => c.calendarId);
 
-  if (calendarIds.length === 0 || (user.calendarSource !== 'NATIVE' && !user.googleRefreshToken)) {
+  // Everyone has FamCal; the reader leaves Google out for a user without a token (sourcesFor)
+  if (calendarIds.length === 0) {
     return { events: [], dateRange: { start, end }, timezone };
   }
 
   // Through the shared reader, as for This week.
-  const events = await readLookaheadEvents(user, start, end, timezone, calendarIds, read);
+  const events = await readLookaheadEvents(user, start, end, timezone, calendarIds, read, options.sources);
 
   const lookaheadEvents = await filterAndBuildLookaheadEvents(events, user, calendars, { timezone, today, first, last });
 
@@ -424,6 +439,7 @@ export async function getNextWeekLookahead(
     events: lookaheadEvents,
     dateRange: { start, end },
     timezone,
+    ...(events.googleGap ? { googleGap: events.googleGap } : {}),
   };
 }
 

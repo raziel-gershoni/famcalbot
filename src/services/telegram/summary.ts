@@ -4,28 +4,33 @@
 
 import { getUserByIdentifier, getAllUsers, getWhatsAppChatId } from '../user-service';
 import { getCalendarAssignmentsForUser } from '../calendar-provider';
-import { DEFAULT_ON_DEMAND_READ, readDigestDay, type DigestRead } from '../calendar-read/digest';
-import type { DayKey } from '../calendar-read/types';
+import { DEFAULT_ON_DEMAND_READ, googleGapError, readDigestDay, type DigestEvents, type DigestRead } from '../calendar-read/digest';
+import type { DayKey, SourceName } from '../calendar-read/types';
 
 /**
  * How a summary reads its day: the user, their resolved calendar ids, their timezone,
- * the summary day (prepareSummaryForUser decides it) and the run's mode and deadline.
+ * the summary day (prepareSummaryForUser decides it), the run's mode and deadline, and the
+ * sources to read (the outage run: FamCal only; unset: every one that applies).
  */
 export type SummaryFetch = (
   user: UserConfig,
   calendarIds: string[],
   timezone: string,
   day: DayKey,
-  read?: DigestRead
-) => Promise<CalendarEvent[]>;
+  read?: DigestRead,
+  sources?: readonly SourceName[]
+) => Promise<DigestEvents>;
+
+/** The outage run's sources: Google failed this summary twice, FamCal is still read. */
+const FAMCAL_ONLY: readonly SourceName[] = Object.freeze(['famcal']);
 
 // The summaries' day read (calendar home spec §3.1): the summary day through the shared
 // reader, with the run's mode and deadline (on demand unless the caller says otherwise).
 // Its Google failures come back as GOOGLE_TOKEN_EXPIRED, GOOGLE_INSUFFICIENT_SCOPES or
 // GOOGLE_FETCH_FAILED. One read serves today and tomorrow, on demand and scheduled alike:
 // the day comes with `day`, the mode with `read`.
-export const readSummaryDay: SummaryFetch = (user, calendarIds, tz, day, read = DEFAULT_ON_DEMAND_READ) =>
-  readDigestDay(user, day, tz, calendarIds, read);
+export const readSummaryDay: SummaryFetch = (user, calendarIds, tz, day, read = DEFAULT_ON_DEMAND_READ, sources) =>
+  readDigestDay(user, day, tz, calendarIds, read, sources);
 import { generateSummary, SummaryUserContext, formatDateHeader } from '../claude';
 import { CalendarEvent, UserConfig, CalendarAssignment } from '../../types';
 import { getMessagingService as getMessagingServiceByPlatform, MessagingPlatform, MessageFormat } from '../messaging';
@@ -83,6 +88,8 @@ interface PreparedSummary {
   summary: string;
   dateHeader: string;
   otherEvents: CalendarEvent[];
+  /** Google needs reconnecting and the summary kept FamCal's events: the caller adds the reconnect line. */
+  googleReconnect?: 'token' | 'scopes';
 }
 
 /**
@@ -99,8 +106,11 @@ type StreamStage = 'fetchingCalendar' | 'lookingAhead' | 'fetchingWeather' | 'co
  *   retry that crosses midnight still reads, shapes and dates that day (A-7).
  * - `read`: the run's mode and deadline, handed to the read.
  * - `googleUnavailable`: the outage run, after Google failed the first attempt and the
- *   retry. A Google user's day is then empty, with no read and no week block; the prompt
- *   is told why, and the outage line goes under the summary.
+ *   retry. The day and the week block are read from FamCal only ("Google as a connection"
+ *   spec §4); the prompt is told why, and the outage line goes under the summary. A user
+ *   without a Google token never gets here, and is left as is.
+ * An on-demand read that kept FamCal while Google was unreachable is told and noted the same
+ * way; one that kept FamCal while Google needs reconnecting returns googleReconnect.
  */
 export async function prepareSummaryForUser(
   user: UserConfig,
@@ -141,10 +151,14 @@ export async function prepareSummaryForUser(
   const today = localDate(new Date(), userTimezone);
   const day = opts?.day ?? (summaryDate ? nextDate(today) : today);
   const dayNoon = fromZonedTime(`${day} 12:00:00`, userTimezone);
-  // The outage run: Google failed this summary twice. A user reads one source in this
-  // first step, so a Google user's day is empty, with no read.
-  const googleOut = opts?.googleUnavailable === true && user.calendarSource === 'GOOGLE';
-  const fetched = googleOut ? [] : await fetchFunction(user, allCalendarIds, userTimezone, day, opts?.read);
+  // The outage run: Google failed this summary twice, so the day is read from FamCal only. Only
+  // a user with a Google token reads Google (sourcesFor), so no other user is affected.
+  const googleOut = opts?.googleUnavailable === true && !!user.googleRefreshToken;
+  const fetched = await fetchFunction(user, allCalendarIds, userTimezone, day, opts?.read, googleOut ? FAMCAL_ONLY : undefined);
+  // The read kept FamCal without Google's half: unreachable on demand, or a reconnect
+  const gap = googleOut ? undefined : fetched.googleGap;
+  const googleMissing = googleOut || gap === 'unavailable';
+  const googleReconnect = gap === 'token' || gap === 'scopes' ? gap : undefined;
   const dayEvents = shapeEventsForDay(fetched, day, userTimezone);
   // Built-in calendar reminders: done ones leave the day, past-due ones are marked
   // open, and older open ones join after the day's own (shaping would drop them).
@@ -169,21 +183,21 @@ export async function prepareSummaryForUser(
     globalRules: user.globalRules,
     calendarAssignments: assignments,
     openRemindersMore,
-    // Only on the outage run, so every other prompt stays as it is (A-19).
-    ...(googleOut ? { googleUnavailable: true } : {}),
+    // Only when Google's events are missing, so every other prompt stays as it is (A-19).
+    ...(googleMissing ? { googleUnavailable: true } : {}),
   };
 
-  // Fetch week lookahead if enabled for tomorrow summary. The outage run has none: a
-  // Google user's week block is all Google, and Google couldn't be reached.
+  // Fetch week lookahead if enabled for tomorrow summary. The outage run reads its FamCal
+  // half only, as the day.
   let weekLookaheadText: string | undefined;
   let lookaheadMs = 0;
-  if (summaryDate && user.includeLookaheadInTomorrow && !googleOut) {
+  if (summaryDate && user.includeLookaheadInTomorrow) {
     onStageChange?.('lookingAhead');
     const tLookahead = Date.now();
     try {
       const { getWeekLookahead, formatTomorrowLookahead } = await import('../week-lookahead');
       // From the same summary day, not now+24h, which is a day off on a DST eve.
-      const lookahead = await getWeekLookahead(user, assignments, dayNoon, opts?.read);
+      const lookahead = await getWeekLookahead(user, assignments, dayNoon, opts?.read, googleOut ? { sources: FAMCAL_ONLY } : undefined);
 
       if (lookahead.events.length > 0) {
         weekLookaheadText = formatTomorrowLookahead(lookahead);
@@ -230,11 +244,11 @@ export async function prepareSummaryForUser(
   );
   const aiMs = Date.now() - tAI;
 
-  // The outage run says so under the summary. deliverSummary sends this text and voices
-  // it, so the line reaches both (A-32). An empty answer stays empty, so deliverSummary
-  // still answers it with "could not generate".
+  // A summary without Google's events says so under it. deliverSummary sends this text and
+  // voices it, so the line reaches both (A-32). An empty answer stays empty, so
+  // deliverSummary still answers it with "could not generate".
   let summary = generated;
-  if (googleOut && generated.trim() !== '') {
+  if (googleMissing && generated.trim() !== '') {
     const t = await getBotMessages(user.language || 'en');
     summary = `${generated}\n\n<i>${t.errors.googleOutageNote}</i>`;
   }
@@ -250,7 +264,7 @@ export async function prepareSummaryForUser(
   const totalMs = Date.now() - t0;
   console.log(`[Summary Timing] user=${user.telegramId} type=${summaryDate ? 'tomorrow' : 'today'} total=${totalMs}ms timezone=${timezoneMs}ms calendar=${calendarMs}ms categorize=${categorizeMs}ms lookahead=${lookaheadMs}ms ai=${aiMs}ms`);
 
-  return { summary, dateHeader, otherEvents: categorized.otherEvents };
+  return { summary, dateHeader, otherEvents: categorized.otherEvents, ...(googleReconnect ? { googleReconnect } : {}) };
 }
 
 /**
@@ -334,6 +348,10 @@ export async function sendSummaryToUser(
         streamHandle,
         summaryDate,
       });
+      // The summary kept FamCal while Google needs reconnecting: then the reconnect text
+      if (result.googleReconnect) {
+        await answerGoogleReadError(googleGapError(result.googleReconnect), { chatId, user, userLanguage, messagingService });
+      }
     },
     onError: error => answerGoogleReadError(error, { chatId, user, userLanguage, messagingService, streamHandle }),
   });
@@ -398,6 +416,50 @@ export interface SummaryBatchResult {
 }
 
 /**
+ * The token text with the refresh button (Telegram) or the reconnect template (WhatsApp),
+ * and an admin warning: after a scheduled summary that failed on a dead token, or one that
+ * went out with FamCal's events while Google needs reconnecting ("Google as a connection"
+ * spec §4 Summaries). A failed send is logged and reported; it never fails the batch.
+ */
+async function sendReconnectNotice(user: UserConfig, platform: DeliveryPlatform, reason: 'token' | 'scopes'): Promise<void> {
+  const messagingService = getMessagingService();
+  const t = await getBotMessages(user.language || 'en');
+  const refreshUrl = buildUrl(`/refresh-token?user_id=${user.telegramId ?? user.id}`);
+  const expiredMessage = `${t.tokenExpired.title}\n\n${t.tokenExpired.message}`;
+
+  try {
+    if ((platform === 'telegram' || platform === 'all') && user.telegramId) {
+      await messagingService.sendMessage(user.telegramId, expiredMessage, {
+        format: MessageFormat.HTML,
+        replyMarkup: {
+          inline_keyboard: [[
+            { text: t.buttons.refreshGoogle, web_app: { url: refreshUrl } }
+          ]]
+        }
+      });
+    }
+    if ((platform === 'whatsapp' || platform === 'all') && getWhatsAppChatId(user)) {
+      const waChatId = getWhatsAppChatId(user)!;
+      const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
+      const { buildWhatsAppTemplate } = await import('../messaging/whatsapp-template');
+      const template = buildWhatsAppTemplate(user.language || 'en');
+      await whatsappService.sendMessage(waChatId, '', { whatsappTemplate: template });
+    }
+  } catch (msgError) {
+    console.error(`Failed to send token expired message to user ${user.id}:`, msgError);
+    captureError(msgError, 'summary-token-expired-notify', { user_id: user.id }, 'warning');
+  }
+
+  const { notifyAdminWarning } = await import('../../utils/error-notifier');
+  await notifyAdminWarning(
+    reason === 'scopes' ? 'Insufficient Scopes' : 'Token Expired',
+    reason === 'scopes'
+      ? `User ${user.id} (${user.name}) has a Google token with insufficient scopes; their summary went out with FamCal only`
+      : `User ${user.id} (${user.name}) needs to refresh their Google Calendar token`
+  );
+}
+
+/**
  * Generic function to send summary to all users
  */
 async function sendSummaryToAll(
@@ -453,7 +515,7 @@ async function sendSummaryToAll(
     // (the retry passes the batch's start); unset, it is the time of the mark, as before.
     const deliverToUser = async (user: UserConfig, platform: DeliveryPlatform, runOptions: SummaryRunOptions, markedFor?: Date) => {
       const tUser = Date.now();
-      const { summary, dateHeader, otherEvents } = await prepareSummaryForUser(
+      const { summary, dateHeader, otherEvents, googleReconnect } = await prepareSummaryForUser(
         user, fetchFunction, summaryDate, undefined, undefined, undefined, runOptions
       );
 
@@ -469,6 +531,8 @@ async function sendSummaryToAll(
         otherEvents,
         summaryDate,
       });
+      // The summary kept FamCal while Google needs reconnecting: the reconnect line and button follow
+      if (googleReconnect) await sendReconnectNotice(user, platform, googleReconnect);
 
       console.log(`[Batch Summary] user=${user.id} platform=${platform} total=${Date.now() - tUser}ms`);
       result.processed++;
@@ -489,38 +553,7 @@ async function sendSummaryToAll(
       captureError(error, 'summary-batch-user', { user_id: user.id });
 
       if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
-        const t = await getBotMessages(user.language || 'en');
-        const refreshUrl = buildUrl(`/refresh-token?user_id=${user.telegramId ?? user.id}`);
-        const expiredMessage = `${t.tokenExpired.title}\n\n${t.tokenExpired.message}`;
-
-        try {
-          if ((platform === 'telegram' || platform === 'all') && user.telegramId) {
-            await messagingService.sendMessage(user.telegramId, expiredMessage, {
-              format: MessageFormat.HTML,
-              replyMarkup: {
-                inline_keyboard: [[
-                  { text: t.buttons.refreshGoogle, web_app: { url: refreshUrl } }
-                ]]
-              }
-            });
-          }
-          if ((platform === 'whatsapp' || platform === 'all') && getWhatsAppChatId(user)) {
-            const waChatId = getWhatsAppChatId(user)!;
-            const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
-            const { buildWhatsAppTemplate } = await import('../messaging/whatsapp-template');
-            const template = buildWhatsAppTemplate(user.language || 'en');
-            await whatsappService.sendMessage(waChatId, '', { whatsappTemplate: template });
-          }
-        } catch (msgError) {
-          console.error(`Failed to send token expired message to user ${user.id}:`, msgError);
-          captureError(msgError, 'summary-token-expired-notify', { user_id: user.id }, 'warning');
-        }
-
-        const { notifyAdminWarning } = await import('../../utils/error-notifier');
-        await notifyAdminWarning(
-          'Token Expired',
-          `User ${user.id} (${user.name}) needs to refresh their Google Calendar token`
-        );
+        await sendReconnectNotice(user, platform, 'token');
       }
     };
 
