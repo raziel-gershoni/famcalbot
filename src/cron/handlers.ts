@@ -170,7 +170,8 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
         language: cachedUser.language,
         googleRefreshToken: cachedUser.googleRefreshToken,
         calendarAssignments: cachedUser.calendarAssignments,
-        // Legacy and unread: the providers are chosen by calendar id ("Google as a connection").
+        // Legacy: the providers are chosen by calendar id ("Google as a connection"); read only
+        // as liveGoogleChoices' marker for the stored Google choices of a user with no token.
         calendarSource: cachedUser.calendarSource ?? 'GOOGLE',
         pairingId: cachedUser.pairingId ?? null,
         defaultReminderMinutes: cachedUser.defaultReminderMinutes ?? undefined,
@@ -362,8 +363,9 @@ export async function handleSetupReminders(): Promise<CronResult> {
   }
 
   // 1. The Google tracks, at any account age: a token with no chosen calendars (choose
-  // calendars), or no token while calendars are stored (reconnect). Their days count from
-  // the day this run first sees the state. The token is read only for being set.
+  // calendars), or a legacy Google user with no token while calendars are stored (reconnect;
+  // a FamCal user's stale choices with no token are none, liveGoogleChoices). Their days count
+  // from the day this run first sees the state. The token is read only for being set.
   // Like the summary and reminder runs, skip a user who blocked the bot: a failed send records
   // no attempt, so it would be tried (and fail) again every day.
   const googleTrackUsers = await prisma.user.findMany({
@@ -372,7 +374,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
       unreachableSince: null,
       AND: [hasMessagingPlatform, { OR: tracks.GOOGLE_NUDGE_WHERE }],
     },
-    select: { ...userSelect, googleRefreshToken: true, calendarAssignments: true },
+    select: { ...userSelect, googleRefreshToken: true, calendarSource: true, calendarAssignments: true },
   });
 
   for (const user of googleTrackUsers) {

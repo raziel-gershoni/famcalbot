@@ -22,8 +22,9 @@ export interface CachedReminderUser {
   language: string;
   name: string;
   pickupRemindersEnabled: boolean;
-  // calendarSource is legacy and unread: the providers are chosen by calendar id ("Google as a
-  // connection"). pairingId lets the FamCal half see the partner's shared calendars.
+  // calendarSource is legacy: the providers are chosen by calendar id ("Google as a connection");
+  // it is read only as liveGoogleChoices' marker for the stored choices of a user with no token.
+  // pairingId lets the FamCal half see the partner's shared calendars.
   calendarSource?: string;
   pairingId?: string | null;
   // The reminder run resolves the user's timezone from it, as the summaries do;

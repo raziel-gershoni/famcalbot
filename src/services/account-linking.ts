@@ -21,6 +21,7 @@ import { clearDeletedUserCaches } from '../lib/user-moderation';
 import { setUserMenuButton } from './telegram/bot';
 import { clearOtherPrimaries } from './calendar-provider/primary';
 import { hasGoogleChoices } from './native-calendar/onboarding';
+import { liveGoogleChoices } from '../lib/google-state';
 import type { CalendarAssignment } from '../types';
 
 const LINK_CODE_TTL = 300; // 5 minutes
@@ -411,9 +412,9 @@ async function mergeWhatsAppUser(
   // primary, else the FamCal primary T established. A fresh T's empty default gives
   // way here as it does to W's calendar above, so a moved Google primary stays the
   // default W had.
-  const tGooglePrimary = t.googleRefreshToken ? googlePrimaryOf(t.calendarAssignments) : undefined;
+  const tGooglePrimary = t.googleRefreshToken ? googlePrimaryOf(liveGoogleChoices(t)) : undefined;
   const tFamcalPrimary = tPrimary && !wPrimary && !(tPrimaryEmpty && !tKeepsPartner) ? tPrimary.id : undefined;
-  const wGooglePrimary = tookGoogle ? googlePrimaryOf(w.calendarAssignments) : undefined;
+  const wGooglePrimary = tookGoogle ? googlePrimaryOf(liveGoogleChoices(w)) : undefined;
   const keep = tGooglePrimary ? { googleCalendarId: tGooglePrimary }
     : tFamcalPrimary ? { famcalId: tFamcalPrimary }
     : wGooglePrimary ? { googleCalendarId: wGooglePrimary }
@@ -423,7 +424,7 @@ async function mergeWhatsAppUser(
   // (spec §3 rule 2). A fresh T's empty default that W's calendar did not replace gives
   // up primary then, as the lazy FamCal main of a user with Google choices has none.
   const tFreshMain = tPrimary && !wPrimary && tPrimaryEmpty && !tKeepsPartner ? tPrimary.id : undefined;
-  if (!keep && tookGoogle && tFreshMain && hasGoogleChoices(w.calendarAssignments)) {
+  if (!keep && tookGoogle && tFreshMain && hasGoogleChoices(w)) {
     const row = await tx.nativeCalendar.findUnique({ where: { id: tFreshMain }, select: { labels: true } });
     if (row?.labels.includes('primary')) {
       await tx.nativeCalendar.update({ where: { id: tFreshMain }, data: { labels: row.labels.filter(l => l !== 'primary') } });
@@ -431,11 +432,12 @@ async function mergeWhatsAppUser(
     }
   }
 
-  // The mirror case: T keeps Google choices of its own (with or without the token) and had
+  // The mirror case: T keeps Google choices of its own that count (with the token, or a legacy
+  // Google user's without it; a FamCal user's stale ones are none, liveGoogleChoices) and had
   // no FamCal primary (a legacy Google user's FamCal was hidden), so T's default was its
   // Google one (spec §3 rule 1 or 2). W's FamCal primary, which came over as T's only one,
   // gives up primary then, as the lazy FamCal main beside Google choices has none.
-  if (!keep && !tookGoogle && !tPrimary && wKeptPrimary && hasGoogleChoices(t.calendarAssignments)) {
+  if (!keep && !tookGoogle && !tPrimary && wKeptPrimary && hasGoogleChoices(t)) {
     const row = await tx.nativeCalendar.findUnique({ where: { id: wKeptPrimary }, select: { labels: true } });
     if (row?.labels.includes('primary')) {
       await tx.nativeCalendar.update({ where: { id: wKeptPrimary }, data: { labels: row.labels.filter(l => l !== 'primary') } });

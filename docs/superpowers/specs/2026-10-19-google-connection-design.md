@@ -22,11 +22,13 @@ Status: designed 2026-10-19 under the owner's delegation, then revised after cod
 
   | Google state | Banner and menu | 07:00 nudge |
   | --- | --- | --- |
-  | Never connected (no token, no stored calendars) | Connect, in the ⋯ menu only, never as a banner | none |
+  | Never connected (no token, no live choices) | Connect, in the ⋯ menu only, never as a banner | none |
   | Token, no chosen calendars | Choose calendars | Choose calendars, at any account age |
-  | Dead token, or token cleared (page-data.ts:318 clears it on a scope error) while calendars are stored | Reconnect | Reconnect |
+  | Dead token or missing permissions (the token is kept), calendars chosen | Reconnect, by the read's answer | none (the cron can't see it; the summary's line says it) |
+  | A legacy Google user (`calendarSource` GOOGLE) with no token, calendars stored | Reconnect | Reconnect |
 
   The OAuth setup track is removed everywhere: cron, admin buttons and admin reset.
+- **Stale choices are none** (owner ruling, 2026-10-20). Some FamCal users (`calendarSource` NATIVE) have no token but old Google choices stored: migration 20260506000001 made every user without a token NATIVE, and a scope error used to clear only the token. `liveGoogleChoices(user)` (google-state.ts) counts the stored choices only with a token, or for a legacy Google user with none; a FamCal user's are relics and count as none. Every reader of the stored choices goes through it: `googleStateOf`, the union, `hasGoogleChoices` (the lazy main), the calendar totals, the 07:00 track query (`GOOGLE_NUDGE_WHERE`), the summaries, the editor, select-calendars, the admin card and stats, kid names, the voice show and the LLM context. Writes keep the column as it is. A scope error no longer clears the token (the select-calendars page and the bot's read answers), so no new relics are made; a reconnect replaces the token.
 - **Disconnect.** A "Disconnect Google" entry is out of scope.
 
 ## 3. The default calendar
@@ -60,7 +62,7 @@ Status: designed 2026-10-19 under the owner's delegation, then revised after cod
 - **Gates that key on the target, not the user:**
   - callbacks.ts:79, :272 and :464 check the token only when the target id isn't `native:`;
   - callbacks.ts:171, :346 and :527 pick the denied copy by the target's provider.
-- **The source column.** Nothing gates on `User.calendarSource` any more. The column is left unread and is dropped in a later cleanup. Changes:
+- **The source column.** Nothing gates on `User.calendarSource` any more. It is read only as `liveGoogleChoices`' legacy marker (§2, stale choices), and is dropped in a later cleanup once no legacy Google user is without a token. Changes:
   - `commitGoogleToken` stops flipping and stops soft-deleting.
   - The pairing gates go (`INVITER_NOT_NATIVE` / `INVITEE_NOT_NATIVE`, the conditional link at pairing-service.ts:237), and api/pair:21.
   - native-calendars POST's `native_only` goes, and so do the page notices.

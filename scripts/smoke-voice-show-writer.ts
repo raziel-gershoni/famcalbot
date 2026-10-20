@@ -172,8 +172,10 @@ async function main() {
   });
 
   await check('buildShowContext reads the user and family', () => {
+    // Google choices that count (liveGoogleChoices: a token), the fallback without the resolved calendars
     const user = {
       id: 7, name: 'רזיאל', gender: 'male', language: 'he', culture: 'jewish', globalRules: ['r1'],
+      googleRefreshToken: 'rt', calendarSource: 'NATIVE',
       calendarAssignments: [
         { calendarId: 's', labels: ['spouse'], name: 'cal', color: '', personName: 'נועה', personGender: 'female' },
         { calendarId: 'k1', labels: ['kids'], name: 'k', color: '', personName: 'איתי', personGender: 'male' },

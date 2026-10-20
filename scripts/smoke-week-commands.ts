@@ -145,6 +145,7 @@ const stubs: Record<string, Record<string, unknown>> = {
     getUserByIdentifier: async () => user,
     getUserByTelegramId: async () => user,
     getOrCreateUser: async () => user,
+    // A tripwire: missing permissions keep the token now (a cleared one made stale Google choices)
     clearGoogleRefreshToken: async (telegramId: number | bigint) => { tokensCleared.push(String(telegramId)); },
   },
   [`${SRC}/services/messaging/index.ts`]: {
@@ -267,14 +268,13 @@ async function main() {
     ]);
   });
 
-  await check('/week, missing permissions: the permissions text, the token cleared by Telegram id, an admin warning', async () => {
+  await check('/week, missing permissions: the permissions text, the token kept, an admin warning', async () => {
     await run('week', { error: codeError('GOOGLE_INSUFFICIENT_SCOPES') });
     const telegramUser = outcome();
-    // A WhatsApp-only user has no Telegram id to clear by, as in the daily summary.
     await run('week', { error: codeError('GOOGLE_INSUFFICIENT_SCOPES'), platform: MessagingPlatform.WHATSAPP, user: makeUser({ telegramId: null }) });
-    const warning = 'admin warnings: Insufficient Scopes: User 21 has a token with insufficient scopes. Token cleared, awaiting re-authorization.';
+    const warning = 'admin warnings: Insufficient Scopes: User 21 has a token with insufficient scopes. Token kept, awaiting re-authorization.';
     assertList([...telegramUser, ...outcome()], [
-      `telegram.sendMessage ${TG_CHAT} html: ${SCOPES_TEXT}`, warning, 'admin errors: none', `tokens cleared: ${TG_CHAT}`,
+      `telegram.sendMessage ${TG_CHAT} html: ${SCOPES_TEXT}`, warning, 'admin errors: none', 'tokens cleared: none',
       `whatsapp.sendMessage ${WA_CHAT} html: ${SCOPES_TEXT}`, warning, 'admin errors: none', 'tokens cleared: none',
     ]);
   });
@@ -304,8 +304,8 @@ async function main() {
       `telegram.sendMessage ${TG_CHAT} html: ${TOKEN_TEXT}`,
       'admin warnings: Token Expired: User 21 needs to refresh their Google Calendar token', 'admin errors: none', 'tokens cleared: none',
       `telegram.sendMessage ${TG_CHAT} html: ${SCOPES_TEXT}`,
-      'admin warnings: Insufficient Scopes: User 21 has a token with insufficient scopes. Token cleared, awaiting re-authorization.',
-      'admin errors: none', `tokens cleared: ${TG_CHAT}`,
+      'admin warnings: Insufficient Scopes: User 21 has a token with insufficient scopes. Token kept, awaiting re-authorization.',
+      'admin errors: none', 'tokens cleared: none',
       `telegram.sendMessage ${TG_CHAT} html: ${EN.errors.googleUnreachable}`, 'admin warnings: none', 'admin errors: none', 'tokens cleared: none',
     ]);
   });

@@ -4,7 +4,9 @@
 //
 // - location: from signup (or an admin reset), for everyone without one.
 // - calendars: a Google token with no chosen calendars, at any account age.
-// - reconnect: no token while calendars are stored (cleared on a scope error).
+// - reconnect: a legacy Google user (calendarSource GOOGLE) with no token while calendars are
+//   stored (scope errors used to clear it). A FamCal user's stale choices with no token are
+//   none (liveGoogleChoices), so they get no nudge.
 // Connecting Google is optional, so there is no OAuth track. A token Google revoked is told
 // by the summary's token line and the home's banner: the cron can't see it without a read.
 // A Google track's days count from the day the cron first sees the user in that state; a
@@ -14,7 +16,7 @@ import { Prisma } from '@prisma/client';
 import { redis } from '../utils/redis';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { captureError } from '../lib/error-capture';
-import { googleStateOf, type GoogleState } from '../lib/google-state';
+import { googleStateOf, type GoogleChoicesOwner, type GoogleState } from '../lib/google-state';
 
 export type SetupTrack = 'calendars' | 'reconnect' | 'location';
 export type GoogleTrack = Exclude<SetupTrack, 'location'>;
@@ -48,14 +50,23 @@ const NO_CHOICES: Prisma.UserWhereInput[] = [
   { calendarAssignments: { equals: [] } },
 ];
 
-/** The users a Google track applies to, as a query (googleStateOf's 'choose' and 'reconnect'). */
+/** The users a Google track applies to, as a query (googleStateOf's 'choose' and 'reconnect',
+ *  by liveGoogleChoices' rule): a token and no choices; or no token, the legacy Google marker
+ *  (calendarSource, read only for this) and choices stored. */
 export const GOOGLE_NUDGE_WHERE: Prisma.UserWhereInput[] = [
   { googleRefreshToken: { not: '' }, OR: NO_CHOICES },
-  { googleRefreshToken: '', NOT: NO_CHOICES },
+  { googleRefreshToken: '', calendarSource: 'GOOGLE', NOT: NO_CHOICES },
 ];
 
+/** The users whose Google choices count (liveGoogleChoices), as a query: choices stored, and a
+ *  token or the legacy Google marker. */
+export const LIVE_GOOGLE_CHOICES_WHERE: Prisma.UserWhereInput = {
+  NOT: NO_CHOICES,
+  OR: [{ googleRefreshToken: { not: '' } }, { calendarSource: 'GOOGLE' }],
+};
+
 /** The nudge an admin may send this user: the Google state's, else location, else none. */
-export function applicableSetupReminder(user: { googleRefreshToken?: string | null; calendarAssignments?: unknown; location?: string | null }): SetupTrack | null {
+export function applicableSetupReminder(user: GoogleChoicesOwner & { location?: string | null }): SetupTrack | null {
   return googleTrackOf(googleStateOf(user)) ?? (user.location ? null : 'location');
 }
 

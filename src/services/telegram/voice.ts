@@ -17,6 +17,7 @@ import { incrementUsage } from '../subscription-service';
 import { formatVoiceCaption } from '../../utils/ai-footer';
 import type { VoiceCondenserContext } from '../../prompts/voice-condenser';
 import type { ProducedVoice, ShowKind } from '../voice-show/types';
+import { liveGoogleChoices } from '../../lib/google-state';
 
 /**
  * Make the voice note for a summary: the show where the language has hosts, the
@@ -42,7 +43,7 @@ async function produceNarratorVoice(summary: string, user: UserConfig, kind: Sho
 
   // The union of FamCal and the Google choices, as the voice show reads it
   const { resolveShowCalendars } = await import('../voice-show/context');
-  const calendars = (await resolveShowCalendars(user)) ?? user.calendarAssignments ?? [];
+  const calendars = (await resolveShowCalendars(user)) ?? liveGoogleChoices(user);
   const spouseCalendar = calendars.find(cal => cal.labels.includes('spouse'));
   const hasKidsCalendars = calendars.some(cal => cal.labels.includes('kids'));
 

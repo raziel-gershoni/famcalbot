@@ -6,8 +6,9 @@ import type { UserConfig } from '../../types';
 /**
  * The answers to Google's failures, shared by the on-demand daily summary, /week and
  * /nextweek (Ruling R14: one copy, so they cannot drift):
- * - a dead token or missing permissions get the token / scopes texts and an admin warning;
- *   missing permissions also clear the token;
+ * - a dead token or missing permissions get the token / scopes texts and an admin warning.
+ *   The token is kept: a cleared one made a FamCal user's Google choices stale relics
+ *   (liveGoogleChoices), while a kept one keeps answering 'scopes' until a reconnect replaces it;
  * - an outage (R13), after the reader's quick retry, gets "couldn't reach Google Calendar"
  *   with no admin notice; an open draft collapses into the answer.
  * Returns false for anything else, so the pipeline's own error text and admin notice apply.
@@ -28,16 +29,12 @@ export async function answerGoogleReadError(
     const t = await getBotMessages(userLanguage);
     const scopesMessage = `${t.insufficientScopes.title}\n\n${t.insufficientScopes.message}`;
     await messagingService.sendMessage(chatId, scopesMessage, { format: MessageFormat.HTML });
-
-    if (user.telegramId) {
-      const { clearGoogleRefreshToken } = await import('../user-service');
-      await clearGoogleRefreshToken(BigInt(user.telegramId));
-    }
+    console.warn(`[GoogleRead] user ${user.id}: the Google token lacks permissions; token kept, asked to reconnect`);
 
     const { notifyAdminWarning } = await import('../../utils/error-notifier');
     await notifyAdminWarning(
       'Insufficient Scopes',
-      `User ${user.id} has a token with insufficient scopes. Token cleared, awaiting re-authorization.`
+      `User ${user.id} has a token with insufficient scopes. Token kept, awaiting re-authorization.`
     );
     return true;
   }

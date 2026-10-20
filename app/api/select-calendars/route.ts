@@ -10,6 +10,7 @@ import { captureError } from '@/src/lib/error-capture';
 import { updateUserInCache } from '@/src/services/reminder-cache';
 import { calendarTotal, checkCalendarLimit, countCalendars } from '@/src/services/subscription-service';
 import { addsPrimary, clearOtherPrimaries, dropFreshFamcalPrimary } from '@/src/services/calendar-provider/primary';
+import { liveGoogleChoices } from '@/src/lib/google-state';
 
 /**
  * Sync spouse metadata across all spouse calendars
@@ -126,13 +127,15 @@ export async function POST(request: NextRequest) {
 
     // One primary across both lists: a Google calendar that gains primary here takes it
     // from the user's FamCal calendars. A save that leaves it where it was touches nothing.
+    // Compared with the choices as they counted before this save (liveGoogleChoices).
+    const storedChoices = liveGoogleChoices(currentUser);
     const newPrimary = syncedAssignments.find((a) =>
-      addsPrimary(currentUser.calendarAssignments?.find((s) => s.calendarId === a.calendarId)?.labels, a.labels)
+      addsPrimary(storedChoices.find((s) => s.calendarId === a.calendarId)?.labels, a.labels)
     );
     if (newPrimary) await clearOtherPrimaries(currentUser.id, { googleCalendarId: newPrimary.calendarId });
     // The first Google choices, with no Google primary: a fresh, empty FamCal main made before
     // them gives up primary, so unplaced events go to the first Google "yours" (spec §2, §3).
-    const firstChoices = !(currentUser.calendarAssignments?.length);
+    const firstChoices = storedChoices.length === 0;
     if (firstChoices && syncedAssignments.length > 0 && !syncedAssignments.some((a) => a.labels.includes('primary'))) {
       await dropFreshFamcalPrimary(currentUser);
     }

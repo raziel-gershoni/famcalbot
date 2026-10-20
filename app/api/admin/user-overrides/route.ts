@@ -12,7 +12,7 @@ import { requestInitData } from '@/src/lib/request-init-data';
 import { captureError } from '@/src/lib/error-capture';
 import { calendarTotal, getSubscriptionWithUsage, invalidateFeatureAccessCache } from '@/src/services/subscription-service';
 import { applicableSetupReminder, daysSince, readGoogleTrackStart, SETUP_SCHEDULES, type SetupTrack } from '@/src/services/setup-tracks';
-import { googleStateOf } from '@/src/lib/google-state';
+import { googleStateOf, liveGoogleChoices } from '@/src/lib/google-state';
 import { getPlanLimits } from '@/src/config/plans';
 import { redis } from '@/src/utils/redis';
 import { REDIS_KEYS } from '@/src/config/redis-keys';
@@ -123,13 +123,15 @@ function mapUserToResponse(user: {
   subscription: { plan: string; status: string; trialEndsAt: Date | null; currentPeriodEnd: Date | null; compedBy: number | null } | null;
   featureOverride: { earlyAdopter: boolean } | null;
   usageCounter: { textSummariesUsed: number; voiceSummariesUsed: number; voiceEventsCreated: number } | null;
+  googleRefreshToken: string;
+  calendarSource: string;
   calendarAssignments: unknown;
 }) {
   const trialDaysRemaining = user.subscription?.status === 'TRIALING' && user.subscription?.trialEndsAt
     ? calculateTrialDaysRemaining(user.subscription.trialEndsAt)
     : null;
-  const calendarAssignments = user.calendarAssignments as Array<{ calendarId: string }> | null;
-  const calendarsCount = calendarAssignments?.length ?? 0;
+  // The Google choices that count (liveGoogleChoices): a FamCal user's stale ones are none
+  const calendarsCount = liveGoogleChoices(user).length;
 
   return {
     id: user.id,
@@ -219,15 +221,16 @@ export async function GET(request: NextRequest) {
       const effectivePlan = subscription?.status === 'TRIALING' && trialDaysRemaining ? 'PRO' : (subscription?.plan || 'FREE');
       const limits = getPlanLimits(effectivePlan as 'FREE' | 'BASIC' | 'PRO');
 
-      // Both kinds, as the shared limit counts them: own FamCal calendars plus Google choices
-      const calendarAssignments = user.calendarAssignments as Array<{ calendarId: string }> | null;
+      // Both kinds, as the shared limit counts them: own FamCal calendars plus the Google
+      // choices that count (liveGoogleChoices)
+      const googleChoices = liveGoogleChoices(user).length;
       const ownFamcal = await prisma.nativeCalendar.count({ where: { ownerUserId: userId, isDeleted: false } });
-      const calendarsCount = calendarTotal(ownFamcal, calendarAssignments?.length ?? 0);
+      const calendarsCount = calendarTotal(ownFamcal, googleChoices);
 
       // Registration by the user's Google state (Google is optional): Google connected is a
       // token, and the nudge offered is the Google state's, else a missing location.
       const hasOAuth = user.googleRefreshToken !== '';
-      const hasCalendars = (calendarAssignments?.length ?? 0) > 0;
+      const hasCalendars = googleChoices > 0;
       const hasLocation = user.location !== '';
       const applicableReminder = applicableSetupReminder(user);
       const googleState = googleStateOf(user);

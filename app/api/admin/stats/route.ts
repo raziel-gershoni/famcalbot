@@ -5,12 +5,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Prisma } from '@prisma/client';
 import { prisma } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
 import { captureError } from '@/src/lib/error-capture';
-import { GOOGLE_NUDGE_WHERE } from '@/src/services/setup-tracks';
+import { GOOGLE_NUDGE_WHERE, LIVE_GOOGLE_CHOICES_WHERE } from '@/src/services/setup-tracks';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,15 +24,16 @@ export async function GET(request: NextRequest) {
 
   try {
     // "Need setup": a missing location, or a Google state that asks for a nudge (a token
-    // with no chosen calendars, or no token with calendars stored). Connecting Google is
-    // optional; "with OAuth" counts tokens (Google connected).
+    // with no chosen calendars, or a legacy Google user with no token and calendars stored).
+    // Connecting Google is optional; "with OAuth" counts tokens (Google connected), "with
+    // calendars" the users whose Google choices count (liveGoogleChoices).
     const [totalUsers, usersWithOAuth, usersWithCalendars, needSetup] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({
         where: { NOT: { googleRefreshToken: '' } }
       }),
       prisma.user.count({
-        where: { calendarAssignments: { not: Prisma.JsonNull } }
+        where: LIVE_GOOGLE_CHOICES_WHERE
       }),
       prisma.user.count({
         where: { OR: [{ location: '' }, ...GOOGLE_NUDGE_WHERE] },

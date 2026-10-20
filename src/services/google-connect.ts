@@ -131,7 +131,7 @@ export async function commitGoogleToken(ownerUserId: number, refreshToken: strin
       telegramId: user.telegramId?.toString() ?? '',
       googleRefreshToken: refreshToken, // Fresh token (not encrypted)
       calendarAssignments: user.calendarAssignments,
-      calendarSource: user.calendarSource, // Legacy, unread
+      calendarSource: user.calendarSource, // Legacy: liveGoogleChoices' marker
       pairingId: user.pairingId,
       defaultReminderMinutes: user.defaultReminderMinutes ?? null,
       language: user.language,

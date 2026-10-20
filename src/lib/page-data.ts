@@ -20,7 +20,6 @@ import type SelectCalendarsClient from '@/app/[locale]/select-calendars/SelectCa
 import type CalendarsClient from '@/app/[locale]/calendars/CalendarsClient';
 import type PairClient from '@/app/[locale]/pair/PairClient';
 import type SubscriptionClient from '@/app/[locale]/subscription/SubscriptionClient';
-import { updateUserById } from '@/src/services/user-service';
 import { getSubscriptionWithUsage, getTrialStatus, checkEarlyAdopterAccess, peekFeatureAccess } from '@/src/services/subscription-service';
 import { getReminderSupport } from '@/src/services/native-reminders/support';
 import { trackActivityAsync } from '@/src/services/analytics-service';
@@ -28,7 +27,7 @@ import { captureError } from '@/src/lib/error-capture';
 import { listUserCalendars, scrubbedGoogleError } from '@/src/services/calendar';
 import { classifyGoogleError } from '@/src/services/calendar-read/google-map';
 import { sourcesFor } from '@/src/services/calendar-read';
-import { googleStateOf, type GoogleState } from '@/src/lib/google-state';
+import { googleStateOf, liveGoogleChoices, type GoogleState } from '@/src/lib/google-state';
 import { listVisibleCalendars } from '@/src/services/native-calendar/event-store';
 import { ensurePrimaryNativeCalendar } from '@/src/services/native-calendar/onboarding';
 import { getActivePartner, getActiveInvite } from '@/src/services/pairing-service';
@@ -141,8 +140,8 @@ export async function loadPageData(
 async function dashboard(user: UserConfig, userId: number, locale: string): Promise<PageDataResult> {
   // Google is a connection beside FamCal (spec "Google as a connection" §2), so the home
   // gets facts, not a source: what it reads, whether a token is stored, and the state the
-  // banners and the menu follow. A cleared token with calendars stored is 'reconnect':
-  // sourcesFor drops Google then, so the range answer cannot say it.
+  // banners and the menu follow. A legacy Google user's cleared token with calendars stored is
+  // 'reconnect': sourcesFor drops Google then, so the range answer cannot say it.
 
   // The trial and early-adopter lines, and the home's hints. getSubscriptionWithUsage's
   // answer isn't on the wire; it runs for its side effect: an open after the trial's end
@@ -316,8 +315,9 @@ async function selectCalendars(user: UserConfig, userId: number, userLocale: str
     const calendarLimit = limits.calendars === Infinity ? -1 : Math.max(1, limits.calendars - counted);
 
     // Convert user's current selections to new state format
-    const currentSelections = user.calendarAssignments && user.calendarAssignments.length > 0
-      ? convertAssignmentsToSelections(user.calendarAssignments, user.globalRules)
+    const chosen = liveGoogleChoices(user);
+    const currentSelections = chosen.length > 0
+      ? convertAssignmentsToSelections(chosen, user.globalRules)
       : { selectedCalendars: [], calendarLabels: [], spouseInfo: null, calendarRules: [], globalRules: user.globalRules || [] };
 
     const props: SelectCalendarsPageProps = {
@@ -337,9 +337,11 @@ async function selectCalendars(user: UserConfig, userId: number, userLocale: str
     const cls = classifyGoogleError(cause);
     captureError(scrubbedGoogleError(cause, cls), 'select-calendars-list', { user_id: user.id }, cls === 'token' || cls === 'scopes' || cls === 'transient' ? 'warning' : 'error');
 
-    // Handle insufficient scopes - clear token and redirect to re-authorize
+    // Missing permissions: re-authorize. The token is kept, so the choices stay a connection
+    // (a cleared token made a FamCal user's choices stale relics, liveGoogleChoices): the reads
+    // answer 'scopes' (the home's reconnect banner, the summary's line) and a reconnect replaces it.
     if (error instanceof Error && error.message === 'GOOGLE_INSUFFICIENT_SCOPES') {
-      await updateUserById(user.id, { googleRefreshToken: '' });
+      console.warn(`[select-calendars] user ${user.id}: the Google token lacks permissions; token kept, sent to /refresh-token`);
       // /refresh-token lives outside [locale] and picks the language itself; a /he or /ru prefix 404s.
       return { kind: 'redirect', to: `/refresh-token?user_id=${userId}` };
     }

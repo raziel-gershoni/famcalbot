@@ -40,6 +40,7 @@ import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import type { CalendarAssignment, UserConfig } from '../../types';
 import type { CalendarRef, GoogleRead, ReadItem, ReadRangeOptions } from './types';
+import { liveGoogleChoices } from '../../lib/google-state';
 
 /** A Google item before its calendar is joined. This is what B7's cache stores. */
 export type GoogleItem = Omit<ReadItem, 'calendar'>;
@@ -79,17 +80,17 @@ const GONE_WARNING_TTL_S = 86_400;
 const CONFIG_ALERT_TTL_S = 3_600;
 
 /**
- * The calendars a read covers: the user's choices (calendarAssignments, A-3) in their own
+ * The calendars a read covers: the user's choices (liveGoogleChoices, A-3) in their own
  * order, narrowed to calendarIds when given. Ids never come from the client. A repeated id
  * is read once.
  */
 export function googleCalendarSet(
-  user: Pick<UserConfig, 'calendarAssignments'>,
+  user: Pick<UserConfig, 'googleRefreshToken' | 'calendarSource' | 'calendarAssignments'>,
   calendarIds?: readonly string[],
 ): CalendarAssignment[] {
   const wanted = calendarIds ? new Set(calendarIds) : null;
   const seen = new Set<string>();
-  return (user.calendarAssignments ?? []).filter(a => {
+  return liveGoogleChoices(user).filter(a => {
     if (!a?.calendarId || seen.has(a.calendarId) || (wanted && !wanted.has(a.calendarId))) return false;
     seen.add(a.calendarId);
     return true;

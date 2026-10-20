@@ -27,6 +27,7 @@ import { repeatInfo, wallFor } from './item-info';
 import { googleKeyOf, isHebrewChoice, parseGoogleKey, type CreateCommand, type DeleteCommand, type GoogleItemKey, type UpdateCommand } from './validate';
 import { dayEnd, dayStart, localDate, wallToInstant } from './walltime';
 import { createTimes, repeatChanges, resolveWallTimes, ruleFor, type WriteResult } from './write';
+import { liveGoogleChoices } from '../../lib/google-state';
 
 export { parseGoogleKey };
 
@@ -266,8 +267,9 @@ export async function createGoogleItem(user: UserConfig, cmd: CreateCommand, tz:
   if (cmd.kind !== 'event') return NOT_ALLOWED; // reminders always live in FamCal
   // Google can't hold a Hebrew-date rule (hebrew-repeats spec §4): never sent as a Gregorian yearly one.
   if (isHebrewChoice(cmd.repeat)) return { status: 'invalid', field: 'repeat' };
-  // A calendar the user chose while connected, with the token gone (cleared on a scope error): reconnect.
-  if (!user.googleRefreshToken && (user.calendarAssignments ?? []).some((a) => a.calendarId === cmd.calendarId)) {
+  // A legacy Google user's chosen calendar, with the token gone (scope errors used to clear it): reconnect.
+  // A FamCal user's stale choices with no token are none (liveGoogleChoices): a bad calendar.
+  if (!user.googleRefreshToken && liveGoogleChoices(user).some((a) => a.calendarId === cmd.calendarId)) {
     captureError(new Error('Google create with no refresh token'), 'calendar-google-item', { user_id: user.id }, 'warning');
     return { status: 'reconnect', reason: 'token' };
   }

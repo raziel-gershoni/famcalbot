@@ -7,17 +7,18 @@ import type { CalendarAssignment, UserConfig } from '../../types';
 import type { ShowPerson, ShowPromptContext } from '../../prompts/voice-show/types';
 import type { ShowKind } from './types';
 import { captureError } from '../../lib/error-capture';
+import { liveGoogleChoices } from '../../lib/google-state';
 
 /**
  * @param calendars - The user's resolved calendars (resolveShowCalendars); without them, the
- *   Google choices on the user row.
+ *   Google choices that count (liveGoogleChoices).
  */
 export function buildShowContext(
   summary: string,
   user: UserConfig,
   kind: ShowKind,
   isNextWeek = false,
-  calendars: CalendarAssignment[] = user.calendarAssignments ?? [],
+  calendars: CalendarAssignment[] = liveGoogleChoices(user),
 ): ShowPromptContext {
   const spouse = calendars.find(cal => cal.labels.includes('spouse') && cal.personName?.trim());
 
@@ -48,7 +49,7 @@ export function buildShowContext(
 /**
  * The user's calendars, which name the partner and the kids: the union of FamCal and the Google
  * choices ("Google as a connection"), for everyone. Undefined when the lookup fails: the show
- * then goes on with the Google choices on the user row rather than not at all.
+ * then goes on with the Google choices that count (liveGoogleChoices) rather than not at all.
  */
 export async function resolveShowCalendars(user: UserConfig): Promise<CalendarAssignment[] | undefined> {
   try {

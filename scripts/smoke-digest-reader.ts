@@ -578,7 +578,7 @@ const SAM = person(13, 'Sam', { gender: 'male', googleRefreshToken: 'tok-sam', c
 const OLIVIA = person(14, 'Olivia', { googleRefreshToken: 'tok-olivia', calendarAssignments: [], location: 'London' });
 const KARIM = person(15, 'Karim', { gender: 'male', googleRefreshToken: 'tok-karim', calendarAssignments: [], location: 'Cairo' });
 
-/** Google choices stored, token cleared (a scope error): googleState 'reconnect'. The reader leaves his Google out. */
+/** A legacy Google user (calendarSource GOOGLE), choices stored, token cleared (a scope error): googleState 'reconnect'. The reader leaves his Google out. */
 const OMRI = person(16, 'Omri', { gender: 'male', googleRefreshToken: '', calendarAssignments: own('omri@gmail.com', 'Omri') });
 
 const USERS = [DANA, NOAM, GALI, TOM, ORI, SHIRA, YONI, MAYA, ELLA, AVI, SAM, OLIVIA, KARIM, OMRI];
@@ -859,6 +859,7 @@ const stubs: Record<string, object | ((real: RealModule) => object)> = {
     },
     getAllUsers: async () => batch.map(u => ({ ...u })),
     getWhatsAppChatId: (u: UserConfig) => u.whatsappPhone || u.whatsappBsuid || null,
+    // A tripwire: missing permissions keep the token now (a cleared one made stale Google choices)
     clearGoogleRefreshToken: async (telegramId: bigint) => {
       log.push(`cleared the token of ${String(telegramId)}`);
     },
@@ -1282,7 +1283,7 @@ async function main() {
     assertList([...onDemand, '|', ...facing()], ['send Ori token', 'admin warning Token Expired', '|', 'send Ori token + refresh button', 'admin warning Token Expired'], 'what Ori got');
   });
 
-  await check('(d) missing scopes: on demand the scopes text, the token cleared by Telegram id and an admin warning; scheduled Sentry only', async () => {
+  await check('(d) missing scopes: on demand the scopes text, the token kept and an admin warning; scheduled Sentry only', async () => {
     reset();
     await summary.sendDailySummaryToUser(tg(SHIRA));
     const onDemand = facing();
@@ -1290,7 +1291,7 @@ async function main() {
     batch = [SHIRA];
     await summary.sendDailySummaryToAll({ filterByHour: true });
     assertList([...onDemand, '|', ...facing(), ...reportedBySummary()], [
-      'send Shira scopes', 'cleared the token of 1008', 'admin warning Insufficient Scopes', '|', 'summary-batch-user error GOOGLE_INSUFFICIENT_SCOPES',
+      'send Shira scopes', 'admin warning Insufficient Scopes', '|', 'summary-batch-user error GOOGLE_INSUFFICIENT_SCOPES',
     ], 'what Shira got');
   });
 

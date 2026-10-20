@@ -221,6 +221,7 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
     },
     getAllUsers: async () => scheduledUsers.map(u => ({ ...u })),
     getWhatsAppChatId: (u: UserConfig) => u.whatsappPhone ?? null,
+    // A tripwire: missing permissions keep the token now (a cleared one made stale Google choices)
     clearGoogleRefreshToken: async (telegramId: bigint) => {
       cleared.push(telegramId);
     },
@@ -567,11 +568,11 @@ async function main() {
     assertEqual(admin, ['warning: Token Expired'], 'admin pages');
   });
 
-  await check('[guard] on demand, missing scopes: the scopes text, the token cleared, and an admin warning', async () => {
+  await check('[guard] on demand, missing scopes: the scopes text, the token kept, and an admin warning', async () => {
     readOutcome = failWith('GOOGLE_INSUFFICIENT_SCOPES');
     await summary.sendDailySummaryToUser(1003);
     assertEqual(messages(), [['telegram', 'sendMessage', 1003, 'he:insufficientScopes']], 'what the user got');
-    assertEqual(cleared, [BigInt(1003)], 'tokens cleared');
+    assertEqual(cleared, [], 'tokens cleared');
     assertEqual(admin, ['warning: Insufficient Scopes'], 'admin pages');
   });
 
@@ -605,11 +606,11 @@ async function main() {
     assertEqual(admin, ['warning: Token Expired'], 'admin pages');
   });
 
-  await check('G2 on demand, missing scopes with FamCal events: the summary, then the scopes text, and the token cleared', async () => {
+  await check('G2 on demand, missing scopes with FamCal events: the summary, then the scopes text, and the token kept', async () => {
     readOutcome = withGap('scopes');
     await summary.sendDailySummaryToUser(1003);
     assertEqual(messages(), [['telegram', 'sendMessage', 1003, 'AI summary'], ['telegram', 'sendMessage', 1003, 'he:insufficientScopes']], 'what the user got');
-    assertEqual(cleared, [BigInt(1003)], 'tokens cleared');
+    assertEqual(cleared, [], 'tokens cleared');
   });
 
   await check('G2 on demand, Google unreachable with FamCal events: the summary goes out with them, the prompt flagged and the outage line under it', async () => {

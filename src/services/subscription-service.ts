@@ -11,6 +11,7 @@ import { trackActivity } from './analytics-service';
 import { getEarlyAdoptionMode } from './reminder-cache';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { captureError } from '../lib/error-capture';
+import { liveGoogleChoices } from '../lib/google-state';
 
 // ============================================
 // REDIS CACHE FOR FEATURE ACCESS
@@ -859,13 +860,13 @@ export function calendarTotal(ownFamcal: number, google: number): number {
   return ownFamcal + google - (google > 0 && ownFamcal > 0 ? 1 : 0);
 }
 
-/** The user's own live FamCal calendars and Google choices, as stored now. */
+/** The user's own live FamCal calendars and Google choices that count (liveGoogleChoices), as stored now. */
 export async function countCalendars(userId: number): Promise<{ famcal: number; google: number }> {
   const [famcal, user] = await Promise.all([
     prisma.nativeCalendar.count({ where: { ownerUserId: userId, isDeleted: false } }),
-    prisma.user.findUnique({ where: { id: userId }, select: { calendarAssignments: true } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { googleRefreshToken: true, calendarSource: true, calendarAssignments: true } }),
   ]);
-  const google = Array.isArray(user?.calendarAssignments) ? user.calendarAssignments.length : 0;
+  const google = user ? liveGoogleChoices(user).length : 0;
   return { famcal, google };
 }
 

@@ -12,6 +12,7 @@ import { captureError } from '../lib/error-capture';
 import { formatAdminFooter } from '../utils/ai-footer';
 import { getHolidaysForDate } from './hebrew-holidays';
 import type { WeekLookahead, LookaheadEvent } from './week-lookahead';
+import { liveGoogleChoices } from '../lib/google-state';
 
 /**
  * Format date header for voice-only delivery
@@ -424,13 +425,13 @@ function weekFamilyContext(calendars: CalendarAssignment[]) {
 
 /**
  * Build week lookahead prompt data from lookahead events and user info
- * @param calendars - The user's calendars, the union (getCalendarAssignmentsForUser); the user row holds only the Google choices
+ * @param calendars - The user's calendars, the union (getCalendarAssignmentsForUser); without them, the Google choices that count (liveGoogleChoices)
  */
 function buildWeekLookaheadPromptData(
   lookahead: WeekLookahead,
   user: UserConfig,
   language: string,
-  calendars: CalendarAssignment[] = user.calendarAssignments ?? []
+  calendars: CalendarAssignment[] = liveGoogleChoices(user)
 ): WeekLookaheadPromptData {
   // The lookahead's days are the user's, so everything formats in their timezone
   const { events, dateRange, timezone } = lookahead;
@@ -575,13 +576,13 @@ export async function generateWeekLookahead(
 
 /**
  * Build prompt data for next week summary
- * @param calendars - The user's calendars, the union (getCalendarAssignmentsForUser); the user row holds only the Google choices
+ * @param calendars - The user's calendars, the union (getCalendarAssignmentsForUser); without them, the Google choices that count (liveGoogleChoices)
  */
 function buildNextWeekPromptData(
   lookahead: WeekLookahead,
   user: UserConfig,
   language: string,
-  calendars: CalendarAssignment[] = user.calendarAssignments ?? []
+  calendars: CalendarAssignment[] = liveGoogleChoices(user)
 ): WeekLookaheadPromptData {
   // The lookahead's days are the user's, so everything formats in their timezone
   const { events, dateRange, timezone } = lookahead;

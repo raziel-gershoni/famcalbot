@@ -10,6 +10,7 @@
 // unpaired users; SHARED_EDITOR if the user is already paired.
 
 import { prisma } from '../../utils/prisma';
+import { liveGoogleChoices, type GoogleChoicesOwner } from '../../lib/google-state';
 
 const FALLBACK_NAME = {
   en: 'My calendar',
@@ -17,15 +18,15 @@ const FALLBACK_NAME = {
   ru: 'Мой календарь',
 } as const;
 
-/** True when the user has chosen Google calendars (stored, whatever the token's state). */
-export function hasGoogleChoices(calendarAssignments: unknown): boolean {
-  return Array.isArray(calendarAssignments) && calendarAssignments.length > 0;
+/** True when the user has Google choices that count (liveGoogleChoices): with a token, or a legacy Google user's without one. */
+export function hasGoogleChoices(user: GoogleChoicesOwner): boolean {
+  return liveGoogleChoices(user).length > 0;
 }
 
 export async function ensurePrimaryNativeCalendar(userId: number): Promise<void> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, name: true, language: true, pairingId: true, calendarAssignments: true },
+    select: { id: true, name: true, language: true, pairingId: true, googleRefreshToken: true, calendarSource: true, calendarAssignments: true },
   });
   if (!user) return;
 
@@ -44,7 +45,7 @@ export async function ensurePrimaryNativeCalendar(userId: number): Promise<void>
     data: {
       ownerUserId: userId,
       name,
-      labels: hasGoogleChoices(user.calendarAssignments) ? ['yours'] : ['primary', 'yours'],
+      labels: hasGoogleChoices(user) ? ['yours'] : ['primary', 'yours'],
       privacy,
     },
   });

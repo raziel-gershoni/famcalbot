@@ -1,4 +1,5 @@
 import { CalendarAssignment, CalendarLabel, UserConfig } from '../types';
+import { liveGoogleChoices } from '../lib/google-state';
 
 /**
  * Spouse info extracted from calendar assignment or legacy user fields
@@ -14,12 +15,12 @@ export interface SpouseInfo {
  * Get spouse info from calendar assignments
  * Returns null only if no spouse calendar exists
  * Returns partial info if spouse calendar exists but metadata is incomplete
- * @param assignments - Resolved assignments (getCalendarAssignmentsForUser). A NATIVE
- *   user has none on the user row, so without them there is never a spouse.
+ * @param assignments - Resolved assignments (getCalendarAssignmentsForUser). Without them,
+ *   the Google choices that count (liveGoogleChoices), so a FamCal partner is never found.
  */
 export function getSpouseInfo(user: UserConfig, assignments?: CalendarAssignment[]): SpouseInfo | null {
   // Find any spouse calendar (may or may not have metadata)
-  const spouseCalendar = (assignments ?? user.calendarAssignments)?.find(
+  const spouseCalendar = (assignments ?? liveGoogleChoices(user)).find(
     a => a.labels.includes('spouse')
   );
 

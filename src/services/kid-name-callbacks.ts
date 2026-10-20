@@ -13,6 +13,7 @@ import { buildUrl } from '../config/urls';
 import { CalendarAssignment } from '../types';
 import { isFamcalId } from '../utils/calendar-helpers';
 import { decodeCalendarId } from './native-calendar/event-store';
+import { liveGoogleChoices } from '../lib/google-state';
 
 interface KidNamePending {
   name: string;
@@ -70,7 +71,7 @@ export async function handleKidNameCallback(
     const ruleText = ruleTemplate.replace('{name}', pending.name);
     const answer = isFamcalId(pending.calendarId)
       ? await confirmOnFamcal(user.id, pending, ruleText, kd)
-      : await confirmOnGoogle(user.id, user.calendarAssignments, pending, ruleText, kd);
+      : await confirmOnGoogle(user.id, liveGoogleChoices(user), pending, ruleText, kd);
 
     const settingsPage = isFamcalId(pending.calendarId) ? 'calendars' : 'select-calendars';
     const settingsUrl = buildUrl(`/${lang}/${settingsPage}?user_id=${user.telegramId ?? user.id}`);
@@ -109,8 +110,8 @@ export async function handleKidNameCallback(
 type KidNameTexts = any;
 
 /**
- * "Yes" on a Google calendar: the rule goes on its assignment (User.calendarAssignments), and
- * the answer says so.
+ * "Yes" on a Google calendar: the rule goes on its assignment (User.calendarAssignments, of the
+ * choices that count: liveGoogleChoices), and the answer says so.
  */
 async function confirmOnGoogle(
   userId: number,

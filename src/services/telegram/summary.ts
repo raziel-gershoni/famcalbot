@@ -50,6 +50,7 @@ import { SCHEDULED_READ, SCHEDULED_RETRY_READ } from '../calendar-read/digest';
 import { captureError, captureWarning } from '../../lib/error-capture';
 import { getMessagingService } from './bot';
 import { sendVoiceMessage } from './voice';
+import { liveGoogleChoices } from '../../lib/google-state';
 
 /**
  * Categorize events by ownership for a specific user
@@ -57,12 +58,12 @@ import { sendVoiceMessage } from './voice';
 export function categorizeEvents(
   events: CalendarEvent[],
   user: UserConfig,
-  // Resolved assignments. Defaults to the raw Google-only JSON column for
-  // backwards compatibility; callers with a NATIVE user must pass the result of
-  // getCalendarAssignmentsForUser(), or every event lands in `otherEvents`.
+  // Resolved assignments. Defaults to the user's Google choices (liveGoogleChoices) for
+  // backwards compatibility; callers must pass the result of getCalendarAssignmentsForUser(),
+  // or every FamCal event lands in `otherEvents`.
   assignments?: CalendarAssignment[]
 ) {
-  const resolved = assignments ?? user.calendarAssignments ?? [];
+  const resolved = assignments ?? liveGoogleChoices(user);
   const ownCalendars = getCalendarsByLabel(resolved, 'yours');
   const spouseCalendars = getCalendarsByLabel(resolved, 'spouse');
 
@@ -297,7 +298,7 @@ export async function sendSummaryToUser(
   trackActivityAsync(user.id, 'text_summary_requested', {
     summary_type: summaryDate ? 'tomorrow' : 'today',
     language: userLanguage,
-    calendar_count: user.calendarAssignments?.length || 0,
+    calendar_count: liveGoogleChoices(user).length,
   });
 
   // Check feature access for text summaries

@@ -12,7 +12,10 @@
 // - one shared calendar limit: over-limit setups kept, blocked only above the limit when a
 //   save raises the total;
 // - the Google states and the 07:00 nudges (no OAuth track; choose calendars at any age;
-//   reconnect for a cleared token with stored calendars), the bot's nudges, the admin;
+//   reconnect for a legacy Google user's cleared token with stored calendars), the bot's
+//   nudges, the admin;
+// - section R: a FamCal user's stale Google choices with no token count as none everywhere
+//   (liveGoogleChoices), and a scope error keeps the token, so no new ones are made;
 // - the daily reminder-cache sync and the summary batch take a Google user without a token.
 // Task G2, section I: providers by calendar id and the split fetch, where a create goes when
 // nothing placed it (and a reminder), the parser's default, and the union in the kid-name
@@ -250,8 +253,9 @@ const botRecorder: Row = new Proxy({} as Row, {
 
 /** What the editor's Google calendar list answers next (google-item.ts is faked). */
 let googleEditorAnswer: Row = { calendars: [] };
-/** The select-calendars page's live Google list (calendar.ts listUserCalendars is faked). */
+/** The select-calendars page's live Google list (calendar.ts listUserCalendars is faked), or the error it throws. */
 let googleListed: Row[] = [];
+let googleListError: Error | null = null;
 /** The summary's day reads (calendar-read/digest.ts readDigestDay is faked): who, and which calendar ids. */
 const summaryReads: { userId: number; ids: string[] }[] = [];
 
@@ -324,7 +328,13 @@ function installStubs() {
     getWhatsAppService: () => recorder('wa'), detectPlatform: () => 'telegram',
   });
   stub('src/services/calendar-write/google-item.ts', { googleEditorCalendars: async () => googleEditorAnswer });
-  stub('src/services/calendar.ts', { ...nodeRequire(path.join(ROOT, 'src/services/calendar.ts')), listUserCalendars: async () => googleListed });
+  stub('src/services/calendar.ts', {
+    ...nodeRequire(path.join(ROOT, 'src/services/calendar.ts')),
+    listUserCalendars: async () => {
+      if (googleListError) throw googleListError;
+      return googleListed;
+    },
+  });
   // The summary's read stops at the read: the smoke checks who is read, with which ids.
   stub('src/services/calendar-read/digest.ts', {
     ...nodeRequire(path.join(ROOT, 'src/services/calendar-read/digest.ts')),
@@ -376,6 +386,7 @@ function seed() {
   botSent.length = 0;
   captured.length = 0;
   googleEditorAnswer = { calendars: [] };
+  googleListError = null;
   DB.user = [
     baseUser({ id: 1, name: 'Nava', telegramId: BigInt(5550001), pairingId: 'pair-12' }),
     baseUser({ id: 2, name: 'Pele', telegramId: BigInt(5550002), pairingId: 'pair-12' }),
@@ -459,16 +470,33 @@ async function main() {
     eq(defaultCalendarFor([]), null, 'nothing: the FamCal main');
   });
 
-  await check('A3 googleStateOf: never connected, choose calendars, reconnect (token cleared, calendars stored), connected', async () => {
+  // A user as the Google rules read one: calendarSource is the legacy marker.
+  const gUser = (calendarSource: string, googleRefreshToken: string, calendarAssignments: unknown) => ({ calendarSource, googleRefreshToken, calendarAssignments });
+  const STALE = [gcal('a', ['yours'])];
+
+  await check('A3 googleStateOf: never connected, choose calendars, reconnect (a legacy Google user\'s token cleared, calendars stored), connected', async () => {
     const { googleStateOf } = await load('src/lib/google-state.ts');
     eq([
-      googleStateOf({ googleRefreshToken: '', calendarAssignments: null }),
-      googleStateOf({ googleRefreshToken: '', calendarAssignments: [] }),
-      googleStateOf({ googleRefreshToken: 'rt', calendarAssignments: null }),
-      googleStateOf({ googleRefreshToken: 'rt', calendarAssignments: [] }),
-      googleStateOf({ googleRefreshToken: '', calendarAssignments: [gcal('a', ['yours'])] }),
-      googleStateOf({ googleRefreshToken: 'rt', calendarAssignments: [gcal('a', ['yours'])] }),
-    ], ['none', 'none', 'choose', 'choose', 'reconnect', 'connected'], 'states');
+      googleStateOf(gUser('NATIVE', '', null)),
+      googleStateOf(gUser('NATIVE', '', [])),
+      googleStateOf(gUser('NATIVE', 'rt', null)),
+      googleStateOf(gUser('NATIVE', 'rt', [])),
+      googleStateOf(gUser('GOOGLE', '', STALE)),
+      googleStateOf(gUser('NATIVE', 'rt', STALE)),
+      googleStateOf(gUser('GOOGLE', 'rt', STALE)),
+    ], ['none', 'none', 'choose', 'choose', 'reconnect', 'connected', 'connected'], 'states');
+  });
+
+  await check('A3b a FamCal user\'s stale Google choices with no token are no choices: googleState none (no reconnect); liveGoogleChoices keeps them only with a token or the legacy Google marker', async () => {
+    const { googleStateOf, liveGoogleChoices } = await load('src/lib/google-state.ts');
+    eq(googleStateOf(gUser('NATIVE', '', STALE)), 'none', 'state');
+    eq([
+      liveGoogleChoices(gUser('NATIVE', '', STALE)),
+      liveGoogleChoices(gUser('GOOGLE', '', STALE)),
+      liveGoogleChoices(gUser('NATIVE', 'rt', STALE)),
+      liveGoogleChoices(gUser('GOOGLE', 'rt', null)),
+      liveGoogleChoices(gUser('GOOGLE', '', { not: 'a list' })),
+    ].map((c: Row[]) => c.map(a => a.calendarId)), [[], ['a'], ['a'], [], []], 'live choices');
   });
 
   await check('A4 calendarTotal: own FamCal plus Google, the FamCal main not counted once Google calendars are chosen', async () => {
@@ -882,6 +910,88 @@ async function main() {
     assert(res.status === 200, `status ${res.status}`);
     const left = [...redisStore.keys()].filter(k => /^setup:(start|reminder):5:/.test(k));
     eq(left, [], 'keys left');
+  });
+
+  // ---- R. A FamCal user's stale Google choices: relics, not a connection ----
+  // Migration 20260506000001 made every user without a token NATIVE, and a scope error used to
+  // clear only the token, so some FamCal users still have old Google choices stored. They count
+  // only with a token, or for a legacy Google user (calendarSource GOOGLE) whose token is gone.
+
+  const RELICS = [gcal('rina@gmail.com', ['primary', 'yours'], 'Rina G'), gcal('kids9@group.calendar.google.com', ['kids'], 'Kids')];
+  const addRina = () => table('user').push(baseUser({ id: 9, name: 'Rina', telegramId: BigInt(5550009), calendarAssignments: RELICS }));
+
+  await check('R1 a FamCal user with stale Google choices and no token: googleState none; the lazy FamCal main gets primary and yours; the union, the default and the calendar totals are FamCal only', async () => {
+    seed();
+    addRina();
+    const { googleStateOf } = await load('src/lib/google-state.ts');
+    const { ensurePrimaryNativeCalendar } = await load('src/services/native-calendar/onboarding.ts');
+    const { getCalendarAssignmentsForUser, defaultCalendarIdFor } = await load('src/services/calendar-provider/user-calendars.ts');
+    const { countCalendars, calendarTotal } = await load('src/services/subscription-service.ts');
+    eq(googleStateOf(await configOf(9)), 'none', 'googleState');
+    await ensurePrimaryNativeCalendar(9);
+    eq(live(9).map(c => c.labels), [['primary', 'yours']], 'the lazy main');
+    const main = `native:${live(9)[0].id}`;
+    eq((await getCalendarAssignmentsForUser(await configOf(9))).map((a: Row) => a.calendarId), [main], 'union');
+    eq(await defaultCalendarIdFor(await configOf(9)), main, 'default');
+    const counts = await countCalendars(9);
+    eq([counts, calendarTotal(counts.famcal, counts.google)], [{ famcal: 1, google: 0 }, 1], 'totals');
+  });
+
+  await check('R2 the 07:00 nudges: the track query leaves a FamCal user\'s stale choices out (no reconnect); a legacy Google user with no token and choices (Omri) still gets reconnect', async () => {
+    seed();
+    addRina();
+    redisStore.set('setup:start:5:reconnect', String(days(-2).getTime()));
+    redisStore.set('setup:start:9:reconnect', String(days(-2).getTime()));
+    const { GOOGLE_NUDGE_WHERE } = await load('src/services/setup-tracks.ts');
+    const picked = await fakePrisma.user.findMany({ where: { OR: GOOGLE_NUDGE_WHERE }, select: { id: true } });
+    eq(picked.map((u: Row) => u.id), [5, 6], 'the track query (Omri reconnect, Tami choose)');
+    const { handleSetupReminders } = await load('src/cron/handlers.ts');
+    await handleSetupReminders();
+    const to = (id: number) => sent.filter(s => String(s.chatId) === String(5550000 + id));
+    eq([to(9).length, to(5).length], [0, 1], 'nudges (Rina, Omri)');
+    assert(String(to(5)[0]?.options?.replyMarkup?.inline_keyboard?.[0]?.[0]?.web_app?.url).includes('/refresh-token'), show(to(5)));
+  });
+
+  await check('R3 admin: the card counts no Google calendars and offers no Google nudge for stale choices; the stats count them as no calendars and no setup', async () => {
+    seed();
+    addRina();
+    table('nativeCalendar').push(cal('cal-90', 9, 'Rina', { labels: ['primary', 'yours'] }));
+    const { NextRequest } = await import('next/server');
+    const overrides = await load('app/api/admin/user-overrides/route.ts');
+    const card = async (id: number) => (await (await overrides.GET(new NextRequest(`https://famcal.test/api/admin/user-overrides?user_id=${id}&initData=x`))).json()).user;
+    const rina = await card(9);
+    const s = rina.registrationStatus;
+    eq([rina.calendarsCount, s.hasOAuth, s.hasCalendars, s.applicableReminder, s.googleState], [1, false, false, null, 'none'], 'Rina');
+    const listed = await (await overrides.GET(new NextRequest('https://famcal.test/api/admin/user-overrides?list=all&initData=x'))).json();
+    eq(listed.users?.find((u: Row) => u.id === 9)?.calendarsCount, 0, 'Rina in the list (Google choices)');
+    const stats = await load('app/api/admin/stats/route.ts');
+    const body = await (await stats.GET(new NextRequest('https://famcal.test/api/admin/stats?initData=x'))).json();
+    // With calendars: Gil, Hila (tokens) and Omri (legacy Google, token cleared). Need setup: Tami (choose), Omri (reconnect).
+    eq([body.stats?.usersWithCalendars, body.stats?.needSetup], [3, 2], 'stats');
+  });
+
+  await check('R4 the summary batch reads a FamCal user\'s FamCal calendars without her stale Google choices', async () => {
+    seed();
+    addRina();
+    DB.user = table('user').filter(u => u.id === 9);
+    table('nativeCalendar').push(cal('cal-90', 9, 'Rina', { labels: ['primary', 'yours'] }));
+    redisStore.set('tz:user:9', 'Asia/Jerusalem');
+    summaryReads.length = 0;
+    const { sendDailySummaryToAll } = await load('src/services/telegram/summary.ts');
+    await sendDailySummaryToAll();
+    eq(summaryReads, [{ userId: 9, ids: ['native:cal-90'] }], 'reads');
+  });
+
+  await check('R5 the select-calendars page on missing Google permissions keeps the token (no new stale choices) and sends the user to reconnect', async () => {
+    seed();
+    Object.assign(userRow(1), { googleRefreshToken: TOKENS.a, calendarAssignments: [gcal('nava@gmail.com', ['yours'], 'Nava G')] });
+    googleListError = new Error('GOOGLE_INSUFFICIENT_SCOPES', { cause: Object.assign(new Error('Request had insufficient authentication scopes.'), { code: 403 }) });
+    const { loadPageData } = await load('src/lib/page-data.ts');
+    const page = await loadPageData('select-calendars', await configOf(1), 5550001, 'en');
+    eq(page, { kind: 'redirect', to: '/refresh-token?user_id=5550001' }, 'page');
+    assert(userRow(1).googleRefreshToken === TOKENS.a, 'the token was cleared');
+    const { googleStateOf } = await load('src/lib/google-state.ts');
+    eq(googleStateOf(await configOf(1)), 'connected', 'googleState');
   });
 
   // ---- I. Providers by calendar id (Task G2, spec §3 and §4 Providers) ----

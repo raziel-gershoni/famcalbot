@@ -24,6 +24,7 @@ import { isReminderEvent } from '../../utils/event-formatter';
 import { escapeHtml } from '../../utils/html';
 import { hebrewRepeatCard } from './hebrew-repeat-card';
 import { targetOf } from '../recurrence-fields';
+import { liveGoogleChoices } from '../../lib/google-state';
 
 // Voice modules import escapeHtml from here; anything outside voice imports src/utils/html.
 export { escapeHtml } from '../../utils/html';
@@ -530,7 +531,7 @@ export async function showEventConfirmation(
   // one field of the pending event. Only show "Cal" when user has multiple
   // calendars to pick from — otherwise the button is meaningless. A reminder
   // never offers it: it always goes on the creator's main calendar.
-  const calendarCount = (user.calendarAssignments?.length ?? 0);
+  const calendarCount = liveGoogleChoices(user).length;
   const quickRow: Array<{ text: string; callback_data: string }> = [
     { text: t.voice?.fixTime || '⏰ Time', callback_data: `event_fix:time:${pendingId}` },
     { text: t.voice?.fixDay || '📅 Day', callback_data: `event_fix:day:${pendingId}` },

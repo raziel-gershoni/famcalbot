@@ -129,8 +129,17 @@ const CALENDARS: CalendarAssignment[] = [
 const dana = {
   id: 1, name: 'Dana', englishName: 'Dana', language: 'en', telegramId: 1001, calendarSource: 'NATIVE',
   pairingId: 'pair-1', isAdmin: false, voiceInputEnabled: true, googleRefreshToken: '',
-  // Two calendars, so an event card offers 📁 Cal and a reminder card must not
+  // Not Google choices that count (no token, NATIVE: liveGoogleChoices); the 📁 Cal checks use danaWithChoices
   calendarAssignments: CALENDARS,
+} as unknown as UserConfig;
+// The 📁 Cal quick fix counts the Google choices that count (liveGoogleChoices: a token here):
+// two, so an event card offers it and a reminder card must not
+const danaWithChoices = {
+  ...dana, googleRefreshToken: 'rt-dana',
+  calendarAssignments: [
+    { calendarId: 'dana@gmail.com', labels: ['yours'], name: 'Dana G', color: '#4285F4' },
+    { calendarId: 'kids@group.calendar.google.com', labels: ['kids'], name: 'Kids', color: '#4285F4' },
+  ],
 } as unknown as UserConfig;
 const nyUser = { ...dana, id: 3, pairingId: null } as unknown as UserConfig;
 let currentUser: UserConfig = dana;
@@ -599,7 +608,7 @@ async function main() {
 
   await check('card: a timed reminder for the partner, with no end time and no 📁 Cal button', async () => {
     const event = await resolved(parsedReminder({ forPerson: 'partner' }));
-    await showEventConfirmation(555, undefined, event, 'remind Raziel to call the plumber', dana);
+    await showEventConfirmation(555, undefined, event, 'remind Raziel to call the plumber', danaWithChoices);
     const card = lastBot();
     assert(card.text.startsWith('⏰ <b>Call the plumber</b>\n📆 Thu, Oct 15, 10:00 · for Raziel\n\n'), card.text);
     assert(!card.text.includes(' - ') && !card.text.includes('📁') && !card.text.includes(t.voice.confirmTitle), card.text);
@@ -635,7 +644,7 @@ async function main() {
 
   await check('card: an event\'s card is as before, its title now escaped', async () => {
     const event: ParsedEvent = { title: 'Dentist', startTime: at('2026-10-15 10:00'), endTime: at('2026-10-15 11:00'), allDay: false, calendarId: 'native:main-1', calendarName: 'Dana', confidence: 'high' };
-    await showEventConfirmation(555, undefined, event, 'dentist', dana);
+    await showEventConfirmation(555, undefined, event, 'dentist', danaWithChoices);
     const when = formatEventDateTime(event, 'en', t.voice.allDay, IL);
     assert(lastBot().text === `${t.voice.confirmTitle}\n\n<b>Dentist</b>\n${when}\n📁 Dana\n\n<i>${t.voice.from} "dentist"</i>`, lastBot().text);
     assert(buttonsOf(lastBot()).flat().some(b => b.callback_data.startsWith('event_fix:cal:')), 'lost 📁 Cal');

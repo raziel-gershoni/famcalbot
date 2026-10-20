@@ -3,7 +3,7 @@
 //
 // One list for everyone ("Google as a connection" spec §1, §4): CalendarAssignment
 // objects synthesized from the FamCal rows the user sees (ids namespaced `native:<cuid>`),
-// then the Google choices, `user.calendarAssignments` verbatim.
+// then the Google choices that count (liveGoogleChoices), verbatim.
 
 import type { NativeCalendar, User } from '@prisma/client';
 import type { UserConfig } from '../../types';
@@ -11,6 +11,7 @@ import type { CalendarAssignment, CalendarLabel } from '../../types';
 import { defaultCalendarFor } from '../../utils/calendar-helpers';
 import { prisma } from '../../utils/prisma';
 import { captureError } from '../../lib/error-capture';
+import { liveGoogleChoices } from '../../lib/google-state';
 import {
   encodeCalendarId,
   listVisibleCalendars,
@@ -44,9 +45,10 @@ export async function getCalendarAssignmentsForUser(user: UserConfig): Promise<C
       rules: c.rules || undefined,
     };
   });
-  // The Google choices, as stored on User.calendarAssignments: kept without a token too,
-  // so an event placed on a Google calendar asks to reconnect instead of moving to FamCal.
-  return [...famcal, ...(user.calendarAssignments ?? [])];
+  // The Google choices that count: kept for a legacy Google user without a token too, so an
+  // event placed on a Google calendar asks to reconnect instead of moving to FamCal. A FamCal
+  // user's stale choices with no token are none (liveGoogleChoices).
+  return [...famcal, ...liveGoogleChoices(user)];
 }
 
 /**
