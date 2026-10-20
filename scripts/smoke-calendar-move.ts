@@ -81,6 +81,8 @@ const calls: Req[] = [];
 let seq = 0;
 /** One-shot (or n-shot) answers, matched in order. `apply` serves the request first (Google applied it, then the answer was lost). */
 let rules: { match: (r: Req) => boolean; answer: Answer; left: number; apply?: boolean }[] = [];
+/** When set, events.instances ignores originalStart and lists from the first instance (the move's window fallback is then what finds the slot). */
+let ignoreOriginalStart = false;
 
 const apiBody = (code: number, reason: string, message: string) => ({ error: { code, message, errors: [{ domain: 'global', reason, message }] } });
 const fail = (status: number, reason: string, message = reason): Answer => ({ status, data: apiBody(status, reason, message) });
@@ -222,7 +224,7 @@ function serve(req: Req): Answer {
     const zone = m.start.timeZone ?? meta.timeZone;
     if (req.params.timeMin) list = list.filter((i) => instantOf(i.end, zone)! > new Date(req.params.timeMin));
     if (req.params.timeMax) list = list.filter((i) => instantOf(i.start, zone)! < new Date(req.params.timeMax));
-    if (req.params.originalStart) {
+    if (req.params.originalStart && !ignoreOriginalStart) {
       const want = String(req.params.originalStart);
       list = list.filter((i) => (i.originalStartTime?.date ? i.originalStartTime.date === want : new Date(i.originalStartTime.dateTime).getTime() === new Date(want).getTime()));
     }
@@ -572,6 +574,7 @@ function reset() {
   gone.clear();
   calls.length = 0;
   rules = [];
+  ignoreOriginalStart = false;
   seq = 0;
   nextId = 0;
   dbFailures = [];
@@ -939,20 +942,74 @@ async function main() {
     assertSame([r4.status, r4.leftIn, eventsOf(NOA_CAL).size], ['ok', 'Noa FamCal', 1], 'a failed compensation: still in');
   });
 
-  await check('F→G retry: a copy already in the destination (found by famcalMovedFrom) is reused and repaired before the original goes; one elsewhere or cancelled is left', async () => {
+  await check('F→G retry: a copy already in the destination (found by famcalMovedFrom) is replaced by a whole new one before the original goes, nothing stale kept; one elsewhere or cancelled is left', async () => {
     seedSeries('wk', { title: 'Team sync', rrule: 'FREQ=WEEKLY;COUNT=5', startsAt: at('2026-10-06T10:00:00'), exdates: [at('2026-10-13T10:00:00')] });
     seedInstance('wk', at('2026-10-20T10:00:00'), { status: 'OVERRIDE', title: 'Moved sync' });
-    gseed(NOA_CAL, 'half', { start: '2026-10-06T10:00:00', summary: 'Team sync', recurrence: ['RRULE:FREQ=WEEKLY;COUNT=5'], extendedProperties: { private: { famcalMovedFrom: 'wk' } } });
+    // The earlier attempt's copy: notes and an override the FamCal series no longer has.
+    gseed(NOA_CAL, 'half', { start: '2026-10-06T10:00:00', summary: 'Team sync', description: 'Bring ID', recurrence: ['RRULE:FREQ=WEEKLY;COUNT=5'], extendedProperties: { private: { famcalMovedFrom: 'wk' } } });
+    gseedException(NOA_CAL, `half_${utcStamp(at('2026-10-27T10:00:00'))}`, { summary: 'Moved to room 4' });
     gseed(FAMILY, 'elsewhere', { start: '2026-10-06T10:00:00', recurrence: ['RRULE:FREQ=WEEKLY;COUNT=5'], extendedProperties: { private: { famcalMovedFrom: 'wk' } } });
     gseed(NOA_CAL, 'dead', { start: '2026-10-06T10:00:00', status: 'cancelled', extendedProperties: { private: { famcalMovedFrom: 'wk' } } });
-    const r = await move(NOA, `famcal|wk#${at('2026-10-06T10:00:00').toISOString()}`, NOA_CAL);
-    assertSame(r, { status: 'ok', key: gkey(NOA_CAL, `half_${utcStamp(at('2026-10-06T10:00:00'))}`) }, 'the copy reused');
-    assert(!calls.some((c) => c.method === 'POST'), 'no second copy');
+    const key = `famcal|wk#${at('2026-10-06T10:00:00').toISOString()}`;
+    const r = await move(NOA, key, NOA_CAL);
+    assertSame(r, { status: 'ok', key: gkey(NOA_CAL, `new1_${utcStamp(at('2026-10-06T10:00:00'))}`) }, 'a whole new copy');
     const lookup = calls.find((c) => c.method === 'GET' && c.path === `/calendars/${encodeURIComponent(NOA_CAL)}/events`);
     assertSame(String(lookup?.params.privateExtendedProperty), 'famcalMovedFrom=wk', 'looked up by the marker, in the destination');
-    assertSame(stored(NOA_CAL, 'half')!.recurrence, ['RRULE:FREQ=WEEKLY;COUNT=5', 'EXDATE;TZID=Asia/Jerusalem:20261013T100000'], 'the cancellation re-applied');
-    assertSame(stored(NOA_CAL, `half_${utcStamp(at('2026-10-20T10:00:00'))}`)?.summary, 'Moved sync', 'the override re-applied');
+    const copies = [...eventsOf(NOA_CAL).values()].filter((e) => e.extendedProperties?.private?.famcalMovedFrom === 'wk' && e.status !== 'cancelled' && !e.recurringEventId).map((e) => e.id);
+    assertSame(copies, ['new1'], 'one copy in the destination: the earlier one taken back');
+    assertSame(stored(NOA_CAL, 'new1')!.recurrence, ['RRULE:FREQ=WEEKLY;COUNT=5', 'EXDATE;TZID=Asia/Jerusalem:20261013T100000'], 'the cancellation applied');
+    assertSame(stored(NOA_CAL, `new1_${utcStamp(at('2026-10-20T10:00:00'))}`)?.summary, 'Moved sync', 'the override applied');
+    assertSame(stored(NOA_CAL, 'new1')!.description, undefined, 'notes the FamCal series no longer has are not kept');
+    assert(![...eventsOf(NOA_CAL).values()].some((e) => e.summary === 'Moved to room 4'), 'an override the FamCal series no longer has is not kept');
     assertSame([eventRow('wk')!.isDeleted, Boolean(stored(FAMILY, 'elsewhere'))], [true, true], 'original gone; the copy elsewhere left');
+    reset();
+    seedSeries('wk', { rrule: 'FREQ=WEEKLY;COUNT=5', startsAt: at('2026-10-06T10:00:00') });
+    gseed(NOA_CAL, 'half', { start: '2026-10-06T10:00:00', recurrence: ['RRULE:FREQ=WEEKLY;COUNT=5'], extendedProperties: { private: { famcalMovedFrom: 'wk' } } });
+    failOn((r) => r.method === 'DELETE', fail(500, 'backendError'), { times: RETRIED });
+    assertSame([await move(NOA, key, NOA_CAL), Boolean(stored(NOA_CAL, 'half')), eventRow('wk')!.isDeleted], [{ status: 'failed' }, true, false], 'an earlier copy that can\'t be taken back: failed, the original kept');
+    assert(!calls.some((c) => c.method === 'POST'), 'no second copy beside it');
+  });
+
+  await check('F→G: an override found by the days around its slot when originalStart misses: the patch lands on the instance at the exact slot (timed, all day)', async () => {
+    ignoreOriginalStart = true;
+    seedSeries('d', { rrule: 'FREQ=DAILY;COUNT=10', startsAt: at('2026-10-20T10:00:00') });
+    seedInstance('d', at('2026-10-27T10:00:00'), { status: 'OVERRIDE', title: 'Day eight' });
+    const r = await move(NOA, `famcal|d#${at('2026-10-24T10:00:00').toISOString()}`, NOA_CAL);
+    assertSame(r, { status: 'ok', key: gkey(NOA_CAL, `new1_${utcStamp(at('2026-10-24T10:00:00'))}`) }, 'timed: the key at the opened slot');
+    const titled = () => [...eventsOf(NOA_CAL).values()].filter((e) => e.summary === 'Day eight').map((e) => e.id);
+    assertSame(titled(), [`new1_${utcStamp(at('2026-10-27T10:00:00'))}`], 'timed: the override on its own instance only');
+    reset();
+    ignoreOriginalStart = true;
+    seedSeries('ad', { allDay: true, rrule: 'FREQ=DAILY;COUNT=10', startsAt: dayStartOf('2026-10-20'), endsAt: dayEndOf('2026-10-20') });
+    seedInstance('ad', dayStartOf('2026-10-27'), { status: 'OVERRIDE', title: 'Day eight' });
+    const r2 = await move(NOA, `famcal|ad#${dayStartOf('2026-10-24').toISOString()}`, NOA_CAL);
+    assertSame(r2, { status: 'ok', key: gkey(NOA_CAL, 'new1_20261024') }, 'all day: the key at the opened slot');
+    assertSame(titled(), ['new1_20261027'], 'all day: the override on its own instance only');
+  });
+
+  await check('F→G: a part-way copy that can\'t be taken back is reported with both ids and answers "Couldn\'t move. Try again", never the final refusal', async () => {
+    const seedWk = () => {
+      seedSeries('wk', { rrule: 'FREQ=WEEKLY;COUNT=4', startsAt: at('2026-10-06T10:00:00') });
+      seedInstance('wk', at('2026-10-20T10:00:00'), { status: 'OVERRIDE', title: 'Moved' });
+    };
+    const key = `famcal|wk#${at('2026-10-06T10:00:00').toISOString()}`;
+    const noInstance = () => failOn((r) => r.method === 'GET' && r.path.endsWith('/instances'), { status: 200, data: { items: [] } }, { times: 2 });
+    const leftReported = () => captured.some((c) => c.ctx === 'calendar-move-left' && c.extra?.copy_id === 'new1' && c.extra?.series_id === 'wk');
+    seedWk();
+    noInstance();
+    assertSame([await move(NOA, key, NOA_CAL), eventsOf(NOA_CAL).size, eventRow('wk')!.isDeleted, leftReported()], [{ status: 'invalid', field: 'moveRepeat' }, 0, false, false], 'no instance, the copy taken back: the repeat can\'t be moved');
+    reset();
+    seedWk();
+    noInstance();
+    failOn((r) => r.method === 'DELETE', fail(500, 'backendError'), { times: RETRIED });
+    const r = await move(NOA, key, NOA_CAL);
+    assertSame([r, eventsOf(NOA_CAL).size, eventRow('wk')!.isDeleted, leftReported()], [{ status: 'move_failed' }, 1, false, true], 'no instance, the take-back failed');
+    reset();
+    seedWk();
+    failOn((r) => r.method === 'PATCH', fail(500, 'backendError'));
+    failOn((r) => r.method === 'DELETE', fail(500, 'backendError'), { times: RETRIED });
+    const r2 = await move(NOA, key, NOA_CAL);
+    assertSame([r2, eventsOf(NOA_CAL).size, eventRow('wk')!.isDeleted, leftReported()], [{ status: 'move_failed' }, 1, false, true], 'a failed patch, the take-back failed');
   });
 
   // ================= The move, Google → FamCal =================
@@ -1005,6 +1062,24 @@ async function main() {
     assertSame(await move(NOA, gkey(NOA_CAL, ginst('rd', '2026-10-06T10:00:00')), 'native:fam-noa', 'following'), { status: 'invalid', field: 'scope' }, 'scope');
     assertSame(await move(NOA, gkey(NOA_CAL, 'one'), 'native:fam-solo', 'single'), { status: 'invalid', field: 'calendarId' }, 'a FamCal calendar the user can\'t write');
     assertSame([writes().length - before, tables.nativeEvent.length], [0, 0], 'nothing written');
+  });
+
+  await check('G→F refusals: a series whose master or another occurrence has a guest, opened on an occurrence without one; nothing written, nothing deleted; the item info offers no FamCal calendar', async () => {
+    const guest = [{ email: 'dan@x.com' }, { email: NOA_CAL, self: true }];
+    gseed(NOA_CAL, 'gm', { start: '2026-10-06T10:00:00', recurrence: ['RRULE:FREQ=WEEKLY;COUNT=6'], attendees: guest });
+    const alone = ginst('gm', '2026-10-20T10:00:00');
+    gseedException(NOA_CAL, alone, { attendees: [] });
+    gseed(NOA_CAL, 'gx', { start: '2026-10-06T10:00:00', recurrence: ['RRULE:FREQ=WEEKLY;COUNT=6'] });
+    gseedException(NOA_CAL, ginst('gx', '2026-11-03T10:00:00'), { attendees: guest });
+    gseed(NOA_CAL, 'go', { start: '2026-10-06T10:00:00', recurrence: ['RRULE:FREQ=WEEKLY;COUNT=6'] });
+    gseedException(NOA_CAL, ginst('go', '2026-11-03T10:00:00'), { attendeesOmitted: true });
+    const before = writes().length;
+    assertSame(await move(NOA, gkey(NOA_CAL, alone), 'native:fam-noa'), { status: 'not_allowed' }, 'the master has a guest');
+    assertSame(await move(NOA, gkey(NOA_CAL, ginst('gx', '2026-10-27T10:00:00')), 'native:fam-noa'), { status: 'not_allowed' }, 'another occurrence has a guest');
+    assertSame(await move(NOA, gkey(NOA_CAL, ginst('go', '2026-10-27T10:00:00')), 'native:fam-noa'), { status: 'not_allowed' }, 'another occurrence\'s guests are left out');
+    assertSame([writes().length - before, tables.nativeEvent.length, ['gm', 'gx', 'go'].every((id) => Boolean(stored(NOA_CAL, id)))], [0, 0, true], 'nothing written, nothing deleted');
+    const info = await editInfo(NOA, gkey(NOA_CAL, alone));
+    assertSame(info.moveTargets, [NOA_CAL, FAMILY], 'the item info: only the Google calendars');
   });
 
   await check('G→F compensation: a failed FamCal write leaves Google alone; a failed Google delete re-reads: present → the copy goes; applied, 404, 410 or cancelled → done; unreadable or a failed compensation → "still in"', async () => {

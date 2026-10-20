@@ -241,10 +241,12 @@ export async function googleEditInfo(user: UserConfig, key: GoogleItemKey, userT
  * The FamCal calendars an editable Google event may move to ("Google as a connection" §5):
  * every FamCal calendar the user can write, and which of them the partner sees (shared, or
  * the partner's own) while there is one; or, when it can't cross (a video call or files, a
- * repeat FamCal can't hold), none and why. Read from the event alone: its exceptions are
- * listed only by the move, which refuses then what this can't see.
+ * repeat FamCal can't hold), none and why. A series whose master has other guests offers
+ * none (the move would cancel their invitation). Read from the event and its master: the
+ * other exceptions are listed only by the move, which refuses then what this can't see.
  */
 async function famcalTargetsOf(user: UserConfig, read: GoogleItemRead, userTz: string): Promise<{ ids: string[]; shared: string[]; reason?: CrossRefusal }> {
+  if (read.master && !editableInHome(read.master)) return { ids: [], shared: [] };
   const reason = googleCrossRefusal({ ...read.event, recurrence: undefined }) ?? googleCrossRefusal(read.master ?? read.event, zoneOf(read, userTz));
   if (reason) return { ids: [], shared: [], reason };
   const [rows, partnerId] = await Promise.all([writableCalendarRows(user), getPartnerUserId(user.id, user.pairingId ?? null)]);

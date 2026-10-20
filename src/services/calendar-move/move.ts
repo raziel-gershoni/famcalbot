@@ -6,16 +6,21 @@
 // - Saved alone: a move carries no other change (the editor says so before it sends).
 // - A series moves whole ('all'); a one-off is 'single'.
 // - Eligibility is the mapper's (meet, hebrew, repeat) plus who may move it: a Google event
-//   must pass 3b's editable test, a FamCal one must be the user's own event on their own
+//   must pass 3b's editable test (a series: its master and every exception too, since the
+//   master's delete takes them all), a FamCal one must be the user's own event on their own
 //   calendar (a partner's never leaves the partner's view).
 // - One move per source series at a time: a fail-closed Redis NX lock with its own prefix,
 //   held for the whole run and released in finally. A Redis error refuses the move.
-// - Failure order: a copy that fails part-way is deleted and the original is untouched.
+// - Failure order: a copy that fails part-way is deleted and the original is untouched; a
+//   part-way copy that can't be deleted is reported with both ids, and the user is asked
+//   to try again (the retry replaces it).
 //   When the original's delete fails it is read again: gone, the move is done; present,
 //   the copy is taken back ("Couldn't move"); unreadable, or a take-back that fails, both
 //   are left and reported with both ids ("Moved, but the old one is still in …").
 // - A retry into Google first looks for an earlier copy in the destination only (by the
-//   famcalMovedFrom private property) and repairs it in full before the original goes.
+//   famcalMovedFrom private property) and repairs it in full before the original goes: the
+//   earlier copy is taken back and a whole new one made, so nothing the FamCal series no
+//   longer has (notes, a place, an override, its repeat) stays behind.
 //
 // Logs carry ids and classes, never a title.
 
@@ -32,7 +37,7 @@ import { trackActivityAsync } from '../analytics-service';
 import { getCalendarClient, scrubbedGoogleError } from '../calendar';
 import { googleCalendarRef, stampGoogleCache } from '../calendar-read/google';
 import { classifyGoogleError } from '../calendar-read/google-map';
-import { failureOutcome, googleEditorCalendars, loadGoogleItem } from '../calendar-write/google-item';
+import { editableInHome, failureOutcome, googleEditorCalendars, loadGoogleItem } from '../calendar-write/google-item';
 import { loadItem, writableCalendarRows } from '../calendar-write/item-info';
 import { googleKeyOf, itemKeyOf, type GoogleItemKey, type ItemKey, type UpdateCommand } from '../calendar-write/validate';
 import { clearCaches, scrubbed, type WriteResult } from '../calendar-write/write';
@@ -54,6 +59,7 @@ type Scope = UpdateCommand['scope'];
 const LOCK_TTL_S = 300;
 const DAY_MS = 86_400_000;
 const NOT_ALLOWED: WriteResult = { status: 'not_allowed' };
+const MOVE_FAILED: WriteResult = { status: 'move_failed' };
 const BAD_CALENDAR: WriteResult = { status: 'invalid', field: 'calendarId' };
 const REFUSAL_FIELD: Record<CrossRefusal, string> = { meet: 'moveMeet', hebrew: 'moveHebrew', repeat: 'moveRepeat' };
 const refused = (reason: CrossRefusal): WriteResult => ({ status: 'invalid', field: REFUSAL_FIELD[reason] });
@@ -149,7 +155,7 @@ async function instanceAt(client: GClient, calendarId: string, eventId: string, 
   return (around.data.items ?? []).find((i) => isInstanceAt(i, slot, allDay, zone))?.id ?? null;
 }
 
-/** Deletes a Google copy this move made (or reused). True when it is gone. */
+/** Deletes a Google copy this move made. True when it is gone. */
 async function takeBackGoogleCopy(client: GClient, calendarId: string, copyId: string, extra: Record<string, unknown>): Promise<boolean> {
   try {
     await client.events.delete({ calendarId, eventId: copyId });
@@ -179,6 +185,16 @@ function leftBehind(extra: Record<string, unknown>, key: string | undefined, cal
   return { status: 'ok', ...(key ? { key } : {}), leftIn: calendarName };
 }
 
+/**
+ * A copy that failed part-way and couldn't be taken back: both are left. Reported with both
+ * ids; the user is asked to try again ("Couldn't move"), and the retry finds this copy by
+ * its marker and replaces it.
+ */
+function partCopyLeft(extra: Record<string, unknown>): WriteResult {
+  captureError(new Error('A part-way copy could not be taken back; its original is still there'), 'calendar-move-left', extra);
+  return MOVE_FAILED;
+}
+
 async function famcalToGoogle(user: UserConfig, key: ItemKey, scope: Scope, to: string, run: { touchedGoogle: boolean }): Promise<WriteResult> {
   const item = await loadItem(user, key);
   if (item.status !== 'ok') return { status: item.status };
@@ -202,25 +218,29 @@ async function famcalToGoogle(user: UserConfig, key: ItemKey, scope: Scope, to: 
   const ids: Record<string, unknown> = { user_id: user.id, series_id: series.id, from_calendar_id: `native:${calendar.id}`, to_calendar_id: to };
   run.touchedGoogle = true;
 
-  // 1. The copy: an earlier attempt's in the destination, repaired in full, or a new one.
+  // 1. The copy, new and whole. An earlier attempt's copy in the destination is taken back
+  //    first (a patch can't clear what the FamCal series lost since: notes, a place, an
+  //    override, its repeat), so there is never a second one beside it.
   let copyId: string;
-  let reused = false;
+  let replaced: string | undefined;
   try {
     const found = await findMovedCopy(client, to, series.id);
     if (found) {
-      await client.events.patch({ calendarId: to, eventId: found, requestBody: copy.event });
-      copyId = found;
-      reused = true;
-    } else {
-      const made = await client.events.insert({ calendarId: to, requestBody: copy.event });
-      if (!made.data.id) throw new Error('Google answered an insert with no id');
-      copyId = made.data.id;
+      try {
+        await client.events.delete({ calendarId: to, eventId: found });
+      } catch (error) {
+        if (classifyGoogleError(error) !== 'gone') throw error;
+      }
+      replaced = found;
     }
+    const made = await client.events.insert({ calendarId: to, requestBody: copy.event });
+    if (!made.data.id) throw new Error('Google answered an insert with no id');
+    copyId = made.data.id;
   } catch (error) {
     // An insert that failed made nothing to take back; a copy it made after all carries the marker for the retry.
-    return googleFailure(error, 'calendar-move-copy', ids);
+    return googleFailure(error, 'calendar-move-copy', { ...ids, ...(replaced ? { replaced_copy_id: replaced } : {}) });
   }
-  Object.assign(ids, { copy_id: copyId, reused });
+  Object.assign(ids, { copy_id: copyId, ...(replaced ? { replaced_copy_id: replaced } : {}) });
 
   // 2. Every override on its instance; the copy is whole before the original goes.
   try {
@@ -230,12 +250,16 @@ async function famcalToGoogle(user: UserConfig, key: ItemKey, scope: Scope, to: 
       await client.events.patch({ calendarId: to, eventId: instance, requestBody: x.patch });
     }
   } catch (error) {
-    await takeBackGoogleCopy(client, to, copyId, ids);
+    const takenBack = await takeBackGoogleCopy(client, to, copyId, ids);
+    let outcome: WriteResult;
     if (error instanceof InstanceMissingError) {
       captureError(error, 'calendar-move-copy', ids, 'warning');
-      return refused('repeat');
+      outcome = refused('repeat');
+    } else {
+      outcome = googleFailure(error, 'calendar-move-copy', ids);
     }
-    return googleFailure(error, 'calendar-move-copy', ids);
+    // The refusal is final only when the copy is gone; a copy left behind asks for a retry, which replaces it.
+    return takenBack ? outcome : partCopyLeft(ids);
   }
 
   // The opened occurrence's key on the copy (only a key: a miss closes the sheet, it fails nothing).
@@ -310,6 +334,7 @@ async function googleToFamcal(user: UserConfig, key: GoogleItemKey, scope: Scope
   if (loaded.status === 'not_found') return { status: 'not_found' };
   if (loaded.status === 'error') return loaded.result;
   // 3b's editable test: no other guests, the organizer, a default event, not locked, writable.
+  // For a series the master's too (below, with every exception): its delete takes them all.
   if (!loaded.editable || !user.googleRefreshToken) return NOT_ALLOWED;
   const { read, assignment } = loaded;
   const masterId = read.master?.id ?? key.eventId;
@@ -323,6 +348,7 @@ async function googleToFamcal(user: UserConfig, key: GoogleItemKey, scope: Scope
   const master = read.master ?? read.event;
   let listed: calendar_v3.Schema$Event[] = [];
   if (read.master) {
+    if (!editableInHome(master)) return NOT_ALLOWED;
     if (master.iCalUID) {
       try {
         listed = await listByICalUID(client, key.calendarId, master.iCalUID);
@@ -331,6 +357,13 @@ async function googleToFamcal(user: UserConfig, key: GoogleItemKey, scope: Scope
       }
     } else {
       captureError(new Error('A Google series with no iCalUID: its exceptions cannot be listed'), 'calendar-move-read', ids, 'warning');
+    }
+    // An occurrence with its own guests (one invited to it alone, or left out) would lose
+    // them: the copy has no guests, and the master's delete cancels their invitation.
+    const guarded = listed.filter((e) => e.recurringEventId === master.id && e.id !== master.id && e.status !== 'cancelled');
+    if (guarded.some((e) => !editableInHome(e))) {
+      console.log(`[Move] user ${user.id}: an occurrence of ${masterId} has guests or isn't editable; not moved`);
+      return NOT_ALLOWED;
     }
   }
   const mapped = fromGoogleEvent(master, listed, read.calendarTimeZone ?? userTz);
@@ -376,6 +409,6 @@ async function googleToFamcal(user: UserConfig, key: GoogleItemKey, scope: Scope
 
 /** A move that took: its log line (ids only) and its analytics. */
 function moved(user: UserConfig, ids: Record<string, unknown>, from: 'famcal' | 'google', to: 'famcal' | 'google', recurring: boolean): void {
-  console.log(`[Move] user ${user.id} moved ${from} ${String(ids.series_id ?? ids.event_id)} to ${to} ${String(ids.copy_id)}${ids.reused ? ' (an earlier copy, repaired)' : ''}`);
+  console.log(`[Move] user ${user.id} moved ${from} ${String(ids.series_id ?? ids.event_id)} to ${to} ${String(ids.copy_id)}${ids.replaced_copy_id ? ` (replacing an earlier copy ${String(ids.replaced_copy_id)})` : ''}`);
   trackActivityAsync(user.id, 'calendar_item_moved', { from, to, recurring, source: 'app' });
 }
