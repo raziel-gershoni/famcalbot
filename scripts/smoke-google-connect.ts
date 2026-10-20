@@ -269,6 +269,9 @@ const adminNotes: string[] = [];
 const failingSends = new Set<string>();
 /** Which limiter each rate-limit check used. */
 const limiterUses: string[] = [];
+/** S4: users whose plan lacks google_sync (src/services/google-sync/access.ts), and every check it made. */
+const syncDenied = new Set<number>();
+const syncChecks: number[] = [];
 
 const recorder = (platform: string, prefix: string): Row =>
   new Proxy({} as Row, {
@@ -378,6 +381,10 @@ function installStubs() {
         ? types.MessagingPlatform.WHATSAPP
         : types.MessagingPlatform.TELEGRAM,
   };
+  // The plan gate for a copy (S4): the plan check itself runs in smoke-google-sync.ts.
+  stub('src/services/google-sync/access.ts', {
+    syncAllowed: async (userId: number) => { syncChecks.push(userId); return !syncDenied.has(userId); },
+  });
   stub('src/services/messaging/index.ts', messaging);
   stub('src/services/messaging/factory.ts', messaging);
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
@@ -437,6 +444,8 @@ function seed() {
   adminNotes.length = 0;
   failingSends.clear();
   limiterUses.length = 0;
+  syncDenied.clear();
+  syncChecks.length = 0;
   googleAnswer = { refresh_token: 'google-rt-new', scope: BOTH_SCOPES, access_token: 'test' };
   primaryAnswer = { id: 'tal@gmail.com' };
   primaryAuth.length = 0;
@@ -1719,6 +1728,64 @@ async function main() {
     const he = textOf(elementsOf(await page({ params: Promise.resolve({ locale: 'he' }) })));
     const googleSection = he.slice(he.indexOf('אנו ניגשים ליומן Google באמצעות'), he.indexOf('אחסון נתונים'));
     assert(!/(^|\s)(אתה|תאשר|תבקש|שלך)(?=[\s,.]|$)/.test(googleSection), `he: a masculine form in the Google section: ${googleSection}`);
+  });
+
+  // ---- google-sync S4: the plan gate on a sync consent, and the reply to a sync commit ----
+
+  const enBot = JSON.parse(fs.readFileSync(path.join(ROOT, 'messages/en.json'), 'utf8')).bot.googleSync.consent;
+  const heBot = JSON.parse(fs.readFileSync(path.join(ROOT, 'messages/he.json'), 'utf8')).bot.googleSync.consent;
+
+  await check('#44 S4 oauth/start (sync) for a user whose plan lacks google_sync: 403 upgrade_required, no state, no Google URL; a connect never asks the plan', async () => {
+    seed();
+    syncDenied.add(9);
+    const { status, body } = await startOAuth({ purpose: 'sync', nativeCalendarId: 'cal-9' });
+    assert(status === 403 && body.error === 'upgrade_required' && !body.oauthUrl, `sync: ${status} ${show(body)}`);
+    assert(DB.oAuthState.length === 0, `states ${show(DB.oAuthState)}`);
+    assert(show(syncChecks) === show([9]), `plan checks ${show(syncChecks)}`);
+    syncChecks.length = 0;
+    const connect = await startOAuth({});
+    assert(connect.status === 200 && connect.body.oauthUrl, `connect: ${connect.status} ${show(connect.body)}`);
+    assert(syncChecks.length === 0, `a connect asked the plan: ${show(syncChecks)}`);
+  });
+
+  await check('#45 S4 a sync commit on Telegram replies with the copy line and an "Open calendars" button to /<lang>/calendars, never the connect reply\'s "choose calendars"', async () => {
+    seed();
+    googleAnswer = { refresh_token: 'google-rt-new', scope: `${BOTH_SCOPES} ${SYNC_SCOPE}`, access_token: 'at-sync' };
+    await consentAndClaim(addSyncState(9, 'cal-9'));
+    assert(linksOf(9).length === 1, `links ${show(DB.googleSyncLink)}; ${captured.join(' | ')}`);
+    const replies = sentTo(TAL_TG);
+    assert(replies.length === 1, `replies ${show(replies)}`);
+    const reply = replies[0];
+    assert(reply.text === enBot.started, `text ${show(reply.text)}`);
+    const button = reply.options?.replyMarkup?.inline_keyboard?.[0]?.[0];
+    assert(button?.text === enBot.button && String(button?.web_app?.url).endsWith(`/en/calendars?user_id=${TAL_TG}`), `button ${show(button)}`);
+    assert(!replies.some(r => /select-calendars/.test(show(r))), `a choose-calendars reply: ${show(replies)}`);
+  });
+
+  await check('#46 S4 a sync commit whose calendar is no longer the user\'s: the "nothing was copied" line, no button; a plain connect still replies with "choose calendars"', async () => {
+    seed();
+    const state = addSyncState(9, 'cal-9');
+    DB.nativeCalendar.find(c => c.id === 'cal-9')!.isDeleted = true;
+    await consentAndClaim(state);
+    const reply = sentTo(TAL_TG).at(-1);
+    assert(reply?.text === enBot.notOwner && !reply?.options?.replyMarkup, `reply ${show(reply)}`);
+    seed();
+    await consentAndClaim(addState(9));
+    const plain = sentTo(TAL_TG).at(-1);
+    assert(String(plain?.options?.replyMarkup?.inline_keyboard?.[0]?.[0]?.web_app?.url).endsWith(`/en/select-calendars?user_id=${TAL_TG}`), `connect reply ${show(plain)}`);
+  });
+
+  await check('#47 S4 a sync commit over WhatsApp: the copy line in the user\'s language with the Telegram tip, no select-calendars magic link', async () => {
+    seed();
+    googleAnswer = { refresh_token: 'google-rt-new', scope: `${BOTH_SCOPES} ${SYNC_SCOPE}`, access_token: 'at-sync' };
+    const { value: end } = await quietly(() => runCallback(addSyncState(42, 'cal-42')));
+    assert(end.redirect, `callback ${show(end.threw ?? end)}`);
+    const p = fragmentOf(end.redirect).get('p');
+    await waWebhook(waText(WA_BSUID, `gc_${p}`, { bsuid: WA_BSUID }));
+    assert(linksOf(42).length === 1, `links ${show(DB.googleSyncLink)}; ${captured.join(' | ')}`);
+    const reply = sentTo(WA_BSUID).at(-1);
+    assert(reply?.text?.startsWith(heBot.started) && /t\.me\/famcal_test_bot/.test(reply.text), `reply ${show(reply)}`);
+    assert(!reply?.options?.whatsappUrlButton, `a magic link button: ${show(reply?.options)}`);
   });
 
   let failed = 0;

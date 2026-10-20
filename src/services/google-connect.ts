@@ -37,7 +37,9 @@ import { liveGoogleChoices } from '../lib/google-state';
 import { prisma } from '../utils/prisma';
 import { OAUTH_STATE_PREFIX } from '../lib/oauth-state';
 import { consentScopes } from './google-sync/scopes';
-import { enableSyncLink, restoreSyncLinks, type SyncConsent } from './google-sync/links';
+import { enableSyncLink, restoreSyncLinks, type EnableResult, type SyncConsent } from './google-sync/links';
+import { syncAllowed } from './google-sync/access';
+import { getBotMessages } from '../lib/bot-messages';
 
 /** How long a parked token waits for its owner's tap */
 const PENDING_TTL_SECONDS = 15 * 60;
@@ -79,15 +81,19 @@ export function parseConsentRequest(body: { purpose?: unknown; nativeCalendarId?
   return { purpose: 'sync', nativeCalendarId: id };
 }
 
-export type GoogleConsent = { status: 'ok'; oauthUrl: string } | { status: 'calendar_not_found' };
+export type GoogleConsent = { status: 'ok'; oauthUrl: string } | { status: 'calendar_not_found' } | { status: 'upgrade_required' };
 
 /**
  * Start a Google consent for a proved user: a one-time state (10 minutes) bound to the user's
- * DB id, and Google's consent URL. A 'sync' consent is only for a live FamCal calendar the
- * user owns; the commit checks that again.
+ * DB id, and Google's consent URL. A 'sync' consent is only for a user whose plan has
+ * google_sync (S4) and a live FamCal calendar the user owns; the commit checks the calendar again.
  */
 export async function createGoogleConsent(userId: number, request: ConsentRequest): Promise<GoogleConsent> {
   if (request.purpose === 'sync') {
+    if (!(await syncAllowed(userId))) {
+      console.warn(`[google-connect] user ${userId}: no sync consent for calendar ${request.nativeCalendarId}: the plan lacks google_sync`);
+      return { status: 'upgrade_required' };
+    }
     const own = await prisma.nativeCalendar.findFirst({
       where: { id: request.nativeCalendarId, ownerUserId: userId, isDeleted: false },
       select: { id: true },
@@ -161,7 +167,8 @@ export function findGoogleConnectId(text: string): string | null {
 }
 
 export type GoogleConnectClaim =
-  | { status: 'connected'; owner: UserConfig }
+  /** sync: what a 'sync' consent's commit did with the copy (absent for a connect) */
+  | { status: 'connected'; owner: UserConfig; sync?: EnableResult }
   | { status: 'not_owner' }
   | { status: 'expired' };
 
@@ -191,8 +198,8 @@ export async function claimPendingGoogleToken(
   if (!isOwner) return { status: 'not_owner' };
 
   const grant = Array.isArray(entry.scopes) ? { scopes: entry.scopes, ...(entry.sync ? { sync: entry.sync } : {}) } : undefined;
-  await commitGoogleToken(owner.id, decrypt(entry.refreshToken), grant);
-  return { status: 'connected', owner };
+  const committed = await commitGoogleToken(owner.id, decrypt(entry.refreshToken), grant);
+  return { status: 'connected', owner, ...(committed.sync ? { sync: committed.sync } : {}) };
 }
 
 /**
@@ -206,7 +213,7 @@ export async function claimPendingGoogleToken(
  * a 'sync' consent turns its copy on first, then the user's copies stopped on the token or
  * the permission go back to work. Without one (an entry from before), googleScopes stay.
  */
-export async function commitGoogleToken(ownerUserId: number, refreshToken: string, grant?: GoogleGrant): Promise<void> {
+export async function commitGoogleToken(ownerUserId: number, refreshToken: string, grant?: GoogleGrant): Promise<{ sync?: EnableResult }> {
   const user = await getUserById(ownerUserId);
   if (!user) throw new Error(`User ${ownerUserId} not found`);
 
@@ -270,10 +277,12 @@ export async function commitGoogleToken(ownerUserId: number, refreshToken: strin
   // first: a copy turned off with a Remove/Keep still queued is re-enabled with that choice
   // dropped before restoreSyncLinks could put it in 'ok' and open the gate, where a worker
   // tick in between would carry out the Remove the user just took back.
+  let sync: EnableResult | undefined;
   if (grant) {
-    if (grant.sync) await enableSyncLink(user.id, grant.sync, grant.scopes);
+    if (grant.sync) sync = await enableSyncLink(user.id, grant.sync, grant.scopes);
     await restoreSyncLinks(user.id, grant.scopes);
   }
+  return sync ? { sync } : {};
 }
 
 // ---- Chat replies ----
@@ -365,6 +374,20 @@ export async function handleGoogleConnectTelegram(
   const service = getMessagingService();
   const claim = await tryClaim(pendingId, { telegramId });
 
+  if (claim?.status === 'connected' && claim.sync) {
+    // A 'sync' consent (S4): the copy's own line, never the connect's "now choose calendars".
+    const { owner, sync } = claim;
+    const locale = normalizeLocale(owner.language);
+    const t = (await getBotMessages(locale)).googleSync.consent;
+    const text = sync.status === 'not_owner' ? t.notOwner : t.started;
+    const pageUrl = buildUrl(`/${locale}/calendars?user_id=${owner.telegramId ?? owner.id}`);
+    await replyAfterClaim(() => service.sendMessage(chatId, text, {
+      format: MessageFormat.HTML,
+      ...(sync.status === 'not_owner' ? {} : { replyMarkup: { inline_keyboard: [[{ text: t.button, web_app: { url: pageUrl } }]] } }),
+    }), { telegram_id: telegramId });
+    return;
+  }
+
   if (claim?.status === 'connected') {
     const { owner } = claim;
     const locale = normalizeLocale(owner.language);
@@ -399,6 +422,16 @@ export async function handleGoogleConnectWhatsApp(
   const botUsername = process.env.TELEGRAM_BOT_USERNAME || DEFAULT_BOT_USERNAME;
   const withTip = (copy: ConnectCopy, text: string) =>
     `${text}\n\n${copy.telegramTip.replace('{link}', `https://t.me/${botUsername}?start=connect`)}`;
+
+  if (claim?.status === 'connected' && claim.sync) {
+    // A 'sync' consent (S4): the copy's own line with the Telegram tip; the calendars page
+    // has no magic link, and the connect's "choose calendars" doesn't apply.
+    const { owner, sync } = claim;
+    const locale = normalizeLocale(owner.language);
+    const t = (await getBotMessages(locale)).googleSync.consent;
+    await replyAfterClaim(() => service.sendMessage(chatId, withTip(COPY[locale], sync.status === 'not_owner' ? t.notOwner : t.started)), { user_id: owner.id });
+    return;
+  }
 
   if (claim?.status === 'connected') {
     const { owner } = claim;

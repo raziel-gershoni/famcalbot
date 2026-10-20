@@ -9,7 +9,8 @@
 //
 // purpose 'sync' (google-sync spec §3): the first "Copy to Google" of an own FamCal
 // calendar, which also asks for calendar.app.created; the state carries the calendar, and
-// the commit creates the copy's link. No purpose is a connect, as before.
+// the commit creates the copy's link. Only on a plan with google_sync (403 upgrade_required
+// otherwise). No purpose is a connect, as before.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
@@ -43,7 +44,8 @@ export async function POST(request: NextRequest) {
     }
     const consent = await createGoogleConsent(auth.user.id, asked);
     if (consent.status !== 'ok') {
-      return NextResponse.json({ error: consent.status }, { status: 400 });
+      // A sync on a plan without google_sync is refused as the page's other plan gates are (S4).
+      return NextResponse.json({ error: consent.status }, { status: consent.status === 'upgrade_required' ? 403 : 400 });
     }
 
     // serverTime: this server's clock, which the commit flag uses too. The phone's clock can

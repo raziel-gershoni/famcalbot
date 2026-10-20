@@ -731,6 +731,11 @@
         "messageScopes": "FamCal no longer has Google's permission to manage the calendars it made for your copies. Open your calendars to approve it again, and the copies will catch up on their own.",
         "buttonReconnect": "Reconnect Google",
         "buttonOpen": "Open calendars"
+      },
+      "consent": {
+        "started": "Copying to Google has started. Your calendar shows up in Google Calendar within a few minutes, and the Calendars page shows how far it got.",
+        "notOwner": "Google is approved, but that calendar is no longer yours, so nothing was copied.",
+        "button": "Open calendars"
       }
     },
     "start": {
