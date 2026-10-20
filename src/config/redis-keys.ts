@@ -119,4 +119,8 @@ export const REDIS_KEYS = {
   // Voice frictionlessness — audio retry: keep last failed audio + retry-mode flag (PR 10 polish)
   retryAudio: (chatId: number) => `voice:retry:audio:${chatId}`,
   retryMode: (chatId: number) => `voice:retry:mode:${chatId}`,
+
+  // The cross-source move's lock ("Google as a connection" spec §5): one move per source
+  // series at a time. Fail-closed, its own prefix (never the voice lock's, which fails open).
+  calendarMoveLock: (source: 'famcal' | 'google', seriesId: string) => `calendar-move:lock:${source}:${seriesId}`,
 } as const;

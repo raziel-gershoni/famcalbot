@@ -46,6 +46,8 @@ export type ActivityAction =
   // The calendar home's editor (metadata: kind, scope, source 'app'); its creates are voice_event_created
   | 'calendar_item_edited'
   | 'calendar_item_deleted'
+  // A cross-source move ("Google as a connection" §5; metadata: from, to, recurring, source 'app')
+  | 'calendar_item_moved'
   // Settings & config
   | 'settings_changed'
   | 'calendar_connected'

@@ -126,6 +126,14 @@ export interface ItemEditInfoResponse {
   editableInGoogleOnly?: boolean;
   /** 3b: where the item lives. */
   source?: 'famcal' | 'google';
+  /**
+   * "Google as a connection" §5: why the item can't move to the other kind of calendar,
+   * when the user has one to move it to (a video call or files, a Hebrew-date repeat, a
+   * repeat that can't cross). Its moveTargets then hold its own kind only.
+   */
+  moveReason?: 'meet' | 'hebrew' | 'repeat';
+  /** §5: the FamCal targets of a Google item that the partner sees (shared, or the partner's). */
+  sharedTargets?: string[];
 }
 
 /** POST /api/calendar/items */
@@ -163,7 +171,7 @@ export interface UpdateItemBody {
     end?: string;
     /** 3b: the repeat from this occurrence on; omitted keeps it. */
     repeat?: RepeatChoice;
-    /** 3b: an event's calendar, from the item info's moveTargets. */
+    /** 3b: an event's calendar, from the item info's moveTargets; one of the other kind is the cross-source move (alone in its save). */
     calendarId?: string;
     /** 3b: a reminder for the partner, or (false) its creator. */
     forPartner?: boolean;
@@ -187,10 +195,14 @@ export interface DeleteItemBody {
  * occurrence is gone); 500 { error: 'internal_error' }. Auth and the rate limit answer
  * 400/401/403/404/429 with { error } as every route does. 3b, a Google item: 403
  * { error: 'reconnect', reason } when the Google connection needs the user (a dead token,
- * or a write scope not granted); a Google failure is 500.
+ * or a write scope not granted); a Google failure is 500. The cross-source move ("Google as
+ * a connection" §5): 400 invalid with field 'moveAlone' (other changes in the same save),
+ * 'moveMeet', 'moveHebrew' or 'moveRepeat' (what can't cross); 429 { error: 'busy' } while
+ * another move of the series runs; 500 { error: 'move_failed' } when it was taken back
+ * ("Couldn't move"); 200 with leftIn, the calendar the original is still in.
  */
 export type WriteResponse =
-  | { status: 'ok'; key?: string }
+  | { status: 'ok'; key?: string; leftIn?: string }
   | { error: 'invalid'; field: string }
-  | { error: 'bad_request' | 'not_allowed' | 'not_found' | 'changed' | 'internal_error' }
+  | { error: 'bad_request' | 'not_allowed' | 'not_found' | 'changed' | 'internal_error' | 'busy' | 'move_failed' }
   | { error: 'reconnect'; reason: 'token' | 'scopes' };

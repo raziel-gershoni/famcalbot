@@ -36,7 +36,7 @@ import { instantToWall, lastDayOf, localDate } from './walltime';
 
 
 /** The viewer's writable calendars, each with its row: own, and the partner's SHARED_EDITOR, the viewer's first. */
-async function writableCalendarRows(user: UserConfig): Promise<Array<{ calendar: NativeCalendar; entry: EditorCalendar }>> {
+export async function writableCalendarRows(user: UserConfig): Promise<Array<{ calendar: NativeCalendar; entry: EditorCalendar }>> {
   const [visible, ctx] = await Promise.all([
     listVisibleCalendars(user.id, user.pairingId ?? null),
     loadViewerContext({ id: user.id, pairingId: user.pairingId ?? null }),
@@ -139,6 +139,8 @@ export type LoadedItem =
       occurrence: VirtualInstance;
       /** The series' override rows for this occurrence's slot, if any. */
       override: NativeEventInstance | undefined;
+      /** Every override row of the series (OVERRIDE and CANCELLED). */
+      overrides: NativeEventInstance[];
       /** A reminder the partner set for the viewer on a calendar the viewer can't see. */
       masked: boolean;
       canEdit: boolean;
@@ -188,7 +190,7 @@ export async function loadItem(user: UserConfig, key: ItemKey): Promise<LoadedIt
 
   const canEdit = canWriteAccess(access) || (isReminder && series.creatorUserId === user.id);
   const canDelete = canWriteAccess(access) || (await mayDeleteReminder(series, user.id));
-  return { status: 'ok', series, calendar, access, ctx, occurrence, override, masked, canEdit, canDelete };
+  return { status: 'ok', series, calendar, access, ctx, occurrence, override, overrides, masked, canEdit, canDelete };
 }
 
 /** A time in the wall form the editor speaks. All-day: the day in the item's own zone; timed: the user's clock. */

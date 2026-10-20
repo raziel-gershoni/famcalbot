@@ -106,13 +106,13 @@ export function editableInHome(e: GEvent): boolean {
   return Boolean(e.organizer?.self) || attendees.length === 0;
 }
 
-type Loaded =
+export type Loaded =
   | { status: 'ok'; key: GoogleItemKey; read: GoogleItemRead; assignment: CalendarAssignment; writable: boolean; editable: boolean }
   | { status: 'not_found' }
   | { status: 'error'; result: WriteResult };
 
 /** A failed Google read's class as a write's outcome (3b spec §2.6): token or scopes reconnect, refused notAllowed, anything else failed. */
-function failureOutcome(cls: GoogleErrorClass): WriteResult {
+export function failureOutcome(cls: GoogleErrorClass): WriteResult {
   if (cls === 'token') return { status: 'reconnect', reason: 'token' };
   if (cls === 'scopes') return { status: 'reconnect', reason: 'scopes' };
   if (cls === 'forbidden') return NOT_ALLOWED;
@@ -128,7 +128,7 @@ function readFailure(error: unknown, user: UserConfig, key: GoogleItemKey): Load
 }
 
 /** One Google item, read live: the key's calendar must be one the user chose. */
-async function loadGoogleItem(user: UserConfig, key: GoogleItemKey, userTz: string): Promise<Loaded> {
+export async function loadGoogleItem(user: UserConfig, key: GoogleItemKey, userTz: string): Promise<Loaded> {
   const assignment = assignmentOf(user, key.calendarId);
   if (!assignment || !user.googleRefreshToken) return { status: 'not_found' };
   let read: GoogleItemRead;

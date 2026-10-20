@@ -185,7 +185,7 @@ export interface UpdateCommand {
     end?: string;
     /** 3b: the repeat from the opened occurrence on. */
     repeat?: RepeatChoice;
-    /** 3b: an event's calendar, 'native:<cuid>' for a FamCal item, a Google id for a Google one. */
+    /** 3b: an event's calendar, 'native:<cuid>' or a Google id; the other kind's is the cross-source move. */
     calendarId?: string;
     /** 3b: a reminder for the partner (true) or its creator (false), relative to its creator. */
     forPartner?: boolean;
@@ -242,8 +242,8 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
     changes.repeat = c.repeat as RepeatChoice;
   }
   if (c.calendarId !== undefined) {
-    // Within the item's own source: a move between FamCal and Google waits for "Google as a connection".
-    if (!(key.source === 'famcal' ? isNativeCalendarIdOf(c.calendarId) : isGoogleCalendarId(c.calendarId))) return fail('calendarId');
+    // Either kind: one of the other kind is the cross-source move ("Google as a connection" §5).
+    if (!isNativeCalendarIdOf(c.calendarId) && !isGoogleCalendarId(c.calendarId)) return fail('calendarId');
     changes.calendarId = c.calendarId as string;
   }
   if (c.forPartner !== undefined) {

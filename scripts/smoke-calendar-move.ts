@@ -89,6 +89,8 @@ function failOn(match: (r: Req) => boolean, answer: Answer, o: { times?: number;
 }
 
 const writes = () => calls.filter((c) => c.method !== 'GET');
+/** gaxios retries a GET or DELETE that answered 5xx three times: a failure that lasts answers every try. */
+const RETRIED = 4;
 const eventsOf = (cal: string) => evs.get(cal) ?? new Map<string, Row>();
 const stored = (cal: string, id: string) => eventsOf(cal).get(id);
 
@@ -271,8 +273,7 @@ function installFakeGoogle(): void {
       answer = { status: 200, data: { access_token: 'fake-access', expires_in: 3600, token_type: 'Bearer' } };
     } else {
       if (!url.href.startsWith(API)) throw new Error(`unexpected URL ${url.href}`);
-      const params: Row = { ...(opts.params ?? {}) };
-      for (const [k, v] of url.searchParams) params[k] = k in params && !Array.isArray(params[k]) && params[k] !== v ? [params[k], v] : v;
+      const params: Row = { ...Object.fromEntries(url.searchParams), ...(opts.params ?? {}) };
       const body = typeof opts.data === 'string' ? JSON.parse(opts.data) : opts.data;
       const req: Req = { method: String(opts.method ?? 'GET').toUpperCase(), path: url.pathname.slice('/calendar/v3'.length), params, body: body === undefined ? undefined : structuredClone(body) };
       calls.push(req);
@@ -933,7 +934,7 @@ async function main() {
     reset();
     one();
     dbFailures.push({ table: 'nativeEvent', method: 'update', when: deleting, left: 1 });
-    failOn((r) => r.method === 'DELETE', fail(500, 'backendError', 'Backend Error'));
+    failOn((r) => r.method === 'DELETE', fail(500, 'backendError', 'Backend Error'), { times: RETRIED });
     const r4 = await move(NOA, 'famcal|one', NOA_CAL, 'single');
     assertSame([r4.status, r4.leftIn, eventsOf(NOA_CAL).size], ['ok', 'Noa FamCal', 1], 'a failed compensation: still in');
   });
@@ -948,7 +949,7 @@ async function main() {
     assertSame(r, { status: 'ok', key: gkey(NOA_CAL, `half_${utcStamp(at('2026-10-06T10:00:00'))}`) }, 'the copy reused');
     assert(!calls.some((c) => c.method === 'POST'), 'no second copy');
     const lookup = calls.find((c) => c.method === 'GET' && c.path === `/calendars/${encodeURIComponent(NOA_CAL)}/events`);
-    assertSame(lookup?.params.privateExtendedProperty, 'famcalMovedFrom=wk', 'looked up by the marker, in the destination');
+    assertSame(String(lookup?.params.privateExtendedProperty), 'famcalMovedFrom=wk', 'looked up by the marker, in the destination');
     assertSame(stored(NOA_CAL, 'half')!.recurrence, ['RRULE:FREQ=WEEKLY;COUNT=5', 'EXDATE;TZID=Asia/Jerusalem:20261013T100000'], 'the cancellation re-applied');
     assertSame(stored(NOA_CAL, `half_${utcStamp(at('2026-10-20T10:00:00'))}`)?.summary, 'Moved sync', 'the override re-applied');
     assertSame([eventRow('wk')!.isDeleted, Boolean(stored(FAMILY, 'elsewhere'))], [true, true], 'original gone; the copy elsewhere left');
@@ -1023,8 +1024,8 @@ async function main() {
     for (const [name, answer, o, want, copyKept] of outcomes) {
       reset();
       seedOne();
-      failOn((r) => r.method === 'DELETE', answer, { apply: o.apply });
-      if (o.reread) failOn((r) => r.method === 'GET' && r.path.endsWith('/events/g1') && writes().some((w) => w.method === 'DELETE'), o.reread);
+      failOn((r) => r.method === 'DELETE', answer, { apply: o.apply, times: RETRIED });
+      if (o.reread) failOn((r) => r.method === 'GET' && r.path.endsWith('/events/g1') && writes().some((w) => w.method === 'DELETE'), o.reread, { times: RETRIED });
       const r = await run();
       const status = r.status === 'ok' && r.leftIn ? 'left' : r.status;
       assertSame([status, tables.nativeEvent[0]?.isDeleted === false], [want, copyKept], name);
@@ -1032,7 +1033,7 @@ async function main() {
     }
     reset();
     seedOne();
-    failOn((r) => r.method === 'DELETE', fail(500, 'backendError'));
+    failOn((r) => r.method === 'DELETE', fail(500, 'backendError'), { times: RETRIED });
     dbFailures.push({ table: 'nativeEvent', method: 'update', when: (a) => a.data?.isDeleted === true, left: 1 });
     const r = await run();
     assertSame([r.status, r.leftIn], ['ok', 'Noa'], 'a failed compensation');

@@ -49,12 +49,17 @@ import { defaultCalendarIdFor } from '../calendar-provider/user-calendars';
 import { addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween, instantToWall, wallToInstant } from './walltime';
 
 export type WriteResult =
-  | { status: 'ok'; key?: string }
+  // leftIn: a cross-source move made its copy, but the original is still in that calendar
+  // (it couldn't be read again, or its copy couldn't be taken back; logged with both ids).
+  | { status: 'ok'; key?: string; leftIn?: string }
   | { status: 'invalid'; field: string }
   | { status: 'not_allowed' | 'not_found' | 'changed' }
   // 3b, Google: the connection needs the user (a dead token, or a write scope not granted),
   // or Google failed (a rate limit, a 5xx, a timeout, anything else; already logged).
   | { status: 'reconnect'; reason: 'token' | 'scopes' }
+  // A cross-source move (spec §5): another move of the same series is running (busy), or the
+  // copy was taken back because the original couldn't be deleted (move_failed).
+  | { status: 'busy' | 'move_failed' }
   | { status: 'failed' };
 
 const HOUR_MS = 3_600_000;
@@ -97,7 +102,7 @@ export function refusalOf(err: unknown): WriteResult | null {
  * reminder for them. A calendar move passes both calendars, a recipient change both
  * recipients (3b spec §3.3).
  */
-async function clearCaches(
+export async function clearCaches(
   user: UserConfig,
   calendars: Array<Pick<NativeCalendar, 'ownerUserId' | 'privacy'>>,
   forUserIds: Array<number | null>
@@ -286,6 +291,11 @@ type Ok = Extract<LoadedItem, { status: 'ok' }>;
 const effectiveScope = (item: Ok, scope: UpdateCommand['scope']) => (item.series.rrule ? scope : 'single');
 
 export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: string): Promise<WriteResult> {
+  // A calendar of the other kind is the cross-source move ("Google as a connection" §5).
+  if (cmd.changes.calendarId !== undefined && cmd.changes.calendarId.startsWith('native:') !== (cmd.key.source === 'famcal')) {
+    const { moveAcrossKinds } = await import('../calendar-move/move');
+    return moveAcrossKinds(user, cmd, userTz);
+  }
   if (cmd.key.source === 'google') {
     const { updateGoogleItem } = await import('./google-item');
     return updateGoogleItem(user, { ...cmd, key: cmd.key }, userTz);

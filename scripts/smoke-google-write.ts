@@ -1184,12 +1184,13 @@ async function main() {
     assertSame(await move(), { status: 'ok', key: gkey(FAMILY, 'e1') }, 'the move once the list reads');
   });
 
-  await check('keys: the item route reads famcal| and google| keys; a PATCH or DELETE body takes either; a Google key needs a Google calendar id to move', async () => {
+  await check('keys: the item route reads famcal| and google| keys; a PATCH or DELETE body takes either; a calendar of the other kind is the cross-source move (smoke-calendar-move)', async () => {
     assertSame(validate.parseAnyItemKey(`google|${HOLIDAYS}|abc_20261020T070000Z`), { source: 'google', calendarId: HOLIDAYS, eventId: 'abc_20261020T070000Z' }, 'google');
     const fam = validate.parseAnyItemKey('famcal|abc123#2026-10-20T07:00:00.000Z');
     assertSame([fam?.source, fam?.seriesCuid], ['famcal', 'abc123'], 'famcal');
-    assertSame(validate.parseUpdate({ key: gkey(NOA_CAL, 'e1'), scope: 'single', changes: { calendarId: 'native:abc' } }), { ok: false, field: 'calendarId' }, 'a FamCal calendar for a Google item');
-    assertSame(validate.parseUpdate({ key: 'famcal|abc', scope: 'single', changes: { calendarId: FAMILY } }), { ok: false, field: 'calendarId' }, 'a Google calendar for a FamCal item');
+    assert(validate.parseUpdate({ key: gkey(NOA_CAL, 'e1'), scope: 'single', changes: { calendarId: 'native:abc' } }).ok, 'a FamCal calendar for a Google item: the move');
+    assert(validate.parseUpdate({ key: 'famcal|abc', scope: 'single', changes: { calendarId: FAMILY } }).ok, 'a Google calendar for a FamCal item: the move');
+    assertSame(validate.parseUpdate({ key: gkey(NOA_CAL, 'e1'), scope: 'single', changes: { calendarId: 'native:' } }), { ok: false, field: 'calendarId' }, 'an empty FamCal id');
     assert(validate.parseDelete({ key: gkey(NOA_CAL, 'e1'), scope: 'single' }).ok, 'delete');
     assert(validate.parseCreate({ kind: 'event', title: 'x', allDay: false, start: '2026-10-22T18:00', calendarId: FAMILY }).ok, 'create on Google');
   });
