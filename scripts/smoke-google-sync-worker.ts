@@ -572,6 +572,9 @@ const sent: Array<{ via: string; chatId: unknown; text?: unknown; options?: Row 
 const adminWarnings: string[] = [];
 const planAllowed = new Map<number, boolean>();
 const logs: string[] = [];
+/** Every log line and Sentry capture of the whole run; seed() never clears these, so the title check sees every scenario. */
+const runLogs: string[] = [];
+const runCaptured: Array<{ ctx: string; message: string; level?: string; extra?: Row }> = [];
 
 const Module = nodeRequire('module');
 const stubs: Record<string, Row> = {};
@@ -607,7 +610,9 @@ function installStubs() {
   stub('src/utils/prisma.ts', { prisma: fakePrisma, withRetry: nodeRequire(path.join(ROOT, 'src/utils/db-retry.ts')).withRetry });
   stub('src/utils/redis.ts', { redis: fakeRedis });
   const capture = (e: unknown, ctx: string, extra?: Row, level?: string) => {
-    captured.push({ ctx, message: e instanceof Error ? e.message : String(e), level, extra });
+    const c = { ctx, message: e instanceof Error ? e.message : String(e), level, extra };
+    captured.push(c);
+    runCaptured.push(c);
   };
   stub('src/lib/error-capture.ts', { captureError: capture, captureWarning: capture, captureInfo: () => undefined });
   stub('src/utils/error-notifier.ts', {
@@ -722,7 +727,11 @@ const load = (rel: string): Promise<Row> => import(path.join(ROOT, rel));
 async function main() {
   installStubs();
   const quiet = { log: console.log, warn: console.warn, error: console.error };
-  const keep = (...a: unknown[]) => { logs.push(a.map((x) => (x instanceof Error ? x.message : typeof x === 'string' ? x : show(x))).join(' ')); };
+  const keep = (...a: unknown[]) => {
+    const line = a.map((x) => (x instanceof Error ? x.message : typeof x === 'string' ? x : show(x))).join(' ');
+    logs.push(line);
+    runLogs.push(line);
+  };
   console.log = keep;
   console.warn = keep;
   console.error = keep;
@@ -1121,6 +1130,20 @@ async function main() {
     bump('bad');
     await pass();
     assert(item('bad')!.status === 'ok' && item('bad')!.attempts === 0 && liveEvents().length === 1, `retry ${show(item('bad'))}`);
+  });
+
+  await check('unsupported: a series the mapper throws on (a code bug, not a refusal) is marked unreadable and sent to Sentry as an error with ids only; a mapper refusal sends nothing', async () => {
+    seedCopy();
+    seriesRow('boom', 'home', { startsAt: new Date(NaN) });
+    itemRow('L', 'boom', { googleEventId: 'eboom0' });
+    google.calendars.get('g-home')!.events.set('eboom0', { id: 'eboom0', status: 'confirmed', exceptions: new Map() });
+    seriesRow('bad', 'home', { startsAt: at('2026-11-01 10:00'), rrule: 'FREQ=WEEKLY;BYDAY=MO' });
+    itemRow('L', 'bad');
+    await pass();
+    assert(item('boom')!.status === 'unsupported' && item('boom')!.lastError === 'unreadable: RangeError' && liveEvents().length === 0, `item ${show(item('boom'))}`);
+    assert(item('bad')!.status === 'unsupported' && item('bad')!.lastError === 'repeat', `refusal ${show(item('bad'))}`);
+    const build = captured.filter((x) => x.ctx === 'google-sync-build');
+    assert(build.length === 1 && build[0].level === 'error' && build[0].extra?.link_id === 'L' && build[0].extra?.series_id === 'boom' && build[0].extra?.item_id === 'item-boom' && build[0].extra?.user_id === TAL, `captured ${show(captured)}`);
   });
 
   await check('unsupported: an override on a slot Google won\'t yield (events.instances finds nothing) is unsupported, and the part-made copy is deleted', async () => {
@@ -1617,6 +1640,19 @@ async function main() {
     assert(link('L').pushedSeq === 2 && gcalls('calendars.delete').length === 0 && gcalls('calendarList.list').length === 1, `none ${show(link('L'))} ${show(google.calls)}`);
   });
 
+  await check('a turned-off copy with no stored Google calendar id whose Remove waited out a token outage is restored by the commit, and the next pass removes the calendar found by its token; one with nothing queued is left as it is', async () => {
+    seedCopy({ googleCalendarId: null, state: 'creating', enabled: false, unlinkChoice: 'remove', dirtySeq: 2, pushedSeq: 1 });
+    DB.googleSyncLink.push(linkRow('L2', TAL, 'work', { googleCalendarId: null, state: 'token', enabled: false, unlinkChoice: 'remove', dirtySeq: 2, pushedSeq: 2 }));
+    google.accounts.clear();
+    await pass();
+    assert(link('L').state === 'token' && google.calendars.has('g-home'), `outage ${show(link('L'))}`);
+    google.accounts.set('tok-1', ACCOUNT);
+    const changed = await links.restoreSyncLinks(TAL, SCOPES);
+    assert(show(changed) === show(['L']) && link('L').state === 'creating' && link('L2').state === 'token', `commit ${show(changed)} ${show(DB.googleSyncLink.map((l) => [l.id, l.state]))}`);
+    await pass();
+    assert(!google.calendars.has('g-home') && link('L').pushedSeq === 2 && gcalls('calendars.insert').length === 0, `remove ${show(link('L'))} ${show(google.calls)}`);
+  });
+
   await check('hard delete: a copy that is on with no stored Google calendar id is looked up by its token and removed before the delete', async () => {
     seedCopy({ googleCalendarId: null, state: 'creating' });
     await worker.carryOutCopiesBeforeDelete(TAL);
@@ -1641,8 +1677,9 @@ async function main() {
     assert(!gate.shouldRunSync(new Date()), 'the gate stayed open after a clean pass');
   });
 
-  await check('no titles in logs or Sentry', async () => {
-    const leaked = [...logs, ...captured.map((c) => `${c.ctx} ${c.message} ${show(c.extra)}`)].filter((l) => TITLES.some((t) => l.includes(t)) || l.includes('REQUEST BODY'));
+  await check('no titles in logs or Sentry (every scenario of the run)', async () => {
+    assert(runLogs.length > 100 && runCaptured.some((c) => c.ctx === 'google-sync-push') && runCaptured.some((c) => c.ctx === 'google-sync-alert' || c.ctx === 'google-sync-link'), `run lists not filled: ${runLogs.length} logs, ${runCaptured.length} captures`);
+    const leaked = [...runLogs, ...runCaptured.map((c) => `${c.ctx} ${c.message} ${show(c.extra)}`)].filter((l) => TITLES.some((t) => l.includes(t)) || l.includes('REQUEST BODY'));
     assert(leaked.length === 0, `leaked ${show(leaked.slice(0, 3))}`);
   });
 

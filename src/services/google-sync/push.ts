@@ -30,6 +30,7 @@ import { createHash } from 'crypto';
 import type { calendar_v3 } from '@googleapis/calendar';
 import type { NativeEvent, NativeEventInstance, Prisma } from '@prisma/client';
 import { TIMEZONE } from '../../config/constants';
+import { captureError } from '../../lib/error-capture';
 import { prisma } from '../../utils/prisma';
 import { classifyGoogleError } from '../calendar-read/google-map';
 import { toGoogleEvent, toGoogleHebrewEvent, type GoogleCopy } from '../calendar-move/mapper';
@@ -141,8 +142,13 @@ interface Planned {
 
 type Built = { ok: true; planned: Planned } | { ok: false; reason: string } | { ok: 'empty' };
 
-/** The series' copy, built with the mapper, or why it can't be. */
-function build(link: PushLink, series: NativeEvent, overrides: NativeEventInstance[], stored: Record<string, string>, now: Date): Built {
+/**
+ * The series' copy, built with the mapper, or why it can't be. A mapper refusal
+ * (mapped.ok false) is a plain 'can't be copied'; a throw from the mapper, the Hebrew horizon
+ * or hebcal is a code bug, so it also goes to Sentry as an error (ids only, never the title)
+ * before the item is marked unreadable.
+ */
+function build(link: PushLink, item: PushItem, series: NativeEvent, overrides: NativeEventInstance[], stored: Record<string, string>, now: Date): Built {
   let mapped: ReturnType<typeof toGoogleEvent>;
   let hebrewFrom: number | null = null;
   try {
@@ -156,6 +162,7 @@ function build(link: PushLink, series: NativeEvent, overrides: NativeEventInstan
       mapped = toGoogleEvent(series, overrides, { exceptions: 'whole' });
     }
   } catch (error) {
+    captureError(error, 'google-sync-build', { user_id: link.userId, link_id: link.id, item_id: item.id, series_id: series.id }, 'error');
     return { ok: false, reason: `unreadable: ${error instanceof Error ? error.name : typeof error}` };
   }
   if (!mapped.ok) return { ok: false, reason: mapped.reason };
@@ -298,7 +305,7 @@ async function pushOnce(g: SyncGoogle, budget: CallBudget, link: PushLink, item:
   if (!series.rrule && !item.googleEventId && series.endsAt.getTime() < now.getTime() - ONE_OFF_LOOKBACK_MS) return removeFromCopy('dropped');
 
   const stored = readSlotHashes(item.slotHashes);
-  const built = build(link, series, series.instances, stored, now);
+  const built = build(link, item, series, series.instances, stored, now);
   if (built.ok === 'empty') return removeFromCopy('removed');
   if (built.ok === false) return markUnsupported(g, budget, link, item, built.reason);
   const { planned } = built;

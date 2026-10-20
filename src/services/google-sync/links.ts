@@ -37,15 +37,17 @@ function workingState(googleCalendarId: string | null, scopes: readonly string[]
 
 /**
  * Where a commit puts a link stopped on the token or the permission, or null to leave it:
- * an enabled link goes back to work; a turned-off one only when it still has its turn-off
- * to carry out on a Google calendar (unlinkChoice and googleCalendarId set). A turned-off
- * link with no Google calendar has nothing to do, so it is never made 'creating'.
+ * an enabled link goes back to work; a turned-off one only when it has a turn-off
+ * (unlinkChoice) on a Google calendar it holds, or one still queued (dirtySeq > pushedSeq).
+ * A queued one with no stored id may still own a calendar (a create whose id was never
+ * stored), which the worker's turn-off looks up by its token, so it goes back too; a
+ * turned-off link with no Google calendar and nothing queued is left as it is.
  */
 function restoredState(
-  link: { enabled: boolean; googleCalendarId: string | null; unlinkChoice: string | null },
+  link: { enabled: boolean; googleCalendarId: string | null; unlinkChoice: string | null; dirtySeq: number; pushedSeq: number },
   scopes: readonly string[],
 ): string | null {
-  if (!link.enabled && !(link.unlinkChoice && link.googleCalendarId)) return null;
+  if (!link.enabled && !(link.unlinkChoice && (link.googleCalendarId || link.dirtySeq > link.pushedSeq))) return null;
   return workingState(link.googleCalendarId, scopes);
 }
 
@@ -53,18 +55,18 @@ function restoredState(
  * After a commit saved a token with these granted scopes: the user's links in 'token',
  * 'scopes' or 'otherAccount' go back to work ('ok' or 'creating'), or to 'scopes' when the
  * grant still lacks calendar.app.created, and their items' nextAttemptAt and the links' own
- * backoff (retries.ts) are cleared. A turned-off link goes back only to carry out its queued
- * Remove/Keep (restoredState); one with no Google calendar is left as it is. Other states
+ * backoff (retries.ts) are cleared. A turned-off link goes back only for its Remove/Keep
+ * (restoredState); one with no Google calendar and nothing queued is left as it is. Other states
  * ('gone', 'plan', 'error') are the worker's to decide. Opens the gate when a link changed.
  * Returns the link ids it changed.
  */
 export async function restoreSyncLinks(userId: number, scopes: readonly string[]): Promise<string[]> {
   const found = await prisma.googleSyncLink.findMany({
     where: { userId, state: { in: COMMIT_ENDS } },
-    select: { id: true, googleCalendarId: true, state: true, enabled: true, unlinkChoice: true },
+    select: { id: true, googleCalendarId: true, state: true, enabled: true, unlinkChoice: true, dirtySeq: true, pushedSeq: true },
   });
   const skipped = found.filter((l) => restoredState(l, scopes) === null).map((l) => l.id);
-  if (skipped.length > 0) console.log(`[google-sync] user ${userId}: commit left turned-off links with no Google calendar [${skipped.join(',')}]`);
+  if (skipped.length > 0) console.log(`[google-sync] user ${userId}: commit left turned-off links with no Google calendar and nothing queued [${skipped.join(',')}]`);
   const links = found.flatMap((l) => {
     const next = restoredState(l, scopes);
     return next === null ? [] : [{ ...l, next }];

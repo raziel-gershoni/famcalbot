@@ -1559,25 +1559,28 @@ async function main() {
     assert(reply?.options?.replyMarkup?.inline_keyboard?.[0]?.[0]?.web_app?.url?.endsWith(`/en/select-calendars?user_id=${TAL_TG}`), `reply ${show(reply)}`);
   });
 
-  await check('#36c S2 commit (connect) on turned-off copies: one with a Remove/Keep queued on its Google calendar goes back to work to carry it out; one that never got a Google calendar is left alone, never \'creating\'', async () => {
+  await check('#36c S2/S3 commit (connect) on turned-off copies: one with a Remove/Keep queued goes back to work to carry it out, also with no stored Google calendar id (a calendar the create made but never stored is looked up by its token, so it goes \'creating\'); one with no Google calendar and nothing queued is left alone', async () => {
     seed();
     googleAnswer = { refresh_token: 'google-rt-new', scope: `${BOTH_SCOPES} ${SYNC_SCOPE}`, access_token: 'at-1' };
     const later = new Date(Date.now() + 3_600_000);
     DB.googleSyncLink = [
       { id: 'l-offq', userId: 9, nativeCalendarId: 'cal-9', googleCalendarId: 'g1', enabled: false, unlinkChoice: 'remove', state: 'token', dirtySeq: 2, pushedSeq: 1 },
       { id: 'l-offn', userId: 9, nativeCalendarId: 'cal-9b', googleCalendarId: null, enabled: false, unlinkChoice: 'remove', state: 'scopes', dirtySeq: 2, pushedSeq: 0 },
+      { id: 'l-offd', userId: 9, nativeCalendarId: 'cal-9c', googleCalendarId: null, enabled: false, unlinkChoice: 'remove', state: 'token', dirtySeq: 2, pushedSeq: 2 },
     ];
     DB.googleSyncItem = [
       { id: 'i1', linkId: 'l-offq', nativeEventId: 'e1', nextAttemptAt: later },
       { id: 'i2', linkId: 'l-offn', nativeEventId: 'e2', nextAttemptAt: later },
+      { id: 'i3', linkId: 'l-offd', nativeEventId: 'e3', nextAttemptAt: later },
     ];
     await consentAndClaim(addState(9));
     assert(await savedToken(9) === 'google-rt-new', `token; ${captured.join(' | ')}`);
     const state = Object.fromEntries(DB.googleSyncLink.map(l => [l.id, l.state]));
-    assert(show(state) === show({ 'l-offq': 'ok', 'l-offn': 'scopes' }), `states ${show(state)}`);
+    assert(show(state) === show({ 'l-offq': 'ok', 'l-offn': 'creating', 'l-offd': 'token' }), `states ${show(state)}`);
     assert(DB.googleSyncLink.every(l => l.enabled === false), `enabled ${show(DB.googleSyncLink)}`);
     assert(DB.googleSyncItem.find(i => i.id === 'i1')?.nextAttemptAt === null, 'the queued turn-off\'s item kept its retry');
-    assert(DB.googleSyncItem.find(i => i.id === 'i2')?.nextAttemptAt instanceof Date, 'the turned-off copy with no calendar had its retry cleared');
+    assert(DB.googleSyncItem.find(i => i.id === 'i2')?.nextAttemptAt === null, 'the queued turn-off with no stored id kept its retry');
+    assert(DB.googleSyncItem.find(i => i.id === 'i3')?.nextAttemptAt instanceof Date, 'the turned-off copy with nothing queued had its retry cleared');
   });
 
   await check('#43 S2 the OAuthState columns come in their own migration: 20261020000001_google_sync has shipped and is unchanged (migrate deploy never re-runs an applied one)', async () => {
