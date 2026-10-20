@@ -89,12 +89,21 @@ async function main() {
   });
 
   await check('the show is made in-process, line by line, on the hosts\' voices', async () => {
-    // A leftover TTS_SERVICE_URL from the removed Vercel service changes nothing.
+    // A leftover TTS_SERVICE_URL from the removed Vercel service changes nothing: no request leaves.
     process.env.TTS_SERVICE_URL = 'http://127.0.0.1:9';
+    const realFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    globalThis.fetch = (async () => { fetchCalls++; throw new Error('unexpected network call'); }) as typeof fetch;
     synthCalls.length = 0;
-    const result = await generateShowVoice(LINES, 'he', { synthesize: fakeSynth });
-    delete process.env.TTS_SERVICE_URL;
+    let result;
     try {
+      result = await generateShowVoice(LINES, 'he', { synthesize: fakeSynth });
+    } finally {
+      globalThis.fetch = realFetch;
+      delete process.env.TTS_SERVICE_URL;
+    }
+    try {
+      assert(fetchCalls === 0, `fetch called ${fetchCalls} time(s)`);
       assert(result.lineCount === 4 && result.audioTokens === 60, JSON.stringify(result));
       assert(synthCalls.length === 4, `synth calls ${synthCalls.length}`);
       assert(synthCalls.every(c => c.model === TTS_MODEL), `models ${synthCalls.map(c => c.model).join(',')}`);

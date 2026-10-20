@@ -1,6 +1,6 @@
 /**
  * Turns a text summary into the two-host show voice note: writer → validator →
- * pointing → TTS (remote or local) → OGG. Any failure propagates to the caller's
+ * pointing → TTS → OGG. Any failure propagates to the caller's
  * "voice unavailable" path.
  */
 
