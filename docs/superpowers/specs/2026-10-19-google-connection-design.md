@@ -1,6 +1,6 @@
 # Google becomes a connection, and events move between FamCal and Google
 
-Status: designed 2026-10-19 under the owner's delegation, then revised after code and product reviews (session scratchpad next/review-connection-*.md). It follows the model the owner agreed on 2026-10-15, and adds the owner's 2026-10-19 cross-source move idea: "switching events source between gcal and famcal … this way manual move can be a real thing". It builds on editing 3b (docs/superpowers/specs/2026-10-19-home-editing-3b-design.md) and Hebrew repeats (2026-10-19-hebrew-repeats-design.md). Research notes: next/facts-connection.md, facts-google-write.md, facts-critic.md §(b).
+Status: G1–G4 shipped 2026-10-20 (G5 is this cleanup). Designed 2026-10-19 under the owner's delegation and revised after code and product reviews. It follows the model the owner agreed on 2026-10-15, and adds the owner's 2026-10-19 cross-source move idea: "switching events source between gcal and famcal … this way manual move can be a real thing". It builds on editing 3b (docs/superpowers/specs/2026-10-19-home-editing-3b-design.md) and Hebrew repeats (2026-10-19-hebrew-repeats-design.md). Research notes: next/facts-connection.md, facts-google-write.md, facts-critic.md §(b).
 
 ## 1. The model (owner rulings, 2026-10-15)
 - **FamCal is for everyone.** Every user has FamCal, created lazily. A Google-only user's FamCal can stay empty, and nothing pushes them into it.
@@ -129,7 +129,7 @@ Status: designed 2026-10-19 under the owner's delegation, then revised after cod
     - confirmed present: the copy is deleted and the user gets "Couldn't move. Try again";
     - unreadable: both are left, both ids are logged and sent to Sentry, and the user gets "Moved, but the old one is still in <calendar>". A failed compensation shows the same message.
   - **A copy that fails part-way** is deleted, and the original is untouched.
-  - **Retries.** A retry into Google first looks for an existing copy in the destination calendar only (`privateExtendedProperty=famcalMovedFrom=<id>`). It re-applies every override and cancellation to that copy before deleting the original. A copy found elsewhere is logged and left. The sync later never treats `famcalMovedFrom` as a mirror key.
+  - **Retries.** A retry into Google first looks for an earlier copy in the destination calendar only (`privateExtendedProperty=famcalMovedFrom=<id>`) and deletes it (already gone counts as done), then inserts a fresh, complete one. If that delete fails, the move answers failed and the FamCal original stays. A copy found elsewhere is logged and left. The sync later never treats `famcalMovedFrom` as a mirror key.
   - **Logging.** Ids only, never titles.
 - **What doesn't move.** The Google id and its links, colour and alert overrides. Events with a Meet link or attachments aren't eligible. The copy takes the destination's default alerts, and FamCal events get the legacy alerts when they're on.
 - **The home.**
@@ -185,5 +185,10 @@ The reconnect and choose-calendars keys are reused.
 ### Known limitations (shipped on purpose)
 - No "Disconnect Google".
 - A cross-source move takes whole series only and must be saved on its own. Events with Meet links or files, and Hebrew-rule or RDATE series, can't cross.
-- A Google → FamCal retry after a failed compensation can leave a duplicate FamCal series (logged to Sentry).
+- A Google → FamCal retry after a failed compensation or a failed take-back can leave a duplicate FamCal series (logged to Sentry).
+- The move lock (300 s TTL) blocks moving that series for up to 5 minutes after a crash.
+- For a connected user each FamCal item sheet makes one live Google calendarList call to offer Google targets; a dead token logs a warning on each open.
+- A Google series with guests on an occurrence other than the opened one is refused at save, not hidden up front, and the refusal shows no specific reason.
+- The all-day override lookup falls back to a window of days, because `events.instances` `originalStart` for all-day events isn't documented.
+- The move relies on Google's `events.list` returning a series' exceptions together with the master by iCalUID (`singleEvents: false`, `showDeleted: true`). Documented: "By default, events.list returns single events, recurring events, and exceptions".
 - A moved event can get a second legacy alert the same day (the dedup key is per event id).

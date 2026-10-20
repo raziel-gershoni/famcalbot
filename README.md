@@ -14,7 +14,7 @@
 
 **🔗 Live demo:** https://famcal.bot  <!-- the public site is reachable directly; the personal dashboard (settings, calendars, pairing, admin) opens from inside the bot via a magic link, so most in-app screens are reached by chatting with the Telegram bot first -->
 
-FamCal is a multi-platform, multilingual calendar assistant for individuals and families. Connect a Google Calendar (or use the built-in native calendar) and the bot writes personalized morning and evening briefings, week-ahead previews, weather, and reminders — and turns voice notes and photos of invitations into calendar events. It runs entirely on serverless infrastructure and switches transparently between Claude, GPT, and Gemini behind a single provider abstraction.
+FamCal is a multi-platform, multilingual calendar assistant for individuals and families. Use the built-in FamCal calendar, optionally connect Google Calendar too, and the bot writes personalized morning and evening briefings, week-ahead previews, weather, and reminders — and turns voice notes and photos of invitations into calendar events. It runs entirely on serverless infrastructure and switches transparently between Claude, GPT, and Gemini behind a single provider abstraction.
 
 <!-- Screenshot placeholder: leave exactly this HTML comment so the owner can drop an image in later:
      ![screenshot](docs/screenshot.png) -->
@@ -26,7 +26,7 @@ FamCal is a multi-platform, multilingual calendar assistant for individuals and 
 - **Voice-note to event** — send a voice message; Gemini transcribes and parses it into a structured event, with confidence-gated auto-create and quick inline corrections.
 - **Photo-to-event** — forward or snap a photo of an invitation or flyer and the bot extracts the event details into your calendar.
 - **Natural voice replies** — optional spoken summaries via Gemini TTS in the user's language, with selectable voices and styles.
-- **Google Calendar or native calendar** — read across multiple Google calendars, or use the built-in recurring calendar with no Google account required.
+- **FamCal calendar, with Google as an optional connection** — everyone has the built-in recurring FamCal calendar; connect Google and its calendars appear beside the FamCal ones. Move an event between FamCal and Google from its Calendar row (whole series only).
 - **Couple pairing** — invite a partner to share calendars, with an auditable pairing lifecycle.
 - **Multilingual** — Hebrew, English, and Russian throughout, including a right-to-left dashboard, Hebrew dates/holidays (Hebcal), and localized voice.
 - **Weather in context** — Open-Meteo forecasts woven into the daily briefing, with air-quality and regional dust-storm (Sharav) awareness.
