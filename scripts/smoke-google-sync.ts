@@ -1147,6 +1147,22 @@ async function main() {
     }
   });
 
+  await check('route POST enable on a copy Google stopped in \'scopes\' while googleScopes still lists calendar.app.created ("Approve in Google"): the sync consent, never "already"; the link is left for the commit', async () => {
+    seed();
+    proTal();
+    Object.assign(linkRow(LINK), { state: 'scopes' });
+    const r = await call('POST', { action: 'enable', nativeCalendarId: 'own' });
+    assert(r.status === 200 && r.body.status === 'consent' && typeof r.body.oauthUrl === 'string', `approve ${show(r)}`);
+    const st = DB.oAuthState ?? [];
+    assert(st.length === 1 && st[0].purpose === 'sync' && st[0].nativeCalendarId === 'own', `state ${show(st)}`);
+    assert(linkRow(LINK).state === 'scopes' && linkRow(LINK).enabled === true, `link ${show(linkRow(LINK))}`);
+    // Another state with the permission held still turns on (or is "already") without a consent.
+    seed();
+    proTal();
+    const ok = await call('POST', { action: 'enable', nativeCalendarId: 'own' });
+    assert(ok.status === 200 && ok.body.status === 'already' && (DB.oAuthState ?? []).length === 0, `ok link ${show(ok)}`);
+  });
+
   await check('route POST: a partner\'s calendar, a deleted or unknown one is 404 with nothing written; a bad body is 400; no plan is 403 upgrade_required with no link and no consent', async () => {
     seed();
     proTal();

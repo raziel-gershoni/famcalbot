@@ -735,6 +735,7 @@
       "consent": {
         "started": "Copying to Google has started. Your calendar shows up in Google Calendar within a few minutes, and the Calendars page shows how far it got.",
         "notOwner": "Google is approved, but that calendar is no longer yours, so nothing was copied.",
+        "noPermission": "Google is connected, but the permission to make a calendar in Google wasn't given, so nothing is being copied yet. Open your calendars and tap “Approve in Google” to give it.",
         "button": "Open calendars"
       }
     },

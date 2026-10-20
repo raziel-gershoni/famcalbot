@@ -36,7 +36,7 @@ import { Prisma } from '@prisma/client';
 import { liveGoogleChoices } from '../lib/google-state';
 import { prisma } from '../utils/prisma';
 import { OAUTH_STATE_PREFIX } from '../lib/oauth-state';
-import { consentScopes } from './google-sync/scopes';
+import { consentScopes, hasSyncScope } from './google-sync/scopes';
 import { enableSyncLink, restoreSyncLinks, type EnableResult, type SyncConsent } from './google-sync/links';
 import { syncAllowed } from './google-sync/access';
 import { getBotMessages } from '../lib/bot-messages';
@@ -166,9 +166,16 @@ export function findGoogleConnectId(text: string): string | null {
   return text.match(PENDING_ID_IN_TEXT)?.[1] ?? null;
 }
 
+/**
+ * What a 'sync' consent's commit did with the copy, and whether the grant held
+ * calendar.app.created: Google's granular consent lets the user untick it while approving
+ * the rest, and then the copy waits in 'scopes' with nothing copied.
+ */
+export type SyncCommit = EnableResult & { permitted: boolean };
+
 export type GoogleConnectClaim =
   /** sync: what a 'sync' consent's commit did with the copy (absent for a connect) */
-  | { status: 'connected'; owner: UserConfig; sync?: EnableResult }
+  | { status: 'connected'; owner: UserConfig; sync?: SyncCommit }
   | { status: 'not_owner' }
   | { status: 'expired' };
 
@@ -213,7 +220,7 @@ export async function claimPendingGoogleToken(
  * a 'sync' consent turns its copy on first, then the user's copies stopped on the token or
  * the permission go back to work. Without one (an entry from before), googleScopes stay.
  */
-export async function commitGoogleToken(ownerUserId: number, refreshToken: string, grant?: GoogleGrant): Promise<{ sync?: EnableResult }> {
+export async function commitGoogleToken(ownerUserId: number, refreshToken: string, grant?: GoogleGrant): Promise<{ sync?: SyncCommit }> {
   const user = await getUserById(ownerUserId);
   if (!user) throw new Error(`User ${ownerUserId} not found`);
 
@@ -277,15 +284,24 @@ export async function commitGoogleToken(ownerUserId: number, refreshToken: strin
   // first: a copy turned off with a Remove/Keep still queued is re-enabled with that choice
   // dropped before restoreSyncLinks could put it in 'ok' and open the gate, where a worker
   // tick in between would carry out the Remove the user just took back.
-  let sync: EnableResult | undefined;
+  let sync: SyncCommit | undefined;
   if (grant) {
-    if (grant.sync) sync = await enableSyncLink(user.id, grant.sync, grant.scopes);
+    if (grant.sync) {
+      sync = { ...(await enableSyncLink(user.id, grant.sync, grant.scopes)), permitted: hasSyncScope(grant.scopes) };
+      if (!sync.permitted) console.warn(`[google-connect] user ${user.id}: sync consent for calendar ${grant.sync.nativeCalendarId} committed without calendar.app.created: the copy waits for approval`);
+    }
     await restoreSyncLinks(user.id, grant.scopes);
   }
   return sync ? { sync } : {};
 }
 
 // ---- Chat replies ----
+
+/** A sync commit's line: nothing copied (not their calendar), the permission not given, or started. */
+function syncReplyText(t: { started: string; notOwner: string; noPermission: string }, sync: SyncCommit): string {
+  if (sync.status === 'not_owner') return t.notOwner;
+  return sync.permitted ? t.started : t.noPermission;
+}
 
 interface ConnectCopy {
   connected: string;
@@ -379,7 +395,7 @@ export async function handleGoogleConnectTelegram(
     const { owner, sync } = claim;
     const locale = normalizeLocale(owner.language);
     const t = (await getBotMessages(locale)).googleSync.consent;
-    const text = sync.status === 'not_owner' ? t.notOwner : t.started;
+    const text = syncReplyText(t, sync);
     const pageUrl = buildUrl(`/${locale}/calendars?user_id=${owner.telegramId ?? owner.id}`);
     await replyAfterClaim(() => service.sendMessage(chatId, text, {
       format: MessageFormat.HTML,
@@ -429,7 +445,7 @@ export async function handleGoogleConnectWhatsApp(
     const { owner, sync } = claim;
     const locale = normalizeLocale(owner.language);
     const t = (await getBotMessages(locale)).googleSync.consent;
-    await replyAfterClaim(() => service.sendMessage(chatId, withTip(COPY[locale], sync.status === 'not_owner' ? t.notOwner : t.started)), { user_id: owner.id });
+    await replyAfterClaim(() => service.sendMessage(chatId, withTip(COPY[locale], syncReplyText(t, sync))), { user_id: owner.id });
     return;
   }
 

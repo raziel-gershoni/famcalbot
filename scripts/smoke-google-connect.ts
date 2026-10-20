@@ -1788,6 +1788,25 @@ async function main() {
     assert(!reply?.options?.whatsappUrlButton, `a magic link button: ${show(reply?.options)}`);
   });
 
+  await check('#48 S4 a sync commit whose grant lacks calendar.app.created (unticked in Google\'s consent): the "permission wasn\'t given" line with the Open calendars button on Telegram, and over WhatsApp; never "started"', async () => {
+    seed();
+    googleAnswer = { refresh_token: 'google-rt-new', scope: BOTH_SCOPES, access_token: 'at-sync' };
+    await consentAndClaim(addSyncState(9, 'cal-9'));
+    const links = linksOf(9);
+    assert(links.length === 1 && links[0].state === 'scopes', `links ${show(DB.googleSyncLink)}; ${captured.join(' | ')}`);
+    const reply = sentTo(TAL_TG).at(-1);
+    assert(reply?.text === enBot.noPermission, `text ${show(reply?.text)}`);
+    const button = reply?.options?.replyMarkup?.inline_keyboard?.[0]?.[0];
+    assert(button?.text === enBot.button && String(button?.web_app?.url).endsWith(`/en/calendars?user_id=${TAL_TG}`), `button ${show(button)}`);
+    seed();
+    googleAnswer = { refresh_token: 'google-rt-new', scope: BOTH_SCOPES, access_token: 'at-sync' };
+    const { value: end } = await quietly(() => runCallback(addSyncState(42, 'cal-42')));
+    assert(end.redirect, `callback ${show(end.threw ?? end)}`);
+    await waWebhook(waText(WA_BSUID, `gc_${fragmentOf(end.redirect).get('p')}`, { bsuid: WA_BSUID }));
+    const wa = sentTo(WA_BSUID).at(-1);
+    assert(wa?.text?.startsWith(heBot.noPermission) && !wa.text.startsWith(heBot.started), `reply ${show(wa)}`);
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

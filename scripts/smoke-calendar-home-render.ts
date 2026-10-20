@@ -7205,11 +7205,58 @@ async function main() {
     }
   });
 
-  await check('#125 React logged no warning on the calendars page (#119-#124b); the page\'s own logs are only the failures #120 and #122 caused', () => {
+  await check('#124c calendars page: deleting a calendar before the copy rows loaded, or after their GET failed, asks the rows first and then Remove or Keep; if they still can\'t load, nothing is deleted and an error shows', async () => {
+    // The first GET fails; the delete asks again, the copy is on, so the question comes first.
+    let gets = 0;
+    serveCopies = (c) => (c.method === 'GET' && ++gets === 1 ? { status: 500, body: { error: 'failed' } } : ok200(VIEW));
+    const a = await mountCalendars('en');
+    try {
+      assert(byRole(a.m.container, 'switch').length === 0, 'rows after a failed GET');
+      a.m.click(byLabel(cardOf(a.m, 'Home'), 'Delete'));
+      await settle();
+      assert(gets === 2, `GETs ${gets}`);
+      assert(!fetchCalls.some((c) => c.path === '/api/native-calendars/own' && c.method === 'DELETE'), 'deleted before the question');
+      a.m.click(buttonIn(cardOf(a.m, 'Home'), 'Keep'));
+      await settle();
+      const del = fetchCalls.find((c) => c.path === '/api/native-calendars/own' && c.method === 'DELETE');
+      assert(del && del.body?.googleCopy === 'keep', `DELETE ${show(del)}`);
+    } finally {
+      a.m.unmount();
+    }
+    // The first GET still in flight: the delete doesn't take its absence for "no copy".
+    let hold: ((x: FetchAnswer) => void) | null = null;
+    gets = 0;
+    serveCopies = (c) => (c.method === 'GET' && ++gets === 1 ? new Promise<FetchAnswer>((r) => { hold = r; }) : ok200(VIEW));
+    const b = await mountCalendars('en');
+    try {
+      b.m.click(byLabel(cardOf(b.m, 'Home'), 'Delete'));
+      await settle();
+      assert(!fetchCalls.some((c) => c.path === '/api/native-calendars/own' && c.method === 'DELETE'), 'deleted while the rows were loading');
+      assertHas(textOf(htmlOf(cardOf(b.m, 'Home'))), ['from Google too, including anything you added to it?'], 'the question');
+      (hold as unknown as (x: FetchAnswer) => void)(ok200(VIEW));
+      await settle();
+    } finally {
+      b.m.unmount();
+    }
+    // The rows can't load at all: no delete, an error.
+    serveCopies = () => ({ status: 500, body: { error: 'failed' } });
+    const c = await mountCalendars('en');
+    try {
+      c.m.click(byLabel(cardOf(c.m, 'Home'), 'Delete'));
+      await settle();
+      assert(!fetchCalls.some((x) => x.path === '/api/native-calendars/own' && x.method === 'DELETE'), 'deleted with no rows');
+      assertHas(textOf(innerHtml(c.m.container)), [String(gcm('en').errors.load)], 'the load error');
+    } finally {
+      c.m.unmount();
+    }
+  });
+
+  await check('#125 React logged no warning on the calendars page (#119-#124c); the page\'s own logs are only the failures #120, #122 and #124c caused', () => {
     const lines = reactWarnings.slice(warnedBeforeCopies);
     const own = lines.filter((w) => /^\[(calendars|google-copy)\]/.test(w));
     assert(lines.length === own.length, `React warned: ${show(lines.filter((w) => !own.includes(w)).slice(0, 3))}`);
-    assert(show(own) === show(['[calendars] loading the Google copies failed: Error: google-sync GET answered 500', '[google-copy] DELETE off answered 500']), `logs ${show(own)}`);
+    const loadFailed = '[calendars] loading the Google copies failed: Error: google-sync GET answered 500';
+    assert(show(own) === show([loadFailed, '[google-copy] DELETE off answered 500', loadFailed, loadFailed, '[calendars] loading the Google copies before a delete failed: Error: google-sync GET answered 500']), `logs ${show(own)}`);
   });
 
   let failed = 0;

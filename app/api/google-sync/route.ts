@@ -5,7 +5,9 @@
 //        the non-owner line.
 // POST   /api/google-sync?user_id=…  — body { action: 'enable', nativeCalendarId }: turn the
 //        copy on when the user holds calendar.app.created and a token, else start the 'sync'
-//        consent (spec §3 Asked only on first use) and answer its Google URL; or
+//        consent (spec §3 Asked only on first use) and answer its Google URL. A copy stopped
+//        in 'scopes' ("Approve in Google") always gets the consent: Google's 403 put it there
+//        while googleScopes may still list the scope, and only a commit restores it; or
 //        { action: 'recreate', linkId }: "Create it again" / "Copy again from scratch?".
 // DELETE /api/google-sync?user_id=…  — body { nativeCalendarId, googleCopy: 'remove' | 'keep' }:
 //        turn the copy off, the choice queued for the worker.
@@ -92,7 +94,14 @@ export async function POST(request: NextRequest) {
     }
     const row = await prisma.user.findUnique({ where: { id: user.id }, select: { googleScopes: true } });
     const scopes = row?.googleScopes ?? [];
-    if (user.googleRefreshToken && hasSyncScope(scopes)) {
+    // A copy Google stopped on the permission (the worker's 403 'scopes') waits for a commit
+    // (restoreSyncLinks), whatever googleScopes says: the stored grant can be stale.
+    const stopped = await prisma.googleSyncLink.findFirst({
+      where: { userId: user.id, nativeCalendarId: calendar.id, state: 'scopes' },
+      select: { id: true },
+    });
+    if (stopped) console.log(`[google-sync] user ${user.id}: copy ${stopped.id} waits on Google's permission: asking consent again`);
+    if (user.googleRefreshToken && hasSyncScope(scopes) && !stopped) {
       // The permission is held: the copy turns on here (the commit's own enableSyncLink); the
       // worker adopts the token's account on its first pass.
       const result = await enableSyncLink(user.id, { nativeCalendarId: calendar.id, googleAccount: null }, scopes);

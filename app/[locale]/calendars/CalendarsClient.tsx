@@ -401,7 +401,26 @@ export default function CalendarsClient(props: Props) {
 
   const remove = async (rawId: string) => {
     if (!confirm(t.deleteConfirm)) return;
-    if (copyOf(rawId)?.on) {
+    // The question needs the copy rows: before they loaded, or after their GET failed, they
+    // are asked now, and a delete never goes without googleCopy (the server's Keep) unless
+    // a loaded view says the copy is off.
+    let view = copyLoadFailed ? null : copies;
+    if (!view) {
+      setBusy(rawId);
+      try {
+        view = await loadCopies(userId);
+        setCopies(view);
+        setCopyLoadFailed(false);
+      } catch (err) {
+        console.error('[calendars] loading the Google copies before a delete failed:', err);
+        setCopyLoadFailed(true);
+        setError(t.errorGeneric);
+        return;
+      } finally {
+        setBusy(null);
+      }
+    }
+    if (view.rows.find((r) => r.calendarId === rawId)?.on) {
       setAsking({ calendarId: rawId, mode: 'delete' });
       return;
     }
