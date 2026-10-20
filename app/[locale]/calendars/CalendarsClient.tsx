@@ -177,6 +177,8 @@ export default function CalendarsClient(props: Props) {
   const [asking, setAsking] = useState<{ calendarId: string; mode: 'off' | 'delete' } | null>(null);
   const [copyErrors, setCopyErrors] = useState<Record<string, CopyErrorCode>>({});
   const loading = useRef(false);
+  /** A refresh asked while one was in flight: that one may have read the rows before a change, so one more runs after it. */
+  const refreshAgain = useRef(false);
 
   const copyOf = (calendarId: string): CopyRow | undefined => copies?.rows.find((r) => r.calendarId === calendarId);
   const setBusyFor = (calendarId: string, value: 'on' | 'off' | 'working' | null) =>
@@ -194,21 +196,29 @@ export default function CalendarsClient(props: Props) {
       return next;
     });
 
-  const refreshCopies = useCallback(async () => {
-    if (loading.current) return;
+  const refreshCopies = useCallback(async (): Promise<void> => {
+    if (loading.current) {
+      refreshAgain.current = true;
+      return;
+    }
     loading.current = true;
     try {
-      const view = await loadCopies(userId);
-      setCopies(view);
-      setCopyLoadFailed(false);
-      // A consent that landed (the copy is on and has its permission) stops waiting.
-      setWaiting((w) => Object.fromEntries(Object.entries(w).filter(([id]) => {
-        const row = view.rows.find((r) => r.calendarId === id);
-        return row !== undefined && (!row.on || row.status === 'approve');
-      })));
-    } catch (err) {
-      console.error('[calendars] loading the Google copies failed:', err);
-      setCopyLoadFailed(true);
+      do {
+        refreshAgain.current = false;
+        try {
+          const view = await loadCopies(userId);
+          setCopies(view);
+          setCopyLoadFailed(false);
+          // A consent that landed (the copy is on and has its permission) stops waiting.
+          setWaiting((w) => Object.fromEntries(Object.entries(w).filter(([id]) => {
+            const row = view.rows.find((r) => r.calendarId === id);
+            return row !== undefined && (!row.on || row.status === 'approve');
+          })));
+        } catch (err) {
+          console.error('[calendars] loading the Google copies failed:', err);
+          setCopyLoadFailed(true);
+        }
+      } while (refreshAgain.current);
     } finally {
       loading.current = false;
     }

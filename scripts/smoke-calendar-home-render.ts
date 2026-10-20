@@ -7176,7 +7176,36 @@ async function main() {
     }
   });
 
-  await check('#125 React logged no warning on the calendars page (#119-#124); the page\'s own logs are only the failures #120 and #122 caused', () => {
+  await check('#124b calendars page: a turn-off that lands while a GET is in flight asks the rows once more after it, so the row never stays on the stale answer', async () => {
+    let hold: ((a: FetchAnswer) => void) | null = null;
+    let gets = 0;
+    const offView = { ...VIEW, rows: [copyRow('own', { on: false, status: 'off' }), VIEW.rows[1]] };
+    let turnedOff = false;
+    serveCopies = (c) => {
+      if (c.method === 'DELETE') { turnedOff = true; return ok200({ status: 'off' }); }
+      gets += 1;
+      if (gets === 2) return new Promise<FetchAnswer>((r) => { hold = r; });
+      return ok200(turnedOff ? offView : VIEW);
+    };
+    const { m } = await mountCalendars('en');
+    try {
+      fireDocument('visibilitychange');
+      await settle();
+      assert(hold, 'the second GET is not in flight');
+      m.click(switchIn(cardOf(m, 'Home')));
+      await settle();
+      m.click(buttonIn(cardOf(m, 'Home'), 'Keep'));
+      await settle();
+      (hold as unknown as (a: FetchAnswer) => void)(ok200(VIEW));
+      await settle();
+      assert(gets === 3, `GETs ${gets}`);
+      assert(switchIn(cardOf(m, 'Home')).getAttribute('aria-checked') === 'false', 'the row stayed on');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#125 React logged no warning on the calendars page (#119-#124b); the page\'s own logs are only the failures #120 and #122 caused', () => {
     const lines = reactWarnings.slice(warnedBeforeCopies);
     const own = lines.filter((w) => /^\[(calendars|google-copy)\]/.test(w));
     assert(lines.length === own.length, `React warned: ${show(lines.filter((w) => !own.includes(w)).slice(0, 3))}`);
