@@ -467,7 +467,6 @@ async function sendSummaryToAll(
   summaryDate: Date | undefined,
   options?: { filterByHour?: boolean }
 ): Promise<SummaryBatchResult> {
-  const messagingService = getMessagingService();
   const result: SummaryBatchResult = { processed: 0, skippedHour: 0, skippedDay: 0, skippedDedup: 0 };
   // When the batch chose its users. The scheduled retry's summaries are marked sent under
   // this local date, the date the batch chose them for, also when they go out past midnight.
