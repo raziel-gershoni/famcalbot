@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getBaseUrl } from '@/src/config/urls';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -20,8 +21,9 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Redirect to oauth-callback page to handle token exchange
+  // Redirect to oauth-callback page to handle token exchange. On the public URL, not
+  // request.url: behind Railway's proxy that is Next's own http://localhost:8080.
   return NextResponse.redirect(
-    new URL(`/oauth-callback?code=${code}&state=${state}`, request.url)
+    new URL(`/oauth-callback?code=${code}&state=${state}`, getBaseUrl())
   );
 }
