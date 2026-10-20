@@ -1447,5 +1447,53 @@
       "yomHazikaron": "Yom HaZikaron",
       "yomKippur": "Yom Kippur"
     }
+  },
+  "googleCopy": {
+    "title": "Copy to Google",
+    "switchLabel": "Copy “{name}” to Google Calendar",
+    "notes": {
+      "oneWay": "Copies go one way: changes made in Google are replaced by the next change in FamCal.",
+      "alerts": "Alerts come from FamCal, not from the Google copy.",
+      "hebrew": "Events that repeat by the Hebrew date show in Google as single dates for the next 10 Hebrew years."
+    },
+    "status": {
+      "copying": "Copying…",
+      "copyingCount": "Copying… {copied, number} of {total, number}",
+      "copied": "Copied to Google",
+      "unsupported": "{count, plural, one {# event can't be copied} other {# events can't be copied}}",
+      "approve": "Google needs your approval to keep this copy.",
+      "waiting": "Approve in Google, then tap the link FamCal sends you.",
+      "reconnect": "Needs reconnect: reconnect Google to keep copying.",
+      "plan": "Copying is paused on your plan.",
+      "gone": "The Google calendar was deleted.",
+      "otherAccount": "This is a different Google account. Copy again from scratch?",
+      "error": "Copying stopped because of an error."
+    },
+    "actions": {
+      "approve": "Approve in Google",
+      "openGoogle": "Open Google",
+      "reconnect": "Reconnect Google",
+      "recreate": "Create it again",
+      "copyAgain": "Copy again"
+    },
+    "busy": {
+      "on": "Turning on…",
+      "off": "Turning off…",
+      "working": "One moment…"
+    },
+    "unlink": {
+      "question": "Delete the calendar “FamCal · {name}” from Google too, including anything you added to it?",
+      "remove": "Remove",
+      "keep": "Keep",
+      "cancel": "Cancel"
+    },
+    "nonOwner": "Only {owner} can copy this one to Google.",
+    "errors": {
+      "failed": "The Google copy didn't change. Try again.",
+      "load": "Couldn't load the Google copies. Reopen the page to try again.",
+      "upgrade": "Copying to Google comes with the Pro plan.",
+      "notFound": "This calendar isn't yours to copy any more.",
+      "openFailed": "Google didn't open. Try again."
+    }
   }
 }

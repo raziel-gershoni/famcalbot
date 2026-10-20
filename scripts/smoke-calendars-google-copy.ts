@@ -1,0 +1,319 @@
+// Smoke test for the calendars page's "Copy to Google" rows (google-sync spec §1 Where it
+// lives, §5 Copy; plan Task S4): app/[locale]/calendars/GoogleCopyRow.tsx and its client
+// helpers (google-copy-client.ts), rendered through next-intl with the real messages in en, he
+// and ru. It checks:
+//  - each state's row: off, copying (with and without progress), copied, "N can't be copied",
+//    Approve in Google, the consent wait, Needs reconnect, paused on the plan, gone with
+//    "Create it again", another account with "Copy again", error;
+//  - the switch: role="switch", aria-checked, its label naming the calendar, disabled while busy
+//    with the busy line and a spinner;
+//  - the unlink question with Remove and Keep (spec §1's wording), and the non-owner line with
+//    the owner's name; the notes (one way, alerts, Hebrew dates);
+//  - the copy in en, he and ru: plurals per language, numbers grouped per locale, no raw key,
+//    no emoji;
+//  - the CSS rules: every tap target at least 44 px, no hover-only styling, logical
+//    properties only (RTL), no text under 12 px, icons hidden from screen readers;
+//  - the client helpers against a fake fetch: the request shapes (initData in the header,
+//    never the URL), consent vs on, the error codes, what each status offers, and polling.
+// No network, no DB, no Redis.
+//
+// Run: TZ=UTC npx tsx scripts/smoke-calendars-google-copy.ts (and TZ=Asia/Jerusalem)
+
+import fs from 'fs';
+import path from 'path';
+import { createElement, type ComponentProps, type ReactElement } from 'react';
+import { renderToString } from 'react-dom/server';
+import { NextIntlClientProvider } from 'next-intl';
+import { GoogleCopyRow, GoogleCopyNotes, NonOwnerCopyLine, type GoogleCopyRowProps } from '../app/[locale]/calendars/GoogleCopyRow';
+import { copyAction, deleteCalendarBody, loadCopies, needsPolling, recreateCopy, startCopy, stopCopy } from '../app/[locale]/calendars/google-copy-client';
+import type { CopyRow } from '../src/services/google-sync/view';
+
+type Row = Record<string, unknown>;
+type Locale = 'en' | 'he' | 'ru';
+const ROOT = path.resolve(__dirname, '..');
+const LOCALES: Locale[] = ['en', 'he', 'ru'];
+const messages = Object.fromEntries(LOCALES.map((l) => [l, JSON.parse(fs.readFileSync(path.join(ROOT, `messages/${l}.json`), 'utf8'))])) as Record<Locale, Row>;
+const gc = (l: Locale) => messages[l].googleCopy as Record<string, Record<string, string> & string>;
+
+const results: { name: string; ok: boolean; reason?: string }[] = [];
+async function check(name: string, fn: () => void | Promise<void>) {
+  try {
+    await fn();
+    results.push({ name, ok: true });
+  } catch (err) {
+    results.push({ name, ok: false, reason: err instanceof Error ? err.message : String(err) });
+  }
+}
+function assert(cond: unknown, message: string): asserts cond {
+  if (!cond) throw new Error(message);
+}
+const show = (v: unknown) => JSON.stringify(v);
+
+function render(locale: Locale, element: ReactElement): string {
+  const provider = { locale, messages: messages[locale], timeZone: 'Asia/Jerusalem' } as ComponentProps<typeof NextIntlClientProvider>;
+  return renderToString(createElement(NextIntlClientProvider, provider, element));
+}
+/** The visible text, entities decoded, tags dropped. */
+const textOf = (html: string) =>
+  html.replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
+
+const baseRow = (o: Partial<CopyRow> = {}): CopyRow => ({ calendarId: 'cal-1', linkId: 'link-1', on: true, status: 'copied', copied: 0, total: 0, unsupported: 0, ...o });
+const noop = () => undefined;
+function props(o: Partial<GoogleCopyRowProps> = {}, row: Partial<CopyRow> = {}): GoogleCopyRowProps {
+  return {
+    calendarName: 'Home', row: baseRow(row), busy: null, waiting: false, asking: false, error: null,
+    onToggle: noop, onAction: noop, onOpenGoogle: noop, onChoose: noop, onCancelAsk: noop, ...o,
+  };
+}
+const rowHtml = (locale: Locale, o: Partial<GoogleCopyRowProps> = {}, row: Partial<CopyRow> = {}) => render(locale, createElement(GoogleCopyRow, props(o, row)));
+const buttons = (html: string) => [...html.matchAll(/<button\b[^>]*>([\s\S]*?)<\/button>/g)].map((m) => ({ tag: m[0].slice(0, m[0].indexOf('>') + 1), text: textOf(m[1]) }));
+const switchOf = (html: string) => buttons(html).find((b) => /role="switch"/.test(b.tag));
+
+const EMOJI = /\p{Extended_Pictographic}/u;
+
+async function main() {
+  // ---- Each state's row ----
+
+  await check('off: the title and a switch that is off, labelled with the calendar, and no status line', async () => {
+    for (const l of LOCALES) {
+      const html = rowHtml(l, {}, { on: false, status: 'off', linkId: null });
+      const sw = switchOf(html);
+      assert(sw && /aria-checked="false"/.test(sw.tag), `${l}: switch ${show(sw)}`);
+      assert(sw.tag.includes(`aria-label="${gc(l).switchLabel.replace('{name}', 'Home').replace(/"/g, '&quot;')}"`), `${l}: switch label ${sw.tag}`);
+      assert(textOf(html) === gc(l).title, `${l}: text ${textOf(html)}`);
+    }
+  });
+
+  await check('copying: "Copying…" until the backfill is counted, then "Copying… 340 of 1,200" with the numbers grouped per locale', async () => {
+    assert(textOf(rowHtml('en', {}, { status: 'copying' })).includes('Copying…'), 'no copying line');
+    assert(!/of/.test(textOf(rowHtml('en', {}, { status: 'copying' }))), 'a count with no total');
+    const en = textOf(rowHtml('en', {}, { status: 'copying', copied: 340, total: 1200 }));
+    assert(en.includes('Copying… 340 of 1,200'), `en ${en}`);
+    const he = textOf(rowHtml('he', {}, { status: 'copying', copied: 340, total: 1200 }));
+    assert(he.includes('מעתיקים… 340 מתוך 1,200'), `he ${he}`);
+    const ru = textOf(rowHtml('ru', {}, { status: 'copying', copied: 340, total: 1200 }));
+    assert(/Копируем… 340 из 1\s200/u.test(ru), `ru ${ru}`);
+    assert(/aria-checked="true"/.test(switchOf(rowHtml('en', {}, { status: 'copying' }))!.tag), 'the switch is not on');
+  });
+
+  await check('copied, and "N can\'t be copied" with each language\'s plural forms', async () => {
+    assert(textOf(rowHtml('en')).includes('Copied to Google'), 'no copied line');
+    const want: Record<Locale, Array<[number, RegExp]>> = {
+      en: [[1, /1 event can't be copied/], [3, /3 events can't be copied/]],
+      he: [[1, /אירוע אחד לא ניתן להעתקה/], [2, /שני אירועים לא ניתנים להעתקה/], [5, /5 אירועים לא ניתנים להעתקה/]],
+      ru: [[1, /1 событие не удаётся/], [3, /3 события не удаётся/], [5, /5 событий не удаётся/], [21, /21 событие не удаётся/]],
+    };
+    for (const l of LOCALES) {
+      for (const [n, re] of want[l]) {
+        const t = textOf(rowHtml(l, {}, { unsupported: n }));
+        assert(re.test(t), `${l} ${n}: ${t}`);
+      }
+      assert(!/событ|event|אירוע/.test(textOf(rowHtml(l, {}, { unsupported: 0 }))), `${l}: a can't-be-copied line for 0`);
+    }
+  });
+
+  await check('the states that need the user: each line and its one action button (Approve in Google, Reconnect Google, Create it again, Copy again); plan and error offer none', async () => {
+    const cases: Array<[CopyRow['status'], string, string | null]> = [
+      ['approve', 'approve', 'approve'],
+      ['reconnect', 'reconnect', 'reconnect'],
+      ['gone', 'gone', 'recreate'],
+      ['otherAccount', 'otherAccount', 'copyAgain'],
+      ['plan', 'plan', null],
+      ['error', 'error', null],
+    ];
+    for (const l of LOCALES) {
+      for (const [status, line, action] of cases) {
+        const html = rowHtml(l, {}, { status });
+        const t = textOf(html);
+        assert(t.includes(gc(l).status[line]), `${l} ${status}: no line in ${t}`);
+        const actions = buttons(html).filter((b) => !/role="switch"/.test(b.tag));
+        if (action) assert(actions.length === 1 && actions[0].text === gc(l).actions[action], `${l} ${status}: actions ${show(actions)}`);
+        else assert(actions.length === 0, `${l} ${status}: actions ${show(actions)}`);
+      }
+    }
+    // The spec's own words (en)
+    assert(textOf(rowHtml('en', {}, { status: 'plan' })).includes('Copying is paused on your plan.'), 'plan wording');
+    assert(textOf(rowHtml('en', {}, { status: 'otherAccount' })).includes('This is a different Google account. Copy again from scratch?'), 'other account wording');
+    assert(textOf(rowHtml('en', {}, { status: 'gone' })).includes('Create it again'), 'gone wording');
+  });
+
+  await check('the consent wait: "Approve in Google, then tap the link FamCal sends you." with an Open Google button, also on a copy that is off', async () => {
+    for (const l of LOCALES) {
+      for (const row of [{ on: false, status: 'off' as const }, { status: 'approve' as const }]) {
+        const html = rowHtml(l, { waiting: true }, row);
+        const t = textOf(html);
+        assert(t.includes(gc(l).status.waiting), `${l} ${row.status}: ${t}`);
+        const actions = buttons(html).filter((b) => !/role="switch"/.test(b.tag));
+        assert(actions.length === 1 && actions[0].text === gc(l).actions.openGoogle, `${l} ${row.status}: ${show(actions)}`);
+      }
+    }
+    assert(textOf(rowHtml('en', { waiting: true }, { on: false, status: 'off' })).includes('Approve in Google, then tap the link FamCal sends you.'), 'spec wording');
+  });
+
+  await check('busy: the switch is disabled with aria-busy, a spinner and the busy line instead of the status; no action button while busy', async () => {
+    for (const l of LOCALES) {
+      for (const busy of ['on', 'off', 'working'] as const) {
+        const html = rowHtml(l, { busy }, { status: 'gone' });
+        const sw = switchOf(html)!;
+        assert(/\bdisabled=""/.test(sw.tag) && /aria-busy="true"/.test(sw.tag), `${l} ${busy}: switch ${sw.tag}`);
+        const t = textOf(html);
+        assert(t.includes(gc(l).busy[busy]) && !t.includes(gc(l).status.gone), `${l} ${busy}: ${t}`);
+        assert(/animate-spin/.test(html), `${l} ${busy}: no spinner`);
+        assert(buttons(html).length === 1, `${l} ${busy}: buttons ${show(buttons(html))}`);
+      }
+    }
+  });
+
+  await check('an error under the row: the code\'s message, in the language, as an alert', async () => {
+    for (const l of LOCALES) {
+      for (const code of ['failed', 'upgrade', 'notFound', 'openFailed'] as const) {
+        const html = rowHtml(l, { error: code });
+        assert(textOf(html).includes(gc(l).errors[code]) && /role="alert"/.test(html), `${l} ${code}: ${textOf(html)}`);
+      }
+    }
+  });
+
+  await check('the unlink question: spec §1\'s words with the copy calendar\'s name, Remove and Keep and Cancel, and no switch while asking', async () => {
+    const en = rowHtml('en', { asking: true });
+    assert(textOf(en).replace(/[\u2068\u2069]/g, '').includes('Delete the calendar “FamCal · Home” from Google too, including anything you added to it?'), `en ${textOf(en)}`);
+    for (const l of LOCALES) {
+      const html = rowHtml(l, { asking: true });
+      const labels = buttons(html).map((b) => b.text);
+      assert(show(labels) === show([gc(l).unlink.remove, gc(l).unlink.keep, gc(l).unlink.cancel]), `${l}: ${show(labels)}`);
+      assert(!switchOf(html), `${l}: a switch while asking`);
+      assert(textOf(html).includes('FamCal · '), `${l}: ${textOf(html)}`);
+    }
+    // A right-to-left name stays isolated inside the sentence
+    assert(/⁨בית⁩/.test(textOf(rowHtml('he', { asking: true, calendarName: 'בית' }))), 'the Hebrew name is not isolated');
+  });
+
+  await check('the non-owner line names the owner, and the notes say one way, alerts from FamCal and Hebrew dates', async () => {
+    for (const l of LOCALES) {
+      const t = textOf(render(l, createElement(NonOwnerCopyLine, { owner: 'Noa' })));
+      assert(t === gc(l).nonOwner.replace('{owner}', 'Noa'), `${l}: ${t}`);
+      const notes = textOf(render(l, createElement(GoogleCopyNotes)));
+      for (const k of ['oneWay', 'alerts', 'hebrew']) assert(notes.includes(gc(l).notes[k]), `${l}: no ${k} in ${notes}`);
+    }
+    assert(textOf(render('en', createElement(GoogleCopyNotes))).includes('Alerts come from FamCal, not from the Google copy.'), 'spec wording');
+    assert(textOf(render('en', createElement(NonOwnerCopyLine, { owner: 'Noa' }))) === 'Only Noa can copy this one to Google.', 'spec wording');
+  });
+
+  // ---- Copy and CSS ----
+
+  const everything = (l: Locale) => {
+    const statuses: CopyRow['status'][] = ['off', 'copying', 'copied', 'approve', 'reconnect', 'plan', 'gone', 'otherAccount', 'error'];
+    return [
+      ...statuses.map((status) => rowHtml(l, {}, { status, on: status !== 'off', copied: 3, total: 9, unsupported: 2 })),
+      rowHtml(l, { waiting: true }), rowHtml(l, { asking: true }), rowHtml(l, { busy: 'on' }), rowHtml(l, { error: 'failed' }),
+      render(l, createElement(NonOwnerCopyLine, { owner: 'Noa' })), render(l, createElement(GoogleCopyNotes)),
+    ].join('\n');
+  };
+
+  await check('copy: no raw key, no ICU leftovers, no emoji, in every language; Hebrew and Russian are their own text, not English', async () => {
+    for (const l of LOCALES) {
+      const t = textOf(everything(l));
+      assert(!/googleCopy\.|\{|\}|\bundefined\b/.test(t), `${l}: raw text in ${t}`);
+      assert(!EMOJI.test(t), `${l}: an emoji in ${t}`);
+      if (l !== 'en') assert(!t.includes(gc('en').notes.oneWay) && !t.includes(gc('en').status.waiting), `${l}: English text in ${t}`);
+    }
+    // Hebrew: gender-neutral (no masculine-only second person); Russian: the formal вы
+    const he = textOf(everything('he'));
+    // ("את" alone is also the object marker, so only "אתה" is checked.)
+    assert(!/(^|\s)(אתה|שלך|תאשר|תלחץ|לחץ|הקש)(?=[\s,.?]|$)/.test(he), `he: a gendered form in ${he}`);
+    const ru = Object.values(gc('ru')).flatMap((v) => (typeof v === 'string' ? [v] : Object.values(v))).join(' ');
+    assert(!/(^|\s)(ты|тебе|твой|твои|твоя|нажми|подтверди)(?=[\s,.?]|$)/iu.test(ru) && /вы|ваш/iu.test(ru), `ru: not formal: ${ru}`);
+  });
+
+  await check('CSS rules: every button is a 44 px tap target; no hover-only styling; logical properties only; no text under 12 px; icons aria-hidden', async () => {
+    const html = everything('en');
+    for (const b of buttons(html)) assert(/\bmin-h-11\b/.test(b.tag) && (!/role="switch"/.test(b.tag) || /\bmin-w-11\b/.test(b.tag)), `tap target ${b.tag}`);
+    const classes = [...html.matchAll(/class="([^"]*)"/g)].flatMap((m) => m[1].split(/\s+/));
+    const bad = classes.filter((c) => /^(hover:|group-hover:)/.test(c) || /^-?(ml|mr|pl|pr)-/.test(c) || /^(left|right)-/.test(c) || /^text-(left|right)$/.test(c) || /^text-\[(\d|10|11)px\]$/.test(c) || /^text-(2xs|\[0\.[0-6])/.test(c));
+    assert(bad.length === 0, `classes ${show([...new Set(bad)])}`);
+    const svgs = [...html.matchAll(/<svg\b[^>]*>/g)].map((m) => m[0]);
+    assert(svgs.length > 0 && svgs.every((s) => /aria-hidden="true"/.test(s)), `icons ${show(svgs.filter((s) => !/aria-hidden="true"/.test(s)))}`);
+  });
+
+  // ---- The client helpers ----
+
+  type Call = { url: string; method: string; headers: Record<string, string>; body: Row | null };
+  let calls: Call[] = [];
+  let answer: (c: Call) => { status: number; body: unknown } | 'throw' = () => ({ status: 200, body: {} });
+  (globalThis as Row).window = { Telegram: { WebApp: { initData: 'signed-init-data' } }, location: { hash: '' } };
+  globalThis.fetch = (async (input: unknown, init: RequestInit = {}) => {
+    const c: Call = {
+      url: String(input), method: init.method ?? 'GET', headers: Object.fromEntries(new Headers(init.headers).entries()),
+      body: typeof init.body === 'string' ? JSON.parse(init.body) : null,
+    };
+    calls.push(c);
+    const a = answer(c);
+    if (a === 'throw') throw new TypeError('Failed to fetch');
+    return new Response(JSON.stringify(a.body), { status: a.status, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+
+  await check('client: loadCopies GETs with the initData header (never in the URL) and returns the view; a failure throws', async () => {
+    calls = [];
+    answer = () => ({ status: 200, body: { shown: true, ownerName: 'Noa', rows: [baseRow()] } });
+    const view = await loadCopies(77);
+    assert(view.shown && view.rows.length === 1, `view ${show(view)}`);
+    assert(calls[0].url === '/api/google-sync?user_id=77' && calls[0].method === 'GET', `call ${show(calls[0])}`);
+    assert(calls[0].headers['x-telegram-init-data'] === 'signed-init-data' && !calls[0].url.includes('signed'), `headers ${show(calls[0])}`);
+    answer = () => ({ status: 500, body: { error: 'failed' } });
+    let threw = false;
+    try { await loadCopies(77); } catch { threw = true; }
+    assert(threw, 'a 500 did not throw');
+  });
+
+  await check('client: startCopy POSTs enable; on, consent with its URL, or an error code (upgrade, notFound, failed; a network failure is failed)', async () => {
+    calls = [];
+    answer = () => ({ status: 200, body: { status: 'created' } });
+    assert(show(await startCopy(77, 'cal-1')) === show({ kind: 'on' }), 'on');
+    assert(calls[0].method === 'POST' && show(calls[0].body) === show({ action: 'enable', nativeCalendarId: 'cal-1' }), `body ${show(calls[0])}`);
+    assert(calls[0].headers['x-telegram-init-data'] === 'signed-init-data', 'no initData header');
+    answer = () => ({ status: 200, body: { status: 'consent', oauthUrl: 'https://accounts.google.com/o/oauth2/v2/auth?x=1', serverTime: 1 } });
+    assert(show(await startCopy(77, 'cal-1')) === show({ kind: 'consent', oauthUrl: 'https://accounts.google.com/o/oauth2/v2/auth?x=1' }), 'consent');
+    answer = () => ({ status: 200, body: { status: 'consent', oauthUrl: 'javascript:alert(1)' } });
+    assert(show(await startCopy(77, 'cal-1')) === show({ kind: 'error', code: 'failed' }), 'a consent URL that is not Google\'s');
+    for (const [status, error, code] of [[403, 'upgrade_required', 'upgrade'], [404, 'not_found', 'notFound'], [500, 'failed', 'failed'], [429, 'Too many', 'failed']] as const) {
+      answer = () => ({ status, body: { error } });
+      assert(show(await startCopy(77, 'cal-1')) === show({ kind: 'error', code }), `${status}`);
+    }
+    answer = () => 'throw';
+    assert(show(await startCopy(77, 'cal-1')) === show({ kind: 'error', code: 'failed' }), 'network');
+  });
+
+  await check('client: stopCopy DELETEs with the choice; recreateCopy POSTs the link; the calendar delete carries googleCopy only when asked', async () => {
+    calls = [];
+    answer = () => ({ status: 200, body: { status: 'off' } });
+    assert(show(await stopCopy(77, 'cal-1', 'remove')) === show({ kind: 'ok' }), 'stop');
+    assert(calls[0].method === 'DELETE' && show(calls[0].body) === show({ nativeCalendarId: 'cal-1', googleCopy: 'remove' }), `stop ${show(calls[0])}`);
+    answer = () => ({ status: 200, body: { status: 'recreated' } });
+    assert(show(await recreateCopy(77, 'link-1')) === show({ kind: 'ok' }), 'recreate');
+    assert(show(calls[1].body) === show({ action: 'recreate', linkId: 'link-1' }), `recreate ${show(calls[1])}`);
+    answer = () => ({ status: 404, body: { error: 'not_found' } });
+    assert(show(await stopCopy(77, 'cal-1', 'keep')) === show({ kind: 'error', code: 'notFound' }), 'stop 404');
+    assert(show(deleteCalendarBody('keep', 'init')) === show({ initData: 'init', googleCopy: 'keep' }), 'delete keep');
+    assert(show(deleteCalendarBody(null, 'init')) === show({ initData: 'init' }), 'delete with no copy');
+  });
+
+  await check('client: what each status offers, and polling while a copy is being made or a consent waits', async () => {
+    const want: Record<CopyRow['status'], string | null> = {
+      off: null, copying: null, copied: null, plan: null, error: null, approve: 'consent', reconnect: 'reconnect', gone: 'recreate', otherAccount: 'recreate',
+    };
+    for (const [status, action] of Object.entries(want)) assert(copyAction(status as CopyRow['status']) === action, `${status}: ${copyAction(status as CopyRow['status'])}`);
+    assert(needsPolling([baseRow({ status: 'copying' })], 0) && needsPolling([baseRow()], 1) && !needsPolling([baseRow(), baseRow({ status: 'gone' })], 0), 'polling');
+  });
+
+  let failed = 0;
+  for (const r of results) {
+    console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);
+    if (!r.ok) failed++;
+  }
+  console.log(`\n${results.length - failed}/${results.length} passed (process TZ=${process.env.TZ ?? 'unset'})`);
+  process.exit(failed ? 1 : 0);
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

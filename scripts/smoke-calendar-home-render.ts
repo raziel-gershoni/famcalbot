@@ -77,6 +77,13 @@
 // item sheet following the store after a write; Cancel, the discard question and the
 // BackButton; copy in en, he and ru, RTL; the form kit's CSS.
 //
+// The calendars page's Copy to Google rows (google-sync S4; #119-#125), in real React on the
+// same fake DOM with /api/google-sync served by a fake: the rows after the GET, the non-owner
+// line and the notes; nothing when the copies don't apply; the load error; turning on (busy,
+// the consent wait, Open Google through openLink, or on at once); turning off with Remove/Keep;
+// a calendar delete asking first; each state's action; progress. The rows' copy and CSS are
+// in smoke-calendars-google-copy.ts.
+//
 // React must log no warning. No network, no DB, no Redis.
 //
 // Run with the fake env from the task brief (no dotenv), under three clocks:
@@ -92,6 +99,7 @@ import { FORM_CSS } from '../app/[locale]/dashboard/form-kit';
 import { SendSheet } from '../app/[locale]/dashboard/SendSheet';
 import { BottomSheet } from '../app/[locale]/dashboard/BottomSheet';
 import SelectCalendarsClient from '../app/[locale]/select-calendars/SelectCalendarsClient';
+import CalendarsClient from '../app/[locale]/calendars/CalendarsClient';
 
 /** BottomSheet with its children passed as createElement arguments (the lint rule forbids the prop). */
 const SheetProbe = BottomSheet as unknown as (props: Omit<ComponentProps<typeof BottomSheet>, 'children'>) => ReactElement;
@@ -6970,6 +6978,209 @@ async function main() {
 
   await check('#118 React logged no warning in #113-#117 (keys, nesting, attributes, act)', () => {
     assert(reactWarnings.length === warnedBeforeMove, `React warned: ${show(reactWarnings.slice(warnedBeforeMove, warnedBeforeMove + 3))}`);
+  });
+
+  // ---- The calendars page's Copy to Google rows (google-sync S4), in real React ----
+
+  const warnedBeforeCopies = reactWarnings.length;
+  const cal = (rawId: string, name: string, isOwner: boolean) => ({
+    rawId, name, color: '#039BE5', labels: [], privacy: 'SHARED_EDITOR' as const, ownerUserId: isOwner ? 5 : 6, isOwner,
+    personName: null, personEnglishName: null, personGender: null, rules: [], createdAt: '2026-01-01T00:00:00.000Z',
+  });
+  const CALS = [cal('own', 'Home', true), cal('plain', 'Work', true), cal('noa-cal', 'Noa family', false)];
+  const copyRow = (calendarId: string, o: Row = {}) => ({ calendarId, linkId: `link-${calendarId}`, on: true, status: 'copied', copied: 0, total: 0, unsupported: 0, ...o });
+  const VIEW = { shown: true, ownerName: 'Noa', rows: [copyRow('own'), copyRow('plain', { on: false, status: 'off', linkId: null })] };
+  const gcm = (locale: Locale) => (messages[locale] as Row).googleCopy as Row & { status: Row; actions: Row; unlink: Row; errors: Row; notes: Row; busy: Row };
+  const cardOf = (m: Mounted, name: string) => {
+    const card = elements(m.container).filter((e) => e.className === 'bg-white rounded-2xl shadow p-4' && e.textContent.includes(name))[0];
+    assert(card, `no card for ${name}`);
+    return card;
+  };
+  const switchIn = (node: FakeNode) => byRole(node, 'switch')[0];
+  const buttonIn = (node: FakeNode, text: string) => {
+    const b = elements(node).filter((e) => e.localName === 'button' && textOf(htmlOf(e)) === text)[0];
+    assert(b, `no button ${show(text)} in ${textOf(htmlOf(node)).slice(0, 300)}`);
+    return b;
+  };
+  const copyCalls = () => fetchCalls.filter((c) => c.path === '/api/google-sync');
+  let serveCopies: (c: FetchCall) => FetchAnswer | Promise<FetchAnswer> = () => ok200(VIEW);
+  const mountCalendars = async (locale: Locale = 'en') => {
+    resetHome();
+    const tg = fakeTelegram();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    const assigned: string[] = [];
+    fakeWindow.location = { hash: '', reload: noop, assign: (u: string) => assigned.push(u) };
+    (globalThis as Row).confirm = () => true;
+    answerFetch = (c) => (c.path === '/api/google-sync' ? serveCopies(c) : c.path === '/api/native-calendars' ? ok200({ calendars: CALS }) : ok200({ success: true }));
+    const m = mount(inApp(locale, createElement(CalendarsClient, { userId: 5, locale, initialCalendars: CALS })));
+    await settle();
+    return { m, tg, assigned };
+  };
+
+  await check('#119 calendars page: after its GET each own card has the Copy to Google row (on and copied; off), the partner\'s card says only its owner can copy it, and the notes show once; en, he (RTL) and ru; the GET carries initData in the header only', async () => {
+    serveCopies = () => ok200(VIEW);
+    for (const locale of ['en', 'he', 'ru'] as Locale[]) {
+      const { m } = await mountCalendars(locale);
+      try {
+        const g = gcm(locale);
+        const get = copyCalls()[0];
+        assert(get && get.method === 'GET' && get.url === '/api/google-sync?user_id=5' && Object.keys(get.headers).some((h) => /init-data/i.test(h)), `${locale}: GET ${show(get)}`);
+        const home = cardOf(m, 'Home');
+        assert(switchIn(home).getAttribute('aria-checked') === 'true', `${locale}: Home's switch`);
+        assertHas(textOf(htmlOf(home)), [String(g.title), String(g.status.copied)], `${locale}: Home`);
+        assert(switchIn(cardOf(m, 'Work')).getAttribute('aria-checked') === 'false', `${locale}: Work's switch`);
+        const noa = cardOf(m, 'Noa family');
+        assert(!switchIn(noa), `${locale}: a switch on the partner's calendar`);
+        assertHas(textOf(htmlOf(noa)), [String(g.nonOwner).replace('{owner}', 'Noa')], `${locale}: the non-owner line`);
+        const text = textOf(innerHtml(m.container));
+        assert(text.split(String(g.notes.alerts)).length === 2, `${locale}: the notes, once: ${text.slice(0, 400)}`);
+        if (locale === 'he') assert(elements(m.container).some((e) => e.getAttribute('dir') === 'rtl'), 'he: no dir="rtl"');
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('#120 calendars page: no copy rows, non-owner line or notes when the copies don\'t apply (no Google, no copy on); a failed GET shows the load error and the cards as before', async () => {
+    serveCopies = () => ok200({ shown: false, ownerName: 'Noa', rows: [] });
+    let { m } = await mountCalendars('en');
+    try {
+      assert(byRole(m.container, 'switch').length === 0, 'a switch');
+      assertLacks(textOf(innerHtml(m.container)), ['Copy to Google', 'Only Noa can copy', String(gcm('en').notes.alerts)], 'not shown');
+      assertHas(textOf(innerHtml(m.container)), ['Home', 'Work', 'Noa family'], 'the cards');
+    } finally {
+      m.unmount();
+    }
+    serveCopies = () => ({ status: 500, body: { error: 'failed' } });
+    ({ m } = await mountCalendars('en'));
+    try {
+      assertHas(textOf(innerHtml(m.container)), [String(gcm('en').errors.load), 'Home'], 'the load error');
+      assert(byRole(m.container, 'switch').length === 0, 'a switch after a failed GET');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#121 calendars page: turning a copy on without the permission shows the busy line, then "Approve in Google, then tap the link FamCal sends you." with Open Google, which goes through Telegram\'s openLink; with the permission it turns on and asks the rows again', async () => {
+    let release: (a: FetchAnswer) => void = noop;
+    serveCopies = (c) => (c.method === 'POST' ? new Promise<FetchAnswer>((r) => { release = r; }) : ok200(VIEW));
+    const { m, tg } = await mountCalendars('en');
+    try {
+      m.click(switchIn(cardOf(m, 'Work')));
+      await settle();
+      const post = copyCalls().find((c) => c.method === 'POST');
+      assert(post && show(post.body) === show({ action: 'enable', nativeCalendarId: 'plain' }), `POST ${show(post)}`);
+      const work = () => cardOf(m, 'Work');
+      assert(switchIn(work()).getAttribute('aria-busy') === 'true' && switchIn(work()).hasAttribute('disabled'), 'not busy');
+      assertHas(textOf(htmlOf(work())), ['Turning on…'], 'the busy line');
+      release(ok200({ status: 'consent', oauthUrl: 'https://accounts.google.com/o/oauth2/v2/auth?state=u1_x', serverTime: 1 }));
+      await settle();
+      assertHas(textOf(htmlOf(work())), ['Approve in Google, then tap the link FamCal sends you.'], 'the wait line');
+      m.click(buttonIn(work(), 'Open Google'));
+      assert(tg.calls.includes('openLink(https://accounts.google.com/o/oauth2/v2/auth?state=u1_x)'), `calls ${show(tg.calls)}`);
+    } finally {
+      m.unmount();
+    }
+    serveCopies = (c) => (c.method === 'POST' ? ok200({ status: 'created' }) : ok200(VIEW));
+    const again = await mountCalendars('en');
+    try {
+      const gets = () => copyCalls().filter((c) => c.method === 'GET').length;
+      const before = gets();
+      again.m.click(switchIn(cardOf(again.m, 'Work')));
+      await settle();
+      assert(gets() === before + 1, `the rows were not asked again: ${show(copyCalls().map((c) => c.method))}`);
+      assertLacks(textOf(htmlOf(cardOf(again.m, 'Work'))), ['Approve in Google'], 'a wait line after on');
+    } finally {
+      again.m.unmount();
+    }
+  });
+
+  await check('#122 calendars page: turning a copy off asks Remove or Keep (spec §1\'s question); Keep sends DELETE with googleCopy keep; Cancel sends nothing; an error answer shows under the row', async () => {
+    serveCopies = (c) => (c.method === 'DELETE' ? ok200({ status: 'off' }) : ok200(VIEW));
+    const { m } = await mountCalendars('en');
+    try {
+      m.click(switchIn(cardOf(m, 'Home')));
+      await settle();
+      assertHas(textOf(htmlOf(cardOf(m, 'Home'))), ['from Google too, including anything you added to it?', 'FamCal · '], 'the question');
+      m.click(buttonIn(cardOf(m, 'Home'), 'Cancel'));
+      await settle();
+      assert(!copyCalls().some((c) => c.method === 'DELETE'), 'Cancel sent a DELETE');
+      m.click(switchIn(cardOf(m, 'Home')));
+      await settle();
+      m.click(buttonIn(cardOf(m, 'Home'), 'Keep'));
+      await settle();
+      const del = copyCalls().find((c) => c.method === 'DELETE');
+      assert(del && show(del.body) === show({ nativeCalendarId: 'own', googleCopy: 'keep' }), `DELETE ${show(del)}`);
+    } finally {
+      m.unmount();
+    }
+    serveCopies = (c) => (c.method === 'DELETE' ? { status: 500, body: { error: 'failed' } } : ok200(VIEW));
+    const failed = await mountCalendars('en');
+    try {
+      failed.m.click(switchIn(cardOf(failed.m, 'Home')));
+      await settle();
+      failed.m.click(buttonIn(cardOf(failed.m, 'Home'), 'Remove'));
+      await settle();
+      assert(byRole(cardOf(failed.m, 'Home'), 'alert').some((e) => textOf(htmlOf(e)) === String(gcm('en').errors.failed)), 'no error under the row');
+    } finally {
+      failed.m.unmount();
+    }
+  });
+
+  await check('#123 calendars page: deleting a calendar whose copy is on asks Remove or Keep after the confirm and sends the choice in the calendar DELETE; a calendar with no copy on is deleted as before, with no googleCopy', async () => {
+    serveCopies = () => ok200(VIEW);
+    const { m } = await mountCalendars('en');
+    try {
+      m.click(byLabel(cardOf(m, 'Home'), 'Delete'));
+      await settle();
+      assert(!fetchCalls.some((c) => c.path === '/api/native-calendars/own'), 'deleted before the question');
+      m.click(buttonIn(cardOf(m, 'Home'), 'Remove'));
+      await settle();
+      const del = fetchCalls.find((c) => c.path === '/api/native-calendars/own' && c.method === 'DELETE');
+      assert(del && del.body?.googleCopy === 'remove', `DELETE ${show(del)}`);
+      m.click(byLabel(cardOf(m, 'Work'), 'Delete'));
+      await settle();
+      const plain = fetchCalls.find((c) => c.path === '/api/native-calendars/plain' && c.method === 'DELETE');
+      assert(plain && !('googleCopy' in (plain.body ?? {})), `plain DELETE ${show(plain)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#124 calendars page: each state\'s action: Approve in Google starts the consent, Reconnect Google opens /refresh-token, Create it again and Copy again send recreate with the link; progress and "can\'t be copied" show', async () => {
+    serveCopies = (c) => (c.method === 'POST' ? ok200(c.body?.action === 'recreate' ? { status: 'recreated' } : { status: 'consent', oauthUrl: 'https://accounts.google.com/x' }) : ok200({
+      shown: true, ownerName: null, rows: [copyRow('own', { status: 'reconnect' }), copyRow('plain', { status: 'gone' })],
+    }));
+    const { m, assigned } = await mountCalendars('en');
+    try {
+      m.click(buttonIn(cardOf(m, 'Home'), 'Reconnect Google'));
+      assert(show(assigned) === show(['/refresh-token?user_id=5']), `assigned ${show(assigned)}`);
+      m.click(buttonIn(cardOf(m, 'Work'), 'Create it again'));
+      await settle();
+      assert(copyCalls().some((c) => c.method === 'POST' && show(c.body) === show({ action: 'recreate', linkId: 'link-plain' })), `recreate ${show(copyCalls())}`);
+    } finally {
+      m.unmount();
+    }
+    serveCopies = (c) => (c.method === 'POST' ? ok200({ status: 'consent', oauthUrl: 'https://accounts.google.com/x' }) : ok200({
+      shown: true, ownerName: null, rows: [copyRow('own', { status: 'approve' }), copyRow('plain', { status: 'copying', copied: 340, total: 1200, unsupported: 2 })],
+    }));
+    const b = await mountCalendars('en');
+    try {
+      assertHas(textOf(htmlOf(cardOf(b.m, 'Work'))), ['Copying… 340 of 1,200', '2 events can\'t be copied'], 'progress');
+      b.m.click(buttonIn(cardOf(b.m, 'Home'), 'Approve in Google'));
+      await settle();
+      assert(copyCalls().some((c) => c.method === 'POST' && show(c.body) === show({ action: 'enable', nativeCalendarId: 'own' })), 'no consent request');
+      assertHas(textOf(htmlOf(cardOf(b.m, 'Home'))), ['Open Google'], 'the wait');
+    } finally {
+      b.m.unmount();
+    }
+  });
+
+  await check('#125 React logged no warning on the calendars page (#119-#124); the page\'s own logs are only the failures #120 and #122 caused', () => {
+    const lines = reactWarnings.slice(warnedBeforeCopies);
+    const own = lines.filter((w) => /^\[(calendars|google-copy)\]/.test(w));
+    assert(lines.length === own.length, `React warned: ${show(lines.filter((w) => !own.includes(w)).slice(0, 3))}`);
+    assert(show(own) === show(['[calendars] loading the Google copies failed: Error: google-sync GET answered 500', '[google-copy] DELETE off answered 500']), `logs ${show(own)}`);
   });
 
   let failed = 0;

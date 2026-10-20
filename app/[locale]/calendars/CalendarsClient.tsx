@@ -7,12 +7,27 @@
 // Voice CRUD remains the primary creation surface; this page is for the
 // long tail of organization (renaming a calendar, moving a label, hiding
 // one as private) where typed UI is faster than dictating.
+//
+// Copy to Google (google-sync spec §1): each own calendar's card carries a "Copy to Google"
+// row (GoogleCopyRow) once /api/google-sync says the copies apply (Google connected, or a
+// copy on); a partner's calendar says only its owner can copy it. The rows refresh while a
+// copy is being made or a consent waits, and when the page comes back to the foreground.
 
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { Lock, Eye, Edit3, Trash2, Plus, Check } from 'lucide-react';
 import { initDataHeaders, readInitData } from '@/src/lib/read-init-data';
-import { useTelegramBackButton } from '@/src/lib/telegram-ui';
+import { openExternalLink, useTelegramBackButton } from '@/src/lib/telegram-ui';
+import type { CopiesView, CopyRow } from '@/src/services/google-sync/view';
+import type { UnlinkChoice } from '@/src/services/google-sync/marks';
+import { GoogleCopyNotes, GoogleCopyRow, NonOwnerCopyLine } from './GoogleCopyRow';
+import {
+  copyAction, deleteCalendarBody, loadCopies, needsPolling, recreateCopy, startCopy, stopCopy, type CopyErrorCode,
+} from './google-copy-client';
+
+/** How often the copy rows are asked again while a copy is being made or a consent waits. */
+const COPY_POLL_MS = 10_000;
 
 interface Calendar {
   rawId: string;
@@ -152,6 +167,154 @@ export default function CalendarsClient(props: Props) {
   const owned = calendars.filter((c) => c.isOwner);
   const shared = calendars.filter((c) => !c.isOwner);
 
+  // ---- Copy to Google ----
+  const tc = useTranslations('googleCopy');
+  const [copies, setCopies] = useState<CopiesView | null>(null);
+  const [copyLoadFailed, setCopyLoadFailed] = useState(false);
+  const [copyBusy, setCopyBusy] = useState<Record<string, 'on' | 'off' | 'working'>>({});
+  /** Calendars whose consent was started: Google's URL, opened by the row's Open Google tap. */
+  const [waiting, setWaiting] = useState<Record<string, string>>({});
+  const [asking, setAsking] = useState<{ calendarId: string; mode: 'off' | 'delete' } | null>(null);
+  const [copyErrors, setCopyErrors] = useState<Record<string, CopyErrorCode>>({});
+  const loading = useRef(false);
+
+  const copyOf = (calendarId: string): CopyRow | undefined => copies?.rows.find((r) => r.calendarId === calendarId);
+  const setBusyFor = (calendarId: string, value: 'on' | 'off' | 'working' | null) =>
+    setCopyBusy((b) => {
+      const next = { ...b };
+      if (value) next[calendarId] = value;
+      else delete next[calendarId];
+      return next;
+    });
+  const setErrorFor = (calendarId: string, code: CopyErrorCode | null) =>
+    setCopyErrors((e) => {
+      const next = { ...e };
+      if (code) next[calendarId] = code;
+      else delete next[calendarId];
+      return next;
+    });
+
+  const refreshCopies = useCallback(async () => {
+    if (loading.current) return;
+    loading.current = true;
+    try {
+      const view = await loadCopies(userId);
+      setCopies(view);
+      setCopyLoadFailed(false);
+      // A consent that landed (the copy is on and has its permission) stops waiting.
+      setWaiting((w) => Object.fromEntries(Object.entries(w).filter(([id]) => {
+        const row = view.rows.find((r) => r.calendarId === id);
+        return row !== undefined && (!row.on || row.status === 'approve');
+      })));
+    } catch (err) {
+      console.error('[calendars] loading the Google copies failed:', err);
+      setCopyLoadFailed(true);
+    } finally {
+      loading.current = false;
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    void refreshCopies();
+    // Back from Google's consent or the bot's link: the copy may be on now.
+    const onVisible = () => { if (!document.hidden) void refreshCopies(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [refreshCopies]);
+
+  const polling = needsPolling(copies?.rows ?? [], Object.keys(waiting).length);
+  useEffect(() => {
+    if (!polling) return;
+    const timer = setInterval(() => { void refreshCopies(); }, COPY_POLL_MS);
+    return () => clearInterval(timer);
+  }, [polling, refreshCopies]);
+
+  /** Turn a copy on, or start Google's consent when the permission is missing. */
+  const turnOn = async (calendarId: string, busyAs: 'on' | 'working') => {
+    setBusyFor(calendarId, busyAs);
+    setErrorFor(calendarId, null);
+    try {
+      const result = await startCopy(userId, calendarId);
+      if (result.kind === 'consent') setWaiting((w) => ({ ...w, [calendarId]: result.oauthUrl }));
+      else if (result.kind === 'error') setErrorFor(calendarId, result.code);
+      else await refreshCopies();
+    } finally {
+      setBusyFor(calendarId, null);
+    }
+  };
+
+  const copyActionFor = async (row: CopyRow) => {
+    const action = copyAction(row.status);
+    if (action === 'consent') return turnOn(row.calendarId, 'working');
+    if (action === 'reconnect') {
+      // /refresh-token gives Google's token back; it can't grant calendar.app.created (that is 'approve').
+      window.location.assign(`/refresh-token?user_id=${userId}`);
+      return;
+    }
+    if (action === 'recreate' && row.linkId) {
+      setBusyFor(row.calendarId, 'working');
+      setErrorFor(row.calendarId, null);
+      try {
+        const result = await recreateCopy(userId, row.linkId);
+        if (result.kind === 'error') setErrorFor(row.calendarId, result.code);
+        else await refreshCopies();
+      } finally {
+        setBusyFor(row.calendarId, null);
+      }
+    }
+  };
+
+  const openGoogle = (calendarId: string) => {
+    const url = waiting[calendarId];
+    if (!url || !openExternalLink(url)) setErrorFor(calendarId, 'openFailed');
+  };
+
+  /** The answer to "Delete the calendar … from Google too?": a turn-off, or the calendar's delete. */
+  const chooseCopy = async (choice: UnlinkChoice) => {
+    if (!asking) return;
+    const { calendarId, mode } = asking;
+    if (mode === 'delete') {
+      setBusyFor(calendarId, 'working');
+      try {
+        await deleteCalendar(calendarId, choice);
+      } finally {
+        setBusyFor(calendarId, null);
+        setAsking(null);
+      }
+      return;
+    }
+    setBusyFor(calendarId, 'off');
+    setErrorFor(calendarId, null);
+    try {
+      const result = await stopCopy(userId, calendarId, choice);
+      if (result.kind === 'error') setErrorFor(calendarId, result.code);
+      else await refreshCopies();
+    } finally {
+      setBusyFor(calendarId, null);
+      setAsking(null);
+    }
+  };
+
+  const copyRowFor = (c: Calendar): ReactNode => {
+    const row = copyOf(c.rawId);
+    if (!copies?.shown || !row) return null;
+    return (
+      <GoogleCopyRow
+        calendarName={c.name}
+        row={row}
+        busy={copyBusy[c.rawId] ?? null}
+        waiting={Boolean(waiting[c.rawId])}
+        asking={asking?.calendarId === c.rawId}
+        error={copyErrors[c.rawId] ?? null}
+        onToggle={() => (row.on ? setAsking({ calendarId: c.rawId, mode: 'off' }) : turnOn(c.rawId, 'on'))}
+        onAction={() => copyActionFor(row)}
+        onOpenGoogle={() => openGoogle(c.rawId)}
+        onChoose={chooseCopy}
+        onCancelAsk={() => setAsking(null)}
+      />
+    );
+  };
+
   const reload = async () => {
     const res = await fetch(`/api/native-calendars?user_id=${userId}`, { headers: initDataHeaders() });
     if (res.ok) {
@@ -203,15 +366,16 @@ export default function CalendarsClient(props: Props) {
     }
   };
 
-  const remove = async (rawId: string) => {
-    if (!confirm(t.deleteConfirm)) return;
+  // A calendar whose copy is on asks what happens to its Google calendar (spec §1) before
+  // the delete; googleCopy goes in the body only then.
+  async function deleteCalendar(rawId: string, googleCopy: UnlinkChoice | null) {
     setBusy(rawId);
     setError('');
     try {
       const res = await fetch(`/api/native-calendars/${rawId}?user_id=${userId}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initData: getInitData() }),
+        body: JSON.stringify(deleteCalendarBody(googleCopy, getInitData())),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -219,9 +383,19 @@ export default function CalendarsClient(props: Props) {
         return;
       }
       await reload();
+      if (googleCopy) await refreshCopies();
     } finally {
       setBusy(null);
     }
+  }
+
+  const remove = async (rawId: string) => {
+    if (!confirm(t.deleteConfirm)) return;
+    if (copyOf(rawId)?.on) {
+      setAsking({ calendarId: rawId, mode: 'delete' });
+      return;
+    }
+    await deleteCalendar(rawId, null);
   };
 
   return (
@@ -231,6 +405,9 @@ export default function CalendarsClient(props: Props) {
 
         {error && (
           <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 mb-4 text-rose-700 text-sm">{error}</div>
+        )}
+        {copyLoadFailed && (
+          <div role="alert" className="bg-rose-50 border border-rose-200 rounded-xl p-3 mb-4 text-rose-700 text-sm">{tc('errors.load')}</div>
         )}
 
         {/* Owned calendars */}
@@ -252,6 +429,7 @@ export default function CalendarsClient(props: Props) {
                   setEditingId(null);
                 }}
                 onDelete={() => remove(c.rawId)}
+                extra={copyRowFor(c)}
               />
             ))}
 
@@ -290,6 +468,7 @@ export default function CalendarsClient(props: Props) {
                 <Plus size={18} /> {t.addCalendar}
               </button>
             )}
+            {copies?.shown && copies.rows.length > 0 && <GoogleCopyNotes />}
           </div>
         </div>
 
@@ -310,6 +489,7 @@ export default function CalendarsClient(props: Props) {
                   onCancelEdit={() => {}}
                   onSave={async () => {}}
                   onDelete={() => {}}
+                  extra={copies?.shown && copies.ownerName ? <NonOwnerCopyLine owner={copies.ownerName} /> : null}
                 />
               ))}
             </div>
@@ -332,10 +512,12 @@ interface CardProps {
   onCancelEdit: () => void;
   onSave: (body: Record<string, unknown>) => Promise<void>;
   onDelete: () => void;
+  /** Under the card's row: the Copy to Google row, or the non-owner line. */
+  extra?: ReactNode;
 }
 
 function CalendarCard(props: CardProps) {
-  const { calendar: c, t, editing, busy, readOnly, onStartEdit, onCancelEdit, onSave, onDelete } = props;
+  const { calendar: c, t, editing, busy, readOnly, onStartEdit, onCancelEdit, onSave, onDelete, extra } = props;
   const [name, setName] = useState(c.name);
   const [color, setColor] = useState(c.color);
   const [labels, setLabels] = useState<string[]>(c.labels);
@@ -421,37 +603,40 @@ function CalendarCard(props: CardProps) {
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow p-4 flex items-center gap-3">
-      <div className="w-3 h-12 rounded-full" style={{ backgroundColor: c.color }} aria-hidden="true" />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <h3 className="font-semibold text-gray-800 truncate">{c.name}</h3>
+    <div className="bg-white rounded-2xl shadow p-4">
+      <div className="flex items-center gap-3">
+        <div className="w-3 h-12 rounded-full" style={{ backgroundColor: c.color }} aria-hidden="true" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-gray-800 truncate">{c.name}</h3>
+          </div>
+          <div className="text-xs text-gray-500 flex items-center gap-1.5 mt-0.5">
+            <PrivacyIcon size={12} /> {privacyLabel}
+            {c.labels.length > 0 && <span className="ml-1">· {c.labels.join(' · ')}</span>}
+          </div>
         </div>
-        <div className="text-xs text-gray-500 flex items-center gap-1.5 mt-0.5">
-          <PrivacyIcon size={12} /> {privacyLabel}
-          {c.labels.length > 0 && <span className="ml-1">· {c.labels.join(' · ')}</span>}
-        </div>
+        {!readOnly && (
+          <div className="flex gap-1">
+            <button
+              onClick={onStartEdit}
+              disabled={busy}
+              className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+              aria-label={t.rename}
+            >
+              <Edit3 size={18} />
+            </button>
+            <button
+              onClick={onDelete}
+              disabled={busy}
+              className="p-2 rounded-lg text-gray-500 hover:bg-rose-50 hover:text-rose-600"
+              aria-label={t.delete}
+            >
+              {busy ? <Check size={18} /> : <Trash2 size={18} />}
+            </button>
+          </div>
+        )}
       </div>
-      {!readOnly && (
-        <div className="flex gap-1">
-          <button
-            onClick={onStartEdit}
-            disabled={busy}
-            className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700"
-            aria-label={t.rename}
-          >
-            <Edit3 size={18} />
-          </button>
-          <button
-            onClick={onDelete}
-            disabled={busy}
-            className="p-2 rounded-lg text-gray-500 hover:bg-rose-50 hover:text-rose-600"
-            aria-label={t.delete}
-          >
-            {busy ? <Check size={18} /> : <Trash2 size={18} />}
-          </button>
-        </div>
-      )}
+      {extra}
     </div>
   );
 }

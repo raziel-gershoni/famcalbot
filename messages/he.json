@@ -734,7 +734,7 @@
       },
       "consent": {
         "started": "ההעתקה ל-Google התחילה. היומן יופיע ביומן Google תוך כמה דקות, ובמסך היומנים אפשר לראות כמה כבר הועתק.",
-        "notOwner": "Google אישר, אבל היומן הזה כבר לא ברשימת היומנים שלך, אז לא הועתק כלום.",
+        "notOwner": "Google אישר, אבל היומן הזה כבר לא שייך לחשבון הזה, אז לא הועתק כלום.",
         "button": "למסך היומנים"
       }
     },
@@ -1446,6 +1446,54 @@
       "yomHaaliyahSchoolObservance": "שמירת בית הספר ליום העליה",
       "yomHazikaron": "יום הזכרון",
       "yomKippur": "יום כפור"
+    }
+  },
+  "googleCopy": {
+    "title": "העתקה ל-Google",
+    "switchLabel": "העתקת „{name}” ליומן Google",
+    "notes": {
+      "oneWay": "ההעתקה היא בכיוון אחד: שינויים שנעשים ב-Google יוחלפו בשינוי הבא ב-FamCal.",
+      "alerts": "ההתראות מגיעות מ-FamCal, לא מההעתק ב-Google.",
+      "hebrew": "אירועים שחוזרים לפי התאריך העברי יופיעו ב-Google כתאריכים בודדים ל-10 השנים העבריות הבאות."
+    },
+    "status": {
+      "copying": "מעתיקים…",
+      "copyingCount": "מעתיקים… {copied, number} מתוך {total, number}",
+      "copied": "מועתק ל-Google",
+      "unsupported": "{count, plural, one {אירוע אחד לא ניתן להעתקה} two {שני אירועים לא ניתנים להעתקה} other {# אירועים לא ניתנים להעתקה}}",
+      "approve": "כדי להמשיך להעתיק, צריך אישור ב-Google.",
+      "waiting": "צריך לאשר ב-Google, ואז להקיש על הקישור ש-FamCal שולח.",
+      "reconnect": "צריך חיבור מחדש: כדי להמשיך להעתיק, יש לחבר שוב את Google.",
+      "plan": "ההעתקה מושהית במסלול הנוכחי.",
+      "gone": "היומן ב-Google נמחק.",
+      "otherAccount": "זה חשבון Google אחר. להעתיק הכול מחדש?",
+      "error": "ההעתקה נעצרה בגלל שגיאה."
+    },
+    "actions": {
+      "approve": "אישור ב-Google",
+      "openGoogle": "פתיחת Google",
+      "reconnect": "חיבור מחדש ל-Google",
+      "recreate": "יצירה מחדש",
+      "copyAgain": "העתקה מחדש"
+    },
+    "busy": {
+      "on": "מפעילים…",
+      "off": "מכבים…",
+      "working": "רק רגע…"
+    },
+    "unlink": {
+      "question": "למחוק גם מ-Google את היומן „FamCal · {name}”, כולל כל מה שנוסף אליו שם?",
+      "remove": "מחיקה",
+      "keep": "השארה",
+      "cancel": "ביטול"
+    },
+    "nonOwner": "את היומן הזה אפשר להעתיק ל-Google רק מהחשבון של {owner}.",
+    "errors": {
+      "failed": "ההעתקה ל-Google לא השתנתה. אפשר לנסות שוב.",
+      "load": "לא הצלחנו לטעון את מצב ההעתקה ל-Google. אפשר לפתוח את המסך מחדש.",
+      "upgrade": "העתקה ל-Google כלולה במסלול Pro.",
+      "notFound": "היומן הזה כבר לא שייך לחשבון הזה.",
+      "openFailed": "Google לא נפתח. אפשר לנסות שוב."
     }
   }
 }
