@@ -46,7 +46,8 @@ import { PersonChip, ReminderIcon, useItemTitle } from './ItemRow';
 const HEX_COLOUR = /^#[0-9a-f]{3,8}$/i;
 
 /** Why a tap changed nothing (calendarHome.sheet.actionNotes). */
-export type SheetNote = 'changed' | 'alreadyDone' | 'notYours' | 'failed';
+/** movedLeft: a cross-source move made its copy, but the original is still in a calendar (noteValues.calendar). */
+export type SheetNote = 'changed' | 'alreadyDone' | 'notYours' | 'failed' | 'movedLeft';
 
 /** What the container gives the sheet for editing: the viewer's rights on this item, from its edit info. */
 export interface SheetEditing {
@@ -66,6 +67,8 @@ export interface SheetActions {
   /** The action in flight on this item, which shows the spinner. */
   pending: ReminderActionName | null;
   note: SheetNote | null;
+  /** The note's values: the calendar of movedLeft. */
+  noteValues?: { calendar: string };
   /** The clock (ms) the reminder's state is read at: due or not yet. */
   now: number;
   onAction: (action: ReminderActionName) => void;
@@ -260,7 +263,7 @@ export function ItemSheet({ row, today, tz, onClose, actions }: ItemSheetProps) 
       {actions && canAct(item) ? <ReminderActions mark={mark} actions={actions} /> : null}
       {actions?.note ? (
         <p className="ch-sheet-note" role="status">
-          {t(`sheet.actionNotes.${actions.note}`)}
+          {t(`sheet.actionNotes.${actions.note}`, actions.noteValues)}
         </p>
       ) : null}
       {editing?.googleOnly ? <p className="ch-sheet-note">{t('sheet.googleOnly')}</p> : null}

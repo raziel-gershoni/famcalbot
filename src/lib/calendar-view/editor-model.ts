@@ -485,16 +485,29 @@ export function restatedRepeat(form: EditorForm, initial: EditorForm, info: Item
   return movesDay(form, initial, info.tz, info.series.zone) ? choice : null;
 }
 
+/**
+ * The edit moves the event to the other kind of calendar, FamCal and Google ("Google as a
+ * connection" §5): a copy there, then a delete here. It is saved on its own, and takes a
+ * whole series.
+ */
+export function crossesKinds(form: EditorForm, initial: EditorForm): boolean {
+  if (form.kind === 'reminder' || !form.calendarId || !initial.calendarId) return false;
+  return isNativeCalendar(form.calendarId) !== isNativeCalendar(initial.calendarId);
+}
+
 /** Which occurrences a Save applies to, and whether to ask (3b spec §4). */
 export type ScopePlan =
   /** Nothing to ask: this item alone (a one-off, or no series-level change). */
   | { kind: 'none' }
   /** A repeat change applies from the opened occurrence on: 'following', with no question. */
   | { kind: 'following' }
-  /** Ask, with these choices; `note` is the line the sheet adds. */
-  | { kind: 'sheet'; choices: EditScope[]; note?: 'dayMove' | 'series' }
-  /** Can't be saved as it is: a day move on a set-weekdays series cannot ride with a calendar or recipient change. */
-  | { kind: 'refuse'; note: 'dayMoveAlone' };
+  /** Ask, with these choices; `note` is the line the sheet adds ('crossKind': a move to the other kind takes the whole series). */
+  | { kind: 'sheet'; choices: EditScope[]; note?: 'dayMove' | 'series' | 'crossKind' }
+  /**
+   * Can't be saved as it is: a day move on a set-weekdays series cannot ride with a calendar or
+   * recipient change; a move to the other kind of calendar cannot ride with any other change.
+   */
+  | { kind: 'refuse'; note: 'dayMoveAlone' | 'moveAlone' };
 
 /**
  * What Save does for the form against where it started. A repeat change is always from this
@@ -505,8 +518,14 @@ export type ScopePlan =
  * move alone on a set-weekdays series whose rule reads as one of the five offers this one, or
  * this one and the ones after with that choice sent again (restatedRepeat); the line on
  * moving them all shows unless the opened occurrence is the first (then that is all of them).
+ * A move to the other kind of calendar is saved alone, and on a series asks only "All of them".
  */
 export function scopePlan(form: EditorForm, initial: EditorForm, info: ItemEditInfoResponse): ScopePlan {
+  if (crossesKinds(form, initial)) {
+    const changed = Object.keys(updateBody(form, initial, '', 'all', info)?.changes ?? {});
+    if (changed.some((field) => field !== 'calendarId')) return { kind: 'refuse', note: 'moveAlone' };
+    return info.series.recurring ? { kind: 'sheet', choices: ['all'], note: 'crossKind' } : { kind: 'none' };
+  }
   if (!info.series.recurring) return { kind: 'none' };
   if (pickedRepeat(form, initial) !== null) return { kind: 'following' };
   const reminder = form.kind === 'reminder';

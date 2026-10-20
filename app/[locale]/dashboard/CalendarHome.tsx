@@ -91,7 +91,7 @@ import { backToBrowse, clampMonthUi, dayRows, initialMonthUi, monthModels, wante
 import { dayStatus, emptyStore, homeNotices, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
 import { postReminderAction, type ReminderActionFn, type ReminderActionName } from '@/src/lib/calendar-view/reminder-client';
 import { REAL_EDITING, type EditingApi, type WriteOutcome } from '@/src/lib/calendar-view/editor-client';
-import { allOfThem, createBody, editItemForm, isNativeCalendar, newItemForm, updateBody, type EditorForm } from '@/src/lib/calendar-view/editor-model';
+import { allOfThem, createBody, crossesKinds, editItemForm, isNativeCalendar, newItemForm, updateBody, type EditorForm } from '@/src/lib/calendar-view/editor-model';
 import type { EditScope, EditorInfoResponse, ItemEditInfoResponse } from '@/src/lib/calendar-view/editor-types';
 import type { ItemReminderDTO, SourceName } from '@/src/lib/calendar-view/types';
 import { DEFAULT_BOT_USERNAME, DEFAULT_WA_NUMBER, type GateLinks } from '@/src/lib/gate-links';
@@ -105,7 +105,7 @@ import { HomeHeader } from './HomeHeader';
 import { HomeTabs, PANEL_IDS, TAB_IDS } from './HomeTabs';
 import { HOME_SHELL_CSS } from './home-shell';
 import { HOME_THEME_CSS } from './home-theme';
-import { EditorSheet, type SaveOutcome } from './EditorSheet';
+import { EditorSheet, type MoveNote, type SaveOutcome } from './EditorSheet';
 import type { SheetActions, SheetEditing, SheetNote } from './ItemSheet';
 import { MenuSheet } from './MenuSheet';
 import { ConfirmSheet, ScopeSheet, type SubmitError } from './ScopeSheet';
@@ -182,6 +182,8 @@ type DeleteState = { key: string; info: ItemEditInfoResponse; title: string };
 /** The editor's field a server field name belongs to. */
 const FIELD_OF: Record<string, 'title' | 'location' | 'notes' | 'start' | 'end'> = { title: 'title', location: 'location', description: 'notes', start: 'start', end: 'end' };
 
+const MOVE_NOTES: readonly MoveNote[] = ['moveAlone', 'moveMeet', 'moveHebrew', 'moveRepeat'];
+
 /** A write's outcome as the editor shows it. */
 function saveOutcome(out: WriteOutcome): SaveOutcome {
   switch (out.kind) {
@@ -190,6 +192,8 @@ function saveOutcome(out: WriteOutcome): SaveOutcome {
     case 'invalid':
       // The other Hebrew kind falls on another day here (hebrew-repeats spec §4): the editor says so.
       if (out.field === 'repeatKind') return { kind: 'error', error: 'failed', kindDay: true };
+      // A cross-source move refused (spec "Google as a connection" §5): saved with other changes, or it can't cross.
+      if (out.field && (MOVE_NOTES as readonly string[]).includes(out.field)) return { kind: 'error', error: 'failed', move: out.field as MoveNote };
       return { kind: 'error', error: 'failed', ...(out.field && FIELD_OF[out.field] ? { field: FIELD_OF[out.field] } : {}) };
     case 'notAllowed':
       return { kind: 'error', error: 'notAllowed' };
@@ -200,6 +204,8 @@ function saveOutcome(out: WriteOutcome): SaveOutcome {
       return { kind: 'error', error: 'busy' };
     case 'reconnect':
       return { kind: 'error', error: 'reconnect' };
+    case 'moveFailed':
+      return { kind: 'error', error: 'moveFailed' };
     default:
       return { kind: 'error', error: 'failed' };
   }
@@ -323,7 +329,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const [selected, setSelected] = useState<AgendaRow | null>(null);
   /** The sheet's reminder action in flight (one at a time), and the note after a tap that changed nothing. */
   const [acting, setActing] = useState<{ key: string; action: ReminderActionName } | null>(null);
-  const [note, setNote] = useState<{ key: string; kind: SheetNote } | null>(null);
+  /** calendar: a note's calendar name ("Moved, but the old one is still in <calendar>"). */
+  const [note, setNote] = useState<{ key: string; kind: SheetNote; calendar?: string } | null>(null);
   const actingRef = useRef(false);
   /** What the user can add (null until asked, or when the request failed: no "+"). */
   const [editorInfo, setEditorInfo] = useState<EditorInfoResponse | null>(null);
@@ -339,7 +346,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
    * whether the refetch the edit started has landed. Only that refetch may close the sheet:
    * a later Done that drops a carry-over keeps its row, so it can still be undone.
    */
-  const [follow, setFollow] = useState<{ key: string; next: string | null; landed: boolean } | null>(null);
+  const [follow, setFollow] = useState<{ key: string; next: string | null; landed: boolean; note?: { kind: SheetNote; calendar: string } } | null>(null);
   const writingRef = useRef(false);
   const editorCancel = useRef<(() => void) | null>(null);
   const [firstLoad, setFirstLoad] = useState<'busy' | 'error' | null>(null);
@@ -535,10 +542,10 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     setFirstLoad(null);
   }, []);
 
-  // The sheet's note belongs to the item it was shown for.
+  // The sheet's note belongs to the item it was shown for (a move's note is set for the key it follows to).
   const selectedKey = selected?.item.key ?? null;
   useEffect(() => {
-    setNote(null);
+    setNote((cur) => (cur && cur.key === selectedKey ? cur : null));
   }, [selectedKey]);
   // What the user can add: asked once, for a Google user too (3b spec §3.3). A failure leaves the header without "+".
   useEffect(() => {
@@ -597,6 +604,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     const moved = follow.next && store.facts ? storeRow(store, follow.next) : null;
     if (moved) {
       setSelected(moved);
+      if (follow.note && follow.next) setNote({ key: follow.next, ...follow.note });
       setFollow(null);
     } else if (follow.landed) {
       setSelected(follow.next !== null || liveRow === null ? null : liveRow);
@@ -697,9 +705,16 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     const result = saveOutcome(out);
     if (result.kind === 'ok') {
       setEditor(null);
-      const landed = refreshWritten(editor.mode === 'edit' ? (editor.key.startsWith('google|') ? 'google' : 'famcal') : createdIn(form));
+      // A move to the other kind of calendar (spec "Google as a connection" §5): the old item leaves
+      // its source at once (unless the server says it is still there), and both sources are asked again.
+      const moving = editor.mode === 'edit' && crossesKinds(form, editor.initial);
+      const leftIn = out.kind === 'ok' ? out.leftIn : undefined;
+      if (moving && leftIn === undefined) dispatch({ type: 'dropItem', key: editor.key });
+      const landed = refreshWritten(moving ? undefined : editor.mode === 'edit' ? (editor.key.startsWith('google|') ? 'google' : 'famcal') : createdIn(form));
       if (editor.mode === 'edit') {
-        const armed = { key: editor.key, next: out.kind === 'ok' && out.key && out.key !== editor.key ? out.key : null, landed: false };
+        const next = out.kind === 'ok' && out.key && out.key !== editor.key ? out.key : null;
+        const armed = { key: editor.key, next, landed: false, ...(leftIn !== undefined ? { note: { kind: 'movedLeft' as const, calendar: leftIn } } : {}) };
+        if (leftIn !== undefined && !next) setNote({ key: editor.key, kind: 'movedLeft', calendar: leftIn });
         setFollow(armed);
         // The same key's edit info again; a new key's is asked when the sheet moves to it.
         if (!armed.next) setInfoTick((n) => n + 1);
@@ -740,6 +755,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     busy: acting !== null,
     pending: acting && acting.key === selectedKey ? acting.action : null,
     note: note && note.key === selectedKey ? note.kind : null,
+    ...(note && note.key === selectedKey && note.calendar !== undefined ? { noteValues: { calendar: note.calendar } } : {}),
     now: deps.now(),
     onAction: (action) => void runAction(action),
     editing,

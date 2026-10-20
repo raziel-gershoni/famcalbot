@@ -6803,6 +6803,175 @@ async function main() {
     assert(reactWarnings.length === warnedBeforeConnection, `React warned: ${show(reactWarnings.slice(warnedBeforeConnection, warnedBeforeConnection + 3))}`);
   });
 
+  // ---- The cross-source move (G4, spec §5): the Calendar row across kinds ----
+
+  const warnedBeforeMove = reactWarnings.length;
+  const MOVE_ALONE = 'Save the move on its own first.';
+  const ALERTS_FOLLOW = 'Alerts and colour follow the new calendar.';
+  const PARTNER_SEES = 'Your partner will see this';
+  const CROSS_NOTE = 'Moving to another kind of calendar moves the whole series.';
+  const BOTH_TARGETS = ['native:cal_me_7f3a', 'native:cal_noa_91b2', GOOGLE_FAMILY_ID, 'avi@gmail.com'];
+  /** The Dinner series on Google (weekly), as its edit info says. */
+  const dinnerSeries = (o: Partial<ItemEditInfoResponse> = {}) =>
+    infoFor({
+      source: 'google',
+      calendar: { id: GOOGLE_FAMILY_ID, name: 'Google Family', color: '#7986CB' },
+      occurrence: { start: `${day(0)}T19:30`, end: `${day(0)}T22:00`, allDay: false, title: 'Dinner with the Cohens', location: '', description: '' },
+      series: { recurring: true, start: `${day(0)}T19:30`, repeat: { freq: 'weekly', interval: 1, byDay: [], ends: false }, fixedDays: false, zone: 'UTC', rule: { choice: 'weekly' }, first: true },
+      scopes: ['single', 'following', 'all'],
+      canMoveCalendar: true,
+      moveTargets: [GOOGLE_FAMILY_ID, 'avi@gmail.com', 'native:cal_me_7f3a', 'native:cal_noa_91b2'],
+      sharedTargets: ['native:cal_noa_91b2'],
+      ...o,
+    });
+  const serveDinner = (info: ItemEditInfoResponse) => (key: string) => (key === 'google|dinner' ? ok200(info) : ({ status: 404, body: {} } as FetchAnswer));
+  const hintOf = (m: Home, label: string) => byClass(valueRow(m, label), 'ch-form-hint').map((e) => e.textContent).join(' | ');
+
+  await check('#113 the Calendar row on edit lists both kinds; picking the other kind says "Alerts and colour follow the new calendar." and a one-off moves with no question, the calendar alone in the body; with any other change Save says "Save the move on its own first." and sends nothing', async () => {
+    const info = infoFor({ canMoveCalendar: true, moveTargets: BOTH_TARGETS });
+    const a = await bothHome('en', { item: serveDentist(info), write: () => ok200({ status: 'ok', key: `google|${GOOGLE_FAMILY_ID}|copy1` }) });
+    try {
+      await openEditor(a.m, 'Dentist');
+      assert(show(optionsIn(a.m, 'Calendar').map((o) => o[0])) === show(BOTH_TARGETS), `both kinds: ${show(optionsIn(a.m, 'Calendar'))}`);
+      assert(hintOf(a.m, 'Calendar') === '', `no line before a pick: ${show(hintOf(a.m, 'Calendar'))}`);
+      await pick(a.m, 'Calendar', 'native:cal_noa_91b2');
+      assert(hintOf(a.m, 'Calendar') === '', 'the same kind: no line');
+      await pick(a.m, 'Calendar', GOOGLE_FAMILY_ID);
+      assert(hintOf(a.m, 'Calendar') === ALERTS_FOLLOW, `the other kind: ${show(hintOf(a.m, 'Calendar'))}`);
+      await typeInto(inDialog(a.m, 'Location'), 'Somewhere else');
+      a.m.click(saveButton(a.m));
+      await settle();
+      assert(writes().length === 0 && topText(a.m).includes(MOVE_ALONE), `saved alone: ${show(topText(a.m).slice(-200))}`);
+      await typeInto(inDialog(a.m, 'Location'), 'Clinic on Herzl St');
+      assert(!topText(a.m).includes(MOVE_ALONE), 'a change clears the note');
+      a.m.click(saveButton(a.m));
+      await settle();
+      assert(sameBody(writes()[0]?.body, { user_id: 5550003, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { calendarId: GOOGLE_FAMILY_ID } }), `the move alone: ${show(writes()[0]?.body)}`);
+    } finally {
+      a.m.unmount();
+    }
+  });
+
+  await check('#114 a series to the other kind: the scope sheet offers only "All of them", with "Moving to another kind of calendar moves the whole series."; into a FamCal calendar the partner sees, the row also says "Your partner will see this"', async () => {
+    const a = await bothHome('en', { item: serveDinner(dinnerSeries()), write: () => ok200({ status: 'ok', key: 'famcal|copied#2026-10-15T16:30:00.000Z' }) });
+    try {
+      await openEditor(a.m, 'Dinner with the Cohens');
+      await pick(a.m, 'Calendar', 'native:cal_me_7f3a');
+      assert(hintOf(a.m, 'Calendar') === ALERTS_FOLLOW, `a private FamCal calendar: ${show(hintOf(a.m, 'Calendar'))}`);
+      await pick(a.m, 'Calendar', 'native:cal_noa_91b2');
+      assert(hintOf(a.m, 'Calendar') === `${PARTNER_SEES} · ${ALERTS_FOLLOW}`, `a shared one: ${show(hintOf(a.m, 'Calendar'))}`);
+      a.m.click(saveButton(a.m));
+      await settle();
+      assert(topDialog(a.m).getAttribute('aria-label') === 'This event repeats', 'the scope sheet');
+      assert(show(choiceTexts(a.m)) === show(['All of them', 'Cancel']), `choices: ${show(choiceTexts(a.m))}`);
+      assertHas(topText(a.m), [CROSS_NOTE], 'the line');
+      assertLacks(topText(a.m), [PICK_NOTE], 'not the calendar-change line');
+      tapIn(a.m, 'All of them');
+      await settle();
+      assert(sameBody(writes()[0]?.body, { user_id: 5550003, initData: INIT, key: 'google|dinner', scope: 'all', changes: { calendarId: 'native:cal_noa_91b2' } }), `all: ${show(writes()[0]?.body)}`);
+    } finally {
+      a.m.unmount();
+    }
+  });
+
+  await check('#115 why an item can\'t cross: the reason under the Calendar row (or as a line when there is no row); a refusal the server gives (moveMeet, moveHebrew, moveRepeat) shows its reason above Save, not "Couldn\'t save"', async () => {
+    const hebrew = infoFor({ canMoveCalendar: true, moveTargets: ['native:cal_me_7f3a', 'native:cal_noa_91b2'], moveReason: 'hebrew' });
+    const a = await bothHome('en', { item: serveDentist(hebrew) });
+    try {
+      await openEditor(a.m, 'Dentist');
+      assert(hintOf(a.m, 'Calendar') === 'Google Calendar can’t repeat by the Hebrew date', `the hint: ${show(hintOf(a.m, 'Calendar'))}`);
+    } finally {
+      a.m.unmount();
+    }
+    const meet = dinnerSeries({ canMoveCalendar: false, moveTargets: [GOOGLE_FAMILY_ID], sharedTargets: undefined, moveReason: 'meet' });
+    const b = await bothHome('en', { item: serveDinner(meet) });
+    try {
+      await openEditor(b.m, 'Dinner with the Cohens');
+      assert(!hasRow(b.m, 'Calendar'), 'no row');
+      assert(byClass(topDialog(b.m), 'ch-form-fixed').some((p) => p.textContent === 'This one has a video call or files, so it stays in Google Calendar'), `the line: ${show(topText(b.m).slice(-300))}`);
+    } finally {
+      b.m.unmount();
+    }
+    for (const [field, text] of [['moveRepeat', 'This repeat can’t be moved'], ['moveMeet', 'This one has a video call or files, so it stays in Google Calendar'], ['moveHebrew', 'Google Calendar can’t repeat by the Hebrew date']]) {
+      const c = await bothHome('en', { item: serveDentist(infoFor({ canMoveCalendar: true, moveTargets: BOTH_TARGETS })), write: () => ({ status: 400, body: { error: 'invalid', field } }) });
+      try {
+        await openEditor(c.m, 'Dentist');
+        await pick(c.m, 'Calendar', 'avi@gmail.com');
+        c.m.click(saveButton(c.m));
+        await settle();
+        assert(topText(c.m).includes(text) && !topText(c.m).includes('Couldn’t save'), `${field}: ${show(topText(c.m).slice(-200))}`);
+      } finally {
+        c.m.unmount();
+      }
+    }
+  });
+
+  await check('#116 after a move the old item leaves its source at once (dropItem), both sources are asked again, and the sheet follows the item to its new key in the other source; "Couldn\'t move" and "still in" are told', async () => {
+    const info = infoFor({ canMoveCalendar: true, moveTargets: BOTH_TARGETS });
+    const copyKey = 'google|avi@gmail.com|copy1';
+    const copy = item('copy1', { ...DENTIST, key: copyKey, id: 'copy1', source: 'google', tz: null, calendar: G_FAMILY });
+    const serve = (k: string) => (k === 'famcal|dentist' ? ok200(info) : k === copyKey ? ok200(infoFor({ source: 'google', calendar: { id: 'avi@gmail.com', name: 'Avi', color: '#039BE5' } })) : ({ status: 404, body: {} } as FetchAnswer));
+    const a = await bothHome('en', { item: serve, write: () => ok200({ status: 'ok', key: copyKey }) });
+    try {
+      await openEditor(a.m, 'Dentist');
+      await pick(a.m, 'Calendar', 'avi@gmail.com');
+      // FamCal's refetch fails: only dropItem can take the old row away.
+      answerFetch = (c) => (c.query.get('sources') === 'google'
+        ? answerSource(c, { google: { items: { ...a.world.google, [day(0)]: [DINNER, copy] } } })
+        : { status: 500, body: { error: 'internal_error' } });
+      fetchCalls.length = 0;
+      a.m.click(saveButton(a.m));
+      await settle();
+      assert(ranges().some((r) => r.startsWith('famcal ')) && ranges().some((r) => r.startsWith('google ')), `both asked again: ${show(ranges())}`);
+      const rows = elements(a.m.container).filter((e) => e.localName === 'button' && e.className.includes('ch-row') && e.textContent.includes('Dentist'));
+      assert(rows.length === 1, `one Dentist row, the copy: ${rows.length}`);
+      assert(topDialog(a.m).getAttribute('aria-label') === 'Details' && editingKeys.includes(copyKey), `the sheet followed: ${show(editingKeys)}`);
+    } finally {
+      a.m.unmount();
+    }
+    const b = await bothHome('en', { item: serveDentist(info), write: () => ok200({ status: 'ok', key: copyKey, leftIn: 'Family' }) });
+    try {
+      b.world.google = { ...b.world.google, [day(0)]: [DINNER, copy] };
+      await openEditor(b.m, 'Dentist');
+      await pick(b.m, 'Calendar', 'avi@gmail.com');
+      b.m.click(saveButton(b.m));
+      await settle();
+      assert(topDialog(b.m).getAttribute('aria-label') === 'Details' && topText(b.m).includes('Moved, but the old one is still in Family'), `still in: ${show(topText(b.m).slice(0, 300))}`);
+    } finally {
+      b.m.unmount();
+    }
+    for (const [what, answer, text] of [['500 move_failed', { status: 500, body: { error: 'move_failed' } }, 'Couldn’t move. Try again.'], ['429 busy', { status: 429, body: { error: 'busy' } }, 'Too many changes at once. Try again in a minute.']] as [string, FetchAnswer, string][]) {
+      const c = await bothHome('en', { item: serveDentist(info), write: () => answer });
+      try {
+        await openEditor(c.m, 'Dentist');
+        await pick(c.m, 'Calendar', 'avi@gmail.com');
+        c.m.click(saveButton(c.m));
+        await settle();
+        assert(topText(c.m).includes(text), `${what}: ${show(topText(c.m).slice(-200))}`);
+      } finally {
+        c.m.unmount();
+      }
+    }
+  });
+
+  await check('#117 the move copy in en, he and ru: real text, no key left bare, and Hebrew and Russian translated, not copied', () => {
+    const keys = ['editor.moveAlone', 'editor.move.alertsFollow', 'editor.move.partnerSees', 'editor.move.reasons.meet', 'editor.move.reasons.hebrew', 'editor.move.reasons.repeat', 'editor.submitErrors.moveFailed', 'sheet.actionNotes.movedLeft', 'scope.crossKindNote'];
+    const at = (locale: Locale, k: string) => k.split('.').reduce<unknown>((o, p) => (o as Row | undefined)?.[p], messages[locale].calendarHome);
+    for (const k of keys) {
+      const en = at('en', k);
+      assert(typeof en === 'string' && en.length > 0, `en ${k}`);
+      for (const locale of ['he', 'ru'] as Locale[]) {
+        const v = at(locale, k);
+        assert(typeof v === 'string' && v.length > 0 && v !== en, `${locale} ${k}: ${show(v)}`);
+      }
+    }
+    assert(/\{calendar\}/.test(String(at('he', 'sheet.actionNotes.movedLeft'))) && /\{calendar\}/.test(String(at('ru', 'sheet.actionNotes.movedLeft'))), 'the calendar placeholder kept');
+  });
+
+  await check('#118 React logged no warning in #113-#117 (keys, nesting, attributes, act)', () => {
+    assert(reactWarnings.length === warnedBeforeMove, `React warned: ${show(reactWarnings.slice(warnedBeforeMove, warnedBeforeMove + 3))}`);
+  });
+
   let failed = 0;
   for (const r of results) {
     process.stdout.write(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}\n`);

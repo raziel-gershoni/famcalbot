@@ -201,7 +201,8 @@
         "changed": "This reminder changed. The calendar is up to date now.",
         "alreadyDone": "Already done",
         "notYours": "This reminder isn’t yours anymore",
-        "failed": "Couldn’t save. Try again."
+        "failed": "Couldn’t save. Try again.",
+        "movedLeft": "Moved, but the old one is still in {calendar}"
       }
     },
     "editor": {
@@ -261,6 +262,16 @@
       },
       "calendar": "Calendar",
       "dayMoveAlone": "Save the day change on its own first.",
+      "moveAlone": "Save the move on its own first.",
+      "move": {
+        "alertsFollow": "Alerts and colour follow the new calendar.",
+        "partnerSees": "Your partner will see this",
+        "reasons": {
+          "meet": "This one has a video call or files, so it stays in Google Calendar",
+          "hebrew": "Google Calendar can’t repeat by the Hebrew date",
+          "repeat": "This repeat can’t be moved"
+        }
+      },
       "partnerCalendar": "{calendar} · {name}",
       "forLabel": "For",
       "forMe": "Me",
@@ -278,7 +289,8 @@
         "changed": "This changed in the meantime — reopen it",
         "failed": "Couldn’t save. Try again.",
         "busy": "Too many changes at once. Try again in a minute.",
-        "reconnect": "Your Google connection expired"
+        "reconnect": "Your Google connection expired",
+        "moveFailed": "Couldn’t move. Try again."
       },
       "discard": {
         "title": "Discard your changes?",
@@ -306,7 +318,8 @@
       "confirmDelete": "Delete “{title}”?",
       "deleteConfirm": "Delete",
       "dayMoveNote": "To move all of them to another day, delete the series and create it again.",
-      "seriesNote": "A calendar or recipient change applies from here on or to all of them."
+      "seriesNote": "A calendar or recipient change applies from here on or to all of them.",
+      "crossKindNote": "Moving to another kind of calendar moves the whole series."
     },
     "empty": {
       "title": "Nothing planned",

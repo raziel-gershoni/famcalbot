@@ -14,7 +14,8 @@
 // that and says why (with "this one and the ones after" too when the rule reads as one of the
 // five, which then follows the start from there); a calendar or recipient change has no meaning for one occurrence, so it
 // offers "this one and the ones after" and "all of them" (neutral labels: the old rule's
-// "Every Tuesday" would read as keeping it) with a line saying so.
+// "Every Tuesday" would read as keeping it) with a line saying so; a move to the other kind
+// of calendar ("Google as a connection" §5) offers "all of them" alone, with its line.
 
 import { useLocale, useTranslations } from 'next-intl';
 import type { EditScope, ItemKind } from '@/src/lib/calendar-view/editor-types';
@@ -23,7 +24,7 @@ import { formatDayShort } from '@/src/lib/calendar-view/format';
 import { BottomSheet } from './BottomSheet';
 import { FORM_CSS } from './form-kit';
 
-export type SubmitError = 'notAllowed' | 'changed' | 'failed' | 'busy' | 'reconnect';
+export type SubmitError = 'notAllowed' | 'changed' | 'failed' | 'busy' | 'reconnect' | 'moveFailed';
 
 /** The error line for an outcome (calendarHome.editor.err*). */
 export function useErrorText(error: SubmitError | null): string | null {
@@ -43,8 +44,12 @@ export interface ScopeSheetProps {
   all: ReturnType<typeof allOfThem>;
   /** What to offer, in order; all three when absent (a delete, and a save that nothing limits). */
   choices?: EditScope[];
-  /** The line under the choices: 'dayMove' for how to move them all (fixed days), 'series' for what a calendar or recipient change applies to. */
-  note?: 'dayMove' | 'series';
+  /**
+   * The line under the choices: 'dayMove' for how to move them all (fixed days), 'series' for
+   * what a calendar or recipient change applies to, 'crossKind' for a move to the other kind
+   * of calendar, which takes the whole series.
+   */
+  note?: 'dayMove' | 'series' | 'crossKind';
   busy: boolean;
   error: SubmitError | null;
   onPick: (scope: EditScope) => void;
@@ -57,7 +62,8 @@ export function ScopeSheet({ kind, mode, title, day, all, choices: offered = ['s
   const errorText = useErrorText(error);
   const heading = t(`scope.${mode}.${kind}`);
   // The short name of "all of them" is the old rule's: a series-level change may replace that rule.
-  const allText = note !== 'series' && all.key === 'weekday' ? t('scope.everyWeekday', { weekday: all.weekday }) : note !== 'series' && all.key === 'daily' ? t('scope.everyDay') : t('scope.all');
+  const neutral = note === 'series' || note === 'crossKind';
+  const allText = !neutral && all.key === 'weekday' ? t('scope.everyWeekday', { weekday: all.weekday }) : !neutral && all.key === 'daily' ? t('scope.everyDay') : t('scope.all');
   const text: Record<EditScope, string> = { single: t('scope.single', { date: formatDayShort(day, locale) }), following: t('scope.following'), all: allText };
   const choices = offered.map((scope): [EditScope, string] => [scope, text[scope]]);
   return (
@@ -81,7 +87,7 @@ export function ScopeSheet({ kind, mode, title, day, all, choices: offered = ['s
             {text}
           </button>
         ))}
-        {note ? <p className="ch-form-fixed">{t(note === 'dayMove' ? 'scope.dayMoveNote' : 'scope.seriesNote')}</p> : null}
+        {note ? <p className="ch-form-fixed">{t(note === 'dayMove' ? 'scope.dayMoveNote' : note === 'crossKind' ? 'scope.crossKindNote' : 'scope.seriesNote')}</p> : null}
         {errorText ? (
           <p className="ch-form-error" role="alert">
             {errorText}

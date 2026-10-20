@@ -18,6 +18,11 @@
 //   with no question, a calendar or recipient change on a series asks 'this one and the
 //   ones after' or 'all', a day move on a set-weekdays series is this one's, or, when its
 //   rule reads as one of the five, from this one on with that rule following the start.
+//   A Calendar row pick of the other kind (FamCal and Google) is the cross-source move
+//   ("Google as a connection" §5): its row says that alerts and colour follow the new calendar
+//   (and that the partner will see it there), Save refuses it beside any other change ("Save
+//   the move on its own first."), and a series asks only "All of them". An item that can't
+//   cross says why under the row.
 // - Cancel asks "Discard your changes?" only when something changed. The container's
 //   BackButton calls the same thing through `cancelRef`: it closes a sheet on top first,
 //   then cancels.
@@ -33,6 +38,7 @@ import {
   REMINDER_DEFAULT_TIME,
   allOfThem,
   checkForm,
+  crossesKinds,
   dayInZone,
   dayOfMonth,
   hebrewAnchorOf,
@@ -67,7 +73,10 @@ import { ConfirmSheet, ScopeSheet, useErrorText, type SubmitError } from './Scop
 export type SaveOutcome =
   | { kind: 'ok' }
   // `kindDay`: the server refused the other Hebrew kind from this occurrence (it falls on another day there): a note, not "Couldn't save".
-  | { kind: 'error'; error: SubmitError; field?: FieldName; kindDay?: true };
+  | { kind: 'error'; error: SubmitError; field?: FieldName; kindDay?: true; move?: MoveNote };
+
+/** A move to the other kind of calendar the server refused: saved with other changes, or what can't cross ("Google as a connection" §5). */
+export type MoveNote = 'moveAlone' | 'moveMeet' | 'moveHebrew' | 'moveRepeat';
 
 export interface EditorSheetProps {
   mode: 'create' | 'edit';
@@ -89,7 +98,16 @@ export interface EditorSheetProps {
 }
 
 /** The copy of each inline note under the Save button. */
-const INLINE_NOTE_KEY = { dayMove: 'scope.dayMoveNote', dayMoveAlone: 'editor.dayMoveAlone', kindDay: 'editor.repeat.kindDay' } as const;
+const INLINE_NOTE_KEY = {
+  dayMove: 'scope.dayMoveNote',
+  dayMoveAlone: 'editor.dayMoveAlone',
+  kindDay: 'editor.repeat.kindDay',
+  moveAlone: 'editor.moveAlone',
+  moveMeet: 'editor.move.reasons.meet',
+  moveHebrew: 'editor.move.reasons.hebrew',
+  moveRepeat: 'editor.move.reasons.repeat',
+} as const;
+type InlineNote = keyof typeof INLINE_NOTE_KEY;
 
 const REPEATS: RepeatChoice[] = ['none', 'daily', 'weekly', 'monthly', 'yearly'];
 
@@ -105,7 +123,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   const [scopeOpen, setScopeOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
   /** The inline line Save shows when it can't save as it is (a day move beside a calendar or recipient change). */
-  const [inlineNote, setInlineNote] = useState<'dayMoveAlone' | 'dayMove' | 'kindDay' | null>(null);
+  const [inlineNote, setInlineNote] = useState<InlineNote | null>(null);
   const errorText = useErrorText(error);
   /** The last real start day: the repeat choices keep their words while a date is being typed. */
   const [lastDay, setLastDay] = useState(isRealDay(initial.startDay) ? initial.startDay : '');
@@ -162,6 +180,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
       // the sheet opened, so the choices offered it), and retrying would fail the same way.
       if (edit && info && outcome.field === 'start' && scope !== 'single' && movesDay(form, start, info.tz, info.series.zone)) setInlineNote('dayMove');
       else if (outcome.kindDay) setInlineNote('kindDay');
+      else if (outcome.move) setInlineNote(outcome.move);
       else setError(outcome.error);
       if (outcome.field) setServerField(outcome.field);
     }
@@ -281,6 +300,14 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   /** An edit's For row, for the reminder's creator: Me | the partner (by the name the info or the editor gave). */
   const partnerName = edit && reminder && info?.canChangeRecipient ? (info.forName ?? partner?.name ?? null) : null;
   const showCalendarRow = !reminder && (edit ? moveOptions.length > 1 : calendarOptions.length > 0);
+  // The move to the other kind of calendar ("Google as a connection" §5): picked, its row says
+  // what follows the new calendar (and that the partner will see it, on a calendar they see);
+  // not possible, it says why.
+  const crossPicked = edit && crossesKinds(form, start);
+  const moveReasonText = edit && info?.moveReason ? t(`editor.move.reasons.${info.moveReason}`) : null;
+  const calendarHint = crossPicked
+    ? [form.calendarId && info?.sharedTargets?.includes(form.calendarId) ? t('editor.move.partnerSees') : null, t('editor.move.alertsFollow')].filter(Boolean).join(' · ')
+    : (moveReasonText ?? undefined);
   const heading = edit ? t('editor.titleEdit') : t('editor.titleNew');
 
   return (
@@ -352,6 +379,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
               <FormCard>
                 <ValueRow
                   label={t('editor.calendar')}
+                  hint={calendarHint}
                   value={form.calendarId ?? (edit ? moveOptions : calendarOptions)[0].value}
                   options={edit ? moveOptions : calendarOptions}
                   // A Google calendar can't hold a Hebrew-date repeat: the pick falls back to the Gregorian yearly one.
@@ -395,6 +423,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
                 {info.calendar.name}
               </p>
             ) : null}
+            {moveReasonText && !reminder && !showCalendarRow ? <p className="ch-form-fixed">{moveReasonText}</p> : null}
             {edit && info?.forName && partnerName === null ? <p className="ch-form-fixed">{t('editor.forName', { name: info.forName })}</p> : null}
           </div>
         </div>

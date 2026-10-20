@@ -118,6 +118,12 @@ export type StoreAction =
    * holds until the store drops, like the banner a read raises.
    */
   | { type: 'reconnect'; reason: 'token' | 'scopes' }
+  /**
+   * An item moved to the other kind of calendar ("Google as a connection" §5): it leaves its
+   * source at once, with the rest of its series there (a series moves whole), before the
+   * refetch brings its copy. Coverage is kept: the days still read as answered.
+   */
+  | { type: 'dropItem'; key: string }
   /** The midnight timer in tz: drop everything and start over. */
   | { type: 'reset' };
 
@@ -336,6 +342,17 @@ function patchReminder(state: CalendarStore, key: string, reminder: ItemReminder
   return changed ? { ...state, days, carryOvers } : state;
 }
 
+function dropItem(state: CalendarStore, key: string): CalendarStore {
+  const all = [...Object.values(state.days).flatMap((d) => d.items), ...(state.carryOvers ?? [])];
+  const target = all.find((i) => i.key === key);
+  if (!target) return state;
+  const goes = (i: ItemDTO) => i.key === key || (target.seriesId !== null && i.source === target.source && i.seriesId === target.seriesId);
+  const days: Record<DayKey, StoreDay> = {};
+  for (const [date, day] of Object.entries(state.days)) days[date] = day.items.some(goes) ? { ...day, items: day.items.filter((i) => !goes(i)) } : day;
+  const carryOvers = state.carryOvers?.some(goes) ? state.carryOvers.filter((i) => !goes(i)) : state.carryOvers;
+  return { ...state, days, carryOvers };
+}
+
 /** The reducer. It never changes `state` or the answer; an action that changes nothing returns `state` itself. */
 export function reduceStore(state: CalendarStore, action: StoreAction): CalendarStore {
   switch (action.type) {
@@ -349,6 +366,8 @@ export function reduceStore(state: CalendarStore, action: StoreAction): Calendar
       return patchReminder(state, action.key, action.reminder);
     case 'reconnect':
       return state.reconnect === action.reason ? state : { ...state, reconnect: action.reason };
+    case 'dropItem':
+      return dropItem(state, action.key);
   }
 }
 

@@ -25,12 +25,15 @@ const READ_TIME_LIMIT_MS = 15_000;
 
 /** What a write came to, for the editor to word. */
 export type WriteOutcome =
-  | { kind: 'ok'; key: string | null }
+  /** leftIn: a cross-source move made its copy but the original is still in that calendar. */
+  | { kind: 'ok'; key: string | null; leftIn?: string }
   | { kind: 'invalid'; field: string | null }
   | { kind: 'notAllowed' }
   | { kind: 'notFound' }
   | { kind: 'changed' }
   | { kind: 'busy' }
+  /** A cross-source move taken back: the original couldn't be deleted, so its copy was ("Couldn't move"). */
+  | { kind: 'moveFailed' }
   /** 3b, Google: the connection needs the user (a dead token, or a write scope not granted). */
   | { kind: 'reconnect'; reason: 'token' | 'scopes' }
   | { kind: 'failed' };
@@ -94,7 +97,9 @@ function isItemInfoExtras(value: Record<string, unknown>): boolean {
     optional(value.canChangeRecipient, 'boolean') &&
     optional(value.forPartner, 'boolean') &&
     optional(value.editableInGoogleOnly, 'boolean') &&
-    (value.source === undefined || value.source === 'famcal' || value.source === 'google')
+    (value.source === undefined || value.source === 'famcal' || value.source === 'google') &&
+    (value.moveReason === undefined || value.moveReason === 'meet' || value.moveReason === 'hebrew' || value.moveReason === 'repeat') &&
+    (value.sharedTargets === undefined || (Array.isArray(value.sharedTargets) && value.sharedTargets.every((id) => typeof id === 'string')))
   );
 }
 
@@ -139,13 +144,17 @@ async function read<T>(url: string, ok: (value: unknown) => value is T): Promise
 function outcomeOf(res: { status: number; body: unknown } | null): WriteOutcome {
   if (!res) return { kind: 'failed' };
   const body = isObject(res.body) ? res.body : {};
-  if (res.status === 200) return body.status === 'ok' ? { kind: 'ok', key: typeof body.key === 'string' ? body.key : null } : { kind: 'failed' };
+  if (res.status === 200) {
+    if (body.status !== 'ok') return { kind: 'failed' };
+    return { kind: 'ok', key: typeof body.key === 'string' ? body.key : null, ...(typeof body.leftIn === 'string' ? { leftIn: body.leftIn } : {}) };
+  }
   if (res.status === 400 && body.error === 'invalid') return { kind: 'invalid', field: typeof body.field === 'string' ? body.field : null };
   if (res.status === 403 && body.error === 'not_allowed') return { kind: 'notAllowed' };
   if (res.status === 403 && body.error === 'reconnect') return { kind: 'reconnect', reason: body.reason === 'scopes' ? 'scopes' : 'token' };
   if (res.status === 404) return { kind: 'notFound' };
   if (res.status === 409) return { kind: 'changed' };
   if (res.status === 429) return { kind: 'busy' };
+  if (res.status === 500 && body.error === 'move_failed') return { kind: 'moveFailed' };
   return { kind: 'failed' };
 }
 
