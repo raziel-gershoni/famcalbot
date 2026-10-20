@@ -25,6 +25,8 @@ import { clearGoogleTracks } from './setup-tracks';
 import { stampGoogleCache } from './calendar-read/google';
 import { getWhatsAppService, MessageFormat } from './messaging';
 import type { UserConfig } from '../types';
+import { Prisma } from '@prisma/client';
+import { liveGoogleChoices } from '../lib/google-state';
 
 /** How long a parked token waits for its owner's tap */
 const PENDING_TTL_SECONDS = 15 * 60;
@@ -117,8 +119,18 @@ export async function commitGoogleToken(ownerUserId: number, refreshToken: strin
   const user = await getUserById(ownerUserId);
   if (!user) throw new Error(`User ${ownerUserId} not found`);
 
+  // A FamCal user's leftover Google choices from before (stored, but no token, so
+  // liveGoogleChoices counts them as none) may be another account's: a new connect starts
+  // from an empty list, so the user chooses their calendars again.
+  const stale = liveGoogleChoices(user).length === 0
+    && Array.isArray(user.calendarAssignments) && user.calendarAssignments.length > 0;
+  if (stale) console.warn(`[google-connect] user ${user.id}: stale Google choices cleared at connect`);
+
   // Save new refresh token on the owner, by DB id (updateUserById encrypts it)
-  await updateUserById(user.id, { googleRefreshToken: refreshToken });
+  await updateUserById(user.id, {
+    googleRefreshToken: refreshToken,
+    ...(stale ? { calendarAssignments: Prisma.DbNull as unknown as null } : {}),
+  });
 
   // Google is a connection ("Google as a connection" spec §1): the user keeps their FamCal
   // calendars, partner and reminders, and calendarSource is left as it was (a legacy column).
@@ -130,7 +142,7 @@ export async function commitGoogleToken(ownerUserId: number, refreshToken: strin
       id: user.id,
       telegramId: user.telegramId?.toString() ?? '',
       googleRefreshToken: refreshToken, // Fresh token (not encrypted)
-      calendarAssignments: user.calendarAssignments,
+      calendarAssignments: stale ? null : user.calendarAssignments,
       calendarSource: user.calendarSource, // Legacy: liveGoogleChoices' marker
       pairingId: user.pairingId,
       defaultReminderMinutes: user.defaultReminderMinutes ?? null,

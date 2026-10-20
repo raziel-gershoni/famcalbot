@@ -745,6 +745,21 @@ async function main() {
     assert(writesHitting(7).length === 0 && writesHitting(42).length === 0, 'another row was written');
   });
 
+  await check('#6b a FamCal user with leftover Google choices and no token who connects again starts from an empty list (chooses calendars again); a legacy Google user keeps their choices', async () => {
+    seed();
+    Object.assign(userRow(9), { calendarAssignments: [{ calendarId: 'old@gmail.com', labels: ['primary', 'yours'], name: 'Old', color: '#4285F4' }] });
+    const id = await pendingFor(9);
+    await tgWebhook(tgText(TAL_TG, `/start gc_${id}`));
+    assert(await savedToken(9) === 'google-rt-new', `row 9 token: ${userRow(9).googleRefreshToken}`);
+    const after = userRow(9).calendarAssignments;
+    assert(after === null || after === undefined || (typeof after === 'object' && !Array.isArray(after)), `stale choices kept: ${show(after)}`);
+    seed();
+    Object.assign(userRow(9), { calendarSource: 'GOOGLE', calendarAssignments: [{ calendarId: 'tal@gmail.com', labels: ['primary', 'yours'], name: 'Tal', color: '#4285F4' }] });
+    const id2 = await pendingFor(9);
+    await tgWebhook(tgText(TAL_TG, `/start gc_${id2}`));
+    assert(Array.isArray(userRow(9).calendarAssignments) && userRow(9).calendarAssignments.length === 1, `legacy choices lost: ${show(userRow(9).calendarAssignments)}`);
+  });
+
   await check('#7 owner claims over WhatsApp: the gc_ token in a sentence commits on 42, sets the flag, replies with a select-calendars magic link', async () => {
     seed();
     const id = await pendingFor(42);
