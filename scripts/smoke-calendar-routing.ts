@@ -118,6 +118,8 @@ const fakeWhatsApp = {
 };
 
 const flags = { autoCreate: false, reminders: false };
+/** The event matcher's answer to a prompt. */
+let matcherAnswer: (prompt: string) => string = () => '{"matched":false}';
 let captured: string[] = [];
 
 // Users. Dana (1): FamCal, no token. Nava (2): FamCal with Google connected. Gil (3): legacy
@@ -150,13 +152,13 @@ let writes: Write[] = [];
 /** The next answer each provider gives a write, unless it succeeds. */
 const failures: Record<string, { error: string } | undefined> = { native: undefined, google: undefined };
 /** What each provider's fetch does: events, or a throw. */
-const fetches: Record<string, () => Promise<CalendarEvent[]>> = { native: async () => [], google: async () => [] };
+const fetches: Record<string, (start: Date, end: Date) => Promise<CalendarEvent[]>> = { native: async () => [], google: async () => [] };
 const fetchCalls: Array<{ provider: string; ids: string[] }> = [];
 const providerFor = (name: 'native' | 'google') => ({
   name,
-  fetchEventsInRange: async (_user: unknown, ids: string[]) => {
+  fetchEventsInRange: async (_user: unknown, ids: string[], start: Date, end: Date) => {
     fetchCalls.push({ provider: name, ids });
-    return fetches[name]();
+    return fetches[name](start, end);
   },
   createEvent: async (_user: unknown, calendarId: string, input: Record<string, unknown>) => {
     writes.push({ provider: name, op: 'create', calendarId, input });
@@ -203,6 +205,7 @@ function reset() {
   extracted = [];
   flags.autoCreate = false;
   flags.reminders = false;
+  matcherAnswer = () => '{"matched":false}';
   currentUser = DANA;
 }
 
@@ -223,7 +226,7 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
     captureInfo: () => {},
   },
   [`${SRC}/lib/timezone.ts`]: { resolveUserTimezone: async () => IL },
-  [`${SRC}/services/ai-provider.ts`]: { generateAICompletion: async () => ({ text: '{"matched":false}' }), getGemini: () => ({}), extractionConfig: () => ({}) },
+  [`${SRC}/services/ai-provider.ts`]: { generateAICompletion: async (prompt: string) => ({ text: matcherAnswer(prompt) }), getGemini: () => ({}), extractionConfig: () => ({}) },
   [`${SRC}/services/telegram/index.ts`]: { getBot: () => fakeBot, getMessagingService: () => fakeService },
   [`${SRC}/services/telegram/bot.ts`]: { getBot: () => fakeBot, getMessagingService: () => fakeService },
   [`${SRC}/services/analytics-service.ts`]: { trackActivityAsync: () => {}, addBreadcrumb: () => {}, setUserContext: () => {} },
@@ -512,6 +515,42 @@ async function main() {
     assertEqual(serviceCalls.map(c => c.text), [t.errors.googleUnreachable], 'what the user got');
     assertEqual(fetchCalls.map(c => `${c.provider} ${c.ids.join(',')}`), ['native native:main-2', 'google nava@gmail.com'], 'the split fetch');
     assert(captured.some(c => c.startsWith('calendar-provider-fetch')), `captured ${JSON.stringify(captured)}`);
+  });
+
+  await check('a guessed day that finds nothing while Google is down still widens: the FamCal event on another day is found', async () => {
+    currentUser = NAVA;
+    fetches.google = async () => {
+      throw new Error('Backend Error');
+    };
+    const dentist = calendarEvent('native:main-2');
+    fetches.native = async (start, end) => {
+      const t0 = new Date(dentist.start).getTime();
+      return t0 >= start.getTime() && t0 < end.getTime() ? [dentist] : [];
+    };
+    matcherAnswer = prompt => (prompt.includes('Dentist') ? '{"match":"single","eventIndex":1}' : '{"match":"none"}');
+    const intent: VoiceIntentResult = {
+      intent: 'edit', confidence: 'high',
+      eventReference: { type: 'by_description', description: 'dentist', originalDate: '2026-10-23' }, editRequest: { newTitle: 'x' },
+    } as unknown as VoiceIntentResult;
+    await handleEditIntent(555, undefined, intent, 'move the dentist', currentUser, t);
+    assertEqual(fetchCalls.filter(c => c.provider === 'native').length, 2, 'FamCal reads (the guessed day, then the wide search)');
+    const texts = [...serviceCalls, ...botCalls].map(c => c.text);
+    assert(!texts.includes(t.errors.googleUnreachable), `told Google was unreachable: ${JSON.stringify(texts)}`);
+    assert(botCalls.some(c => buttonsOf(c).flat().some(b => b.callback_data.startsWith('edit_confirm:'))), `no edit card: ${JSON.stringify(texts)}`);
+  });
+
+  await check('a guessed day that finds nothing anywhere while Google is down says Google could not be reached', async () => {
+    currentUser = NAVA;
+    fetches.google = async () => {
+      throw new Error('Backend Error');
+    };
+    const intent: VoiceIntentResult = {
+      intent: 'edit', confidence: 'high',
+      eventReference: { type: 'by_description', description: 'dentist', originalDate: '2026-10-23' }, editRequest: { newTitle: 'x' },
+    } as unknown as VoiceIntentResult;
+    await handleEditIntent(555, undefined, intent, 'move the dentist', currentUser, t);
+    assertEqual(serviceCalls.map(c => c.text), [t.errors.googleUnreachable], 'what the user got');
+    assertEqual(fetchCalls.filter(c => c.provider === 'native').length, 2, 'FamCal reads');
   });
 
   await check('[guard] a voice edit that finds nothing with both halves read still says "no events"', async () => {

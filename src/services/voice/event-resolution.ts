@@ -7,7 +7,7 @@ import { redis } from '../../utils/redis';
 import { getBot } from '../telegram';
 import { ParsedEvent, EventReference, EditRequest } from '../event-parser';
 import { CalendarEvent, UpdateEventData } from '../calendar';
-import { fetchEventsInRange } from '../calendar-provider';
+import { fetchEventsInRange, type SplitFetch } from '../calendar-provider';
 import type { UnifiedEvent } from '../calendar-provider/types';
 import { isNativeCalendarId } from '../native-calendar/event-store';
 import type { UserConfig } from '../../types';
@@ -356,13 +356,31 @@ export async function findMatchingEvent(
   // A day taken from a weekday name or the model's own date is a guess the old search never
   // made: it looked three weeks around today. When that guess finds nothing, look there
   // too, so a wrong date costs a second search rather than the user's edit. "Today" and
-  // "tomorrow" narrowed the search before and still do, without this fallback.
+  // "tomorrow" narrowed the search before and still do, without this fallback. A half that
+  // couldn't be read doesn't stop the widening: the event may sit on another day of the half
+  // that could.
   const guessedDay = day !== undefined && !/today|tomorrow|היום|מחר|сегодня|завтра/i.test(reference.timeHint ?? '');
-  if (guessedDay && 'error' in narrowed && (narrowed.error === 'no_events_found' || narrowed.error === 'no_match')) {
+  if (guessedDay && foundNothing(narrowed.result)) {
     const wide = { ...reference, originalDate: undefined, timeHint: undefined };
-    return matchInRange(user, calendarIds, wide, language, now, timezone, undefined, extras);
+    const widened = await matchInRange(user, calendarIds, wide, language, now, timezone, undefined, extras);
+    return unlessUnread(user, widened.result, [...new Set([...narrowed.failed, ...widened.failed])]);
   }
-  return narrowed;
+  return unlessUnread(user, narrowed.result, narrowed.failed);
+}
+
+function foundNothing(result: MatchResult): boolean {
+  return 'error' in result && (result.error === 'no_events_found' || result.error === 'no_match');
+}
+
+/**
+ * A search that found nothing while a half couldn't be read: "not found" would be a guess,
+ * since that half may hold the event. Say which calendar couldn't be checked instead (the
+ * user is told Google couldn't be reached).
+ */
+function unlessUnread(user: UserConfig, result: MatchResult, failed: SplitFetch['failed']): MatchResult {
+  if (!foundNothing(result) || failed.length === 0) return result;
+  console.warn(`[EventResolution] user ${user.id}: no match while ${failed.join(', ')} could not be read`);
+  return { error: failed.includes('google') ? UNAVAILABLE.google : UNAVAILABLE.famcal };
 }
 
 /**
@@ -453,7 +471,10 @@ function settleKindTie(result: MatchResult, wantsReminder: boolean): MatchResult
  */
 export const UNAVAILABLE = { google: 'google_unavailable', famcal: 'calendar_unavailable' } as const;
 
-/** The match within the range `reference` names, its own day's events tried first. */
+/**
+ * The match within the range `reference` names, its own day's events tried first, and the
+ * halves that couldn't be read.
+ */
 async function matchInRange(
   user: UserConfig,
   calendarIds: string[],
@@ -463,7 +484,7 @@ async function matchInRange(
   timezone: string,
   day: string | undefined,
   extras: MatchExtras,
-): Promise<MatchResult> {
+): Promise<{ result: MatchResult; failed: SplitFetch['failed'] }> {
   const { startDate, endDate } = matchSearchRange(reference, now, timezone);
 
   // Fetch events from all calendars, split by calendar id (spec §4 Providers)
@@ -472,13 +493,7 @@ async function matchInRange(
   const events = collapseReminderSeries(extras.eligible ? extras.eligible(merged) : merged, now, timezone);
 
   const result = await matchAmong(events, reference, language, now, timezone, day, extras);
-  // A half that couldn't be read may hold the event: "not found" would be a guess. Say which
-  // calendar couldn't be checked instead (the user is told Google couldn't be reached).
-  if ('error' in result && (result.error === 'no_events_found' || result.error === 'no_match') && failed.length > 0) {
-    console.warn(`[EventResolution] user ${user.id}: no match while ${failed.join(', ')} could not be read`);
-    return { error: failed.includes('google') ? UNAVAILABLE.google : UNAVAILABLE.famcal };
-  }
-  return result;
+  return { result, failed };
 }
 
 /** The match among `events`, its own day's events tried first. */
