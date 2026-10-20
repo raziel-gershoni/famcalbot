@@ -14,6 +14,9 @@
 //   - the plan feature googleSync is on the same plans as reminders.
 // The WhatsApp → Telegram merge and the hard delete are checked in smoke-account-merge.ts,
 // which has the merge's fixtures.
+// OAuth part (Task S2): in smoke-google-connect.ts (#31-#42), whose fakes run oauth/start, the
+// callback and the claim end to end. The read filters: smoke-google-map, smoke-calendar-read-google
+// (readGoogle, fetchEventsInRange, listUserCalendars) and smoke-calendar-connection (F1s).
 //
 // The event store, the calendar route, the marks, the gate and the subscription service run
 // for real. Faked at the boundaries: Prisma (in memory; it keeps the schema's foreign keys,
