@@ -29,10 +29,13 @@ export type RecurrenceFields = Pick<CreateEventInput, 'recurrence' | 'hebrewRule
 /** True for a repeat by the Hebrew date. */
 export const isHebrewRepeat = (recurrence: ParsedEvent['recurrence']): boolean => recurrence?.calendar === 'hebrew';
 
-/** Where a user's events are created: the provider their account is on. */
-export async function targetOf(user: UserConfig): Promise<CalendarProviderName> {
-  const { getProviderForUser } = await import('./calendar-provider');
-  return getProviderForUser(user).name;
+/**
+ * Where an event is created: the provider of the calendar it goes to (createCalendarFor), so a
+ * card words a Hebrew repeat for that calendar, whatever the user's other calendars are.
+ */
+export async function targetOf(user: UserConfig, event: Pick<ParsedEvent, 'calendarId' | 'kind'>): Promise<CalendarProviderName> {
+  const { createCalendarFor, providerForCalendar } = await import('./calendar-provider');
+  return providerForCalendar(await createCalendarFor(user, event)).name;
 }
 
 /**

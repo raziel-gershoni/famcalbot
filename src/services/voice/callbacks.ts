@@ -5,7 +5,8 @@
 
 import { getBot } from '../telegram';
 import { recurrenceFields, repeatInput } from '../recurrence-fields';
-import { getProviderForUser } from '../calendar-provider';
+import { createCalendarFor, providerForCalendar } from '../calendar-provider';
+import { isFamcalId } from '../../utils/calendar-helpers';
 import type { CreateEventResult, UpdateEventResult, DeleteEventResult } from '../calendar-provider';
 import { buildUrl } from '../../config/urls';
 import { getBotMessages } from '../../lib/bot-messages';
@@ -77,7 +78,10 @@ export async function handleEventCallback(
       parse_mode: 'HTML'
     });
 
-    if (user.calendarSource === 'GOOGLE' && !user.googleRefreshToken) {
+    // The calendar it goes to decides: a Google one needs the token, a FamCal one never does
+    const calendarId = await createCalendarFor(user, event);
+    if (!isFamcalId(calendarId) && !user.googleRefreshToken) {
+      console.log(`[Voice] user ${user.id}: a create on a Google calendar with no Google token; asked to connect`);
       await bot.editMessageText(
         `${t.voice.notConnected}\n\n${t.voice.connectFirst}`,
         {
@@ -89,10 +93,10 @@ export async function handleEventCallback(
       return;
     }
 
-    const provider = getProviderForUser(user);
+    const provider = providerForCalendar(calendarId);
     const result: CreateEventResult = await provider.createEvent(
       user,
-      event.calendarId || 'primary',
+      calendarId,
       {
         title: event.title,
         startTime: event.startTime,
@@ -109,16 +113,15 @@ export async function handleEventCallback(
       const reminder = event.kind === 'reminder';
       const timezone = await resolveUserTimezone(user);
       if (result.eventId) {
-        trackCreatedEvent(user.telegramId!, result.eventId, event.calendarId || 'primary', event)
+        trackCreatedEvent(user.telegramId!, result.eventId, calendarId, event)
           .catch(err => captureError(err, 'voice-track-event', { user_id: user.id }, 'warning'));
 
         // Recent-events: feed the sliding window so follow-ups like "move it"
         // resolve via by_description against the most recent CRUD (PR 9).
         const { pushRecentEvent } = await import('./recent-events-store');
-        const calId = event.calendarId || 'primary';
         await pushRecentEvent(user.id, {
-          provider: calId.startsWith('native:') ? 'native' : 'google',
-          calendarId: calId,
+          provider: provider.name,
+          calendarId,
           eventId: result.eventId,
           title: event.title,
           startsAt: event.startTime.toISOString(),
@@ -138,7 +141,7 @@ export async function handleEventCallback(
       }
 
       trackActivityAsync(user.id, 'voice_event_created', {
-        calendar_id: event.calendarId || 'primary',
+        calendar_id: calendarId,
       });
       if (reminder) {
         trackActivityAsync(user.id, 'native_reminder_created', {
@@ -151,7 +154,7 @@ export async function handleEventCallback(
         console.error('[Subscription] Failed to increment voice events:', err)
       );
 
-      const hebrew = await hebrewCardParts(event, user, user.language || 'en', timezone);
+      const hebrew = await hebrewCardParts({ ...event, calendarId }, user, user.language || 'en', timezone);
       const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay, timezone)
         + (hebrew.line ? `\n${hebrew.line}` : '')
         + hebrew.notices.map(notice => `\n<i>${notice}</i>`).join('');
@@ -172,7 +175,7 @@ export async function handleEventCallback(
           disable_web_page_preview: true
         }
       );
-    } else if (result.error === 'FORBIDDEN' || (result.error === 'PERMISSION_DENIED' && user.calendarSource === 'NATIVE')) {
+    } else if (result.error === 'FORBIDDEN' || (result.error === 'PERMISSION_DENIED' && isFamcalId(calendarId))) {
       // No grant fixes this: the calendar is not theirs to add to (built-in), or Google refuses
       // it (a read-only calendar, an event they don't organize)
       await bot.editMessageText(t.nativeReminders?.permissionDenied || "You can't change this one.", {
@@ -274,7 +277,9 @@ export async function handleEditCallback(
       parse_mode: 'HTML'
     });
 
-    if (user.calendarSource === 'GOOGLE' && !user.googleRefreshToken) {
+    // A Google calendar needs the token; a FamCal one never does
+    if (!isFamcalId(calendarId) && !user.googleRefreshToken) {
+      console.log(`[Voice] user ${user.id}: a change on a Google calendar with no Google token; asked to connect`);
       await bot.editMessageText(
         `${t.voice?.notConnected || '❌ Not connected'}\n\n${t.voice?.connectFirst || 'Please connect your calendar first.'}`,
         {
@@ -299,7 +304,7 @@ export async function handleEditCallback(
       return;
     }
 
-    const provider = getProviderForUser(user);
+    const provider = providerForCalendar(calendarId);
     const result: UpdateEventResult = await provider.updateEvent(
       user,
       calendarId,
@@ -332,7 +337,7 @@ export async function handleEditCallback(
       // Recent-events: refresh the sliding window with the edited event (PR 9).
       const { pushRecentEvent } = await import('./recent-events-store');
       await pushRecentEvent(user.id, {
-        provider: calendarId.startsWith('native:') ? 'native' : 'google',
+        provider: provider.name,
         calendarId,
         eventId: originalEvent.eventId || '',
         recurringEventId: originalEvent.recurringEventId,
@@ -348,7 +353,7 @@ export async function handleEditCallback(
         const { stripMovedPings } = await import('../native-reminders/moved-pings');
         await stripMovedPings(result.clearedPings, originalEvent, updates, user);
       }
-    } else if (result.error === 'FORBIDDEN' || (result.error === 'PERMISSION_DENIED' && user.calendarSource === 'NATIVE')) {
+    } else if (result.error === 'FORBIDDEN' || (result.error === 'PERMISSION_DENIED' && isFamcalId(calendarId))) {
       // No grant fixes this: the item is not theirs to change (built-in), or Google refuses it
       // (a read-only calendar, an event they don't organize)
       await bot.editMessageText(t.nativeReminders?.permissionDenied || "You can't change this one.", {
@@ -467,7 +472,9 @@ export async function handleDeleteCallback(
       parse_mode: 'HTML'
     });
 
-    if (user.calendarSource === 'GOOGLE' && !user.googleRefreshToken) {
+    // A Google calendar needs the token; a FamCal one never does
+    if (!isFamcalId(calendarId) && !user.googleRefreshToken) {
+      console.log(`[Voice] user ${user.id}: a change on a Google calendar with no Google token; asked to connect`);
       await bot.editMessageText(
         `${t.voice?.notConnected || '❌ Not connected'}\n\n${t.voice?.connectFirst || 'Please connect your calendar first.'}`,
         {
@@ -492,7 +499,7 @@ export async function handleDeleteCallback(
       return;
     }
 
-    const provider = getProviderForUser(user);
+    const provider = providerForCalendar(calendarId);
     const result: DeleteEventResult = await provider.deleteEvent(
       user,
       calendarId,
@@ -520,7 +527,7 @@ export async function handleDeleteCallback(
         // Also push a 'delete' marker so any follow-up "undo" / "actually keep
         // it" has provenance. Cheap; same window.
         await pushRecentEvent(user.id, {
-          provider: calendarId.startsWith('native:') ? 'native' : 'google',
+          provider: provider.name,
           calendarId,
           eventId: event.eventId,
           recurringEventId: event.recurringEventId,
@@ -530,7 +537,7 @@ export async function handleDeleteCallback(
           action: 'delete',
         });
       }
-    } else if (result.error === 'FORBIDDEN' || (result.error === 'PERMISSION_DENIED' && user.calendarSource === 'NATIVE')) {
+    } else if (result.error === 'FORBIDDEN' || (result.error === 'PERMISSION_DENIED' && isFamcalId(calendarId))) {
       // No grant fixes this: the item is not theirs to delete (built-in), or Google refuses it
       // (a read-only calendar, an event they don't organize)
       await bot.editMessageText(t.nativeReminders?.permissionDenied || "You can't change this one.", {

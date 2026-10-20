@@ -14,7 +14,7 @@
 import crypto from 'crypto';
 import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
-import { getProviderForUser } from '../calendar-provider';
+import { createCalendarFor, providerForCalendar } from '../calendar-provider';
 import { recurrenceFields, repeatInput } from '../recurrence-fields';
 import type { ParsedEvent } from '../event-parser';
 import type { UserConfig } from '../../types';
@@ -96,8 +96,9 @@ export async function autoCreateEvent(
 ): Promise<boolean> {
   if (!(await isAutoCreateEnabled())) return false;
 
-  const provider = getProviderForUser(user);
-  const calendarId = event.calendarId || 'primary';
+  // The calendar it goes to picks the provider; an unplaced event takes the default (spec §3)
+  const calendarId = await createCalendarFor(user, event);
+  const provider = providerForCalendar(calendarId);
   const result = await provider.createEvent(user, calendarId, {
     title: event.title,
     startTime: event.startTime,
@@ -118,14 +119,14 @@ export async function autoCreateEvent(
 
   const token = await storeUndoToken({
     userId: user.id,
-    provider: calendarId.startsWith('native:') ? 'native' : 'google',
+    provider: provider.name,
     calendarId,
     eventId: result.eventId,
   });
 
   // Feed recent-events for follow-up references.
   await pushRecentEvent(user.id, {
-    provider: calendarId.startsWith('native:') ? 'native' : 'google',
+    provider: provider.name,
     calendarId,
     eventId: result.eventId,
     title: event.title,
@@ -197,7 +198,7 @@ export async function handleUndoCallback(
   // Permission check: only the original creator's user may undo.
   if (payload.userId !== user.id) return { ok: false, reason: 'failed' };
 
-  const provider = getProviderForUser(user);
+  const provider = providerForCalendar(payload.calendarId);
   const result = await provider.deleteEvent(user, payload.calendarId, payload.eventId, {
     scope: 'single',
     recurringEventId: payload.recurringEventId,

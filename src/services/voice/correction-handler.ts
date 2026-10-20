@@ -217,8 +217,11 @@ export async function handleEventCorrection(
     const calendars = userCalendars;
     const matchedCalendar = calendars.find(c => c.calendarId === parsed.calendarId)
       || calendars.find(c => c.name?.toLowerCase() === (parsed.calendarName || '').toLowerCase());
-    const resolvedCalendarId = matchedCalendar?.calendarId || parsed.calendarId || event.calendarId || 'primary';
-    const resolvedCalendarName = matchedCalendar?.name || parsed.calendarName || event.calendarName || 'Primary';
+    // Only one of the user's calendars, else the card's own: an unknown id (the literal 'primary'
+    // the prompt shows for a card with no calendar) would send the event to Google. With neither,
+    // the create site picks the default ("Google as a connection" spec §3).
+    const resolvedCalendarId = matchedCalendar?.calendarId || event.calendarId;
+    const resolvedCalendarName = matchedCalendar?.name || event.calendarName;
 
     const correctedEvent: ParsedEvent = {
       title: parsed.title || event.title,

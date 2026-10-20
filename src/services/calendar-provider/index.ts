@@ -1,15 +1,10 @@
-// Calendar provider dispatch — branches on User.calendarSource so existing
-// GCal users keep their flow and NATIVE users hit the in-bot calendar.
+// Calendar provider dispatch ("Google as a connection" spec §4 Providers): the provider is chosen
+// per calendar id (routing.ts), never by the user. One list holds both kinds of calendars.
 
-import { UserConfig } from '../../types';
-import { CalendarProvider } from './types';
-import { googleProvider } from './google-provider';
-import { nativeProvider } from './native-provider';
-
-export function getProviderForUser(user: UserConfig): CalendarProvider {
-  return user.calendarSource === 'NATIVE' ? nativeProvider : googleProvider;
-}
-
-export { googleProvider, nativeProvider };
+export { googleProvider } from './google-provider';
+export { nativeProvider } from './native-provider';
+export { providerForCalendar, fetchEventsInRange } from './routing';
+export type { SplitFetch } from './routing';
+export { createCalendarFor } from './create-target';
 export { getCalendarAssignmentsForUser, hasUsableCalendar } from './user-calendars';
 export * from './types';

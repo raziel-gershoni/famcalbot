@@ -1044,12 +1044,11 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
 
       // All-HIGH bulk auto-create. Iterate sequentially through the provider
       // so partial failures are reported clearly rather than aborting silently.
-      const { getProviderForUser } = await import('./calendar-provider');
+      const { createCalendarFor, providerForCalendar } = await import('./calendar-provider');
       const { recurrenceFields, repeatInput } = await import('./recurrence-fields');
       const { pushRecentEvent } = await import('./voice/recent-events-store');
       const { incrementUsage } = await import('./subscription-service');
       const { trackActivityAsync } = await import('./analytics-service');
-      const provider = getProviderForUser(user);
 
       let successCount = 0;
       const failures: string[] = [];
@@ -1057,7 +1056,10 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
 
       for (let i = 0; i < validBulkWa.length; i++) {
         const ev = validBulkWa[i].event!;
-        const result = await provider.createEvent(user, ev.calendarId || 'primary', {
+        // Each to its own calendar's provider; an unplaced one to the default (spec §3)
+        const calId = await createCalendarFor(user, ev);
+        const provider = providerForCalendar(calId);
+        const result = await provider.createEvent(user, calId, {
           title: ev.title,
           startTime: ev.startTime,
           endTime: ev.endTime,
@@ -1073,9 +1075,8 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
           if (ev.kind === 'reminder') {
             trackActivityAsync(user.id, 'native_reminder_created', { platform: 'whatsapp', auto: true, bulk: true });
           }
-          const calId = ev.calendarId || 'primary';
           await pushRecentEvent(user.id, {
-            provider: calId.startsWith('native:') ? 'native' : 'google',
+            provider: provider.name,
             calendarId: calId,
             eventId: result.eventId,
             title: ev.title,
@@ -1143,10 +1144,11 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
       ) {
         // Auto-create directly. No confirmation, no Undo button (WhatsApp
         // template/button surface is constrained — see TG flow for full Undo).
-        const { getProviderForUser } = await import('./calendar-provider');
+        const { createCalendarFor, providerForCalendar } = await import('./calendar-provider');
         const { recurrenceFields, repeatInput } = await import('./recurrence-fields');
-        const provider = getProviderForUser(user);
-        const result = await provider.createEvent(user, intentResult.event.calendarId || 'primary', {
+        const calId = await createCalendarFor(user, intentResult.event);
+        const provider = providerForCalendar(calId);
+        const result = await provider.createEvent(user, calId, {
           title: intentResult.event.title,
           startTime: intentResult.event.startTime,
           endTime: intentResult.event.endTime,
@@ -1159,9 +1161,8 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
         if (result.success) {
           if (result.eventId) {
             const { pushRecentEvent } = await import('./voice/recent-events-store');
-            const calId = intentResult.event.calendarId || 'primary';
             await pushRecentEvent(user.id, {
-              provider: calId.startsWith('native:') ? 'native' : 'google',
+              provider: provider.name,
               calendarId: calId,
               eventId: result.eventId,
               title: intentResult.event.title,
@@ -1273,12 +1274,13 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
       }
 
       const { recurrenceFields, repeatInput } = await import('./recurrence-fields');
-      const { getProviderForUser } = await import('./calendar-provider');
+      const { createCalendarFor, providerForCalendar } = await import('./calendar-provider');
       const { reminderCreateFields } = await import('./native-reminders/resolve');
-      const provider = getProviderForUser(pending.user);
+      const calId = await createCalendarFor(pending.user, pending.event);
+      const provider = providerForCalendar(calId);
       const result = await provider.createEvent(
         pending.user,
-        pending.event.calendarId || 'primary',
+        calId,
         {
           title: pending.event.title,
           startTime: new Date(pending.event.startTime),
@@ -1312,9 +1314,8 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
         // Recent-events: feed the sliding window so follow-ups resolve via context (PR 9).
         if (result.eventId) {
           const { pushRecentEvent } = await import('./voice/recent-events-store');
-          const calId = pending.event.calendarId || 'primary';
           await pushRecentEvent(pending.user.id, {
-            provider: calId.startsWith('native:') ? 'native' : 'google',
+            provider: provider.name,
             calendarId: calId,
             eventId: result.eventId,
             title: pending.event.title,
@@ -1337,8 +1338,8 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
         await waService.sendMessage(phone, wa.eventExpired || 'This confirmation has expired.');
         return;
       }
-      const { getProviderForUser } = await import('./calendar-provider');
-      const provider = getProviderForUser(pending.user);
+      const { providerForCalendar } = await import('./calendar-provider');
+      const provider = providerForCalendar(pending.calendarId);
       const result = await provider.updateEvent(
         pending.user,
         pending.calendarId,
@@ -1367,8 +1368,8 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
         await waService.sendMessage(phone, wa.eventExpired || 'This confirmation has expired.');
         return;
       }
-      const { getProviderForUser } = await import('./calendar-provider');
-      const provider = getProviderForUser(pending.user);
+      const { providerForCalendar } = await import('./calendar-provider');
+      const provider = providerForCalendar(pending.calendarId);
       const result = await provider.deleteEvent(
         pending.user,
         pending.calendarId,

@@ -6,7 +6,7 @@
 
 import { redis } from '../utils/redis';
 import { CalendarEvent, CalendarAssignment, UserConfig } from '../types';
-import { getProviderForUser, getCalendarAssignmentsForUser, hasUsableCalendar } from './calendar-provider';
+import { fetchEventsInRange, getCalendarAssignmentsForUser, hasUsableCalendar } from './calendar-provider';
 import { getBot } from './telegram';
 import { getTelegramService, getWhatsAppService } from './messaging/factory';
 import { MessageFormat } from './messaging/types';
@@ -157,15 +157,18 @@ export async function getDueReminders(
   // falls on that end.
   const tz = timezone ?? (await resolveUserTimezone(user));
   const endOfWindowDay = startOfLocalDay(nextDate(localDate(new Date(windowEnd.getTime() - 1), tz)), tz);
+  // Split by calendar id (spec §4 Providers): a failed half is logged and reported by the
+  // fetch itself, and the other half's alerts still go out (a Google outage keeps FamCal's).
   let events: CalendarEvent[];
   try {
-    const provider = getProviderForUser(user);
-    events = await provider.fetchEventsInRange(
+    const fetched = await fetchEventsInRange(
       user,
       calendarIds,
       new Date(now.getTime() - 60 * 1000),
       new Date(Math.max(windowEnd.getTime() + MAX_LEAD_MINUTES * 60 * 1000, endOfWindowDay.getTime()))
     );
+    events = fetched.events;
+    if (fetched.failed.length > 0) console.warn(`[Reminders] user ${user.id}: no alerts this run from ${fetched.failed.join(', ')} (the fetch failed)`);
   } catch (error) {
     console.error(`[Reminders] Error fetching events for user ${user.telegramId}:`, error);
     captureError(error, 'reminders-fetch-events', { telegramId: user.telegramId }, 'warning');

@@ -7,7 +7,7 @@ import { redis } from '../../utils/redis';
 import { getBot } from '../telegram';
 import { ParsedEvent, EventReference, EditRequest } from '../event-parser';
 import { CalendarEvent, UpdateEventData } from '../calendar';
-import { getProviderForUser } from '../calendar-provider';
+import { fetchEventsInRange } from '../calendar-provider';
 import type { UnifiedEvent } from '../calendar-provider/types';
 import { isNativeCalendarId } from '../native-calendar/event-store';
 import type { UserConfig } from '../../types';
@@ -446,6 +446,13 @@ function settleKindTie(result: MatchResult, wantsReminder: boolean): MatchResult
     : { error: 'multiple_matches', multiple: preferred };
 }
 
+/**
+ * The errors of a search that could not read one half of the user's calendars and found
+ * nothing in the other: the voice handlers answer them with "couldn't reach Google Calendar"
+ * and the calendar fetch error.
+ */
+export const UNAVAILABLE = { google: 'google_unavailable', famcal: 'calendar_unavailable' } as const;
+
 /** The match within the range `reference` names, its own day's events tried first. */
 async function matchInRange(
   user: UserConfig,
@@ -459,12 +466,31 @@ async function matchInRange(
 ): Promise<MatchResult> {
   const { startDate, endDate } = matchSearchRange(reference, now, timezone);
 
-  // Fetch events from all calendars
-  const provider = getProviderForUser(user);
-  const fetched = await provider.fetchEventsInRange(user, calendarIds, startDate, endDate);
+  // Fetch events from all calendars, split by calendar id (spec §4 Providers)
+  const { events: fetched, failed } = await fetchEventsInRange(user, calendarIds, startDate, endDate);
   const merged = withOpenReminders(fetched, extras.open);
   const events = collapseReminderSeries(extras.eligible ? extras.eligible(merged) : merged, now, timezone);
 
+  const result = await matchAmong(events, reference, language, now, timezone, day, extras);
+  // A half that couldn't be read may hold the event: "not found" would be a guess. Say which
+  // calendar couldn't be checked instead (the user is told Google couldn't be reached).
+  if ('error' in result && (result.error === 'no_events_found' || result.error === 'no_match') && failed.length > 0) {
+    console.warn(`[EventResolution] user ${user.id}: no match while ${failed.join(', ')} could not be read`);
+    return { error: failed.includes('google') ? UNAVAILABLE.google : UNAVAILABLE.famcal };
+  }
+  return result;
+}
+
+/** The match among `events`, its own day's events tried first. */
+async function matchAmong(
+  events: CalendarEvent[],
+  reference: EventReference,
+  language: string,
+  now: Date,
+  timezone: string,
+  day: string | undefined,
+  extras: MatchExtras,
+): Promise<MatchResult> {
   if (events.length === 0) {
     return { error: 'no_events_found' };
   }

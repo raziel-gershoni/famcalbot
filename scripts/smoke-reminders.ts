@@ -513,7 +513,7 @@ async function main() {
 
   // The range fetch serves the reminder run, the week lookahead and voice; one calendar
   // after another it took the run past its 5-minute window for a few dozen users.
-  await check('the range fetch asks for every calendar at once, with the same events and errors as one by one', async () => {
+  await check('the range fetch asks for every calendar at once, with the same events and errors as one by one; every calendar down fails it', async () => {
     const { fetchEventsInRange } = await import('../src/services/calendar');
     reset({ id: 14 });
     const cals = ['a@group.calendar.google.com', 'b@group.calendar.google.com', 'c@group.calendar.google.com', 'd@group.calendar.google.com'];
@@ -539,6 +539,11 @@ async function main() {
       googleCalls.failing = { [cals[3]]: Object.assign(new Error('invalid_grant'), { code: 400 }) };
       const failed = await fetchEventsInRange('refresh-token', cals, ...range).then(() => 'resolved', (err: Error) => err.message);
       assert(failed === 'GOOGLE_TOKEN_EXPIRED', `token error: ${failed}`);
+      // When not one calendar answers, Google couldn't be read at all: the fetch fails, so the
+      // split fetch knows its Google half failed (G2), not a day with no events.
+      googleCalls.failing = Object.fromEntries(cals.map(c => [c, Object.assign(new Error('Backend Error'), { code: 503 })]));
+      const down = await fetchEventsInRange('refresh-token', cals, ...range).then(() => 'resolved', (err: Error) => err.message);
+      assert(down === 'GOOGLE_FETCH_FAILED', `every calendar down: ${down}`);
     } finally {
       console.error = error;
       Object.assign(googleCalls, { latencyMs: 0, failing: {} });
@@ -642,13 +647,15 @@ async function main() {
     assert(lines.join(' | ') === '07:45 🤖 Auto-Reminder: Kindergarten | 09:45 🤖 Auto-Reminder: Swim | 15:45 🤖🚗 Auto-Pickup Reminder: Noa', `got ${lines.join(' | ') || '(nothing)'}`);
   });
 
-  await check('Google down: a Google user\'s FamCal alert still goes out, and the failed Google half is reported', async () => {
+  // Google's range fetch reports a failed calendar and goes on (the 'calendar-fetch-range' warning);
+  // only a dead token fails the whole Google half, which then threw away the FamCal alerts too.
+  await check('a dead Google token: a Google user\'s FamCal alert still goes out, and the failed Google half is reported', async () => {
     reset({ id: 21 });
     await fakeRedis.set(REDIS_KEYS.userTimezone(21), IL);
     nativeCalendars = [{ id: 'cal21', name: 'Dana', labels: ['yours'] }];
     nativeEvents = [{ calendarId: 'cal21', id: 'n21', title: 'Swim', startsAt: at('2026-10-13 10:00', IL), endsAt: at('2026-10-13 11:00', IL), timeZone: IL }];
     googleEvents = [{ calendarId: kidsCal, id: 'k21', summary: 'Kindergarten', start: at('2026-10-13 08:00', IL), end: at('2026-10-13 16:00', IL) }];
-    googleCalls.failing[kidsCal] = Object.assign(new Error('Backend Error'), { code: 503 });
+    googleCalls.failing[kidsCal] = Object.assign(new Error('invalid_grant'), { code: 400 });
     try {
       await syncCache(handlers, at('2026-10-13 07:00', IL));
       await runTicks(handlers, at('2026-10-13 09:40', IL), at('2026-10-13 09:50', IL));

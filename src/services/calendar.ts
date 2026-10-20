@@ -411,6 +411,12 @@ export async function fetchEventsInRange(
     }
     // Continue with other calendars if it's a different error
   }
+  // Not one calendar answered: Google itself couldn't be read, which is no answer at all. The
+  // provider's caller (the split fetch) then knows its Google half failed ("Google as a
+  // connection" spec §4), instead of reading it as a day with no events.
+  if (calendarIds.length > 0 && results.every(r => r.status === 'rejected')) {
+    throw new Error('GOOGLE_FETCH_FAILED');
+  }
 
   // Sort all events by start time
   allEvents.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());

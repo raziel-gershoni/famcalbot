@@ -221,7 +221,10 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   },
   [`${SRC}/services/native-reminders/support.ts`]: { getReminderSupport: async () => ({ supported: false, reason: 'disabled' }) },
   [`${SRC}/services/calendar-provider/index.ts`]: {
-    getProviderForUser: (u: { calendarSource?: string }) => (u.calendarSource === 'NATIVE' ? fakeNative : fakeGoogle),
+    // By calendar id, as the real routing ("Google as a connection" G2, smoke-calendar-routing)
+    providerForCalendar: (calendarId: string) => (calendarId.startsWith('native:') ? fakeNative : fakeGoogle),
+    createCalendarFor: async (_user: unknown, event: { calendarId?: string }) => event.calendarId ?? CALENDARS[0].calendarId,
+    fetchEventsInRange: async () => ({ events: [], failed: [] }),
     hasUsableCalendar: async () => true,
     getCalendarAssignmentsForUser: async () => CALENDARS,
   },
@@ -874,7 +877,8 @@ async function main() {
     assert(reminderLine.includes('· 🔄 Yahrzeit, every year on 10 Tevet') && !reminderLine.includes('🔁'), reminderLine);
     currentUser = googleUser('en');
     serviceCalls = [];
-    await showBulkConfirmation(555, [hebrewIntent(), createIntent(plainEvent())], currentUser, 'x', t, fakeService as never, IL);
+    // The target is the event's calendar (G2): a Google one
+    await showBulkConfirmation(555, [createIntent(hebrewEvent({ calendarId: 'dana@example.com' })), createIntent(plainEvent())], currentUser, 'x', t, fakeService as never, IL);
     const googleLine = serviceCalls[0].text.split('\n').find(l => l.startsWith('1. '))!;
     assert(googleLine.includes('</b> 🔁') && !googleLine.includes('🔄'), googleLine);
     assert(serviceCalls[0].text.includes(`<i>${await notice('en')}</i>`), serviceCalls[0].text);

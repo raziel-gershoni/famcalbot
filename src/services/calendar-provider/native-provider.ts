@@ -1,8 +1,6 @@
 // In-bot native calendar provider — implements CalendarProvider against the
-// NativeCalendar / NativeEvent / NativeEventInstance tables.
-//
-// PR 3 wires this internally only; getProviderForUser still returns the Google
-// provider for everyone. PR 4 will branch on user.calendarSource.
+// NativeCalendar / NativeEvent / NativeEventInstance tables. It holds every `native:` calendar
+// id (routing.ts providerForCalendar).
 
 import type { NativeEvent } from '@prisma/client';
 import { formatInTimeZone } from 'date-fns-tz';

@@ -22,11 +22,8 @@ export interface CachedReminderUser {
   language: string;
   name: string;
   pickupRemindersEnabled: boolean;
-  // Needed to rebuild a UserConfig the provider dispatch can read. Without
-  // these, a cached NATIVE user is reconstructed with no calendarSource and
-  // getProviderForUser falls through to Google. Optional so entries written
-  // before this field existed still parse - they degrade to the Google path,
-  // which is what they were anyway.
+  // calendarSource is legacy and unread: the providers are chosen by calendar id ("Google as a
+  // connection"). pairingId lets the FamCal half see the partner's shared calendars.
   calendarSource?: string;
   pairingId?: string | null;
   // The reminder run resolves the user's timezone from it, as the summaries do;

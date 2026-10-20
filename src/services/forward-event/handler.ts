@@ -105,7 +105,7 @@ export async function handleForwardedMessage(
     // into "no calendar", since their googleRefreshToken is '' by definition.
     const { hasUsableCalendar, getCalendarAssignmentsForUser } = await import('../calendar-provider');
     if (!(await hasUsableCalendar(user))) {
-      console.log(`[Forward] User ${userId} has no usable calendar (source=${user.calendarSource})`);
+      console.log(`[Forward] User ${userId} has no usable calendar (google token: ${user.googleRefreshToken ? 'yes' : 'no'})`);
       await messagingService.sendMessage(chatId, t.voice.noCalendar, { format: MessageFormat.PLAIN });
       return;
     }

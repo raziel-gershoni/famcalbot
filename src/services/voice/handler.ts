@@ -9,14 +9,14 @@ import { MessageFormat } from '../messaging/types';
 import { VoiceIntentResult } from '../event-parser';
 import { notAddressedTelemetry, processVoiceWithGemini } from './gemini-voice';
 import { CalendarEvent } from '../calendar';
-import { getProviderForUser } from '../calendar-provider';
+import { fetchEventsInRange } from '../calendar-provider';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { buildUrl } from '../../config/urls';
 import { UserConfig } from '../../types';
 import { getBotMessages } from '../../lib/bot-messages';
 import { trackActivityAsync, addBreadcrumb, setUserContext } from '../analytics-service';
 import { checkFeatureAccess } from '../subscription-service';
-import { downloadVoiceFile, getLastCreatedEvent, findMatchingEvent, convertEditRequestToUpdates, isLastCreatedEvent } from './event-resolution';
+import { downloadVoiceFile, getLastCreatedEvent, findMatchingEvent, convertEditRequestToUpdates, isLastCreatedEvent, UNAVAILABLE } from './event-resolution';
 import { sendAnchorQuestions, showEventConfirmation, showEditConfirmation, showDeleteConfirmation } from './confirmations';
 import { getReminderSupport } from '../native-reminders/support';
 import { primaryIntent, reminderPromptContext, resolveReminderIntents } from '../native-reminders/resolve';
@@ -38,6 +38,15 @@ interface TelegramUser {
   first_name: string;
   last_name?: string;
   username?: string;
+}
+
+/**
+ * What the user is told when their calendars could not all be read and the event wasn't in the
+ * rest: Google couldn't be reached (the summaries' copy), or the calendar fetch error.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function unavailableText(error: string, t: any): string {
+  return error === UNAVAILABLE.google ? t.errors.googleUnreachable : t.errors.calendarFetch;
 }
 
 /**
@@ -75,8 +84,7 @@ export async function handleEditIntent(
       return;
     }
 
-    const provider = getProviderForUser(user);
-    const events = await provider.fetchEventsInRange(
+    const { events, failed } = await fetchEventsInRange(
       user,
       [lastEvent.calendarId],
       new Date(lastEvent.startTime.getTime() - 60000),
@@ -85,6 +93,11 @@ export async function handleEditIntent(
 
     targetEvent = events.find(e => isLastCreatedEvent(e, lastEvent));
     targetCalendarId = lastEvent.calendarId;
+    // Its calendar couldn't be read: say so, not "couldn't find"
+    if (!targetEvent && failed.length > 0) {
+      await messagingService.sendMessage(chatId, unavailableText(failed.includes('google') ? UNAVAILABLE.google : UNAVAILABLE.famcal, t), { format: MessageFormat.HTML });
+      return;
+    }
 
   } else if (intentResult.eventReference?.type === 'by_description') {
     const calendarIds = userCalendars.map(c => c.calendarId);
@@ -103,6 +116,8 @@ export async function handleEditIntent(
           t.voice?.noEventsFound || "❌ No events found in that time range.",
           { format: MessageFormat.HTML }
         );
+      } else if (matchResult.error === UNAVAILABLE.google || matchResult.error === UNAVAILABLE.famcal) {
+        await messagingService.sendMessage(chatId, unavailableText(matchResult.error, t), { format: MessageFormat.HTML });
       } else if (matchResult.error === 'multiple_matches') {
         await messagingService.sendMessage(chatId,
           t.voice?.ambiguousEvent || "🤔 Found multiple matching events. Please be more specific.",
@@ -183,8 +198,7 @@ export async function handleDeleteIntent(
       return;
     }
 
-    const provider = getProviderForUser(user);
-    const events = await provider.fetchEventsInRange(
+    const { events, failed } = await fetchEventsInRange(
       user,
       [lastEvent.calendarId],
       new Date(lastEvent.startTime.getTime() - 60000),
@@ -193,6 +207,11 @@ export async function handleDeleteIntent(
 
     targetEvent = events.find(e => isLastCreatedEvent(e, lastEvent));
     targetCalendarId = lastEvent.calendarId;
+    // Its calendar couldn't be read: say so, not "couldn't find"
+    if (!targetEvent && failed.length > 0) {
+      await messagingService.sendMessage(chatId, unavailableText(failed.includes('google') ? UNAVAILABLE.google : UNAVAILABLE.famcal, t), { format: MessageFormat.HTML });
+      return;
+    }
 
   } else if (intentResult.eventReference?.type === 'by_description') {
     const calendarIds = userCalendars.map(c => c.calendarId);
@@ -211,6 +230,8 @@ export async function handleDeleteIntent(
           t.voice?.noEventsFound || "❌ No events found in that time range.",
           { format: MessageFormat.HTML }
         );
+      } else if (matchResult.error === UNAVAILABLE.google || matchResult.error === UNAVAILABLE.famcal) {
+        await messagingService.sendMessage(chatId, unavailableText(matchResult.error, t), { format: MessageFormat.HTML });
       } else if (matchResult.error === 'multiple_matches') {
         await messagingService.sendMessage(chatId,
           t.voice?.ambiguousEvent || "🤔 Found multiple matching events. Please be more specific.",
@@ -317,7 +338,7 @@ export async function handleVoiceMessage(
 
     const { hasUsableCalendar, getCalendarAssignmentsForUser } = await import('../calendar-provider');
     if (!(await hasUsableCalendar(user))) {
-      console.log(`[Voice] User ${userId} has no usable calendar (source=${user.calendarSource})`);
+      console.log(`[Voice] User ${userId} has no usable calendar (google token: ${user.googleRefreshToken ? 'yes' : 'no'})`);
       await messagingService.sendMessage(chatId, t.voice.noCalendar, { format: MessageFormat.PLAIN });
       return;
     }

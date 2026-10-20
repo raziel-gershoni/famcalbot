@@ -85,7 +85,7 @@ export type ProviderErrorCode =
   | 'PERMISSION_DENIED'
   | 'TOKEN_EXPIRED'
   | 'NOT_FOUND'
-  | 'NOT_CONNECTED' // user.calendarSource mismatch / missing credentials
+  | 'NOT_CONNECTED' // a Google calendar with no Google token
   | 'FIXED_DAYS' // a day move for more than one occurrence of a series with fixed days (BYDAY), both providers
   | 'FORBIDDEN' // Google refused this write: a read-only calendar, an event the user doesn't organize (no grant fixes it)
   | 'UNKNOWN_ERROR'; // with retryable when it was transient (a rate limit, a 5xx, a timeout)

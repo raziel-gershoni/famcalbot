@@ -10,6 +10,7 @@ import { isSilent } from './audio-level';
 import { detectAddressedSpeech, detectSpeech, NO_SPEECH } from './speech-presence';
 import { VoiceIntentResult, VoiceIntent, ParsedEvent, RecurrencePattern, HebrewKind } from '../event-parser';
 import { CalendarAssignment } from '../../types';
+import { defaultCalendarFor, isFamcalId } from '../../utils/calendar-helpers';
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import { AI_MODEL_ID } from '../../config/ai-models';
 import { addDaysToDate, localDate, nextDate, startOfLocalDay } from '../../utils/day-events';
@@ -671,7 +672,9 @@ function parseReminderCreate(
     return { intent: 'create', confidence: 'low', error: 'Invalid date/time parsed' };
   }
 
-  const own = calendars.find(c => c.labels.includes('primary')) ?? calendars[0];
+  // Reminders live in FamCal ("Google as a connection" spec §3): never a Google calendar. The
+  // FamCal primary is a placeholder; resolution and the create site pin it to the creator's main.
+  const own = calendars.find(c => isFamcalId(c.calendarId) && c.labels.includes('primary'));
   const event: ParsedEvent = {
     title: eventData.title,
     startTime: start,
@@ -679,8 +682,8 @@ function parseReminderCreate(
     location: eventData.location || undefined,
     description: eventData.description || undefined,
     allDay,
-    calendarId: own?.calendarId || 'primary',
-    calendarName: own?.name || 'Primary',
+    calendarId: own?.calendarId,
+    calendarName: own?.name,
     confidence,
     recurrence: repeat.recurrence,
     kind: 'reminder',
@@ -744,11 +747,16 @@ export function parseGeminiEventResponse(
       const nameToMatch = (eventData.calendarName || geminiCalId).toLowerCase();
       matchedCalendar = calendars.find(c => c.name?.toLowerCase() === nameToMatch);
     }
+    // No match: the default of the union (spec §3), not the list's first row, which is a FamCal
+    // one for everyone now. With no default the event carries no calendar, and the create site
+    // puts it on the main FamCal calendar (createCalendarFor).
     if (!matchedCalendar) {
-      console.warn(`[Gemini] Could not match calendarId "${geminiCalId}" / name "${eventData.calendarName}" to user calendars, falling back to "${calendars[0]?.calendarId || 'primary'}"`);
+      const defaultId = defaultCalendarFor(calendars);
+      matchedCalendar = defaultId ? calendars.find(c => c.calendarId === defaultId) : undefined;
+      console.warn(`[Gemini] Could not match calendarId "${geminiCalId}" / name "${eventData.calendarName}" to user calendars, using the default "${matchedCalendar?.calendarId ?? 'the FamCal main'}"`);
     }
-    const resolvedCalendarId = matchedCalendar?.calendarId || calendars[0]?.calendarId || 'primary';
-    const resolvedCalendarName = matchedCalendar?.name || calendars[0]?.name || 'Primary';
+    const resolvedCalendarId = matchedCalendar?.calendarId;
+    const resolvedCalendarName = matchedCalendar?.name;
 
     // A Hebrew date the user spoke becomes the start day here, on the server
     const repeat = readRepeat(eventData, timezone, now);

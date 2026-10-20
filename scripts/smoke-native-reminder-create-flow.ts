@@ -248,7 +248,11 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   },
   [`${SRC}/services/native-reminders/support.ts`]: { getReminderSupport: async () => support },
   [`${SRC}/services/calendar-provider/index.ts`]: {
-    getProviderForUser: () => fakeProvider, hasUsableCalendar: async () => true, getCalendarAssignmentsForUser: async () => CALENDARS,
+    // One fake provider for every calendar id (the routing by id is smoke-calendar-routing's)
+    providerForCalendar: () => fakeProvider,
+    fetchEventsInRange: async (...args: Parameters<typeof fakeProvider.fetchEventsInRange>) => ({ events: await fakeProvider.fetchEventsInRange(...args), failed: [] }),
+    createCalendarFor: async (_user: unknown, event: { calendarId?: string }) => event.calendarId ?? CALENDARS[0].calendarId,
+    hasUsableCalendar: async () => true, getCalendarAssignmentsForUser: async () => CALENDARS,
   },
   [`${SRC}/services/forward-event/gemini-text.ts`]: { processTextWithGemini: fakeTextExtraction },
   [`${SRC}/services/native-calendar/event-store.ts`]: real => fakeOver(real, { getMainNativeCalendar: async (userId: number) => ({ id: `main-${userId}` }) }),

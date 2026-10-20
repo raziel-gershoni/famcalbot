@@ -224,7 +224,10 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   [`${SRC}/services/analytics-service.ts`]: { trackActivityAsync: () => {}, addBreadcrumb: () => {}, setUserContext: () => {} },
   [`${SRC}/services/subscription-service.ts`]: { checkFeatureAccess: async () => ({ allowed: true }), incrementUsage: async () => {} },
   [`${SRC}/services/calendar-provider/index.ts`]: {
-    getProviderForUser: () => fakeProvider,
+    // One fake provider for every calendar id (the routing by id is smoke-calendar-routing's)
+    providerForCalendar: () => fakeProvider,
+    fetchEventsInRange: async (...args: Parameters<typeof fakeProvider.fetchEventsInRange>) => ({ events: await fakeProvider.fetchEventsInRange(...args), failed: [] }),
+    createCalendarFor: async (_user: unknown, event: { calendarId?: string }) => event.calendarId ?? 'native:c1',
     hasUsableCalendar: async () => true,
     getCalendarAssignmentsForUser: async () => [{ calendarId: 'native:c1', name: 'Raziel', labels: ['primary'], color: '#000' }],
   },

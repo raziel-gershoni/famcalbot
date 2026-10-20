@@ -292,17 +292,17 @@ function formatRecurrence(recurrence: ParsedEvent['recurrence'], language: strin
 
 /**
  * What an event's card says about a repeat by the Hebrew date: the line with the Hebrew date and
- * the kind, and the notes (a Google user's event is added once; a yahrzeit with no year starts
+ * the kind, and the notes (an event headed for Google is added once; a yahrzeit with no year starts
  * from the next one). Nothing for any other event, which also costs no provider lookup.
  */
 export async function hebrewCardParts(
-  event: Pick<ParsedEvent, 'recurrence' | 'startTime'>,
+  event: Pick<ParsedEvent, 'recurrence' | 'startTime' | 'calendarId' | 'kind'>,
   user: UserConfig,
   language: string,
   timezone: string
 ): Promise<{ line: string | null; notices: string[] }> {
   if (event.recurrence?.calendar !== 'hebrew') return { line: null, notices: [] };
-  return hebrewRepeatCard(event, await targetOf(user), language, timezone);
+  return hebrewRepeatCard(event, await targetOf(user, event), language, timezone);
 }
 
 /**

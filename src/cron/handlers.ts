@@ -170,8 +170,7 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
         language: cachedUser.language,
         googleRefreshToken: cachedUser.googleRefreshToken,
         calendarAssignments: cachedUser.calendarAssignments,
-        // Carry the provider context, or getProviderForUser dispatches every
-        // cached user to Google regardless of their actual calendar source.
+        // Legacy and unread: the providers are chosen by calendar id ("Google as a connection").
         calendarSource: cachedUser.calendarSource ?? 'GOOGLE',
         pairingId: cachedUser.pairingId ?? null,
         defaultReminderMinutes: cachedUser.defaultReminderMinutes ?? undefined,

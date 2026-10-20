@@ -56,7 +56,7 @@ export function getPrimaryCalendar(
 }
 
 /** A FamCal calendar id ('native:<cuid>'); every other id is Google's. */
-const isFamcalId = (calendarId: string) => calendarId.startsWith('native:');
+export const isFamcalId = (calendarId: string): boolean => calendarId.startsWith('native:');
 
 /**
  * Where an event goes when nothing places it ("Google as a connection" spec §3), over the

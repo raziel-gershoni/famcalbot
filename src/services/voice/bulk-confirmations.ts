@@ -12,7 +12,7 @@
 
 import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
-import { getProviderForUser } from '../calendar-provider';
+import { createCalendarFor, providerForCalendar } from '../calendar-provider';
 import { recurrenceFields, recurrenceNotice, repeatInput, targetOf } from '../recurrence-fields';
 import { hebrewRepeatCard } from './hebrew-repeat-card';
 import { pushRecentEvent } from './recent-events-store';
@@ -103,13 +103,12 @@ export async function showBulkConfirmation(
   });
 
   const language = user.language || 'en';
-  // Where "Confirm all" creates them: a Hebrew repeat is worded for that target
-  const hebrewTarget = creates.some((it) => it.event?.recurrence?.calendar === 'hebrew') ? await targetOf(user) : null;
   const lines = await Promise.all(creates.map(async (it, i) => {
     const ev = it.event as ParsedEvent;
-    // A Hebrew repeat names its date and its kind, as the single card does (spec §5); the bare mark stays for the rest
-    const hebrew = hebrewTarget !== null && ev.recurrence?.calendar === 'hebrew'
-      ? (await hebrewRepeatCard(ev, hebrewTarget, language, timezone)).line
+    // A Hebrew repeat names its date and its kind, as the single card does (spec §5), worded for
+    // the calendar "Confirm all" creates it on; the bare mark stays for the rest
+    const hebrew = ev.recurrence?.calendar === 'hebrew'
+      ? (await hebrewRepeatCard(ev, await targetOf(user, ev), language, timezone)).line
       : null;
     const hebrewLine = hebrew ? ` · ${escapeHtml(hebrew)}` : '';
     const recurringMark = ev.recurrence && !hebrew ? ' 🔁' : '';
@@ -133,7 +132,9 @@ export async function showBulkConfirmation(
     .filter((it) => it.event?.reminderNotice === 'partner_not_on_telegram')
     .map((it) => getBotMessage(language, 'nativeReminders.card.partnerNotOnTelegram', { name: escapeHtml(it.event?.forName || '') })));
   // Google can't repeat by the Hebrew date: "Confirm all" creates those once, so say so first
-  const googleOnce = hebrewTarget !== null && creates.some((it) => recurrenceNotice(hebrewTarget, it.event?.recurrence));
+  const onceFlags = await Promise.all(creates.map(async (it) =>
+    it.event?.recurrence?.calendar === 'hebrew' && !!recurrenceNotice(await targetOf(user, it.event), it.event.recurrence)));
+  const googleOnce = onceFlags.some(Boolean);
   const hebrewNotice = googleOnce ? [await getBotMessage(language, 'hebrewRepeat.notice.google')] : [];
   const notices = [...new Set([...unreachable, ...hebrewNotice])].map((notice) => `<i>${notice}</i>`);
 
@@ -207,7 +208,6 @@ export async function handleBulkConfirmAll(pendingId: string): Promise<{
   }
   await removePendingBatch(pendingId);
 
-  const provider = getProviderForUser(pending.user);
   let success = 0;
   let failed = 0;
   const errors: string[] = [];
@@ -220,7 +220,10 @@ export async function handleBulkConfirmAll(pendingId: string): Promise<{
       continue;
     }
     const ev = intent.event;
-    const result = await provider.createEvent(pending.user, ev.calendarId || 'primary', {
+    // Each to its own calendar's provider; an unplaced one to the default (spec §3)
+    const calId = await createCalendarFor(pending.user, ev);
+    const provider = providerForCalendar(calId);
+    const result = await provider.createEvent(pending.user, calId, {
       title: ev.title,
       startTime: ev.startTime,
       endTime: ev.endTime,
@@ -235,14 +238,13 @@ export async function handleBulkConfirmAll(pendingId: string): Promise<{
       if (ev.kind === 'reminder') {
         trackActivityAsync(pending.user.id, 'native_reminder_created', { bulk: true, for_partner: ev.forUserId != null, all_day: ev.allDay });
       }
-      const calId = ev.calendarId || 'primary';
       // "Cancel that" reaches the batch's last reminder, as after a card (spec §11.3)
       if (ev.kind === 'reminder' && pending.user.telegramId != null) {
         trackCreatedEvent(pending.user.telegramId, result.eventId, calId, ev)
           .catch(err => captureError(err, 'voice-track-event', { user_id: pending.user.id }, 'warning'));
       }
       await pushRecentEvent(pending.user.id, {
-        provider: calId.startsWith('native:') ? 'native' : 'google',
+        provider: provider.name,
         calendarId: calId,
         eventId: result.eventId,
         title: ev.title,
