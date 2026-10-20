@@ -20,6 +20,7 @@ import { invalidateDueGate } from './native-reminders/due-gate';
 import { clearDeletedUserCaches } from '../lib/user-moderation';
 import { setUserMenuButton } from './telegram/bot';
 import { clearOtherPrimaries } from './calendar-provider/primary';
+import { hasGoogleChoices } from './native-calendar/onboarding';
 import type { CalendarAssignment } from '../types';
 
 const LINK_CODE_TTL = 300; // 5 minutes
@@ -415,6 +416,17 @@ async function mergeWhatsAppUser(
     : wGooglePrimary ? { googleCalendarId: wGooglePrimary }
     : undefined;
   if (keep) await clearOtherPrimaries(t.id, keep, tx);
+  // W's Google came without a primary, so W's default was its first Google "yours"
+  // (spec §3 rule 2). A fresh T's empty default that W's calendar did not replace gives
+  // up primary then, as the lazy FamCal main of a user with Google choices has none.
+  const tFreshMain = tPrimary && !wPrimary && tPrimaryEmpty && !tKeepsPartner ? tPrimary.id : undefined;
+  if (!keep && tookGoogle && tFreshMain && hasGoogleChoices(w.calendarAssignments)) {
+    const row = await tx.nativeCalendar.findUnique({ where: { id: tFreshMain }, select: { labels: true } });
+    if (row?.labels.includes('primary')) {
+      await tx.nativeCalendar.update({ where: { id: tFreshMain }, data: { labels: row.labels.filter(l => l !== 'primary') } });
+      console.log(`[AccountLink] User ${t.id}: primary off the fresh FamCal default ${tFreshMain}; W's Google has no primary`);
+    }
+  }
 
   // W goes before T takes its WhatsApp ids: they are unique. W was found by the
   // id the link came from, so W's ids are the ones to take; a BSUID-only W has

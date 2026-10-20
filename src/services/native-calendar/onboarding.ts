@@ -4,9 +4,10 @@
 // was hidden by an old connect. Calendars hidden that way stay hidden.
 //
 // One calendar, name = user's name (or "My calendar"), labels: primary + yours, or only
-// yours when the user's Google choices already hold primary (no new double primary,
-// spec §3). Privacy: PRIVATE for unpaired users; SHARED_EDITOR if the user is already
-// paired.
+// yours when the user has any Google choices (spec §3): with a Google primary that makes
+// no double primary, and without one the default stays the first Google "yours" (a
+// FamCal primary would win defaultCalendarFor's first rule). Privacy: PRIVATE for
+// unpaired users; SHARED_EDITOR if the user is already paired.
 
 import { prisma } from '../../utils/prisma';
 
@@ -15,6 +16,11 @@ const FALLBACK_NAME = {
   he: 'היומן שלי',
   ru: 'Мой календарь',
 } as const;
+
+/** True when the user has chosen Google calendars (stored, whatever the token's state). */
+export function hasGoogleChoices(calendarAssignments: unknown): boolean {
+  return Array.isArray(calendarAssignments) && calendarAssignments.length > 0;
+}
 
 export async function ensurePrimaryNativeCalendar(userId: number): Promise<void> {
   const user = await prisma.user.findUnique({
@@ -33,14 +39,12 @@ export async function ensurePrimaryNativeCalendar(userId: number): Promise<void>
   const fallback = FALLBACK_NAME[lang] || FALLBACK_NAME.en;
   const name = user.name?.trim() || fallback;
   const privacy = user.pairingId ? 'SHARED_EDITOR' : 'PRIVATE';
-  const googlePrimary = Array.isArray(user.calendarAssignments) &&
-    (user.calendarAssignments as Array<{ labels?: unknown }>).some((a) => Array.isArray(a?.labels) && a.labels.includes('primary'));
 
   await prisma.nativeCalendar.create({
     data: {
       ownerUserId: userId,
       name,
-      labels: googlePrimary ? ['yours'] : ['primary', 'yours'],
+      labels: hasGoogleChoices(user.calendarAssignments) ? ['yours'] : ['primary', 'yours'],
       privacy,
     },
   });

@@ -42,7 +42,7 @@ Status: designed 2026-10-19 under the owner's delegation, then revised after cod
   - A save that leaves `primary` as it was never touches the other list, so renames and label toggles are safe.
   - On select-calendars, ticking `primary` while a FamCal calendar holds it shows "New events will go to <name>".
 - **Reminders** never use the default. They pin to `getMainNativeCalendar(creator)`; `parseReminderCreate` stops picking a Google `own`. When reminders aren't supported for the creator (no Telegram, or the plan has no reminders), a reminder request becomes an ordinary event in the default calendar, as Google users get today.
-- **The lazy FamCal main** gets labels `['yours']` when the user's Google list already has `primary`, and `['primary', 'yours']` otherwise. No new double primary is made.
+- **The lazy FamCal main** gets labels `['yours']` when the user has any Google choices, and `['primary', 'yours']` when they have none. With a Google `primary` that makes no double primary; without one the default stays the first Google `yours`, since a FamCal `primary` would win rule 1.
 
 ## 4. Server
 - **The switches.**
@@ -72,7 +72,7 @@ Status: designed 2026-10-19 under the owner's delegation, then revised after cod
 - **WA→TG merge** (account-linking.ts):
   - `wHasGoogle` is "W has a token". W's Google moves when T has no token. The T-unpaired and T-has-no-events conditions go, and T's calendars are never soft-deleted.
   - The pairing move drops `tIsNative` and the source condition.
-  - After the merge, primary uniqueness runs once, and T's primary wins.
+  - After the merge, primary uniqueness runs once, and T's primary wins. When W's Google moves with no `primary`, a fresh T's empty default (one W's calendar did not replace) gives up `primary` too, so W's default stays the first Google `yours`.
   - `afterMerge`'s `remindable` drops the source term.
 - **Native reminders.**
   - `getReminderSupport` drops `not_native`, and the open-reminder readers and voice's `openReminderCandidates` serve everyone. The plan and Telegram gates stay, so a Basic user sees no reminders section.

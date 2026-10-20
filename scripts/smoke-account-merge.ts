@@ -1296,6 +1296,30 @@ async function main() {
     assert(rowOf('nativeCalendar', 'cal-t')?.labels.includes('yours'), 'yours went with primary');
   });
 
+  await check('#52 W on Google with no Google primary (its default the first Google "yours"): a fresh T\'s empty default gives up primary, so W\'s default stays; an established or partnered T keeps its FamCal primary', async () => {
+    const { defaultCalendarFor } = await load('src/utils/calendar-helpers.ts');
+    const { getCalendarAssignmentsForUser } = await load('src/services/calendar-provider/user-calendars.ts');
+    const { getUserById } = await load('src/services/user-service.ts');
+    const primaries = () => [
+      DB.nativeCalendar.filter(c => c.ownerUserId === T && !c.isDeleted && c.labels.includes('primary')).map(c => c.id),
+      (userRow(T).calendarAssignments ?? []).filter((a: Row) => a.labels.includes('primary')).map((a: Row) => a.calendarId),
+    ];
+    const run = async (setup: () => void) => {
+      seed();
+      setup();
+      googleW();
+      const result = await link();
+      assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+      return { primaries: primaries(), default: defaultCalendarFor(await getCalendarAssignmentsForUser(await getUserById(T))) };
+    };
+    const fresh = await run(freshT);
+    const established = await run(() => {});
+    const partnered = await run(() => { freshT(); pairTWithQ(); });
+    assert(show(fresh) === show({ primaries: [[], []], default: 'dana@example.com' }), `fresh T ${show(fresh)}`);
+    assert(show(established) === show({ primaries: [['cal-t'], []], default: 'native:cal-t' }), `established T ${show(established)}`);
+    assert(show(partnered) === show({ primaries: [['cal-t'], []], default: 'native:cal-t' }), `partnered T ${show(partnered)}`);
+  });
+
   // ---- Merge: subscription ----
 
   await check('#8 W\'s subscription runs longer (paid, 20 days left; T is on a 3-day trial): T ends up with W\'s', async () => {

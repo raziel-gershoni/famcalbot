@@ -4,14 +4,16 @@
 // Every user has FamCal, created lazily; Google is an optional connection (a token plus the
 // chosen calendars). Nothing gates on User.calendarSource any more:
 // - sourcesFor, the union of calendars (FamCal rows, then the Google choices), the FamCal
-//   read, hasUsableCalendar and the lazy FamCal main (labels by the Google primary);
+//   read, hasUsableCalendar and the lazy FamCal main (no primary once Google calendars
+//   are chosen, so a Google user's default stays theirs);
 // - defaultCalendarFor, and one primary across both lists, cleared only when a save adds it;
 // - connecting Google never flips the source or hides FamCal; pairing with a Google user;
 // - reminders for a Google user (the plan and Telegram gates kept);
 // - one shared calendar limit: over-limit setups kept, blocked only above the limit when a
 //   save raises the total;
 // - the Google states and the 07:00 nudges (no OAuth track; choose calendars at any age;
-//   reconnect for a cleared token with stored calendars), the bot's nudges, the admin.
+//   reconnect for a cleared token with stored calendars), the bot's nudges, the admin;
+// - the daily reminder-cache sync and the summary batch take a Google user without a token.
 // The provider split by calendar id (spec §4 Providers) is Task G2's; the WA->TG merge
 // carrying a token from a NATIVE W is in smoke-account-merge (its FK-faithful fake).
 //
@@ -236,6 +238,8 @@ const recorder = (prefix: string): Row =>
 let googleEditorAnswer: Row = { calendars: [] };
 /** The select-calendars page's live Google list (calendar.ts listUserCalendars is faked). */
 let googleListed: Row[] = [];
+/** The summary's day reads (calendar-read/digest.ts readDigestDay is faked): who, and which calendar ids. */
+const summaryReads: { userId: number; ids: string[] }[] = [];
 
 // ---- Module stubs ----
 
@@ -294,7 +298,11 @@ function installStubs() {
     },
   });
   stub('src/lib/admin-auth.ts', { verifyAdminAccess: async () => ({ authorized: true, adminId: 1 }) });
-  const telegram = { getMessagingService: () => recorder('tg'), setUserMenuButton: async () => {}, getBot: () => ({}), initBot: () => ({}) };
+  const telegram = {
+    getMessagingService: () => recorder('tg'), setUserMenuButton: async () => {}, getBot: () => ({}), initBot: () => ({}),
+    // The daily cron handler's batch; H6 checks only its reminder-cache sync beside it.
+    sendDailySummaryToAll: async () => ({ processed: 0, skippedHour: 0, skippedDay: 0, skippedDedup: 0 }),
+  };
   stub('src/services/telegram/index.ts', telegram);
   stub('src/services/telegram/bot.ts', telegram);
   stub('src/services/messaging/factory.ts', {
@@ -303,6 +311,14 @@ function installStubs() {
   });
   stub('src/services/calendar-write/google-item.ts', { googleEditorCalendars: async () => googleEditorAnswer });
   stub('src/services/calendar.ts', { ...nodeRequire(path.join(ROOT, 'src/services/calendar.ts')), listUserCalendars: async () => googleListed });
+  // The summary's read stops at the read: the smoke checks who is read, with which ids.
+  stub('src/services/calendar-read/digest.ts', {
+    ...nodeRequire(path.join(ROOT, 'src/services/calendar-read/digest.ts')),
+    readDigestDay: async (user: Row, _day: string, _tz: string, ids: string[]) => {
+      summaryReads.push({ userId: user.id as number, ids });
+      throw new Error('smoke: the read stops here');
+    },
+  });
 }
 
 // ---- Fixtures ----
@@ -469,14 +485,33 @@ async function main() {
     assert(calsOf(3).find(c => c.id === 'cal-3')?.isDeleted === true, 'the hidden calendar came back');
   });
 
-  await check('B3 the lazy FamCal main: labels ["yours"] when the Google list holds primary, ["primary","yours"] otherwise; once only', async () => {
+  await check('B3 the lazy FamCal main: labels ["yours"] when the user has Google choices (with or without a primary), ["primary","yours"] with none; once only', async () => {
     seed();
+    table('user').push(baseUser({ id: 7, name: 'Yoni', telegramId: BigInt(5550007) }));
     const { ensurePrimaryNativeCalendar } = await load('src/services/native-calendar/onboarding.ts');
     await ensurePrimaryNativeCalendar(3); // Gil: Google primary
-    await ensurePrimaryNativeCalendar(4); // Hila: no Google primary
+    await ensurePrimaryNativeCalendar(4); // Hila: Google choices, no primary
     await ensurePrimaryNativeCalendar(4);
+    await ensurePrimaryNativeCalendar(7); // Yoni: no Google choices
     eq(live(3).map(c => c.labels), [['yours']], 'Gil');
-    eq(live(4).map(c => c.labels), [['primary', 'yours']], 'Hila');
+    eq(live(4).map(c => c.labels), [['yours']], 'Hila');
+    eq(live(7).map(c => c.labels), [['primary', 'yours']], 'Yoni');
+  });
+
+  await check('B6 a Google user with no primary keeps the first Google "yours" as the default once the FamCal main exists (the union, and the editor preselects it)', async () => {
+    seed();
+    const { getCalendarAssignmentsForUser } = await load('src/services/calendar-provider/user-calendars.ts');
+    const { defaultCalendarFor } = await load('src/utils/calendar-helpers.ts');
+    const { editorInfo } = await load('src/services/calendar-write/item-info.ts');
+    eq(defaultCalendarFor(await getCalendarAssignmentsForUser(await configOf(4))), 'hila@gmail.com', 'before the FamCal main');
+    googleEditorAnswer = { calendars: [
+      { id: 'kids4@group.calendar.google.com', name: 'Kids', color: '#4285F4', main: false, mine: true },
+      { id: 'hila@gmail.com', name: 'Hila', color: '#4285F4', main: false, mine: true },
+    ] };
+    const info = await editorInfo(await configOf(4), 'Asia/Jerusalem'); // makes the FamCal main
+    assert(live(4).length === 1, `FamCal ${show(calsOf(4))}`);
+    eq(defaultCalendarFor(await getCalendarAssignmentsForUser(await configOf(4))), 'hila@gmail.com', 'after the FamCal main');
+    eq(info.calendars.filter((c: Row) => c.main).map((c: Row) => c.id), ['hila@gmail.com'], 'editor main');
   });
 
   await check('B4 hasUsableCalendar: a Google user with no token (and no FamCal yet) has FamCal', async () => {
@@ -754,6 +789,30 @@ async function main() {
     eq([await send(6, 'oauth'), await send(6, 'calendars'), await send(5, 'reconnect')], [400, 200, 200], 'statuses');
     const omri = sent.find(s => String(s.chatId) === '5550005');
     assert(String(omri?.options?.replyMarkup?.inline_keyboard?.[0]?.[0]?.web_app?.url).includes('/refresh-token'), show(omri));
+  });
+
+  await check('H6 the daily run\'s reminder-cache sync takes a Google user without a token (FamCal alerts), beside the Google and FamCal users', async () => {
+    seed();
+    for (const id of [1, 4, 5]) userRow(id).remindersEnabled = true;
+    const { handleDailySummary } = await load('src/cron/handlers.ts');
+    await handleDailySummary();
+    const cached = decode(redisStore.get('reminders:users')) as Row[] | null;
+    eq((cached ?? []).map(c => c.id).sort(), [1, 4, 5], 'cached users');
+  });
+
+  await check('H7 the summary batch serves a Google user without a token: the token-less skip is gone, the gate counts the union (FamCal only here), and the read asks for FamCal then the Google choices', async () => {
+    seed();
+    table('user').push(baseUser({ id: 7, name: 'Yoni', telegramId: BigInt(5550007), calendarSource: 'GOOGLE', location: '' }));
+    DB.user = table('user').filter(u => [5, 7].includes(u.id as number));
+    table('nativeCalendar').push(cal('cal-5', 5, 'Omri', { labels: ['yours'] }), cal('cal-77', 7, 'Yoni', { labels: ['primary', 'yours'] }));
+    for (const id of [5, 7]) redisStore.set(`tz:user:${id}`, 'Asia/Jerusalem');
+    summaryReads.length = 0;
+    const { sendDailySummaryToAll } = await load('src/services/telegram/summary.ts');
+    await sendDailySummaryToAll();
+    eq(summaryReads, [
+      { userId: 5, ids: ['native:cal-5', 'omri@gmail.com'] },
+      { userId: 7, ids: ['native:cal-77'] },
+    ], 'reads');
   });
 
   // ---- Report ----
