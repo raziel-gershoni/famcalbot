@@ -84,7 +84,7 @@ async function main() {
   installFakeGoogle();
 
   const { auth, calendar: googleCalendar } = await import('@googleapis/calendar');
-  const { classifyGoogleError, keepGoogleEvent, mapGoogleEvent } = await import('../src/services/calendar-read/google-map');
+  const { classifyGoogleError, googleErrorFacts, keepGoogleEvent, mapGoogleEvent } = await import('../src/services/calendar-read/google-map');
   const { htmlToText } = await import('../src/utils/html');
 
   const newAuth = () => {
@@ -511,6 +511,29 @@ async function main() {
       if (ms >= 50) slow.push(`${name} took ${ms.toFixed(1)} ms`);
     }
     assert(slow.length === 0, slow.join('; '));
+  });
+
+  // What a log line says about a failure (googleErrorFacts): which request failed, without its
+  // query or ids, and the token endpoint's own words, which gaxios leaves out of the message.
+  await check('facts: a refused token refresh names Google\'s OAuth error with its description, and the request', async () => {
+    const e = await tokenStepError({ status: 400, data: { error: 'invalid_grant', error_description: 'Token has been expired or revoked.' } });
+    const facts = googleErrorFacts(e);
+    assertEq({ status: facts.status, oauth: facts.oauth, request: facts.request }, { status: 400, oauth: 'invalid_grant: Token has been expired or revoked.', request: 'POST oauth2.googleapis.com/token' }, 'facts');
+  });
+
+  await check('facts: a failed Calendar API call names its method and path, the calendar id masked and the query (times) dropped', async () => {
+    const e = await listError(() => ({ status: 401, data: apiBody(401, 'authError', 'Invalid Credentials') }));
+    const facts = googleErrorFacts(e);
+    assertEq({ status: facts.status, oauth: facts.oauth, request: facts.request }, { status: 401, oauth: undefined, request: 'GET www.googleapis.com/calendar/v3/calendars/:id/events' }, 'facts');
+  });
+
+  await check('facts: ids after calendars, calendarList, events and acl are masked (a URL object or a string); the primary keyword is kept', () => {
+    const at = (method: string | undefined, url: unknown) => googleErrorFacts({ config: { method, url }, response: { status: 401 } }).request;
+    assertEq(at('patch', new URL('https://www.googleapis.com/calendar/v3/users/me/calendarList/x9f%40group.calendar.google.com?alt=json')), 'PATCH www.googleapis.com/calendar/v3/users/me/calendarList/:id', 'calendarList.patch');
+    assertEq(at(undefined, 'https://www.googleapis.com/calendar/v3/calendars/primary?fields=id'), 'GET www.googleapis.com/calendar/v3/calendars/primary', 'calendars.get primary');
+    assertEq(at('DELETE', 'https://www.googleapis.com/calendar/v3/calendars/fam%40group.calendar.google.com/events/ev1_20261020T090000Z'), 'DELETE www.googleapis.com/calendar/v3/calendars/:id/events/:id', 'events.delete');
+    assertEq(at('POST', 'https://www.googleapis.com/calendar/v3/calendars/c1/acl/user%3Aa%40b.c'), 'POST www.googleapis.com/calendar/v3/calendars/:id/acl/:id', 'acl');
+    assertEq(googleErrorFacts(new Error('plain')).request, undefined, 'an error with no request');
   });
 
   await check('the fake answered every request (nothing went past it)', () => {

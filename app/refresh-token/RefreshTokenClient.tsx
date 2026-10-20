@@ -45,6 +45,13 @@ const POLL_INTERVAL_MS = 2000;
 const POLL_WINDOW_MS = 3 * 60_000;
 
 /**
+ * A Google URL is good for one consent: the callback uses its state up, and the state ends
+ * after 10 minutes (OAUTH_STATE_TTL_MS). So a tap opens the URL prepared for it and a new
+ * one is prepared at once, and one unused for 9 minutes is replaced before Google sees it.
+ */
+const URL_FRESH_MS = 9 * 60_000;
+
+/**
  * What the page says when oauth/start gives no Google URL. With no credential it says
  * what PageGate says: inside Telegram, reopen from the bot; in a browser, the WhatsApp
  * link has expired, or, on Telegram, open it from the bot (oauth-callback's "Try again"
@@ -67,11 +74,11 @@ export function startErrorLines(status: number, initData: string, t: Translation
  * behind (an earlier connect would). Offset 0 when the answer has no serverTime: the
  * phone's clock as it is. null when there is no URL.
  */
-export function attemptFromStart(data: unknown, clientNow: number): { oauthUrl: string; clockOffset: number } | null {
+export function attemptFromStart(data: unknown, clientNow: number): { oauthUrl: string; clockOffset: number; preparedAt: number } | null {
   const { oauthUrl, serverTime } = (data ?? {}) as { oauthUrl?: unknown; serverTime?: unknown };
   if (typeof oauthUrl !== 'string') return null;
   const clockOffset = typeof serverTime === 'number' && Number.isFinite(serverTime) ? serverTime - clientNow : 0;
-  return { oauthUrl, clockOffset };
+  return { oauthUrl, clockOffset, preparedAt: clientNow };
 }
 
 /**
@@ -88,42 +95,56 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
   const [isChecking, setIsChecking] = useState(false);
   // The Google URL comes from POST /api/oauth/start, which creates the OAuth state for
   // the user our credential proves, with the server's clock offset (attemptFromStart).
-  // Until it arrives the button stays disabled.
-  const [start, setStart] = useState<{ oauthUrl: string; clockOffset: number } | null>(null);
+  // Until it arrives the button stays disabled, and again after each tap (URL_FRESH_MS).
+  const [start, setStart] = useState<{ oauthUrl: string; clockOffset: number; preparedAt: number } | null>(null);
   const oauthUrl = start?.oauthUrl ?? null;
   const [startError, setStartError] = useState<string[] | null>(null);
   // Set when Google opens: when, and whether the finish is in Telegram or WhatsApp
   const [waiting, setWaiting] = useState<{ since: number; telegram: boolean } | null>(null);
   const checkInFlight = useRef(false);
+  // Only the latest prepare's answer counts, and none after the page is gone
+  const prepared = useRef(0);
+  const mounted = useRef(true);
+
+  const prepare = useCallback(async () => {
+    const run = ++prepared.current;
+    setStart(null);
+    const initData = readInitData();
+    try {
+      const response = await fetch('/api/oauth/start', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, initData }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!mounted.current || run !== prepared.current) return;
+      const attempt = response.ok ? attemptFromStart(data, Date.now()) : null;
+      if (attempt) {
+        setStart(attempt);
+      } else {
+        setStartError(startErrorLines(response.status, initData, t));
+      }
+    } catch (error) {
+      console.error('Error starting Google sign-in:', error);
+      if (mounted.current && run === prepared.current) setStartError([t.startFailed]);
+    }
+  }, [userId, t]);
 
   useEffect(() => {
-    let cancelled = false;
-    const initData = readInitData();
-    (async () => {
-      try {
-        const response = await fetch('/api/oauth/start', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: userId, initData }),
-        });
-        const data = await response.json().catch(() => ({}));
-        if (cancelled) return;
-        const attempt = response.ok ? attemptFromStart(data, Date.now()) : null;
-        if (attempt) {
-          setStart(attempt);
-        } else {
-          setStartError(startErrorLines(response.status, initData, t));
-        }
-      } catch (error) {
-        console.error('Error starting Google sign-in:', error);
-        if (!cancelled) setStartError([t.startFailed]);
-      }
-    })();
+    mounted.current = true;
+    void prepare();
     return () => {
-      cancelled = true;
+      mounted.current = false;
     };
-  }, [userId, t]);
+  }, [prepare]);
+
+  // A URL nobody tapped is replaced before its state ends (a backgrounded page's timer runs on return)
+  useEffect(() => {
+    if (!start) return;
+    const timer = setTimeout(() => void prepare(), Math.max(0, start.preparedAt + URL_FRESH_MS - Date.now()));
+    return () => clearTimeout(timer);
+  }, [start, prepare]);
 
   // quiet: the interval poll, which shows no overlay unless the connection landed
   const checkTokenRefresh = useCallback(async (quiet = false) => {
@@ -163,6 +184,11 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
 
   const startOAuth = useCallback(() => {
     if (!start) return;
+    if (Date.now() - start.preparedAt >= URL_FRESH_MS) {
+      // Its state is about to end: Google would only lead to "expired". The next tap gets a new one.
+      void prepare();
+      return;
+    }
 
     // Save pending OAuth flag
     localStorage.setItem(OAUTH_PENDING_KEY, JSON.stringify({
@@ -178,7 +204,9 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     }
     // With initData the finish is in Telegram; on the WhatsApp session, in WhatsApp
     setWaiting({ since: Date.now(), telegram: readInitData() !== '' });
-  }, [start, userId]);
+    // This URL's state is spent once its consent finishes: the next tap opens a new one
+    void prepare();
+  }, [start, userId, prepare]);
 
   useEffect(() => {
     // Initialize Telegram WebApp if available
@@ -219,9 +247,13 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
   }, [waiting, checkTokenRefresh]);
 
   useEffect(() => {
-    // The Telegram MainButton appears once the Google URL is ready
+    // The Telegram MainButton shows while a Google URL is ready, like the page's button
     const tg = typeof window !== 'undefined' ? window.Telegram?.WebApp : undefined;
-    if (!tg || !oauthUrl) return;
+    if (!tg) return;
+    if (!oauthUrl) {
+      tg.MainButton.hide();
+      return;
+    }
     tg.MainButton.setText('Connect Google Calendar');
     tg.MainButton.onClick(startOAuth);
     tg.MainButton.show();

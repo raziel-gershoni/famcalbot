@@ -1302,6 +1302,31 @@ async function main() {
     assert(link('L').state === 'token' && sent.length === 1, `link ${show(link('L'))} sent ${show(sent)}`);
   });
 
+  await check('outage: the log and Sentry name the cause: a 401 on the new calendar\'s calendarList.patch gives the request (id masked), status and Google\'s message; no stored token says so', async () => {
+    seed();
+    googleCalendar('g-lost', 'L');
+    DB.googleSyncLink.push(linkRow('L', TAL, 'home', { state: 'creating', backfilledAt: null }));
+    const refused = Object.assign(new Error('Invalid Credentials'), {
+      config: { method: 'PATCH', url: new URL('https://www.googleapis.com/calendar/v3/users/me/calendarList/g-lost%40group.calendar.google.com?alt=json'), data: 'REQUEST BODY' },
+      response: { status: 401, data: { error: { code: 401, message: 'Invalid Credentials', errors: [{ domain: 'global', reason: 'authError', message: 'Invalid Credentials' }] } } },
+    });
+    google.failures.push({ op: 'calendarList.patch', error: refused, left: 1 });
+    await pass();
+    assert(link('L').state === 'token', `link ${show(link('L'))}`);
+    const line = logs.find((l) => l.includes('copies wait for a reconnect')) ?? '';
+    assert(line.includes('PATCH www.googleapis.com/calendar/v3/users/me/calendarList/:id') && line.includes('401') && line.includes('Invalid Credentials'), `log ${show(line)}`);
+    assert(!line.includes('g-lost') && !line.includes('REQUEST BODY') && !line.includes('alt=json'), `log leaks the id, body or query: ${show(line)}`);
+    const outage = captured.find((c) => c.ctx === 'google-sync-outage');
+    assert(String(outage?.extra?.cause).includes('calendarList/:id') && String(outage?.extra?.cause).includes('401'), `captured ${show(captured)}`);
+    seedCopy();
+    DB.user[0].googleRefreshToken = '';
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    await pass();
+    const none = logs.find((l) => l.includes('copies wait for a reconnect')) ?? '';
+    assert(none.includes('no Google token stored') && String(captured.find((c) => c.ctx === 'google-sync-outage')?.extra?.cause).includes('no Google token stored'), `log ${show(none)} captured ${show(captured)}`);
+  });
+
   await check('scopes: no calendar.app.created sets scopes; the message opens the calendars page; a WhatsApp-only user gets the settings template', async () => {
     seedCopy();
     DB.user[0].googleScopes = SCOPES.slice(0, 2);

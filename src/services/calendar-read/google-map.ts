@@ -47,13 +47,50 @@ function httpStatus(err: GoogleErrorShape): number | undefined {
 }
 
 /**
- * What a Google error says, for a log line: its HTTP status, the API's reasons and Google's
- * own message. Never the request it carried (a write's body holds the title).
+ * The token endpoint's own words: 'invalid_grant: Token has been expired or revoked.' gaxios
+ * makes the message the error string alone, and every reason for a dead token is invalid_grant.
  */
-export function googleErrorFacts(e: unknown): { status?: number; reasons: string[]; message: string } {
+function oauthFacts(data: unknown): string | undefined {
+  const error = oauthError(data);
+  if (!error) return undefined;
+  const description = (data as { error_description?: unknown }).error_description;
+  return typeof description === 'string' && description !== '' ? `${error}: ${description}` : error;
+}
+
+/** Path segments that name an id: what follows each is masked (a calendar id can be an address). */
+const ID_AFTER = new Set(['calendars', 'calendarList', 'events', 'acl']);
+
+/**
+ * Which request failed, as 'PATCH www.googleapis.com/calendar/v3/users/me/calendarList/:id':
+ * the method, host and path, with no query (times, search text) and no ids but 'primary'.
+ */
+function requestFacts(err: { config?: unknown }): string | undefined {
+  const config = err.config && typeof err.config === 'object' ? (err.config as { url?: unknown; method?: unknown }) : undefined;
+  const parts = config?.url === undefined ? null : String(config.url).match(/^https?:\/\/([^/?#]+)([^?#]*)/);
+  if (!config || !parts) return undefined;
+  const segments = parts[2].split('/');
+  const path = segments.map((s, i) => (i > 0 && ID_AFTER.has(segments[i - 1]) && s !== 'primary' ? ':id' : s)).join('/');
+  const method = typeof config.method === 'string' ? config.method.toUpperCase() : 'GET';
+  return `${method} ${parts[1]}${path}`;
+}
+
+/**
+ * What a Google error says, for a log line: its HTTP status, the API's reasons, Google's own
+ * message, the token endpoint's error with its description, and which request failed. Never
+ * the request's body (a write's holds the title), query or ids.
+ */
+export function googleErrorFacts(e: unknown): { status?: number; reasons: string[]; message: string; oauth?: string; request?: string } {
   if (!e || typeof e !== 'object') return { reasons: [], message: String(e) };
-  const err = e as GoogleErrorShape & { message?: unknown };
-  return { status: httpStatus(err), reasons: errorReasons(err), message: typeof err.message === 'string' ? err.message : '' };
+  const err = e as GoogleErrorShape & { message?: unknown; config?: unknown };
+  const oauth = oauthFacts(err.response?.data);
+  const request = requestFacts(err);
+  return {
+    status: httpStatus(err),
+    reasons: errorReasons(err),
+    message: typeof err.message === 'string' ? err.message : '',
+    ...(oauth ? { oauth } : {}),
+    ...(request ? { request } : {}),
+  };
 }
 
 /** Google's reasons for a token that lacks a scope (the 403 the grant-write flow fixes). */

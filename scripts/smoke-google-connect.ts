@@ -296,6 +296,8 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const BOTH_SCOPES = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events';
 /** What Google's token endpoint answers next; tests override it. */
 let googleAnswer: Row = { refresh_token: 'google-rt-new', scope: BOTH_SCOPES, access_token: 'test' };
+/** A refusal instead: the HTTP status and the raw body (JSON or not). seed() clears it. */
+let googleRefusal: { status: number; body: string } | null = null;
 const SYNC_SCOPE = 'https://www.googleapis.com/auth/calendar.app.created';
 /** The account's identity: calendars.get('primary')'s id, asked with the exchange's access token (google-sync S2). */
 const GOOGLE_PRIMARY_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary?fields=id';
@@ -391,6 +393,7 @@ function installStubs() {
     const url = String(input instanceof Request ? input.url : input);
     googleCalls.push(url);
     if (url === GOOGLE_TOKEN_URL) {
+      if (googleRefusal) return new Response(googleRefusal.body, { status: googleRefusal.status, headers: { 'content-type': 'application/json' } });
       return new Response(JSON.stringify(googleAnswer), { headers: { 'content-type': 'application/json' } });
     }
     if (url === GOOGLE_PRIMARY_URL) {
@@ -447,6 +450,7 @@ function seed() {
   syncDenied.clear();
   syncChecks.length = 0;
   googleAnswer = { refresh_token: 'google-rt-new', scope: BOTH_SCOPES, access_token: 'test' };
+  googleRefusal = null;
   primaryAnswer = { id: 'tal@gmail.com' };
   primaryAuth.length = 0;
   DB.googleSyncLink = [];
@@ -1070,19 +1074,26 @@ async function main() {
       '/api/oauth/start': 'app/api/oauth/start/route.ts',
       '/api/check-token-refresh': 'app/api/check-token-refresh/route.ts',
     };
-    let offset = skew;
+    // The phone's clock is `phoneShift` off the real one, the server's `serverShift`. While
+    // any server call runs (depth > 0) the shared clock is the server's: a count, not a saved
+    // value, so overlapping calls (the page's next oauth/start beside a commit) can't leave
+    // it on the wrong side.
+    let phoneShift = skew;
+    let serverShift = 0;
+    let depth = 0;
     const storage = new Map<string, string>();
     const intervals = new Map<number, () => void>();
     const inflight: Promise<unknown>[] = [];
-    const phone: Row = { storage, opened: [] as string[], location: { href: 'http://localhost/en/refresh-token', hash: '' } };
-    phone.serverNow = () => realNow();
+    const phone: Row = { storage, opened: [] as string[], mainButton: 'hidden', location: { href: 'http://localhost/en/refresh-token', hash: '' } };
+    phone.serverNow = () => realNow() + serverShift;
+    /** The phone's clock moves on by `ms` (the page left open); the server's with it. */
+    phone.advance = (ms: number) => { phoneShift += ms; serverShift += ms; };
     phone.asServer = async <R,>(run: () => Promise<R>): Promise<R> => {
-      const was = offset;
-      offset = 0;
+      depth += 1;
       try {
         return await run();
       } finally {
-        offset = was;
+        depth -= 1;
       }
     };
     phone.settle = async () => {
@@ -1094,14 +1105,16 @@ async function main() {
       }
     };
     phone.tick = async () => {
+      // What the page fetched lands first (its clock is the phone's again), then the poll runs
+      await phone.settle();
       [...intervals.values()].forEach(run => run());
       await phone.settle();
     };
     const define = (key: string, value: unknown) => Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
     const noop = () => undefined;
-    Date.now = () => realNow() + offset;
+    Date.now = () => realNow() + (depth > 0 ? serverShift : phoneShift);
     define('window', {
-      Telegram: { WebApp: { initData, ready: noop, expand: noop, openLink: (u: string) => phone.opened.push(u), MainButton: { setText: noop, onClick: noop, offClick: noop, show: noop } } },
+      Telegram: { WebApp: { initData, ready: noop, expand: noop, openLink: (u: string) => phone.opened.push(u), MainButton: { setText: noop, onClick: noop, offClick: noop, show: () => { phone.mainButton = 'shown'; }, hide: () => { phone.mainButton = 'hidden'; } } } },
       location: phone.location,
       open: (u: string) => phone.opened.push(u),
       sessionStorage: { getItem: () => null },
@@ -1805,6 +1818,60 @@ async function main() {
     await waWebhook(waText(WA_BSUID, `gc_${fragmentOf(end.redirect).get('p')}`, { bsuid: WA_BSUID }));
     const wa = sentTo(WA_BSUID).at(-1);
     assert(wa?.text?.startsWith(heBot.noPermission) && !wa.text.startsWith(heBot.started), `reply ${show(wa)}`);
+  });
+
+  await check('#49 every Connect tap opens a Google URL of its own: after a consent used the first state, a second tap on the same page opens a new one, whose consent reaches the finish page instead of "Invalid or expired state token"; a URL left unused 9 minutes is replaced, not opened', async () => {
+    const client = await load('app/refresh-token/RefreshTokenClient.tsx');
+    const TRANSLATIONS = new Proxy({}, { get: (_t, key) => (key === 'gate' ? new Proxy({}, { get: (_g, k) => String(k) }) : String(key)) });
+    const stateOf = (url: unknown) => new URL(String(url)).searchParams.get('state') ?? '';
+    seed();
+    await onPhone(0, initDataFor(TAL_TG), async phone => {
+      const app = runClient(client.default, { userId: String(TAL_TG), locale: 'en', translations: TRANSLATIONS });
+      await phone.settle();
+      const connect = () => elementsOf(app.tree()).find(e => e.type === 'button' && e.props?.className === 'btn');
+      assert(connect()?.props.disabled === false && phone.mainButton === 'shown', `not ready: ${show(connect()?.props ?? null)}, MainButton ${phone.mainButton}`);
+      connect()!.props.onClick();
+      // The URL just opened is spent: until the next one is ready, nothing can reopen it
+      assert(connect()?.props.disabled === true && phone.mainButton === 'hidden', `right after the tap: ${show(connect()?.props ?? null)}, MainButton ${phone.mainButton}`);
+      await phone.settle();
+      assert(connect()?.props.disabled === false && phone.mainButton === 'shown', `no next URL: ${show(connect()?.props ?? null)}`);
+      const first = stateOf(phone.opened[0]);
+      const done = await phone.asServer(() => quietly(() => runCallback(first)));
+      assert(done.value.redirect?.startsWith('/oauth-complete'), `first consent: ${show(done.value.threw ?? done.value.element?.props ?? done.value)}`);
+      connect()!.props.onClick();
+      await phone.settle();
+      const second = stateOf(phone.opened[1]);
+      assert(phone.opened.length === 2 && second.startsWith('u1_') && second !== first, `second tap opened ${show(phone.opened)}`);
+      const again = await phone.asServer(() => quietly(() => runCallback(second)));
+      assert(again.value.redirect?.startsWith('/oauth-complete'), `second consent: ${show(again.value.threw ?? again.value.element?.props ?? again.value)}`);
+      // A URL prepared 9.5 minutes ago (its state ends at 10): the tap gets a new one instead
+      const ready = stateOf(phone.opened[1]);
+      phone.advance(9.5 * 60_000);
+      connect()!.props.onClick();
+      assert(phone.opened.length === 2, `a 9.5-minute-old URL was opened: ${show(phone.opened)}`);
+      await phone.settle();
+      connect()!.props.onClick();
+      await phone.settle();
+      const third = stateOf(phone.opened[2]);
+      assert(phone.opened.length === 3 && third !== ready && DB.oAuthState.some((r: Row) => r.token === third), `after the stale tap: ${show(phone.opened)}`);
+    });
+  });
+
+  await check('#50 Google refusing the code exchange (400 invalid_grant with its description, or a 502 that isn\'t JSON) shows the "couldn\'t finish" page with a retry, logs and captures Google\'s reason, parks nothing; never the permissions page', async () => {
+    for (const refusal of [
+      { status: 400, body: JSON.stringify({ error: 'invalid_grant', error_description: 'Bad Request' }), says: 'HTTP 400 invalid_grant: Bad Request' },
+      { status: 502, body: '<html>Bad Gateway</html>', says: 'HTTP 502' },
+    ]) {
+      seed();
+      googleRefusal = refusal;
+      const { value: end, errors } = await quietly(() => runCallback(addState(9)));
+      const type = end.element?.type as Row | undefined;
+      assert(type?.name === 'ExchangeFailedPage', `${refusal.status}: rendered ${show(type?.name ?? end.threw ?? end.redirect)}`);
+      assert(end.element?.props.locale === 'en' && String(end.element?.props.retryHref).startsWith('https://t.me/'), `${refusal.status}: props ${show(end.element?.props)}`);
+      assert(captured.some(c => c.startsWith('oauth-token-exchange:') && c.includes(refusal.says)), `${refusal.status}: captured ${show(captured)}`);
+      assert(errors.some(e => e.includes(`user 9`) && e.includes(refusal.says)), `${refusal.status}: logged ${show(errors)}`);
+      assert(pendingKeys().length === 0, `${refusal.status}: a token was parked`);
+    }
   });
 
   let failed = 0;

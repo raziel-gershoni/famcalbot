@@ -163,6 +163,12 @@ async function pool<T>(items: readonly T[], limit: number, work: (item: T) => Pr
 }
 
 const tokenOf = (encrypted: string | null | undefined) => (encrypted ? safeDecrypt(encrypted) : '');
+const NO_TOKEN = 'no Google token stored';
+/** An error as one log line: a Google error's facts (loggable), anything else its message. */
+const describe = (error: unknown): string => {
+  const e = loggable(error);
+  return e instanceof Error ? e.message : String(e);
+};
 
 // ---- The pass ----
 
@@ -287,7 +293,7 @@ async function stopUser(run: UserRun, error: unknown): Promise<void> {
   }
   const cls = classOf(error);
   if (cls === 'token' || cls === 'scopes') {
-    await outage(run, cls);
+    await outage(run, cls, describe(error));
     return;
   }
   if (cls === 'transient') {
@@ -299,16 +305,20 @@ async function stopUser(run: UserRun, error: unknown): Promise<void> {
   captureError(loggable(error), 'google-sync-user', { user_id: userId });
 }
 
-/** The user's Google stopped working for the copies: every copy that was working waits in this state; the user hears once per outage. */
-async function outage(run: UserRun, reason: 'token' | 'scopes'): Promise<void> {
+/**
+ * The user's Google stopped working for the copies: every copy that was working waits in this
+ * state; the user hears once per outage. `cause` says why (Google's answer, ids masked, or no
+ * token stored), so the log tells a dead token from a refused request.
+ */
+async function outage(run: UserRun, reason: 'token' | 'scopes', cause: string): Promise<void> {
   const { user } = run;
   const { count } = await prisma.googleSyncLink.updateMany({
     where: { userId: user.id, state: { in: [...WORKING, reason === 'token' ? 'scopes' : 'token'] } },
     data: { state: reason },
   });
   if (count > 0) {
-    console.warn(`[google-sync] user ${user.id}: Google ${reason}; ${count} copies wait for a reconnect`);
-    captureError(new Error(`Google ${reason} for the copies to Google`), 'google-sync-outage', { user_id: user.id, links: count }, 'warning');
+    console.warn(`[google-sync] user ${user.id}: Google ${reason} (${cause}); ${count} copies wait for a reconnect`);
+    captureError(new Error(`Google ${reason} for the copies to Google`), 'google-sync-outage', { user_id: user.id, links: count, cause }, 'warning');
   }
   if (user.googleSyncNotifiedAt) return;
   try {
@@ -465,7 +475,7 @@ async function turnOffLink(run: UserRun, link: LinkRow): Promise<void> {
     return;
   }
   if (!token) {
-    if (own) return outage(run, 'token');
+    if (own) return outage(run, 'token', NO_TOKEN);
     await prisma.googleSyncLink.update({ where: { id: link.id }, data: { state: 'token' } });
     return;
   }
@@ -545,8 +555,8 @@ async function syncLinks(run: UserRun, links: LinkRow[]): Promise<void> {
     console.log(`[google-sync] link ${l.id}: plan has google_sync again; ${l.state}`);
   }
   const token = tokenOf(user.googleRefreshToken);
-  if (!token) return outage(run, 'token');
-  if (!hasSyncScope(user.googleScopes)) return outage(run, 'scopes');
+  if (!token) return outage(run, 'token', NO_TOKEN);
+  if (!hasSyncScope(user.googleScopes)) return outage(run, 'scopes', 'the stored grant lacks calendar.app.created');
   const g = syncGoogle(token);
   let account: string;
   try {

@@ -31,10 +31,17 @@ function retryHrefFor(user: UserConfig): string {
   return `/refresh-token?user_id=${user.telegramId ?? user.id}`;
 }
 
-// Error page component. retryHref is the "Try again" link (retryHrefFor).
-function ErrorPage({ message, retryHref }: { message: string; retryHref?: string }) {
+// Error page component. retryHref is the "Try again" link (retryHrefFor). The title, the
+// button's text and the direction default to the English page.
+function ErrorPage({ message, retryHref, title = 'Error', buttonText = 'Try Again', dir = 'ltr' }: {
+  message: string;
+  retryHref?: string;
+  title?: string;
+  buttonText?: string;
+  dir?: 'ltr' | 'rtl';
+}) {
   return (
-    <html>
+    <html dir={dir}>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         {/* eslint-disable-next-line @next/next/no-sync-scripts -- the Telegram WebApp SDK loads synchronously so window.Telegram exists before page code runs */}
@@ -75,17 +82,44 @@ function ErrorPage({ message, retryHref }: { message: string; retryHref?: string
       <body>
         <div className="container">
           <div className="icon"><XCircle size={64} color="#ef4444" /></div>
-          <h2>Error</h2>
+          <h2>{title}</h2>
           <p>{message}</p>
           {retryHref !== undefined && (
             <a href={retryHref} className="btn">
-              Try Again
+              {buttonText}
             </a>
           )}
         </div>
       </body>
     </html>
   );
+}
+
+// Google refused to exchange the code (exchangeRefusal): the sign-in starts again from FamCal
+async function ExchangeFailedPage({ locale, retryHref }: { locale: string; retryHref: string }) {
+  const t = await getTranslations({ locale, namespace: 'oauth.exchangeFailed' });
+  return <ErrorPage title={t('title')} message={t('message')} buttonText={t('tryAgain')} retryHref={retryHref} dir={locale === 'he' ? 'rtl' : 'ltr'} />;
+}
+
+/** Google's token endpoint answer, as far as the callback reads it. */
+interface TokenAnswer {
+  access_token?: unknown;
+  refresh_token?: unknown;
+  scope?: unknown;
+  error?: unknown;
+  error_description?: unknown;
+}
+
+/**
+ * Why Google refused the exchange, for the log: the status, and its OAuth error and
+ * description when the body has them ('HTTP 400 invalid_grant: Bad Request'). Never the code
+ * or a token. null when the answer is a success.
+ */
+function exchangeRefusal(status: number, ok: boolean, answer: TokenAnswer | null): string | null {
+  if (ok && answer && answer.error === undefined) return null;
+  const error = typeof answer?.error === 'string' ? ` ${answer.error}` : '';
+  const description = error && typeof answer?.error_description === 'string' ? `: ${answer.error_description}` : '';
+  return `HTTP ${status}${error}${description}${answer ? '' : ' (no JSON body)'}`;
 }
 
 // No refresh token error page
@@ -312,9 +346,21 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
     );
   }
 
-  const tokens = await tokenResponse.json();
-
   const userLocale = normalizeLocale(user.language);
+
+  // Google's answer. A refusal (invalid_grant: a code used already or expired;
+  // redirect_uri_mismatch; invalid_client) has no scope list, so it used to show as the
+  // permissions page. It is its own page, logged with Google's reason.
+  const tokens: TokenAnswer | null = await tokenResponse.json().catch((error: unknown) => {
+    console.warn(`[oauth-callback] user ${user.id}: Google's token answer (HTTP ${tokenResponse.status}) isn't JSON:`, error instanceof Error ? error.message : String(error));
+    return null;
+  });
+  const refusal = exchangeRefusal(tokenResponse.status, tokenResponse.ok, tokens);
+  if (refusal || !tokens) {
+    console.error(`[oauth-callback] user ${user.id}: Google refused the code exchange (${refusal})`);
+    captureError(new Error(`Google refused the code exchange (${refusal})`), 'oauth-token-exchange', { user_id: user.id, purpose: stateRecord.purpose ?? 'connect' });
+    return <ExchangeFailedPage locale={userLocale} retryHref={retryHref} />;
+  }
 
   // Check if all required scopes were granted. Connecting needs the two calendar scopes
   // only; a 'sync' consent's calendar.app.created may be unticked, and the copy then waits
@@ -326,7 +372,8 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
     return <InsufficientScopesPage retryHref={retryHref} missingScopes={missingScopes} locale={userLocale} />;
   }
 
-  if (!tokens.refresh_token) {
+  const refreshToken = typeof tokens.refresh_token === 'string' ? tokens.refresh_token : '';
+  if (!refreshToken) {
     // No refresh token - need to revoke and retry
     return <NoRefreshTokenPage retryHref={retryHref} />;
   }
@@ -352,7 +399,7 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
 
   let pendingId: string;
   try {
-    pendingId = await createPendingGoogleToken(user.id, tokens.refresh_token, grant);
+    pendingId = await createPendingGoogleToken(user.id, refreshToken, grant);
   } catch (error) {
     captureError(error, 'oauth-save-token');
     return (

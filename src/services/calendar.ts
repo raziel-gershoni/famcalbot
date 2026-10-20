@@ -204,13 +204,15 @@ export interface CreateEventResult {
 
 /**
  * A Google error as it is logged and sent to Sentry: its class, HTTP status, the API's
- * reasons and Google's own message. The GaxiosError itself carries the request, whose body
- * holds the title, so it never reaches a log.
+ * reasons, Google's own message (with the token endpoint's description) and which request
+ * failed, ids masked. The GaxiosError itself carries the request, whose body holds the
+ * title, so it never reaches a log.
  */
 export function scrubbedGoogleError(error: unknown, cls: GoogleErrorClass): Error & { status?: number; reasons: string[] } {
   const facts = googleErrorFacts(error);
   const name = error instanceof Error ? error.name : typeof error;
-  const scrubbed = new Error(`Google ${cls} (${name}${facts.status ? ` ${facts.status}` : ''}${facts.reasons.length ? ` ${facts.reasons.join(',')}` : ''}): ${facts.message}`);
+  const said = facts.oauth && facts.oauth !== facts.message ? `${facts.message} [${facts.oauth}]` : facts.message;
+  const scrubbed = new Error(`Google ${cls} (${name}${facts.status ? ` ${facts.status}` : ''}${facts.reasons.length ? ` ${facts.reasons.join(',')}` : ''}): ${said}${facts.request ? ` on ${facts.request}` : ''}`);
   return Object.assign(scrubbed, { status: facts.status, reasons: facts.reasons });
 }
 

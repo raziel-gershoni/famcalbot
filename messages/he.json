@@ -662,6 +662,11 @@
       "editEventsDesc": "לפקודות קוליות",
       "footnote": "ללא שתי ההרשאות, FamCal לא יוכל לספק סיכומים או ליצור אירועים.",
       "tryAgain": "נסה שוב"
+    },
+    "exchangeFailed": {
+      "title": "החיבור לא הושלם",
+      "message": "לא הצלחנו לסיים את החיבור ל-Google. אפשר להתחיל מחדש מתוך FamCal.",
+      "tryAgain": "חזרה ל-FamCal"
     }
   },
   "refreshToken": {

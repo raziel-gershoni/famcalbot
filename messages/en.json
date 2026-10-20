@@ -662,6 +662,11 @@
       "editEventsDesc": "for voice commands",
       "footnote": "Without both permissions, FamCal cannot provide summaries or create events.",
       "tryAgain": "Try Again"
+    },
+    "exchangeFailed": {
+      "title": "Couldn't finish",
+      "message": "We couldn't finish connecting to Google. Please start again from FamCal.",
+      "tryAgain": "Back to FamCal"
     }
   },
   "refreshToken": {
