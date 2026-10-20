@@ -1490,7 +1490,7 @@
     },
     "nonOwner": "Only {owner} can copy this one to Google.",
     "errors": {
-      "failed": "The Google copy didn't change. Try again.",
+      "failed": "Couldn't change the Google copy. Try again.",
       "load": "Couldn't load the Google copies. Reopen the page to try again.",
       "upgrade": "Copying to Google comes with the Pro plan.",
       "notFound": "This calendar isn't yours to copy any more.",
