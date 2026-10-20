@@ -333,6 +333,50 @@ async function main() {
     assert(count(reader.calls) === 2, `${reader.calls.length} reads`);
   });
 
+  // A token cleared while Google choices are stored (googleState 'reconnect'): the reader has no Google half
+  // to report, so the adapters say the Google half is missing for a dead token, as a reconnect read does.
+  const gapOfEvents = (events: unknown) => (events as { googleGap?: unknown }).googleGap;
+  await check("stored Google choices with no token (googleState 'reconnect') and FamCal items: the FamCal events, marked with the 'token' gap, day and week, on demand and scheduled", async () => {
+    for (const read of [ON_DEMAND, SCHEDULED_READ]) {
+      reset({ result: famcalOk([DENTIST]) });
+      const dayGot = await day(tokenlessGoogleUser, read);
+      assertSameEvents(dayGot, eventsOf([DENTIST]), `${read.mode} day`);
+      assert(gapOfEvents(dayGot) === 'token', `${read.mode} day: gap ${show(gapOfEvents(dayGot))}`);
+      reset({ result: famcalOk([DENTIST]) });
+      const weekGot = await readLookaheadEvents(tokenlessGoogleUser, new Date(clock), endOfLocalDay('2026-10-17', IL), IL, GOOGLE_IDS, read);
+      assertSameEvents(weekGot, eventsOf([DENTIST]), `${read.mode} week`);
+      assert(gapOfEvents(weekGot) === 'token', `${read.mode} week: gap ${show(gapOfEvents(weekGot))}`);
+      assert(count(reader.calls) === 1 && sleeps.length === 0, `${read.mode}: ${reader.calls.length} reads, ${sleeps.length} sleeps`);
+    }
+  });
+
+  await check("stored Google choices with no token and no FamCal items: GOOGLE_TOKEN_EXPIRED, day and week, on demand and scheduled, with no retry", async () => {
+    for (const read of [ON_DEMAND, SCHEDULED_READ]) {
+      reset({ result: famcalOk([]) });
+      assert((await thrown(day(tokenlessGoogleUser, read))).message === 'GOOGLE_TOKEN_EXPIRED', `${read.mode} day`);
+      reset({ result: famcalOk([]) });
+      const week = readLookaheadEvents(tokenlessGoogleUser, new Date(clock), endOfLocalDay('2026-10-17', IL), IL, GOOGLE_IDS, read);
+      assert((await thrown(week)).message === 'GOOGLE_TOKEN_EXPIRED', `${read.mode} week`);
+      assert(count(reader.calls) === 1 && sleeps.length === 0, `${read.mode}: ${reader.calls.length} reads`);
+    }
+  });
+
+  await check("[guard] no token and no stored choices (googleState 'none'): FamCal's events with no gap, and an empty day is an empty day", async () => {
+    reset({ result: famcalOk([DENTIST]) });
+    const got = await day(famcalUser, ON_DEMAND, DAY, FAMCAL_IDS);
+    assert(gapOfEvents(got) === undefined, `gap ${show(gapOfEvents(got))}`);
+    reset({ result: famcalOk([]) });
+    const empty = await day(famcalUser, SCHEDULED_READ, DAY, FAMCAL_IDS);
+    assert(empty.length === 0 && gapOfEvents(empty) === undefined, `empty: ${show(empty)}`);
+  });
+
+  await check("[guard] the outage run's ['famcal'] read of a tokenless user with stored choices adds no gap", async () => {
+    reset({ result: famcalOk([]) });
+    const got = await readDigestDay(tokenlessGoogleUser, DAY, IL, GOOGLE_IDS, SCHEDULED_RETRY_READ, ['famcal']);
+    assert(got.length === 0 && gapOfEvents(got) === undefined, `got ${show(got)} gap ${show(gapOfEvents(got))}`);
+    for (const call of reader.calls) reader.allCalls.splice(reader.allCalls.indexOf(call), 1);
+  });
+
   await check('every chosen calendar gone: no events and one warning, with no retry and no outage code (R18)', async () => {
     for (const read of [ON_DEMAND, SCHEDULED_READ]) {
       reset({ result: googleError('calendars_gone'), takesMs: 300 });

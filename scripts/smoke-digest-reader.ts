@@ -333,6 +333,7 @@ db.users = [
   userRow(3, 'Noam', { gender: 'male', language: 'ru' }),
   userRow(5, 'Tom', { gender: 'male', calendarSource: 'GOOGLE', pairingId: 'pair-2', googleRefreshToken: 'tok-tom' }),
   userRow(6, 'Lior', { pairingId: 'pair-2' }),
+  userRow(16, 'Omri', { gender: 'male', calendarSource: 'GOOGLE' }),
 ];
 db.pairings = [
   { id: 'pair-1', status: 'ACTIVE', inviterUserId: 2, inviteeUserId: 1 },
@@ -345,6 +346,8 @@ db.calendars = [
   nativeCalendar({ id: 'cal-dana-kids', ownerUserId: 1, name: 'Kids', labels: ['kids'], personName: 'Noa', createdAt: at('2026-09-04 09:00:00') }),
   nativeCalendar({ id: 'cal-noam', ownerUserId: 3, name: 'Noam', labels: ['primary', 'yours'], createdAt: at('2026-09-05 09:00:00') }),
   nativeCalendar({ id: 'cal-lior', ownerUserId: 6, name: 'Lior', labels: ['primary', 'yours'], createdAt: at('2026-09-06 09:00:00') }),
+  // Omri's lazy FamCal main: he has Google choices, so it is 'yours' only (spec §3)
+  nativeCalendar({ id: 'cal-omri', ownerUserId: 16, name: 'Omri', labels: ['yours'], createdAt: at('2026-09-07 09:00:00') }),
 ] as unknown as Row[];
 db.events = [
   // Dana's own and her kids' calendar
@@ -374,6 +377,8 @@ db.events = [
   nativeEvent({ id: 'n-late', calendarId: 'cal-noam', creatorUserId: 3, title: 'Late call', startsAt: at('2026-10-22 23:00:00'), endsAt: at('2026-10-23 01:00:00') }),
   reminderRow({ id: 'r-garden', calendarId: 'cal-noam', creatorUserId: 3, title: 'Water the garden', startsAt: at('2026-10-24 00:00:00') }),
   nativeEvent({ id: 'n-dinner', calendarId: 'cal-noam', creatorUserId: 3, title: 'Dinner with Lena', startsAt: at('2026-10-28 20:00:00'), endsAt: at('2026-10-28 22:00:00') }),
+  // Omri's one FamCal event, on Thursday; Friday has none
+  nativeEvent({ id: 'n-parents', calendarId: 'cal-omri', creatorUserId: 16, title: 'Parent meeting', startsAt: at('2026-10-22 18:00:00'), endsAt: at('2026-10-22 19:00:00') }),
   // Lior's reminder for Tom, a Google user: never in Tom's summary (R3)
   reminderRow({ id: 'r-lior', calendarId: 'cal-lior', creatorUserId: 6, forUserId: 5, title: 'Pick up the dry cleaning', startsAt: at('2026-10-22 09:00:00') }),
 ] as unknown as Row[];
@@ -573,7 +578,10 @@ const SAM = person(13, 'Sam', { gender: 'male', googleRefreshToken: 'tok-sam', c
 const OLIVIA = person(14, 'Olivia', { googleRefreshToken: 'tok-olivia', calendarAssignments: [], location: 'London' });
 const KARIM = person(15, 'Karim', { gender: 'male', googleRefreshToken: 'tok-karim', calendarAssignments: [], location: 'Cairo' });
 
-const USERS = [DANA, NOAM, GALI, TOM, ORI, SHIRA, YONI, MAYA, ELLA, AVI, SAM, OLIVIA, KARIM];
+/** Google choices stored, token cleared (a scope error): googleState 'reconnect'. The reader leaves his Google out. */
+const OMRI = person(16, 'Omri', { gender: 'male', googleRefreshToken: '', calendarAssignments: own('omri@gmail.com', 'Omri') });
+
+const USERS = [DANA, NOAM, GALI, TOM, ORI, SHIRA, YONI, MAYA, ELLA, AVI, SAM, OLIVIA, KARIM, OMRI];
 const nameOfChat = (chatId: unknown) => USERS.find(u => u.telegramId === Number(chatId))?.name ?? `chat ${String(chatId)}`;
 const userOfChat = (chatId: unknown) => USERS.find(u => u.telegramId === Number(chatId));
 const ownerOfToken = (token: string) => USERS.find(u => u.googleRefreshToken === token)?.name ?? `token ${token}`;
@@ -1284,6 +1292,42 @@ async function main() {
     assertList([...onDemand, '|', ...facing(), ...reportedBySummary()], [
       'send Shira scopes', 'cleared the token of 1008', 'admin warning Insufficient Scopes', '|', 'summary-batch-user error GOOGLE_INSUFFICIENT_SCOPES',
     ], 'what Shira got');
+  });
+
+  await check("(d) a token cleared while Google choices are stored, FamCal empty (Friday): on demand the token text, scheduled the token text with the refresh button, no dedup mark; /week the token text; never a free day", async () => {
+    reset({ now: '2026-10-23 07:00:00' });
+    await summary.sendDailySummaryToUser(tg(OMRI));
+    const onDemand = facing();
+    reset({ now: '2026-10-23 07:00:00' });
+    await commands.handleLookaheadCommand(tg(OMRI), tg(OMRI), MessagingPlatform.TELEGRAM);
+    const week = facing();
+    reset({ now: '2026-10-23 07:00:00' });
+    batch = [OMRI];
+    await summary.sendDailySummaryToAll({ filterByHour: true });
+    await settle();
+    assertList([...onDemand, '|', ...week, '|', ...facing()], [
+      'send Omri token', 'admin warning Token Expired', '|', 'send Omri token', 'admin warning Token Expired', '|', 'send Omri token + refresh button', 'admin warning Token Expired',
+    ], 'what Omri got');
+    assert(prompts.length === 0, 'the AI was asked for a summary of a day whose Google half was never read');
+  });
+
+  await check("(d) a token cleared while Google choices are stored, with FamCal events (Thursday): on demand the summary then the token text; scheduled the summary, the token text with the refresh button and the dedup mark; /week the list then the token text", async () => {
+    reset();
+    await summary.sendDailySummaryToUser(tg(OMRI));
+    const onDemand = facing();
+    reset();
+    await commands.handleLookaheadCommand(tg(OMRI), tg(OMRI), MessagingPlatform.TELEGRAM);
+    const week = facing();
+    reset();
+    batch = [OMRI];
+    await summary.sendDailySummaryToAll({ filterByHour: true });
+    await settle();
+    assertList([...onDemand, '|', ...week, '|', ...facing()], [
+      'send Omri summary', 'voice Omri', 'send Omri token', 'admin warning Token Expired',
+      '|', 'send Omri summary', 'send Omri token', 'admin warning Token Expired',
+      '|', 'send Omri summary', 'voice Omri', 'send Omri token + refresh button', 'admin warning Token Expired', 'mark Omri daily 2026-10-22',
+    ], 'what Omri got');
+    assert(prompts.length === 1 && prompts[0].includes('Parent meeting'), `the scheduled prompt lacks his FamCal event: ${prompts.length} prompts`);
   });
 
   /** The empty-retry run of the next check, which the check after it reads too. */

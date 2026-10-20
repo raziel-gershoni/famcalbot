@@ -8,6 +8,8 @@
 // connection" spec §4 Summaries):
 // - a dead token or missing scopes with FamCal items: those items, marked with the
 //   reconnect kind (googleGap), for the summary to send with the reconnect line;
+// - a token cleared while Google choices are stored (googleState 'reconnect'): the reader
+//   has no Google half to read, so it ends as a dead token does, never as a free day;
 // - a dead token or missing scopes with no FamCal items throw the codes the summaries
 //   already answer, GOOGLE_TOKEN_EXPIRED and GOOGLE_INSUFFICIENT_SCOPES;
 // - any other Google failure throws GOOGLE_FETCH_FAILED with the read's first day, so
@@ -26,6 +28,7 @@
 
 import type { CalendarEvent, UserConfig } from '../../types';
 import { captureWarning } from '../../lib/error-capture';
+import { googleStateOf } from '../../lib/google-state';
 import { localDate, nextDate } from '../../utils/day-events';
 import { readRange } from './index';
 import type { DayKey, RangeRead, ReadRangeOptions, SourceName } from './types';
@@ -126,14 +129,27 @@ async function readForDigest(
  * | any other error, on demand   | some         | the FamCal events, googleGap 'unavailable'       |
  * | ok (with or without partial) | -            | what loaded, as today                            |
  *
+ * A read with no Google half, of a user whose token was cleared while Google choices are
+ * stored (googleState 'reconnect'), ends as reconnect('token'), unless `sources` left Google out.
  * A scheduled outage still throws: the batch retries it, and its outage run reads FamCal only.
  * A Google half that isn't ok contributes no items, so what is returned then is FamCal's.
  */
-function throwForDigest(result: RangeRead, user: UserConfig, day: DayKey, read: DigestRead): DigestEvents {
+function throwForDigest(
+  result: RangeRead,
+  user: UserConfig,
+  day: DayKey,
+  read: DigestRead,
+  sources?: readonly SourceName[]
+): DigestEvents {
   if (result.famcal?.status === 'error') throw result.famcal.cause;
   const events: DigestEvents = result.items.map(item => item.event);
   const famcalItems = result.items.filter(item => item.source === 'famcal').length;
-  const google = result.google;
+  // The reader leaves Google out without a token (sourcesFor). A user whose token was cleared
+  // while their Google choices are stored still has Google calendars this read could not see:
+  // that is a dead token, not a day without Google events.
+  const googleWanted = !sources || sources.includes('google');
+  const google: RangeRead['google'] =
+    result.google ?? (googleWanted && googleStateOf(user) === 'reconnect' ? { status: 'reconnect', reason: 'token' } : undefined);
   if (google?.status === 'reconnect') {
     if (famcalItems === 0) throw new Error(google.reason === 'scopes' ? 'GOOGLE_INSUFFICIENT_SCOPES' : 'GOOGLE_TOKEN_EXPIRED');
     console.warn(`[Digest] user ${user.id}: Google needs reconnecting (${google.reason}); ${day} keeps its ${famcalItems} FamCal items`);
@@ -175,7 +191,7 @@ export async function readDigestDay(
   sources?: readonly SourceName[]
 ): Promise<DigestEvents> {
   const result = await readForDigest(user, { fromKey: day, toKey: nextDate(day) }, tz, ids, read, sources);
-  return throwForDigest(result, user, day, read);
+  return throwForDigest(result, user, day, read, sources);
 }
 
 /**
@@ -199,5 +215,5 @@ export async function readLookaheadEvents(
   const firstDay = localDate(start, tz);
   const window = { fromKey: firstDay, toKey: nextDate(localDate(end, tz)), notBefore: start };
   const result = await readForDigest(user, window, tz, ids, read, sources);
-  return throwForDigest(result, user, firstDay, read);
+  return throwForDigest(result, user, firstDay, read, sources);
 }
