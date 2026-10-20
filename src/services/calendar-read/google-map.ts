@@ -95,6 +95,19 @@ export function classifyGoogleError(e: unknown): GoogleErrorClass {
   return 'unknown';
 }
 
+/**
+ * Whether a Google error is a rate limit or quota answer (Calendar API errors guide, the
+ * usageLimits domain): 429, or 403 with rateLimitExceeded, userRateLimitExceeded,
+ * quotaExceeded or dailyLimitExceeded. classifyGoogleError counts these as 'transient'; the
+ * copy-to-Google worker pauses on them instead of counting an attempt (google-sync spec §4).
+ */
+export function isGoogleRateLimit(e: unknown): boolean {
+  if (!e || typeof e !== 'object') return false;
+  const err = e as GoogleErrorShape;
+  const status = httpStatus(err);
+  return status === 429 || (status === 403 && errorReasons(err).some((r) => RATE_LIMIT_REASONS.has(r)));
+}
+
 /** Not events: Google's work-status blocks (Ruling R1). Every other type is kept, birthdays included. */
 const DROPPED_EVENT_TYPES = new Set(['workingLocation', 'outOfOffice', 'focusTime']);
 

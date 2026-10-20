@@ -140,18 +140,22 @@ async function findMovedCopy(client: GClient, calendarId: string, seriesId: stri
  * The instance of `eventId` at a FamCal slot, by events.instances({ originalStart }) and
  * matched as an instant (a date all day). Google documents originalStart for timed
  * instances; for an all-day one (the date) it isn't, so a miss asks the days around the slot.
+ * `call` wraps each Google call (the sync counts them against its budget); the move calls directly.
  */
-async function instanceAt(client: GClient, calendarId: string, eventId: string, slot: Date, originalStart: string, allDay: boolean, zone: string): Promise<string | null> {
-  const asked = await client.events.instances({ calendarId, eventId, originalStart, maxResults: 5 });
+export async function instanceAt(
+  client: GClient, calendarId: string, eventId: string, slot: Date, originalStart: string, allDay: boolean, zone: string,
+  call: <T>(request: () => Promise<T>) => Promise<T> = (request) => request(),
+): Promise<string | null> {
+  const asked = await call(() => client.events.instances({ calendarId, eventId, originalStart, maxResults: 5 }));
   const hit = (asked.data.items ?? []).find((i) => isInstanceAt(i, slot, allDay, zone));
   if (hit?.id) return hit.id;
-  const around = await client.events.instances({
+  const around = await call(() => client.events.instances({
     calendarId,
     eventId,
     timeMin: new Date(slot.getTime() - 2 * DAY_MS).toISOString(),
     timeMax: new Date(slot.getTime() + 3 * DAY_MS).toISOString(),
     maxResults: 50,
-  });
+  }));
   return (around.data.items ?? []).find((i) => isInstanceAt(i, slot, allDay, zone))?.id ?? null;
 }
 

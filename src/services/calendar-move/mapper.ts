@@ -118,24 +118,66 @@ export function famcalCrossRefusal(series: NativeEvent, overrides: readonly Nati
 }
 
 /**
+ * How the exceptions are written. The move patches a fresh copy, so an exception holds only
+ * what its override changes ('changes'). The sync (google-sync spec §4) patches a copy that
+ * may hold an earlier version of the occurrence, so every exception carries the whole
+ * occurrence as it stands ('whole'): its title, notes and place (empty when it has none) and
+ * its times, so nothing an earlier patch wrote survives.
+ */
+export interface GoogleCopyOptions {
+  exceptions?: 'changes' | 'whole';
+}
+
+/** The OVERRIDE rows on these slots as the patches of their Google instances, in slot order. */
+function exceptionsOf(series: NativeEvent, overrides: readonly NativeEventInstance[], keep: (slot: Date) => boolean, zone: string, allDay: boolean, whole: boolean): GoogleException[] {
+  const out: GoogleException[] = [];
+  for (const o of [...overrides].filter((r) => r.status === 'OVERRIDE').sort((a, b) => byTime(a.originalStartsAt, b.originalStartsAt))) {
+    if (!keep(o.originalStartsAt)) continue;
+    const occ = occurrenceOf(series, overrides, o.originalStartsAt);
+    if (!occ) continue;
+    const timed = o.startsAt !== null || o.endsAt !== null || o.allDay !== null;
+    const patch: GEvent = whole
+      ? {
+          summary: o.title ?? series.title,
+          description: o.description ?? series.description ?? '',
+          location: o.location ?? series.location ?? '',
+          ...googleTimes(occ.startsAt, occ.endsAt, occ.allDay, zone),
+        }
+      : {
+          ...(o.title !== null ? { summary: o.title } : {}),
+          ...(o.description !== null ? { description: o.description } : {}),
+          ...(o.location !== null ? { location: o.location } : {}),
+          ...(timed ? googleTimes(occ.startsAt, occ.endsAt, occ.allDay, zone) : {}),
+        };
+    out.push({ slot: o.originalStartsAt, originalStart: allDay ? localDate(o.originalStartsAt, zone) : o.originalStartsAt.toISOString(), patch });
+  }
+  return out;
+}
+
+/** A series' basics as a Google event, its first occurrence at `startsAt`–`endsAt`. */
+function basicsOf(series: NativeEvent, startsAt: Date, endsAt: Date, zone: string): GEvent {
+  return {
+    summary: series.title,
+    ...(series.description ? { description: series.description } : {}),
+    ...(series.location ? { location: series.location } : {}),
+    ...googleTimes(startsAt, endsAt, series.allDay, zone),
+  };
+}
+
+/**
  * A FamCal series (its override rows beside it) as the Google event that holds the same
  * occurrences: the basics in the series' own zone, the rule with its UNTIL as Google reads
  * it, one EXDATE line for the exdates and CANCELLED rows (TZID wall times in the zone, or
  * VALUE=DATE all day), the marker, and each OVERRIDE row as the patch of its instance.
  * A cancellation on a slot the rule never yields cancels nothing and is left out.
  */
-export function toGoogleEvent(series: NativeEvent, overrides: readonly NativeEventInstance[]): { ok: true; copy: GoogleCopy } | { ok: false; reason: CrossRefusal } {
+export function toGoogleEvent(series: NativeEvent, overrides: readonly NativeEventInstance[], options: GoogleCopyOptions = {}): { ok: true; copy: GoogleCopy } | { ok: false; reason: CrossRefusal } {
   const refusal = famcalCrossRefusal(series, overrides);
   if (refusal) return { ok: false, reason: refusal };
   const zone = series.timeZone || TIMEZONE;
   const allDay = series.allDay;
-  const event: GEvent = {
-    summary: series.title,
-    ...(series.description ? { description: series.description } : {}),
-    ...(series.location ? { location: series.location } : {}),
-    ...googleTimes(series.startsAt, series.endsAt, allDay, zone),
-  };
-  const exceptions: GoogleException[] = [];
+  const event = basicsOf(series, series.startsAt, series.endsAt, zone);
+  let exceptions: GoogleException[] = [];
   if (series.rrule) {
     const cancelled = overrides.filter((o) => o.status === 'CANCELLED').map((o) => o.originalStartsAt);
     const candidates = uniqueSorted([...series.exdates, ...cancelled]);
@@ -147,23 +189,37 @@ export function toGoogleEvent(series: NativeEvent, overrides: readonly NativeEve
     }
     event.recurrence = recurrence;
     const skippedAt = new Set(skipped.map((d) => d.getTime()));
-    for (const o of [...overrides].filter((r) => r.status === 'OVERRIDE').sort((a, b) => byTime(a.originalStartsAt, b.originalStartsAt))) {
-      if (skippedAt.has(o.originalStartsAt.getTime())) continue;
-      const occ = occurrenceOf(series, overrides, o.originalStartsAt);
-      if (!occ) continue;
-      const timed = o.startsAt !== null || o.endsAt !== null || o.allDay !== null;
-      exceptions.push({
-        slot: o.originalStartsAt,
-        originalStart: allDay ? localDate(o.originalStartsAt, zone) : o.originalStartsAt.toISOString(),
-        patch: {
-          ...(o.title !== null ? { summary: o.title } : {}),
-          ...(o.description !== null ? { description: o.description } : {}),
-          ...(o.location !== null ? { location: o.location } : {}),
-          ...(timed ? googleTimes(occ.startsAt, occ.endsAt, occ.allDay, zone) : {}),
-        },
-      });
-    }
+    exceptions = exceptionsOf(series, overrides, (slot) => !skippedAt.has(slot.getTime()), zone, allDay, options.exceptions === 'whole');
   }
+  event.extendedProperties = { private: { [MOVED_FROM]: series.id } };
+  return { ok: true, copy: { event, exceptions, zone, allDay } };
+}
+
+/**
+ * A Hebrew-date series (hebrew-repeats spec) as a Google event of explicit dates
+ * (google-sync spec §4 Hebrew series): Google has no Hebrew rule, so the copy starts on the
+ * first of `slots` (the series' own slots the caller chose: the horizon, with the skipped
+ * ones left out) and lists the rest as one RDATE line, TZID wall times in the zone, or
+ * VALUE=DATE all day. Its RRULE (FREQ=YEARLY;COUNT=1) yields only the start, so the
+ * recurrence is exactly the listed dates (RFC 5545: the union of RRULE and RDATE). The
+ * OVERRIDE rows on those slots are the patches of their instances. The move never uses it:
+ * a Hebrew series doesn't move to Google (famcalCrossRefusal).
+ */
+export function toGoogleHebrewEvent(series: NativeEvent, overrides: readonly NativeEventInstance[], slots: readonly Date[], options: GoogleCopyOptions = {}): { ok: true; copy: GoogleCopy } | { ok: false; reason: CrossRefusal } {
+  const dates = uniqueSorted(slots);
+  if (!series.hebrewRule || dates.length === 0) return { ok: false, reason: 'hebrew' };
+  const zone = series.timeZone || TIMEZONE;
+  const allDay = series.allDay;
+  const first = occurrenceOf(series, [], dates[0]);
+  if (!first) return { ok: false, reason: 'repeat' };
+  const event = basicsOf(series, first.startsAt, first.endsAt, zone);
+  const rest = dates.slice(1);
+  event.recurrence = ['RRULE:FREQ=YEARLY;COUNT=1'];
+  if (rest.length > 0) {
+    event.recurrence.push(allDay ? `RDATE;VALUE=DATE:${rest.map((d) => compact(localDate(d, zone))).join(',')}` : `RDATE;TZID=${zone}:${rest.map((d) => wallStamp(d, zone)).join(',')}`);
+  }
+  const listed = new Set(dates.map((d) => d.getTime()));
+  const exceptions = exceptionsOf(series, overrides, (slot) => listed.has(slot.getTime()), zone, allDay, options.exceptions === 'whole');
   event.extendedProperties = { private: { [MOVED_FROM]: series.id } };
   return { ok: true, copy: { event, exceptions, zone, allDay } };
 }

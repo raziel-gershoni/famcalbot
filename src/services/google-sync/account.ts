@@ -18,7 +18,8 @@ const PRIMARY_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary?fi
  */
 export async function googleAccountOf(accessToken: string): Promise<string> {
   const res = await fetch(PRIMARY_URL, { headers: { Authorization: `Bearer ${accessToken}` } });
-  if (!res.ok) throw new Error(`calendars.get(primary) answered HTTP ${res.status}`);
+  // The status rides on the error, so classifyGoogleError sorts it (401 token, 429 rate limit, 5xx transient).
+  if (!res.ok) throw Object.assign(new Error(`calendars.get(primary) answered HTTP ${res.status}`), { status: res.status });
   const body = (await res.json()) as { id?: unknown };
   if (typeof body.id !== 'string' || body.id === '') throw new Error('calendars.get(primary) answered with no id');
   return body.id;
