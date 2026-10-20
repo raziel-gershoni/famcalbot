@@ -164,7 +164,8 @@ const fakePrisma: Record<string, unknown> = {
     }
   },
 };
-for (const name of ['user', 'pairing', 'nativeCalendar', 'nativeEvent', 'nativeEventInstance', 'nativeReminderState']) {
+// googleSyncLink: no calendar here is copied to Google (google-sync spec §2), so the store's marks find no link.
+for (const name of ['user', 'pairing', 'nativeCalendar', 'nativeEvent', 'nativeEventInstance', 'nativeReminderState', 'googleSyncLink']) {
   tables[name] = [];
   fakePrisma[name] = table(name);
 }

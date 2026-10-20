@@ -109,6 +109,10 @@ const fakePrisma = {
   nativeEvent: table('nativeEvent', () => db.events),
   nativeEventInstance: table('nativeEventInstance', () => db.instances),
   nativeReminderState: table('nativeReminderState', () => db.states),
+  // No calendar here is copied to Google (google-sync spec §2): the marks find no link.
+  googleSyncLink: table('googleSyncLink', () => []),
+  // An event's write and its marks run in one interactive transaction; nothing here rolls back.
+  $transaction: async <T,>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn(fakePrisma),
 };
 
 // ---- The household: Dana and Raziel, paired; Noam on his own ----

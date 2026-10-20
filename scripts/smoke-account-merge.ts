@@ -37,6 +37,12 @@
 // calendars are never soft-deleted; anyone pairs; and T ends with one primary across its
 // FamCal calendars and Google choices (T's own wins; a fresh T's empty default gives way).
 //
+// Copy to Google (#52-#55, google-sync spec §2): the merge marks the series it folds into a
+// copied calendar of T's on that copy, in the merge's transaction, and a rename of T's
+// calendar marks its copy; W's copies come over to T turned off with Remove queued (W's
+// token goes with W), and a copied calendar of T's that the merge deletes has its copy turned
+// off the same way. The hard delete goes through with copies and their items (they cascade).
+//
 // account-linking, user-moderation, user-service, subscription-service, the reminder
 // cache and event-store run for real. Faked at the boundaries: Prisma (in memory, and it
 // enforces the schema: a delete hits ON DELETE RESTRICT / CASCADE / SET NULL as the
@@ -53,6 +59,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { Prisma } from '@prisma/client';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 
@@ -113,6 +120,9 @@ const FKS: FK[] = [
   { from: 'userActivity', field: 'userId', to: 'user', onDelete: 'Restrict' },
   { from: 'userFeatureOverride', field: 'userId', to: 'user', onDelete: 'Restrict' },
   { from: 'userFeedback', field: 'userId', to: 'user', onDelete: 'Restrict' },
+  { from: 'googleSyncLink', field: 'userId', to: 'user', onDelete: 'Cascade' },
+  { from: 'googleSyncLink', field: 'nativeCalendarId', to: 'nativeCalendar', onDelete: 'SetNull' },
+  { from: 'googleSyncItem', field: 'linkId', to: 'googleSyncLink', onDelete: 'Cascade' },
 ];
 const UNIQUE: Record<string, string[]> = {
   user: ['telegramId', 'whatsappPhone', 'whatsappBsuid'],
@@ -120,6 +130,10 @@ const UNIQUE: Record<string, string[]> = {
   usageCounter: ['userId'],
   userFeatureOverride: ['userId'],
   pairingInvite: ['token'],
+};
+/** The to-one relations a select can read. */
+const RELATIONS: Record<string, Record<string, (row: Row) => Row | undefined>> = {
+  googleSyncLink: { nativeCalendar: r => table('nativeCalendar').find(c => c.id === r.nativeCalendarId) },
 };
 /** User ids kept in plain columns with no foreign key. */
 const PLAIN_USER_REFS: [string, string][] = [['pairing', 'unlinkedByUserId'], ['oAuthState', 'userId']];
@@ -159,10 +173,15 @@ function matches(row: Row, where?: Row): boolean {
   });
 }
 
-function pick(row: Row | undefined, select?: Row): Row | null {
+function pick(row: Row | undefined, select?: Row, name?: string): Row | null {
   if (!row) return null;
   if (!select) return { ...row };
-  return Object.fromEntries(Object.keys(select).filter(k => select[k]).map(k => [k, row[k]]));
+  return Object.fromEntries(Object.keys(select).filter(k => select[k]).map(k => {
+    if (!isPlain(select[k])) return [k, row[k]];
+    const related = name ? RELATIONS[name]?.[k] : undefined;
+    if (!related) throw new Error(`fake prisma: no relation ${name}.${k}`);
+    return [k, pick(related(row), select[k].select)];
+  }));
 }
 
 function sorted(rows: Row[], orderBy?: Row | Row[]): Row[] {
@@ -266,7 +285,7 @@ function model(name: string): Row {
       return pick(r, a.select);
     },
     findFirst: (a = {}) => pick(sorted(t().filter(r => matches(r, a.where)), a.orderBy)[0], a.select),
-    findMany: (a = {}) => sorted(t().filter(r => matches(r, a.where)), a.orderBy).map(r => pick(r, a.select)),
+    findMany: (a = {}) => sorted(t().filter(r => matches(r, a.where)), a.orderBy).map(r => pick(r, a.select, name)),
     count: (a = {}) => t().filter(r => matches(r, a.where)).length,
     create: (a) => pick(create(a.data), a.select),
     update: (a) => {
@@ -311,6 +330,29 @@ let concurrent: ((name: string, method: string, args: Row) => void) | null = nul
 /** That write committed on its own: a rollback of our transaction keeps it (replayed after the restore). */
 const committedMeanwhile: (() => void)[] = [];
 
+/**
+ * The copy-to-Google mark's upsert, the one raw statement the code sends: INSERT INTO
+ * "GoogleSyncItem" … ON CONFLICT ("linkId", "nativeEventId") DO UPDATE SET dirtySeq + 1,
+ * one (id, linkId, nativeEventId) triple per row.
+ */
+async function executeRaw(strings: TemplateStringsArray, ...values: unknown[]): Promise<number> {
+  const query = Prisma.sql(strings, ...values);
+  const sql = query.sql.replace(/\s+/g, ' ');
+  if (!/^ ?INSERT INTO "GoogleSyncItem" .* ON CONFLICT \("linkId", "nativeEventId"\) DO UPDATE SET "dirtySeq" = "GoogleSyncItem"\."dirtySeq" \+ 1 ?$/.test(sql)) {
+    throw new Error(`fake prisma: unexpected raw SQL ${sql}`);
+  }
+  const vals = query.values as string[];
+  for (let i = 0; i < vals.length; i += 3) {
+    const [id, linkId, nativeEventId] = vals.slice(i, i + 3);
+    const existing = table('googleSyncItem').find(r => r.linkId === linkId && r.nativeEventId === nativeEventId);
+    if (existing) { existing.dirtySeq += 1; continue; }
+    const row: Row = { id, linkId, nativeEventId, dirtySeq: 1, pushedSeq: 0, generation: 0, attempts: 0, status: 'ok' };
+    validate('googleSyncItem', row);
+    table('googleSyncItem').push(row);
+  }
+  return vals.length / 3;
+}
+
 const models: Record<string, Row> = {};
 /** Root-client calls made while an interactive transaction was open: Prisma runs those
  *  outside the transaction, so the fake refuses them and the run reports them. */
@@ -350,6 +392,7 @@ function client(isTx: boolean): Row {
           }
         };
       }
+      if (prop === '$executeRaw') return executeRaw;
       if (prop.startsWith('$')) return prop === '$transaction' ? undefined : async () => undefined;
       return (models[prop] ??= model(prop));
     },
@@ -1492,6 +1535,84 @@ async function main() {
     assert(replies[0] === linkSuccess, `the plain reply ${show(replies[0])}`);
     const extra = replies[1].startsWith(linkSuccess) ? replies[1].slice(linkSuccess.length) : '';
     assert(/Google/.test(extra), `the reply when Google stays behind ${show(replies[1])}`);
+  });
+
+  // ---- Copy to Google (google-sync spec §2) ----
+
+  const syncLink = (id: string, userId: number, nativeCalendarId: string, o: Row = {}): Row => ({
+    id, userId, nativeCalendarId, googleCalendarId: `g-${id}`, googleAccount: `sub-${userId}`, enabled: true, state: 'ok',
+    unlinkChoice: null, dirtySeq: 0, pushedSeq: 0, pushedName: null, lastError: null, lastSyncedAt: null, backfilledAt: null,
+    createdAt: days(-3), updatedAt: days(-3), ...o,
+  });
+  const syncRow = (id: string) => rowOf('googleSyncLink', id);
+  const syncItems = () => table('googleSyncItem').map(r => `${r.linkId}/${r.nativeEventId}=${r.dirtySeq}`).sort();
+
+  await check('#52 the merge folds W\'s events into T\'s copied calendar: each event is marked on T\'s copy (a reminder never), a fold that renames T\'s calendar marks the copy, all in the merge\'s transaction', async () => {
+    seed();
+    rowOf('nativeCalendar', 'cal-w')!.name = 'Family'; // a name W chose: T's calendar takes it
+    DB.googleSyncLink = [syncLink('link-t', T, 'cal-t', { pushedName: 'Dana Cohen' })];
+    DB.googleSyncItem = [];
+    const { __resetSyncGateForTests, shouldRunSync, setNextSync } = await load('src/services/google-sync/gate.ts');
+    __resetSyncGateForTests();
+    shouldRunSync(new Date());
+    setNextSync(null, new Date());
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    assert(rowOf('nativeEvent', 'ev-w')?.calendarId === 'cal-t' && rowOf('nativeCalendar', 'cal-t')?.name === 'Family', 'the fixture did not fold and rename');
+    assert(show(syncItems()) === show(['link-t/ev-w=1']), `items ${show(syncItems())}`);
+    const t = syncRow('link-t')!;
+    assert(t.enabled === true && t.dirtySeq === 1 && t.unlinkChoice === null, `T's copy ${show(t)}`);
+    assert(shouldRunSync(new Date()), 'the gate stayed closed after the merge');
+  });
+
+  await check('#53 W\'s copies come over to T turned off with Remove queued, the folded calendar\'s with no calendar left; W\'s turned-off copy keeps its choice', async () => {
+    seed();
+    DB.googleSyncLink = [
+      syncLink('link-w', W, 'cal-w'),
+      syncLink('link-w-kids', W, 'cal-w-kids'),
+      syncLink('link-w-old', W, 'cal-w-old', { enabled: false, unlinkChoice: 'keep', dirtySeq: 2, pushedSeq: 2 }),
+    ];
+    DB.googleSyncItem = [{ id: 'it-w', linkId: 'link-w-kids', nativeEventId: 'ev-w-kids', dirtySeq: 4, pushedSeq: 4, generation: 0, attempts: 0, status: 'ok' }];
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    for (const id of ['link-w', 'link-w-kids']) {
+      const row = syncRow(id);
+      assert(row?.userId === T && row.enabled === false && row.unlinkChoice === 'remove' && row.dirtySeq === 1 && row.googleCalendarId === `g-${id}`, `${id}: ${show(row)}`);
+    }
+    assert(syncRow('link-w')!.nativeCalendarId === null, `the folded calendar's copy ${show(syncRow('link-w'))}`);
+    assert(syncRow('link-w-kids')!.nativeCalendarId === 'cal-w-kids', `the moved calendar's copy ${show(syncRow('link-w-kids'))}`);
+    const old = syncRow('link-w-old');
+    assert(old?.userId === T && old.unlinkChoice === 'keep' && old.dirtySeq === 2, `the turned-off copy ${show(old)}`);
+    assert(show(syncItems()) === show(['link-w-kids/ev-w-kids=4']), `items ${show(syncItems())}`);
+  });
+
+  await check('#54 a fresh T\'s empty copied primary gives way to W\'s: its copy turns off with Remove queued', async () => {
+    seed();
+    freshT();
+    DB.googleSyncLink = [syncLink('link-t', T, 'cal-t')];
+    DB.googleSyncItem = [];
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    assert(!rowOf('nativeCalendar', 'cal-t'), 'the fixture kept T\'s primary');
+    const row = syncRow('link-t');
+    assert(row?.enabled === false && row.unlinkChoice === 'remove' && row.dirtySeq === 1 && row.nativeCalendarId === null, `T's copy ${show(row)}`);
+  });
+
+  await check('#55 hardDeleteUser with copies and their items goes through: they cascade with the user, and the partner\'s copy is untouched', async () => {
+    seed();
+    pairWithP();
+    DB.nativeEvent.push(event('ev-w-in-p', 'cal-p', W));
+    DB.googleSyncLink = [syncLink('link-w', W, 'cal-w'), syncLink('link-p', P, 'cal-p')];
+    DB.googleSyncItem = [
+      { id: 'it-w', linkId: 'link-w', nativeEventId: 'ev-w', dirtySeq: 1, pushedSeq: 1, generation: 0, attempts: 0, status: 'ok' },
+      { id: 'it-p', linkId: 'link-p', nativeEventId: 'ev-w-in-p', dirtySeq: 1, pushedSeq: 1, generation: 0, attempts: 0, status: 'ok' },
+    ];
+    const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
+    await hardDeleteUser(W, 1);
+    assert(!userRow(W), 'W still exists');
+    assert(!syncRow('link-w') && !table('googleSyncItem').some(r => r.linkId === 'link-w'), `W's copy ${show(table('googleSyncLink'))}`);
+    const p = syncRow('link-p');
+    assert(p?.enabled === true && p.dirtySeq === 0 && show(syncItems()) === show(['link-p/ev-w-in-p=1']), `P's copy ${show(p)} items ${show(syncItems())}`);
   });
 
   // ---- Admin hard delete ----

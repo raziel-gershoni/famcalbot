@@ -17,6 +17,8 @@ import { convertPrismaUserToConfig, UserConfig } from '../types';
 import { invalidateFeatureAccessCache } from './subscription-service';
 import { removeUserFromCache, updateUserInCache } from './reminder-cache';
 import { invalidateDueGate } from './native-reminders/due-gate';
+import { markSyncDirty, unlinkSync } from './google-sync/marks';
+import { openSyncGate } from './google-sync/gate';
 import { clearDeletedUserCaches } from '../lib/user-moderation';
 import { setUserMenuButton } from './telegram/bot';
 import { clearOtherPrimaries } from './calendar-provider/primary';
@@ -309,7 +311,17 @@ async function mergeWhatsAppUser(
   const wCalendars = await live(w.id);
   const tKeepsPartner = !!pairingId && !moved;
   const wPrimary = tPrimaryEmpty && !tKeepsPartner ? wCalendars.find(c => c.labels.includes('primary')) : undefined;
-  if (tPrimary && wPrimary) await tx.nativeCalendar.delete({ where: { id: tPrimary.id } });
+  // W's copies to Google stop: W's token goes with W (or becomes T's), so each turns off
+  // with Remove queued and comes over to T with the token's account on it, for the worker to
+  // carry out (google-sync spec §2). Turned-off ones keep the choice made for them.
+  const wCopies = await unlinkSync(tx, { userId: w.id }, 'remove');
+  await tx.googleSyncLink.updateMany({ where: { userId: w.id }, data: { userId: t.id } });
+  if (wCopies > 0) console.log(`[AccountLink] User ${t.id}: ${wCopies} Google copies of W ${w.id} turned off (remove)`);
+  if (tPrimary && wPrimary) {
+    // T's empty primary goes, and its copy with it.
+    await unlinkSync(tx, { calendarIds: [tPrimary.id] }, 'remove');
+    await tx.nativeCalendar.delete({ where: { id: tPrimary.id } });
+  }
 
   // Then a moved pairing shares T's own calendars at the default permission,
   // as acceptInvite does (W's keep what W chose with P). A primary T kept is
@@ -335,8 +347,16 @@ async function mergeWhatsAppUser(
     const into = wCalendar === wPrimary ? undefined : tCalendars.find(c => !folded.has(c.id) && isSameCalendar(c, wCalendar));
     if (into) {
       folded.add(into.id);
+      // The live events W's calendar brings reach T's copy of `into`, if it has one.
+      const arriving = await tx.nativeEvent.findMany({
+        where: { calendarId: wCalendar.id, isDeleted: false, kind: 'EVENT' },
+        select: { id: true, kind: true },
+      });
       await tx.nativeEvent.updateMany({ where: { calendarId: wCalendar.id }, data: { calendarId: into.id } });
-      await tx.nativeCalendar.update({ where: { id: into.id }, data: calendarSetupFromW(wCalendar, into, names) });
+      await markSyncDirty(tx, { series: arriving.map(e => ({ id: e.id, kind: e.kind, calendarIds: [into.id] })) });
+      const setupFromW = calendarSetupFromW(wCalendar, into, names);
+      await tx.nativeCalendar.update({ where: { id: into.id }, data: setupFromW });
+      if (setupFromW.name !== undefined && setupFromW.name !== into.name) await markSyncDirty(tx, { calendarId: into.id });
       await tx.nativeCalendar.delete({ where: { id: wCalendar.id } });
     } else if (wCalendar.labels.includes('primary')) {
       if (tHasPrimary) {
@@ -476,6 +496,8 @@ async function mergeWhatsAppUser(
 async function afterMerge(wUserId: number, tUserId: number, languageChanged: boolean): Promise<void> {
   await clearDeletedUserCaches(wUserId);
   invalidateDueGate();
+  // The merge may have marked copies to Google (moved events, turned-off copies).
+  openSyncGate();
   try {
     await redis.del(REDIS_KEYS.userTimezone(tUserId));
     const t = await getUserById(tUserId);

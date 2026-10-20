@@ -18,6 +18,7 @@ import { captureError } from '../../lib/error-capture';
 import { TIMEZONE } from '../../config/constants';
 import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
 import { invalidateDueGate } from '../native-reminders/due-gate';
+import { markSyncDirty, markedTransaction, type SyncSeries } from '../google-sync/marks';
 import { effectiveOwnerId, getActivePartnerSummary } from '../native-reminders/ownership';
 import { ensurePrimaryNativeCalendar } from './onboarding';
 import {
@@ -434,6 +435,25 @@ export class NativeDestinationError extends Error {
   }
 }
 
+/**
+ * A series a write touched, for its Google copy's marks (google-sync spec §2): every calendar
+ * it was in before the write or is in after it, so a move marks the copy it leaves too.
+ */
+const synced = (series: Pick<NativeEvent, 'id' | 'kind'>, ...calendarIds: Array<string | null | undefined>): SyncSeries => ({
+  id: series.id,
+  kind: series.kind,
+  calendarIds,
+});
+
+/**
+ * A write that ran on its own before the copy to Google: an event's now runs in a transaction
+ * with its marks, so the mark commits with the write; a reminder's runs as it did, since
+ * reminders are never copied.
+ */
+function eventWrite<T>(kind: string, write: (db: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  return kind === 'REMINDER' ? write(prisma) : markedTransaction(write);
+}
+
 export async function createNativeEvent(input: CreateNativeEventInput): Promise<NativeEvent> {
   // A rule every reader can expand, with its Hebrew kind if any, or nothing is written (3b spec
   // §3.1, hebrew-repeats §2).
@@ -462,27 +482,31 @@ export async function createNativeEvent(input: CreateNativeEventInput): Promise<
   const access = await getCalendarAccess(creator, calendar);
   if (!canWriteAccess(access)) throw new NativePermissionDeniedError();
 
-  const event = await prisma.nativeEvent.create({
-    data: {
-      calendarId: input.calendarCuid,
-      creatorUserId: input.creatorUserId,
-      title: input.title,
-      description: input.description,
-      location: input.location,
-      startsAt: times.startsAt,
-      endsAt: times.endsAt,
-      allDay: input.allDay ?? false,
-      timeZone: input.timeZone,
-      rrule: input.rrule ?? null,
-      hebrewRule: input.hebrewRule ?? null,
-      hebrewAnchor,
-      reminderMinutes: input.reminderMinutes ?? null,
-      // armedAt bounds how far back the ping pass looks, so a reminder created for a
-      // time long gone doesn't ping (spec §4.2).
-      ...(isReminder
-        ? { kind: 'REMINDER' as const, forUserId: input.forUserId ?? null, armedAt: new Date() }
-        : {}),
-    },
+  const event = await eventWrite(isReminder ? 'REMINDER' : 'EVENT', async (db) => {
+    const created = await db.nativeEvent.create({
+      data: {
+        calendarId: input.calendarCuid,
+        creatorUserId: input.creatorUserId,
+        title: input.title,
+        description: input.description,
+        location: input.location,
+        startsAt: times.startsAt,
+        endsAt: times.endsAt,
+        allDay: input.allDay ?? false,
+        timeZone: input.timeZone,
+        rrule: input.rrule ?? null,
+        hebrewRule: input.hebrewRule ?? null,
+        hebrewAnchor,
+        reminderMinutes: input.reminderMinutes ?? null,
+        // armedAt bounds how far back the ping pass looks, so a reminder created for a
+        // time long gone doesn't ping (spec §4.2).
+        ...(isReminder
+          ? { kind: 'REMINDER' as const, forUserId: input.forUserId ?? null, armedAt: new Date() }
+          : {}),
+      },
+    });
+    await markSyncDirty(db, { series: [synced(created, created.calendarId)] });
+    return created;
   });
   if (isReminder) invalidateDueGate();
   return event;
@@ -533,7 +557,7 @@ export async function createNativeSeries(input: CreateNativeSeriesInput): Promis
   if (!creator) throw new NativeNotFoundError('Creator user not found');
   if (!canWriteAccess(await getCalendarAccess(creator, calendar))) throw new NativePermissionDeniedError();
 
-  return prisma.$transaction(async (tx) => {
+  return markedTransaction(async (tx) => {
     const event = await tx.nativeEvent.create({
       data: {
         calendarId: input.calendarCuid,
@@ -564,6 +588,7 @@ export async function createNativeSeries(input: CreateNativeSeriesInput): Promis
         },
       });
     }
+    await markSyncDirty(tx, { series: [synced(event, event.calendarId)] });
     return event;
   });
 }
@@ -1012,7 +1037,7 @@ async function stopRepeating(series: NativeEvent, input: UpdateNativeEventInput,
     }
     await tx.nativeReminderState.update({ where: { id: row.id }, data: { seriesEventId: to, originalStartsAt: times.startsAt } });
   };
-  const oneOffId = await prisma.$transaction(async (tx) => {
+  const oneOffId = await markedTransaction(async (tx) => {
     if (first) {
       if (isReminder) {
         // The others go first, so the re-key can't land on one of their keys.
@@ -1021,6 +1046,7 @@ async function stopRepeating(series: NativeEvent, input: UpdateNativeEventInput,
       }
       await tx.nativeEventInstance.deleteMany({ where: { seriesEventId: series.id } });
       await tx.nativeEvent.update({ where: { id: series.id }, data: { ...values, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [] } });
+      await markSyncDirty(tx, { series: [synced(series, series.calendarId, values.calendarId)] });
       return series.id;
     }
     await tx.nativeEvent.update({ where: { id: series.id }, data: { rrule: truncateRruleBefore(series.rrule!, cut, series.timeZone) } });
@@ -1041,6 +1067,7 @@ async function stopRepeating(series: NativeEvent, input: UpdateNativeEventInput,
       pings.changedPings = await dropStates(tx, { seriesEventId: series.id, originalStartsAt: { gt: cut } });
       await settleOpened(tx, oneOff.id);
     }
+    await markSyncDirty(tx, { series: [synced(series, series.calendarId), synced(oneOff, oneOff.calendarId)] });
     return oneOff.id;
   });
   return resultOf(encodeEventId(oneOffId), { seriesId: oneOffId, slot: null }, pings);
@@ -1111,37 +1138,43 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
   // Single occurrence (recurring): write/upsert NativeEventInstance OVERRIDE
   if (input.scope === 'single' && series.rrule && input.instanceStartsAt) {
     const occ = input.instanceStartsAt;
-    await prisma.nativeEventInstance.upsert({
-      where: {
-        seriesEventId_originalStartsAt: { seriesEventId: series.id, originalStartsAt: occ },
-      },
-      create: {
-        seriesEventId: series.id,
-        originalStartsAt: occ,
-        status: 'OVERRIDE',
-        title: input.title,
-        description: input.description ?? null,
-        location: input.location ?? null,
-        startsAt: input.startsAt ?? null,
-        endsAt: input.endsAt ?? null,
-        allDay: input.allDay ?? null,
-      },
-      update: {
-        status: 'OVERRIDE',
-        ...(input.title !== undefined ? { title: input.title } : {}),
-        ...(input.description !== undefined ? { description: input.description } : {}),
-        ...(input.location !== undefined ? { location: input.location } : {}),
-        ...(input.startsAt !== undefined ? { startsAt: input.startsAt } : {}),
-        ...(input.endsAt !== undefined ? { endsAt: input.endsAt } : {}),
-        ...(input.allDay !== undefined ? { allDay: input.allDay } : {}),
-      },
+    await eventWrite(series.kind, async (db) => {
+      await db.nativeEventInstance.upsert({
+        where: {
+          seriesEventId_originalStartsAt: { seriesEventId: series.id, originalStartsAt: occ },
+        },
+        create: {
+          seriesEventId: series.id,
+          originalStartsAt: occ,
+          status: 'OVERRIDE',
+          title: input.title,
+          description: input.description ?? null,
+          location: input.location ?? null,
+          startsAt: input.startsAt ?? null,
+          endsAt: input.endsAt ?? null,
+          allDay: input.allDay ?? null,
+        },
+        update: {
+          status: 'OVERRIDE',
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(input.description !== undefined ? { description: input.description } : {}),
+          ...(input.location !== undefined ? { location: input.location } : {}),
+          ...(input.startsAt !== undefined ? { startsAt: input.startsAt } : {}),
+          ...(input.endsAt !== undefined ? { endsAt: input.endsAt } : {}),
+          ...(input.allDay !== undefined ? { allDay: input.allDay } : {}),
+        },
+      });
+      await markSyncDirty(db, { series: [synced(series, series.calendarId)] });
     });
     return resultOf(encodeEventId(series.id, occ), { seriesId: series.id, slot: occ });
   }
 
   // Single occurrence on a non-recurring event: act on the series itself.
   if (input.scope === 'single' && !series.rrule) {
-    await prisma.nativeEvent.update({ where: { id: series.id }, data: seriesUpdate });
+    await eventWrite(series.kind, async (db) => {
+      await db.nativeEvent.update({ where: { id: series.id }, data: seriesUpdate });
+      await markSyncDirty(db, { series: [synced(series, series.calendarId, input.calendarId)] });
+    });
     return resultOf(encodeEventId(series.id), { seriesId: series.id, slot: oneOffSlot });
   }
 
@@ -1157,7 +1190,8 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
     const retimed =
       (input.endsAt !== undefined && input.endsAt.getTime() !== series.endsAt.getTime()) ||
       (input.allDay !== undefined && input.allDay !== series.allDay);
-    await prisma.$transaction(async (tx) => {
+    await markedTransaction(async (tx) => {
+      await markSyncDirty(tx, { series: [synced(series, series.calendarId, input.calendarId)] });
       if (start !== undefined && series.rrule) {
         const rrule = shiftUntil(series.rrule, series.startsAt, start, series.timeZone);
         const hebrewAnchor = shiftedAnchor(series, start);
@@ -1202,7 +1236,10 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
     if (!series.rrule || !input.instanceStartsAt) {
       // Fallback: nothing to truncate; treat as 'all'. A Hebrew series' anchor moves with its start.
       if (series.rrule && series.hebrewAnchor && input.startsAt) seriesUpdate.hebrewAnchor = shiftedAnchor(series, input.startsAt);
-      await prisma.nativeEvent.update({ where: { id: series.id }, data: seriesUpdate });
+      await eventWrite(series.kind, async (db) => {
+        await db.nativeEvent.update({ where: { id: series.id }, data: seriesUpdate });
+        await markSyncDirty(db, { series: [synced(series, series.calendarId, input.calendarId)] });
+      });
       return resultOf(encodeEventId(series.id), { seriesId: series.id, slot: series.rrule ? series.startsAt : oneOffSlot });
     }
     const cut = input.instanceStartsAt;
@@ -1227,7 +1264,7 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
     if (first) {
       // The whole series becomes what the new part would have been, under its own id: its
       // start is the cut's new place and its rows are re-keyed in place.
-      await prisma.$transaction(async (tx) => {
+      await markedTransaction(async (tx) => {
         await tx.nativeEvent.update({
           where: { id: series.id },
           data: {
@@ -1241,10 +1278,11 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
           },
         });
         await moveInstances(tx, { fromSeries: series.id, toSeries: series.id, slotOf, shape, dropOverrides: false, clear });
+        await markSyncDirty(tx, { series: [synced(series, series.calendarId, input.calendarId)] });
       });
       return resultOf(encodeEventId(series.id), { seriesId: series.id, slot: newStarts });
     }
-    const newSeriesId = await prisma.$transaction(async (tx) => {
+    const newSeriesId = await markedTransaction(async (tx) => {
       // 1. Truncate parent rrule
       await tx.nativeEvent.update({
         where: { id: series.id },
@@ -1270,6 +1308,7 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
       });
       // 3. Move the overrides at-or-after the cut point to the new series.
       await moveInstances(tx, { fromSeries: series.id, toSeries: newSeries.id, since: cut, slotOf, shape, dropOverrides: false, clear });
+      await markSyncDirty(tx, { series: [synced(series, series.calendarId), synced(newSeries, newSeries.calendarId)] });
       return newSeries.id;
     });
     return resultOf(encodeEventId(newSeriesId), { seriesId: newSeriesId, slot: newStarts });
@@ -1678,7 +1717,7 @@ async function deleteOccurrences(series: NativeEvent, input: DeleteNativeEventIn
   // Single occurrence on recurring: prefer EXDATE (cheap), but if there's an
   // existing OVERRIDE row for this date, mark it CANCELLED so it stops rendering.
   if (input.scope === 'single' && series.rrule && input.instanceStartsAt) {
-    await prisma.$transaction(async (tx) => {
+    await markedTransaction(async (tx) => {
       const existing = await tx.nativeEventInstance.findUnique({
         where: {
           seriesEventId_originalStartsAt: { seriesEventId: series.id, originalStartsAt: input.instanceStartsAt! },
@@ -1695,19 +1734,20 @@ async function deleteOccurrences(series: NativeEvent, input: DeleteNativeEventIn
           data: { exdates: { push: input.instanceStartsAt! } },
         });
       }
+      await markSyncDirty(tx, { series: [synced(series, series.calendarId)] });
     });
     return;
   }
 
   // Single on non-recurring: soft-delete the row.
   if (input.scope === 'single' && !series.rrule) {
-    await prisma.nativeEvent.update({ where: { id: series.id }, data: { isDeleted: true } });
+    await softDelete(series);
     return;
   }
 
   // 'all': soft-delete the series (and its overrides cascade via FK).
   if (input.scope === 'all') {
-    await prisma.nativeEvent.update({ where: { id: series.id }, data: { isDeleted: true } });
+    await softDelete(series);
     return;
   }
 
@@ -1716,10 +1756,10 @@ async function deleteOccurrences(series: NativeEvent, input: DeleteNativeEventIn
   // is the whole series (3b spec §3.1), so no empty series is left behind.
   if (input.scope === 'following' && series.rrule && input.instanceStartsAt) {
     if (await isFirstOccurrence(series, input.instanceStartsAt)) {
-      await prisma.nativeEvent.update({ where: { id: series.id }, data: { isDeleted: true } });
+      await softDelete(series);
       return;
     }
-    await prisma.$transaction(async (tx) => {
+    await markedTransaction(async (tx) => {
       await tx.nativeEvent.update({
         where: { id: series.id },
         data: { rrule: truncateRruleBefore(series.rrule!, input.instanceStartsAt!, series.timeZone) },
@@ -1727,6 +1767,7 @@ async function deleteOccurrences(series: NativeEvent, input: DeleteNativeEventIn
       await tx.nativeEventInstance.deleteMany({
         where: { seriesEventId: series.id, originalStartsAt: { gte: input.instanceStartsAt! } },
       });
+      await markSyncDirty(tx, { series: [synced(series, series.calendarId)] });
     });
     return;
   }
@@ -1737,5 +1778,13 @@ async function deleteOccurrences(series: NativeEvent, input: DeleteNativeEventIn
   // this fell off the end having done nothing while the caller still reported
   // "Event deleted!" - and it is reachable, because the model is instructed to
   // emit scope 'following' for "from now on" even on a non-recurring event.
-  await prisma.nativeEvent.update({ where: { id: series.id }, data: { isDeleted: true } });
+  await softDelete(series);
+}
+
+/** Soft-delete a series row, with its Google copy's mark. */
+async function softDelete(series: NativeEvent): Promise<void> {
+  await eventWrite(series.kind, async (db) => {
+    await db.nativeEvent.update({ where: { id: series.id }, data: { isDeleted: true } });
+    await markSyncDirty(db, { series: [synced(series, series.calendarId)] });
+  });
 }

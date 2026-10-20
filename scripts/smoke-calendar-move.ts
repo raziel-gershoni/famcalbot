@@ -304,8 +304,15 @@ const DEFAULTS: Record<string, () => Row> = {
 };
 let nextId = 0;
 const prismaCalls: string[] = [];
-/** One-shot Prisma failures: `apply` writes first, then throws (the database took it, the answer was lost). */
+/**
+ * One-shot Prisma failures: `apply` writes first, then throws (the database took it, the answer
+ * was lost). Inside a transaction "took it" means it committed: the write stays and the
+ * transaction's answer is the one lost.
+ */
 let dbFailures: { table: string; method: string; when?: (args: Row) => boolean; apply?: boolean; left: number }[] = [];
+/** The open transaction's lost answer, thrown once it has committed. */
+let inTransaction = false;
+let lostCommit: Error | null = null;
 
 const same = (a: unknown, b: unknown) =>
   a instanceof Date && b instanceof Date ? a.getTime() === b.getTime() : (a ?? null) === (b ?? null);
@@ -358,8 +365,13 @@ function table(name: string) {
     const f = dbFailures.find((x) => x.left > 0 && x.table === name && x.method === method && (!x.when || x.when(args)));
     if (f) {
       f.left--;
+      const error = Object.assign(new Error(`stand-in ${name}.${method} failed (Zebra Private Title)`), { code: 'P1001' });
+      if (f.apply && inTransaction) {
+        lostCommit = error;
+        return fn();
+      }
       if (f.apply) fn();
-      throw Object.assign(new Error(`stand-in ${name}.${method} failed (Zebra Private Title)`), { code: 'P1001' });
+      throw error;
     }
     return fn();
   };
@@ -397,15 +409,23 @@ function table(name: string) {
 const fakePrisma: Row = {
   $transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
     const snapshot = structuredClone(tables);
+    inTransaction = true;
+    lostCommit = null;
     try {
-      return await fn(fakePrisma);
+      const out = await fn(fakePrisma);
+      if (lostCommit) throw lostCommit; // committed, the answer lost: the writes stay
+      return out;
     } catch (err) {
-      for (const k of Object.keys(snapshot)) tables[k] = snapshot[k];
+      if (err !== lostCommit) for (const k of Object.keys(snapshot)) tables[k] = snapshot[k];
       throw err;
+    } finally {
+      inTransaction = false;
+      lostCommit = null;
     }
   },
 };
-for (const name of ['user', 'pairing', 'nativeCalendar', 'nativeEvent', 'nativeEventInstance', 'nativeReminderState', 'adminSettings']) {
+// googleSyncLink: no calendar here is copied to Google (google-sync spec §2), so the store's marks find no link.
+for (const name of ['user', 'pairing', 'nativeCalendar', 'nativeEvent', 'nativeEventInstance', 'nativeReminderState', 'adminSettings', 'googleSyncLink']) {
   tables[name] = [];
   fakePrisma[name] = table(name);
 }

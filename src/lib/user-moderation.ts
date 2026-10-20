@@ -68,14 +68,17 @@ export async function unsuspendUser(userId: number, adminId: number): Promise<vo
  *      go; where they were the invitee the row stays with no invitee.
  * NativeEvent.forUserId, NativeReminderState.doneByUserId and
  * PairingInvite.acceptedByUserId are SET NULL and their invites CASCADE in the
- * database. Admin ids they left in compedBy, grantedBy, suspendedBy and
- * bannedBy stay: they are plain audit columns, and compedBy != null is what
- * marks a comp.
+ * database, as do their copies to Google (GoogleSyncLink, and its items): the
+ * Google token goes with the user, so nothing can carry a copy out afterwards, and
+ * the Google calendars stay in their Google account (the delete logs their links).
+ * Admin ids they left in compedBy, grantedBy, suspendedBy and bannedBy stay: they
+ * are plain audit columns, and compedBy != null is what marks a comp.
  * Also clears Redis caches keyed by userId.
  */
 export async function hardDeleteUser(userId: number, adminId: number): Promise<void> {
-  await prisma.$transaction(async (tx) => {
+  const copies = await prisma.$transaction(async (tx) => {
     const user = await tx.user.findUnique({ where: { id: userId }, select: { pairingId: true } });
+    const copies = await tx.googleSyncLink.findMany({ where: { userId, enabled: true }, select: { id: true } });
 
     if (user?.pairingId) {
       await tx.pairing.updateMany({
@@ -115,9 +118,13 @@ export async function hardDeleteUser(userId: number, adminId: number): Promise<v
     await tx.userFeatureOverride.deleteMany({ where: { userId } });
     await tx.oAuthState.deleteMany({ where: { userId: BigInt(userId) } });
     await tx.user.delete({ where: { id: userId } });
+    return copies;
   });
 
   await clearDeletedUserCaches(userId);
+  if (copies.length > 0) {
+    console.log(`[Moderation] Hard delete of user ${userId} left ${copies.length} Google copies in their Google account (links ${copies.map(c => c.id).join(', ')})`);
+  }
 
   console.log(`[Moderation] Admin ${adminId} hard-deleted user ${userId}`);
 }

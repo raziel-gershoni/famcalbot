@@ -3,6 +3,10 @@
 //
 // Only the calendar's owner can patch or delete. Privacy changes are owner-only
 // — partner cannot raise/lower their own visibility on the calendar.
+//
+// The copy to Google (google-sync spec §2): a rename marks the calendar's copy, so the
+// worker renames its Google calendar; a delete turns the copy off, with body
+// `googleCopy: 'remove' | 'keep'` (absent = keep) for the worker to carry out.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
@@ -11,10 +15,12 @@ import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { prisma } from '@/src/utils/prisma';
 import { captureError } from '@/src/lib/error-capture';
 import { addsPrimary, clearOtherPrimaries } from '@/src/services/calendar-provider/primary';
+import { markSyncDirty, markedTransaction, unlinkSync, type UnlinkChoice } from '@/src/services/google-sync/marks';
 
 const VALID_LABELS = new Set(['primary', 'yours', 'spouse', 'kids', 'birthdays']);
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const VALID_PRIVACIES = new Set(['PRIVATE', 'SHARED_VIEWER', 'SHARED_EDITOR']);
+const GOOGLE_COPY_CHOICES = new Set<UnlinkChoice>(['remove', 'keep']);
 
 interface PathProps {
   params: Promise<{ id: string }>;
@@ -97,7 +103,15 @@ export async function PATCH(request: NextRequest, { params }: PathProps) {
       update.rules = body.rules;
     }
 
-    const updated = await prisma.nativeCalendar.update({ where: { id: calendar.id }, data: update });
+    // A new name reaches the calendar's Google copy: the mark commits with the rename.
+    const renamed = update.name !== undefined && update.name !== calendar.name;
+    const updated = renamed
+      ? await markedTransaction(async (tx) => {
+          const row = await tx.nativeCalendar.update({ where: { id: calendar.id }, data: update });
+          await markSyncDirty(tx, { calendarId: calendar.id });
+          return row;
+        })
+      : await prisma.nativeCalendar.update({ where: { id: calendar.id }, data: update });
     // One primary across both lists, only when this save adds it (spec §3): a rename or a
     // label toggle that resends primary as it was touches nothing else.
     if (update.labels && addsPrimary(calendar.labels, update.labels)) {
@@ -123,6 +137,12 @@ export async function DELETE(request: NextRequest, { params }: PathProps) {
 
     const user = auth.user;
 
+    // What happens to the calendar's Google copy, if it has one: Keep unless asked.
+    const googleCopy = (body?.googleCopy ?? 'keep') as UnlinkChoice;
+    if (!GOOGLE_COPY_CHOICES.has(googleCopy)) {
+      return NextResponse.json({ error: 'invalid_google_copy' }, { status: 400 });
+    }
+
     const calendar = await prisma.nativeCalendar.findUnique({ where: { id: calendarId } });
     if (!calendar || calendar.isDeleted) {
       return NextResponse.json({ error: 'not_found' }, { status: 404 });
@@ -140,10 +160,14 @@ export async function DELETE(request: NextRequest, { params }: PathProps) {
       return NextResponse.json({ error: 'cannot_delete_last' }, { status: 400 });
     }
 
-    await prisma.nativeCalendar.update({
-      where: { id: calendar.id },
-      data: { isDeleted: true },
+    const turnedOff = await markedTransaction(async (tx) => {
+      await tx.nativeCalendar.update({
+        where: { id: calendar.id },
+        data: { isDeleted: true },
+      });
+      return unlinkSync(tx, { calendarIds: [calendar.id] }, googleCopy);
     });
+    if (turnedOff > 0) console.log(`[GoogleSync] Calendar ${calendar.id} deleted: its copy turned off (${googleCopy})`);
     return NextResponse.json({ success: true });
   } catch (error) {
     captureError(error, 'native-calendar-delete', { calendarId });
