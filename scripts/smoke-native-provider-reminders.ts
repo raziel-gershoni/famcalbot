@@ -226,7 +226,7 @@ async function main() {
     Object.assign(mod, { filename, loaded: true, exports });
     Module._cache[filename] = mod;
   };
-  stub('utils/prisma.ts', { prisma: fakePrisma });
+  stub('utils/prisma.ts', { prisma: fakePrisma, withRetry: (fn: () => unknown) => fn() });
   stub('utils/redis.ts', { redis: { get: async () => IL, set: async () => 'OK' } });
 
   const { nativeProvider, reminderInfoFor, toUnifiedEvent } = await import('../src/services/calendar-provider/native-provider');
