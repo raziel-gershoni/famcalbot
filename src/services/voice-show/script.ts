@@ -6,7 +6,8 @@
  * speakers merged into one turn, a show where one host never speaks. Everything else
  * is repaired in place and noted in `warnings`: unknown moods become hype, HTML and
  * unlisted tags are stripped, |backchannels| and stage-direction cues removed, sounds
- * over budget dropped, and a turn left with no words (a lone <laugh>) is dropped.
+ * over budget or in the opening or closing turn dropped, and a turn left with no words
+ * (a lone <laugh>) is dropped.
  */
 
 import { pointHebrewTimes, pointSecondPerson } from './hebrew-pointing';
@@ -270,13 +271,22 @@ function cleanText(input: string, n: number, warnings: string[], source: string)
   return text.replace(/\s+/g, ' ').replace(/\s+([,.!?;:])/g, '$1').trim();
 }
 
-/** At most MAX_SOUNDS_PER_SHOW sounds, never on consecutive turns. Later ones are dropped. */
+/**
+ * At most MAX_SOUNDS_PER_SHOW sounds, never on consecutive turns. Later ones are dropped.
+ * The opening greets and the closing signs off, so a sound there answers nothing in the
+ * script: it goes too, without using the budget.
+ */
 function enforceSoundBudget(turns: ShowTurn[], warnings: string[]): void {
   let used = 0;
   let lastTurn = -2;
   turns.forEach((turn, i) => {
+    const edge = i === 0 ? 'opening' : i === turns.length - 1 ? 'closing' : null;
     turn.text = turn.text
       .replace(SOUND_TAG, tag => {
+        if (edge) {
+          warnings.push(`Turn ${i + 1}: dropped ${tag} (${edge} turn)`);
+          return ' ';
+        }
         if (used < MAX_SOUNDS_PER_SHOW && (lastTurn === i || lastTurn < i - 1)) {
           used++;
           lastTurn = i;

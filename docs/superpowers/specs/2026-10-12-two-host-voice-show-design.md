@@ -73,6 +73,13 @@ consecutive lines. Backchannels (`|wow|`) are banned: in single-voice requests
 they produce a phantom extra voice. A reaction becomes its own short line by the
 other host instead.
 
+On 2026-10-21 the owner heard a chuckle at nothing: "one or two sounds" read as an
+invitation. No sound is now the default, and most shows have none. A sound only
+answers something concrete in the script (a laugh or chuckle right after something
+actually funny in that line or the one before, a sigh at a genuinely heavy day, a
+gasp at a real surprise), never as filler, on a neutral line, or in the opening or
+closing turn. The validator drops any sound in the opening or closing turn.
+
 ## How it works
 
 ```
@@ -110,7 +117,7 @@ in charge. The parser enforces:
   per turn;
 - moods from the list (unknown becomes `hype`);
 - sounds from the whitelist only (others are stripped), at most two, not on
-  consecutive turns;
+  consecutive turns, none in the opening or closing turn;
 - no `|...|`, no leftover HTML tags, no `A:` / `B:` speaker labels inside text.
 
 A malformed result is regenerated once; a second failure takes the existing

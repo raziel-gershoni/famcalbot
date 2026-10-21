@@ -167,8 +167,11 @@ ${allContent.map((rule, i) => `${i + 1}. ${rule}`).join('\n')}
 Most turns are hype. Mix in 2-4 other moods where the content earns them.
 
 **Sounds:**
-- You may put one or two sounds inside the text, from this list only: ${SOUND_LIST}
-- At most ${MAX_SOUNDS_PER_SHOW} in the whole show, never in two consecutive turns, and only when the moment earns it.
+- None by default: most shows have no sound at all, and that's fine.
+- A sound is only ever a reaction to something concrete in the script: <laugh> or <chuckle> right after something that's actually funny, in the same turn or the one before; <sigh> at a genuinely heavy day; <gasp> at a real surprise.
+- Never as filler, never on a neutral line (just an event and its time), and never in the opening or closing turn.
+- From this list only: ${SOUND_LIST}
+- At most ${MAX_SOUNDS_PER_SHOW} in the whole show, and never in two consecutive turns.
 - No other tags at all: no HTML, no emoji, no markdown, no stage directions like (laughs) or *sighs*.
 - No interjections between bars like |wow|. A host's reaction is a short turn of his own, with words: a sound alone is not a turn.
 - Don't write "A:" or "B:" inside the text.

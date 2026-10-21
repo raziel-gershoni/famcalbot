@@ -94,6 +94,26 @@ async function main() {
     assert(p.includes('יש לכם'), 'personal-address rule');
   });
 
+  // The owner heard a chuckle at nothing (2026-10-21): "one or two sounds" read as an
+  // invitation. No sound is the default; one must answer something in the script.
+  await check('sound rules: none by default, only a reaction, never filler or in the first or last turn (he/en/ru)', () => {
+    const he = buildShowPrompt(context());
+    for (const rule of ['ברוב התוכניות אין אף צליל', 'מיד אחרי משהו שבאמת מצחיק', 'לא סתם בשביל האווירה', 'לא על משפט ניטרלי', 'לא בתור הראשון או בתור האחרון', 'לכל היותר 2 בכל התוכנית', 'ולא בשני תורות רצופים']) {
+      assert(he.includes(rule), `he: "${rule}" missing`);
+    }
+    assert(!he.includes('צליל אחד או שניים'), 'he: still invites one or two sounds');
+    const en = buildShowPrompt(context({ locale: 'en', listener: { name: 'Danny', gender: 'male' } }));
+    for (const rule of ['most shows have no sound at all', "right after something that's actually funny", 'Never as filler', 'never on a neutral line', 'never in the opening or closing turn', 'At most 2 in the whole show', 'never in two consecutive turns']) {
+      assert(en.includes(rule), `en: "${rule}" missing`);
+    }
+    assert(!en.includes('You may put one or two sounds'), 'en: still invites one or two sounds');
+    const ru = buildShowPrompt(context({ locale: 'ru', listener: { name: 'Денис', gender: 'male' } }));
+    for (const rule of ['в большинстве выпусков нет ни одного', 'сразу после действительно смешной фразы', 'Не ставьте звук просто так', 'в нейтральную реплику', 'в первую и последнюю реплики выпуска', 'Не больше 2 на весь выпуск', 'никогда в двух репликах подряд']) {
+      assert(ru.includes(rule), `ru: "${rule}" missing`);
+    }
+    assert(!ru.includes('один-два звука'), 'ru: still invites one or two sounds');
+  });
+
   await check('female listener is addressed in the feminine', () => {
     const p = buildShowPrompt(context({ listener: { name: 'מיכל', gender: 'female' } }));
     assert(p.includes('מיכל') && p.includes('לשון נקבה') && p.includes('אליה'), 'feminine instruction');

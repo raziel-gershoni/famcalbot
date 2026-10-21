@@ -117,7 +117,7 @@ check('HTML, foreign tags, closing sound tags, cues and backchannels are strippe
 });
 
 check('sound tags are normalised, emoji and markdown removed, entities decoded', () => {
-  const s = parseShowScript(show(...base(), turn('A', '<Laugh> *יופי* 🎉 טום &amp; ג׳רי')));
+  const s = parseShowScript(show(...base(), turn('A', '<Laugh> *יופי* 🎉 טום &amp; ג׳רי'), turn('B', 'סיום')));
   assert(s.turns[4].text === '<laugh> יופי טום & ג׳רי', `text "${s.turns[4].text}"`);
 });
 
@@ -202,7 +202,7 @@ const CLEANUP: Array<[string, string]> = [
 ];
 for (const [input, expected] of CLEANUP) {
   check(`cleans ${JSON.stringify(input)}`, () => {
-    const s = parseShowScript(show(...base(), turn('A', input)));
+    const s = parseShowScript(show(...base(), turn('A', input), turn('B', 'סיום')));
     assert(s.turns[4].text === expected, `got ${JSON.stringify(s.turns[4].text)}`);
   });
 }
@@ -284,14 +284,34 @@ check('a stray angle bracket is removed with a warning', () => {
 
 check('sound budget: at most two, never on consecutive turns', () => {
   const s = parseShowScript(show(
-    turn('A', '<chuckle> אחת'), turn('B', '<laugh> שתיים'), turn('A', '<sigh> שלוש'), turn('B', '<gasp> ארבע'),
+    turn('A', 'פתיחה'),
+    turn('B', '<chuckle> אחת'), turn('A', '<laugh> שתיים'), turn('B', '<sigh> שלוש'), turn('A', '<gasp> ארבע'),
+    turn('B', 'סיום'),
   ));
   const texts = s.turns.map(t => t.text);
-  assert(texts[0] === '<chuckle> אחת', texts[0]);
-  assert(texts[1] === 'שתיים', `consecutive kept: ${texts[1]}`);
-  assert(texts[2] === '<sigh> שלוש', texts[2]);
-  assert(texts[3] === 'ארבע', `over budget kept: ${texts[3]}`);
+  assert(texts[1] === '<chuckle> אחת', texts[1]);
+  assert(texts[2] === 'שתיים', `consecutive kept: ${texts[2]}`);
+  assert(texts[3] === '<sigh> שלוש', texts[3]);
+  assert(texts[4] === 'ארבע', `over budget kept: ${texts[4]}`);
   assert(s.warnings.filter(w => /sound budget/.test(w)).length === 2, s.warnings.join('; '));
+});
+
+// The opening greets and the closing signs off: a sound there answers nothing in the
+// script (the owner heard a chuckle at nothing, 2026-10-21).
+check('a sound in the opening or the closing turn is dropped and leaves the budget alone', () => {
+  const s = parseShowScript(show(
+    turn('A', 'בוקר טוב דני! <chuckle>'),
+    turn('B', 'בשמונה ישיבה, ובתשע עוד ישיבה על הישיבה!'), turn('A', '<laugh> ישיבה על ישיבה!'),
+    turn('B', 'ובערב יום הולדת לתמר.'), turn('A', '<gasp> כבר שמונה?'),
+    turn('B', '<laugh> שיהיה יום מנצח!'),
+  ));
+  const texts = s.turns.map(t => t.text);
+  assert(texts[0] === 'בוקר טוב דני!', `opening kept its sound: ${texts[0]}`);
+  assert(texts[2] === '<laugh> ישיבה על ישיבה!' && texts[4] === '<gasp> כבר שמונה?', `mid-show sounds: ${texts[2]} | ${texts[4]}`);
+  assert(texts[5] === 'שיהיה יום מנצח!', `closing kept its sound: ${texts[5]}`);
+  assert(s.warnings.includes('Turn 1: dropped <chuckle> (opening turn)'), s.warnings.join('; '));
+  assert(s.warnings.includes('Turn 6: dropped <laugh> (closing turn)'), s.warnings.join('; '));
+  assert(!s.warnings.some(w => /sound budget/.test(w)), s.warnings.join('; '));
 });
 
 check('digits are a warning, not a failure', () => {
