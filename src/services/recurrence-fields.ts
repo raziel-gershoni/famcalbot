@@ -4,7 +4,7 @@
  * Every place the bot creates an event from a parse goes through `recurrenceFields`, so the rule
  * is decided once: telegram and WhatsApp, a card's Confirm, "Confirm all", an auto-create, a
  * reminder. An ordinary repeat is the Gregorian RRULE it always was. A Hebrew repeat on the
- * built-in calendar is a plain yearly rule plus the kind and the anchor day, which the store
+ * built-in calendar is a plain yearly rule plus the Hebrew rule and the anchor day, which the store
  * expands by the Hebrew date. A Hebrew repeat headed for Google gets none of it: Google cannot
  * hold the rule, and a Gregorian yearly series would quietly repeat on the wrong day every
  * year. The event is created once, on its date, and the card says so before Confirm.
@@ -47,7 +47,7 @@ export function recurrenceNotice(target: CalendarProviderName, recurrence: Parse
 }
 
 /**
- * The recurrence, Hebrew kind and anchor of a create on `target`, and the notice a card shows.
+ * The recurrence, Hebrew rule and anchor of a create on `target`, and the notice a card shows.
  * `target` is the provider the create goes to. The anchor is the start's day in the user's
  * zone, where the series lives; the store refuses an anchor that is not that day.
  *
@@ -71,7 +71,8 @@ export async function recurrenceFields(
   return {
     // The Hebrew rule is yearly with no BY parts: only its INTERVAL, COUNT and UNTIL carry
     recurrence: buildRecurrenceRule({ frequency: 'yearly', interval: repeat!.interval, until: repeat!.until, count: repeat!.count }),
-    hebrewRule: repeat!.hebrewKind ?? 'anniversary',
+    // The one Hebrew repeat: every year on the Hebrew date, a yahrzeit's too
+    hebrewRule: 'anniversary',
     hebrewAnchor: localDate(event.startTime, timezone),
   };
 }

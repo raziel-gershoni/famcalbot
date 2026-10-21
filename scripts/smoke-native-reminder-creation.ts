@@ -13,6 +13,9 @@
 // Retaken once, for hebrew-repeats spec §5, which teaches every user's prompt the Hebrew
 // repeats and the Hebrew date (the recurrence schema line, the RECURRENCE DETECTION list, the
 // Hebrew-date rules, four examples, and the image prompt's Hebrew-only date line).
+// Retaken again 2026-10-21, when the yahrzeit repeat was withdrawn: hebrewKind left the three
+// RECURRENCE DETECTION lines, the schema line and the three Hebrew examples, and the yahrzeit
+// words became the one Hebrew repeat, every year on the Hebrew date.
 //
 // Run under both clocks; the output must not depend on the server's timezone:
 //   TZ=UTC npx tsx scripts/smoke-native-reminder-creation.ts

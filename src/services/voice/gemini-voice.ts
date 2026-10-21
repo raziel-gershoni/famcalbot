@@ -8,7 +8,7 @@
 import { getGemini, extractionConfig } from '../ai-provider';
 import { isSilent } from './audio-level';
 import { detectAddressedSpeech, detectSpeech, NO_SPEECH } from './speech-presence';
-import { VoiceIntentResult, VoiceIntent, ParsedEvent, RecurrencePattern, HebrewKind } from '../event-parser';
+import { VoiceIntentResult, VoiceIntent, ParsedEvent, RecurrencePattern } from '../event-parser';
 import { CalendarAssignment } from '../../types';
 import { defaultCalendarFor, isFamcalId } from '../../utils/calendar-helpers';
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
@@ -117,9 +117,9 @@ INTENT DETECTION RULES:
      * "every Monday and Wednesday" → frequency: "weekly", daysOfWeek: ["MO", "WE"]
      * Day codes: MO, TU, WE, TH, FR, SA, SU
      * "every year", "yearly", "every birthday" (כל שנה, каждый год) → frequency: "yearly". This is the Gregorian date: leave "calendar" out.
-     * By the Hebrew calendar: "every year on the Hebrew date", "Hebrew birthday" (יום הולדת עברי, כל שנה לפי התאריך העברי, на еврейскую дату, по еврейскому календарю) → frequency: "yearly", "calendar": "hebrew", "hebrewKind": "anniversary"
-     * "yahrzeit" (יארצייט, יום פטירה, йорцайт, годовщина смерти по еврейскому календарю) → frequency: "yearly", "calendar": "hebrew", "hebrewKind": "yahrzeit"
-     * "calendar": "hebrew" goes only with frequency "yearly", and "hebrewKind" only with "calendar": "hebrew". Never use them for a daily, weekly or monthly repeat.
+     * By the Hebrew calendar: "every year on the Hebrew date", "Hebrew birthday" (יום הולדת עברי, כל שנה לפי התאריך העברי, на еврейскую дату, по еврейскому календарю) → frequency: "yearly", "calendar": "hebrew"
+     * A "yahrzeit" (יארצייט, יום פטירה, йорцайт, годовщина смерти по еврейскому календарю) repeats the same way, every year on the Hebrew date → frequency: "yearly", "calendar": "hebrew". Keep the user's own words in the title.
+     * "calendar": "hebrew" goes only with frequency "yearly". Never use it for a daily, weekly or monthly repeat.
 
    - HEBREW DATES: when the user says a date of the Hebrew calendar ("15 Shvat", "the 10th of Tevet", "ט״ו בשבט", "י׳ בטבת", "15 швата"), NEVER convert it to a Gregorian date yourself. Return "hebrewDate": {"day": 15, "month": "Sh'vat", "year": null} and set "startDate" and "endDate" to null; the server works out the Gregorian date.
      * "day" is a whole number from 1 to 30.
@@ -180,7 +180,7 @@ RESPOND IN JSON FORMAT ONLY:
     "description": "Description if mentioned" or null,
     "calendarId": "matched calendar ID" or "primary",
     "calendarName": "matched calendar name" or "Primary",
-    "recurrence": {"frequency": "daily"/"weekly"/"monthly"/"yearly", "daysOfWeek": ["MO",...], "interval": number, "calendar": "hebrew" (only with "yearly"), "hebrewKind": "anniversary"/"yahrzeit" (only with "calendar": "hebrew")} or null,
+    "recurrence": {"frequency": "daily"/"weekly"/"monthly"/"yearly", "daysOfWeek": ["MO",...], "interval": number, "calendar": "hebrew" (only with "yearly")} or null,
     "hebrewDate": {"day": 1-30, "month": "Tishrei"/"Cheshvan"/"Kislev"/"Tevet"/"Sh'vat"/"Adar"/"Adar I"/"Adar II"/"Nisan"/"Iyyar"/"Sivan"/"Tamuz"/"Av"/"Elul", "year": Hebrew year as a number or null} or null (a Hebrew date the user said; then "startDate" and "endDate" are null)
   },
 
@@ -224,13 +224,13 @@ Input audio: "Team meeting every Tuesday at 2pm"
 Output: {"transcription": "Team meeting every Tuesday at 2pm", "intent": "create", "confidence": "high", "event": {"title": "Team meeting", "startDate": "YYYY-MM-DD", "startTime": "14:00", "endDate": "YYYY-MM-DD", "endTime": "15:00", "allDay": false, "calendarId": "primary", "calendarName": "Primary", "recurrence": {"frequency": "weekly", "daysOfWeek": ["TU"]}}}
 
 Input audio: "יארצייט לאבא בעשרה בטבת" (Hebrew: Yahrzeit for Dad on the 10th of Tevet)
-Output: {"transcription": "יארצייט לאבא בעשרה בטבת", "intent": "create", "confidence": "high", "event": {"title": "יארצייט לאבא", "startDate": null, "startTime": null, "endDate": null, "endTime": null, "allDay": true, "calendarId": "primary", "calendarName": "Primary", "hebrewDate": {"day": 10, "month": "Tevet", "year": null}, "recurrence": {"frequency": "yearly", "calendar": "hebrew", "hebrewKind": "yahrzeit"}}}
+Output: {"transcription": "יארצייט לאבא בעשרה בטבת", "intent": "create", "confidence": "high", "event": {"title": "יארצייט לאבא", "startDate": null, "startTime": null, "endDate": null, "endTime": null, "allDay": true, "calendarId": "primary", "calendarName": "Primary", "hebrewDate": {"day": 10, "month": "Tevet", "year": null}, "recurrence": {"frequency": "yearly", "calendar": "hebrew"}}}
 
 Input audio: "Hebrew birthday for Noa every year on 15 Shvat"
-Output: {"transcription": "Hebrew birthday for Noa every year on 15 Shvat", "intent": "create", "confidence": "high", "event": {"title": "Noa's Hebrew birthday", "startDate": null, "startTime": null, "endDate": null, "endTime": null, "allDay": true, "calendarId": "primary", "calendarName": "Primary", "hebrewDate": {"day": 15, "month": "Sh'vat", "year": null}, "recurrence": {"frequency": "yearly", "calendar": "hebrew", "hebrewKind": "anniversary"}}}
+Output: {"transcription": "Hebrew birthday for Noa every year on 15 Shvat", "intent": "create", "confidence": "high", "event": {"title": "Noa's Hebrew birthday", "startDate": null, "startTime": null, "endDate": null, "endTime": null, "allDay": true, "calendarId": "primary", "calendarName": "Primary", "hebrewDate": {"day": 15, "month": "Sh'vat", "year": null}, "recurrence": {"frequency": "yearly", "calendar": "hebrew"}}}
 
 Input audio: "йорцайт дедушки каждый год, он умер 3 нисана 5780 года" (Russian: Grandfather's yahrzeit every year, he died on 3 Nisan 5780)
-Output: {"transcription": "йорцайт дедушки каждый год, он умер 3 нисана 5780 года", "intent": "create", "confidence": "high", "event": {"title": "Йорцайт дедушки", "startDate": null, "startTime": null, "endDate": null, "endTime": null, "allDay": true, "calendarId": "primary", "calendarName": "Primary", "hebrewDate": {"day": 3, "month": "Nisan", "year": 5780}, "recurrence": {"frequency": "yearly", "calendar": "hebrew", "hebrewKind": "yahrzeit"}}}
+Output: {"transcription": "йорцайт дедушки каждый год, он умер 3 нисана 5780 года", "intent": "create", "confidence": "high", "event": {"title": "Йорцайт дедушки", "startDate": null, "startTime": null, "endDate": null, "endTime": null, "allDay": true, "calendarId": "primary", "calendarName": "Primary", "hebrewDate": {"day": 3, "month": "Nisan", "year": 5780}, "recurrence": {"frequency": "yearly", "calendar": "hebrew"}}}
 
 Input audio: "Dana's birthday every year, March 3" (the Gregorian date, so no "calendar")
 Output: {"transcription": "Dana's birthday every year, March 3", "intent": "create", "confidence": "high", "event": {"title": "Dana's birthday", "startDate": "YYYY-03-03", "startTime": null, "endDate": "YYYY-03-03", "endTime": null, "allDay": true, "calendarId": "primary", "calendarName": "Primary", "recurrence": {"frequency": "yearly"}}}
@@ -519,8 +519,6 @@ export function buildReminderTimes(
   return { start, allDay: dateOnly };
 }
 
-const HEBREW_KINDS: readonly HebrewKind[] = ['anniversary', 'yahrzeit'];
-
 /** The recurrence and the start the model's event reads as (hebrew-repeats spec §5). */
 interface ReadRepeat {
   recurrence?: RecurrencePattern;
@@ -545,9 +543,10 @@ function daysBetweenDates(from: unknown, to: unknown): number | null {
  * the end day with it, or to the next day for a timed event that ends before it starts). One that cannot be read or does not exist is logged and ignored, so the
  * model's own startDate, if it gave one, stands.
  *
- * `calendar: 'hebrew'` is kept only with frequency 'yearly', and `hebrewKind` only with it; the
- * rest is dropped with a log line and the repeat stays what it was. An ordinary repeat is returned
- * as the model wrote it.
+ * `calendar: 'hebrew'` is kept only with frequency 'yearly'; the rest is dropped with a log line
+ * and the repeat stays what it was. A `hebrewKind` is dropped with a log line wherever it comes:
+ * there is one Hebrew repeat, every year on the Hebrew date (a yahrzeit's too), so a kind the
+ * model still names changes nothing. An ordinary repeat is returned as the model wrote it.
  */
 export function readRepeat(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw model JSON, read field by field
@@ -558,39 +557,32 @@ export function readRepeat(
   let startDate: string | undefined = eventData.startDate || undefined;
   let endDate: string | undefined = eventData.endDate || undefined;
 
-  let hasYear = false;
-  let spoken = false;
-  // The date's kind comes first: a yahrzeit's plain "Adar" with no year is not a birthday's
-  const dateKind: HebrewKind = eventData.recurrence?.calendar === 'hebrew' && eventData.recurrence?.frequency === 'yearly' && eventData.recurrence?.hebrewKind === 'yahrzeit'
-    ? 'yahrzeit'
-    : 'anniversary';
   if (eventData.hebrewDate !== undefined && eventData.hebrewDate !== null) {
     const read = readSpokenHebrewDate(eventData.hebrewDate);
     for (const problem of read.problems) console.warn(`[Gemini] ${problem}`);
-    const resolved = read.date ? resolveSpokenHebrewDate(read.date, localDate(now, timezone), dateKind) : null;
+    const resolved = read.date ? resolveSpokenHebrewDate(read.date, localDate(now, timezone)) : null;
     if (read.date && !resolved) {
       console.warn(`[Gemini] hebrewDate ${JSON.stringify(read.date)} has no such day (or none in the next 20 years); ignored`);
     }
     if (resolved) {
       const shift = daysBetweenDates(eventData.startDate, eventData.endDate);
-      endDate = shift !== null && shift > 0 ? addDaysToDate(resolved.date, shift) : undefined;
+      endDate = shift !== null && shift > 0 ? addDaysToDate(resolved, shift) : undefined;
       // The model nulls both days for a Hebrew date, so a timed event that runs past midnight
       // ("22:00 to 01:00") has no span to move: it ends the day after the resolved start
       const clock = /^\d{2}:\d{2}$/;
       if (!endDate && !eventData.allDay && clock.test(eventData.startTime ?? '') && clock.test(eventData.endTime ?? '') && eventData.endTime < eventData.startTime) {
-        endDate = nextDate(resolved.date);
+        endDate = nextDate(resolved);
       }
-      startDate = resolved.date;
-      hasYear = resolved.hasYear;
-      spoken = true;
+      startDate = resolved;
     }
   }
 
   const raw = eventData.recurrence;
+  if (raw?.hebrewKind != null) {
+    console.warn(`[Gemini] recurrence.hebrewKind ${JSON.stringify(raw.hebrewKind)} is not read (one Hebrew repeat, every year on the Hebrew date); dropped`);
+  }
   if (!raw?.frequency) {
-    if (raw && (raw.calendar || raw.hebrewKind)) {
-      console.warn(`[Gemini] recurrence has calendar/hebrewKind but no frequency; dropped: ${JSON.stringify(raw)}`);
-    }
+    if (raw?.calendar) console.warn(`[Gemini] recurrence has calendar but no frequency; dropped: ${JSON.stringify(raw)}`);
     return { startDate, endDate };
   }
   // An ordinary repeat is the model's object, untouched
@@ -605,28 +597,14 @@ export function readRepeat(
   const gregorian: RecurrencePattern = { frequency, ...(daysOfWeek != null ? { daysOfWeek } : {}), ...ends };
   if (raw.calendar !== 'hebrew') {
     if (raw.calendar != null) console.warn(`[Gemini] recurrence.calendar ${JSON.stringify(raw.calendar)} is not "hebrew"; dropped`);
-    if (raw.hebrewKind != null) console.warn(`[Gemini] recurrence.hebrewKind ${JSON.stringify(raw.hebrewKind)} without calendar "hebrew"; dropped`);
     return { recurrence: gregorian, startDate, endDate };
   }
   if (frequency !== 'yearly') {
     console.warn(`[Gemini] recurrence.calendar "hebrew" needs frequency "yearly", got ${JSON.stringify(frequency)}; the Hebrew calendar is dropped`);
     return { recurrence: gregorian, startDate, endDate };
   }
-  let kind: HebrewKind = 'anniversary';
-  if (HEBREW_KINDS.includes(raw.hebrewKind)) kind = raw.hebrewKind;
-  else if (raw.hebrewKind != null) console.warn(`[Gemini] recurrence.hebrewKind ${JSON.stringify(raw.hebrewKind)} is not a Hebrew rule; read as "anniversary"`);
   // A Hebrew yearly rule has no BY parts, so daysOfWeek is left out
-  return {
-    recurrence: {
-      frequency,
-      ...ends,
-      calendar: 'hebrew',
-      hebrewKind: kind,
-      ...(kind === 'yahrzeit' && spoken && !hasYear ? { hebrewNoYear: true as const } : {}),
-    },
-    startDate,
-    endDate,
-  };
+  return { recurrence: { frequency, ...ends, calendar: 'hebrew' }, startDate, endDate };
 }
 
 /** The model's anchor ("an hour before the dentist"), or undefined when it is missing or unreadable. */

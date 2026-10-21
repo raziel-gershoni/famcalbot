@@ -86,22 +86,17 @@ export function readSpokenHebrewDate(raw: unknown): ReadSpokenHebrewDate {
   return { date: { day, month: name, ...(readYear !== undefined ? { year: readYear } : {}) }, problems };
 }
 
-/** The rule the date is for. A yahrzeit's plain Adar with no year is a death in a common-year Adar. */
-export type SpokenHebrewKind = 'anniversary' | 'yahrzeit';
-
 /**
  * The month number hebcal uses for a spoken month in a Hebrew year, or null when that year has no
- * such month (Adar I in a common year). `commonYearAdar`: plain "Adar" means the Adar of a
- * common-year death, which a leap year keeps in Adar I (spec §1), instead of the Adar II of speech.
+ * such month (Adar I in a common year).
  */
-function monthNumber(name: HebrewMonthName, year: number, commonYearAdar = false): number | null {
+function monthNumber(name: HebrewMonthName, year: number): number | null {
   const leap = HDate.isLeapYear(year);
   switch (name) {
     case 'Adar I': return leap ? months.ADAR_I : null;
     case 'Adar II': return leap ? months.ADAR_II : null;
-    // The only Adar of a common year; in a leap year the plain Adar of speech is Adar II, but a
-    // yahrzeit's plain Adar with no year is the death of a common year, whose leap years use Adar I
-    case 'Adar': return leap ? (commonYearAdar ? months.ADAR_I : months.ADAR_II) : months.ADAR_I;
+    // The only Adar of a common year; in a leap year the plain Adar of speech is Adar II
+    case 'Adar': return leap ? months.ADAR_II : months.ADAR_I;
     case 'Tishrei': return months.TISHREI;
     case 'Cheshvan': return months.CHESHVAN;
     case 'Kislev': return months.KISLEV;
@@ -119,42 +114,27 @@ function monthNumber(name: HebrewMonthName, year: number, commonYearAdar = false
 const pad = (n: number) => String(n).padStart(2, '0');
 
 /** The day a Hebrew date falls on in one Hebrew year, as 'yyyy-MM-dd', or null when that year has no such day (30 Cheshvan in a short year). */
-function dayIn(spoken: SpokenHebrewDate, year: number, commonYearAdar = false): string | null {
-  const month = monthNumber(spoken.month, year, commonYearAdar);
+function dayIn(spoken: SpokenHebrewDate, year: number): string | null {
+  const month = monthNumber(spoken.month, year);
   if (month === null || spoken.day > HDate.daysInMonth(month, year)) return null;
   // hebcal hands back local midnight of the civil day, so the local getters read it exactly
   const greg = new HDate(spoken.day, month, year).greg();
   return `${greg.getFullYear()}-${pad(greg.getMonth() + 1)}-${pad(greg.getDate())}`;
 }
 
-export interface ResolvedHebrewDate {
-  /** The day, 'yyyy-MM-dd'. */
-  date: string;
-  /** True when the user said the year. False: `date` is the next occurrence. */
-  hasYear: boolean;
-}
-
 /**
- * The calendar day of a spoken Hebrew date. With a year it is that year's day (null when the
- * year has no such day). Without one it is the first day on or after `today` ('yyyy-MM-dd' in
- * the user's zone), skipping the years in which the day does not exist; null when none comes
- * within SEARCH_YEARS.
- *
- * `kind` matters for one date: a yahrzeit's plain "Adar" with no year is a death in the Adar of a
- * common year, so in a leap year it is Adar I, where hebcal's yahrzeit rule puts it. A birthday's
- * plain Adar, and any Adar the user gave a year for, stay as spoken (Adar II in a leap year).
+ * The calendar day of a spoken Hebrew date, as 'yyyy-MM-dd'. With a year it is that year's day
+ * (null when the year has no such day). Without one it is the first day on or after `today`
+ * ('yyyy-MM-dd' in the user's zone), skipping the years in which the day does not exist; null
+ * when none comes within SEARCH_YEARS. A plain "Adar" is read as spoken: Adar II in a leap year.
  */
-export function resolveSpokenHebrewDate(spoken: SpokenHebrewDate, today: string, kind: SpokenHebrewKind = 'anniversary'): ResolvedHebrewDate | null {
-  if (spoken.year !== undefined) {
-    const date = dayIn(spoken, spoken.year);
-    return date ? { date, hasYear: true } : null;
-  }
-  const commonYearAdar = kind === 'yahrzeit';
+export function resolveSpokenHebrewDate(spoken: SpokenHebrewDate, today: string): string | null {
+  if (spoken.year !== undefined) return dayIn(spoken, spoken.year);
   const [y, m, d] = today.split('-').map(Number);
   const first = new HDate(new Date(y, m - 1, d)).getFullYear();
   for (let year = first; year < first + SEARCH_YEARS; year++) {
-    const date = dayIn(spoken, year, commonYearAdar);
-    if (date && date >= today) return { date, hasYear: false };
+    const date = dayIn(spoken, year);
+    if (date && date >= today) return date;
   }
   return null;
 }

@@ -493,14 +493,14 @@ async function main() {
   // ================= A Hebrew repeat is worded for its own target =================
 
   await check('a Hebrew repeat on a Google calendar is noted "added once", on FamCal it is not, whatever the user\'s source', async () => {
-    const hebrew = { recurrence: { frequency: 'yearly' as const, calendar: 'hebrew' as const, hebrewKind: 'yahrzeit' as const }, allDay: true };
+    const hebrew = { recurrence: { frequency: 'yearly' as const, calendar: 'hebrew' as const }, allDay: true };
     const onGoogle = await hebrewCardParts(plainEvent({ ...hebrew, calendarId: 'nava@gmail.com' }), NAVA, 'en', IL);
     const onFamcal = await hebrewCardParts(plainEvent({ ...hebrew, calendarId: 'native:main-3' }), GIL, 'en', IL);
     assert(onGoogle.notices.length === 1, `Google target notices ${JSON.stringify(onGoogle.notices)}`);
     assert(onFamcal.notices.length === 0, `FamCal target notices ${JSON.stringify(onFamcal.notices)}`);
     currentUser = GIL;
     await cardConfirm(plainEvent({ ...hebrew, calendarId: 'native:main-3' }));
-    assertEqual([writes[0]?.provider, writes[0]?.input?.hebrewRule], ['native', 'yahrzeit'], 'created on FamCal with the Hebrew rule');
+    assertEqual([writes[0]?.provider, writes[0]?.input?.hebrewRule], ['native', 'anniversary'], 'created on FamCal with the Hebrew rule');
   });
 
   // ================= Voice matching with a failed Google half =================

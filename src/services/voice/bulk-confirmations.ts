@@ -105,7 +105,7 @@ export async function showBulkConfirmation(
   const language = user.language || 'en';
   const lines = await Promise.all(creates.map(async (it, i) => {
     const ev = it.event as ParsedEvent;
-    // A Hebrew repeat names its date and its kind, as the single card does (spec §5), worded for
+    // A Hebrew repeat names its Hebrew date, as the single card does (spec §5), worded for
     // the calendar "Confirm all" creates it on; the bare mark stays for the rest
     const hebrew = ev.recurrence?.calendar === 'hebrew'
       ? (await hebrewRepeatCard(ev, await targetOf(user, ev), language, timezone)).line

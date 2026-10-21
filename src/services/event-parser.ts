@@ -65,21 +65,12 @@ export interface RecurrencePattern {
   until?: string;          // YYYY-MM-DD end date
   count?: number;          // number of occurrences
   /**
-   * 'hebrew': repeat every year on the start's Hebrew date (hebrew-repeats spec §5). Only with
-   * frequency 'yearly'; the parser drops it otherwise. Unset: the Gregorian rule, as always.
+   * 'hebrew': repeat every year on the start's Hebrew date, by hebcal's birthday rule, the one
+   * Hebrew repeat (hebrew-repeats spec §5). Only with frequency 'yearly'; the parser drops it
+   * otherwise. Unset: the Gregorian rule, as always.
    */
   calendar?: 'hebrew';
-  /** With calendar 'hebrew': hebcal's birthday rules ('anniversary') or its yahrzeit rules. */
-  hebrewKind?: HebrewKind;
-  /**
-   * A yahrzeit whose Hebrew date came with no year: the start is its next occurrence, not the
-   * date of death, and the card says so.
-   */
-  hebrewNoYear?: true;
 }
-
-/** The two Hebrew yearly rules (the same two the native calendar stores). */
-export type HebrewKind = 'anniversary' | 'yahrzeit';
 
 /**
  * Parsed event data from natural language

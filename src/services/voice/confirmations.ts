@@ -259,7 +259,7 @@ export function formatEditChanges(
  * Format recurrence pattern for display
  */
 function formatRecurrence(recurrence: ParsedEvent['recurrence'], language: string): string | null {
-  // A Hebrew repeat is worded by hebrewRepeatCard (the Hebrew date and the kind), never as "Yearly"
+  // A Hebrew repeat is worded by hebrewRepeatCard (with its Hebrew date), never as "Yearly"
   if (!recurrence?.frequency || recurrence.calendar === 'hebrew') return null;
 
   const dayNames: Record<string, Record<string, string>> = {
@@ -292,9 +292,9 @@ function formatRecurrence(recurrence: ParsedEvent['recurrence'], language: strin
 }
 
 /**
- * What an event's card says about a repeat by the Hebrew date: the line with the Hebrew date and
- * the kind, and the notes (an event headed for Google is added once; a yahrzeit with no year starts
- * from the next one). Nothing for any other event, which also costs no provider lookup.
+ * What an event's card says about a repeat by the Hebrew date: the line with the Hebrew date, and
+ * the note that an event headed for Google is added once. Nothing for any other event, which also
+ * costs no provider lookup.
  */
 export async function hebrewCardParts(
   event: Pick<ParsedEvent, 'recurrence' | 'startTime' | 'calendarId' | 'kind'>,

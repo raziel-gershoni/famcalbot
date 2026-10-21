@@ -46,7 +46,7 @@ function buildCorrectionPrompt(
 
   // The model reads a Hebrew date and the server converts it (hebrew-repeats spec §5); a repeat by the Hebrew date keeps its rule
   const hebrewNote = event.recurrence?.calendar === 'hebrew'
-    ? `\nThis event repeats every year by the Hebrew calendar (${event.recurrence.hebrewKind === 'yahrzeit' ? 'a yahrzeit' : 'a Hebrew birthday or anniversary'}). Its start date is the day of the first occurrence. Do not change how it repeats.\n`
+    ? '\nThis event repeats every year by the Hebrew calendar (a Hebrew birthday or anniversary). Its start date is the day of the first occurrence. Do not change how it repeats.\n'
     : '';
 
   return `You are correcting a calendar event based on user feedback.
@@ -84,27 +84,6 @@ RESPOND IN JSON FORMAT ONLY:
   "calendarId": "..." or "primary",
   "calendarName": "..." or "Primary"
 }`;
-}
-
-/**
- * The repeat after a correction. A Hebrew date the user gave re-reads the rule (a given year drops
- * the "no year was given" note). Otherwise the rule stays, and the note stays only while the start
- * day does: a new day is the date the user chose, not "the next occurrence".
- */
-function correctedRecurrence(
-  event: ParsedEvent,
-  newStart: Date,
-  hebrew: ReturnType<typeof readRepeat> | null,
-  timezone: string
-): ParsedEvent['recurrence'] {
-  if (hebrew) return hebrew.recurrence ?? event.recurrence;
-  const recurrence = event.recurrence;
-  if (!recurrence?.hebrewNoYear) return recurrence;
-  const day = (d: Date) => formatInTimeZone(d, timezone, 'yyyy-MM-dd');
-  if (day(newStart) === day(event.startTime)) return recurrence;
-  const kept = { ...recurrence };
-  delete kept.hebrewNoYear;
-  return kept;
 }
 
 /**
@@ -233,7 +212,8 @@ export async function handleEventCorrection(
       calendarId: resolvedCalendarId,
       calendarName: resolvedCalendarName,
       confidence: 'high',
-      recurrence: correctedRecurrence(event, startDateTime, hebrew, timezone),
+      // A Hebrew date the user gave re-reads the repeat; otherwise it stays
+      recurrence: hebrew?.recurrence ?? event.recurrence,
     };
     if (reminder) {
       // A reminder keeps who it is for and its main calendar, and stays zero-length.
