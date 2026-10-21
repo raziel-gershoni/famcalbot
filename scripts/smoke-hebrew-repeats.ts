@@ -2,9 +2,9 @@
 // §2, §3, §6): the Hebrew expander in src/services/native-calendar/recurrence.ts and the
 // rule helpers that branch on NativeEvent.hebrewRule / hebrewAnchor.
 //
-// A Hebrew series is a plain FREQ=YEARLY rule next to the pair (hebrewRule: 'anniversary' |
-// 'yahrzeit', hebrewAnchor: the anchor's civil date in the series' zone). Its days come from
-// hebcal: getBirthdayOrAnniversary for 'anniversary', getYahrzeit for 'yahrzeit'. The
+// A Hebrew series is a plain FREQ=YEARLY rule next to the pair (hebrewRule: 'anniversary', the
+// one kind since the yahrzeit kind was withdrawn 2026-10-21; hebrewAnchor: the anchor's civil
+// date in the series' zone). Its days come from hebcal's getBirthdayOrAnniversary. The
 // expected dates below were read off hebcal 0.21.1 by hand (scratchpad hr/probe/p.cjs), so a
 // change in the library's rules, or in how the expander calls it, shows here.
 //
@@ -15,7 +15,7 @@
 //   TZ=America/Los_Angeles npx tsx scripts/smoke-hebrew-repeats.ts
 
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
-import { HDate, getYahrzeit } from '@hebcal/hdate';
+import { HDate } from '@hebcal/hdate';
 import type { NativeEvent, NativeEventInstance } from '@prisma/client';
 import * as rec from '../src/services/native-calendar/recurrence';
 
@@ -49,10 +49,8 @@ const at = (local: string, tz = IL) => fromZonedTime(`${local}:00`, tz);
 const dayIn = (d: Date, tz = IL) => formatInTimeZone(d, tz, 'yyyy-MM-dd');
 const wallIn = (d: Date, tz = IL) => formatInTimeZone(d, tz, 'yyyy-MM-dd HH:mm');
 
-type Kind = 'anniversary' | 'yahrzeit';
-
 /** A Hebrew series as the store writes it: FREQ=YEARLY, the pair, the anchor its start's date in its zone. */
-function hebrew(kind: Kind, start: Date, o: Partial<NativeEvent> = {}): NativeEvent {
+function hebrew(start: Date, o: Partial<NativeEvent> = {}): NativeEvent {
   const tz = (o.timeZone as string | undefined) ?? IL;
   return {
     id: 'heb-1',
@@ -66,7 +64,7 @@ function hebrew(kind: Kind, start: Date, o: Partial<NativeEvent> = {}): NativeEv
     allDay: false,
     timeZone: tz,
     rrule: 'FREQ=YEARLY',
-    hebrewRule: kind,
+    hebrewRule: 'anniversary',
     hebrewAnchor: dayIn(start, tz),
     exdates: [],
     reminderMinutes: null,
@@ -117,57 +115,53 @@ const thrown = (fn: () => unknown): unknown => {
 };
 
 function main() {
-  // ================= §1's table, both kinds =================
+  // ================= one Hebrew repeat (the yahrzeit kind was withdrawn 2026-10-21) =================
 
-  check('table: 30 Cheshvan (5783) in a year without it: anniversary on 1 Kislev, yahrzeit on 29 Cheshvan (its first anniversary year lacked the 30th)', () => {
+  check('one kind: isHebrewRule takes \'anniversary\' only; \'yahrzeit\' is refused for storage and a stored one throws NativeRuleError on expansion', () => {
+    assertSame([rec.isHebrewRule('anniversary'), rec.isHebrewRule('yahrzeit')], [true, false], 'isHebrewRule');
+    const stored = thrown(() => rec.assertStorableRule('FREQ=YEARLY', 'yahrzeit'));
+    assert(stored instanceof rec.NativeRuleError, `assertStorableRule('FREQ=YEARLY', 'yahrzeit'): ${stored === undefined ? 'kept' : String(stored)}`);
+    const read = thrown(() => rec.expandSeries(hebrew(at('2026-02-02 10:00'), { hebrewRule: 'yahrzeit' }), { from: at('2026-01-01 00:00'), to: at('2028-01-01 00:00') }));
+    assert(read instanceof rec.NativeRuleError, `expandSeries of a stored yahrzeit: ${read === undefined ? 'expanded' : String(read)}`);
+  });
+
+  // ================= §1's table =================
+
+  check('table: 30 Cheshvan (5783) falls on 1 Kislev in a year without it', () => {
     const start = at('2022-11-24 10:00'); // 30 Cheshvan 5783
-    assertSame(days(hebrew('anniversary', start), '2022-01-01', '2029-01-01'),
+    assertSame(days(hebrew(start), '2022-01-01', '2029-01-01'),
       ['2022-11-24', '2023-11-14', '2024-12-01', '2025-11-21', '2026-11-10', '2027-11-30', '2028-11-19'], 'anniversary');
-    assertSame(days(hebrew('yahrzeit', start), '2022-01-01', '2029-01-01'),
-      ['2022-11-24', '2023-11-13', '2024-12-01', '2025-11-20', '2026-11-10', '2027-11-30', '2028-11-18'], 'yahrzeit');
   });
 
-  check('table: 30 Cheshvan (5787) whose first anniversary year has the 30th: the yahrzeit moves to 1 Kislev where it is missing, like the anniversary', () => {
-    const start = at('2026-11-10 10:00'); // 30 Cheshvan 5787
-    assertSame(days(hebrew('yahrzeit', start), '2026-01-01', '2030-01-01'), ['2026-11-10', '2027-11-30', '2028-11-19', '2029-11-08'], 'yahrzeit');
-    assertSame(days(hebrew('anniversary', start), '2026-01-01', '2030-01-01'), ['2026-11-10', '2027-11-30', '2028-11-19', '2029-11-08'], 'anniversary');
-  });
-
-  check('table: 30 Kislev (5783) in a year without it: anniversary on 1 Tevet, yahrzeit on 29 Kislev', () => {
+  check('table: 30 Kislev (5783) falls on 1 Tevet in a year without it', () => {
     const start = at('2022-12-24 10:00'); // 30 Kislev 5783
-    assertSame(days(hebrew('anniversary', start), '2023-06-01', '2024-06-01'), ['2023-12-13'], 'anniversary 5784');
-    assertSame(days(hebrew('yahrzeit', start), '2023-06-01', '2024-06-01'), ['2023-12-12'], 'yahrzeit 5784');
+    assertSame(days(hebrew(start), '2023-06-01', '2024-06-01'), ['2023-12-13'], 'anniversary 5784');
   });
 
-  check('table: Adar in a common year (15 Adar 5785) read in a leap year: anniversary in Adar II, yahrzeit in Adar I', () => {
+  check('table: Adar in a common year (15 Adar 5785) is Adar II in a leap year and plain Adar in a common one', () => {
     const start = at('2025-03-15 10:00');
-    assertSame(days(hebrew('anniversary', start), '2026-06-01', '2027-06-01'), ['2027-03-24'], 'anniversary 5787');
-    assertSame(days(hebrew('yahrzeit', start), '2026-06-01', '2027-06-01'), ['2027-02-22'], 'yahrzeit 5787');
-    assertSame(days(hebrew('anniversary', start), '2025-06-01', '2026-06-01'), ['2026-03-04'], 'a common year is plain Adar for both');
-    assertSame(days(hebrew('yahrzeit', start), '2025-06-01', '2026-06-01'), ['2026-03-04'], 'yahrzeit 5786');
+    assertSame(days(hebrew(start), '2026-06-01', '2027-06-01'), ['2027-03-24'], 'anniversary 5787');
+    assertSame(days(hebrew(start), '2025-06-01', '2026-06-01'), ['2026-03-04'], 'a common year is plain Adar');
   });
 
-  check('table: 30 Adar I (5784) in a common year: anniversary on 1 Nisan, yahrzeit on 30 Shvat; a leap year keeps 30 Adar I for both', () => {
+  check('table: 30 Adar I (5784) falls on 1 Nisan in a common year; a leap year keeps 30 Adar I', () => {
     const start = at('2024-03-10 10:00');
-    assertSame(days(hebrew('anniversary', start), '2024-06-01', '2027-06-01'), ['2025-03-30', '2026-03-19', '2027-03-09'], 'anniversary');
-    assertSame(days(hebrew('yahrzeit', start), '2024-06-01', '2027-06-01'), ['2025-02-28', '2026-02-17', '2027-03-09'], 'yahrzeit');
+    assertSame(days(hebrew(start), '2024-06-01', '2027-06-01'), ['2025-03-30', '2026-03-19', '2027-03-09'], 'anniversary');
   });
 
   // ================= the anchor year =================
 
-  check('anchor year: the start is the first occurrence for both kinds (hebcal gives nothing for a yahrzeit there), keyed by the start itself', () => {
-    for (const kind of ['anniversary', 'yahrzeit'] as const) {
-      const s = hebrew(kind, at('2024-03-10 10:00'));
-      const [first] = rec.expandSeries(s, { from: at('2024-03-01 00:00'), to: at('2024-04-01 00:00') });
-      assert(first, `${kind}: no occurrence at the start`);
-      assert(first.instanceStartsAt.getTime() === s.startsAt.getTime() && first.startsAt.getTime() === s.startsAt.getTime(), `${kind}: keyed ${first.instanceStartsAt.toISOString()}`);
-      assertSame(rec.hebrewCandidates({ ...s, rrule: s.rrule!, hebrewRule: kind, hebrewAnchor: s.hebrewAnchor! }, { from: at('2024-03-01 00:00'), to: at('2024-04-01 00:00') })
-        .filter((d) => d >= at('2024-03-01 00:00') && d < at('2024-04-01 00:00')).map((d) => d.toISOString()), [s.startsAt.toISOString()], `${kind}: candidates`);
-    }
+  check('anchor year: the start is the first occurrence, keyed by the start itself', () => {
+    const s = hebrew(at('2024-03-10 10:00'));
+    const [first] = rec.expandSeries(s, { from: at('2024-03-01 00:00'), to: at('2024-04-01 00:00') });
+    assert(first, 'no occurrence at the start');
+    assert(first.instanceStartsAt.getTime() === s.startsAt.getTime() && first.startsAt.getTime() === s.startsAt.getTime(), `keyed ${first.instanceStartsAt.toISOString()}`);
+    assertSame(rec.hebrewCandidates({ ...s, rrule: s.rrule!, hebrewRule: 'anniversary', hebrewAnchor: s.hebrewAnchor! }, { from: at('2024-03-01 00:00'), to: at('2024-04-01 00:00') })
+      .filter((d) => d >= at('2024-03-01 00:00') && d < at('2024-04-01 00:00')).map((d) => d.toISOString()), [s.startsAt.toISOString()], 'candidates');
   });
 
-  check('anchor year: a past date of death is a past occurrence, and nothing comes before it', () => {
-    const s = hebrew('yahrzeit', at('2024-03-10 10:00'));
+  check('anchor year: a past start is a past occurrence, and nothing comes before it', () => {
+    const s = hebrew(at('2024-03-10 10:00'));
     assertSame(days(s, '2020-01-01', '2024-03-10'), [], 'before the start');
     const latest = rec.latestOccurrenceBefore(s, [], at('2024-12-01 00:00'));
     assert(latest && latest.startsAt.getTime() === s.startsAt.getTime(), `latest before ${latest?.startsAt.toISOString()}`);
@@ -178,17 +172,17 @@ function main() {
   const shvat = at('2026-02-02 10:00'); // 15 Shvat 5786
 
   check('INTERVAL=2: every other Hebrew year from the anchor (5786, 5788, 5790)', () => {
-    assertSame(days(hebrew('anniversary', shvat, { rrule: 'FREQ=YEARLY;INTERVAL=2' }), '2026-01-01', '2031-01-01'), ['2026-02-02', '2028-02-12', '2030-01-19'], 'interval 2');
+    assertSame(days(hebrew(shvat, { rrule: 'FREQ=YEARLY;INTERVAL=2' }), '2026-01-01', '2031-01-01'), ['2026-02-02', '2028-02-12', '2030-01-19'], 'interval 2');
   });
 
   check('COUNT=3: the anchor and the next two, then none', () => {
-    assertSame(days(hebrew('anniversary', shvat, { rrule: 'FREQ=YEARLY;COUNT=3' }), '2026-01-01', '2035-01-01'), ['2026-02-02', '2027-01-23', '2028-02-12'], 'count 3');
-    assertSame(days(hebrew('yahrzeit', shvat, { rrule: 'FREQ=YEARLY;INTERVAL=2;COUNT=2' }), '2026-01-01', '2035-01-01'), ['2026-02-02', '2028-02-12'], 'count 2, interval 2');
+    assertSame(days(hebrew(shvat, { rrule: 'FREQ=YEARLY;COUNT=3' }), '2026-01-01', '2035-01-01'), ['2026-02-02', '2027-01-23', '2028-02-12'], 'count 3');
+    assertSame(days(hebrew(shvat, { rrule: 'FREQ=YEARLY;INTERVAL=2;COUNT=2' }), '2026-01-01', '2035-01-01'), ['2026-02-02', '2028-02-12'], 'count 2, interval 2');
   });
 
   check('a start with milliseconds keeps its first occurrence and its COUNT, keyed by the start itself, like the Gregorian yearly row', () => {
     const start = new Date(shvat.getTime() + 123);
-    const s = hebrew('anniversary', start, { rrule: 'FREQ=YEARLY;COUNT=2' });
+    const s = hebrew(start, { rrule: 'FREQ=YEARLY;COUNT=2' });
     const got = rec.expandSeries(s, { from: at('2026-01-01 00:00'), to: at('2030-01-01 00:00') });
     assertSame(got.map((i) => dayIn(i.startsAt)), ['2026-02-02', '2027-01-23'], 'count 2');
     assertSame(got.map((i) => i.instanceStartsAt.toISOString()), [start.toISOString(), fromZonedTime('2027-01-23T10:00:00.123', IL).toISOString()], 'keys keep the milliseconds');
@@ -196,7 +190,7 @@ function main() {
   });
 
   check('COUNT, a window 20 years from the start: the 21st occurrence (5806) is there, the 22nd (5807) is not', () => {
-    const s = hebrew('anniversary', shvat, { rrule: 'FREQ=YEARLY;COUNT=21' });
+    const s = hebrew(shvat, { rrule: 'FREQ=YEARLY;COUNT=21' });
     const want5806 = civil(new HDate(15, 11, 5806).greg());
     const want5807 = civil(new HDate(15, 11, 5807).greg());
     const y5806 = Number(want5806.slice(0, 4));
@@ -207,7 +201,7 @@ function main() {
   });
 
   check('UNTIL: a date-only UNTIL reads as the end of that day; a date-time, with a Z or without, as a wall time', () => {
-    const s = (rrule: string) => days(hebrew('anniversary', shvat, { rrule }), '2026-01-01', '2035-01-01');
+    const s = (rrule: string) => days(hebrew(shvat, { rrule }), '2026-01-01', '2035-01-01');
     assertSame(s('FREQ=YEARLY;UNTIL=20280212'), ['2026-02-02', '2027-01-23', '2028-02-12'], 'date-only on the day');
     assertSame(s('FREQ=YEARLY;UNTIL=20280211'), ['2026-02-02', '2027-01-23'], 'date-only the day before');
     assertSame(s('FREQ=YEARLY;UNTIL=20280212T095959'), ['2026-02-02', '2027-01-23'], 'a cut one second before 10:00 (truncateRruleBefore)');
@@ -217,7 +211,7 @@ function main() {
   });
 
   check('truncateRruleBefore and shiftUntil keep a Hebrew rule a plain yearly rule its expansion reads', () => {
-    const s = hebrew('anniversary', shvat);
+    const s = hebrew(shvat);
     const cut = rec.truncateRruleBefore(s.rrule!, at('2028-02-12 10:00'), IL);
     assertSame(cut, 'FREQ=YEARLY;UNTIL=20280212T095959', 'the cut rule');
     assertSame(days({ ...s, rrule: cut }, '2026-01-01', '2035-01-01'), ['2026-02-02', '2027-01-23'], 'the cut series');
@@ -226,7 +220,7 @@ function main() {
   // ================= overrides, exdates =================
 
   check('an exdate and an override on Hebrew occurrences apply as on any series; an override moved far is still found', () => {
-    const s = hebrew('anniversary', shvat, { exdates: [at('2027-01-23 10:00')] });
+    const s = hebrew(shvat, { exdates: [at('2027-01-23 10:00')] });
     const moved = override(s.id, at('2028-02-12 10:00'), { title: 'Party', startsAt: at('2028-02-13 18:00'), endsAt: at('2028-02-13 20:00') });
     const got = rec.expandSeries(s, { from: at('2026-01-01 00:00'), to: at('2030-01-01 00:00') }, [moved]);
     assertSame(got.map((i) => `${wallIn(i.startsAt)} ${i.title}`), ['2026-02-02 10:00 Birthday', '2028-02-13 18:00 Party', '2029-01-31 10:00 Birthday'], 'expanded');
@@ -236,44 +230,37 @@ function main() {
     assertSame(window.map((i) => `${wallIn(i.startsAt)} ${i.instanceStartsAt.toISOString()}`), [`2033-05-01 10:00 ${at('2029-01-31 10:00').toISOString()}`], 'the orphan override');
   });
 
-  // ================= the mutation regression (getYahrzeit mutates its argument) =================
+  // ================= one expansion against many =================
 
-  check('one expansion over 24 years equals per-year expansions and per-year hebcal calls on a fresh date (10 Adar II 5782)', () => {
+  check('one expansion over 24 years equals per-year expansions (10 Adar II 5782)', () => {
     const start = at('2022-03-13 10:00'); // 10 Adar II 5782
     assertSame(new HDate(new Date(2022, 2, 13)).toString(), '10 Adar II 5782', 'the anchor');
-    for (const kind of ['yahrzeit', 'anniversary'] as const) {
-      const s = hebrew(kind, start);
-      const all = days(s, '2022-01-01', '2046-01-01');
-      const each: string[] = [];
-      for (let y = 2022; y < 2046; y++) each.push(...days(s, `${y}-01-01`, `${y + 1}-01-01`));
-      assertSame(all, each, `${kind}: one expansion against per-year ones`);
-      if (kind === 'yahrzeit') {
-        const fresh = ['2022-03-13'];
-        for (let hy = 5783; hy <= 5805; hy++) fresh.push(civil(getYahrzeit(hy, { yy: 5782, mm: 13, dd: 10 })!));
-        assertSame(all, fresh.filter((d) => d < '2046-01-01'), 'against hebcal on a fresh date each year');
-      }
-      assert(all.length >= 23, `${kind}: ${all.length} occurrences`);
-    }
+    const s = hebrew(start);
+    const all = days(s, '2022-01-01', '2046-01-01');
+    const each: string[] = [];
+    for (let y = 2022; y < 2046; y++) each.push(...days(s, `${y}-01-01`, `${y + 1}-01-01`));
+    assertSame(all, each, 'one expansion against per-year ones');
+    assert(all.length >= 23, `${all.length} occurrences`);
   });
 
   // ================= zones =================
 
   check('the anchor is read in the event\'s zone: 23:30Z on 1 Feb is 15 Shvat in Israel and 14 Shvat in UTC; the wall time stays', () => {
     const instant = new Date('2026-02-01T23:30:00Z');
-    const il = hebrew('anniversary', instant, { timeZone: IL });
+    const il = hebrew(instant, { timeZone: IL });
     assertSame(il.hebrewAnchor, '2026-02-02', 'anchor in Israel');
     assertSame(rec.expandSeries(il, { from: at('2026-06-01 00:00'), to: at('2027-06-01 00:00') }).map((i) => wallIn(i.startsAt, IL)), ['2027-01-23 01:30'], 'Israel: 15 Shvat 5787 at 01:30');
-    const utc = hebrew('anniversary', instant, { timeZone: 'UTC' });
+    const utc = hebrew(instant, { timeZone: 'UTC' });
     assertSame(utc.hebrewAnchor, '2026-02-01', 'anchor in UTC');
     assertSame(rec.expandSeries(utc, { from: at('2026-06-01 00:00', 'UTC'), to: at('2027-06-01 00:00', 'UTC') }).map((i) => wallIn(i.startsAt, 'UTC')), [`${civil(new HDate(14, 11, 5787).greg())} 23:30`], 'UTC: 14 Shvat 5787 at 23:30');
   });
 
   check('the wall time holds across DST: 10:00 in Israel\'s winter is 10:00 on a summer-time 1 Nisan; Los Angeles and Kiritimati too', () => {
-    const s = hebrew('anniversary', at('2024-03-10 10:00')); // 30 Adar I, winter
+    const s = hebrew(at('2024-03-10 10:00')); // 30 Adar I, winter
     const nisan = rec.expandSeries(s, { from: at('2025-03-01 00:00'), to: at('2025-04-30 00:00') });
     assertSame(nisan.map((i) => wallIn(i.startsAt)), ['2025-03-30 10:00'], 'Israel, after the spring change');
     for (const tz of [LA, KIRITIMATI]) {
-      const z = hebrew('anniversary', at('2026-02-02 09:00', tz), { timeZone: tz });
+      const z = hebrew(at('2026-02-02 09:00', tz), { timeZone: tz });
       assertSame(rec.expandSeries(z, { from: at('2026-01-01 00:00', tz), to: at('2028-12-31 00:00', tz) }).map((i) => wallIn(i.startsAt, tz)),
         ['2026-02-02 09:00', '2027-01-23 09:00', '2028-02-12 09:00'], tz);
     }
@@ -281,14 +268,14 @@ function main() {
 
   check('an all-day Hebrew series keeps its day span (00:00 to 23:59 local) in every year', () => {
     const start = at('2026-02-02 00:00');
-    const s = hebrew('anniversary', start, { allDay: true, endsAt: at('2026-02-02 23:59') });
+    const s = hebrew(start, { allDay: true, endsAt: at('2026-02-02 23:59') });
     assertSame(rec.expandSeries(s, { from: at('2027-01-01 00:00'), to: at('2027-12-31 00:00') }).map((i) => `${wallIn(i.startsAt)}-${wallIn(i.endsAt)}`), ['2027-01-23 00:00-2027-01-23 23:59'], 'all day');
   });
 
   // ================= a tail whose anchor year precedes its start =================
 
   check('a tail keeps its anchor: started on a rolled 1 Kislev 5786, it still falls on 30 Cheshvan in long years; nothing before its start', () => {
-    const s = hebrew('anniversary', at('2025-11-21 10:00'), { hebrewAnchor: '2022-11-24' });
+    const s = hebrew(at('2025-11-21 10:00'), { hebrewAnchor: '2022-11-24' });
     assertSame(days(s, '2020-01-01', '2029-01-01'), ['2025-11-21', '2026-11-10', '2027-11-30', '2028-11-19'], 'the tail');
     assertSame(days({ ...s, rrule: 'FREQ=YEARLY;COUNT=2' }, '2020-01-01', '2029-01-01'), ['2025-11-21', '2026-11-10'], 'its COUNT counts from its start');
     assertSame(rec.slotsBefore({ ...s, rrule: 'FREQ=YEARLY;COUNT=3' }, at('2027-11-30 10:00')), 2, 'slots before, from its start');
@@ -297,32 +284,32 @@ function main() {
   // ================= the helpers =================
 
   check('latestOccurrenceBefore spans the longest gap, 385 days (30 Adar I 5787 to 1 Nisan 5788)', () => {
-    const s = hebrew('anniversary', at('2024-03-10 10:00'));
+    const s = hebrew(at('2024-03-10 10:00'));
     const latest = rec.latestOccurrenceBefore(s, [], at('2028-03-28 09:00'));
     assert(latest && wallIn(latest.startsAt) === '2027-03-09 10:00', `latest ${latest && wallIn(latest.startsAt)}`);
   });
 
-  check('fixesDays is false for a Hebrew rule; classifyRule names the kind, with INTERVAL 1 or absent, and an end as its last occurrence', () => {
-    const s = hebrew('anniversary', shvat);
+  check('fixesDays is false for a Hebrew rule; classifyRule names it \'hebrew\', with INTERVAL 1 or absent, and an end as its last occurrence', () => {
+    const s = hebrew(shvat);
     assertSame(rec.fixesDays(s.rrule), false, 'fixesDays');
-    const cls = (rrule: string, kind: Kind) => rec.classifyRule(rrule, shvat, IL, { hebrewRule: kind, hebrewAnchor: '2026-02-02' });
-    assertSame(cls('FREQ=YEARLY', 'anniversary'), { choice: 'hebrew' }, 'anniversary');
-    assertSame(cls('FREQ=YEARLY;INTERVAL=1', 'anniversary'), { choice: 'hebrew' }, 'INTERVAL=1');
-    assertSame(cls('FREQ=YEARLY;INTERVAL=2', 'anniversary'), { choice: 'custom' }, 'INTERVAL=2 is custom');
-    assertSame(cls('FREQ=YEARLY;UNTIL=20290101', 'anniversary'), { choice: 'hebrew', until: at('2028-02-12 10:00') }, 'an UNTIL\'s last occurrence');
-    assertSame(cls('FREQ=YEARLY;INTERVAL=2;COUNT=2', 'anniversary'), { choice: 'custom', until: at('2028-02-12 10:00') }, 'custom with an end');
+    const cls = (rrule: string) => rec.classifyRule(rrule, shvat, IL, { hebrewRule: 'anniversary', hebrewAnchor: '2026-02-02' });
+    assertSame(cls('FREQ=YEARLY'), { choice: 'hebrew' }, 'anniversary');
+    assertSame(cls('FREQ=YEARLY;INTERVAL=1'), { choice: 'hebrew' }, 'INTERVAL=1');
+    assertSame(cls('FREQ=YEARLY;INTERVAL=2'), { choice: 'custom' }, 'INTERVAL=2 is custom');
+    assertSame(cls('FREQ=YEARLY;UNTIL=20290101'), { choice: 'hebrew', until: at('2028-02-12 10:00') }, 'an UNTIL\'s last occurrence');
+    assertSame(cls('FREQ=YEARLY;INTERVAL=2;COUNT=2'), { choice: 'custom', until: at('2028-02-12 10:00') }, 'custom with an end');
     assertSame(rec.classifyRule('FREQ=YEARLY', shvat, IL), { choice: 'yearly' }, 'without the pair it is Gregorian yearly');
     assertSame(rec.classifyRule('FREQ=YEARLY', shvat, IL, { hebrewRule: null, hebrewAnchor: null }), { choice: 'yearly' }, 'with a null pair too');
   });
 
   check('slotsBefore counts Hebrew slots, exdates included', () => {
-    const s = hebrew('anniversary', shvat, { exdates: [at('2027-01-23 10:00')] });
+    const s = hebrew(shvat, { exdates: [at('2027-01-23 10:00')] });
     const ss = { ...s, rrule: s.rrule! };
     assertSame([rec.slotsBefore(ss, at('2028-02-12 10:00')), rec.slotsBefore(ss, shvat), rec.slotsBefore(ss, at('2027-06-01 10:00'))], [2, 0, 2], 'slots before');
   });
 
   check('yieldsSlots: a Hebrew series yields its Hebrew days, not the Gregorian anniversary of its start', () => {
-    const s = hebrew('anniversary', shvat);
+    const s = hebrew(shvat);
     const yields = rec.yieldsSlots(s, [at('2027-01-23 10:00'), at('2027-02-02 10:00')]);
     assertSame([...yields].map((t) => dayIn(new Date(t))), ['2027-01-23'], 'yields');
   });
@@ -335,11 +322,11 @@ function main() {
   // ================= assertStorableRule both ways =================
 
   check('assertStorableRule: a Hebrew rule is FREQ=YEARLY with at most INTERVAL, UNTIL or COUNT; a pair needs a rule', () => {
-    const ok: Array<[string | null, Kind | null | undefined]> = [
+    const ok: Array<[string | null, 'anniversary' | null | undefined]> = [
       ['FREQ=YEARLY', 'anniversary'],
-      ['FREQ=YEARLY;INTERVAL=2;COUNT=3', 'yahrzeit'],
+      ['FREQ=YEARLY;INTERVAL=2;COUNT=3', 'anniversary'],
       ['FREQ=YEARLY;UNTIL=20300101', 'anniversary'],
-      ['FREQ=YEARLY;UNTIL=20300101T095959', 'yahrzeit'],
+      ['FREQ=YEARLY;UNTIL=20300101T095959', 'anniversary'],
       ['RRULE:FREQ=YEARLY', 'anniversary'],
       ['FREQ=WEEKLY;BYDAY=TU', null],
       ['FREQ=MONTHLY', undefined],
@@ -352,26 +339,26 @@ function main() {
     }
     const bad: Array<[string | null, string]> = [
       ['FREQ=MONTHLY', 'anniversary'],
-      ['FREQ=WEEKLY', 'yahrzeit'],
+      ['FREQ=WEEKLY', 'anniversary'],
       ['FREQ=YEARLY;BYMONTH=3', 'anniversary'],
-      ['FREQ=YEARLY;BYMONTHDAY=3', 'yahrzeit'],
+      ['FREQ=YEARLY;BYMONTHDAY=3', 'anniversary'],
       ['FREQ=YEARLY;BYDAY=MO', 'anniversary'],
       ['FREQ=YEARLY;WKST=MO', 'anniversary'],
       ['FREQ=YEARLY;INTERVAL=0', 'anniversary'],
+      ['FREQ=YEARLY', 'yahrzeit'],
       ['FREQ=YEARLY', 'monthly'],
       ['FREQ=YEARLY', ''],
       [null, 'anniversary'],
-      [null, 'yahrzeit'],
     ];
     for (const [rule, kind] of bad) {
-      const e = thrown(() => rec.assertStorableRule(rule, kind as Kind));
+      const e = thrown(() => rec.assertStorableRule(rule, kind));
       assert(e instanceof rec.NativeRuleError, `${rule} ${kind}: ${e === undefined ? 'kept' : String(e)}`);
     }
   });
 
   check('a stored Hebrew series with a kind or anchor the app cannot read throws NativeRuleError on expansion (the read guards log it)', () => {
     for (const o of [{ hebrewRule: 'monthly' }, { hebrewAnchor: null }, { hebrewAnchor: '2026-13-40' }] as Partial<NativeEvent>[]) {
-      const e = thrown(() => rec.expandSeries(hebrew('anniversary', shvat, o), { from: at('2026-01-01 00:00'), to: at('2028-01-01 00:00') }));
+      const e = thrown(() => rec.expandSeries(hebrew(shvat, o), { from: at('2026-01-01 00:00'), to: at('2028-01-01 00:00') }));
       assert(e instanceof rec.NativeRuleError, `${show(o)}: ${e === undefined ? 'expanded' : String(e)}`);
     }
   });

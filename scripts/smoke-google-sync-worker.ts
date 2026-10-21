@@ -1196,12 +1196,15 @@ async function main() {
 
   await check('Hebrew: a timed Hebrew series lists TZID wall times; a cancelled date is left out of the list', async () => {
     seedCopy();
-    seriesRow('heb', 'home', { startsAt: at('2020-03-10 18:00'), endsAt: at('2020-03-10 19:00'), rrule: 'FREQ=YEARLY', hebrewRule: 'yahrzeit', hebrewAnchor: '2020-03-10' });
+    seriesRow('heb', 'home', { startsAt: at('2020-03-10 18:00'), endsAt: at('2020-03-10 19:00'), rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', hebrewAnchor: '2020-03-10' });
     itemRow('L', 'heb');
     await pass();
     const first = google.calendars.get('g-home')!.events.get(eventId('L', 'heb', 0))!;
     const dates = first.recurrence[1].split(':')[1].split(',');
     assert(/^RDATE;TZID=Asia\/Jerusalem:/.test(first.recurrence[1]) && dates.every((d: string) => /^\d{8}T180000$/.test(d)), `rdate ${show(first.recurrence)}`);
+    // 14 Adar 5780 read off hebcal 0.21.1's birthday rules for 5787 to 5797: Adar II in a leap year (5787, 5790, 5793, 5795).
+    const want = ['20280312', '20290301', '20300319', '20310309', '20320226', '20330315', '20340305', '20350325', '20360313', '20370301'].map((d) => `${d}T180000`);
+    assert(first.start.dateTime === at('2027-03-23 18:00').toISOString() && show(dates) === show(want), `days ${show(first.start)} ${show(dates)}`);
     const skipped = dates[2];
     const day = `${skipped.slice(0, 4)}-${skipped.slice(4, 6)}-${skipped.slice(6, 8)}`;
     DB.nativeEvent[0].exdates = [at(`${day} 18:00`)];

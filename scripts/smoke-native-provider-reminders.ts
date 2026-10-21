@@ -365,11 +365,11 @@ async function main() {
     // 22:30 UTC on 19 Dec is 00:30 on the 20th in Israel
     const start = new Date('2026-12-19T22:30:00Z');
     const made = await nativeProvider.createEvent(dana, 'native:cal-dana', {
-      title: 'Yahrzeit', startTime: start, endTime: start, recurrence: ['RRULE:FREQ=YEARLY'], hebrewRule: 'yahrzeit', hebrewAnchor: '2026-12-20',
+      title: 'Yahrzeit', startTime: start, endTime: start, recurrence: ['RRULE:FREQ=YEARLY'], hebrewRule: 'anniversary', hebrewAnchor: '2026-12-20',
     });
     const row = db.events[db.events.length - 1];
     assert(made.success && made.eventId === row.id, `result ${JSON.stringify(made)}`);
-    assert(row.rrule === 'FREQ=YEARLY' && row.hebrewRule === 'yahrzeit' && row.hebrewAnchor === '2026-12-20', `row ${JSON.stringify(row)}`);
+    assert(row.rrule === 'FREQ=YEARLY' && row.hebrewRule === 'anniversary' && row.hebrewAnchor === '2026-12-20', `row ${JSON.stringify(row)}`);
     await nativeProvider.createEvent(dana, 'native:cal-dana', { title: 'Weekly', startTime: start, endTime: start, recurrence: ['RRULE:FREQ=WEEKLY'] });
     const plain = db.events[db.events.length - 1];
     assert(plain.rrule === 'FREQ=WEEKLY' && (plain.hebrewRule ?? null) === null && (plain.hebrewAnchor ?? null) === null, `plain row ${JSON.stringify(plain)}`);
@@ -381,10 +381,10 @@ async function main() {
     const before = db.events.length;
     const start = at('2026-12-20 00:00');
     const wrongDay = await nativeProvider.createEvent(dana, 'native:cal-dana', {
-      title: 'Yahrzeit', startTime: start, endTime: start, recurrence: ['RRULE:FREQ=YEARLY'], hebrewRule: 'yahrzeit', hebrewAnchor: '2026-12-21',
+      title: 'Yahrzeit', startTime: start, endTime: start, recurrence: ['RRULE:FREQ=YEARLY'], hebrewRule: 'anniversary', hebrewAnchor: '2026-12-21',
     });
     const weekly = await nativeProvider.createEvent(dana, 'native:cal-dana', {
-      title: 'Yahrzeit', startTime: start, endTime: start, recurrence: ['RRULE:FREQ=WEEKLY'], hebrewRule: 'yahrzeit', hebrewAnchor: '2026-12-20',
+      title: 'Yahrzeit', startTime: start, endTime: start, recurrence: ['RRULE:FREQ=WEEKLY'], hebrewRule: 'anniversary', hebrewAnchor: '2026-12-20',
     });
     assert(!wrongDay.success && !weekly.success && db.events.length === before, `${JSON.stringify([wrongDay, weekly])}, ${db.events.length - before} rows written`);
   });

@@ -219,7 +219,7 @@ model NativeEvent {
   allDay          Boolean         @default(false)
   timeZone        String // IANA tz, snapshot at creation
   rrule           String? // RFC-5545 RRULE on series; null = single event
-  hebrewRule      String? // 'anniversary' | 'yahrzeit': the series follows its anchor's Hebrew date (rrule is then FREQ=YEARLY with at most INTERVAL, UNTIL or COUNT)
+  hebrewRule      String? // 'anniversary', the one kind: the series follows its anchor's Hebrew date (rrule is then FREQ=YEARLY with at most INTERVAL, UNTIL or COUNT)
   hebrewAnchor    String? // 'yyyy-MM-dd': the anchor's civil date in timeZone; set exactly when hebrewRule is
   exdates         DateTime[]      @default([]) // Cancelled instance start times (UTC)
   reminderMinutes Int? // Overrides user default

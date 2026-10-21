@@ -13,7 +13,7 @@
 
 import { RRule, RRuleSet } from 'rrule';
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
-import { HDate, getBirthdayOrAnniversary, getYahrzeit } from '@hebcal/hdate';
+import { HDate, getBirthdayOrAnniversary } from '@hebcal/hdate';
 import type { NativeEvent, NativeEventInstance } from '@prisma/client';
 import { TIMEZONE } from '../../config/constants';
 import { captureError } from '../../lib/error-capture';
@@ -406,21 +406,6 @@ export class NativeRuleError extends Error {
   }
 }
 
-/**
- * A Hebrew series switched to the other Hebrew kind from an occurrence where the other kind
- * has no occurrence (hebrew-repeats spec §4): the birthday and yahrzeit rules fall on
- * different days in a leap year for an Adar anchor, and where a month is a day short. The
- * tail keeps the stored anchor, so its first day under the new kind is another day than the
- * opened one. The switch can be made from an occurrence where the two kinds agree. A rule
- * error of its own so the home can say why, not just "Couldn't save".
- */
-export class NativeHebrewKindError extends NativeRuleError {
-  constructor(message = 'The other Hebrew repeat falls on another day than this occurrence') {
-    super(message);
-    this.name = 'NativeHebrewKindError';
-  }
-}
-
 const RULE_PREFIX = 'RRULE:';
 const bare = (rule: string) => (rule.startsWith(RULE_PREFIX) ? rule.slice(RULE_PREFIX.length) : rule);
 const isYearlyRule = (rule: string) => /(^|;)FREQ=YEARLY(;|$)/i.test(bare(rule));
@@ -431,12 +416,15 @@ const isYearlyRule = (rule: string) => /(^|;)FREQ=YEARLY(;|$)/i.test(bare(rule))
 // every check that only asks "is this a series" keeps working, and next to it the pair:
 // hebrewRule, the kind, and hebrewAnchor, the anchor's civil date in the series' zone. Its
 // occurrence k (from the anchor, 0-based) is in Hebrew year Y0 + k * INTERVAL, Y0 being the
-// anchor's; the day comes from hebcal: getBirthdayOrAnniversary for 'anniversary',
-// getYahrzeit for 'yahrzeit'. Days are daytime dates, with no sunset shift (the home's rule).
+// anchor's; the day comes from hebcal's getBirthdayOrAnniversary. Days are daytime dates,
+// with no sunset shift (the home's rule).
 
-/** The two Hebrew kinds: every year on the Hebrew date (hebcal's birthday rules), or a yahrzeit. */
-export type HebrewRule = 'anniversary' | 'yahrzeit';
-export const isHebrewRule = (value: unknown): value is HebrewRule => value === 'anniversary' || value === 'yahrzeit';
+/**
+ * The one Hebrew kind: every year on the Hebrew date, by hebcal's birthday rules. The yahrzeit
+ * kind was withdrawn 2026-10-21 (its rows converted by migration), so any other value is refused.
+ */
+export type HebrewRule = 'anniversary';
+export const isHebrewRule = (value: unknown): value is HebrewRule => value === 'anniversary';
 
 /** What the Hebrew expander reads of a series. */
 export interface HebrewSeries {
@@ -500,14 +488,12 @@ function hebrewPlan(series: HebrewSeries): { at: (j: number) => Date | null; fir
   const date = anchor.getDate();
   // To the millisecond: a start with a sub-second part would otherwise put slot 0 just before it.
   const wall = formatInTimeZone(series.startsAt, zone, 'HH:mm:ss.SSS');
-  const dayIn = series.hebrewRule === 'yahrzeit' ? getYahrzeit : getBirthdayOrAnniversary;
   const slots = new Map<number, Date | null>();
   const at = (j: number): Date | null => {
     if (j < 0) return null;
     if (!slots.has(j)) {
-      // The anchor year is the anchor itself, for both kinds: hebcal gives nothing there for a
-      // yahrzeit. getYahrzeit writes to the date it is given, so each call gets a fresh one.
-      const found = j === 0 ? null : dayIn(anchorYear + j * interval, { yy: anchorYear, mm: month, dd: date });
+      // Slot 0 is the anchor itself.
+      const found = j === 0 ? null : getBirthdayOrAnniversary(anchorYear + j * interval, { yy: anchorYear, mm: month, dd: date });
       const day = j === 0 ? series.hebrewAnchor : found ? civilDayOf(found) : null;
       slots.set(j, day ? fromZonedTime(`${day}T${wall}`, zone) : null);
     }
@@ -614,9 +600,9 @@ const HEBREW_PARTS = new Set(['freq', 'interval', 'until', 'count']);
  * ±1..53 or none), each BYMONTHDAY ±1..31 and each BYMONTH 1..12. Checked on the parsed
  * options, so a prefix or the order of the parts doesn't matter.
  *
- * With `hebrewRule` (hebrew-repeats spec §2), both ways: a kind is 'anniversary' or
- * 'yahrzeit' and needs a rule, which is FREQ=YEARLY with at most INTERVAL, UNTIL or COUNT;
- * no rule (null) takes no kind.
+ * With `hebrewRule` (hebrew-repeats spec §2), both ways: the kind is 'anniversary' and needs
+ * a rule, which is FREQ=YEARLY with at most INTERVAL, UNTIL or COUNT; no rule (null) takes no
+ * kind.
  */
 export function assertStorableRule(rule: string | null, hebrewRule?: string | null): void {
   if (hebrewRule !== undefined && hebrewRule !== null && !isHebrewRule(hebrewRule)) {
@@ -729,7 +715,7 @@ export function classifyRule(rule: string | null, start: Date, zone: string, heb
     }
   }
   const withEnd = (choice: RuleChoice) => (until ? { choice, until } : { choice });
-  // A Hebrew rule is its kind only with INTERVAL 1 or absent and nothing else besides its end
+  // A Hebrew rule is 'hebrew' only with INTERVAL 1 or absent and nothing else besides its end
   // (hebrew-repeats spec §3); "every 2 years on 15 Shvat" is custom.
   if (hebrew?.hebrewRule) {
     const plain = opts.freq === RRule.YEARLY && (opts.interval === undefined || opts.interval === 1)
@@ -782,10 +768,10 @@ export function slotsBefore(series: { rrule: string; startsAt: Date; timeZone: s
  * day. Never (null) has no end. A new rule with an end of its own keeps it.
  *
  * `change` (the cut, and the kind the new part has) is for a repeat change from a later
- * occurrence: between the yearly rules (Gregorian yearly, every year on the Hebrew date,
- * yahrzeit) a COUNT carries as what is left of it, the old rule's slots before the cut
- * taken off (at least 1), not as a date, because the same year lands up to a month apart
- * under the other rule (hebrew-repeats spec §4).
+ * occurrence: between the yearly rules (Gregorian yearly, every year on the Hebrew date) a
+ * COUNT carries as what is left of it, the old rule's slots before the cut taken off (at
+ * least 1), not as a date, because the same year lands up to a month apart under the other
+ * rule (hebrew-repeats spec §4).
  */
 export function endCarriedRule(
   newRule: string | null,

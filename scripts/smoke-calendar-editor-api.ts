@@ -2169,9 +2169,9 @@ async function main() {
     seed();
     const created = await store.createNativeEvent({
       calendarCuid: 'cal-tal', creatorUserId: TAL, title: 'Yahrzeit', startsAt: new Date('2026-02-01T23:30:00Z'), endsAt: new Date('2026-02-02T00:30:00Z'),
-      timeZone: IL, rrule: 'FREQ=YEARLY', hebrewRule: 'yahrzeit',
+      timeZone: IL, rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary',
     });
-    assertSame(pairOf(eventRow(created.id)), ['FREQ=YEARLY', 'yahrzeit', '2026-02-02'], 'anchored on 15 Shvat, the day in Israel');
+    assertSame(pairOf(eventRow(created.id)), ['FREQ=YEARLY', 'anniversary', '2026-02-02'], 'anchored on 15 Shvat, the day in Israel');
     const key = `famcal|${created.id}#${created.startsAt.toISOString()}`;
     assertSame([(await itemOf(key)).status, (await itemOf(key)).body.series?.first], [200, true], 'the start is an occurrence');
     assertSame(await store.getNativeSeriesRrule(created.id), 'FREQ=YEARLY', 'week-lookahead reads a yearly rule');
@@ -2185,7 +2185,8 @@ async function main() {
     for (const bad of [
       { rrule: 'FREQ=WEEKLY', hebrewRule: 'anniversary' },
       { rrule: 'FREQ=YEARLY;BYMONTH=2', hebrewRule: 'anniversary' },
-      { rrule: null, hebrewRule: 'yahrzeit' },
+      { rrule: null, hebrewRule: 'anniversary' },
+      { rrule: 'FREQ=YEARLY', hebrewRule: 'yahrzeit' },
       { rrule: 'FREQ=YEARLY', hebrewRule: 'monthly' },
       { rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', hebrewAnchor: '2026-02-03' },
       { rrule: 'FREQ=YEARLY', hebrewAnchor: '2026-02-02' },
@@ -2196,7 +2197,7 @@ async function main() {
     assertSame(tables.nativeEvent.length, before, 'nothing written');
   });
 
-  await check('hebrew: the store takes a rule change with the pair: Hebrew to Gregorian yearly, Gregorian to Hebrew, one kind to the other (same rrule string)', async () => {
+  await check('hebrew: the store takes a rule change with the pair: Hebrew to Gregorian yearly, Gregorian to Hebrew', async () => {
     seed();
     const { id } = hebrewSeries();
     const update = (seriesCuid: string, day: string, o: Row) => store.updateNativeEvent({ seriesCuid, instanceStartsAt: at(`${day} 10:00`), scope: 'following', actingUserId: TAL, ...o });
@@ -2209,37 +2210,14 @@ async function main() {
     assertSame(pairOf(lastEvent()), ['FREQ=YEARLY', 'anniversary', '2024-11-24'], 'to Hebrew, anchored on the tail\'s start (23 Cheshvan 5785)');
     assertSame(await daysOf(lastEvent().id, '2024-01-01', '2026-01-01'), ['2024-11-24', '2025-11-14'], 'its Hebrew days');
     seed();
-    const kinds = hebrewSeries();
-    await update(kinds.id, '2026-11-10', { hebrewRule: 'yahrzeit' });
-    assertSame(pairOf(lastEvent()), ['FREQ=YEARLY', 'yahrzeit', '2022-11-24'], 'the other kind, the anchor kept');
-    assertSame(await daysOf(lastEvent().id, '2026-01-01', '2029-01-01'), ['2026-11-10', '2027-11-30', '2028-11-18'], 'the yahrzeit\'s days from there');
-    seed();
-    const counted = hebrewSeries('heb-c', { rrule: 'FREQ=YEARLY;COUNT=5' });
-    await update(counted.id, '2026-11-10', { hebrewRule: 'yahrzeit' });
-    assertSame([pairOf(lastEvent()), eventRow(counted.id).rrule], [['FREQ=YEARLY;COUNT=1', 'yahrzeit', '2022-11-24'], 'FREQ=YEARLY;UNTIL=20261110T095959'], 'a COUNT: four slots before the cut, one left, not five again');
-    assertSame(await daysOf(lastEvent().id, '2026-01-01', '2035-01-01'), ['2026-11-10'], 'the tail has what is left');
-    seed();
-    const counted2 = hebrewSeries('heb-c2', { rrule: 'FREQ=YEARLY;COUNT=5' });
-    await update(counted2.id, '2026-11-10', { rrule: 'FREQ=YEARLY;COUNT=5', hebrewRule: 'yahrzeit' });
-    assertSame(pairOf(lastEvent()), ['FREQ=YEARLY;COUNT=1', 'yahrzeit', '2022-11-24'], 'the stored rule string sent with the other kind: the same');
-    seed();
-    const ending = hebrewSeries('heb-u', { rrule: 'FREQ=YEARLY;UNTIL=20281231T235959' });
-    await update(ending.id, '2026-11-10', { hebrewRule: 'yahrzeit' });
-    assertSame(pairOf(lastEvent()), ['FREQ=YEARLY;UNTIL=20281231T235959', 'yahrzeit', '2022-11-24'], 'an UNTIL is kept');
-    seed();
-    const early = hebrewSeries('heb-e');
-    // 5789: the birthday is 1 Kislev (2028-11-19), the yahrzeit 29 Cheshvan (2028-11-18), before the cut.
-    const e = await thrownBy(() => update(early.id, '2028-11-19', { hebrewRule: 'yahrzeit' }));
-    assertSame([e instanceof rec.NativeHebrewKindError, tables.nativeEvent.length, eventRow(early.id).rrule], [true, 1, 'FREQ=YEARLY'], 'the other kind with no occurrence at the cut: refused, nothing written');
-    seed();
     const one = seedSeries('one', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Bar mitzvah', startsAt: at('2026-02-02 10:00') });
     await store.updateNativeEvent({ seriesCuid: one.id, scope: 'all', actingUserId: TAL, rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', startsAt: at('2026-02-03 10:00'), endsAt: at('2026-02-03 11:00') });
     assertSame(pairOf(eventRow(one.id)), ['FREQ=YEARLY', 'anniversary', '2026-02-03'], 'a one-off that starts repeating is anchored on its (new) start');
     const rem = seedSeries('one-rem', { calendarId: 'cal-tal', creatorUserId: TAL, kind: 'REMINDER', title: 'Candle', startsAt: at('2026-02-02 18:00') });
-    await store.updateNativeEvent({ seriesCuid: rem.id, scope: 'all', actingUserId: TAL, rrule: 'FREQ=YEARLY', hebrewRule: 'yahrzeit' });
-    assertSame(pairOf(eventRow(rem.id)), ['FREQ=YEARLY', 'yahrzeit', '2026-02-02'], 'a reminder too');
+    await store.updateNativeEvent({ seriesCuid: rem.id, scope: 'all', actingUserId: TAL, rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary' });
+    assertSame(pairOf(eventRow(rem.id)), ['FREQ=YEARLY', 'anniversary', '2026-02-02'], 'a reminder too');
     const plain = seedSeries('plain', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Plain', startsAt: at('2026-02-02 10:00') });
-    for (const bad of [{ rrule: 'FREQ=WEEKLY', hebrewRule: 'anniversary' }, { rrule: null, hebrewRule: 'yahrzeit' }, { hebrewRule: 'monthly' }]) {
+    for (const bad of [{ rrule: 'FREQ=WEEKLY', hebrewRule: 'anniversary' }, { rrule: null, hebrewRule: 'anniversary' }, { rrule: 'FREQ=YEARLY', hebrewRule: 'yahrzeit' }, { hebrewRule: 'monthly' }]) {
       const e = await thrownBy(() => store.updateNativeEvent({ seriesCuid: plain.id, scope: 'all', actingUserId: TAL, ...bad }));
       assert(e instanceof rec.NativeRuleError, `${show(bad)}: ${e}`);
     }
@@ -2249,7 +2227,7 @@ async function main() {
     // A rule change takes 'following': sent for every occurrence, only a real change is refused.
     const all = (o: Row) => thrownBy(() => store.updateNativeEvent({ seriesCuid: same.id, instanceStartsAt: at('2023-11-14 10:00'), scope: 'all', actingUserId: TAL, title: 'Saba', ...o }));
     assertSame(await all({ rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary' }), null, 'the pair it already has is no change');
-    assertSame([(await all({ hebrewRule: 'yahrzeit' }) as Row)?.name, (await all({ rrule: 'FREQ=YEARLY' }) as Row)?.name], ['NativeScopeError', 'NativeScopeError'], 'another kind, or a rule alone (Gregorian), is a change');
+    assertSame((await all({ rrule: 'FREQ=YEARLY' }) as Row)?.name, 'NativeScopeError', 'a rule alone (Gregorian) is a change');
     assertSame([pairOf(eventRow(same.id)), eventRow(same.id).title, tables.nativeEvent.length], [['FREQ=YEARLY', 'anniversary', '2022-11-24'], 'Saba', 1], 'only the title changed');
   });
 

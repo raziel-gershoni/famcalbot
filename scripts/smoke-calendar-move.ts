@@ -745,7 +745,7 @@ async function main() {
     const strayCancel = mapper.toGoogleEvent(series, [override('wk', at('2026-10-07T10:00:00'), { status: 'CANCELLED' })]);
     assert(strayCancel.ok && strayCancel.copy.event.recurrence.length === 1, `an unyielded cancellation is nothing to cancel: ${show(strayCancel)}`);
     assertSame(mapper.famcalCrossRefusal(series, []), null, 'a plain weekly crosses');
-    assertSame(mapper.famcalCrossRefusal(native({ rrule: 'FREQ=YEARLY', hebrewRule: 'yahrzeit', hebrewAnchor: '2026-10-20', startsAt: at('2026-10-20T10:00:00') }), []), 'hebrew', 'yahrzeit');
+    assertSame(mapper.famcalCrossRefusal(native({ rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', hebrewAnchor: '2026-10-20', startsAt: at('2026-10-20T10:00:00') }), []), 'hebrew', 'a Hebrew series');
   });
 
   // ================= The mapper, Google → FamCal =================
