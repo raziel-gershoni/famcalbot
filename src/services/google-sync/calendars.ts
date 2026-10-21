@@ -90,9 +90,10 @@ function freeName(base: string, taken: ReadonlySet<string>): string {
  * retry while 'creating' first looks for the link's token in the user's calendar list and
  * adopts that calendar, so a crash between Google's answer and the stored id never makes a
  * second one. A new one gets the name (de-duplicated against the user's own calendars), the
- * description with the token and the zone. Either way its calendarList entry is given no
- * default notifications (calendarList.patch defaultReminders: []; the Calendars resource has
- * no such field): FamCal's own alerts are the alert source.
+ * description with the token and the zone. Nothing writes its calendarList entry: Google
+ * refuses calendarList.patch for this grant with 401 "Invalid Credentials" (production,
+ * 2026-10-21), which reads as a dead token. The copies need no calendar default anyway: each
+ * carries reminders { useDefault: false, overrides: [] } (push.ts NO_ALERTS).
  */
 export async function ensureCopyCalendar(
   g: SyncGoogle,
@@ -115,7 +116,6 @@ export async function ensureCopyCalendar(
     if (!made.data.id) throw new Error('Google answered calendars.insert with no id');
     id = made.data.id;
   }
-  await counted(budget, () => g.api.calendarList.patch({ calendarId: id, requestBody: { defaultReminders: [] } }));
   return { googleCalendarId: id, adopted };
 }
 

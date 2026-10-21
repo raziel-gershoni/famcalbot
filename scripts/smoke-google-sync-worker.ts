@@ -4,7 +4,8 @@
 //
 // Covered here:
 //   - calendars: create with 'creating', the token in the description, the bidi-isolated name
-//     with " (2)", the zone and defaultReminders: []; adopt on retry; rename; Remove both forms
+//     with " (2)" and the zone, and no calendarList write (Google answers it 401 for this grant);
+//     adopt on retry; rename; Remove both forms
 //     and its safety check; Keep; a queued turn-off with link.unlinkToken; re-enable; recreate;
 //   - push: the deterministic id and the 409 adopt, the full master write with instance replay,
 //     slot-only patches, structural delete and reinsert, deletes (404/410 done), reminder and
@@ -415,8 +416,16 @@ function gErr(status: number, reason?: string, domain = 'global'): Error {
   });
 }
 
+/** Google's answer to a request this grant may not make, as it came in production: 401 authError "Invalid Credentials". */
+function prodRefusal(method: string, path: string): Error {
+  return Object.assign(new Error('Invalid Credentials'), {
+    config: { method, url: new URL(`https://www.googleapis.com/calendar/v3/${path}?alt=json`), data: 'REQUEST BODY' },
+    response: { status: 401, data: { error: { code: 401, message: 'Invalid Credentials', errors: [{ domain: 'global', reason: 'authError', message: 'Invalid Credentials' }] } } },
+  });
+}
+
 type GEvent = Row & { id: string; status: string; exceptions: Map<string, Row> };
-type GCal = { id: string; account: string; summary: string; description: string; timeZone?: string; defaultReminders?: unknown; events: Map<string, GEvent> };
+type GCal = { id: string; account: string; summary: string; description: string; timeZone?: string; events: Map<string, GEvent> };
 const google = {
   calendars: new Map<string, GCal>(),
   accounts: new Map<string, string>(), // token → account
@@ -474,7 +483,9 @@ function fakeGoogle(token: string): Row {
   const api = {
     calendarList: {
       list: (a: Row) => op('calendarList.list', a, () => ({ items: [...google.calendars.values()].filter((c) => c.account === account()).map((c) => ({ id: c.id, summary: c.summary, description: c.description, accessRole: 'owner' })) })),
-      patch: (a: Row) => op('calendarList.patch', a, () => { const c = cal(a.calendarId); c.defaultReminders = a.requestBody.defaultReminders; return { id: c.id }; }),
+      // Production (2026-10-21): Google refuses a calendarList write for this grant (calendar.readonly +
+      // calendar.events + calendar.app.created) with 401 authError, though the same token just listed.
+      patch: (a: Row) => op('calendarList.patch', a, () => { throw prodRefusal('PATCH', `users/me/calendarList/${encodeURIComponent(String(a.calendarId))}`); }),
     },
     calendars: {
       insert: async (a: Row) => {
@@ -752,7 +763,7 @@ async function main() {
 
   // ---- Calendars ----
 
-  await check('calendars: a new copy (creating, no Google calendar) is made "FamCal · Home" in the user\'s zone, its description in the user\'s language ending with [famcal:<linkId>], no default notifications, then ok with its id, name and the token\'s account', async () => {
+  await check('calendars: a new copy (creating, no Google calendar) is made "FamCal · Home" in the user\'s zone, its description in the user\'s language ending with [famcal:<linkId>], no calendarList write (Google refuses it for this grant; the copies carry no alerts themselves), then ok with its id, name and the token\'s account', async () => {
     seed();
     DB.googleSyncLink.push(linkRow('L', TAL, 'home', { state: 'creating', googleAccount: null, backfilledAt: null, dirtySeq: 1 }));
     seriesRow('one', 'home');
@@ -762,7 +773,7 @@ async function main() {
     const c = made[0];
     assert(c.summary === 'FamCal · Home' && c.timeZone === IL, `summary/zone ${show(c)}`);
     assert(c.description.startsWith('FamCal keeps this calendar in step with your FamCal calendar “Home”') && c.description.endsWith('\n\n[famcal:L]'), `description ${show(c.description)}`);
-    assert(show(c.defaultReminders) === '[]', `defaultReminders ${show(c.defaultReminders)}`);
+    assert(gcalls('calendarList.patch').length === 0, `a calendarList write: ${show(google.calls)}`);
     const l = link('L');
     assert(l.state === 'ok' && l.googleCalendarId === c.id && l.pushedName === 'Home' && l.googleAccount === ACCOUNT && l.pushedSeq === 1, `link ${show(l)}`);
     assert(liveEvents(c.id).length === 1, `events ${show(gEvents(c.id))}`);
@@ -791,7 +802,7 @@ async function main() {
     await pass();
     assert(gcalls('calendars.insert').length === 0 && google.calendars.size === 1, `calls ${show(google.calls)}`);
     assert(link('L').googleCalendarId === 'g-lost' && link('L').state === 'ok', `link ${show(link('L'))}`);
-    assert(gcalls('calendarList.patch').length === 1 && show(google.calendars.get('g-lost')!.defaultReminders) === '[]', 'defaultReminders not set on the adopted one');
+    assert(gcalls('calendarList.patch').length === 0, `a calendarList write on the adopted one: ${show(google.calls)}`);
   });
 
   await check('calendars: a FamCal rename patches the Google name and description; an unchanged copy makes no calendar call', async () => {
@@ -1302,22 +1313,18 @@ async function main() {
     assert(link('L').state === 'token' && sent.length === 1, `link ${show(link('L'))} sent ${show(sent)}`);
   });
 
-  await check('outage: the log and Sentry name the cause: a 401 on the new calendar\'s calendarList.patch gives the request (id masked), status and Google\'s message; no stored token says so', async () => {
-    seed();
-    googleCalendar('g-lost', 'L');
-    DB.googleSyncLink.push(linkRow('L', TAL, 'home', { state: 'creating', backfilledAt: null }));
-    const refused = Object.assign(new Error('Invalid Credentials'), {
-      config: { method: 'PATCH', url: new URL('https://www.googleapis.com/calendar/v3/users/me/calendarList/g-lost%40group.calendar.google.com?alt=json'), data: 'REQUEST BODY' },
-      response: { status: 401, data: { error: { code: 401, message: 'Invalid Credentials', errors: [{ domain: 'global', reason: 'authError', message: 'Invalid Credentials' }] } } },
-    });
-    google.failures.push({ op: 'calendarList.patch', error: refused, left: 1 });
+  await check('outage: the log and Sentry name the cause: a 401 on a copy\'s events.insert gives the request (id masked), status and Google\'s message; no stored token says so', async () => {
+    seedCopy();
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    google.failures.push({ op: 'events.insert', error: prodRefusal('POST', 'calendars/g-home%40group.calendar.google.com/events'), left: 1 });
     await pass();
     assert(link('L').state === 'token', `link ${show(link('L'))}`);
     const line = logs.find((l) => l.includes('copies wait for a reconnect')) ?? '';
-    assert(line.includes('PATCH www.googleapis.com/calendar/v3/users/me/calendarList/:id') && line.includes('401') && line.includes('Invalid Credentials'), `log ${show(line)}`);
-    assert(!line.includes('g-lost') && !line.includes('REQUEST BODY') && !line.includes('alt=json'), `log leaks the id, body or query: ${show(line)}`);
+    assert(line.includes('POST www.googleapis.com/calendar/v3/calendars/:id/events') && line.includes('401') && line.includes('Invalid Credentials'), `log ${show(line)}`);
+    assert(!line.includes('g-home') && !line.includes('REQUEST BODY') && !line.includes('alt=json'), `log leaks the id, body or query: ${show(line)}`);
     const outage = captured.find((c) => c.ctx === 'google-sync-outage');
-    assert(String(outage?.extra?.cause).includes('calendarList/:id') && String(outage?.extra?.cause).includes('401'), `captured ${show(captured)}`);
+    assert(String(outage?.extra?.cause).includes('calendars/:id/events') && String(outage?.extra?.cause).includes('401'), `captured ${show(captured)}`);
     seedCopy();
     DB.user[0].googleRefreshToken = '';
     seriesRow('a', 'home');

@@ -10,7 +10,7 @@ It builds on Google as a connection (2026-10-19-google-connection-design.md) and
 - **Copy to Google.** A user with Google connected can copy any FamCal calendar they **own** into Google. Each one gets its own Google calendar, "FamCal · <name>", created by FamCal.
 - **What arrives.** FamCal events show in Google Calendar on every device within a couple of minutes: new ones, changes, deletes, repeats, single-occurrence changes and skipped days. That includes events the partner adds to the owner's shared calendar.
 - **One way only.** Edits made in Google to a copy are replaced by the next FamCal change and are never read back. The settings row says so.
-- **No alerts in Google.** The copies carry no alerts (`reminders: { useDefault: false, overrides: [] }`), and the new calendar is created with no default notifications. FamCal's own event alerts remain the alert source, so nothing pings twice. The row says "Alerts come from FamCal, not from the Google copy."
+- **No alerts in Google.** The copies carry no alerts (`reminders: { useDefault: false, overrides: [] }`), so the calendar's own default notifications never apply to them. FamCal does not write the calendar's list entry: Google refuses `calendarList.patch` for this grant with 401 "Invalid Credentials" (production, 2026-10-21). FamCal's own event alerts remain the alert source, so nothing pings twice. The row says "Alerts come from FamCal, not from the Google copy."
 - **Not copied:**
   - reminders, because FamCal pings them;
   - one-offs that ended more than 30 days ago;
@@ -64,7 +64,6 @@ It builds on Google as a connection (2026-10-19-google-connection-design.md) and
 - **Creating the calendar.** Turning a copy on sets the link to 'creating'.
   - It calls `calendars.insert` with the name "FamCal · <name>" and the series' zone. The name is bidi-isolated (FSI/PDI) for Hebrew. A name clash adds " (2)".
   - The description, in the user's language, explains that FamCal keeps the calendar, then carries the token.
-  - `calendarList.patch` sets `defaultReminders: []`.
   - Then the id is stored and the link becomes 'ok'.
   - A retry while 'creating' first looks in `calendarList` for the token, and adopts that calendar instead of creating a second one.
 - **Rename.** A FamCal rename patches the name (`pushedName` keeps them in step).
@@ -73,7 +72,7 @@ It builds on Google as a connection (2026-10-19-google-connection-design.md) and
   - When the user added their own events there, only the marked events are deleted and the calendar stays.
 - **Keep.** It patches the description to say FamCal no longer updates it.
 - **Re-enable.** It reuses the calendar, and marks every item dirty with its hashes cleared.
-- **The permission** is `https://www.googleapis.com/auth/calendar.app.created`, used only for `calendars.*` calls (create, rename, delete, default reminders). Event writes on the copy calendar use `calendar.events`, which FamCal already has.
+- **The permission** is `https://www.googleapis.com/auth/calendar.app.created`, used only for `calendars.*` calls (create, rename, delete). No `calendarList` write is made: Google answers one with 401 for this grant. Event writes on the copy calendar use `calendar.events`, which FamCal already has.
   - **Every OAuth request** now sends `include_granted_scopes=true`, so a later reconnect never drops it.
   - **Asked only on first use.** The first "Copy to Google" without the scope starts consent with `purpose: 'sync'` and the `nativeCalendarId` in the OAuth state. The R3 claim step still applies (consent, then the Telegram or WhatsApp tap), and the row says "Approve in Google, then tap the link FamCal sends you."
   - **The scopes are saved at commit,** not at exchange: the granted scope string travels in the pending entry, and `commitGoogleToken` writes `User.googleScopes String[]` (a new migration). An empty list means the scope is missing. A sync-purpose commit creates the link.
