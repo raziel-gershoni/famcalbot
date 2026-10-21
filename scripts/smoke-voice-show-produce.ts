@@ -38,7 +38,7 @@ const writer: AICompletionResult = {
   text: '', usage: { inputTokens: 1200, outputTokens: 300 }, stopReason: 'STOP', model: 'Gemini 3.8 Flash', durationMs: 4200,
 };
 const SCRIPT = JSON.stringify({ turns: [
-  { host: 'A', mood: 'hype', text: 'בוקר טוב דני! <chuckle>' },
+  { host: 'A', mood: 'hype', text: 'בוקר טוב דני!' },
   { host: 'B', mood: 'amused', text: 'יש לך יום ענק!' },
   { host: 'A', mood: 'hype', text: 'באחת עשרה פגישה עם לוי.' },
   { host: 'B', mood: 'warm', text: 'שיהיה יום מנצח!' },
@@ -78,9 +78,22 @@ async function main() {
     assert(isShowLanguage('he') && isShowLanguage('en') && isShowLanguage('ru') && !isShowLanguage('fr'), 'routing');
   });
 
-  await check('produceShowVoice: script → lines → mixed OGG with admin caption', async () => {
-    const voice = await produceShowVoice('summary', user, 'daily', false, { complete: fakeComplete, synthesize: fakeSynth });
+  // SCRIPT keeps every rule, so the validator has nothing to repair on the happy path.
+  await check('produceShowVoice: clean script → lines → mixed OGG with admin caption, no repairs', async () => {
+    const repairs: string[] = [];
+    const warn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      if (String(args[0]).startsWith('[VoiceShow] Script repaired')) repairs.push(JSON.stringify(args[1]));
+      warn(...args);
+    };
+    let voice;
     try {
+      voice = await produceShowVoice('summary', user, 'daily', false, { complete: fakeComplete, synthesize: fakeSynth });
+    } finally {
+      console.warn = warn;
+    }
+    try {
+      assert(repairs.length === 0, `script repaired: ${repairs.join('; ')}`);
       assert((await fs.readFile(voice.filePath)).subarray(0, 4).toString('ascii') === 'OggS', 'not Ogg');
       assert(voice.durationSeconds >= 2, `duration ${voice.durationSeconds}`);
       assert(!!voice.caption && voice.caption.includes('4 lines'), `caption ${voice.caption}`);

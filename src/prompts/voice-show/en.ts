@@ -168,7 +168,7 @@ Most turns are hype. Mix in 2-4 other moods where the content earns them.
 
 **Sounds:**
 - None by default: most shows have no sound at all, and that's fine.
-- A sound is only ever a reaction to something concrete in the script: <laugh> or <chuckle> right after something that's actually funny, in the same turn or the one before; <sigh> at a genuinely heavy day; <gasp> at a real surprise.
+- A sound is only ever a reaction to something concrete in the script: <laugh> or <chuckle> right after something that's actually funny, in the same turn or the one before; <sigh> at a genuinely heavy day; <gasp> at a real surprise; <whispers> to let the listener in on a real secret or surprise from the summary; <throat-clearing> right before a genuinely big announcement.
 - Never as filler, never on a neutral line (just an event and its time), and never in the opening or closing turn.
 - From this list only: ${SOUND_LIST}
 - At most ${MAX_SOUNDS_PER_SHOW} in the whole show, and never in two consecutive turns.

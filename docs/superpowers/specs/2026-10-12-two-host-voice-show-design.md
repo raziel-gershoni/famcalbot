@@ -77,8 +77,10 @@ On 2026-10-21 the owner heard a chuckle at nothing: "one or two sounds" read as 
 invitation. No sound is now the default, and most shows have none. A sound only
 answers something concrete in the script (a laugh or chuckle right after something
 actually funny in that line or the one before, a sigh at a genuinely heavy day, a
-gasp at a real surprise), never as filler, on a neutral line, or in the opening or
-closing turn. The validator drops any sound in the opening or closing turn.
+gasp at a real surprise, a whisper to let the listener in on a real secret or surprise
+from the summary, a throat-clearing right before a genuinely big announcement), never
+as filler, on a neutral line, or in the opening or closing turn. The validator drops
+any sound in the opening or closing turn.
 
 ## How it works
 
