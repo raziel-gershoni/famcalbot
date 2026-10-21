@@ -1,5 +1,15 @@
 # Hebrew-date repeats
 
+> **Amendment 2026-10-21 (owner's ruling): the Yahrzeit repeat is withdrawn.** Only "every year on the Hebrew date" remains.
+>
+> **Withdrawn** (the sections below still describe it as first shipped):
+> - the Yahrzeit kind and `getYahrzeit`;
+> - kind switching, with `repeatKind` and `kindDay` on the editor's payload;
+> - `hebrewNoYear` and the yahrzeit no-year notice;
+> - the common-year-Adar reading in `hebrew-date-resolve`, which existed only to tell the two kinds apart.
+>
+> **Remains:** one rule, `hebrewRule` `'anniversary'` (with `repeat: 'hebrew'`), by hebcal's birthday rule (`getBirthdayOrAnniversary`). The bot maps yahrzeit words in he, en and ru to this repeat and keeps the user's title. Existing yahrzeit rows were converted by migration `20261021000000_hebrew_anniversary_only`. A stale client that still sends `yahrzeit` gets a 400, with no shim.
+
 Status: shipped 2026-10-19/20, on main. Designed 2026-10-19 under the owner's delegation, then revised after an adversarial review (session scratchpad next/review-repeats.md, which includes hebcal probes). This is roadmap step 5 under the calendar UI: "Hebrew-date repeats (birthday/yahrzeit rules from hebcal)". It builds on editing 3b (docs/superpowers/specs/2026-10-19-home-editing-3b-design.md). The research notes are in next/facts-hebrew-repeats.md.
 
 ## 1. Scope
