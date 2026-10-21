@@ -690,10 +690,10 @@ export async function isFirstOccurrence(series: NativeEvent, cut: Date): Promise
  * (3b spec §2.1). Only when the opened occurrence moved past that end does the end go to
  * its new day, so the new part never starts empty (the parent is already cut there); a rule
  * that still has no occurrence at its start is refused. Without, or with the stored rule
- * string (only the kind changed, hebrew-repeats spec §4), it is the series' own, its UNTIL
- * moved as the cut moved (so it keeps its last occurrence) and a COUNT cut to what is left
- * after the slots before the cut (at least 1, the cut being a slot); with another kind, one
- * that has no occurrence at its start is refused too.
+ * string (only switched between Gregorian and Hebrew, hebrew-repeats spec §4), it is the
+ * series' own, its UNTIL moved as the cut moved (so it keeps its last occurrence) and a COUNT
+ * cut to what is left after the slots before the cut (at least 1, the cut being a slot);
+ * after such a switch, one that has no occurrence at its start is refused too.
  */
 function tailRule(series: NativeEvent, cut: Date, newStart: Date, newRule: string | undefined, pair: HebrewPair): string {
   const endsAt = new Date(newStart.getTime() + (series.endsAt.getTime() - series.startsAt.getTime()));
@@ -701,7 +701,7 @@ function tailRule(series: NativeEvent, cut: Date, newStart: Date, newRule: strin
   const refuse = (): never => {
     throw new NativeRuleError('The new repeat has no occurrence at its start');
   };
-  // The stored string with another kind keeps the series' own end: its COUNT, word for word, would start over in the tail.
+  // The stored string switched between Gregorian and Hebrew keeps the series' own end: its COUNT, word for word, would start over in the tail.
   if (newRule !== undefined && newRule !== series.rrule) {
     const carried = endCarriedRule(newRule, series.rrule!, series, { cut, hebrewRule: pair.hebrewRule })!;
     assertStorableRule(carried, pair.hebrewRule);
@@ -904,7 +904,7 @@ async function moveInstances(
 function changesOnly(series: NativeEvent, input: UpdateNativeEventInput): UpdateNativeEventInput {
   const out = { ...input };
   // The rule is the pair (hebrew-repeats spec §2): a kind alone keeps the rule string, a rule
-  // alone is Gregorian (no kind), and the same rule with another kind is a change.
+  // alone is Gregorian (no kind), and the same rule switched between Gregorian and Hebrew is a change.
   if (out.rrule === undefined && out.hebrewRule !== undefined) out.rrule = series.rrule;
   if (out.rrule !== undefined && (out.rrule ?? null) === (series.rrule ?? null) && (out.hebrewRule ?? null) === (series.hebrewRule ?? null)) {
     delete out.rrule;
