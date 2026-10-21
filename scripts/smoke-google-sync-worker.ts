@@ -1462,6 +1462,64 @@ async function main() {
     });
   }
 
+  await check('token check: a bare 401 on the run\'s own account check is the outage with no token check (nothing has worked yet this run)', async () => {
+    seedCopy();
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    google.failures.push({ op: 'account', error: checkRefusal(), left: 1 });
+    await pass();
+    assert(link('L').state === 'token' && sent.length === 1 && gcalls('account').length === 1, `link ${show(link('L'))} sent ${show(sent)} calls ${show(google.calls)}`);
+    assert(!captured.some((c) => c.ctx === 'google-sync-token-check'), `captured ${show(captured)}`);
+  });
+
+  await check('token check: a turned-off copy whose own account check answers a bare 401 is the outage with no second account call (that account call is the check)', async () => {
+    seedTurnOff('remove');
+    google.failures.push({ op: 'account', error: checkRefusal(), left: 1 });
+    await pass();
+    assert(link('L').state === 'token' && sent.length === 1 && gcalls('account').length === 1, `link ${show(link('L'))} sent ${show(sent)} calls ${show(google.calls)}`);
+    assert(!captured.some((c) => c.ctx === 'google-sync-token-check') && google.calendars.has('g-home'), `captured ${show(captured)}`);
+  });
+
+  await check('token check: an invalid_grant after the check passed earlier in the run is still the outage (the cached pass never covers an OAuth error)', async () => {
+    seedCopy();
+    googleCalendar('g-work', 'L2', { summary: 'FamCal · Work' });
+    DB.googleSyncLink.push(linkRow('L2', TAL, 'work', { googleCalendarId: 'g-work', pushedName: 'Work' }));
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    seriesRow('w1', 'work');
+    itemRow('L2', 'w1');
+    google.failures.push({ op: 'events.insert', error: prodRefusal('POST', 'calendars/g-home%40group.calendar.google.com/events'), left: 1, when: (a) => a.calendarId === 'g-home' });
+    google.failures.push({ op: 'events.insert', error: deadGrant(), left: 1, when: (a) => a.calendarId === 'g-work' });
+    await pass();
+    assert(link('L').state === 'token' && link('L2').state === 'token' && sent.length === 1, `links ${show(DB.googleSyncLink.map((l) => [l.id, l.state]))} sent ${show(sent)}`);
+    assert(captured.filter((c) => c.ctx === 'google-sync-token-check').length === 1 && captured.some((c) => c.ctx === 'google-sync-outage'), `captured ${show(captured)}`);
+  });
+
+  await check('token check: a check that says the grant lacks a scope (403 insufficientPermissions) is the scopes outage: the message opens the calendars page', async () => {
+    seedCopy();
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    insertRefused();
+    checkFails(gErr(403, 'insufficientPermissions'));
+    await pass();
+    assert(link('L').state === 'scopes' && sent.length === 1, `link ${show(link('L'))} sent ${show(sent)}`);
+    assert(String(sent[0]?.options?.replyMarkup?.inline_keyboard?.[0]?.[0]?.web_app?.url).includes('/calendars?'), `button ${show(sent[0]?.options)}`);
+  });
+
+  for (const [label, error] of [['a 403 that names no reason', gErr(403)], ['an answer it can\'t read', new Error('calendars.get(primary) answered with no id')]] as Array<[string, Error]>) {
+    await check(`token check: a check that says nothing about the token (${label}) is no outage: the copy backs off, the admin can see why`, async () => {
+      seedCopy();
+      seriesRow('a', 'home');
+      itemRow('L', 'a');
+      insertRefused();
+      checkFails(error);
+      await pass();
+      assert(link('L').state === 'ok' && link('L').lastError === 'token' && retryOf('L').startsWith('1:') && sent.length === 0, `link ${show(link('L'))} retry ${retryOf('L')} sent ${show(sent)}`);
+      const warned = captured.find((c) => c.ctx === 'google-sync-token-check');
+      assert(warned && !captured.some((c) => c.ctx === 'google-sync-outage') && logs.some((l) => l.includes('the token check was inconclusive')), `captured ${show(captured)} logs ${show(logs.filter((l) => l.includes('token check')))}`);
+    });
+  }
+
   await check('token check: a 401 on the run\'s last Google call leaves no call for the check: the run ends for the next tick with no outage', async () => {
     seedCopy();
     // The account check and 98 inserts, then the 100th call (s098's insert) refused.
@@ -1722,7 +1780,7 @@ async function main() {
     assert(result.next?.getTime() === NOW.getTime() + 60_000 && captured.length === 0 && !redisStore.has('google-sync:link-retry:L'), `rate limit ${show(result)} ${show(captured)}`);
   });
 
-  await check('googleAccountOf: a 403 carries Google\'s reasons, so usageLimits is a rate limit and insufficientPermissions a missing scope; a body that isn\'t JSON still keeps its status', async () => {
+  await check('googleAccountOf: a 403 carries Google\'s reasons, so usageLimits is a rate limit and insufficientPermissions a missing scope; a body that isn\'t JSON still keeps its status; a network failure is transient', async () => {
     const account = await load('src/services/google-sync/account.ts');
     const map = await load('src/services/calendar-read/google-map.ts');
     const blocked = globalThis.fetch;
@@ -1745,6 +1803,9 @@ async function main() {
       const scopes = await thrown();
       answer(502, '<html>Bad Gateway</html>');
       const html = await thrown();
+      globalThis.fetch = (async () => { throw new TypeError('fetch failed', { cause: Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }) }); }) as typeof fetch;
+      const network = await thrown();
+      assert(map.classifyGoogleError(network) === 'transient' && String((network as Error).message).includes('fetch failed'), `network ${show(network)} ${String((network as Error).message)}`);
       assert(map.isGoogleRateLimit(limit) && map.isGoogleRateLimit(userLimit), `rate limit ${show(limit)}`);
       assert(map.classifyGoogleError(scopes) === 'scopes' && !map.isGoogleRateLimit(scopes), `scopes ${show(scopes)}`);
       assert(map.classifyGoogleError(html) === 'transient', `html ${show(html)}`);

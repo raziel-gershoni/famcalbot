@@ -28,10 +28,10 @@
 // creating or renaming its calendar, a queued Remove/Keep) back off the same way per link
 // (retries.ts), with the same alert; a failure there that isn't transient only skips that
 // copy, so the user's other copies still run. The copy calendar gone (a write's 404 split,
-// or a rename's 404/410) sets 'gone'. A 401 on one request is a dead token only when the
-// token fails a check too (tokenStillWorks: a fresh client's account call, once per run):
-// while it works, Google refused that one request, which no reconnect fixes, so only that
-// copy backs off.
+// or a rename's 404/410) sets 'gone'. A bare 401 (no OAuth error) on a request after the
+// account check is a dead token only when the token fails a check too (tokenStillWorks: a
+// fresh client's account call, once per run): while it works, Google refused that one
+// request, which no reconnect fixes, so only that copy backs off.
 // An 'unsupported' or 'error' item is tried again only once FamCal changed it (its dirtySeq
 // moved past pushedSeq), with its attempts reset. Every catch logs ids, never a title.
 
@@ -113,8 +113,8 @@ interface UserRun {
   failed: number;
   /** Work is left that the next tick should take: the gate stays open. */
   again: boolean;
-  /** The user's token passed (or failed) the check after a 401 on one request (tokenStillWorks); asked at most once per run. */
-  tokenWorks?: boolean;
+  /** The token check after a bare 401 on one request (tokenStillWorks); asked at most once per run. */
+  tokenCheck?: 'works' | 'dead' | 'inconclusive';
 }
 
 export interface SyncPassResult {
@@ -405,33 +405,51 @@ function stopsRun(error: unknown): boolean {
 /** The step label of a copy whose own request Google refused while the token works (linkFailed, and the admin's alert). */
 const TOKEN_WORKS = '401 though the token works';
 
+/** Marks a failed account check (a turn-off's own, turnOffInGoogle): that call is the check, so its 401 is never checked again. */
+const ACCOUNT_CHECK = Symbol('google-sync account check');
+const accountCheckFailed = (error: unknown): unknown => (error && typeof error === 'object' ? Object.assign(error, { [ACCOUNT_CHECK]: true }) : error);
+
 /**
- * Whether a 401 on one request came while the user's token still works. Production (2026-10-21):
+ * Whether a 401 on one request should spare the user the outage. Production (2026-10-21):
  * Google answered one request 401 "Invalid Credentials" right after the same token had listed
  * the calendars, and a reconnect can't fix that. So a bare 401 (no OAuth error: invalid_grant
- * and admin_policy_enforced stay a dead token) is checked once per run with an account call on
- * a fresh client, which mints a new access token from the refresh token (the run's client would
- * resend the same one). True: only that copy backs off. False: the outage, as before. A check
- * cut short (the budget, a rate limit, Google down) is thrown, ending the run for the next tick.
+ * and admin_policy_enforced stay a dead token; an account check's own 401 is the check) is
+ * checked once per run with an account call on a fresh client, which mints a new access token
+ * from the refresh token (the run's client would resend the same one).
+ * - The check works: Google refused only that request; that copy backs off (true).
+ * - The check answers 'token': the outage, as before (false). 'scopes': that outage (thrown).
+ * - Cut short (the budget, a rate limit, Google down, no answer): thrown, ending the run for
+ *   the next tick.
+ * - Anything else says nothing about the token: logged and sent to Sentry, and the copy backs
+ *   off (true), so its attempts count and the 10th tells the admin.
  */
 async function tokenStillWorks(run: UserRun, token: string, error: unknown): Promise<boolean> {
   if (classOf(error) !== 'token' || googleErrorFacts(error).oauth) return false;
+  if ((error as { [ACCOUNT_CHECK]?: boolean })[ACCOUNT_CHECK]) return false;
   // Asked already: a later copy's 401 is logged by linkFailed (its step and Google's answer).
-  if (run.tokenWorks !== undefined) return run.tokenWorks;
+  if (run.tokenCheck) return run.tokenCheck !== 'dead';
   const userId = run.user.id;
   const cause = describe(error);
   try {
     await counted(run.budget, () => syncGoogle(token).account());
   } catch (check) {
-    if (check instanceof BudgetSpent || isGoogleRateLimit(check) || classOf(check) === 'transient') {
+    const cls = classOf(check);
+    if (check instanceof BudgetSpent || isGoogleRateLimit(check) || cls === 'transient') {
       console.warn(`[google-sync] user ${userId}: a 401 (${cause}); the token check was cut short (${describe(check)}), so the run ends for the next tick`);
       throw check;
     }
-    run.tokenWorks = false;
-    console.warn(`[google-sync] user ${userId}: a 401 (${cause}), and the token check failed too (${describe(check)})`);
-    return false;
+    if (cls === 'token' || cls === 'scopes') {
+      run.tokenCheck = 'dead';
+      console.warn(`[google-sync] user ${userId}: a 401 (${cause}), and the token check failed too (${describe(check)})`);
+      if (cls === 'scopes') throw check;
+      return false;
+    }
+    run.tokenCheck = 'inconclusive';
+    console.warn(`[google-sync] user ${userId}: a 401 (${cause}); the token check was inconclusive (${describe(check)}), so only that copy backs off`);
+    captureError(new Error('Google refused one request with a 401 and the token check was inconclusive'), 'google-sync-token-check', { user_id: userId, cause, check: describe(check) }, 'warning');
+    return true;
   }
-  run.tokenWorks = true;
+  run.tokenCheck = 'works';
   console.warn(`[google-sync] user ${userId}: Google refused one request with a 401 (${cause}), though the token works; only that copy backs off`);
   captureError(new Error('Google refused one request with a 401 though the token works'), 'google-sync-token-check', { user_id: userId, cause }, 'warning');
   return true;
@@ -490,7 +508,7 @@ async function calendarGone(run: UserRun, link: LinkRow, error: unknown): Promis
 export async function turnOffInGoogle(
   g: SyncGoogle, budget: CallBudget, link: { id: string; googleCalendarId: string | null; googleAccount: string | null }, choice: UnlinkChoice, language: string,
 ): Promise<{ outcome: TurnOffOutcome | 'otherAccount'; googleCalendarId: string | null }> {
-  const account = await counted(budget, () => g.account());
+  const account = await counted(budget, () => g.account()).catch((error: unknown) => { throw accountCheckFailed(error); });
   if (link.googleAccount && account !== link.googleAccount) return { outcome: 'otherAccount', googleCalendarId: link.googleCalendarId };
   // No id stored: a create may have made the calendar and failed before storing it, so the
   // user's calendar list is searched for the link's token (as a 'creating' retry adopts it).

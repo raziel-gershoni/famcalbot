@@ -17,7 +17,17 @@ const PRIMARY_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary?fi
  * of its own: the request ends at Google's or the platform's ceiling.
  */
 export async function googleAccountOf(accessToken: string): Promise<string> {
-  const res = await fetch(PRIMARY_URL, { headers: { Authorization: `Bearer ${accessToken}` } });
+  let res: Response;
+  try {
+    res = await fetch(PRIMARY_URL, { headers: { Authorization: `Bearer ${accessToken}` } });
+  } catch (error) {
+    // No answer at all (native fetch rejects with TypeError('fetch failed'), the cause carrying
+    // the network code): a string code and no response, which classifyGoogleError counts as
+    // transient, so the run ends for the next tick instead of reading it as the token.
+    const cause = error instanceof Error ? (error.cause as { code?: unknown } | undefined) : undefined;
+    const code = typeof cause?.code === 'string' ? cause.code : 'FETCH_FAILED';
+    throw Object.assign(new Error(`calendars.get(primary) got no answer: ${error instanceof Error ? error.message : String(error)} (${code})`), { code, cause: error });
+  }
   if (!res.ok) {
     // The status and Google's error body ride on the error as the API client shapes them
     // (response: { status, data }), so classifyGoogleError and isGoogleRateLimit read the 403's
