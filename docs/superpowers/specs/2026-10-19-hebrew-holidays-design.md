@@ -34,10 +34,12 @@ The set is every hebcal event whose flags include one of:
 - `EREV`: the eves;
 - `MINOR_HOLIDAY`: Hanukkah days, Purim, Shushan Purim, Tu BiShvat, Lag BaOmer, Tu B'Av;
 - `MAJOR_FAST` and `MINOR_FAST`;
-- `MODERN_HOLIDAY`: Yom HaShoah, Yom HaZikaron, Yom HaAtzma'ut, Yom Yerushalayim and the other Knesset days hebcal lists;
+- `MODERN_HOLIDAY`: Yom HaShoah, Yom HaZikaron, Yom HaAtzma'ut and Yom Yerushalayim only (see the 2026-10-21 line below);
 - `ROSH_CHODESH`.
 
 The schedule is always `il: true`.
+
+**2026-10-21 (owner):** only the four major national days; the other Knesset days hebcal lists (Rabin, Herzl, Ben-Gurion, Jabotinsky, Sigd, Family Day, Hebrew Language Day, Yom HaAliyah and its school day) are left out, in the summaries and the calendar home. They are told apart by hebcal's English `getDesc()`.
 
 **Change for the summaries:** they used CalBrew's narrower set (yom tov, minor holidays, Rosh Chodesh). Jewish-culture summaries now also name chol hamoed, eves, fasts and Israel's national days, which is the context a family plans around. The gate stays `culture === 'jewish'` for the bot (calendar-home Ruling R16).
 

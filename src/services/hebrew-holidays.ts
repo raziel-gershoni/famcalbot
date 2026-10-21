@@ -55,6 +55,14 @@ const NAMES: Record<string, Record<string, string>> = {
   ru: ruMessages.holidays.names,
 };
 
+/**
+ * Of hebcal's MODERN_HOLIDAY events only these four national days show (owner, 2026-10-21);
+ * the other Knesset days it lists (Rabin, Herzl, Ben-Gurion, Jabotinsky, Sigd, Family Day,
+ * Hebrew Language Day, Yom HaAliyah and its school day) are left out. hebcal's English
+ * getDesc(), which stays the same in years when the dates move.
+ */
+const MAJOR_MODERN_DESCS: ReadonlySet<string> = new Set(['Yom HaShoah', 'Yom HaZikaron', "Yom HaAtzma'ut", 'Yom Yerushalayim']);
+
 const ROMAN: Record<string, number> = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7 };
 
 const DAY_KEY = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -62,7 +70,11 @@ const DAY_KEY = /^(\d{4})-(\d{2})-(\d{2})$/;
 /** The kind of an event, or null when it is not a holiday we show (parashot, special Shabbatot, the Omer...). */
 function kindOf(ev: Event): HolidayKind | null {
   const f = ev.getFlags();
-  for (const { kind, mask } of KINDS) if (f & mask) return kind;
+  for (const { kind, mask } of KINDS) {
+    if (!(f & mask)) continue;
+    if (kind === 'modern' && !MAJOR_MODERN_DESCS.has(ev.getDesc())) continue;
+    return kind;
+  }
   return null;
 }
 

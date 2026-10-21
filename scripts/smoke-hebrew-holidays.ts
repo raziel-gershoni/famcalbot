@@ -53,10 +53,10 @@ const { gematriya } = require('@hebcal/hdate') as { gematriya: (n: number) => st
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const messages = { en: require('../messages/en.json'), he: require('../messages/he.json'), ru: require('../messages/ru.json') } as Record<string, { holidays: { names: Record<string, string> } }>;
 
-/** Hebcal's own events for 5787 (Elul 5786 through Elul 5787), the kinds the module keeps. */
+/** Hebcal's own events for 5787 (Elul 5786 through Elul 5787), the kinds the module keeps (of the modern days, the four majors). */
 function hebcalYear(): HebcalEvent[] {
   const kept = flags.CHAG | flags.MAJOR_FAST | flags.MINOR_FAST | flags.EREV | flags.CHOL_HAMOED | flags.MINOR_HOLIDAY | flags.MODERN_HOLIDAY | flags.ROSH_CHODESH;
-  return HebrewCalendar.calendar({ start: new Date(2026, 8, 1), end: new Date(2027, 9, 31), il: true }).filter(ev => ev.getFlags() & kept);
+  return HebrewCalendar.calendar({ start: new Date(2026, 8, 1), end: new Date(2027, 9, 31), il: true }).filter(ev => (ev.getFlags() & kept) && (!(ev.getFlags() & flags.MODERN_HOLIDAY) || ['Yom HaShoah', 'Yom HaZikaron', "Yom HaAtzma'ut", 'Yom Yerushalayim'].includes(ev.getDesc())));
 }
 
 type Result = { name: string; ok: boolean; reason?: string };
@@ -183,6 +183,34 @@ async function main() {
     assertEqual(ru('2027-05-25'), ['Лаг ба-Омер'], 'lag ba-omer: hyphenated like the other names');
     assertEqual(on('2027-04-23', 'ru')[0].brief, 'Песах II (холь а-моэд)', 'brief mirrors the title');
     assertEqual(on('2026-09-28', 'he').map(h => h.title), ['סוכות ג׳ (חוה״מ)'], 'he chol hamoed letter');
+  });
+
+  await check("of hebcal's modern holidays only the four major national days show (owner, 2026-10-21)", () => {
+    assertEqual(on('2026-10-21', 'he'), [], 'Rabin Memorial Day 5787 shows nothing');
+    const major = ['Yom HaShoah', 'Yom HaZikaron', "Yom HaAtzma'ut", 'Yom Yerushalayim'];
+    const seen = new Set<string>();
+    // 2024 to 2035 covers the years Yom HaZikaron and Yom HaAtzma'ut are moved off Shabbat.
+    for (let year = 2024; year <= 2035; year++) {
+      for (const ev of HebrewCalendar.calendar({ year, isHebrewYear: false, il: true })) {
+        if (!(ev.getFlags() & flags.MODERN_HOLIDAY)) continue;
+        const d = ev.getDate().greg();
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        // A left-out day can share its date with another holiday (Family Day with Rosh Chodesh), so count by name.
+        const shown = ['en', 'he', 'ru'].map(lang => on(key, lang).filter(h => h.kind === 'modern').length);
+        seen.add(ev.getDesc());
+        if (major.includes(ev.getDesc())) {
+          assertEqual(shown, [1, 1, 1], `${ev.getDesc()} ${key} shows in en, he, ru`);
+          assertEqual(on(key, 'en')[0].kind, 'modern', `${ev.getDesc()} ${key} kind`);
+        } else {
+          assertEqual(shown, [0, 0, 0], `${ev.getDesc()} ${key} is left out`);
+        }
+      }
+    }
+    assertEqual(major.filter(m => !seen.has(m)), [], 'hebcal still names the four majors');
+    assert(seen.size > major.length, 'hebcal still lists other modern days, so the test means something');
+    assertEqual(on('2027-05-11', 'he').map(h => h.title), ['יום הזכרון'], 'he zikaron');
+    assertEqual(on('2027-06-04', 'en').map(h => h.title), ['Yom Yerushalayim'], 'en yerushalayim');
+    assertEqual(on('2027-06-04', 'ru').length, 1, 'ru yerushalayim');
   });
 
   await check('the eight Hanukkah nights read in Russian with a lower-case noun, not hebcal\'s "1 Свеча" / "5 Свечей"', () => {
