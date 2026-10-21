@@ -28,7 +28,10 @@
 // creating or renaming its calendar, a queued Remove/Keep) back off the same way per link
 // (retries.ts), with the same alert; a failure there that isn't transient only skips that
 // copy, so the user's other copies still run. The copy calendar gone (a write's 404 split,
-// or a rename's 404/410) sets 'gone'.
+// or a rename's 404/410) sets 'gone'. A 401 on one request is a dead token only when the
+// token fails a check too (tokenStillWorks: a fresh client's account call, once per run):
+// while it works, Google refused that one request, which no reconnect fixes, so only that
+// copy backs off.
 // An 'unsupported' or 'error' item is tried again only once FamCal changed it (its dirtySeq
 // moved past pushedSeq), with its attempts reset. Every catch logs ids, never a title.
 
@@ -44,7 +47,7 @@ import { safeDecrypt } from '../../utils/encryption';
 import { prisma } from '../../utils/prisma';
 import { redis } from '../../utils/redis';
 import { scrubbedGoogleError } from '../calendar';
-import { classifyGoogleError, isGoogleRateLimit, type GoogleErrorClass } from '../calendar-read/google-map';
+import { classifyGoogleError, googleErrorFacts, isGoogleRateLimit, type GoogleErrorClass } from '../calendar-read/google-map';
 import { peekFeatureAccess } from '../subscription-service';
 import { ensureCopyCalendar, findCopyCalendarId, keepCopyCalendar, removeCopyCalendar, renameCopyCalendar, type TurnOffOutcome } from './calendars';
 import { BudgetSpent, CALLS_PER_RUN, counted, syncGoogle, type CallBudget, type SyncGoogle } from './client';
@@ -110,6 +113,8 @@ interface UserRun {
   failed: number;
   /** Work is left that the next tick should take: the gate stays open. */
   again: boolean;
+  /** The user's token passed (or failed) the check after a 401 on one request (tokenStillWorks); asked at most once per run. */
+  tokenWorks?: boolean;
 }
 
 export interface SyncPassResult {
@@ -397,6 +402,41 @@ function stopsRun(error: unknown): boolean {
   return cls === 'token' || cls === 'scopes';
 }
 
+/** The step label of a copy whose own request Google refused while the token works (linkFailed, and the admin's alert). */
+const TOKEN_WORKS = '401 though the token works';
+
+/**
+ * Whether a 401 on one request came while the user's token still works. Production (2026-10-21):
+ * Google answered one request 401 "Invalid Credentials" right after the same token had listed
+ * the calendars, and a reconnect can't fix that. So a bare 401 (no OAuth error: invalid_grant
+ * and admin_policy_enforced stay a dead token) is checked once per run with an account call on
+ * a fresh client, which mints a new access token from the refresh token (the run's client would
+ * resend the same one). True: only that copy backs off. False: the outage, as before. A check
+ * cut short (the budget, a rate limit, Google down) is thrown, ending the run for the next tick.
+ */
+async function tokenStillWorks(run: UserRun, token: string, error: unknown): Promise<boolean> {
+  if (classOf(error) !== 'token' || googleErrorFacts(error).oauth) return false;
+  // Asked already: a later copy's 401 is logged by linkFailed (its step and Google's answer).
+  if (run.tokenWorks !== undefined) return run.tokenWorks;
+  const userId = run.user.id;
+  const cause = describe(error);
+  try {
+    await counted(run.budget, () => syncGoogle(token).account());
+  } catch (check) {
+    if (check instanceof BudgetSpent || isGoogleRateLimit(check) || classOf(check) === 'transient') {
+      console.warn(`[google-sync] user ${userId}: a 401 (${cause}); the token check was cut short (${describe(check)}), so the run ends for the next tick`);
+      throw check;
+    }
+    run.tokenWorks = false;
+    console.warn(`[google-sync] user ${userId}: a 401 (${cause}), and the token check failed too (${describe(check)})`);
+    return false;
+  }
+  run.tokenWorks = true;
+  console.warn(`[google-sync] user ${userId}: Google refused one request with a 401 (${cause}), though the token works; only that copy backs off`);
+  captureError(new Error('Google refused one request with a 401 though the token works'), 'google-sync-token-check', { user_id: userId, cause }, 'warning');
+  return true;
+}
+
 /**
  * A copy's own step failed (spec §4 Failures): each link's attempt counted and its next one
  * backed off (exponential with jitter, retries.ts), lastError set, Sentry told (a warning when
@@ -487,7 +527,11 @@ async function turnOffLink(run: UserRun, link: LinkRow): Promise<void> {
     if (error instanceof BudgetSpent || isGoogleRateLimit(error)) throw error;
     const cls = classOf(error);
     if (cls === 'token' || cls === 'scopes') {
-      if (own) throw error;
+      if (own) {
+        if (!(await tokenStillWorks(run, token, error))) throw error;
+        await linkFailed(run, [link], error, `turn-off (${choice}; ${TOKEN_WORKS})`);
+        return;
+      }
       // The merged-away account's token: only this copy waits; the user's own Google is fine.
       await prisma.googleSyncLink.update({ where: { id: link.id }, data: { state: cls } });
       captureError(new Error(`Google ${cls} on a merged copy's token`), 'google-sync-turn-off', { user_id: run.user.id, link_id: link.id, choice }, 'warning');
@@ -572,6 +616,11 @@ async function syncLinks(run: UserRun, links: LinkRow[]): Promise<void> {
     try {
       await syncLink(run, g, link, token);
     } catch (error) {
+      // A 401 on one of this copy's requests (its create, rename or a push) while the token works: only this copy backs off.
+      if (await tokenStillWorks(run, token, error)) {
+        await linkFailed(run, [link], error, `calendar step or push (${TOKEN_WORKS})`);
+        continue;
+      }
       if (stopsRun(error)) throw error;
       // This copy's own step (create, rename) failed: it backs off, and the user's other copies still run.
       await linkFailed(run, [link], error, 'calendar step');

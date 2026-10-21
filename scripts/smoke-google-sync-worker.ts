@@ -19,7 +19,9 @@
 //     calendar going 'gone'; a commit re-checking 'otherAccount'; a turned-off copy with no
 //     stored calendar id looked up by its token; a 409 on a deleted event's id taking the next
 //     generation, and a Remove that keeps the calendar keeping each item's generation;
-//     googleAccountOf's 403 reasons;
+//     googleAccountOf's 403 reasons; a bare 401 on one request while the token works (one
+//     check per run, on a fresh client) backing off only that copy, and the outage when the
+//     check fails too;
 //   - pace: the lock (NX, TTL, renew, release, fail-closed, owned by the run's token), 100
 //     calls per user per run, 3 users at a time, serial calendar creation, backfill with
 //     progress counts (what it marked, before push drains);
@@ -439,10 +441,13 @@ const google = {
   /** Runs inside every call, after it is counted (a check may land a FamCal write mid-push). */
   during: null as ((op: string, args: Row) => void) | null,
   seq: 0,
+  /** Clients made (each syncGoogle call): a fresh client mints a fresh access token. */
+  clients: 0,
 };
 const stampOf = (originalStart: string) => originalStart.replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
 
 function fakeGoogle(token: string): Row {
+  google.clients += 1;
   const account = () => {
     const a = google.accounts.get(token);
     if (!a) throw Object.assign(new Error('invalid_grant'), { response: { status: 400, data: { error: 'invalid_grant' } } });
@@ -564,7 +569,7 @@ function fakeGoogle(token: string): Row {
     account: async () => {
       google.calls.push(`account ${token}`);
       await new Promise((r) => setImmediate(r));
-      const f = google.failures.find((x) => x.op === 'account' && x.left > 0);
+      const f = google.failures.find((x) => x.op === 'account' && x.left > 0 && (!x.when || x.when({})));
       if (f) {
         f.left -= 1;
         throw f.error;
@@ -712,7 +717,7 @@ function seed() {
   redisLog.length = 0;
   redisFail = null;
   logs.length = 0;
-  Object.assign(google, { calendars: new Map(), accounts: new Map([['tok-1', ACCOUNT]]), calls: [], failures: [], missingInstances: new Set(), inflight: 0, maxInflight: 0, inserting: 0, maxInserting: 0, during: null, seq: 0 });
+  Object.assign(google, { calendars: new Map(), accounts: new Map([['tok-1', ACCOUNT]]), calls: [], failures: [], missingInstances: new Set(), inflight: 0, maxInflight: 0, inserting: 0, maxInserting: 0, during: null, seq: 0, clients: 0 });
   DB.user = [userRow(TAL), userRow(NOA)];
   DB.nativeCalendar = [calendarRow('home', TAL, 'Home'), calendarRow('work', TAL, 'Work'), calendarRow('noa', NOA, 'Noa')];
   DB.nativeEvent = [];
@@ -1313,11 +1318,24 @@ async function main() {
     assert(link('L').state === 'token' && sent.length === 1, `link ${show(link('L'))} sent ${show(sent)}`);
   });
 
-  await check('outage: the log and Sentry name the cause: a 401 on a copy\'s events.insert gives the request (id masked), status and Google\'s message; no stored token says so', async () => {
+  /** A copy's events.insert refused the way Google refused calendarList.patch in production: a bare 401, no OAuth error. */
+  const insertRefused = (left = 1) => google.failures.push({ op: 'events.insert', error: prodRefusal('POST', 'calendars/g-home%40group.calendar.google.com/events'), left });
+  /** What googleAccountOf throws on a 401 (account.ts): the status and Google's body, as the API client shapes them. */
+  const checkRefusal = () => Object.assign(new Error('calendars.get(primary) answered HTTP 401'), {
+    status: 401, response: { status: 401, data: { error: { code: 401, message: 'Invalid Credentials', errors: [{ domain: 'global', reason: 'authError', message: 'Invalid Credentials' }] } } },
+  });
+  /** The token endpoint's answer for a dead refresh token. */
+  const deadGrant = () => Object.assign(new Error('invalid_grant'), { response: { status: 400, data: { error: 'invalid_grant', error_description: 'Token has been expired or revoked.' } } });
+  /** The token check fails with `error`: an account call made after the run's own one (once a calendar or event call went out). */
+  const checkFails = (error: Error) => google.failures.push({ op: 'account', error, left: 1, when: () => google.calls.some((c) => /^(events|calendars)\./.test(c)) });
+  const retryOf = (linkId: string) => String(redisStore.get(`google-sync:link-retry:${linkId}`)?.value);
+
+  await check('outage: the log and Sentry name the cause: a 401 on a copy\'s events.insert (the token check failing too) gives the request (id masked), status and Google\'s message; no stored token says so', async () => {
     seedCopy();
     seriesRow('a', 'home');
     itemRow('L', 'a');
-    google.failures.push({ op: 'events.insert', error: prodRefusal('POST', 'calendars/g-home%40group.calendar.google.com/events'), left: 1 });
+    insertRefused();
+    checkFails(checkRefusal());
     await pass();
     assert(link('L').state === 'token', `link ${show(link('L'))}`);
     const line = logs.find((l) => l.includes('copies wait for a reconnect')) ?? '';
@@ -1332,6 +1350,131 @@ async function main() {
     await pass();
     const none = logs.find((l) => l.includes('copies wait for a reconnect')) ?? '';
     assert(none.includes('no Google token stored') && String(captured.find((c) => c.ctx === 'google-sync-outage')?.extra?.cause).includes('no Google token stored'), `log ${show(none)} captured ${show(captured)}`);
+  });
+
+  // ---- A 401 on one request while the token works (the token check) ----
+
+  await check('token check: a 401 on one copy\'s events.insert while the token works (a fresh client\'s account call) backs off only that copy (lastError, still ok): no outage, no reconnect message, a Sentry warning naming the request; the user\'s other copy syncs in the same pass', async () => {
+    seedCopy();
+    googleCalendar('g-work', 'L2', { summary: 'FamCal · Work' });
+    DB.googleSyncLink.push(linkRow('L2', TAL, 'work', { googleCalendarId: 'g-work', pushedName: 'Work' }));
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    seriesRow('w1', 'work');
+    itemRow('L2', 'w1');
+    insertRefused();
+    await pass();
+    assert(link('L').state === 'ok' && link('L').lastError === 'token' && retryOf('L').startsWith('1:') && item('a')!.pushedSeq === 0, `link ${show(link('L'))} retry ${retryOf('L')}`);
+    assert(sent.length === 0 && DB.user[0].googleSyncNotifiedAt === null && !captured.some((c) => c.ctx === 'google-sync-outage'), `sent ${show(sent)} captured ${show(captured)}`);
+    const warned = captured.find((c) => c.ctx === 'google-sync-token-check');
+    const cause = String(warned?.extra?.cause);
+    assert(warned?.level === 'warning' && warned.extra?.user_id === TAL && cause.includes('POST www.googleapis.com/calendar/v3/calendars/:id/events') && cause.includes('401'), `captured ${show(captured)}`);
+    assert(!cause.includes('g-home') && !cause.includes('REQUEST BODY'), `the cause leaks the id or body: ${cause}`);
+    assert(logs.some((l) => l.includes('though the token works') && l.includes('Invalid Credentials')), `logs ${show(logs.filter((l) => l.includes('401')))}`);
+    assert(link('L2').state === 'ok' && item('w1')!.pushedSeq === 1 && liveEvents('g-work').length === 1, `the other copy ${show(link('L2'))} ${show(item('w1'))}`);
+    // The run's account check, then the token check on a client of its own (a fresh access token).
+    assert(gcalls('account').length === 2 && google.clients === 2, `account calls ${show(google.calls)} clients ${google.clients}`);
+  });
+
+  await check('token check: the create step (calendars.insert) answering a bare 401 while the token works backs off that copy (still creating) with no outage; its 10th attempt tells the admin the token works', async () => {
+    seed();
+    DB.googleSyncLink.push(linkRow('L', TAL, 'home', { state: 'creating', backfilledAt: null }));
+    redisStore.set('google-sync:link-retry:L', { value: `9:${NOW.getTime() - 1}` });
+    google.failures.push({ op: 'calendars.insert', error: prodRefusal('POST', 'calendars'), left: 1 });
+    await pass();
+    assert(link('L').state === 'creating' && link('L').googleCalendarId === null && link('L').lastError === 'token' && retryOf('L').startsWith('10:'), `link ${show(link('L'))} retry ${retryOf('L')}`);
+    assert(sent.length === 0 && !captured.some((c) => c.ctx === 'google-sync-outage') && captured.some((c) => c.ctx === 'google-sync-token-check'), `sent ${show(sent)} captured ${show(captured)}`);
+    assert(adminWarnings.length === 1 && adminWarnings[0].includes('link L') && adminWarnings[0].includes('10 times') && adminWarnings[0].includes('token works'), `warnings ${show(adminWarnings)}`);
+  });
+
+  for (const [label, refusal] of [['a 401 of its own', checkRefusal()], ['invalid_grant', deadGrant()]] as Array<[string, Error]>) {
+    await check(`token check: a 401 on one request with the check failing too (${label}) is the outage as before: every copy 'token', one reconnect message, google-sync-outage with the request as the cause`, async () => {
+      seedCopy();
+      googleCalendar('g-work', 'L2', { summary: 'FamCal · Work' });
+      DB.googleSyncLink.push(linkRow('L2', TAL, 'work', { googleCalendarId: 'g-work', pushedName: 'Work' }));
+      seriesRow('a', 'home');
+      itemRow('L', 'a');
+      seriesRow('w1', 'work');
+      itemRow('L2', 'w1');
+      insertRefused();
+      checkFails(refusal);
+      await pass();
+      assert(link('L').state === 'token' && link('L2').state === 'token' && item('w1')!.pushedSeq === 0, `links ${show(DB.googleSyncLink.map((l) => [l.id, l.state]))}`);
+      assert(sent.length === 1 && String(sent[0].text).startsWith('<b>Copies to Google are paused</b>'), `sent ${show(sent)}`);
+      const outage = captured.find((c) => c.ctx === 'google-sync-outage');
+      assert(String(outage?.extra?.cause).includes('calendars/:id/events') && String(outage?.extra?.cause).includes('401'), `captured ${show(captured)}`);
+      assert(gcalls('account').length === 2 && !captured.some((c) => c.ctx === 'google-sync-token-check'), `the check ${show(google.calls)} captured ${show(captured)}`);
+      assert(logs.some((l) => l.includes('the token check failed too')), `logs ${show(logs)}`);
+    });
+  }
+
+  await check('token check: asked at most once per run: a turned-off copy\'s Keep and two copies that are on, each refused with a bare 401, make one check, and each backs off', async () => {
+    seedCopy();
+    DB.nativeCalendar.push(calendarRow('kids', TAL, 'Kids'));
+    googleCalendar('g-work', 'L2', { summary: 'FamCal · Work' });
+    googleCalendar('g-kids', 'LK', { summary: 'FamCal · Kids' });
+    DB.googleSyncLink.push(linkRow('L2', TAL, 'work', { googleCalendarId: 'g-work', pushedName: 'Work' }));
+    DB.googleSyncLink.push(linkRow('LK', TAL, 'kids', { googleCalendarId: 'g-kids', pushedName: 'Kids', enabled: false, unlinkChoice: 'keep', dirtySeq: 2, pushedSeq: 1 }));
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    seriesRow('w1', 'work');
+    itemRow('L2', 'w1');
+    google.failures.push({ op: 'calendars.patch', error: prodRefusal('PATCH', 'calendars/g-kids%40group.calendar.google.com'), left: 1 });
+    insertRefused(2);
+    await pass();
+    assert(['L', 'L2', 'LK'].every((id) => link(id).state === 'ok' && link(id).lastError === 'token' && retryOf(id).startsWith('1:')), `links ${show(DB.googleSyncLink.map((l) => [l.id, l.state, l.lastError, retryOf(l.id)]))}`);
+    assert(link('LK').pushedSeq === 1 && !google.calendars.get('g-kids')!.description.startsWith('FamCal no longer updates'), `keep ${show(link('LK'))}`);
+    // The turn-off's own account call, the token check, then the account check of the copies that are on.
+    assert(gcalls('account').length === 3 && google.clients === 3, `account calls ${show(google.calls)} clients ${google.clients}`);
+    assert(captured.filter((c) => c.ctx === 'google-sync-token-check').length === 1 && sent.length === 0, `captured ${show(captured)} sent ${show(sent)}`);
+  });
+
+  for (const [choice, op, method, p] of [['remove', 'calendars.delete', 'DELETE', 'calendars/g-home%40group.calendar.google.com'], ['keep', 'calendars.patch', 'PATCH', 'calendars/g-home%40group.calendar.google.com']] as const) {
+    const what = choice === 'remove' ? 'Remove' : 'Keep';
+    await check(`token check: a queued ${what} whose ${op} answers a bare 401 while the token works is not an outage: the copy backs off, its turn-off still queued`, async () => {
+      seedTurnOff(choice);
+      google.failures.push({ op, error: prodRefusal(method, p), left: 1 });
+      await pass();
+      assert(link('L').state === 'ok' && link('L').lastError === 'token' && retryOf('L').startsWith('1:') && link('L').pushedSeq === 1 && google.calendars.has('g-home'), `link ${show(link('L'))} retry ${retryOf('L')}`);
+      assert(sent.length === 0 && !captured.some((c) => c.ctx === 'google-sync-outage') && captured.some((c) => c.ctx === 'google-sync-token-check'), `sent ${show(sent)} captured ${show(captured)}`);
+    });
+
+    await check(`token check: a queued ${what} whose ${op} answers a bare 401 with the token check failing too is the outage, as before`, async () => {
+      seedTurnOff(choice);
+      google.failures.push({ op, error: prodRefusal(method, p), left: 1 });
+      checkFails(checkRefusal());
+      await pass();
+      // The turn-off's own account call, then the token check.
+      assert(link('L').state === 'token' && sent.length === 1 && captured.some((c) => c.ctx === 'google-sync-outage') && gcalls('account').length === 2, `outage ${show(link('L'))} sent ${show(sent)} calls ${show(google.calls)}`);
+    });
+  }
+
+  for (const [label, error] of [['Google down (503)', gErr(503, 'backendError')], ['a rate limit', gErr(403, 'userRateLimitExceeded', 'usageLimits')]] as Array<[string, Error]>) {
+    await check(`token check: the check itself cut short (${label}) ends the run for the next tick: no outage, no message, the copy not backed off`, async () => {
+      seedCopy();
+      seriesRow('a', 'home');
+      itemRow('L', 'a');
+      insertRefused();
+      checkFails(error);
+      const result = await pass();
+      assert(link('L').state === 'ok' && !redisStore.has('google-sync:link-retry:L') && item('a')!.pushedSeq === 0, `link ${show(link('L'))} retry ${retryOf('L')}`);
+      assert(sent.length === 0 && !captured.some((c) => c.ctx === 'google-sync-outage') && result.next?.getTime() === NOW.getTime() + 60_000, `sent ${show(sent)} captured ${show(captured)} next ${show(result.next)}`);
+    });
+  }
+
+  await check('token check: a 401 on the run\'s last Google call leaves no call for the check: the run ends for the next tick with no outage', async () => {
+    seedCopy();
+    // The account check and 98 inserts, then the 100th call (s098's insert) refused.
+    for (let i = 0; i < 99; i++) {
+      seriesRow(`s${String(i).padStart(3, '0')}`, 'home');
+      itemRow('L', `s${String(i).padStart(3, '0')}`);
+    }
+    const last = eventId('L', 's098');
+    google.failures.push({ op: 'events.insert', error: prodRefusal('POST', 'calendars/g-home%40group.calendar.google.com/events'), left: 1, when: (a) => a.requestBody?.id === last });
+    const result = await pass();
+    assert(google.calls.length === 100 && gcalls('account').length === 1, `calls ${google.calls.length} ${show(gcalls('account'))}`);
+    assert(link('L').state === 'ok' && !redisStore.has('google-sync:link-retry:L') && item('s098')!.pushedSeq === 0 && item('s097')!.pushedSeq === 1, `link ${show(link('L'))} ${show(item('s098'))}`);
+    assert(sent.length === 0 && !captured.some((c) => c.ctx === 'google-sync-outage') && result.next?.getTime() === NOW.getTime() + 60_000, `sent ${show(sent)} captured ${show(captured)}`);
   });
 
   await check('scopes: no calendar.app.created sets scopes; the message opens the calendars page; a WhatsApp-only user gets the settings template', async () => {
