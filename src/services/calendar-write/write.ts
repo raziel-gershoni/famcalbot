@@ -114,12 +114,12 @@ export async function clearCaches(
 /** The stored rule for a repeat choice, as the bot's provider stores it (no RRULE: prefix). */
 export function ruleFor(repeat: CreateCommand['repeat']): string | null {
   if (repeat === 'none') return null;
-  // The Hebrew repeat is a plain yearly rule plus the pair (hebrewKindFor).
+  // The Hebrew repeat is a plain yearly rule plus the pair (hebrewRuleFor).
   return buildRecurrenceRule({ frequency: isHebrewChoice(repeat) ? 'yearly' : repeat })[0].replace(/^RRULE:/, '');
 }
 
 /** The Hebrew rule a repeat choice stores next to its rule (hebrew-repeats spec §2), or null for a Gregorian one. */
-export function hebrewKindFor(repeat: CreateCommand['repeat']): HebrewRule | null {
+export function hebrewRuleFor(repeat: CreateCommand['repeat']): HebrewRule | null {
   return repeat === 'hebrew' ? 'anniversary' : null;
 }
 
@@ -163,7 +163,7 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
   if (!famcal) return NOT_ALLOWED;
   try {
     const rrule = ruleFor(cmd.repeat);
-    const hebrewRule = hebrewKindFor(cmd.repeat);
+    const hebrewRule = hebrewRuleFor(cmd.repeat);
     const base = {
       creatorUserId: user.id,
       title: cmd.title,
@@ -342,7 +342,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
     actingUserId: user.id,
     ...text,
     // The pair goes with the rule, null for a Gregorian choice (hebrew-repeats spec §2).
-    ...(repeat !== undefined ? { rrule: ruleFor(repeat), hebrewRule: hebrewKindFor(repeat) } : {}),
+    ...(repeat !== undefined ? { rrule: ruleFor(repeat), hebrewRule: hebrewRuleFor(repeat) } : {}),
     ...(moveTo !== undefined ? { calendarId: moveTo } : {}),
     ...(forUserId !== undefined ? { forUserId } : {}),
   };

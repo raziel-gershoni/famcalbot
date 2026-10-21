@@ -2285,20 +2285,16 @@ async function main() {
 
   await check('H2 create: a Google calendar and a Google key are refused with 400 repeat, before anything is read or written; a former Google user with no Google calendars gets it on FamCal', async () => {
     seed();
-    for (const repeat of ['hebrew']) {
-      const onGoogle = await post(eventBody({ repeat, calendarId: 'tal@example.com' }));
-      assertSame([onGoogle.status, onGoogle.body], [400, { error: 'invalid', field: 'repeat' }], `${repeat}: a Google calendar id`);
-      const edit = await patch({ key: 'google|tal@example.com|abc123', scope: 'following', changes: { repeat } });
-      assertSame([edit.status, edit.body], [400, { error: 'invalid', field: 'repeat' }], `${repeat}: a Google key`);
-    }
+    const onGoogle = await post(eventBody({ repeat: 'hebrew', calendarId: 'tal@example.com' }));
+    assertSame([onGoogle.status, onGoogle.body], [400, { error: 'invalid', field: 'repeat' }], 'a Google calendar id');
+    const edit = await patch({ key: 'google|tal@example.com|abc123', scope: 'following', changes: { repeat: 'hebrew' } });
+    assertSame([edit.status, edit.body], [400, { error: 'invalid', field: 'repeat' }], 'a Google key');
     assertSame(tables.nativeEvent.length, 0, 'nothing written');
     // Google as a connection: a user whose old source was Google, with no Google calendars
     // chosen, has FamCal now, so an event with no calendar lands on their FamCal main and a
     // Hebrew repeat is kept there.
-    for (const repeat of ['hebrew']) {
-      const dan = await post(eventBody({ repeat }), { tg: TG.dan });
-      assertSame([dan.status, String(dan.body.key).startsWith('famcal|')], [200, true], `${repeat}: a former Google user with no Google calendars gets it on FamCal`);
-    }
+    const dan = await post(eventBody({ repeat: 'hebrew' }), { tg: TG.dan });
+    assertSame([dan.status, String(dan.body.key).startsWith('famcal|')], [200, true], 'a former Google user with no Google calendars gets it on FamCal');
     const yearly = await post(eventBody({ repeat: 'yearly', calendarId: 'tal@example.com' }));
     assert(yearly.body.field !== 'repeat', `a Gregorian yearly on Google is not refused for its repeat: ${yearly.text}`);
   });
