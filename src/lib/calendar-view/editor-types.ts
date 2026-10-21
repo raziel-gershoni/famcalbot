@@ -15,10 +15,10 @@ export type ItemKind = 'event' | 'reminder';
 export type EditScope = 'single' | 'following' | 'all';
 /**
  * How a new item repeats; the rule is built on the server, anchored on the start. 'hebrew'
- * (every year on the Hebrew date) and 'yahrzeit' are yearly rules that follow the start's
- * Hebrew date (hebrew-repeats spec §4); FamCal calendars only.
+ * (every year on the Hebrew date) is a yearly rule that follows the start's Hebrew date
+ * (hebrew-repeats spec §4); FamCal calendars only.
  */
-export type RepeatChoice = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'hebrew' | 'yahrzeit';
+export type RepeatChoice = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'hebrew';
 
 /** A calendar the user may add events to. */
 export interface EditorCalendar {
@@ -55,16 +55,16 @@ export interface RepeatInfo {
   /** The rule has an end (UNTIL or COUNT), as a series cut by "this one and the ones after" does. */
   ends: boolean;
   /**
-   * A Hebrew-date repeat (hebrew-repeats spec §3): its kind, and its anchor's date
+   * A Hebrew-date repeat (hebrew-repeats spec §3): its anchor's date
    * (yyyy-MM-dd, in the series' zone), which the words name, never the opened occurrence's
    * (a rolled day). freq is then 'yearly'.
    */
-  hebrew?: { kind: 'anniversary' | 'yahrzeit'; anchor: string };
+  hebrew?: { anchor: string };
 }
 
 /**
- * How the editor's Repeat row names a stored rule: one of the choices (the five and the two
- * Hebrew kinds), or 'custom' (3b spec §2.1, hebrew-repeats §3).
+ * How the editor's Repeat row names a stored rule: one of the choices (the five and the Hebrew
+ * date), or 'custom' (3b spec §2.1, hebrew-repeats §3).
  */
 export type RuleChoice = RepeatChoice | 'custom';
 
@@ -189,8 +189,7 @@ export interface DeleteItemBody {
 /**
  * What a write answers (private, no-store):
  * 200 { status: 'ok', key? }: key names the created or changed item when it lives on;
- * 400 { error: 'invalid', field } (field 'repeatKind': the other Hebrew kind falls on another day than
- * this occurrence, hebrew-repeats spec §4) or { error: 'bad_request' } for a body that isn't JSON;
+ * 400 { error: 'invalid', field } or { error: 'bad_request' } for a body that isn't JSON;
  * 403 { error: 'not_allowed' }; 404 { error: 'not_found' }; 409 { error: 'changed' } (the
  * occurrence is gone); 500 { error: 'internal_error' }. Auth and the rate limit answer
  * 400/401/403/404/429 with { error } as every route does. 3b, a Google item: 403

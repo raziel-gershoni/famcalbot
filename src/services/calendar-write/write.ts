@@ -25,7 +25,6 @@ import {
   NativeNotFoundError,
   NativePermissionDeniedError,
   NativeRecipientError,
-  NativeHebrewKindError,
   NativeRuleError,
   NativeScopeError,
   createNativeEvent,
@@ -86,9 +85,6 @@ export function refusalOf(err: unknown): WriteResult | null {
   // 3b's series-level fields (spec §3.1): a rule the store won't keep, a scope that can't
   // carry the change, a recipient who can't be pinged, a calendar it can't move to (never
   // not_found: the item is still there).
-  // A Hebrew series switched to the other kind from an occurrence where that kind falls on
-  // another day (hebrew-repeats spec §4): the editor says so, and retrying can't work.
-  if (err instanceof NativeHebrewKindError) return { status: 'invalid', field: 'repeatKind' };
   if (err instanceof NativeRuleError) return { status: 'invalid', field: 'repeat' };
   if (err instanceof NativeScopeError) return { status: 'invalid', field: err.field };
   if (err instanceof NativeRecipientError) return { status: 'invalid', field: 'forPartner' };
@@ -118,13 +114,13 @@ export async function clearCaches(
 /** The stored rule for a repeat choice, as the bot's provider stores it (no RRULE: prefix). */
 export function ruleFor(repeat: CreateCommand['repeat']): string | null {
   if (repeat === 'none') return null;
-  // The Hebrew kinds are a plain yearly rule plus the pair (hebrewKindFor).
+  // The Hebrew repeat is a plain yearly rule plus the pair (hebrewKindFor).
   return buildRecurrenceRule({ frequency: isHebrewChoice(repeat) ? 'yearly' : repeat })[0].replace(/^RRULE:/, '');
 }
 
-/** The Hebrew kind a repeat choice stores next to its rule (hebrew-repeats spec §2), or null for a Gregorian one. */
+/** The Hebrew rule a repeat choice stores next to its rule (hebrew-repeats spec §2), or null for a Gregorian one. */
 export function hebrewKindFor(repeat: CreateCommand['repeat']): HebrewRule | null {
-  return repeat === 'hebrew' ? 'anniversary' : repeat === 'yahrzeit' ? 'yahrzeit' : null;
+  return repeat === 'hebrew' ? 'anniversary' : null;
 }
 
 /** A stored rule without its end and the parts that mean nothing for it (WKST, INTERVAL=1), to compare with a choice's. */

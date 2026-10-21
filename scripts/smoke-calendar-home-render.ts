@@ -4314,13 +4314,12 @@ async function main() {
     assert(moveStart(f, { startTime: '' }).endTime === f.endTime, 'a cleared time leaves the end');
     assert(setAllDay(setAllDay(f, true), false).endTime === '12:00', 'all day off again brings the times back');
     // The kind switch: a Hebrew repeat does not survive a switch to an event on a Google calendar.
-    const gFam = { ...f, calendarId: 'avi@gmail.com', repeat: 'yahrzeit' as const };
+    const gFam = { ...f, calendarId: 'avi@gmail.com', repeat: 'hebrew' as const };
     assert(setKind({ ...gFam, kind: 'reminder' }, 'event').repeat === 'yearly', 'reminder to event on a Google calendar: Hebrew falls back to yearly');
-    assert(setKind({ ...gFam, kind: 'reminder', repeat: 'hebrew' }, 'event').repeat === 'yearly', 'the other Hebrew kind too');
     assert(setKind({ ...gFam, kind: 'reminder' }, 'event').kind === 'event', 'the kind is switched');
     assert(setKind({ ...f, kind: 'reminder', repeat: 'hebrew' }, 'event').repeat === 'hebrew', 'a FamCal calendar keeps it');
     assert(setKind({ ...f, kind: 'reminder', calendarId: null, repeat: 'hebrew' }, 'event').repeat === 'hebrew', 'no calendar (FamCal default) keeps it');
-    assert(setKind(gFam, 'reminder').repeat === 'yahrzeit', 'to a reminder keeps it (always FamCal)');
+    assert(setKind(gFam, 'reminder').repeat === 'hebrew', 'to a reminder keeps it (always FamCal)');
     assert(setKind({ ...gFam, kind: 'reminder', repeat: 'weekly' }, 'event').repeat === 'weekly', 'a Gregorian repeat is untouched');
     // The checks.
     assert(show(checkForm({ ...f, title: '  ' })) === show({ title: 'errTitle' }), 'an empty title');
@@ -4390,7 +4389,7 @@ async function main() {
       assert(fieldValue(m, 'End time') === '19:30', `the duration kept: ${fieldValue(m, 'End time')}`);
       // The repeat choices read from the start day (Thursday 15 October).
       const options = (sel: Fake) => elements(sel).filter((e) => e.localName === 'option').map((e) => [propsOf(e).value, e.textContent]);
-      assert(show(options(selects(m)[0])) === show([['none', 'Never'], ['daily', 'Every day'], ['weekly', 'Every week on Thursday'], ['monthly', 'Every month on the 15th'], ['yearly', 'Every year on 15 Oct'], ['hebrew', 'Every year on 4 Cheshvan'], ['yahrzeit', 'Yahrzeit, every year on 4 Cheshvan']]), `repeat: ${show(options(selects(m)[0]))}`);
+      assert(show(options(selects(m)[0])) === show([['none', 'Never'], ['daily', 'Every day'], ['weekly', 'Every week on Thursday'], ['monthly', 'Every month on the 15th'], ['yearly', 'Every year on 15 Oct'], ['hebrew', 'Every year on 4 Cheshvan']]), `repeat: ${show(options(selects(m)[0]))}`);
       await typeInto(inDialog(m, 'Start date'), '2026-10-22');
       assert(fieldValue(m, 'End date') === '2026-10-22', 'a later day carries the end');
       assert(options(selects(m)[0])[3][1] === 'Every month on the 22nd', 'the ordinal follows the day');
@@ -5553,7 +5552,7 @@ async function main() {
       await openEditor(a.m, 'Dentist');
       assert(shownIn(a.m, 'Repeat') === 'Never', `a one-off shows ${show(shownIn(a.m, 'Repeat'))}`);
       assert(
-        show(optionsIn(a.m, 'Repeat')) === show([['none', 'Never'], ['daily', 'Every day'], ['weekly', 'Every week on Thursday'], ['monthly', 'Every month on the 15th'], ['yearly', 'Every year on 15 Oct'], ['hebrew', 'Every year on 4 Cheshvan'], ['yahrzeit', 'Yahrzeit, every year on 4 Cheshvan']]),
+        show(optionsIn(a.m, 'Repeat')) === show([['none', 'Never'], ['daily', 'Every day'], ['weekly', 'Every week on Thursday'], ['monthly', 'Every month on the 15th'], ['yearly', 'Every year on 15 Oct'], ['hebrew', 'Every year on 4 Cheshvan']]),
         `options: ${show(optionsIn(a.m, 'Repeat'))}`,
       );
       assertLacks(topText(a.m), ['Earlier ones stay'], 'a one-off has no "from here" line');
@@ -5570,7 +5569,7 @@ async function main() {
     const b = await editingHome('en', { item: serveSwim(swimSeries()), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
     try {
       await openEditor(b.m, 'Swimming');
-      assert(shownIn(b.m, 'Repeat') === 'Every week on Tuesday' && optionsIn(b.m, 'Repeat').length === 7, `a weekly series: ${show(shownIn(b.m, 'Repeat'))}, ${optionsIn(b.m, 'Repeat').length} options`);
+      assert(shownIn(b.m, 'Repeat') === 'Every week on Tuesday' && optionsIn(b.m, 'Repeat').length === 6, `a weekly series: ${show(shownIn(b.m, 'Repeat'))}, ${optionsIn(b.m, 'Repeat').length} options`);
       assertLacks(topText(b.m), ['Repeats every'], 'the row replaces the old text line');
       await pick(b.m, 'Repeat', 'daily');
       b.m.click(saveButton(b.m));
@@ -5609,7 +5608,7 @@ async function main() {
       await openEditor(e.m, 'Swimming');
       assert(shownIn(e.m, 'Repeat') === 'Every 2 weeks (current)', `custom: ${show(shownIn(e.m, 'Repeat'))}`);
       const opts = optionsIn(e.m, 'Repeat');
-      assert(show(opts[0]) === show(['custom', 'Every 2 weeks (current)']) && show(opts.slice(1).map((o) => o[0])) === show(['none', 'daily', 'weekly', 'monthly', 'yearly', 'hebrew', 'yahrzeit']), `custom first: ${show(opts)}`);
+      assert(show(opts[0]) === show(['custom', 'Every 2 weeks (current)']) && show(opts.slice(1).map((o) => o[0])) === show(['none', 'daily', 'weekly', 'monthly', 'yearly', 'hebrew']), `custom first: ${show(opts)}`);
       await typeInto(inDialog(e.m, 'Location'), 'The pool');
       e.m.click(saveButton(e.m));
       await settle();
@@ -5632,7 +5631,7 @@ async function main() {
     try {
       await openEditor(f.m, 'Swimming');
       assert(
-        show(optionsIn(f.m, 'Repeat')) === show([['none', 'Never'], ['daily', 'Every day, until 27 Oct (current)'], ['weekly', 'Every week on Tuesday, until 27 Oct'], ['monthly', 'Every month on the 20th, until 27 Oct'], ['yearly', 'Every year on 20 Oct, until 27 Oct'], ['hebrew', 'Every year on 9 Cheshvan, until 27 Oct'], ['yahrzeit', 'Yahrzeit, every year on 9 Cheshvan, until 27 Oct']]),
+        show(optionsIn(f.m, 'Repeat')) === show([['none', 'Never'], ['daily', 'Every day, until 27 Oct (current)'], ['weekly', 'Every week on Tuesday, until 27 Oct'], ['monthly', 'Every month on the 20th, until 27 Oct'], ['yearly', 'Every year on 20 Oct, until 27 Oct'], ['hebrew', 'Every year on 9 Cheshvan, until 27 Oct']]),
         `ended: ${show(optionsIn(f.m, 'Repeat'))}`,
       );
     } finally {
@@ -6222,22 +6221,22 @@ async function main() {
     return { m, tg };
   }
   /** A Hebrew series' edit info: Swimming, opened on its 20 Oct occurrence, anchored on 30 Cheshvan (24 Nov 2022). */
-  const hebrewSwim = (choice: 'hebrew' | 'yahrzeit' | 'custom' = 'hebrew', o: { interval?: number; until?: string; first?: boolean } = {}) =>
+  const hebrewSwim = (choice: 'hebrew' | 'custom' = 'hebrew', o: { interval?: number; until?: string; first?: boolean } = {}) =>
     swimSeries(
       {
-        repeat: { freq: 'yearly', interval: o.interval ?? 1, byDay: [], ends: Boolean(o.until), hebrew: { kind: choice === 'yahrzeit' ? 'yahrzeit' : 'anniversary', anchor: '2022-11-24' } },
+        repeat: { freq: 'yearly', interval: o.interval ?? 1, byDay: [], ends: Boolean(o.until), hebrew: { anchor: '2022-11-24' } },
         rule: { choice, anchor: '2022-11-24', ...(o.until ? { until: o.until } : {}) },
         first: o.first ?? true,
       },
       {},
     );
-  const HEBREW_TEXTS: Record<Locale, { hebrew: string; yahrzeit: string }> = {
-    en: { hebrew: 'Every year on 4 Cheshvan', yahrzeit: 'Yahrzeit, every year on 4 Cheshvan' },
-    he: { hebrew: 'כל שנה בד׳ בחשון', yahrzeit: 'יארצייט, כל שנה בד׳ בחשון' },
-    ru: { hebrew: 'Каждый год 4 хешвана', yahrzeit: 'Йорцайт, каждый год 4 хешвана' },
+  const HEBREW_TEXTS: Record<Locale, { hebrew: string }> = {
+    en: { hebrew: 'Every year on 4 Cheshvan' },
+    he: { hebrew: 'כל שנה בד׳ בחשון' },
+    ru: { hebrew: 'Каждый год 4 хешвана' },
   };
 
-  await check('#102 create: the two Hebrew choices follow the five when the home shows Hebrew dates, worded from the form\'s start day in each language (gematriya in Hebrew), and follow the day when it changes; a pick is sent as repeat', async () => {
+  await check('#102 create: the Hebrew choice follows the five when the home shows Hebrew dates, worded from the form\'s start day in each language (gematriya in Hebrew), and follow the day when it changes; a pick is sent as repeat', async () => {
     for (const locale of LOCALES) {
       const l = messages[locale].calendarHome;
       const { m } = await hebrewHome(locale, true, { write: () => ok200({ status: 'ok', key: 'famcal|new' }) });
@@ -6246,16 +6245,16 @@ async function main() {
         await settle();
         const opts = optionsIn(m, l.editor.repeat.label);
         assert(show(opts.slice(0, 5).map((o) => o[0])) === show(['none', 'daily', 'weekly', 'monthly', 'yearly']), `${locale}: the five first: ${show(opts)}`);
-        assert(show(opts.slice(5)) === show([['hebrew', HEBREW_TEXTS[locale].hebrew], ['yahrzeit', HEBREW_TEXTS[locale].yahrzeit]]), `${locale}: the Hebrew choices: ${show(opts.slice(5))}`);
+        assert(show(opts.slice(5)) === show([['hebrew', HEBREW_TEXTS[locale].hebrew]]), `${locale}: the Hebrew choice: ${show(opts.slice(5))}`);
         if (locale === 'en') {
           await typeInto(inDialog(m, 'Start date'), '2026-10-22');
-          assert(optionsIn(m, 'Repeat')[5][1] === 'Every year on 11 Cheshvan' && optionsIn(m, 'Repeat')[6][1] === 'Yahrzeit, every year on 11 Cheshvan', `the words follow the day: ${show(optionsIn(m, 'Repeat').slice(5))}`);
+          assert(optionsIn(m, 'Repeat')[5][1] === 'Every year on 11 Cheshvan' && optionsIn(m, 'Repeat').length === 6, `the words follow the day: ${show(optionsIn(m, 'Repeat').slice(5))}`);
           await typeInto(inDialog(m, 'Title'), 'Grandpa');
-          await pick(m, 'Repeat', 'yahrzeit');
-          assert(shownIn(m, 'Repeat') === 'Yahrzeit, every year on 11 Cheshvan', `the pick shows: ${show(shownIn(m, 'Repeat'))}`);
+          await pick(m, 'Repeat', 'hebrew');
+          assert(shownIn(m, 'Repeat') === 'Every year on 11 Cheshvan', `the pick shows: ${show(shownIn(m, 'Repeat'))}`);
           m.click(saveButton(m));
           await settle();
-          assert(writes().length === 1 && writes()[0].body?.repeat === 'yahrzeit' && writes()[0].body?.kind === 'event', `sent: ${show(writes()[0]?.body)}`);
+          assert(writes().length === 1 && writes()[0].body?.repeat === 'hebrew' && writes()[0].body?.kind === 'event', `sent: ${show(writes()[0]?.body)}`);
         }
       } finally {
         m.unmount();
@@ -6263,7 +6262,7 @@ async function main() {
     }
   });
 
-  await check('#102a create: a reminder has the choices too; with Hebrew dates off, or a Google calendar chosen, or a Google user, there are none, and a Hebrew pick falls back to yearly when the calendar becomes a Google one', async () => {
+  await check('#102a create: a reminder has the choice too; with Hebrew dates off, or a Google calendar chosen, or a Google user, there are none, and a Hebrew pick falls back to yearly when the calendar becomes a Google one', async () => {
     const both = editorWith({ calendars: [...EDITOR_INFO.calendars, { id: 'avi@gmail.com', name: 'Avi', color: '#039BE5', main: false, mine: true }] });
     const a = await hebrewHome('en', true, { editor: ok200(both), write: () => ok200({ status: 'ok', key: 'famcal|new' }) });
     try {
@@ -6274,13 +6273,13 @@ async function main() {
       assert(show(optionsIn(a.m, 'Repeat').map((o) => o[0])) === show(['none', 'daily', 'weekly', 'monthly', 'yearly']), `a Google calendar: ${show(optionsIn(a.m, 'Repeat'))}`);
       assert(shownIn(a.m, 'Repeat') === 'Every year on 15 Oct', `the pick fell back to yearly: ${show(shownIn(a.m, 'Repeat'))}`);
       await pick(a.m, 'Calendar', 'native:cal_me_7f3a');
-      assert(optionsIn(a.m, 'Repeat').length === 7, 'back on FamCal: the choices are back');
+      assert(optionsIn(a.m, 'Repeat').length === 6, 'back on FamCal: the choices are back');
       // A reminder is always FamCal's: the Google calendar picked for the event does not take them away.
       await pick(a.m, 'Calendar', 'avi@gmail.com');
       assert(optionsIn(a.m, 'Repeat').length === 5, 'the Google calendar again');
       tapIn(a.m, 'Reminder');
       await settle();
-      assert(optionsIn(a.m, 'Repeat').length === 7, `a reminder: ${show(optionsIn(a.m, 'Repeat'))}`);
+      assert(optionsIn(a.m, 'Repeat').length === 6, `a reminder: ${show(optionsIn(a.m, 'Repeat'))}`);
       await pick(a.m, 'Repeat', 'hebrew');
       await typeInto(inDialog(a.m, 'Title'), 'Light a candle');
       a.m.click(saveButton(a.m));
@@ -6322,7 +6321,7 @@ async function main() {
         if (pickFirst) await pick(a.m, 'Calendar', 'avi@gmail.com');
         tapIn(a.m, 'Reminder');
         await settle();
-        await pick(a.m, 'Repeat', 'yahrzeit');
+        await pick(a.m, 'Repeat', 'hebrew');
         tapIn(a.m, 'Event');
         await settle();
         assert(optionsIn(a.m, 'Repeat').length === 5, `${label}: no Hebrew choices on an event: ${show(optionsIn(a.m, 'Repeat'))}`);
@@ -6337,14 +6336,14 @@ async function main() {
     }
   });
 
-  await check('#103 edit: a Hebrew item opens (the client takes the two choices and the anchor) with its choice selected, worded from the stored anchor and not from the opened (maybe rolled) day; the other kind is offered, and picking it is a repeat change from here on, with no question', async () => {
+  await check('#103 edit: a Hebrew item opens (the client takes the choice and the anchor) with its choice selected, worded from the stored anchor and not from the opened (maybe rolled) day; picking another is a repeat change from here on, with no question', async () => {
     const { m } = await hebrewHome('en', true, { item: serveSwim(hebrewSwim('hebrew')), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
     try {
       await openEditor(m, 'Swimming');
       assert(shownIn(m, 'Repeat') === 'Every year on 30 Cheshvan', `shown: ${show(shownIn(m, 'Repeat'))}`);
       assert(
         show(optionsIn(m, 'Repeat')) ===
-          show([['none', 'Never'], ['daily', 'Every day'], ['weekly', 'Every week on Tuesday'], ['monthly', 'Every month on the 20th'], ['yearly', 'Every year on 20 Oct'], ['hebrew', 'Every year on 30 Cheshvan'], ['yahrzeit', 'Yahrzeit, every year on 30 Cheshvan']]),
+          show([['none', 'Never'], ['daily', 'Every day'], ['weekly', 'Every week on Tuesday'], ['monthly', 'Every month on the 20th'], ['yearly', 'Every year on 20 Oct'], ['hebrew', 'Every year on 30 Cheshvan']]),
         `options: ${show(optionsIn(m, 'Repeat'))}`,
       );
       await typeInto(inDialog(m, 'Location'), 'The pool');
@@ -6354,12 +6353,6 @@ async function main() {
       tapIn(m, 'Only this one (Tue 20 Oct)');
       await settle();
       assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'single', changes: { location: 'The pool' } }), `the stored choice is never sent: ${show(writes()[0]?.body)}`);
-      m.click(byLabel(topDialog(m), 'Edit'));
-      await settle();
-      await pick(m, 'Repeat', 'yahrzeit');
-      m.click(saveButton(m));
-      await settle();
-      assert(sameBody(lastWrite().body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { repeat: 'yahrzeit' } }), `the other kind: ${show(lastWrite().body)}`);
       m.click(byLabel(topDialog(m), 'Edit'));
       await settle();
       await pick(m, 'Repeat', 'yearly');
@@ -6382,31 +6375,30 @@ async function main() {
     } finally {
       g.m.unmount();
     }
-    // A day move: the stored choice keeps its anchor's words, the other kind is worded from the new day.
+    // A day move: the stored choice keeps its anchor's words.
     const moved = await hebrewHome('en', true, { item: serveSwim(hebrewSwim('hebrew')) });
     try {
       await openEditor(moved.m, 'Swimming');
       await typeInto(inDialog(moved.m, 'Start date'), day(7));
-      assert(optionsIn(moved.m, 'Repeat')[5][1] === 'Every year on 30 Cheshvan' && optionsIn(moved.m, 'Repeat')[6][1] === 'Yahrzeit, every year on 11 Cheshvan', `after a day move: ${show(optionsIn(moved.m, 'Repeat').slice(5))}`);
+      assert(optionsIn(moved.m, 'Repeat')[5][1] === 'Every year on 30 Cheshvan' && optionsIn(moved.m, 'Repeat').length === 6, `after a day move: ${show(optionsIn(moved.m, 'Repeat').slice(5))}`);
     } finally {
       moved.m.unmount();
     }
   });
 
-  await check('#103a edit: a Hebrew rule shows its words to anyone who opens it, with Hebrew dates off too (the stored choice only, selected); a yahrzeit with an end names it; every 2 years is a first, custom choice with the anchor\'s date', async () => {
-    const off = await hebrewHome('en', false, { item: serveSwim(hebrewSwim('yahrzeit')) });
+  await check('#103a edit: a Hebrew rule shows its words to anyone who opens it, with Hebrew dates off too (the stored choice only, selected); a Hebrew rule with an end names it; every 2 years is a first, custom choice with the anchor\'s date', async () => {
+    const off = await hebrewHome('en', false, { item: serveSwim(hebrewSwim('hebrew')) });
     try {
       await openEditor(off.m, 'Swimming');
-      assert(shownIn(off.m, 'Repeat') === 'Yahrzeit, every year on 30 Cheshvan', `shown: ${show(shownIn(off.m, 'Repeat'))}`);
-      assert(show(optionsIn(off.m, 'Repeat').map((o) => o[0])) === show(['none', 'daily', 'weekly', 'monthly', 'yearly', 'yahrzeit']), `only the stored one: ${show(optionsIn(off.m, 'Repeat'))}`);
+      assert(shownIn(off.m, 'Repeat') === 'Every year on 30 Cheshvan', `shown: ${show(shownIn(off.m, 'Repeat'))}`);
+      assert(show(optionsIn(off.m, 'Repeat').map((o) => o[0])) === show(['none', 'daily', 'weekly', 'monthly', 'yearly', 'hebrew']), `only the stored one: ${show(optionsIn(off.m, 'Repeat'))}`);
     } finally {
       off.m.unmount();
     }
-    const ended = await hebrewHome('en', true, { item: serveSwim(hebrewSwim('yahrzeit', { until: day(12) })) });
+    const ended = await hebrewHome('en', true, { item: serveSwim(hebrewSwim('hebrew', { until: day(12) })) });
     try {
       await openEditor(ended.m, 'Swimming');
-      assert(shownIn(ended.m, 'Repeat') === 'Yahrzeit, every year on 30 Cheshvan, until 27 Oct (current)', `ended: ${show(shownIn(ended.m, 'Repeat'))}`);
-      assert(optionsIn(ended.m, 'Repeat')[5][1] === 'Every year on 30 Cheshvan, until 27 Oct', `the other kind names the end too: ${show(optionsIn(ended.m, 'Repeat')[5])}`);
+      assert(shownIn(ended.m, 'Repeat') === 'Every year on 30 Cheshvan, until 27 Oct (current)', `ended: ${show(shownIn(ended.m, 'Repeat'))}`);
     } finally {
       ended.m.unmount();
     }
@@ -6419,10 +6411,10 @@ async function main() {
       custom.m.unmount();
     }
     for (const locale of ['he', 'ru'] as const) {
-      const h = await hebrewHome(locale, true, { item: serveSwim(hebrewSwim('yahrzeit')) });
+      const h = await hebrewHome(locale, true, { item: serveSwim(hebrewSwim('hebrew')) });
       try {
         await openEditor(h.m, 'Swimming', messages[locale].calendarHome.sheet.edit);
-        const want = locale === 'he' ? 'יארצייט, כל שנה בל׳ בחשון' : 'Йорцайт, каждый год 30 хешвана';
+        const want = locale === 'he' ? 'כל שנה בל׳ בחשון' : 'Каждый год 30 хешвана';
         assert(shownIn(h.m, messages[locale].calendarHome.editor.repeat.label) === want, `${locale}: ${show(shownIn(h.m, messages[locale].calendarHome.editor.repeat.label))}`);
       } finally {
         h.m.unmount();
@@ -6448,54 +6440,25 @@ async function main() {
     }
   });
 
-  await check('#104a edit: switching the Hebrew kind from an occurrence where the other kind falls on another day (the server answers 400 repeatKind) says why and what to do, not "Couldn\'t save"; changing the form clears it; the copy exists in en, he and ru, translated', async () => {
-    const a = await hebrewHome('en', true, { item: serveSwim(hebrewSwim('hebrew')), write: () => ({ status: 400, body: { error: 'invalid', field: 'repeatKind' } }) });
-    try {
-      await openEditor(a.m, 'Swimming');
-      await pick(a.m, 'Repeat', 'yahrzeit');
-      a.m.click(saveButton(a.m));
-      await settle();
-      assert(writes().length === 1 && writes()[0].body?.scope === 'following' && writes()[0].body?.changes?.repeat === 'yahrzeit', `sent: ${show(writes()[0]?.body)}`);
-      assert(alerts(a.m).includes(messages.en.calendarHome.editor.repeat.kindDay), `the kind note: ${show(alerts(a.m))}`);
-      assert(!alerts(a.m).includes('Couldn’t save. Try again.'), `not the generic text: ${show(alerts(a.m))}`);
-      await pick(a.m, 'Repeat', 'hebrew');
-      assert(!alerts(a.m).includes(messages.en.calendarHome.editor.repeat.kindDay), `a change clears it: ${show(alerts(a.m))}`);
-    } finally {
-      a.m.unmount();
-    }
+  await check('#104b the item sheet names the rule (spec §1, §4): a Hebrew series says "Every year on 30 Cheshvan" (the stored anchor, gematriya in Hebrew, every 2 years named) in place of the generic "Repeats", to a viewer who cannot edit too, with Hebrew dates off too; a Gregorian series keeps "Repeats"', async () => {
+    const WORDS: Record<Locale, string> = { en: 'Every year on 30 Cheshvan', he: 'כל שנה בל׳ בחשון', ru: 'Каждый год 30 хешвана' };
     for (const locale of LOCALES) {
-      const text = (messages[locale].calendarHome.editor.repeat as unknown as Record<string, string>).kindDay;
-      assert(typeof text === 'string' && text.length > 0, `${locale}: editor.repeat.kindDay exists`);
-      if (locale !== 'en') assert(text !== messages.en.calendarHome.editor.repeat.kindDay, `${locale}: editor.repeat.kindDay is translated`);
-    }
-  });
-
-  await check('#104b the item sheet names the kind (spec §1, §4): a Hebrew series says "Every year on 30 Cheshvan" or "Yahrzeit, every year on 30 Cheshvan" (the stored anchor, gematriya in Hebrew, every 2 years named) in place of the generic "Repeats", to a viewer who cannot edit too, with Hebrew dates off too; a Gregorian series keeps "Repeats"', async () => {
-    const WORDS: Record<Locale, Record<'hebrew' | 'yahrzeit', string>> = {
-      en: { hebrew: 'Every year on 30 Cheshvan', yahrzeit: 'Yahrzeit, every year on 30 Cheshvan' },
-      he: { hebrew: 'כל שנה בל׳ בחשון', yahrzeit: 'יארצייט, כל שנה בל׳ בחשון' },
-      ru: { hebrew: 'Каждый год 30 хешвана', yahrzeit: 'Йорцайт, каждый год 30 хешвана' },
-    };
-    const words = (locale: Locale, kind: 'hebrew' | 'yahrzeit'): string => WORDS[locale][kind];
-    for (const locale of LOCALES) {
-      for (const kind of ['hebrew', 'yahrzeit'] as const) {
-        const a = await hebrewHome(locale, true, { item: serveSwim(hebrewSwim(kind)) });
-        try {
-          await openItem(a.m, 'Swimming');
-          const text = topText(a.m);
-          assert(text.includes(words(locale, kind)), `${locale} ${kind}: ${show(text)} lacks ${show(words(locale, kind))}`);
-          assert(!text.includes(messages[locale].calendarHome.sheet.repeats), `${locale} ${kind}: the generic tag is gone: ${show(text)}`);
-        } finally {
-          a.m.unmount();
-        }
+      const a = await hebrewHome(locale, true, { item: serveSwim(hebrewSwim('hebrew')) });
+      try {
+        await openItem(a.m, 'Swimming');
+        const text = topText(a.m);
+        assert(text.includes(WORDS[locale]), `${locale}: ${show(text)} lacks ${show(WORDS[locale])}`);
+        assert(!text.includes(messages[locale].calendarHome.sheet.repeats), `${locale}: the generic tag is gone: ${show(text)}`);
+      } finally {
+        a.m.unmount();
       }
     }
     // Every 2 years, a viewer who cannot edit, Hebrew dates off: the words still show.
-    const viewer = { ...hebrewSwim('yahrzeit', { interval: 2 }), canEdit: false, canDelete: false };
+    const viewer = { ...hebrewSwim('hebrew', { interval: 2 }), canEdit: false, canDelete: false };
     const v = await hebrewHome('en', false, { item: serveSwim(viewer) });
     try {
       await openItem(v.m, 'Swimming');
-      assert(topText(v.m).includes('Yahrzeit, every 2 years on 30 Cheshvan') && !topText(v.m).includes('Repeats'), `viewer: ${show(topText(v.m))}`);
+      assert(topText(v.m).includes('Every 2 years on 30 Cheshvan') && !topText(v.m).includes('Repeats'), `viewer: ${show(topText(v.m))}`);
     } finally {
       v.m.unmount();
     }
@@ -6520,7 +6483,7 @@ async function main() {
   await check('#105 the Hebrew copy in en, he and ru: real text, no key left bare, and Hebrew and Russian translated, not copied', () => {
     for (const locale of LOCALES) {
       const l = messages[locale].calendarHome.editor.repeat as unknown as Record<string, string>;
-      for (const key of ['hebrew', 'yahrzeit', 'hebrewPlain', 'yahrzeitPlain', 'hebrewEvery', 'yahrzeitEvery']) {
+      for (const key of ['hebrew', 'hebrewPlain', 'hebrewEvery']) {
         assert(typeof l[key] === 'string' && l[key].length > 0, `${locale}: editor.repeat.${key} exists`);
         if (locale !== 'en') assert(l[key] !== (messages.en.calendarHome.editor.repeat as unknown as Record<string, string>)[key], `${locale}: editor.repeat.${key} is translated`);
       }

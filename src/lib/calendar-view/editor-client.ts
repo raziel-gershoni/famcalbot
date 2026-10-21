@@ -85,7 +85,7 @@ function isItemInfoExtras(value: Record<string, unknown>): boolean {
   const ruleOk =
     rule === undefined ||
     (isObject(rule) &&
-      ['none', 'daily', 'weekly', 'monthly', 'yearly', 'hebrew', 'yahrzeit', 'custom'].includes(rule.choice as string) &&
+      ['none', 'daily', 'weekly', 'monthly', 'yearly', 'hebrew', 'custom'].includes(rule.choice as string) &&
       optional(rule.words, 'string') &&
       optional(rule.until, 'string') &&
       optional(rule.anchor, 'string'));

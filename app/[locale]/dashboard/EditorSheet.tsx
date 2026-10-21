@@ -11,7 +11,7 @@
 // - Edit: the same fields prefilled from the item's edit info, with the Repeat row (the
 //   stored rule selected; a rule the five can't say is a sixth, first choice; an end is
 //   kept and named; with the home's Hebrew dates on and a FamCal calendar, also "every year on
-//   <Hebrew date>" and "Yahrzeit", worded from the stored anchor or the form's start day), the
+//   <Hebrew date>", worded from the stored anchor or the form's start day), the
 //   Calendar row (the item's move targets) and, for a reminder's
 //   creator, the For row. Where the info doesn't allow a row, its value stays text. What a
 //   Save applies to is editor-model's scopePlan: a repeat change is from this occurrence on
@@ -72,8 +72,7 @@ import { ConfirmSheet, ScopeSheet, useErrorText, type SubmitError } from './Scop
 /** What the container's request came to. On `ok` the container closes the editor. */
 export type SaveOutcome =
   | { kind: 'ok' }
-  // `kindDay`: the server refused the other Hebrew kind from this occurrence (it falls on another day there): a note, not "Couldn't save".
-  | { kind: 'error'; error: SubmitError; field?: FieldName; kindDay?: true; move?: MoveNote };
+  | { kind: 'error'; error: SubmitError; field?: FieldName; move?: MoveNote };
 
 /** A move to the other kind of calendar the server refused: saved with other changes, or what can't cross ("Google as a connection" §5). */
 export type MoveNote = 'moveAlone' | 'moveMeet' | 'moveHebrew' | 'moveRepeat';
@@ -101,7 +100,6 @@ export interface EditorSheetProps {
 const INLINE_NOTE_KEY = {
   dayMove: 'scope.dayMoveNote',
   dayMoveAlone: 'editor.dayMoveAlone',
-  kindDay: 'editor.repeat.kindDay',
   moveAlone: 'editor.moveAlone',
   moveMeet: 'editor.move.reasons.meet',
   moveHebrew: 'editor.move.reasons.hebrew',
@@ -179,7 +177,6 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
       // A refused day move for more than this one: the rule fixes the days (it changed after
       // the sheet opened, so the choices offered it), and retrying would fail the same way.
       if (edit && info && outcome.field === 'start' && scope !== 'single' && movesDay(form, start, info.tz, info.series.zone)) setInlineNote('dayMove');
-      else if (outcome.kindDay) setInlineNote('kindDay');
       else if (outcome.move) setInlineNote(outcome.move);
       else setError(outcome.error);
       if (outcome.field) setServerField(outcome.field);
@@ -233,7 +230,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
         return null;
     }
   };
-  // The Hebrew choices (hebrew-repeats spec §4): offered with Hebrew dates and a FamCal calendar
+  // The Hebrew choice (hebrew-repeats spec §4): offered with Hebrew dates and a FamCal calendar
   // (a reminder is always FamCal's); an item that already has one shows its words to anyone.
   const famcalTarget = edit ? info?.source !== 'google' : reminder || isNativeCalendar(form.calendarId);
   const hebrewOffered = hebrewDates && famcalTarget;
@@ -241,11 +238,10 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   const startDayInZone = edit && info && day ? dayInZone(day, form.allDay ? '00:00' : form.startTime, info.tz, info.series.zone) : day;
   const storedAnchor = edit && info ? hebrewAnchorOf(info) : null;
   const dayMoved = edit && info ? movesDay(form, start, info.tz, info.series.zone) : false;
-  /** A Hebrew choice's words: the stored anchor's date (never the opened occurrence's, which may be a rolled day) unless the start moved, else the start's. */
-  const hebrewChoiceText = (r: 'hebrew' | 'yahrzeit'): string => {
-    const anchorDay = storedAnchor && (stored === r || !dayMoved) ? storedAnchor : startDayInZone;
+  /** The Hebrew choice's words: the stored anchor's date (never the opened occurrence's, which may be a rolled day) unless the start moved, else the start's. */
+  const hebrewChoiceText = (): string => {
+    const anchorDay = storedAnchor && (stored === 'hebrew' || !dayMoved) ? storedAnchor : startDayInZone;
     const when = hebrewLabel(anchorDay);
-    if (r === 'yahrzeit') return when ? t('editor.repeat.yahrzeit', { date: when }) : t('editor.repeat.yahrzeitPlain');
     return when ? t('editor.repeat.hebrew', { date: when }) : t('editor.repeat.hebrewPlain');
   };
   const date = day ? formatDayMonth(day, locale) : '';
@@ -257,10 +253,10 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
     if (r === 'daily') return t('editor.repeat.daily');
     if (r === 'weekly') return weekday ? t('editor.repeat.weekly', { weekday }) : t('editor.repeat.weeklyPlain');
     if (r === 'monthly') return day ? t('editor.repeat.monthly', { day: dom }) : t('editor.repeat.monthlyPlain');
-    if (r === 'hebrew' || r === 'yahrzeit') return hebrewChoiceText(r);
+    if (r === 'hebrew') return hebrewChoiceText();
     return day ? t('editor.repeat.yearly', { date }) : t('editor.repeat.yearlyPlain');
   };
-  const choices: RepeatChoice[] = hebrewOffered ? [...REPEATS, 'hebrew', 'yahrzeit'] : isHebrewRepeat(stored) ? [...REPEATS, stored] : REPEATS;
+  const choices: RepeatChoice[] = hebrewOffered ? [...REPEATS, 'hebrew'] : isHebrewRepeat(stored) ? [...REPEATS, stored] : REPEATS;
   const repeatOptions: SelectOption[] = choices.map((r): SelectOption => {
     if (r === 'none' || !until) return { value: r, text: choiceText(r) };
     const ended = withEnd(choiceText(r));

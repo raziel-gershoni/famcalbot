@@ -682,10 +682,10 @@ function lastSlot(rule: string, start: Date, zone: string, hebrew?: HebrewColumn
 }
 
 /**
- * What the editor's Repeat row calls a stored rule: one of its five, a Hebrew kind ('hebrew'
- * every year on the Hebrew date, 'yahrzeit'), or 'custom' (3b spec §2.1, hebrew-repeats §3).
+ * What the editor's Repeat row calls a stored rule: one of its five, 'hebrew' (every year
+ * on the Hebrew date), or 'custom' (3b spec §2.1, hebrew-repeats §3).
  */
-export type RuleChoice = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'hebrew' | 'yahrzeit' | 'custom';
+export type RuleChoice = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'hebrew' | 'custom';
 const CHOICE_OF_FREQ: Record<number, RuleChoice> = {
   [RRule.DAILY]: 'daily',
   [RRule.WEEKLY]: 'weekly',
@@ -735,7 +735,7 @@ export function classifyRule(rule: string | null, start: Date, zone: string, heb
     const plain = opts.freq === RRule.YEARLY && (opts.interval === undefined || opts.interval === 1)
       && Object.keys(opts).every((k) => HEBREW_PARTS.has(k));
     if (!plain || !isHebrewRule(hebrew.hebrewRule)) return withEnd('custom');
-    return withEnd(hebrew.hebrewRule === 'yahrzeit' ? 'yahrzeit' : 'hebrew');
+    return withEnd('hebrew');
   }
   const choice = typeof opts.freq === 'number' ? CHOICE_OF_FREQ[opts.freq] : undefined;
   if (!choice) return withEnd('custom');

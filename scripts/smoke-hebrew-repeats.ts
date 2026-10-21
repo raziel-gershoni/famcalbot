@@ -307,10 +307,8 @@ function main() {
     assertSame(rec.fixesDays(s.rrule), false, 'fixesDays');
     const cls = (rrule: string, kind: Kind) => rec.classifyRule(rrule, shvat, IL, { hebrewRule: kind, hebrewAnchor: '2026-02-02' });
     assertSame(cls('FREQ=YEARLY', 'anniversary'), { choice: 'hebrew' }, 'anniversary');
-    assertSame(cls('FREQ=YEARLY', 'yahrzeit'), { choice: 'yahrzeit' }, 'yahrzeit');
     assertSame(cls('FREQ=YEARLY;INTERVAL=1', 'anniversary'), { choice: 'hebrew' }, 'INTERVAL=1');
     assertSame(cls('FREQ=YEARLY;INTERVAL=2', 'anniversary'), { choice: 'custom' }, 'INTERVAL=2 is custom');
-    assertSame(cls('FREQ=YEARLY;COUNT=3', 'yahrzeit'), { choice: 'yahrzeit', until: at('2028-02-12 10:00') }, 'a COUNT\'s last occurrence');
     assertSame(cls('FREQ=YEARLY;UNTIL=20290101', 'anniversary'), { choice: 'hebrew', until: at('2028-02-12 10:00') }, 'an UNTIL\'s last occurrence');
     assertSame(cls('FREQ=YEARLY;INTERVAL=2;COUNT=2', 'anniversary'), { choice: 'custom', until: at('2028-02-12 10:00') }, 'custom with an end');
     assertSame(rec.classifyRule('FREQ=YEARLY', shvat, IL), { choice: 'yearly' }, 'without the pair it is Gregorian yearly');

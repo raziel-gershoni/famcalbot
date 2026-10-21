@@ -213,7 +213,7 @@ const WEEKDAYS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
 
 /**
  * How a stored rule repeats, or null for none (or a frequency the app has no words for). A
- * Hebrew series' (with its pair) names its kind and anchor (hebrew-repeats spec §3).
+ * Hebrew series' (with its pair) names its anchor (hebrew-repeats spec §3).
  */
 export function repeatInfo(rrule: string | null, hebrew?: HebrewColumns | null): RepeatInfo | null {
   if (!rrule) return null;
@@ -228,7 +228,7 @@ export function repeatInfo(rrule: string | null, hebrew?: HebrewColumns | null):
     const info: RepeatInfo = { freq, interval: opts.interval ?? 1, byDay, ends: opts.until != null || opts.count != null };
     if (hebrew?.hebrewRule) {
       if (!isHebrewRule(hebrew.hebrewRule) || !hebrew.hebrewAnchor) return null;
-      info.hebrew = { kind: hebrew.hebrewRule, anchor: hebrew.hebrewAnchor };
+      info.hebrew = { anchor: hebrew.hebrewAnchor };
     }
     return info;
   } catch (error) {

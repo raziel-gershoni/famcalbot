@@ -190,8 +190,6 @@ function saveOutcome(out: WriteOutcome): SaveOutcome {
     case 'ok':
       return { kind: 'ok' };
     case 'invalid':
-      // The other Hebrew kind falls on another day here (hebrew-repeats spec §4): the editor says so.
-      if (out.field === 'repeatKind') return { kind: 'error', error: 'failed', kindDay: true };
       // A cross-source move refused (spec "Google as a connection" §5): saved with other changes, or it can't cross.
       if (out.field && (MOVE_NOTES as readonly string[]).includes(out.field)) return { kind: 'error', error: 'failed', move: out.field as MoveNote };
       return { kind: 'error', error: 'failed', ...(out.field && FIELD_OF[out.field] ? { field: FIELD_OF[out.field] } : {}) };
@@ -759,9 +757,9 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     now: deps.now(),
     onAction: (action) => void runAction(action),
     editing,
-    // The sheet's repeat tag names a Hebrew rule's kind, to a viewer who can't edit too (hebrew-repeats spec §1).
+    // The sheet's repeat tag names a Hebrew rule, to a viewer who can't edit too (hebrew-repeats spec §1).
     hebrewRepeat: openInfo?.series.repeat?.hebrew
-      ? { kind: openInfo.series.repeat.hebrew.kind, count: openInfo.series.repeat.interval, anchor: openInfo.series.repeat.hebrew.anchor }
+      ? { count: openInfo.series.repeat.interval, anchor: openInfo.series.repeat.hebrew.anchor }
       : undefined,
   };
 
