@@ -74,7 +74,7 @@ export interface SheetActions {
   onAction: (action: ReminderActionName) => void;
   /** The viewer's editing rights on the open item, once known. */
   editing?: SheetEditing;
-  /** The open item's Hebrew-date repeat (its kind, interval and anchor), once its info is known: the repeat tag names it (hebrew-repeats spec §1, §4). */
+  /** The open item's Hebrew-date repeat (its interval and anchor), once its info is known: the repeat tag names it (hebrew-repeats spec §1, §4). */
   hebrewRepeat?: HebrewRepeat;
 }
 

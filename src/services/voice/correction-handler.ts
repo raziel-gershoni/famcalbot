@@ -46,7 +46,7 @@ function buildCorrectionPrompt(
 
   // The model reads a Hebrew date and the server converts it (hebrew-repeats spec §5); a repeat by the Hebrew date keeps its rule
   const hebrewNote = event.recurrence?.calendar === 'hebrew'
-    ? '\nThis event repeats every year by the Hebrew calendar (a Hebrew birthday or anniversary). Its start date is the day of the first occurrence. Do not change how it repeats.\n'
+    ? '\nThis event repeats every year on its Hebrew date. Its start date is the day of the first occurrence. Do not change how it repeats.\n'
     : '';
 
   return `You are correcting a calendar event based on user feedback.

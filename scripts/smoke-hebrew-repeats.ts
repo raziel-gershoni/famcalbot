@@ -133,6 +133,11 @@ function main() {
       ['2022-11-24', '2023-11-14', '2024-12-01', '2025-11-21', '2026-11-10', '2027-11-30', '2028-11-19'], 'anniversary');
   });
 
+  check('table: 30 Cheshvan (5787) whose first anniversary year has the 30th: on 30 Cheshvan in long years, 1 Kislev where it is missing', () => {
+    const start = at('2026-11-10 10:00'); // 30 Cheshvan 5787
+    assertSame(days(hebrew(start), '2026-01-01', '2030-01-01'), ['2026-11-10', '2027-11-30', '2028-11-19', '2029-11-08'], 'anniversary');
+  });
+
   check('table: 30 Kislev (5783) falls on 1 Tevet in a year without it', () => {
     const start = at('2022-12-24 10:00'); // 30 Kislev 5783
     assertSame(days(hebrew(start), '2023-06-01', '2024-06-01'), ['2023-12-13'], 'anniversary 5784');
@@ -296,6 +301,7 @@ function main() {
     assertSame(cls('FREQ=YEARLY'), { choice: 'hebrew' }, 'anniversary');
     assertSame(cls('FREQ=YEARLY;INTERVAL=1'), { choice: 'hebrew' }, 'INTERVAL=1');
     assertSame(cls('FREQ=YEARLY;INTERVAL=2'), { choice: 'custom' }, 'INTERVAL=2 is custom');
+    assertSame(cls('FREQ=YEARLY;COUNT=3'), { choice: 'hebrew', until: at('2028-02-12 10:00') }, 'a COUNT\'s last occurrence');
     assertSame(cls('FREQ=YEARLY;UNTIL=20290101'), { choice: 'hebrew', until: at('2028-02-12 10:00') }, 'an UNTIL\'s last occurrence');
     assertSame(cls('FREQ=YEARLY;INTERVAL=2;COUNT=2'), { choice: 'custom', until: at('2028-02-12 10:00') }, 'custom with an end');
     assertSame(rec.classifyRule('FREQ=YEARLY', shvat, IL), { choice: 'yearly' }, 'without the pair it is Gregorian yearly');

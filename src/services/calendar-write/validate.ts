@@ -17,7 +17,7 @@ export type Parsed<T> = { ok: true; value: T } | { ok: false; field: string };
 const KINDS: readonly ItemKind[] = ['event', 'reminder'];
 const SCOPES: readonly EditScope[] = ['single', 'following', 'all'];
 const REPEATS: readonly RepeatChoice[] = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'hebrew'];
-/** The repeat a Google calendar can't hold (hebrew-repeats spec §4): the Google writes refuse them with 400 repeat. */
+/** The repeat a Google calendar can't hold (hebrew-repeats spec §4): the Google writes refuse it with 400 repeat. */
 export const isHebrewChoice = (repeat: RepeatChoice | undefined): repeat is 'hebrew' => repeat === 'hebrew';
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const FAMCAL_KEY = 'famcal|';

@@ -2156,8 +2156,8 @@ async function main() {
     assertSame([info.status, info.body.series.rule, info.body.series.repeat, info.body.series.fixedDays],
       [200, { choice: 'hebrew', anchor: '2022-11-24' }, { freq: 'yearly', interval: 1, byDay: [], ends: false, hebrew: { anchor: '2022-11-24' } }, false], 'anniversary');
     const y = hebrewSeries('heb-y', { rrule: 'FREQ=YEARLY;COUNT=3' });
-    const death = await itemOf(y.occ('2022-11-24'));
-    assertSame([death.status, death.body.series.rule, death.body.series.first], [200, { choice: 'hebrew', until: '2024-12-01', anchor: '2022-11-24' }, true], 'the first occurrence');
+    const firstOcc = await itemOf(y.occ('2022-11-24'));
+    assertSame([firstOcc.status, firstOcc.body.series.rule, firstOcc.body.series.first], [200, { choice: 'hebrew', until: '2024-12-01', anchor: '2022-11-24' }, true], 'the first occurrence');
     const custom = hebrewSeries('heb-2', { rrule: 'FREQ=YEARLY;INTERVAL=2' });
     assertSame((await itemOf(custom.occ('2022-11-24'))).body.series.rule, { choice: 'custom', anchor: '2022-11-24' }, 'every 2 years is custom');
     const greg = seedSeries('greg', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Wedding', startsAt: at('2022-11-24 10:00'), rrule: 'FREQ=YEARLY' });

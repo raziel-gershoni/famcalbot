@@ -920,6 +920,13 @@ async function main() {
     assert(got.card.text.includes('🔄 Every year on 10 Tevet'), got.card.text);
   });
 
+  await check('correction: the prompt says a Hebrew repeat is every year on its Hebrew date and names no birthday or anniversary, so a yahrzeit\'s card reads right', async () => {
+    await correct(hebrewEvent(), { startDate: '2026-12-20', endDate: '2026-12-20', hebrewDate: null });
+    const prompt = geminiPrompts[0] ?? '';
+    assert(prompt.includes('This event repeats every year on its Hebrew date. Its start date is the day of the first occurrence. Do not change how it repeats.'), prompt);
+    assert(!/birthday|anniversary/i.test(prompt), `the prompt names a kind: ${prompt}`);
+  });
+
   await check('correction: a new Hebrew day with no year moves the start to its next occurrence', async () => {
     // The model's own Gregorian guess is ignored when it also sent a Hebrew date
     const got = await correct(hebrewEvent(), { startDate: '2026-12-25', endDate: '2026-12-25', hebrewDate: { day: 11, month: 'Tevet', year: null } });

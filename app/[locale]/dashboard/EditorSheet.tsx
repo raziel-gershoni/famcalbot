@@ -84,7 +84,7 @@ export interface EditorSheetProps {
   kinds?: { event: boolean; reminder: boolean };
   calendars?: EditorCalendar[];
   partner?: { name: string; canRemind: boolean } | null;
-  /** The home shows Hebrew dates: with a FamCal calendar, the Repeat row offers the two Hebrew choices (hebrew-repeats spec §4). */
+  /** The home shows Hebrew dates: with a FamCal calendar, the Repeat row offers the Hebrew choice (hebrew-repeats spec §4). */
   hebrewDates?: boolean;
   /** Edit: the item's edit info and key. */
   info?: ItemEditInfoResponse;
