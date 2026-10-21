@@ -1084,7 +1084,7 @@ async function main() {
     const storage = new Map<string, string>();
     const intervals = new Map<number, () => void>();
     const inflight: Promise<unknown>[] = [];
-    const phone: Row = { storage, opened: [] as string[], mainButton: 'hidden', refuse: new Set<string>(), location: { href: 'http://localhost/en/refresh-token', hash: '' } };
+    const phone: Row = { storage, opened: [] as string[], mainButtonShows: 0, refuse: new Set<string>(), location: { href: 'http://localhost/en/refresh-token', hash: '' } };
     phone.serverNow = () => realNow() + serverShift;
     /** The phone's clock moves on by `ms` (the page left open); the server's with it. */
     phone.advance = (ms: number) => { phoneShift += ms; serverShift += ms; };
@@ -1114,7 +1114,7 @@ async function main() {
     const noop = () => undefined;
     Date.now = () => realNow() + (depth > 0 ? serverShift : phoneShift);
     define('window', {
-      Telegram: { WebApp: { initData, ready: noop, expand: noop, openLink: (u: string) => phone.opened.push(u), MainButton: { setText: noop, onClick: noop, offClick: noop, show: () => { phone.mainButton = 'shown'; }, hide: () => { phone.mainButton = 'hidden'; } } } },
+      Telegram: { WebApp: { initData, ready: noop, expand: noop, openLink: (u: string) => phone.opened.push(u), MainButton: { setText: noop, onClick: noop, offClick: noop, show: () => { phone.mainButtonShows += 1; }, hide: noop } } },
       location: phone.location,
       open: (u: string) => phone.opened.push(u),
       sessionStorage: { getItem: () => null },
@@ -1831,12 +1831,12 @@ async function main() {
       const app = runClient(client.default, { userId: String(TAL_TG), locale: 'en', translations: TRANSLATIONS });
       await phone.settle();
       const connect = () => elementsOf(app.tree()).find(e => e.type === 'button' && e.props?.className === 'btn');
-      assert(connect()?.props.disabled === false && phone.mainButton === 'shown', `not ready: ${show(connect()?.props ?? null)}, MainButton ${phone.mainButton}`);
+      assert(connect()?.props.disabled === false, `not ready: ${show(connect()?.props ?? null)}`);
       connect()!.props.onClick();
       // The URL just opened is spent: until the next one is ready, nothing can reopen it
-      assert(connect()?.props.disabled === true && phone.mainButton === 'hidden', `right after the tap: ${show(connect()?.props ?? null)}, MainButton ${phone.mainButton}`);
+      assert(connect()?.props.disabled === true, `right after the tap: ${show(connect()?.props ?? null)}`);
       await phone.settle();
-      assert(connect()?.props.disabled === false && phone.mainButton === 'shown', `no next URL: ${show(connect()?.props ?? null)}`);
+      assert(connect()?.props.disabled === false, `no next URL: ${show(connect()?.props ?? null)}`);
       const first = stateOf(phone.opened[0]);
       const done = await phone.asServer(() => quietly(() => runCallback(first)));
       assert(done.value.redirect?.startsWith('/oauth-complete'), `first consent: ${show(done.value.threw ?? done.value.element?.props ?? done.value)}`);
@@ -1872,7 +1872,7 @@ async function main() {
       connect()!.props.onClick();
       await phone.settle();
       assert(phone.opened.length === 1, `opened ${show(phone.opened)}`);
-      assert(alerts().length === 0 && connect()?.props.disabled === false && phone.mainButton === 'shown', `after the failed prepare: alerts ${alerts().length}, button ${show(connect()?.props ?? null)}, MainButton ${phone.mainButton}`);
+      assert(alerts().length === 0 && connect()?.props.disabled === false, `after the failed prepare: alerts ${alerts().length}, button ${show(connect()?.props ?? null)}`);
       connect()!.props.onClick();
       assert(phone.opened.length === 1, `the retry tap opened ${show(phone.opened)}`);
       await phone.settle();
@@ -1880,6 +1880,24 @@ async function main() {
       await phone.settle();
       const opened = new URL(String(phone.opened[1] ?? 'https://x/')).searchParams.get('state') ?? '';
       assert(phone.opened.length === 2 && opened !== new URL(phone.opened[0]).searchParams.get('state') && DB.oAuthState.some((r: Row) => r.token === opened), `after the retry: ${show(phone.opened)}`);
+    });
+  });
+
+  await check('#52 the page\'s own Connect is the only button: Telegram\'s bottom MainButton (an English label under a Hebrew page) is never shown, whether the URL is ready, just used or failed to refresh', async () => {
+    const client = await load('app/refresh-token/RefreshTokenClient.tsx');
+    const TRANSLATIONS = new Proxy({}, { get: (_t, key) => (key === 'gate' ? new Proxy({}, { get: (_g, k) => String(k) }) : String(key)) });
+    seed();
+    await onPhone(0, initDataFor(TAL_TG), async phone => {
+      const app = runClient(client.default, { userId: String(TAL_TG), locale: 'he', translations: TRANSLATIONS });
+      await phone.settle();
+      const connect = () => elementsOf(app.tree()).find(e => e.type === 'button' && e.props?.className === 'btn');
+      assert(connect()?.props.disabled === false && phone.mainButtonShows === 0, `ready: button ${show(connect()?.props ?? null)}, MainButton shown ${phone.mainButtonShows}x`);
+      connect()!.props.onClick();
+      await phone.settle();
+      phone.refuse.add('/api/oauth/start');
+      connect()!.props.onClick();
+      await phone.settle();
+      assert(phone.opened.length === 2 && phone.mainButtonShows === 0, `opened ${phone.opened.length}, MainButton shown ${phone.mainButtonShows}x`);
     });
   });
 

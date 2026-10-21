@@ -264,22 +264,6 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     return () => clearInterval(timer);
   }, [waiting, checkTokenRefresh]);
 
-  useEffect(() => {
-    // The Telegram MainButton shows while the page's button works: a Google URL is ready, or a retry
-    const tg = typeof window !== 'undefined' ? window.Telegram?.WebApp : undefined;
-    if (!tg) return;
-    if (!oauthUrl && !retry) {
-      tg.MainButton.hide();
-      return;
-    }
-    tg.MainButton.setText('Connect Google Calendar');
-    tg.MainButton.onClick(startOAuth);
-    tg.MainButton.show();
-    return () => {
-      tg.MainButton.offClick(startOAuth);
-    };
-  }, [oauthUrl, retry, startOAuth]);
-
   return (
     <>
       <style jsx global>{`
