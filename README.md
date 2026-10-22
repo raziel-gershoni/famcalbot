@@ -75,7 +75,7 @@ Copy `.env.example` (production) or `.env.local.example` (local dev) and fill in
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` | Telegram bot auth and webhook verification |
 | `TELEGRAM_BOT_USERNAME`, `WHATSAPP_PHONE_NUMBER` | The bot's username and the WhatsApp number (digits only) behind the t.me and wa.me links, such as the Google connect finish buttons; unset, they fall back to the public bot and number in `src/lib/gate-links.ts` |
 | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | WhatsApp Business Cloud API (optional) |
-| `WHATSAPP_APP_SECRET` | The Meta app secret, which verifies WhatsApp webhook signatures (`X-Hub-Signature-256`); production logs a warning when it is unset |
+| `WHATSAPP_APP_SECRET` | Required. The Meta app secret, which verifies WhatsApp webhook signatures (`X-Hub-Signature-256`); unset, every WhatsApp webhook is refused (500) and production startup logs an error |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, `GOOGLE_REDIRECT_URI` | Google Calendar OAuth |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` | AI provider keys (the fixed models need only `GEMINI_API_KEY`) |
 | `AI_MAX_TOKENS`, `AI_MAX_RETRIES` | Optional output-token and retry overrides |
@@ -83,11 +83,28 @@ Copy `.env.example` (production) or `.env.local.example` (local dev) and fill in
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Redis for locks, caching, rate limiting |
 | `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY` | Scheduled job triggering / signature verification |
 | `CRON_SECRET` | Shared secret guarding internal cron/usage endpoints |
-| `SESSION_SECRET` | Signs the WhatsApp session cookie set by magic links; use its own random value (unset, `CRON_SECRET` signs it and production logs a warning) |
+| `SESSION_SECRET` | Required, no fallback: its own random value (`openssl rand -hex 32`), never `CRON_SECRET`'s. The WhatsApp session cookie and the share-story image links are signed with keys derived from it; unset, both are refused and production startup logs an error. Changing it signs WhatsApp web users out once |
+| `ENCRYPTION_KEY` | Encrypts the stored Google tokens: 64 hex characters (`openssl rand -hex 32`). See [Rotating `ENCRYPTION_KEY`](#rotating-encryption_key) |
+| `ENCRYPTION_KEY_PREVIOUS` | Optional and decrypt-only: the old `ENCRYPTION_KEY` while a rotation runs; delete it once the key sweep logs SAFE |
 | `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT` | Error tracking |
 | `NODE_ENV` | Runtime environment |
 
 The models are not configurable: text and TTS are fixed in `src/config/ai-models.ts` and `src/config/tts-models.ts`, and the voices per language in `src/services/voice-generator.ts`.
+
+### Rotating `ENCRYPTION_KEY`
+
+`ENCRYPTION_KEY` encrypts every stored Google token. **Never replace `ENCRYPTION_KEY` without setting `ENCRYPTION_KEY_PREVIOUS` to the old value in the same deploy.** Without it, every Google-connected user counts as not connected until the old key is back.
+
+1. Generate the new key with `openssl rand -hex 32`.
+2. In one deploy, set `ENCRYPTION_KEY_PREVIOUS` to the current key and `ENCRYPTION_KEY` to the new one. The startup log prints both fingerprints (`[startup] ENCRYPTION_KEY fp …; ENCRYPTION_KEY_PREVIOUS fp …`). The PREVIOUS fingerprint must equal the `ENCRYPTION_KEY` fingerprint the deploy before printed.
+3. The key sweep (`src/services/key-rotation.ts`) runs every 10 minutes and is idle for the first 10 minutes of uptime. It logs a `[key-sweep] baseline:` line first. Then it re-encrypts every stored token under the new key with compare-and-set writes and rebuilds the reminder cache.
+4. Once nothing needs the old key, after at least 30 minutes of uptime, it logs this line once per process and tells the admins on Telegram once:
+
+   `[key-sweep] SAFE: every stored token is under ENCRYPTION_KEY (fp XXXXXXXX); nothing needs ENCRYPTION_KEY_PREVIOUS. You can remove it at the next deploy.`
+
+5. Delete `ENCRYPTION_KEY_PREVIOUS` at a later deploy. If it is removed before SAFE, the tokens not yet converted can't be read; put it back and they read again.
+
+To roll back, swap the two values: the sweep converts back. The sweep stops reading the database until the next deploy once SAFE is logged, or, with no `ENCRYPTION_KEY_PREVIOUS`, once nothing is left to encrypt. That way Neon can still scale to zero.
 
 ### Install & run
 

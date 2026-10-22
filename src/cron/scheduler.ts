@@ -114,6 +114,20 @@ export function startScheduler(): void {
     }
   });
 
+  // Key sweep — every 10 minutes. After an ENCRYPTION_KEY rotation it re-encrypts the stored
+  // Google tokens under the new key and says SAFE once ENCRYPTION_KEY_PREVIOUS can go. Idle for
+  // the first 10 minutes of uptime and once nothing is left to do (src/services/key-rotation.ts).
+  cron.schedule('*/10 * * * *', async () => {
+    try {
+      const { runKeySweep } = await import('../services/key-rotation');
+      await runKeySweep();
+    } catch (error) {
+      console.error('[Scheduler] Key sweep failed:', error);
+      captureError(error, 'cron-key-sweep');
+      notifyAdmin('Key Sweep', error);
+    }
+  });
+
   console.log('[Scheduler] Cron jobs registered:');
   console.log('  */5 * * * *  Event reminders');
   console.log('  * * * * *    Native reminders (gated: reads the DB only when one may be due)');
@@ -122,6 +136,7 @@ export function startScheduler(): void {
   console.log('  0 * * * *    Tomorrow summary (hourly, filters by user preferred hour)');
   console.log('  0 7 * * *    Setup reminders (UTC 7:00 = Israel ~10:00)');
   console.log('  0 3 * * *    Health check (UTC 3:00 = Israel ~6:00)');
+  console.log('  */10 * * * * Key sweep (re-encrypts stored Google tokens after a key rotation; idle in the first 10 min)');
 }
 
 /**
