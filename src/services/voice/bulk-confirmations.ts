@@ -22,6 +22,7 @@ import { trackActivityAsync } from '../analytics-service';
 import { getBotMessage } from '../../lib/bot-messages';
 import { trackCreatedEvent } from './event-resolution';
 import { captureError } from '../../lib/error-capture';
+import { openUser, sealUser } from './pending-seal';
 import type { ParsedEvent, VoiceIntentResult } from '../event-parser';
 import type { UserConfig } from '../../types';
 import type { IMessagingService } from '../messaging/types';
@@ -43,7 +44,8 @@ export async function setPendingBatch(
   pendingId: string,
   payload: BulkPendingPayload
 ): Promise<void> {
-  await redis.set(REDIS_KEYS.pendingBatch(pendingId), payload, { ex: BATCH_TTL_SECONDS });
+  // The user's Google token is stored sealed (pending-seal.ts); getPendingBatch opens it
+  await redis.set(REDIS_KEYS.pendingBatch(pendingId), { ...payload, user: sealUser(payload.user) }, { ex: BATCH_TTL_SECONDS });
 }
 
 export async function getPendingBatch(pendingId: string): Promise<BulkPendingPayload | null> {
@@ -57,7 +59,16 @@ export async function getPendingBatch(pendingId: string): Promise<BulkPendingPay
       intent.event.endTime = new Date(intent.event.endTime);
     }
   }
-  return data;
+  // A token no key opens reads as an expired batch (callers answer bulk_pending_expired)
+  let user: UserConfig;
+  try {
+    user = openUser(data.user);
+  } catch (error) {
+    console.error('[Voice] Pending batch token does not decrypt:', error);
+    captureError(error, 'voice-confirmations', { pending_id: pendingId }, 'warning');
+    return null;
+  }
+  return { ...data, user };
 }
 
 export async function removePendingBatch(pendingId: string): Promise<void> {

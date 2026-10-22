@@ -1194,14 +1194,12 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
       }
 
       // MEDIUM confidence — fall through to the existing confirmation card.
-      const { REDIS_KEYS } = await import('../config/redis-keys');
-      const { redis } = await import('../utils/redis');
+      const { setPendingEvent, formatEventDateTime, formatReminderCard, hebrewCardParts } = await import('./voice/confirmations');
 
       const pendingId = `wa:${phone}:${Date.now()}`;
       const pendingEvent = reminder ? refreshReminderNotice(intentResult.event, timezone) : intentResult.event;
-      await redis.set(REDIS_KEYS.pendingEvent(pendingId), { event: pendingEvent, user, transcription }, { ex: 600 });
-
-      const { formatEventDateTime, formatReminderCard, hebrewCardParts } = await import('./voice/confirmations');
+      // The shared setter, as on Telegram: the user's Google token is stored sealed
+      await setPendingEvent(pendingId, { event: pendingEvent, user, transcription });
       let card: string;
       if (reminder) {
         card = await formatReminderCard(pendingEvent, user.language || 'en', timezone, 'whatsapp');

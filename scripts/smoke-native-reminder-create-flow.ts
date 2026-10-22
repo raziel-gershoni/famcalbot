@@ -24,6 +24,9 @@ import type { CalendarAssignment, CalendarEvent, UserConfig } from '../src/types
 import type { ParsedEvent, VoiceIntentResult } from '../src/services/event-parser';
 import type { PartnerSummary } from '../src/services/native-reminders/ownership';
 
+// No decrypt-only fallback key here (Prisma would load .env for an unset name).
+process.env.ENCRYPTION_KEY_PREVIOUS = '';
+
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
 
@@ -147,9 +150,12 @@ let currentUser: UserConfig = dana;
 /** The events the provider holds in any range, and what it was asked to create. */
 let rangeEvents: CalendarEvent[] = [];
 let created: Array<{ calendarId: string; input: Record<string, unknown> }> = [];
+/** The Google token of the user each create was made for, in order. */
+let providerTokens: string[] = [];
 const fakeProvider = {
   fetchEventsInRange: async () => rangeEvents,
-  createEvent: async (_user: unknown, calendarId: string, input: Record<string, unknown>) => {
+  createEvent: async (user: { googleRefreshToken: string }, calendarId: string, input: Record<string, unknown>) => {
+    providerTokens.push(user.googleRefreshToken);
     created.push({ calendarId, input });
     return { success: true, eventId: `ev${created.length}` };
   },
@@ -208,6 +214,7 @@ function reset() {
   waCalls = [];
   tracked.length = 0;
   created = [];
+  providerTokens = [];
   rangeEvents = [];
   matcherPrompts = [];
   geminiPrompts = [];
@@ -354,6 +361,29 @@ const buttonsOf = (call: Sent) =>
   ((call.opts?.reply_markup as { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> }).inline_keyboard);
 const pendingIdOf = (call: Sent, prefix: string) =>
   buttonsOf(call).flat().find(b => b.callback_data.startsWith(prefix))!.callback_data.slice(prefix.length);
+
+/** `text` encrypted under a key this deployment has neither as ENCRYPTION_KEY nor as PREVIOUS. */
+async function foreignCipher(text: string): Promise<string> {
+  const { encrypt } = await import('../src/utils/encryption');
+  const key = process.env.ENCRYPTION_KEY;
+  process.env.ENCRYPTION_KEY = key === 'f0'.repeat(32) ? '0f'.repeat(32) : 'f0'.repeat(32);
+  try {
+    return encrypt(text);
+  } finally {
+    if (key === undefined) delete process.env.ENCRYPTION_KEY;
+    else process.env.ENCRYPTION_KEY = key;
+  }
+}
+
+/** The one stored entry whose key starts with `prefix`: its raw JSON and its pending id. */
+function storedEntry(prefix: string): { raw: string; id: string } {
+  const keys = [...store.keys()].filter(k => k.startsWith(prefix));
+  assert(keys.length === 1, `stored under ${prefix}: ${JSON.stringify(keys)}`);
+  return { raw: store.get(keys[0])!, id: keys[0].slice(prefix.length) };
+}
+
+/** Which tokens the provider got, without printing them: plain 'rt-dana' or something else. */
+const tokenKinds = (tokens: string[]) => JSON.stringify(tokens.map(token => (token === 'rt-dana' ? 'plain' : 'other')));
 
 async function main() {
   const { getBotMessage, getBotMessages } = await import('../src/lib/bot-messages');
@@ -1020,6 +1050,105 @@ async function main() {
     await handleVoiceMessage(555, 1001, voice, from);
     const noTime = await getBotMessage('en', 'nativeReminders.card.noTimeSet');
     assert(created.length === 0 && lastBot().text.includes(noTime), JSON.stringify({ created, botCalls }));
+  });
+
+  // ---- Secret rotation (spec section c): pending entries hold the Google token sealed ----
+
+  const danaWithToken = { ...dana, googleRefreshToken: 'rt-dana' } as UserConfig;
+  const { isEncrypted } = await import('../src/utils/encryption');
+  const dentist: ParsedEvent = { title: 'Dentist', startTime: at('2026-10-15 10:00'), endTime: at('2026-10-15 11:00'), allDay: false, calendarId: 'native:main-1', calendarName: 'Dana', confidence: 'high' };
+
+  await check('sealed pending: an event card stores no Google token in plain form; the getter and the Create tap give it back', async () => {
+    await showEventConfirmation(555, undefined, dentist, 'dentist', danaWithToken);
+    const { raw, id } = storedEntry('voice:pending:event:');
+    assert(!raw.includes('rt-dana'), 'the pending event holds the token in plain form');
+    assert(isEncrypted(JSON.parse(raw).user.googleRefreshToken), 'the stored token is not sealed');
+    const pending = await confirmations.getPendingEvent(id);
+    assert(pending?.user.googleRefreshToken === 'rt-dana', 'the getter did not open the token');
+    await handleEventCallback(555, 701, 'q1', 'create', id);
+    assert(created.length === 1 && tokenKinds(providerTokens) === '["plain"]', `creates ${created.length}; tokens ${tokenKinds(providerTokens)}`);
+  });
+
+  await check('sealed pending: edit and delete cards store no Google token in plain form, and their getters give it back', async () => {
+    const original = calendarEvent('Dentist', iso('2026-10-15 10:00'), iso('2026-10-15 11:00'), { eventId: 'd1' });
+    await confirmations.showEditConfirmation(555, undefined, original, 'native:main-1', { title: 'Dentist (Dr. Cohen)' }, 'rename the dentist', danaWithToken);
+    await confirmations.showDeleteConfirmation(555, undefined, original, 'native:main-1', 'delete the dentist', danaWithToken);
+    const edit = storedEntry('voice:pending:edit:');
+    const del = storedEntry('voice:pending:delete:');
+    assert(!edit.raw.includes('rt-dana') && !del.raw.includes('rt-dana'), 'a pending edit or delete holds the token in plain form');
+    const pendingEdit = await confirmations.getPendingEdit(edit.id);
+    const pendingDelete = await confirmations.getPendingDelete(del.id);
+    assert(pendingEdit?.user.googleRefreshToken === 'rt-dana' && pendingDelete?.user.googleRefreshToken === 'rt-dana', 'a getter did not open the token');
+  });
+
+  await check('sealed pending: a bulk batch stores no Google token in plain form, and "Confirm all" gives the provider the plain token', async () => {
+    const plumber = await resolved(parsedReminder());
+    await showBulkConfirmation(555, [createIntent(dentist), createIntent(plumber)], danaWithToken, 'x', t, fakeService as never, IL);
+    const { raw, id } = storedEntry('voice:pending:batch:');
+    assert(!raw.includes('rt-dana'), 'the pending batch holds the token in plain form');
+    const result = await handleBulkConfirmAll(id);
+    assert(result.successCount === 2 && result.user.googleRefreshToken === 'rt-dana', `ok ${result.successCount}, failed ${result.failureCount}`);
+    assert(tokenKinds(providerTokens) === '["plain","plain"]', `tokens ${tokenKinds(providerTokens)}`);
+  });
+
+  await check('sealed pending: the WhatsApp card goes through the shared setter (no plain token in Redis), and its Create tap gives the provider the plain token', async () => {
+    currentUser = danaWithToken;
+    extracted = [createIntent(dentist)];
+    await whatsappVoice();
+    const { raw, id } = storedEntry('voice:pending:event:');
+    assert(id.startsWith('wa:'), `pending id ${id}`);
+    assert(!raw.includes('rt-dana'), 'the WhatsApp pending event holds the token in plain form');
+    await handleWhatsAppWebhook(
+      { body: { entry: [{ changes: [{ value: { messages: [{ from: '972500000008', id: 'wamid.tap.create', type: 'interactive', interactive: { type: 'button_reply', button_reply: { id: `event_create:${id}`, title: 'Create' } } }] } }] }] } },
+      { status: () => ({ json: () => {} }) }
+    );
+    assert(created.length === 1 && tokenKinds(providerTokens) === '["plain"]', `creates ${created.length}; tokens ${tokenKinds(providerTokens)}; WhatsApp ${JSON.stringify(waCalls.map(c => c.text))}`);
+  });
+
+  // Review focus 5: an entry written in plain form before the deploy (at most ten minutes old)
+  await check('legacy pending: an event entry stored in plain form before the deploy still creates, with its token, and logs one warning', async () => {
+    await fakeRedis.set('voice:pending:event:legacy1', { event: dentist, user: danaWithToken, transcription: 'dentist' });
+    const warnings: string[] = [];
+    const warn = console.warn;
+    console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')); };
+    try {
+      await handleEventCallback(555, 701, 'q1', 'create', 'legacy1');
+    } finally {
+      console.warn = warn;
+    }
+    assert(created.length === 1 && tokenKinds(providerTokens) === '["plain"]', `creates ${created.length}; tokens ${tokenKinds(providerTokens)}`);
+    assert(warnings.filter(w => w.includes('[voice-pending] legacy plaintext')).length === 1, `warnings ${JSON.stringify(warnings)}`);
+  });
+
+  await check('sealed pending: an entry that no key opens reads as expired, and nothing is created', async () => {
+    const foreign = await foreignCipher('rt-other');
+    await fakeRedis.set('voice:pending:event:foreign1', { event: dentist, user: { ...dana, googleRefreshToken: foreign }, transcription: 'dentist' });
+    const error = console.error;
+    console.error = () => {};
+    try {
+      await handleEventCallback(555, 701, 'q1', 'create', 'foreign1');
+    } finally {
+      console.error = error;
+    }
+    assert(created.length === 0, `created ${JSON.stringify(created)}`);
+    assert(lastBot()?.text === t.voice.expiredMessage, JSON.stringify(lastBot()));
+  });
+
+  await check('sealed pending: a batch that no key opens reads as expired: "Confirm all" is refused with bulk_pending_expired, and nothing is created', async () => {
+    const foreign = await foreignCipher('rt-other');
+    await fakeRedis.set('voice:pending:batch:foreign2', { intents: [createIntent(dentist)], user: { ...dana, googleRefreshToken: foreign }, transcription: 'dentist' });
+    const error = console.error;
+    console.error = () => {};
+    let rejection = '';
+    try {
+      await handleBulkConfirmAll('foreign2');
+    } catch (err) {
+      rejection = err instanceof Error ? err.message : String(err);
+    } finally {
+      console.error = error;
+    }
+    assert(rejection === 'bulk_pending_expired', `rejection ${rejection || '(none)'}`);
+    assert(created.length === 0, `created ${JSON.stringify(created)}`);
   });
 
   let failed = 0;

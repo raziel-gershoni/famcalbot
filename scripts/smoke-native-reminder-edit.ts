@@ -19,6 +19,10 @@ import type { ReminderInfo, UserConfig } from '../src/types';
 import type { UnifiedEvent, UpdateEventResult } from '../src/services/calendar-provider/types';
 import type { EventReference, VoiceIntentResult } from '../src/services/event-parser';
 
+// Deterministic keys for the sealed pending entries; no decrypt-only fallback key.
+process.env.ENCRYPTION_KEY = '0'.repeat(64);
+process.env.ENCRYPTION_KEY_PREVIOUS = '';
+
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
 
@@ -106,14 +110,16 @@ let calendar: UnifiedEvent[] = [];
 let createResult: { success: boolean; eventId?: string; error?: string } = { success: true };
 let updateResult: UpdateEventResult = { success: true };
 let deleteResult: { success: boolean; error?: string } = { success: true };
+/** The Google token of the user each provider write was made for, in order. */
+const providerTokens: string[] = [];
 const fakeProvider = {
   name: 'native',
   // Every item overlapping [from, to), a zero-length one when it starts inside it
   fetchEventsInRange: async (_user: UserConfig, _calendarIds: string[], from: Date, to: Date) =>
     calendar.filter(e => new Date(e.start) < to && (new Date(e.end) > from || new Date(e.start) >= from)),
-  createEvent: async () => createResult,
-  updateEvent: async () => updateResult,
-  deleteEvent: async () => deleteResult,
+  createEvent: async (u: UserConfig) => { providerTokens.push(u.googleRefreshToken); return createResult; },
+  updateEvent: async (u: UserConfig) => { providerTokens.push(u.googleRefreshToken); return updateResult; },
+  deleteEvent: async (u: UserConfig) => { providerTokens.push(u.googleRefreshToken); return deleteResult; },
 };
 
 /** The user's open reminders, as fetchOpenReminders would carry them over, and its calls. */
@@ -647,6 +653,29 @@ async function main() {
     storeUpdate = { canonicalEventId: 'e1', clearedPings: [] };
     const plain = await nativeProvider.updateEvent(raziel, 'native:c1', 'e1', { title: 'Dentist', scope: 'single' });
     assert(JSON.stringify(plain) === '{"success":true,"eventId":"e1"}', `event: ${JSON.stringify(plain)}`);
+  });
+
+  // Secret rotation (spec, Review focus 5): an entry written in plain form before the deploy
+  // that seals them (at most ten minutes old) still confirms, with its token.
+  await check('a pending create, edit or delete stored in plain form before the deploy still confirms on Google: the provider gets the token, with one warning each', async () => {
+    const meeting = { ...event('Standup', '2026-10-20T07:00:00.000Z', '2026-10-20T07:30:00.000Z'), calendarId: 'primary', eventId: 'g8' } as UnifiedEvent;
+    providerTokens.length = 0;
+    const warnings: string[] = [];
+    const warn = console.warn;
+    console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')); };
+    try {
+      for (const kind of ['create', 'edit', 'delete'] as const) {
+        reset();
+        createResult = { success: false, error: 'FORBIDDEN' };
+        updateResult = { success: false, error: 'FORBIDDEN' };
+        deleteResult = { success: false, error: 'FORBIDDEN' };
+        await confirm(kind, meeting, googleUser, { title: 'Standup 2' });
+      }
+    } finally {
+      console.warn = warn;
+    }
+    assert(JSON.stringify(providerTokens) === '["token","token","token"]', `provider tokens ${JSON.stringify(providerTokens)}`);
+    assert(warnings.filter(w => w.includes('[voice-pending] legacy plaintext')).length === 3, `warnings ${JSON.stringify(warnings)}`);
   });
 
   let failed = 0;

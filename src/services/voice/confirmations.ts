@@ -25,6 +25,7 @@ import { escapeHtml } from '../../utils/html';
 import { hebrewRepeatCard } from './hebrew-repeat-card';
 import { targetOf } from '../recurrence-fields';
 import { liveGoogleChoices } from '../../lib/google-state';
+import { openUser, sealUser } from './pending-seal';
 
 // Voice modules import escapeHtml from here; anything outside voice imports src/utils/html.
 export { escapeHtml } from '../../utils/html';
@@ -46,20 +47,34 @@ function reviveDates<T>(obj: any, dateFields: string[]): T {
 }
 
 /**
- * Get a pending event by ID (used by callbacks)
+ * A pending event: what its confirmation card's Create tap creates
+ */
+export interface PendingEventData {
+  event: ParsedEvent;
+  user: UserConfig;
+  transcription: string;
+  inputModality?: 'voice' | 'text' | 'image';
+}
+
+/**
+ * Store a pending event for its card's Create tap (10 minutes). The one writer of
+ * voice:pending:event:*, for the Telegram card and the WhatsApp one: the user's Google
+ * token is stored sealed (pending-seal.ts).
+ */
+export async function setPendingEvent(pendingId: string, pending: PendingEventData): Promise<void> {
+  await redis.set(REDIS_KEYS.pendingEvent(pendingId), { ...pending, user: sealUser(pending.user) }, { ex: PENDING_TTL_SECONDS });
+}
+
+/**
+ * Get a pending event by ID (used by callbacks), its user's Google token opened
  */
 export async function getPendingEvent(pendingId: string) {
   try {
-    const data = await redis.get<{
-      event: ParsedEvent;
-      user: UserConfig;
-      transcription: string;
-      inputModality?: 'voice' | 'text' | 'image';
-    }>(REDIS_KEYS.pendingEvent(pendingId));
+    const data = await redis.get<PendingEventData>(REDIS_KEYS.pendingEvent(pendingId));
     if (!data) return undefined;
     // Reconstruct Date objects that were serialized as strings
     reviveDates(data.event, ['startTime', 'endTime']);
-    return data;
+    return { ...data, user: openUser(data.user) };
   } catch (error) {
     console.error('[Voice] Error getting pending event from Redis:', error);
     captureError(error, 'voice-confirmations', {}, 'warning');
@@ -99,7 +114,7 @@ export async function getPendingEdit(pendingId: string) {
     const data = await redis.get<PendingEdit>(REDIS_KEYS.pendingEdit(pendingId));
     if (!data) return undefined;
     reviveDates(data.updates, ['startTime', 'endTime']);
-    return data;
+    return { ...data, user: openUser(data.user) };
   } catch (error) {
     console.error('[Voice] Error getting pending edit from Redis:', error);
     captureError(error, 'voice-confirmations', {}, 'warning');
@@ -137,7 +152,7 @@ export async function getPendingDelete(pendingId: string) {
   try {
     const data = await redis.get<PendingDelete>(REDIS_KEYS.pendingDelete(pendingId));
     if (!data) return undefined;
-    return data;
+    return { ...data, user: openUser(data.user) };
   } catch (error) {
     console.error('[Voice] Error getting pending delete from Redis:', error);
     captureError(error, 'voice-confirmations', {}, 'warning');
@@ -508,7 +523,7 @@ export async function showEventConfirmation(
   // Store in Redis with TTL (survives serverless cold starts).
   // PR 12: inputModality threads through so callbacks know whether to voice
   // the outcome (preserves voice-in/voice-out for the same conversation).
-  await redis.set(REDIS_KEYS.pendingEvent(pendingId), { event: shown, user, transcription, inputModality }, { ex: PENDING_TTL_SECONDS });
+  await setPendingEvent(pendingId, { event: shown, user, transcription, inputModality });
 
   let body: string;
   if (reminder) {
@@ -594,7 +609,8 @@ export async function showEditConfirmation(
 
   const pendingId = `${chatId}:${Date.now()}`;
 
-  await redis.set(REDIS_KEYS.pendingEdit(pendingId), { originalEvent, calendarId, updates, user, transcription, scope }, { ex: PENDING_TTL_SECONDS });
+  // The user's Google token is stored sealed (pending-seal.ts); getPendingEdit opens it
+  await redis.set(REDIS_KEYS.pendingEdit(pendingId), { originalEvent, calendarId, updates, user: sealUser(user), transcription, scope }, { ex: PENDING_TTL_SECONDS });
 
   const currentInfo = formatCalendarEventDateTime(originalEvent, user.language || 'en', t.voice?.allDay || 'All day', timezone);
   const changesInfo = formatEditChanges(originalEvent, updates, user.language || 'en', timezone, t.voice?.allDay || 'All day');
@@ -675,7 +691,8 @@ export async function showDeleteConfirmation(
 
   const pendingId = `${chatId}:${Date.now()}`;
 
-  await redis.set(REDIS_KEYS.pendingDelete(pendingId), { event, calendarId, user, transcription, scope }, { ex: PENDING_TTL_SECONDS });
+  // The user's Google token is stored sealed (pending-seal.ts); getPendingDelete opens it
+  await redis.set(REDIS_KEYS.pendingDelete(pendingId), { event, calendarId, user: sealUser(user), transcription, scope }, { ex: PENDING_TTL_SECONDS });
 
   const eventInfo = formatCalendarEventDateTime(event, user.language || 'en', t.voice?.allDay || 'All day', timezone);
 
