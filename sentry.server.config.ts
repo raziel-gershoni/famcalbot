@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/nextjs';
-import { scrubServerEvent, scrubServerTransaction } from './src/lib/sentry-scrub';
+import { scrubServerBreadcrumb, scrubServerEvent, scrubServerTransaction } from './src/lib/sentry-scrub';
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
@@ -13,7 +13,10 @@ Sentry.init({
   // Set environment
   environment: process.env.NODE_ENV || 'development',
 
-  // No Telegram initData or WhatsApp session cookie in events (both are 24h credentials)
+  // No Telegram initData or WhatsApp session cookie in events (both are 24h credentials),
+  // and no shared secret or bot token
   beforeSend: (event) => scrubServerEvent(event),
   beforeSendTransaction: (event) => scrubServerTransaction(event),
+  // Outgoing request breadcrumbs: a Telegram Bot API URL carries the bot token in its path
+  beforeBreadcrumb: (breadcrumb) => scrubServerBreadcrumb(breadcrumb),
 });
