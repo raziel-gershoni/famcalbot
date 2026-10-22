@@ -298,14 +298,18 @@ async function main() {
   await check('#7 ENCRYPTION_KEY="" SESSION_SECRET="" CRON_SECRET=C: a C-signed link is 401, and sign is 500 with an app-key-missing report and no image built', async () => {
     resetState();
     forgetMissingReports();
-    const { link, signed } = await withEnv({ ENCRYPTION_KEY: '', SESSION_SECRET: '', CRON_SECRET: CRON }, async () => ({
-      link: await quiet(() => fetchImage(linkQuery(CRON))),
-      signed: await quiet(() => sign('user_id=9&source=fresh')),
-    }));
+    const { link, signed, signCaptures } = await withEnv({ ENCRYPTION_KEY: '', SESSION_SECRET: '', CRON_SECRET: CRON }, async () => {
+      const link = await quiet(() => fetchImage(linkQuery(CRON)));
+      // The link fetch above may have reported the missing key already; sign must report on its own
+      forgetMissingReports();
+      captured.length = 0;
+      const signed = await quiet(() => sign('user_id=9&source=fresh'));
+      return { link, signed, signCaptures: appKeyCaptures('image-link').length };
+    });
     assert(link.status === 401, `CRON_SECRET-signed link: ${link.status}`);
     assert(signed.status === 500, `sign: ${signed.status}`);
     assert(builds.length === 0, `an image was built for a link that can't be signed: ${show(builds)}`);
-    assert(appKeyCaptures('image-link').length === 1, `reports: ${show(captured)}`);
+    assert(signCaptures === 1, `sign's app-key-missing reports: ${signCaptures} (${show(captured)})`);
   });
 
   let failed = 0;
