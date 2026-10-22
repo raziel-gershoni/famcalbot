@@ -8,7 +8,8 @@
  *
  * Shared secrets too: the cron Authorization header, Telegram's webhook secret header, the
  * secret / sig / hub.verify_token query values, and the bot token a Telegram Bot API URL
- * carries in its path (/bot<id>:<token>/), also in server breadcrumbs and span descriptions.
+ * carries in its path (/bot<id>:<token>/), also in server breadcrumbs, span descriptions and the
+ * transaction name.
  *
  * No imports: the server, edge and client Sentry configs all load this module. The types
  * are structural so Sentry's own event types fit them.
@@ -32,6 +33,8 @@ interface ScrubbableBreadcrumb {
 
 interface ScrubbableEvent {
   request?: ScrubbableRequest;
+  /** A transaction event's name: a root span for an outgoing call is named by its URL */
+  transaction?: string;
   contexts?: Record<string, Dict | undefined>;
   spans?: { description?: string; data?: Dict }[];
   breadcrumbs?: ScrubbableBreadcrumb[];
@@ -139,10 +142,14 @@ export function scrubServerEvent<E extends ScrubbableEvent>(event: E): E {
   return event;
 }
 
-/** Server and edge `beforeSendTransaction`: the span header attributes and descriptions, and the request. */
+/** Server and edge `beforeSendTransaction`: the span header attributes and descriptions, the transaction name, and the request. */
 export function scrubServerTransaction<E extends ScrubbableEvent>(event: E): E {
   scrubServerEvent(event);
   scrubSpanData(event.contexts?.trace?.data as Dict | undefined);
+  // A root span for an outgoing call is named by its URL, and that name becomes the transaction's
+  if (typeof event.transaction === 'string') event.transaction = scrubSecrets(event.transaction);
+  const trace = event.contexts?.trace;
+  if (trace && typeof trace.description === 'string') trace.description = scrubSecrets(trace.description);
   for (const span of event.spans ?? []) {
     scrubSpanData(span.data);
     if (typeof span.description === 'string') span.description = scrubSecrets(span.description);

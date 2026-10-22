@@ -213,6 +213,30 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
+  await check('#7 the transaction name (a root span for a Telegram Bot API call) carries no bot token, plain or %3A-encoded, also through the server and edge configs', async () => {
+    const { scrubServerTransaction } = await load('src/lib/sentry-scrub.ts');
+    const plain = 'POST https://api.telegram.org/bot123456789:AAE-x_Yz/sendMessage';
+    const encoded = 'POST https://api.telegram.org/bot123456789%3AAAE-x_Yz/sendMessage';
+    const want = 'POST https://api.telegram.org/bot[scrubbed]/sendMessage';
+    const problems: string[] = [];
+    for (const [label, name] of [['plain', plain], ['encoded', encoded]]) {
+      const event = scrubServerTransaction({ type: 'transaction', transaction: name, contexts: { trace: { data: {}, description: name } } });
+      if (event.transaction !== want) problems.push(`${label} transaction: ${event.transaction}`);
+      if (event.contexts?.trace?.description !== want) problems.push(`${label} trace description: ${event.contexts?.trace?.description}`);
+    }
+    // The configs were loaded (once: modules are cached) by #6
+    await load('sentry.server.config.ts');
+    await load('sentry.edge.config.ts');
+    assert(inits.length >= 2, `Sentry.init calls: ${inits.length}`);
+    for (const [label, opts] of [['server', inits[0]], ['edge', inits[1]]] as [string, Row][]) {
+      const tx = typeof opts?.beforeSendTransaction === 'function'
+        ? opts.beforeSendTransaction({ type: 'transaction', transaction: plain, contexts: { trace: { data: {} } } }, {})
+        : null;
+      if (!tx || tx.transaction !== want) problems.push(`${label} beforeSendTransaction: ${tx ? tx.transaction : 'missing'}`);
+    }
+    assert(problems.length === 0, problems.join('; '));
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);
