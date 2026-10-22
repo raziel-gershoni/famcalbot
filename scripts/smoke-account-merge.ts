@@ -76,6 +76,7 @@ const nodeRequire = createRequire(__filename);
 process.env.TELEGRAM_BOT_TOKEN ||= 'test';
 process.env.SESSION_SECRET ||= 'test-session-secret';
 process.env.ENCRYPTION_KEY ||= '0'.repeat(64);
+process.env.ENCRYPTION_KEY_PREVIOUS = '';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -620,8 +621,8 @@ function seed() {
   redisStore.set(`link:code:${CODE}`, JSON.stringify({ telegramId: 5550010 }));
   redisStore.set('link:user:5550010', CODE);
   for (const id of [T, W]) redisStore.set(`feature:access:${id}:reminders`, JSON.stringify({ allowed: false }));
-  redisStore.set('reminders:users', JSON.stringify([
-    { id: T, telegramId: '5550010', googleRefreshToken: '', calendarAssignments: null, defaultReminderMinutes: null, language: 'en', name: 'Dana Cohen', pickupRemindersEnabled: true, calendarSource: 'NATIVE', pairingId: null, location: 'Tel Aviv' },
+  redisStore.set('reminders:users:v2', JSON.stringify([
+    { id: T, telegramId: '5550010', googleToken: '', calendarAssignments: null, defaultReminderMinutes: null, language: 'en', name: 'Dana Cohen', pickupRemindersEnabled: true, calendarSource: 'NATIVE', pairingId: null, location: 'Tel Aviv' },
   ]));
 }
 
@@ -954,7 +955,7 @@ async function main() {
     assert(mainAccess === 'editor', `T's main calendar ${show(main)}; P's access ${mainAccess}`);
     const primaries = DB.nativeCalendar.filter(c => c.ownerUserId === T && !c.isDeleted && c.labels.includes('primary'));
     assert(primaries.length === 1, `T's primary calendars ${show(primaries.map(c => c.id))}`);
-    const cached = JSON.parse(redisStore.get('reminders:users') ?? '[]').find((u: Row) => u.id === T);
+    const cached = JSON.parse(redisStore.get('reminders:users:v2') ?? '[]').find((u: Row) => u.id === T);
     assert(cached?.pairingId === 'pair-wp', `reminder cache entry for T ${show(cached)}`);
     assert(referencesTo(W).length === 0, `still pointing at W: ${show(referencesTo(W))}`);
   });
@@ -1022,7 +1023,7 @@ async function main() {
     assert(userRow(T).pairingId === 'pair-tq' && userRow(Q).pairingId === 'pair-tq', `T=${userRow(T).pairingId} Q=${userRow(Q).pairingId}`);
     const wp = rowOf('pairing', 'pair-wp');
     assert(wp?.status === 'UNLINKED' && userRow(P).pairingId === null, `W's pairing ${show(wp)}; P.pairingId ${userRow(P).pairingId}`);
-    const cached = JSON.parse(redisStore.get('reminders:users') ?? '[]').find((u: Row) => u.id === T);
+    const cached = JSON.parse(redisStore.get('reminders:users:v2') ?? '[]').find((u: Row) => u.id === T);
     assert(cached?.pairingId === 'pair-tq', `reminder cache entry for T ${show(cached)}`);
     assert(!userRow(W) && referencesTo(W).length === 0, `still pointing at W: ${show(referencesTo(W))}`);
   });
@@ -1188,7 +1189,7 @@ async function main() {
     assert(t.name === 'Dana' && String(t.telegramId) === '5550010' && same(t.createdAt, tBefore.createdAt) && t.reminderStartAt === null,
       `T ${show({ name: t.name, telegramId: t.telegramId, createdAt: t.createdAt, reminderStartAt: t.reminderStartAt })}`);
     assert(!redisStore.has(`tz:user:${T}`), 'T\'s timezone cache was kept (it came from no location)');
-    const cached = JSON.parse(redisStore.get('reminders:users') ?? '[]').find((u: Row) => u.id === T);
+    const cached = JSON.parse(redisStore.get('reminders:users:v2') ?? '[]').find((u: Row) => u.id === T);
     assert(cached?.language === 'he' && cached.location === 'Haifa' && cached.defaultReminderMinutes === 30, `reminder cache entry for T ${show(cached)}`);
   });
 
@@ -1248,8 +1249,9 @@ async function main() {
     const live = DB.nativeCalendar.filter(c => c.ownerUserId === T && !c.isDeleted).map(c => c.id);
     assert(show(live) === show(['cal-t']), `T's live native calendars ${show(live)}`);
     assert(!result.reconnectGoogle, 'the result asks for a Google reconnect');
-    const cached = JSON.parse(redisStore.get('reminders:users') ?? '[]').find((u: Row) => u.id === T);
-    assert(cached?.googleRefreshToken === 'google-rt-w' && show(cached.calendarAssignments) === show(W_ASSIGNMENTS),
+    const cached = JSON.parse(redisStore.get('reminders:users:v2') ?? '[]').find((u: Row) => u.id === T);
+    const { openSecret } = await load('src/utils/encryption.ts');
+    assert(!!cached?.googleToken && openSecret(cached.googleToken) === 'google-rt-w' && show(cached.calendarAssignments) === show(W_ASSIGNMENTS),
       `reminder cache entry for T ${show(cached)}`);
   });
 
@@ -1818,7 +1820,7 @@ async function main() {
     DB.pairing.push(pairing('pair-old', W, Q, { status: 'UNLINKED', unlinkedAt: days(-12), unlinkedByUserId: W }));
     DB.pairingInvite.push({ id: 'inv-p', token: 'tok-p', inviterUserId: P, expiresAt: days(-3), acceptedAt: days(-10), acceptedByUserId: W, revokedAt: null, createdAt: days(-11) });
     DB.oAuthState.push({ id: 'oauth-w', userId: BigInt(W), token: 'state-w', createdAt: days(0), expiresAt: days(1) });
-    redisStore.set('reminders:users', JSON.stringify([{ id: W, telegramId: '5550020' }, { id: P, telegramId: '5550030' }]));
+    redisStore.set('reminders:users:v2', JSON.stringify([{ id: W, telegramId: '5550020' }, { id: P, telegramId: '5550030' }]));
 
     const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
     await hardDeleteUser(W, 1);
@@ -1832,7 +1834,7 @@ async function main() {
     assert(userRow(P).pairingId === null && rowOf('pairing', 'pair-wp') === undefined, `P.pairingId ${userRow(P).pairingId}; pairing ${show(rowOf('pairing', 'pair-wp'))}`);
     const left = referencesTo(W);
     assert(left.length === 0, `still pointing at W: ${show(left)}`);
-    const cached = JSON.parse(redisStore.get('reminders:users') ?? '[]').map((u: Row) => u.id);
+    const cached = JSON.parse(redisStore.get('reminders:users:v2') ?? '[]').map((u: Row) => u.id);
     assert(!cached.includes(W) && cached.includes(P), `reminder cache ${show(cached)}`);
   });
 

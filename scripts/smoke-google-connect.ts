@@ -67,6 +67,7 @@ process.env.TELEGRAM_BOT_TOKEN ||= 'test';
 process.env.SESSION_SECRET ||= 'test-session-secret';
 process.env.CRON_SECRET ||= 'test-cron';
 process.env.ENCRYPTION_KEY ||= '0'.repeat(64);
+process.env.ENCRYPTION_KEY_PREVIOUS = '';
 process.env.TELEGRAM_BOT_USERNAME = 'famcal_test_bot';
 process.env.WHATSAPP_PHONE_NUMBER = '15550001111';
 process.env.TELEGRAM_WEBHOOK_SECRET = 'test-tg-secret';
@@ -777,8 +778,11 @@ async function main() {
     assert(await savedToken(9) === 'google-rt-new', `row 9 token: ${userRow(9).googleRefreshToken}; ${captured.join(' | ')}`);
     assert(userRow(9).calendarSource === 'NATIVE', `calendarSource ${userRow(9).calendarSource}`);
     assert(DB.nativeCalendar.find(c => c.id === 'cal-9')?.isDeleted === false, 'the native calendar was soft-deleted');
-    const cached = decode(redisStore.get('reminders:users')) as Row[] | null;
-    assert(cached?.some(u => u.id === 9 && u.googleRefreshToken === 'google-rt-new' && u.calendarSource === 'NATIVE'), `reminder cache ${show(cached)}`);
+    const rawCache = redisStore.get('reminders:users:v2') ?? '';
+    assert(rawCache !== '' && !rawCache.includes('google-rt-new'), 'the reminder cache holds the token in plain form');
+    const cached = decode(rawCache) as Row[] | null;
+    const { openSecret } = await load('src/utils/encryption.ts');
+    assert(cached?.some(u => u.id === 9 && openSecret(u.googleToken) === 'google-rt-new' && u.calendarSource === 'NATIVE'), `reminder cache ${show(cached)}`);
     assert(adminNotes.some(n => n.includes(String(TAL_TG))), `admin notes ${show(adminNotes)}`);
     assert(redisStore.has('googleConnected:9') && redisTtl.get('googleConnected:9') === 15 * 60, `flag ${redisStore.get('googleConnected:9')} ttl ${redisTtl.get('googleConnected:9')}`);
     assert(pendingKeys().length === 0, 'the pending entry is still there');
@@ -1211,7 +1215,7 @@ async function main() {
       userRow(9).language = locale;
       const id = await pendingFor(9);
       redisImpl.set = async (k: string, ...rest: unknown[]) => {
-        if (/^(reminders:users|googleConnected:)/.test(k)) throw new Error('redis down (smoke)');
+        if (/^(reminders:users:v2$|googleConnected:)/.test(k)) throw new Error('redis down (smoke)');
         return set(k, ...rest);
       };
       try {

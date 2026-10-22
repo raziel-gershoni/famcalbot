@@ -604,6 +604,20 @@ async function main() {
     assert(cacheKeys.length === 0, `reminder cache written: ${show(cacheKeys)}`);
   });
 
+  await check('#8b select-calendars: a reminders-on user with a readable token is cached under reminders:users:v2 with the token sealed (never the plaintext, never the legacy key), and the stored column is left byte for byte', async () => {
+    const { isEncrypted, openSecret } = await load('src/utils/encryption.ts');
+    seed([baseUser({ id: 9, name: 'Tal Cohen', telegramId: BigInt(TAL_TG), remindersEnabled: true, googleRefreshToken: encryptWith(B, 'tok-kept') })]);
+    const before = userRow(9).googleRefreshToken;
+    const res = await saveChoices(TAL_TG);
+    assert(res.status === 200, `status ${res.status} ${show(res.body)} ${show(captured)}`);
+    assert(userRow(9).googleRefreshToken === before, 'the stored token changed');
+    const raw = redisStore.get('reminders:users:v2') ?? '';
+    assert(raw !== '' && !raw.includes('tok-kept'), `v2 holds the plaintext token or is missing: ${raw ? 'present' : '(missing)'}`);
+    const entry = (JSON.parse(raw) as Row[]).find(u => u.id === 9);
+    assert(!!entry && isEncrypted(entry.googleToken) && openSecret(entry.googleToken) === 'tok-kept' && !('googleRefreshToken' in entry), `entry ${show(entry)}`);
+    assert(!redisStore.has('reminders:users'), 'the legacy key was written');
+  });
+
   // ---- The summary's Google choices (calendar-read/google.ts reads liveGoogleChoices) ----
 
   await check('#9 after getAllUsers, a FamCal (NATIVE) user whose token neither key opens, or who has an empty cipher, has no live Google choices, so the summary makes no Google call; only the unreadable ones are captured; a B token keeps its choices; a legacy GOOGLE-source user with an unreadable token reads as "reconnect" (accepted, Deviation 5) (review focus 1)', async () => {

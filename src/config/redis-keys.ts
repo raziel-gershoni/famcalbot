@@ -18,8 +18,10 @@ export const REDIS_KEYS = {
   subscriptionReminder: (telegramId: number | string | bigint, dateStr: string, type: string) =>
     `subscription_reminder:${telegramId}:${dateStr}:${type}`,
 
-  // Reminder cache
-  REMINDER_USERS: 'reminders:users',
+  // Reminder cache: the users the 5-minute run alerts, each Google token sealed (v2). The
+  // legacy key held the tokens in plain form; it is only ever deleted (reminder-cache.ts).
+  REMINDER_USERS: 'reminders:users:v2',
+  REMINDER_USERS_LEGACY: 'reminders:users',
   REMINDERS_GLOBAL_ENABLED: 'reminders:global_enabled',
   EARLY_ADOPTION_GLOBAL: 'early_adoption:global_enabled',
 

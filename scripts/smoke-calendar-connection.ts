@@ -42,6 +42,7 @@ process.env.TELEGRAM_BOT_TOKEN ||= 'test';
 process.env.SESSION_SECRET ||= 'test-session-secret';
 process.env.CRON_SECRET ||= 'test-cron';
 process.env.ENCRYPTION_KEY ||= '0'.repeat(64);
+process.env.ENCRYPTION_KEY_PREVIOUS = '';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -585,9 +586,12 @@ async function main() {
     assert(u.calendarSource === 'NATIVE', `calendarSource ${u.calendarSource}`);
     assert(u.googleRefreshToken && u.googleRefreshToken !== 'google-rt-new', 'token not saved encrypted');
     eq(live(1).map(c => c.id), ['cal-1', 'cal-7'], 'FamCal calendars');
-    const cached = decode(redisStore.get('reminders:users')) as Row[] | null;
+    const rawCache = redisStore.get('reminders:users:v2') ?? '';
+    assert(rawCache !== '' && !rawCache.includes('google-rt-new'), 'the reminder cache holds the token in plain form');
+    const cached = decode(rawCache) as Row[] | null;
     const entry = cached?.find(c => c.id === 1);
-    assert(entry && entry.googleRefreshToken === 'google-rt-new' && entry.calendarSource !== 'GOOGLE', `cache ${show(entry)}`);
+    const { isEncrypted, openSecret } = await load('src/utils/encryption.ts');
+    assert(entry && isEncrypted(entry.googleToken) && openSecret(entry.googleToken) === 'google-rt-new' && entry.calendarSource !== 'GOOGLE', `cache ${show(entry)}`);
   });
 
   await check('C2 pairing with a Google user: a legacy Google user invites, a FamCal user accepts; both are paired and their FamCal calendars shared', async () => {
@@ -830,7 +834,7 @@ async function main() {
     seed();
     const res = await route('app/api/settings/route.ts', 'POST', 5, { remindersEnabled: true });
     assert(res.status === 200, show(res));
-    const cached = decode(redisStore.get('reminders:users')) as Row[] | null;
+    const cached = decode(redisStore.get('reminders:users:v2')) as Row[] | null;
     assert(cached?.some(c => c.id === 5), `cache ${show(cached)}`);
   });
 
@@ -883,7 +887,7 @@ async function main() {
     for (const id of [1, 4, 5]) userRow(id).remindersEnabled = true;
     const { handleDailySummary } = await load('src/cron/handlers.ts');
     await handleDailySummary();
-    const cached = decode(redisStore.get('reminders:users')) as Row[] | null;
+    const cached = decode(redisStore.get('reminders:users:v2')) as Row[] | null;
     eq((cached ?? []).map(c => c.id).sort(), [1, 4, 5], 'cached users');
   });
 

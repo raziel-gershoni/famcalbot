@@ -12,7 +12,9 @@
 // Capping every lead at two hours then dropped the "3 hours before" sent on the event's
 // own day while the run fetched today. A built-in calendar reminder got an alert as well
 // as its own ping, a "<" or "&" in a title made Telegram refuse the alert, and a user who
-// blocked the bot was retried every five minutes. No network.
+// blocked the bot was retried every five minutes. The cache also held every Google token in
+// plain form under reminders:users; v2 holds them sealed, the run opens each one per user,
+// and the old key is only ever deleted (at boot and by the hourly sync). No network.
 //
 // Run under both clocks; the output must not depend on the server's timezone:
 //   TZ=UTC npx tsx scripts/smoke-reminders.ts
@@ -23,6 +25,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 import { REDIS_KEYS } from '../src/config/redis-keys';
+
+// No decrypt-only fallback key here (Prisma would load .env for an unset name).
+process.env.ENCRYPTION_KEY_PREVIOUS = '';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -108,6 +113,8 @@ async function googleRequest<T>(calendarId: string, respond: () => T): Promise<T
     googleCalls.inFlight--;
   }
 }
+/** The refresh tokens Google's OAuth clients were given, in order. */
+let googleTokens: string[] = [];
 const fakeGoogle = {
   calendar: () => ({
     calendars: {
@@ -133,7 +140,8 @@ const fakeGoogle = {
     // The calendar's own timezone setting is unreadable, so the resolver has to use the location.
     settings: { get: async () => ({ data: {} }) },
   }),
-  auth: { OAuth2: class { setCredentials() {} } },
+  // Records the refresh token each client is given: Google must get it in plain form.
+  auth: { OAuth2: class { setCredentials(credentials: { refresh_token?: string }) { googleTokens.push(credentials.refresh_token ?? ''); } } },
 };
 
 /** A native calendar event (one-off), as the event store hands it to the native provider; a REMINDER has no length. */
@@ -191,6 +199,8 @@ const fakeOver = (real: Record<string, unknown>, fakes: Record<string, unknown>)
 /** Modules replaced by fakes, by package name or file path; a function fakes part of the real module. */
 const stubs: Record<string, object | ((real: Record<string, unknown>) => object)> = {
   '@googleapis/calendar': fakeGoogle,
+  // startScheduler's jobs never run here; only its boot step does.
+  'node-cron': { schedule: () => ({ stop: () => {} }) },
   'next/server': {
     NextRequest: class {},
     NextResponse: { json: (body: unknown, init?: { status?: number }) => ({ body, status: init?.status ?? 200 }) },
@@ -351,6 +361,26 @@ async function saveSettings(when: Date, telegramId: number, body: Record<string,
 /** What was sent, as "HH:mm <first line>" in `tz`. */
 function sentLines(tz: string): string[] {
   return sent.map(s => `${formatInTimeZone(new RealDate(s.at), tz, 'HH:mm')} ${s.text.split('\n')[0].replace(/<\/?b>/g, '')}`);
+}
+
+type CacheEntry = { id: number; googleToken?: string; [key: string]: unknown };
+/** The reminder cache as stored under v2: its raw JSON ('' when missing) and its entries. */
+function cacheV2(): { raw: string; entries: CacheEntry[] } {
+  const raw = store.get('reminders:users:v2') ?? '';
+  return { raw, entries: raw ? (JSON.parse(raw) as CacheEntry[]) : [] };
+}
+
+/** `text` encrypted under a key this deployment has neither as ENCRYPTION_KEY nor as PREVIOUS. */
+async function foreignCipher(text: string): Promise<string> {
+  const { encrypt } = await import('../src/utils/encryption');
+  const key = process.env.ENCRYPTION_KEY;
+  process.env.ENCRYPTION_KEY = key === 'f0'.repeat(32) ? '0f'.repeat(32) : 'f0'.repeat(32);
+  try {
+    return encrypt(text);
+  } finally {
+    if (key === undefined) delete process.env.ENCRYPTION_KEY;
+    else process.env.ENCRYPTION_KEY = key;
+  }
 }
 
 async function main() {
@@ -674,6 +704,161 @@ async function main() {
     const lines = sentLines(IL);
     assert(lines.join(' | ') === '09:45 🤖 Auto-Reminder: Swim', `got ${lines.join(' | ') || '(nothing)'}`);
     assert(captured.includes('calendar-provider-fetch'), `captured ${captured.join(', ') || '(nothing)'}`);
+  });
+
+  // ---- Secret rotation (spec section c): the cache holds each Google token sealed ----
+
+  await check('the cache (reminders:users:v2) holds the Google token sealed after the sync and after a settings save, and Google still gets it in plain form', async () => {
+    const { isEncrypted, openSecret } = await import('../src/utils/encryption');
+    reset({ id: 22 });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(22), IL);
+    googleEvents = [{ calendarId: kidsCal, id: 'k22', summary: 'Kindergarten', start: at('2026-10-13 08:00', IL), end: at('2026-10-13 16:00', IL) }];
+    googleTokens = [];
+    await syncCache(handlers, at('2026-10-13 07:00', IL));
+    const synced = cacheV2();
+    assert(synced.raw !== '' && !synced.raw.includes('refresh-token'), `v2 after the sync: ${synced.raw || '(missing)'}`);
+    const fromSync = synced.entries.find(u => u.id === 22);
+    const syncToken = fromSync?.googleToken ?? '';
+    assert(!!fromSync && isEncrypted(syncToken) && openSecret(syncToken) === 'refresh-token' && !('googleRefreshToken' in fromSync),
+      `entry after the sync ${JSON.stringify(fromSync)}`);
+    await saveSettings(at('2026-10-13 07:05', IL), 1022, { weatherEnabled: true });
+    const saved = cacheV2();
+    assert(saved.raw !== '' && !saved.raw.includes('refresh-token'), `v2 after a settings save: ${saved.raw || '(missing)'}`);
+    const fromSave = saved.entries.find(u => u.id === 22);
+    const saveToken = fromSave?.googleToken ?? '';
+    assert(!!fromSave && isEncrypted(saveToken) && openSecret(saveToken) === 'refresh-token' && !('googleRefreshToken' in fromSave),
+      `entry after the save ${JSON.stringify(fromSave)}`);
+    await runTicks(handlers, at('2026-10-13 07:05', IL), at('2026-10-13 08:00', IL));
+    assert(sentLines(IL).join(' | ') === '07:45 🤖 Auto-Reminder: Kindergarten', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
+    assert(googleTokens.length > 0 && googleTokens.every(token => token === 'refresh-token'),
+      `Google was given ${googleTokens.length} token(s), ${googleTokens.filter(token => token === 'refresh-token').length} of them the plain one`);
+  });
+
+  await check('a row whose token no key opens: the sync still caches both users, and each run fails only that user', async () => {
+    reset({ id: 23 });
+    userRows.push({ ...userRows[0], id: 27, telegramId: BigInt(1027), googleRefreshToken: await foreignCipher('another-deployments-token') });
+    for (const id of [23, 27]) await fakeRedis.set(REDIS_KEYS.userTimezone(id), IL);
+    googleEvents = [{ calendarId: kidsCal, id: 'k23', summary: 'Kindergarten', start: at('2026-10-13 08:00', IL), end: at('2026-10-13 16:00', IL) }];
+    const error = console.error;
+    console.error = () => {};
+    try {
+      await syncCache(handlers, at('2026-10-13 07:00', IL));
+      const ids = cacheV2().entries.map(u => u.id).sort((a, b) => a - b);
+      assert(ids.join(',') === '23,27', `cached ${ids.join(',') || '(nothing)'}; captured ${captured.join(', ') || '(nothing)'}`);
+      await runTicks(handlers, at('2026-10-13 07:40', IL), at('2026-10-13 07:50', IL));
+    } finally {
+      console.error = error;
+    }
+    assert(sent.length === 1 && sent[0].chatId === 1023, `sent to ${JSON.stringify(sent.map(s => s.chatId))}`);
+    // One per run: the runs at 07:40 and 07:45
+    assert(captured.filter(c => c === 'cron-reminders-process-user').length === 2, `captured ${captured.join(', ')}`);
+  });
+
+  await check('a plaintext row is cached sealed, and an empty-cipher row (iv:tag: with no token) as no token: no capture, and nothing written to the row', async () => {
+    const { isEncrypted, openSecret } = await import('../src/utils/encryption');
+    const emptyCipher = `${'0'.repeat(32)}:${'a'.repeat(32)}:`;
+    reset({ id: 28 });
+    userRows.push({ ...userRows[0], id: 29, telegramId: BigInt(1029), googleRefreshToken: emptyCipher, calendarSource: 'NATIVE', calendarAssignments: null });
+    for (const id of [28, 29]) await fakeRedis.set(REDIS_KEYS.userTimezone(id), IL);
+    googleEvents = [{ calendarId: kidsCal, id: 'k28', summary: 'Kindergarten', start: at('2026-10-13 08:00', IL), end: at('2026-10-13 16:00', IL) }];
+    await syncCache(handlers, at('2026-10-13 07:00', IL));
+    const { entries } = cacheV2();
+    const plain = entries.find(u => u.id === 28)?.googleToken ?? '';
+    assert(isEncrypted(plain) && openSecret(plain) === 'refresh-token', `plaintext row cached as ${JSON.stringify(entries.find(u => u.id === 28))}`);
+    const empty = entries.find(u => u.id === 29);
+    assert(empty?.googleToken === '', `empty-cipher row cached as ${JSON.stringify(empty)}`);
+    await runTicks(handlers, at('2026-10-13 07:40', IL), at('2026-10-13 07:50', IL));
+    assert(sent.length === 1 && sent[0].chatId === 1028, `sent to ${JSON.stringify(sent.map(s => s.chatId))}`);
+    assert(!captured.includes('cron-reminders-process-user') && !captured.includes('token-undecryptable'), `captured ${captured.join(', ')}`);
+    assert(userRows.find(r => r.id === 29)?.googleRefreshToken === emptyCipher, 'the empty-cipher row was written');
+  });
+
+  await check('the legacy reminders:users key is never read: alone in Redis the run waits for a sync; bootReminderCache() deletes it and builds v2', async () => {
+    reset({ id: 24 });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(24), IL);
+    googleEvents = [{ calendarId: kidsCal, id: 'k24', summary: 'Kindergarten', start: at('2026-10-13 08:00', IL), end: at('2026-10-13 16:00', IL) }];
+    store.set('reminders:users', JSON.stringify([{
+      id: 24, telegramId: '1024', googleRefreshToken: 'refresh-token', calendarAssignments: userRows[0].calendarAssignments,
+      calendarSource: 'GOOGLE', pairingId: null, defaultReminderMinutes: 15, language: 'en', name: 'Dana', pickupRemindersEnabled: true, location: 'Tel Aviv',
+    }]));
+    clock = at('2026-10-13 07:45', IL).getTime();
+    const log = console.log;
+    console.log = () => {};
+    try {
+      const waited = await handlers.handleReminders(5);
+      assert(waited.message === 'No cached users - waiting for daily sync' && sent.length === 0, `run ${JSON.stringify(waited)}; sent ${sent.length}`);
+      await handlers.bootReminderCache();
+    } finally {
+      console.log = log;
+    }
+    assert(!store.has('reminders:users'), 'the legacy key is still there');
+    assert(cacheV2().entries.some(u => u.id === 24), `v2 ${cacheV2().raw || '(missing)'}`);
+    await runTicks(handlers, at('2026-10-13 07:40', IL), at('2026-10-13 07:50', IL));
+    assert(sentLines(IL).join(' | ') === '07:45 🤖 Auto-Reminder: Kindergarten', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
+  });
+
+  await check('the hourly sync deletes the legacy key too', async () => {
+    reset({ id: 25 });
+    store.set('reminders:users', JSON.stringify([{ id: 25, telegramId: '1025', googleRefreshToken: 'refresh-token' }]));
+    await syncCache(handlers, at('2026-10-13 07:00', IL));
+    assert(!store.has('reminders:users'), 'the legacy key is still there');
+    assert(cacheV2().entries.some(u => u.id === 25), `v2 ${cacheV2().raw || '(missing)'}`);
+  });
+
+  await check('bootReminderCache never throws: a database failure at boot is logged and captured as boot-reminder-cache', async () => {
+    reset({ id: 30 });
+    const findMany = fakePrisma.user.findMany;
+    fakePrisma.user.findMany = async () => { throw new Error('database down (smoke)'); };
+    const error = console.error;
+    console.error = () => {};
+    try {
+      await handlers.bootReminderCache();
+    } finally {
+      fakePrisma.user.findMany = findMany;
+      console.error = error;
+    }
+    assert(captured.includes('boot-reminder-cache'), `captured ${captured.join(', ') || '(nothing)'}`);
+  });
+
+  await check('a failed delete of the legacy key is logged and captured as reminder-cache-purge, and bootReminderCache still builds v2', async () => {
+    reset({ id: 31 });
+    store.set('reminders:users', JSON.stringify([{ id: 31, telegramId: '1031', googleRefreshToken: 'refresh-token' }]));
+    const del = fakeRedis.del;
+    fakeRedis.del = async (key: string) => {
+      if (key === 'reminders:users') throw new Error('redis down (smoke)');
+      return del(key);
+    };
+    const error = console.error;
+    const log = console.log;
+    console.error = () => {};
+    console.log = () => {};
+    try {
+      await handlers.bootReminderCache();
+    } finally {
+      fakeRedis.del = del;
+      console.error = error;
+      console.log = log;
+    }
+    assert(captured.includes('reminder-cache-purge') && !captured.includes('boot-reminder-cache'), `captured ${captured.join(', ') || '(nothing)'}`);
+    assert(cacheV2().entries.some(u => u.id === 31), `v2 ${cacheV2().raw || '(missing)'}`);
+  });
+
+  await check('startScheduler rebuilds the cache at boot, not at the next hourly sync: the legacy key goes and v2 holds the users', async () => {
+    reset({ id: 26 });
+    store.set('reminders:users', JSON.stringify([{ id: 26, telegramId: '1026', googleRefreshToken: 'refresh-token' }]));
+    const { startScheduler } = await import('../src/cron/scheduler');
+    const log = console.log;
+    console.log = () => {};
+    try {
+      startScheduler();
+      // The boot step is fire-and-forget: give it up to a second of real time.
+      for (let i = 0; i < 100 && !store.has('reminders:users:v2'); i++) await new Promise(resolve => setTimeout(resolve, 10));
+    } finally {
+      console.log = log;
+    }
+    assert(!store.has('reminders:users'), 'the legacy key is still there');
+    const entry = cacheV2().entries.find(u => u.id === 26);
+    assert(!!entry && entry.googleToken !== 'refresh-token', `v2 ${cacheV2().raw || '(missing)'}`);
   });
 
   let failed = 0;

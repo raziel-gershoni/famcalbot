@@ -37,55 +37,88 @@ export async function handleDailySummary(): Promise<CronResult> {
 }
 
 /**
+ * Rebuilds the reminder cache (reminders:users:v2) from the database: every user the
+ * 5-minute run alerts. Each Google token is copied as stored and sealed (toEntry), never
+ * decrypted here, so a row that no key opens can't stop the sync; the run opens each token
+ * per user. Used by the hourly run, the boot step and the key sweep. A database failure
+ * throws to the caller; a Redis write failure is logged and captured by syncReminderCache.
+ * Returns the number of users synced.
+ */
+export async function rebuildReminderCache(): Promise<number> {
+  const { syncReminderCache, toEntry } = await import('../services/reminder-cache');
+
+  const users = await prisma.user.findMany({
+    where: {
+      remindersEnabled: true,
+      // Everyone has FamCal ("Google as a connection"), so a missing Google token
+      // keeps nobody out: their FamCal events alert too.
+      telegramId: { not: null },
+      suspendedAt: null,
+      // Telegram refuses delivery to these chats; reminders would 403 every 5 minutes.
+      unreachableSince: null,
+    },
+    select: {
+      id: true,
+      telegramId: true,
+      googleRefreshToken: true,
+      calendarAssignments: true,
+      calendarSource: true,
+      pairingId: true,
+      defaultReminderMinutes: true,
+      pickupRemindersEnabled: true,
+      language: true,
+      name: true,
+      location: true,
+    }
+  });
+
+  const entries = users.map(u => toEntry({
+    id: u.id,
+    telegramId: u.telegramId?.toString() ?? '',
+    googleRefreshToken: u.googleRefreshToken, // As stored; toEntry seals it
+    calendarAssignments: u.calendarAssignments,
+    calendarSource: u.calendarSource,
+    pairingId: u.pairingId,
+    defaultReminderMinutes: u.defaultReminderMinutes,
+    language: u.language,
+    name: u.name,
+    pickupRemindersEnabled: u.pickupRemindersEnabled ?? true,
+    location: u.location,
+  }));
+
+  await syncReminderCache(entries);
+  return entries.length;
+}
+
+/**
+ * The reminder cache's boot step (startScheduler): the legacy plaintext key goes, then v2
+ * is built at once. An empty v2 reads as "No cached users" to the 5-minute run, so without
+ * this, reminders would wait up to an hour after a deploy. One DB query per deploy. Never
+ * throws: a failure is logged and captured, and the hourly sync tries again.
+ */
+export async function bootReminderCache(): Promise<void> {
+  try {
+    const { purgeLegacyReminderCache } = await import('../services/reminder-cache');
+    await purgeLegacyReminderCache();
+    const synced = await rebuildReminderCache();
+    console.log(`[Reminder Cache] Rebuilt at boot: ${synced} users`);
+  } catch (error) {
+    console.error('[Reminder Cache] Boot rebuild failed:', error);
+    captureError(error, 'boot-reminder-cache');
+  }
+}
+
+/**
  * The daily run's housekeeping: the reminder-cache sync and, at 04:00 UTC, the clean-up of
  * expired OAuth state tokens. Each step catches its own failure, so this never rejects.
  */
 async function syncRemindersAndCleanUp(): Promise<void> {
-  // Sync reminder cache from DB (piggyback on existing run)
+  // Sync reminder cache from DB (piggyback on existing run), and drop the legacy plaintext key
   try {
-    const { syncReminderCache, setGlobalRemindersEnabled } = await import('../services/reminder-cache');
-    const { safeDecrypt } = await import('../utils/encryption');
+    const { setGlobalRemindersEnabled, purgeLegacyReminderCache } = await import('../services/reminder-cache');
 
-    const users = await prisma.user.findMany({
-      where: {
-        remindersEnabled: true,
-        // Everyone has FamCal ("Google as a connection"), so a missing Google token
-        // keeps nobody out: their FamCal events alert too.
-        telegramId: { not: null },
-        suspendedAt: null,
-        // Telegram refuses delivery to these chats; reminders would 403 every 5 minutes.
-        unreachableSince: null,
-      },
-      select: {
-        id: true,
-        telegramId: true,
-        googleRefreshToken: true,
-        calendarAssignments: true,
-        calendarSource: true,
-        pairingId: true,
-        defaultReminderMinutes: true,
-        pickupRemindersEnabled: true,
-        language: true,
-        name: true,
-        location: true,
-      }
-    });
-
-    const reminderUsers = users.map(u => ({
-      id: u.id,
-      telegramId: u.telegramId?.toString() ?? '',
-      googleRefreshToken: safeDecrypt(u.googleRefreshToken),
-      calendarAssignments: u.calendarAssignments,
-      calendarSource: u.calendarSource,
-      pairingId: u.pairingId,
-      defaultReminderMinutes: u.defaultReminderMinutes,
-      language: u.language,
-      name: u.name,
-      pickupRemindersEnabled: u.pickupRemindersEnabled ?? true,
-      location: u.location,
-    }));
-
-    await syncReminderCache(reminderUsers);
+    await rebuildReminderCache();
+    await purgeLegacyReminderCache();
 
     const adminSettings = await prisma.adminSettings.findUnique({
       where: { id: 'global' }
@@ -156,6 +189,7 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
   }
 
   const { processUserReminders } = await import('../services/reminders');
+  const { openSecret } = await import('../utils/encryption');
 
   let totalRemindersSent = 0;
   let usersProcessed = 0;
@@ -168,7 +202,9 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
         telegramId: parseInt(cachedUser.telegramId, 10),
         name: cachedUser.name,
         language: cachedUser.language,
-        googleRefreshToken: cachedUser.googleRefreshToken,
+        // Sealed in the cache (toEntry) and opened here, inside this user's try: an entry
+        // that no key opens fails only this user ('cron-reminders-process-user' below).
+        googleRefreshToken: openSecret(cachedUser.googleToken),
         calendarAssignments: cachedUser.calendarAssignments,
         // Legacy: the providers are chosen by calendar id ("Google as a connection"); read only
         // as liveGoogleChoices' marker for the stored Google choices of a user with no token.

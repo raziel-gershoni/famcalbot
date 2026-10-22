@@ -333,6 +333,10 @@ const stubs: Record<string, object> = {
     setGlobalRemindersEnabled: async () => {
       log.push('housekeeping: reminders switch set');
     },
+    // The sync builds each entry with toEntry (the sealing is smoke-reminders'), and the
+    // hourly run deletes the legacy key; neither belongs to the housekeeping log.
+    toEntry: (user: unknown) => user,
+    purgeLegacyReminderCache: async () => {},
   },
   [`${SRC}/utils/encryption.ts`]: { safeDecrypt: (value: string) => value, readStoredToken: (value: string) => value },
   // The daily handler imports the senders through the package index; it gets summary.ts's own.

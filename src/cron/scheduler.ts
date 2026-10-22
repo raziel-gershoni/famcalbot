@@ -11,6 +11,16 @@ import { captureError } from '../lib/error-capture';
 export function startScheduler(): void {
   console.log('[Scheduler] Starting in-process cron scheduler...');
 
+  // The reminder cache's boot step: the legacy plaintext key goes and v2 is built now, not
+  // at the next hourly sync. Fire-and-forget; bootReminderCache never throws, so this catch
+  // only covers loading the module.
+  import('./handlers')
+    .then(({ bootReminderCache }) => bootReminderCache())
+    .catch(error => {
+      console.error('[Scheduler] Reminder cache boot step failed:', error);
+      captureError(error, 'boot-reminder-cache');
+    });
+
   // Event reminders — every 5 minutes
   cron.schedule('*/5 * * * *', async () => {
     try {
