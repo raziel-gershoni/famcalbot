@@ -39,6 +39,11 @@ function reports(): Reports {
   return g.__famcalEncryptionReports;
 }
 
+/** Whether a raw ENCRYPTION_KEY value is one the app can use: 64 hex characters once trimmed (the rule envKey/parseKey apply). */
+export function isUsableEncryptionKey(raw: string | undefined): boolean {
+  return KEY_HEX.test((raw ?? '').trim());
+}
+
 /** Parsed keys by their raw env value: a changed env is seen on the next call. */
 const parsedKeys = new Map<string, Buffer>();
 function parseKey(raw: string): Buffer | null {

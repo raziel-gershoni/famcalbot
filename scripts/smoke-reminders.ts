@@ -773,6 +773,37 @@ async function main() {
     assert(output.some(line => line.includes('undecryptable') && line.includes('27')), `output ${JSON.stringify(output)}`);
   });
 
+  await check('no usable ENCRYPTION_KEY at tick time: a Google user keeps every FamCal alert, Google is never called, and the fault is reported once (not per tick, not as a failed user)', async () => {
+    reset({ id: 30 });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(30), IL);
+    nativeCalendars = [{ id: 'cal30', name: 'Dana', labels: ['yours'] }];
+    nativeEvents = [{ calendarId: 'cal30', id: 'n30', title: 'Swim', startsAt: at('2026-10-13 10:00', IL), endsAt: at('2026-10-13 11:00', IL), timeZone: IL }];
+    googleEvents = [{ calendarId: kidsCal, id: 'k30', summary: 'Kindergarten', start: at('2026-10-13 08:00', IL), end: at('2026-10-13 16:00', IL) }];
+    googleTokens = [];
+    await syncCache(handlers, at('2026-10-13 07:00', IL));
+    const savedKey = process.env.ENCRYPTION_KEY;
+    delete (globalThis as Record<string, unknown>).__famcalEncryptionReports;
+    process.env.ENCRYPTION_KEY = '';
+    const callsBefore = googleTokens.length;
+    const output: string[] = [];
+    const error = console.error;
+    const warn = console.warn;
+    console.error = (...args: unknown[]) => { output.push(args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')); };
+    console.warn = console.error;
+    try {
+      await runTicks(handlers, at('2026-10-13 09:40', IL), at('2026-10-13 09:50', IL));
+    } finally {
+      console.error = error;
+      console.warn = warn;
+      if (savedKey === undefined) delete process.env.ENCRYPTION_KEY; else process.env.ENCRYPTION_KEY = savedKey;
+      delete (globalThis as Record<string, unknown>).__famcalEncryptionReports;
+    }
+    assert(sentLines(IL).join(' | ') === '09:45 🤖 Auto-Reminder: Swim', `got ${sentLines(IL).join(' | ') || '(nothing)'}; captured ${captured.join(', ') || '(nothing)'}`);
+    assert(googleTokens.length === callsBefore, `Google was called with ${googleTokens.length - callsBefore} token(s)`);
+    assert(!captured.includes('cron-reminders-process-user'), `captured ${captured.join(', ')}`);
+    assert(captured.filter(c => c === 'token-undecryptable').length === 1, `captured ${captured.join(', ') || '(nothing)'}`);
+  });
+
   await check('a plaintext row is cached sealed, and an empty-cipher row (iv:tag: with no token) as no token: no capture, and nothing written to the row', async () => {
     const { isEncrypted, openSecret } = await import('../src/utils/encryption');
     const emptyCipher = `${'0'.repeat(32)}:${'a'.repeat(32)}:`;

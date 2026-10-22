@@ -189,7 +189,7 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
   }
 
   const { processUserReminders } = await import('../services/reminders');
-  const { openSecret, reportUndecryptable, UndecryptableError } = await import('../utils/encryption');
+  const { openSecret, reportUndecryptable, UndecryptableError, keyFingerprint } = await import('../utils/encryption');
 
   let totalRemindersSent = 0;
   let usersProcessed = 0;
@@ -198,7 +198,8 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
     try {
       return openSecret(cachedUser.googleToken);
     } catch (error) {
-      if (!(error instanceof UndecryptableError)) throw error;
+      // An unusable current key is a configuration fault, not a bad entry: degrade the same way
+      if (!(error instanceof UndecryptableError) && keyFingerprint('current') !== null) throw error;
       reportUndecryptable(error, { userId: cachedUser.id, column: 'reminders-cache' });
       return '';
     }
@@ -211,8 +212,9 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
         telegramId: parseInt(cachedUser.telegramId, 10),
         name: cachedUser.name,
         language: cachedUser.language,
-        // Sealed in the cache (toEntry) and opened here. An entry that no key opens counts as
-        // "not connected": the user keeps every FamCal reminder, has no Google events, and is
+        // Sealed in the cache (toEntry) and opened here. An entry that no key opens, or a
+        // missing or invalid ENCRYPTION_KEY (named at startup), counts as "not connected":
+        // the user keeps every FamCal reminder, has no Google events, and is
         // reported once per process. Any other error fails this user ('cron-reminders-process-user').
         googleRefreshToken: openCachedToken(cachedUser),
         calendarAssignments: cachedUser.calendarAssignments,

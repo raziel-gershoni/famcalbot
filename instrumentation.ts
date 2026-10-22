@@ -25,7 +25,7 @@ export async function register() {
           console.error(`[startup] ${problem.message}`);
           captureError(new Error(problem.message), 'startup-secret', { variable: problem.name });
         }
-        missing = problems.filter(p => !process.env[p.name]).map(p => p.name);
+        missing = problems.filter(p => p.missing).map(p => p.name);
       }
     } catch (err) {
       captureError(err, 'startup-checks');

@@ -203,6 +203,7 @@ const PROBLEM = {
   session: 'SESSION_SECRET is not set: WhatsApp sign-in and share-story image links are refused',
   app: 'WHATSAPP_APP_SECRET is not set: every WhatsApp webhook is refused (500)',
   telegram: 'TELEGRAM_WEBHOOK_SECRET is not set: every Telegram update is refused (500)',
+  key: "ENCRYPTION_KEY is missing or not 64 hex characters: Google tokens can't be read or saved",
   reused: 'SESSION_SECRET equals CRON_SECRET: give it its own value',
 };
 
@@ -316,21 +317,24 @@ async function main() {
 
   await check('#7 startupSecretProblems names each missing or reused secret, never a value', async () => {
     const { startupSecretProblems } = await load('src/lib/startup-checks.ts');
-    const full = { SESSION_SECRET: SESSION, CRON_SECRET: CRON, WHATSAPP_APP_SECRET: 'VALUE-APP-fc3', TELEGRAM_WEBHOOK_SECRET: 'VALUE-TG-fc4' };
-    const cases: [string, Record<string, string | undefined>, { name: string; message: string }[]][] = [
+    const full = { ENCRYPTION_KEY: ENC_KEY, SESSION_SECRET: SESSION, CRON_SECRET: CRON, WHATSAPP_APP_SECRET: 'VALUE-APP-fc3', TELEGRAM_WEBHOOK_SECRET: 'VALUE-TG-fc4' };
+    const cases: [string, Record<string, string | undefined>, { name: string; message: string; missing?: true }[]][] = [
       ['all set', full, []],
-      ['all empty', { SESSION_SECRET: '', CRON_SECRET: '', WHATSAPP_APP_SECRET: '', TELEGRAM_WEBHOOK_SECRET: '' }, [
-        { name: 'SESSION_SECRET', message: PROBLEM.session },
-        { name: 'WHATSAPP_APP_SECRET', message: PROBLEM.app },
-        { name: 'TELEGRAM_WEBHOOK_SECRET', message: PROBLEM.telegram },
+      ['all empty', { ENCRYPTION_KEY: ENC_KEY, SESSION_SECRET: '', CRON_SECRET: '', WHATSAPP_APP_SECRET: '', TELEGRAM_WEBHOOK_SECRET: '' }, [
+        { name: 'SESSION_SECRET', message: PROBLEM.session, missing: true },
+        { name: 'WHATSAPP_APP_SECRET', message: PROBLEM.app, missing: true },
+        { name: 'TELEGRAM_WEBHOOK_SECRET', message: PROBLEM.telegram, missing: true },
       ]],
       ['all unset', {}, [
-        { name: 'SESSION_SECRET', message: PROBLEM.session },
-        { name: 'WHATSAPP_APP_SECRET', message: PROBLEM.app },
-        { name: 'TELEGRAM_WEBHOOK_SECRET', message: PROBLEM.telegram },
+        { name: 'ENCRYPTION_KEY', message: PROBLEM.key, missing: true },
+        { name: 'SESSION_SECRET', message: PROBLEM.session, missing: true },
+        { name: 'WHATSAPP_APP_SECRET', message: PROBLEM.app, missing: true },
+        { name: 'TELEGRAM_WEBHOOK_SECRET', message: PROBLEM.telegram, missing: true },
       ]],
+      ['empty key', { ...full, ENCRYPTION_KEY: '' }, [{ name: 'ENCRYPTION_KEY', message: PROBLEM.key, missing: true }]],
+      ['63-hex key', { ...full, ENCRYPTION_KEY: ENC_KEY.slice(1) }, [{ name: 'ENCRYPTION_KEY', message: PROBLEM.key, missing: true }]],
       ['session reuses cron', { ...full, CRON_SECRET: SESSION }, [{ name: 'SESSION_SECRET', message: PROBLEM.reused }]],
-      ['only the app secret missing', { ...full, WHATSAPP_APP_SECRET: undefined }, [{ name: 'WHATSAPP_APP_SECRET', message: PROBLEM.app }]],
+      ['only the app secret missing', { ...full, WHATSAPP_APP_SECRET: undefined }, [{ name: 'WHATSAPP_APP_SECRET', message: PROBLEM.app, missing: true }]],
     ];
     const problems: string[] = [];
     for (const [label, input, want] of cases) {
@@ -365,6 +369,10 @@ async function main() {
     const noKey = await registerWith({ NODE_ENV: 'production', ENCRYPTION_KEY: '' });
     assert(noKey.value === null, `register() threw with no ENCRYPTION_KEY: ${noKey.value}`);
     assert(noKey.lines.some(l => l.text === '[startup] ENCRYPTION_KEY missing or invalid; ENCRYPTION_KEY_PREVIOUS unset'), `no ENCRYPTION_KEY: ${show(noKey.lines)}`);
+    const keyErrors = noKey.lines.filter(l => l.level === 'error' && l.text === `[startup] ${PROBLEM.key}`);
+    assert(keyErrors.length === 1, `no ENCRYPTION_KEY error line: ${show(noKey.lines)}`);
+    const keyCaptures = captured.filter(c => c.ctx === 'startup-secret');
+    assert(keyCaptures.length === 1 && keyCaptures[0].extra?.variable === 'ENCRYPTION_KEY', `no ENCRYPTION_KEY captures: ${show(captured)}`);
   });
 
   await check('#10 the deploy message names the missing secrets ("missing: ..."), and a reused one is not "missing"', async () => {
@@ -377,6 +385,14 @@ async function main() {
     await registerWith({ NODE_ENV: 'production', RAILWAY_GIT_COMMIT_SHA: 'abcdef1234567', CRON_SECRET: SESSION });
     await settle(() => sends.length >= 2);
     assert(sends.length === 2 && sends.every(s => s.text === '🚀 FamCal <code>abcdef1</code> deployed'), `reused only: sent ${show(sends)} (before: ${show(texts)})`);
+  });
+
+  await check('#10b the deploy message names a missing ENCRYPTION_KEY', async () => {
+    adminIds = async () => [1001, 1002];
+    sendFails = false;
+    await registerWith({ NODE_ENV: 'production', RAILWAY_GIT_COMMIT_SHA: 'abcdef1234567', ENCRYPTION_KEY: '' });
+    await settle(() => sends.length >= 2);
+    assert(sends.length === 2 && sends.every(s => s.text === '🚀 FamCal <code>abcdef1</code> deployed\nmissing: ENCRYPTION_KEY'), `sent ${show(sends)}`);
   });
 
   await check('#11 a deploy message that fails is logged and captured (deploy-notify-send per admin, deploy-notify for the admin list), never swallowed', async () => {
