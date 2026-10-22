@@ -111,7 +111,7 @@ The code is **host-agnostic**. The owner may move off Railway; nothing here depe
    - **empty cipher:** counted, never written.
    - **unreadable** (neither key): never written. The ids are logged (never values), with one `captureError('key-sweep-unreadable', {ids})` and one `notifyAdminWarning('key-sweep', ...)` per process.
 6. **After any conversion:** call `rebuildReminderCache()` (section c), so the Redis copy moves to the current key too.
-7. **Each tick logs:**
+7. **Each active tick logs** (idle ticks, item 9, log nothing):
 
    `[key-sweep] users current=N converted=N raced=N unreadable=N plaintext_encrypted=N empty_cipher=N; links current=N converted=N raced=N unreadable=N; legacy_cache=0|1`
 8. **SAFE condition:** all of these hold:
@@ -125,6 +125,8 @@ The code is **host-agnostic**. The owner may move off Railway; nothing here depe
    `[key-sweep] SAFE: every stored token is under ENCRYPTION_KEY (fp XXXXXXXX); nothing needs ENCRYPTION_KEY_PREVIOUS. You can remove it at the next deploy.`
 
    It sends the admins one Telegram message, deduplicated by Redis `SET keysweep:safe:<previous fp> 1 NX EX 2592000` and sent with the `getAdminUserIds` + `getBot` pattern. Without a PREVIOUS key, SAFE is neither logged nor sent: nothing was rotated.
+
+9. **Idle mode** (owner-approved amendment, 2026-10-23). Once SAFE is logged, or once a full pass finds nothing to write and either PREVIOUS isn't valid or unreadable rows remain, later ticks in that process return before any DB or Redis call. A query every 10 minutes would keep Neon awake about half the time (around 90 of the free 100 CU-hours a month). The next deploy starts a new process, which runs the baseline again.
 
 ### Startup line, `instrumentation.ts`
 
