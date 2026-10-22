@@ -390,6 +390,7 @@ async function main() {
     assert(show(unreadable[0].extra).includes('"5"') && show(unreadable[0].extra).includes('"link-b"'), `capture extra: ${show(unreadable[0].extra)}`);
     assert(captured.length === 1, `other captures: ${show(captured)}`);
     assert(adminNotes.length === 1 && adminNotes[0].includes('link-b'), `admin notes: ${show(adminNotes)}`);
+    assert(adminNotes[0].includes('ENCRYPTION_KEY_PREVIOUS holds the old key'), `admin note with a valid PREVIOUS: ${adminNotes[0]}`);
     const idLines = lines('[key-sweep] 2 stored tokens decrypt with neither key');
     assert(idLines.length === 2 && idLines.every(l => l.includes('users 5') && l.includes('links link-b')), `id lines: ${show(idLines)}`);
     const values = [
@@ -517,6 +518,20 @@ async function main() {
     assert(lines('[key-sweep] SAFE:').length === 0 && botSends.length === 0, 'SAFE without a PREVIOUS key');
   });
 
+  await check('#9b an unreadable row with ENCRYPTION_KEY_PREVIOUS unset: the admin note says the row was stored under a key this server does not have, not "check ENCRYPTION_KEY_PREVIOUS"', async () => {
+    reset();
+    setKeys(KEY_B, '');
+    DB.user = [
+      { id: 1, googleRefreshToken: sealWith(KEY_B, 'rt-1') },
+      { id: 5, googleRefreshToken: sealWith(KEY_C, 'rt-five') },
+    ];
+    const base = await run(600);
+    assert(base?.baseline === true, `report: ${show(base)}`);
+    assert(adminNotes.length === 1, `admin notes: ${show(adminNotes)}`);
+    assert(!adminNotes[0].includes('ENCRYPTION_KEY_PREVIOUS holds the old key'), `advice with PREVIOUS unset: ${adminNotes[0]}`);
+    assert(adminNotes[0].includes("doesn't have") && adminNotes[0].includes('ENCRYPTION_KEY_PREVIOUS is unset'), `note: ${adminNotes[0]}`);
+  });
+
   await check('#10 [RF4] ENCRYPTION_KEY_PREVIOUS equal to ENCRYPTION_KEY: no writes, no SAFE, no message, nothing breaks', async () => {
     reset();
     setKeys(KEY_B, KEY_B);
@@ -625,6 +640,7 @@ async function main() {
     const readme = read('README.md');
     assert(readme.includes(SAFE_TEMPLATE), 'README has no SAFE line');
     assert(rule.test(readme), 'README has no rotation rule');
+    assert(readme.includes('unreadable=0'), 'README does not say the baseline must show unreadable=0');
     assert(/^\|[^\n]*`ENCRYPTION_KEY_PREVIOUS`/m.test(readme), 'README\'s env table has no ENCRYPTION_KEY_PREVIOUS row');
     const claude = fs.existsSync(path.join(ROOT, 'CLAUDE.md')) ? read('CLAUDE.md') : '';
     assert(rule.test(claude), 'CLAUDE.md has no rotation rule');

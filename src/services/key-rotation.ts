@@ -240,11 +240,16 @@ async function reportUnreadable(users: KeySweepCounts, links: KeySweepCounts, st
   );
   const some = (ids: string[]) =>
     ids.length <= MAX_IDS_IN_ALERT ? all(ids) : `${ids.slice(0, MAX_IDS_IN_ALERT).join(', ')} and ${ids.length - MAX_IDS_IN_ALERT} more`;
+  // The advice follows ENCRYPTION_KEY_PREVIOUS: a valid one may hold the wrong key; otherwise there is no old key to check
+  const previous = previousKeyStatus();
+  const advice = previous === 'valid'
+    ? 'Check that ENCRYPTION_KEY_PREVIOUS holds the old key.'
+    : `They were stored under a key this server doesn't have (ENCRYPTION_KEY_PREVIOUS is ${previous === 'same' ? 'the same as ENCRYPTION_KEY' : previous}).`;
   try {
     const { notifyAdminWarning } = await import('../utils/error-notifier');
     await notifyAdminWarning(
       'key-sweep',
-      `${total} stored Google tokens decrypt with neither ENCRYPTION_KEY nor ENCRYPTION_KEY_PREVIOUS, so those users count as not connected. Nothing was overwritten. Check that ENCRYPTION_KEY_PREVIOUS holds the old key.\n\nUsers: ${some(users.unreadableIds)}\nCopy links: ${some(links.unreadableIds)}`,
+      `${total} stored Google tokens decrypt with neither ENCRYPTION_KEY nor ENCRYPTION_KEY_PREVIOUS, so those users count as not connected. Nothing was overwritten. ${advice}\n\nUsers: ${some(users.unreadableIds)}\nCopy links: ${some(links.unreadableIds)}`,
     );
   } catch (error) {
     console.error('[key-sweep] Unreadable-token alert failed:', error);
@@ -278,7 +283,8 @@ async function reminderCacheIsCurrent(): Promise<boolean> {
     try {
       return decryptDetailed(token).key === 'current';
     } catch {
-      // Opens with neither key: not current, so no SAFE. The hourly rebuild rewrites it.
+      // Opens with neither key: not current, so no SAFE. The hourly rebuild copies the same
+      // ciphertext, so the entry stays unopenable until its row is readable.
       return false;
     }
   });
