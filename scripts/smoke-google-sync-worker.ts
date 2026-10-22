@@ -37,6 +37,7 @@
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-google-sync-worker.ts
 
 import path from 'path';
+import crypto from 'crypto';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import { fromZonedTime } from 'date-fns-tz';
@@ -51,6 +52,8 @@ const nodeRequire = createRequire(__filename);
 process.env.TELEGRAM_BOT_TOKEN ||= 'test';
 process.env.SESSION_SECRET ||= 'test-session-secret';
 process.env.ENCRYPTION_KEY ||= '0'.repeat(64);
+// Empty, not deleted: @prisma/client loads a .env file into every variable that is unset
+process.env.ENCRYPTION_KEY_PREVIOUS = '';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -1319,6 +1322,25 @@ async function main() {
     google.accounts.clear();
     await pass();
     assert(link('L').state === 'token' && sent.length === 1, `link ${show(link('L'))} sent ${show(sent)}`);
+  });
+
+  await check('token: a stored token neither ENCRYPTION_KEY nor ENCRYPTION_KEY_PREVIOUS opens is not an outage: the copies stay as they are, no reconnect message, no Google call; Sentry gets google-sync-user with UndecryptableError\'s message, never the value (secret rotation §a)', async () => {
+    seedCopy();
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    // iv:tag:data under a key this server never had: GCM refuses it under both keys.
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv('aes-256-gcm', Buffer.from('c'.repeat(64), 'hex'), iv);
+    const data = cipher.update('tok-1', 'utf8', 'hex') + cipher.final('hex');
+    const stored = `${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${data}`;
+    DB.user[0].googleRefreshToken = stored;
+    await pass();
+    assert(link('L').state === 'ok' && google.calls.length === 0, `link ${show(link('L'))} calls ${show(google.calls)}`);
+    assert(sent.length === 0, `sent ${show(sent)}`);
+    assert(!captured.some((c) => c.ctx === 'google-sync-outage'), `captured ${show(captured)}`);
+    const failures = captured.filter((c) => c.ctx === 'google-sync-user');
+    assert(failures.length === 1 && failures[0].extra?.user_id === TAL && failures[0].message === 'The value does not decrypt with ENCRYPTION_KEY or ENCRYPTION_KEY_PREVIOUS', `captured ${show(captured)}`);
+    assert(!show(captured).includes(stored), 'the stored value was captured');
   });
 
   /** A copy's events.insert refused the way Google refused calendarList.patch in production: a bare 401, no OAuth error. */
