@@ -1009,18 +1009,17 @@ async function main() {
     }
   });
 
-  await check('#17 WhatsApp with WHATSAPP_APP_SECRET unset: accepted, with one error log per process', async () => {
+  await check('#17 WhatsApp with WHATSAPP_APP_SECRET unset: refused with a 500, nothing processed, one capture per process', async () => {
     seed();
-    const WARNING = '[WhatsApp] WHATSAPP_APP_SECRET is not set; webhook signatures are NOT verified';
     const id = await pendingFor(42);
     const first = await postWebhook(JSON.stringify(waText(WA_BSUID, `gc_${id}`, { bsuid: WA_BSUID })));
     const second = await postWebhook(JSON.stringify(waText(WA_BSUID, 'hello', { bsuid: WA_BSUID })));
-    assert(first.status === 200 && second.status === 200, `statuses ${first.status} ${second.status}`);
-    assert(await savedToken(42) === 'google-rt-new', 'the unsigned claim was not handled');
-    const warnings = [...first.errors, ...second.errors].filter(e => e.includes(WARNING));
-    assert(warnings.length === 1, `warnings: ${show(warnings)}`);
-    const { ACCEPT_UNSIGNED_WHATSAPP_WEBHOOKS } = await load('src/lib/whatsapp-signature.ts');
-    assert(ACCEPT_UNSIGNED_WHATSAPP_WEBHOOKS === true, 'the unset-secret policy is not one named constant');
+    assert(first.status === 500 && second.status === 500, `statuses ${first.status} ${second.status}`);
+    assert(pendingKeys().length === 1 && userWrites.length === 0 && sent.length === 0, 'an unsigned body was processed');
+    const captures = captured.filter(c => c.startsWith('whatsapp-webhook-unconfigured:'));
+    assert(captures.length === 1, `captures: ${show(captured)}`);
+    const mod = await load('src/lib/whatsapp-signature.ts');
+    assert(!('ACCEPT_UNSIGNED_WHATSAPP_WEBHOOKS' in mod), 'the accept-unsigned switch is still exported');
   });
 
   await check('#18 [guard] the Telegram webhook path: right secret → handled, wrong or missing → 401', async () => {
@@ -1200,9 +1199,17 @@ async function main() {
     assert(tg.status === 200, `Telegram webhook ${tg.status}: a redelivered /start would find the entry gone and say "expired"`);
     assert(captured.some(c => c.includes('failed (smoke)')), `the failed reply was not captured: ${show(captured)}`);
     const waId = await pendingFor(42);
+    const waRaw = JSON.stringify(waText(WA_BSUID, `gc_${waId}`, { bsuid: WA_BSUID }));
+    // Signed: an unset WHATSAPP_APP_SECRET refuses every WhatsApp webhook (#17)
+    process.env.WHATSAPP_APP_SECRET = APP_SECRET;
     failingSends.add('sendMessage');
-    const wa = await postWebhook(JSON.stringify(waText(WA_BSUID, `gc_${waId}`, { bsuid: WA_BSUID })));
-    failingSends.clear();
+    let wa: { status: number };
+    try {
+      wa = await postWebhook(waRaw, { 'x-hub-signature-256': signWa(waRaw) });
+    } finally {
+      failingSends.clear();
+      process.env.WHATSAPP_APP_SECRET = '';
+    }
     assert(await savedToken(42) === 'google-rt-new', `no WhatsApp commit; ${captured.join(' | ')}`);
     assert(wa.status === 200, `WhatsApp webhook ${wa.status}`);
   });

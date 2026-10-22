@@ -195,12 +195,12 @@ async function main() {
 
   // ---- Startup: name a missing secret ----
 
-  await check('#5 production startup logs one line per missing SESSION_SECRET / WHATSAPP_APP_SECRET, naming the variable', async () => {
+  await check('#5 production startup logs one line per missing SESSION_SECRET / WHATSAPP_APP_SECRET, naming the variable and what is refused', async () => {
     const logged = await registerWith({ NODE_ENV: 'production' });
     const session = logged.filter(l => l.includes('SESSION_SECRET'));
     const app = logged.filter(l => l.includes('WHATSAPP_APP_SECRET'));
-    assert(session.length === 1 && /signed with CRON_SECRET/.test(session[0]), `SESSION_SECRET lines: ${show(session)}`);
-    assert(app.length === 1 && /signatures are not verified/.test(app[0]), `WHATSAPP_APP_SECRET lines: ${show(app)}`);
+    assert(session.length === 1 && session[0] === '[startup] SESSION_SECRET is not set: WhatsApp sign-in and share-story image links are refused', `SESSION_SECRET lines: ${show(session)}`);
+    assert(app.length === 1 && app[0] === '[startup] WHATSAPP_APP_SECRET is not set: every WhatsApp webhook is refused (500)', `WHATSAPP_APP_SECRET lines: ${show(app)}`);
     assert(schedulerStarts.length > 0, 'register() did not start the scheduler');
   });
 

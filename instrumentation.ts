@@ -8,29 +8,44 @@ export async function register() {
     const { startScheduler } = await import('./src/cron/scheduler');
     startScheduler();
 
-    // Name a missing secret in the deploy log (production only), never its value
-    if (process.env.NODE_ENV === 'production') {
-      if (!process.env.SESSION_SECRET) {
-        console.warn('[startup] SESSION_SECRET is not set: WhatsApp session cookies are signed with CRON_SECRET');
+    const { captureError } = await import('./src/lib/error-capture');
+
+    // Startup never throws: a crash-looping container would take the bot down for everyone
+    let missing: string[] = [];
+    try {
+      // Which encryption keys this process holds, by fingerprint only (every environment)
+      const { describeKeys } = await import('./src/utils/encryption');
+      console.log(describeKeys());
+
+      // Name a missing or reused secret (production only), never its value
+      if (process.env.NODE_ENV === 'production') {
+        const { startupSecretProblems } = await import('./src/lib/startup-checks');
+        const problems = startupSecretProblems(process.env);
+        for (const problem of problems) {
+          console.error(`[startup] ${problem.message}`);
+          captureError(new Error(problem.message), 'startup-secret', { variable: problem.name });
+        }
+        missing = problems.filter(p => !process.env[p.name]).map(p => p.name);
       }
-      if (!process.env.WHATSAPP_APP_SECRET) {
-        console.warn('[startup] WHATSAPP_APP_SECRET is not set: WhatsApp webhook signatures are not verified');
-      }
+    } catch (err) {
+      captureError(err, 'startup-checks');
     }
 
-    // Notify admins of deploy (production only)
+    // Notify admins of deploy (production only), naming any missing secret
     if (process.env.NODE_ENV === 'production' && process.env.RAILWAY_GIT_COMMIT_SHA) {
       const commitSha = process.env.RAILWAY_GIT_COMMIT_SHA.slice(0, 7);
+      const missingLine = missing.length ? `\nmissing: ${missing.join(', ')}` : '';
       import('./src/utils/error-notifier').then(({ getAdminUserIds }) =>
         import('./src/services/telegram/bot').then(({ getBot }) =>
           getAdminUserIds().then(adminIds => {
             const bot = getBot();
             for (const adminId of adminIds) {
-              bot.sendMessage(adminId, `🚀 FamCal <code>${commitSha}</code> deployed`, { parse_mode: 'HTML' }).catch(() => {});
+              bot.sendMessage(adminId, `🚀 FamCal <code>${commitSha}</code> deployed${missingLine}`, { parse_mode: 'HTML' })
+                .catch(err => captureError(err, 'deploy-notify-send', { admin_id: adminId }));
             }
           })
         )
-      ).catch(() => {});
+      ).catch(err => captureError(err, 'deploy-notify'));
     }
   }
 

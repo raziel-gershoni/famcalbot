@@ -6,17 +6,10 @@
 
 import crypto from 'crypto';
 import { NextRequest } from 'next/server';
+import { appKey } from './app-keys';
 
 const COOKIE_NAME = 'famcal_session';
 const SESSION_TTL = 24 * 60 * 60; // 24 hours in seconds
-
-function getSecret(): string {
-  const secret = process.env.SESSION_SECRET || process.env.CRON_SECRET;
-  if (!secret) {
-    throw new Error('SESSION_SECRET or CRON_SECRET must be configured');
-  }
-  return secret;
-}
 
 interface SessionPayload {
   userId: number;
@@ -28,6 +21,12 @@ interface SessionPayload {
  * Create a signed session token (simple HMAC-signed JSON, not full JWT)
  */
 export function createSessionToken(userId: number): string {
+  // The session-cookie key from SESSION_SECRET, with no fallback to another secret
+  const key = appKey('session-cookie');
+  if (!key) {
+    throw new Error('SESSION_SECRET is not set: cannot sign a session cookie');
+  }
+
   const payload: SessionPayload = {
     userId,
     iat: Math.floor(Date.now() / 1000),
@@ -36,7 +35,7 @@ export function createSessionToken(userId: number): string {
 
   const payloadStr = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const signature = crypto
-    .createHmac('sha256', getSecret())
+    .createHmac('sha256', key)
     .update(payloadStr)
     .digest('base64url');
 
@@ -47,13 +46,17 @@ export function createSessionToken(userId: number): string {
  * Validate a session token and return the payload
  */
 export function validateSessionToken(token: string): SessionPayload | null {
+  // No key, no session: appKey reports the missing SESSION_SECRET once per process
+  const key = appKey('session-cookie');
+  if (!key) return null;
+
   try {
     const [payloadStr, signature] = token.split('.');
     if (!payloadStr || !signature) return null;
 
     // Verify signature
     const expectedSignature = crypto
-      .createHmac('sha256', getSecret())
+      .createHmac('sha256', key)
       .update(payloadStr)
       .digest('base64url');
 
@@ -73,6 +76,8 @@ export function validateSessionToken(token: string): SessionPayload | null {
 
     return payload;
   } catch {
+    // Signed by us but not our JSON: deny. Never log the cookie.
+    console.warn('[session] malformed session cookie');
     return null;
   }
 }

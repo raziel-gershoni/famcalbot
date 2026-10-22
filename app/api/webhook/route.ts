@@ -36,6 +36,12 @@ export async function POST(request: NextRequest) {
       }
       if (signature === 'unconfigured') {
         console.error('[Webhook] WHATSAPP_APP_SECRET not configured');
+        // Sentry once per process, not per webhook (globalThis: route bundles each hold their own copy of this module)
+        const g = globalThis as { __famcalWhatsAppUnconfiguredReported?: boolean };
+        if (!g.__famcalWhatsAppUnconfiguredReported) {
+          g.__famcalWhatsAppUnconfiguredReported = true;
+          captureError(new Error('WHATSAPP_APP_SECRET is not set: every WhatsApp webhook is refused'), 'whatsapp-webhook-unconfigured', { api_route: '/api/webhook' });
+        }
         return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 });
       }
     } else {
