@@ -189,11 +189,20 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
   }
 
   const { processUserReminders } = await import('../services/reminders');
-  const { openSecret } = await import('../utils/encryption');
+  const { openSecret, reportUndecryptable, UndecryptableError } = await import('../utils/encryption');
 
   let totalRemindersSent = 0;
   let usersProcessed = 0;
   const errors: string[] = [];
+  const openCachedToken = (cachedUser: { id: number; googleToken: string }): string => {
+    try {
+      return openSecret(cachedUser.googleToken);
+    } catch (error) {
+      if (!(error instanceof UndecryptableError)) throw error;
+      reportUndecryptable(error, { userId: cachedUser.id, column: 'reminders-cache' });
+      return '';
+    }
+  };
 
   for (const cachedUser of cachedUsers) {
     try {
@@ -202,9 +211,10 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
         telegramId: parseInt(cachedUser.telegramId, 10),
         name: cachedUser.name,
         language: cachedUser.language,
-        // Sealed in the cache (toEntry) and opened here, inside this user's try: an entry
-        // that no key opens fails only this user ('cron-reminders-process-user' below).
-        googleRefreshToken: openSecret(cachedUser.googleToken),
+        // Sealed in the cache (toEntry) and opened here. An entry that no key opens counts as
+        // "not connected": the user keeps every FamCal reminder, has no Google events, and is
+        // reported once per process. Any other error fails this user ('cron-reminders-process-user').
+        googleRefreshToken: openCachedToken(cachedUser),
         calendarAssignments: cachedUser.calendarAssignments,
         // Legacy: the providers are chosen by calendar id ("Google as a connection"); read only
         // as liveGoogleChoices' marker for the stored Google choices of a user with no token.

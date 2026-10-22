@@ -165,6 +165,8 @@ const recorder = {
 };
 /** The contexts captureError was called with. */
 let captured: string[] = [];
+/** The message and extra of each capture, to prove no token or ciphertext reaches Sentry. */
+let capturedDetail: string[] = [];
 
 const SRC = path.resolve(__dirname, '../src');
 
@@ -210,7 +212,7 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   [`${SRC}/utils/redis.ts`]: { redis: fakeRedis },
   [`${SRC}/utils/prisma.ts`]: { prisma: fakePrisma },
   [`${SRC}/lib/error-capture.ts`]: {
-    captureError: (_error: unknown, context: string) => { captured.push(context); },
+    captureError: (error: unknown, context: string, extra?: unknown) => { captured.push(context); capturedDetail.push(`${error instanceof Error ? error.message : String(error)} ${JSON.stringify(extra ?? {})}`); },
     captureWarning: () => {},
     captureInfo: () => {},
   },
@@ -295,6 +297,7 @@ function reset(row: Partial<UserRow> & { id: number }) {
   sendError = null;
   sendAttempts = 0;
   captured = [];
+  capturedDetail = [];
   googleEvents = [];
   nativeCalendars = [];
   nativeEvents = [];
@@ -734,13 +737,20 @@ async function main() {
       `Google was given ${googleTokens.length} token(s), ${googleTokens.filter(token => token === 'refresh-token').length} of them the plain one`);
   });
 
-  await check('a row whose token no key opens: the sync still caches both users, and each run fails only that user', async () => {
+  await check('a row whose token no key opens: the sync still caches both users; that user keeps every FamCal reminder, makes no Google call, and is reported once per process', async () => {
     reset({ id: 23 });
-    userRows.push({ ...userRows[0], id: 27, telegramId: BigInt(1027), googleRefreshToken: await foreignCipher('another-deployments-token') });
+    const cipher = await foreignCipher('another-deployments-token');
+    userRows.push({ ...userRows[0], id: 27, telegramId: BigInt(1027), googleRefreshToken: cipher });
     for (const id of [23, 27]) await fakeRedis.set(REDIS_KEYS.userTimezone(id), IL);
     googleEvents = [{ calendarId: kidsCal, id: 'k23', summary: 'Kindergarten', start: at('2026-10-13 08:00', IL), end: at('2026-10-13 16:00', IL) }];
+    nativeCalendars = [{ id: 'cal27', name: 'Dana', labels: ['yours'] }];
+    nativeEvents = [{ calendarId: 'cal27', id: 'n27', title: 'Swim', startsAt: at('2026-10-13 08:00', IL), endsAt: at('2026-10-13 09:00', IL), timeZone: IL }];
+    googleTokens = [];
+    const output: string[] = [];
     const error = console.error;
-    console.error = () => {};
+    const warn = console.warn;
+    console.error = (...args: unknown[]) => { output.push(args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')); };
+    console.warn = console.error;
     try {
       await syncCache(handlers, at('2026-10-13 07:00', IL));
       const ids = cacheV2().entries.map(u => u.id).sort((a, b) => a - b);
@@ -748,10 +758,19 @@ async function main() {
       await runTicks(handlers, at('2026-10-13 07:40', IL), at('2026-10-13 07:50', IL));
     } finally {
       console.error = error;
+      console.warn = warn;
     }
-    assert(sent.length === 1 && sent[0].chatId === 1023, `sent to ${JSON.stringify(sent.map(s => s.chatId))}`);
-    // One per run: the runs at 07:40 and 07:45
-    assert(captured.filter(c => c === 'cron-reminders-process-user').length === 2, `captured ${captured.join(', ')}`);
+    const to27 = sent.filter(s => s.chatId === 1027);
+    assert(to27.length === 1 && to27[0].text.includes('Swim') && !to27[0].text.includes('Kindergarten'), `user 27 got ${JSON.stringify(to27.map(s => s.text))}`);
+    assert(sent.some(s => s.chatId === 1023 && s.text.includes('Kindergarten')), `user 23 got ${JSON.stringify(sent.filter(s => s.chatId === 1023).map(s => s.text))}`);
+    // Google's OAuth client is only ever given user 23's plain token; user 27 never reaches Google
+    assert(googleTokens.length > 0 && googleTokens.every(token => token === 'refresh-token'), `Google was given ${JSON.stringify(googleTokens.map(t => t.slice(0, 6)))}`);
+    // Once per process across the two runs, and the user is not failed
+    assert(captured.filter(c => c === 'token-undecryptable').length === 1, `captured ${captured.join(', ')}`);
+    assert(!captured.includes('cron-reminders-process-user'), `captured ${captured.join(', ')}`);
+    const leaked = [...output, ...capturedDetail].filter(line => line.includes(cipher) || line.includes('another-deployments-token'));
+    assert(leaked.length === 0, `a token or its ciphertext reached a log or capture: ${leaked.length} line(s)`);
+    assert(output.some(line => line.includes('undecryptable') && line.includes('27')), `output ${JSON.stringify(output)}`);
   });
 
   await check('a plaintext row is cached sealed, and an empty-cipher row (iv:tag: with no token) as no token: no capture, and nothing written to the row', async () => {

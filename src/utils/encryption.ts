@@ -215,15 +215,23 @@ export function readStoredToken(stored: string, ctx: { userId: number; column: s
   try {
     return decrypt(value);
   } catch (err) {
-    const seen = reports().undecryptable;
-    const key = `${ctx.userId}:${ctx.column}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      console.error('[token] undecryptable', { userId: ctx.userId, column: ctx.column });
-      captureError(err, 'token-undecryptable', { user_id: ctx.userId, column: ctx.column });
-    }
+    reportUndecryptable(err, ctx);
     return '';
   }
+}
+
+/**
+ * Logs and captures (token-undecryptable) a stored token that no key opens, once per user
+ * and column per process. Ids only, never the value. The one report for every source of a
+ * token (the database columns via readStoredToken, the reminder cache).
+ */
+export function reportUndecryptable(err: unknown, ctx: { userId: number; column: string }): void {
+  const seen = reports().undecryptable;
+  const key = `${ctx.userId}:${ctx.column}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  console.error('[token] undecryptable', { userId: ctx.userId, column: ctx.column });
+  captureError(err, 'token-undecryptable', { user_id: ctx.userId, column: ctx.column });
 }
 
 /** The first 8 hex characters of sha256 over the key's 32 bytes; null when unset or invalid. For log lines only. */
