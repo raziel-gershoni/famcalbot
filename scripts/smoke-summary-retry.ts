@@ -334,7 +334,7 @@ const stubs: Record<string, object> = {
       log.push('housekeeping: reminders switch set');
     },
   },
-  [`${SRC}/utils/encryption.ts`]: { safeDecrypt: (value: string) => value },
+  [`${SRC}/utils/encryption.ts`]: { safeDecrypt: (value: string) => value, readStoredToken: (value: string) => value },
   // The daily handler imports the senders through the package index; it gets summary.ts's own.
   [`${SRC}/services/telegram/index.ts`]: {
     sendDailySummaryToAll: (options?: { filterByHour?: boolean }) => summaryModule().sendDailySummaryToAll(options),

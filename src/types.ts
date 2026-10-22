@@ -1,5 +1,5 @@
 import { User as PrismaUser } from '@prisma/client';
-import { safeDecrypt } from './utils/encryption';
+import { readStoredToken } from './utils/encryption';
 
 // Calendar category labels
 export type CalendarLabel = 'primary' | 'yours' | 'spouse' | 'kids' | 'birthdays';
@@ -52,7 +52,9 @@ export function convertPrismaUserToConfig(user: PrismaUser): UserConfig {
     whatsappBsuid: user.whatsappBsuid ?? undefined,
     messagingPlatform: user.messagingPlatform as 'telegram' | 'whatsapp' | 'all',
     gender: user.gender as 'male' | 'female',
-    googleRefreshToken: safeDecrypt(user.googleRefreshToken), // Decrypt OAuth token
+    // Decrypt OAuth token. Never throws: a token neither key opens reads as '' (not
+    // connected) and is reported once, so one bad row can't fail getAllUsers or a lookup.
+    googleRefreshToken: readStoredToken(user.googleRefreshToken, { userId: user.id, column: 'googleRefreshToken' }),
     calendarAssignments: user.calendarAssignments
       ? (user.calendarAssignments as unknown as CalendarAssignment[])
       : undefined,

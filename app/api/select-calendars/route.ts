@@ -3,7 +3,6 @@ import type { Prisma } from '@prisma/client';
 import { validateCalendarAssignments } from '@/src/utils/calendar-helpers';
 import { CalendarAssignment } from '@/src/types';
 import { prisma } from '@/src/utils/prisma';
-import { encrypt } from '@/src/utils/encryption';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { captureError } from '@/src/lib/error-capture';
@@ -94,8 +93,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // The proved user (verifyUserAuth already returned 404 for a missing row); its
-    // decrypted refresh token is re-encrypted below
+    // The proved user (verifyUserAuth already returned 404 for a missing row). Saving the
+    // choices never writes the Google token: it is '' here when it can't be decrypted,
+    // and writing that back would destroy a token PREVIOUS could still open.
     const currentUser = auth.user;
 
     // FamCal's own copies in Google are never a choice (google-sync spec §2): the page
@@ -130,7 +130,6 @@ export async function POST(request: NextRequest) {
       data: {
         calendarAssignments: syncedAssignments as unknown as Prisma.InputJsonValue,
         ...(globalRules !== undefined && { globalRules }),
-        googleRefreshToken: encrypt(currentUser.googleRefreshToken) // Re-encrypt
       }
     });
 

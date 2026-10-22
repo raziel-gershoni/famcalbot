@@ -15,6 +15,7 @@ import { getBot } from '../telegram/bot';
 import { getBotMessage } from '../../lib/bot-messages';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { captureError } from '../../lib/error-capture';
+import { readStoredToken } from '../../utils/encryption';
 import { describeDeliveryError, isUnreachableError } from '../../lib/delivery-errors';
 import { markUserUnreachable } from '../../lib/user-reachability';
 import { trackActivityAsync } from '../analytics-service';
@@ -209,7 +210,8 @@ async function editLivePing(
     const language = owner?.language || 'en';
     let time: string | undefined;
     if (edit.message === 'snoozedUntil') {
-      const timeZone = owner ? await resolveUserTimezone({ id: owner.id, location: owner.location ?? undefined, googleRefreshToken: owner.googleRefreshToken ?? undefined }) : 'UTC';
+      // The column is encrypted: the timezone lookup needs the token itself ('' when unreadable).
+      const timeZone = owner ? await resolveUserTimezone({ id: owner.id, location: owner.location ?? undefined, googleRefreshToken: readStoredToken(owner.googleRefreshToken, { userId: owner.id, column: 'googleRefreshToken' }) }) : 'UTC';
       time = snoozeLabel(edit.until, edit.action, language, timeZone);
     }
     const text = await getBotMessage(language, `nativeReminders.${edit.message}`, {

@@ -19,6 +19,10 @@ import { fromZonedTime } from 'date-fns-tz';
 import { NextRequest } from 'next/server';
 import type { UserConfig } from '../src/types';
 
+// The ping edit decrypts the owner's Google token with the real encryption module.
+process.env.ENCRYPTION_KEY ||= '0'.repeat(64);
+process.env.ENCRYPTION_KEY_PREVIOUS = '';
+
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
 
@@ -305,6 +309,8 @@ const fakeBot = {
   },
 };
 const captured: { ctx: string; extra?: Row; message: string; severity?: string }[] = [];
+/** The Google token each timezone lookup was given, in call order. */
+const timezoneTokens: (string | undefined)[] = [];
 const activity: { userId: number; action: string; meta?: Row }[] = [];
 
 type AuthMode = 'ok' | 'missing' | 'unauthorized' | 'suspended' | 'limited';
@@ -328,7 +334,12 @@ async function main() {
   const telegram = { getBot: () => fakeBot, getMessagingService: () => ({}) };
   stub('src/services/telegram/bot.ts', telegram);
   stub('src/services/telegram/index.ts', telegram);
-  stub('src/lib/timezone.ts', { resolveUserTimezone: async (u: { id: number }) => TIMEZONES[u.id] ?? IL });
+  stub('src/lib/timezone.ts', {
+    resolveUserTimezone: async (u: { id: number; googleRefreshToken?: string }) => {
+      timezoneTokens.push(u.googleRefreshToken);
+      return TIMEZONES[u.id] ?? IL;
+    },
+  });
   stub('src/lib/error-capture.ts', {
     captureError: (e: unknown, ctx: string, extra?: Row, severity?: string) => {
       captured.push({ ctx, extra, severity, message: e instanceof Error ? e.message : String(e) });
@@ -382,6 +393,7 @@ async function main() {
     botCalls = [];
     botFailure = null;
     captured.length = 0;
+    timezoneTokens.length = 0;
     activity.length = 0;
     failOn = null;
     authMode = 'ok';
@@ -624,6 +636,17 @@ async function main() {
     await act(RAZIEL, MILK_KEY, 'done');
     const done = await getBotMessage('en', 'nativeReminders.done', { title: 'Buy milk' });
     assertJson(edits(), [{ kind: 'edit', chatId: tg(DANA), messageId: 55, text: done, buttons: false }], 'done edit');
+  });
+
+  await check('ping: the edit\'s timezone lookup gets the owner\'s Google token decrypted, never the stored ciphertext (secret rotation §a)', async () => {
+    reset();
+    const { encrypt } = await import('../src/utils/encryption');
+    db.users.find((u) => u.id === RAZIEL)!.googleRefreshToken = encrypt('raz-google-token');
+    // The actor comes decrypted, as convertPrismaUserToConfig gives it; the edit reads the owner's row itself.
+    const r = await applyReminderAction({ ...actor(RAZIEL), googleRefreshToken: 'raz-google-token' }, PLUMBER_KEY, 'snooze15', NOW, 'app');
+    assert(r.status === 'ok', json(r));
+    assert(edits().length === 1, json(botCalls));
+    assertJson(timezoneTokens, ['raz-google-token', 'raz-google-token'], 'the tokens the timezone lookups got');
   });
 
   await check('ping: the edit is Telegram\'s to fail: the action still succeeds, answered ok, a warning is captured', async () => {

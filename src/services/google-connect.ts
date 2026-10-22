@@ -203,7 +203,16 @@ export async function claimPendingGoogleToken(
   if (!isOwner) return { status: 'not_owner' };
 
   const grant = Array.isArray(entry.scopes) ? { scopes: entry.scopes, ...(entry.sync ? { sync: entry.sync } : {}) } : undefined;
-  const committed = await commitGoogleToken(owner.id, decrypt(entry.refreshToken), grant);
+  let refreshToken: string;
+  try {
+    refreshToken = decrypt(entry.refreshToken);
+  } catch (err) {
+    // Parked under a key this server has neither as ENCRYPTION_KEY nor as
+    // ENCRYPTION_KEY_PREVIOUS: the entry is used up, and the user taps Connect again.
+    captureError(err, 'oauth-claim-undecryptable', { user_id: owner.id });
+    return { status: 'expired' };
+  }
+  const committed = await commitGoogleToken(owner.id, refreshToken, grant);
   return { status: 'connected', owner, ...(committed.sync ? { sync: committed.sync } : {}) };
 }
 
