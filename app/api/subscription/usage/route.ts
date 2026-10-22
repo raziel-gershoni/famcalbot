@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkFeatureAccess } from '@/src/services/subscription-service';
 import { captureError } from '@/src/lib/error-capture';
+import { matchesSecret } from '@/src/lib/secret-compare';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,8 +16,8 @@ export async function GET(request: NextRequest) {
     const feature = searchParams.get('feature');
     const secret = searchParams.get('secret');
 
-    // Internal API - require cron secret
-    if (secret !== process.env.CRON_SECRET) {
+    // Internal API - require cron secret (an unset or empty CRON_SECRET matches nothing)
+    if (!matchesSecret(secret, process.env.CRON_SECRET)) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }

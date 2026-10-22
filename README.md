@@ -131,7 +131,7 @@ Helper scripts handle one-time setup: `npm run get-google-token` (obtain a Googl
 
 ## 📦 Deployment
 
-Deployed on Railway as one long-running Next.js server. `npm run build` runs `prisma generate && prisma migrate deploy && next build`, so database migrations are applied on each deploy. Scheduled work (daily/tomorrow summaries, reminders, setup reminders, the Google copy worker, a nightly health check) runs in-process on node-cron, started from `instrumentation.ts`; every job but the health check also has an API endpoint guarded by `CRON_SECRET` for manual runs.
+Deployed on Railway as one long-running Next.js server. `npm run build` runs `prisma generate && prisma migrate deploy && next build`, so database migrations are applied on each deploy. Scheduled work (daily/tomorrow summaries, reminders, setup reminders, the Google copy worker, a nightly health check, the encryption-key sweep) runs in-process on node-cron, started from `instrumentation.ts`; the health check and the key sweep run only on the schedule; every other job also has an API endpoint for manual runs, guarded by `CRON_SECRET` sent as `Authorization: Bearer <CRON_SECRET>` (a `?secret=` query is refused).
 
 ## 📄 License
 

@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { matchesSecret } from '@/src/lib/secret-compare';
 
 interface CronResult {
   success: boolean;
@@ -22,7 +23,8 @@ interface CronHandlerOptions {
 /**
  * Wraps a cron job handler with error handling and auth
  * Cron jobs are triggered by the in-process scheduler or manually via HTTP.
- * Requires CRON_SECRET via Authorization header or query parameter.
+ * Requires `Authorization: Bearer <CRON_SECRET>`. No query-string secret: URLs end up in
+ * logs, and an empty CRON_SECRET must not open the route.
  */
 export async function withCronHandler(
   request: NextRequest,
@@ -31,10 +33,11 @@ export async function withCronHandler(
   const { jobName, handler } = options;
   const { searchParams } = new URL(request.url);
 
-  // Validate CRON_SECRET
-  const secret = request.headers.get('authorization')?.replace('Bearer ', '') ||
-    searchParams.get('secret');
-  if (secret !== process.env.CRON_SECRET) {
+  // CRON_SECRET from the Authorization header only
+  const auth = request.headers.get('authorization');
+  const given = auth?.startsWith('Bearer ') ? auth.slice('Bearer '.length) : null;
+  if (!matchesSecret(given, process.env.CRON_SECRET)) {
+    console.warn(`[${jobName}] Refused a cron request without a valid Authorization: Bearer secret`);
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

@@ -7,6 +7,7 @@
 
 import crypto from 'crypto';
 import { appKey } from './app-keys';
+import { matchesSecret } from './secret-compare';
 
 /** A link is good for an hour, and its time may run at most a minute ahead of this server's clock. */
 const MAX_AGE_MS = 3600_000;
@@ -43,8 +44,5 @@ export function verifyImageLink(p: ImageLinkParams, sig: string, nowMs: number =
   if (p.ts - nowMs > MAX_AHEAD_MS || nowMs - p.ts > MAX_AGE_MS) return false;
   const expected = signImageLink(p);
   if (!expected) return false;
-  const want = Buffer.from(expected);
-  const given = Buffer.from(sig);
-  // timingSafeEqual throws on different lengths
-  return given.length === want.length && crypto.timingSafeEqual(given, want);
+  return matchesSecret(sig, expected);
 }

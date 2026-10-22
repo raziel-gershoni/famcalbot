@@ -7,6 +7,7 @@ import { requestInitData } from '@/src/lib/request-init-data';
 import { resolveCommandTarget } from '@/src/lib/command-target';
 import { commandRateLimiter } from '@/src/lib/rate-limit';
 import { captureError } from '@/src/lib/error-capture';
+import { matchesSecret } from '@/src/lib/secret-compare';
 import type { UserConfig } from '@/src/types';
 
 export const dynamic = 'force-dynamic';
@@ -28,7 +29,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Authentication: server secret (operator path) OR Telegram initData OR session cookie
-    const hasServerSecret = secret && secret === process.env.CRON_SECRET;
+    const hasServerSecret = matchesSecret(secret, process.env.CRON_SECRET);
     let user: UserConfig | null;
     let via: AuthVia | 'server';
 

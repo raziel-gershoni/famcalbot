@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { detectPlatform, MessagingPlatform } from '@/src/services/messaging';
 import { captureError } from '@/src/lib/error-capture';
 import { checkWhatsAppSignature } from '@/src/lib/whatsapp-signature';
+import { matchesSecret } from '@/src/lib/secret-compare';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -9,11 +10,12 @@ export async function GET(request: NextRequest) {
   const token = searchParams.get('hub.verify_token');
   const challenge = searchParams.get('hub.challenge');
 
-  // WhatsApp webhook verification
-  if (mode === 'subscribe' && token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN) {
+  // WhatsApp webhook verification (an unset or empty verify token matches nothing)
+  if (mode === 'subscribe' && matchesSecret(token, process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN)) {
     console.log('[WhatsApp] Webhook verified');
     return new NextResponse(challenge, { status: 200 });
   } else {
+    console.warn('[WhatsApp] Webhook verification refused: wrong mode or verify token');
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 }
@@ -52,7 +54,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 });
       }
       const providedSecret = request.headers.get('X-Telegram-Bot-Api-Secret-Token');
-      if (providedSecret !== webhookSecret) {
+      if (!matchesSecret(providedSecret, webhookSecret)) {
         console.warn('[Webhook] Invalid or missing Telegram secret token');
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }

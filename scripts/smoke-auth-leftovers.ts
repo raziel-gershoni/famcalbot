@@ -188,7 +188,9 @@ async function main() {
     const { NextRequest } = nodeRequire('next/server');
     const res: Response = await route.GET(new NextRequest('http://localhost/api/subscription/usage?user_id=1&feature=reminders'));
     assert(res.status === 401, `GET with no secret: ${res.status}`);
+    // A smoke that loads the route to test it is not a caller
     const callers = sourceFiles().filter(f => f !== path.join('app', 'api', 'subscription', 'usage', 'route.ts')
+      && !/^scripts[\\/]smoke-/.test(f)
       && readSource(f).includes('subscription/usage'));
     assert(callers.length === 0, `still called from ${callers.join(', ')}`);
   });
