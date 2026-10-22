@@ -3,9 +3,16 @@ import { verifyUserAuth } from '@/src/lib/api-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
 import { generalRateLimiter } from '@/src/lib/rate-limit';
 import { redis } from '@/src/utils/redis';
-import crypto from 'crypto';
+import { appKey } from '@/src/lib/app-keys';
+import { signImageLink } from '@/src/lib/image-link';
 
 export const dynamic = 'force-dynamic';
+
+/** The 500 for a missing image-link key (appKey has already reported it, once per process). */
+function noKeyResponse() {
+  console.error('[weather-image/sign] SESSION_SECRET is not set; no image link signed');
+  return NextResponse.json({ error: 'Server config error' }, { status: 500 });
+}
 
 /**
  * GET /api/weather-image/sign?user_id=X&source=...&msg=... (initData in the X-Telegram-Init-Data header)
@@ -32,6 +39,11 @@ export async function GET(request: NextRequest) {
   }
 
   const source = request.nextUrl.searchParams.get('source') || 'fresh';
+
+  // The key first: with no image-link key no link can be signed, so build no image for it.
+  // appKey reports the missing SESSION_SECRET (once per process).
+  if (!appKey('image-link')) return noKeyResponse();
+
   // source=summary: always generate fresh card from stashed text
   // source=cached: weather image from cache
   // source=fresh: generate new weather image
@@ -74,14 +86,11 @@ export async function GET(request: NextRequest) {
     await redis.set(cacheKey, cached, { ex: 1800 });
   }
 
-  const secret = process.env.ENCRYPTION_KEY || process.env.CRON_SECRET;
-  if (!secret) {
-    return NextResponse.json({ error: 'Server config error' }, { status: 500 });
-  }
-
-  // weather-image recomputes this same string from the URL (source defaults to 'fresh')
-  const ts = Date.now().toString();
-  const sig = crypto.createHmac('sha256', secret).update(`${dbUserId}:${source}:${msgId ?? ''}:${ts}`).digest('hex');
+  // weather-image verifies the same params from the URL (source defaults to 'fresh')
+  const ts = Date.now();
+  const sig = signImageLink({ userId: dbUserId, source, msgId, ts });
+  // null if SESSION_SECRET went away while the image was built
+  if (!sig) return noKeyResponse();
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || `https://${request.headers.get('host')}`;
   const sourceParam = source !== 'fresh' ? `&source=${encodeURIComponent(source)}` : '';
   const msgParam = msgId ? `&msg=${msgId}` : '';

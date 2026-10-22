@@ -1,33 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { redis } from '@/src/utils/redis';
-import crypto from 'crypto';
+import { verifyImageLink } from '@/src/lib/image-link';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-/**
- * The signature covers the user, the source and the msg (see weather-image/sign), so
- * a signed URL cannot be pointed at another summary or another kind of image.
- */
-function validateSignature(
-  userId: string,
-  source: string,
-  msgId: string | null,
-  timestamp: string,
-  signature: string
-): boolean {
-  const secret = process.env.ENCRYPTION_KEY || process.env.CRON_SECRET;
-  if (!secret) return false;
-
-  const age = Date.now() - parseInt(timestamp);
-  if (isNaN(age) || age > 3600_000) return false;
-
-  const expected = Buffer.from(
-    crypto.createHmac('sha256', secret).update(`${userId}:${source}:${msgId ?? ''}:${timestamp}`).digest('hex')
-  );
-  const given = Buffer.from(signature);
-  return given.length === expected.length && crypto.timingSafeEqual(expected, given);
-}
 
 /**
  * GET /api/weather-image?user_id=X&ts=TIMESTAMP&sig=SIGNATURE&source=...&msg=...
@@ -44,7 +20,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Missing parameters' }, { status: 400 });
   }
 
-  if (!validateSignature(userId, source ?? 'fresh', msgId, ts, sig)) {
+  // The link's time in ms: plain digits only, so the signed string can't be padded or reworded
+  const tsMs = /^\d{1,16}$/.test(ts) ? Number(ts) : NaN;
+  // The signature covers the user, the source and the msg (see weather-image/sign)
+  if (!verifyImageLink({ userId, source: source ?? 'fresh', msgId, ts: tsMs }, sig)) {
     return NextResponse.json({ error: 'Invalid or expired signature' }, { status: 401 });
   }
 
