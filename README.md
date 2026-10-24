@@ -95,7 +95,7 @@ The models are not configurable: text and TTS are fixed in `src/config/ai-models
 
 `ENCRYPTION_KEY` encrypts every stored Google token. **Never replace `ENCRYPTION_KEY` without setting `ENCRYPTION_KEY_PREVIOUS` to the old value in the same deploy.** Without it, every Google-connected user counts as not connected until the old key is back.
 
-Before rotating, the previous deploy's `[key-sweep] baseline:` line must show `unreadable=0` for users and links. A token that neither key opens blocks SAFE for good; find out why first (the ids are in that log line and in the admin alert).
+Before rotating, the previous deploy's `[key-sweep] baseline:` line must show `unreadable=0` for users and links. A token that neither key opens blocks SAFE for good; find out why first (the ids are in the `[key-sweep] N stored tokens decrypt with neither key (ids only)` line logged right after the baseline, and in the admin alert).
 
 1. Generate the new key with `openssl rand -hex 32`.
 2. In one deploy, set `ENCRYPTION_KEY_PREVIOUS` to the current key and `ENCRYPTION_KEY` to the new one. The startup log prints both fingerprints (`[startup] ENCRYPTION_KEY fp …; ENCRYPTION_KEY_PREVIOUS fp …`). The PREVIOUS fingerprint must equal the `ENCRYPTION_KEY` fingerprint the deploy before printed.
