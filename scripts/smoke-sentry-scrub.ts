@@ -14,6 +14,7 @@
 //
 // Run: npx tsx scripts/smoke-sentry-scrub.ts
 
+import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
@@ -52,12 +53,12 @@ Module.registerHooks({
   load(url: string, context: unknown, nextLoad: (u: string, c: unknown) => unknown) {
     const file = url.startsWith('file:') ? fileURLToPath(url.split('?')[0]) : '';
     if (!file.includes(`${path.sep}@sentry${path.sep}nextjs${path.sep}`)) return nextLoad(url, context);
-    return { format: 'module', source: 'export const init = (o) => { globalThis.__sentryInits.push(o); };', shortCircuit: true };
+    return { format: 'module', source: 'export const init = (o) => { globalThis.__sentryInits.push(o); }; export const captureRouterTransitionStart = () => {};', shortCircuit: true };
   },
 });
 const sentryEntry = nodeRequire.resolve('@sentry/nextjs');
 const sentryStub = new Module(sentryEntry);
-Object.assign(sentryStub, { filename: sentryEntry, loaded: true, exports: { init: (o: Row) => { inits.push(o); } } });
+Object.assign(sentryStub, { filename: sentryEntry, loaded: true, exports: { init: (o: Row) => { inits.push(o); }, captureRouterTransitionStart: () => {} } });
 Module._cache[sentryEntry] = sentryStub;
 
 const load = (rel: string): Promise<Row> => import(path.join(ROOT, rel));
@@ -183,11 +184,13 @@ async function main() {
     assert(show(consoleCrumb) === show({ category: 'console', message: 'hello', data: { arguments: ['hello'] } }), `console ${show(consoleCrumb)}`);
   });
 
-  await check('#6 the server and edge configs scrub events and transactions; the client config scrubs events, transactions and breadcrumbs', async () => {
+  await check('#6 the server and edge configs scrub events and transactions; the client config (instrumentation-client.ts, the file Turbopack loads) scrubs events, transactions and breadcrumbs', async () => {
     inits.length = 0;
     await load('sentry.server.config.ts');
     await load('sentry.edge.config.ts');
-    await load('sentry.client.config.ts');
+    const clientModule = await load('instrumentation-client.ts');
+    assert(typeof clientModule.onRouterTransitionStart === 'function', 'instrumentation-client.ts must export onRouterTransitionStart (Sentry docs, Next 15.3+)');
+    assert(!fs.existsSync(path.join(ROOT, 'sentry.client.config.ts')), 'sentry.client.config.ts is ignored by Turbopack: the browser init lives in instrumentation-client.ts only');
     assert(inits.length === 3, `Sentry.init calls: ${inits.length}`);
     const [server, edge, client] = inits;
     const problems: string[] = [];

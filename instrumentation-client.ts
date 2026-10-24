@@ -1,3 +1,5 @@
+// The browser's Sentry init. Next 16 builds on Turbopack, which loads this file (and ignores
+// the old sentry.client.config.ts). The DSN is the NEXT_PUBLIC_SENTRY_DSN env var, inlined at build.
 import * as Sentry from '@sentry/nextjs';
 import { scrubBreadcrumb, scrubBrowserEvent } from './src/lib/sentry-scrub';
 
@@ -25,3 +27,6 @@ Sentry.init({
   beforeSendTransaction: (event) => scrubBrowserEvent(event),
   beforeBreadcrumb: (breadcrumb) => scrubBreadcrumb(breadcrumb),
 });
+
+// Sentry's hook for client-side navigations in the App Router (Sentry's Next.js manual setup).
+export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;
