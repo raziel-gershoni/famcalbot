@@ -20,7 +20,8 @@ import { AGENDA_CSS } from '../app/[locale]/dashboard/AgendaView';
 import { EditorSheet } from '../app/[locale]/dashboard/EditorSheet';
 import { newItemForm } from '../src/lib/calendar-view/editor-model';
 import { toUnifiedEvent } from '../src/services/calendar-provider/native-provider';
-import { formatEventForPrompt } from '../src/utils/event-formatter';
+import { anniversaryMarker, formatEventForPrompt } from '../src/utils/event-formatter';
+import { formatTomorrowLookahead, type WeekLookahead } from '../src/services/week-lookahead';
 import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 import { hebrewCandidates } from '../src/services/native-calendar/recurrence';
 import { anniversaryCount, anniversaryOf } from '../src/lib/hebrew-anniversary';
@@ -184,6 +185,23 @@ async function main() {
       assert(render(locale, 'hebrew').includes(hint.replace(/'/g, '&#x27;')), `${locale} shown`);
       assert(!render(locale, 'yearly').includes(hint.replace(/'/g, '&#x27;')), `${locale} hidden for yearly`);
     }
+  });
+
+  await check('prompt data: the daily event line carries the marker only with a count; the tomorrow lookahead lines too; N=0 adds nothing', () => {
+    const ev = { summary: "Dana's birthday", start: '2026-05-01', end: '2026-05-02', calendarName: 'Family', calendarId: 'native:c1' };
+    const plain = formatEventForPrompt(ev, 0, 'Asia/Jerusalem', '2026-05-01');
+    const counted = formatEventForPrompt({ ...ev, anniversary: 36 }, 0, 'Asia/Jerusalem', '2026-05-01');
+    assert(plain === "1. Dana's birthday (All day) [Calendar: Family]", plain);
+    assert(counted === "1. Dana's birthday (All day) [Year 36 since the original date] [Calendar: Family]", counted);
+    assert(anniversaryMarker(undefined) === '' && anniversaryMarker(0) === '', 'no count, no marker');
+    const day = (extra: object) => ({
+      summary: "Dana's birthday", start: new Date('2026-05-01T00:00:00Z'), end: new Date('2026-05-02T00:00:00Z'), day: '2026-05-02', calendarName: 'Family', calendarId: 'c', calendarLabel: 'yours' as const,
+      recurrenceType: 'yearly' as const, daysFromNow: 1, isAllDay: true, isBirthday: false, ...extra,
+    });
+    const look = (e: object): WeekLookahead => ({ events: [day(e)], dateRange: { start: new Date(), end: new Date() }, timezone: 'UTC' }) as unknown as WeekLookahead;
+    assert(formatTomorrowLookahead(look({})) === "Friday: Dana's birthday (All day) (Family)", formatTomorrowLookahead(look({})));
+    assert(formatTomorrowLookahead(look({ anniversary: 36 })) === "Friday: Dana's birthday (All day) (Family) [Year 36 since the original date]", formatTomorrowLookahead(look({ anniversary: 36 })));
+    assert(formatTomorrowLookahead(look({ isBirthday: true, anniversary: 36 })).endsWith('(Birthday) [Year 36 since the original date]'), 'birthday branch');
   });
 
   await check('count: a bad anchor or day gives null', () => {

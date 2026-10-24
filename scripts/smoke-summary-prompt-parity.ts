@@ -566,6 +566,74 @@ async function main() {
     }
   });
 
+  // ---- The Hebrew anniversary count (docs/superpowers/specs/2026-10-25-hebrew-anniversary-count-design.md) ----
+
+  const MARKER = ' [Year 7 since the original date]';
+  const COUNT_GUIDELINE: Record<Lang, RegExp> = { en: /^- \*\*Year counts\*\*: /, he: /^- \*\*ספירת שנים\*\*: /, ru: /^- \*\*Счёт лет\*\*: / };
+  /** `prompt` with the count's marker and guideline taken out: what the same prompt reads without a count. */
+  const withoutCount = (prompt: string, l: Lang) => {
+    const lines = prompt.split('\n').filter(line => !COUNT_GUIDELINE[l].test(line));
+    assert(lines.length === prompt.split('\n').length - 1, `${l}: ${prompt.split('\n').length - lines.length} guideline lines, not 1`);
+    return lines.join('\n').replace(MARKER, '');
+  };
+
+  await check('a count on a daily or tomorrow event adds its marker to the event line and one guideline line; take both out and the prompt is the golden one (en/he/ru)', async () => {
+    for (const l of LANGS) {
+      for (const name of [`daily-${l}-reminders`, `tomorrow-${l}-family`]) {
+        const c = CASES[name] as DailyCase;
+        const original = c.lists;
+        c.lists = { ...original, user: original.user.map((e, i) => (i === 0 ? { ...e, anniversary: 7 } : e)) };
+        let prompt: string;
+        try {
+          prompt = await promptFor(name);
+        } finally {
+          c.lists = original;
+        }
+        assert(prompt.split(MARKER).length === 2, `${name}: the marker appears ${prompt.split(MARKER).length - 1} times`);
+        assert(withoutCount(prompt, l) === snapshot[name], `${name}: ${firstDifference(withoutCount(prompt, l), snapshot[name])}`);
+      }
+    }
+  });
+
+  await check('a count on a /week or /nextweek event does the same in the week prompts (en/he/ru)', async () => {
+    for (const l of LANGS) {
+      for (const name of [`week-${l}-reminders`, `nextweek-${l}-reminders`]) {
+        const c = CASES[name] as WeeklyCase;
+        const build = c.build;
+        c.build = () => {
+          const made = build();
+          made.lookahead.events[0] = { ...made.lookahead.events[0], anniversary: 7 };
+          return made;
+        };
+        let prompt: string;
+        try {
+          prompt = await promptFor(name);
+        } finally {
+          c.build = build;
+        }
+        assert(prompt.split(MARKER).length === 2, `${name}: the marker appears ${prompt.split(MARKER).length - 1} times`);
+        assert(withoutCount(prompt, l) === snapshot[name], `${name}: ${firstDifference(withoutCount(prompt, l), snapshot[name])}`);
+      }
+    }
+  });
+
+  await check('the count guideline is generic: it names nobody from the fixtures', async () => {
+    for (const l of LANGS) {
+      const c = CASES[`daily-${l}-reminders`] as DailyCase;
+      const original = c.lists;
+      c.lists = { ...original, user: original.user.map((e, i) => (i === 0 ? { ...e, anniversary: 7 } : e)) };
+      let prompt: string;
+      try {
+        prompt = await promptFor(`daily-${l}-reminders`);
+      } finally {
+        c.lists = original;
+      }
+      const line = prompt.split('\n').find(x => COUNT_GUIDELINE[l].test(x)) ?? '';
+      const w = WORDS[l];
+      assert(line.length > 80 && ![w.me, w.partner, w.kid1, w.kid2].some(n => line.includes(n)), `${l}: ${line}`);
+    }
+  });
+
   // ---- The bot texts ----
 
   const SCRIPT: Record<Lang, RegExp> = { en: /^[\x20-\x7E\u2019\u26A0\uFE0F]+$/, he: /[\u05D0-\u05EA]/, ru: /[\u0400-\u04FF]/ };

@@ -17,7 +17,7 @@ import {
   recurrenceCacheKey,
   writeRecurrenceCache,
 } from './recurrence-cache';
-import { eventTimeLabel, isAllDayEvent, isBirthdayEvent, isReminderEvent, reminderAttribution } from '../utils/event-formatter';
+import { anniversaryMarker, eventTimeLabel, isAllDayEvent, isBirthdayEvent, isReminderEvent, reminderAttribution } from '../utils/event-formatter';
 import { daySpanOf, localDate, nextDate, startOfLocalDay } from '../utils/day-events';
 import { nextWeekBoundaries, nextWeekBoundary, tzKnownFor, weekStartFor, type WeekStart } from '../utils/locale-rules';
 import { resolveUserTimezone } from '../lib/timezone';
@@ -49,6 +49,8 @@ export interface LookaheadEvent {
   isBirthday: boolean;
   /** Set on a built-in calendar reminder: whose it is, from the viewer's side. */
   reminder?: ReminderInfo;
+  /** A Hebrew yearly event's years since its original date (>= 1), as the prompts carry it. */
+  anniversary?: number;
 }
 
 export interface WeekLookahead {
@@ -315,6 +317,7 @@ async function filterAndBuildLookaheadEvents(
       isBirthday: birthday,
       runningLabel,
       ...(reminder ? { reminder } : {}),
+      ...(event.anniversary ? { anniversary: event.anniversary } : {}),
     });
   }
 
@@ -382,7 +385,7 @@ export function formatTomorrowLookahead(lookahead: WeekLookahead): string {
     .map(e => {
       const dayName = e.start.toLocaleDateString('en-US', { weekday: 'long', timeZone: timezone });
       if (e.isBirthday) {
-        return `${dayName}: ${e.summary} (Birthday)`;
+        return `${dayName}: ${e.summary} (Birthday)${anniversaryMarker(e.anniversary)}`;
       }
       if (e.reminder) {
         // The daily summary's reminder label: one moment, with whose it is
@@ -393,10 +396,10 @@ export function formatTomorrowLookahead(lookahead: WeekLookahead): string {
         return `${dayName}: ${e.summary} (${label})${attribution ? ` (${attribution})` : ''}`;
       }
       if (e.isAllDay) {
-        return `${dayName}: ${e.summary} (All day) (${e.calendarName})`;
+        return `${dayName}: ${e.summary} (All day) (${e.calendarName})${anniversaryMarker(e.anniversary)}`;
       }
       const time = e.start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: timezone });
-      return `${dayName}: ${e.summary} at ${time} (${e.calendarName})`;
+      return `${dayName}: ${e.summary} at ${time} (${e.calendarName})${anniversaryMarker(e.anniversary)}`;
     })
     .join('\n');
 }

@@ -3,6 +3,7 @@
  */
 
 import { WeekLookaheadPromptData, LookaheadDayData } from './types';
+import { anniversaryMarker } from '../../utils/event-formatter';
 import { buildGlobalRulesSection } from '../shared-builders';
 
 function buildSpouseContext(data: WeekLookaheadPromptData): string {
@@ -39,7 +40,7 @@ function formatEventsForDay(day: LookaheadDayData): string {
       ? ` [${event.recurrenceType}]`
       : '';
     const reminderNote = event.reminderNote ? ` (${event.reminderNote})` : '';
-    return `  - ${event.time} - ${event.summary} (${event.calendarName})${recurNote}${reminderNote}`;
+    return `  - ${event.time} - ${event.summary} (${event.calendarName})${recurNote}${reminderNote}${anniversaryMarker(event.anniversary)}`;
   });
   return lines.join('\n');
 }
@@ -66,6 +67,13 @@ ${formatEventsForDay(day)}`;
   return `**EVENTS BY DAY:**
 
 ${days.join('\n\n')}`;
+}
+
+// Only prompts with a Hebrew-calendar yearly event that has a count get this, so every other prompt stays as it was.
+function buildAnniversaryGuideline(has: boolean): string {
+  if (!has) return '';
+  return `- **Year counts**: An event marked "[Year N since the original date]" repeats every year on its Hebrew date, and N is how many years it has been since the original date (a birthday with N = 35 is a 35th birthday; a wedding anniversary with N = 10 is a 10th anniversary). Work the number into the event's own wording naturally (e.g. "[Name]'s 35th birthday"), but only when the title makes clear what is being counted; otherwise leave it out. Never invent or change the number.
+`;
 }
 
 export function buildWeekLookaheadPrompt(data: WeekLookaheadPromptData): string {
@@ -115,7 +123,7 @@ Generate a friendly, conversational preview. Structure:
 - **Highlight recurring events** - if something is monthly/yearly, note it (e.g., "monthly checkup")
 - **Time format**: Always use HH:MM (24-hour) - e.g., 08:00, 14:30
 - **Birthdays**: Events with time "Birthday" — present naturally with the person's name extracted from the title (e.g., "John's Birthday" → "It's John's birthday"). No time needed.
-${buildRemindersGuideline(data)}- **Format**: Use Telegram HTML tags: <b>bold</b>, <i>italic</i>
+${buildRemindersGuideline(data)}${buildAnniversaryGuideline(data.eventsByDay.some(day => day.events.some(event => !!event.anniversary)))}- **Format**: Use Telegram HTML tags: <b>bold</b>, <i>italic</i>
 - **If no events**: Keep it brief - just note that the week looks clear
 ${isNextWeek ? '- **Do NOT say "today"** - refer to days by their actual names (Monday, Tuesday, etc.)' : '- **Use relative day references** - "Tomorrow", "In 3 days" alongside actual dates'}
 

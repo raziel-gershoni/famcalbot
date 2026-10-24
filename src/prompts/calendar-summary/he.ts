@@ -83,6 +83,13 @@ function buildGoogleUnavailableGuideline(data: SummaryPromptData): string {
 `;
 }
 
+// Only prompts with a Hebrew-calendar yearly event that has a count get this, so every other prompt stays as it was.
+function buildAnniversaryGuideline(has: boolean): string {
+  if (!has) return '';
+  return `- **ספירת שנים**: אירוע שמסומן "[Year N since the original date]" חוזר מדי שנה בתאריך העברי, ו-N הוא מספר השנים שעברו מאז התאריך המקורי (יום הולדת עם N = 35 הוא יום הולדת 35; יום נישואין עם N = 10 הוא יום נישואין 10). שלב את המספר בניסוח הטבעי של האירוע (למשל "יום הולדת 35 של [שם]"), אבל רק כשהכותרת מבהירה מה נספר; אחרת השמט אותו. אין להמציא את המספר או לשנות אותו.
+`;
+}
+
 export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
   const spouseContext = buildSpouseContext(data);
   const kidsContext = buildKidsContext(data);
@@ -208,7 +215,7 @@ ${data.weekLookahead ? `
 - **קריטי: תמיד השתמש בפורמט HH:MM (24 שעות, בלי AM/PM) - לדוגמה: 08:00, 13:45, 20:15**
 - **ימי הולדת**: אירועים מסומנים "(Birthday)" — הצג בלי שעה. חלץ את שם האדם מכותרת האירוע (לדוגמה: "יום ההולדת של יוחנן" → ציין "יום הולדת של יוחנן"). הצג בצורה טבעית.
 - **אירועים שחוצים חצות מסומנים ברשימת האירועים.** "22:00 - 02:00 next day" מסתיים אחרי חצות: הצג אותו כ"22:00-02:00 (עד אחרי חצות)". "until 10:00 (started yesterday 18:00)" התחיל ביום הקודם: הצג אותו כ"עד 10:00", ראשון ברשימה, ולעולם אל תציג אותו כאילו הוא מתחיל ביום הזה. אירוע של כמה ימים מוצג עם הטווח שלו: ציין איזה יום שלו זה. שעת סיום "next day" אינה שעה ביום הזה, גם בסדר האיסוף.
-${buildRemindersGuideline(data)}${buildGoogleUnavailableGuideline(data)}${data.hasKidsCalendars ? `- **קריטי: סדר האיסוף חייב להיות ממוין כרונולוגית לפי שעה (הכי מוקדם קודם)**
+${buildRemindersGuideline(data)}${buildGoogleUnavailableGuideline(data)}${buildAnniversaryGuideline(!!data.hasAnniversaries)}${data.hasKidsCalendars ? `- **קריטי: סדר האיסוף חייב להיות ממוין כרונולוגית לפי שעה (הכי מוקדם קודם)**
 - **קריטי: סדר איסוף: קבץ ילדים עם אותה שעת איסוף בשורה אחת**
 ` : ''}- השתמש בתגיות HTML של טלגרם לעיצוב: <b>מודגש</b>, <i>נטוי</i>, <u>קו תחתון</u>
 

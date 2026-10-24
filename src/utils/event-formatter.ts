@@ -37,6 +37,15 @@ export function reminderAttribution(event: Pick<CalendarEvent, 'reminder'>): str
   return undefined;
 }
 
+/**
+ * The Hebrew anniversary count as the prompts carry it: " [Year 36 since the original date]".
+ * Data for the AI to word naturally ("Dana's 36th birthday"); the prompts' guideline says how.
+ * Empty without a count (the first occurrence, other events), so those lines are unchanged.
+ */
+export function anniversaryMarker(count: number | undefined): string {
+  return count && count >= 1 ? ` [Year ${count} since the original date]` : '';
+}
+
 const clock = (iso: string, timezone: string) => formatInTimeZone(new Date(iso), timezone, 'HH:mm');
 // "Sat", or "Sat 17" when the weekday alone would be ambiguous (see eventTimeLabel).
 const weekdayOf = (iso: string, timezone: string, dated = false) => formatInTimeZone(new Date(iso), timezone, dated ? 'EEE d' : 'EEE');
@@ -122,7 +131,7 @@ export function formatEventForPrompt(event: CalendarEvent, index: number, timezo
   const summary = sanitizeEventField(event.summary);
   const calendarName = sanitizeEventField(event.calendarName);
   const attribution = reminderAttribution(event);
-  let eventStr = `${index + 1}. ${summary} (${timeStr})${attribution ? ` (${attribution})` : ''} [Calendar: ${calendarName}]`;
+  let eventStr = `${index + 1}. ${summary} (${timeStr})${attribution ? ` (${attribution})` : ''}${anniversaryMarker(event.anniversary)} [Calendar: ${calendarName}]`;
 
   if (event.location) {
     eventStr += ` at ${sanitizeEventField(event.location)}`;

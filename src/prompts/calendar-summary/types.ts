@@ -26,6 +26,7 @@ export interface SummaryPromptData {
   globalRules?: string[];  // User's global rules (max 3)
   calendarRules?: { calendarName: string; rule: string }[];  // Per-calendar rules
   hasKidsCalendars?: boolean;  // Whether user has kids calendars configured
+  hasAnniversaries?: boolean;  // Some event carries a Hebrew anniversary count (adds the year-counts guideline)
   hasReminders?: boolean;      // Built-in calendar reminders are in the lists (adds the reminders guideline)
   openRemindersMore?: number;  // Open reminders past the digest's cap, not in the lists
   googleUnavailable?: boolean; // Google Calendar couldn't be reached at send time (the scheduled outage run): adds the outage guideline

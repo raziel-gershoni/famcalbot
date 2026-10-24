@@ -84,6 +84,13 @@ function buildGoogleUnavailableGuideline(data: SummaryPromptData): string {
 `;
 }
 
+// Only prompts with a Hebrew-calendar yearly event that has a count get this, so every other prompt stays as it was.
+function buildAnniversaryGuideline(has: boolean): string {
+  if (!has) return '';
+  return `- **Счёт лет**: Событие с пометкой "[Year N since the original date]" повторяется каждый год по еврейской дате, а N показывает, сколько лет прошло с исходной даты (день рождения при N = 35 — это 35-й день рождения; годовщина свадьбы при N = 10 — 10-я годовщина). Естественно вплетите число в формулировку события (например, «35-й день рождения [имя]»), но только если из названия ясно, что именно считается; иначе опустите его. Не придумывайте и не меняйте число.
+`;
+}
+
 export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
   const spouseContext = buildSpouseContext(data);
   const kidsContext = buildKidsContext(data);
@@ -211,7 +218,7 @@ ${data.weekLookahead ? `
 - **КРИТИЧНО: Всегда используйте формат HH:MM (24 часа, без AM/PM) - например: 08:00, 13:45, 20:15**
 - **Дни рождения**: События с пометкой "(Birthday)" — показывай без времени. Извлеки имя человека из названия события (например: "День рождения Ивана Петрова" → упомяни "день рождения Ивана Петрова"). Представляй естественно.
 - **События, переходящие через полночь, помечены в списке событий.** "22:00 - 02:00 next day" заканчивается после полуночи: показывай его как "22:00-02:00 (за полночь)". "until 10:00 (started yesterday 18:00)" началось накануне: показывай его как "до 10:00", первым в списке, и никогда не подавай как начинающееся в этот день. Многодневное событие показывай с его периодом: укажи, какой это день. Время окончания "next day" — не время этого дня, в том числе в порядке забора.
-${buildRemindersGuideline(data)}${buildGoogleUnavailableGuideline(data)}${data.hasKidsCalendars ? `- **КРИТИЧНО: Порядок забора ДОЛЖЕН быть отсортирован хронологически (сначала самое раннее время)**
+${buildRemindersGuideline(data)}${buildGoogleUnavailableGuideline(data)}${buildAnniversaryGuideline(!!data.hasAnniversaries)}${data.hasKidsCalendars ? `- **КРИТИЧНО: Порядок забора ДОЛЖЕН быть отсортирован хронологически (сначала самое раннее время)**
 - **КРИТИЧНО: Порядок забора: Группируйте детей с ОДИНАКОВЫМ временем забора в ОДНУ строку**
 ` : ''}- Используйте HTML-теги Telegram для форматирования: <b>жирный</b>, <i>курсив</i>, <u>подчёркнутый</u>
 

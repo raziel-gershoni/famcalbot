@@ -3,6 +3,7 @@
  */
 
 import { WeekLookaheadPromptData, LookaheadDayData } from './types';
+import { anniversaryMarker } from '../../utils/event-formatter';
 import { buildGlobalRulesSection } from '../shared-builders';
 
 function buildSpouseContext(data: WeekLookaheadPromptData): string {
@@ -39,7 +40,7 @@ function formatEventsForDay(day: LookaheadDayData): string {
       ? ` [${event.recurrenceType === 'monthly' ? 'ежемесячно' : event.recurrenceType === 'yearly' ? 'ежегодно' : 'еженедельно'}]`
       : '';
     const reminderNote = event.reminderNote ? ` (${event.reminderNote})` : '';
-    return `  - ${event.time} - ${event.summary} (${event.calendarName})${recurNote}${reminderNote}`;
+    return `  - ${event.time} - ${event.summary} (${event.calendarName})${recurNote}${reminderNote}${anniversaryMarker(event.anniversary)}`;
   });
   return lines.join('\n');
 }
@@ -66,6 +67,13 @@ ${formatEventsForDay(day)}`;
   return `**СОБЫТИЯ ПО ДНЯМ:**
 
 ${days.join('\n\n')}`;
+}
+
+// Only prompts with a Hebrew-calendar yearly event that has a count get this, so every other prompt stays as it was.
+function buildAnniversaryGuideline(has: boolean): string {
+  if (!has) return '';
+  return `- **Счёт лет**: Событие с пометкой "[Year N since the original date]" повторяется каждый год по еврейской дате, а N показывает, сколько лет прошло с исходной даты (день рождения при N = 35 — это 35-й день рождения; годовщина свадьбы при N = 10 — 10-я годовщина). Естественно вплетите число в формулировку события (например, «35-й день рождения [имя]»), но только если из названия ясно, что именно считается; иначе опустите его. Не придумывайте и не меняйте число.
+`;
 }
 
 export function buildWeekLookaheadPrompt(data: WeekLookaheadPromptData): string {
@@ -115,7 +123,7 @@ ${hebrewDateContext}${globalRules}
 - **Выделяй повторяющиеся события** - если что-то ежемесячное/ежегодное, отметь это
 - **Формат времени**: Всегда используй HH:MM (24-часовой) - например, 08:00, 14:30
 - **Дни рождения**: События со временем "День рождения" — представляй естественно с именем человека из названия (например: "День рождения Ивана" → "День рождения Ивана"). Время не нужно.
-${buildRemindersGuideline(data)}- **Форматирование**: Используй HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
+${buildRemindersGuideline(data)}${buildAnniversaryGuideline(data.eventsByDay.some(day => day.events.some(event => !!event.anniversary)))}- **Форматирование**: Используй HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
 - **Если нет событий**: Будь краток - просто отметь, что неделя свободна
 ${isNextWeek ? '- **НЕ говори "сегодня"** - называй дни по их названиям (понедельник, вторник и т.д.)' : '- **Используй относительные ссылки** - "Завтра", "Через 3 дня" наряду с датами'}
 

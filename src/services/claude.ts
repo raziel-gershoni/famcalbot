@@ -176,6 +176,7 @@ function buildPromptData(
     calendarRules,
     hasKidsCalendars,
     hasReminders: [userEvents, spouseEvents, otherEvents].some(list => list.some(isReminderEvent)),
+    hasAnniversaries: [userEvents, spouseEvents, otherEvents].some(list => list.some(e => !!e.anniversary)),
     openRemindersMore: userContext?.openRemindersMore,
     googleUnavailable: userContext?.googleUnavailable,
   };
@@ -506,6 +507,7 @@ function buildWeekLookaheadPromptData(
         isRecurring: event.recurrenceType !== 'single',
         recurrenceType: event.recurrenceType !== 'single' ? event.recurrenceType as 'weekly' | 'monthly' | 'yearly' : undefined,
         isBirthday: event.isBirthday || undefined,
+        ...(event.anniversary ? { anniversary: event.anniversary } : {}),
         ...(event.reminder ? { isReminder: true, reminderNote: reminderAttribution(event) } : {}),
       };
     });
@@ -660,6 +662,7 @@ function buildNextWeekPromptData(
         isRecurring: event.recurrenceType !== 'single',
         recurrenceType: event.recurrenceType !== 'single' ? event.recurrenceType as 'weekly' | 'monthly' | 'yearly' : undefined,
         isBirthday: event.isBirthday || undefined,
+        ...(event.anniversary ? { anniversary: event.anniversary } : {}),
         ...(event.reminder ? { isReminder: true, reminderNote: reminderAttribution(event) } : {}),
       };
     });

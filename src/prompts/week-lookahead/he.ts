@@ -3,6 +3,7 @@
  */
 
 import { WeekLookaheadPromptData, LookaheadDayData } from './types';
+import { anniversaryMarker } from '../../utils/event-formatter';
 import { buildGlobalRulesSection } from '../shared-builders';
 
 function buildSpouseContext(data: WeekLookaheadPromptData): string {
@@ -39,7 +40,7 @@ function formatEventsForDay(day: LookaheadDayData): string {
       ? ` [${event.recurrenceType === 'monthly' ? 'חודשי' : event.recurrenceType === 'yearly' ? 'שנתי' : 'שבועי'}]`
       : '';
     const reminderNote = event.reminderNote ? ` (${event.reminderNote})` : '';
-    return `  - ${event.time} - ${event.summary} (${event.calendarName})${recurNote}${reminderNote}`;
+    return `  - ${event.time} - ${event.summary} (${event.calendarName})${recurNote}${reminderNote}${anniversaryMarker(event.anniversary)}`;
   });
   return lines.join('\n');
 }
@@ -66,6 +67,13 @@ ${formatEventsForDay(day)}`;
   return `**אירועים לפי יום:**
 
 ${days.join('\n\n')}`;
+}
+
+// Only prompts with a Hebrew-calendar yearly event that has a count get this, so every other prompt stays as it was.
+function buildAnniversaryGuideline(has: boolean): string {
+  if (!has) return '';
+  return `- **ספירת שנים**: אירוע שמסומן "[Year N since the original date]" חוזר מדי שנה בתאריך העברי, ו-N הוא מספר השנים שעברו מאז התאריך המקורי (יום הולדת עם N = 35 הוא יום הולדת 35; יום נישואין עם N = 10 הוא יום נישואין 10). שלב את המספר בניסוח הטבעי של האירוע (למשל "יום הולדת 35 של [שם]"), אבל רק כשהכותרת מבהירה מה נספר; אחרת השמט אותו. אין להמציא את המספר או לשנות אותו.
+`;
 }
 
 export function buildWeekLookaheadPrompt(data: WeekLookaheadPromptData): string {
@@ -117,7 +125,7 @@ ${hebrewDateContext}${globalRules}
 - **הדגש אירועים חוזרים** - אם משהו חודשי/שנתי, ציין זאת (לדוגמה, "בדיקה חודשית")
 - **פורמט שעות**: תמיד השתמש ב-HH:MM (24 שעות) - לדוגמה, 08:00, 14:30
 - **ימי הולדת**: אירועים עם זמן "יום הולדת" — הצג בצורה טבעית עם שם האדם מהכותרת (לדוגמה: "יום ההולדת של יוחנן" → "יום הולדת של יוחנן"). אין צורך בשעה.
-${buildRemindersGuideline(data)}- **פורמט**: השתמש בתגי HTML של טלגרם: <b>מודגש</b>, <i>נטוי</i>
+${buildRemindersGuideline(data)}${buildAnniversaryGuideline(data.eventsByDay.some(day => day.events.some(event => !!event.anniversary)))}- **פורמט**: השתמש בתגי HTML של טלגרם: <b>מודגש</b>, <i>נטוי</i>
 - **אם אין אירועים**: שמור על קיצור - פשוט ציין שהשבוע נראה פנוי
 ${isNextWeek ? '- **אל תגיד "היום"** - התייחס לימים בשמותם (ראשון, שני וכו\')' : '- **השתמש בהתייחסויות יחסיות** - "מחר", "בעוד 3 ימים" לצד תאריכים'}
 
