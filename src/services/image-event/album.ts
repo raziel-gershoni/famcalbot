@@ -194,6 +194,8 @@ async function leadAlbum(
 ): Promise<void> {
   const { key, partsKey, lockKey } = keys;
   let holdingLock = true;
+  /** This round's read has been answered to the user (the card, "no events" or the unsupported note): a later failure must not add an error reply. */
+  let answered = false;
   let stopTyping: () => void = () => {};
 
   try {
@@ -202,6 +204,7 @@ async function leadAlbum(
       stopTyping = startTypingInterval(chatId, getMessagingService());
       await waitForQuiet(partsKey, key);
 
+      answered = false;
       // Take everything collected so far; parts landing from now on stay in the list.
       const raw = await redis.lrange(partsKey, 0, -1);
       await redis.ltrim(partsKey, raw.length, -1);
@@ -226,6 +229,7 @@ async function leadAlbum(
         await handleMediaMessage(chatId, from.id, from, files, caption || undefined, { skippedVideos, unsupportedParts, stopTyping });
       }
 
+      answered = true;
       stopTyping();
 
       // Release, then look again: a part that landed while we read must not be stranded.
@@ -240,6 +244,18 @@ async function leadAlbum(
     console.error(`[Album] ${key}: error while reading the album:`, error);
     captureError(error, 'album-read', { key });
     stopTyping();
+    if (answered) {
+      // The user already has their answer: no error reply, and the parts that landed during the read stay for the next part's leader.
+      if (holdingLock) {
+        try {
+          await redis.del(lockKey);
+        } catch (delError) {
+          console.error(`[Album] ${key}: could not free the lock (it expires on its own):`, delError);
+          captureError(delError, 'album-read', { key }, 'warning');
+        }
+      }
+      return;
+    }
     if (holdingLock) {
       // Drop what was collected (the user is told below and can resend), then free the lock.
       try {

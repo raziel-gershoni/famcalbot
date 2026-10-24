@@ -743,6 +743,21 @@ async function main() {
     assert(liveIntervals.size === 0, 'typing interval still running');
   });
 
+  await check('album: a Redis failure AFTER the read was answered sends no error reply and keeps the parts that landed meanwhile; the lock is freed', async () => {
+    reset();
+    geminiAnswers = [answerOf(ev('A', '2026-11-01'))];
+    redisFail = op => op === 'llen' && geminiCalls.length > 0;
+    for (const x of [photoUpdate(MAYA, 'af1', { gid: 'GAF' }), photoUpdate(MAYA, 'af2', { gid: 'GAF' })]) await deliver(x);
+    await settle();
+    redisFail = null;
+    const { getBotMessages } = await import('../src/lib/bot-messages');
+    assert(geminiCalls.length === 1, `Gemini calls ${geminiCalls.length}`);
+    const errorText = (await getBotMessages('en')).voice.geminiError;
+    assert(!sent.some(m => m.text === errorText), `an error reply followed the answer: ${JSON.stringify(sent)}`);
+    assert(captured.some(c => c.includes('redis down')), `captured ${captured}`);
+    assert(![...redisData.keys()].some(k => k.includes(':lock')), 'the lock was left behind');
+  });
+
   await check('album: only unsupported files (3 .docx) gets ONE "send a photo or PDF" reply', async () => {
     reset();
     const docx = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
