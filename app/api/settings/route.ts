@@ -11,7 +11,7 @@ import { prisma } from '@/src/utils/prisma';
 import { REDIS_KEYS } from '@/src/config/redis-keys';
 import { trackActivityAsync } from '@/src/services/analytics-service';
 import { changedSettingFields } from '@/src/lib/settings-changes';
-import { getReminderSupport } from '@/src/services/native-reminders/support';
+import { canReceiveReminderPings } from '@/src/services/native-reminders/support';
 import { invalidateDueGate } from '@/src/services/native-reminders/due-gate';
 import { isValidReminderTime, reminderTimeOf } from '@/src/lib/reminder-time';
 
@@ -61,9 +61,17 @@ export async function POST(request: NextRequest) {
     if (reminderTime !== undefined && !isValidReminderTime(reminderTime)) {
       return NextResponse.json({ error: 'Invalid reminderTime' }, { status: 400 });
     }
-    // The reminder time belongs to FamCal reminders: the same plan/switch/Telegram gate as the reminders themselves.
-    if (reminderTime !== undefined && !(await getReminderSupport(auth.user)).supported) {
-      return NextResponse.json({ error: 'Reminders are not available' }, { status: 403 });
+    // The reminder time is for whoever FamCal reminders can ping (their own plan, or a partner's
+    // reminders for them). When it isn't allowed, only that field is dropped: it must never
+    // cost the rest of the save (a trial that ended while Settings was open, a switched-off plan).
+    let acceptedReminderTime: string | undefined;
+    if (isValidReminderTime(reminderTime)) {
+      if (await canReceiveReminderPings(auth.user)) {
+        acceptedReminderTime = reminderTime;
+      } else {
+        console.warn(`[settings] reminderTime ignored for user ${auth.user.id}: FamCal reminders can't ping them (no Telegram, switch off, or no plan for them or their partner); the rest of the save goes through`);
+        captureError(new Error('reminderTime ignored: reminders not available'), 'settings-reminder-time', { api_route: '/api/settings', user_id: auth.user.id }, 'warning');
+      }
     }
     const isValidDaysArray = (arr: unknown): arr is number[] =>
       Array.isArray(arr) && arr.length >= 1 && arr.length <= 7 &&
@@ -99,7 +107,7 @@ export async function POST(request: NextRequest) {
       tomorrowSummaryDays: isValidDaysArray(tomorrowSummaryDays) ? tomorrowSummaryDays : undefined,
       remindersEnabled: typeof remindersEnabled === 'boolean' ? remindersEnabled : undefined,
       defaultReminderMinutes: typeof defaultReminderMinutes === 'number' ? defaultReminderMinutes : undefined,
-      reminderTime: isValidReminderTime(reminderTime) ? reminderTime : undefined,
+      reminderTime: acceptedReminderTime,
       pickupRemindersEnabled: typeof pickupRemindersEnabled === 'boolean' ? pickupRemindersEnabled : undefined,
       voiceInputEnabled: typeof voiceInputEnabled === 'boolean' ? voiceInputEnabled : undefined
     };
@@ -110,7 +118,7 @@ export async function POST(request: NextRequest) {
     if (changedFields.length > 0) trackActivityAsync(auth.user.id, 'settings_changed', { changed_fields: changedFields });
 
     // A new reminder time moves the date-only pings the due gate has memoed: wake the pass.
-    if (isValidReminderTime(reminderTime) && reminderTime !== reminderTimeOf(auth.user)) invalidateDueGate();
+    if (acceptedReminderTime !== undefined && acceptedReminderTime !== reminderTimeOf(auth.user)) invalidateDueGate();
 
     // The lookup runs after the response, so the save answers at once.
     if (locationChanged) {

@@ -21,7 +21,7 @@ import type CalendarsClient from '@/app/[locale]/calendars/CalendarsClient';
 import type PairClient from '@/app/[locale]/pair/PairClient';
 import type SubscriptionClient from '@/app/[locale]/subscription/SubscriptionClient';
 import { getSubscriptionWithUsage, getTrialStatus, checkEarlyAdopterAccess, peekFeatureAccess } from '@/src/services/subscription-service';
-import { getReminderSupport } from '@/src/services/native-reminders/support';
+import { canReceiveReminderPings, getReminderSupport } from '@/src/services/native-reminders/support';
 import { trackActivityAsync } from '@/src/services/analytics-service';
 import { captureError } from '@/src/lib/error-capture';
 import { listUserCalendars, scrubbedGoogleError } from '@/src/services/calendar';
@@ -200,7 +200,7 @@ async function settings(user: UserConfig, userId: number, userLocale: string): P
   // Fetch admin settings and subscription data in parallel
   const [nativeRemindersSupported, adminSettings, subWithUsage] = await Promise.all([
     // quiet: a gate for one control, so a plan without reminders logs nothing
-    getReminderSupport(user, { quiet: true }).then((support) => support.supported),
+    canReceiveReminderPings(user, { quiet: true }),
     prisma.adminSettings.findUnique({
       where: { id: 'global' }
     }).catch(() => null),

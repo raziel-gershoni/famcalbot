@@ -72,7 +72,12 @@ const fakeRedis = {
 const COLUMN_DEFAULTS = { remindersEnabled: false, earlyAdoptionMode: true, voiceAutoCreateHighConf: false, voiceTtsOutcome: false, nativeRemindersEnabled: true };
 const db = { row: null as Record<string, unknown> | null, down: false, reads: 0 };
 const upserts: { update: Record<string, unknown>; create: Record<string, unknown> }[] = [];
+/** Pairings and users for the partner rule: pairing id -> its row; user id -> its row. */
+const pairings: Record<string, { status: string; inviterUserId: number; inviteeUserId: number | null }> = {};
+const userRows: Record<number, { id: number; telegramId: number | null }> = {};
 const fakePrisma = {
+  pairing: { findUnique: async ({ where }: { where: { id: string } }) => pairings[where.id] ?? null },
+  user: { findUnique: async ({ where }: { where: { id: number } }) => (userRows[where.id] ? { name: 'P', englishName: '', gender: '', language: 'en', reminderTime: null, ...userRows[where.id] } : null) },
   adminSettings: {
     findUnique: async ({ select }: { where: { id: string }; select?: Record<string, boolean> }) => {
       db.reads++;
@@ -143,6 +148,8 @@ function reset() {
   Object.assign(redisState, { down: false, reads: 0, failWrites: false });
   Object.assign(db, { row: null, down: false, reads: 0 });
   for (const id of Object.keys(access)) delete access[Number(id)];
+  for (const k of Object.keys(pairings)) delete pairings[k];
+  for (const k of Object.keys(userRows)) delete userRows[Number(k)];
 }
 
 const FLAG = 'nrem:enabled';
@@ -162,7 +169,7 @@ const PARAMS: Record<string, string> = {
 };
 
 async function main() {
-  const { getReminderSupport, isNativeRemindersEnabled, setNativeRemindersEnabled } = await import('../src/services/native-reminders/support');
+  const { canReceiveReminderPings, getReminderSupport, isNativeRemindersEnabled, setNativeRemindersEnabled } = await import('../src/services/native-reminders/support');
   const { __resetDueGateForTests, setNextDue, shouldRunPass } = await import('../src/services/native-reminders/due-gate');
   const { GET, POST } = await import('../app/api/admin/settings/route');
   const { NextRequest } = await import('next/server');
@@ -252,6 +259,25 @@ async function main() {
     assert(yes.supported && !no.supported && no.reason === 'no_access', JSON.stringify({ yes, no }));
     assert(!down.supported && down.reason === 'no_access', JSON.stringify(down));
     assert(accessChecks.join() === 'peek 8:reminders,peek 9:reminders,peek 10:reminders', `feature checks ${accessChecks}`);
+  });
+
+  // ---- canReceiveReminderPings: own support, or a supported partner's reminders (the pass pings the recipient at their own time) ----
+
+  await check('M1 a user whose plan has no reminders but whose paired partner\'s does, and who has Telegram, can receive pings; without Telegram, an unsupported partner, or no active pairing they cannot', async () => {
+    reset();
+    access[20] = false; access[21] = true; access[22] = false;
+    pairings.p1 = { status: 'ACTIVE', inviterUserId: 20, inviteeUserId: 21 };
+    pairings.p2 = { status: 'ACTIVE', inviterUserId: 20, inviteeUserId: 22 };
+    pairings.p3 = { status: 'PENDING', inviterUserId: 20, inviteeUserId: 21 };
+    userRows[21] = { id: 21, telegramId: 2021 };
+    userRows[22] = { id: 22, telegramId: 2022 };
+    assert(await canReceiveReminderPings({ id: 20, telegramId: 2020, pairingId: 'p1' }), 'partner Pro, recipient Basic');
+    assert(!(await canReceiveReminderPings({ id: 20, telegramId: null, pairingId: 'p1' })), 'no Telegram');
+    assert(!(await canReceiveReminderPings({ id: 20, telegramId: 2020, pairingId: 'p2' })), 'partner has no reminders either');
+    assert(!(await canReceiveReminderPings({ id: 20, telegramId: 2020, pairingId: 'p3' })), 'pairing not active');
+    assert(!(await canReceiveReminderPings({ id: 20, telegramId: 2020, pairingId: null })), 'unpaired');
+    access[23] = true;
+    assert(await canReceiveReminderPings({ id: 23, telegramId: 2023, pairingId: null }), 'own plan allows');
   });
 
   // ---- isNativeRemindersEnabled: Redis first, the DB behind it, on by default ----

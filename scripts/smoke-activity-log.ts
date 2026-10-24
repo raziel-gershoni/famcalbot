@@ -79,7 +79,7 @@ const stubs: Record<string, Record<string, unknown>> = {
     checkEarlyAdopterAccess: async () => false,
     peekFeatureAccess: async () => ({ allowed: true }),
   },
-  [`${SRC}/services/native-reminders/support.ts`]: { getReminderSupport: async () => ({ supported: true }) },
+  [`${SRC}/services/native-reminders/support.ts`]: { getReminderSupport: async () => ({ supported: true }), canReceiveReminderPings: async () => true },
   [`${SRC}/services/calendar/index.ts`]: { listUserCalendars: async () => [], scrubbedGoogleError: () => '' },
   [`${SRC}/services/calendar-read/index.ts`]: { sourcesFor: () => ['famcal'] },
   [`${SRC}/services/native-calendar/event-store.ts`]: { listVisibleCalendars: async () => [] },

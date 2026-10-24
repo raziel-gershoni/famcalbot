@@ -679,7 +679,7 @@ async function main() {
   });
 
   // FamCal reminders' own setting: not behind the Google event-alerts switch, but behind the plan.
-  await check('the reminder time saves for a user with event alerts off when the plan allows reminders, and is refused (403) when it does not', async () => {
+  await check('the reminder time saves for a user with event alerts off when the plan allows reminders, and is dropped (the rest of the save kept) when it does not', async () => {
     reset({ id: 30, calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: null, remindersEnabled: false });
     const route = await import('../app/api/settings/route');
     const post = async (body: Record<string, unknown>) => {
@@ -694,8 +694,10 @@ async function main() {
     };
     assert(await post({ reminderTime: '07:30' }) === 200 && userRows[0].reminderTime === '07:30', `allowed: ${userRows[0].reminderTime}`);
     assert(await post({ reminderTime: '07:10' }) === 400, 'a step off 15 minutes');
+    // M1(b): an unallowed time drops only that field; the rest of the save goes through.
     remindersAllowedByPlan = false;
-    assert(await post({ reminderTime: '08:00' }) === 403 && userRows[0].reminderTime === '07:30', `refused: ${userRows[0].reminderTime}`);
+    assert(await post({ reminderTime: '08:00', defaultReminderMinutes: 30 }) === 200, 'the save is not thrown away');
+    assert(userRows[0].reminderTime === '07:30' && userRows[0].defaultReminderMinutes === 30, `dropped field only: ${userRows[0].reminderTime} / ${userRows[0].defaultReminderMinutes}`);
   });
 
   await check("a settings save keeps the location, so an expired timezone resolves to the user's", async () => {

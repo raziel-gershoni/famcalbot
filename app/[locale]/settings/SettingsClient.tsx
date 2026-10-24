@@ -398,6 +398,26 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
     );
   }
 
+  // FamCal reminders' own setting: shown whenever FamCal reminders can ping this user (their plan, or a
+  // partner's reminders for them), whatever the Google event alerts switch says and on either messaging platform
+  const reminderTimePicker = nativeRemindersSupported ? (
+    <div className="form-group">
+      <label htmlFor="reminderTime">{t('reminderTime')}</label>
+      <select
+        name="reminderTime"
+        id="reminderTime"
+        value={reminderTime}
+        onChange={(e) => setReminderTime(e.target.value)}
+        disabled={formState !== 'idle'}
+      >
+        {REMINDER_TIME_OPTIONS.map((time) => (
+          <option key={time} value={time}>{time}</option>
+        ))}
+      </select>
+      <p className="help-text">{t('reminderTimeHelp')}</p>
+    </div>
+  ) : null;
+
   return (
     <TelegramLayout>
       <style jsx>{`
@@ -1181,24 +1201,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
               </div>
             </div>
 
-            {/* FamCal reminders' own setting: shown whenever the plan allows them, whatever the Google event alerts switch says */}
-            {nativeRemindersSupported && (
-            <div className="form-group">
-              <label htmlFor="reminderTime">{t('reminderTime')}</label>
-              <select
-                name="reminderTime"
-                id="reminderTime"
-                value={reminderTime}
-                onChange={(e) => setReminderTime(e.target.value)}
-                disabled={formState !== 'idle'}
-              >
-                {REMINDER_TIME_OPTIONS.map((time) => (
-                  <option key={time} value={time}>{time}</option>
-                ))}
-              </select>
-              <p className="help-text">{t('reminderTimeHelp')}</p>
-            </div>
-            )}
+            {reminderTimePicker}
 
             {remindersEnabled && remindersGloballyEnabled && subscriptionInfo.remindersAllowed && (
               <>
@@ -1243,6 +1246,11 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
                 </div>
               </>
             )}
+            </>)}
+
+            {currentSettings.messagingPlatform === 'whatsapp' && reminderTimePicker && (<>
+            <h3 className="section-title">{t('remindersSection')}</h3>
+            {reminderTimePicker}
             </>)}
 
           </form>

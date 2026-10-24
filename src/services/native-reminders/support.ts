@@ -14,6 +14,7 @@ import { REDIS_KEYS } from '../../config/redis-keys';
 import { captureError } from '../../lib/error-capture';
 import { checkFeatureAccess, peekFeatureAccess } from '../subscription-service';
 import { invalidateDueGate } from './due-gate';
+import { getActivePartnerSummary } from './ownership';
 
 const FLAG_KEY = REDIS_KEYS.NATIVE_REMINDERS_ENABLED;
 
@@ -103,4 +104,27 @@ export async function getReminderSupport(user: {
     return { supported: false, reason: 'no_access' };
   }
   return { supported: true };
+}
+
+/**
+ * Whether this user can be pinged by FamCal reminders, so the time those pings ring at
+ * (User.reminderTime) means something to them: their own plan allows reminders, or they
+ * have Telegram and their active partner's plan does (the pass pings a partner-owned
+ * reminder at the recipient's time, gated on the creator's plan only). The one rule for
+ * showing the setting and for accepting it. An error finding the partner fails closed.
+ */
+export async function canReceiveReminderPings(
+  user: { id: number; telegramId?: bigint | number | string | null; pairingId?: string | null },
+  options: { quiet?: boolean } = {},
+): Promise<boolean> {
+  if ((await getReminderSupport(user, options)).supported) return true;
+  if (!hasTelegram(user.telegramId) || !user.pairingId) return false;
+  try {
+    const partner = await getActivePartnerSummary(user.id, user.pairingId);
+    return !!partner && (await getReminderSupport(partner, options)).supported;
+  } catch (error) {
+    console.error(`[NativeReminders] Partner lookup for the reminder time failed for user ${user.id}:`, error);
+    captureError(error, 'native-reminders-partner-support', { user_id: user.id }, 'warning');
+    return false;
+  }
 }
