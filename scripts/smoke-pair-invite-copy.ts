@@ -113,6 +113,16 @@ for (const { namespace, files } of SCREENS) {
   });
 }
 
+check('the Russian invite title asks to join calendars, not to "get in touch"', () => {
+  const ru = JSON.parse(read('messages/ru.json')) as { invite: { title: string } };
+  assert(ru.invite.title === 'Объединить календари с {name}?', ru.invite.title);
+});
+
+check('the Hebrew week-ahead note uses the app\'s own name for the block, \u05de\u05d1\u05d8 \u05dc\u05e9\u05d1\u05d5\u05e2 \u05d4\u05e7\u05e8\u05d5\u05d1', () => {
+  const he = JSON.parse(read('messages/he.json')) as { bot: { errors: { weekAheadNote: string } }; };
+  assert(he.bot.errors.weekAheadNote.includes('\u05d4\u05de\u05d1\u05d8 \u05dc\u05e9\u05d1\u05d5\u05e2 \u05d4\u05e7\u05e8\u05d5\u05d1') && !he.bot.errors.weekAheadNote.includes('\u05de\u05d1\u05d8 \u05d4\u05e9\u05d1\u05d5\u05e2'), he.bot.errors.weekAheadNote);
+});
+
 check('scripts/check-i18n-parity.ts passes on the real messages', () => {
   const run = spawnSync('npx', ['tsx', 'scripts/check-i18n-parity.ts'], { cwd: ROOT, encoding: 'utf8' });
   assert(run.status === 0, `exit ${run.status}: ${(run.stdout + run.stderr).slice(-400)}`);
