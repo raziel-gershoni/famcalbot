@@ -25,10 +25,20 @@ export async function answerGoogleReadError(
 ): Promise<boolean> {
   const { chatId, user, userLanguage, messagingService, streamHandle } = ctx;
 
+  // An open draft ("Looking at the week ahead...") turns into the answer, so no stage message
+  // is left above it; without a draft the answer is a new message.
+  const sendOrCancelDraft = async (text: string) => {
+    if (streamHandle) {
+      await streamHandle.cancel(text, { format: MessageFormat.HTML });
+    } else {
+      await messagingService.sendMessage(chatId, text, { format: MessageFormat.HTML });
+    }
+  };
+
   if (error.message === 'GOOGLE_INSUFFICIENT_SCOPES') {
     const t = await getBotMessages(userLanguage);
     const scopesMessage = `${t.insufficientScopes.title}\n\n${t.insufficientScopes.message}`;
-    await messagingService.sendMessage(chatId, scopesMessage, { format: MessageFormat.HTML });
+    await sendOrCancelDraft(scopesMessage);
     console.warn(`[GoogleRead] user ${user.id}: the Google token lacks permissions; token kept, asked to reconnect`);
 
     const { notifyAdminWarning } = await import('../../utils/error-notifier');
@@ -42,7 +52,7 @@ export async function answerGoogleReadError(
   if (error.message === 'GOOGLE_TOKEN_EXPIRED') {
     const t = await getBotMessages(userLanguage);
     const expiredMessage = `${t.tokenExpired.title}\n\n${t.tokenExpired.message}`;
-    await messagingService.sendMessage(chatId, expiredMessage, { format: MessageFormat.HTML });
+    await sendOrCancelDraft(expiredMessage);
 
     const { notifyAdminWarning } = await import('../../utils/error-notifier');
     await notifyAdminWarning(
@@ -57,11 +67,7 @@ export async function answerGoogleReadError(
   if (error.message === 'GOOGLE_FETCH_FAILED') {
     const t = await getBotMessages(userLanguage);
     const unreachable: string = t.errors.googleUnreachable;
-    if (streamHandle) {
-      await streamHandle.cancel(unreachable, { format: MessageFormat.HTML });
-    } else {
-      await messagingService.sendMessage(chatId, unreachable, { format: MessageFormat.HTML });
-    }
+    await sendOrCancelDraft(unreachable);
     return true;
   }
 

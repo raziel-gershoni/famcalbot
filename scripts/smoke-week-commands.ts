@@ -268,6 +268,20 @@ async function main() {
     ]);
   });
 
+  await check('/week, a dead token or missing permissions, with an open draft: the draft turns into the answer, so no stage message stays behind', async () => {
+    await run('week', { error: codeError('GOOGLE_TOKEN_EXPIRED'), draft: true });
+    const expired = outcome();
+    await run('week', { error: codeError('GOOGLE_INSUFFICIENT_SCOPES'), draft: true });
+    const scopes = outcome();
+    assertList([...expired, ...scopes], [
+      `draft.cancel html: ${TOKEN_TEXT}`,
+      'admin warnings: Token Expired: User 21 needs to refresh their Google Calendar token', 'admin errors: none', 'tokens cleared: none',
+      `draft.cancel html: ${SCOPES_TEXT}`,
+      'admin warnings: Insufficient Scopes: User 21 has a token with insufficient scopes. Token kept, awaiting re-authorization.',
+      'admin errors: none', 'tokens cleared: none',
+    ]);
+  });
+
   await check('/week, missing permissions: the permissions text, the token kept, an admin warning', async () => {
     await run('week', { error: codeError('GOOGLE_INSUFFICIENT_SCOPES') });
     const telegramUser = outcome();
