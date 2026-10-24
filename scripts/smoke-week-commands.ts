@@ -95,6 +95,7 @@ function makeService(platform: string): IMessagingService {
   return {
     sendMessage: async (chatId: number | string, text: string, options?: MessageOptions) => {
       sent.push(`${platform}.sendMessage ${chatId}${options?.format === MessageFormat.HTML ? ' html' : ''}: ${text}`);
+      sentOptions.push(options);
       return 1;
     },
     sendTypingIndicator: async () => undefined,
@@ -114,6 +115,7 @@ function makeDraft(): StreamMessageHandle {
     },
     cancel: async (text: string, options?: MessageOptions) => {
       sent.push(`draft.cancel${options?.format === MessageFormat.HTML ? ' html' : ''}: ${text}`);
+      sentOptions.push(options);
     },
   };
 }
@@ -140,6 +142,8 @@ let tokensCleared: string[] = [];
 let deliveries: string[] = [];
 /** Every activity row the commands write: "<action> <json metadata>". */
 let tracked: string[] = [];
+/** The options of each message/draft the user was sent, in order. */
+let sentOptions: (MessageOptions | undefined)[] = [];
 /** The features the plan has run out of. */
 let exhausted = new Set<string>();
 /** The plan checks the commands made. */
@@ -171,7 +175,7 @@ const stubs: Record<string, Record<string, unknown>> = {
     addBreadcrumb: () => undefined,
   },
   [`${SRC}/services/subscription-service.ts`]: {
-    checkFeatureAccess: async (_userId: number, feature: string) => { featureChecks.push(feature); return { allowed: !exhausted.has(feature) }; },
+    checkFeatureAccess: async (_userId: number, feature: string) => { featureChecks.push(feature); return exhausted.has(feature) ? { allowed: false, reason: 'limit_reached', limit: 10 } : { allowed: true }; },
     incrementUsage: async () => undefined,
   },
   [`${SRC}/lib/error-capture.ts`]: { captureError: () => undefined, captureWarning: () => undefined, captureInfo: () => undefined },
@@ -237,6 +241,7 @@ async function run(command: Command, opts: { error?: Error; gap?: string; platfo
   tokensCleared = [];
   deliveries = [];
   tracked = [];
+  sentOptions = [];
   featureChecks = [];
   lookaheadCalls.length = 0;
   lookaheadError = opts.error;
@@ -287,14 +292,21 @@ async function main() {
     ]);
   });
 
-  await check('B4 /lookahead and /nextweek check the text-summary quota like /weather: out of it, the limit message of /weather (Telegram and WhatsApp), nothing fetched, no completed row', async () => {
-    // The text /weather sends (bot.subscription has no textLimitReached key, so it is the code's own English line).
-    const limit = { textLimitReached: "You've reached your monthly text summary limit. Upgrade to continue!" };
+  await check("B4 /lookahead and /nextweek check the text-summary quota like /weather: out of it, the user's own language with the real limit, the upgrade button on both platforms, the open draft turned into it, nothing fetched, no completed row", async () => {
+    const copy = (lang: string) => (JSON.parse(readFileSync(path.join(ROOT, 'messages', `${lang}.json`), 'utf8')) as { subscription: { textLimitReached: string } }).subscription.textLimitReached.replace('{limit}', '10');
+    assert(copy('he') !== copy('en') && copy('ru') !== copy('en') && !copy('he').includes('{limit}'), 'fixture');
     for (const command of ['week', 'nextweek'] as const) {
-      for (const platform of [MessagingPlatform.TELEGRAM, MessagingPlatform.WHATSAPP]) {
-        await run(command, { exhausted: ['text_summary'], platform, user: platform === MessagingPlatform.WHATSAPP ? makeUser({ telegramId: null }) : undefined });
+      for (const [platform, language, draft] of [
+        [MessagingPlatform.TELEGRAM, 'he', true], [MessagingPlatform.TELEGRAM, 'ru', false], [MessagingPlatform.WHATSAPP, 'en', false],
+      ] as const) {
+        await run(command, { exhausted: ['text_summary'], platform, draft, user: makeUser({ language, ...(platform === MessagingPlatform.WHATSAPP ? { telegramId: null } : {}) }) });
         const chat = platform === MessagingPlatform.WHATSAPP ? WA_CHAT : TG_CHAT;
-        assertList(sent, [`${platform === MessagingPlatform.WHATSAPP ? 'whatsapp' : 'telegram'}.sendMessage ${chat} html: ${limit.textLimitReached}`]);
+        const service = platform === MessagingPlatform.WHATSAPP ? 'whatsapp' : 'telegram';
+        // An open draft is the message (no stage message left above it); otherwise a new message.
+        assertList(sent, [draft ? `draft.cancel html: ${copy(language)}` : `${service}.sendMessage ${chat} html: ${copy(language)}`]);
+        const options = sentOptions[0] as { replyMarkup?: { inline_keyboard: { web_app?: { url: string } }[][] }; whatsappUrlButton?: { url: string } } | undefined;
+        assert(options?.replyMarkup?.inline_keyboard[0][0].web_app?.url.includes(`/${language}/subscription`) === true, `no Mini App upgrade button: ${JSON.stringify(options)}`);
+        assert(options?.whatsappUrlButton?.url.includes(`/${language}/subscription`) === true, `no WhatsApp upgrade button: ${JSON.stringify(options)}`);
         assertList(featureChecks, ['text_summary']);
         assertList(tracked, []);
         assertList(deliveries, []);

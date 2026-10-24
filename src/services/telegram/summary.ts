@@ -50,6 +50,7 @@ import { SCHEDULED_READ, SCHEDULED_RETRY_READ } from '../calendar-read/digest';
 import { captureError, captureWarning } from '../../lib/error-capture';
 import { getMessagingService } from './bot';
 import { sendVoiceMessage } from './voice';
+import { denyOverTextLimit } from './text-limit';
 import { liveGoogleChoices } from '../../lib/google-state';
 
 /**
@@ -306,17 +307,7 @@ export async function sendSummaryToUser(
   });
 
   // Check feature access for text summaries
-  const textAccess = await checkFeatureAccess(user.id, 'text_summary');
-  if (!textAccess.allowed) {
-    const t = await getBotMessages(userLanguage);
-    const limitMessage = t.subscription?.textLimitReached
-      || 'You\'ve reached your monthly text summary limit.';
-
-    await messagingService.sendMessage(chatId, limitMessage, {
-      format: MessageFormat.HTML,
-    });
-    return false;
-  }
+  if (await denyOverTextLimit(user, chatId, messagingService, userLanguage, streamHandle)) return false;
 
   return executeCommand({
     chatId,
