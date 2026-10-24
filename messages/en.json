@@ -1488,5 +1488,52 @@
       "notFound": "This calendar isn't yours to copy any more.",
       "openFailed": "Google didn't open. Try again."
     }
+  },
+  "pair": {
+    "title": "Partner sharing",
+    "notPairedSubtitle": "Pair with one other person to share calendars between your accounts.",
+    "pairedWith": "Paired with {name}",
+    "pairedSince": "Since {when}",
+    "generateInvite": "Generate invite link",
+    "revoke": "Revoke link",
+    "unlink": "Unlink",
+    "unlinkConfirm": "Unlink? Your partner will lose access to your shared calendars immediately.",
+    "copyLink": "Copy link",
+    "expires": "Expires {when}",
+    "activeLink": "Send this link to your partner. It expires in 7 days.",
+    "errorGeneric": "Something went wrong.",
+    "errorAlreadyPaired": "You are already paired. Unlink first.",
+    "creating": "Creating…",
+    "unlinking": "Unlinking…",
+    "missingUserId": "Missing user_id"
+  },
+  "invite": {
+    "title": "Pair with {name}?",
+    "subtitle": "You will share calendars between your accounts. Each calendar can be marked private later.",
+    "accept": "Accept invite",
+    "accepting": "Pairing…",
+    "success": "You are now paired with {name}.",
+    "closeApp": "Close",
+    "notInApp": "Open in your bot to accept:",
+    "openTg": "Open in Telegram",
+    "openWa": "Open in WhatsApp",
+    "expires": "Link expires {when}",
+    "errorGeneric": "Could not accept the invite. Try the bot directly.",
+    "someone": "Someone",
+    "errors": {
+      "notFound": "This invite link is not valid.",
+      "expired": "This invite has expired.",
+      "alreadyUsed": "This invite was already used.",
+      "revoked": "This invite was revoked.",
+      "ownInvite": "You cannot accept your own invite.",
+      "inviterAlreadyPaired": "The inviter is already paired with someone else.",
+      "inviteeAlreadyPaired": "You are already paired. Unlink first.",
+      "alreadyPairedTogether": "You two are already paired 🎉"
+    },
+    "invalid": {
+      "title": "Invite link not valid",
+      "body": "This invite expired, was revoked, or has already been used. Ask for a new one.",
+      "home": "Back to home"
+    }
   }
 }

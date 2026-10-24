@@ -12,6 +12,7 @@
 // the rest of the miniapp's plain-but-polished aesthetic.
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 
 interface Props {
   token: string;
@@ -26,55 +27,21 @@ interface Props {
 
 type AcceptState = 'idle' | 'pending' | 'success' | 'alreadyPaired' | 'error';
 
-const COPY: Record<string, Record<string, string>> = {
-  en: {
-    title: 'Pair with {name}?',
-    subtitle: 'You will share calendars between your accounts. Each calendar can be marked private later.',
-    accept: 'Accept invite',
-    accepting: 'Pairing…',
-    success: 'You are now paired with {name}.',
-    closeApp: 'Close',
-    notInApp: 'Open in your bot to accept:',
-    openTg: 'Open in Telegram',
-    openWa: 'Open in WhatsApp',
-    expires: 'Link expires {when}',
-    errorGeneric: 'Could not accept the invite. Try the bot directly.',
-  },
-  he: {
-    title: 'להתחבר עם {name}?',
-    subtitle: 'תוכלו לראות אחד את היומנים של השני. אפשר לסמן יומן ספציפי כפרטי בהמשך.',
-    accept: 'אישור חיבור',
-    accepting: 'מתחבר…',
-    success: 'אתם מחוברים עכשיו עם {name}.',
-    closeApp: 'סגירה',
-    notInApp: 'לפתוח בבוט כדי לאשר:',
-    openTg: 'לפתוח בטלגרם',
-    openWa: 'לפתוח בוואטסאפ',
-    expires: 'הקישור פג תוקף {when}',
-    errorGeneric: 'לא הצלחנו להשלים את החיבור. נסה דרך הבוט.',
-  },
-  ru: {
-    title: 'Связать с {name}?',
-    subtitle: 'Календари будут видны обоим. Любой календарь можно сделать приватным позже.',
-    accept: 'Принять приглашение',
-    accepting: 'Соединяем…',
-    success: 'Вы теперь связаны с {name}.',
-    closeApp: 'Закрыть',
-    notInApp: 'Открыть в боте, чтобы принять:',
-    openTg: 'Открыть в Telegram',
-    openWa: 'Открыть в WhatsApp',
-    expires: 'Ссылка истекает {when}',
-    errorGeneric: 'Не удалось принять приглашение. Попробуйте через бот.',
-  },
+/** The invite error codes /api/pair/accept returns, and the invite.errors key that says each. */
+const ERROR_KEYS: Record<string, string> = {
+  INVITE_NOT_FOUND: 'errors.notFound',
+  INVITE_EXPIRED: 'errors.expired',
+  INVITE_ALREADY_USED: 'errors.alreadyUsed',
+  INVITE_REVOKED: 'errors.revoked',
+  CANNOT_ACCEPT_OWN_INVITE: 'errors.ownInvite',
+  INVITER_ALREADY_PAIRED: 'errors.inviterAlreadyPaired',
+  INVITEE_ALREADY_PAIRED: 'errors.inviteeAlreadyPaired',
+  ALREADY_PAIRED_TOGETHER: 'errors.alreadyPairedTogether',
 };
-
-function fmt(template: string, vars: Record<string, string>): string {
-  return template.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
-}
 
 export default function InviteClient(props: Props) {
   const { token, inviterName, locale, tgDeepLink, waDeepLink, expiresAt } = props;
-  const t = COPY[locale] || COPY.en;
+  const t = useTranslations('invite');
   const [state, setState] = useState<AcceptState>('idle');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [tgUser, setTgUser] = useState<number | null>(null);
@@ -105,13 +72,13 @@ export default function InviteClient(props: Props) {
       const data = await res.json();
       if (!res.ok || !data.success) {
         setState(data?.error === 'ALREADY_PAIRED_TOGETHER' ? 'alreadyPaired' : 'error');
-        setErrorMessage(mapError(data?.error, locale));
+        setErrorMessage(t(ERROR_KEYS[data?.error] ?? 'errorGeneric'));
         return;
       }
       setState('success');
     } catch {
       setState('error');
-      setErrorMessage(t.errorGeneric);
+      setErrorMessage(t('errorGeneric'));
     }
   };
 
@@ -126,12 +93,12 @@ export default function InviteClient(props: Props) {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-100 to-teal-100 p-6">
         <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
           <div className="text-6xl mb-4">🎉</div>
-          <h1 className="text-2xl font-bold text-gray-800 mb-3">{fmt(t.success, { name: inviterName })}</h1>
+          <h1 className="text-2xl font-bold text-gray-800 mb-3">{t('success', { name: inviterName })}</h1>
           <button
             onClick={() => window.Telegram?.WebApp?.close?.()}
             className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-medium hover:bg-emerald-700 transition-colors"
           >
-            {t.closeApp}
+            {t('closeApp')}
           </button>
         </div>
       </div>
@@ -143,8 +110,8 @@ export default function InviteClient(props: Props) {
       <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
         <div className="text-center mb-6">
           <div className="text-5xl mb-4">🤝</div>
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">{fmt(t.title, { name: inviterName })}</h1>
-          <p className="text-gray-600 text-sm">{t.subtitle}</p>
+          <h1 className="text-2xl font-bold text-gray-800 mb-2">{t('title', { name: inviterName })}</h1>
+          <p className="text-gray-600 text-sm">{t('subtitle')}</p>
         </div>
 
         {state === 'error' && errorMessage && (
@@ -163,18 +130,18 @@ export default function InviteClient(props: Props) {
             disabled={state === 'pending'}
             className="w-full bg-blue-600 text-white py-4 rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-60 transition-colors"
           >
-            {state === 'pending' ? t.accepting : t.accept}
+            {state === 'pending' ? t('accepting') : t('accept')}
           </button>
         ) : (
           <div>
-            <p className="text-gray-700 text-sm font-medium mb-3 text-center">{t.notInApp}</p>
+            <p className="text-gray-700 text-sm font-medium mb-3 text-center">{t('notInApp')}</p>
             <div className="flex flex-col gap-2">
               {tgDeepLink && (
                 <a
                   href={tgDeepLink}
                   className="block w-full bg-sky-500 text-white py-3 rounded-xl font-medium text-center hover:bg-sky-600 transition-colors"
                 >
-                  {t.openTg}
+                  {t('openTg')}
                 </a>
               )}
               {waDeepLink && (
@@ -182,54 +149,15 @@ export default function InviteClient(props: Props) {
                   href={waDeepLink}
                   className="block w-full bg-emerald-500 text-white py-3 rounded-xl font-medium text-center hover:bg-emerald-600 transition-colors"
                 >
-                  {t.openWa}
+                  {t('openWa')}
                 </a>
               )}
             </div>
           </div>
         )}
 
-        <p className="text-xs text-gray-400 text-center mt-6">{fmt(t.expires, { when: expiresWhen })}</p>
+        <p className="text-xs text-gray-400 text-center mt-6">{t('expires', { when: expiresWhen })}</p>
       </div>
     </div>
   );
-}
-
-function mapError(code: string | undefined, locale: string): string {
-  const t = COPY[locale] || COPY.en;
-  if (!code) return t.errorGeneric;
-  const map: Record<string, Record<string, string>> = {
-    en: {
-      INVITE_NOT_FOUND: 'This invite link is not valid.',
-      INVITE_EXPIRED: 'This invite has expired.',
-      INVITE_ALREADY_USED: 'This invite was already used.',
-      INVITE_REVOKED: 'This invite was revoked.',
-      CANNOT_ACCEPT_OWN_INVITE: 'You cannot accept your own invite.',
-      INVITER_ALREADY_PAIRED: 'The inviter is already paired with someone else.',
-      INVITEE_ALREADY_PAIRED: 'You are already paired. Unlink first.',
-      ALREADY_PAIRED_TOGETHER: 'You two are already paired 🎉',
-    },
-    he: {
-      INVITE_NOT_FOUND: 'הקישור לא תקף.',
-      INVITE_EXPIRED: 'הקישור פג תוקף.',
-      INVITE_ALREADY_USED: 'הקישור כבר שומש.',
-      INVITE_REVOKED: 'הקישור בוטל.',
-      CANNOT_ACCEPT_OWN_INVITE: 'אי אפשר לאשר הזמנה של עצמך.',
-      INVITER_ALREADY_PAIRED: 'השולח/ת כבר מחובר/ת עם מישהו אחר.',
-      INVITEE_ALREADY_PAIRED: 'את/ה כבר מחובר/ת. בטלו את החיבור הקיים קודם.',
-      ALREADY_PAIRED_TOGETHER: 'שניכם כבר מחוברים 🎉',
-    },
-    ru: {
-      INVITE_NOT_FOUND: 'Ссылка недействительна.',
-      INVITE_EXPIRED: 'Ссылка истекла.',
-      INVITE_ALREADY_USED: 'Ссылка уже использована.',
-      INVITE_REVOKED: 'Ссылка отменена.',
-      CANNOT_ACCEPT_OWN_INVITE: 'Нельзя принять собственное приглашение.',
-      INVITER_ALREADY_PAIRED: 'Отправитель уже связан с кем-то другим.',
-      INVITEE_ALREADY_PAIRED: 'Вы уже связаны. Сначала отмените существующую связь.',
-      ALREADY_PAIRED_TOGETHER: 'Вы уже связаны друг с другом 🎉',
-    },
-  };
-  const m = map[locale] || map.en;
-  return m[code] || t.errorGeneric;
 }
