@@ -595,6 +595,23 @@ async function main() {
     }
   });
 
+  await check('a count only on a day in the tomorrow summary\'s lookahead still adds the guideline (the lookahead lines end in the marker); take both out and the prompt is the golden one (en/he/ru)', async () => {
+    for (const l of LANGS) {
+      const name = `tomorrow-${l}-family`;
+      const c = CASES[name] as DailyCase;
+      const original = c.weekLookahead;
+      c.weekLookahead = String(original).replace('(Birthday)', `(Birthday)${MARKER}`);
+      let prompt: string;
+      try {
+        prompt = await promptFor(name);
+      } finally {
+        c.weekLookahead = original;
+      }
+      assert(prompt.split(MARKER).length === 2, `${name}: the marker appears ${prompt.split(MARKER).length - 1} times`);
+      assert(withoutCount(prompt, l) === snapshot[name], `${name}: ${firstDifference(withoutCount(prompt, l), snapshot[name])}`);
+    }
+  });
+
   await check('a count on a /week or /nextweek event does the same in the week prompts (en/he/ru)', async () => {
     for (const l of LANGS) {
       for (const name of [`week-${l}-reminders`, `nextweek-${l}-reminders`]) {

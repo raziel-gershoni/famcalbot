@@ -4,7 +4,7 @@ import { CalendarEvent, CalendarAssignment, UserConfig } from '../types';
 import { TIMEZONE } from '../config/constants';
 import { buildCalendarSummaryPrompt, SummaryPromptData } from '../prompts/calendar-summary';
 import { buildWeekLookaheadPrompt, WeekLookaheadPromptData, LookaheadDayData, LookaheadEventData } from '../prompts/week-lookahead';
-import { formatEventList, isReminderEvent, reminderAttribution } from '../utils/event-formatter';
+import { formatEventList, hasAnniversaryMarker, isReminderEvent, reminderAttribution } from '../utils/event-formatter';
 import { localDate, startOfLocalDay } from '../utils/day-events';
 import { timeOfDayGreeting } from '../utils/greeting';
 import { generateAICompletion, streamAICompletion } from './ai-provider';
@@ -176,7 +176,8 @@ function buildPromptData(
     calendarRules,
     hasKidsCalendars,
     hasReminders: [userEvents, spouseEvents, otherEvents].some(list => list.some(isReminderEvent)),
-    hasAnniversaries: [userEvents, spouseEvents, otherEvents].some(list => list.some(e => !!e.anniversary)),
+    // The day's own items, or the lookahead block (tomorrow's summary lists the days after with the marker too).
+    hasAnniversaries: [userEvents, spouseEvents, otherEvents].some(list => list.some(e => !!e.anniversary)) || hasAnniversaryMarker(weekLookahead),
     openRemindersMore: userContext?.openRemindersMore,
     googleUnavailable: userContext?.googleUnavailable,
   };

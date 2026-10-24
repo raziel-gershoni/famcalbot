@@ -46,6 +46,11 @@ export function anniversaryMarker(count: number | undefined): string {
   return count && count >= 1 ? ` [Year ${count} since the original date]` : '';
 }
 
+/** Whether already-formatted text (the tomorrow summary's lookahead block) carries an anniversaryMarker. */
+export function hasAnniversaryMarker(text: string | undefined): boolean {
+  return !!text && / \[Year \d+ since the original date\]/.test(text);
+}
+
 const clock = (iso: string, timezone: string) => formatInTimeZone(new Date(iso), timezone, 'HH:mm');
 // "Sat", or "Sat 17" when the weekday alone would be ambiguous (see eventTimeLabel).
 const weekdayOf = (iso: string, timezone: string, dated = false) => formatInTimeZone(new Date(iso), timezone, dated ? 'EEE d' : 'EEE');
