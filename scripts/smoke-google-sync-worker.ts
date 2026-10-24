@@ -371,6 +371,12 @@ const fakeRedis: Row = {
     if (o?.nx && k.startsWith('google-sync:lock:')) afterLockTaken?.();
     return 'OK';
   },
+  sadd: async (k: string, ...vs: string[]) => {
+    const cur = new Set<string>(JSON.parse(redisStore.get(k)?.value ?? '[]'));
+    for (const v of vs) cur.add(v);
+    redisStore.set(k, { value: JSON.stringify([...cur]) });
+    return vs.length;
+  },
   expire: async (k: string, s: number) => {
     redisLog.push(`expire ${k} ${s}`);
     if (redisFail === 'expire') throw new Error('redis down');
@@ -1832,19 +1838,66 @@ async function main() {
     assert(google.calls.length === 0 && sent.length === 0 && captured.length === 0, `calls ${show(google.calls)} sent ${show(sent)} captured ${show(captured)}`);
   });
 
-  await check('disconnect lock: withUserSyncLock waits while a run holds the lock, takes it once free, and frees it only if it is still its own', async () => {
-    seed();
-    redisStore.set('google-sync:lock:1', { value: 'a-run' });
-    let ran = false;
-    const waiting = worker.withUserSyncLock(TAL, async () => {
-      assert(redisStore.get('google-sync:lock:1')?.value !== 'a-run', 'ran while the run held the lock');
-      ran = true;
-      return 'done';
-    });
-    await new Promise((r) => setTimeout(r, 50));
-    assert(!ran, 'it did not wait for the run');
-    redisStore.delete('google-sync:lock:1');
-    assert((await waiting) === 'done' && ran && !redisStore.has('google-sync:lock:1'), 'not done or lock left behind');
+  const DISCONNECT_KEY = 'google-sync:disconnect:1';
+  const markDisconnect = (state: 'busy' | 'done') => redisStore.set(DISCONNECT_KEY, { value: `${state}:${Date.now()}` });
+
+  await check('disconnect marker: a run that finds the marker set when it starts (a disconnect under way) stops at once: no Google call, no write, no message', async () => {
+    seedCopy();
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    afterLockTaken = () => markDisconnect('busy');
+    await pass();
+    assert(google.calls.length === 0 && sent.length === 0, `calls ${show(google.calls)} sent ${show(sent)}`);
+    assert(item('a')!.pushedSeq === 0 && link('L').state === 'ok' && DB.user[0].googleSyncNotifiedAt === null, 'something was written');
+  });
+
+  await check('disconnect marker: a disconnect that finished before the run began (marker done, older than the run) does not block a later reconnected user\'s run', async () => {
+    seedCopy();
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    redisStore.set(DISCONNECT_KEY, { value: `done:${Date.now() - 60_000}` });
+    await pass();
+    assert(gcalls('events.insert').length === 1 && item('a')!.pushedSeq === 1, `calls ${show(google.calls)}`);
+  });
+
+  await check('disconnect marker: the marker set between two items stops the run before the next write; the outage path sends no "reconnect Google" message', async () => {
+    seedCopy();
+    seriesRow('a', 'home');
+    seriesRow('b', 'home');
+    itemRow('L', 'a');
+    itemRow('L', 'b');
+    google.during = (op) => { if (op === 'events.insert') markDisconnect('busy'); };
+    await pass();
+    assert(gcalls('events.insert').length === 1, `second item pushed ${show(google.calls)}`);
+    // The next call hits a revoked token: nothing may be written back or sent.
+    google.during = null;
+    google.accounts.clear();
+    markDisconnect('busy');
+    DB.user[0].googleSyncNotifiedAt = null;
+    await pass();
+    assert(sent.length === 0 && DB.user[0].googleSyncNotifiedAt === null && link('L').state === 'ok', `sent ${show(sent)} state ${link('L').state}`);
+  });
+
+  await check('disconnect marker: a copy calendar created while the disconnect lands is deleted by the run itself, and the link keeps no calendar id', async () => {
+    seedCopy({ googleCalendarId: null, state: 'creating', backfilledAt: null, googleAccount: null });
+    google.calendars.clear();
+    google.during = (op) => { if (op === 'calendars.insert') markDisconnect('busy'); };
+    await pass();
+    assert(gcalls('calendars.insert').length === 1 && gcalls('calendars.delete').length === 1 && google.calendars.size === 0, `calls ${show(google.calls)} calendars ${show([...google.calendars.keys()])}`);
+    assert(link('L').googleCalendarId === null && sent.length === 0, `link ${show(link('L'))} sent ${show(sent)}`);
+  });
+
+  await check('disconnect marker: a calendar the run could not delete is kept on the link (hidden after a reconnect) and recorded for the user (google-sync:orphans), with a Sentry capture', async () => {
+    seedCopy({ googleCalendarId: null, state: 'creating', backfilledAt: null, googleAccount: null });
+    google.calendars.clear();
+    google.during = (op) => { if (op === 'calendars.insert') markDisconnect('busy'); };
+    google.failures.push({ op: 'calendars.delete', error: Object.assign(new Error('Backend Error'), { code: 500, response: { status: 500 } }), left: 5 });
+    await pass();
+    const made = [...google.calendars.values()];
+    assert(made.length === 1 && link('L').googleCalendarId === made[0].id, `link ${show(link('L'))} calendars ${show(made.map((c) => c.id))}`);
+    const orphans = JSON.parse(redisStore.get('google-sync:orphans:1')?.value ?? '[]');
+    assert(show(orphans) === show(['FamCal · Home']), `orphans ${show(orphans)}`);
+    assert(captured.some((c) => c.ctx === 'google-sync-orphan-calendar') && sent.length === 0, `captured ${show(captured)}`);
   });
 
   // ---- Pace ----

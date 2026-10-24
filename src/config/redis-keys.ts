@@ -132,6 +132,10 @@ export const REDIS_KEYS = {
   // per day; and a copy's own failing step (create, rename, turn-off, the account check):
   // its attempts in a row and when it may run again (retries.ts).
   googleSyncLock: (userId: number) => `google-sync:lock:${userId}`,
+  /** 'busy:<ms>' while a Disconnect Google is under way, 'done:<ms>' after: the copy worker's runs started before it stop writing. */
+  googleSyncDisconnect: (userId: number) => `google-sync:disconnect:${userId}`,
+  /** Copy calendars a run created while a disconnect landed and could not delete (a set of their names), for the disconnect's result. */
+  googleSyncOrphans: (userId: number) => `google-sync:orphans:${userId}`,
   googleSyncAlert: (linkId: string, day: string) => `google-sync:alert:${linkId}:${day}`,
   googleSyncLinkRetry: (linkId: string) => `google-sync:link-retry:${linkId}`,
 } as const;

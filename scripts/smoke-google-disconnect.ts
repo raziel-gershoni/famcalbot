@@ -132,6 +132,7 @@ const fakeRedis: Row = {
     store.set(k, v);
     return 'OK';
   },
+  smembers: async (k: string) => [...((store.get(k) as string[] | undefined) ?? [])],
   /** The sync lock's two scripts (worker.ts RENEW_LOCK, RELEASE_LOCK): act only while the key holds the caller's token. */
   eval: async (script: string, keys: string[], args: unknown[]) => {
     if (store.get(keys[0]) !== args[0]) return 0;
@@ -648,27 +649,38 @@ async function main() {
 
   // ---- Review r3: the sync lock (I1) ----
 
-  await check('I1 lock: disconnect waits while a copy-worker run holds the user\'s sync lock (no Google call, no revoke, no clear meanwhile), then runs, and frees the lock', async () => {
+  await check('I1 marker: disconnect never waits on a copy-worker run: with the user\'s sync lock held it still finishes at once, never touches the lock, and sets the busy marker before any Google call and the done marker at the end', async () => {
     seed();
     const lockKey = REDIS_KEYS.googleSyncLock(ME);
     store.set(lockKey, 'a-worker-run');
-    let done = false;
-    const pending = run(true).then((r: Row) => { done = true; return r; });
-    await new Promise((r) => setTimeout(r, 120));
-    assert(!done && events.length === 0 && row('user', ME)!.googleRefreshToken !== '', `it did not wait: ${show(events)}`);
-    store.delete(lockKey);
-    const res = await pending;
-    assert(done && res.revoked === true && row('user', ME)!.googleRefreshToken === '', `res ${show(res)}`);
-    assert(!store.has(lockKey), 'the lock was left behind');
+    const marker = REDIS_KEYS.googleSyncDisconnect(ME);
+    const seen: string[] = [];
+    const realSet = fakeRedis.set;
+    fakeRedis.set = async (k: string, v: unknown, o?: { nx?: boolean }) => { if (k === marker) { seen.push(String(v)); events.push(`marker ${String(v).split(':')[0]}`); } return realSet(k, v, o); };
+    try {
+      const res = await Promise.race([run(true), new Promise((r) => setTimeout(() => r('hung'), 3000))]);
+      assert(res !== 'hung' && (res as Row).revoked === true, 'it hung or failed');
+    } finally {
+      fakeRedis.set = realSet;
+    }
+    assert(store.get(lockKey) === 'a-worker-run', 'the worker\'s lock was touched');
+    assert(seen.length === 2 && seen[0].startsWith('busy:') && seen[1].startsWith('done:'), `markers ${show(seen)}`);
+    assert(idx('marker busy') >= 0 && idx('marker busy') < idx('google:') && idx('marker busy') < idx('revoke') && idx('revoke') < idx('marker done'), `order ${show(events)}`);
   });
 
-  await check('I1 lock: the lock is freed when the disconnect fails too, and another user\'s lock is never taken', async () => {
+  await check('I1 marker: a failed clear leaves the busy marker (the worker must not write after a half-done disconnect) until the retry completes, and a calendar the worker could not delete is listed in the result', async () => {
+    seed();
+    store.set(REDIS_KEYS.googleSyncOrphans(ME), ['FamCal · Orphan']);
+    const res = await run(true);
+    assert(show(res.leftover) === show(['FamCal · Orphan']), `leftover ${show(res.leftover)}`);
+    assert(!store.has(REDIS_KEYS.googleSyncOrphans(ME)), 'the orphan record was not consumed');
     seed();
     failTransaction = true;
-    store.set(REDIS_KEYS.googleSyncLock(OTHER), 'other-run');
     try { await run(true); } catch { /* expected */ }
-    assert(!store.has(REDIS_KEYS.googleSyncLock(ME)), 'the lock was left behind after a failure');
-    assert(store.get(REDIS_KEYS.googleSyncLock(OTHER)) === 'other-run', 'the other user\'s lock was touched');
+    assert(String(store.get(REDIS_KEYS.googleSyncDisconnect(ME))).startsWith('busy:'), `marker ${show(store.get(REDIS_KEYS.googleSyncDisconnect(ME)))}`);
+    failTransaction = false;
+    await run(true);
+    assert(String(store.get(REDIS_KEYS.googleSyncDisconnect(ME))).startsWith('done:'), 'not done after the retry');
   });
 
   // ---- Review r3: copies the user chose to Keep (I2) ----

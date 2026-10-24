@@ -49,7 +49,7 @@ import { redis } from '../../utils/redis';
 import { scrubbedGoogleError } from '../calendar';
 import { classifyGoogleError, googleErrorFacts, isGoogleRateLimit, type GoogleErrorClass } from '../calendar-read/google-map';
 import { peekFeatureAccess } from '../subscription-service';
-import { ensureCopyCalendar, findCopyCalendarId, keepCopyCalendar, removeCopyCalendar, renameCopyCalendar, type TurnOffOutcome } from './calendars';
+import { copyName, ensureCopyCalendar, findCopyCalendarId, keepCopyCalendar, removeCopyCalendar, renameCopyCalendar, type TurnOffOutcome } from './calendars';
 import { BudgetSpent, CALLS_PER_RUN, counted, syncGoogle, type CallBudget, type SyncGoogle } from './client';
 import { hasSinglesFlag, hebrewHorizonFrom, storedHebrewFrom } from './hebrew';
 import { markSyncDirty, markedTransaction, type UnlinkChoice } from './marks';
@@ -108,6 +108,8 @@ interface UserRun {
   lockKey: string;
   /** This run's own value in the lock: renew and release act only while the lock still holds it. */
   lockToken: string;
+  /** Date.now() when the run began: a disconnect marked at or after it stops the run (assertConnected). */
+  startedAt: number;
   /** The user's backed-off links (retries.ts), read by the pass. */
   retries: Map<string, LinkRetry>;
   pushed: number;
@@ -247,7 +249,7 @@ function linksWithWork(): Prisma.GoogleSyncLinkWhereInput[] {
  */
 async function runUser(user: UserRow, links: LinkRow[], now: Date, retries: Map<string, LinkRetry>): Promise<UserRun> {
   const run: UserRun = {
-    user, budget: { left: CALLS_PER_RUN }, now, lockKey: REDIS_KEYS.googleSyncLock(user.id), lockToken: randomUUID(), retries, pushed: 0, failed: 0, again: false,
+    user, budget: { left: CALLS_PER_RUN }, now, lockKey: REDIS_KEYS.googleSyncLock(user.id), lockToken: randomUUID(), startedAt: Date.now(), retries, pushed: 0, failed: 0, again: false,
   };
   if (user.suspendedAt) {
     console.log(`[google-sync] user ${user.id}: suspended; copies skipped`);
@@ -274,13 +276,15 @@ async function runUser(user: UserRow, links: LinkRow[], now: Date, retries: Map<
       return run;
     }
     run.user = current;
+    await assertConnected(run);
     const live = await prisma.googleSyncLink.findMany({ where: { id: { in: links.map((l) => l.id) }, OR: linksWithWork() }, select: LINK_SELECT });
     if (live.length !== links.length) console.log(`[google-sync] user ${user.id}: ${links.length - live.length} copies changed since the pass read them; skipped`);
     for (const link of live.filter((l) => !l.enabled)) await turnOffLink(run, link);
     const on = live.filter((l) => l.enabled);
     if (on.length > 0) await syncLinks(run, on);
   } catch (error) {
-    await stopUser(run, error);
+    // stopUser itself can meet the disconnect (the outage path checks before it writes or sends): that stops the run too.
+    await stopUser(run, error).catch((again: unknown) => stopUser(run, again));
   } finally {
     try {
       // Only while it is still this run's: a lock a newer run took after this one's lapsed stays.
@@ -300,6 +304,10 @@ async function stopUser(run: UserRun, error: unknown): Promise<void> {
   if (error instanceof BudgetSpent) {
     console.log(`[google-sync] user ${userId}: used the run's ${CALLS_PER_RUN} Google calls; the rest goes on next tick`);
     run.again = true;
+    return;
+  }
+  if (error instanceof Disconnected) {
+    console.log(`[google-sync] user ${userId}: Disconnect Google is under way or done; the run stopped, nothing more written or sent`);
     return;
   }
   if (error instanceof LockLost || error instanceof TransientStop) {
@@ -333,6 +341,8 @@ async function stopUser(run: UserRun, error: unknown): Promise<void> {
  */
 async function outage(run: UserRun, reason: 'token' | 'scopes', cause: string): Promise<void> {
   const { user } = run;
+  // A token a disconnect just revoked is no outage: nothing written, nobody told.
+  await assertConnected(run);
   const { count } = await prisma.googleSyncLink.updateMany({
     where: { userId: user.id, state: { in: [...WORKING, reason === 'token' ? 'scopes' : 'token'] } },
     data: { state: reason },
@@ -342,10 +352,12 @@ async function outage(run: UserRun, reason: 'token' | 'scopes', cause: string): 
     captureError(new Error(`Google ${reason} for the copies to Google`), 'google-sync-outage', { user_id: user.id, links: count, cause }, 'warning');
   }
   if (user.googleSyncNotifiedAt) return;
+  await assertConnected(run);
   try {
     if (await sendReconnect(user, reason)) {
       // The run's snapshot too: another outage call in this run (a queued turn-off, then the copies that are on) sends nothing more.
       user.googleSyncNotifiedAt = run.now;
+      await assertConnected(run);
       await prisma.user.update({ where: { id: user.id }, data: { googleSyncNotifiedAt: run.now } });
       console.log(`[google-sync] user ${user.id}: reconnect message sent (${reason})`);
     }
@@ -407,51 +419,68 @@ async function renewLock(run: UserRun): Promise<void> {
     console.warn(`[google-sync] user ${run.user.id}: the run's lock lapsed or another run holds it; stopping`);
     throw new LockLost();
   }
+  await assertConnected(run);
 }
 
-/** How often a disconnect looks again while a run holds the user's lock. */
-const LOCK_POLL_MS = 500;
+/** The disconnect marker's lifetime: far past any run (the lock's TTL is 10 minutes). A busy one expires sooner, so a disconnect that died never blocks the worker for long. */
+const DISCONNECT_BUSY_TTL_S = 3600;
+const DISCONNECT_DONE_TTL_S = 86_400;
+
+/** Disconnect Google began: the runs started before it stop writing and messaging (assertConnected). Fail-closed: a Redis error throws. */
+export async function markDisconnecting(userId: number): Promise<void> {
+  await redis.set(REDIS_KEYS.googleSyncDisconnect(userId), `busy:${Date.now()}`, { ex: DISCONNECT_BUSY_TTL_S });
+}
+
+/** Disconnect Google finished. Runs started before it still stop; later ones (a reconnected user's) work again. */
+export async function markDisconnected(userId: number): Promise<void> {
+  await redis.set(REDIS_KEYS.googleSyncDisconnect(userId), `done:${Date.now()}`, { ex: DISCONNECT_DONE_TTL_S });
+}
+
+/** A disconnect has been (or is being) made since this run began: it stops, writing and sending nothing more. */
+class Disconnected extends Error {}
 
 /**
- * Work done under the user's sync lock, the one the worker's runs take: it waits (polling,
- * with no deadline of its own: the lock's 10-minute TTL frees a lock a dead run left) until the
- * lock is free, so a run already going finishes first and none starts meanwhile. Disconnect
- * Google runs inside it, so no run can write state back, send "reconnect Google" or leave a
- * calendar behind after the token is gone. `renew` keeps the lock alive during long work and
- * throws when it is no longer this holder's. Fail-closed: a Redis error throws.
+ * Called before each write and send (and in renewLock, so before every item and calendar):
+ * throws Disconnected when the user's disconnect marker says 'busy' (a disconnect is under way),
+ * or 'done' at or after this run's start. A marker left by a disconnect that ended before the
+ * run began is no bar. Fail-closed: a Redis error stops the run (LockLost, tried again next tick).
  */
-export async function withUserSyncLock<T>(userId: number, work: (renew: () => Promise<void>) => Promise<T>): Promise<T> {
-  const lockKey = REDIS_KEYS.googleSyncLock(userId);
-  const lockToken = randomUUID();
-  let waited = false;
-  for (;;) {
-    let took: unknown;
-    try {
-      took = await redis.set(lockKey, lockToken, { nx: true, ex: SYNC_LOCK_TTL_S });
-    } catch (error) {
-      console.error(`[google-sync] user ${userId}: taking the sync lock failed`, error);
-      captureError(error, 'google-sync-lock', { user_id: userId, step: 'take-for-work' });
-      throw error;
-    }
-    if (took === 'OK') break;
-    if (!waited) console.log(`[google-sync] user ${userId}: a run holds the sync lock; waiting for it`);
-    waited = true;
-    await new Promise((resolve) => setTimeout(resolve, LOCK_POLL_MS));
-  }
-  const renew = async () => {
-    const kept = await redis.eval(RENEW_LOCK, [lockKey], [lockToken, String(SYNC_LOCK_TTL_S)]);
-    if (kept !== 1) throw new LockLost();
-  };
+async function assertConnected(run: UserRun): Promise<void> {
+  let marker: unknown;
   try {
-    return await work(renew);
-  } finally {
+    marker = await redis.get(REDIS_KEYS.googleSyncDisconnect(run.user.id));
+  } catch (error) {
+    captureError(error, 'google-sync-lock', { user_id: run.user.id, step: 'disconnect-marker' });
+    throw new LockLost();
+  }
+  if (typeof marker !== 'string') return;
+  const [state, at] = marker.split(':');
+  if (state === 'busy' || Number(at) >= run.startedAt) throw new Disconnected();
+}
+
+/**
+ * The run made a copy calendar and found the user disconnecting (or has just written it down
+ * and finds that): the calendar is deleted here, best effort. One that can't be deleted stays
+ * on the link (so FamCal keeps hiding it after a reconnect) and its name is recorded for the
+ * user (REDIS_KEYS.googleSyncOrphans, listed by the disconnect's result). Always logged and sent to Sentry on failure.
+ */
+async function discardNewCalendar(run: UserRun, g: SyncGoogle, link: LinkRow, googleCalendarId: string, name: string): Promise<void> {
+  const extra = { user_id: run.user.id, link_id: link.id };
+  try {
+    const outcome = await removeCopyCalendar(g, run.budget, { id: link.id, googleCalendarId });
+    console.log(`[google-sync] link ${link.id}: a disconnect landed while its calendar was made; the calendar: ${outcome}`);
+    if (outcome !== 'deleted' && outcome !== 'gone') throw new Error(`the new copy calendar was left in Google (${outcome})`);
+    await prisma.googleSyncLink.updateMany({ where: { id: link.id }, data: { googleCalendarId: null } });
+  } catch (error) {
+    console.error(`[google-sync] link ${link.id}: couldn't delete the calendar made while a disconnect landed`, error);
+    captureError(loggable(error), 'google-sync-orphan-calendar', extra, 'warning');
     try {
-      const freed = await redis.eval(RELEASE_LOCK, [lockKey], [lockToken]);
-      if (freed !== 1) console.warn(`[google-sync] user ${userId}: the lock was no longer this holder's at release`);
-    } catch (error) {
-      // The TTL frees it.
-      console.error(`[google-sync] user ${userId}: freeing the sync lock failed`, error);
-      captureError(error, 'google-sync-lock', { user_id: userId, step: 'release-for-work' }, 'warning');
+      await prisma.googleSyncLink.updateMany({ where: { id: link.id }, data: { googleCalendarId } });
+      await redis.sadd(REDIS_KEYS.googleSyncOrphans(run.user.id), name);
+      await redis.expire(REDIS_KEYS.googleSyncOrphans(run.user.id), 30 * 86_400);
+    } catch (recordError) {
+      console.error(`[google-sync] link ${link.id}: couldn't record the left-over calendar`, recordError);
+      captureError(recordError, 'google-sync-orphan-calendar', extra, 'error');
     }
   }
 }
@@ -525,6 +554,7 @@ async function tokenStillWorks(run: UserRun, token: string, error: unknown): Pro
  * TransientStop when transient (Google is likely down for the rest of the run).
  */
 async function linkFailed(run: UserRun, failing: LinkRow[], error: unknown, step: string): Promise<void> {
+  await assertConnected(run);
   const cls = classOf(error);
   run.failed += failing.length;
   const counts: string[] = [];
@@ -555,6 +585,7 @@ async function linkRecovered(run: UserRun, link: LinkRow): Promise<void> {
 
 /** The copy calendar is gone from Google: the link waits in 'gone' for "Create it again". */
 async function calendarGone(run: UserRun, link: LinkRow, error: unknown): Promise<void> {
+  await assertConnected(run);
   await prisma.googleSyncLink.update({ where: { id: link.id }, data: { state: 'gone', lastError: 'calendar_gone' } });
   console.warn(`[google-sync] link ${link.id}: its Google calendar is gone; waiting for "Create it again"`);
   captureError(loggable(error), 'google-sync-gone', { user_id: run.user.id, link_id: link.id }, 'warning');
@@ -748,10 +779,22 @@ async function syncLink(run: UserRun, g: SyncGoogle, link: LinkRow, token: strin
     await renewLock(run);
     const zone = await zoneOf(run.user, token);
     const made = await serially(() => ensureCopyCalendar(g, run.budget, { id: link.id, googleCalendarId: null }, { ...facts, zone }));
+    // A disconnect that landed while it was being made: the new calendar goes (an adopted one is the disconnect's to delete).
+    // Checked again after it is written down, so a disconnect that reads the link next finds the id.
+    const stopIfDisconnected = async () => {
+      try {
+        await assertConnected(run);
+      } catch (error) {
+        if (error instanceof Disconnected && !made.adopted) await discardNewCalendar(run, g, link, made.googleCalendarId, await copyName(run.user.language, cal.name));
+        throw error;
+      }
+    };
+    await stopIfDisconnected();
     await prisma.googleSyncLink.update({
       where: { id: link.id },
       data: { googleCalendarId: made.googleCalendarId, state: 'ok', pushedName: cal.name, pushedSeq: link.dirtySeq, lastError: null },
     });
+    await stopIfDisconnected();
     console.log(`[google-sync] link ${link.id}: Google calendar ${made.adopted ? 'adopted' : 'created'}`);
     link.googleCalendarId = made.googleCalendarId;
   } else if (link.dirtySeq > link.pushedSeq || link.pushedName !== cal.name) {
@@ -824,6 +867,7 @@ async function pushItems(run: UserRun, g: SyncGoogle, link: LinkRow & { googleCa
 
 /** An item's failed push: one more attempt, the next one backed off, and the admin told at the 10th. */
 async function itemFailed(run: UserRun, link: LinkRow, item: { id: string; nativeEventId: string; status: string; attempts: number }, error: unknown, cls: GoogleErrorClass): Promise<void> {
+  await assertConnected(run);
   // An item tried again after FamCal changed it ('unsupported' or 'error' before) counts from scratch.
   const attempts = (item.status === 'ok' ? item.attempts : 0) + 1;
   const wait = backoffMs(attempts);

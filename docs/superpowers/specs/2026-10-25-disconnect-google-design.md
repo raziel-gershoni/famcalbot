@@ -21,11 +21,14 @@ Google token is gone both here and at Google. Connecting again works from scratc
    the confirmation says so. The confirmation also says that anyone else in the family who
    connected the same Google account will need to connect again (the revoke cuts the grant for
    every FamCal user of that account).
-3. On confirm the server does, under the user's copy-worker lock (`withUserSyncLock`, the
-   lock the worker's runs take), in this order. A run already going finishes first and none
-   starts meanwhile, so no run writes state back, sends the "reconnect Google" message or
-   leaves a newly created copy calendar behind. A run that was about to start reads the user
-   and links again after taking its lock and finds nothing to do.
+3. On confirm the server first sets the user's disconnect marker (`google-sync:disconnect:<id>`,
+   `busy:<ms>`, then `done:<ms>` at the end) and then proceeds at once; it never waits for the
+   copy worker or its lock. The worker's runs started before the marker check it before every
+   write and send (items, calendar steps, outage state, the "reconnect Google" message) and
+   stop; a copy calendar such a run made meanwhile is deleted by the run (best effort, logged,
+   sent to Sentry), and one it can't delete stays on the link and is recorded
+   (`google-sync:orphans:<id>`) for the result's list. A run that starts after the disconnect
+   reads the user and links again after taking its lock and finds nothing to do. In this order:
    a. Box ticked: delete the active copy calendars through the Google API while the token still
       works (a Keep copy is skipped). Best effort per calendar; the ones that fail are recorded.
       The links of the deleted calendars are dropped at once, before the revoke.

@@ -3,10 +3,11 @@
  *
  * The one code path behind Settings' "Disconnect Google", for every platform (the Mini App
  * proves the user, Telegram initData or the WhatsApp session; POST /api/google-disconnect).
- * Everything runs under the user's copy-worker lock (withUserSyncLock): a worker run already
- * going finishes first and none starts meanwhile, so no run can write state back, send "reconnect
- * Google" or leave a calendar behind once the token is gone. The worker reads the user and the
- * links again after taking its lock, so a run that was only about to start finds nothing to do.
+ * It never waits for the copy worker. The first thing it does is mark the user as disconnecting
+ * (REDIS_KEYS.googleSyncDisconnect); the worker's runs started before the mark check it before
+ * every write and send, stop at once, and delete a copy calendar they made meanwhile (one they
+ * can't delete is recorded and listed in the result). A run that starts later reads the user and
+ * the links again after taking its lock and finds nothing to do.
  * In this order:
  *   a. (box ticked) delete the ACTIVE FamCal copy calendars ("FamCal · <name>") in Google while
  *      the token still works: the worker's own Remove (turnOffInGoogle), which acts only on a
@@ -38,7 +39,7 @@ import { stampGoogleCache } from './calendar-read/google';
 import { copyName } from './google-sync/calendars';
 import { syncGoogle, type CallBudget } from './google-sync/client';
 import { clearLinkRetries } from './google-sync/retries';
-import { turnOffInGoogle, withUserSyncLock } from './google-sync/worker';
+import { markDisconnected, markDisconnecting, turnOffInGoogle } from './google-sync/worker';
 import { syncReminderCacheEntry } from './reminder-cache';
 import { clearGoogleTracks } from './setup-tracks';
 import { invalidateFeatureAccessCache } from './subscription-service';
@@ -127,6 +128,19 @@ async function cacheStep(userId: number, step: string, work: () => Promise<unkno
   }
 }
 
+/** The copy calendars a worker run left behind while the disconnect landed (their names), consumed. Never throws. */
+async function readOrphans(userId: number): Promise<string[]> {
+  try {
+    const names = (await redis.smembers(REDIS_KEYS.googleSyncOrphans(userId))) as string[];
+    if (names.length > 0) await redis.del(REDIS_KEYS.googleSyncOrphans(userId));
+    return names;
+  } catch (error) {
+    console.error(`[google-disconnect] user ${userId}: reading the left-over calendars failed`, error);
+    captureError(error, 'google-disconnect-orphans', { user_id: userId }, 'warning');
+    return [];
+  }
+}
+
 /** The user's open voice confirmation cards (voice:pending:*), found by the user inside them. */
 async function deletePendingVoice(userId: number): Promise<void> {
   let cursor: number | string = 0;
@@ -172,10 +186,22 @@ async function clearGoogleCaches(userId: number, linkIds: string[]): Promise<voi
 }
 
 export async function disconnectGoogle(userId: number, options: { deleteCopies: boolean }): Promise<DisconnectResult> {
-  return withUserSyncLock(userId, (renewLock) => disconnectLocked(userId, options, renewLock));
+  // First of all: from here the worker's runs started before stop writing state and messaging
+  // the user (assertConnected in worker.ts), and one that made a copy calendar meanwhile deletes it.
+  // The disconnect does not wait for a run: it proceeds at once. Fail-closed: if Redis can't hold the marker, nothing is revoked.
+  await markDisconnecting(userId);
+  const result = await disconnectNow(userId, options);
+  try {
+    await markDisconnected(userId);
+  } catch (error) {
+    // The busy marker (an hour) keeps the older runs stopped meanwhile; only the shorter-lived marker is lost.
+    console.error(`[google-disconnect] user ${userId}: marking the disconnect done failed`, error);
+    captureError(error, 'google-disconnect-marker', { user_id: userId }, 'warning');
+  }
+  return result;
 }
 
-async function disconnectLocked(userId: number, options: { deleteCopies: boolean }, renewLock: () => Promise<void>): Promise<DisconnectResult> {
+async function disconnectNow(userId: number, options: { deleteCopies: boolean }): Promise<DisconnectResult> {
   const user = await getUserById(userId);
   if (!user) throw new Error(`User ${userId} not found`);
   const language = user.language ?? 'en';
@@ -205,7 +231,6 @@ async function disconnectLocked(userId: number, options: { deleteCopies: boolean
   let deleted = 0;
   const budget: CallBudget = { left: COPY_CALLS };
   for (const link of attempted) {
-    await renewLock();
     const token = linkTokens.get(link.id) ?? userToken;
     const extra = { user_id: userId, link_id: link.id };
     if (!token) {
@@ -240,7 +265,6 @@ async function disconnectLocked(userId: number, options: { deleteCopies: boolean
   if (goneLinks.size > 0) await prisma.googleSyncLink.deleteMany({ where: { id: { in: [...goneLinks] } } });
 
   // b. The token at Google: the user's, and any a merged-away account left on a copy.
-  await renewLock();
   const tokens = [...new Set([userToken, ...linkTokens.values()].filter(Boolean))];
   let revoked = tokens.length > 0;
   for (const token of tokens) {
@@ -248,7 +272,6 @@ async function disconnectLocked(userId: number, options: { deleteCopies: boolean
   }
 
   // c. Local state, always.
-  await renewLock();
   await prisma.$transaction(async (tx) => {
     await tx.user.update({
       where: { id: userId },
@@ -271,5 +294,7 @@ async function disconnectLocked(userId: number, options: { deleteCopies: boolean
   const kept = links.filter((l) => l.googleCalendarId && !goneLinks.has(l.id) && !attempted.includes(l)).length;
   await trackActivity(userId, 'calendar_disconnected', { provider: 'google', copies_deleted: deleted, copies_left: leftover.length + kept, revoked });
   console.log(`[google-disconnect] user ${userId}: disconnected (${deleted} copy calendars deleted, ${leftover.length} left to remove, ${kept} kept, revoked ${revoked})`);
-  return { leftover, revoked };
+  // Calendars a copy-worker run made while this disconnect landed and could not delete (worker.ts discardNewCalendar).
+  const orphans = await readOrphans(userId);
+  return { leftover: [...leftover, ...orphans.filter((n) => !leftover.includes(n))], revoked };
 }
