@@ -242,8 +242,8 @@ export async function getDueReminders(
 }
 
 /**
- * When the ping says the event is, as the clause after the clock: "Starting at 10:00" on the
- * ping's own day (the wording these alerts always had); "Starting tomorrow at 10:00" when the
+ * When the ping says the event is, as the clause after the clock: the same-day form on the
+ * ping's own day (the wording these alerts always had); the tomorrow form when the
  * event is on the next calendar day, and the weekday and date when it is further. `pingAt` is
  * when the ping goes out, the days are the user's.
  */
@@ -257,15 +257,10 @@ async function eventWhen(
 ): Promise<string> {
   const pingDay = localDate(pingAt, timezone);
   const eventDay = localDate(eventTime, timezone);
-  const sameDay: Record<string, Record<ReminderType, string>> = {
-    en: { start: `Starting at ${timeStr}`, pickup: `Pickup at ${timeStr}` },
-    he: { start: `מתחיל ב-${timeStr}`, pickup: `איסוף ב-${timeStr}` },
-    ru: { start: `Начало в ${timeStr}`, pickup: `Забрать в ${timeStr}` },
-  };
-  const lang = sameDay[language] ? language : 'en';
-  if (eventDay <= pingDay) return sameDay[lang][type];
-
+  const lang = ['en', 'he', 'ru'].includes(language) ? language : 'en';
   const t = (await getBotMessages(lang)).eventAlertWhen as Record<string, string>;
+  if (eventDay <= pingDay) return t[type === 'start' ? 'startsAt' : 'pickupAt'].replace('{time}', timeStr);
+
   if (eventDay === nextDate(pingDay)) return t[type === 'start' ? 'startsTomorrow' : 'pickupTomorrow'].replace('{time}', timeStr);
   const locale = lang === 'he' ? 'he-IL' : lang === 'ru' ? 'ru-RU' : 'en-GB';
   const day = eventTime.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short', timeZone: timezone });

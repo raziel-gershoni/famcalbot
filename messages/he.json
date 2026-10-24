@@ -725,6 +725,8 @@
   },
   "bot": {
     "eventAlertWhen": {
+      "startsAt": "מתחיל ב-{time}",
+      "pickupAt": "איסוף ב-{time}",
       "startsTomorrow": "מתחיל מחר ב-{time}",
       "startsOn": "מתחיל ב-{time}, {day}",
       "pickupTomorrow": "איסוף מחר ב-{time}",

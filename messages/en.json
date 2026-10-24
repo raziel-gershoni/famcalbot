@@ -725,6 +725,8 @@
   },
   "bot": {
     "eventAlertWhen": {
+      "startsAt": "Starting at {time}",
+      "pickupAt": "Pickup at {time}",
       "startsTomorrow": "Starting tomorrow at {time}",
       "startsOn": "Starting {day} at {time}",
       "pickupTomorrow": "Pickup tomorrow at {time}",

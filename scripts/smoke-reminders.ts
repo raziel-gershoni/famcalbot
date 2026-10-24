@@ -548,6 +548,16 @@ async function main() {
     });
   }
 
+  await check('all the alert timing wording (same day, tomorrow, further) is read from bot.eventAlertWhen in the messages files, none inline', async () => {
+    const { readFileSync } = await import('node:fs');
+    const code = readFileSync(path.resolve(__dirname, '../src/services/reminders.ts'), 'utf8');
+    assert(!/Starting at|מתחיל ב|Начало в|Pickup at|איסוף ב|Забрать в/.test(code), 'inline timing wording in reminders.ts');
+    for (const lang of ['en', 'he', 'ru']) {
+      const keys = Object.keys((JSON.parse(readFileSync(path.resolve(__dirname, `../messages/${lang}.json`), 'utf8')) as { bot: { eventAlertWhen: object } }).bot.eventAlertWhen).sort().join();
+      assert(keys === 'pickupAt,pickupOn,pickupTomorrow,startsAt,startsOn,startsTomorrow', `${lang}: ${keys}`);
+    }
+  });
+
   await check('a 00:10 start with a 1-day lead is sent at 00:10 the day before, once, as "tomorrow at 00:10"', async () => {
     reset({ id: 9 });
     await fakeRedis.set(REDIS_KEYS.userTimezone(9), IL);
