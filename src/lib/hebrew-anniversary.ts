@@ -45,3 +45,11 @@ export function anniversaryOf(series: { hebrewRule?: string | null; hebrewAnchor
   if (Number.isNaN(at.getTime())) return null;
   return anniversaryCount(series.hebrewAnchor, formatInTimeZone(at, zone, 'yyyy-MM-dd'));
 }
+
+/**
+ * The title with its count as plain text, "Dana's birthday (35)": for places that cannot style a
+ * pill (the Google copy). The bare title while there is no count (N < 1).
+ */
+export function titleWithCount(title: string, count: number | null): string {
+  return count !== null && count >= 1 ? `${title} (${count})` : title;
+}

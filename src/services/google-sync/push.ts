@@ -16,7 +16,10 @@
 //   note or place is cleared) when its hash changed, and every instance patch is replayed;
 //   an override-only change patches just the slots whose hash changed. Every patch carries
 //   the whole occurrence (the mapper's 'whole' exceptions).
-// - Hebrew series: explicit dates over the horizon (hebrew.ts).
+// - Hebrew series: one single event per year over the horizon (hebrew.ts), each titled
+//   "Title (N)" by the anniversary count. Their ids are deterministic per slot (singleEventId),
+//   the item's slotHashes hold one hash per slot, and an old one-master RDATE copy is replaced
+//   by the singles on its next push (pushHebrew).
 // - What the mapper can't express is 'unsupported': its Google copy (if any) is deleted,
 //   it is logged once, and it is tried again only after the next FamCal change.
 //
@@ -33,11 +36,11 @@ import { TIMEZONE } from '../../config/constants';
 import { captureError } from '../../lib/error-capture';
 import { prisma } from '../../utils/prisma';
 import { classifyGoogleError } from '../calendar-read/google-map';
-import { toGoogleEvent, toGoogleHebrewEvent, type GoogleCopy } from '../calendar-move/mapper';
+import { toGoogleEvent, toGoogleHebrewSingles, type GoogleCopy } from '../calendar-move/mapper';
 import { instanceAt } from '../calendar-move/move';
 import { copyCalendarGone } from './calendars';
 import { counted, type CallBudget, type SyncGoogle } from './client';
-import { HEBREW_FROM_KEY, hebrewHorizonFrom, hebrewSlots, hebrewWindow, storedHebrewFrom } from './hebrew';
+import { HEBREW_FROM_KEY, HEBREW_SINGLE_PREFIX, HEBREW_SINGLES_KEY, hebrewHorizonFrom, hebrewSlots, hebrewWindow, storedHebrewFrom } from './hebrew';
 import { SYNC_MARKER, SYNC_SERIES_MARKER } from './markers';
 
 type GEvent = calendar_v3.Schema$Event;
@@ -110,6 +113,16 @@ export function syncEventId(linkId: string, seriesId: string, generation: number
   return base32hex(createHash('sha256').update(`${linkId}:${seriesId}:${generation}`).digest());
 }
 
+/**
+ * The Google event id of one single of a Hebrew series' copy: base32hex of
+ * sha256(linkId:seriesId:hs:<slot ISO>), the same alphabet as syncEventId. It has no generation: a
+ * single is never revived from a stale state, an insert that finds its id (409) writes over it, so a
+ * state lost (a re-enable) adopts the events already there and a retry never doubles one.
+ */
+export function singleEventId(linkId: string, seriesId: string, slot: Date): string {
+  return base32hex(createHash('sha256').update(`${linkId}:${seriesId}:hs:${slot.toISOString()}`).digest());
+}
+
 const hashOf = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('base64url').slice(0, 22);
 
 /** What the item stored: the master's two hashes, '<structure>:<body>'. */
@@ -134,33 +147,24 @@ interface Planned {
   /** Changes here need the master deleted and inserted again. */
   structure: string;
   bodyHash: string;
-  /** One per override ('<hash>') and skipped slot ('x'), by slot; HEBREW_FROM_KEY for a Hebrew series. */
+  /** One per override ('<hash>') and skipped slot ('x'), by slot. */
   slots: Record<string, string>;
   /** The exception patch hashes, by slot. */
   patches: Map<string, string>;
 }
 
-type Built = { ok: true; planned: Planned } | { ok: false; reason: string } | { ok: 'empty' };
+type Built = { ok: true; planned: Planned } | { ok: false; reason: string };
 
 /**
  * The series' copy, built with the mapper, or why it can't be. A mapper refusal
- * (mapped.ok false) is a plain 'can't be copied'; a throw from the mapper, the Hebrew horizon
+ * (mapped.ok false) is a plain 'can't be copied'; a throw from the mapper
  * or hebcal is a code bug, so it also goes to Sentry as an error (ids only, never the title)
  * before the item is marked unreadable.
  */
-function build(link: PushLink, item: PushItem, series: NativeEvent, overrides: NativeEventInstance[], stored: Record<string, string>, now: Date): Built {
+function build(link: PushLink, item: PushItem, series: NativeEvent, overrides: NativeEventInstance[]): Built {
   let mapped: ReturnType<typeof toGoogleEvent>;
-  let hebrewFrom: number | null = null;
   try {
-    if (series.hebrewRule) {
-      const zone = series.timeZone || TIMEZONE;
-      hebrewFrom = hebrewHorizonFrom(storedHebrewFrom(stored), now, zone);
-      const slots = hebrewSlots(series, overrides, hebrewWindow(hebrewFrom, zone));
-      if (slots.length === 0) return { ok: 'empty' };
-      mapped = toGoogleHebrewEvent(series, overrides, slots, { exceptions: 'whole' });
-    } else {
-      mapped = toGoogleEvent(series, overrides, { exceptions: 'whole' });
-    }
+    mapped = toGoogleEvent(series, overrides, { exceptions: 'whole' });
   } catch (error) {
     captureError(error, 'google-sync-build', { user_id: link.userId, link_id: link.id, item_id: item.id, series_id: series.id }, 'error');
     return { ok: false, reason: `unreadable: ${error instanceof Error ? error.name : typeof error}` };
@@ -190,7 +194,6 @@ function build(link: PushLink, item: PushItem, series: NativeEvent, overrides: N
   if (recurring) {
     for (const d of [...series.exdates, ...overrides.filter((o) => o.status === 'CANCELLED').map((o) => o.originalStartsAt)]) slots[d.toISOString()] = 'x';
   }
-  if (hebrewFrom !== null) slots[HEBREW_FROM_KEY] = String(hebrewFrom);
   return { ok: true, planned: { copy, body, structure, bodyHash: hashOf(body), slots, patches } };
 }
 
@@ -219,6 +222,41 @@ async function deleteEvent(g: SyncGoogle, budget: CallBudget, calendarId: string
     await counted(budget, () => g.api.events.delete({ calendarId, eventId }));
   } catch (error) {
     if (classifyGoogleError(error) !== 'gone') throw error;
+  }
+}
+
+/** The event ids of one series in the copy calendar (events.list on its series marker), paged. */
+async function listSeriesEventIds(g: SyncGoogle, budget: CallBudget, calendarId: string, seriesId: string): Promise<string[]> {
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+  do {
+    const res = await counted(budget, () =>
+      g.api.events.list({ calendarId, privateExtendedProperty: [`${SYNC_SERIES_MARKER}=${seriesId}`], showDeleted: false, singleEvents: false, maxResults: 2500, ...(pageToken ? { pageToken } : {}) })
+    );
+    for (const e of res.data.items ?? []) if (e.id) ids.push(e.id);
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
+  return ids;
+}
+
+/**
+ * Every Google event of an item's copy deleted (404/410 counting as done): the singles its state
+ * names, else the one master; `hebrew` (the series is, or was last read as, a Hebrew one) with no
+ * singles flag also sweeps the series' marker, for a state lost between an old copy and the
+ * singles. The item's own row is the caller's.
+ */
+async function deleteCopy(g: SyncGoogle, budget: CallBudget, link: PushLink, item: PushItem, hebrew = false): Promise<void> {
+  const calendarId = link.googleCalendarId;
+  const stored = readSlotHashes(item.slotHashes);
+  if (stored[HEBREW_SINGLES_KEY] === '1') {
+    for (const key of Object.keys(stored)) {
+      if (key.startsWith(HEBREW_SINGLE_PREFIX)) await deleteEvent(g, budget, calendarId, singleEventId(link.id, item.nativeEventId, new Date(key.slice(HEBREW_SINGLE_PREFIX.length))));
+    }
+    return;
+  }
+  if (item.googleEventId) await deleteEvent(g, budget, calendarId, item.googleEventId);
+  if (hebrew && item.googleEventId) {
+    for (const id of await listSeriesEventIds(g, budget, calendarId, item.nativeEventId)) await deleteEvent(g, budget, calendarId, id);
   }
 }
 
@@ -289,7 +327,7 @@ async function pushOnce(g: SyncGoogle, budget: CallBudget, link: PushLink, item:
 
   /** The item's copy leaves Google: its event deleted (gone counts as done), the row dropped unless a write landed meanwhile. */
   const removeFromCopy = async (outcome: 'removed' | 'dropped'): Promise<PushOutcome> => {
-    if (item.googleEventId) await deleteEvent(g, budget, calendarId, item.googleEventId);
+    await deleteCopy(g, budget, link, item, Boolean(series?.hebrewRule));
     const { count } = await prisma.googleSyncItem.deleteMany({ where: { id: item.id, dirtySeq: readSeq } });
     if (count === 0) {
       // A write landed during the push: the row stays dirty, with nothing in Google, for the next push to decide.
@@ -305,8 +343,14 @@ async function pushOnce(g: SyncGoogle, budget: CallBudget, link: PushLink, item:
   if (!series.rrule && !item.googleEventId && series.endsAt.getTime() < now.getTime() - ONE_OFF_LOOKBACK_MS) return removeFromCopy('dropped');
 
   const stored = readSlotHashes(item.slotHashes);
-  const built = build(link, item, series, series.instances, stored, now);
-  if (built.ok === 'empty') return removeFromCopy('removed');
+  if (series.hebrewRule) return pushHebrew(g, budget, link, item, series, stored, now, removeFromCopy);
+  if (stored[HEBREW_SINGLES_KEY] === '1') {
+    // The series stopped being a Hebrew one: its singles go, and the master goes in as a new item.
+    await deleteCopy(g, budget, link, item);
+    await prisma.googleSyncItem.update({ where: { id: item.id }, data: { googleEventId: null, masterHash: null, slotHashes: {} } });
+    return pushOnce(g, budget, link, { ...item, googleEventId: null, masterHash: null, slotHashes: {} }, now);
+  }
+  const built = build(link, item, series, series.instances);
   if (built.ok === false) return markUnsupported(g, budget, link, item, built.reason);
   const { planned } = built;
   const mode = modeOf(item, planned);
@@ -388,13 +432,144 @@ async function pushOnce(g: SyncGoogle, budget: CallBudget, link: PushLink, item:
   return mode === 'none' ? 'clean' : 'pushed';
 }
 
+/** One planned single of a Hebrew series' copy. */
+interface PlannedSingle {
+  key: string;
+  id: string;
+  body: GEvent;
+  hash: string;
+}
+
+/**
+ * A Hebrew series' push (anniversary count spec, decision 5): one single event per slot of the
+ * horizon, written by the least that brings Google in line with the item's stored state.
+ *
+ * - The state is the item's slotHashes: HEBREW_SINGLES_KEY '1', HEBREW_FROM_KEY, and one
+ *   '~s:<slot ISO>' per single, holding its body's hash ('?' while it is being written). It is
+ *   saved before the first write, so a push cut short loses no id, and again if a write fails.
+ * - An item with a Google event and no singles flag is an old RDATE master (or a state wiped by
+ *   a re-enable): the master is deleted and the series' events sweep (events.list on its marker)
+ *   removes any that is not planned; the planned ids that are already there are written over
+ *   (a 409 on insert is answered by an update), so no year is ever doubled.
+ * - A slot no longer planned (an exdate, a cancelled instance, the horizon moving on) has its
+ *   event deleted (404/410 counting as done); a changed body is written whole (events.update).
+ * - Google's errors reach the worker as for any item; a 404/410 on a write asks whether the
+ *   copy calendar itself is gone (CalendarGone). A single missing in Google is written again.
+ */
+async function pushHebrew(
+  g: SyncGoogle,
+  budget: CallBudget,
+  link: PushLink,
+  item: PushItem,
+  series: NativeEvent & { instances: NativeEventInstance[] },
+  stored: Record<string, string>,
+  now: Date,
+  removeFromCopy: (outcome: 'removed' | 'dropped') => Promise<PushOutcome>
+): Promise<PushOutcome> {
+  const readSeq = item.dirtySeq;
+  const calendarId = link.googleCalendarId;
+  const ids = `link ${link.id} item ${item.id} series ${item.nativeEventId}`;
+  const zone = series.timeZone || TIMEZONE;
+  const hebrewFrom = hebrewHorizonFrom(storedHebrewFrom(stored), now, zone);
+
+  const plan = new Map<string, PlannedSingle>();
+  try {
+    const slots = hebrewSlots(series, series.instances, hebrewWindow(hebrewFrom, zone));
+    if (slots.length === 0) return removeFromCopy('removed');
+    const mapped = toGoogleHebrewSingles(series, series.instances, slots);
+    if (!mapped.ok) return markUnsupported(g, budget, link, item, mapped.reason);
+    for (const { slot, event } of mapped.singles) {
+      const body: GEvent = {
+        ...event,
+        status: 'confirmed',
+        reminders: NO_ALERTS,
+        extendedProperties: { private: { [SYNC_MARKER]: link.id, [SYNC_SERIES_MARKER]: series.id } },
+      };
+      const key = `${HEBREW_SINGLE_PREFIX}${slot.toISOString()}`;
+      plan.set(key, { key, id: singleEventId(link.id, series.id, slot), body, hash: hashOf(body) });
+    }
+  } catch (error) {
+    captureError(error, 'google-sync-build', { user_id: link.userId, link_id: link.id, item_id: item.id, series_id: series.id }, 'error');
+    return markUnsupported(g, budget, link, item, `unreadable: ${error instanceof Error ? error.name : typeof error}`);
+  }
+
+  const known = stored[HEBREW_SINGLES_KEY] === '1';
+  /** What Google holds, as far as the item knows: slot key → body hash, or '?'. */
+  const state: Record<string, string> = {};
+  for (const [k, v] of Object.entries(stored)) if (known && k.startsWith(HEBREW_SINGLE_PREFIX)) state[k] = v;
+  // The flag that the state names every event of the series: set from the start for a new copy,
+  // and only once an old master's sweep is done for an old one (so a cut-short migration repeats it).
+  let flagged = known || !item.googleEventId;
+  const meta = () => ({ ...(flagged ? { [HEBREW_SINGLES_KEY]: '1' } : {}), [HEBREW_FROM_KEY]: String(hebrewFrom) });
+  const marker = item.googleEventId ?? syncEventId(link.id, series.id, item.generation);
+  const save = (extra: Partial<{ pushedSeq: number; attempts: number; nextAttemptAt: null; status: string; lastError: null }> = {}) =>
+    prisma.googleSyncItem.update({ where: { id: item.id }, data: { googleEventId: marker, masterHash: null, slotHashes: { ...state, ...meta() }, ...extra } });
+
+  let wrote = false;
+  try {
+    if (!known && item.googleEventId) {
+      // An old master (or a lost state): out first, then anything else of the series that is not planned.
+      await deleteEvent(g, budget, calendarId, item.googleEventId);
+      const planned = new Set([...plan.values()].map((p) => p.id));
+      for (const id of await listSeriesEventIds(g, budget, calendarId, series.id)) if (!planned.has(id)) await deleteEvent(g, budget, calendarId, id);
+      wrote = true;
+    }
+    flagged = true;
+    // Saved before any write: the planned slots changed are marked '?', the stale ones still named.
+    const before = { ...state };
+    for (const p of plan.values()) if (state[p.key] !== p.hash) state[p.key] = '?';
+    const stale = Object.keys(state).filter((k) => !plan.has(k));
+    if (wrote || stale.length > 0 || [...plan.values()].some((p) => state[p.key] === '?') || stored[HEBREW_FROM_KEY] !== String(hebrewFrom) || !known) await save();
+
+    for (const key of stale) {
+      await deleteEvent(g, budget, calendarId, singleEventId(link.id, series.id, new Date(key.slice(HEBREW_SINGLE_PREFIX.length))));
+      delete state[key];
+      wrote = true;
+    }
+    for (const p of plan.values()) {
+      if (state[p.key] === p.hash) continue;
+      const exists = before[p.key] !== undefined && before[p.key] !== '?';
+      const insert = () => counted(budget, () => g.api.events.insert({ calendarId, requestBody: { ...p.body, id: p.id } }));
+      const update = () => counted(budget, () => g.api.events.update({ calendarId, eventId: p.id, requestBody: p.body }));
+      if (exists) {
+        // A single written before: changed in place, or written again if it was deleted in Google.
+        try {
+          await update();
+        } catch (error) {
+          if (classifyGoogleError(error) !== 'gone') throw error;
+          await insert();
+        }
+      } else {
+        try {
+          await insert();
+        } catch (error) {
+          if (!isDuplicate(error)) throw error;
+          // Already there (a retry after a timeout, a lost state): written whole.
+          await update();
+        }
+      }
+      state[p.key] = p.hash;
+      wrote = true;
+    }
+  } catch (error) {
+    // What was written stays in the state, for the retry to start from (and to name for deletion later).
+    await save().catch((saveError) => captureError(saveError, 'google-sync-hebrew-state', { user_id: link.userId, link_id: link.id, item_id: item.id, series_id: series.id }, 'error'));
+    if (classifyGoogleError(error) === 'gone' && (await copyCalendarGone(g, budget, calendarId))) throw new CalendarGone();
+    throw error;
+  }
+
+  await save({ pushedSeq: readSeq, attempts: 0, nextAttemptAt: null, status: 'ok', lastError: null });
+  if (wrote) console.log(`[google-sync] ${ids}: ${plan.size} yearly events in sync (horizon from Hebrew year ${hebrewFrom})`);
+  return wrote ? 'pushed' : 'clean';
+}
+
 /**
  * A series the mapper can't express (spec §4 Unsupported): its Google copy, if any, deleted
  * (a copy that holds other occurrences than FamCal is worse than none), 'unsupported' with
  * the reason, clean at the seq it read. Logged once, when it becomes unsupported.
  */
 async function markUnsupported(g: SyncGoogle, budget: CallBudget, link: PushLink, item: PushItem, reason: string): Promise<PushOutcome> {
-  if (item.googleEventId) await deleteEvent(g, budget, link.googleCalendarId, item.googleEventId);
+  await deleteCopy(g, budget, link, item);
   await prisma.googleSyncItem.update({
     where: { id: item.id },
     data: {

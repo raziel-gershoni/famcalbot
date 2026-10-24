@@ -1,12 +1,12 @@
 // The Hebrew-date series' horizon in their Google copies (google-sync spec §4, Hebrew series).
 // Pure: no I/O, no clock of its own.
 //
-// Google has no Hebrew rule, so a Hebrew series is copied as explicit dates: the first one in
-// the current Hebrew year, then each of its slots through 10 Hebrew years ahead (the mapper's
-// toGoogleHebrewEvent writes them as RDATE lines). The first year listed is kept with the
-// copy (its item's slotHashes, under HEBREW_FROM_KEY), so the dates sent stay the same from
-// one push to the next, and the list moves on only when fewer than 2 Hebrew years remain
-// ahead of the current one. Past years then drop out of the copy (a known limitation).
+// Google has no Hebrew rule, so a Hebrew series is copied as explicit dates: one single Google
+// event per slot, from the current Hebrew year through 10 Hebrew years ahead (the mapper's
+// toGoogleHebrewSingles, each titled "Title (N)" by the anniversary count). The first year
+// listed is kept with the copy (its item's slotHashes, under HEBREW_FROM_KEY), so the dates
+// sent stay the same from one push to the next, and the list moves on only when fewer than 2
+// Hebrew years remain ahead of the current one. Past years then have their events deleted.
 
 import { HDate, months } from '@hebcal/hdate';
 import type { NativeEvent, NativeEventInstance } from '@prisma/client';
@@ -20,6 +20,10 @@ export const HEBREW_YEARS_AHEAD = 10;
 export const HEBREW_REFRESH_BELOW = 2;
 /** The slotHashes key holding the first Hebrew year a copy lists (no slot key starts with '~'). */
 export const HEBREW_FROM_KEY = '~hebrewFrom';
+/** The slotHashes key that says the copy is single events, one per year ('1'); without it, an old RDATE master. */
+export const HEBREW_SINGLES_KEY = '~singles';
+/** The prefix of the slotHashes keys of a copy's single events: '~s:<slot ISO>', the value the event body's hash ('?' while being written). */
+export const HEBREW_SINGLE_PREFIX = '~s:';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 

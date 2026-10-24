@@ -23,6 +23,7 @@ import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import { TIMEZONE } from '../../config/constants';
 import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
 import { htmlToText } from '../../utils/html';
+import { anniversaryCount, titleWithCount } from '../../lib/hebrew-anniversary';
 import { assertStorableRule, expandSeries, yieldsSlots } from '../native-calendar/recurrence';
 
 type GEvent = calendar_v3.Schema$Event;
@@ -196,32 +197,32 @@ export function toGoogleEvent(series: NativeEvent, overrides: readonly NativeEve
 }
 
 /**
- * A Hebrew-date series (hebrew-repeats spec) as a Google event of explicit dates
- * (google-sync spec §4 Hebrew series): Google has no Hebrew rule, so the copy starts on the
- * first of `slots` (the series' own slots the caller chose: the horizon, with the skipped
- * ones left out) and lists the rest as one RDATE line, TZID wall times in the zone, or
- * VALUE=DATE all day. Its RRULE (FREQ=YEARLY;COUNT=1) yields only the start, so the
- * recurrence is exactly the listed dates (RFC 5545: the union of RRULE and RDATE). The
- * OVERRIDE rows on those slots are the patches of their instances. The move never uses it:
- * a Hebrew series doesn't move to Google (famcalCrossRefusal).
+ * A Hebrew-date series (hebrew-repeats spec) as Google events, one per year
+ * (google-sync spec §4 Hebrew series; anniversary count spec, decision 5): Google has no
+ * Hebrew rule, so each of `slots` (the series' own slots the caller chose: the horizon, with
+ * the skipped ones left out) is a single event with no recurrence, titled "Title (N)" by the
+ * anniversary count (plain text; the bare title while N < 1). An OVERRIDE row on a slot is
+ * applied to its single, so the changed title, times, place and note are what Google gets.
+ * The move never uses it: a Hebrew series doesn't move to Google (famcalCrossRefusal).
  */
-export function toGoogleHebrewEvent(series: NativeEvent, overrides: readonly NativeEventInstance[], slots: readonly Date[], options: GoogleCopyOptions = {}): { ok: true; copy: GoogleCopy } | { ok: false; reason: CrossRefusal } {
+export function toGoogleHebrewSingles(series: NativeEvent, overrides: readonly NativeEventInstance[], slots: readonly Date[]): { ok: true; singles: { slot: Date; event: GEvent }[] } | { ok: false; reason: CrossRefusal } {
   const dates = uniqueSorted(slots);
   if (!series.hebrewRule || dates.length === 0) return { ok: false, reason: 'hebrew' };
   const zone = series.timeZone || TIMEZONE;
-  const allDay = series.allDay;
-  const first = occurrenceOf(series, [], dates[0]);
-  if (!first) return { ok: false, reason: 'repeat' };
-  const event = basicsOf(series, first.startsAt, first.endsAt, zone);
-  const rest = dates.slice(1);
-  event.recurrence = ['RRULE:FREQ=YEARLY;COUNT=1'];
-  if (rest.length > 0) {
-    event.recurrence.push(allDay ? `RDATE;VALUE=DATE:${rest.map((d) => compact(localDate(d, zone))).join(',')}` : `RDATE;TZID=${zone}:${rest.map((d) => wallStamp(d, zone)).join(',')}`);
+  const singles: { slot: Date; event: GEvent }[] = [];
+  for (const slot of dates) {
+    const occurrence = occurrenceOf(series, overrides, slot);
+    if (!occurrence) return { ok: false, reason: 'repeat' };
+    const n = anniversaryCount(series.hebrewAnchor, localDate(slot, zone));
+    const event: GEvent = {
+      summary: titleWithCount(occurrence.title, n),
+      ...(occurrence.description ? { description: occurrence.description } : {}),
+      ...(occurrence.location ? { location: occurrence.location } : {}),
+      ...googleTimes(occurrence.startsAt, occurrence.endsAt, occurrence.allDay, zone),
+    };
+    singles.push({ slot, event });
   }
-  const listed = new Set(dates.map((d) => d.getTime()));
-  const exceptions = exceptionsOf(series, overrides, (slot) => listed.has(slot.getTime()), zone, allDay, options.exceptions === 'whole');
-  event.extendedProperties = { private: { [MOVED_FROM]: series.id } };
-  return { ok: true, copy: { event, exceptions, zone, allDay } };
+  return { ok: true, singles };
 }
 
 /** One occurrence as it stands (its override applied), by its slot. */

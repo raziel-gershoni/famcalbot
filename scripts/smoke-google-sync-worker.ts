@@ -10,7 +10,7 @@
 //   - push: the deterministic id and the 409 adopt, the full master write with instance replay,
 //     slot-only patches, structural delete and reinsert, deletes (404/410 done), reminder and
 //     moved-out removal, the owner re-check, old one-offs, unsupported items (and their retry
-//     after a FamCal change), the Hebrew RDATE horizon, no alerts on copies, the dirtySeq race;
+//     after a FamCal change), the Hebrew yearly singles (horizon, RDATE migration, edit, delete), no alerts on copies, the dirtySeq race;
 //   - failures: the 404 split (calendars.get), a second 404, backoff with jitter, the rate-limit
 //     pause, token, scopes, otherAccount and plan states, the reconnect message once per
 //     outage, suspended users, the admin alert after 10 attempts once per link per day; a
@@ -555,7 +555,8 @@ function fakeGoogle(token: string): Row {
       list: (a: Row) => op('events.list', a, () => {
         const c = cal(a.calendarId);
         const filter = (a.privateExtendedProperty ?? [])[0] as string | undefined;
-        const items = listed(c).filter((e) => !filter || `famcalSync=${e.extendedProperties?.private?.famcalSync}` === filter);
+        const [fk, ...fv] = (filter ?? '').split('=');
+        const items = listed(c).filter((e) => !filter || `${e.extendedProperties?.private?.[fk]}` === fv.join('='));
         return { items };
       }),
       instances: (a: Row) => op('events.instances', a, () => {
@@ -1175,46 +1176,148 @@ async function main() {
     assert(item('wk')!.status === 'unsupported' && liveEvents().length === 0, `item ${show(item('wk'))} events ${show(gEvents())}`);
   });
 
-  await check('Hebrew: a Hebrew-date series is copied as its first date in the current Hebrew year plus RDATE lines through 10 years ahead, all day as VALUE=DATE; the horizon is kept while 2+ years remain and moves on below that', async () => {
+  // ---- Hebrew series: one Google event per year (anniversary count spec, decision 5) ----
+
+  const HEB = (o: Row = {}) => seriesRow('heb', 'home', { title: TITLES[2], allDay: true, startsAt: at('2020-03-10 00:00'), endsAt: at('2020-03-10 23:59'), rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', hebrewAnchor: '2020-03-10', ...o });
+  const singleId = (seriesId: string, slot: Date, linkId = 'L') => push.singleEventId(linkId, seriesId, slot);
+  const hebCopies = () => liveEvents().filter((e) => e.extendedProperties?.private?.famcalSeries === 'heb');
+  const byStart = (a: Row, b: Row) => String(a.start.date ?? a.start.dateTime).localeCompare(String(b.start.date ?? b.start.dateTime));
+
+  await check('Hebrew singles: each Hebrew year of the horizon is its own event titled "Title (N)" (N = Hebrew years since the anchor), all day as dates, none a recurrence; a second pass and a year on write nothing; the horizon moves on below 2 years ahead, deleting the past years', async () => {
     seedCopy();
-    const anchor = at('2020-03-10 00:00');
-    seriesRow('heb', 'home', { title: TITLES[2], allDay: true, startsAt: anchor, endsAt: at('2020-03-10 23:59'), rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', hebrewAnchor: '2020-03-10' });
+    HEB();
     itemRow('L', 'heb');
     await pass();
-    const e = google.calendars.get('g-home')!.events.get(eventId('L', 'heb', 0))!;
-    assert(e && e.recurrence[0] === 'RRULE:FREQ=YEARLY;COUNT=1' && /^RDATE;VALUE=DATE:(\d{8},){9}\d{8}$/.test(e.recurrence[1]), `recurrence ${show(e?.recurrence)}`);
-    assert(e.start.date >= '2026-09-12' && e.start.date < '2027-10-02', `start ${show(e.start)} (Hebrew year 5787)`);
-    assert(item('heb')!.slotHashes['~hebrewFrom'] === '5787', `horizon ${show(item('heb')!.slotHashes)}`);
-    // A year on: still listed from 5787 (9 years ahead remain): nothing changes in Google.
+    const copies = hebCopies().sort(byStart);
+    assert(copies.length === 11 && copies.every((e) => !e.recurrence), `events ${show(copies.map((e) => [e.summary, e.start, e.recurrence]))}`);
+    // 14 Adar 5780 (Adar II): 5787 is 2027-03-23 (7 years on), then one a year.
+    assert(copies[0].summary === `${TITLES[2]} (7)` && copies[0].start.date === '2027-03-23' && copies[0].end.date === '2027-03-24', `first ${show(copies[0])}`);
+    assert(copies[10].summary === `${TITLES[2]} (17)` && copies[10].start.date === '2037-03-01', `last ${show(copies[10])}`);
+    assert(copies.every((e, i) => e.summary === `${TITLES[2]} (${7 + i})`), 'counts');
+    assert(copies[0].reminders?.useDefault === false && copies[0].extendedProperties.private.famcalSync === 'L' && copies[0].id === singleId('heb', at('2027-03-23 00:00')), 'alerts, markers and the deterministic id');
+    const it = item('heb')!;
+    assert(it.slotHashes['~singles'] === '1' && it.slotHashes['~hebrewFrom'] === '5787' && it.googleEventId && it.status === 'ok' && it.pushedSeq === it.dirtySeq, `item ${show(it)}`);
+    // Nothing changed: no event call at all, also a year on (9 years of the horizon remain).
     google.calls = [];
+    bump('heb');
+    await pass();
+    assert(!google.calls.some((x) => x.startsWith('events.')), `second pass ${show(google.calls)}`);
     bump('heb');
     await pass(new Date(NOW.getTime() + 365 * DAY));
     assert(!google.calls.some((x) => x.startsWith('events.')) && item('heb')!.slotHashes['~hebrewFrom'] === '5787', `a year on ${show(google.calls)}`);
-    // Nine years on (5796: 1 year left): the daily check marks it, and it is listed from 5796 whole.
-    const later = new Date(NOW.getTime() + Math.round(9.1 * 365.25 * DAY));
-    await pass(later);
-    const again = google.calendars.get('g-home')!.events.get(eventId('L', 'heb', 1));
-    assert(again && item('heb')!.slotHashes['~hebrewFrom'] === '5796' && item('heb')!.generation === 1 && again.start.date > '2035-09-01', `refresh ${show(item('heb'))} ${show(again?.start)}`);
+    // Nine years on (5796, 1 year left): the daily check marks it; 5787-5795 go, 5798-5806 come.
+    google.calls = [];
+    await pass(new Date(NOW.getTime() + Math.round(9.1 * 365.25 * DAY)));
+    const later = hebCopies().sort(byStart);
+    assert(item('heb')!.slotHashes['~hebrewFrom'] === '5796' && later.length === 11 && later[0].summary === `${TITLES[2]} (16)`, `refresh ${show(later.map((e) => e.summary))}`);
+    assert(gcalls('events.delete').length === 9 && gcalls('events.insert').length === 9 && gcalls('events.update').length === 0, `calls ${show(gcalls('events.'))}`);
   });
 
-  await check('Hebrew: a timed Hebrew series lists TZID wall times; a cancelled date is left out of the list', async () => {
+  await check('Hebrew singles: a timed series is timed singles in its zone; a cancelled date has no event; the first occurrence (N = 0) is the plain title', async () => {
     seedCopy();
-    seriesRow('heb', 'home', { startsAt: at('2020-03-10 18:00'), endsAt: at('2020-03-10 19:00'), rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', hebrewAnchor: '2020-03-10' });
+    // The anchor's own Hebrew year is the first listed: 14 Cheshvan 5787, so its single carries no count.
+    HEB({ allDay: false, startsAt: at('2026-10-25 18:00'), endsAt: at('2026-10-25 19:00'), hebrewAnchor: '2026-10-25' });
     itemRow('L', 'heb');
     await pass();
-    const first = google.calendars.get('g-home')!.events.get(eventId('L', 'heb', 0))!;
-    const dates = first.recurrence[1].split(':')[1].split(',');
-    assert(/^RDATE;TZID=Asia\/Jerusalem:/.test(first.recurrence[1]) && dates.every((d: string) => /^\d{8}T180000$/.test(d)), `rdate ${show(first.recurrence)}`);
-    // 14 Adar 5780 read off hebcal 0.21.1's birthday rules for 5787 to 5797: Adar II in a leap year (5787, 5790, 5793, 5795).
-    const want = ['20280312', '20290301', '20300319', '20310309', '20320226', '20330315', '20340305', '20350325', '20360313', '20370301'].map((d) => `${d}T180000`);
-    assert(first.start.dateTime === at('2027-03-23 18:00').toISOString() && show(dates) === show(want), `days ${show(first.start)} ${show(dates)}`);
-    const skipped = dates[2];
-    const day = `${skipped.slice(0, 4)}-${skipped.slice(4, 6)}-${skipped.slice(6, 8)}`;
-    DB.nativeEvent[0].exdates = [at(`${day} 18:00`)];
+    const copies = hebCopies().sort(byStart);
+    assert(copies.length === 11 && copies[0].summary === TITLES[2] && copies[1].summary === `${TITLES[2]} (1)`, `titles ${show(copies.map((e) => e.summary))}`);
+    assert(copies.every((e) => e.start.dateTime && e.start.timeZone === IL && /T1[5-6]:00:00\.000Z$/.test(e.start.dateTime)), `times ${show(copies.slice(0, 2).map((e) => e.start))}`);
+    const day = copies[3].start.dateTime;
+    DB.nativeEvent[0].exdates = [new Date(day)];
     bump('heb');
     await pass();
-    const e = google.calendars.get('g-home')!.events.get(eventId('L', 'heb', 1))!;
-    assert(e && !e.recurrence[1].includes(skipped) && e.recurrence[1].split(',').length === dates.length - 1, `after ${show(e?.recurrence)}`);
+    assert(hebCopies().length === 10 && !hebCopies().some((e) => e.start.dateTime === day), 'the skipped date is deleted');
+    assert(Object.keys(item('heb')!.slotHashes).filter((k) => k.startsWith('~s:')).length === 10, `state ${show(item('heb')!.slotHashes)}`);
+  });
+
+  await check('Hebrew singles migration: an old RDATE copy is deleted and replaced by singles, once; a second pass writes nothing; a copy left with no state (re-enable) adopts its singles, never doubling them', async () => {
+    seedCopy();
+    HEB();
+    // What the previous release left: one master with RDATE lines, its id the generation-0 id, the horizon in the hashes.
+    const masterId = eventId('L', 'heb', 0);
+    const c = google.calendars.get('g-home')!;
+    c.events.set(masterId, { id: masterId, status: 'confirmed', summary: TITLES[2], start: { date: '2027-03-23' }, end: { date: '2027-03-24' }, recurrence: ['RRULE:FREQ=YEARLY;COUNT=1', 'RDATE;VALUE=DATE:20280312,20290301'], extendedProperties: { private: { famcalSync: 'L', famcalSeries: 'heb' } }, exceptions: new Map() });
+    itemRow('L', 'heb', { googleEventId: masterId, masterHash: 'abc:def', slotHashes: { '~hebrewFrom': '5787' }, pushedSeq: 1, dirtySeq: 2 });
+    await pass();
+    assert(c.events.get(masterId)!.status === 'cancelled', 'the master is deleted');
+    const copies = hebCopies().sort(byStart);
+    assert(copies.length === 11 && copies.every((e) => !e.recurrence) && item('heb')!.slotHashes['~singles'] === '1', `after ${show(copies.map((e) => e.summary))} ${show(item('heb'))}`);
+    google.calls = [];
+    bump('heb');
+    await pass();
+    assert(!google.calls.some((x) => x.startsWith('events.')) && hebCopies().length === 11, `second pass ${show(google.calls)}`);
+    // State lost (links.ts clears the hashes on a re-enable): the same ids are adopted, an event of the series that is no longer planned goes.
+    const stray = 'strayeventid0000000000000000000000000000000000000000';
+    c.events.set(stray, { id: stray, status: 'confirmed', summary: 'old', start: { date: '2040-01-01' }, end: { date: '2040-01-02' }, extendedProperties: { private: { famcalSync: 'L', famcalSeries: 'heb' } }, exceptions: new Map() });
+    item('heb')!.slotHashes = {};
+    item('heb')!.masterHash = null;
+    bump('heb');
+    await pass();
+    assert(hebCopies().length === 11 && !hebCopies().some((e) => e.id === stray) && item('heb')!.slotHashes['~singles'] === '1', `adopted ${show(hebCopies().map((e) => e.summary))}`);
+    assert(new Set(hebCopies().map((e) => e.start.date)).size === 11, 'no two copies on one date');
+  });
+
+  await check('Hebrew singles edit: a new title or place updates every single in place (ids kept, no insert); an override of one occurrence changes only that single; a series that becomes a plain one replaces its singles with a master', async () => {
+    seedCopy();
+    HEB();
+    itemRow('L', 'heb');
+    await pass();
+    const ids = hebCopies().map((e) => e.id).sort();
+    DB.nativeEvent[0].title = 'Renamed';
+    DB.nativeEvent[0].location = 'Home';
+    bump('heb');
+    google.calls = [];
+    await pass();
+    const renamed = hebCopies().sort(byStart);
+    assert(show(renamed.map((e) => e.id).sort()) === show(ids) && renamed.every((e, i) => e.summary === `Renamed (${7 + i})` && e.location === 'Home'), `renamed ${show(renamed.map((e) => e.summary))}`);
+    assert(gcalls('events.update').length === 11 && gcalls('events.insert').length === 0 && gcalls('events.delete').length === 0, `calls ${show(gcalls('events.'))}`);
+    // One occurrence overridden: its title (the count still added) and place; the others stay.
+    override('heb', at('2028-03-12 00:00'), { title: 'Big one', location: 'Hall' });
+    bump('heb');
+    google.calls = [];
+    await pass();
+    const o = hebCopies().find((e) => e.start.date === '2028-03-12')!;
+    assert(o.summary === 'Big one (8)' && o.location === 'Hall' && gcalls('events.update').length === 1, `override ${show(o)} calls ${show(gcalls('events.'))}`);
+    // Becomes a plain weekly series: the singles go, one master is inserted.
+    DB.nativeEventInstance = [];
+    Object.assign(DB.nativeEvent[0], { hebrewRule: null, hebrewAnchor: null, rrule: 'FREQ=WEEKLY', allDay: false, startsAt: at('2026-11-02 10:00'), endsAt: at('2026-11-02 11:00') });
+    bump('heb');
+    await pass();
+    const live = hebCopies();
+    assert(live.length === 1 && live[0].recurrence?.[0] === 'RRULE:FREQ=WEEKLY' && !item('heb')!.slotHashes['~singles'], `plain ${show(live.map((e) => e.summary))} ${show(item('heb'))}`);
+  });
+
+  await check('Hebrew singles delete: deleting the series, or moving it out of the copy, deletes every single (404 counts as done) and drops the item', async () => {
+    for (const how of ['deleted', 'moved'] as const) {
+      seedCopy();
+      HEB();
+      itemRow('L', 'heb');
+      await pass();
+      assert(hebCopies().length === 11, 'copied');
+      const first = hebCopies()[0].id;
+      google.calendars.get('g-home')!.events.get(first)!.status = 'cancelled'; // already gone in Google: a 410 on delete is done
+      if (how === 'deleted') DB.nativeEvent[0].isDeleted = true;
+      else DB.nativeEvent[0].calendarId = 'work';
+      bump('heb');
+      await pass();
+      assert(hebCopies().length === 0 && !item('heb'), `${how}: ${show(hebCopies().length)} ${show(DB.googleSyncItem)}`);
+    }
+  });
+
+  await check('Hebrew singles retry: a failure mid-way keeps what was written (and marks what was in flight), the next pass finishes with exactly one event per year, and the item is retried with backoff', async () => {
+    seedCopy();
+    HEB();
+    itemRow('L', 'heb');
+    let n = 0;
+    google.failures.push({ op: 'events.insert', error: gErr(503, 'backendError'), left: 1, when: () => ++n === 5 });
+    await pass();
+    const partial = hebCopies().length;
+    assert(partial === 4 && item('heb')!.status === 'ok' && item('heb')!.attempts === 1 && item('heb')!.nextAttemptAt, `partial ${partial} ${show(item('heb'))}`);
+    assert(Object.keys(item('heb')!.slotHashes).filter((k) => k.startsWith('~s:')).length === 11, 'every planned slot is marked in the item (written or pending)');
+    item('heb')!.nextAttemptAt = null;
+    await pass();
+    assert(hebCopies().length === 11 && new Set(hebCopies().map((e) => e.id)).size === 11 && item('heb')!.attempts === 0, `finished ${hebCopies().length} ${show(item('heb'))}`);
+    assert(!runLogs.some((l) => l.includes(TITLES[2])), 'no title in the logs');
   });
 
   // ---- Failures ----

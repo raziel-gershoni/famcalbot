@@ -1487,7 +1487,7 @@
     "notes": {
       "oneWay": "Copies go one way: changes made in Google are replaced by the next change in FamCal.",
       "alerts": "Alerts come from FamCal, not from the Google copy.",
-      "hebrew": "Events that repeat by the Hebrew date show in Google as single dates for the next 10 Hebrew years."
+      "hebrew": "Events that repeat by the Hebrew date show in Google as one event per year for the next 10 Hebrew years, with the year count in the title."
     },
     "status": {
       "copying": "Copying…",
