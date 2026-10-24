@@ -41,7 +41,7 @@ import { REDIS_KEYS } from '../../config/redis-keys';
 import type { CalendarAssignment, UserConfig } from '../../types';
 import type { CalendarRef, GoogleRead, ReadItem, ReadRangeOptions } from './types';
 import { liveGoogleChoices } from '../../lib/google-state';
-import { mapGoogleColour } from '../../lib/calendar-colours';
+import { googleDrawnColour } from '../../lib/calendar-colours';
 
 /** A Google item before its calendar is joined. This is what B7's cache stores. */
 export type GoogleItem = Omit<ReadItem, 'calendar'>;
@@ -112,7 +112,7 @@ export function googleCalendarRef(a: CalendarAssignment, goneIds: readonly strin
     source: 'google',
     name: a.name || a.calendarId,
     // Both are Google's API colours (classic and pale, or saved so): show Google's app's.
-    color: mapGoogleColour((typeof live === 'string' && HEX_COLOUR.test(live) ? live : null) ?? (a.color || null)),
+    color: googleDrawnColour(live, a.color, false),
     mine: !spouse,
     inLegend: true,
   };
@@ -585,6 +585,7 @@ function fromEntry(entry: CacheEntry, set: readonly CalendarAssignment[], stale:
       stale,
     },
     items: attachGoogleCalendars(entry.items, set, entry.goneIds, entry.colours),
+    ...(entry.colours ? { colours: entry.colours } : {}),
   };
 }
 

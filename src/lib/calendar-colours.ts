@@ -60,6 +60,21 @@ const GOOGLE_CLASSIC_TO_CURRENT: Readonly<Record<string, string>> = {
   '#a47ae2': '#9e69af', // Amethyst
 };
 
+/** The colour Google gives a calendar nobody coloured (its primary default), as its app shows it. */
+export const GOOGLE_DEFAULT_COLOUR = '#039be5';
+
+/**
+ * The colour a Google calendar is drawn in: Google's live colour when one is known, else the
+ * saved choice's, else Google's default; mapped to the colour Google's app shows. The one rule
+ * the read's legend (googleCalendarRef) and the colour step (services/native-calendar/colour.ts)
+ * share, so every surface agrees. `fallback: false` leaves out the default (the legend draws
+ * nothing for a calendar with no colour at all).
+ */
+export function googleDrawnColour(live: string | null | undefined, saved: string | null | undefined, fallback = true): string | null {
+  const known = (typeof live === 'string' && HEX.test(live) ? live : null) ?? (saved || null);
+  return mapGoogleColour(known ?? (fallback ? GOOGLE_DEFAULT_COLOUR : null));
+}
+
 /** The classic hexes the table maps, and what they become (the smoke reads them). */
 export const GOOGLE_COLOUR_TABLE: Readonly<Record<string, string>> = GOOGLE_CLASSIC_TO_CURRENT;
 

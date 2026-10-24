@@ -21,7 +21,7 @@ export function sourcesFor(user: Pick<UserConfig, 'googleRefreshToken'>): Source
   return user.googleRefreshToken ? ['famcal', 'google'] : ['famcal'];
 }
 
-type Half<R> = { read: R; items: ReadItem[] };
+type Half<R> = { read: R; items: ReadItem[]; colours?: Readonly<Record<string, string>> };
 
 /**
  * The items of [fromKey, toKey) in `opts.tz`, with each read source's status.
@@ -82,5 +82,6 @@ export async function readRange(user: UserConfig, fromKey: DayKey, toKey: DayKey
     items: [...(famcal?.items ?? []).filter(hasStart), ...googleItems],
     ...(famcal ? { famcal: famcal.read } : {}),
     ...(google ? { google: google.read } : {}),
+    ...(google?.colours ? { googleColours: google.colours } : {}),
   };
 }

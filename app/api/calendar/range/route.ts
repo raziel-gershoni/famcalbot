@@ -19,7 +19,7 @@ import { resolveUserTimezone } from '@/src/lib/timezone';
 import { TIMEZONE } from '@/src/config/constants';
 import { readRange, sourcesFor } from '@/src/services/calendar-read';
 import { carryOverReadItems } from '@/src/services/calendar-read/famcal';
-import { displayColourFor, displayColourMap } from '@/src/services/native-calendar/colour';
+import { displayColourFor, displayColourMap, rememberLiveColours } from '@/src/services/native-calendar/colour';
 import { toCalendarDto, toCarryOverDto, toRangeDays } from '@/src/services/calendar-read/dto';
 import type { GoogleRead, RangeRead } from '@/src/services/calendar-read/types';
 import { fetchOpenReminderItems, openRemindersCutoff } from '@/src/services/native-reminders/open-reminders';
@@ -211,7 +211,8 @@ export async function GET(request: NextRequest) {
       ...(carryOvers ? { carryOvers } : {}),
     };
     // The colours as drawn: a FamCal calendar too close to another is shifted on screen only.
-    const drawn = await displayColourMap(user);
+    const drawn = await displayColourMap(user, read.googleColours);
+    await rememberLiveColours(user.id, read.googleColours);
     body.calendars = body.calendars.map((c) => displayColourFor(c, drawn));
     const paintItem = (item: ItemDTO): ItemDTO => ({ ...item, calendar: displayColourFor(item.calendar, drawn) });
     body.days = body.days.map((d) => ({ ...d, items: d.items.map(paintItem) }));

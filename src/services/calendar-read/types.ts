@@ -85,4 +85,6 @@ export interface RangeRead {
   /** Absent when it doesn't apply or wasn't requested. */
   famcal?: FamcalRead;
   google?: GoogleRead;
+  /** Google's live colour of each chosen calendar, when the Google read got them (colour step: what the home draws). */
+  googleColours?: Readonly<Record<string, string>>;
 }

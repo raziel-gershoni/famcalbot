@@ -90,6 +90,7 @@ export const REDIS_KEYS = {
   gcalRange: (userId: number, setHash: string, tz: string, from: string, to: string) =>
     `gcal:range:v1:${userId}:${setHash}:${tz}:${from}:${to}`,
   gcalStamp: (userId: number) => `gcal:stamp:${userId}`,
+  gcalColours: (userId: number) => `gcal:colours:${userId}`,
   gcalGoneWarned: (userId: number) => `gcal:gone_warned:${userId}`,
   gcalFresh: (userId: number, from: string, to: string) => `gcal:fresh:${userId}:${from}:${to}`,
   gcalConfigAlert: () => 'gcal:config_alert',
