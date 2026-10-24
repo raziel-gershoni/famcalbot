@@ -124,6 +124,10 @@ npm run dev:bot    # Telegram bot only (polling)
 # type-check
 npm run type-check
 
+# CI (GitHub Actions) runs type-check, lint, the smoke tests and `next build` on every push;
+# run the smokes locally with fake env:
+bash scripts/ci-smokes.sh
+
 # production build (generates Prisma client, applies migrations, builds Next.js)
 npm run build
 npm run start

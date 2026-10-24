@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Fake values only. Never run `npm run build` here: it migrates the production DB.
+      DATABASE_URL: postgresql://fake:fake@127.0.0.1:1/fake
+      DIRECT_URL: postgresql://fake:fake@127.0.0.1:1/fake
+      TELEGRAM_BOT_TOKEN: '000000:fake'
+      WHATSAPP_ACCESS_TOKEN: fake
+      WHATSAPP_PHONE_NUMBER_ID: ''
+      WHATSAPP_WEBHOOK_VERIFY_TOKEN: fake
+      GOOGLE_CLIENT_ID: fake
+      GOOGLE_CLIENT_SECRET: fake
+      GOOGLE_REFRESH_TOKEN: fake
+      ANTHROPIC_API_KEY: fake
+      CRON_SECRET: fake
+      ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+      ENCRYPTION_KEY_PREVIOUS: ''
+      GOOGLE_TTS_CREDENTIALS: '{}'
+      TELEGRAM_WEBHOOK_SECRET: fake
+      GEMINI_API_KEY: fake
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx tsc --noEmit
+      - run: npm run lint
+      - run: bash scripts/ci-smokes.sh
+      - run: npx next build
