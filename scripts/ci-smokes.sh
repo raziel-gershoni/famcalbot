@@ -52,7 +52,7 @@ for file in scripts/smoke-*.ts; do
     passed=$((passed + 1))
   else
     echo "FAILED $file"
-    tail -n 30 "$log" | sed 's/^/    /'
+    sed 's/^/    /' "$log"
   fi
   rm -f "$log"
 done
