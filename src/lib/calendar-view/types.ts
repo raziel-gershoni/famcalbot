@@ -74,6 +74,8 @@ export interface ItemReminderDTO {
   open: boolean;
   /** 'yyyy-MM-dd'; carry-overs only. */
   openSince: string | null;
+  /** When it is due for the viewer: an instant (a date-only one is at the viewer's reminder time on its date). */
+  dueAt?: string;
   ownerIsViewer: boolean;
   creatorIsViewer: boolean;
   ownerName?: string;

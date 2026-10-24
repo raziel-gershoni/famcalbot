@@ -757,11 +757,19 @@ async function main() {
     assert(reminderStateAt(r(T(-2, '13:00'), { open: false }), Date.parse(T(0, '12:00')), IL) === 'open', 'a past day\'s copy that was never done is open');
     assert(reminderStateAt(r(T(0, '13:00'), { done: true }), Date.parse(T(0, '14:00')), IL) === 'done', 'done');
     assert(reminderStateAt(r(T(0, '13:00'), { snoozedUntil: T(0, '15:00') }), Date.parse(T(0, '14:00')), IL) === 'snoozed', 'snoozed');
-    assert(reminderStateAt(r(TODAY), Date.parse(T(0, '08:59')), IL) === 'later', 'date-only before 09:00');
-    assert(reminderStateAt(r(TODAY), Date.parse(T(0, '09:00')), IL) === 'open', 'date-only at 09:00');
+    assert(reminderStateAt(r(TODAY, { dueAt: T(0, '09:00') }), Date.parse(T(0, '08:59')), IL) === 'later', 'date-only before 09:00');
+    assert(reminderStateAt(r(TODAY, { dueAt: T(0, '09:00') }), Date.parse(T(0, '09:00')), IL) === 'open', 'date-only at 09:00');
     assert(reminderStateAt(r(day(-1)), Date.parse(T(0, '00:30')), IL) === 'open', 'date-only, yesterday');
     assert(reminderStateAt(r(day(1)), Date.parse(T(0, '23:00')), IL) === 'later', 'date-only, tomorrow');
     assert(reminderStateAt(ev('e', T(0, '13:00'), T(0, '14:00')), Date.parse(T(0, '14:00')), IL) === null, 'an event');
+  });
+
+  await check("reminderStateAt: a date-only reminder is open from the dueAt the server computed for the viewer (their reminder time, minutes included), not from a fixed 09:00", () => {
+    const r = (start: string, o: Partial<ItemReminderDTO> = {}) => rem('x', start, o);
+    assert(reminderStateAt(r(TODAY, { dueAt: T(0, '18:00') }), Date.parse(T(0, '10:00')), IL) === 'later', '10:00, due 18:00');
+    assert(reminderStateAt(r(TODAY, { dueAt: T(0, '18:00') }), Date.parse(T(0, '18:00')), IL) === 'open', '18:00, due 18:00');
+    assert(reminderStateAt(r(TODAY, { dueAt: T(0, '07:30') }), Date.parse(T(0, '08:00')), IL) === 'open', '08:00, due 07:30');
+    assert(reminderStateAt(r(TODAY, { dueAt: T(0, '07:30') }), Date.parse(T(0, '07:29')), IL) === 'later', '07:29, due 07:30');
   });
 
   await check('response with hold: an answer asked before a patch leaves that key as patched, in the days and the carry-overs; the other keys and a later answer are taken as they are', () => {

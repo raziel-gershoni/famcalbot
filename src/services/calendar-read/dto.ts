@@ -26,6 +26,8 @@ export interface ItemDtoOptions {
   open: boolean;
   /** Carry-overs only; null elsewhere. */
   openSince: DayKey | null;
+  /** A reminder's due instant for the viewer (reminderDueAt); the sheet reads its state against it. */
+  dueAt?: Date;
 }
 
 function isDone(item: ReadItem): boolean {
@@ -57,6 +59,7 @@ function reminderDto(item: ReadItem, opts: ItemDtoOptions): ItemReminderDTO {
     snoozedUntil: snoozedUntil && snoozedUntil > opts.now ? snoozedUntil.toISOString() : null,
     open: opts.open,
     openSince: opts.openSince,
+    ...(opts.dueAt ? { dueAt: opts.dueAt.toISOString() } : {}),
     ownerIsViewer: info?.ownerIsViewer ?? true,
     creatorIsViewer: info?.creatorIsViewer ?? true,
     ...(info?.ownerName ? { ownerName: info.ownerName } : {}),
@@ -155,7 +158,7 @@ export function toRangeDays(
       if (span === null) continue;
       const list = byDate.get(d);
       if (!list) continue;
-      list.push(toItemDto(item, span ?? null, { now, open: isOpenOnDay(item, d, today, tz, now, reminderTime), openSince: null }));
+      list.push(toItemDto(item, span ?? null, { now, open: isOpenOnDay(item, d, today, tz, now, reminderTime), openSince: null, ...(item.kind === 'reminder' ? { dueAt: reminderDueAt(item.event, tz, reminderTime) } : {}) }));
     }
   }
   for (const day of days) day.items.sort(compareItems);
@@ -171,7 +174,7 @@ export function toRangeDays(
  */
 export function toCarryOverDto(item: ReadItem, tz: string, now: Date, reminderTime?: string | null): ItemDTO {
   const openSince = item.event.reminder?.openSince ?? localDate(reminderDueAt(item.event, tz, reminderTime), tz);
-  return toItemDto(item, null, { now, open: true, openSince });
+  return toItemDto(item, null, { now, open: true, openSince, dueAt: reminderDueAt(item.event, tz, reminderTime) });
 }
 
 /**

@@ -87,7 +87,7 @@ async function reminderOf(user: UserConfig, seriesId: string, originalStart: Dat
   const open = !done && due < now;
   // Only an older open reminder (a carry-over) has an openSince; today's has none.
   const day = localDate(due, tz);
-  return toItemDto(item, null, { now, open, openSince: open && day < localDate(now, tz) ? day : null }).reminder;
+  return toItemDto(item, null, { now, open, openSince: open && day < localDate(now, tz) ? day : null, dueAt: due }).reminder;
 }
 
 export async function POST(request: NextRequest) {

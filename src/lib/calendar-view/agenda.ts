@@ -171,7 +171,7 @@ export function reminderMark(item: ItemDTO): ReminderMark | null {
 /**
  * A reminder's state as it is now, for the item sheet (whose actions and state line must
  * not depend on which day's copy was opened): done, snoozed, open once its due time (its
- * time, or 09:00 on a date-only one, as native-reminders/due.ts) has passed, else not
+ * time, or the viewer's reminder time on a date-only one, as native-reminders/due.ts) has passed, else not
  * due yet. null for events.
  */
 export function reminderStateAt(item: ItemDTO, nowMs: number, tz: string): ReminderMark | null {
@@ -180,9 +180,11 @@ export function reminderStateAt(item: ItemDTO, nowMs: number, tz: string): Remin
   if (r.done) return 'done';
   if (r.snoozedUntil) return 'snoozed';
   if (item.start.includes('T')) return Date.parse(item.start) <= nowMs ? 'open' : 'later';
+  // A date-only one is due at the viewer's reminder time on its date: the server says when (dueAt).
+  if (r.dueAt) return Date.parse(r.dueAt) <= nowMs ? 'open' : 'later';
+  // An answer without dueAt (none today): only a past date counts as due.
   const today = instantDay(new Date(nowMs).toISOString(), tz);
-  const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: 'numeric', hourCycle: 'h23' }).format(nowMs));
-  return today !== null && (item.start < today || (item.start === today && hour >= 9)) ? 'open' : 'later';
+  return today !== null && item.start < today ? 'open' : 'later';
 }
 
 function toRow(item: ItemDTO, partnerName: string | null, origin: RowOrigin): AgendaRow {

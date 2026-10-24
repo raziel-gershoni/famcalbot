@@ -366,6 +366,16 @@ async function main() {
     assert(find('r-tomorrow').reminder?.open === false, 'tomorrow is open');
   });
 
+  await check("dueAt: every reminder DTO carries when it is due for the viewer: its time, or their reminder time on a date-only one", () => {
+    assert(find('r-past').reminder?.dueAt === utc('2026-10-16 08:00', IL), `timed ${find('r-past').reminder?.dueAt}`);
+    assert(find('r-dateonly').reminder?.dueAt === '2026-10-16T06:00:00.000Z', `default ${find('r-dateonly').reminder?.dueAt}`);
+    const own = toRangeDays(openItems, '2026-10-16', '2026-10-17', IL, NOW, TODAY, '18:00');
+    const item = own[0].items.find(i => i.id === 'r-dateonly');
+    assert(item?.reminder?.dueAt === '2026-10-16T15:00:00.000Z', `18:00 ${item?.reminder?.dueAt}`);
+    const carried = toCarryOverDto(openItems.find(i => i.key === 'famcal|r-dateonly')!, IL, NOW, '07:30');
+    assert(carried.reminder?.dueAt === '2026-10-16T04:30:00.000Z', `carry-over ${carried.reminder?.dueAt}`);
+  });
+
   await check('open: a date-only reminder opens at 09:00 in the viewer\'s timezone', () => {
     const item = openItems.find(i => i.key === 'famcal|r-dateonly');
     assert(item !== undefined, 'fixture');
