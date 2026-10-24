@@ -1,2 +1,3 @@
-export { handleImageMessage } from './handler';
-export type { TelegramPhotoSize } from './handler';
+export { handleImageMessage, handleDocumentMessage } from './handler';
+export type { TelegramPhotoSize, TelegramDocument } from './handler';
+export { handleAlbumPart, isAlbumPart } from './album';

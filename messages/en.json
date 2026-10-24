@@ -870,7 +870,17 @@
     },
     "imageEvent": {
       "noEventFound": "🤔 I couldn't find an event in that image. Try sending a clear photo of an invitation, flyer, or event details.",
-      "fromImage": "an invitation image"
+      "fromImage": "an invitation image",
+      "noEventFoundMany": "🤔 I couldn't find an event in those images. Try sending clear photos of an invitation, flyer, or event details.",
+      "noEventFoundPdf": "🤔 I couldn't find an event in that file. Try sending a file with the event details, or a clear photo of them.",
+      "fromImages": "a set of invitation images",
+      "fromPdf": "an invitation PDF",
+      "videoSkipped": "I skipped the video in the album and read the photos only.",
+      "partsUnreadable": "Some of the files couldn't be downloaded or read, so I went through the rest.",
+      "pdfTrimmed": "That PDF is long, so I read only its first {kept} pages out of {total}.",
+      "fileTooLarge": "That file is too large. I can only open files up to 20 MB from Telegram. Please send a smaller one.",
+      "pdfUnreadable": "I can't open this file. It may be password-protected or damaged. Try sending a photo or a different PDF.",
+      "unsupportedDocument": "I can read photos and PDF files. Please send the invitation as a photo or a PDF."
     },
     "voice": {
       "notRegistered": "❌ Please use /start to register first before creating events.",

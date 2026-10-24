@@ -26,6 +26,27 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/** One file for Gemini: an image or a PDF. */
+export interface MediaPart {
+  buffer: Buffer;
+  /** e.g. 'image/jpeg' or 'application/pdf' */
+  mimeType: string;
+}
+
+/**
+ * Added to the prompt when several files (an album) or a document are sent in one
+ * request. The files are one set: a table or list may run on from one to the next, and an
+ * event shown on two of them is one event.
+ */
+const MULTI_FILE_RULES = (count: number) => `
+
+MULTIPLE FILES (${count} attached, labelled "File 1 of ${count}" and so on):
+- They are ONE set of files, in the order sent. Read them in that order, as one document.
+- A table, schedule or list may continue from one file onto the next: read it as one.
+- They may also be different invitations: return every distinct event, using the "intents" array when there are 2 or more.
+- If the same event appears on more than one file, return it ONCE.
+- If a file is not an event, ignore it; return intent "none" only when NO file has an event.`;
+
 /**
  * Process an invitation image with Gemini.
  * @param imageBuffer raw image bytes
@@ -40,13 +61,34 @@ export async function processImageWithGemini(
   calendars: CalendarAssignment[],
   timezone: string
 ): Promise<{ intentResult: VoiceIntentResult; intentResults?: VoiceIntentResult[]; metrics: ImageProcessingMetrics }> {
+  return processMediaWithGemini([{ buffer: imageBuffer, mimeType }], caption, language, calendars, timezone);
+}
+
+/**
+ * Process one or more files (photos of an album, a PDF) with Gemini in ONE request.
+ * Same prompt, retry and parsing as a single image; with several files the prompt also
+ * carries the album rules and each file is labelled with its place in the set.
+ * @param caption optional user caption (for an album, the one on any of its items)
+ */
+export async function processMediaWithGemini(
+  media: MediaPart[],
+  caption: string | undefined,
+  language: string,
+  calendars: CalendarAssignment[],
+  timezone: string
+): Promise<{ intentResult: VoiceIntentResult; intentResults?: VoiceIntentResult[]; metrics: ImageProcessingMetrics }> {
   const startTime = Date.now();
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= IMAGE_RETRY_CONFIG.maxRetries; attempt++) {
     try {
       const promptText = buildEventExtractionPrompt(language, calendars, timezone, 'image')
+        + (media.length > 1 ? MULTI_FILE_RULES(media.length) : '')
         + (caption?.trim() ? `\n\nUSER CAPTION (extra context):\n${caption.trim()}` : '');
+      const fileParts = media.flatMap((m, i) => [
+        ...(media.length > 1 ? [{ text: `File ${i + 1} of ${media.length}:` }] : []),
+        { inlineData: { mimeType: m.mimeType, data: m.buffer.toString('base64') } },
+      ]);
 
       const response = await getGemini().models.generateContent({
         model: AI_MODEL_ID,
@@ -56,7 +98,7 @@ export async function processImageWithGemini(
             role: 'user',
             parts: [
               { text: promptText },
-              { inlineData: { mimeType, data: imageBuffer.toString('base64') } },
+              ...fileParts,
             ],
           },
         ],

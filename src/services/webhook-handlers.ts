@@ -371,6 +371,31 @@ export async function handleTelegramWebhook(
     return;
   }
 
+  // Handle one part of an album (photos, a video, documents sharing a media_group_id).
+  // A part is only stored here; one request per album reads them all together. It is never
+  // also handled as a single photo or document below.
+  {
+    const { isAlbumPart, handleAlbumPart } = await import('./image-event');
+    if (isAlbumPart(update.message)) {
+      const albumFrom = update.message.from;
+      if (albumFrom) {
+        addBreadcrumb('album_part_received', {
+          user_id: albumFrom.id,
+          media_group_id: update.message.media_group_id,
+        }, 'user_action');
+        console.log(`[Webhook] Album part received from user ${albumFrom.id}, media_group_id: ${update.message.media_group_id}`);
+        try {
+          await handleAlbumPart(update.message);
+        } catch (error) {
+          console.error('[Webhook] Error in album handler:', error);
+          captureError(error, 'album-webhook');
+        }
+      }
+      res.status(200).json({ ok: true });
+      return;
+    }
+  }
+
   // Handle invitation photos for event creation
   if (update.message?.photo && update.message.photo.length > 0) {
     const chatId = update.message.chat.id;
@@ -409,6 +434,48 @@ export async function handleTelegramWebhook(
       await handleImageMessage(chatId, photoUserId, photo, from, caption);
     } catch (error) {
       console.error('[Webhook] Error in image handler:', error);
+    } finally {
+      await releaseVoiceLock(fileUniqueId);
+    }
+
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  // Handle documents: a PDF or an image sent as a file is read like a photo; any other
+  // document gets a polite "send a photo or PDF".
+  if (update.message?.document) {
+    const chatId = update.message.chat.id;
+    const from = update.message.from;
+    if (!from) {
+      res.status(200).json({ ok: true });
+      return;
+    }
+    const document = update.message.document;
+    const fileUniqueId = document.file_unique_id;
+
+    addBreadcrumb('document_message_received', {
+      user_id: from.id,
+      mime_type: document.mime_type,
+      file_size: document.file_size,
+    }, 'user_action');
+    console.log(`[Webhook] Document received from user ${from.id}, file_unique_id: ${fileUniqueId}, mime: ${document.mime_type}`);
+
+    // Same webhook-retry dedupe and lock lifetime as a photo (a PDF read is as slow).
+    const { acquireVoiceLock, releaseVoiceLock } = await import('../utils/redis-lock');
+    const lockAcquired = await acquireVoiceLock(fileUniqueId, 180);
+    if (!lockAcquired) {
+      console.log(`[Webhook] Document ${fileUniqueId} already being processed - skipping duplicate`);
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    try {
+      const { handleDocumentMessage } = await import('./image-event');
+      await handleDocumentMessage(chatId, from.id, document, from, update.message.caption);
+    } catch (error) {
+      console.error('[Webhook] Error in document handler:', error);
+      captureError(error, 'document-webhook');
     } finally {
       await releaseVoiceLock(fileUniqueId);
     }
