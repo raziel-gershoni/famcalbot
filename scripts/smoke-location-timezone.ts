@@ -153,7 +153,7 @@ function installStubs() {
       return { ...userRow };
     },
   });
-  stub('src/services/reminder-cache.ts', { updateUserInCache: async () => {}, removeUserFromCache: async () => {} });
+  stub('src/services/reminder-cache.ts', { updateUserInCache: async () => {}, removeUserFromCache: async () => {}, syncReminderCacheEntry: async () => {} });
   stub('src/services/telegram/index.ts', { setUserMenuButton: async () => {} });
   stub('src/lib/error-capture.ts', {
     captureError: (error: unknown, context: string, _extra?: unknown, severity: unknown = 'error') => {

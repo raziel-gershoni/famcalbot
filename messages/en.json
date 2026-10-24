@@ -590,6 +590,8 @@
       "confirmBody": "FamCal will stop reading your Google calendars. We’ll delete the Google sign-in we stored and revoke its access at Google. Your FamCal calendars, events and reminders stay as they are.",
       "copiesLabel": "Also delete the FamCal copies from Google",
       "copiesHint": "The “FamCal · …” calendars that Copy to Google made in your Google account.",
+    "copiesKeptNote": "Copies you chose to keep in Google stay there, untouched.",
+    "confirmShared": "If someone else in your family connected the same Google account, they will need to connect again too.",
       "cancel": "Cancel",
       "confirm": "Disconnect",
       "working": "Disconnecting…",
@@ -597,7 +599,7 @@
       "doneBody": "FamCal no longer reads your Google calendars. You can connect Google again from the menu whenever you like.",
       "leftoverIntro": "We couldn’t delete these from Google. You can remove them in Google Calendar:",
       "close": "Done",
-      "errorFailed": "Couldn’t disconnect Google. Nothing was changed. Try again.",
+      "errorFailed": "Disconnecting didn’t finish, and Google may already have lost access. Try again to complete it.",
       "errorBusy": "Too many tries. Wait a minute and try again."
     }
   },
@@ -1487,7 +1489,7 @@
     "notes": {
       "oneWay": "Copies go one way: changes made in Google are replaced by the next change in FamCal.",
       "alerts": "Alerts come from FamCal, not from the Google copy.",
-      "hebrew": "Events that repeat by the Hebrew date show in Google as one event per year for the next 10 Hebrew years, with the year count in the title."
+      "hebrew": "Events that repeat by the Hebrew date show in Google as one event per year for the next 10 Hebrew years, with the year count in the title. Copies made earlier switch to this on the next sync."
     },
     "status": {
       "copying": "Copying…",

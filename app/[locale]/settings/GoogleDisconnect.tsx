@@ -62,7 +62,7 @@ export const GOOGLE_DISCONNECT_CSS = `
     .gd-dialog { background: #1f2937; color: #f3f4f6; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6); }
     .gd-check-hint, .gd-working { color: #9ca3af; }
     .gd-error { background: #450a0a; color: #fecaca; }
-    .gd-btn-confirm { background: #ef4444; color: #1f2937; }
+    .gd-btn-confirm { background: #dc2626; color: #ffffff; }
     .gd-btn-quiet { background: #374151; color: #f3f4f6; }
   }
 `;
@@ -112,11 +112,13 @@ export function GoogleDisconnectView(props: GoogleDisconnectViewProps) {
               <>
                 <h2 id="gd-dialog-title" className="gd-dialog-title">{t('confirmTitle')}</h2>
                 <p className="gd-body">{t('confirmBody')}</p>
+                <p className="gd-body">{t('confirmShared')}</p>
                 <label className="gd-check">
                   <input type="checkbox" checked={deleteCopies} onChange={props.onToggleCopies} disabled={working} />
                   <span>
                     <span className="gd-check-label">{t('copiesLabel')}</span>
                     <span className="gd-check-hint">{t('copiesHint')}</span>
+                    <span className="gd-check-hint">{t('copiesKeptNote')}</span>
                   </span>
                 </label>
                 {error && <p role="alert" className="gd-error">{t(error === 'busy' ? 'errorBusy' : 'errorFailed')}</p>}

@@ -15,7 +15,7 @@ import { prisma } from '../utils/prisma';
 import { getUserById, getUserByTelegramId } from './user-service';
 import { convertPrismaUserToConfig, UserConfig } from '../types';
 import { invalidateFeatureAccessCache } from './subscription-service';
-import { removeUserFromCache, updateUserInCache } from './reminder-cache';
+import { syncReminderCacheEntry } from './reminder-cache';
 import { invalidateDueGate } from './native-reminders/due-gate';
 import { markSyncDirty, unlinkSync, type SyncSeries } from './google-sync/marks';
 import { openSyncGate } from './google-sync/gate';
@@ -532,25 +532,8 @@ async function afterMerge(wUserId: number, tUserId: number, languageChanged: boo
     const t = await getUserById(tUserId);
     if (!t) return;
     if (languageChanged && t.telegramId) await setUserMenuButton(t.telegramId, t.language);
-    // Who belongs in the cache is the hourly sync's rule, as in the settings route.
-    const remindable = t.remindersEnabled && t.telegramId !== null && !t.suspendedAt && !t.unreachableSince;
-    if (!remindable) {
-      await removeUserFromCache(t.id);
-      return;
-    }
-    await updateUserInCache({
-      id: t.id,
-      telegramId: t.telegramId?.toString() ?? '',
-      googleRefreshToken: t.googleRefreshToken, // Decrypted by convertPrismaUserToConfig
-      calendarAssignments: t.calendarAssignments,
-      calendarSource: t.calendarSource,
-      pairingId: t.pairingId,
-      defaultReminderMinutes: t.defaultReminderMinutes ?? null,
-      language: t.language,
-      name: t.name,
-      pickupRemindersEnabled: t.pickupRemindersEnabled ?? true,
-      location: t.location,
-    });
+    // Who belongs in the cache is the hourly sync's rule.
+    await syncReminderCacheEntry(t);
   } catch (err) {
     console.warn(`[AccountLink] Cache refresh after merging into ${tUserId} failed:`, err);
   }

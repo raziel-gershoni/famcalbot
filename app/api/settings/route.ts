@@ -4,7 +4,7 @@ import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { setUserMenuButton } from '@/src/services/telegram';
-import { updateUserInCache, removeUserFromCache } from '@/src/services/reminder-cache';
+import { syncReminderCacheEntry } from '@/src/services/reminder-cache';
 import { resolveTimezoneForLocation } from '@/src/lib/timezone';
 import { redis } from '@/src/utils/redis';
 import { prisma } from '@/src/utils/prisma';
@@ -130,31 +130,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Update reminder cache (no extra DB query - uses data from updateUserById). Who belongs
-    // in it is the hourly sync's rule (handleDailySummary): everyone has FamCal, with or
-    // without a Google token, and a save must not put back a suspended or unreachable user
-    // the sync left out (Telegram refuses an unreachable chat every 5 minutes).
-    const remindable = updatedUser.remindersEnabled &&
-      updatedUser.telegramId !== null &&
-      !updatedUser.suspendedAt &&
-      !updatedUser.unreachableSince;
-    if (remindable) {
-      await updateUserInCache({
-        id: updatedUser.id,
-        telegramId: updatedUser.telegramId?.toString() ?? '',
-        googleRefreshToken: updatedUser.googleRefreshToken, // Already decrypted by convertPrismaUserToConfig
-        calendarAssignments: updatedUser.calendarAssignments,
-        calendarSource: updatedUser.calendarSource,
-        pairingId: updatedUser.pairingId,
-        defaultReminderMinutes: updatedUser.defaultReminderMinutes ?? null,
-        language: updatedUser.language,
-        name: updatedUser.name,
-        pickupRemindersEnabled: updatedUser.pickupRemindersEnabled ?? true,
-        location: updatedUser.location,
-      });
-    } else {
-      await removeUserFromCache(updatedUser.id);
-    }
+    // Update reminder cache (no extra DB query - uses data from updateUserById): who belongs in it
+    // is the hourly sync's rule (syncReminderCacheEntry).
+    await syncReminderCacheEntry(updatedUser);
 
     // Update menu button when language changes (Telegram users only; the chat is the telegramId)
     if (language && auth.user.telegramId) {

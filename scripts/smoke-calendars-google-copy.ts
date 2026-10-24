@@ -188,6 +188,11 @@ async function main() {
     assert(/⁨בית⁩/.test(textOf(rowHtml('he', { asking: true, calendarName: 'בית' }))), 'the Hebrew name is not isolated');
   });
 
+  await check('the Hebrew-dates note stays true for copies not yet switched to one event per year: it says earlier copies switch on the next sync (en/he/ru)', async () => {
+    const earlier = { en: /Copies made earlier switch to this on the next sync/, he: /עותקים שנוצרו קודם יעברו לצורה הזו בסנכרון הקרוב/, ru: /Копии, сделанные раньше, перейдут на этот вид при ближайшей синхронизации/ };
+    for (const l of LOCALES) assert(earlier[l as 'en' | 'he' | 'ru'].test(gc(l).notes.hebrew), `${l}: ${gc(l).notes.hebrew}`);
+  });
+
   await check('the non-owner line names the owner, and the notes say one way, alerts from FamCal and Hebrew dates', async () => {
     for (const l of LOCALES) {
       const t = textOf(render(l, createElement(NonOwnerCopyLine, { owner: 'Noa' })));

@@ -11,6 +11,7 @@ import { redis } from '../utils/redis';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { captureError } from '../lib/error-capture';
 import { normalizeStored, sealSecret } from '../utils/encryption';
+import type { UserConfig } from '../types';
 
 /** The reminder users, each Google token sealed: 'reminders:users:v2'. */
 export const REMINDER_CACHE_KEY = REDIS_KEYS.REMINDER_USERS;
@@ -113,6 +114,33 @@ export async function updateUserInCache(user: ReminderCacheSource): Promise<void
     console.error('[Reminder Cache] Redis update error:', error);
     captureError(error, 'reminder-cache', {}, 'warning');
   }
+}
+
+/**
+ * Put a user's entry in line with their row, by the hourly sync's rule (handleDailySummary):
+ * everyone who gets reminders is in the cache, with or without a Google token (everyone has
+ * FamCal); a user with reminders off, no Telegram chat, suspended or unreachable is not (Telegram
+ * refuses an unreachable chat every 5 minutes, and a save must not put them back). `user` is
+ * the row as convertPrismaUserToConfig returns it (the token already decrypted).
+ */
+export async function syncReminderCacheEntry(
+  user: Pick<UserConfig, 'id' | 'telegramId' | 'remindersEnabled' | 'suspendedAt' | 'unreachableSince' | 'googleRefreshToken' | 'calendarAssignments' | 'calendarSource' | 'pairingId' | 'defaultReminderMinutes' | 'language' | 'name' | 'pickupRemindersEnabled' | 'location'>
+): Promise<void> {
+  const remindable = user.remindersEnabled && user.telegramId !== null && !user.suspendedAt && !user.unreachableSince;
+  if (!remindable) return removeUserFromCache(user.id);
+  return updateUserInCache({
+    id: user.id,
+    telegramId: user.telegramId?.toString() ?? '',
+    googleRefreshToken: user.googleRefreshToken,
+    calendarAssignments: user.calendarAssignments,
+    calendarSource: user.calendarSource,
+    pairingId: user.pairingId,
+    defaultReminderMinutes: user.defaultReminderMinutes ?? null,
+    language: user.language,
+    name: user.name,
+    pickupRemindersEnabled: user.pickupRemindersEnabled ?? true,
+    location: user.location,
+  });
 }
 
 /**

@@ -16,10 +16,19 @@ Google token is gone both here and at Google. Connecting again works from scratc
    also follows the device's light or dark setting.
 2. The confirmation has a checkbox, "Also delete the FamCal copies from Google", ticked by
    default. The copies are the "FamCal · <name>" calendars that Copy to Google made with the
-   calendar.app.created scope.
-3. On confirm the server does, in this order:
-   a. Box ticked: delete the copy calendars through the Google API while the token still
-      works. Best effort per calendar; the ones that fail are recorded.
+   calendar.app.created scope. Only the ACTIVE copies are deleted: a copy the user earlier
+   turned off with "Keep it in Google" stays in Google untouched (owner's call, review r3), and
+   the confirmation says so. The confirmation also says that anyone else in the family who
+   connected the same Google account will need to connect again (the revoke cuts the grant for
+   every FamCal user of that account).
+3. On confirm the server does, under the user's copy-worker lock (`withUserSyncLock`, the
+   lock the worker's runs take), in this order. A run already going finishes first and none
+   starts meanwhile, so no run writes state back, sends the "reconnect Google" message or
+   leaves a newly created copy calendar behind. A run that was about to start reads the user
+   and links again after taking its lock and finds nothing to do.
+   a. Box ticked: delete the active copy calendars through the Google API while the token still
+      works (a Keep copy is skipped). Best effort per calendar; the ones that fail are recorded.
+      The links of the deleted calendars are dropped at once, before the revoke.
    b. Revoke the token at Google (https://oauth2.googleapis.com/revoke). Best effort: a
       failure is logged and sent to Sentry.
    c. Always clear local state, whatever happened in a and b (list below).
@@ -45,7 +54,8 @@ and WhatsApp users reach it through the Mini App (Telegram initData or the Whats
 
 ### Step a: delete the copies
 
-For every `GoogleSyncLink` of the user, `turnOffInGoogle(..., 'remove', ...)` (the worker's and
+For every `GoogleSyncLink` of the user except one turned off with Keep (`!enabled &&
+unlinkChoice === 'keep'`, carried out or still queued), `turnOffInGoogle(..., 'remove', ...)` (the worker's and
 the hard delete's own code path) runs with the link's `unlinkToken` or else the user's token.
 It checks the token's Google account, re-reads the calendar and acts only on a calendar
 carrying the link's `[famcal:<linkId>]` token. Outcomes:
@@ -66,18 +76,23 @@ step a comes first. A 400 `invalid_token` means it was already dead and counts a
 Database, in one transaction:
 - `User.googleRefreshToken = ''`, `googleScopes = []`, `googleSyncNotifiedAt = null`,
   `calendarAssignments = NULL` (the Google calendar choices and selections).
-- Copy links whose Google calendar is gone: row deleted (items cascade). Every other link
-  (box unticked, or the delete failed): kept but turned off with its queued choice,
-  `unlinkToken` and queue cleared, so the worker stops and FamCal keeps hiding that Google
-  calendar from its Google lists if the user connects again.
+- Copy links whose Google calendar is gone: row deleted (items cascade), in step a already.
+  Every other link (box unticked, a Keep copy, or the delete failed): kept but turned off with
+  its queued choice, `unlinkToken` and queue cleared, so the worker stops and FamCal keeps
+  hiding that Google calendar from its Google lists if the user connects again. That needs
+  only the calendar's id, so `googleAccount` (usually the email address) is cleared; no
+  Google account id or email stays anywhere.
 - The user's open `OAuthState` rows (an unfinished consent).
 
 Redis, each step logged and sent to Sentry on failure, never thrown:
 - the Google read cache: the stamp (`stampGoogleCache`, which also drops the in-process
   recurrence cache) plus the stored `gcal:range:v1:<id>:*` and `gcal:fresh:<id>:*` entries;
 - live colours `gcal:colours:<id>` and the gone warning `gcal:gone_warned:<id>`;
-- the reminder cache entry: `updateUserInCache` without a token for a user who still gets
-  reminders (everyone has FamCal), else `removeUserFromCache`, by the settings route's rule;
+- the reminder cache entry: `syncReminderCacheEntry` (reminder-cache.ts, the one rule the
+  settings route and the account merge use too): the entry without a token for a user who still
+  gets reminders (everyone has FamCal), else removed;
+- the voice flows' `voice:recent:<id>` and `voice:last_created:<id>`, and the user's open
+  `voice:pending:*` confirmation cards (found by the user inside them);
 - feature access caches (`invalidateFeatureAccessCache`);
 - copy link retries (`clearLinkRetries`), the Google setup tracks (`clearGoogleTracks`), the
   `googleConnected` flag and the resolved-timezone cache (`tz:user:<id>`, which may have come
@@ -89,8 +104,11 @@ Redis, each step logged and sent to Sentry on failure, never thrown:
   sent to Sentry (`google-disconnect-copy`, `google-disconnect-revoke`).
 - A token that cannot be decrypted skips a and b, logged and captured; c still runs and every
   copy with a stored calendar id is listed.
-- The database transaction failing is the one failure that returns an error (500): nothing was
-  cleared locally, the user can retry, and a retry finds the copies already gone.
+- The database transaction failing is the one failure that returns an error (500). The token
+  may be revoked by then, so the error line does not say "nothing was changed": it says the
+  disconnect didn't finish, Google may already have lost access, and to try again. The retry
+  completes: the deleted copies' links were dropped before the revoke, so they are not listed
+  as left over, and a token Google has as dead counts as revoked.
 - A repeated or double-tapped request is harmless: with no token and no links it only clears
   caches again.
 - The page shows a retryable error line; it never shows raw error text.

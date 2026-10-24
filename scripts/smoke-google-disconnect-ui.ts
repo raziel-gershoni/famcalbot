@@ -73,6 +73,9 @@ async function main() {
       assert(/role="dialog"/.test(h) && /aria-modal="true"/.test(h), `${l} not a modal dialog`);
       const text = textOf(h);
       assert(text.includes(t.confirmTitle) && text.includes(t.confirmBody) && text.includes(t.copiesLabel) && text.includes(t.copiesHint), `${l} text ${text}`);
+      // Copies the user chose to Keep are untouched (owner's call), and others on the same Google account must reconnect.
+      assert(t.copiesKeptNote && text.includes(t.copiesKeptNote), `${l} no note that kept copies stay`);
+      assert(t.confirmShared && text.includes(t.confirmShared), `${l} no line about others on the same Google account`);
       const box = h.match(/<input\b[^>]*type="checkbox"[^>]*>/);
       assert(box && /checked=""/.test(box[0]), `${l} checkbox ${box?.[0]}`);
       assert(/<label\b[^>]*>[\s\S]*<input\b[^>]*type="checkbox"/.test(h) || /<input\b[^>]*id="([^"]+)"[\s\S]*<label\b[^>]*for="\1"/.test(h), `${l} checkbox has no label`);
@@ -84,6 +87,11 @@ async function main() {
   await check('confirm: the box unticked when deleteCopies is false', () => {
     const box = html('en', { phase: 'confirm', deleteCopies: false }).match(/<input\b[^>]*type="checkbox"[^>]*>/);
     assert(box && !/checked/.test(box[0]), `checkbox ${box?.[0]}`);
+  });
+
+  await check('confirm: the failure line never claims nothing changed (Google may already have revoked the token), in en, he and ru', () => {
+    const claims = { en: /nothing was changed/i, he: /שום דבר לא השתנה/, ru: /ничего не изменилось/i };
+    for (const l of LOCALES) assert(!claims[l].test(gd(l).errorFailed), `${l}: ${gd(l).errorFailed}`);
   });
 
   await check('confirm: an error line (role=alert) in words, never a raw code', () => {
@@ -134,6 +142,22 @@ async function main() {
     assert(!/(?:margin|padding|border)-(?:left|right)|text-align: (?:left|right)|(?:^|[\s;{])(?:left|right):/m.test(css), `physical direction: ${css.match(/(?:margin|padding|border)-(?:left|right)|text-align: (?:left|right)|[\s;{](?:left|right):/)?.[0]}`);
     assert(/@media \(prefers-color-scheme: dark\)[\s\S]*\.gd-dialog[\s\S]*\.gd-btn-confirm/.test(css), 'dark scheme');
     assert(!/font-size: (?:\d|1[01])px/.test(css), 'a font under 12px');
+  });
+
+  await check('css: the Disconnect button reads at 4.5:1 or better in light and in dark', () => {
+    const lum = (hex: string) => {
+      const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    };
+    const ratio = (a: string, b: string) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+    const dark = GOOGLE_DISCONNECT_CSS.slice(GOOGLE_DISCONNECT_CSS.indexOf('@media (prefers-color-scheme: dark)'));
+    for (const [label, css] of [['light', GOOGLE_DISCONNECT_CSS.slice(0, GOOGLE_DISCONNECT_CSS.indexOf('@media'))], ['dark', dark]] as const) {
+      const rule = css.match(/\.gd-btn-confirm \{([^}]*)\}/)?.[1] ?? '';
+      const bg = rule.match(/background: (#[0-9a-f]{6})/i)?.[1];
+      const fg = rule.match(/(?:^|[\s;])color: (#[0-9a-f]{6})/i)?.[1];
+      assert(bg && fg, `${label}: ${rule}`);
+      assert(ratio(bg, fg) >= 4.5, `${label}: ${fg} on ${bg} is ${ratio(bg, fg).toFixed(2)}:1`);
+    }
   });
 
   // ---- The request helper ----
@@ -192,9 +216,9 @@ async function main() {
 
   await check('privacy: the retention paragraph says what happens, in en, he and ru; the old blanket promise is gone', async () => {
     const want: Record<Locale, RegExp[]> = {
-      en: [/Disconnect Google/, /revoke/i, /delete the Google refresh token/, /Also delete the FamCal copies from Google/, /FamCal · <name>/],
-      he: [/ניתוק Google/, /מבטלים את הגישה/, /אסימון/, /למחוק גם את העותקים של FamCal מ-Google/, /FamCal · <שם>/],
-      ru: [/Отключить Google/, /отзываем доступ/, /токен/, /Также удалить копии FamCal из Google/, /FamCal · <название>/],
+      en: [/Disconnect Google/, /revoke/i, /delete the Google refresh token/, /Also delete the FamCal copies from Google/, /FamCal · <name>/, /Copies you chose to keep stay in Google/, /no Google account id or email is kept/],
+      he: [/ניתוק Google/, /מבטלים את הגישה/, /אסימון/, /למחוק גם את העותקים של FamCal מ-Google/, /FamCal · <שם>/, /עותקים שבחרת להשאיר נשארים ב-Google/, /לא נשמר מזהה או כתובת של חשבון Google/],
+      ru: [/Отключить Google/, /отзываем доступ/, /токен/, /Также удалить копии FamCal из Google/, /FamCal · <название>/, /Копии, которые вы решили оставить, остаются в Google/, /идентификатор и адрес аккаунта Google не сохраняются/],
     };
     const old = [/When you disconnect your Google Calendar or delete your account/, /כאשר אתה מנתק את יומן Google או מוחק את חשבונך/, /Когда вы отключаете Google Calendar или удаляете свой аккаунт/];
     for (const [i, l] of LOCALES.entries()) {

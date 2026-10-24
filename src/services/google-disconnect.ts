@@ -3,16 +3,26 @@
  *
  * The one code path behind Settings' "Disconnect Google", for every platform (the Mini App
  * proves the user, Telegram initData or the WhatsApp session; POST /api/google-disconnect).
+ * Everything runs under the user's copy-worker lock (withUserSyncLock): a worker run already
+ * going finishes first and none starts meanwhile, so no run can write state back, send "reconnect
+ * Google" or leave a calendar behind once the token is gone. The worker reads the user and the
+ * links again after taking its lock, so a run that was only about to start finds nothing to do.
  * In this order:
- *   a. (box ticked) delete the FamCal copy calendars ("FamCal · <name>") in Google while the
- *      token still works: the worker's own Remove (turnOffInGoogle), which acts only on a
- *      calendar carrying the link's [famcal:<linkId>] token. Best effort per calendar.
+ *   a. (box ticked) delete the ACTIVE FamCal copy calendars ("FamCal · <name>") in Google while
+ *      the token still works: the worker's own Remove (turnOffInGoogle), which acts only on a
+ *      calendar carrying the link's [famcal:<linkId>] token. Best effort per calendar. A copy
+ *      the user earlier turned off with Keep is left alone in Google. The links of the deleted
+ *      calendars are dropped at once, before the revoke, so a retry after a failure later on
+ *      does not see them again.
  *   b. revoke the token at Google. Best effort. It cuts the whole grant, calendar.app.created
  *      included, which is why (a) comes first.
  *   c. clear the local state, whatever happened in (a) and (b): the token, the scopes, the
  *      Google calendar choices, the copy links, an unfinished consent, and every Redis cache
- *      holding the user's Google data. Only a failing database transaction surfaces (nothing
- *      was cleared then, and a retry finds the copies already gone).
+ *      holding the user's Google data. The links that stay (Keep, box unticked, a failed
+ *      delete) keep the Google calendar's id and nothing of the account. Only a failing
+ *      database transaction surfaces; the token may be revoked by then, so the error says so,
+ *      and a retry completes (the deleted copies' links are gone, a dead token revokes as
+ *      already revoked).
  *   d. the activity row.
  * Every failure on the way is logged and sent to Sentry; none stops the clear.
  */
@@ -28,8 +38,8 @@ import { stampGoogleCache } from './calendar-read/google';
 import { copyName } from './google-sync/calendars';
 import { syncGoogle, type CallBudget } from './google-sync/client';
 import { clearLinkRetries } from './google-sync/retries';
-import { turnOffInGoogle } from './google-sync/worker';
-import { removeUserFromCache, updateUserInCache } from './reminder-cache';
+import { turnOffInGoogle, withUserSyncLock } from './google-sync/worker';
+import { syncReminderCacheEntry } from './reminder-cache';
 import { clearGoogleTracks } from './setup-tracks';
 import { invalidateFeatureAccessCache } from './subscription-service';
 import { getUserById } from './user-service';
@@ -48,6 +58,8 @@ export interface DisconnectResult {
 
 interface LinkFacts {
   id: string;
+  enabled: boolean;
+  unlinkChoice: string | null;
   googleCalendarId: string | null;
   googleAccount: string | null;
   unlinkToken: string | null;
@@ -115,12 +127,26 @@ async function cacheStep(userId: number, step: string, work: () => Promise<unkno
   }
 }
 
+/** The user's open voice confirmation cards (voice:pending:*), found by the user inside them. */
+async function deletePendingVoice(userId: number): Promise<void> {
+  let cursor: number | string = 0;
+  do {
+    const [next, keys] = (await redis.scan(cursor, { match: 'voice:pending:*', count: 100 })) as [number | string, string[]];
+    for (const key of keys) {
+      const card = await redis.get<{ user?: { id?: unknown } } | null>(key);
+      if (card?.user?.id === userId) await redis.del(key);
+    }
+    cursor = next;
+  } while (String(cursor) !== '0');
+}
+
 /**
  * Every Redis entry holding the user's Google data: the home's read cache (the stamp, which
  * also drops the in-process recurrence cache, and the stored ranges), the live colours, the
  * gone-calendars warning, the fresh limit, the connect flag, the resolved timezone (it may
  * have come from Google's calendar), the copy links' retries, the Google setup tracks, the
- * reminder cache entry and the feature access caches.
+ * reminder cache entry, the voice flows' recent events and open cards, and the feature access
+ * caches.
  */
 async function clearGoogleCaches(userId: number, linkIds: string[]): Promise<void> {
   await cacheStep(userId, 'the read cache stamp', () => stampGoogleCache(userId));
@@ -133,30 +159,23 @@ async function clearGoogleCaches(userId: number, linkIds: string[]): Promise<voi
   await cacheStep(userId, 'the copy retries', () => clearLinkRetries(linkIds));
   await cacheStep(userId, 'the setup tracks', () => clearGoogleTracks(userId));
   // The reminder cache keeps everyone who still gets reminders (everyone has FamCal), now
-  // with no token and no Google choices, by the settings route's rule; the rest leave it.
+  // with no token and no Google choices (syncReminderCacheEntry, the one rule).
   await cacheStep(userId, 'the reminder cache entry', async () => {
     const user = await getUserById(userId);
-    if (!user) return;
-    const remindable = user.remindersEnabled && user.telegramId !== null && !user.suspendedAt && !user.unreachableSince;
-    if (!remindable) return removeUserFromCache(user.id);
-    return updateUserInCache({
-      id: user.id,
-      telegramId: user.telegramId?.toString() ?? '',
-      googleRefreshToken: user.googleRefreshToken,
-      calendarAssignments: user.calendarAssignments,
-      calendarSource: user.calendarSource,
-      pairingId: user.pairingId,
-      defaultReminderMinutes: user.defaultReminderMinutes ?? null,
-      language: user.language,
-      name: user.name,
-      pickupRemindersEnabled: user.pickupRemindersEnabled ?? true,
-      location: user.location,
-    });
+    if (user) await syncReminderCacheEntry(user);
   });
+  // The voice flows: the recent and last-created events are Google's, and an open confirmation
+  // card holds the user's whole config (Google calendar ids and the sealed token).
+  await cacheStep(userId, 'the voice recent events', () => redis.del(REDIS_KEYS.recentEvents(userId), REDIS_KEYS.lastCreatedEvent(userId)));
+  await cacheStep(userId, 'the voice confirmation cards', () => deletePendingVoice(userId));
   await cacheStep(userId, 'the feature access caches', () => invalidateFeatureAccessCache(userId));
 }
 
 export async function disconnectGoogle(userId: number, options: { deleteCopies: boolean }): Promise<DisconnectResult> {
+  return withUserSyncLock(userId, (renewLock) => disconnectLocked(userId, options, renewLock));
+}
+
+async function disconnectLocked(userId: number, options: { deleteCopies: boolean }, renewLock: () => Promise<void>): Promise<DisconnectResult> {
   const user = await getUserById(userId);
   if (!user) throw new Error(`User ${userId} not found`);
   const language = user.language ?? 'en';
@@ -164,7 +183,7 @@ export async function disconnectGoogle(userId: number, options: { deleteCopies: 
   const links: LinkFacts[] = await prisma.googleSyncLink.findMany({
     where: { userId },
     select: {
-      id: true, googleCalendarId: true, googleAccount: true, unlinkToken: true, dirtySeq: true, pushedSeq: true, pushedName: true,
+      id: true, enabled: true, unlinkChoice: true, googleCalendarId: true, googleAccount: true, unlinkToken: true, dirtySeq: true, pushedSeq: true, pushedName: true,
       nativeCalendar: { select: { name: true } },
     },
   });
@@ -176,46 +195,52 @@ export async function disconnectGoogle(userId: number, options: { deleteCopies: 
     const t = openToken(l.unlinkToken, { user_id: userId, link_id: l.id });
     return t ? [[l.id, t] as [string, string]] : [];
   }));
+  // A copy the user turned off with Keep (queued or carried out) is theirs to keep: never deleted here.
+  const keptByUser = new Set(links.filter((l) => !l.enabled && l.unlinkChoice === 'keep').map((l) => l.id));
+  const attempted = options.deleteCopies ? links.filter((l) => !keptByUser.has(l.id)) : [];
 
-  // a. The copy calendars, while the token works.
+  // a. The active copy calendars, while the token works.
   const leftover: string[] = [];
   const goneLinks = new Set<string>();
   let deleted = 0;
-  if (options.deleteCopies) {
-    const budget: CallBudget = { left: COPY_CALLS };
-    for (const link of links) {
-      const token = linkTokens.get(link.id) ?? userToken;
-      const extra = { user_id: userId, link_id: link.id };
-      if (!token) {
-        if (!link.googleCalendarId) {
-          goneLinks.add(link.id); // No calendar known and no token to look one up with: nothing in Google.
-        } else {
-          console.warn(`[google-disconnect] user ${userId}: no token for link ${link.id}; its Google calendar stays`);
-          captureError(new Error('No Google token to delete a copy calendar with'), 'google-disconnect-copy', extra, 'warning');
-          leftover.push(await nameOf(link));
-        }
-        continue;
-      }
-      try {
-        const { outcome } = await turnOffInGoogle(syncGoogle(token), budget, link, 'remove', language);
-        console.log(`[google-disconnect] user ${userId}: link ${link.id} remove: ${outcome}`);
-        if (outcome === 'deleted' || outcome === 'gone') {
-          goneLinks.add(link.id);
-          if (outcome === 'deleted') deleted += 1;
-        } else {
-          // emptied (the user's own events stay), foreign or another account: still in Google
-          if (outcome !== 'emptied') captureError(new Error(`A copy calendar was left in Google (${outcome})`), 'google-disconnect-copy', { ...extra, outcome }, 'warning');
-          leftover.push(await nameOf(link));
-        }
-      } catch (error) {
-        console.error(`[google-disconnect] user ${userId}: deleting the copy of link ${link.id} failed`, error);
-        captureError(error, 'google-disconnect-copy', extra, 'warning');
+  const budget: CallBudget = { left: COPY_CALLS };
+  for (const link of attempted) {
+    await renewLock();
+    const token = linkTokens.get(link.id) ?? userToken;
+    const extra = { user_id: userId, link_id: link.id };
+    if (!token) {
+      if (!link.googleCalendarId) {
+        goneLinks.add(link.id); // No calendar known and no token to look one up with: nothing in Google.
+      } else {
+        console.warn(`[google-disconnect] user ${userId}: no token for link ${link.id}; its Google calendar stays`);
+        captureError(new Error('No Google token to delete a copy calendar with'), 'google-disconnect-copy', extra, 'warning');
         leftover.push(await nameOf(link));
       }
+      continue;
+    }
+    try {
+      const { outcome } = await turnOffInGoogle(syncGoogle(token), budget, link, 'remove', language);
+      console.log(`[google-disconnect] user ${userId}: link ${link.id} remove: ${outcome}`);
+      if (outcome === 'deleted' || outcome === 'gone') {
+        goneLinks.add(link.id);
+        if (outcome === 'deleted') deleted += 1;
+      } else {
+        // emptied (the user's own events stay), foreign or another account: still in Google
+        if (outcome !== 'emptied') captureError(new Error(`A copy calendar was left in Google (${outcome})`), 'google-disconnect-copy', { ...extra, outcome }, 'warning');
+        leftover.push(await nameOf(link));
+      }
+    } catch (error) {
+      console.error(`[google-disconnect] user ${userId}: deleting the copy of link ${link.id} failed`, error);
+      captureError(error, 'google-disconnect-copy', extra, 'warning');
+      leftover.push(await nameOf(link));
     }
   }
+  // The deleted calendars' links go now, before the revoke: if anything after this fails, the
+  // retry (whose token is revoked by then) must not take them for copies it can't delete.
+  if (goneLinks.size > 0) await prisma.googleSyncLink.deleteMany({ where: { id: { in: [...goneLinks] } } });
 
   // b. The token at Google: the user's, and any a merged-away account left on a copy.
+  await renewLock();
   const tokens = [...new Set([userToken, ...linkTokens.values()].filter(Boolean))];
   let revoked = tokens.length > 0;
   for (const token of tokens) {
@@ -223,18 +248,19 @@ export async function disconnectGoogle(userId: number, options: { deleteCopies: 
   }
 
   // c. Local state, always.
+  await renewLock();
   await prisma.$transaction(async (tx) => {
     await tx.user.update({
       where: { id: userId },
       data: { googleRefreshToken: '', googleScopes: [], googleSyncNotifiedAt: null, calendarAssignments: Prisma.DbNull },
     });
-    if (goneLinks.size > 0) await tx.googleSyncLink.deleteMany({ where: { id: { in: [...goneLinks] } } });
     // The rest stay, turned off with nothing queued: the worker stops, and FamCal keeps
-    // hiding their Google calendars from its Google lists if the user connects again.
+    // hiding their Google calendars from its Google lists if the user connects again. That
+    // needs only the calendar's id: the Google account (usually the email address) is cleared.
     for (const link of links.filter((l) => !goneLinks.has(l.id))) {
       await tx.googleSyncLink.update({
         where: { id: link.id },
-        data: { enabled: false, unlinkChoice: null, unlinkToken: null, pushedSeq: link.dirtySeq, lastError: null },
+        data: { enabled: false, unlinkChoice: null, unlinkToken: null, pushedSeq: link.dirtySeq, lastError: null, googleAccount: null },
       });
     }
     await tx.oAuthState.deleteMany({ where: { userId: BigInt(userId) } });
@@ -242,8 +268,8 @@ export async function disconnectGoogle(userId: number, options: { deleteCopies: 
   await clearGoogleCaches(userId, links.map((l) => l.id));
 
   // d. The activity row.
-  const kept = options.deleteCopies ? 0 : links.filter((l) => l.googleCalendarId).length;
+  const kept = links.filter((l) => l.googleCalendarId && !goneLinks.has(l.id) && !attempted.includes(l)).length;
   await trackActivity(userId, 'calendar_disconnected', { provider: 'google', copies_deleted: deleted, copies_left: leftover.length + kept, revoked });
-  console.log(`[google-disconnect] user ${userId}: disconnected (${deleted} copy calendars deleted, ${leftover.length} left to remove, revoked ${revoked})`);
+  console.log(`[google-disconnect] user ${userId}: disconnected (${deleted} copy calendars deleted, ${leftover.length} left to remove, ${kept} kept, revoked ${revoked})`);
   return { leftover, revoked };
 }

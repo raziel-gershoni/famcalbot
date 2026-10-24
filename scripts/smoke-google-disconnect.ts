@@ -127,7 +127,17 @@ const store = new Map<string, unknown>();
 const glob = (pattern: string) => new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`);
 const fakeRedis: Row = {
   get: async (k: string) => (store.has(k) ? store.get(k) : null),
-  set: async (k: string, v: unknown) => { store.set(k, v); return 'OK'; },
+  set: async (k: string, v: unknown, o?: { nx?: boolean }) => {
+    if (o?.nx && store.has(k)) return null;
+    store.set(k, v);
+    return 'OK';
+  },
+  /** The sync lock's two scripts (worker.ts RENEW_LOCK, RELEASE_LOCK): act only while the key holds the caller's token. */
+  eval: async (script: string, keys: string[], args: unknown[]) => {
+    if (store.get(keys[0]) !== args[0]) return 0;
+    if (/'del'/.test(script)) { store.delete(keys[0]); return 1; }
+    return 1;
+  },
   mget: async (...ks: string[]) => ks.map((k) => (store.has(k) ? store.get(k) : null)),
   del: async (...ks: string[]) => {
     let n = 0;
@@ -309,6 +319,7 @@ const keysOf = (userId: number) => ({
   stamp: REDIS_KEYS.gcalStamp(userId), colours: REDIS_KEYS.gcalColours(userId), gone: REDIS_KEYS.gcalGoneWarned(userId),
   range: `gcal:range:v1:${userId}:abc123:Asia/Jerusalem:2026-10-01:2026-10-08`, fresh: REDIS_KEYS.gcalFresh(userId, '2026-10-01', '2026-10-08'),
   connected: REDIS_KEYS.googleConnected(userId), tz: REDIS_KEYS.userTimezone(userId),
+  recent: REDIS_KEYS.recentEvents(userId), lastCreated: REDIS_KEYS.lastCreatedEvent(userId),
 });
 
 function seed(o: { copies?: string[]; extra?: (() => void) } = {}) {
@@ -348,6 +359,12 @@ function seed(o: { copies?: string[]; extra?: (() => void) } = {}) {
     store.set(REDIS_KEYS.setupTrackStart(uid, 'calendars'), 'x');
     store.set(REDIS_KEYS.setupReminder(uid, 'reconnect', 0), 'x');
   }
+  // A voice confirmation card still open holds the user's whole config (Google ids included)
+  store.set(REDIS_KEYS.pendingEvent('p-me'), { user: { id: ME }, event: {} });
+  store.set(REDIS_KEYS.pendingEdit('p-me'), { user: { id: ME }, updates: {} });
+  store.set(REDIS_KEYS.pendingDelete('p-me'), { user: { id: ME } });
+  store.set(REDIS_KEYS.pendingBatch('p-me'), { user: { id: ME } });
+  store.set(REDIS_KEYS.pendingEvent('p-other'), { user: { id: OTHER }, event: {} });
   store.set(REDIS_KEYS.googleSyncLinkRetry('L1'), '2:99999');
   store.set(REDIS_KEYS.googleSyncLinkRetry('LO'), '2:99999');
   store.set(REDIS_KEYS.REMINDER_USERS, [
@@ -626,6 +643,93 @@ async function main() {
     assert(filter.isCopy({ id: 'g-L1' }) && filter.isCopy({ id: 'g-L2' }), 'copy calendars no longer hidden');
     await links.restoreSyncLinks(ME, ['https://www.googleapis.com/auth/calendar.app.created']);
     assert(link('L1').enabled === false && link('L1').state === 'ok', `link ${show(link('L1'))}`);
+  });
+
+
+  // ---- Review r3: the sync lock (I1) ----
+
+  await check('I1 lock: disconnect waits while a copy-worker run holds the user\'s sync lock (no Google call, no revoke, no clear meanwhile), then runs, and frees the lock', async () => {
+    seed();
+    const lockKey = REDIS_KEYS.googleSyncLock(ME);
+    store.set(lockKey, 'a-worker-run');
+    let done = false;
+    const pending = run(true).then((r: Row) => { done = true; return r; });
+    await new Promise((r) => setTimeout(r, 120));
+    assert(!done && events.length === 0 && row('user', ME)!.googleRefreshToken !== '', `it did not wait: ${show(events)}`);
+    store.delete(lockKey);
+    const res = await pending;
+    assert(done && res.revoked === true && row('user', ME)!.googleRefreshToken === '', `res ${show(res)}`);
+    assert(!store.has(lockKey), 'the lock was left behind');
+  });
+
+  await check('I1 lock: the lock is freed when the disconnect fails too, and another user\'s lock is never taken', async () => {
+    seed();
+    failTransaction = true;
+    store.set(REDIS_KEYS.googleSyncLock(OTHER), 'other-run');
+    try { await run(true); } catch { /* expected */ }
+    assert(!store.has(REDIS_KEYS.googleSyncLock(ME)), 'the lock was left behind after a failure');
+    assert(store.get(REDIS_KEYS.googleSyncLock(OTHER)) === 'other-run', 'the other user\'s lock was touched');
+  });
+
+  // ---- Review r3: copies the user chose to Keep (I2) ----
+
+  await check('I2: with the box ticked only the ACTIVE copies are deleted; a copy the user turned off with Keep stays in Google untouched, is not listed, and its row stays (turned off)', async () => {
+    seed();
+    Object.assign(link('L1'), { enabled: false, unlinkChoice: 'keep', pushedSeq: 3, dirtySeq: 3 });
+    const res = await run(true);
+    assert(google.calendars.has('g-L1') && google.calendars.get('g-L1')!.events.length === 1 && !google.calendars.has('g-L2'), `calendars ${show([...google.calendars.keys()])}`);
+    assert(!events.some((e) => e.includes('g-L1')), `g-L1 was touched ${show(events)}`);
+    assert(show(res.leftover) === '[]', `leftover ${show(res.leftover)}`);
+    const l = link('L1');
+    assert(l && l.enabled === false && l.googleCalendarId === 'g-L1', `kept link ${show(l)}`);
+    assert(!link('L2'), 'the deleted copy\'s row should be gone');
+    const a = tracked.filter((t) => t.action === 'calendar_disconnected');
+    assert(a[0].meta.copies_deleted === 1 && a[0].meta.copies_left === 1, `activity ${show(a)}`);
+  });
+
+  await check('I2: a Keep still queued (not yet carried out) is the user\'s choice too: that calendar is not deleted', async () => {
+    seed();
+    Object.assign(link('L1'), { enabled: false, unlinkChoice: 'keep', pushedSeq: 2, dirtySeq: 3 });
+    await run(true);
+    assert(google.calendars.has('g-L1') && !events.some((e) => e.includes('g-L1')), `events ${show(events)}`);
+  });
+
+  // ---- Review r3: a retry after a failed clear (M1) ----
+
+  await check('M1: the database failing after the revoke: the copies already deleted are not remembered as left over on the retry (their rows are gone), and the retry completes with the dead token', async () => {
+    seed();
+    failTransaction = true;
+    let threw = false;
+    try { await run(true); } catch { threw = true; }
+    assert(threw && revokes.length === 1, 'it should have revoked, then thrown');
+    assert(!T('googleSyncLink').some((l) => l.userId === ME), `the deleted copies' rows are still there ${show(T('googleSyncLink').map((l) => l.id))}`);
+    failTransaction = false;
+    google.failAccount.add(TOKEN); // Google has the token as revoked now
+    revokeAnswer = { status: 400, body: { error: 'invalid_token' } };
+    const res = await run(true);
+    assert(show(res.leftover) === '[]' && res.revoked === true && row('user', ME)!.googleRefreshToken === '', `retry ${show(res)}`);
+  });
+
+  // ---- Review r3: the rest of the minors ----
+
+  await check('M2: the voice caches that point at Google go: recent events, last created, and the user\'s own open confirmation cards (not another user\'s)', async () => {
+    seed();
+    await run(true);
+    const k = keysOf(ME);
+    assert(!store.has(k.recent) && !store.has(k.lastCreated), 'recent or last-created left');
+    for (const key of [REDIS_KEYS.pendingEvent('p-me'), REDIS_KEYS.pendingEdit('p-me'), REDIS_KEYS.pendingDelete('p-me'), REDIS_KEYS.pendingBatch('p-me')]) assert(!store.has(key), `${key} left`);
+    assert(store.has(REDIS_KEYS.pendingEvent('p-other')) && store.has(keysOf(OTHER).recent) && store.has(keysOf(OTHER).lastCreated), 'another user\'s voice state was deleted');
+  });
+
+  await check('M4: no Google account id or email is kept on a kept link (box unticked, or a copy that failed to delete); the calendar id stays', async () => {
+    seed();
+    google.calendars.get('g-L1')!.failDelete = true;
+    await run(true);
+    assert(link('L1') && link('L1').googleAccount === null && link('L1').googleCalendarId === 'g-L1', `link ${show(link('L1'))}`);
+    seed();
+    await run(false);
+    for (const id of ['L1', 'L2']) assert(link(id).googleAccount === null && link(id).googleCalendarId === `g-${id}`, `${id} ${show(link(id))}`);
+    assert(link('LO').googleAccount === ACCOUNT, 'another user\'s link changed');
   });
 
   // ---- Route ----
