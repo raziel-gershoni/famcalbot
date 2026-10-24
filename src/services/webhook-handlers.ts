@@ -573,6 +573,27 @@ export async function handleWhatsAppWebhook(
           },
           'warning',
         );
+        // A recipient Meta says can never receive is skipped from now on, like a blocked Telegram chat.
+        if (errorInfo) {
+          try {
+            const { isUnreachableError } = await import('../lib/delivery-errors');
+            const failure = Object.assign(new Error(`WhatsApp delivery failed: ${errorInfo.title}`), { whatsappError: errorInfo });
+            if (isUnreachableError(failure)) {
+              const recipient = /^\d+$/.test(status.recipient_id) ? `+${status.recipient_id}` : status.recipient_id;
+              const { getUserByWhatsAppId } = await import('./user-service');
+              const failedUser = await getUserByWhatsAppId(recipient);
+              if (failedUser) {
+                const { markUnreachableAfterWhatsAppFailure } = await import('../lib/user-reachability');
+                await markUnreachableAfterWhatsAppFailure(failedUser, failure);
+              } else {
+                console.warn(`[WhatsApp Status] No user for failed recipient ${status.recipient_id}; nothing to flag`);
+              }
+            }
+          } catch (statusError) {
+            console.error('[WhatsApp Status] Could not flag the unreachable recipient:', statusError);
+            captureError(statusError, 'whatsapp-status-unreachable', { recipient_id: status.recipient_id }, 'warning');
+          }
+        }
       } else {
         console.log(`[WhatsApp Status] ${status.status} msg=${status.id} to=${status.recipient_id}`);
       }
@@ -631,6 +652,10 @@ export async function handleWhatsAppWebhook(
         const { getUserByWhatsAppId } = await import('./user-service');
         const user = await getUserByWhatsAppId(fromId);
         if (user) {
+          if (user.unreachableSince) {
+            const { clearUserUnreachable } = await import('../lib/user-reachability');
+            await clearUserUnreachable(user.id);
+          }
           await handleWhatsAppVoice(fromId, user, mediaId);
         }
       } finally {
@@ -704,6 +729,13 @@ export async function handleWhatsAppWebhook(
     console.log(`[Moderation] Dropped WhatsApp message from suspended user ${user.id}`);
     res.status(200).json({ ok: true });
     return;
+  }
+
+  // Hearing from them proves WhatsApp reaches them again, so lift any unreachable flag
+  // (the Telegram webhook does the same). clearUserUnreachable logs its own failures.
+  if (user?.unreachableSince) {
+    const { clearUserUnreachable } = await import('../lib/user-reachability');
+    await clearUserUnreachable(user.id);
   }
 
   // Backfill BSUID for existing phone-based users.

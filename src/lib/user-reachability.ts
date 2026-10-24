@@ -6,13 +6,14 @@
  * populations can skip them. Before this existed, a blocked user was retried on every
  * run forever - three failed sends each time, and an admin warning on the third.
  *
- * The flag clears itself: unblocking the bot lets their next message reach the
- * webhook, and handleTelegramWebhook clears it there.
+ * The flag clears itself: their next message reaches the webhook (handleTelegramWebhook or
+ * handleWhatsAppWebhook), and the webhook clears it there.
  */
 
 import { prisma } from '../utils/prisma';
 import { trackActivityAsync } from '../services/analytics-service';
 import { captureError } from './error-capture';
+import { describeDeliveryError, isUnreachableError } from './delivery-errors';
 
 /**
  * Record that we can no longer deliver to this user.
@@ -37,6 +38,26 @@ export async function markUserUnreachable(userId: number, reason: string): Promi
     // Never let bookkeeping break a delivery path.
     captureError(error, 'reachability-mark', { user_id: userId }, 'warning');
   }
+}
+
+/**
+ * After a WhatsApp send failed: flag the user when Meta says they can never receive (see
+ * delivery-errors). The flag is for the whole user, so it is set only when WhatsApp is their
+ * only channel; someone who also has Telegram still gets their Telegram messages.
+ * Returns true when the user was flagged.
+ */
+export async function markUnreachableAfterWhatsAppFailure(
+  user: { id: number; telegramId: number | null },
+  error: unknown
+): Promise<boolean> {
+  if (!isUnreachableError(error)) return false;
+  const reason = `WhatsApp: ${describeDeliveryError(error)}`;
+  if (user.telegramId !== null) {
+    console.warn(`[Reachability] User ${user.id} cannot receive on WhatsApp (${reason}); not flagged, Telegram still works`);
+    return false;
+  }
+  await markUserUnreachable(user.id, reason);
+  return true;
 }
 
 /**

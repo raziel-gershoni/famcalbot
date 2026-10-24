@@ -938,6 +938,10 @@ export async function routeTextMessage(
     } catch (e) {
       console.error(`[Delivery] WA text failed for user ${user.id} (${getWhatsAppChatId(user)}):`, e);
       captureError(e, 'whatsapp-delivery', { user_id: userId, service: 'sendMessage' });
+
+      // Meta says this recipient can never receive: stop the retries, as for a blocked Telegram chat.
+      const { markUnreachableAfterWhatsAppFailure } = await import('../../lib/user-reachability');
+      await markUnreachableAfterWhatsAppFailure(user, e);
     }
   }
 }
