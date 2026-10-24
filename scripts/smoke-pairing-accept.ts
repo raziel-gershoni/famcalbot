@@ -38,6 +38,7 @@
 // Run with the fake env from the task brief (no dotenv):
 //   npx tsx scripts/smoke-pairing-accept.ts
 
+import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { AsyncLocalStorage } from 'async_hooks';
@@ -1021,11 +1022,29 @@ async function main() {
   });
 
   await check('#17 the invite page: an accept answered ALREADY_PAIRED_TOGETHER shows the news outside the rose error box and drops the Accept button, in en/he/ru; another error keeps the rose box and the button', async () => {
-    const InviteClient = (await load('app/[locale]/invite/[token]/InviteClient.tsx')).default;
     const { POST } = await load('app/api/pair/accept/route.ts');
     const g = globalThis as Row;
     const blocked = g.fetch;
     const problems: string[] = [];
+    // The page reads its copy through next-intl's useTranslations, which needs a provider the
+    // hook stand-in lacks: serve the real translator for the case's locale from the real messages.
+    const { createTranslator } = nodeRequire('next-intl');
+    // next-intl's client entry points, which InviteClient's import resolves to
+    const nextIntlRels = [
+      'node_modules/next-intl/dist/esm/production/index.react-client.js',
+      'node_modules/next-intl/dist/esm/production/react-client/index.js',
+    ];
+    let caseLocale = 'en';
+    for (const rel of nextIntlRels) {
+      stub(rel, {
+        useTranslations: (namespace: string) => createTranslator({
+          locale: caseLocale,
+          messages: JSON.parse(fs.readFileSync(path.join(ROOT, `messages/${caseLocale}.json`), 'utf8')),
+          namespace,
+        }),
+      });
+    }
+    const InviteClient = (await load('app/[locale]/invite/[token]/InviteClient.tsx')).default;
     // The phone's fetch reaches the real accept route; the server has no window
     g.fetch = async (url: string, init: RequestInit) => {
       const phone = g.window;
@@ -1044,6 +1063,7 @@ async function main() {
         { locale: 'en', tgId: 7770005, together: false, news: 'The inviter is already paired with someone else.' },
       ]) {
         pairedSeed();
+        caseLocale = c.locale;
         const noop = () => undefined;
         g.window = { Telegram: { WebApp: { initData: initDataFor(c.tgId), initDataUnsafe: { user: { id: c.tgId } }, ready: noop, expand: noop, close: noop } } };
         const app = runClient(InviteClient, {
@@ -1065,6 +1085,10 @@ async function main() {
     } finally {
       g.fetch = blocked;
       delete g.window;
+      for (const rel of nextIntlRels) {
+        delete stubs[path.join(ROOT, rel)];
+        delete Module._cache[path.join(ROOT, rel)];
+      }
     }
     assert(problems.length === 0, problems.join('; '));
   });
