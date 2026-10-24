@@ -192,6 +192,7 @@ export async function prepareSummaryForUser(
   // half only, as the day.
   let weekLookaheadText: string | undefined;
   let lookaheadMs = 0;
+  let weekAheadFailed = false;
   if (summaryDate && user.includeLookaheadInTomorrow) {
     onStageChange?.('lookingAhead');
     const tLookahead = Date.now();
@@ -206,6 +207,7 @@ export async function prepareSummaryForUser(
     } catch (error) {
       console.error('Failed to fetch week lookahead:', error);
       captureError(error, 'summary-week-lookahead', { user_id: user.id }, 'warning');
+      weekAheadFailed = true;
     }
     lookaheadMs = Date.now() - tLookahead;
   }
@@ -248,10 +250,12 @@ export async function prepareSummaryForUser(
   // A summary without Google's events says so under it. deliverSummary sends this text and
   // voices it, so the line reaches both (A-32). An empty answer stays empty, so
   // deliverSummary still answers it with "could not generate".
+  // A failed week block is told the same way: a short note under the text, never a silent gap.
   let summary = generated;
-  if (googleMissing && generated.trim() !== '') {
+  if ((googleMissing || weekAheadFailed) && generated.trim() !== '') {
     const t = await getBotMessages(user.language || 'en');
-    summary = `${generated}\n\n<i>${t.errors.googleOutageNote}</i>`;
+    if (googleMissing) summary = `${summary}\n\n<i>${t.errors.googleOutageNote}</i>`;
+    if (weekAheadFailed) summary = `${summary}\n\n<i>${t.errors.weekAheadNote}</i>`;
   }
 
   // Generate date header for voice-only delivery

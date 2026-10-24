@@ -374,7 +374,7 @@ async function main() {
   const bot = Object.fromEntries(
     ['en', 'he', 'ru'].map(lang => [lang, JSON.parse(fs.readFileSync(path.resolve(__dirname, `../messages/${lang}.json`), 'utf8')).bot as BotTexts])
   );
-  const text = (lang: string, key: 'googleUnreachable' | 'googleOutageNote') => {
+  const text = (lang: string, key: 'googleUnreachable' | 'googleOutageNote' | 'weekAheadNote') => {
     const value = bot[lang].errors[key];
     assert(typeof value === 'string' && value.trim() !== '', `bot.errors.${key} is missing in messages/${lang}.json (Task C2 adds it)`);
     return value;
@@ -506,15 +506,16 @@ async function main() {
     assertEqual(result.summary, 'AI summary', 'the summary text');
   });
 
-  await check("[guard] the week block's own Google outage degrades the tomorrow summary: it goes out without the block and with no outage line, and Sentry gets a warning (A-28)", async () => {
+  await check("[guard] the week block's own Google outage degrades the tomorrow summary: it goes out without the block, with a week-ahead note and no outage line, and Sentry gets a warning (A-28)", async () => {
     // The day read answered; only the week block (the reader's lookahead, C5) failed.
     lookaheadOutcome = failWith('GOOGLE_FETCH_FAILED');
     await summary.sendTomorrowSummaryToUser(1003);
     assertEqual(lookaheadRefs, [NOON_18TH], 'the week block was asked');
     assertEqual(aiCalls.map(a => [a.events.flat(), a.weekLookahead ?? null]), [[['sun'], null]], "the AI's events and week block");
     assert(!('googleUnavailable' in aiCalls[0].context), `the prompt context: ${show(aiCalls[0].context)}`);
-    assertEqual(messages(), [['telegram', 'sendMessage', 1003, 'AI summary']], 'what the user got');
-    assertEqual(voice, ['AI summary'], 'the voice text');
+    const note = `AI summary\n\n<i>${text('he', 'weekAheadNote')}</i>`;
+    assertEqual(messages(), [['telegram', 'sendMessage', 1003, note]], 'what the user got');
+    assertEqual(voice, [note], 'the voice text');
     assertEqual(captured, ['summary-week-lookahead warning GOOGLE_FETCH_FAILED'], 'Sentry');
     assertEqual(admin, [], 'admin pages');
   });

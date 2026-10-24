@@ -776,7 +776,8 @@
       "aiBusy": "The AI service is currently busy. Please try again in a few minutes.",
       "voiceGenerationFailed": "Voice message unavailable — your text summary is above.",
       "googleUnreachable": "Couldn't reach Google Calendar. Please try again in a minute.",
-      "googleOutageNote": "⚠️ Couldn't reach Google Calendar, so your Google events aren't in this summary. You can ask for a new one in a few minutes."
+      "googleOutageNote": "⚠️ Couldn't reach Google Calendar, so your Google events aren't in this summary. You can ask for a new one in a few minutes.",
+      "weekAheadNote": "⚠️ Couldn't load your week ahead, so it's not included in this summary."
     },
     "buttons": {
       "openSettings": "⚙️ Open Settings",
