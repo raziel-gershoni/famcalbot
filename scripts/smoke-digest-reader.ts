@@ -150,7 +150,7 @@ async function waitForRealIo(done: () => boolean): Promise<void> {
     await new Promise(resolve => realSetTimeout(resolve, 1));
   }
   const waited = performance.now() - start;
-  if (waited > 50) console.error(`[virtual time] waited ${Math.round(waited)} ms for real I/O before the next timer`);
+  if (waited > 50) process.stderr.write(`[virtual time] waited ${Math.round(waited)} ms for real I/O before the next timer\n`);
 }
 
 /**
@@ -184,7 +184,7 @@ async function runVirtual<T>(work: () => Promise<T>): Promise<T> {
       if (!next) throw new Error('virtual time: the work is waiting on something that is not a timer');
       if (next.due - clock > 10_000) {
         // TEMP diagnostic (CI-only failure): what is in flight when the clock jumps far ahead.
-        console.error(`[virtual time] jump +${next.due - clock} ms; resources ${JSON.stringify(process.getActiveResourcesInfo())}; pending ${JSON.stringify(virtualTimers.filter(t => !t.cleared).map(t => t.due - clock))}; log tail ${JSON.stringify(log.slice(-4))}`);
+        process.stderr.write(`[virtual time] jump +${next.due - clock} ms; resources ${JSON.stringify(process.getActiveResourcesInfo())}; pending ${JSON.stringify(virtualTimers.filter(t => !t.cleared).map(t => t.due - clock))}; log tail ${JSON.stringify(log.slice(-4))}\n`);
       }
       next.cleared = true;
       clock = Math.max(clock, next.due);
@@ -928,7 +928,7 @@ const stubs: Record<string, object | ((real: RealModule) => object)> = {
     },
     notifyAdminError: async (title: string, error?: unknown) => {
       // TEMP diagnostic (CI-only failure): the error behind the notice.
-      console.error(`[admin error] ${title}:`, error instanceof Error ? error.stack : error);
+      process.stderr.write(`[admin error] ${title}: ${error instanceof Error ? error.stack : String(error)}\n`);
       log.push(`admin error ${title}`);
       adminErrors.push(title);
     },
