@@ -561,6 +561,8 @@
     "remindersBetaDescription": "Event alerts are in beta (coming soon)",
     "defaultReminderMinutes": "Default alert time",
     "defaultReminderMinutesHelp": "How long before an event to send the alert (when the event has no alert of its own)",
+    "reminderTime": "Reminder time",
+    "reminderTimeHelp": "When reminders with no time of day arrive, and reminders you snooze to tomorrow",
     "pickupRemindersEnabled": "Pickup alerts",
     "pickupRemindersDescription": "For kids' calendars, also get an alert when the event ends (pickup)",
     "minutes": "min",

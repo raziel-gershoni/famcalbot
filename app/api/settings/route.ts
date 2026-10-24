@@ -9,6 +9,8 @@ import { resolveTimezoneForLocation } from '@/src/lib/timezone';
 import { redis } from '@/src/utils/redis';
 import { prisma } from '@/src/utils/prisma';
 import { REDIS_KEYS } from '@/src/config/redis-keys';
+import { invalidateDueGate } from '@/src/services/native-reminders/due-gate';
+import { isValidReminderTime, reminderTimeOf } from '@/src/lib/reminder-time';
 
 const TIMEZONE_CACHE_TTL = 24 * 60 * 60; // as resolveUserTimezone caches it
 
@@ -31,7 +33,7 @@ export async function POST(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
     const body = await request.json();
-    const { language, location, messagingPlatform, culture, globalRules, name, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, preferredMorningHour, preferredEveningHour, dailySummaryDays, tomorrowSummaryDays, remindersEnabled, defaultReminderMinutes, pickupRemindersEnabled, voiceInputEnabled, initData } = body;
+    const { language, location, messagingPlatform, culture, globalRules, name, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, preferredMorningHour, preferredEveningHour, dailySummaryDays, tomorrowSummaryDays, remindersEnabled, defaultReminderMinutes, reminderTime, pickupRemindersEnabled, voiceInputEnabled, initData } = body;
 
     // Authentication and rate limiting
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'settings');
@@ -52,6 +54,9 @@ export async function POST(request: NextRequest) {
     }
     if (name !== undefined && (typeof name !== 'string' || name.length > 50)) {
       return NextResponse.json({ error: 'Invalid name' }, { status: 400 });
+    }
+    if (reminderTime !== undefined && !isValidReminderTime(reminderTime)) {
+      return NextResponse.json({ error: 'Invalid reminderTime' }, { status: 400 });
     }
     const isValidDaysArray = (arr: unknown): arr is number[] =>
       Array.isArray(arr) && arr.length >= 1 && arr.length <= 7 &&
@@ -87,9 +92,13 @@ export async function POST(request: NextRequest) {
       tomorrowSummaryDays: isValidDaysArray(tomorrowSummaryDays) ? tomorrowSummaryDays : undefined,
       remindersEnabled: typeof remindersEnabled === 'boolean' ? remindersEnabled : undefined,
       defaultReminderMinutes: typeof defaultReminderMinutes === 'number' ? defaultReminderMinutes : undefined,
+      reminderTime: isValidReminderTime(reminderTime) ? reminderTime : undefined,
       pickupRemindersEnabled: typeof pickupRemindersEnabled === 'boolean' ? pickupRemindersEnabled : undefined,
       voiceInputEnabled: typeof voiceInputEnabled === 'boolean' ? voiceInputEnabled : undefined
     });
+
+    // A new reminder time moves the date-only pings the due gate has memoed: wake the pass.
+    if (isValidReminderTime(reminderTime) && reminderTime !== reminderTimeOf(auth.user)) invalidateDueGate();
 
     // The lookup runs after the response, so the save answers at once.
     if (locationChanged) {

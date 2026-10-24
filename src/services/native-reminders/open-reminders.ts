@@ -45,7 +45,7 @@ export function openRemindersCutoff(summaryDay: string, timezone: string, now: D
  * time has passed is marked open (a snoozed one too: it is not done). Everything
  * else passes through untouched.
  */
-export function shapeDayReminders(events: CalendarEvent[], now: Date, timezone: string): CalendarEvent[] {
+export function shapeDayReminders(events: CalendarEvent[], now: Date, timezone: string, reminderTime?: string | null): CalendarEvent[] {
   const shaped: CalendarEvent[] = [];
   for (const event of events) {
     if (!isReminderEvent(event)) {
@@ -53,7 +53,7 @@ export function shapeDayReminders(events: CalendarEvent[], now: Date, timezone: 
       continue;
     }
     if (event.reminder?.done) continue;
-    const open = reminderDueAt(event, timezone) < now;
+    const open = reminderDueAt(event, timezone, reminderTime) < now;
     shaped.push(open ? { ...event, reminder: { ...(event.reminder ?? OWN_REMINDER), open: true } } : event);
   }
   return shaped;
@@ -99,9 +99,10 @@ export function selectOpenReminders(
   summaryDay: string,
   timezone: string,
   now: Date,
-  cap: number = OPEN_REMINDERS_DIGEST_CAP
+  cap: number = OPEN_REMINDERS_DIGEST_CAP,
+  reminderTime?: string | null
 ): { events: CalendarEvent[]; moreCount: number } {
-  const { items, moreCount } = selectOpenReminderItems(candidates, ctx, cutoff, summaryDay, timezone, now, cap);
+  const { items, moreCount } = selectOpenReminderItems(candidates, ctx, cutoff, summaryDay, timezone, now, cap, reminderTime);
   return { events: items.map(i => i.event), moreCount };
 }
 
@@ -113,7 +114,8 @@ function selectOpenReminderItems(
   summaryDay: string,
   timezone: string,
   now: Date,
-  cap: number
+  cap: number,
+  reminderTime?: string | null
 ): { items: OpenReminderItem[]; moreCount: number } {
   const summaryRange = { from: startOfLocalDay(summaryDay, timezone), to: startOfLocalDay(nextDate(summaryDay), timezone) };
   const open: Array<{ due: Date; item: OpenReminderItem }> = [];
@@ -133,7 +135,7 @@ function selectOpenReminderItems(
     if (!occurrence) continue;
     if (onSummaryDay) continue;
     const event = toUnifiedEvent(calendar, occurrence);
-    const due = reminderDueAt(event, timezone);
+    const due = reminderDueAt(event, timezone, reminderTime);
     if (due >= cutoff) continue; // a date-only one whose morning has not come yet
     // Never armed: due before the series was created or re-timed, so never pinged and
     // with no state. Showing it as open would be a phantom.
@@ -173,7 +175,7 @@ export async function fetchOpenReminders(
   cap: number = OPEN_REMINDERS_DIGEST_CAP
 ): Promise<{ events: CalendarEvent[]; moreCount: number }> {
   const candidates = await loadOpenReminderCandidates(ctx, cutoff);
-  return selectOpenReminders(candidates, ctx, cutoff, summaryDay, timezone, new Date(), cap);
+  return selectOpenReminders(candidates, ctx, cutoff, summaryDay, timezone, new Date(), cap, user.reminderTime);
 }
 
 /**
@@ -190,7 +192,7 @@ export async function fetchOpenReminderItems(
   cap: number = OPEN_REMINDERS_DIGEST_CAP
 ): Promise<{ items: OpenReminderItem[]; moreCount: number }> {
   const candidates = await loadOpenReminderCandidates(ctx, cutoff);
-  return selectOpenReminderItems(candidates, ctx, cutoff, summaryDay, timezone, new Date(), cap);
+  return selectOpenReminderItems(candidates, ctx, cutoff, summaryDay, timezone, new Date(), cap, user.reminderTime);
 }
 
 /** The one read behind fetchOpenReminders and fetchOpenReminderItems: each series with its calendar, overrides and state rows. */
@@ -236,7 +238,7 @@ export async function addDigestReminders(
   timezone: string,
   now: Date = new Date()
 ): Promise<{ events: CalendarEvent[]; moreCount: number }> {
-  const events = shapeDayReminders(dayEvents, now, timezone);
+  const events = shapeDayReminders(dayEvents, now, timezone, user.reminderTime);
   try {
     const ctx = await loadViewerContext(user);
     const open = await fetchOpenReminders(user, ctx, openRemindersCutoff(summaryDay, timezone, now), summaryDay, timezone);

@@ -24,8 +24,6 @@ import {
   type UpdateItemBody,
 } from './editor-types';
 
-/** When a reminder with no time arrives, as the bot's date-only reminders do (spec §2). */
-export const REMINDER_DEFAULT_TIME = '09:00';
 /** What a new event lasts, and the time a new one on another day starts at. */
 export const DEFAULT_EVENT_MINUTES = 60;
 export const DEFAULT_EVENT_TIME = '09:00';

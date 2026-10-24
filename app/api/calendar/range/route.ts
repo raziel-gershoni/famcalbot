@@ -186,7 +186,7 @@ export async function GET(request: NextRequest) {
     if (famcal?.status === 'ok' && from <= today && today < to) {
       try {
         const open = await fetchOpenReminderItems(user, famcal.ctx, openRemindersCutoff(today, tz, now), today, tz, Infinity);
-        carryOvers = carryOverReadItems(famcal, open.items).map((item) => toCarryOverDto(item, tz, now));
+        carryOvers = carryOverReadItems(famcal, open.items).map((item) => toCarryOverDto(item, tz, now, user.reminderTime));
       } catch (err) {
         captureError(err, 'calendar-range-carryovers', { user_id: user.id }, 'warning');
       }
@@ -206,7 +206,7 @@ export async function GET(request: NextRequest) {
       sources: sourcesDto(applicable, read),
       partner: famcal?.status === 'ok' && famcal.partner ? { name: famcal.partner.name } : null,
       calendars: legend.map(toCalendarDto),
-      days: toRangeDays(read.items, from, to, tz, now, today),
+      days: toRangeDays(read.items, from, to, tz, now, today, user.reminderTime),
       ...(carryOvers ? { carryOvers } : {}),
     };
     return json(body);

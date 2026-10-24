@@ -66,7 +66,7 @@ async function resolveWithPartner(
   const calendar = await getMainNativeCalendar(user.id);
   const target = targetFor(event, partner);
   const times = normalizeReminderTimes(startTime, allDay, timezone);
-  const notice = target.notice ?? timeNotice(times.startsAt, allDay, event.recurrence, timezone, now);
+  const notice = target.notice ?? timeNotice(times.startsAt, allDay, event.recurrence, timezone, now, user.reminderTime);
   return {
     ok: true,
     calendarId: encodeCalendarId(calendar.id),
@@ -92,7 +92,7 @@ function targetFor(
  * Why a reminder made now won't ping, if it won't (spec §3.3). The pass still pings one
  * whose time passed less than ARMED_GRACE_MS ago (due.ts isEligible), so only an older
  * one gets a notice. A repeating one gets none, since its later occurrences ping. A
- * date-only one for today past its 09:00: "no time set". Any other: "time passed"; it
+ * date-only one for today past the user's reminder time: "no time set". Any other: "time passed"; it
  * stays in the summaries until done.
  */
 function timeNotice(
@@ -100,9 +100,10 @@ function timeNotice(
   allDay: boolean,
   recurrence: ParsedEvent['recurrence'],
   timezone: string,
-  now: Date
+  now: Date,
+  reminderTime?: string | null
 ): 'time_passed' | 'no_time_set' | undefined {
-  const due = dueAtForOccurrence({ startsAt, allDay, timeZone: timezone }, timezone);
+  const due = dueAtForOccurrence({ startsAt, allDay, timeZone: timezone }, timezone, reminderTime);
   if (due.getTime() >= now.getTime() - ARMED_GRACE_MS || recurrence) return undefined;
   return allDay && localDate(startsAt, timezone) === localDate(now, timezone) ? 'no_time_set' : 'time_passed';
 }
@@ -112,10 +113,10 @@ function timeNotice(
  * reminder a time, or move it to another day, so the card works the notice out again
  * each time it is shown. A partner who can't be pinged stays noted, ahead of the time.
  */
-export function refreshReminderNotice(event: ParsedEvent, timezone: string, now: Date = new Date()): ParsedEvent {
+export function refreshReminderNotice(event: ParsedEvent, timezone: string, now: Date = new Date(), reminderTime?: string | null): ParsedEvent {
   const notice = event.reminderNotice === 'partner_not_on_telegram'
     ? event.reminderNotice
-    : timeNotice(event.startTime, event.allDay, event.recurrence, timezone, now);
+    : timeNotice(event.startTime, event.allDay, event.recurrence, timezone, now, reminderTime);
   return { ...event, reminderNotice: notice };
 }
 

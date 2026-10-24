@@ -5,9 +5,11 @@ import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import type { CalendarEvent } from '../../types';
 import { TIMEZONE } from '../../config/constants';
 import { localDate, nextDate } from '../../utils/day-events';
+import { DEFAULT_REMINDER_TIME, isValidReminderTime } from '../../lib/reminder-time';
 
-/** Date-only reminders ping at this local hour, and 💤 Tomorrow wakes at it. */
-export const REMINDER_MORNING_HOUR = 9;
+// Date-only reminders ping at the recipient's reminder time (src/lib/reminder-time.ts,
+// 09:00 unless they chose another), and 💤 Tomorrow wakes at it. Every function here that
+// needs it takes it as `reminderTime` (HH:mm), and reads a missing one as the default.
 /** How late a ping may still go out, after downtime or a slow tick. */
 export const PING_LOOKBACK_MS = 60 * 60 * 1000;
 /** A reminder set for a time that has just passed still pings when it is this recent. */
@@ -18,37 +20,50 @@ export const MAX_PING_ATTEMPTS = 3;
 // 💤 Tomorrow tapped before this local hour means this morning: it's still the night.
 const SAME_MORNING_BEFORE_HOUR = 4;
 
-/** REMINDER_MORNING_HOUR:00 on `day` (yyyy-MM-dd) in `tz`. */
-function morningOf(day: string, tz: string): Date {
-  return fromZonedTime(`${day} ${String(REMINDER_MORNING_HOUR).padStart(2, '0')}:00:00`, tz);
+/** `reminderTime` (HH:mm) on `day` (yyyy-MM-dd) in `tz`. */
+function morningOf(day: string, tz: string, reminderTime?: string | null): Date {
+  const time = isValidReminderTime(reminderTime) ? reminderTime : DEFAULT_REMINDER_TIME;
+  return fromZonedTime(`${day} ${time}:00`, tz);
 }
 
 /**
  * When an occurrence pings. A timed one at its start. A date-only one at
- * REMINDER_MORNING_HOUR in the recipient's timezone, on the date it has in the event's
- * own timezone, so a partner abroad gets it at their 09:00 of that date.
+ * the recipient's reminder time in the recipient's timezone, on the date it has in the
+ * event's own timezone, so a partner abroad gets it at their own time of that date.
  */
-export function dueAtForOccurrence(occ: { startsAt: Date; allDay: boolean; timeZone: string }, recipientTz: string): Date {
+export function dueAtForOccurrence(
+  occ: { startsAt: Date; allDay: boolean; timeZone: string },
+  recipientTz: string,
+  recipientReminderTime?: string | null
+): Date {
   if (!occ.allDay) return occ.startsAt;
-  return morningOf(localDate(occ.startsAt, occ.timeZone || TIMEZONE), recipientTz);
+  return morningOf(localDate(occ.startsAt, occ.timeZone || TIMEZONE), recipientTz, recipientReminderTime);
 }
 
 /**
  * When a reminder on a digest or the calendar home is due, in the viewer's timezone:
- * its time, or REMINDER_MORNING_HOUR (the ping's) on its date (an all-day start is
+ * its time, or the viewer's reminder time (the ping's) on its date (an all-day start is
  * already the event's own date). Lives here, in this leaf, so the calendar home's pure
  * DTO code can use it without loading Prisma; open-reminders.ts re-exports it.
  */
-export function reminderDueAt(event: Pick<CalendarEvent, 'start'>, timezone: string): Date {
+export function reminderDueAt(event: Pick<CalendarEvent, 'start'>, timezone: string, reminderTime?: string | null): Date {
   if (event.start.includes('T')) return new Date(event.start);
-  return morningOf(event.start, timezone);
+  return morningOf(event.start, timezone, reminderTime);
 }
 
-/** 💤 Tomorrow: 09:00 tomorrow in `tz`, or 09:00 today when tapped between 00:00 and 04:00. */
-export function tomorrowMorning(now: Date, tz: string): Date {
+/**
+ * 💤 Tomorrow: the reminder time tomorrow in `tz`, or today's when tapped between 00:00
+ * and 04:00 and that time is still ahead (a reminder time of 01:00 tapped at 02:00 has
+ * gone by, so it is tomorrow's).
+ */
+export function tomorrowMorning(now: Date, tz: string, reminderTime?: string | null): Date {
   const today = localDate(now, tz);
   const hour = Number(formatInTimeZone(now, tz, 'H'));
-  return morningOf(hour < SAME_MORNING_BEFORE_HOUR ? today : nextDate(today), tz);
+  if (hour < SAME_MORNING_BEFORE_HOUR) {
+    const thisMorning = morningOf(today, tz, reminderTime);
+    if (thisMorning.getTime() > now.getTime()) return thisMorning;
+  }
+  return morningOf(nextDate(today), tz, reminderTime);
 }
 
 /**

@@ -34,8 +34,8 @@
 
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
+import { DEFAULT_REMINDER_TIME } from '@/src/lib/reminder-time';
 import {
-  REMINDER_DEFAULT_TIME,
   allOfThem,
   checkForm,
   crossesKinds,
@@ -86,6 +86,8 @@ export interface EditorSheetProps {
   partner?: { name: string; canRemind: boolean } | null;
   /** The home shows Hebrew dates: with a FamCal calendar, the Repeat row offers the Hebrew choice (hebrew-repeats spec §4). */
   hebrewDates?: boolean;
+  /** The user's reminder time (HH:mm), which a date-only reminder pings at; 09:00 until the editor info arrives. */
+  reminderTime?: string;
   /** Edit: the item's edit info and key. */
   info?: ItemEditInfoResponse;
   itemKey?: string;
@@ -109,7 +111,7 @@ type InlineNote = keyof typeof INLINE_NOTE_KEY;
 
 const REPEATS: RepeatChoice[] = ['none', 'daily', 'weekly', 'monthly', 'yearly'];
 
-export function EditorSheet({ mode, initial, kinds, calendars = [], partner, hebrewDates = false, info, itemKey, onSave, onClose, cancelRef }: EditorSheetProps) {
+export function EditorSheet({ mode, initial, kinds, calendars = [], partner, hebrewDates = false, reminderTime = DEFAULT_REMINDER_TIME, info, itemKey, onSave, onClose, cancelRef }: EditorSheetProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   const [start] = useState(initial);
@@ -339,7 +341,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
                   onTime={(startTime) => change(moveStart(form, { startTime }, heldSpan))}
                   error={errorOf('start')}
                 />
-                <SwitchRow label={t('editor.atTime')} hint={t('editor.atTimeHint', { time: REMINDER_DEFAULT_TIME })} checked={!form.allDay} onChange={(on) => change(setAllDay(form, !on))} />
+                <SwitchRow label={t('editor.atTime')} hint={t('editor.atTimeHint', { time: reminderTime })} checked={!form.allDay} onChange={(on) => change(setAllDay(form, !on))} />
                 <ValueRow label={t('editor.repeat.label')} hint={repeatHint} value={form.repeat} options={repeatOptions} onChange={(repeat) => change({ ...form, repeat: repeat as RuleChoice })} />
               </FormCard>
             ) : (

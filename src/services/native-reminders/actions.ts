@@ -147,7 +147,7 @@ export async function applyReminderAction(
   }
 
   const timeZone = await resolveUserTimezone(actor);
-  const until = action === 'snoozeTomorrow' ? tomorrowMorning(now, timeZone) : new Date(now.getTime() + SNOOZE_MS[action]);
+  const until = action === 'snoozeTomorrow' ? tomorrowMorning(now, timeZone, actor.reminderTime) : new Date(now.getTime() + SNOOZE_MS[action]);
   // lastPingedAt stays as it is (null for a never-pinged occurrence): either way it is before
   // snoozedUntil, so the pass pings at that time. pingAttempts restarts, so the re-ping the
   // user asked for gets its full retry budget.

@@ -113,7 +113,7 @@ const NEW_ACCOUNT = {
   voiceStyle: 'natural', weatherEnabled: true, includeWeeklyInLookahead: false, includeLookaheadInTomorrow: false,
   lookaheadAlways7Days: false, preferredMorningHour: 7, preferredEveningHour: 19,
   dailySummaryDays: [0, 1, 2, 3, 4, 5, 6], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6],
-  remindersEnabled: false, defaultReminderMinutes: null as number | null, pickupRemindersEnabled: true,
+  remindersEnabled: false, defaultReminderMinutes: null as number | null, reminderTime: null as string | null, pickupRemindersEnabled: true,
 } satisfies Partial<User>;
 type SetupField = keyof typeof NEW_ACCOUNT | 'name' | 'location' | 'locationForced' | 'language';
 

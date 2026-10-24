@@ -55,6 +55,7 @@ model User {
   tomorrowSummaryDays        Int[]     @default([0, 1, 2, 3, 4, 5, 6]) // 0=Sun..6=Sat — which days to send evening summary
   remindersEnabled           Boolean   @default(false) // Enable event reminders via Telegram
   defaultReminderMinutes     Int? // Default reminder time (minutes before event)
+  reminderTime               String? // HH:mm (15-minute step): when a reminder with no time of day pings. Null = 09:00
   pickupRemindersEnabled     Boolean   @default(true) // Enable pickup reminders for kids' events
 
   // Calendar integration

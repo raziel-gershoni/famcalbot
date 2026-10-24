@@ -764,6 +764,13 @@ async function main() {
     assert(noTime === '2026-10-14 09:00..2026-10-14 09:00 allDay=false', `no time: got ${noTime}`);
   });
 
+  check("a date-only reminder made timed with no time rings at the requesting user's reminder time (09:00 when unset)", () => {
+    const own = editSpan(convertEditRequestToUpdates({ newAllDay: false }, reminderAt('2026-10-14', '2026-10-15'), IL, '07:45'));
+    assert(own === '2026-10-14 07:45..2026-10-14 07:45 allDay=false', `own time: got ${own}`);
+    const unset = editSpan(convertEditRequestToUpdates({ newAllDay: false }, reminderAt('2026-10-14', '2026-10-15'), IL, null));
+    assert(unset === '2026-10-14 09:00..2026-10-14 09:00 allDay=false', `unset: got ${unset}`);
+  });
+
   check('a timed reminder made date-only starts and ends at 00:00 of its day', () => {
     const allDay = editSpan(convertEditRequestToUpdates({ newAllDay: true }, callMomAt10, IL));
     assert(allDay === '2026-10-14 00:00..2026-10-14 00:00 allDay=true', `got ${allDay}`);

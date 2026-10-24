@@ -561,6 +561,8 @@
     "remindersBetaDescription": "התראות על אירועים עדיין בבטא (בקרוב)",
     "defaultReminderMinutes": "זמן התראה ברירת מחדל",
     "defaultReminderMinutesHelp": "כמה זמן לפני האירוע לשלוח התראה (כשלאירוע אין התראה משלו)",
+    "reminderTime": "שעת תזכורות",
+    "reminderTimeHelp": "השעה שבה יגיעו תזכורות שלא נקבעה להן שעה, וגם תזכורות שנדחו למחר",
     "pickupRemindersEnabled": "התראות איסוף",
     "pickupRemindersDescription": "ביומני ילדים, גם התראה בשעת סיום האירוע (איסוף)",
     "minutes": "דק'",

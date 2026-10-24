@@ -28,6 +28,7 @@ import {
 import { classifyRule, fixesDays, isHebrewRule, type HebrewColumns, type VirtualInstance } from '../native-calendar/recurrence';
 import { effectiveOwnerForViewer, loadViewerContext, type ViewerContext } from '../native-reminders/ownership';
 import { getReminderSupport } from '../native-reminders/support';
+import { reminderTimeOf } from '../../lib/reminder-time';
 import type { AnyItemKey, ItemKey } from './validate';
 import { sourcesFor } from '../calendar-read/index';
 import { defaultCalendarIdFor } from '../calendar-provider/user-calendars';
@@ -111,6 +112,7 @@ export async function editorInfo(user: UserConfig, tz: string): Promise<EditorIn
     calendars,
     partner,
     tz,
+    reminderTime: reminderTimeOf(user),
   };
 }
 

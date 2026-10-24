@@ -20,7 +20,7 @@ import { addDaysToDate, daySpanOf, localDate, nextDate, startOfLocalDay } from '
 import { isAllDayEvent, isReminderEvent } from '../../utils/event-formatter';
 import { loadViewerContext } from '../native-reminders/ownership';
 import { fetchOpenReminders } from '../native-reminders/open-reminders';
-import { REMINDER_MORNING_HOUR } from '../native-reminders/due';
+import { DEFAULT_REMINDER_TIME, isValidReminderTime } from '../../lib/reminder-time';
 
 /**
  * Download any file from the Telegram CDN by file_id (voice, photo, document).
@@ -623,9 +623,6 @@ function endAfter(start: Date, day: string, time: string, timezone: string): Dat
 /** How long an all-day event made timed lasts when not given an end. */
 const DEFAULT_TIMED_LENGTH_MS = 60 * 60 * 1000;
 
-/** When a date-only reminder made timed with no time given rings: the hour it pings at. */
-const REMINDER_DEFAULT_TIME = `${String(REMINDER_MORNING_HOUR).padStart(2, '0')}:00`;
-
 /**
  * An all-day event from `firstDay` to `lastDay` as creation saves one, for either
  * calendar: 00:00 local on the first day (startOfLocalDay) to 23:59 local on the last.
@@ -699,12 +696,13 @@ export function describeEdit(
 export function convertEditRequestToUpdates(
   editRequest: EditRequest | undefined,
   originalEvent: CalendarEvent,
-  timezone: string
+  timezone: string,
+  reminderTime?: string | null
 ): UpdateEventData {
   const updates: UpdateEventData = {};
 
   if (!editRequest) return updates;
-  if (isReminderEvent(originalEvent)) return reminderUpdates(editRequest, originalEvent, timezone);
+  if (isReminderEvent(originalEvent)) return reminderUpdates(editRequest, originalEvent, timezone, reminderTime);
 
   if (editRequest.newTitle) {
     updates.title = editRequest.newTitle;
@@ -788,9 +786,9 @@ export function convertEditRequestToUpdates(
  * A reminder's edit. A reminder has one time and no length (spec §7): its end is its
  * start, a date-only one stays at 00:00 of its day, and an end the model sends out of
  * habit (an hour after the new start) is dropped. Given a time, a date-only reminder
- * becomes a timed one; made timed with no time, it rings at the reminder morning hour.
+ * becomes a timed one; made timed with no time, it rings at the requesting user's reminder time (09:00 unless set).
  */
-function reminderUpdates(editRequest: EditRequest, originalEvent: CalendarEvent, timezone: string): UpdateEventData {
+function reminderUpdates(editRequest: EditRequest, originalEvent: CalendarEvent, timezone: string, reminderTime?: string | null): UpdateEventData {
   const updates: UpdateEventData = {};
   if (editRequest.newTitle) updates.title = editRequest.newTitle;
   if (editRequest.newLocation) updates.location = editRequest.newLocation;
@@ -807,7 +805,7 @@ function reminderUpdates(editRequest: EditRequest, originalEvent: CalendarEvent,
       updates.startTime = startOfLocalDay(day, allDayZone(originalEvent, timezone));
     }
   } else if (wasAllDay || editRequest.newStartDate || editRequest.newStartTime) {
-    const time = editRequest.newStartTime || (wasAllDay ? REMINDER_DEFAULT_TIME : original.startTime);
+    const time = editRequest.newStartTime || (wasAllDay ? (isValidReminderTime(reminderTime) ? reminderTime : DEFAULT_REMINDER_TIME) : original.startTime);
     updates.startTime = fromZonedTime(`${day}T${time}:00`, timezone);
   }
   if (updates.startTime) updates.endTime = updates.startTime;

@@ -99,9 +99,9 @@ export function toItemDto(item: ReadItem, span: DaySpan | null, opts: ItemDtoOpt
  * Whether a reminder listed on `day` shows as open: only on today, not done, and due
  * before now. A snoozed one is still open; past days are never open.
  */
-export function isOpenOnDay(item: ReadItem, day: DayKey, today: DayKey, tz: string, now: Date): boolean {
+export function isOpenOnDay(item: ReadItem, day: DayKey, today: DayKey, tz: string, now: Date, reminderTime?: string | null): boolean {
   if (day !== today || item.kind !== 'reminder' || isDone(item)) return false;
-  return reminderDueAt(item.event, tz) < now;
+  return reminderDueAt(item.event, tz, reminderTime) < now;
 }
 
 /**
@@ -137,7 +137,8 @@ export function toRangeDays(
   toKey: DayKey,
   tz: string,
   now: Date,
-  today: DayKey
+  today: DayKey,
+  reminderTime?: string | null
 ): { date: DayKey; items: ItemDTO[] }[] {
   const days: { date: DayKey; items: ItemDTO[] }[] = [];
   const byDate = new Map<DayKey, ItemDTO[]>();
@@ -154,7 +155,7 @@ export function toRangeDays(
       if (span === null) continue;
       const list = byDate.get(d);
       if (!list) continue;
-      list.push(toItemDto(item, span ?? null, { now, open: isOpenOnDay(item, d, today, tz, now), openSince: null }));
+      list.push(toItemDto(item, span ?? null, { now, open: isOpenOnDay(item, d, today, tz, now, reminderTime), openSince: null }));
     }
   }
   for (const day of days) day.items.sort(compareItems);
@@ -168,8 +169,8 @@ export function toRangeDays(
  * caller builds the ReadItem with the occurrence's instanceStartsAt as originalStart
  * and a CalendarRef masked by the legend rule.
  */
-export function toCarryOverDto(item: ReadItem, tz: string, now: Date): ItemDTO {
-  const openSince = item.event.reminder?.openSince ?? localDate(reminderDueAt(item.event, tz), tz);
+export function toCarryOverDto(item: ReadItem, tz: string, now: Date, reminderTime?: string | null): ItemDTO {
+  const openSince = item.event.reminder?.openSince ?? localDate(reminderDueAt(item.event, tz, reminderTime), tz);
   return toItemDto(item, null, { now, open: true, openSince });
 }
 

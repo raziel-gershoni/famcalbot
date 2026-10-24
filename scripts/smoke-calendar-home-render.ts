@@ -4045,6 +4045,7 @@ async function main() {
     ],
     partner: { name: 'Noa', canRemind: true },
     tz: TZ,
+    reminderTime: '09:00',
   };
   const editorWith = (o: Omit<Partial<EditorInfoResponse>, 'kinds'> & { kinds?: Partial<EditorInfoResponse['kinds']> } = {}): EditorInfoResponse => ({ ...EDITOR_INFO, ...o, kinds: { ...EDITOR_INFO.kinds, ...o.kinds } });
   /** An item's edit info: the Dentist, a one-off event the viewer may change and delete. */
@@ -4110,6 +4111,7 @@ async function main() {
     ],
     partner: null,
     tz: TZ,
+    reminderTime: '09:00',
   };
   /** The home for a Google user on the same fake clock: Google's windows come from `world.items`, the editing routes from `server`. */
   async function googleHome(locale: Locale, server: EditingServer = {}, props: Partial<CalendarHomeProps> = {}) {
@@ -4371,6 +4373,20 @@ async function main() {
       await typeInto(inDialog(m, 'End date'), '2027-10-17');
       for (const v of ['0002-10-20', '0020-10-20', '0202-10-20', '2028-10-20']) await typeInto(inDialog(m, 'Start date'), v);
       assert(fieldValue(m, 'End date') === '2028-10-22', `all day, the end: ${fieldValue(m, 'End date')}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check("B1 the reminder editor's hint names the user's own reminder time (from the editor info), not a fixed 09:00", async () => {
+    const { m } = await editingHome('en', { editor: ok200(editorWith({ reminderTime: '07:30' })) });
+    try {
+      tapPlus(m);
+      await settle();
+      tapIn(m, 'Reminder');
+      const text = topText(m);
+      assertHas(text, ['Without a time, the reminder arrives at 07:30'], 'the hint');
+      assertLacks(text, ['arrives at 09:00'], 'no fixed time');
     } finally {
       m.unmount();
     }
@@ -6510,6 +6526,7 @@ async function main() {
     ],
     partner: { name: 'Noa', canRemind: true },
     tz: TZ,
+    reminderTime: '09:00',
   });
   /** The home for a user with FamCal and Google both: each source's windows from `world`, the editing routes from `server`. */
   async function bothHome(locale: Locale, server: EditingServer = {}, props: Partial<CalendarHomeProps> = {}) {

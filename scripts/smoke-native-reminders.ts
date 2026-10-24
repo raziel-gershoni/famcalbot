@@ -431,6 +431,7 @@ const callbacks = (keyboard: Keyboard) => keyboard.inline_keyboard.flat().map((b
 
 async function main() {
   const due = await import('../src/services/native-reminders/due');
+  const reminderTimeLib = await import('../src/lib/reminder-time');
   const { buildPingKeyboard, buildPingText, stripPingButtons } = await import('../src/services/native-reminders/ping');
   const { runNativeReminderPass } = await import('../src/services/native-reminders/pass');
   const gate = await import('../src/services/native-reminders/due-gate');
@@ -455,7 +456,7 @@ async function main() {
   });
 
   await check("due: a date-only reminder is due at 09:00 where the recipient is, on the date it has in the event's timezone", () => {
-    assert(due.REMINDER_MORNING_HOUR === 9, `morning hour ${due.REMINDER_MORNING_HOUR}`);
+    assert(reminderTimeLib.DEFAULT_REMINDER_TIME === '09:00', `default ${reminderTimeLib.DEFAULT_REMINDER_TIME}`);
     const occ = { startsAt: startOfLocalDay('2026-10-15', IL), allDay: true, timeZone: IL };
     assertTime(due.dueAtForOccurrence(occ, IL), at('2026-10-15 09:00', IL), 'Israel');
     // Thursday begins in Israel at 17:00 Wednesday in New York; it is still Thursday's reminder.
@@ -910,6 +911,53 @@ async function main() {
     editFailure = telegramError(403, 'Forbidden: bot was blocked by the user');
     const thrown = await stripPingButtons(1001, 77, 'x').then(() => 'resolved', (e: Error) => e.message);
     assert(thrown.includes('403'), `a refusal: ${thrown}`);
+  });
+
+  // ---- Reminder time per user (B1) ----
+
+  await check('reminder time: a date-only reminder is due at the recipient\'s own time, with 09:00 for null, junk and a step off 15 minutes', () => {
+    const occ = { startsAt: startOfLocalDay('2026-10-15', IL), allDay: true, timeZone: IL };
+    assertTime(due.dueAtForOccurrence(occ, IL, '07:30'), at('2026-10-15 07:30', IL), '07:30');
+    assertTime(due.dueAtForOccurrence(occ, NY, '23:45'), at('2026-10-15 23:45', NY), '23:45 in New York');
+    for (const bad of [null, undefined, '', '7:30', '24:00', '09:10', 'x']) assertTime(due.dueAtForOccurrence(occ, IL, bad), at('2026-10-15 09:00', IL), `bad ${bad}`);
+    assertTime(due.reminderDueAt({ start: '2026-10-15' }, IL, '06:15'), at('2026-10-15 06:15', IL), 'reminderDueAt');
+  });
+
+  await check('reminder time: 💤 Tomorrow wakes at the actor\'s time; a time before 04:00 tapped after it has passed is tomorrow\'s', () => {
+    assertTime(due.tomorrowMorning(today('10:00'), IL, '07:30'), at('2026-10-16 07:30'), '07:30');
+    assertTime(due.tomorrowMorning(today('02:00'), IL, '05:00'), today('05:00'), 'still ahead this morning');
+    assertTime(due.tomorrowMorning(today('02:00'), IL, '01:00'), at('2026-10-16 01:00'), 'has gone by');
+    assertTime(due.tomorrowMorning(today('10:00'), IL), at('2026-10-16 09:00'), 'unset');
+  });
+
+  await check('reminder time: two recipients of date-only reminders each ping at their own time; the gate sleeps to the earliest of them', async () => {
+    reset();
+    gate.__resetDueGateForTests();
+    db.users[0].reminderTime = '07:30';
+    db.users[1].reminderTime = null;
+    const mine = dateOnly('2026-10-15', { title: 'Mine' });
+    dateOnly('2026-10-15', { forUserId: 2, title: 'Dana\'s' });
+    await tick(today('07:29'));
+    assert(sent.length === 0, `too early: ${sentLines()}`);
+    await tick(today('07:30'));
+    assert(sent.length === 1 && sent[0].chatId === '1001', `07:30: ${sentLines()}`);
+    assert(!!stateOf(mine.id, mine.startsAt as Date), 'state row for the 07:30 reminder');
+    queries.length = 0;
+    await tick(today('08:00')); // gate: next due is 09:00 (Dana), so this tick reads nothing
+    assert(!queries.includes('nativeEvent.findMany'), `woke before 09:00: ${queries.join(', ')}`);
+    await tick(today('09:00'));
+    assert(sent.length === 2 && sent[1].chatId === '1002', `09:00: ${sentLines()}`);
+  });
+
+  await check('reminder time: the widest case, 23:45 for a recipient at UTC-12 on an event dated at UTC+14 (49.75 hours after the event starts), is inside the pass window', async () => {
+    reset();
+    db.users[1].reminderTime = '23:45';
+    timezones[2] = 'Etc/GMT+12';
+    dateOnly('2026-10-15', { forUserId: 2, title: 'Late' }, 'Pacific/Kiritimati');
+    const pingAt = at('2026-10-15 23:45', 'Etc/GMT+12');
+    assertTime((await pass(plus(pingAt, -MIN))).nextDue, pingAt, 'nextDue');
+    await pass(pingAt);
+    assert(sent.length === 1 && sent[0].chatId === '1002', sentLines());
   });
 
   // ---- nextDue and the gate ----

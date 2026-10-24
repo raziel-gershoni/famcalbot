@@ -38,6 +38,7 @@ import { prisma } from '@/src/utils/prisma';
 import type { CalendarAssignment, CalendarLabel, UserConfig } from '@/src/types';
 import type { HomeHints } from '@/src/lib/calendar-view/home-props';
 import type { SourceName } from '@/src/lib/calendar-view/types';
+import { reminderTimeOf } from '@/src/lib/reminder-time';
 
 export const PAGE_NAMES = ['dashboard', 'settings', 'select-calendars', 'calendars', 'pair', 'subscription'] as const;
 export type PageName = (typeof PAGE_NAMES)[number];
@@ -237,6 +238,7 @@ async function settings(user: UserConfig, userId: number, userLocale: string): P
       tomorrowSummaryDays: user.tomorrowSummaryDays,
       remindersEnabled: user.remindersEnabled,
       defaultReminderMinutes: user.defaultReminderMinutes ?? null,
+      reminderTime: reminderTimeOf(user),
       pickupRemindersEnabled: user.pickupRemindersEnabled ?? true,
       voiceInputEnabled: user.voiceInputEnabled
     },

@@ -44,6 +44,8 @@ export interface EditorInfoResponse {
   partner: { name: string; canRemind: boolean } | null;
   /** The user's timezone, the one the wall times are in. */
   tz: string;
+  /** The user's reminder time (HH:mm): when a reminder with no time of day pings. */
+  reminderTime: string;
 }
 
 /** How a series repeats, as its rule says; the client words it ("Every Tuesday"). */

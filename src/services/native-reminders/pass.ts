@@ -24,11 +24,12 @@ import { getBotMessage } from '../../lib/bot-messages';
 import { escapeHtml } from '../../utils/html';
 
 const HOUR_MS = 60 * 60 * 1000;
-// The window occurrences are expanded over. A date-only reminder pings at 09:00 in the
-// recipient's timezone on its date in the event's timezone: up to about 35 hours after
-// that date begins (an event at UTC+14, a recipient at UTC-12) or 17 hours before it.
-const WINDOW_BACK_MS = 48 * HOUR_MS;
-const WINDOW_AHEAD_MS = 26 * HOUR_MS;
+// The window occurrences are expanded over. A date-only reminder pings at the recipient's
+// reminder time (00:00 to 23:45) in their timezone on its date in the event's timezone:
+// up to about 50 hours after that date begins (reminder time 23:45, an event at UTC+14, a
+// recipient at UTC-12) or 26 hours before it (reminder time 00:00, the same zones apart).
+const WINDOW_BACK_MS = 60 * HOUR_MS;
+const WINDOW_AHEAD_MS = 30 * HOUR_MS;
 // After a send fails for a passing reason, or a database blip cuts a series short, look
 // again on the next tick.
 const RETRY_AFTER_MS = 60 * 1000;
@@ -39,6 +40,7 @@ const USER_SELECT = {
   language: true,
   telegramId: true,
   location: true,
+  reminderTime: true,
   pairingId: true,
   suspendedAt: true,
   unreachableSince: true,
@@ -322,7 +324,7 @@ export async function runNativeReminderPass(now: Date = new Date()): Promise<Nat
         const state = states.get(occurrenceKey(s.id, occ.instanceStartsAt));
         if (state?.doneAt) continue;
         const snoozed = !!state?.snoozedUntil;
-        const due = state?.snoozedUntil ?? dueAtForOccurrence(occ, tz);
+        const due = state?.snoozedUntil ?? dueAtForOccurrence(occ, tz, recipient.reminderTime);
         if (due > now && (!result.nextDue || due < result.nextDue)) result.nextDue = due;
         candidates.push({ occ, due, snoozed, state });
       }

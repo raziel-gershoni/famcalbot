@@ -82,7 +82,7 @@ async function reminderOf(user: UserConfig, seriesId: string, originalStart: Dat
   const item = items.find((i) => i.seriesId === seriesId && i.originalStart === originalStart.toISOString());
   if (!item) return undefined;
   const tz = await resolveUserTimezone(user);
-  const due = reminderDueAt(item.event, tz);
+  const due = reminderDueAt(item.event, tz, user.reminderTime);
   const done = (item.state?.doneAt ?? null) !== null;
   const open = !done && due < now;
   // Only an older open reminder (a carry-over) has an openSince; today's has none.

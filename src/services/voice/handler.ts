@@ -145,7 +145,7 @@ export async function handleEditIntent(
   }
 
   const timezone = await resolveUserTimezone(user);
-  const updates = convertEditRequestToUpdates(intentResult.editRequest, targetEvent, timezone);
+  const updates = convertEditRequestToUpdates(intentResult.editRequest, targetEvent, timezone, user.reminderTime);
 
   // A series on set weekdays can't have its days moved for more than one occurrence: say so
   // now, not after a card the user would confirm for nothing.

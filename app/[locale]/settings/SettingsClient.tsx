@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { TelegramLayout } from '@/components/Layout';
 import { CheckCircle2, MapPin, Loader2, ArrowLeft, Check } from 'lucide-react';
+import { REMINDER_TIME_STEP_MINUTES } from '@/src/lib/reminder-time';
 
 interface SubscriptionInfo {
   effectivePlan: string;
@@ -34,12 +35,19 @@ interface SettingsClientProps {
     tomorrowSummaryDays: number[];
     remindersEnabled: boolean;
     defaultReminderMinutes: number | null;
+    reminderTime: string; // HH:mm
     pickupRemindersEnabled: boolean;
     voiceInputEnabled: boolean;
   };
   remindersGloballyEnabled: boolean;
   subscriptionInfo: SubscriptionInfo;
 }
+
+/** 00:00 to 23:45 on the server's 15-minute step (isValidReminderTime). */
+const REMINDER_TIME_OPTIONS = Array.from({ length: (24 * 60) / REMINDER_TIME_STEP_MINUTES }, (_, i) => {
+  const minutes = i * REMINDER_TIME_STEP_MINUTES;
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+});
 
 type FormState = 'idle' | 'saving' | 'success' | 'error';
 
@@ -64,6 +72,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
   const [tomorrowSummaryDays, setTomorrowSummaryDays] = useState<number[]>(currentSettings.tomorrowSummaryDays);
   const [remindersEnabled, setRemindersEnabled] = useState(currentSettings.remindersEnabled);
   const [defaultReminderMinutes, setDefaultReminderMinutes] = useState(currentSettings.defaultReminderMinutes ?? 15);
+  const [reminderTime, setReminderTime] = useState(currentSettings.reminderTime);
   const [pickupRemindersEnabled, setPickupRemindersEnabled] = useState(currentSettings.pickupRemindersEnabled);
   const [voiceInputEnabled, setVoiceInputEnabled] = useState(currentSettings.voiceInputEnabled);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -88,6 +97,7 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
     JSON.stringify([...tomorrowSummaryDays].sort()) !== JSON.stringify([...currentSettings.tomorrowSummaryDays].sort()) ||
     remindersEnabled !== currentSettings.remindersEnabled ||
     defaultReminderMinutes !== (currentSettings.defaultReminderMinutes ?? 15) ||
+    reminderTime !== currentSettings.reminderTime ||
     pickupRemindersEnabled !== currentSettings.pickupRemindersEnabled ||
     voiceInputEnabled !== currentSettings.voiceInputEnabled;
 
@@ -313,6 +323,8 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
           tomorrowSummaryDays,
           remindersEnabled,
           defaultReminderMinutes: remindersEnabled ? defaultReminderMinutes : null,
+          // Only where the section shows (the same plan gate): elsewhere it stays as it was.
+          ...(remindersEnabled && remindersGloballyEnabled && subscriptionInfo.remindersAllowed ? { reminderTime } : {}),
           pickupRemindersEnabled,
           voiceInputEnabled,
           initData
@@ -1185,6 +1197,22 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
                     <option value="60">60 {t('minutes')}</option>
                   </select>
                   <p className="help-text">{t('defaultReminderMinutesHelp')}</p>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="reminderTime">{t('reminderTime')}</label>
+                  <select
+                    name="reminderTime"
+                    id="reminderTime"
+                    value={reminderTime}
+                    onChange={(e) => setReminderTime(e.target.value)}
+                    disabled={formState !== 'idle'}
+                  >
+                    {REMINDER_TIME_OPTIONS.map((time) => (
+                      <option key={time} value={time}>{time}</option>
+                    ))}
+                  </select>
+                  <p className="help-text">{t('reminderTimeHelp')}</p>
                 </div>
 
                 <div className="toggle-row">
