@@ -242,11 +242,10 @@ function linksWithWork(): Prisma.GoogleSyncLinkWhereInput[] {
 
 /**
  * One user's run, under the user's lock. Never throws: what stops it is logged here. The pass
- * read the user and the links before the lock, so a disconnect (google-disconnect.ts, which
- * takes the same lock through withUserSyncLock) may have landed in between: both are read again
- * once the lock is held, and the run works on that. A disconnect that comes later waits for
- * the lock, so it never meets a run midway.
- */
+ * read the user and the links before the lock, so a disconnect may have landed in between: both
+ * are read again once the lock is held, and the run works on that. A disconnect never waits for
+ * the lock: it sets the user's disconnect marker first, and a run started before it stops at
+ * its next assertConnected check (before every write and send). */
 async function runUser(user: UserRow, links: LinkRow[], now: Date, retries: Map<string, LinkRetry>): Promise<UserRun> {
   const run: UserRun = {
     user, budget: { left: CALLS_PER_RUN }, now, lockKey: REDIS_KEYS.googleSyncLock(user.id), lockToken: randomUUID(), startedAt: Date.now(), retries, pushed: 0, failed: 0, again: false,
@@ -269,7 +268,7 @@ async function runUser(user: UserRow, links: LinkRow[], now: Date, retries: Map<
     return run;
   }
   try {
-    // The pass read these before the lock; a disconnect may have landed since (see withUserSyncLock).
+    // The pass read these before the lock; a disconnect may have landed since (the disconnect marker, assertConnected).
     const current = await prisma.user.findUnique({ where: { id: user.id }, select: USER_SELECT });
     if (!current || current.suspendedAt) {
       console.log(`[google-sync] user ${user.id}: ${current ? 'suspended' : 'gone'} since the pass read it; copies skipped`);
@@ -579,6 +578,7 @@ async function linkRecovered(run: UserRun, link: LinkRow): Promise<void> {
   if (!run.retries.has(link.id)) return;
   run.retries.delete(link.id);
   await clearLinkRetries([link.id]);
+  await assertConnected(run);
   await prisma.googleSyncLink.update({ where: { id: link.id }, data: { lastError: null } });
   console.log(`[google-sync] link ${link.id}: works again; its backoff cleared`);
 }
@@ -622,12 +622,14 @@ async function turnOffLink(run: UserRun, link: LinkRow): Promise<void> {
   if (!link.googleCalendarId && !token) {
     // No id and no token to look one up with: nothing known in Google (a link with no token
     // is never made 'creating', links.ts), so it is clean.
+    await assertConnected(run);
     await prisma.googleSyncLink.update({ where: { id: link.id }, data: { pushedSeq: readSeq, unlinkToken: null } });
     console.log(`[google-sync] link ${link.id}: turned off with no Google calendar and no token; nothing to ${choice}`);
     return;
   }
   if (!token) {
     if (own) return outage(run, 'token', NO_TOKEN);
+    await assertConnected(run);
     await prisma.googleSyncLink.update({ where: { id: link.id }, data: { state: 'token' } });
     return;
   }
@@ -645,6 +647,7 @@ async function turnOffLink(run: UserRun, link: LinkRow): Promise<void> {
         return;
       }
       // The merged-away account's token: only this copy waits; the user's own Google is fine.
+      await assertConnected(run);
       await prisma.googleSyncLink.update({ where: { id: link.id }, data: { state: cls } });
       captureError(new Error(`Google ${cls} on a merged copy's token`), 'google-sync-turn-off', { user_id: run.user.id, link_id: link.id, choice }, 'warning');
       return;
@@ -660,17 +663,20 @@ async function turnOffLink(run: UserRun, link: LinkRow): Promise<void> {
 async function finishTurnOff(run: UserRun, link: LinkRow, outcome: TurnOffOutcome | 'otherAccount', googleCalendarId: string | null, readSeq: number): Promise<void> {
   const ids = `user ${run.user.id} link ${link.id}`;
   if (outcome === 'otherAccount') {
+    await assertConnected(run);
     await prisma.googleSyncLink.update({ where: { id: link.id }, data: { state: 'otherAccount' } });
     console.warn(`[google-sync] ${ids}: the token is another Google account's; the queued ${link.unlinkChoice} waits`);
     return;
   }
   if (outcome === 'foreign') {
     // Never touched: the calendar under this id doesn't carry the link's token.
+    await assertConnected(run);
     await prisma.googleSyncLink.update({ where: { id: link.id }, data: { state: 'error', lastError: 'not_our_calendar', pushedSeq: readSeq, unlinkToken: null } });
     captureError(new Error('A copy calendar without its link token was left alone'), 'google-sync-turn-off', { user_id: run.user.id, link_id: link.id }, 'error');
     return;
   }
   const gone = outcome === 'deleted' || outcome === 'gone';
+  await assertConnected(run);
   await prisma.$transaction(async (tx) => {
     // The items before the link, the order every writer takes (marks.ts).
     if (gone) {
@@ -700,6 +706,7 @@ async function syncLinks(run: UserRun, links: LinkRow[]): Promise<void> {
   if (!access.allowed) {
     const paused = links.filter((l) => l.state !== 'plan').map((l) => l.id);
     if (paused.length > 0) {
+      await assertConnected(run);
       await prisma.googleSyncLink.updateMany({ where: { id: { in: paused } }, data: { state: 'plan' } });
       console.log(`[google-sync] user ${user.id}: plan lacks google_sync; paused [${paused.join(',')}]`);
     }
@@ -707,6 +714,7 @@ async function syncLinks(run: UserRun, links: LinkRow[]): Promise<void> {
   }
   for (const l of links.filter((x) => x.state === 'plan')) {
     l.state = l.googleCalendarId ? 'ok' : 'creating';
+    await assertConnected(run);
     await prisma.googleSyncLink.update({ where: { id: l.id }, data: { state: l.state } });
     console.log(`[google-sync] link ${l.id}: plan has google_sync again; ${l.state}`);
   }
@@ -724,7 +732,7 @@ async function syncLinks(run: UserRun, links: LinkRow[]): Promise<void> {
     return;
   }
   for (const link of links) {
-    if (!(await sameAccount(link, account))) continue;
+    if (!(await sameAccount(run, link, account))) continue;
     try {
       await syncLink(run, g, link, token);
     } catch (error) {
@@ -743,14 +751,16 @@ async function syncLinks(run: UserRun, links: LinkRow[]): Promise<void> {
 }
 
 /** Whether the token's account is the copy's: a copy with none yet adopts it; another sets 'otherAccount'. */
-async function sameAccount(link: LinkRow, account: string): Promise<boolean> {
+async function sameAccount(run: UserRun, link: LinkRow, account: string): Promise<boolean> {
   if (link.googleAccount === null) {
+    await assertConnected(run);
     await prisma.googleSyncLink.update({ where: { id: link.id }, data: { googleAccount: account } });
     link.googleAccount = account;
     return true;
   }
   if (link.googleAccount === account) return true;
   if (link.state !== 'otherAccount') {
+    await assertConnected(run);
     await prisma.googleSyncLink.update({ where: { id: link.id }, data: { state: 'otherAccount' } });
     console.warn(`[google-sync] link ${link.id}: the token is another Google account's; the copy waits for the user`);
   }
@@ -790,6 +800,7 @@ async function syncLink(run: UserRun, g: SyncGoogle, link: LinkRow, token: strin
       }
     };
     await stopIfDisconnected();
+    await assertConnected(run);
     await prisma.googleSyncLink.update({
       where: { id: link.id },
       data: { googleCalendarId: made.googleCalendarId, state: 'ok', pushedName: cal.name, pushedSeq: link.dirtySeq, lastError: null },
@@ -807,6 +818,7 @@ async function syncLink(run: UserRun, g: SyncGoogle, link: LinkRow, token: strin
       await calendarGone(run, link, error);
       return;
     }
+    await assertConnected(run);
     await prisma.googleSyncLink.update({ where: { id: link.id }, data: { pushedName: cal.name, pushedSeq: link.dirtySeq, ...(link.state === 'creating' ? { state: 'ok' } : {}) } });
     console.log(`[google-sync] link ${link.id}: Google calendar renamed`);
   }
@@ -828,6 +840,7 @@ async function backfill(run: UserRun, link: LinkRow, calendarId: string): Promis
     const chunk = rows.slice(i, i + BACKFILL_CHUNK);
     await markedTransaction((tx) => markSyncDirty(tx, { series: chunk.map((r) => ({ id: r.id, kind: r.kind, calendarIds: [calendarId] })) }));
   }
+  await assertConnected(run);
   await prisma.googleSyncLink.update({ where: { id: link.id }, data: { backfilledAt: run.now } });
   console.log(`[google-sync] link ${link.id}: backfill marked ${rows.length} series`);
 }
@@ -862,7 +875,7 @@ async function pushItems(run: UserRun, g: SyncGoogle, link: LinkRow & { googleCa
       if (cls === 'transient') throw new TransientStop();
     }
   }
-  if (failures === 0) await prisma.googleSyncLink.update({ where: { id: link.id }, data: { lastSyncedAt: run.now } });
+  if (failures === 0) { await assertConnected(run); await prisma.googleSyncLink.update({ where: { id: link.id }, data: { lastSyncedAt: run.now } }); }
 }
 
 /** An item's failed push: one more attempt, the next one backed off, and the admin told at the 10th. */
