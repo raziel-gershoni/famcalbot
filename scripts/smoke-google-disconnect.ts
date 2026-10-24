@@ -172,6 +172,13 @@ function fakeGoogle(token: string) {
           events.push(`google:get ${calendarId}`);
           return { data: { description: c.description } };
         },
+        patch: async ({ calendarId, requestBody }: Row) => {
+          const c = google.calendars.get(calendarId);
+          if (!c) throw notFound();
+          events.push(`google:patch ${calendarId}`);
+          c.description = requestBody.description;
+          return { data: {} };
+        },
         delete: async ({ calendarId }: Row) => {
           const c = google.calendars.get(calendarId);
           if (!c) throw notFound();
@@ -668,7 +675,7 @@ async function main() {
     assert(idx('marker busy') >= 0 && idx('marker busy') < idx('google:') && idx('marker busy') < idx('revoke') && idx('revoke') < idx('marker done'), `order ${show(events)}`);
   });
 
-  await check('I1 marker: a failed clear leaves the busy marker (the worker must not write after a half-done disconnect) until the retry completes, and a calendar the worker could not delete is listed in the result', async () => {
+  await check('I1 marker: a failed clear still ends with the done marker, and a calendar the worker could not delete is listed in the result', async () => {
     seed();
     store.set(REDIS_KEYS.googleSyncOrphans(ME), ['FamCal · Orphan']);
     const res = await run(true);
@@ -677,7 +684,8 @@ async function main() {
     seed();
     failTransaction = true;
     try { await run(true); } catch { /* expected */ }
-    assert(String(store.get(REDIS_KEYS.googleSyncDisconnect(ME))).startsWith('busy:'), `marker ${show(store.get(REDIS_KEYS.googleSyncDisconnect(ME)))}`);
+    // N4: a failed disconnect must not leave 'busy' for an hour (a reconnect would be refused); 'done' still stops older runs.
+    assert(String(store.get(REDIS_KEYS.googleSyncDisconnect(ME))).startsWith('done:'), `marker ${show(store.get(REDIS_KEYS.googleSyncDisconnect(ME)))}`);
     failTransaction = false;
     await run(true);
     assert(String(store.get(REDIS_KEYS.googleSyncDisconnect(ME))).startsWith('done:'), 'not done after the retry');
@@ -703,7 +711,33 @@ async function main() {
     seed();
     Object.assign(link('L1'), { enabled: false, unlinkChoice: 'keep', pushedSeq: 2, dirtySeq: 3 });
     await run(true);
-    assert(google.calendars.has('g-L1') && !events.some((e) => e.includes('g-L1')), `events ${show(events)}`);
+    assert(google.calendars.has('g-L1') && !events.some((e) => e.includes('delete g-L1')), `events ${show(events)}`);
+  });
+
+  await check('N2: a Keep still queued is carried out while the token works (the calendar\'s description says FamCal no longer updates it), whether or not the box is ticked; the calendar is not deleted nor listed', async () => {
+    for (const box of [true, false]) {
+      seed();
+      Object.assign(link('L1'), { enabled: false, unlinkChoice: 'keep', pushedSeq: 2, dirtySeq: 3 });
+      const res = await run(box);
+      assert(google.calendars.has('g-L1') && events.some((e) => e === 'google:patch g-L1') && !google.calendars.get('g-L1')!.description.includes('Managed'), `box ${box}: description ${google.calendars.get('g-L1')?.description} events ${show(events)}`);
+      assert(!res.leftover.includes('FamCal · Home'), `leftover ${show(res.leftover)}`);
+    }
+  });
+
+  await check('M6: syncReminderCacheEntry is the one rule (connect and select-calendars use it too): a suspended or unreachable user is removed, a fresh token and fresh choices override the row, a user without Telegram is removed', async () => {
+    seed();
+    const { getUserById } = await load('src/services/user-service.ts');
+    const { syncReminderCacheEntry } = await load('src/services/reminder-cache.ts');
+    const u = await getUserById(ME);
+    await syncReminderCacheEntry(u, { googleRefreshToken: 'fresh-token', calendarAssignments: [{ calendarId: 'x' }] });
+    let mine = (store.get(REDIS_KEYS.REMINDER_USERS) as Row[]).find((e) => e.id === ME);
+    assert(mine && mine.googleToken && mine.googleToken !== 'sealed' && show(mine.calendarAssignments) === show([{ calendarId: 'x' }]), `entry ${show(mine)}`);
+    await syncReminderCacheEntry({ ...u, suspendedAt: new Date() });
+    assert(!(store.get(REDIS_KEYS.REMINDER_USERS) as Row[]).some((e) => e.id === ME), 'a suspended user stays');
+    await syncReminderCacheEntry(u);
+    await syncReminderCacheEntry({ ...u, unreachableSince: new Date() });
+    assert(!(store.get(REDIS_KEYS.REMINDER_USERS) as Row[]).some((e) => e.id === ME), 'an unreachable user stays');
+    mine = undefined;
   });
 
   // ---- Review r3: a retry after a failed clear (M1) ----

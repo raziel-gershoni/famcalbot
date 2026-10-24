@@ -29,6 +29,9 @@ Google token is gone both here and at Google. Connecting again works from scratc
    sent to Sentry), and one it can't delete stays on the link and is recorded
    (`google-sync:orphans:<id>`) for the result's list. A run that starts after the disconnect
    reads the user and links again after taking its lock and finds nothing to do. In this order:
+   0. A Keep the user chose that the worker has not carried out yet is carried out now, box
+      ticked or not, while the token works (the calendar's description says FamCal no longer
+      updates it). Best effort; that calendar is never deleted or listed.
    a. Box ticked: delete the active copy calendars through the Google API while the token still
       works (a Keep copy is skipped). Best effort per calendar; the ones that fail are recorded.
       The links of the deleted calendars are dropped at once, before the revoke.

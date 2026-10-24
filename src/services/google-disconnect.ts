@@ -190,15 +190,18 @@ export async function disconnectGoogle(userId: number, options: { deleteCopies: 
   // the user (assertConnected in worker.ts), and one that made a copy calendar meanwhile deletes it.
   // The disconnect does not wait for a run: it proceeds at once. Fail-closed: if Redis can't hold the marker, nothing is revoked.
   await markDisconnecting(userId);
-  const result = await disconnectNow(userId, options);
   try {
-    await markDisconnected(userId);
-  } catch (error) {
-    // The busy marker (an hour) keeps the older runs stopped meanwhile; only the shorter-lived marker is lost.
-    console.error(`[google-disconnect] user ${userId}: marking the disconnect done failed`, error);
-    captureError(error, 'google-disconnect-marker', { user_id: userId }, 'warning');
+    return await disconnectNow(userId, options);
+  } finally {
+    // Also after a failure: 'busy' would refuse every copy run for an hour, a reconnect included;
+    // 'done' still stops the runs that began before and lets later ones read the stored state.
+    try {
+      await markDisconnected(userId);
+    } catch (error) {
+      console.error(`[google-disconnect] user ${userId}: marking the disconnect done failed`, error);
+      captureError(error, 'google-disconnect-marker', { user_id: userId }, 'warning');
+    }
   }
-  return result;
 }
 
 async function disconnectNow(userId: number, options: { deleteCopies: boolean }): Promise<DisconnectResult> {
@@ -224,6 +227,20 @@ async function disconnectNow(userId: number, options: { deleteCopies: boolean })
   // A copy the user turned off with Keep (queued or carried out) is theirs to keep: never deleted here.
   const keptByUser = new Set(links.filter((l) => !l.enabled && l.unlinkChoice === 'keep').map((l) => l.id));
   const attempted = options.deleteCopies ? links.filter((l) => !keptByUser.has(l.id)) : [];
+
+  // A Keep the user chose that the worker has not carried out yet: done now, while the token works
+  // (the calendar's description says FamCal no longer updates it). Best effort; never deleted or listed.
+  for (const link of links.filter((l) => keptByUser.has(l.id) && l.dirtySeq > l.pushedSeq && l.googleCalendarId)) {
+    const token = linkTokens.get(link.id) ?? userToken;
+    if (!token) continue;
+    try {
+      const { outcome } = await turnOffInGoogle(syncGoogle(token), { left: COPY_CALLS }, link, 'keep', language);
+      console.log(`[google-disconnect] user ${userId}: link ${link.id} queued keep: ${outcome}`);
+    } catch (error) {
+      console.error(`[google-disconnect] user ${userId}: carrying out the Keep of link ${link.id} failed`, error);
+      captureError(error, 'google-disconnect-copy', { user_id: userId, link_id: link.id, step: 'keep' }, 'warning');
+    }
+  }
 
   // a. The active copy calendars, while the token works.
   const leftover: string[] = [];
