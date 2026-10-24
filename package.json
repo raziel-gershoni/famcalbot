@@ -61,6 +61,7 @@
     "node-telegram-bot-api": "^0.66.0",
     "openai": "^6.9.1",
     "opusscript": "^0.1.1",
+    "pdf-lib": "^1.17.1",
     "postcss": "^8.5.8",
     "postcss-loader": "^8.2.1",
     "prisma": "^5.22.0",
