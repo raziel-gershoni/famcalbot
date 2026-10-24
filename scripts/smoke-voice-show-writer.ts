@@ -178,6 +178,17 @@ async function main() {
     assert(p.includes('אותה ברכה שהתחזית נפתחת בה'), 'greeting rule');
   });
 
+  await check('weather prompt: in an evening show the next morning is "tomorrow morning", never "this morning" (he, en, ru)', () => {
+    const he = buildShowPrompt(context({ kind: 'weather' }));
+    assert(he.includes('"מחר בבוקר"') && he.includes('לעולם לא "הבוקר"'), 'he: tomorrow-morning rule');
+    const en = buildShowPrompt(context({ locale: 'en', kind: 'weather' }));
+    assert(en.includes('"tomorrow morning"') && en.includes('never "this morning"'), 'en: tomorrow-morning rule');
+    const ru = buildShowPrompt(context({ locale: 'ru', kind: 'weather' }));
+    assert(ru.includes('"завтра утром"') && ru.includes('никогда не "сегодня утром"'), 'ru: tomorrow-morning rule');
+    // The rule belongs to the weather show only: the other kinds have their own tomorrow rules
+    assert(!buildShowPrompt(context({ kind: 'daily' })).includes('לעולם לא "הבוקר"'), 'the rule leaked into the daily show');
+  });
+
   await check('the output line asks for the turn count of the kind', () => {
     const weather = buildShowPrompt(context({ kind: 'weather' }));
     assert(weather.includes('בין 6 ל-10 תורות') && weather.includes('6-10 תורות') && !weather.includes('בין 6 ל-20'), 'weather turns');

@@ -63,6 +63,7 @@ function kindRules(context: ShowPromptContext): KindRules {
         "Greeting: the same one the forecast opens with. If it has no time-of-day greeting, don't invent one.",
         'Weather only: temperatures, rain, wind, and air quality if the forecast mentions it.',
         'First now and the rest of today, then tomorrow. If the forecast was written in the evening (it opens with "Good evening" or talks about tonight), flip the order: lead with tomorrow, and keep tonight to one short sentence.',
+        'In an evening forecast the next morning is "tomorrow morning", never "this morning": this morning is already over. The same goes for the other parts of tomorrow ("tomorrow afternoon", "tomorrow evening").',
         'The week: a turn or two, only the trend and the notable changes. Here you may group days.',
         'The extended outlook: at most one sentence, hedged ("likely", "expected").',
         'End with one practical tip (umbrella, sunscreen, an extra layer).',
