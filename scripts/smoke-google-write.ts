@@ -894,9 +894,9 @@ async function main() {
   await check('editor: the chosen Google calendars the user can write, read live; main is the primary; a spouse\'s is marked', async () => {
     const list = (await gitem.googleEditorCalendars(NOA)).calendars;
     assertSame(list, [
-      { id: NOA_CAL, name: 'Noa', color: '#9fc6e7', main: true, mine: true },
+      { id: NOA_CAL, name: 'Noa', color: '#4285f4', main: true, mine: true },
       { id: FAMILY, name: 'Family', color: '#33b679', main: false, mine: true },
-      { id: NY_CAL, name: 'New York', color: '#4986e7', main: false, mine: true },
+      { id: NY_CAL, name: 'New York', color: '#3f51b5', main: false, mine: true },
       { id: DANA, name: 'Dana', color: '#f4511e', main: false, mine: false, ownerName: 'Dana' },
     ], 'calendars');
     const e = await info.editorInfo(NOA, IL);
@@ -954,7 +954,7 @@ async function main() {
       recurring: true, start: '2026-10-06T10:00', fixedDays: false, zone: IL, rule: { choice: 'weekly' }, first: false, freq: 'weekly',
     }, 'series');
     assertSame({ calendar: r.calendar, forName: r.forName, scopes: r.scopes, canMoveCalendar: r.canMoveCalendar, moveTargets: r.moveTargets, canChangeRecipient: r.canChangeRecipient, source: r.source, googleOnly: r.editableInGoogleOnly ?? false, tz: r.tz }, {
-      calendar: { id: NOA_CAL, name: 'Noa', color: '#9fc6e7' }, forName: null, scopes: ['single', 'following', 'all'], canMoveCalendar: true,
+      calendar: { id: NOA_CAL, name: 'Noa', color: '#4285f4' }, forName: null, scopes: ['single', 'following', 'all'], canMoveCalendar: true,
       moveTargets: [NOA_CAL, FAMILY, NY_CAL, DANA, 'native:fam-7'], canChangeRecipient: false, source: 'google', googleOnly: false, tz: IL,
     }, 'the rest');
     const first = await editInfo(NOA, gkey(NOA_CAL, inst('wk', '2026-10-06T10:00:00')));

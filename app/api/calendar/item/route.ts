@@ -17,6 +17,7 @@ import { calendarRateLimiter } from '@/src/lib/rate-limit';
 import { requestInitData } from '@/src/lib/request-init-data';
 import { captureError } from '@/src/lib/error-capture';
 import { resolveUserTimezone } from '@/src/lib/timezone';
+import { displayColourFor, displayColourMap } from '@/src/services/native-calendar/colour';
 import { itemInfoFor } from '@/src/services/calendar-write/item-info';
 import { authFailure, json } from '@/src/services/calendar-write/respond';
 import { parseAnyItemKey } from '@/src/services/calendar-write/validate';
@@ -34,6 +35,7 @@ export async function GET(request: NextRequest) {
   try {
     const info = await itemInfoFor(user, key, await resolveUserTimezone(user));
     if (info === 'not_found') return json({ error: 'not_found' }, 404);
+    if (info.calendar) info.calendar = displayColourFor(info.calendar, await displayColourMap(user));
     return json(info);
   } catch (err) {
     // No titles in the context: the user id only.

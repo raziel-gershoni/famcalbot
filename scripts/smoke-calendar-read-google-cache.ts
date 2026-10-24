@@ -952,13 +952,13 @@ async function main() {
     colourList = LIVE;
     const r = await read();
     assert(show(colourCalls) === show([{ maxResults: 250, showHidden: true, fields: 'items(id,backgroundColor)', timeout: 5500 }]), `calls: ${show(colourCalls)}`);
-    assert(show(coloursOf(r)) === show({ [KIDS.calendarId]: '#7bd148', [SPOUSE.calendarId]: '#f4511e' }), `colours: ${show(coloursOf(r))}`);
+    assert(show(coloursOf(r)) === show({ [KIDS.calendarId]: '#7cb342', [SPOUSE.calendarId]: '#f4511e' }), `colours: ${show(coloursOf(r))}`);
     assert(show(entryAt(KEY)?.colours) === show({ [KIDS.calendarId]: '#7bd148' }), `entry colours: ${show(entryAt(KEY)?.colours)}`);
     assert(!live(KEY)!.value.includes('boss@corp.example'), 'an unchosen calendar\'s id reached the cache');
     reset();
     colourList = LIVE;
     const bare = await read(googleUser({ calendarAssignments: [{ ...KIDS, color: '' }, { ...SPOUSE, color: '' }] }));
-    assert(show(coloursOf(bare)) === show({ [KIDS.calendarId]: '#7bd148', [SPOUSE.calendarId]: null }), `no saved colours: ${show(coloursOf(bare))}`);
+    assert(show(coloursOf(bare)) === show({ [KIDS.calendarId]: '#7cb342', [SPOUSE.calendarId]: null }), `no saved colours: ${show(coloursOf(bare))}`);
   });
 
   await check('colours: a hit joins its entry\'s colours with no calendarList call; a stale hit\'s refresh asks again and writes the new ones', async () => {
@@ -968,14 +968,14 @@ async function main() {
     clock += 60_000;
     colourList = [{ id: KIDS.calendarId, backgroundColor: '#4986e7' }];
     const hit = await read();
-    assert(asked() === 1 && coloursOf(hit)[KIDS.calendarId] === '#7bd148', `${asked()} calls, ${show(coloursOf(hit))}`);
+    assert(asked() === 1 && coloursOf(hit)[KIDS.calendarId] === '#7cb342', `${asked()} calls, ${show(coloursOf(hit))}`);
     clock += 3 * 60_000;
     const stale = await read();
-    assert(stale.read.status === 'ok' && stale.read.stale && coloursOf(stale)[KIDS.calendarId] === '#7bd148', show(coloursOf(stale)));
+    assert(stale.read.status === 'ok' && stale.read.stale && coloursOf(stale)[KIDS.calendarId] === '#7cb342', show(coloursOf(stale)));
     await Promise.all(deferred.splice(0).map(task => task()));
     assert(asked() === 2 && show(entryAt(KEY)?.colours) === show({ [KIDS.calendarId]: '#4986e7' }), `${asked()} calls, entry ${show(entryAt(KEY)?.colours)}`);
     const next = await read();
-    assert(coloursOf(next)[KIDS.calendarId] === '#4986e7', `after the refresh: ${show(coloursOf(next))}`);
+    assert(coloursOf(next)[KIDS.calendarId] === '#3f51b5', `after the refresh: ${show(coloursOf(next))}`);
   });
 
   await check('colours: ⋯ → Refresh (fresh=1, \'refresh\') over a fresh entry asks calendarList again, answers with the new colour and writes it into the entry', async () => {
@@ -986,7 +986,7 @@ async function main() {
     colourList = [{ id: KIDS.calendarId, backgroundColor: '#4986e7' }];
     const fresh = await read(undefined, { googleCache: 'refresh' });
     assert(asked() === 2 && listed() === 4, `${asked()} calendarList calls, ${listed()} list calls`);
-    assert(coloursOf(fresh)[KIDS.calendarId] === '#4986e7', show(coloursOf(fresh)));
+    assert(coloursOf(fresh)[KIDS.calendarId] === '#3f51b5', show(coloursOf(fresh)));
     assert(show(entryAt(KEY)?.colours) === show({ [KIDS.calendarId]: '#4986e7' }), `entry colours: ${show(entryAt(KEY)?.colours)}`);
   });
 
@@ -1040,7 +1040,7 @@ async function main() {
     assert(summary.read.calendars.find(c => c.id === KIDS.calendarId)?.color === '#33b679' && summary.colours === undefined, show(summary.read.calendars));
     redisFaults.add('mget');
     const down = await read();
-    assert(asked() === 1 && coloursOf(down)[KIDS.calendarId] === '#7bd148', `Redis down: ${asked()} calls, ${show(coloursOf(down))}`);
+    assert(asked() === 1 && coloursOf(down)[KIDS.calendarId] === '#7cb342', `Redis down: ${asked()} calls, ${show(coloursOf(down))}`);
   });
 
   // ---- stampGoogleCache ----

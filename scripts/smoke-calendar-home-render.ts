@@ -6992,7 +6992,7 @@ async function main() {
     fakeWindow.location = { hash: '', reload: noop, assign: (u: string) => assigned.push(u) };
     (globalThis as Row).confirm = () => true;
     answerFetch = (c) => (c.path === '/api/google-sync' ? serveCopies(c) : c.path === '/api/native-calendars' ? ok200({ calendars: CALS }) : ok200({ success: true }));
-    const m = mount(inApp(locale, createElement(CalendarsClient, { userId: 5, locale, initialCalendars: CALS })));
+    const m = mount(inApp(locale, createElement(CalendarsClient, { userId: 5, locale, initialCalendars: CALS, googleColors: [] })));
     await settle();
     return { m, tg, assigned };
   };

@@ -18,6 +18,7 @@ import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Lock, Eye, Edit3, Trash2, Plus, Check } from 'lucide-react';
 import { initDataHeaders, readInitData } from '@/src/lib/read-init-data';
+import { CALENDAR_PALETTE, displayColours } from '@/src/lib/calendar-colours';
 import { openExternalLink, useTelegramBackButton } from '@/src/lib/telegram-ui';
 import type { CopiesView, CopyRow } from '@/src/services/google-sync/view';
 import type { UnlinkChoice } from '@/src/services/google-sync/marks';
@@ -49,13 +50,9 @@ interface Props {
   userId: number;
   locale: string;
   initialCalendars: Calendar[];
+  /** The user's chosen Google calendars with their colours as Google's app shows them: on screen beside the FamCal ones. */
+  googleColors: string[];
 }
-
-const COLOR_PALETTE = [
-  '#039BE5', '#7986CB', '#33B679', '#8E24AA', '#E67C73',
-  '#F6BF26', '#F4511E', '#039BE5', '#616161', '#3F51B5',
-  '#0B8043', '#D50000',
-];
 
 const VALID_LABELS = ['primary', 'yours', 'spouse', 'kids', 'birthdays'] as const;
 
@@ -151,7 +148,7 @@ function getInitData(): string {
 }
 
 export default function CalendarsClient(props: Props) {
-  const { userId, locale, initialCalendars } = props;
+  const { userId, locale, initialCalendars, googleColors } = props;
   const t = COPY[locale] || COPY.en;
   const isRTL = locale === 'he';
   const router = useRouter();
@@ -164,6 +161,13 @@ export default function CalendarsClient(props: Props) {
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string>('');
+
+  // The colours as drawn on every screen (displayColours): a FamCal calendar too close to
+  // another is shifted here too. The saved colour, and the picker below, stay as saved.
+  const drawn = displayColours([
+    ...calendars.map((c) => ({ id: c.rawId, color: c.color, native: true })),
+    ...googleColors.map((color, i) => ({ id: `google:${i}`, color, native: false })),
+  ]);
 
   const owned = calendars.filter((c) => c.isOwner);
   const shared = calendars.filter((c) => !c.isOwner);
@@ -457,6 +461,7 @@ export default function CalendarsClient(props: Props) {
               <CalendarCard
                 key={c.rawId}
                 calendar={c}
+                drawnColor={drawn.get(c.rawId) ?? c.color}
                 t={t}
                 isRTL={isRTL}
                 editing={editingId === c.rawId}
@@ -519,6 +524,7 @@ export default function CalendarsClient(props: Props) {
                 <CalendarCard
                   key={c.rawId}
                   calendar={c}
+                  drawnColor={drawn.get(c.rawId) ?? c.color}
                   t={t}
                   isRTL={isRTL}
                   editing={false}
@@ -541,6 +547,8 @@ export default function CalendarsClient(props: Props) {
 
 interface CardProps {
   calendar: Calendar;
+  /** The colour the calendar is drawn in (displayColours); its saved colour is calendar.color. */
+  drawnColor: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   t: any;
   isRTL: boolean;
@@ -556,7 +564,7 @@ interface CardProps {
 }
 
 function CalendarCard(props: CardProps) {
-  const { calendar: c, t, editing, busy, readOnly, onStartEdit, onCancelEdit, onSave, onDelete, extra } = props;
+  const { calendar: c, drawnColor, t, editing, busy, readOnly, onStartEdit, onCancelEdit, onSave, onDelete, extra } = props;
   const [name, setName] = useState(c.name);
   const [color, setColor] = useState(c.color);
   const [labels, setLabels] = useState<string[]>(c.labels);
@@ -580,13 +588,13 @@ function CalendarCard(props: CardProps) {
         <div className="mb-3">
           <p className="text-xs font-semibold text-gray-500 mb-1">{t.color}</p>
           <div className="flex flex-wrap gap-1.5">
-            {COLOR_PALETTE.map((swatch) => (
+            {CALENDAR_PALETTE.map(({ hex, name: swatchName }) => (
               <button
-                key={swatch}
-                onClick={() => setColor(swatch)}
-                className={`w-7 h-7 rounded-full border-2 ${color === swatch ? 'border-gray-800' : 'border-transparent'}`}
-                style={{ backgroundColor: swatch }}
-                aria-label={swatch}
+                key={hex}
+                onClick={() => setColor(hex)}
+                className={`w-7 h-7 rounded-full border-2 ${color.toLowerCase() === hex ? 'border-gray-800' : 'border-transparent'}`}
+                style={{ backgroundColor: hex }}
+                aria-label={swatchName}
               />
             ))}
           </div>
@@ -644,7 +652,7 @@ function CalendarCard(props: CardProps) {
   return (
     <div className="bg-white rounded-2xl shadow p-4">
       <div className="flex items-center gap-3">
-        <div className="w-3 h-12 rounded-full" style={{ backgroundColor: c.color }} aria-hidden="true" />
+        <div className="w-3 h-12 rounded-full" style={{ backgroundColor: drawnColor }} aria-hidden="true" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-gray-800 truncate">{c.name}</h3>

@@ -39,6 +39,7 @@ import type { CalendarAssignment, CalendarLabel, UserConfig } from '@/src/types'
 import type { HomeHints } from '@/src/lib/calendar-view/home-props';
 import type { SourceName } from '@/src/lib/calendar-view/types';
 import { reminderTimeOf } from '@/src/lib/reminder-time';
+import { mapGoogleColour } from '@/src/lib/calendar-colours';
 
 export const PAGE_NAMES = ['dashboard', 'settings', 'select-calendars', 'calendars', 'pair', 'subscription'] as const;
 export type PageName = (typeof PAGE_NAMES)[number];
@@ -384,7 +385,10 @@ async function calendars(user: UserConfig, userId: number, userLocale: string): 
     createdAt: c.createdAt.toISOString(),
   }));
 
-  const props: PagePropsMap['calendars'] = { userId, locale: userLocale, initialCalendars: initial };
+  // Only the colours: the page never shifts a Google calendar, it only keeps FamCal ones apart from them.
+  const googleColors = liveGoogleChoices(user).flatMap((a) => mapGoogleColour(a.color || null) ?? []);
+
+  const props: PagePropsMap['calendars'] = { userId, locale: userLocale, initialCalendars: initial, googleColors };
   return { kind: 'props', props };
 }
 

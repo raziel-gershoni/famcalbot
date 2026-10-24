@@ -778,7 +778,8 @@ async function main() {
       occurrence: { start: '2026-10-20T10:00', end: '2026-10-20T11:00', allDay: false, title: 'Dentist', location: 'Clinic', description: 'Card' },
       series: { recurring: false, start: '2026-10-20T10:00', repeat: null, fixedDays: false, zone: IL, rule: { choice: 'none' }, first: true },
       tz: IL,
-      calendar: { id: 'native:cal-tal', name: 'Tal', color: '#039BE5' },
+      // The fixtures share one colour, so the sheet shows each calendar shifted apart (displayColours); the saved colour is #039BE5.
+      calendar: { id: 'native:cal-tal', name: 'Tal', color: '#7987ed' },
       forName: null, scopes: ['single'],
       canMoveCalendar: true, moveTargets: ['native:cal-tal', 'native:cal-tal-family', 'native:cal-noa-edit'],
       canChangeRecipient: false, forPartner: false, source: 'famcal',
@@ -853,7 +854,7 @@ async function main() {
     // The calendars it can move to are each reader's own (3b), so they are left out of the comparison.
     const { moveTargets: _noaTargets, ...asNoa } = (await itemOf(shared.body.key, { tg: TG.noa })).body;
     const { moveTargets: _talTargets, ...asTal } = (await itemOf(shared.body.key)).body;
-    assertSame(asNoa, { ...asTal, calendar: { id: 'native:cal-tal-family', name: 'Family', color: '#039BE5' }, canEdit: true, canDelete: true }, 'the partner reads and edits the shared calendar\'s event');
+    assertSame(asNoa, { ...asTal, calendar: { id: 'native:cal-tal-family', name: 'Family', color: '#00aa8f' }, canEdit: true, canDelete: true }, 'the partner reads and edits the shared calendar\'s event');
   });
 
   // ================= PATCH: events, each scope =================

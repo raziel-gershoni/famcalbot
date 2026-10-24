@@ -574,7 +574,8 @@ async function main() {
     assertSame(r.body.sources, { famcal: { status: 'pending' } }, 'sources');
     assertSame([r.body.calendars, r.body.partner, 'carryOvers' in r.body], [[], null, false], 'legend, partner, carry-overs');
     assert(famcalCalls.length === 0 && carryCalls.length === 0 && googleCalls.length === 0, 'a read on sources=google with no token');
-    assert(prismaCalls.every((c) => c.startsWith('user.')), `queries: ${show(prismaCalls)}`);
+    // The user's rows, and the FamCal calendars the colours are judged against (no Google read).
+    assert(prismaCalls.every((c) => c.startsWith('user.') || c === 'nativeCalendar.findMany'), `queries: ${show(prismaCalls)}`);
     assert(fetched.length === 0, `network: ${show(fetched)}`);
   });
 

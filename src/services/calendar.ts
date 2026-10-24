@@ -8,6 +8,7 @@ import { captureError } from '../lib/error-capture';
 import { classifyGoogleError, googleErrorFacts, type GoogleErrorClass } from './calendar-read/google-map';
 import { isSyncCopy } from './google-sync/markers';
 import { syncCopyFilter } from './google-sync/links';
+import { mapGoogleColour } from '../lib/calendar-colours';
 import {
   daysFromTo,
   endCarriedRule,
@@ -127,7 +128,8 @@ export async function listUserCalendars(refreshToken: string, userId: number): P
       description: cal.description || '',
       primary: cal.primary || false,
       accessRole: cal.accessRole || 'reader',
-      backgroundColor: cal.backgroundColor || '#039BE5'
+      // Google's API colour is the classic, pale one: this is the one place it enters, as Google's app shows it.
+      backgroundColor: mapGoogleColour(cal.backgroundColor || '#039BE5')
     }));
   } catch (error) {
     // Every path rethrows: the caller reports it, by its class and without Google's raw

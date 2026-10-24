@@ -13,6 +13,7 @@ import { listVisibleCalendars, encodeCalendarId } from '@/src/services/native-ca
 import { calendarTotal, checkCalendarLimit, countCalendars } from '@/src/services/subscription-service';
 import { prisma } from '@/src/utils/prisma';
 import { captureError } from '@/src/lib/error-capture';
+import { autoCalendarColour } from '@/src/services/native-calendar/colour';
 import { addsPrimary, clearOtherPrimaries } from '@/src/services/calendar-provider/primary';
 
 const VALID_LABELS = new Set(['primary', 'yours', 'spouse', 'kids', 'birthdays']);
@@ -100,7 +101,8 @@ export async function POST(request: NextRequest) {
       data: {
         ownerUserId: user.id,
         name,
-        color: color ?? '#039BE5',
+        // Unless the caller names one: the palette colour farthest from everything the user sees.
+        color: color ?? (await autoCalendarColour(user)),
         labels,
         personName,
         personGender,

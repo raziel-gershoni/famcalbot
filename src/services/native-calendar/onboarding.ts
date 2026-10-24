@@ -10,6 +10,7 @@
 // unpaired users; SHARED_EDITOR if the user is already paired.
 
 import { prisma } from '../../utils/prisma';
+import { autoCalendarColour } from './colour';
 import { liveGoogleChoices, type GoogleChoicesOwner } from '../../lib/google-state';
 
 const FALLBACK_NAME = {
@@ -45,6 +46,7 @@ export async function ensurePrimaryNativeCalendar(userId: number): Promise<void>
     data: {
       ownerUserId: userId,
       name,
+      color: await autoCalendarColour(user),
       labels: hasGoogleChoices(user) ? ['yours'] : ['primary', 'yours'],
       privacy,
     },

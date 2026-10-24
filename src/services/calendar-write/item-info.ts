@@ -33,6 +33,7 @@ import type { AnyItemKey, ItemKey } from './validate';
 import { sourcesFor } from '../calendar-read/index';
 import { defaultCalendarIdFor } from '../calendar-provider/user-calendars';
 import { ensurePrimaryNativeCalendar } from '../native-calendar/onboarding';
+import { displayColourFor, displayColourMap } from '../native-calendar/colour';
 import { instantToWall, lastDayOf, localDate } from './walltime';
 import { famcalCrossRefusal, type CrossRefusal } from '../calendar-move/mapper';
 
@@ -105,7 +106,9 @@ export async function editorInfo(user: UserConfig, tz: string): Promise<EditorIn
   const defaultId = await defaultCalendarIdFor(user);
   const listed = [...famcalCalendars, ...googleCalendars];
   const mainId = listed.some((c) => c.id === defaultId) ? defaultId : famcalCalendars.find((c) => c.main)?.id;
-  const calendars = listed.map((c) => ({ ...c, main: c.id === mainId }));
+  // The colours as drawn: a FamCal calendar too close to another is shifted on screen only.
+  const drawn = await displayColourMap(user);
+  const calendars = listed.map((c) => ({ ...displayColourFor(c, drawn), main: c.id === mainId }));
   const partner = ctx?.partner ? { name: ctx.partner.name, canRemind: partnerCanRemind(ctx) } : null;
   return {
     kinds: { event: calendars.length > 0, reminder: reminders.supported },
