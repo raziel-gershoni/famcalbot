@@ -40,6 +40,8 @@ interface SettingsClientProps {
     voiceInputEnabled: boolean;
   };
   remindersGloballyEnabled: boolean;
+  /** FamCal reminders can be used (the native switch, Telegram, the plan): the reminder time applies. */
+  nativeRemindersSupported: boolean;
   subscriptionInfo: SubscriptionInfo;
 }
 
@@ -51,7 +53,7 @@ const REMINDER_TIME_OPTIONS = Array.from({ length: (24 * 60) / REMINDER_TIME_STE
 
 type FormState = 'idle' | 'saving' | 'success' | 'error';
 
-export default function SettingsClient({ userId, currentSettings, remindersGloballyEnabled, subscriptionInfo }: SettingsClientProps) {
+export default function SettingsClient({ userId, currentSettings, remindersGloballyEnabled, nativeRemindersSupported, subscriptionInfo }: SettingsClientProps) {
   const t = useTranslations('settings');
   const router = useRouter();
   const [formState, setFormState] = useState<FormState>('idle');
@@ -323,8 +325,8 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
           tomorrowSummaryDays,
           remindersEnabled,
           defaultReminderMinutes: remindersEnabled ? defaultReminderMinutes : null,
-          // Only where the section shows (the same plan gate): elsewhere it stays as it was.
-          ...(remindersEnabled && remindersGloballyEnabled && subscriptionInfo.remindersAllowed ? { reminderTime } : {}),
+          // Only where the picker shows (FamCal reminders allowed): elsewhere it stays as it was.
+          ...(nativeRemindersSupported ? { reminderTime } : {}),
           pickupRemindersEnabled,
           voiceInputEnabled,
           initData
@@ -1179,6 +1181,25 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
               </div>
             </div>
 
+            {/* FamCal reminders' own setting: shown whenever the plan allows them, whatever the Google event alerts switch says */}
+            {nativeRemindersSupported && (
+            <div className="form-group">
+              <label htmlFor="reminderTime">{t('reminderTime')}</label>
+              <select
+                name="reminderTime"
+                id="reminderTime"
+                value={reminderTime}
+                onChange={(e) => setReminderTime(e.target.value)}
+                disabled={formState !== 'idle'}
+              >
+                {REMINDER_TIME_OPTIONS.map((time) => (
+                  <option key={time} value={time}>{time}</option>
+                ))}
+              </select>
+              <p className="help-text">{t('reminderTimeHelp')}</p>
+            </div>
+            )}
+
             {remindersEnabled && remindersGloballyEnabled && subscriptionInfo.remindersAllowed && (
               <>
                 <div className="form-group" style={{ marginTop: '16px' }}>
@@ -1197,22 +1218,6 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
                     <option value="60">60 {t('minutes')}</option>
                   </select>
                   <p className="help-text">{t('defaultReminderMinutesHelp')}</p>
-                </div>
-
-                <div className="form-group">
-                  <label htmlFor="reminderTime">{t('reminderTime')}</label>
-                  <select
-                    name="reminderTime"
-                    id="reminderTime"
-                    value={reminderTime}
-                    onChange={(e) => setReminderTime(e.target.value)}
-                    disabled={formState !== 'idle'}
-                  >
-                    {REMINDER_TIME_OPTIONS.map((time) => (
-                      <option key={time} value={time}>{time}</option>
-                    ))}
-                  </select>
-                  <p className="help-text">{t('reminderTimeHelp')}</p>
                 </div>
 
                 <div className="toggle-row">

@@ -197,7 +197,9 @@ async function homeHintsFor(user: UserConfig): Promise<{ hints: HomeHints; looka
 
 async function settings(user: UserConfig, userId: number, userLocale: string): Promise<PageDataResult> {
   // Fetch admin settings and subscription data in parallel
-  const [adminSettings, subWithUsage] = await Promise.all([
+  const [nativeRemindersSupported, adminSettings, subWithUsage] = await Promise.all([
+    // quiet: a gate for one control, so a plan without reminders logs nothing
+    getReminderSupport(user, { quiet: true }).then((support) => support.supported),
     prisma.adminSettings.findUnique({
       where: { id: 'global' }
     }).catch(() => null),
@@ -243,6 +245,7 @@ async function settings(user: UserConfig, userId: number, userLocale: string): P
       voiceInputEnabled: user.voiceInputEnabled
     },
     remindersGloballyEnabled: adminSettings?.remindersEnabled ?? false,
+    nativeRemindersSupported,
     subscriptionInfo,
   };
   // One open of the Settings screen

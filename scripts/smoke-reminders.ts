@@ -100,6 +100,8 @@ const fakePrisma = {
 /** A Google calendar event, as events.list returns it with singleEvents; `reminder` is its own popup lead(s). */
 type GoogleEvent = { calendarId: string; id: string; summary: string; start: Date; end: Date; location?: string; reminder?: number | number[] };
 let googleEvents: GoogleEvent[] = [];
+/** Whether the user's plan allows reminders (checkFeatureAccess). */
+let remindersAllowedByPlan = true;
 /** Real milliseconds each Google request takes, the requests in flight, and calendars whose requests fail. */
 const googleCalls = { latencyMs: 0, inFlight: 0, maxInFlight: 0, failing: {} as Record<string, Error> };
 async function googleRequest<T>(calendarId: string, respond: () => T): Promise<T> {
@@ -232,7 +234,7 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   [`${SRC}/services/user-service.ts`]: { getWhatsAppChatId: () => null, updateUserById: fakeUpdateUserById },
   [`${SRC}/services/analytics-service.ts`]: { trackActivityAsync: () => {} },
   [`${SRC}/services/subscription-service.ts`]: {
-    checkFeatureAccess: async () => ({ allowed: true }),
+    checkFeatureAccess: async () => ({ allowed: remindersAllowedByPlan }),
     incrementUsage: async () => {},
   },
   [`${SRC}/services/native-calendar/event-store.ts`]: real => fakeOver(real, {
@@ -292,6 +294,7 @@ Module.registerHooks({
 const at = (local: string, tz: string) => fromZonedTime(local, tz);
 
 function reset(row: Partial<UserRow> & { id: number }) {
+  remindersAllowedByPlan = true;
   store.clear();
   sent = [];
   sendError = null;
@@ -663,6 +666,26 @@ async function main() {
     await runTicks(handlers, at('2026-10-13 07:05', IL), at('2026-10-13 17:00', IL));
     const lines = sentLines(IL);
     assert(lines.join(' | ') === '07:45 🤖 Auto-Reminder: Kindergarten', `got ${lines.join(' | ') || '(nothing)'}`);
+  });
+
+  // FamCal reminders' own setting: not behind the Google event-alerts switch, but behind the plan.
+  await check('the reminder time saves for a user with event alerts off when the plan allows reminders, and is refused (403) when it does not', async () => {
+    reset({ id: 30, calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: null, remindersEnabled: false });
+    const route = await import('../app/api/settings/route');
+    const post = async (body: Record<string, unknown>) => {
+      const log = console.log;
+      console.log = () => {};
+      try {
+        const request = { url: 'https://famcal.bot/api/settings?user_id=1030', json: async () => body };
+        return ((await route.POST(request as never)) as unknown as { status: number }).status;
+      } finally {
+        console.log = log;
+      }
+    };
+    assert(await post({ reminderTime: '07:30' }) === 200 && userRows[0].reminderTime === '07:30', `allowed: ${userRows[0].reminderTime}`);
+    assert(await post({ reminderTime: '07:10' }) === 400, 'a step off 15 minutes');
+    remindersAllowedByPlan = false;
+    assert(await post({ reminderTime: '08:00' }) === 403 && userRows[0].reminderTime === '07:30', `refused: ${userRows[0].reminderTime}`);
   });
 
   await check("a settings save keeps the location, so an expired timezone resolves to the user's", async () => {

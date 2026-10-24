@@ -11,6 +11,7 @@ import { prisma } from '@/src/utils/prisma';
 import { REDIS_KEYS } from '@/src/config/redis-keys';
 import { trackActivityAsync } from '@/src/services/analytics-service';
 import { changedSettingFields } from '@/src/lib/settings-changes';
+import { getReminderSupport } from '@/src/services/native-reminders/support';
 import { invalidateDueGate } from '@/src/services/native-reminders/due-gate';
 import { isValidReminderTime, reminderTimeOf } from '@/src/lib/reminder-time';
 
@@ -59,6 +60,10 @@ export async function POST(request: NextRequest) {
     }
     if (reminderTime !== undefined && !isValidReminderTime(reminderTime)) {
       return NextResponse.json({ error: 'Invalid reminderTime' }, { status: 400 });
+    }
+    // The reminder time belongs to FamCal reminders: the same plan/switch/Telegram gate as the reminders themselves.
+    if (reminderTime !== undefined && !(await getReminderSupport(auth.user)).supported) {
+      return NextResponse.json({ error: 'Reminders are not available' }, { status: 403 });
     }
     const isValidDaysArray = (arr: unknown): arr is number[] =>
       Array.isArray(arr) && arr.length >= 1 && arr.length <= 7 &&
