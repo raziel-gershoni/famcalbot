@@ -6,6 +6,7 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { getUserByTelegramId, getUserByIdentifier, getOrCreateUser, TelegramUserInfo } from '../user-service';
 import { MessagingPlatform, MessageFormat, IMessagingService } from '../messaging';
+import type { UserConfig } from '../../types';
 import { getMessagingService as getMessagingServiceByPlatform } from '../messaging';
 import type { StreamMessageHandle } from '../messaging/types';
 import { buildUrl } from '../../config/urls';
@@ -274,6 +275,34 @@ export async function handleSummaryCommand(
 }
 
 /**
+ * The text-summary gate of /weather, /lookahead and /nextweek (every platform, since the
+ * platforms all come through these handlers): when the user is out of text summaries, tell
+ * them with an upgrade button and say so, so the caller stops. Weather's wording, one place.
+ */
+async function denyOverTextLimit(
+  user: UserConfig,
+  chatId: number | string,
+  messagingService: IMessagingService,
+  userLanguage: string
+): Promise<boolean> {
+  const access = await checkFeatureAccess(user.id, 'text_summary');
+  if (access.allowed) return false;
+  const t = await getBotMessages(userLanguage);
+  const upgradeUrl = buildUrl(`/${userLanguage}/subscription?user_id=${user.telegramId ?? user.id}`);
+  const limitMessage = t.subscription?.textLimitReached
+    || 'You\'ve reached your monthly text summary limit. Upgrade to continue!';
+  await messagingService.sendMessage(chatId, limitMessage, {
+    format: MessageFormat.HTML,
+    replyMarkup: {
+      inline_keyboard: [[
+        { text: t.subscription?.upgradeButton || '⭐ Upgrade Plan', web_app: { url: upgradeUrl } },
+      ]],
+    },
+  });
+  return true;
+}
+
+/**
  * Handle /weather command
  * Generates AI-powered weather forecast
  */
@@ -333,23 +362,8 @@ export async function handleWeatherCommand(
   // Check if user has completed setup — nudge for missing location
   if (await sendSetupNudgeIfNeeded(user, chatId, messagingService, platform)) return;
 
-  // Check feature access for text summaries (weather shares quota with calendar summaries)
-  const weatherAccess = await checkFeatureAccess(user.id, 'text_summary');
-  if (!weatherAccess.allowed) {
-    const t = await getBotMessages(userLanguage);
-    const upgradeUrl = buildUrl(`/${userLanguage}/subscription?user_id=${user.telegramId ?? user.id}`);
-    const limitMessage = t.subscription?.textLimitReached
-      || 'You\'ve reached your monthly text summary limit. Upgrade to continue!';
-    await messagingService.sendMessage(chatId, limitMessage, {
-      format: MessageFormat.HTML,
-      replyMarkup: {
-        inline_keyboard: [[
-          { text: t.subscription?.upgradeButton || '⭐ Upgrade Plan', web_app: { url: upgradeUrl } },
-        ]],
-      },
-    });
-    return;
-  }
+  // Text summaries are metered: weather, /lookahead and /nextweek share the quota with the calendar summaries
+  if (await denyOverTextLimit(user, chatId, messagingService, userLanguage)) return;
 
   const completed = await executeCommand({
     chatId,
@@ -503,6 +517,8 @@ export async function handleLookaheadCommand(
 
   const userLanguage = user.language || 'en';
 
+  if (await denyOverTextLimit(user, chatId, messagingService, userLanguage)) return;
+
   const completed = await executeCommand({
     chatId,
     language: userLanguage,
@@ -609,6 +625,8 @@ export async function handleNextWeekCommand(
   }
 
   const userLanguage = user.language || 'en';
+
+  if (await denyOverTextLimit(user, chatId, messagingService, userLanguage)) return;
 
   const completed = await executeCommand({
     chatId,

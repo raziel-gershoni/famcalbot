@@ -140,6 +140,10 @@ let tokensCleared: string[] = [];
 let deliveries: string[] = [];
 /** Every activity row the commands write: "<action> <json metadata>". */
 let tracked: string[] = [];
+/** The features the plan has run out of. */
+let exhausted = new Set<string>();
+/** The plan checks the commands made. */
+let featureChecks: string[] = [];
 
 const SRC = path.join(ROOT, 'src');
 const stubs: Record<string, Record<string, unknown>> = {
@@ -166,7 +170,10 @@ const stubs: Record<string, Record<string, unknown>> = {
     trackActivityAsync: (_userId: number, action: string, meta?: object) => { tracked.push(`${action} ${JSON.stringify(meta ?? {})}`); },
     addBreadcrumb: () => undefined,
   },
-  [`${SRC}/services/subscription-service.ts`]: { checkFeatureAccess: async () => ({ allowed: true }), incrementUsage: async () => undefined },
+  [`${SRC}/services/subscription-service.ts`]: {
+    checkFeatureAccess: async (_userId: number, feature: string) => { featureChecks.push(feature); return { allowed: !exhausted.has(feature) }; },
+    incrementUsage: async () => undefined,
+  },
   [`${SRC}/lib/error-capture.ts`]: { captureError: () => undefined, captureWarning: () => undefined, captureInfo: () => undefined },
   [`${SRC}/utils/prisma.ts`]: { prisma: {} },
   [`${SRC}/utils/redis.ts`]: { redis: { get: async () => null, set: async () => 'OK', del: async () => 0 } },
@@ -222,7 +229,7 @@ Module.registerHooks({
 
 type Command = 'week' | 'nextweek';
 
-async function run(command: Command, opts: { error?: Error; gap?: string; platform?: MessagingPlatform; draft?: boolean; user?: UserConfig } = {}) {
+async function run(command: Command, opts: { error?: Error; gap?: string; platform?: MessagingPlatform; draft?: boolean; user?: UserConfig; exhausted?: string[] } = {}) {
   const { handleLookaheadCommand, handleNextWeekCommand } = await import('../src/services/telegram/commands');
   sent = [];
   adminWarnings = [];
@@ -230,15 +237,17 @@ async function run(command: Command, opts: { error?: Error; gap?: string; platfo
   tokensCleared = [];
   deliveries = [];
   tracked = [];
+  featureChecks = [];
   lookaheadCalls.length = 0;
   lookaheadError = opts.error;
+  exhausted = new Set(opts.exhausted ?? []);
   lookaheadGap = opts.gap;
   user = opts.user ?? makeUser();
   const platform = opts.platform ?? MessagingPlatform.TELEGRAM;
   const chatId = platform === MessagingPlatform.WHATSAPP ? WA_CHAT : TG_CHAT;
   const handler = command === 'week' ? handleLookaheadCommand : handleNextWeekCommand;
   await handler(chatId, chatId, platform, opts.draft ? makeDraft() : undefined);
-  assertList(lookaheadCalls, [command]);
+  assertList(lookaheadCalls, exhausted.has('text_summary') ? [] : [command]);
 }
 
 /** What one run left behind, one line per kind. */
@@ -276,6 +285,25 @@ async function main() {
       'command_completed {"command":"nextweek","platform":"whatsapp"}', '--',
       'user_error_shown {"error_type":"lookaheadFetch","command":"Lookahead Command"}',
     ]);
+  });
+
+  await check('B4 /lookahead and /nextweek check the text-summary quota like /weather: out of it, the limit message of /weather (Telegram and WhatsApp), nothing fetched, no completed row', async () => {
+    // The text /weather sends (bot.subscription has no textLimitReached key, so it is the code's own English line).
+    const limit = { textLimitReached: "You've reached your monthly text summary limit. Upgrade to continue!" };
+    for (const command of ['week', 'nextweek'] as const) {
+      for (const platform of [MessagingPlatform.TELEGRAM, MessagingPlatform.WHATSAPP]) {
+        await run(command, { exhausted: ['text_summary'], platform, user: platform === MessagingPlatform.WHATSAPP ? makeUser({ telegramId: null }) : undefined });
+        const chat = platform === MessagingPlatform.WHATSAPP ? WA_CHAT : TG_CHAT;
+        assertList(sent, [`${platform === MessagingPlatform.WHATSAPP ? 'whatsapp' : 'telegram'}.sendMessage ${chat} html: ${limit.textLimitReached}`]);
+        assertList(featureChecks, ['text_summary']);
+        assertList(tracked, []);
+        assertList(deliveries, []);
+      }
+    }
+    // Within the quota they run as before.
+    await run('week');
+    assertList(featureChecks, ['text_summary']);
+    assertList(deliveries, ['This week: the book fair on Friday.']);
   });
 
   await check('/week, a dead token: the daily summary\'s token text and admin warning, no admin error', async () => {

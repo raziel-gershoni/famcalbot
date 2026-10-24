@@ -13,7 +13,8 @@ import { getMessagingService as getMessagingServiceByPlatform } from '../messagi
 import { startTypingInterval } from './command-pipeline';
 import { getMessagingService } from './bot';
 import { trackActivityAsync } from '../analytics-service';
-import { incrementUsage } from '../subscription-service';
+import { checkFeatureAccess, incrementUsage } from '../subscription-service';
+import { captureError } from '../../lib/error-capture';
 import { formatVoiceCaption } from '../../utils/ai-footer';
 import type { VoiceCondenserContext } from '../../prompts/voice-condenser';
 import type { ProducedVoice, ShowKind } from '../voice-show/types';
@@ -75,6 +76,18 @@ async function produceNarratorVoice(summary: string, user: UserConfig, kind: Sho
 }
 
 /**
+ * A voice summary reached the user: the activity row and one use of the voice limit. The one
+ * place both the daily and the weekly voice count, so the weekly show is metered like the daily.
+ */
+function recordVoiceSent(user: UserConfig, durationSeconds: number): void {
+  trackActivityAsync(user.id, 'voice_summary_generated', { duration_seconds: durationSeconds });
+  incrementUsage(user.id, 'voiceSummaries').catch(err => {
+    console.error('[Subscription] Failed to increment voice usage:', err);
+    captureError(err, 'voice-increment-usage', { user_id: user.id }, 'warning');
+  });
+}
+
+/**
  * Generate and send voice version of summary
  * Shows animated progress that gets deleted when voice arrives (optional)
  * Non-blocking - errors logged but don't affect text summary delivery
@@ -127,12 +140,7 @@ export async function sendVoiceMessage(
       await msgService.sendMessage(chatId, voice.caption, { format: MessageFormat.HTML });
     }
 
-    trackActivityAsync(user.id, 'voice_summary_generated', {
-      duration_seconds: voice.durationSeconds,
-    });
-    incrementUsage(user.id, 'voiceSummaries').catch(err =>
-      console.error('[Subscription] Failed to increment voice usage:', err)
-    );
+    recordVoiceSent(user, voice.durationSeconds);
 
     console.log(`[Voice] Voice message sent successfully to user ${chatId}`);
   } catch (error) {
@@ -193,6 +201,14 @@ export async function sendWeeklyVoiceMessage(
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
   waMessageId?: string
 ): Promise<void> {
+  // The weekly show is a voice summary like the daily one: out of voice summaries, it is not
+  // made (the text is already delivered), exactly as the daily voice is skipped (summary.ts).
+  const voiceAccess = await checkFeatureAccess(user.id, 'voice_summary');
+  if (!voiceAccess.allowed) {
+    console.log(`[Voice] Weekly voice skipped for user ${user.id}: voice summary limit reached`);
+    return;
+  }
+
   let voiceFilePath: string | null = null;
   const msgService = service || (platform === MessagingPlatform.WHATSAPP
     ? getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP)
@@ -224,6 +240,8 @@ export async function sendWeeklyVoiceMessage(
     if (voice.caption && user.isAdmin) {
       await msgService.sendMessage(chatId, voice.caption, { format: MessageFormat.HTML });
     }
+
+    recordVoiceSent(user, voice.durationSeconds);
 
     console.log(`[Voice] Weekly voice message sent successfully to user ${chatId}`);
   } catch (error) {
