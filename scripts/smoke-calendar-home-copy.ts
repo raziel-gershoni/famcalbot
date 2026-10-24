@@ -158,6 +158,7 @@ const KEYS: Record<string, readonly string[]> = {
   'row.snoozedUntil': ['time'],
   'row.snoozedLabel': ['time'],
   'row.birthday': [],
+  'row.anniversary': ['n'],
   'row.googleCalendar': ['calendar'],
   // Whose an item is (D5: rows, the still-open card, the item sheet), spec §7.3
   'person.from': ['name'],
@@ -228,6 +229,7 @@ const KEYS: Record<string, readonly string[]> = {
   'editor.repeat.yearlyPlain': [],
   'editor.repeat.hebrew': ['date'],
   'editor.repeat.hebrewPlain': [],
+  'editor.repeat.hebrewCountHint': [],
   'editor.repeat.hebrewEvery': ['count', 'date'],
   'editor.repeat.current': ['words'],
   'editor.repeat.currentPlain': [],
@@ -317,6 +319,7 @@ const SAMPLES: Record<string, string | number> = {
   range: 'Sat 17 – Sun 18 Oct',
   zone: 'Asia/Jerusalem',
   count: 5,
+  n: 5,
   weekday: 'tue',
   words: 'Every day',
   rule: 'Every week',
@@ -478,6 +481,14 @@ async function main() {
 
   await check('#4 plurals, the weekday select and the person chips read naturally (exact text in en/he/ru)', () => {
     const cases: [Locale, string, Row, string][] = [
+      ['en', 'row.anniversary', { n: 1 }, '1 year'],
+      ['en', 'row.anniversary', { n: 36 }, '36 years'],
+      ['he', 'row.anniversary', { n: 1 }, 'שנה'],
+      ['he', 'row.anniversary', { n: 2 }, 'שנתיים'],
+      ['he', 'row.anniversary', { n: 36 }, '36 שנים'],
+      ['ru', 'row.anniversary', { n: 1 }, '1 год'],
+      ['ru', 'row.anniversary', { n: 22 }, '22 года'],
+      ['ru', 'row.anniversary', { n: 35 }, '35 лет'],
       ['en', 'stillOpen.count', { count: 1 }, '1 reminder'],
       ['en', 'stillOpen.count', { count: 2 }, '2 reminders'],
       ['he', 'stillOpen.count', { count: 1 }, 'תזכורת אחת'],
