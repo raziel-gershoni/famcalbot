@@ -579,6 +579,24 @@
       "saving": "Saving...",
       "saved": "Settings Saved!",
       "error": "Failed to save settings"
+    },
+    "googleDisconnect": {
+      "sectionTitle": "Google Calendar",
+      "sectionHint": "FamCal keeps working without Google. You can connect it again whenever you like.",
+      "button": "Disconnect Google",
+      "confirmTitle": "Disconnect Google?",
+      "confirmBody": "FamCal will stop reading your Google calendars. We’ll delete the Google sign-in we stored and revoke its access at Google. Your FamCal calendars, events and reminders stay as they are.",
+      "copiesLabel": "Also delete the FamCal copies from Google",
+      "copiesHint": "The “FamCal · …” calendars that Copy to Google made in your Google account.",
+      "cancel": "Cancel",
+      "confirm": "Disconnect",
+      "working": "Disconnecting…",
+      "doneTitle": "Google is disconnected",
+      "doneBody": "FamCal no longer reads your Google calendars. You can connect Google again from the menu whenever you like.",
+      "leftoverIntro": "We couldn’t delete these from Google. You can remove them in Google Calendar:",
+      "close": "Done",
+      "errorFailed": "Couldn’t disconnect Google. Nothing was changed. Try again.",
+      "errorBusy": "Too many tries. Wait a minute and try again."
     }
   },
   "calendars": {

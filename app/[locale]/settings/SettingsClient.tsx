@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { TelegramLayout } from '@/components/Layout';
 import { CheckCircle2, MapPin, Loader2, ArrowLeft, Check } from 'lucide-react';
 import { REMINDER_TIME_STEP_MINUTES } from '@/src/lib/reminder-time';
+import GoogleDisconnect from './GoogleDisconnect';
 
 interface SubscriptionInfo {
   effectivePlan: string;
@@ -40,6 +41,8 @@ interface SettingsClientProps {
     voiceInputEnabled: boolean;
   };
   remindersGloballyEnabled: boolean;
+  /** A Google token is stored: the Google section (Disconnect Google) shows. */
+  googleConnected: boolean;
   /** FamCal reminders can be used (the native switch, Telegram, the plan): the reminder time applies. */
   nativeRemindersSupported: boolean;
   subscriptionInfo: SubscriptionInfo;
@@ -53,10 +56,11 @@ const REMINDER_TIME_OPTIONS = Array.from({ length: (24 * 60) / REMINDER_TIME_STE
 
 type FormState = 'idle' | 'saving' | 'success' | 'error';
 
-export default function SettingsClient({ userId, currentSettings, remindersGloballyEnabled, nativeRemindersSupported, subscriptionInfo }: SettingsClientProps) {
+export default function SettingsClient({ userId, currentSettings, remindersGloballyEnabled, googleConnected: googleConnectedProp, nativeRemindersSupported, subscriptionInfo }: SettingsClientProps) {
   const t = useTranslations('settings');
   const router = useRouter();
   const [formState, setFormState] = useState<FormState>('idle');
+  const [googleConnected, setGoogleConnected] = useState(googleConnectedProp);
   // Stays up after the form unlocks again, until the next save.
   const [saveFailed, setSaveFailed] = useState(false);
   const [language, setLanguage] = useState(currentSettings.language);
@@ -1254,6 +1258,8 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
             </>)}
 
           </form>
+
+          <GoogleDisconnect userId={userId} connected={googleConnected} onDisconnected={() => setGoogleConnected(false)} />
 
           <p style={{
             textAlign: 'center',

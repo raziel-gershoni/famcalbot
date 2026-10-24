@@ -246,6 +246,7 @@ async function settings(user: UserConfig, userId: number, userLocale: string): P
       voiceInputEnabled: user.voiceInputEnabled
     },
     remindersGloballyEnabled: adminSettings?.remindersEnabled ?? false,
+    googleConnected: Boolean(user.googleRefreshToken),
     nativeRemindersSupported,
     subscriptionInfo,
   };

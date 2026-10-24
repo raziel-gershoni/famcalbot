@@ -579,6 +579,24 @@
       "saving": "שומר...",
       "saved": "הגדרות נשמרו!",
       "error": "שמירת ההגדרות נכשלה"
+    },
+    "googleDisconnect": {
+      "sectionTitle": "יומן Google",
+      "sectionHint": "FamCal ממשיך לעבוד גם בלי Google, ואפשר לחבר אותו מחדש בכל רגע.",
+      "button": "ניתוק Google",
+      "confirmTitle": "לנתק את Google?",
+      "confirmBody": "FamCal יפסיק לקרוא את יומני Google. נמחק את החיבור ששמרנו ונבטל את ההרשאה שלו ב-Google. היומנים, האירועים והתזכורות ב-FamCal נשארים כמו שהם.",
+      "copiesLabel": "למחוק גם את העותקים של FamCal מ-Google",
+      "copiesHint": "יומני “FamCal · …” ש״העתקה ל-Google״ יצרה בחשבון ה-Google.",
+      "cancel": "ביטול",
+      "confirm": "ניתוק",
+      "working": "מנתקים…",
+      "doneTitle": "Google מנותק",
+      "doneBody": "FamCal כבר לא קורא את יומני Google. אפשר לחבר את Google מחדש מהתפריט בכל רגע.",
+      "leftoverIntro": "את אלה לא הצלחנו למחוק מ-Google. אפשר להסיר אותם ביומן Google:",
+      "close": "סיום",
+      "errorFailed": "הניתוק מ-Google לא הצליח. שום דבר לא השתנה. כדאי לנסות שוב.",
+      "errorBusy": "יותר מדי ניסיונות. כדאי להמתין דקה ולנסות שוב."
     }
   },
   "calendars": {

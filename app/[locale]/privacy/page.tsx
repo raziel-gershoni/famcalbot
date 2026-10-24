@@ -67,7 +67,7 @@ export default async function PrivacyPage({ params }: Props) {
         },
         {
           heading: 'Data Retention',
-          content: 'We retain your account data as long as you use the service. You can request deletion of your data at any time by contacting us. When you disconnect your Google Calendar or delete your account, we delete your OAuth tokens and associated data.',
+          content: 'We retain your account data as long as you use the service. You can request deletion of your data at any time by contacting us. When you choose "Disconnect Google" in Settings, we revoke FamCal\'s access at Google and delete the Google refresh token we stored, your chosen Google calendars and the Google data we cached. If you tick "Also delete the FamCal copies from Google", we also delete the "FamCal · <name>" calendars that Copy to Google created in your Google account. A copy calendar where you added your own events is emptied of FamCal\'s events and kept, and we show it to you so you can remove it in Google. When you delete your account, we delete your OAuth tokens and associated data.',
         },
         {
           heading: 'Third-Party Services',
@@ -84,7 +84,7 @@ export default async function PrivacyPage({ params }: Props) {
             'Access: You can request a copy of your data.',
             'Correction: You can update your information through the bot settings.',
             'Deletion: You can request deletion of your account and data.',
-            'Revoke Access: You can revoke Google Calendar access at any time through your Google Account settings.',
+            'Revoke Access: You can revoke Google Calendar access at any time through your Google Account settings, or by choosing Disconnect Google in Settings.',
           ],
         },
         {
@@ -141,7 +141,7 @@ export default async function PrivacyPage({ params }: Props) {
         },
         {
           heading: 'שמירת נתונים',
-          content: 'אנו שומרים את נתוני החשבון שלך כל עוד אתה משתמש בשירות. תוכל לבקש מחיקת הנתונים שלך בכל עת על ידי פנייה אלינו. כאשר אתה מנתק את יומן Google או מוחק את חשבונך, אנו מוחקים את אסימוני OAuth והנתונים הקשורים.',
+          content: 'אנו שומרים את נתוני החשבון שלך כל עוד אתה משתמש בשירות. תוכל לבקש מחיקת הנתונים שלך בכל עת על ידי פנייה אלינו. כשבוחרים "ניתוק Google" בהגדרות, אנו מבטלים את הגישה של FamCal ב-Google ומוחקים את אסימון ה-OAuth ששמרנו, את היומנים שבחרת מ-Google ואת נתוני Google ששמרנו זמנית. אם מסמנים "למחוק גם את העותקים של FamCal מ-Google", אנו מוחקים גם את יומני "FamCal · <שם>" ש"העתקה ל-Google" יצרה בחשבון ה-Google. יומן עותק שהוספת אליו אירועים משלך מתרוקן מאירועי FamCal ונשאר, ואנו מציגים לך אותו כדי שתוכל להסיר אותו ב-Google. כשמוחקים את החשבון, אנו מוחקים את אסימוני OAuth והנתונים הקשורים.',
         },
         {
           heading: 'שירותי צד שלישי',
@@ -158,7 +158,7 @@ export default async function PrivacyPage({ params }: Props) {
             'גישה: תוכל לבקש עותק של הנתונים שלך.',
             'תיקון: תוכל לעדכן את המידע שלך דרך הגדרות הבוט.',
             'מחיקה: תוכל לבקש מחיקת החשבון והנתונים שלך.',
-            'ביטול גישה: תוכל לבטל את גישת יומן Google בכל עת דרך הגדרות חשבון Google שלך.',
+            'ביטול גישה: תוכל לבטל את גישת יומן Google בכל עת דרך הגדרות חשבון Google שלך, או דרך "ניתוק Google" בהגדרות.',
           ],
         },
         {
@@ -215,7 +215,7 @@ export default async function PrivacyPage({ params }: Props) {
         },
         {
           heading: 'Срок хранения данных',
-          content: 'Мы храним данные вашего аккаунта, пока вы пользуетесь сервисом. Вы можете запросить удаление ваших данных в любое время, связавшись с нами. Когда вы отключаете Google Calendar или удаляете свой аккаунт, мы удаляем токены OAuth и связанные данные.',
+          content: 'Мы храним данные вашего аккаунта, пока вы пользуетесь сервисом. Вы можете запросить удаление ваших данных в любое время, связавшись с нами. Когда вы выбираете «Отключить Google» в настройках, мы отзываем доступ FamCal в Google и удаляем сохранённый токен OAuth, выбранные календари Google и кэшированные данные Google. Если вы отмечаете «Также удалить копии FamCal из Google», мы дополнительно удаляем календари «FamCal · <название>», созданные функцией «Копировать в Google» в вашем аккаунте Google. Если в таком календаре есть ваши собственные события, мы удаляем из него только события FamCal, а сам календарь оставляем и показываем вам, чтобы вы могли убрать его в Google. Когда вы удаляете свой аккаунт, мы удаляем токены OAuth и связанные данные.',
         },
         {
           heading: 'Сторонние сервисы',
@@ -232,7 +232,7 @@ export default async function PrivacyPage({ params }: Props) {
             'Доступ: Вы можете запросить копию ваших данных.',
             'Исправление: Вы можете обновить свою информацию через настройки бота.',
             'Удаление: Вы можете запросить удаление вашего аккаунта и данных.',
-            'Отзыв доступа: Вы можете отозвать доступ к Google Calendar в любое время через настройки вашего аккаунта Google.',
+            'Отзыв доступа: Вы можете отозвать доступ к Google Calendar в любое время через настройки вашего аккаунта Google или через «Отключить Google» в настройках FamCal.',
           ],
         },
         {
