@@ -182,6 +182,10 @@ async function runVirtual<T>(work: () => Promise<T>): Promise<T> {
       if (settled) return await result;
       const next = virtualTimers.filter(t => !t.cleared).sort((a, b) => a.due - b.due || a.seq - b.seq)[0];
       if (!next) throw new Error('virtual time: the work is waiting on something that is not a timer');
+      if (next.due - clock > 10_000) {
+        // TEMP diagnostic (CI-only failure): what is in flight when the clock jumps far ahead.
+        console.error(`[virtual time] jump +${next.due - clock} ms; resources ${JSON.stringify(process.getActiveResourcesInfo())}; pending ${JSON.stringify(virtualTimers.filter(t => !t.cleared).map(t => t.due - clock))}; log tail ${JSON.stringify(log.slice(-4))}`);
+      }
       next.cleared = true;
       clock = Math.max(clock, next.due);
       next.run();
