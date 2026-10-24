@@ -141,8 +141,11 @@ globalThis.clearTimeout = ((handle?: unknown) => {
   else realClearTimeout(handle as ReturnType<typeof setTimeout>);
 }) as typeof clearTimeout;
 
-/** Node's in-flight I/O requests (not timers, immediates or long-lived handles like stdout). */
-const pendingIo = () => process.getActiveResourcesInfo().filter(r => /Req|Connect/.test(r));
+/**
+ * Node's in-flight I/O: requests, connections, and a MessagePort (a module still loading
+ * through tsx's loader thread, the CI-only case). Not timers, immediates or stdout.
+ */
+const pendingIo = () => process.getActiveResourcesInfo().filter(r => /Req|Connect|MessagePort/.test(r));
 /** Turns real time until no I/O request is in flight (or `done`), at most 5 s; says what it waited for. */
 async function waitForRealIo(done: () => boolean): Promise<void> {
   const start = performance.now();
@@ -182,10 +185,6 @@ async function runVirtual<T>(work: () => Promise<T>): Promise<T> {
       if (settled) return await result;
       const next = virtualTimers.filter(t => !t.cleared).sort((a, b) => a.due - b.due || a.seq - b.seq)[0];
       if (!next) throw new Error('virtual time: the work is waiting on something that is not a timer');
-      if (next.due - clock > 10_000) {
-        // TEMP diagnostic (CI-only failure): what is in flight when the clock jumps far ahead.
-        process.stderr.write(`[virtual time] jump +${next.due - clock} ms; resources ${JSON.stringify(process.getActiveResourcesInfo())}; pending ${JSON.stringify(virtualTimers.filter(t => !t.cleared).map(t => t.due - clock))}; log tail ${JSON.stringify(log.slice(-4))}\n`);
-      }
       next.cleared = true;
       clock = Math.max(clock, next.due);
       next.run();
@@ -926,9 +925,7 @@ const stubs: Record<string, object | ((real: RealModule) => object)> = {
     notifyAdminWarning: async (title: string) => {
       log.push(`admin warning ${title}`);
     },
-    notifyAdminError: async (title: string, error?: unknown) => {
-      // TEMP diagnostic (CI-only failure): the error behind the notice.
-      process.stderr.write(`[admin error] ${title}: ${error instanceof Error ? error.stack : String(error)}\n`);
+    notifyAdminError: async (title: string) => {
       log.push(`admin error ${title}`);
       adminErrors.push(title);
     },
