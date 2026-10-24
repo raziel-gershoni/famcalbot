@@ -8,7 +8,7 @@
 import { getBot, getMessagingService } from '../telegram';
 import { getUserByTelegramId } from '../user-service';
 import { MessageFormat } from '../messaging/types';
-import { processMediaWithGemini, MediaPart } from './gemini-image';
+import { processMediaWithGemini, MediaPart, MediaRejectedError } from './gemini-image';
 import { preparePdf, PdfUnreadableError } from './pdf';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { buildUrl } from '../../config/urls';
@@ -198,6 +198,7 @@ export async function handleMediaMessage(
   const messagingService = getMessagingService();
   let user: Awaited<ReturnType<typeof getUserByTelegramId>> | null = null;
   let stopTyping: (() => void) | null = options.stopTyping ?? null;
+  let sentEncryptedPdf = false;
 
   setUserContext(userId, from.first_name);
   addBreadcrumb('image_processing_started', { user_id: userId, files: files.length }, 'image');
@@ -276,6 +277,7 @@ export async function handleMediaMessage(
           try {
             const prepared = await preparePdf(buffer);
             buffer = prepared.buffer;
+            if (prepared.encrypted) sentEncryptedPdf = true;
             if (prepared.keptPages < prepared.totalPages && !trimmed) {
               trimmed = { kept: prepared.keptPages, total: prepared.totalPages };
             }
@@ -423,9 +425,11 @@ export async function handleMediaMessage(
     // A genuine failure (download / Gemini error) — report an error, NOT the
     // "no event found" copy, which is reserved for the intent === 'none' path.
     const errorMessages = await getBotMessages(user?.language || 'en');
+    // Gemini refusing a file that went in encrypted: it most likely needs a password.
+    const unreadablePdf = sentEncryptedPdf && error instanceof MediaRejectedError;
     await messagingService.sendMessage(
       chatId,
-      errorMessages.voice.geminiError,
+      unreadablePdf ? errorMessages.imageEvent.pdfUnreadable : errorMessages.voice.geminiError,
       { format: MessageFormat.PLAIN }
     );
   }

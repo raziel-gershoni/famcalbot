@@ -10,6 +10,28 @@ import { CalendarAssignment } from '../../types';
 import { AI_MODEL_ID } from '../../config/ai-models';
 import { buildEventExtractionPrompt, extractIntents } from '../voice/gemini-voice';
 
+/**
+ * Gemini refused or could not use the file itself (an unreadable or password-protected
+ * document): a client error (4xx except timeout/rate limit), INVALID_ARGUMENT, or an empty
+ * or non-JSON answer. Retrying a refusal is pointless; the handler can tell the user.
+ */
+export class MediaRejectedError extends Error {
+  constructor(cause: Error) {
+    super(`Gemini could not read the file: ${cause.message}`);
+    this.name = 'MediaRejectedError';
+    this.cause = cause;
+  }
+}
+
+function isClientRejection(error: Error): boolean {
+  const status = (error as { status?: unknown }).status;
+  if (typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 429) return true;
+  return /INVALID_ARGUMENT/.test(error.message);
+}
+function isUnusableAnswer(error: Error): boolean {
+  return /empty response|Failed to extract JSON/.test(error.message);
+}
+
 const IMAGE_RETRY_CONFIG = {
   maxRetries: 1,
   baseDelayMs: 500,
@@ -147,6 +169,10 @@ export async function processMediaWithGemini(
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
 
+      if (isClientRejection(lastError)) {
+        console.error('[Image Gemini] Gemini refused the file, not retrying:', lastError);
+        throw new MediaRejectedError(lastError);
+      }
       if (attempt < IMAGE_RETRY_CONFIG.maxRetries) {
         const delay = IMAGE_RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt);
         console.warn(`[Image Gemini] Error (attempt ${attempt + 1}/${IMAGE_RETRY_CONFIG.maxRetries + 1}), retrying in ${delay}ms:`, error);
@@ -156,5 +182,6 @@ export async function processMediaWithGemini(
   }
 
   console.error(`[Image Gemini] Failed after ${IMAGE_RETRY_CONFIG.maxRetries + 1} attempts:`, lastError);
+  if (lastError && isUnusableAnswer(lastError)) throw new MediaRejectedError(lastError);
   throw new Error(`Image processing failed: ${lastError?.message || 'Unknown error'}`);
 }

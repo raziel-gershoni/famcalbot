@@ -18,7 +18,6 @@
 import Module from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
 import { PDFDocument } from 'pdf-lib';
 import type { ParsedEvent, VoiceIntentResult } from '../src/services/event-parser';
 import type { UserConfig } from '../src/types';
@@ -863,40 +862,67 @@ async function main() {
     assert(captured.length >= 1, 'not sent to Sentry');
   });
 
-  await check('pdf: a password-protected PDF gets the same message', async () => {
-    reset();
+  /** A PDF flagged encrypted (an /Encrypt entry in the trailer); the content is not really encrypted. */
+  const encryptedPdf = async (pages: number) => {
     const doc = await PDFDocument.create();
-    doc.addPage([100, 100]);
-    // The trailer's /Encrypt entry is what makes a PDF password-protected.
-    const encrypt = doc.context.obj({ Filter: 'Standard', V: 1, R: 2, O: 'x', U: 'x', P: -4 });
-    doc.context.trailerInfo.Encrypt = doc.context.register(encrypt);
-    files.set('f-locked', Buffer.from(await doc.save()));
-    await deliver(documentUpdate(MAYA, 'locked', 'application/pdf', 100));
-    assert(sent.length === 1 && sent[0].text === (await msg('en', 'pdfUnreadable')), `sent ${JSON.stringify(sent)}`);
-    assert(geminiCalls.length === 0, 'Gemini was called');
+    for (let i = 0; i < pages; i++) doc.addPage([100, 100]);
+    doc.context.trailerInfo.Encrypt = doc.context.register(doc.context.obj({ Filter: 'Standard', V: 1, R: 2, O: 'x', U: 'x', P: -4 }));
+    return Buffer.from(await doc.save());
+  };
+
+  await check('pdf: an encrypted PDF goes to Gemini untrimmed (original bytes, even over 20 pages)', async () => {
+    reset();
+    const bytes = await encryptedPdf(27);
+    files.set('f-enc', bytes);
+    geminiAnswers = [answerOf(ev('Concert', '2026-11-10'))];
+    await deliver(documentUpdate(MAYA, 'enc', 'application/pdf', bytes.length));
+    assert(geminiCalls.length === 1 && Buffer.from(geminiCalls[0].parts[0].data, 'base64').equals(bytes), 'not the original bytes');
+    assert(sent.length === 0, `sent ${JSON.stringify(sent)}`);
   });
 
-  const ENCRYPTED: Record<string, string> = JSON.parse(readFileSync(path.resolve(__dirname, 'fixtures/encrypted-pdfs.json'), 'utf8'));
-  for (const kind of ['rc4_40', 'rc4_128', 'aes_128', 'aes_256']) {
-    await check(`pdf: ${kind} with only an owner password (opens without one) is read, original bytes sent`, async () => {
+  await check('pdf: Gemini accepting an encrypted PDF gives the events', async () => {
+    reset();
+    const bytes = await encryptedPdf(2);
+    files.set('f-enc2', bytes);
+    geminiAnswers = [answerOf(ev('Concert', '2026-11-10'))];
+    await deliver(documentUpdate(MAYA, 'enc2', 'application/pdf', bytes.length));
+    assert(cards.length === 1 && cards[0].event.title === 'Concert', `cards ${JSON.stringify(cardTitles())}`);
+  });
+
+  const rejections: Array<[string, () => Error]> = [
+    ['a 400', () => Object.assign(new Error('bad request'), { status: 400 })],
+    ['INVALID_ARGUMENT', () => new Error('INVALID_ARGUMENT: the document has no pages')],
+  ];
+  for (const [name, make] of rejections) {
+    await check(`pdf: Gemini rejecting an encrypted PDF (${name}) gives "can't open this file", logged to Sentry, no retry`, async () => {
       reset();
-      const bytes = Buffer.from(ENCRYPTED[`${kind}_owner`], 'base64');
-      files.set('f-own', bytes);
-      geminiAnswers = [answerOf(ev('Concert', '2026-11-10'))];
-      await deliver(documentUpdate(MAYA, 'own', 'application/pdf', bytes.length));
-      assert(sent.length === 0, `sent ${JSON.stringify(sent)}`);
-      assert(geminiCalls.length === 1 && cards.length === 1, `${geminiCalls.length} Gemini calls, ${cards.length} cards`);
-      assert(Buffer.from(geminiCalls[0].parts[0].data, 'base64').equals(bytes), 'not the original bytes');
-    });
-    await check(`pdf: ${kind} that needs a password to open gets "can't open this file"`, async () => {
-      reset();
-      const bytes = Buffer.from(ENCRYPTED[`${kind}_user`], 'base64');
-      files.set('f-usr', bytes);
-      await deliver(documentUpdate(MAYA, 'usr', 'application/pdf', bytes.length));
+      const bytes = await encryptedPdf(1);
+      files.set('f-encr', bytes);
+      geminiAnswers = [make(), make()];
+      await deliver(documentUpdate(MAYA, 'encr', 'application/pdf', bytes.length));
       assert(sent.length === 1 && sent[0].text === (await msg('en', 'pdfUnreadable')), `sent ${JSON.stringify(sent)}`);
-      assert(geminiCalls.length === 0, 'Gemini was called');
+      assert(geminiCalls.length === 1, `${geminiCalls.length} Gemini calls (a refusal is not retried)`);
+      assert(captured.length >= 1, 'not sent to Sentry');
     });
   }
+
+  await check('pdf: an empty Gemini answer for an encrypted PDF gives "can\'t open this file"', async () => {
+    reset();
+    const bytes = await encryptedPdf(1);
+    files.set('f-ence', bytes);
+    geminiAnswers = [new Error('Gemini returned empty response'), new Error('Gemini returned empty response')];
+    await deliver(documentUpdate(MAYA, 'ence', 'application/pdf', bytes.length));
+    assert(sent.length === 1 && sent[0].text === (await msg('en', 'pdfUnreadable')), `sent ${JSON.stringify(sent)}`);
+  });
+
+  await check('pdf: a rejected UNencrypted file keeps the generic error reply', async () => {
+    reset();
+    files.set('f-plainrej', await pdfOf(1));
+    geminiAnswers = [Object.assign(new Error('bad request'), { status: 400 })];
+    await deliver(documentUpdate(MAYA, 'plainrej', 'application/pdf', 100));
+    const { getBotMessages } = await import('../src/lib/bot-messages');
+    assert(sent.length === 1 && sent[0].text === (await getBotMessages('en')).voice.geminiError, `sent ${JSON.stringify(sent)}`);
+  });
 
   await check('pdf: a Russian user gets Russian copy', async () => {
     reset();
