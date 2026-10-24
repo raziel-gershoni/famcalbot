@@ -926,7 +926,9 @@ const stubs: Record<string, object | ((real: RealModule) => object)> = {
     notifyAdminWarning: async (title: string) => {
       log.push(`admin warning ${title}`);
     },
-    notifyAdminError: async (title: string) => {
+    notifyAdminError: async (title: string, error?: unknown) => {
+      // TEMP diagnostic (CI-only failure): the error behind the notice.
+      console.error(`[admin error] ${title}:`, error instanceof Error ? error.stack : error);
       log.push(`admin error ${title}`);
       adminErrors.push(title);
     },
