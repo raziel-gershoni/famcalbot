@@ -372,8 +372,9 @@ export async function handleTelegramWebhook(
   }
 
   // Handle one part of an album (photos, a video, documents sharing a media_group_id).
-  // A part is only stored here; one request per album reads them all together. It is never
-  // also handled as a single photo or document below.
+  // A part is only stored here and the webhook answers at once (Telegram holds the album's
+  // next part until it does); one background read per album reads them all together. It is
+  // never also handled as a single photo or document below.
   {
     const { isAlbumPart, handleAlbumPart } = await import('./image-event');
     if (isAlbumPart(update.message)) {
@@ -443,8 +444,9 @@ export async function handleTelegramWebhook(
   }
 
   // Handle documents: a PDF or an image sent as a file is read like a photo; any other
-  // document gets a polite "send a photo or PDF".
-  if (update.message?.document) {
+  // document gets a polite "send a photo or PDF". Telegram also sets message.document on a
+  // GIF/animation ("for backward compatibility"); that stays ignored, as before.
+  if (update.message?.document && !update.message.animation) {
     const chatId = update.message.chat.id;
     const from = update.message.from;
     if (!from) {

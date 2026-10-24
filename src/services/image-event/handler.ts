@@ -49,6 +49,13 @@ export interface TelegramDocument {
 /** Telegram's bot download limit (getFile): larger files cannot be fetched at all. */
 export const TELEGRAM_DOWNLOAD_LIMIT_BYTES = 20 * 1024 * 1024;
 
+/**
+ * Most bytes of files one request carries. Gemini's inline limit is 100 MB per request and
+ * base64 adds a third, so 40 MB of files leaves a wide margin and keeps the memory
+ * (raw bytes, base64 and the JSON body at once) gentle on a 1 GB server.
+ */
+export const MAX_TOTAL_MEDIA_BYTES = 40 * 1024 * 1024;
+
 /** One file to read: a photo, an image sent as a document, or a PDF. */
 export interface MediaFile {
   fileId: string;
@@ -58,7 +65,7 @@ export interface MediaFile {
 }
 
 /** Why a file could not be read, to pick the message when none could be. */
-type FailureReason = 'too_large' | 'download' | 'pdf';
+type FailureReason = 'too_large' | 'download' | 'pdf' | 'budget';
 
 /** Image types Gemini accepts that may arrive as a document (a photo sent "as a file"). */
 const IMAGE_DOCUMENT_MIME: Record<string, string> = {
@@ -132,7 +139,12 @@ export async function handleDocumentMessage(
     return;
   }
 
-  console.log(`[Image] Unsupported document from user ${userId}: ${document.mime_type || 'unknown type'}`);
+  await replyUnsupportedDocument(chatId, userId);
+}
+
+/** The polite "I can read photos and PDF files" for a document that is neither. */
+export async function replyUnsupportedDocument(chatId: number, userId: number): Promise<void> {
+  console.log(`[Image] Unsupported document from user ${userId}`);
   const messagingService = getMessagingService();
   try {
     const user = await getUserByTelegramId(userId);
@@ -144,6 +156,18 @@ export async function handleDocumentMessage(
     );
   } catch (error) {
     console.error('[Image] Error answering an unsupported document:', error);
+    captureError(error, 'image-handler');
+  }
+}
+
+/** The generic error reply for an album whose collection or read broke before the handler could answer. */
+export async function replyAlbumFailed(chatId: number, userId: number): Promise<void> {
+  try {
+    const user = await getUserByTelegramId(userId);
+    const t = await getBotMessages(user?.language || 'en');
+    await getMessagingService().sendMessage(chatId, t.voice.geminiError, { format: MessageFormat.PLAIN });
+  } catch (error) {
+    console.error('[Image] Could not tell the user the album failed:', error);
     captureError(error, 'image-handler');
   }
 }
@@ -232,11 +256,17 @@ export async function handleMediaMessage(
     const media: MediaPart[] = [];
     const failures: FailureReason[] = [];
     let trimmed: { kept: number; total: number } | null = null;
+    let totalBytes = 0;
     for (const file of files) {
       try {
         if (file.fileSize && file.fileSize > TELEGRAM_DOWNLOAD_LIMIT_BYTES) {
           console.warn(`[Image] File ${file.fileId} is ${file.fileSize} bytes, over Telegram's download limit`);
           failures.push('too_large');
+          continue;
+        }
+        if (totalBytes + (file.fileSize ?? 0) > MAX_TOTAL_MEDIA_BYTES) {
+          console.warn(`[Image] File ${file.fileId} (${file.fileSize} bytes) would take the request over ${MAX_TOTAL_MEDIA_BYTES} bytes (${totalBytes} so far), skipping it`);
+          failures.push('budget');
           continue;
         }
         console.log(`[Image] Downloading ${file.kind} for user ${userId}, file_id: ${file.fileId}`);
@@ -257,6 +287,13 @@ export async function handleMediaMessage(
             continue;
           }
         }
+        if (totalBytes + buffer.length > MAX_TOTAL_MEDIA_BYTES) {
+          console.warn(`[Image] File ${file.fileId} (${buffer.length} bytes) would take the request over ${MAX_TOTAL_MEDIA_BYTES} bytes (${totalBytes} so far), skipping it`);
+          failures.push('budget');
+          continue;
+        }
+        // Counted by the larger of the real and the declared size, so the cap holds either way.
+        totalBytes += Math.max(buffer.length, file.fileSize ?? 0);
         media.push({ buffer, mimeType: file.mimeType });
       } catch (error) {
         console.error(`[Image] Could not fetch file ${file.fileId}:`, error);

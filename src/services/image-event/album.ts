@@ -2,10 +2,12 @@
  * Telegram albums (media groups) for the invitation reader.
  *
  * Telegram delivers an album as separate webhook updates that share a media_group_id and
- * sends no "last part" marker. Several requests run at once (and two instances may briefly
- * overlap during a zero-downtime deploy), so the parts are collected in Redis. A Redis
- * lock (SET NX) elects ONE request as the leader; it waits until no new part has arrived
- * for a quiet period, then reads every part in one Gemini request (handleMediaMessage).
+ * sends no "last part" marker. It sends one chat's updates ONE AT A TIME: the next update
+ * is held back until the webhook answered the previous one. So a webhook must never wait
+ * for the rest of the album: it stores its part in Redis and answers at once. A Redis lock
+ * (SET NX) elects ONE part as the leader; the leader's quiet wait and Gemini read run in
+ * the background (the process is persistent), until no new part has arrived for a quiet
+ * period, then every part is read in one Gemini request (handleMediaMessage).
  *
  * Redis keys, all under album:{chatId}:{media_group_id}:
  *   seen  set of file_unique_id: a part counts once, even if Telegram retries the update
@@ -20,6 +22,8 @@ import { startTypingInterval } from '../telegram/command-pipeline';
 import { captureError } from '../../lib/error-capture';
 import {
   handleMediaMessage,
+  replyAlbumFailed,
+  replyUnsupportedDocument,
   mediaFileOfDocument,
   type MediaFile,
   type TelegramDocument,
@@ -109,9 +113,9 @@ export function isAlbumPart(message: Partial<AlbumMessage> | undefined): message
 }
 
 /**
- * Store one part of an album; the request that wins the lock becomes the leader and reads
- * the whole album when it goes quiet. Every other request returns as soon as its part is
- * stored.
+ * Store one part of an album and return. The part that wins the lock becomes the leader:
+ * its quiet wait and the read of the whole album run in the background, never inside this
+ * call, because Telegram holds the album's next part until this webhook has answered.
  */
 export async function handleAlbumPart(message: AlbumMessage): Promise<void> {
   const from = message.from;
@@ -155,8 +159,13 @@ export async function handleAlbumPart(message: AlbumMessage): Promise<void> {
     return;
   }
 
-  console.log(`[Album] ${label}: leading the read`);
-  await leadAlbum(chatId, from, { key, partsKey, lockKey });
+  console.log(`[Album] ${label}: leading the read in the background`);
+  // Fire-and-forget: leadAlbum handles its own errors; the catch is for a failure in that
+  // handling itself, so nothing ever surfaces as an unhandled rejection.
+  leadAlbum(chatId, from, { key, partsKey, lockKey }).catch(error => {
+    console.error(`[Album] ${key}: background read failed unexpectedly:`, error);
+    captureError(error, 'album-read', { key });
+  });
 }
 
 /** Wait until the album has been quiet for quietMs (or is full), then return. */
@@ -207,8 +216,12 @@ async function leadAlbum(
       // The caption of any item is the album's caption.
       const caption = [...new Set(parts.map(p => p.caption?.trim()).filter((c): c is string => !!c))].join('\n');
 
-      if (files.length === 0) {
-        console.log(`[Album] ${key}: nothing to read (${skippedVideos} video, ${unsupportedParts} other); ignoring like a lone video`);
+      if (files.length === 0 && unsupportedParts > 0) {
+        // Like a lone unsupported document, but ONE reply for the whole album.
+        console.log(`[Album] ${key}: nothing to read (${skippedVideos} video, ${unsupportedParts} unsupported); replying once`);
+        await replyUnsupportedDocument(chatId, from.id);
+      } else if (files.length === 0) {
+        console.log(`[Album] ${key}: nothing to read (${skippedVideos} video); ignoring like a lone video`);
       } else {
         await handleMediaMessage(chatId, from.id, from, files, caption || undefined, { skippedVideos, unsupportedParts, stopTyping });
       }
@@ -226,14 +239,18 @@ async function leadAlbum(
   } catch (error) {
     console.error(`[Album] ${key}: error while reading the album:`, error);
     captureError(error, 'album-read', { key });
+    stopTyping();
     if (holdingLock) {
+      // Drop what was collected (the user is told below and can resend), then free the lock.
       try {
+        await redis.del(partsKey);
         await redis.del(lockKey);
       } catch (delError) {
-        console.error(`[Album] ${key}: could not release the lock (it expires on its own):`, delError);
+        console.error(`[Album] ${key}: could not clear the album (it expires on its own):`, delError);
         captureError(delError, 'album-read', { key }, 'warning');
       }
     }
+    await replyAlbumFailed(chatId, from.id);
   } finally {
     stopTyping();
   }

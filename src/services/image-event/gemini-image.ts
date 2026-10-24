@@ -80,16 +80,17 @@ export async function processMediaWithGemini(
   const startTime = Date.now();
   let lastError: Error | null = null;
 
+  // Encoded once: base64 of many large files is big, and a retry reuses it.
+  const fileParts = media.flatMap((m, i) => [
+    ...(media.length > 1 ? [{ text: `File ${i + 1} of ${media.length}:` }] : []),
+    { inlineData: { mimeType: m.mimeType, data: m.buffer.toString('base64') } },
+  ]);
+
   for (let attempt = 0; attempt <= IMAGE_RETRY_CONFIG.maxRetries; attempt++) {
     try {
       const promptText = buildEventExtractionPrompt(language, calendars, timezone, 'image')
         + (media.length > 1 ? MULTI_FILE_RULES(media.length) : '')
         + (caption?.trim() ? `\n\nUSER CAPTION (extra context):\n${caption.trim()}` : '');
-      const fileParts = media.flatMap((m, i) => [
-        ...(media.length > 1 ? [{ text: `File ${i + 1} of ${media.length}:` }] : []),
-        { inlineData: { mimeType: m.mimeType, data: m.buffer.toString('base64') } },
-      ]);
-
       const response = await getGemini().models.generateContent({
         model: AI_MODEL_ID,
         ...extractionConfig(AI_MODEL_ID),

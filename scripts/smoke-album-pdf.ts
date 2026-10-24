@@ -18,6 +18,7 @@
 import Module from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { PDFDocument } from 'pdf-lib';
 import type { ParsedEvent, VoiceIntentResult } from '../src/services/event-parser';
 import type { UserConfig } from '../src/types';
@@ -127,7 +128,8 @@ const redisData = new Map<string, unknown>();
 let redisLog: string[] = [];
 let redisFail: ((op: string) => boolean) | null = null;
 let intervalsAtLlen: number[] = [];
-const tick = () => sleep(1);
+let lastRedisOp = 0;
+const tick = () => { lastRedisOp = Date.now(); return sleep(1); };
 const fakeRedis = {
   set: async (key: string, value: unknown, opts?: { nx?: boolean; ex?: number }) => {
     await tick();
@@ -158,11 +160,13 @@ const fakeRedis = {
   },
   llen: async (key: string) => {
     await tick();
+    if (redisFail?.('llen')) throw new Error('redis down');
     intervalsAtLlen.push(liveIntervals.size);
     return ((redisData.get(key) as unknown[] | undefined) ?? []).length;
   },
   lrange: async (key: string, start: number, stop: number) => {
     await tick();
+    if (redisFail?.('lrange')) throw new Error('redis down');
     const list = (redisData.get(key) as unknown[] | undefined) ?? [];
     return list.slice(start, stop === -1 ? undefined : stop + 1);
   },
@@ -360,10 +364,15 @@ function videoUpdate(fromId: number, uid: string, opts: PartOpts = {}) {
     message: { ...base(fromId, opts), video: { file_id: `f-${uid}`, file_unique_id: `u-${uid}`, duration: 3, width: 10, height: 10, mime_type: 'video/mp4', file_size: 5000 } },
   };
 }
-function documentUpdate(fromId: number, uid: string, mime: string, size: number, opts: PartOpts = {}) {
+function documentUpdate(fromId: number, uid: string, mime: string, size: number | undefined, opts: PartOpts & { animation?: boolean } = {}) {
   return {
     update_id: nextUpdateId++,
-    message: { ...base(fromId, opts), document: { file_id: `f-${uid}`, file_unique_id: `u-${uid}`, file_name: `${uid}`, mime_type: mime, file_size: size } },
+    message: {
+      ...base(fromId, opts),
+      document: { file_id: `f-${uid}`, file_unique_id: `u-${uid}`, file_name: `${uid}`, mime_type: mime, file_size: size },
+      // Telegram also sets message.document on a GIF, "for backward compatibility".
+      ...(opts.animation ? { animation: { file_id: `f-${uid}`, file_unique_id: `u-${uid}`, duration: 1, width: 10, height: 10 } } : {}),
+    },
   };
 }
 
@@ -395,14 +404,30 @@ async function deliver(update: object): Promise<number> {
   }
   return status;
 }
-/** Posts several updates at once; each starts before the one before it has finished. */
+/**
+ * Waits until the background work of an album (quiet wait, lock, read, reply) is over:
+ * no album lock, no typing interval and no Redis call for a moment.
+ */
+async function settle(): Promise<void> {
+  for (;;) {
+    await sleep(15);
+    const locked = [...redisData.keys()].some(k => k.includes(':lock'));
+    if (!locked && liveIntervals.size === 0 && Date.now() - lastRedisOp > 40) return;
+  }
+}
+/**
+ * Posts several updates the way Telegram does for one chat: one after another, each
+ * webhook answered before the next one is sent (staggerMs is the pause between them).
+ * Then waits for the background read to finish.
+ */
 async function deliverAll(updates: object[], staggerMs = 0): Promise<number[]> {
-  const out: Promise<number>[] = [];
+  const out: number[] = [];
   for (const u of updates) {
-    out.push(deliver(u));
+    out.push(await deliver(u));
     if (staggerMs) await sleep(staggerMs);
   }
-  return Promise.all(out);
+  await settle();
+  return out;
 }
 
 const ev = (title: string, date: string, time = '18:00', extra: Record<string, unknown> = {}) => ({
@@ -516,6 +541,7 @@ async function main() {
     onGemini = async n => { if (n === 1) late = deliver(photoUpdate(MAYA, 'j3', { gid: 'GJ', messageId: 1203 })); };
     await deliverAll([photoUpdate(MAYA, 'j1', { gid: 'GJ', messageId: 1201 }), photoUpdate(MAYA, 'j2', { gid: 'GJ', messageId: 1202 })]);
     await late;
+    await settle();
     assert(geminiCalls.length === 2, `${geminiCalls.length} Gemini calls`);
     assert(geminiCalls[0].parts.length === 2 && geminiCalls[1].parts.length === 1, `parts ${geminiCalls.map(c => c.parts.length)}`);
     assert(cards.length === 2, `${cards.length} cards`);
@@ -547,6 +573,7 @@ async function main() {
     const p2 = photoUpdate(MAYA, 'r2', { gid: 'GR', messageId: 1002 });
     await deliverAll([p1, p2, p1]);
     await deliver(p2);
+    await settle();
     assert(geminiCalls.length === 1 && geminiCalls[0].parts.length === 2, `${geminiCalls.length} calls, parts ${geminiCalls[0]?.parts.length}`);
     assert(cards.length + bulkCards.length === 1, 'the retry made another card');
   });
@@ -672,6 +699,100 @@ async function main() {
     assert(geminiCalls.length === 0 && downloads.length === 0, 'handled as a single photo');
   });
 
+  await check('album: each webhook answers at once, before the quiet wait ends and before the read starts', async () => {
+    reset();
+    geminiAnswers = [answerOf(ev('A', '2026-11-01'), ev('B', '2026-11-02'), ev('C', '2026-11-03'))];
+    const answered: Array<{ ms: number; geminiCalls: number; status: number }> = [];
+    for (const uid of ['w1x', 'w2x', 'w3x']) {
+      const started = Date.now();
+      const status = await deliver(photoUpdate(MAYA, uid, { gid: 'GWH' }));
+      answered.push({ ms: Date.now() - started, geminiCalls: geminiCalls.length, status });
+    }
+    assert(answered.every(a => a.status === 200), `statuses ${JSON.stringify(answered)}`);
+    assert(answered.every(a => a.geminiCalls === 0), `the read had started: ${JSON.stringify(answered)}`);
+    assert(answered.every(a => a.ms < albumConfig.quietMs), `a webhook waited for the quiet period: ${JSON.stringify(answered)}`);
+    await settle();
+    assert(geminiCalls.length === 1 && geminiCalls[0].parts.length === 3, `${geminiCalls.length} calls, ${geminiCalls[0]?.parts.length} parts`);
+    assert(bulkCards.length === 1 && cards.length === 0, 'not one card for the whole album');
+    assert(activity.filter(a => a === 'image_event_started').length === 1, `usage ${activity}`);
+  });
+
+  await check('album: a caption on the 3rd part, delivered one at a time, still applies to every photo', async () => {
+    reset();
+    geminiAnswers = [answerOf(ev('A', '2026-11-01'))];
+    await deliverAll([
+      photoUpdate(MAYA, 'cp1', { gid: 'GCP', messageId: 1301 }),
+      photoUpdate(MAYA, 'cp2', { gid: 'GCP', messageId: 1302 }),
+      photoUpdate(MAYA, 'cp3', { gid: 'GCP', messageId: 1303, caption: 'camp dates' }),
+    ]);
+    assert(geminiCalls.length === 1 && geminiCalls[0].text.includes('camp dates'), 'caption missing');
+  });
+
+  await check('album: a failure while collecting gets one error reply, frees the lock and clears the parts', async () => {
+    reset();
+    redisFail = op => op === 'lrange';
+    const u = [photoUpdate(MAYA, 'mf1', { gid: 'GMF' }), photoUpdate(MAYA, 'mf2', { gid: 'GMF' })];
+    for (const x of u) await deliver(x);
+    await settle();
+    redisFail = null;
+    const { getBotMessages } = await import('../src/lib/bot-messages');
+    assert(geminiCalls.length === 0, 'Gemini was called');
+    assert(sent.length === 1 && sent[0].text === (await getBotMessages('en')).voice.geminiError, `sent ${JSON.stringify(sent)}`);
+    assert(captured.some(c => c.includes('redis down')), `captured ${captured}`);
+    assert(![...redisData.keys()].some(k => k.includes(':lock')), 'the lock was left behind');
+    assert(((redisData.get('album:2001:GMF:parts') as unknown[] | undefined) ?? []).length === 0, 'parts left behind');
+    assert(liveIntervals.size === 0, 'typing interval still running');
+  });
+
+  await check('album: only unsupported files (3 .docx) gets ONE "send a photo or PDF" reply', async () => {
+    reset();
+    const docx = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    await deliverAll([1, 2, 3].map(i => documentUpdate(MAYA, `dx${i}`, docx, 3000, { gid: 'GDX', messageId: 1400 + i })));
+    assert(sent.length === 1 && sent[0].text === (await msg('en', 'unsupportedDocument')), `sent ${JSON.stringify(sent)}`);
+    assert(geminiCalls.length === 0 && downloads.length === 0 && gateChecks.length === 0, 'it did work');
+  });
+
+  await check('album: unsupported files next to photos are read as before (photos read, a note)', async () => {
+    reset();
+    geminiAnswers = [answerOf(ev('A', '2026-11-01'))];
+    await deliverAll([
+      photoUpdate(MAYA, 'ux1', { gid: 'GUX', messageId: 1451 }),
+      documentUpdate(MAYA, 'ux2', 'application/zip', 3000, { gid: 'GUX', messageId: 1452 }),
+    ]);
+    assert(geminiCalls.length === 1 && geminiCalls[0].parts.length === 1, 'not read');
+    assert(sent.length === 1 && sent[0].text === (await msg('en', 'partsUnreadable')), `sent ${JSON.stringify(sent)}`);
+  });
+
+  await check('a GIF (Telegram sets message.document on animations) is ignored silently, as before', async () => {
+    reset();
+    await deliver(documentUpdate(MAYA, 'gif', 'video/mp4', 90000, { animation: true }));
+    await deliver(documentUpdate(MAYA, 'gif2', 'image/gif', 90000, { animation: true }));
+    assert(sent.length === 0 && downloads.length === 0 && geminiCalls.length === 0 && gateChecks.length === 0, `sent ${JSON.stringify(sent)}`);
+  });
+
+  await check('album: parts over the total size cap are skipped (by declared size) with a note, the rest are read', async () => {
+    reset();
+    const MB = 1024 * 1024;
+    geminiAnswers = [answerOf(ev('A', '2026-11-01'))];
+    const ids = ['cap1', 'cap2', 'cap3', 'cap4'];
+    for (const id of ids) files.set(`f-${id}`, Buffer.from(`jpeg-${id}`));
+    await deliverAll(ids.map((id, i) => documentUpdate(MAYA, id, 'image/jpeg', 15 * MB, { gid: 'GCAP', messageId: 1500 + i })));
+    assert(geminiCalls.length === 1 && geminiCalls[0].parts.length === 2, `${geminiCalls[0]?.parts.length} parts sent`);
+    assert(downloads.length === 2, `${downloads.length} downloads: ${downloads}`);
+    assert(sent.length === 1 && sent[0].text.includes(await msg('en', 'partsUnreadable')), `notes ${JSON.stringify(sent)}`);
+  });
+
+  await check('album: parts over the total size cap are skipped (by real size, no declared size) too', async () => {
+    reset();
+    const MB = 1024 * 1024;
+    geminiAnswers = [answerOf(ev('A', '2026-11-01'))];
+    const ids = ['rcap1', 'rcap2', 'rcap3'];
+    for (const id of ids) files.set(`f-${id}`, Buffer.alloc(15 * MB, 1));
+    await deliverAll(ids.map((id, i) => documentUpdate(MAYA, id, 'image/jpeg', undefined, { gid: 'GRCAP', messageId: 1600 + i })));
+    assert(geminiCalls.length === 1 && geminiCalls[0].parts.length === 2, `${geminiCalls[0]?.parts.length} parts sent`);
+    assert(sent.length === 1 && sent[0].text.includes(await msg('en', 'partsUnreadable')), `notes ${JSON.stringify(sent)}`);
+  });
+
   // ---- Single photo unchanged ----
 
   await check('single photo: one request, one card, same label as before', async () => {
@@ -754,6 +875,28 @@ async function main() {
     assert(sent.length === 1 && sent[0].text === (await msg('en', 'pdfUnreadable')), `sent ${JSON.stringify(sent)}`);
     assert(geminiCalls.length === 0, 'Gemini was called');
   });
+
+  const ENCRYPTED: Record<string, string> = JSON.parse(readFileSync(path.resolve(__dirname, 'fixtures/encrypted-pdfs.json'), 'utf8'));
+  for (const kind of ['rc4_40', 'rc4_128', 'aes_128', 'aes_256']) {
+    await check(`pdf: ${kind} with only an owner password (opens without one) is read, original bytes sent`, async () => {
+      reset();
+      const bytes = Buffer.from(ENCRYPTED[`${kind}_owner`], 'base64');
+      files.set('f-own', bytes);
+      geminiAnswers = [answerOf(ev('Concert', '2026-11-10'))];
+      await deliver(documentUpdate(MAYA, 'own', 'application/pdf', bytes.length));
+      assert(sent.length === 0, `sent ${JSON.stringify(sent)}`);
+      assert(geminiCalls.length === 1 && cards.length === 1, `${geminiCalls.length} Gemini calls, ${cards.length} cards`);
+      assert(Buffer.from(geminiCalls[0].parts[0].data, 'base64').equals(bytes), 'not the original bytes');
+    });
+    await check(`pdf: ${kind} that needs a password to open gets "can't open this file"`, async () => {
+      reset();
+      const bytes = Buffer.from(ENCRYPTED[`${kind}_user`], 'base64');
+      files.set('f-usr', bytes);
+      await deliver(documentUpdate(MAYA, 'usr', 'application/pdf', bytes.length));
+      assert(sent.length === 1 && sent[0].text === (await msg('en', 'pdfUnreadable')), `sent ${JSON.stringify(sent)}`);
+      assert(geminiCalls.length === 0, 'Gemini was called');
+    });
+  }
 
   await check('pdf: a Russian user gets Russian copy', async () => {
     reset();
