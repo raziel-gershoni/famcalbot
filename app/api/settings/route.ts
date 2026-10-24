@@ -9,6 +9,8 @@ import { resolveTimezoneForLocation } from '@/src/lib/timezone';
 import { redis } from '@/src/utils/redis';
 import { prisma } from '@/src/utils/prisma';
 import { REDIS_KEYS } from '@/src/config/redis-keys';
+import { trackActivityAsync } from '@/src/services/analytics-service';
+import { changedSettingFields } from '@/src/lib/settings-changes';
 import { invalidateDueGate } from '@/src/services/native-reminders/due-gate';
 import { isValidReminderTime, reminderTimeOf } from '@/src/lib/reminder-time';
 
@@ -75,7 +77,7 @@ export async function POST(request: NextRequest) {
     const locationChanged = newLocation !== '' && newLocation !== (auth.user.location ?? '').trim();
 
     // auth.user is the row the credential proved (a Telegram user, or a WhatsApp session's DB id)
-    const updatedUser = await updateUserById(auth.user.id, {
+    const update = {
       language: language || undefined,  // Locale code: 'he', 'en', 'ru'
       location: location || undefined,
       messagingPlatform: messagingPlatform || undefined,
@@ -95,7 +97,12 @@ export async function POST(request: NextRequest) {
       reminderTime: isValidReminderTime(reminderTime) ? reminderTime : undefined,
       pickupRemindersEnabled: typeof pickupRemindersEnabled === 'boolean' ? pickupRemindersEnabled : undefined,
       voiceInputEnabled: typeof voiceInputEnabled === 'boolean' ? voiceInputEnabled : undefined
-    });
+    };
+    const updatedUser = await updateUserById(auth.user.id, update);
+
+    // The names of the fields this save changed, never their values; a save that changed nothing logs nothing.
+    const changedFields = changedSettingFields(auth.user as unknown as Record<string, unknown>, update);
+    if (changedFields.length > 0) trackActivityAsync(auth.user.id, 'settings_changed', { changed_fields: changedFields });
 
     // A new reminder time moves the date-only pings the due gate has memoed: wake the pass.
     if (isValidReminderTime(reminderTime) && reminderTime !== reminderTimeOf(auth.user)) invalidateDueGate();

@@ -28,6 +28,15 @@ import {
 import { answerGoogleReadError } from './google-read-errors';
 
 /**
+ * One command_completed row for a bot command that ran to the end (a denial, an error reply
+ * or an unknown user is not a completion). Metadata: the command name and the platform,
+ * never the arguments. /start and /feedback have their own rows (bot_start, feedback_submitted).
+ */
+function trackCommandCompleted(userId: number, command: string, platform: MessagingPlatform): void {
+  trackActivityAsync(userId, 'command_completed', { command, platform });
+}
+
+/**
  * Check if user is authorized (supports both Telegram ID and WhatsApp phone).
  * Suspended users are treated as unauthorized so their commands silently no-op.
  */
@@ -257,11 +266,11 @@ export async function handleSummaryCommand(
   }
 
   // Use the original chatId (telegramId for TG, phone string for WA)
-  if (args?.toLowerCase().trim() === 'tmrw') {
-    await sendTomorrowSummaryToUser(chatId, platform, streamHandle);
-  } else {
-    await sendDailySummaryToUser(chatId, platform, streamHandle);
-  }
+  const tomorrow = args?.toLowerCase().trim() === 'tmrw';
+  const completed = tomorrow
+    ? await sendTomorrowSummaryToUser(chatId, platform, streamHandle)
+    : await sendDailySummaryToUser(chatId, platform, streamHandle);
+  if (completed) trackCommandCompleted(user.id, tomorrow ? 'summary_tomorrow' : 'summary', platform);
 }
 
 /**
@@ -342,11 +351,12 @@ export async function handleWeatherCommand(
     return;
   }
 
-  await executeCommand({
+  const completed = await executeCommand({
     chatId,
     language: userLanguage,
     messagingService,
     errorKey: 'weatherFetch',
+    userId: user.id,
     commandName: 'Weather Command',
     context: `User: ${userId}, Location: ${user.location}`,
     typingType: 'photo',
@@ -434,6 +444,7 @@ export async function handleWeatherCommand(
       );
     },
   });
+  if (completed) trackCommandCompleted(user.id, 'weather', platform);
 }
 
 /**
@@ -492,11 +503,12 @@ export async function handleLookaheadCommand(
 
   const userLanguage = user.language || 'en';
 
-  await executeCommand({
+  const completed = await executeCommand({
     chatId,
     language: userLanguage,
     messagingService,
     errorKey: 'lookaheadFetch',
+    userId: user.id,
     commandName: 'Lookahead Command',
     context: `User: ${userId}`,
     streamHandle,
@@ -540,6 +552,7 @@ export async function handleLookaheadCommand(
     },
     onError: (error) => answerGoogleReadError(error, { chatId, user, userLanguage, messagingService, streamHandle }),
   });
+  if (completed) trackCommandCompleted(user.id, 'lookahead', platform);
 }
 
 /**
@@ -597,11 +610,12 @@ export async function handleNextWeekCommand(
 
   const userLanguage = user.language || 'en';
 
-  await executeCommand({
+  const completed = await executeCommand({
     chatId,
     language: userLanguage,
     messagingService,
     errorKey: 'nextWeekFetch',
+    userId: user.id,
     commandName: 'Next Week Command',
     context: `User: ${userId}`,
     streamHandle,
@@ -645,6 +659,7 @@ export async function handleNextWeekCommand(
     },
     onError: (error) => answerGoogleReadError(error, { chatId, user, userLanguage, messagingService, streamHandle }),
   });
+  if (completed) trackCommandCompleted(user.id, 'nextweek', platform);
 }
 
 /**
@@ -793,6 +808,7 @@ export async function handleConnectCommand(
       .replace(/\{code\}/g, code);
     await service.sendMessage(chatId, msg, { format: MessageFormat.HTML });
   }
+  trackCommandCompleted(user.id, 'connect', platform);
 }
 
 /**

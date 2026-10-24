@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo, useCallback, useRef, type ReactNode } fro
 import { useTranslations } from 'next-intl';
 import { Activity, AlertTriangle, Crown, Lock, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock, RefreshCw, ChevronDown, MessageSquare } from 'lucide-react';
 import { initDataHeaders } from '@/src/lib/read-init-data';
+import { activityDetail } from '@/src/lib/admin-activity';
 
 interface AdminPanelClientProps {
   /** The page's ?user_id, for the link back to the dashboard. */
@@ -3065,11 +3066,8 @@ function AdminPanel({ userId, locale, stats, remindersEnabled: initialRemindersE
                         <div key={item.id} className="user-activity-row">
                           <div className="user-activity-main">
                             <span className="activity-action-badge">{item.action}</span>
-                            {item.metadata && Object.keys(item.metadata).length > 0 && (
-                              <span className="user-activity-meta">
-                                {JSON.stringify(item.metadata).substring(0, 60)}
-                                {JSON.stringify(item.metadata).length > 60 && '...'}
-                              </span>
+                            {activityDetail(item.action, item.metadata) && (
+                              <span className="user-activity-meta">{activityDetail(item.action, item.metadata)}</span>
                             )}
                           </div>
                           <div className="activity-time">{formatRelativeTime(item.createdAt)}</div>

@@ -138,6 +138,8 @@ let adminWarnings: string[] = [];
 let adminErrors: string[] = [];
 let tokensCleared: string[] = [];
 let deliveries: string[] = [];
+/** Every activity row the commands write: "<action> <json metadata>". */
+let tracked: string[] = [];
 
 const SRC = path.join(ROOT, 'src');
 const stubs: Record<string, Record<string, unknown>> = {
@@ -160,7 +162,10 @@ const stubs: Record<string, Record<string, unknown>> = {
     routeTextMessage: async (_chatId: unknown, text: string) => { deliveries.push(text); },
   },
   // google-read-errors.ts is deliberately NOT stubbed: the real shared answers run.
-  [`${SRC}/services/analytics-service.ts`]: { trackActivityAsync: () => undefined, addBreadcrumb: () => undefined },
+  [`${SRC}/services/analytics-service.ts`]: {
+    trackActivityAsync: (_userId: number, action: string, meta?: object) => { tracked.push(`${action} ${JSON.stringify(meta ?? {})}`); },
+    addBreadcrumb: () => undefined,
+  },
   [`${SRC}/services/subscription-service.ts`]: { checkFeatureAccess: async () => ({ allowed: true }), incrementUsage: async () => undefined },
   [`${SRC}/lib/error-capture.ts`]: { captureError: () => undefined, captureWarning: () => undefined, captureInfo: () => undefined },
   [`${SRC}/utils/prisma.ts`]: { prisma: {} },
@@ -224,6 +229,7 @@ async function run(command: Command, opts: { error?: Error; gap?: string; platfo
   adminErrors = [];
   tokensCleared = [];
   deliveries = [];
+  tracked = [];
   lookaheadCalls.length = 0;
   lookaheadError = opts.error;
   lookaheadGap = opts.gap;
@@ -255,6 +261,20 @@ async function main() {
     assertList([...week, ...deliveries, ...outcome()], [
       'This week: the book fair on Friday.', 'admin warnings: none', 'admin errors: none', 'tokens cleared: none',
       'Next week: the book fair on Friday.', 'admin warnings: none', 'admin errors: none', 'tokens cleared: none',
+    ]);
+  });
+
+  await check('B2 a week or next week that loads writes one command_completed row with the command name and platform; a failed one writes user_error_shown instead', async () => {
+    await run('week');
+    const week = [...tracked];
+    await run('nextweek', { platform: MessagingPlatform.WHATSAPP, user: makeUser({ telegramId: null }) });
+    const nextweek = [...tracked];
+    await run('week', { error: new Error('boom') });
+    const failed = [...tracked];
+    assertList([...week, '--', ...nextweek, '--', ...failed], [
+      'command_completed {"command":"lookahead","platform":"telegram"}', '--',
+      'command_completed {"command":"nextweek","platform":"whatsapp"}', '--',
+      'user_error_shown {"error_type":"lookaheadFetch","command":"Lookahead Command"}',
     ]);
   });
 

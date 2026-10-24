@@ -6,6 +6,7 @@
 
 import { IMessagingService, StreamMessageHandle } from '../messaging/types';
 import { getBotMessages } from '../../lib/bot-messages';
+import { trackActivityAsync } from '../analytics-service';
 
 const DEFAULT_OPERATION_TIMEOUT_MS = 50_000;
 const TYPING_INTERVAL_MS = 4_000;
@@ -17,6 +18,8 @@ export interface CommandPipelineOptions<T> {
   operationTimeoutMs?: number;
   errorKey: string;
   commandName: string;
+  /** The user's DB id: when set, an error the pipeline shows the user is logged as user_error_shown. */
+  userId?: number;
   context?: string;
   typingType?: 'text' | 'audio' | 'photo';
   operation: () => Promise<T>;
@@ -72,8 +75,11 @@ export function startTypingInterval(
  * 2. Run operation() with a timeout
  * 3. On success  -> onSuccess callback sends the result
  * 4. On error    -> send error as new message, notify admin
+ *
+ * Resolves true when the operation and onSuccess both ran to the end, false when it failed
+ * (whether the error was answered by onError or by the default message).
  */
-export async function executeCommand<T>(opts: CommandPipelineOptions<T>): Promise<void> {
+export async function executeCommand<T>(opts: CommandPipelineOptions<T>): Promise<boolean> {
   const {
     chatId,
     language,
@@ -81,6 +87,7 @@ export async function executeCommand<T>(opts: CommandPipelineOptions<T>): Promis
     operationTimeoutMs = DEFAULT_OPERATION_TIMEOUT_MS,
     errorKey,
     commandName,
+    userId,
     context,
     typingType,
     operation,
@@ -105,6 +112,7 @@ export async function executeCommand<T>(opts: CommandPipelineOptions<T>): Promis
 
     // 3. Success
     await onSuccess(result);
+    return true;
   } catch (err) {
     stopTyping();
 
@@ -115,7 +123,11 @@ export async function executeCommand<T>(opts: CommandPipelineOptions<T>): Promis
     if (onError) {
       try {
         const handled = await onError(error);
-        if (handled) return;
+        if (handled) {
+          // The handler answered the user itself (a Google read problem, say).
+          if (userId !== undefined) trackActivityAsync(userId, 'user_error_shown', { error_type: errorKey, command: commandName, handled: true });
+          return false;
+        }
       } catch (handlerErr) {
         console.error(`[${commandName}] onError handler failed:`, handlerErr);
       }
@@ -125,12 +137,16 @@ export async function executeCommand<T>(opts: CommandPipelineOptions<T>): Promis
     const t = await getBotMessages(language);
     let userMessage: string;
 
+    let errorType: string;
     if (error instanceof OperationTimeoutError) {
       userMessage = t.errors?.timeout || 'Sorry, the request took too long. Please try again.';
+      errorType = 'timeout';
     } else if (isAIOverloadError(err)) {
       userMessage = t.errors?.aiBusy || 'The AI service is currently busy. Please try again in a few minutes.';
+      errorType = 'ai_busy';
     } else {
       userMessage = t.errors?.[errorKey] || t.errors?.generic || 'Sorry, there was an error. Please try again later.';
+      errorType = errorKey;
     }
 
     // Send error as new message. When a streaming draft is open, collapse it
@@ -142,6 +158,7 @@ export async function executeCommand<T>(opts: CommandPipelineOptions<T>): Promis
       } else {
         await messagingService.sendMessage(chatId, userMessage);
       }
+      if (userId !== undefined) trackActivityAsync(userId, 'user_error_shown', { error_type: errorType, command: commandName });
     } catch (sendErr) {
       console.error(`[${commandName}] Failed to send error message:`, sendErr);
     }
@@ -153,5 +170,6 @@ export async function executeCommand<T>(opts: CommandPipelineOptions<T>): Promis
     } catch (notifyErr) {
       console.error(`[${commandName}] Failed to notify admin:`, notifyErr);
     }
+    return false;
   }
 }

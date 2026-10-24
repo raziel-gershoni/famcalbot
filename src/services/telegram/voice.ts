@@ -156,6 +156,7 @@ export async function sendVoiceMessage(
       const t = await getBotMessages(userLanguage);
       const errorText = t.errors?.voiceGenerationFailed || 'Voice message unavailable — your text summary is above.';
       await msgService.sendMessage(chatId, errorText);
+      trackActivityAsync(user.id, 'user_error_shown', { error_type: 'voice_generation_failed' });
     } catch (sendErr) {
       console.error('[Voice] Failed to send error message:', sendErr);
     }
@@ -244,6 +245,7 @@ export async function sendWeeklyVoiceMessage(
       const t = await getBotMessages(userLanguage);
       const errorText = t.errors?.voiceGenerationFailed || 'Voice message unavailable — your text summary is above.';
       await msgService.sendMessage(chatId, errorText);
+      trackActivityAsync(user.id, 'user_error_shown', { error_type: 'voice_generation_failed' });
     } catch (sendErr) {
       console.error('[Voice] Failed to send error message:', sendErr);
     }

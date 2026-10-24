@@ -245,6 +245,8 @@ async function settings(user: UserConfig, userId: number, userLocale: string): P
     remindersGloballyEnabled: adminSettings?.remindersEnabled ?? false,
     subscriptionInfo,
   };
+  // One open of the Settings screen
+  trackActivityAsync(user.id, 'settings_viewed');
   return { kind: 'props', props };
 }
 
@@ -424,6 +426,9 @@ async function subscription(user: UserConfig, userId: number, locale: string): P
   if (!subWithUsage) {
     return { kind: 'notFound' };
   }
+
+  // One open of the Subscription screen (after the notFound answer: only a rendered page counts)
+  trackActivityAsync(user.id, 'subscription_page_viewed');
 
   const props: PagePropsMap['subscription'] = {
     userId,

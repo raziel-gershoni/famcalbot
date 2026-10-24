@@ -8,6 +8,7 @@ import { resolveCommandTarget } from '@/src/lib/command-target';
 import { commandRateLimiter } from '@/src/lib/rate-limit';
 import { captureError } from '@/src/lib/error-capture';
 import { matchesSecret } from '@/src/lib/secret-compare';
+import { trackActivityAsync } from '@/src/services/analytics-service';
 import type { UserConfig } from '@/src/types';
 
 export const dynamic = 'force-dynamic';
@@ -159,6 +160,7 @@ export async function POST(request: NextRequest) {
           } else {
             await getPlatformService(platform).sendMessage(chatId, errorMessage);
           }
+          trackActivityAsync(user.id, 'user_error_shown', { error_type: 'execute_command', command });
         } catch (notifyErr) {
           captureError(notifyErr, 'execute-command-notify', { user_id });
         }

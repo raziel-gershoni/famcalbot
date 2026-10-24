@@ -284,12 +284,12 @@ export async function sendSummaryToUser(
   modelId?: string,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
   streamHandle?: StreamMessageHandle
-): Promise<void> {
+): Promise<boolean> {
   // Platform-agnostic user lookup
   const user = await getUserByIdentifier(chatId);
   if (!user) {
     console.error(`User not found for ${chatId}`);
-    return;
+    return false;
   }
 
   // Get the correct messaging service for this platform
@@ -315,14 +315,15 @@ export async function sendSummaryToUser(
     await messagingService.sendMessage(chatId, limitMessage, {
       format: MessageFormat.HTML,
     });
-    return;
+    return false;
   }
 
-  await executeCommand({
+  return executeCommand({
     chatId,
     language: userLanguage,
     messagingService,
     errorKey,
+    userId: user.id,
     commandName: 'Summary Generation',
     context: `User: ${chatId}, Date: ${summaryDate ? summaryDate.toISOString() : 'today'}`,
     streamHandle,
@@ -681,8 +682,8 @@ export async function sendDailySummaryToUser(
   chatId: number | string,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
   streamHandle?: StreamMessageHandle
-): Promise<void> {
-  await sendSummaryToUser(
+): Promise<boolean> {
+  return sendSummaryToUser(
     chatId,
     readSummaryDay,
     undefined,
@@ -817,11 +818,11 @@ export async function sendTomorrowSummaryToUser(
   chatId: number | string,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
   streamHandle?: StreamMessageHandle
-): Promise<void> {
+): Promise<boolean> {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
 
-  await sendSummaryToUser(
+  return sendSummaryToUser(
     chatId,
     readSummaryDay,
     tomorrow,
@@ -1001,6 +1002,7 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     } else {
       await msgService.sendMessage(userId, errorText, { format: MessageFormat.HTML });
     }
+    trackActivityAsync(user.id, 'user_error_shown', { error_type: 'empty_summary' });
     return;
   }
 

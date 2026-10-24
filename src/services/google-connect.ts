@@ -40,6 +40,7 @@ import { consentScopes, hasSyncScope } from './google-sync/scopes';
 import { enableSyncLink, restoreSyncLinks, type EnableResult, type SyncConsent } from './google-sync/links';
 import { syncAllowed } from './google-sync/access';
 import { getBotMessages } from '../lib/bot-messages';
+import { trackActivityAsync } from './analytics-service';
 
 /** How long a parked token waits for its owner's tap */
 const PENDING_TTL_SECONDS = 15 * 60;
@@ -249,6 +250,7 @@ export async function commitGoogleToken(ownerUserId: number, refreshToken: strin
   // calendars, partner and reminders, and calendarSource is left as it was (a legacy column).
   // A fresh connect starts the Google setup nudges over (choose calendars, reconnect).
   await clearGoogleTracks(user.id);
+  trackActivityAsync(user.id, 'calendar_connected', { provider: 'google' });
   // Update reminder cache if user has reminders enabled
   if (user.remindersEnabled) {
     await updateUserInCache({

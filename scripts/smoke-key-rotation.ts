@@ -39,6 +39,12 @@ import { fileURLToPath } from 'url';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
+function stubAnalytics() {
+  stub('src/services/analytics-service.ts', { trackActivityAsync: (userId: number, action: string, meta?: object) => { activityRows.push(`${userId}:${action} ${JSON.stringify(meta ?? {})}`); }, addBreadcrumb: () => undefined });
+}
+/** The activity rows the code under test writes: "<user id>:<action> <json>". */
+const activityRows: string[] = [];
+
 const ROOT = path.resolve(__dirname, '..');
 const nodeRequire = createRequire(__filename);
 
@@ -371,7 +377,7 @@ function installBatchStubs() {
   });
   stub('src/services/telegram/voice.ts', { sendVoiceMessage: async () => undefined, sendWeeklyVoiceMessage: async () => undefined });
   stub('src/services/telegram/commands.ts', { sendSetupNudgeIfNeeded: async () => false });
-  stub('src/services/analytics-service.ts', { trackActivityAsync: () => undefined, addBreadcrumb: () => undefined });
+  stubAnalytics();
   stub('src/services/subscription-service.ts', { checkFeatureAccess: async () => ({ allowed: true }), incrementUsage: async () => undefined });
   stub('src/lib/timezone.ts', { resolveUserTimezone: async () => 'Asia/Jerusalem' });
 }
@@ -490,6 +496,7 @@ async function saveChoices(tgId: number): Promise<{ status: number; body: Row }>
 async function main() {
   installStubs();
   const { getAllUsers } = await load('src/services/user-service.ts');
+  stubAnalytics(); // before google-connect loads, so its activity rows land in activityRows
   const { claimPendingGoogleToken } = await load('src/services/google-connect.ts');
 
   const EMPTY_CIPHER = encryptWith(A, '');
@@ -544,9 +551,11 @@ async function main() {
   await check('#4 a claim parked under the old key (A) connects with KEY=B, PREVIOUS=A, and the token is saved under B', async () => {
     seed([baseUser({ id: 9, name: 'Tal Cohen', telegramId: BigInt(TAL_TG) })]);
     const pendingId = parkUnder(A, 9, 'google-rt-parked');
+    activityRows.length = 0;
     const claim = await quietly(() => claimPendingGoogleToken(pendingId, { telegramId: TAL_TG })) as Row;
     assert(claim.status === 'connected', `claim ${show(claim)}`);
     assert(decryptWith(B, userRow(9).googleRefreshToken) === 'google-rt-parked', 'not saved under B');
+    assert(activityRows.filter(r => r.startsWith('9:calendar_connected')).join() === '9:calendar_connected {"provider":"google"}', `activity ${show(activityRows)}`);
     assert(captured.every(c => !c.ctx.includes('undecryptable')), `captures ${show(captured)}`);
   });
 

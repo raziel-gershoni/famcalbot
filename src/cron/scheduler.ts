@@ -114,6 +114,18 @@ export function startScheduler(): void {
     }
   });
 
+  // Activity purge — daily at UTC 03:30 (Israel ~06:30): UserActivity rows older than 90 days
+  cron.schedule('30 3 * * *', async () => {
+    try {
+      const { handleActivityPurge } = await import('./handlers');
+      await handleActivityPurge();
+    } catch (error) {
+      console.error('[Scheduler] Activity purge failed:', error);
+      captureError(error, 'cron-activity-purge');
+      notifyAdmin('Activity Purge', error);
+    }
+  });
+
   // Key sweep — every 10 minutes. After an ENCRYPTION_KEY rotation it re-encrypts the stored
   // Google tokens under the new key and says SAFE once ENCRYPTION_KEY_PREVIOUS can go. Idle for
   // the first 10 minutes of uptime and once nothing is left to do (src/services/key-rotation.ts).
@@ -136,6 +148,7 @@ export function startScheduler(): void {
   console.log('  0 * * * *    Tomorrow summary (hourly, filters by user preferred hour)');
   console.log('  0 7 * * *    Setup reminders (UTC 7:00 = Israel ~10:00)');
   console.log('  0 3 * * *    Health check (UTC 3:00 = Israel ~6:00)');
+  console.log('  30 3 * * *   Activity purge (UserActivity rows older than 90 days, in batches)');
   console.log('  */10 * * * * Key sweep (re-encrypts stored Google tokens after a key rotation; idle in the first 10 min)');
 }
 

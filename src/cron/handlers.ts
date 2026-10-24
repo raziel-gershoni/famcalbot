@@ -586,6 +586,16 @@ export async function handleSetupReminders(): Promise<CronResult> {
 }
 
 /**
+ * Daily purge of UserActivity rows older than the retention (90 days). Logs how many it deleted.
+ */
+export async function handleActivityPurge(): Promise<CronResult> {
+  const { purgeOldActivity, ACTIVITY_RETENTION_DAYS } = await import('../services/analytics-service');
+  const deleted = await purgeOldActivity();
+  console.log(`[ActivityPurge] Deleted ${deleted} activity rows older than ${ACTIVITY_RETENTION_DAYS} days`);
+  return { success: true, message: `deleted ${deleted}`, deleted };
+}
+
+/**
  * Health check handler
  * Checks database connection and processes subscription reminders
  */

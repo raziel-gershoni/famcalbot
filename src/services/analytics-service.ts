@@ -229,6 +229,38 @@ export function trackActivityAsync(
 }
 
 // ============================================
+// RETENTION
+// ============================================
+
+/** UserActivity rows older than this are deleted by the daily purge. */
+export const ACTIVITY_RETENTION_DAYS = 90;
+/** Rows deleted per statement, so one purge never holds a long lock on a big table. */
+export const ACTIVITY_PURGE_BATCH = 5000;
+
+/**
+ * Delete UserActivity rows older than ACTIVITY_RETENTION_DAYS, in batches of
+ * ACTIVITY_PURGE_BATCH (ids are read through the createdAt index, then deleted by id).
+ * Resolves to how many it deleted. Throws on a database error, for the caller to report.
+ */
+export async function purgeOldActivity(now: Date = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - ACTIVITY_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  let deleted = 0;
+  for (;;) {
+    const batch = await prisma.userActivity.findMany({
+      where: { createdAt: { lt: cutoff } },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+      take: ACTIVITY_PURGE_BATCH,
+    });
+    if (batch.length === 0) return deleted;
+    const { count } = await prisma.userActivity.deleteMany({ where: { id: { in: batch.map((row) => row.id) } } });
+    deleted += count;
+    // A batch that deleted nothing (rows gone under us) must not spin; a short one was the last.
+    if (count === 0 || batch.length < ACTIVITY_PURGE_BATCH) return deleted;
+  }
+}
+
+// ============================================
 // QUERY HELPERS (for admin panel)
 // ============================================
 
