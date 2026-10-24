@@ -141,6 +141,18 @@ globalThis.clearTimeout = ((handle?: unknown) => {
   else realClearTimeout(handle as ReturnType<typeof setTimeout>);
 }) as typeof clearTimeout;
 
+/** Node's in-flight I/O requests (not timers, immediates or long-lived handles like stdout). */
+const pendingIo = () => process.getActiveResourcesInfo().filter(r => /Req|Connect/.test(r));
+/** Turns real time until no I/O request is in flight (or `done`), at most 5 s; says what it waited for. */
+async function waitForRealIo(done: () => boolean): Promise<void> {
+  const start = performance.now();
+  while (!done() && pendingIo().length > 0 && performance.now() - start < 5000) {
+    await new Promise(resolve => realSetTimeout(resolve, 1));
+  }
+  const waited = performance.now() - start;
+  if (waited > 50) console.error(`[virtual time] waited ${Math.round(waited)} ms for real I/O before the next timer`);
+}
+
 /**
  * Runs `work` on virtual time: whenever nothing else can run (50 turns of the event loop
  * with no progress), the earliest timer fires and the fake clock jumps to it. Timers left
@@ -162,6 +174,11 @@ async function runVirtual<T>(work: () => Promise<T>): Promise<T> {
       for (let i = 0; i < 10_000 && !settled && !virtualTimers.some(t => !t.cleared); i++) {
         await new Promise(resolve => setImmediate(resolve));
       }
+      if (settled) return await result;
+      // Real I/O (a file read, a module load, a refused connection) is no timer and the turns
+      // above don't wait for it; on a slower machine (CI) it outlasts them, and the clock would
+      // jump to the pipeline's 50 s before the work reached its next timer. Wait it out first.
+      await waitForRealIo(() => settled);
       if (settled) return await result;
       const next = virtualTimers.filter(t => !t.cleared).sort((a, b) => a.due - b.due || a.seq - b.seq)[0];
       if (!next) throw new Error('virtual time: the work is waiting on something that is not a timer');
