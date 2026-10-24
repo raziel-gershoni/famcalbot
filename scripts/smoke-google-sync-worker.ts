@@ -359,6 +359,8 @@ const txClient = client(true);
 const redisStore = new Map<string, { value: string; ex?: number }>();
 const redisLog: string[] = [];
 let redisFail: string | null = null;
+/** Runs right after a user's sync lock is taken (a disconnect landing between the pass's reads and the run). */
+let afterLockTaken: (() => void) | null = null;
 const fakeRedis: Row = {
   get: async (k: string) => redisStore.get(k)?.value ?? null,
   set: async (k: string, v: unknown, o?: { nx?: boolean; ex?: number }) => {
@@ -366,6 +368,7 @@ const fakeRedis: Row = {
     if (redisFail === 'set') throw new Error('redis down');
     if (o?.nx && redisStore.has(k)) return null;
     redisStore.set(k, { value: String(v), ex: o?.ex });
+    if (o?.nx && k.startsWith('google-sync:lock:')) afterLockTaken?.();
     return 'OK';
   },
   expire: async (k: string, s: number) => {
@@ -446,6 +449,8 @@ const google = {
   seq: 0,
   /** Clients made (each syncGoogle call): a fresh client mints a fresh access token. */
   clients: 0,
+  /** A deleted event answers events.update with 410 instead of coming back (Google's behaviour is unverified; the worker must work either way). */
+  noRevive: false,
 };
 const stampOf = (originalStart: string) => originalStart.replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
 
@@ -533,6 +538,7 @@ function fakeGoogle(token: string): Row {
         const c = cal(a.calendarId);
         const e = c.events.get(a.eventId);
         if (!e) throw gErr(404, 'notFound');
+        if (google.noRevive && e.status === 'cancelled') throw gErr(410, 'deleted');
         c.events.set(a.eventId, { ...structuredClone(a.requestBody), id: a.eventId, status: a.requestBody.status ?? 'confirmed', exceptions: e.exceptions });
         return { id: a.eventId };
       }),
@@ -720,8 +726,9 @@ function seed() {
   redisStore.clear();
   redisLog.length = 0;
   redisFail = null;
+  afterLockTaken = null;
   logs.length = 0;
-  Object.assign(google, { calendars: new Map(), accounts: new Map([['tok-1', ACCOUNT]]), calls: [], failures: [], missingInstances: new Set(), inflight: 0, maxInflight: 0, inserting: 0, maxInserting: 0, during: null, seq: 0, clients: 0 });
+  Object.assign(google, { calendars: new Map(), accounts: new Map([['tok-1', ACCOUNT]]), calls: [], failures: [], missingInstances: new Set(), inflight: 0, maxInflight: 0, inserting: 0, maxInserting: 0, during: null, seq: 0, clients: 0, noRevive: false });
   DB.user = [userRow(TAL), userRow(NOA)];
   DB.nativeCalendar = [calendarRow('home', TAL, 'Home'), calendarRow('work', TAL, 'Work'), calendarRow('noa', NOA, 'Noa')];
   DB.nativeEvent = [];
@@ -1724,6 +1731,120 @@ async function main() {
     assert(item('a')!.attempts === 10 && item('b')!.attempts === 10, `items ${show(DB.googleSyncItem)}`);
     assert(adminWarnings.length === 1 && adminWarnings[0].includes('link L') && !TITLES.some((t) => adminWarnings[0].includes(t)), `warnings ${show(adminWarnings)}`);
     assert(captured.filter((x) => x.ctx === 'google-sync-push').every((x) => x.extra?.link_id === 'L' && !x.message.includes('REQUEST BODY')), `captured ${show(captured)}`);
+  });
+
+
+  await check('Hebrew singles migration without an edit: an old RDATE copy that is clean (pushed, never edited) is switched to yearly events by the next pass after deploy, once, with no duplicates', async () => {
+    seedCopy();
+    HEB();
+    const masterId = eventId('L', 'heb', 0);
+    const c = google.calendars.get('g-home')!;
+    c.events.set(masterId, { id: masterId, status: 'confirmed', summary: TITLES[2], start: { date: '2027-03-23' }, end: { date: '2027-03-24' }, recurrence: ['RRULE:FREQ=YEARLY;COUNT=1', 'RDATE;VALUE=DATE:20280312,20290301'], extendedProperties: { private: { famcalSync: 'L', famcalSeries: 'heb' } }, exceptions: new Map() });
+    // Pushed and clean: dirtySeq equals pushedSeq, as every copy made before this release is.
+    itemRow('L', 'heb', { googleEventId: masterId, masterHash: 'abc:def', slotHashes: { '~hebrewFrom': '5787' }, pushedSeq: 1, dirtySeq: 1 });
+    await pass();
+    assert(c.events.get(masterId)!.status === 'cancelled', 'the old master is still live');
+    let copies = hebCopies().sort(byStart);
+    assert(copies.length === 11 && copies.every((e) => !e.recurrence) && item('heb')!.slotHashes['~singles'] === '1', `after ${show(copies.map((e) => e.summary))} ${show(item('heb'))}`);
+    google.calls = [];
+    await pass();
+    assert(!google.calls.some((x) => x.startsWith('events.')), `a second pass wrote ${show(google.calls)}`);
+    await pass(new Date(NOW.getTime() + DAY));
+    copies = hebCopies().sort(byStart);
+    assert(copies.length === 11 && new Set(copies.map((e) => e.start.date)).size === 11 && !google.calls.some((x) => x.startsWith('events.')), `a day on ${show(google.calls)}`);
+  });
+
+  await check('Hebrew singles: a yearly event the user deleted in Google (events.update answers 404/410, and the insert finds the id still held) is created again, once, under the next id; it is neither an error nor retried forever', async () => {
+    seedCopy();
+    HEB();
+    itemRow('L', 'heb');
+    await pass();
+    const victim = hebCopies().sort(byStart)[3];
+    google.calendars.get('g-home')!.events.get(victim.id)!.status = 'cancelled';
+    google.noRevive = true;
+    DB.nativeEvent[0].title = 'Renamed birthday';
+    bump('heb');
+    await pass();
+    const copies = hebCopies().sort(byStart);
+    assert(copies.length === 11 && copies.every((e) => e.summary.startsWith('Renamed birthday')), `copies ${show(copies.map((e) => e.summary))}`);
+    assert(copies.filter((e) => e.start.date === victim.start.date).length === 1 && !copies.some((e) => e.id === victim.id), 'the year is back exactly once, under a new id');
+    assert(item('heb')!.status === 'ok' && item('heb')!.attempts === 0 && item('heb')!.pushedSeq === item('heb')!.dirtySeq, `item ${show(item('heb'))}`);
+    google.calls = [];
+    bump('heb');
+    await pass();
+    assert(!google.calls.some((x) => x.startsWith('events.')) && hebCopies().length === 11, `second pass ${show(google.calls)}`);
+    // A later edit still finds the moved year (its event updated in place), and removing the series deletes it too.
+    DB.nativeEvent[0].title = 'Third name';
+    bump('heb');
+    await pass();
+    assert(hebCopies().length === 11 && hebCopies().every((e) => e.summary.startsWith('Third name')), `edit ${show(hebCopies().map((e) => e.summary))}`);
+    DB.nativeEvent[0].isDeleted = true;
+    bump('heb');
+    await pass();
+    assert(hebCopies().length === 0 && !item('heb'), `removed ${show(hebCopies().length)} ${show(item('heb'))}`);
+  });
+
+  await check('Hebrew singles: a single deleted in Google that Google lets events.update bring back is simply written again (no new id)', async () => {
+    seedCopy();
+    HEB();
+    itemRow('L', 'heb');
+    await pass();
+    const victim = hebCopies().sort(byStart)[2];
+    google.calendars.get('g-home')!.events.get(victim.id)!.status = 'cancelled';
+    DB.nativeEvent[0].title = 'Renamed again';
+    bump('heb');
+    await pass();
+    const copies = hebCopies().sort(byStart);
+    assert(copies.length === 11 && copies.some((e) => e.id === victim.id) && item('heb')!.status === 'ok', `copies ${show(copies.map((e) => e.id))}`);
+  });
+
+  // ---- A disconnect landing while a run is on its way (disconnect spec, review r3 I1) ----
+
+  await check('disconnect during a run: a run that takes the lock after the user disconnected (its snapshot still had the token and the copies) reads the user and links again: no Google call, no reconnect message, nothing written back', async () => {
+    seedCopy();
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    DB.user[0].googleSyncNotifiedAt = null;
+    afterLockTaken = () => {
+      // What disconnectGoogle's clear leaves: no token, the copy turned off with nothing queued.
+      DB.user[0].googleRefreshToken = '';
+      DB.user[0].googleScopes = [];
+      const l = link('L');
+      Object.assign(l, { enabled: false, unlinkChoice: null, unlinkToken: null, pushedSeq: l.dirtySeq });
+    };
+    await pass();
+    assert(google.calls.length === 0, `Google was called ${show(google.calls)}`);
+    assert(sent.length === 0, `a message was sent ${show(sent)}`);
+    assert(DB.user[0].googleSyncNotifiedAt === null && link('L').state === 'ok' && link('L').enabled === false, `state ${show(DB.user[0])} ${show(link('L'))}`);
+    assert(item('a')!.pushedSeq === 0, 'an item was pushed');
+  });
+
+  await check('disconnect during a run: the copies deleted by the disconnect (rows gone) are not worked on, and an outage is not raised for a user with no token left', async () => {
+    seedCopy();
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    afterLockTaken = () => {
+      DB.user[0].googleRefreshToken = '';
+      DB.googleSyncLink = DB.googleSyncLink.filter((l) => l.id !== 'L');
+      DB.googleSyncItem = [];
+    };
+    await pass();
+    assert(google.calls.length === 0 && sent.length === 0 && captured.length === 0, `calls ${show(google.calls)} sent ${show(sent)} captured ${show(captured)}`);
+  });
+
+  await check('disconnect lock: withUserSyncLock waits while a run holds the lock, takes it once free, and frees it only if it is still its own', async () => {
+    seed();
+    redisStore.set('google-sync:lock:1', { value: 'a-run' });
+    let ran = false;
+    const waiting = worker.withUserSyncLock(TAL, async () => {
+      assert(redisStore.get('google-sync:lock:1')?.value !== 'a-run', 'ran while the run held the lock');
+      ran = true;
+      return 'done';
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    assert(!ran, 'it did not wait for the run');
+    redisStore.delete('google-sync:lock:1');
+    assert((await waiting) === 'done' && ran && !redisStore.has('google-sync:lock:1'), 'not done or lock left behind');
   });
 
   // ---- Pace ----

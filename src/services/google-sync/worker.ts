@@ -51,7 +51,7 @@ import { classifyGoogleError, googleErrorFacts, isGoogleRateLimit, type GoogleEr
 import { peekFeatureAccess } from '../subscription-service';
 import { ensureCopyCalendar, findCopyCalendarId, keepCopyCalendar, removeCopyCalendar, renameCopyCalendar, type TurnOffOutcome } from './calendars';
 import { BudgetSpent, CALLS_PER_RUN, counted, syncGoogle, type CallBudget, type SyncGoogle } from './client';
-import { hebrewHorizonFrom, storedHebrewFrom } from './hebrew';
+import { hasSinglesFlag, hebrewHorizonFrom, storedHebrewFrom } from './hebrew';
 import { markSyncDirty, markedTransaction, type UnlinkChoice } from './marks';
 import { CalendarGone, ONE_OFF_LOOKBACK_MS, pushItem, type PushItem } from './push';
 import { clearLinkRetries, readLinkRetries, writeLinkRetry, type LinkRetry } from './retries';
@@ -101,6 +101,7 @@ class LockLost extends Error {}
 class TransientStop extends Error {}
 
 interface UserRun {
+  /** Read again once the user's lock is held (runUser). */
   user: UserRow;
   budget: CallBudget;
   now: Date;
@@ -184,15 +185,7 @@ const describe = (error: unknown): string => {
 export async function runGoogleSyncPass(now: Date = new Date()): Promise<SyncPassResult> {
   await refreshHebrewHorizons(now);
   const itemFields = prisma.googleSyncItem.fields;
-  const links = await prisma.googleSyncLink.findMany({
-    where: {
-      OR: [
-        { enabled: true, state: { in: WORKING } },
-        { enabled: false, unlinkChoice: { not: null }, dirtySeq: { gt: prisma.googleSyncLink.fields.pushedSeq }, state: { notIn: WAITING } },
-      ],
-    },
-    select: LINK_SELECT,
-  });
+  const links = await prisma.googleSyncLink.findMany({ where: { OR: linksWithWork() }, select: LINK_SELECT });
   if (links.length === 0) return { users: 0, pushed: 0, failed: 0, next: null };
   const ids = links.map((l) => l.id);
   const dirty = { linkId: { in: ids }, dirtySeq: { gt: itemFields.pushedSeq } };
@@ -237,7 +230,21 @@ export async function runGoogleSyncPass(now: Date = new Date()): Promise<SyncPas
   return { users: users.length, pushed, failed, next };
 }
 
-/** One user's run, under the user's lock. Never throws: what stops it is logged here. */
+/** The copies a pass picks up: on and working, or turned off with a Remove/Keep queued. */
+function linksWithWork(): Prisma.GoogleSyncLinkWhereInput[] {
+  return [
+    { enabled: true, state: { in: WORKING } },
+    { enabled: false, unlinkChoice: { not: null }, dirtySeq: { gt: prisma.googleSyncLink.fields.pushedSeq }, state: { notIn: WAITING } },
+  ];
+}
+
+/**
+ * One user's run, under the user's lock. Never throws: what stops it is logged here. The pass
+ * read the user and the links before the lock, so a disconnect (google-disconnect.ts, which
+ * takes the same lock through withUserSyncLock) may have landed in between: both are read again
+ * once the lock is held, and the run works on that. A disconnect that comes later waits for
+ * the lock, so it never meets a run midway.
+ */
 async function runUser(user: UserRow, links: LinkRow[], now: Date, retries: Map<string, LinkRetry>): Promise<UserRun> {
   const run: UserRun = {
     user, budget: { left: CALLS_PER_RUN }, now, lockKey: REDIS_KEYS.googleSyncLock(user.id), lockToken: randomUUID(), retries, pushed: 0, failed: 0, again: false,
@@ -260,8 +267,17 @@ async function runUser(user: UserRow, links: LinkRow[], now: Date, retries: Map<
     return run;
   }
   try {
-    for (const link of links.filter((l) => !l.enabled)) await turnOffLink(run, link);
-    const on = links.filter((l) => l.enabled);
+    // The pass read these before the lock; a disconnect may have landed since (see withUserSyncLock).
+    const current = await prisma.user.findUnique({ where: { id: user.id }, select: USER_SELECT });
+    if (!current || current.suspendedAt) {
+      console.log(`[google-sync] user ${user.id}: ${current ? 'suspended' : 'gone'} since the pass read it; copies skipped`);
+      return run;
+    }
+    run.user = current;
+    const live = await prisma.googleSyncLink.findMany({ where: { id: { in: links.map((l) => l.id) }, OR: linksWithWork() }, select: LINK_SELECT });
+    if (live.length !== links.length) console.log(`[google-sync] user ${user.id}: ${links.length - live.length} copies changed since the pass read them; skipped`);
+    for (const link of live.filter((l) => !l.enabled)) await turnOffLink(run, link);
+    const on = live.filter((l) => l.enabled);
     if (on.length > 0) await syncLinks(run, on);
   } catch (error) {
     await stopUser(run, error);
@@ -390,6 +406,53 @@ async function renewLock(run: UserRun): Promise<void> {
   if (kept !== 1) {
     console.warn(`[google-sync] user ${run.user.id}: the run's lock lapsed or another run holds it; stopping`);
     throw new LockLost();
+  }
+}
+
+/** How often a disconnect looks again while a run holds the user's lock. */
+const LOCK_POLL_MS = 500;
+
+/**
+ * Work done under the user's sync lock, the one the worker's runs take: it waits (polling,
+ * with no deadline of its own: the lock's 10-minute TTL frees a lock a dead run left) until the
+ * lock is free, so a run already going finishes first and none starts meanwhile. Disconnect
+ * Google runs inside it, so no run can write state back, send "reconnect Google" or leave a
+ * calendar behind after the token is gone. `renew` keeps the lock alive during long work and
+ * throws when it is no longer this holder's. Fail-closed: a Redis error throws.
+ */
+export async function withUserSyncLock<T>(userId: number, work: (renew: () => Promise<void>) => Promise<T>): Promise<T> {
+  const lockKey = REDIS_KEYS.googleSyncLock(userId);
+  const lockToken = randomUUID();
+  let waited = false;
+  for (;;) {
+    let took: unknown;
+    try {
+      took = await redis.set(lockKey, lockToken, { nx: true, ex: SYNC_LOCK_TTL_S });
+    } catch (error) {
+      console.error(`[google-sync] user ${userId}: taking the sync lock failed`, error);
+      captureError(error, 'google-sync-lock', { user_id: userId, step: 'take-for-work' });
+      throw error;
+    }
+    if (took === 'OK') break;
+    if (!waited) console.log(`[google-sync] user ${userId}: a run holds the sync lock; waiting for it`);
+    waited = true;
+    await new Promise((resolve) => setTimeout(resolve, LOCK_POLL_MS));
+  }
+  const renew = async () => {
+    const kept = await redis.eval(RENEW_LOCK, [lockKey], [lockToken, String(SYNC_LOCK_TTL_S)]);
+    if (kept !== 1) throw new LockLost();
+  };
+  try {
+    return await work(renew);
+  } finally {
+    try {
+      const freed = await redis.eval(RELEASE_LOCK, [lockKey], [lockToken]);
+      if (freed !== 1) console.warn(`[google-sync] user ${userId}: the lock was no longer this holder's at release`);
+    } catch (error) {
+      // The TTL frees it.
+      console.error(`[google-sync] user ${userId}: freeing the sync lock failed`, error);
+      captureError(error, 'google-sync-lock', { user_id: userId, step: 'release-for-work' }, 'warning');
+    }
   }
 }
 
@@ -797,8 +860,11 @@ async function alertAdminOnce(run: UserRun, link: { id: string }, message: strin
 // ---- Hebrew horizons ----
 
 /**
- * Once a day: the copies of Hebrew-date series whose listed years run short (fewer than 2
- * ahead) are marked dirty, so the next push lists the years from the current one (hebrew.ts).
+ * Once a day (and at the first pass after a deploy): the copies of Hebrew-date series whose
+ * listed years run short (fewer than 2 ahead) are marked dirty, so the next push lists the
+ * years from the current one (hebrew.ts). So are copies still in the old shape, one RDATE
+ * master with no singles flag, which the push replaces by one event per year; once switched
+ * they carry the flag, so this marks each only once.
  */
 async function refreshHebrewHorizons(now: Date): Promise<void> {
   if (now.getTime() - shared.hebrewCheckedAt < HEBREW_CHECK_MS) return;
@@ -815,7 +881,10 @@ async function refreshHebrewHorizons(now: Date): Promise<void> {
       const stale = new Set(items.filter((i) => {
         const from = storedHebrewFrom(i.slotHashes);
         const s = byId.get(i.nativeEventId);
-        return from !== null && s !== undefined && hebrewHorizonFrom(from, now, s.timeZone || TIMEZONE) !== from;
+        if (s === undefined) return false;
+        // A copy made as one RDATE event (before the yearly events): no singles flag. Marked once; its push switches it.
+        if (!hasSinglesFlag(i.slotHashes)) return true;
+        return from !== null && hebrewHorizonFrom(from, now, s.timeZone || TIMEZONE) !== from;
       }).map((i) => i.nativeEventId));
       if (stale.size > 0) {
         await markedTransaction((tx) => markSyncDirty(tx, { series: [...stale].map((id) => ({ id, kind: 'EVENT', calendarIds: [byId.get(id)!.calendarId] })) }));

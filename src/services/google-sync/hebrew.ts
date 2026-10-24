@@ -25,6 +25,16 @@ export const HEBREW_SINGLES_KEY = '~singles';
 /** The prefix of the slotHashes keys of a copy's single events: '~s:<slot ISO>', the value the event body's hash ('?' while being written). */
 export const HEBREW_SINGLE_PREFIX = '~s:';
 
+/**
+ * The prefix of the slotHashes keys that say a single is under a later id: '~g:<slot ISO>' holds
+ * its generation. Google keeps a deleted event's id for good, so a single the user deleted in
+ * Google and that FamCal writes again goes in under the next generation's id. Absent means 0.
+ */
+export const HEBREW_GEN_PREFIX = '~g:';
+
+/** The slotHashes key of a single's generation, from the key of its hash ('~s:<ISO>'). */
+export const genKeyOf = (singleKey: string): string => `${HEBREW_GEN_PREFIX}${singleKey.slice(HEBREW_SINGLE_PREFIX.length)}`;
+
 const pad = (n: number) => String(n).padStart(2, '0');
 
 /** The Hebrew year of an instant's civil day in `zone` (daytime dates, the home's rule). */
@@ -53,6 +63,11 @@ export function hebrewHorizonFrom(stored: number | null, now: Date, zone: string
 /** The instants the listed Hebrew years cover: 1 Tishrei of `from` up to 1 Tishrei after the last. */
 export function hebrewWindow(from: number, zone: string): { from: Date; to: Date } {
   return { from: roshHashana(from, zone), to: roshHashana(from + HEBREW_YEARS_AHEAD + 1, zone) };
+}
+
+/** Whether a copy's stored hashes say it is single events, one per year (not an old RDATE master). */
+export function hasSinglesFlag(slotHashes: unknown): boolean {
+  return Boolean(slotHashes) && typeof slotHashes === 'object' && !Array.isArray(slotHashes) && (slotHashes as Record<string, unknown>)[HEBREW_SINGLES_KEY] === '1';
 }
 
 /** The first Hebrew year a copy's stored hashes say it lists, or null. */

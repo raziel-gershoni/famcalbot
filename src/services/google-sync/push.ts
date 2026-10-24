@@ -40,7 +40,7 @@ import { toGoogleEvent, toGoogleHebrewSingles, type GoogleCopy } from '../calend
 import { instanceAt } from '../calendar-move/move';
 import { copyCalendarGone } from './calendars';
 import { counted, type CallBudget, type SyncGoogle } from './client';
-import { HEBREW_FROM_KEY, HEBREW_SINGLE_PREFIX, HEBREW_SINGLES_KEY, hebrewHorizonFrom, hebrewSlots, hebrewWindow, storedHebrewFrom } from './hebrew';
+import { genKeyOf, HEBREW_FROM_KEY, HEBREW_GEN_PREFIX, HEBREW_SINGLE_PREFIX, HEBREW_SINGLES_KEY, hebrewHorizonFrom, hebrewSlots, hebrewWindow, storedHebrewFrom } from './hebrew';
 import { SYNC_MARKER, SYNC_SERIES_MARKER } from './markers';
 
 type GEvent = calendar_v3.Schema$Event;
@@ -118,10 +118,15 @@ export function syncEventId(linkId: string, seriesId: string, generation: number
  * sha256(linkId:seriesId:hs:<slot ISO>), the same alphabet as syncEventId. It has no generation: a
  * single is never revived from a stale state, an insert that finds its id (409) writes over it, so a
  * state lost (a re-enable) adopts the events already there and a retry never doubles one.
+ * Only a single the user deleted in Google (whose id Google then holds for good) moves to a later
+ * generation, kept in the item's hashes (HEBREW_GEN_PREFIX); generation 0 is the id above.
  */
-export function singleEventId(linkId: string, seriesId: string, slot: Date): string {
-  return base32hex(createHash('sha256').update(`${linkId}:${seriesId}:hs:${slot.toISOString()}`).digest());
+export function singleEventId(linkId: string, seriesId: string, slot: Date, generation = 0): string {
+  return base32hex(createHash('sha256').update(`${linkId}:${seriesId}:hs:${slot.toISOString()}${generation > 0 ? `:g${generation}` : ''}`).digest());
 }
+
+/** A single's generation, from the item's stored hashes. */
+const genOf = (stored: Record<string, string>, singleKey: string): number => Number(stored[genKeyOf(singleKey)]) || 0;
 
 const hashOf = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('base64url').slice(0, 22);
 
@@ -250,7 +255,7 @@ async function deleteCopy(g: SyncGoogle, budget: CallBudget, link: PushLink, ite
   const stored = readSlotHashes(item.slotHashes);
   if (stored[HEBREW_SINGLES_KEY] === '1') {
     for (const key of Object.keys(stored)) {
-      if (key.startsWith(HEBREW_SINGLE_PREFIX)) await deleteEvent(g, budget, calendarId, singleEventId(link.id, item.nativeEventId, new Date(key.slice(HEBREW_SINGLE_PREFIX.length))));
+      if (key.startsWith(HEBREW_SINGLE_PREFIX)) await deleteEvent(g, budget, calendarId, singleEventId(link.id, item.nativeEventId, new Date(key.slice(HEBREW_SINGLE_PREFIX.length)), genOf(stored, key)));
     }
     return;
   }
@@ -435,6 +440,7 @@ async function pushOnce(g: SyncGoogle, budget: CallBudget, link: PushLink, item:
 /** One planned single of a Hebrew series' copy. */
 interface PlannedSingle {
   key: string;
+  /** The Google event id; a later generation's once the first one's is held by an event the user deleted. */
   id: string;
   body: GEvent;
   hash: string;
@@ -486,7 +492,7 @@ async function pushHebrew(
         extendedProperties: { private: { [SYNC_MARKER]: link.id, [SYNC_SERIES_MARKER]: series.id } },
       };
       const key = `${HEBREW_SINGLE_PREFIX}${slot.toISOString()}`;
-      plan.set(key, { key, id: singleEventId(link.id, series.id, slot), body, hash: hashOf(body) });
+      plan.set(key, { key, id: singleEventId(link.id, series.id, slot, genOf(stored, key)), body, hash: hashOf(body) });
     }
   } catch (error) {
     captureError(error, 'google-sync-build', { user_id: link.userId, link_id: link.id, item_id: item.id, series_id: series.id }, 'error');
@@ -494,13 +500,16 @@ async function pushHebrew(
   }
 
   const known = stored[HEBREW_SINGLES_KEY] === '1';
+  /** Generation per single ('~g:<slot ISO>' → n), for the ones moved to a later id. */
+  const gens: Record<string, string> = {};
+  for (const [k, v] of Object.entries(stored)) if (k.startsWith(HEBREW_GEN_PREFIX)) gens[k] = v;
   /** What Google holds, as far as the item knows: slot key → body hash, or '?'. */
   const state: Record<string, string> = {};
   for (const [k, v] of Object.entries(stored)) if (known && k.startsWith(HEBREW_SINGLE_PREFIX)) state[k] = v;
   // The flag that the state names every event of the series: set from the start for a new copy,
   // and only once an old master's sweep is done for an old one (so a cut-short migration repeats it).
   let flagged = known || !item.googleEventId;
-  const meta = () => ({ ...(flagged ? { [HEBREW_SINGLES_KEY]: '1' } : {}), [HEBREW_FROM_KEY]: String(hebrewFrom) });
+  const meta = () => ({ ...gens, ...(flagged ? { [HEBREW_SINGLES_KEY]: '1' } : {}), [HEBREW_FROM_KEY]: String(hebrewFrom) });
   const marker = item.googleEventId ?? syncEventId(link.id, series.id, item.generation);
   const save = (extra: Partial<{ pushedSeq: number; attempts: number; nextAttemptAt: null; status: string; lastError: null }> = {}) =>
     prisma.googleSyncItem.update({ where: { id: item.id }, data: { googleEventId: marker, masterHash: null, slotHashes: { ...state, ...meta() }, ...extra } });
@@ -522,8 +531,9 @@ async function pushHebrew(
     if (wrote || stale.length > 0 || [...plan.values()].some((p) => state[p.key] === '?') || stored[HEBREW_FROM_KEY] !== String(hebrewFrom) || !known) await save();
 
     for (const key of stale) {
-      await deleteEvent(g, budget, calendarId, singleEventId(link.id, series.id, new Date(key.slice(HEBREW_SINGLE_PREFIX.length))));
+      await deleteEvent(g, budget, calendarId, singleEventId(link.id, series.id, new Date(key.slice(HEBREW_SINGLE_PREFIX.length)), genOf(stored, key)));
       delete state[key];
+      delete gens[genKeyOf(key)];
       wrote = true;
     }
     for (const p of plan.values()) {
@@ -531,21 +541,40 @@ async function pushHebrew(
       const exists = before[p.key] !== undefined && before[p.key] !== '?';
       const insert = () => counted(budget, () => g.api.events.insert({ calendarId, requestBody: { ...p.body, id: p.id } }));
       const update = () => counted(budget, () => g.api.events.update({ calendarId, eventId: p.id, requestBody: p.body }));
-      if (exists) {
-        // A single written before: changed in place, or written again if it was deleted in Google.
+      // A single written before is changed in place; a new one (or a state lost) is inserted, and a 409 means it is
+      // there already, so it is written whole. A single the user deleted in Google is created again: Google holds a
+      // deleted event's id for good (insert answers 409, update 404/410), so it goes in under the next generation's id.
+      let attempt: 'update' | 'insert' = exists ? 'update' : 'insert';
+      let sawGone = false;
+      let afterDuplicate = false;
+      let bumps = 0;
+      const nextId = () => {
+        bumps += 1;
+        if (bumps > DEAD_ID_TRIES) throw new Error(`a yearly event's id was held by a deleted event on ${DEAD_ID_TRIES} generations in a row`);
+        const generation = genOf(gens, p.key) + 1;
+        gens[genKeyOf(p.key)] = String(generation);
+        p.id = singleEventId(link.id, series.id, new Date(p.key.slice(HEBREW_SINGLE_PREFIX.length)), generation);
+        console.log(`[google-sync] ${ids}: a yearly event was deleted in Google and its id is held; writing it again as generation ${generation}`);
+      };
+      for (;;) {
         try {
-          await update();
+          await (attempt === 'update' ? update() : insert());
+          break;
         } catch (error) {
-          if (classifyGoogleError(error) !== 'gone') throw error;
-          await insert();
-        }
-      } else {
-        try {
-          await insert();
-        } catch (error) {
-          if (!isDuplicate(error)) throw error;
-          // Already there (a retry after a timeout, a lost state): written whole.
-          await update();
+          if (attempt === 'update' && classifyGoogleError(error) === 'gone') {
+            if (afterDuplicate) nextId();
+            attempt = 'insert';
+            sawGone = true;
+            afterDuplicate = false;
+          } else if (attempt === 'insert' && isDuplicate(error)) {
+            if (sawGone) nextId();
+            else {
+              attempt = 'update';
+              afterDuplicate = true;
+            }
+          } else {
+            throw error;
+          }
         }
       }
       state[p.key] = p.hash;
