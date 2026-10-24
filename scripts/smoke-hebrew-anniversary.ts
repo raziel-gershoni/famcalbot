@@ -159,14 +159,14 @@ async function main() {
       continuesBefore: false, continuesAfter: false, count: 36,
     };
     const html = renderToString(createElement(Slot, { slot, noTitle: '(No title)' }));
-    assert(html.indexOf('<bdi>') !== -1 && html.indexOf('<bdi>') < html.indexOf('ch-mb-count') && html.includes('has-count'), `chip ${html}`);
+    assert(html.indexOf('<bdi') !== -1 && html.indexOf('<bdi') < html.indexOf('ch-mb-count') && html.includes('has-count'), `chip ${html}`);
     assert(!renderToString(createElement(Slot, { slot: { ...slot, count: null }, noTitle: '' })).includes('ch-mb-count'), 'no count, no pill');
     assert(!renderToString(createElement(Slot, { slot: { ...slot, showTitle: false }, noTitle: '' })).includes('ch-mb-count'), 'a bar day without a title has no pill');
     const css = MONTH_BROWSE_CSS;
     assert(/\.ch-mb-slot\s*\{[^}]*container-type:\s*inline-size/.test(css), 'the slot is the container');
     assert(/@container\s*\(min-width:\s*\d+px\)\s*\{[^}]*\.ch-mb-count[^}]*display:\s*inline-block/.test(css), 'the pill shows from a width');
     assert(/\.ch-mb-count\s*\{[^}]*display:\s*none/.test(css), 'the pill is off by default');
-    assert(/\.ch-mb-chip\.has-count\s*>\s*bdi\s*\{[^}]*text-overflow:\s*ellipsis/.test(css), 'the title truncates');
+    assert(/\.ch-mb-chip-title\s*\{[^}]*text-overflow:\s*ellipsis/.test(css) && html.includes('class="ch-mb-chip-title"'), 'the title truncates');
     assert(typeof buildMonth === 'function', 'buildMonth');
   });
 

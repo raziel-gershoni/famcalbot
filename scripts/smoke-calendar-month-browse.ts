@@ -1054,6 +1054,7 @@ async function main() {
     const html = markup(renderBrowse('en', browseProps(famcalStore())));
     for (const { selector } of leaves) {
       const cls = selector.slice(1);
+      if (cls === 'ch-mb-chip-title') continue; // only on a chip with an anniversary count (checked in smoke-hebrew-anniversary.ts)
       const found = [...html.matchAll(new RegExp(`<(\\w+) class="${cls}(?: [^"]*)?"[^>]*>([\\s\\S]*?)</\\1>`, 'g'))];
       assert(found.length > 0, `${cls} is in the markup`);
       // Text only: a chip's title may sit in a <bdi> (it isolates the text, no box of its own).

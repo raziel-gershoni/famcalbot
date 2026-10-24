@@ -217,7 +217,7 @@ export function Slot({ slot, noTitle }: { slot: MonthSlot; noTitle: string }) {
   return (
     <span className="ch-mb-slot">
       <span className={className} style={cal.style}>
-        {title ? <bdi>{title}</bdi> : null}
+        {title ? <bdi className={slot.count ? 'ch-mb-chip-title' : undefined}>{title}</bdi> : null}
         {title && slot.count ? <span className="ch-mb-count" aria-hidden="true">{slot.count}</span> : null}
       </span>
     </span>
@@ -890,7 +890,7 @@ button.ch-mb-cell:active {
   align-items: center;
   gap: 3px;
 }
-.ch-mb-chip.has-count > bdi {
+.ch-mb-chip-title {
   display: block;
   flex: 0 1 auto;
   min-width: 0;
