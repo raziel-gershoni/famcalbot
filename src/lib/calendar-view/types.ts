@@ -108,6 +108,8 @@ export interface ItemDTO {
   /** Plain text. */
   description: string | null;
   reminder?: ItemReminderDTO;
+  /** A Hebrew yearly series: the Hebrew years since the original date (>= 1); absent on the first occurrence and elsewhere. */
+  anniversary?: number;
   /** Google only. */
   birthday?: boolean;
   /** Google only. */

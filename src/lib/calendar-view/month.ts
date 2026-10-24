@@ -165,6 +165,8 @@ export interface MonthSlot {
   mine: boolean;
   /** The item's calendar colour (spec 2026-10-19 §3.3); null for a spacer, a masked calendar or none. */
   color: string | null;
+  /** The Hebrew anniversary count (>= 1) shown as a pill after the title; null for none and for a spacer. */
+  count: number | null;
   /** A done reminder: struck through. */
   done: boolean;
   /** A bar that goes on from the day before / to the day after (flat edges). */
@@ -232,6 +234,7 @@ const SPACER: MonthSlot = Object.freeze({
   showTitle: false,
   mine: false,
   color: null,
+  count: null,
   done: false,
   continuesBefore: false,
   continuesAfter: false,
@@ -362,6 +365,7 @@ function slotOf(d: Drawn, kind: SlotKind, showTitle: boolean): MonthSlot {
     showTitle,
     mine: d.mine,
     color: d.item.calendar.color,
+    count: d.item.anniversary ?? null,
     done: d.done,
     continuesBefore: bar && d.before,
     continuesAfter: bar && d.after,

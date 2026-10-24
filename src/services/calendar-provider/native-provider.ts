@@ -45,6 +45,7 @@ import { effectiveOwnerForViewer, loadViewerContext, ViewerContext } from '../na
 import { TIMEZONE } from '../../config/constants';
 import { addDaysToDate } from '../../utils/day-events';
 import { captureError } from '../../lib/error-capture';
+import { anniversaryOf } from '../../lib/hebrew-anniversary';
 
 const PROVIDER_NAME = 'native' as const;
 
@@ -70,7 +71,7 @@ export function toUnifiedEvent(
     instanceStartsAt: Date;
     isRecurringInstance: boolean;
   },
-  series?: Pick<NativeEvent, 'kind'>,
+  series?: Pick<NativeEvent, 'kind'> & Partial<Pick<NativeEvent, 'hebrewRule' | 'hebrewAnchor'>>,
   info?: ReminderInfo
 ): UnifiedEvent {
   const isReminder = series?.kind === 'REMINDER';
@@ -86,6 +87,9 @@ export function toUnifiedEvent(
   const end = instance.allDay
     ? addDaysToDate(start, Math.max(1, Math.round((instance.endsAt.getTime() - instance.startsAt.getTime()) / 86_400_000)))
     : isReminder ? start : instance.endsAt.toISOString();
+
+  // A Hebrew yearly series counts its years from the anchor (anniversary count spec); null hides it.
+  const anniversary = series ? anniversaryOf(series, start, instance.timeZone) : null;
 
   return {
     summary: instance.title,
@@ -103,6 +107,7 @@ export function toUnifiedEvent(
     instanceStartsAt: instance.isRecurringInstance ? instance.instanceStartsAt.toISOString() : undefined,
     timeZone: instance.timeZone,
     ...(isReminder ? { reminder: info ?? { ownerIsViewer: true, creatorIsViewer: true } } : {}),
+    ...(anniversary !== null ? { anniversary } : {}),
   };
 }
 
@@ -166,7 +171,7 @@ export interface ViewerItem {
 /** Store rows as the viewer's items. The reminders' states are read in one query. */
 async function toViewerItems(rows: NativeEventRow[], ctx: ViewerContext): Promise<ViewerItem[]> {
   const reminderRows = rows.filter((r) => r.series.kind === 'REMINDER');
-  if (reminderRows.length === 0) return rows.map((row) => ({ row, event: toUnifiedEvent(row.calendar, row.instance) }));
+  if (reminderRows.length === 0) return rows.map((row) => ({ row, event: toUnifiedEvent(row.calendar, row.instance, row.series) }));
 
   const states = await fetchReminderStates(
     reminderRows.map((r) => ({ seriesEventId: r.series.id, originalStartsAt: r.instance.instanceStartsAt }))
@@ -174,7 +179,7 @@ async function toViewerItems(rows: NativeEventRow[], ctx: ViewerContext): Promis
   const stateByKey = new Map(states.map((s) => [occurrenceKey(s.seriesEventId, s.originalStartsAt), s]));
   const now = new Date();
   return rows.map((row) => {
-    if (row.series.kind !== 'REMINDER') return { row, event: toUnifiedEvent(row.calendar, row.instance) };
+    if (row.series.kind !== 'REMINDER') return { row, event: toUnifiedEvent(row.calendar, row.instance, row.series) };
     const state = stateByKey.get(occurrenceKey(row.series.id, row.instance.instanceStartsAt));
     const event = toUnifiedEvent(row.calendar, row.instance, row.series, reminderInfoFor(row.series, state, ctx, now));
     return state ? { row, state, event } : { row, event };

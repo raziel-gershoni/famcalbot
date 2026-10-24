@@ -40,7 +40,7 @@ import {
 import { openExternalLink } from '@/src/lib/telegram-ui';
 import { BottomSheet } from './BottomSheet';
 import { hebrewRepeatText, type HebrewRepeat } from './hebrew-repeat-words';
-import { PersonChip, ReminderIcon, useItemTitle } from './ItemRow';
+import { AnniversaryCount, PersonChip, ReminderIcon, useItemTitle } from './ItemRow';
 
 /** A calendar's colour is only an accent (Ruling R7), and only a plain hex one is drawn. */
 const HEX_COLOUR = /^#[0-9a-f]{3,8}$/i;
@@ -245,6 +245,7 @@ export function ItemSheet({ row, today, tz, onClose, actions }: ItemSheetProps) 
         {mark ? <ReminderIcon mark={mark} /> : null}
         <h2 className="ch-sheet-title" dir="auto">
           {title}
+          <AnniversaryCount n={item.anniversary} />
         </h2>
         {editing?.canEdit ? (
           <button type="button" className="ch-icon-btn ch-sheet-edit" aria-label={t('sheet.edit')} onClick={editing.onEdit}>

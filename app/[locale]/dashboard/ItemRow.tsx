@@ -109,6 +109,24 @@ export function useItemTitle(item: ItemDTO): string {
   return item.title && item.title.trim() !== '' ? item.title : t('row.noTitle');
 }
 
+/**
+ * The Hebrew anniversary count (N >= 1) as a small muted pill, inline right after the title so it
+ * sits at the title's logical end in both directions. Digits only, in tabular figures; the number
+ * is hidden from readers, who get "36 years" from the visually hidden text.
+ */
+export function AnniversaryCount({ n }: { n: number | undefined }) {
+  const t = useTranslations('calendarHome');
+  if (!n || n < 1) return null;
+  return (
+    <>
+      <span className="ch-count" aria-hidden="true">
+        {n}
+      </span>
+      <span className="ch-visually-hidden"> {t('row.anniversary', { n })}</span>
+    </>
+  );
+}
+
 /** The first non-empty line of a plain-text description. */
 function firstLine(text: string | null): string | null {
   if (!text) return null;
@@ -181,6 +199,7 @@ export function ItemRow({ row, day, tz, onOpen }: ItemRowProps) {
             {mark ? <ReminderIcon mark={mark} /> : null}
             <span className="ch-title" dir="auto">
               {title}
+              <AnniversaryCount n={item.anniversary} />
             </span>
           </span>
           {hasMeta ? (

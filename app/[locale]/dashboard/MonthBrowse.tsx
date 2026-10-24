@@ -198,7 +198,7 @@ function blockPx(month: MonthKey, weekStart: WeekStart, hebrewDates: boolean): n
  * meet the next day in Hebrew too; only the title is isolated (<bdi>), so a Hebrew title
  * in English, or an English one in Hebrew, reads in its own direction.
  */
-function Slot({ slot, noTitle }: { slot: MonthSlot; noTitle: string }) {
+export function Slot({ slot, noTitle }: { slot: MonthSlot; noTitle: string }) {
   if (slot.kind === 'spacer') return <span className="ch-mb-slot" />;
   const cal = calendarMark(slot.color);
   const look = slot.kind === 'timed' ? (slot.mine ? 'is-mine-timed' : 'is-partner-timed') : slot.mine ? 'is-mine-solid' : 'is-partner-solid';
@@ -209,6 +209,7 @@ function Slot({ slot, noTitle }: { slot: MonthSlot; noTitle: string }) {
     slot.continuesBefore ? 'is-before' : '',
     slot.continuesAfter ? 'is-after' : '',
     slot.done ? 'is-done' : '',
+    slot.showTitle && slot.count ? 'has-count' : '',
   ]
     .filter(Boolean)
     .join(' ') + cal.className;
@@ -217,6 +218,7 @@ function Slot({ slot, noTitle }: { slot: MonthSlot; noTitle: string }) {
     <span className="ch-mb-slot">
       <span className={className} style={cal.style}>
         {title ? <bdi>{title}</bdi> : null}
+        {title && slot.count ? <span className="ch-mb-count" aria-hidden="true">{slot.count}</span> : null}
       </span>
     </span>
   );
@@ -868,6 +870,7 @@ button.ch-mb-cell:active {
   display: block;
   block-size: 18px;
   padding-block-start: 2px;
+  container-type: inline-size;
 }
 .ch-mb-chip {
   display: block;
@@ -881,6 +884,33 @@ button.ch-mb-cell:active {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.ch-mb-chip.has-count {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.ch-mb-chip.has-count > bdi {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ch-mb-count {
+  display: none;
+  flex: none;
+  padding-inline: 4px;
+  border-radius: 6px;
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  font-size: 11px;
+  line-height: 14px;
+  font-variant-numeric: tabular-nums;
+}
+@container (min-width: 64px) {
+  .ch-mb-count {
+    display: inline-block;
+  }
 }
 .ch-mb-chip.is-mine-timed {
   background: var(--ch-mine-soft);

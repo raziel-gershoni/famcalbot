@@ -96,6 +96,9 @@ export interface CalendarEvent {
   daySpan?: DaySpan;
   // A built-in calendar reminder as the viewer sees it. Present iff eventType === 'reminder'.
   reminder?: ReminderInfo;
+  // A built-in calendar occurrence of a Hebrew yearly series: how many Hebrew years it is after
+  // the original one (src/lib/hebrew-anniversary.ts). Absent for the first occurrence and for every other event.
+  anniversary?: number;
 }
 
 /**

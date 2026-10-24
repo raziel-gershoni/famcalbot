@@ -91,6 +91,7 @@ export function toItemDto(item: ReadItem, span: DaySpan | null, opts: ItemDtoOpt
     description: event.description || null,
   };
   if (item.kind === 'reminder') dto.reminder = reminderDto(item, opts);
+  if (event.anniversary) dto.anniversary = event.anniversary;
   if (item.source === 'google') {
     dto.birthday = item.google?.birthday ?? false;
     dto.htmlLink = item.google?.htmlLink ?? null;

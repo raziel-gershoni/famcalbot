@@ -164,6 +164,7 @@
       "snoozedUntil": "עד {time}",
       "snoozedLabel": "נדחתה עד {time}",
       "birthday": "יום הולדת",
+      "anniversary": "{n, plural, one {שנה} two {שנתיים} other {# שנים}}",
       "googleCalendar": "Google · {calendar}"
     },
     "person": {
@@ -244,6 +245,7 @@
         "yearlyPlain": "כל שנה",
         "hebrew": "כל שנה ב{date}",
         "hebrewPlain": "כל שנה, לפי התאריך העברי",
+        "hebrewCountHint": "כדי שיוצג מספר השנים, יש לבחור את התאריך המקורי, למשל תאריך הלידה.",
         "hebrewEvery": "{count, plural, one {כל שנה} two {כל שנתיים} other {כל # שנים}} ב{date}",
         "current": "{words} (הנוכחית)",
         "currentPlain": "החזרה הנוכחית",

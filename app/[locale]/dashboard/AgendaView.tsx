@@ -352,6 +352,20 @@ export const AGENDA_CSS = `
   line-height: 20px;
   overflow-wrap: anywhere;
 }
+.ch-count {
+  display: inline-block;
+  margin-inline-start: 6px;
+  padding-inline: 6px;
+  border-radius: 10px;
+  background: var(--ch-surface);
+  color: var(--ch-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  vertical-align: 1px;
+}
 .is-done .ch-title,
 .is-done .ch-sheet-title {
   color: var(--ch-done);

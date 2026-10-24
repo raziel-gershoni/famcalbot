@@ -164,6 +164,7 @@
       "snoozedUntil": "until {time}",
       "snoozedLabel": "Snoozed until {time}",
       "birthday": "Birthday",
+      "anniversary": "{n, plural, one {# year} other {# years}}",
       "googleCalendar": "Google · {calendar}"
     },
     "person": {
@@ -244,6 +245,7 @@
         "yearlyPlain": "Every year",
         "hebrew": "Every year on {date}",
         "hebrewPlain": "Every year, by the Hebrew date",
+        "hebrewCountHint": "To show the year count, set the date to the original one, like the birth date.",
         "hebrewEvery": "{count, plural, one {Every year} other {Every # years}} on {date}",
         "current": "{words} (current)",
         "currentPlain": "Current repeat",

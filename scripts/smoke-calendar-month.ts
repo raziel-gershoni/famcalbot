@@ -322,6 +322,7 @@ const slot = (kind: MonthSlot['kind'], id: string | null): MonthSlot => ({
   showTitle: kind !== 'spacer',
   mine: true,
   color: null,
+  count: null,
   done: false,
   continuesBefore: false,
   continuesAfter: false,

@@ -164,6 +164,7 @@
       "snoozedUntil": "до {time}",
       "snoozedLabel": "Отложено до {time}",
       "birthday": "День рождения",
+      "anniversary": "{n, plural, one {# год} few {# года} many {# лет} other {# лет}}",
       "googleCalendar": "Google · {calendar}"
     },
     "person": {
@@ -244,6 +245,7 @@
         "yearlyPlain": "Каждый год",
         "hebrew": "Каждый год {date}",
         "hebrewPlain": "Каждый год, по еврейскому календарю",
+        "hebrewCountHint": "Чтобы отображалось число лет, укажите исходную дату, например дату рождения.",
         "hebrewEvery": "{count, plural, =1 {Каждый год} one {Каждые # год} few {Каждые # года} many {Каждые # лет} other {Каждые # года}} {date}",
         "current": "{words} (сейчас)",
         "currentPlain": "Текущий повтор",

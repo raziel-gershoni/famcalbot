@@ -269,10 +269,13 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
     repeatOptions.unshift({ value: 'custom', text: own === null ? t('editor.repeat.currentPlain') : t('editor.repeat.current', { words: withEnd(own) }) });
   }
   /** Under the Repeat row, once the rule is changed from a later occurrence: the earlier ones keep theirs. */
-  const repeatHint =
+  const fromHereHint =
     edit && info && info.series.recurring && info.series.first === false && form.repeat !== 'custom' && form.repeat !== start.repeat
       ? t('editor.repeat.fromHere', { date: formatDayMonth(info.occurrence.start.slice(0, 10), locale) })
       : undefined;
+  /** Under the Hebrew yearly choice: the count of years starts from the date entered, so it should be the original one. */
+  const countHint = form.repeat === 'hebrew' ? t('editor.repeat.hebrewCountHint') : undefined;
+  const repeatHint = [fromHereHint, countHint].filter(Boolean).join(' ') || undefined;
 
   const toOption = (c: EditorCalendar): SelectOption => ({
     value: c.id,
