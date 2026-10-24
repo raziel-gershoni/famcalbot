@@ -4,7 +4,7 @@
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import type { CalendarEvent } from '../../types';
 import { TIMEZONE } from '../../config/constants';
-import { localDate, nextDate } from '../../utils/day-events';
+import { localDate, nextDate, startOfLocalDay } from '../../utils/day-events';
 import { DEFAULT_REMINDER_TIME, isValidReminderTime } from '../../lib/reminder-time';
 
 // Date-only reminders ping at the recipient's reminder time (src/lib/reminder-time.ts,
@@ -67,11 +67,25 @@ export function tomorrowMorning(now: Date, tz: string, reminderTime?: string | n
 }
 
 /**
+ * The local day (in `tz`) a date-only occurrence pings on, as [start, end): the key of its
+ * "pinged once that day" rule, whatever time of day the user's reminder time puts it at.
+ */
+export function pingDayOf(due: Date, tz: string): { start: Date; end: Date } {
+  const day = localDate(due, tz);
+  return { start: startOfLocalDay(day, tz), end: startOfLocalDay(nextDate(day), tz) };
+}
+
+/**
  * Whether an occurrence pings now: not done, due within the last PING_LOOKBACK_MS, not
  * set long after its own time had passed (armedAt, which a snooze ignores), and not yet
  * pinged for this due time.
+ *
+ * A date-only occurrence (`dateOnlyDay`, not snoozed) is keyed by its day, not by its due
+ * instant: once pinged that day it does not ping again when the user moves their reminder time
+ * later, and when they move it earlier it still pings once that day, past the catch-up window.
  */
 export function isEligible(a: {
+  dateOnlyDay?: { start: Date; end: Date } | null;
   due: Date;
   now: Date;
   armedAt: Date | null;
@@ -82,7 +96,10 @@ export function isEligible(a: {
   if (a.doneAt) return false;
   const due = a.due.getTime();
   const now = a.now.getTime();
-  if (due > now || due < now - PING_LOOKBACK_MS) return false;
+  const day = a.snoozed ? null : a.dateOnlyDay ?? null;
+  if (due > now) return false;
+  if (due < now - PING_LOOKBACK_MS && !(day && now < day.end.getTime())) return false;
   if (!a.snoozed && a.armedAt && due < a.armedAt.getTime() - ARMED_GRACE_MS) return false;
+  if (day) return !a.lastPingedAt || a.lastPingedAt.getTime() < day.start.getTime();
   return !a.lastPingedAt || a.lastPingedAt.getTime() < due;
 }

@@ -968,6 +968,32 @@ async function main() {
     assert(sent.length === 1 && sent[0].chatId === '1002', sentLines());
   });
 
+  await check('reminder time moved later after the ping: the date-only reminder does not ping again that day', async () => {
+    reset();
+    const r = dateOnly('2026-10-15', { title: 'Mine' });
+    await pass(today('09:00'));
+    assert(sent.length === 1, `first ping: ${sentLines()}`);
+    db.users[0].reminderTime = '18:00';
+    await pass(today('18:00'));
+    assert(sent.length === 1, `pinged again: ${sentLines()}`);
+    assert(!!stateOf(r.id, r.startsAt as Date), 'state');
+  });
+
+  await check('reminder time moved earlier past the catch-up window: the date-only reminder still pings once that day, not again, not on the next day', async () => {
+    reset();
+    db.users[0].reminderTime = '18:00';
+    dateOnly('2026-10-15', { title: 'Mine' });
+    await pass(today('10:30'));
+    assert(sent.length === 0, 'early');
+    db.users[0].reminderTime = '09:00'; // 90 minutes after the new time
+    await pass(today('10:31'));
+    assert(sent.length === 1, `caught up: ${sentLines()}`);
+    await pass(today('10:32'));
+    assert(sent.length === 1, 'pinged twice');
+    await pass(at('2026-10-16 00:05'));
+    assert(sent.length === 1, `pinged the next day: ${sentLines()}`);
+  });
+
   // ---- nextDue and the gate ----
 
   await check('nextDue: the earliest due still ahead, a snooze and a date-only one in the recipient\'s timezone included', async () => {

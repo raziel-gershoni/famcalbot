@@ -17,7 +17,7 @@ import { trackActivityAsync } from '../analytics-service';
 import { expandSeries, VirtualInstance } from '../native-calendar/recurrence';
 import { effectiveOwnerId, getActivePartnerSummary } from './ownership';
 import { getReminderSupport, isNativeRemindersEnabled } from './support';
-import { dueAtForOccurrence, isEligible, MAX_PING_ATTEMPTS, PING_LOOKBACK_MS } from './due';
+import { dueAtForOccurrence, isEligible, pingDayOf, MAX_PING_ATTEMPTS, PING_LOOKBACK_MS } from './due';
 import { Claim, claimOccurrence, releaseClaim, undoClaim } from './claim';
 import { buildPingKeyboard, buildPingText, sendPing, stripPingButtons } from './ping';
 import { getBotMessage } from '../../lib/bot-messages';
@@ -333,6 +333,7 @@ export async function runNativeReminderPass(now: Date = new Date()): Promise<Nat
           now,
           armedAt: armedAtOf(s, c.occ, overrideAt.get(c.occ.instanceStartsAt.getTime())),
           snoozed: c.snoozed,
+          dateOnlyDay: c.occ.allDay ? pingDayOf(c.due, tz) : null,
           lastPingedAt: c.state?.lastPingedAt ?? null,
           doneAt: c.state?.doneAt ?? null,
         })
