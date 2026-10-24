@@ -16,6 +16,7 @@ import { AI_MODEL_ID } from '../../config/ai-models';
 import { formatInTimeZone } from 'date-fns-tz';
 import { getPendingEvent, removePendingEvent, showEventConfirmation } from './confirmations';
 import { buildEventTimes, readRepeat } from './gemini-voice';
+import { isSilent } from './speech-presence';
 import { normalizeReminderTimes } from '../native-calendar/event-store';
 import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
@@ -112,6 +113,19 @@ export async function handleEventCorrection(
     }
 
     const { event, user, transcription } = pending;
+
+    // The same acoustic gate a new voice note passes (gemini-voice): the model invents words for
+    // near-silence, so a quiet clip never reaches it. The pending confirmation stays, so the
+    // user can reply again; the answer is the one a silent new voice note gets.
+    if ('audioBuffer' in correctionInput && isSilent(correctionInput.audioBuffer)) {
+      console.log(`[Correction] No speech detected (near-silent audio) for user ${userId}, pending ${pendingId}; correction not applied`);
+      const t = await getBotMessages(user.language || correctionInput.language || 'en');
+      await messagingService.sendMessage(chatId,
+        t.voice?.noSpeech || "🎤 I didn't hear anything in that voice message. Please try again.",
+        { format: MessageFormat.PLAIN }
+      );
+      return;
+    }
 
     addBreadcrumb('event_correction_started', {
       user_id: userId,
