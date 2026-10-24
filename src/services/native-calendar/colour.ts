@@ -5,7 +5,7 @@
 
 import { encodeCalendarId, listVisibleCalendars } from './event-store';
 import { liveGoogleChoices, type GoogleChoicesOwner } from '../../lib/google-state';
-import { displayColours, googleDrawnColour, pickCalendarColour, type VisibleCalendar } from '../../lib/calendar-colours';
+import { CALENDAR_PALETTE, displayColours, googleDrawnColour, pickCalendarColour, type VisibleCalendar } from '../../lib/calendar-colours';
 import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { captureError } from '../../lib/error-capture';
@@ -78,18 +78,33 @@ export async function calendarsOnScreen(user: ColourOwner, live?: LiveColourMap)
 
 /** The palette colour farthest from everything the user sees (pickCalendarColour). */
 export async function autoCalendarColour(user: ColourOwner): Promise<string> {
-  return pickCalendarColour((await calendarsOnScreen(user)).map((c) => c.color));
+  try {
+    return pickCalendarColour((await calendarsOnScreen(user)).map((c) => c.color));
+  } catch (err) {
+    // Cosmetic: a failed read never stops a calendar being created. It takes the first palette colour.
+    console.error(`${LOG} could not pick a colour for user ${user.id}, using the first palette colour:`, err);
+    captureError(err, 'colour-pick', { user_id: user.id }, 'warning');
+    return CALENDAR_PALETTE[0].hex;
+  }
 }
 
 /**
  * The colour each of the user's FamCal calendars is drawn in, by calendar id (displayColours).
  * Google calendars are not in it: their colour is Google's, live or saved, and never shifted.
- * `live` is the colours the caller's own Google read just got.
+ * `live` is the colours the caller's own Google read just got. Never throws: on a failure it
+ * is an empty map (no nudge).
  */
 export async function displayColourMap(user: ColourOwner, live?: LiveColourMap): Promise<Map<string, string>> {
-  const calendars = await calendarsOnScreen(user, live);
-  const natives = new Set(calendars.filter((c) => c.native).map((c) => c.id));
-  return new Map([...displayColours(calendars)].filter(([id]) => natives.has(id)));
+  try {
+    const calendars = await calendarsOnScreen(user, live);
+    const natives = new Set(calendars.filter((c) => c.native).map((c) => c.id));
+    return new Map([...displayColours(calendars)].filter(([id]) => natives.has(id)));
+  } catch (err) {
+    // Cosmetic: a failed read never fails the response. No map means no nudge: the saved colours are drawn.
+    console.error(`${LOG} could not work out the drawn colours for user ${user.id}, drawing the saved ones:`, err);
+    captureError(err, 'colour-display', { user_id: user.id }, 'warning');
+    return new Map();
+  }
 }
 
 /** A calendar reference with the colour it is drawn in; one with no id (masked) or no entry stays as it is. */

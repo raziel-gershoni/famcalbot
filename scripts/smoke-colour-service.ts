@@ -3,7 +3,7 @@
 // I1: the nudge and the auto-pick judge a Google calendar by the colour the home draws:
 //   the live calendarList colour (the range read's, or the one remembered from its last
 //   read), then the saved choice colour, then Google's default; all through mapGoogleColour.
-// M2 (added with its fix): a failure in the colour step (a DB blip) never fails the caller: the display falls back
+// M2: a failure in the colour step (a DB blip) never fails the caller: the display falls back
 //   to no nudge, the pick to the first palette colour, and each failure is logged and captured.
 //
 // Prisma, Redis and the event store are faked. No network.
@@ -155,6 +155,21 @@ async function main() {
     await colour.rememberLiveColours(7, { rem: '#9fc6e7' });
     const got = await colour.googleColoursOnScreen(u, { live: PEACOCK_CLASSIC });
     assert(JSON.stringify(got.map((c: Row) => c.color)) === JSON.stringify([PEACOCK, '#4285f4', '#0b8043', PEACOCK]), JSON.stringify(got));
+  });
+
+  await check('M2 the display step: a DB blip gives no nudge, no throw, and is logged and captured', async () => {
+    nativesFail = true;
+    const map = await colour.displayColourMap(user([{ calendarId: 'g1', name: 'G' }]));
+    assert(map instanceof Map && map.size === 0, `map ${[...map]}`);
+    assert(captured.some((c) => c.message === 'db blip'), `captured ${JSON.stringify(captured)}`);
+    assert(logged.length > 0, 'nothing logged');
+  });
+
+  await check('M2 the pick: a DB blip gives the first palette colour, and is captured', async () => {
+    nativesFail = true;
+    const pick = await colour.autoCalendarColour(user([]));
+    assert(pick === cols.CALENDAR_PALETTE[0].hex, `pick ${pick}`);
+    assert(captured.some((c) => c.message === 'db blip'), `captured ${JSON.stringify(captured)}`);
   });
 
   await check('I1 a Redis failure while remembering or recalling costs only the live colours: saved ones are used, and it is captured', async () => {
