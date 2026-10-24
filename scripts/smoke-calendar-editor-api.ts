@@ -1680,7 +1680,12 @@ async function main() {
     const created = await post(reminderBody({ repeat: 'daily' }));
     const id = idOf(created.body.key);
     eventRow(id).armedAt = OLD;
-    const past = formatInTimeZone(new Date(Date.now() - 30 * 60_000), IL, "yyyy-MM-dd'T'HH:mm");
+    // A wall time 30 minutes ago. On the night the clocks go back, 01:00-02:00 happens twice
+    // and its later reading is still ahead, so step back an hour until the time is past.
+    const wall = (ms: number) => formatInTimeZone(new Date(ms), IL, "yyyy-MM-dd'T'HH:mm");
+    let pastMs = Date.now() - 30 * 60_000;
+    while (at(wall(pastMs).replace('T', ' ')).getTime() >= Date.now()) pastMs -= 60 * 60_000;
+    const past = wall(pastMs);
     const before = Date.now();
     const m = await patch({ key: `famcal|${id}#${iso(at('2026-10-22 17:30'))}`, scope: 'following', changes: { repeat: 'none', start: past } });
     const one = lastEvent();
