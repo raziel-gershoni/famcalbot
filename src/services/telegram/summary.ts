@@ -309,7 +309,9 @@ export async function sendSummaryToUser(
   // Check feature access for text summaries
   if (await denyOverTextLimit(user, chatId, messagingService, userLanguage, streamHandle)) return false;
 
-  return executeCommand({
+  // False when the model's summary was empty and the user got the "could not generate" reply instead.
+  let delivered = true;
+  const ran = await executeCommand({
     chatId,
     language: userLanguage,
     messagingService,
@@ -335,7 +337,7 @@ export async function sendSummaryToUser(
       });
     },
     onSuccess: async (result) => {
-      await deliverSummary({
+      delivered = await deliverSummary({
         userId: chatId,
         summary: result.summary,
         user,
@@ -352,6 +354,7 @@ export async function sendSummaryToUser(
     },
     onError: error => answerGoogleReadError(error, { chatId, user, userLanguage, messagingService, streamHandle }),
   });
+  return ran && delivered;
 }
 
 /** prepareSummaryForUser's last argument (spec §3.1): the summary day, the read, the outage flag. */
@@ -957,7 +960,7 @@ interface DeliveryOptions {
  * Handles both user-invoked and scheduled summary delivery
  * Respects user text/voice preferences
  */
-async function deliverSummary(options: DeliveryOptions): Promise<void> {
+async function deliverSummary(options: DeliveryOptions): Promise<boolean> {
   const t0 = Date.now();
   const {
     userId,
@@ -991,14 +994,14 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
       await msgService.sendMessage(userId, errorText, { format: MessageFormat.HTML });
     }
     trackActivityAsync(user.id, 'user_error_shown', { error_type: 'empty_summary' });
-    return;
+    return false;
   }
 
   const sendText = user.textSummaryEnabled !== false;
   const sendVoiceEnabled = user.voiceSummaryEnabled !== false;
 
   if (!sendText && !sendVoiceEnabled) {
-    return;
+    return true;
   }
 
   // Check near-limit warning for text summaries
@@ -1042,7 +1045,7 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
     const voiceAccess = await checkFeatureAccess(user.id, 'voice_summary');
     if (!voiceAccess.allowed) {
       console.log(`[Delivery Timing] user=${userId} total=${Date.now() - t0}ms featureCheck=${featureCheckMs}ms textDelivery=${textDeliveryMs}ms voiceDispatch=0ms`);
-      return;
+      return true;
     }
 
     trackActivityAsync(user.id, 'voice_summary_requested', {
@@ -1082,4 +1085,5 @@ async function deliverSummary(options: DeliveryOptions): Promise<void> {
       console.error(`[KidName] Follow-up failed for user ${user.id}:`, err);
     });
   }
+  return true;
 }

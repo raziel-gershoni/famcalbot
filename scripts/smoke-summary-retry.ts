@@ -235,13 +235,18 @@ const telegram = {
   },
   updateMessage: async () => {},
   deleteMessage: async () => {},
+  sendTypingIndicator: async () => undefined,
 };
+
+/** The AI answers with blank text (an empty summary). */
+let blankSummary = false;
 
 /** The AI: records each prompt under the user it names, and answers with that name. */
 async function generateAICompletion(prompt: string): Promise<AICompletionResult> {
   const named = EVERYONE.filter(u => prompt.includes(u.name));
   const name = named.length === 1 ? named[0].name : `?${named.map(u => u.name).join('/')}`;
   prompts.push({ name, prompt });
+  if (blankSummary) return { text: '  ', usage: { inputTokens: 1, outputTokens: 1 }, stopReason: 'end_turn', model: 'fake-model', durationMs: 0 };
   return { text: `Summary for ${name}`, usage: { inputTokens: 1, outputTokens: 1 }, stopReason: 'end_turn', model: 'fake-model', durationMs: 0 };
 }
 
@@ -808,6 +813,25 @@ async function main() {
   await check('nothing above reached the network or sent an admin error notice', () => {
     assert(networkAttempts.length === 0, `network: ${networkAttempts.join(', ')}`);
     assert(!log.some(l => l.startsWith('admin error')), 'an admin error notice was sent');
+  });
+
+  // An on-demand summary the model left empty is the user's "could not generate" reply, not a completed run.
+  await check('sendDailySummaryToUser: true when the summary was delivered, false when the model\'s was empty', async () => {
+    const userService = stubs[`${SRC}/services/user-service.ts`] as { getUserByIdentifier: (id: unknown) => Promise<UserConfig | null> };
+    const original = userService.getUserByIdentifier;
+    userService.getUserByIdentifier = async () => ({ ...NOA, isAdmin: false });
+    try {
+      reset([NOA], [[NOA, ['ok']]]);
+      const delivered = await summary.sendDailySummaryToUser(NOA.telegramId as number);
+      assert(delivered === true, `ok summary returned ${delivered}`);
+      reset([NOA], [[NOA, ['ok']]]);
+      blankSummary = true;
+      const blank = await summary.sendDailySummaryToUser(NOA.telegramId as number);
+      assert(blank === false, `empty summary returned ${blank}: ${JSON.stringify(sent)} ${captured.map(c => c.context).join()}`);
+    } finally {
+      blankSummary = false;
+      userService.getUserByIdentifier = original;
+    }
   });
 
   summary.__setScheduledRetrySleepForTests(null);
