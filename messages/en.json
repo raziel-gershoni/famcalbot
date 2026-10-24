@@ -724,6 +724,12 @@
     "nextweek": "Fetching next week events"
   },
   "bot": {
+    "eventAlertWhen": {
+      "startsTomorrow": "Starting tomorrow at {time}",
+      "startsOn": "Starting {day} at {time}",
+      "pickupTomorrow": "Pickup tomorrow at {time}",
+      "pickupOn": "Pickup {day} at {time}"
+    },
     "googleSync": {
       "calendarName": "FamCal · {name}",
       "descriptionManaged": "FamCal keeps this calendar in step with your FamCal calendar “{name}”. It copies one way: changes made here are replaced by the next change in FamCal, and alerts come from FamCal.",

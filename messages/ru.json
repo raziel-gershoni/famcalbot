@@ -724,6 +724,12 @@
     "nextweek": "Загружаю события следующей недели"
   },
   "bot": {
+    "eventAlertWhen": {
+      "startsTomorrow": "Начало завтра в {time}",
+      "startsOn": "Начало {day} в {time}",
+      "pickupTomorrow": "Забрать завтра в {time}",
+      "pickupOn": "Забрать {day} в {time}"
+    },
     "googleSync": {
       "calendarName": "FamCal · {name}",
       "descriptionManaged": "FamCal обновляет этот календарь по вашему календарю «{name}» в FamCal. Копирование идёт в одну сторону: изменения, сделанные здесь, заменит следующее изменение в FamCal, а напоминания приходят из FamCal.",

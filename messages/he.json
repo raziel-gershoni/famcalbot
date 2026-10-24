@@ -724,6 +724,12 @@
     "nextweek": "מביא את אירועי השבוע הבא"
   },
   "bot": {
+    "eventAlertWhen": {
+      "startsTomorrow": "מתחיל מחר ב-{time}",
+      "startsOn": "מתחיל ב-{time}, {day}",
+      "pickupTomorrow": "איסוף מחר ב-{time}",
+      "pickupOn": "איסוף ב-{time}, {day}"
+    },
     "googleSync": {
       "calendarName": "FamCal · {name}",
       "descriptionManaged": "FamCal מעדכן את היומן הזה לפי היומן „{name}” ב-FamCal. ההעתקה היא בכיוון אחד: שינויים שנעשים כאן יוחלפו בשינוי הבא ב-FamCal, וההתראות מגיעות מ-FamCal.",

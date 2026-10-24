@@ -471,6 +471,8 @@ async function main() {
       await runTicks(handlers, at('2026-10-13 23:00', tz), at('2026-10-14 04:00', tz));
       const lines = sentLines(tz);
       assert(lines.join(' | ') === '23:55 🤖 Auto-Reminder: Night hike | 02:45 🤖🚗 Auto-Pickup Reminder: Noa', `got ${lines.join(' | ') || '(nothing)'}`);
+      assert(sent[0].text.split('\n')[2] === '⏰ Starting tomorrow at 00:10', `evening before: ${JSON.stringify(sent[0].text)}`);
+      assert(sent[1].text.split('\n')[1] === '⏰ Pickup at 03:00', `same-day pickup: ${JSON.stringify(sent[1].text)}`);
     });
   }
 
@@ -484,15 +486,73 @@ async function main() {
     assert(lines.join(' | ') === '20:00 🔔 Reminder: Concert | 00:00 🚗 Pickup Reminder: Noa', `got ${lines.join(' | ') || '(nothing)'}`);
   });
 
-  // A reminder on Telegram reads as "starting now", so a lead past two hours is sent only
-  // on the event's own day, as while the run fetched today.
-  await check('a "1 day before" reminder is not sent, neither a day early nor as a pickup', async () => {
+  // Google's "1 day before" is sent (MAX_LEAD_MINUTES is a day), and a ping for an event on a
+  // later calendar day than the ping says so, so it never reads as starting now.
+  await check('a "1 day before" reminder goes out the day before and says "tomorrow at" the time, for the start and the pickup, once', async () => {
     reset({ id: 9 });
     await fakeRedis.set(REDIS_KEYS.userTimezone(9), IL);
     googleEvents = [{ calendarId: kidsCal, id: 'k9', summary: 'Piano', start: at('2026-10-14 17:00', IL), end: at('2026-10-14 18:00', IL), reminder: 1440 }];
     await syncCache(handlers, at('2026-10-13 08:00', IL));
     await runTicks(handlers, at('2026-10-13 08:00', IL), at('2026-10-14 19:00', IL));
+    assert(sentLines(IL).join(' | ') === '17:00 🔔 Reminder: Piano | 18:00 🚗 Pickup Reminder: Noa', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
+    assert(sent[0].text.split('\n')[2] === '⏰ Starting tomorrow at 17:00', `start: ${JSON.stringify(sent[0].text)}`);
+    assert(sent[1].text.split('\n')[1] === '⏰ Pickup tomorrow at 18:00', `pickup: ${JSON.stringify(sent[1].text)}`);
+  });
+
+  await check('a lead over a day stays skipped; a same-day ping keeps its wording', async () => {
+    reset({ id: 9 });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(9), IL);
+    googleEvents = [
+      { calendarId: kidsCal, id: 'k9a', summary: 'Piano', start: at('2026-10-14 17:00', IL), end: at('2026-10-14 18:00', IL), reminder: 1441 },
+      { calendarId: kidsCal, id: 'k9b', summary: 'Chess', start: at('2026-10-14 12:00', IL), end: at('2026-10-14 13:00', IL), reminder: 2880 },
+    ];
+    await syncCache(handlers, at('2026-10-12 08:00', IL));
+    await runTicks(handlers, at('2026-10-12 08:00', IL), at('2026-10-14 19:00', IL));
     assert(sent.length === 0, `got ${sentLines(IL).join(' | ')}`);
+    reset({ id: 9 });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(9), IL);
+    googleEvents = [{ calendarId: kidsCal, id: 'k9c', summary: 'Chess', start: at('2026-10-14 12:00', IL), end: at('2026-10-14 13:00', IL), reminder: 60 }];
+    await syncCache(handlers, at('2026-10-14 08:00', IL));
+    await runTicks(handlers, at('2026-10-14 08:00', IL), at('2026-10-14 14:00', IL));
+    assert(sent[0].text.split('\n')[2] === '⏰ Starting at 12:00', `same day: ${JSON.stringify(sent[0].text)}`);
+  });
+
+  for (const [language, start, pickup] of [
+    ['he', '⏰ מתחיל מחר ב-17:00', '⏰ איסוף מחר ב-18:00'],
+    ['ru', '⏰ Начало завтра в 17:00', '⏰ Забрать завтра в 18:00'],
+  ]) {
+    await check(`a "1 day before" ping reads naturally in ${language}`, async () => {
+      reset({ id: 9, language });
+      await fakeRedis.set(REDIS_KEYS.userTimezone(9), IL);
+      googleEvents = [{ calendarId: kidsCal, id: 'k9d', summary: 'Piano', start: at('2026-10-14 17:00', IL), end: at('2026-10-14 18:00', IL), reminder: 1440 }];
+      await syncCache(handlers, at('2026-10-13 08:00', IL));
+      await runTicks(handlers, at('2026-10-13 08:00', IL), at('2026-10-14 19:00', IL));
+      assert(sent[0].text.split('\n')[2] === start && sent[1].text.split('\n')[1] === pickup, `got ${JSON.stringify(sent.map(x => x.text))}`);
+    });
+  }
+
+  // Leads stop at a day, so no scheduled ping reaches further; the wording still handles it.
+  for (const [language, want] of [['en', '⏰ Starting Sat 17 Oct at 17:00'], ['he', 'מתחיל ב-17:00, שבת, 17 באוק׳'], ['ru', 'сб, 17 окт.']] as const) {
+    await check(`an event two or more days ahead is named by its weekday and date (${language})`, async () => {
+      const { sendReminder } = await import('../src/services/reminders');
+      reset({ id: 9, language });
+      const eventTime = at('2026-10-17 17:00', IL);
+      clock = at('2026-10-14 16:00', IL).getTime();
+      const user = { id: 9, telegramId: 1009, language, messagingPlatform: 'telegram' } as never;
+      const ok = await sendReminder(user, { event: { eventId: 'far', summary: 'Piano', start: '', end: '', calendarName: 'Dana', calendarId: kidsCal }, type: 'start', reminderTime: at('2026-10-14 17:00', IL), eventTime, isAutoReminder: false, sentKeyDate: '2026-10-14' }, IL);
+      assert(ok && sent.length === 1, 'not sent');
+      assert(sent[0].text.includes(want) && sent[0].text.includes('17:00'), JSON.stringify(sent[0].text));
+    });
+  }
+
+  await check('a 00:10 start with a 1-day lead is sent at 00:10 the day before, once, as "tomorrow at 00:10"', async () => {
+    reset({ id: 9 });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(9), IL);
+    googleEvents = [{ calendarId: kidsCal, id: 'k9e', summary: 'Sunrise run', start: at('2026-10-14 00:10', IL), end: at('2026-10-14 01:00', IL), reminder: 1440 }];
+    await syncCache(handlers, at('2026-10-12 22:00', IL));
+    await runTicks(handlers, at('2026-10-12 23:00', IL), at('2026-10-14 02:00', IL));
+    assert(sentLines(IL).join(' | ') === '00:10 🔔 Reminder: Sunrise run | 01:00 🚗 Pickup Reminder: Noa', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
+    assert(sent[0].text.split('\n')[2] === '⏰ Starting tomorrow at 00:10', JSON.stringify(sent[0].text));
   });
 
   for (const leads of [[1440, 30], [30, 1440]]) {
@@ -508,7 +568,7 @@ async function main() {
   }
 
   for (const [label, tz, location] of [['New York', NY, 'New York'], ['Israel', IL, 'Tel Aviv']]) {
-    await check(`${label}: a lead past two hours is sent on the event's own day, a pickup too, and not the evening before`, async () => {
+    await check(`${label}: a lead past two hours is sent on the event's own day, a pickup too, and the evening before for an event past midnight`, async () => {
       const meCal = 'me@group.calendar.google.com';
       reset({
         id: 16,
@@ -524,13 +584,14 @@ async function main() {
         { calendarId: meCal, id: 'm16a', summary: 'Three hours', start: at('2026-10-14 15:00', tz), end: at('2026-10-14 15:30', tz), reminder: 180 },
         { calendarId: meCal, id: 'm16b', summary: 'Concert', start: at('2026-10-14 20:00', tz), end: at('2026-10-14 22:00', tz), reminder: 900 },
         { calendarId: meCal, id: 'm16c', summary: 'Late show', start: at('2026-10-14 21:00', tz), end: at('2026-10-14 23:00', tz), reminder: 121 },
-        // 22:00 the evening before
+        // 22:00 the evening before (the 14th), for a start on the 15th
         { calendarId: meCal, id: 'm16d', summary: 'Night flight', start: at('2026-10-15 01:00', tz), end: at('2026-10-15 03:00', tz), reminder: 180 },
       ];
       await syncCache(handlers, at('2026-10-13 23:00', tz));
       await runTicks(handlers, at('2026-10-14 00:00', tz), at('2026-10-15 04:00', tz));
       const lines = sentLines(tz).join(' | ');
-      assert(lines === '05:00 🔔 Reminder: Kindergarten | 05:00 🔔 Reminder: Concert | 12:00 🔔 Reminder: Three hours | 13:00 🚗 Pickup Reminder: Noa | 18:55 🔔 Reminder: Late show', `got ${lines || '(nothing)'}`);
+      assert(sent[sent.length - 1].text.split('\n')[2] === '⏰ Starting tomorrow at 01:00', `night flight: ${JSON.stringify(sent[sent.length - 1].text)}`);
+      assert(lines === '05:00 🔔 Reminder: Kindergarten | 05:00 🔔 Reminder: Concert | 12:00 🔔 Reminder: Three hours | 13:00 🚗 Pickup Reminder: Noa | 18:55 🔔 Reminder: Late show | 22:00 🔔 Reminder: Night flight', `got ${lines || '(nothing)'}`);
     });
   }
 

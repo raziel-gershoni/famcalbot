@@ -15,20 +15,21 @@ import { trackActivityAsync } from './analytics-service';
 import { checkFeatureAccess, incrementUsage } from './subscription-service';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { resolveUserTimezone } from '../lib/timezone';
+import { getBotMessages } from '../lib/bot-messages';
 import { captureError } from '../lib/error-capture';
 import { describeDeliveryError, isUnreachableError } from '../lib/delivery-errors';
 import { markUserUnreachable } from '../lib/user-reachability';
 import { isAllDayEvent } from '../utils/event-formatter';
-import { localDate, nextDate, startOfLocalDay } from '../utils/day-events';
+import { localDate, nextDate } from '../utils/day-events';
 import { escapeHtml } from '../utils/html';
 
 
 const REMINDER_TTL_SECONDS = 86400; // 24 hours
-// The longest reminder lead time the bot sends whatever day it falls on, the evening
-// before included (23:55 for a 00:10 start). A longer one is sent only on the event's own
-// day, as it was while the run fetched only today: "3 hours before" is, but Google's
-// "1 day before" would read on Telegram as starting now.
-const MAX_LEAD_MINUTES = 120;
+// The longest reminder lead time the bot sends, the evening before included (23:55 for a
+// 00:10 start): one day, Google's "1 day before". A ping for an event on a later calendar
+// day than the ping says so ("tomorrow at 10:00", formatReminderMessage), so it never reads
+// as starting now. A longer lead is skipped.
+const MAX_LEAD_MINUTES = 1440;
 
 export type ReminderType = 'start' | 'pickup';
 
@@ -50,9 +51,9 @@ export interface DueReminder {
 function getReminderMinutes(event: CalendarEvent, userDefault?: number): { minutes: number; isAuto: boolean } {
   // Check event-specific reminders
   if (event.reminders?.overrides?.length) {
-    // The nearest of the popups (or, without one, the emails): a longer one may fall on
-    // the day before, where it is not sent (isSendable). Taking the first one dropped the
-    // 30-minute popup of an event that also had "1 day before".
+    // The nearest of the popups (or, without one, the emails): an event that also has
+    // "1 day before" is reminded at its 30-minute popup too, not only a day ahead.
+    // Taking the first one dropped the 30-minute popup of such an event.
     const popups = event.reminders.overrides.filter(r => r.method === 'popup');
     const leads = (popups.length ? popups : event.reminders.overrides).map(r => r.minutes);
     return { minutes: Math.min(...leads), isAuto: false };
@@ -64,11 +65,11 @@ function getReminderMinutes(event: CalendarEvent, userDefault?: number): { minut
 
 /**
  * Whether a reminder at `reminderTime` for `eventTime` (a start, or an end for a pickup)
- * is sent: up to MAX_LEAD_MINUTES ahead always, a longer lead only on the event's own day.
+ * is sent: up to MAX_LEAD_MINUTES ahead. A longer lead is skipped: it would fall on a day
+ * the ping's "tomorrow" can't name.
  */
-function isSendable(reminderTime: Date, eventTime: Date, timezone: string): boolean {
-  return eventTime.getTime() - reminderTime.getTime() <= MAX_LEAD_MINUTES * 60 * 1000
-    || localDate(reminderTime, timezone) === localDate(eventTime, timezone);
+function isSendable(reminderTime: Date, eventTime: Date): boolean {
+  return eventTime.getTime() - reminderTime.getTime() <= MAX_LEAD_MINUTES * 60 * 1000;
 }
 
 /**
@@ -150,13 +151,11 @@ export async function getDueReminders(
   const dueReminders: DueReminder[] = [];
 
   // Fetch the events a reminder in this window can belong to: those starting or ending
-  // up to MAX_LEAD_MINUTES after it, or later on its day for a longer lead. Fetching
-  // "today" dropped every reminder whose event lay past the user's midnight (23:55 for a
-  // 00:10 start). Both providers return what overlaps the range; it opens a minute early
-  // because an event ending exactly at its opening is left out, and a pickup at 0 minutes
-  // falls on that end.
+  // up to MAX_LEAD_MINUTES after it. Fetching "today" dropped every reminder whose event
+  // lay past the user's midnight (23:55 for a 00:10 start). Both providers return what
+  // overlaps the range; it opens a minute early because an event ending exactly at its
+  // opening is left out, and a pickup at 0 minutes falls on that end.
   const tz = timezone ?? (await resolveUserTimezone(user));
-  const endOfWindowDay = startOfLocalDay(nextDate(localDate(new Date(windowEnd.getTime() - 1), tz)), tz);
   // Split by calendar id (spec §4 Providers): a failed half is logged and reported by the
   // fetch itself, and the other half's alerts still go out (a Google outage keeps FamCal's).
   let events: CalendarEvent[];
@@ -165,7 +164,7 @@ export async function getDueReminders(
       user,
       calendarIds,
       new Date(now.getTime() - 60 * 1000),
-      new Date(Math.max(windowEnd.getTime() + MAX_LEAD_MINUTES * 60 * 1000, endOfWindowDay.getTime()))
+      new Date(windowEnd.getTime() + MAX_LEAD_MINUTES * 60 * 1000)
     );
     events = fetched.events;
     if (fetched.failed.length > 0) console.warn(`[Reminders] user ${user.id}: no alerts this run from ${fetched.failed.join(', ')} (the fetch failed)`);
@@ -197,7 +196,7 @@ export async function getDueReminders(
 
     // Check START reminder
     const startReminderTime = new Date(startTime.getTime() - reminderMinutes * 60 * 1000);
-    if (startReminderTime >= now && startReminderTime < windowEnd && isSendable(startReminderTime, startTime, tz)) {
+    if (startReminderTime >= now && startReminderTime < windowEnd && isSendable(startReminderTime, startTime)) {
       // Check if already sent. The key's date is the reminder's own, not the server's
       // today: a run whose window overlaps the last one must find its mark even when the
       // server's date turned in between (20:00 in New York on a UTC server).
@@ -221,7 +220,7 @@ export async function getDueReminders(
       const pickupReminderTime = new Date(endTime.getTime() - reminderMinutes * 60 * 1000);
       const pickupReminderTimeStr = pickupReminderTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
       console.log(`[Reminders] Pickup check: ${event.summary}, pickupAt: ${endTimeStr}, reminderTime: ${pickupReminderTimeStr}, inWindow: ${pickupReminderTime >= now && pickupReminderTime < windowEnd}`);
-      if (pickupReminderTime >= now && pickupReminderTime < windowEnd && isSendable(pickupReminderTime, endTime, tz)) {
+      if (pickupReminderTime >= now && pickupReminderTime < windowEnd && isSendable(pickupReminderTime, endTime)) {
         // Check if already sent
         const sentKeyDate = localDate(pickupReminderTime, tz);
         const alreadySent = await isReminderSent(user.id, event.eventId, 'pickup', sentKeyDate);
@@ -244,20 +243,54 @@ export async function getDueReminders(
 }
 
 /**
+ * When the ping says the event is, as the clause after the clock: "Starting at 10:00" on the
+ * ping's own day (the wording these alerts always had); "Starting tomorrow at 10:00" when the
+ * event is on the next calendar day, and the weekday and date when it is further. `pingAt` is
+ * when the ping goes out, the days are the user's.
+ */
+async function eventWhen(
+  type: ReminderType,
+  eventTime: Date,
+  pingAt: Date,
+  timeStr: string,
+  language: string,
+  timezone: string
+): Promise<string> {
+  const pingDay = localDate(pingAt, timezone);
+  const eventDay = localDate(eventTime, timezone);
+  const sameDay: Record<string, Record<ReminderType, string>> = {
+    en: { start: `Starting at ${timeStr}`, pickup: `Pickup at ${timeStr}` },
+    he: { start: `מתחיל ב-${timeStr}`, pickup: `איסוף ב-${timeStr}` },
+    ru: { start: `Начало в ${timeStr}`, pickup: `Забрать в ${timeStr}` },
+  };
+  const lang = sameDay[language] ? language : 'en';
+  if (eventDay <= pingDay) return sameDay[lang][type];
+
+  const t = (await getBotMessages(lang)).eventAlertWhen as Record<string, string>;
+  if (eventDay === nextDate(pingDay)) return t[type === 'start' ? 'startsTomorrow' : 'pickupTomorrow'].replace('{time}', timeStr);
+  const locale = lang === 'he' ? 'he-IL' : lang === 'ru' ? 'ru-RU' : 'en-GB';
+  const day = eventTime.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short', timeZone: timezone });
+  return t[type === 'start' ? 'startsOn' : 'pickupOn'].replace('{day}', day).replace('{time}', timeStr);
+}
+
+/**
  * Format reminder message based on type, language, and source (event vs auto)
  */
-function formatReminderMessage(
+async function formatReminderMessage(
   reminder: DueReminder,
   language: string = 'en',
-  timezone?: string
-): string {
+  timezone?: string,
+  pingAt: Date = new Date()
+): Promise<string> {
   const { event, type, eventTime, isAutoReminder } = reminder;
+  const tz = timezone || 'UTC';
   const timeStr = eventTime.toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-    timeZone: timezone || 'UTC',
+    timeZone: tz,
   });
+  const when = await eventWhen(type, eventTime, pingAt, timeStr, language, tz);
   // Titles and names are the user's own text inside HTML: a "<" or "&" in one made
   // Telegram refuse the whole message, and the alert was lost.
   const title = escapeHtml(event.summary);
@@ -271,32 +304,32 @@ function formatReminderMessage(
   const messages: Record<string, Record<ReminderType, { event: string; auto: string }>> = {
     en: {
       start: {
-        event: `🔔 <b>Reminder: ${title}</b>\n📅 ${calendarName}\n⏰ Starting at ${timeStr}${location}`,
-        auto: `🤖 <b>Auto-Reminder: ${title}</b>\n📅 ${calendarName}\n⏰ Starting at ${timeStr}${location}`,
+        event: `🔔 <b>Reminder: ${title}</b>\n📅 ${calendarName}\n⏰ ${when}${location}`,
+        auto: `🤖 <b>Auto-Reminder: ${title}</b>\n📅 ${calendarName}\n⏰ ${when}${location}`,
       },
       pickup: {
-        event: `🚗 <b>Pickup Reminder: ${childName}</b>\n⏰ Pickup at ${timeStr}${location}`,
-        auto: `🤖🚗 <b>Auto-Pickup Reminder: ${childName}</b>\n⏰ Pickup at ${timeStr}${location}`,
+        event: `🚗 <b>Pickup Reminder: ${childName}</b>\n⏰ ${when}${location}`,
+        auto: `🤖🚗 <b>Auto-Pickup Reminder: ${childName}</b>\n⏰ ${when}${location}`,
       },
     },
     he: {
       start: {
-        event: `🔔 <b>תזכורת: ${title}</b>\n📅 ${calendarName}\n⏰ מתחיל ב-${timeStr}${location}`,
-        auto: `🤖 <b>תזכורת אוטומטית: ${title}</b>\n📅 ${calendarName}\n⏰ מתחיל ב-${timeStr}${location}`,
+        event: `🔔 <b>תזכורת: ${title}</b>\n📅 ${calendarName}\n⏰ ${when}${location}`,
+        auto: `🤖 <b>תזכורת אוטומטית: ${title}</b>\n📅 ${calendarName}\n⏰ ${when}${location}`,
       },
       pickup: {
-        event: `🚗 <b>תזכורת איסוף: ${childName}</b>\n⏰ איסוף ב-${timeStr}${location}`,
-        auto: `🤖🚗 <b>תזכורת איסוף אוטומטית: ${childName}</b>\n⏰ איסוף ב-${timeStr}${location}`,
+        event: `🚗 <b>תזכורת איסוף: ${childName}</b>\n⏰ ${when}${location}`,
+        auto: `🤖🚗 <b>תזכורת איסוף אוטומטית: ${childName}</b>\n⏰ ${when}${location}`,
       },
     },
     ru: {
       start: {
-        event: `🔔 <b>Напоминание: ${title}</b>\n📅 ${calendarName}\n⏰ Начало в ${timeStr}${location}`,
-        auto: `🤖 <b>Авто-напоминание: ${title}</b>\n📅 ${calendarName}\n⏰ Начало в ${timeStr}${location}`,
+        event: `🔔 <b>Напоминание: ${title}</b>\n📅 ${calendarName}\n⏰ ${when}${location}`,
+        auto: `🤖 <b>Авто-напоминание: ${title}</b>\n📅 ${calendarName}\n⏰ ${when}${location}`,
       },
       pickup: {
-        event: `🚗 <b>Напоминание о заборе: ${childName}</b>\n⏰ Забрать в ${timeStr}${location}`,
-        auto: `🤖🚗 <b>Авто-напоминание о заборе: ${childName}</b>\n⏰ Забрать в ${timeStr}${location}`,
+        event: `🚗 <b>Напоминание о заборе: ${childName}</b>\n⏰ ${when}${location}`,
+        auto: `🤖🚗 <b>Авто-напоминание о заборе: ${childName}</b>\n⏰ ${when}${location}`,
       },
     },
   };
@@ -314,7 +347,7 @@ export async function sendReminder(
   timezone?: string
 ): Promise<boolean> {
   const platform = user.messagingPlatform || 'telegram';
-  const message = formatReminderMessage(reminder, user.language, timezone);
+  const message = await formatReminderMessage(reminder, user.language, timezone);
   let sent = false;
 
   try {
