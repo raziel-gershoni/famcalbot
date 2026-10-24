@@ -17,8 +17,7 @@ import { REDIS_KEYS } from '../config/redis-keys';
 import { resolveUserTimezone } from '../lib/timezone';
 import { getBotMessages } from '../lib/bot-messages';
 import { captureError } from '../lib/error-capture';
-import { describeDeliveryError, isUnreachableError } from '../lib/delivery-errors';
-import { markUserUnreachable } from '../lib/user-reachability';
+import { markUnreachableAfterSendFailure } from '../lib/user-reachability';
 import { isAllDayEvent } from '../utils/event-formatter';
 import { localDate, nextDate } from '../utils/day-events';
 import { escapeHtml } from '../utils/html';
@@ -391,10 +390,7 @@ export async function sendReminder(
   } catch (error) {
     // A 403 means the chat will never take our messages again. Record it, so the hourly
     // sync leaves the user out, instead of failing here every five minutes.
-    if (isUnreachableError(error)) {
-      await markUserUnreachable(user.id, describeDeliveryError(error));
-      return false;
-    }
+    if (await markUnreachableAfterSendFailure(user, error)) return false;
     console.error(`[Reminders] Error sending reminder to user ${user.id}:`, error);
     captureError(error, 'reminders-send', { user_id: user.id });
     return false;

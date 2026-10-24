@@ -152,12 +152,9 @@ export async function sendVoiceMessage(
     // not a voice-generation fault and there is nothing an admin can act on, so record
     // it and stay quiet - otherwise every scheduled run pages about the same user
     // forever. Checked before the apology below, which would simply be a third 403.
-    const { isUnreachableError, describeDeliveryError } = await import('../../lib/delivery-errors');
-    if (isUnreachableError(error)) {
-      const { markUserUnreachable } = await import('../../lib/user-reachability');
-      await markUserUnreachable(user.id, describeDeliveryError(error));
-      return;
-    }
+    const { describeDeliveryError } = await import('../../lib/delivery-errors');
+    const { markUnreachableAfterSendFailure } = await import('../../lib/user-reachability');
+    if (await markUnreachableAfterSendFailure(user, error)) return;
 
     try {
       const { getBotMessages } = await import('../../lib/bot-messages');
@@ -250,13 +247,9 @@ export async function sendWeeklyVoiceMessage(
     if (stopTyping) stopTyping();
 
     // Same terminal-403 handling as sendVoiceMessage above.
-    const { isUnreachableError: isUnreachableWeekly, describeDeliveryError: describeWeekly } =
-      await import('../../lib/delivery-errors');
-    if (isUnreachableWeekly(error)) {
-      const { markUserUnreachable } = await import('../../lib/user-reachability');
-      await markUserUnreachable(user.id, describeWeekly(error));
-      return;
-    }
+    const { describeDeliveryError: describeWeekly } = await import('../../lib/delivery-errors');
+    const { markUnreachableAfterSendFailure } = await import('../../lib/user-reachability');
+    if (await markUnreachableAfterSendFailure(user, error)) return;
 
     try {
       const { getBotMessages } = await import('../../lib/bot-messages');

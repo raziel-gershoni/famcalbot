@@ -50,7 +50,7 @@ async function main() {
   console.warn = () => {};
   console.log = () => {};
   const { isUnreachableError, classifyDeliveryFailure } = await import('../src/lib/delivery-errors');
-  const { markUnreachableAfterWhatsAppFailure } = await import('../src/lib/user-reachability');
+  const { markUnreachableAfterWhatsAppFailure, markUnreachableAfterSendFailure } = await import('../src/lib/user-reachability');
 
   await check('Telegram: a blocked bot is unreachable, a bare 403 is not', () => {
     const blocked = Object.assign(new Error('ETELEGRAM: 403 Forbidden: bot was blocked by the user'), { response: { body: { error_code: 403, description: 'Forbidden: bot was blocked by the user' } } });
@@ -86,13 +86,38 @@ async function main() {
     assert(updates.length === 0, 'an update ran');
   });
 
+  await check('markUnreachableAfterSendFailure: a Telegram 403 flags the user (Telegram id or not); a WhatsApp 131026 flags only a WhatsApp-only user, a bigint Telegram id counts', async () => {
+    const blocked = Object.assign(new Error('ETELEGRAM: 403 Forbidden: bot was blocked by the user'), { response: { body: { error_code: 403, description: 'Forbidden: bot was blocked by the user' } } });
+    updates.length = 0;
+    assert(await markUnreachableAfterSendFailure({ id: 7, telegramId: 99 }, blocked) === true && updates.length === 1, 'telegram 403 not flagged');
+    updates.length = 0;
+    assert(await markUnreachableAfterSendFailure({ id: 7, telegramId: 99 }, apiError(131026)) === false && updates.length === 0, "'all' user flagged for 131026");
+    assert(await markUnreachableAfterSendFailure({ id: 7, telegramId: BigInt(99) }, apiError(131026)) === false && (updates.length as number) === 0, 'bigint id user flagged');
+    assert(await markUnreachableAfterSendFailure({ id: 7, telegramId: null }, apiError(131026)) === true && (updates.length as number) === 1, 'WhatsApp-only not flagged');
+    updates.length = 0;
+    assert(await markUnreachableAfterSendFailure({ id: 7, telegramId: null }, apiError(131047)) === false && updates.length === 0, '131047 flagged');
+  });
+
+  await check('no send path flags a user by calling markUserUnreachable itself', () => {
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) walk(full);
+        else if (/\.tsx?$/.test(e.name) && full !== path.join(SRC, 'lib/user-reachability.ts') && /markUserUnreachable/.test(fs.readFileSync(full, 'utf8'))) offenders.push(path.relative(SRC, full));
+      }
+    };
+    walk(SRC);
+    assert(offenders.length === 0, `direct markUserUnreachable in ${offenders.join(', ')}`);
+  });
+
   await check('the WhatsApp webhook clears the flag when the user writes (text path and voice path), and the summary path flags', () => {
     const webhook = fs.readFileSync(path.join(SRC, 'services/webhook-handlers.ts'), 'utf8');
     const wa = webhook.slice(webhook.indexOf('export async function handleWhatsAppWebhook'));
     assert((wa.match(/clearUserUnreachable\(user\.id\)/g) ?? []).length >= 2, 'handleWhatsAppWebhook does not clear on both the text and the voice path');
     assert(wa.includes('markUnreachableAfterWhatsAppFailure'), 'the failed-status callback does not flag');
     const summary = fs.readFileSync(path.join(SRC, 'services/telegram/summary.ts'), 'utf8');
-    assert(summary.includes('markUnreachableAfterWhatsAppFailure(user, e)'), 'the WhatsApp summary delivery does not flag');
+    assert(summary.includes('markUnreachableAfterSendFailure(user, e)'), 'the WhatsApp summary delivery does not flag');
   });
 
   console.log = log; console.warn = warn;

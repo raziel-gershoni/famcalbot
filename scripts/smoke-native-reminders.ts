@@ -300,7 +300,15 @@ const stubs: Record<string, object> = {
   [`${SRC}/lib/user-moderation.ts`]: {
     isIdentifierBlocked: async ({ telegramId }: { telegramId?: bigint | null }) => blockedTelegramIds.has(String(telegramId)),
   },
-  [`${SRC}/lib/user-reachability.ts`]: { markUserUnreachable: async (userId: number) => { unreachable.push(userId); } },
+  [`${SRC}/lib/user-reachability.ts`]: {
+    // The real helper's rule: a Telegram 403 flags the user.
+    markUnreachableAfterSendFailure: async (user: { id: number }, error: unknown) => {
+      const flagged = !!error && (error as { response?: { statusCode?: number; body?: { description?: string } } }).response?.statusCode === 403
+        && /blocked/.test((error as { response: { body: { description: string } } }).response.body.description);
+      if (flagged) unreachable.push(user.id);
+      return flagged;
+    },
+  },
   [`${SRC}/services/telegram/index.ts`]: { getBot: () => fakeBot },
   [`${SRC}/services/analytics-service.ts`]: {
     trackActivityAsync: (userId: number, action: string, meta: Row = {}) => tracked.push({ userId, action, meta }),

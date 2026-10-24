@@ -9,8 +9,8 @@
 import type { NativeEvent, NativeEventInstance, NativeReminderState, Prisma } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
 import { captureError } from '../../lib/error-capture';
-import { describeDeliveryError, isUnreachableError } from '../../lib/delivery-errors';
-import { markUserUnreachable } from '../../lib/user-reachability';
+import { describeDeliveryError } from '../../lib/delivery-errors';
+import { markUnreachableAfterSendFailure } from '../../lib/user-reachability';
 import { isIdentifierBlocked } from '../../lib/user-moderation';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { trackActivityAsync } from '../analytics-service';
@@ -244,10 +244,7 @@ async function pingOccurrence(
  * the claim: a retry would be refused the same way.
  */
 async function handleSendFailure(error: unknown, claim: Claim, recipient: PassUser): Promise<SendOutcome> {
-  if (isUnreachableError(error)) {
-    await markUserUnreachable(recipient.id, describeDeliveryError(error));
-    return 'failed';
-  }
+  if (await markUnreachableAfterSendFailure(recipient, error)) return 'failed';
   if (isPassingFailure(error) && claim.pingAttempts < MAX_PING_ATTEMPTS) {
     console.warn(`[NativeReminders] Ping to user ${recipient.id} failed (attempt ${claim.pingAttempts}), retrying: ${describeDeliveryError(error)}`);
     await releaseClaim(claim);

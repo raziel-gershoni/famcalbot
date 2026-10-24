@@ -16,8 +16,7 @@ import { getBotMessage } from '../../lib/bot-messages';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { captureError } from '../../lib/error-capture';
 import { readStoredToken } from '../../utils/encryption';
-import { describeDeliveryError, isUnreachableError } from '../../lib/delivery-errors';
-import { markUserUnreachable } from '../../lib/user-reachability';
+import { markUnreachableAfterSendFailure } from '../../lib/user-reachability';
 import { trackActivityAsync } from '../analytics-service';
 import { escapeHtml } from '../../utils/html';
 import { expandSeries } from '../native-calendar/recurrence';
@@ -180,8 +179,7 @@ async function notifyCreator(creator: Series['creator'], doer: UserConfig, title
     });
     await getBot().sendMessage(Number(creator.telegramId), text, { parse_mode: 'HTML', disable_notification: true });
   } catch (error) {
-    if (isUnreachableError(error)) await markUserUnreachable(creator.id, describeDeliveryError(error));
-    else captureError(error, 'native-reminder-done-notice', { user_id: creator.id }, 'warning');
+    if (!(await markUnreachableAfterSendFailure(creator, error))) captureError(error, 'native-reminder-done-notice', { user_id: creator.id }, 'warning');
   }
 }
 

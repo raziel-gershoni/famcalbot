@@ -907,11 +907,8 @@ export async function routeTextMessage(
       // voice one does. Marking here is what actually stops the retries; the voice
       // path only ever saw it because this catch swallowed the error and let
       // execution continue as if delivery had succeeded.
-      const { isUnreachableError, describeDeliveryError } = await import('../../lib/delivery-errors');
-      if (isUnreachableError(e)) {
-        const { markUserUnreachable } = await import('../../lib/user-reachability');
-        await markUserUnreachable(user.id, describeDeliveryError(e));
-      }
+      const { markUnreachableAfterSendFailure } = await import('../../lib/user-reachability');
+      await markUnreachableAfterSendFailure(user, e);
     }
   }
 
@@ -941,8 +938,8 @@ export async function routeTextMessage(
       captureError(e, 'whatsapp-delivery', { user_id: userId, service: 'sendMessage' });
 
       // Meta says this recipient can never receive: stop the retries, as for a blocked Telegram chat.
-      const { markUnreachableAfterWhatsAppFailure } = await import('../../lib/user-reachability');
-      await markUnreachableAfterWhatsAppFailure(user, e);
+      const { markUnreachableAfterSendFailure } = await import('../../lib/user-reachability');
+      await markUnreachableAfterSendFailure(user, e);
     }
   }
 }

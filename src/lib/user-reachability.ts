@@ -13,7 +13,7 @@
 import { prisma } from '../utils/prisma';
 import { trackActivityAsync } from '../services/analytics-service';
 import { captureError } from './error-capture';
-import { describeDeliveryError, isUnreachableError } from './delivery-errors';
+import { describeDeliveryError, isUnreachableError, whatsappErrorCode } from './delivery-errors';
 
 /**
  * Record that we can no longer deliver to this user.
@@ -57,6 +57,23 @@ export async function markUnreachableAfterWhatsAppFailure(
     return false;
   }
   await markUserUnreachable(user.id, reason);
+  return true;
+}
+
+/**
+ * The one place a failed send flags a user. A Telegram 403 flags the user; a WhatsApp error
+ * (131026) flags only a WhatsApp-only user. No send path calls markUserUnreachable itself.
+ * Returns true when the user was flagged (or already was).
+ */
+export async function markUnreachableAfterSendFailure(
+  user: { id: number; telegramId: number | bigint | null },
+  error: unknown
+): Promise<boolean> {
+  if (!isUnreachableError(error)) return false;
+  if (whatsappErrorCode(error) !== null) {
+    return markUnreachableAfterWhatsAppFailure({ id: user.id, telegramId: user.telegramId === null ? null : Number(user.telegramId) }, error);
+  }
+  await markUserUnreachable(user.id, describeDeliveryError(error));
   return true;
 }
 
