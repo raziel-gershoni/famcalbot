@@ -518,7 +518,7 @@ export async function showEventConfirmation(
   // A reminder's notice is worked out again on every showing: a quick fix or a reply may
   // have given it a time since it was resolved.
   const reminder = event.kind === 'reminder';
-  const shown = reminder ? refreshReminderNotice(event, timezone, new Date(), user.reminderTime) : event;
+  const shown = reminder ? await refreshReminderNotice(event, timezone, new Date(), user.reminderTime) : event;
 
   // Store in Redis with TTL (survives serverless cold starts).
   // PR 12: inputModality threads through so callbacks know whether to voice

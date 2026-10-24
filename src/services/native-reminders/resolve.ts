@@ -10,6 +10,7 @@ import { getCalendarAssignmentsForUser } from '../calendar-provider';
 import type { CreateEventInput } from '../calendar-provider/types';
 import type { ParsedEvent, VoiceIntentResult } from '../event-parser';
 import { encodeCalendarId, getMainNativeCalendar, normalizeReminderTimes } from '../native-calendar/event-store';
+import { prisma } from '../../utils/prisma';
 import { findMatchingEvent } from '../voice/event-resolution';
 import type { ReminderPromptContext } from '../voice/gemini-voice';
 import type { CalendarEvent, UserConfig } from '../../types';
@@ -66,7 +67,7 @@ async function resolveWithPartner(
   const calendar = await getMainNativeCalendar(user.id);
   const target = targetFor(event, partner);
   const times = normalizeReminderTimes(startTime, allDay, timezone);
-  const notice = target.notice ?? timeNotice(times.startsAt, allDay, event.recurrence, timezone, now, user.reminderTime);
+  const notice = target.notice ?? timeNotice(times.startsAt, allDay, event.recurrence, timezone, now, target.forUserId !== null ? partner?.reminderTime : user.reminderTime);
   return {
     ok: true,
     calendarId: encodeCalendarId(calendar.id),
@@ -113,7 +114,11 @@ function timeNotice(
  * reminder a time, or move it to another day, so the card works the notice out again
  * each time it is shown. A partner who can't be pinged stays noted, ahead of the time.
  */
-export function refreshReminderNotice(event: ParsedEvent, timezone: string, now: Date = new Date(), reminderTime?: string | null): ParsedEvent {
+export async function refreshReminderNotice(event: ParsedEvent, timezone: string, now: Date = new Date(), creatorReminderTime?: string | null): Promise<ParsedEvent> {
+  // The pinged person's time: a reminder for the partner pings at the partner's.
+  const reminderTime = event.forUserId != null
+    ? (await prisma.user.findUnique({ where: { id: event.forUserId }, select: { reminderTime: true } }))?.reminderTime
+    : creatorReminderTime;
   const notice = event.reminderNotice === 'partner_not_on_telegram'
     ? event.reminderNotice
     : timeNotice(event.startTime, event.allDay, event.recurrence, timezone, now, reminderTime);

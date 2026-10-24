@@ -21,6 +21,8 @@ export interface PartnerSummary {
   gender: string;
   telegramId: bigint | null;
   language: string;
+  /** HH:mm or null (09:00): when their date-only reminders ping. */
+  reminderTime?: string | null;
 }
 
 /** Whoever is reading reminders, and their ACTIVE partner (null when unpaired). */
@@ -44,7 +46,7 @@ export async function getActivePartnerSummary(userId: number, pairingId: string 
   if (partnerId == null) return null;
   return prisma.user.findUnique({
     where: { id: partnerId },
-    select: { id: true, name: true, englishName: true, gender: true, telegramId: true, language: true },
+    select: { id: true, name: true, englishName: true, gender: true, telegramId: true, language: true, reminderTime: true },
   });
 }
 

@@ -241,7 +241,7 @@ const fakeOver = (real: Record<string, unknown>, fakes: Record<string, unknown>)
 const stubs: Record<string, object | ((real: Record<string, unknown>) => object)> = {
   '@googleapis/calendar': { calendar: () => ({}), auth: { OAuth2: class {} } },
   [`${SRC}/utils/redis.ts`]: { redis: fakeRedis },
-  [`${SRC}/utils/prisma.ts`]: { prisma: {}, withRetry: (fn: () => unknown) => fn() },
+  [`${SRC}/utils/prisma.ts`]: { prisma: { user: { findUnique: async ({ where }: { where: { id: number } }) => ({ reminderTime: partner && partner.id === where.id ? partner.reminderTime ?? null : null }) } }, withRetry: (fn: () => unknown) => fn() },
   [`${SRC}/lib/error-capture.ts`]: { captureError: () => {}, captureWarning: () => {}, captureInfo: () => {} },
   [`${SRC}/lib/timezone.ts`]: { resolveUserTimezone: async (u: { id: number }) => TIMEZONES[u.id] ?? IL },
   [`${SRC}/services/ai-provider.ts`]: { generateAICompletion: fakeMatcher, getGemini: () => fakeGemini, extractionConfig: () => ({}) },
@@ -463,6 +463,20 @@ async function main() {
     assert(after.allDay && sameInstant(after.startTime, at('2026-10-14 00:00')) && sameInstant(after.endTime, after.startTime), `times ${after.startTime.toISOString()} ${after.endTime.toISOString()}`);
     const tomorrow = await resolveReminderForCreate(dana, parsedReminder(dateOnly('2026-10-15')), IL, at('2026-10-14 09:30'));
     assert(tomorrow.ok && tomorrow.notice === undefined, `tomorrow: ${JSON.stringify(tomorrow)}`);
+  });
+
+  await check("resolve: the no-time note for a partner's reminder uses the partner's reminder time, not the creator's", async () => {
+    const forPartner = parsedReminder({ ...dateOnly('2026-10-14'), forPerson: 'partner' });
+    // Noon: the creator's 09:00 has passed, the partner's 18:00 has not.
+    partner = { ...raziel, reminderTime: '18:00' };
+    const later = await resolveReminderForCreate(dana, forPartner, IL, at('2026-10-14 12:00'));
+    assert(later.ok && later.forUserId === 2 && later.notice === undefined, `partner 18:00: ${JSON.stringify(later)}`);
+    // The other way round: the creator's 18:00 has not passed, the partner's 09:00 has.
+    partner = { ...raziel, reminderTime: null };
+    const earlier = await resolveReminderForCreate({ ...dana, reminderTime: '18:00' }, forPartner, IL, at('2026-10-14 12:00'));
+    assert(earlier.ok && earlier.notice === 'no_time_set', `partner 09:00: ${JSON.stringify(earlier)}`);
+    const own = await resolveReminderForCreate({ ...dana, reminderTime: '18:00' }, parsedReminder(dateOnly('2026-10-14')), IL, at('2026-10-14 12:00'));
+    assert(own.ok && own.notice === undefined, `own 18:00: ${JSON.stringify(own)}`);
   });
 
   await check('resolve: "after 09:00" is the creator\'s own 09:00 (New York), not Israel\'s', async () => {
