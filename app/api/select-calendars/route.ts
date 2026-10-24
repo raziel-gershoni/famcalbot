@@ -6,7 +6,7 @@ import { prisma } from '@/src/utils/prisma';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { captureError } from '@/src/lib/error-capture';
-import { updateUserInCache } from '@/src/services/reminder-cache';
+import { syncReminderCacheEntry } from '@/src/services/reminder-cache';
 import { calendarTotal, checkCalendarLimit, countCalendars } from '@/src/services/subscription-service';
 import { addsPrimary, clearOtherPrimaries, dropFreshFamcalPrimary } from '@/src/services/calendar-provider/primary';
 import { liveGoogleChoices } from '@/src/lib/google-state';
@@ -148,22 +148,9 @@ export async function POST(request: NextRequest) {
       await dropFreshFamcalPrimary(currentUser);
     }
 
-    // Update reminder cache if user has reminders enabled (no extra DB query)
-    if (currentUser.remindersEnabled && currentUser.googleRefreshToken) {
-      await updateUserInCache({
-        id: updatedUser.id,
-        telegramId: updatedUser.telegramId?.toString() ?? '',
-        googleRefreshToken: currentUser.googleRefreshToken, // Use existing decrypted token
-        calendarAssignments: syncedAssignments,
-        calendarSource: currentUser.calendarSource,
-        pairingId: currentUser.pairingId,
-        defaultReminderMinutes: currentUser.defaultReminderMinutes ?? null,
-        language: currentUser.language,
-        name: currentUser.name,
-        pickupRemindersEnabled: currentUser.pickupRemindersEnabled ?? true,
-        location: currentUser.location,
-      });
-    }
+    // Reminder cache (no extra DB query): the hourly sync's rule, with the choices just saved.
+    // (A user with no stored token has nothing to cache from a calendar save.)
+    if (currentUser.googleRefreshToken) await syncReminderCacheEntry(currentUser, { calendarAssignments: syncedAssignments });
 
     return NextResponse.json({
       success: true,

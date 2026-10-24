@@ -343,6 +343,9 @@ const stubs: Record<string, object> = {
     updateUserInCache: async () => {
       events.push('reminderCache.update');
     },
+    syncReminderCacheEntry: async () => {
+      events.push('reminderCache.update');
+    },
   },
   [`${SRC}/services/messaging/index.ts`]: { getWhatsAppService: () => ({}), MessageFormat: { TEXT: 'text', HTML: 'html' } },
   [`${SRC}/utils/error-notifier.ts`]: {

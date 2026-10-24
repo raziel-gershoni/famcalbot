@@ -27,7 +27,7 @@ import { DEFAULT_BOT_USERNAME } from '../lib/gate-links';
 import { escapeHtml } from '../utils/html';
 import { normalizeLocale, type Locale } from '../utils/locale';
 import { getUserById, getUserByTelegramId, updateUserById } from './user-service';
-import { updateUserInCache } from './reminder-cache';
+import { syncReminderCacheEntry } from './reminder-cache';
 import { clearGoogleTracks } from './setup-tracks';
 import { stampGoogleCache } from './calendar-read/google';
 import { getWhatsAppService, MessageFormat } from './messaging';
@@ -251,22 +251,8 @@ export async function commitGoogleToken(ownerUserId: number, refreshToken: strin
   // A fresh connect starts the Google setup nudges over (choose calendars, reconnect).
   await clearGoogleTracks(user.id);
   trackActivityAsync(user.id, 'calendar_connected', { provider: 'google' });
-  // Update reminder cache if user has reminders enabled
-  if (user.remindersEnabled) {
-    await updateUserInCache({
-      id: user.id,
-      telegramId: user.telegramId?.toString() ?? '',
-      googleRefreshToken: refreshToken, // Fresh token (not encrypted)
-      calendarAssignments: stale ? null : user.calendarAssignments,
-      calendarSource: user.calendarSource, // Legacy: liveGoogleChoices' marker
-      pairingId: user.pairingId,
-      defaultReminderMinutes: user.defaultReminderMinutes ?? null,
-      language: user.language,
-      name: user.name,
-      pickupRemindersEnabled: user.pickupRemindersEnabled ?? true,
-      location: user.location,
-    });
-  }
+  // Reminder cache: the hourly sync's rule (syncReminderCacheEntry), with the fresh token (not encrypted).
+  await syncReminderCacheEntry(user, { googleRefreshToken: refreshToken, calendarAssignments: stale ? null : user.calendarAssignments });
 
   // The calendar home's cached Google reads may be of the account this token replaced.
   // The stamp never throws.

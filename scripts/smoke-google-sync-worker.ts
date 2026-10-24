@@ -584,6 +584,7 @@ function fakeGoogle(token: string): Row {
     api,
     account: async () => {
       google.calls.push(`account ${token}`);
+      google.during?.('account', {});
       await new Promise((r) => setImmediate(r));
       const f = google.failures.find((x) => x.op === 'account' && x.left > 0 && (!x.when || x.when({})));
       if (f) {
@@ -1885,6 +1886,16 @@ async function main() {
     await pass();
     assert(gcalls('calendars.insert').length === 1 && gcalls('calendars.delete').length === 1 && google.calendars.size === 0, `calls ${show(google.calls)} calendars ${show([...google.calendars.keys()])}`);
     assert(link('L').googleCalendarId === null && sent.length === 0, `link ${show(link('L'))} sent ${show(sent)}`);
+  });
+
+  await check('disconnect marker: a run that reads the Google account and then finds the marker writes neither the account id nor any plan/backfill state (no Google account stays after a disconnect)', async () => {
+    seedCopy({ googleAccount: null, backfilledAt: null });
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    google.during = (op) => { if (op === 'account') markDisconnect('busy'); };
+    await pass();
+    assert(link('L').googleAccount === null && link('L').backfilledAt === null && sent.length === 0, `link ${show(link('L'))}`);
+    assert(gcalls('events.').length === 0, `Google events touched ${show(google.calls)}`);
   });
 
   await check('disconnect marker: a calendar the run could not delete is kept on the link (hidden after a reconnect) and recorded for the user (google-sync:orphans), with a Sentry capture', async () => {

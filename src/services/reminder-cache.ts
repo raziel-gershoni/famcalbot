@@ -124,15 +124,17 @@ export async function updateUserInCache(user: ReminderCacheSource): Promise<void
  * the row as convertPrismaUserToConfig returns it (the token already decrypted).
  */
 export async function syncReminderCacheEntry(
-  user: Pick<UserConfig, 'id' | 'telegramId' | 'remindersEnabled' | 'suspendedAt' | 'unreachableSince' | 'googleRefreshToken' | 'calendarAssignments' | 'calendarSource' | 'pairingId' | 'defaultReminderMinutes' | 'language' | 'name' | 'pickupRemindersEnabled' | 'location'>
+  user: Pick<UserConfig, 'id' | 'telegramId' | 'remindersEnabled' | 'suspendedAt' | 'unreachableSince' | 'googleRefreshToken' | 'calendarAssignments' | 'calendarSource' | 'pairingId' | 'defaultReminderMinutes' | 'language' | 'name' | 'pickupRemindersEnabled' | 'location'>,
+  /** Values newer than the row in hand: the token just stored (plain), the calendar choices just saved. */
+  fresh: { googleRefreshToken?: string; calendarAssignments?: unknown } = {}
 ): Promise<void> {
   const remindable = user.remindersEnabled && user.telegramId !== null && !user.suspendedAt && !user.unreachableSince;
   if (!remindable) return removeUserFromCache(user.id);
   return updateUserInCache({
     id: user.id,
     telegramId: user.telegramId?.toString() ?? '',
-    googleRefreshToken: user.googleRefreshToken,
-    calendarAssignments: user.calendarAssignments,
+    googleRefreshToken: fresh.googleRefreshToken ?? user.googleRefreshToken,
+    calendarAssignments: 'calendarAssignments' in fresh ? fresh.calendarAssignments : user.calendarAssignments,
     calendarSource: user.calendarSource,
     pairingId: user.pairingId,
     defaultReminderMinutes: user.defaultReminderMinutes ?? null,
