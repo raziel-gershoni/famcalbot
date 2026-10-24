@@ -51,6 +51,8 @@ export type ActivityAction =
   // Settings & config
   | 'settings_changed'
   | 'calendar_connected'
+  // Settings' Disconnect Google (metadata: provider, copies_deleted, copies_left, revoked)
+  | 'calendar_disconnected'
   // App interactions (NEW)
   | 'webapp_opened'
   | 'settings_viewed'

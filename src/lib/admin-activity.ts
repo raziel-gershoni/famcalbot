@@ -24,6 +24,9 @@ export function activityDetail(action: string, metadata: Record<string, unknown>
     case 'calendar_connected':
       words = text(metadata.provider);
       break;
+    case 'calendar_disconnected':
+      words = [text(metadata.provider), `${Number(metadata.copies_deleted) || 0} copies deleted`, `${Number(metadata.copies_left) || 0} left`, metadata.revoked === true ? 'revoked' : 'not revoked'].filter(Boolean).join(' · ');
+      break;
   }
   const detail = words || JSON.stringify(metadata);
   return detail.length > max ? `${detail.substring(0, max)}...` : detail;
