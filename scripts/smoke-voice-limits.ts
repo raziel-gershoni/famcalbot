@@ -34,6 +34,8 @@ globalThis.fetch = (async (input: unknown) => {
 // ---- Fakes ----
 
 let voiceAllowed = true;
+let accessThrows = false;
+const captured: string[] = [];
 let produceFails = false;
 const featureChecks: string[] = [];
 const usage: string[] = [];
@@ -51,14 +53,14 @@ const service = {
 const SRC = path.resolve(__dirname, '../src');
 const stubs: Record<string, Record<string, unknown>> = {
   [`${SRC}/services/subscription-service.ts`]: {
-    checkFeatureAccess: async (userId: number, feature: string) => { featureChecks.push(`${userId}:${feature}`); return { allowed: voiceAllowed }; },
+    checkFeatureAccess: async (userId: number, feature: string) => { featureChecks.push(`${userId}:${feature}`); if (accessThrows) throw new Error('redis down'); return { allowed: voiceAllowed }; },
     incrementUsage: async (userId: number, kind: string) => { usage.push(`${userId}:${kind}`); },
   },
   [`${SRC}/services/analytics-service.ts`]: {
     trackActivityAsync: (_u: number, action: string) => { rows.push(action); },
     addBreadcrumb: () => undefined,
   },
-  [`${SRC}/lib/error-capture.ts`]: { captureError: () => undefined, captureWarning: () => undefined, captureInfo: () => undefined },
+  [`${SRC}/lib/error-capture.ts`]: { captureError: (_e: unknown, context: string) => { captured.push(context); }, captureWarning: () => undefined, captureInfo: () => undefined },
   [`${SRC}/services/telegram/bot.ts`]: { getMessagingService: () => service },
   [`${SRC}/services/messaging/index.ts`]: { MessagingPlatform, MessageFormat: { HTML: 'html' }, getMessagingService: () => service },
   [`${SRC}/services/voice-show/produce.ts`]: {
@@ -101,7 +103,8 @@ const user = { id: 31, telegramId: 7031, name: 'Dana', language: 'he', isAdmin: 
 function reset() {
   voiceAllowed = true;
   produceFails = false;
-  for (const list of [featureChecks, usage, produced, voicesSent, rows, cleaned]) list.length = 0;
+  accessThrows = false;
+  for (const list of [captured, featureChecks, usage, produced, voicesSent, rows, cleaned]) list.length = 0;
 }
 
 async function main() {
@@ -135,6 +138,13 @@ async function main() {
     await quiet(() => sendWeeklyVoiceMessage(7031, 'the week', user, false));
     await settle();
     assert(featureChecks.join() === '31:voice_summary' && produced.length === 0 && voicesSent.length === 0 && usage.length === 0, `checks ${featureChecks.join()} produced ${produced.length} sent ${voicesSent.length} usage ${usage.length}`);
+  });
+
+  await check('a failing plan check on the weekly voice is reported to Sentry, makes no voice and throws nothing', async () => {
+    reset();
+    accessThrows = true;
+    await quiet(() => sendWeeklyVoiceMessage(7031, 'the week', user, false));
+    assert(captured.join() === 'voice-weekly-access' && produced.length === 0 && voicesSent.length === 0, `captured ${captured.join()} produced ${produced.length}`);
   });
 
   await check('a weekly voice that failed to make is not counted', async () => {

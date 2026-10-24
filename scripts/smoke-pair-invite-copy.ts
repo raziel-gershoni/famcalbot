@@ -123,6 +123,11 @@ check('the Hebrew week-ahead note uses the app\'s own name for the block, \u05de
   assert(he.bot.errors.weekAheadNote.includes('\u05d4\u05de\u05d1\u05d8 \u05dc\u05e9\u05d1\u05d5\u05e2 \u05d4\u05e7\u05e8\u05d5\u05d1') && !he.bot.errors.weekAheadNote.includes('\u05de\u05d1\u05d8 \u05d4\u05e9\u05d1\u05d5\u05e2'), he.bot.errors.weekAheadNote);
 });
 
+check('the invite page logs a failed accept (no bare catch)', () => {
+  const src = read('app/[locale]/invite/[token]/InviteClient.tsx');
+  assert(!/catch\s*\{/.test(src) && src.includes("captureError(error, 'invite-accept'"), 'a bare catch, or the failure is not reported');
+});
+
 check('scripts/check-i18n-parity.ts passes on the real messages', () => {
   const run = spawnSync('npx', ['tsx', 'scripts/check-i18n-parity.ts'], { cwd: ROOT, encoding: 'utf8' });
   assert(run.status === 0, `exit ${run.status}: ${(run.stdout + run.stderr).slice(-400)}`);

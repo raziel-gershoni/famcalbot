@@ -200,8 +200,16 @@ export async function sendWeeklyVoiceMessage(
 ): Promise<void> {
   // The weekly show is a voice summary like the daily one: out of voice summaries, it is not
   // made (the text is already delivered), exactly as the daily voice is skipped (summary.ts).
-  const voiceAccess = await checkFeatureAccess(user.id, 'voice_summary');
-  if (!voiceAccess.allowed) {
+  let voiceAllowed: boolean;
+  try {
+    voiceAllowed = (await checkFeatureAccess(user.id, 'voice_summary')).allowed;
+  } catch (error) {
+    // The plan check failed: no voice this time, and the failure reaches Sentry (the callers only log).
+    console.error(`[Voice] Weekly voice access check failed for user ${user.id}:`, error);
+    captureError(error, 'voice-weekly-access', { user_id: user.id });
+    return;
+  }
+  if (!voiceAllowed) {
     console.log(`[Voice] Weekly voice skipped for user ${user.id}: voice summary limit reached`);
     return;
   }

@@ -11,6 +11,7 @@
 // We intentionally keep this minimal: no design library, just Tailwind, matching
 // the rest of the miniapp's plain-but-polished aesthetic.
 
+import { captureError } from '@/src/lib/error-capture';
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 
@@ -76,7 +77,9 @@ export default function InviteClient(props: Props) {
         return;
       }
       setState('success');
-    } catch {
+    } catch (error) {
+      // A network failure: the user sees the generic error; the cause is logged and reported.
+      captureError(error, 'invite-accept', { token_length: token.length }, 'warning');
       setState('error');
       setErrorMessage(t('errorGeneric'));
     }
