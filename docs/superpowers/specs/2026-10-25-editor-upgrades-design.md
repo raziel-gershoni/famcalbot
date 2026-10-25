@@ -63,6 +63,16 @@ count wants. Other repeats keep 2000 with an inline error: the expander walks a 
 start, so a daily series from 1950 costs about 27k steps per read. Paging, limits, wheel lists and
 labels go in a pure `src/lib/calendar-view/picker-model.ts`; `PillRow` adds `mode` and `min`.
 
+**A yearly series moved with "All"** (owner ruling 2026-10-25, found in review). The count hint asks
+for the original date, so a user opens this year's birthday and picks 1985. Moving the series start
+by the same number of days (today's `seriesTimesFor`) lands in the wrong year and slips a day on leap
+and Hebrew years (15 Shvat became 14 Shvat). For a yearly series (Gregorian `FREQ=YEARLY` that follows
+its start, or a Hebrew one): a new date half a year or more from the opened occurrence becomes the
+series' first date (start and Hebrew anchor exactly the picked date); a nearer one keeps the first
+year and puts every year on the picked month and day (Hebrew: the first Hebrew year, the picked
+Hebrew month and day, Adar per hebcal). Other rules keep the day shift. One rule for FamCal, the
+store and Google masters. A moved start outside the year floor is refused (`invalid`, `start`).
+
 **Telegram and web.** CalendarHome stays the BackButton's only owner; the editor's cancel chain
 closes an open picker first, as it does the scope sheet. Settings shows the BackButton while its
 picker is open. Vertical swipes lock while a picker is open (a wheel dragged down would minimize the
