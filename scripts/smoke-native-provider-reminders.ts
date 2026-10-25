@@ -264,6 +264,16 @@ async function main() {
     assert(!('reminder' in withSeries) && withSeries.eventType === undefined, 'marked as a reminder');
   });
 
+  await check('toUnifiedEvent: an event\'s own alert reaches the pass as alertLeads (a lead, or [] for None); the default carries none', () => {
+    const inst = instance({ startsAt: at('2026-10-13 10:00'), endsAt: at('2026-10-13 11:00') });
+    const cal = { id: 'cal1', name: 'Dana' };
+    assert(JSON.stringify(toUnifiedEvent(cal, inst, { kind: 'EVENT', ownAlerts: true, alertMinutes: [30] }).alertLeads) === '[30]', 'a lead');
+    assert(JSON.stringify(toUnifiedEvent(cal, inst, { kind: 'EVENT', ownAlerts: true, alertMinutes: [] }).alertLeads) === '[]', 'none');
+    assert(!('alertLeads' in toUnifiedEvent(cal, inst, { kind: 'EVENT', ownAlerts: false, alertMinutes: [] })), 'default');
+    assert(!('alertLeads' in toUnifiedEvent(cal, inst, { kind: 'EVENT', ownAlerts: false, alertMinutes: [30] })), 'minutes without ownAlerts are ignored');
+    assert(!('alertLeads' in toUnifiedEvent(cal, inst, { kind: 'EVENT' })), 'a series row without the columns');
+  });
+
   await check('toUnifiedEvent: a reminder given no viewer side reads as the viewer\'s own', () => {
     const e = toUnifiedEvent({ id: 'cal1', name: 'Dana' }, instance({ startsAt: at('2026-10-13 10:00'), endsAt: at('2026-10-13 10:00') }), { kind: 'REMINDER' });
     assert(e.reminder?.ownerIsViewer === true && e.reminder.creatorIsViewer === true, `reminder ${JSON.stringify(e.reminder)}`);

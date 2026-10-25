@@ -147,7 +147,7 @@ const fakeGoogle = {
 };
 
 /** A native calendar event (one-off), as the event store hands it to the native provider; a REMINDER has no length. */
-type NativeRow = { calendarId: string; id: string; title: string; startsAt: Date; endsAt: Date; timeZone: string; kind?: 'EVENT' | 'REMINDER' };
+type NativeRow = { calendarId: string; id: string; title: string; startsAt: Date; endsAt: Date; timeZone: string; kind?: 'EVENT' | 'REMINDER'; allDay?: boolean; ownAlerts?: boolean; alertMinutes?: number[] };
 let nativeCalendars: { id: string; name: string; labels: string[] }[] = [];
 let nativeEvents: NativeRow[] = [];
 
@@ -245,9 +245,9 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
         .filter(e => cuids.includes(e.calendarId) && e.startsAt < range.to && (e.startsAt >= range.from || e.endsAt > range.from))
         .map(e => ({
           calendar: nativeCalendars.find(c => c.id === e.calendarId)!,
-          series: { id: e.id, kind: e.kind ?? 'EVENT', creatorUserId: 0, forUserId: null },
+          series: { id: e.id, kind: e.kind ?? 'EVENT', creatorUserId: 0, forUserId: null, ownAlerts: e.ownAlerts ?? false, alertMinutes: e.alertMinutes ?? [] },
           instance: {
-            title: e.title, startsAt: e.startsAt, endsAt: e.endsAt, allDay: false, timeZone: e.timeZone,
+            title: e.title, startsAt: e.startsAt, endsAt: e.endsAt, allDay: e.allDay ?? false, timeZone: e.timeZone,
             seriesEventId: e.id, instanceStartsAt: e.startsAt, isRecurringInstance: false,
           },
         })),
@@ -738,6 +738,56 @@ async function main() {
     await runTicks(handlers, at('2026-10-13 07:00', IL), at('2026-10-13 12:00', IL));
     const lines = sentLines(IL);
     assert(lines.join(' | ') === '09:45 🤖 Auto-Reminder: Swim | 10:45 🤖🚗 Auto-Pickup Reminder: Leo', `got ${lines.join(' | ') || '(nothing)'}`);
+  });
+
+  // Editor upgrades spec §2: a FamCal event's own alert (the editor's Alert row) is read before the user's default.
+  await check('a FamCal event with its own lead pings at that lead as "Reminder:" (not Auto), the pickup at the same lead', async () => {
+    reset({ id: 40, calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: null });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(40), IL);
+    nativeCalendars = [{ id: 'cal40', name: 'Leo', labels: ['kids'] }];
+    nativeEvents = [{ calendarId: 'cal40', id: 'n40', title: 'Swim', startsAt: at('2026-10-13 10:00', IL), endsAt: at('2026-10-13 11:00', IL), timeZone: IL, ownAlerts: true, alertMinutes: [30] }];
+    await syncCache(handlers, at('2026-10-13 07:00', IL));
+    await runTicks(handlers, at('2026-10-13 07:00', IL), at('2026-10-13 12:00', IL));
+    const lines = sentLines(IL);
+    assert(lines.join(' | ') === '09:30 🔔 Reminder: Swim | 10:30 🚗 Pickup Reminder: Leo', `got ${lines.join(' | ') || '(nothing)'}`);
+  });
+
+  await check('a FamCal event set to None pings nothing: no start alert and no pickup (the default would have sent both)', async () => {
+    reset({ id: 41, calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: null });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(41), IL);
+    nativeCalendars = [{ id: 'cal41', name: 'Leo', labels: ['kids'] }];
+    nativeEvents = [
+      { calendarId: 'cal41', id: 'n41', title: 'Swim', startsAt: at('2026-10-13 10:00', IL), endsAt: at('2026-10-13 11:00', IL), timeZone: IL, ownAlerts: true, alertMinutes: [] },
+      { calendarId: 'cal41', id: 'n41b', title: 'Piano', startsAt: at('2026-10-13 12:00', IL), endsAt: at('2026-10-13 13:00', IL), timeZone: IL },
+    ];
+    await syncCache(handlers, at('2026-10-13 07:00', IL));
+    await runTicks(handlers, at('2026-10-13 07:00', IL), at('2026-10-13 14:00', IL));
+    const lines = sentLines(IL);
+    assert(lines.join(' | ') === '11:45 🤖 Auto-Reminder: Piano | 12:45 🤖🚗 Auto-Pickup Reminder: Leo', `got ${lines.join(' | ') || '(nothing)'}`);
+  });
+
+  await check('an event on the default (ownAlerts false) still pings at the user\'s lead; an all-day event with an own alert is skipped', async () => {
+    reset({ id: 42, calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: null });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(42), IL);
+    nativeCalendars = [{ id: 'cal42', name: 'Dana', labels: ['primary', 'yours'] }];
+    nativeEvents = [
+      { calendarId: 'cal42', id: 'n42', title: 'Swim', startsAt: at('2026-10-13 10:00', IL), endsAt: at('2026-10-13 11:00', IL), timeZone: IL, ownAlerts: false, alertMinutes: [] },
+      { calendarId: 'cal42', id: 'n42d', title: 'Holiday', startsAt: at('2026-10-13 00:00', IL), endsAt: at('2026-10-13 23:59', IL), timeZone: IL, allDay: true, ownAlerts: true, alertMinutes: [30] },
+    ];
+    await syncCache(handlers, at('2026-10-13 07:00', IL));
+    await runTicks(handlers, at('2026-10-13 07:00', IL), at('2026-10-13 12:00', IL));
+    assert(sentLines(IL).join(' | ') === '09:45 🤖 Auto-Reminder: Swim', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
+  });
+
+  await check('a Google event\'s nearest popup still wins, and two overlapping runs send it once under the unchanged key', async () => {
+    reset({ id: 43 });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(43), IL);
+    googleEvents = [{ calendarId: kidsCal, id: 'k43', summary: 'Piano', start: at('2026-10-13 17:00', IL), end: at('2026-10-13 18:00', IL), reminder: [1440, 30] }];
+    await syncCache(handlers, at('2026-10-13 15:00', IL));
+    await runTicks(handlers, at('2026-10-13 16:25', IL), at('2026-10-13 16:35', IL));
+    await runTicks(handlers, at('2026-10-13 16:30', IL), at('2026-10-13 16:40', IL));
+    assert(sentLines(IL).join(' | ') === '16:30 🔔 Reminder: Piano', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
+    assert(store.has(REDIS_KEYS.reminder(43, 'k43', 'start', '2026-10-13')), `the key: ${[...store.keys()].join(', ')}`);
   });
 
   await check('titles, calendar names and places are escaped for Telegram\'s HTML', async () => {
