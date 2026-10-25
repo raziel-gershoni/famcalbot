@@ -188,6 +188,18 @@ Google edits need no new mapping, since the start is always a slot.
 until, count, weekdays with the start pinned), rule back to spec, custom stays custom, Hebrew ends,
 `ruleCrosses` true for every spec, a following split with a COUNT; API validation of both bodies.
 
+**As built.** One builder (`repeat-spec.ts`: `ruleOfSpec`, `ruleToWrite`) for FamCal and Google, string or
+spec; `specOfRule` reads a rule back (a rule it can't say stays custom, never sent unless changed). Monthly
+takes `'day' | 'weekday' | 'last'` ("last" only in the month's last seven days; a moved start that can't
+hold it falls back to the n-th weekday). Limits: every 1..99, after 1..999 times. Ends on an edit: an
+untouched end carries as before (a cut head's end is its last occurrence, written as that day); a changed
+"after N times" counts from the series' first occurrence; Never removes a stored end. A sent spec is a
+change only when its rule differs from the stored one. Every N weeks on several days writes WKST from the
+saving user's week start; rebuilding such a stored rule keeps its own. The weekly set keeps all its days: a
+start move adds the new start's day; a move onto a day the set has offers only "Only this one". The repeat
+is built and worded on the start's day in the series' zone. The sheet's Done applies nothing when nothing
+changed.
+
 ## 4. Drag to move (L)
 
 **Behaviour.**
