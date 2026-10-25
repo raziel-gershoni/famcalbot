@@ -152,12 +152,13 @@ export const FORM_CSS = `
   min-inline-size: 0;
 }
 .ch-form-value-text {
-  /* Up to two lines, end-aligned, then an ellipsis. */
+  /* Up to two lines, then an ellipsis. The box sits at the row's end; its lines start on the text's own side
+     (dir="auto"): Chromium drops the clamp's ellipsis on end-aligned text. */
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  text-align: end;
+  text-align: start;
   overflow-wrap: anywhere;
 }
 .ch-form-chevron {

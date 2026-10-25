@@ -2772,8 +2772,9 @@ async function main() {
     await patch({ key: occ3('2026-11-03'), scope: 'following', changes: { repeat: 'none', alert: 'none' } });
     assertSame(alertOf(lastEvent().id), [true, []], 'a stop with an alert change: the one-off has the new one');
     const first = await weeklySeries({ alert: 15 });
+    const rows = tables.nativeEvent.length;
     await patch({ key: first.occ('2026-10-20'), scope: 'following', changes: { repeat: 'none', alert: 'none' } });
-    assertSame([eventRow(first.id).rrule, alertOf(first.id), tables.nativeEvent.filter((e) => e.title === 'Dentist' && e.rrule === null).length > 0], [null, [true, []], true], 'a stop from the first occurrence with an alert change: the series row is the one-off with the new alert');
+    assertSame([eventRow(first.id).rrule, alertOf(first.id), tables.nativeEvent.length - rows], [null, [true, []], 0], 'a stop from the first occurrence with an alert change: the series row is the one-off with the new alert');
     const rem = await post(reminderBody({ repeat: 'daily' }));
     await patch({ key: `famcal|${idOf(rem.body.key)}#${iso(at('2026-10-22 17:30'))}`, scope: 'following', changes: { start: '2026-10-22T18:00' } });
     assertSame(alertOf(lastEvent().id), [false, []], 'a reminder\'s tail');

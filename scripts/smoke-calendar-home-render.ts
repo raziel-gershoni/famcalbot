@@ -4903,7 +4903,7 @@ async function main() {
       google.m.unmount();
     }
     // The words in he and ru.
-    for (const [locale, label, def, lead] of [['he', 'התראה', 'ברירת מחדל (15 דקות לפני)', '30 דקות לפני'], ['ru', 'Уведомление', 'По умолчанию (за 15 минут)', 'за 30 минут']] as const) {
+    for (const [locale, label, def, lead] of [['he', 'התראה', 'ברירת מחדל (15 דקות לפני)', '30 דקות לפני'], ['ru', 'Уведомление', 'По умолчанию (за\u00a015\u00a0минут)', 'за\u00a030\u00a0минут']] as const) {
       const l = await editingHome(locale, { editor: withAlerts() });
       try {
         tapPlus(l.m, messages[locale].calendarHome.header.add);
@@ -4993,6 +4993,21 @@ async function main() {
       assert(selects(x.m).length === 2, 'read-only: no Alert select');
     } finally {
       x.m.unmount();
+    }
+    // An alert edited first, then the other kind picked: the edit goes back, so the move is saved alone.
+    const y = await editingHome('en', { editor: both, item: dentistInfo({ alert: 30, canMoveCalendar: true, moveTargets: ['native:cal_me_7f3a', 'avi@gmail.com'] }) });
+    try {
+      await openItem(y.m, 'Dentist');
+      y.m.click(byLabel(topDialog(y.m), 'Edit'));
+      await settle();
+      await typeInto(selects(y.m)[1], '10');
+      await typeInto(selects(y.m)[2], 'avi@gmail.com');
+      serveEditingWith({ editor: both, item: dentistInfo({ alert: 30, canMoveCalendar: true, moveTargets: ['native:cal_me_7f3a', 'avi@gmail.com'] }), write: () => ok200({ status: 'ok', key: 'google|avi@gmail.com|dentist' }) });
+      y.m.click(saveButton(y.m));
+      await settle();
+      assert(writes().length === 1 && sameBody((writes()[0].body as Row).changes, { calendarId: 'avi@gmail.com' }), `the move alone: ${show(writes()[0]?.body)}`);
+    } finally {
+      y.m.unmount();
     }
     // A series: an alert change alone asks "this one and the ones after" or "all of them".
     const s = await editingHome('en', { editor: withAlerts, item: (k) => (k === 'famcal|swim' ? ok200(swimInfo({ alert: 'default' })) : { status: 404, body: {} }) });

@@ -177,7 +177,7 @@ check('copy: the Alert row\'s words in en, he and ru read by the lead (minutes, 
   const want: Record<string, Record<number, string>> = {
     en: { 5: '5 min before', 15: '15 min before', 60: '1 hour before', 120: '2 hours before', 1440: '1 day before' },
     he: { 1: 'דקה אחת לפני', 5: '5 דקות לפני', 60: 'שעה לפני', 120: 'שעתיים לפני', 180: '3 שעות לפני', 1440: 'יום לפני', 2880: 'יומיים לפני' },
-    ru: { 1: 'за 1 минуту', 5: 'за 5 минут', 22: 'за 22 минуты', 60: 'за 1 час', 120: 'за 2 часа', 300: 'за 5 часов', 1440: 'за 1 день', 2880: 'за 2 дня' },
+    ru: { 1: 'за\u00a01\u00a0минуту', 5: 'за\u00a05\u00a0минут', 22: 'за\u00a022\u00a0минуты', 60: 'за\u00a01\u00a0час', 120: 'за\u00a02\u00a0часа', 300: 'за\u00a05\u00a0часов', 1440: 'за\u00a01\u00a0день', 2880: 'за\u00a02\u00a0дня' },
   };
   const keys: string[][] = [];
   for (const lang of ['en', 'he', 'ru']) {

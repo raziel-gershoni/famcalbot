@@ -264,7 +264,7 @@
         "none": "Без уведомления",
         "atStart": "В момент начала",
         "atStartInline": "в момент начала",
-        "before": "{unit, select, day {{count, plural, one {за # день} few {за # дня} many {за # дней} other {за # дня}}} hour {{count, plural, one {за # час} few {за # часа} many {за # часов} other {за # часа}}} other {{count, plural, one {за # минуту} few {за # минуты} many {за # минут} other {за # минуты}}}}",
+        "before": "{unit, select, day {{count, plural, one {за # день} few {за # дня} many {за # дней} other {за # дня}}} hour {{count, plural, one {за # час} few {за # часа} many {за # часов} other {за # часа}}} other {{count, plural, one {за # минуту} few {за # минуты} many {за # минут} other {за # минуты}}}}",
         "fromGoogle": "Из Google Календаря: {lead}"
       },
       "calendar": "Календарь",

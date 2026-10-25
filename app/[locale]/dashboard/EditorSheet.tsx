@@ -468,8 +468,12 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
                   hint={calendarHint}
                   value={form.calendarId ?? (edit ? moveOptions : calendarOptions)[0].value}
                   options={edit ? moveOptions : calendarOptions}
-                  // A Google calendar can't hold a Hebrew-date repeat: the pick falls back to the Gregorian yearly one.
-                  onChange={(calendarId) => change({ ...form, calendarId, repeat: isHebrewRepeat(form.repeat) && !calendarId.startsWith('native:') ? 'yearly' : form.repeat })}
+                  onChange={(calendarId) => {
+                    // A Google calendar can't hold a Hebrew-date repeat: the pick falls back to the Gregorian yearly one.
+                    const next = { ...form, calendarId, repeat: isHebrewRepeat(form.repeat) && !calendarId.startsWith('native:') ? 'yearly' : form.repeat };
+                    // An alert doesn't cross kinds (the row turns read-only): an edited one goes back, so the move can still be saved alone.
+                    change(edit && crossesKinds(next, start) ? { ...next, alert: start.alert } : next);
+                  }}
                 />
               </FormCard>
             ) : null}
