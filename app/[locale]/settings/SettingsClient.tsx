@@ -1,16 +1,14 @@
 'use client';
 
-import { Suspense, lazy, useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { TelegramLayout } from '@/components/Layout';
 import { CheckCircle2, MapPin, Loader2, ArrowLeft, Check } from 'lucide-react';
 import { REMINDER_TIME_STEP_MINUTES } from '@/src/lib/reminder-time';
 import { useTelegramBackButton, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
+import { TimePickerSheet } from '../dashboard/TimePickerSheet';
 import GoogleDisconnect from './GoogleDisconnect';
-
-// The time sheet is the dashboard's, a chunk of its own with the wheel library.
-const TimePickerSheet = lazy(() => import('../dashboard/TimePickerSheet').then((m) => ({ default: m.TimePickerSheet })));
 
 interface SubscriptionInfo {
   effectivePlan: string;
@@ -413,27 +411,27 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
         type="button"
         id="reminderTime"
         className="time-pill"
-        dir="ltr"
+        aria-label={`${t('reminderTime')}, ${reminderTime}`}
         aria-haspopup="dialog"
         disabled={formState !== 'idle'}
         onClick={() => setTimeSheetOpen(true)}
       >
-        {reminderTime}
+        {/* The button keeps the page's direction (so it aligns with the other fields); the time itself reads left to right. */}
+        <bdi dir="ltr">{reminderTime}</bdi>
       </button>
+      {/* Not lazy here: there is no error boundary on this page, so a chunk that failed to load would take the whole form with it. */}
       {timeSheetOpen ? (
-        <Suspense fallback={null}>
-          <TimePickerSheet
-            standalone
-            label={t('reminderTime')}
-            value={reminderTime}
-            step={REMINDER_TIME_STEP_MINUTES}
-            onPick={(time) => {
-              setTimeSheetOpen(false);
-              setReminderTime(time);
-            }}
-            onClose={() => setTimeSheetOpen(false)}
-          />
-        </Suspense>
+        <TimePickerSheet
+          standalone
+          label={t('reminderTime')}
+          value={reminderTime}
+          step={REMINDER_TIME_STEP_MINUTES}
+          onPick={(time) => {
+            setTimeSheetOpen(false);
+            setReminderTime(time);
+          }}
+          onClose={() => setTimeSheetOpen(false)}
+        />
       ) : null}
       <p className="help-text">{t('reminderTimeHelp')}</p>
     </div>

@@ -28,7 +28,10 @@ import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { DatePickerSheet } from '../app/[locale]/dashboard/DatePickerSheet';
 import { TimePickerSheet } from '../app/[locale]/dashboard/TimePickerSheet';
-import { PICKER_CSS, applyWheelAria } from '../app/[locale]/dashboard/picker-kit';
+import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime';
+import SettingsClient from '../app/[locale]/settings/SettingsClient';
+import { preloadPickers } from '../app/[locale]/dashboard/form-kit';
+import { PICKER_CSS, PickerScope, applyWheelAria, spinbuttonKey, swapWheelArrow, tickOnce } from '../app/[locale]/dashboard/picker-kit';
 import { HOME_THEME_CSS } from '../app/[locale]/dashboard/home-theme';
 import { pageCells, pageOf } from '../src/lib/calendar-view/picker-model';
 import en from '../messages/en.json';
@@ -69,6 +72,12 @@ const count = (html: string, re: RegExp) => (html.match(re) ?? []).length;
 const textOf = (html: string) => html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 /** The opening tag of the first element matching `re`. */
 const tagOf = (html: string, re: RegExp) => (re.exec(html) ?? [''])[0];
+/** The reminder-time button's opening tag and what is inside it. */
+function tagAndInner(html: string): { tag: string; inner: string } {
+  const m = /(<button[^>]*id="reminderTime"[^>]*>)([\s\S]*?)<\/button>/.exec(html);
+  assert(m, 'the reminder-time button');
+  return { tag: m[1], inner: m[2] };
+}
 
 const TODAY = '2026-10-15';
 const dateProps = (locale: Locale, over: Partial<ComponentProps<typeof DatePickerSheet>> = {}): ComponentProps<typeof DatePickerSheet> => ({
@@ -191,7 +200,19 @@ async function main() {
       const size = /(?:min-block-size|block-size):\s*(\d+)px/.exec(rule(selector));
       assert(size && Number(size[1]) >= 44, `${selector} is ${size?.[1]}px`);
     }
-    assert(/block-size:\s*288px/.test(rule('.ch-picker-body')) && /block-size:\s*288px/.test(rule('.ch-wheels')), 'the body and the wheels are 6 rows of 48 px: the sheet never jumps');
+    // The body holds the weekday row and six rows of cells: nothing is cut on a month that needs six (Jan 2027, May 2027).
+    const px = (re: RegExp, text: string) => {
+      const m = re.exec(text);
+      assert(m, `not found: ${re}`);
+      return Number(m[1]);
+    };
+    const header = px(/line-height:\s*(\d+)px/, rule('.ch-picker-weekday')) + px(/margin-block-end:\s*(\d+)px/, rule('.ch-picker-weekdays'));
+    const rowPx = px(/min-block-size:\s*(\d+)px/, rule('.ch-picker-cell'));
+    const bodyRule = rule('.ch-picker-body');
+    const calc = /block-size:\s*calc\(\s*(\d+)px\s*\+\s*(\d+)\s*\*\s*(\d+)px\s*\)/.exec(bodyRule);
+    const bodyPx = calc ? Number(calc[1]) + Number(calc[2]) * Number(calc[3]) : px(/block-size:\s*(\d+)px/, bodyRule);
+    assert(bodyPx >= header + 6 * rowPx, `the body is ${bodyPx}px for ${header}px of header and 6 rows of ${rowPx}px (${header + 6 * rowPx}px)`);
+    assert(/block-size:\s*100%/.test(rule('.ch-wheels')), 'the wheels fill the body: one box, so the sheet never jumps between the grid and the wheels');
     assert(/repeat\(7, 1fr\)/.test(rule('.ch-picker-row')), 'seven columns');
     assert(/120ms/.test(rule('.ch-picker-grid')), 'pages slide in 120 ms');
     assert(/prefers-reduced-motion: reduce\)\s*\{[^@]*animation: none !important/.test(HOME_THEME_CSS), "the home's reduced-motion rule covers the slide");
@@ -206,13 +227,112 @@ async function main() {
   await check("Settings: the reminder time is a pill that opens the time sheet in 15-minute steps; the <select> is gone; Telegram's Back and the swipe lock follow the sheet", () => {
     const src = fs.readFileSync(path.join(ROOT, 'app/[locale]/settings/SettingsClient.tsx'), 'utf8');
     assert(!/name="reminderTime"/.test(src) && !/REMINDER_TIME_OPTIONS/.test(src), 'no <select> of times');
-    assert(/import\('\.\.\/dashboard\/TimePickerSheet'\)/.test(src) && /<TimePickerSheet[\s\S]*?standalone[\s\S]*?step=\{REMINDER_TIME_STEP_MINUTES\}/.test(src), 'the dashboard\'s time sheet, standalone, on the 15-minute step');
+    assert(/<TimePickerSheet[\s\S]*?standalone[\s\S]*?step=\{REMINDER_TIME_STEP_MINUTES\}/.test(src), "the dashboard's time sheet, standalone, on the 15-minute step");
     assert(/useTelegramBackButton\(timeSheetOpen,/.test(src) && /useTelegramVerticalSwipes\(timeSheetOpen\)/.test(src), 'Back and the swipe lock follow the sheet');
     const kit = fs.readFileSync(path.join(ROOT, 'app/[locale]/dashboard/picker-kit.tsx'), 'utf8');
     assert(/export function PickerScope/.test(kit) && /HOME_THEME_CSS/.test(kit) && /data-theme=\{scheme\}/.test(kit) && /dir=\{locale === 'he'/.test(kit), 'the scope: tokens, data-theme, dir');
     const html = render('en', 'light', createElement(TimePickerSheet, { label: 'Reminder time', value: '09:15', step: 15, onPick: () => undefined, onClose: () => undefined, standalone: true }), true);
-    assert(count(html, /class="ch-home"/g) === 2, 'the standalone sheet brings its own scope');
+    assert(count(html, /class="ch-home/g) === 2, 'the standalone sheet brings its own scope');
     assert(html.includes('--ch-bg') && html.includes('.ch-segmented'), "with the home's tokens and the form kit's CSS");
+  });
+
+  await check('Settings has no error boundary, so its time sheet is not a lazy chunk (a failed load would take the page and its unsaved changes down)', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'app/[locale]/settings/SettingsClient.tsx'), 'utf8');
+    assert(!/\blazy\(/.test(src) && !/import\(['"][^'"]*TimePickerSheet/.test(src), 'a lazy import of the sheet');
+    assert(/^import \{ TimePickerSheet \} from '\.\.\/dashboard\/TimePickerSheet';/m.test(src), 'a static import');
+  });
+
+  await check("Settings: the time button's name carries the time, and in Hebrew the page's direction places it (the time itself reads left to right)", () => {
+    const settings = (locale: Locale) => {
+      const quiet = console.error;
+      console.error = () => undefined; // the page's <style jsx> warns on the server
+      try {
+        const provider = { locale, messages: messages[locale], timeZone: 'Asia/Jerusalem' } as unknown as ComponentProps<typeof NextIntlClientProvider>;
+        const router = { push: () => undefined, replace: () => undefined, back: () => undefined, forward: () => undefined, refresh: () => undefined, prefetch: () => undefined };
+        const html = renderToString(
+          createElement(
+            NextIntlClientProvider,
+            provider,
+            createElement(
+              AppRouterContext.Provider,
+              { value: router as never },
+              createElement(SettingsClient, {
+                userId: 1,
+                remindersGloballyEnabled: true,
+                googleConnected: false,
+                nativeRemindersSupported: true,
+                subscriptionInfo: { effectivePlan: 'basic', textSummariesUsed: 0, textSummariesLimit: -1, voiceSummariesUsed: 0, voiceSummariesLimit: -1, remindersAllowed: true, isTrialing: false },
+                currentSettings: {
+                  language: locale, location: 'x', messagingPlatform: 'telegram', culture: 'jewish', textSummaryEnabled: true, voiceSummaryEnabled: false, weatherEnabled: true,
+                  includeLookaheadInTomorrow: false, lookaheadAlways7Days: false, preferredMorningHour: 7, preferredEveningHour: 20, dailySummaryDays: [], tomorrowSummaryDays: [],
+                  remindersEnabled: true, defaultReminderMinutes: 15, reminderTime: '09:15', pickupRemindersEnabled: false, voiceInputEnabled: false,
+                },
+              }),
+            ),
+          ),
+        );
+        return tagAndInner(html);
+      } finally {
+        console.error = quiet;
+      }
+    };
+    for (const locale of LOCALES) {
+      const { tag, inner } = settings(locale);
+      const name = messages[locale].settings.reminderTime;
+      assert(tag.includes(`aria-label="${name}, 09:15"`), `${locale}: the name: ${tag}`);
+      assert(!/\bdir=/.test(tag), `${locale}: the button leaves its direction to the page: ${tag}`);
+      assert(/<bdi dir="ltr">09:15<\/bdi>/.test(inner), `${locale}: the time reads left to right: ${inner}`);
+    }
+  });
+
+  await check("Settings' scope stays off the page behind it: the sheet's root is .ch-standalone and the html-level rules skip it", () => {
+    const html = renderToString(createElement(NextIntlClientProvider, { locale: 'en', messages: en, timeZone: 'Asia/Jerusalem' } as never, createElement(PickerScope, null, createElement('i'))));
+    assert(/class="ch-home ch-standalone"/.test(html), 'the scope carries ch-standalone');
+    const selectors = [...HOME_THEME_CSS.matchAll(/^(html:has\([^{]*)\{/gm)].map((m) => m[1]);
+    assert(selectors.length === 2, `the two page-level rules: ${selectors}`);
+    assert(selectors.every((x) => x.includes(':not(.ch-standalone)')), `every page-level rule skips a standalone scope: ${selectors}`);
+  });
+
+  await check('the sheets start loading when the editor opens, a failure is logged', async () => {
+    const editor = fs.readFileSync(path.join(ROOT, 'app/[locale]/dashboard/EditorSheet.tsx'), 'utf8');
+    assert(/useEffect\(\(\) => \{\s*preloadPickers\(\);\s*\}, \[\]\)/.test(editor), 'the editor preloads on mount');
+    assert(typeof preloadPickers === 'function', 'exported');
+    preloadPickers();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+
+  await check('a wheel ticks once per value (a release and its settle on the same value are one tick)', () => {
+    const last = { current: '10' };
+    assert(!tickOnce(last, '10'), 'the value it already holds');
+    assert(tickOnce(last, '15') && !tickOnce(last, '15'), 'a new value ticks once');
+    assert(tickOnce(last, '10'), 'and back again ticks');
+  });
+
+  await check('wheel keys follow the spinbutton it is announced as: ArrowUp is the larger value, ArrowDown the smaller; other keys pass', () => {
+    assert(spinbuttonKey('ArrowUp') === 'ArrowDown' && spinbuttonKey('ArrowDown') === 'ArrowUp', 'the library moves to the previous option on ArrowUp, so the pair is swapped');
+    assert(spinbuttonKey('ArrowLeft') === 'ArrowLeft' && spinbuttonKey('Home') === 'Home', 'the rest is the library\'s');
+    const sent: string[] = [];
+    const resending = { current: false };
+    const calls: string[] = [];
+    const ev = (key: string) => ({ key, target: 'wheel', preventDefault: () => calls.push('prevent'), stopPropagation: () => calls.push('stop') });
+    const resend = (_target: unknown, key: string) => {
+      sent.push(key);
+      // The re-sent key comes straight back through the same handler and must pass.
+      assert(!swapWheelArrow(ev(key), resending, resend), 'the re-sent key passes');
+    };
+    assert(swapWheelArrow(ev('ArrowUp'), resending, resend) && sent.join() === 'ArrowDown' && calls.join() === 'prevent,stop', `ArrowUp is stopped and sent as ArrowDown: ${sent} ${calls}`);
+    assert(!resending.current, 'the guard is released');
+    assert(!swapWheelArrow(ev('ArrowLeft'), resending, resend) && sent.length === 1, 'ArrowLeft is left alone');
+  });
+
+  await check('Hebrew mode with Hebrew dates off still names the Hebrew date: the footer and every cell\'s name', () => {
+    const l = messages.en.calendarHome;
+    const hebrew = render('en', 'light', createElement(DatePickerSheet, dateProps('en', { hebrewDates: false, mode: 'hebrew' })));
+    assert(textOf(hebrew).includes('4 Cheshvan 5787'), `footer: ${textOf(hebrew).slice(-200)}`);
+    assert(/data-day="2026-10-15"[^>]*aria-label="[^"]*Cheshvan/.test(hebrew) || /aria-label="[^"]*Cheshvan[^"]*"[^>]*data-day="2026-10-15"/.test(hebrew), 'the cell name carries the Hebrew date');
+    const gregorian = render('en', 'light', createElement(DatePickerSheet, dateProps('en', { hebrewDates: false, mode: 'gregorian' })));
+    assert(!textOf(gregorian).includes('Cheshvan') && !/aria-label="[^"]*Cheshvan/.test(gregorian), 'the Gregorian page of a home without Hebrew dates stays Gregorian');
+    void l;
   });
 
   let failed = 0;

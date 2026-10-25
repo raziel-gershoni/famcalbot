@@ -1507,8 +1507,8 @@ async function main() {
     }
     assert(/\.ch-home\[data-theme='dark'\] \{[^}]*--ch-button: var\(--tg-theme-button-color, var\(--brand-primary\)\);/.test(HOME_THEME_CSS), 'the dark button falls back to --brand-primary');
     // The home scrolls the document: the root behind an iOS bounce takes the theme's background.
-    assert(/\nhtml:has\(\.ch-home\) \{\s*background-color: var\(--tg-theme-bg-color, var\(--bg-white\)\);\s*\}/.test(HOME_THEME_CSS), 'the root, light');
-    assert(/\nhtml:has\(\.ch-home\[data-theme='dark'\]\) \{\s*background-color: var\(--tg-theme-bg-color, #15151d\);\s*color-scheme: dark;\s*\}/.test(HOME_THEME_CSS), 'the root, dark');
+    assert(/\nhtml:has\(\.ch-home:not\(\.ch-standalone\)\) \{\s*background-color: var\(--tg-theme-bg-color, var\(--bg-white\)\);\s*\}/.test(HOME_THEME_CSS), 'the root, light');
+    assert(/\nhtml:has\(\.ch-home:not\(\.ch-standalone\)\[data-theme='dark'\]\) \{\s*background-color: var\(--tg-theme-bg-color, #15151d\);\s*color-scheme: dark;\s*\}/.test(HOME_THEME_CSS), 'the root, dark');
   });
 
   await check('#15 every date and time follows the route\'s timezone, never the device clock (the same markup in four process zones, Los Angeles included)', () => {

@@ -15,7 +15,7 @@
 // - PickerScope: Settings is outside `.ch-home`, so its picker brings the scope (HOME_THEME_CSS,
 //   data-theme, dir). Inside the home the sheets render in place and inherit it.
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { useLocale } from 'next-intl';
 import { WheelPicker, WheelPickerWrapper, type WheelPickerOption } from '@ncdai/react-wheel-picker';
 import { hapticSelection, useColorScheme } from '@/src/lib/telegram-ui';
@@ -104,7 +104,8 @@ export const PICKER_CSS = `
   color: var(--ch-muted);
 }
 .ch-picker-body {
-  block-size: 288px;
+  /* The weekday row (24px line plus 2px gap) and six 48px rows: every page fits, so paging never moves the sheet. */
+  block-size: calc(26px + 6 * 48px);
   overflow: hidden;
 }
 .ch-picker-weekdays,
@@ -213,7 +214,8 @@ export const PICKER_CSS = `
   min-block-size: 48px;
 }
 .ch-wheels {
-  block-size: 288px;
+  /* Fills the body, so the wheels and the grid are one box. */
+  block-size: 100%;
   gap: 8px;
 }
 .ch-wheel {
@@ -286,9 +288,58 @@ export function applyWheelAria(el: AriaTarget | null, o: { label: string; text: 
   for (const child of el.querySelectorAll('[data-rwp-options], [data-rwp-highlight-wrapper]')) child.setAttribute('aria-hidden', 'true');
 }
 
+/**
+ * The key a spinbutton's arrow means for the library. The wheel is announced as a spinbutton, where
+ * ArrowUp is the larger value; the library's ArrowUp goes to the previous option. So the two
+ * vertical arrows are swapped before it sees them. (ArrowLeft and ArrowRight move between the
+ * wheels of a pair and stay physical, also in RTL; only one wheel of a pair is in the Tab order.)
+ */
+export function spinbuttonKey(key: string): string {
+  return key === 'ArrowUp' ? 'ArrowDown' : key === 'ArrowDown' ? 'ArrowUp' : key;
+}
+
+/** The slice of a React keydown the swap needs (a real one, or a stand-in in a test). */
+export interface WheelKeyEvent {
+  key: string;
+  target: unknown;
+  preventDefault: () => void;
+  stopPropagation: () => void;
+}
+
+/**
+ * Capture-phase handler on the wheel's wrapper: an ArrowUp/ArrowDown is stopped before the library
+ * sees it and sent to the same element again as the opposite arrow (`resend`). `resending` marks the
+ * re-sent one so it passes through. Returns whether it swapped.
+ */
+export function swapWheelArrow(e: WheelKeyEvent, resending: { current: boolean }, resend: (target: unknown, key: string) => void): boolean {
+  if (resending.current || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  resending.current = true;
+  try {
+    resend(e.target, spinbuttonKey(e.key));
+  } finally {
+    resending.current = false;
+  }
+  return true;
+}
+
+/**
+ * Whether a value the wheel emitted earns a haptic tick: once per value, so a release and its
+ * settle on the same value tick once. Remembers the value it ticked for in `last`.
+ */
+export function tickOnce(last: { current: string }, next: string): boolean {
+  if (next === last.current) return false;
+  last.current = next;
+  return true;
+}
+
 /** One wheel with the ARIA the library leaves out. Lay several out in a WheelPickerWrapper. */
 export function Wheel({ label, options, value, onChange, infinite = false }: WheelProps) {
   const root = useRef<HTMLDivElement>(null);
+  const resending = useRef(false);
+  // The last value ticked for, so a release and its settle on the same value tick once.
+  const ticked = useRef(value);
   const shown = options.find((o) => o.value === value);
   const text = typeof shown?.label === 'string' ? shown.label : value;
   const index = Math.max(0, options.findIndex((o) => o.value === value));
@@ -298,13 +349,23 @@ export function Wheel({ label, options, value, onChange, infinite = false }: Whe
     applyWheelAria(root.current?.querySelector<HTMLElement>('[data-rwp]') ?? null, { label, text, index, count: options.length });
   });
 
+  useEffect(() => {
+    ticked.current = value;
+  }, [value]);
+
+  const onKeyDownCapture = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    swapWheelArrow(e, resending, (target, key) => {
+      if (target instanceof EventTarget) target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    });
+  };
+
   return (
-    <div ref={root} className="ch-wheel">
+    <div ref={root} className="ch-wheel" onKeyDownCapture={onKeyDownCapture}>
       <WheelPicker
         options={options}
         value={value}
         onValueChange={(next) => {
-          hapticSelection();
+          if (tickOnce(ticked, next)) hapticSelection();
           onChange(next);
         }}
         infinite={infinite}
@@ -320,13 +381,14 @@ export { WheelPickerWrapper };
 
 /**
  * The home's scope for a sheet shown outside it (Settings): the tokens, the scheme the device
- * is in and the page's direction. Zero height; the sheet in it is position: fixed.
+ * is in and the page's direction. Zero height; the sheet in it is position: fixed. `ch-standalone`
+ * keeps the home's page-level rules (the html background and color-scheme) off the page behind.
  */
 export function PickerScope({ children }: { children: ReactNode }) {
   const scheme = useColorScheme();
   const locale = useLocale();
   return (
-    <div className="ch-home" data-theme={scheme} dir={locale === 'he' ? 'rtl' : 'ltr'} lang={locale}>
+    <div className="ch-home ch-standalone" data-theme={scheme} dir={locale === 'he' ? 'rtl' : 'ltr'} lang={locale}>
       <style>{HOME_THEME_CSS}</style>
       <style>{FORM_CSS}</style>
       {children}

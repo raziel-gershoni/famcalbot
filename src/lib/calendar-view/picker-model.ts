@@ -13,7 +13,7 @@
 
 import { HDate, type MonthName } from '@hebcal/hdate';
 import { MAX_YEAR, MIN_YEAR_BIRTH } from './year-limits';
-import { monthFirstDay, monthLastDay, monthOf } from './grid';
+import { grid, monthFirstDay, monthLastDay, monthOf } from './grid';
 import { formatDayFull, formatDayMonth, formatMonthRange, formatMonthTitle } from './format';
 import {
   HEBREW_MONTHS,
@@ -140,17 +140,9 @@ export const PAGE_ROWS = 6;
  * month never needs more than 6 rows, so paging never changes the sheet's height.
  */
 export function pageCells(page: PickerPage, weekStart: WeekStart): (DayKey | null)[][] {
-  const ws = Number.isInteger(weekStart) && weekStart >= 0 && weekStart <= 6 ? weekStart : 0;
-  const lead = (weekdayIndex(page.first) - ws + 7) % 7;
-  const rows: (DayKey | null)[][] = [];
-  for (let r = 0; r < PAGE_ROWS; r++) {
-    rows.push(
-      Array.from({ length: 7 }, (_, c) => {
-        const day = addDaysToKey(page.first, r * 7 + c - lead);
-        return day >= page.first && day <= page.last ? day : null;
-      }),
-    );
-  }
+  // grid.ts gives the weeks that hold the page's days (4 to 6 of them); the rest is blank rows and blank days.
+  const rows: (DayKey | null)[][] = grid(page.first, page.last, weekStart).map((row) => row.map((day) => (day >= page.first && day <= page.last ? day : null)));
+  while (rows.length < PAGE_ROWS) rows.push(Array.from({ length: 7 }, () => null));
   return rows;
 }
 

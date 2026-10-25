@@ -279,7 +279,7 @@
         "errTitleLong": "Keep the title to {max} characters or fewer",
         "errTooLong": "That’s too long",
         "errDate": "Enter a valid date and time",
-        "errYear": "Repeating items can start from the year 2000",
+        "errYear": "Only one-time and yearly items can start before the year 2000",
         "errEnd": "It ends before it starts",
         "errField": "Check this one"
       },
@@ -326,8 +326,6 @@
       "hintReminders": "For a reminder, just tell the bot, like “Remind me to call Grandma at 6”."
     },
     "picker": {
-      "dateSheet": "Choose a date",
-      "timeSheet": "Choose a time",
       "gregorian": "Gregorian",
       "hebrew": "Hebrew",
       "today": "Today",

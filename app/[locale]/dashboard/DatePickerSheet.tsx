@@ -15,7 +15,7 @@
 //   lands on the chosen day and goes back to the pill on close (BottomSheet restores it).
 // - All the logic is picker-model.ts; this file draws it. Rendered in place by PillRow.
 
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   canStep,
@@ -49,7 +49,7 @@ import type { WeekStart } from '@/src/lib/calendar-view/types';
 import { hapticSelection } from '@/src/lib/telegram-ui';
 import { BottomSheet } from './BottomSheet';
 import { Segmented } from './form-kit';
-import { PICKER_CSS, PickerScope, Wheel, WheelPickerWrapper } from './picker-kit';
+import { PICKER_CSS, Wheel, WheelPickerWrapper } from './picker-kit';
 
 export interface DatePickerSheetProps {
   /** The sheet's accessible name ("Start date"). */
@@ -68,8 +68,6 @@ export interface DatePickerSheetProps {
   min?: string | null;
   onPick: (day: string) => void;
   onClose: () => void;
-  /** Shown outside the home (brings the home's scope). */
-  standalone?: boolean;
 }
 
 /** A chevron: back (towards the start) or forward; flipped in RTL. */
@@ -90,11 +88,11 @@ const KEY_MOVES: Record<string, DayMove> = {
   End: 'weekEnd',
 };
 
-export function DatePickerSheet({ label, value, today, weekStart, hebrewDates, mode: startMode, minYear, min = null, onPick, onClose, standalone = false }: DatePickerSheetProps) {
+export function DatePickerSheet({ label, value, today, weekStart, hebrewDates, mode: startMode, minYear, min = null, onPick, onClose }: DatePickerSheetProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   const rtl = locale === 'he';
-  const limits = limitsFor(minYear, min);
+  const limits = useMemo(() => limitsFor(minYear, min), [minYear, min]);
   const chosen = isDayKey(value) ? value : '';
   const anchor = clampDay(chosen || (isDayKey(today) ? today : limits.min), limits);
   const genitive = locale === 'ru' ? (t.raw('hebrewMonthGenitive') as string[]) : undefined;
@@ -182,6 +180,13 @@ export function DatePickerSheet({ label, value, today, weekStart, hebrewDates, m
     setWheels({ month: mode === 'hebrew' ? hebrewMonthIn(wheels.month, year) : wheels.month, year });
   };
 
+  // The wheels' lists are built once per input: a fresh array makes the library re-snap a spinning wheel.
+  const wheelYearNow = wheels?.year;
+  const monthOptions = useMemo(() => (wheelYearNow === undefined ? [] : wheelMonths(mode, wheelYearNow, locale)), [mode, wheelYearNow, locale]);
+  const yearOptions = useMemo(() => wheelYears(mode, limits).map((y) => ({ value: String(y), label: yearLabel(mode, y, locale) })), [mode, limits, locale]);
+
+  // Choosing a Hebrew date reads the Hebrew date out, whatever the home shows.
+  const showHebrew = hebrewDates || mode === 'hebrew';
   const title = pageTitle(page, locale, hebrewDates);
   const rows = pageCells(page, weekStart);
   const order = weekdayOrder(weekStart);
@@ -189,7 +194,7 @@ export function DatePickerSheet({ label, value, today, weekStart, hebrewDates, m
   const shownDay = chosen || focusDay;
   const todayDisabled = !isDayKey(today) || isDisabledDay(today, limits);
 
-  const body = (
+  return (
     <>
       <style>{PICKER_CSS}</style>
       <BottomSheet label={label} closeLabel={t('editor.cancel')} onClose={onClose}>
@@ -228,13 +233,13 @@ export function DatePickerSheet({ label, value, today, weekStart, hebrewDates, m
               <WheelPickerWrapper className="ch-wheels">
                 <Wheel
                   label={t('picker.chooseMonth')}
-                  options={wheelMonths(mode, wheels.year, locale)}
+                  options={monthOptions}
                   value={wheels.month}
                   onChange={(month) => setWheels({ ...wheels, month })}
                 />
                 <Wheel
                   label={t('picker.year')}
-                  options={wheelYears(mode, limits).map((y) => ({ value: String(y), label: yearLabel(mode, y, locale) }))}
+                  options={yearOptions}
                   value={String(wheels.year)}
                   onChange={(year) => setWheelYear(Number(year))}
                 />
@@ -271,7 +276,7 @@ export function DatePickerSheet({ label, value, today, weekStart, hebrewDates, m
                             data-day={day}
                             className={`ch-picker-cell${day === today ? ' is-today' : ''}`}
                             tabIndex={day === focusDay ? 0 : -1}
-                            aria-label={dayAriaLabel(day, locale, hebrewDates, genitive)}
+                            aria-label={dayAriaLabel(day, locale, showHebrew, genitive)}
                             aria-selected={day === chosen}
                             aria-current={day === today ? 'date' : undefined}
                             aria-disabled={disabled || undefined}
@@ -301,7 +306,7 @@ export function DatePickerSheet({ label, value, today, weekStart, hebrewDates, m
           ) : (
             <div className="ch-picker-foot">
               <p className="ch-picker-chosen" dir="auto">
-                {footerText(shownDay, locale, hebrewDates, genitive)}
+                {footerText(shownDay, locale, showHebrew, genitive)}
               </p>
               <button type="button" className="ch-btn" disabled={todayDisabled} onClick={() => pick(today)}>
                 {t('picker.today')}
@@ -312,5 +317,4 @@ export function DatePickerSheet({ label, value, today, weekStart, hebrewDates, m
       </BottomSheet>
     </>
   );
-  return standalone ? <PickerScope>{body}</PickerScope> : body;
 }

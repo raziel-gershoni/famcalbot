@@ -68,7 +68,7 @@ import type { EditScope, EditorCalendar, ItemEditInfoResponse, ItemKind, RepeatC
 import { formatDayMonth } from '@/src/lib/calendar-view/format';
 import { BottomSheet } from './BottomSheet';
 import { hebrewLabelOf, hebrewRepeatText } from './hebrew-repeat-words';
-import { FORM_CSS, FormCard, PillRow, RadioPair, SaveBar, Segmented, SwitchRow, TextField, ValueRow, type SelectOption } from './form-kit';
+import { FORM_CSS, FormCard, PillRow, preloadPickers, RadioPair, SaveBar, Segmented, SwitchRow, TextField, ValueRow, type SelectOption } from './form-kit';
 import { ConfirmSheet, ScopeSheet, useErrorText, type SubmitError } from './ScopeSheet';
 
 /** What the container's request came to. On `ok` the container closes the editor. */
@@ -132,6 +132,10 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   /** The date or time sheet that is open, and for which row: it closes before the scope sheet and the editor do. */
   const [picker, setPicker] = useState<{ row: 'start' | 'end'; which: 'date' | 'time' } | null>(null);
   const pickerIsOpen = picker !== null;
+  // The first tap on a pill finds the sheets already loaded.
+  useEffect(() => {
+    preloadPickers();
+  }, []);
   useEffect(() => {
     onPickerChange?.(pickerIsOpen);
     return () => onPickerChange?.(false);

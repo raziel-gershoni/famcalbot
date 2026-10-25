@@ -16,7 +16,7 @@
 // user's Telegram theme, light or dark. In a browser there are no --tg-theme-* values,
 // and the fallbacks follow data-theme (prefers-color-scheme).
 //
-// The page's root takes the same background while the home is mounted (html:has(.ch-home)):
+// The page's root takes the same background while the home is mounted (html:has(.ch-home:not(.ch-standalone))):
 // the home scrolls the document, and on iOS the bounce past either end shows the root,
 // which globals.css leaves unpainted (white under a dark theme otherwise).
 //
@@ -186,10 +186,11 @@ export const HOME_THEME_CSS = `
   --cal-text: var(--cal-text-d);
   --cal-line: var(--cal-line-d);
 }
-html:has(.ch-home) {
+/* Not for a scope a sheet brings into another page (.ch-standalone): that page keeps its own look behind the scrim. */
+html:has(.ch-home:not(.ch-standalone)) {
   background-color: var(--tg-theme-bg-color, var(--bg-white));
 }
-html:has(.ch-home[data-theme='dark']) {
+html:has(.ch-home:not(.ch-standalone)[data-theme='dark']) {
   background-color: var(--tg-theme-bg-color, #15151d);
   color-scheme: dark;
 }

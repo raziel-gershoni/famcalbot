@@ -11,7 +11,7 @@
 // over its row at no opacity, so the row looks like the mockups' value row and a tap
 // opens the platform's own picker. Times are always left to right, as the Agenda's are.
 
-import { Suspense, lazy, useId, useState, type ReactNode } from 'react';
+import { Suspense, lazy, useId, type ReactNode } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { formatPillDate } from '@/src/lib/calendar-view/format';
 import { hebrewFullDate } from '@/src/lib/calendar-view/hebrew-date';
@@ -21,8 +21,20 @@ import { MIN_YEAR_SERIES } from '@/src/lib/calendar-view/year-limits';
 
 // The pickers are a chunk of their own (the wheel library comes with them): a chunk that fails to
 // load falls to the home's error boundary, like the Month's.
-const DatePickerSheet = lazy(() => import('./DatePickerSheet').then((m) => ({ default: m.DatePickerSheet })));
-const TimePickerSheet = lazy(() => import('./TimePickerSheet').then((m) => ({ default: m.TimePickerSheet })));
+const loadDatePicker = () => import('./DatePickerSheet');
+const loadTimePicker = () => import('./TimePickerSheet');
+const DatePickerSheet = lazy(() => loadDatePicker().then((m) => ({ default: m.DatePickerSheet })));
+const TimePickerSheet = lazy(() => loadTimePicker().then((m) => ({ default: m.TimePickerSheet })));
+
+/**
+ * Starts loading both sheets, so the first tap on a pill has nothing to wait for. The editor calls
+ * it when it opens. A failure is logged and left to the tap, which falls to the home's boundary.
+ */
+export function preloadPickers(): void {
+  for (const load of [loadDatePicker, loadTimePicker]) {
+    load().catch((err) => console.error('[picker] a sheet chunk failed to preload', err));
+  }
+}
 
 export const FORM_CSS = `
 .ch-editor-head {
@@ -548,12 +560,9 @@ export interface PillRowProps {
   weekStart?: WeekStart;
   /** Minutes between the time wheel's stops (5 in the editor). */
   timeStep?: number;
-  /**
-   * Which sheet is open, when the container owns that (the editor closes an open picker before it
-   * cancels); left out, the row keeps it itself.
-   */
-  open?: 'date' | 'time' | null;
-  onOpen?: (open: 'date' | 'time' | null) => void;
+  /** Which sheet is open: the container owns that (the editor closes an open picker before it cancels, and locks swipes while one is open). */
+  open: 'date' | 'time' | null;
+  onOpen: (open: 'date' | 'time' | null) => void;
 }
 
 /** A label with its date pill and, unless hidden, its time pill. A tap opens the date or time sheet. */
@@ -574,18 +583,13 @@ export function PillRow({
   today = '',
   weekStart = 0,
   timeStep = 5,
-  open: openProp,
+  open,
   onOpen,
 }: PillRowProps) {
   const errorId = useId();
   const t = useTranslations('calendarHome');
   const locale = useLocale();
-  const [own, setOwn] = useState<'date' | 'time' | null>(null);
-  const open = openProp !== undefined ? openProp : own;
-  const setOpen = (next: 'date' | 'time' | null) => {
-    if (openProp === undefined) setOwn(next);
-    onOpen?.(next);
-  };
+  const setOpen = onOpen;
   const dateText = formatPillDate(day, locale);
   const hebrewText = hebrewDates && dateText ? hebrewFullDate(day, locale, locale === 'ru' ? (t.raw('hebrewMonthGenitive') as string[]) : undefined) : '';
   return (
