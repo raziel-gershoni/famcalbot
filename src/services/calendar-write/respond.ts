@@ -36,7 +36,7 @@ export function writeResponse(result: WriteResult): NextResponse {
       const body: WriteResponse = { status: 'ok', ...(result.key ? { key: result.key } : {}), ...(result.leftIn !== undefined ? { leftIn: result.leftIn } : {}) };
       return json(body);
     }
-    case 'invalid': return json({ error: 'invalid', field: result.field } satisfies WriteResponse, 400);
+    case 'invalid': return json({ error: 'invalid', field: result.field, ...(result.reason ? { reason: result.reason } : {}) } satisfies WriteResponse, 400);
     case 'not_allowed': return json({ error: 'not_allowed' } satisfies WriteResponse, 403);
     case 'not_found': return json({ error: 'not_found' } satisfies WriteResponse, 404);
     case 'changed': return json({ error: 'changed' } satisfies WriteResponse, 409);

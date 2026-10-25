@@ -258,6 +258,7 @@ const KEYS: Record<string, readonly string[]> = {
   'editor.errors.errEnd': [],
   'editor.errors.errField': [],
   'editor.errors.errYear': [],
+  'editor.errors.errSeriesYear': [],
   // The date and time sheets (editor upgrades spec §1).
   'picker.gregorian': [],
   'picker.hebrew': [],
@@ -838,6 +839,10 @@ async function main() {
       ['en', 'editor.errors.errYear', {}, 'Only one-time and yearly items can start before the year 2000'],
       ['he', 'editor.errors.errYear', {}, 'רק פריט חד-פעמי או שנתי יכול להתחיל לפני שנת 2000'],
       ['ru', 'editor.errors.errYear', {}, 'Раньше 2000 года могут начинаться только разовые и ежегодные записи'],
+      // An "All" move that would start the series outside its years (editor upgrades spec §1): no addressee in Hebrew.
+      ['en', 'editor.errors.errSeriesYear', {}, 'Moving all of them would make the series start too early'],
+      ['he', 'editor.errors.errSeriesYear', {}, 'העברה של כל המופעים תגרום לסדרה להתחיל מוקדם מדי'],
+      ['ru', 'editor.errors.errSeriesYear', {}, 'Если перенести все, серия начнётся слишком рано'],
       ['en', 'editor.repeat.until', { rule: 'Every day', date: '27 Oct' }, 'Every day, until 27 Oct'],
       ['he', 'editor.repeat.until', { rule: 'כל יום', date: '27 באוק׳' }, 'כל יום, עד 27 באוק׳'],
       ['ru', 'editor.repeat.until', { rule: 'Каждый день', date: '27 окт.' }, 'Каждый день, до 27 окт.'],

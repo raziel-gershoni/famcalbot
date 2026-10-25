@@ -762,8 +762,14 @@ function slotMapFor(series: NativeEvent, shape: NativeEvent, from: Date, to: Dat
   return hebrewSlotMap(hebrewSeriesOf(series), hebrewSeriesOf(shape), { from, to }) ?? shift;
 }
 
-/** An edit as the store applies it, once ownTimes has read its occurrence times: `move` is the yearly move they make (seriesTimesFor), null for none. */
-type OwnTimes = UpdateNativeEventInput & { move?: YearlyMove | null };
+/**
+ * An edit as the store applies it, once ownTimes has read its occurrence times: `move` is the
+ * yearly move they make (seriesTimesFor), null for none; `unmoves` is the opened occurrence's slot
+ * when it was moved on its own and the edit gives it other times, so it comes back to the series
+ * even where the series' own start stays (All back onto the series' own day). The bot resending the
+ * times it already has gives none.
+ */
+type OwnTimes = UpdateNativeEventInput & { move?: YearlyMove | null; unmoves?: Date };
 
 /**
  * The yearly move (editor upgrades spec §1) of an edit that takes every occurrence of a yearly
@@ -786,6 +792,16 @@ function yearlyMoveOf(series: NativeEvent, input: OwnTimes, start = input.starts
  */
 function rollsHebrewDay(series: NativeEvent, input: OwnTimes): boolean {
   return Boolean(series.hebrewRule) && yearlyMoveOf(series, input)?.hebrewAnchor === null;
+}
+
+/**
+ * Whether an edit's yearly move gives a Hebrew series another anchor (ownTimes' `move`): its
+ * occurrences move even when its start stays, as for a tail that starts on a rolled day (1 Kislev,
+ * no 30 Cheshvan that year) moved to 1 Kislev.
+ */
+function movesAnchor(series: NativeEvent, input: OwnTimes): boolean {
+  const anchor = input.move?.hebrewAnchor;
+  return Boolean(series.hebrewRule) && anchor !== undefined && anchor !== null && anchor !== series.hebrewAnchor;
 }
 
 /**
@@ -857,7 +873,9 @@ async function ownTimes(series: NativeEvent, input: UpdateNativeEventInput): Pro
   const to = { startsAt: input.startsAt, endsAt: input.endsAt ?? new Date(input.startsAt.getTime() + length), allDay };
   if (input.scope !== 'all') return { ...input, ...followingTimesFor({ rrule: ruleAfter(series, input), timeZone: series.timeZone }, slot, from, to) };
   const times = seriesTimesFor(series, { slot, start: from }, to);
-  return { ...input, startsAt: times.startsAt, endsAt: times.endsAt, move: times.yearly ?? null };
+  const own = moved !== null && (moved.startsAt !== null || moved.endsAt !== null || moved.allDay !== null);
+  const retimed = to.startsAt.getTime() !== from.getTime() || to.endsAt.getTime() !== from.getTime() + length || to.allDay !== (moved?.allDay ?? series.allDay);
+  return { ...input, startsAt: times.startsAt, endsAt: times.endsAt, move: times.yearly ?? null, ...(own && retimed ? { unmoves: slot } : {}) };
 }
 
 /**
@@ -1216,8 +1234,9 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
   // the UNTIL moves too.
   // A start that is the series' own moves nothing (the bot resends it with a new end, or
   // with nothing new at all), so what was done to the occurrences one by one stays.
+  // A Hebrew series whose yearly move gives it another anchor moves though its start stays (movesAnchor).
   if (input.scope === 'all') {
-    const start = input.startsAt && input.startsAt.getTime() === series.startsAt.getTime() ? undefined : input.startsAt;
+    const start = input.startsAt && input.startsAt.getTime() === series.startsAt.getTime() && !movesAnchor(series, input) ? undefined : input.startsAt;
     const retimed =
       (input.endsAt !== undefined && input.endsAt.getTime() !== series.endsAt.getTime()) ||
       (input.allDay !== undefined && input.allDay !== series.allDay);
@@ -1246,6 +1265,12 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
       } else if (retimed) {
         await tx.nativeEventInstance.updateMany({
           where: { seriesEventId: series.id, status: 'OVERRIDE' },
+          data: { startsAt: null, endsAt: null, allDay: null },
+        });
+      } else if (input.unmoves && series.rrule) {
+        // The series stays where it is, and the opened occurrence, moved on its own, comes back to it.
+        await tx.nativeEventInstance.updateMany({
+          where: { seriesEventId: series.id, originalStartsAt: input.unmoves, status: 'OVERRIDE' },
           data: { startsAt: null, endsAt: null, allDay: null },
         });
       }
@@ -1550,22 +1575,24 @@ async function updateNativeReminder(
   const edit = reminderTimeEdit({ startsAt: series.startsAt, allDay: series.allDay }, input, series.timeZone);
   // A one-off that starts repeating keeps its row, and its state at its start.
   const startsRepeating = !!input.rrule && !series.rrule;
-  // Where every occurrence goes when the series' start moves (seriesMoved).
-  const moved = edit?.changed && series.rrule ? seriesMoved(series, input, edit) : undefined;
+  // The occurrences move when the start does, or when a Hebrew series' anchor does with its start staying (movesAnchor).
+  const changed = Boolean(edit?.changed) || movesAnchor(series, input);
+  // Where every occurrence goes then (seriesMoved).
+  const moved = edit && changed && series.rrule ? seriesMoved(series, input, edit) : undefined;
   const pings = await prisma.$transaction(async (tx) => {
     await tx.nativeEvent.update({
       where: { id: series.id },
       data: {
         ...text,
         ...(edit ? { startsAt: edit.startsAt, endsAt: edit.endsAt, allDay: edit.allDay } : {}),
-        ...(edit?.changed ? { armedAt: new Date() } : {}),
+        ...(changed ? { armedAt: new Date() } : {}),
         // A Hebrew series' anchor moves with its start, by its years ('all', or 'following' with nothing to cut).
         ...(moved && series.hebrewAnchor ? { hebrewAnchor: moved.hebrewAnchor } : {}),
         ...(startsRepeating ? { rrule: input.rrule, ...startingPair(input, edit?.startsAt ?? series.startsAt, series.timeZone) } : {}),
         ...(reassign ? { forUserId } : {}),
       },
     });
-    if (!edit?.changed) {
+    if (!changed) {
       // Every occurrence at the series' time, which stays: the ones moved on their own come back to it.
       const clearedPings = edit && input.scope === 'all' && series.rrule ? await unmoveOccurrences(tx, series) : [];
       const reassignedPings = reassign ? await reassignOpenStates(tx, { seriesEventId: series.id }) : [];

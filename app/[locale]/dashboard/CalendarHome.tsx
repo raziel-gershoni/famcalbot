@@ -192,6 +192,8 @@ function saveOutcome(out: WriteOutcome): SaveOutcome {
     case 'invalid':
       // A cross-source move refused (spec "Google as a connection" §5): saved with other changes, or it can't cross.
       if (out.field && (MOVE_NOTES as readonly string[]).includes(out.field)) return { kind: 'error', error: 'failed', move: out.field as MoveNote };
+      // An "All" move that would start the series outside its years: said on the start row, not as a day move.
+      if (out.reason === 'year') return { kind: 'error', error: 'failed', field: 'start', fieldError: 'errSeriesYear' };
       return { kind: 'error', error: 'failed', ...(out.field && FIELD_OF[out.field] ? { field: FIELD_OF[out.field] } : {}) };
     case 'notAllowed':
       return { kind: 'error', error: 'notAllowed' };

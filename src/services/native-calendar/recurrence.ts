@@ -969,6 +969,19 @@ export function yearlySlotMap(from: YearlySeries, to: YearlySeries, years: numbe
   };
 }
 
+/**
+ * Where a yearly move puts a date that is not one of the series' slots (a Google RDATE, an extra
+ * occurrence of its own): its own month, day and time, in its year plus `years`, so a far move
+ * leaves it where it is; null where that year has no such day (29 Feb).
+ */
+export function yearlyExtraDateMap(tz: string, years: number): (at: Date) => Date | null {
+  return (at) => {
+    const own = localDate(at, tz);
+    const day = `${pad4(Number(own.slice(0, 4)) + years)}${own.slice(4)}`;
+    return isCivilDay(day) ? fromZonedTime(`${day}T${formatInTimeZone(at, tz, 'HH:mm:ss.SSS')}`, tz) : null;
+  };
+}
+
 /** The last slot of `series` (its end aside) in Hebrew or Gregorian year `year` or before it, at or after its start; null when there is none. */
 function lastSlotBy(series: YearlySeries & { rrule: string }, year: number): Date | null {
   const rule = withoutEnd(series.rrule);
@@ -984,10 +997,12 @@ function lastSlotBy(series: YearlySeries & { rrule: string }, year: number): Dat
 
 /**
  * How a yearly move changes a series' end (`from`, the series; `to`, the series as it will be): null
- * when it keeps it (no end, or a near move's COUNT: the same years); an UNTIL moved as the last slot
- * moved (`from` to `to`), so the series keeps its last year; a date UNTIL on `day` for a far move's
- * COUNT (counted from the new first date it would end in another year), and on the new start's day
- * when the series would end before it starts (a far move past its end keeps the picked date).
+ * when it keeps it (no end, or a near move's COUNT that still ends on the moved last slot: the same
+ * years); an UNTIL moved as the last slot moved (`from` to `to`), so the series keeps its last year;
+ * a date UNTIL on `day` for a far move's COUNT (counted from the new first date it would end in
+ * another year) and for a near move's whose years change (29 Feb is a leap year's: the same COUNT
+ * would run on for years), and on the new start's day when the series would end before it starts (a
+ * far move past its end keeps the picked date).
  */
 export function yearlyEnd(from: YearlySeries, to: YearlySeries, move: YearlyMove): { from: Date; to: Date } | { day: string } | null {
   if (!from.rrule || !to.rrule) return null;
@@ -1000,7 +1015,10 @@ export function yearlyEnd(from: YearlySeries, to: YearlySeries, move: YearlyMove
   const next = lastSlotBy({ ...to, rrule: to.rrule }, year);
   if (!next || next < to.startsAt) return { day: localDate(to.startsAt, to.timeZone || TIMEZONE) };
   if (until) return { from: last, to: next };
-  return move.far ? { day: localDate(next, tz) } : null;
+  if (move.far) return { day: localDate(next, tz) };
+  const count = /(^|;)COUNT=(\d+)/i.exec(bare(from.rrule))![2];
+  const counted = lastSlot(`${withoutEnd(to.rrule)};COUNT=${count}`, to.startsAt, to.timeZone || TIMEZONE, { hebrewRule: to.hebrewRule, hebrewAnchor: to.hebrewAnchor });
+  return counted?.getTime() === next.getTime() ? null : { day: localDate(next, tz) };
 }
 
 /** A yearly series' rule after its move (yearlyEnd), as the store keeps it: a date UNTIL is read as the end of its day. */

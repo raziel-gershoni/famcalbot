@@ -749,6 +749,36 @@ async function main() {
     assertSame([days[0], days[1], days[days.length - 1], days.length], ['2030-03-05', '2032-03-05', '2039-03-05', 9], 'from 2030 to 2039, 2031 excluded');
   });
 
+  await check('all, yearly back onto the master\'s own day: the opened exception, moved on its own, comes back to it; asked for the times it shows, it stays', async () => {
+    seed(NOA_CAL, 'own', { start: '2020-03-02T10:00:00', summary: 'Birthday', recurrence: ['RRULE:FREQ=YEARLY'] });
+    const slotId = inst('own', '2026-03-02T10:00:00');
+    seedException(NOA_CAL, slotId, { summary: 'Party', start: { dateTime: at('2026-03-05T10:00:00').toISOString(), timeZone: IL }, end: { dateTime: at('2026-03-05T11:00:00').toISOString(), timeZone: IL } });
+    const resend = await update(NOA, NOA_CAL, slotId, { startTime: at('2026-03-05T10:00:00'), endTime: at('2026-03-05T11:00:00'), scope: 'all', recurringEventId: 'own' });
+    assertSame([resend.success, writes().filter((c) => c.path.includes(slotId)).length, new Date(stored(NOA_CAL, slotId)!.start.dateTime).toISOString()], [true, 0, at('2026-03-05T10:00:00').toISOString()], 'the times it shows: the exception untouched');
+    const r = await update(NOA, NOA_CAL, slotId, { startTime: at('2026-03-02T10:00:00'), endTime: at('2026-03-02T11:00:00'), scope: 'all', recurringEventId: 'own' });
+    const ex = stored(NOA_CAL, slotId)!;
+    assertSame([r.success, r.instanceId, new Date(stored(NOA_CAL, 'own')!.start.dateTime).toISOString()], [true, slotId, at('2020-03-02T10:00:00').toISOString()], 'the master stays');
+    assertSame([new Date(ex.start.dateTime).toISOString(), new Date(ex.end.dateTime).toISOString(), ex.summary], [at('2026-03-02T10:00:00').toISOString(), at('2026-03-02T11:00:00').toISOString(), 'Party'], 'the exception back on 2 March, its title kept');
+  });
+
+  await check('all, yearly near onto 29 Feb: a COUNT whose years change becomes the moved last slot\'s date (one rule with FamCal\'s)', async () => {
+    seed(NOA_CAL, 'leap', { start: '2020-03-01T10:00:00', recurrence: ['RRULE:FREQ=YEARLY;COUNT=5'] });
+    const r = await update(NOA, NOA_CAL, inst('leap', '2024-03-01T10:00:00'), { startTime: at('2024-02-29T10:00:00'), endTime: at('2024-02-29T11:00:00'), scope: 'all', recurringEventId: 'leap' });
+    const m = stored(NOA_CAL, 'leap')!;
+    assertSame([r.success, new Date(m.start.dateTime).toISOString(), m.recurrence], [true, at('2020-02-29T10:00:00').toISOString(), [`RRULE:FREQ=YEARLY;UNTIL=${utcStamp(at('2024-02-29T23:59:59'))}`]], 'the master');
+    assertSame(visible(NOA_CAL, 'leap').map(dayOf), ['2020-02-29', '2024-02-29'], 'the leap years in its span');
+  });
+
+  await check('all, yearly: an RDATE (an extra date) keeps its own day and time, in its year plus the move\'s years; an EXDATE moves with its slot', async () => {
+    const lines = (exdate: string) => ['RRULE:FREQ=YEARLY', `EXDATE:${utcStamp(at(exdate))}`, `RDATE:${utcStamp(at('2027-06-15T14:00:00'))}`];
+    seed(NOA_CAL, 'rd', { start: '2020-03-02T10:00:00', recurrence: lines('2028-03-02T10:00:00') });
+    await update(NOA, NOA_CAL, inst('rd', '2026-03-02T10:00:00'), { startTime: at('2026-03-05T10:00:00'), endTime: at('2026-03-05T11:00:00'), scope: 'all', recurringEventId: 'rd' });
+    assertSame(stored(NOA_CAL, 'rd')!.recurrence, lines('2028-03-05T10:00:00'), 'near: the RDATE stays on 15 June 14:00, the EXDATE on 5 March');
+    seed(NOA_CAL, 'nye', { start: '2020-12-31T10:00:00', recurrence: lines('2028-12-31T10:00:00') });
+    await update(NOA, NOA_CAL, inst('nye', '2026-12-31T10:00:00'), { startTime: at('2027-01-01T10:00:00'), endTime: at('2027-01-01T11:00:00'), scope: 'all', recurringEventId: 'nye' });
+    assertSame(stored(NOA_CAL, 'nye')!.recurrence, ['RRULE:FREQ=YEARLY', `EXDATE:${utcStamp(at('2029-01-01T10:00:00'))}`, `RDATE:${utcStamp(at('2028-06-15T14:00:00'))}`], 'across the year: both a year on, the RDATE on its own day');
+  });
+
   await check('all: a day move on a series with fixed days (BYDAY, BYMONTHDAY) is FIXED_DAYS, and nothing is written; a time alone is fine', async () => {
     WEEKLY_TUE({ recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=TU'] });
     const r = await update(NOA, NOA_CAL, inst('wk', '2026-10-20T10:00:00'), { startTime: at('2026-10-21T10:00:00'), endTime: at('2026-10-21T11:00:00'), scope: 'all', recurringEventId: 'wk' });

@@ -74,7 +74,7 @@ import { ConfirmSheet, ScopeSheet, useErrorText, type SubmitError } from './Scop
 /** What the container's request came to. On `ok` the container closes the editor. */
 export type SaveOutcome =
   | { kind: 'ok' }
-  | { kind: 'error'; error: SubmitError; field?: FieldName; move?: MoveNote };
+  | { kind: 'error'; error: SubmitError; field?: FieldName; move?: MoveNote; fieldError?: 'errSeriesYear' };
 
 /** A move to the other kind of calendar the server refused: saved with other changes, or what can't cross ("Google as a connection" §5). */
 export type MoveNote = 'moveAlone' | 'moveMeet' | 'moveHebrew' | 'moveRepeat';
@@ -124,7 +124,8 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   const [start] = useState(initial);
   const [form, setForm] = useState<EditorForm>(initial);
   const [showErrors, setShowErrors] = useState(false);
-  const [serverField, setServerField] = useState<FieldName | null>(null);
+  /** A field the server refused, and what its row says (errField unless the server named why). */
+  const [serverField, setServerField] = useState<{ field: FieldName; key: 'errField' | 'errSeriesYear' } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<SubmitError | null>(null);
   const [scopeOpen, setScopeOpen] = useState(false);
@@ -154,7 +155,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   const edit = mode === 'edit';
   const reminder = form.kind === 'reminder';
   const errors: FieldErrors = showErrors ? checkForm(form) : {};
-  if (serverField && !errors[serverField]) errors[serverField] = 'errField';
+  if (serverField && !errors[serverField.field]) errors[serverField.field] = serverField.key;
   const errorOf = (field: FieldName): string | null => {
     const key = errors[field];
     return key ? t(`editor.errors.${key}`, { max: field === 'title' ? 200 : field === 'location' ? 200 : 2000 }) : null;
@@ -195,12 +196,17 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
     setSaving(false);
     if (outcome.kind === 'error') {
       setScopeOpen(false);
+      // The series would start outside its years: the start row says so (no day note, no "Couldn't save").
+      if (outcome.fieldError) {
+        setServerField({ field: outcome.field ?? 'start', key: outcome.fieldError });
+        return;
+      }
       // A refused day move for more than this one: the rule fixes the days (it changed after
       // the sheet opened, so the choices offered it), and retrying would fail the same way.
       if (edit && info && outcome.field === 'start' && scope !== 'single' && movesDay(form, start, info.tz, info.series.zone)) setInlineNote('dayMove');
       else if (outcome.move) setInlineNote(outcome.move);
       else setError(outcome.error);
-      if (outcome.field) setServerField(outcome.field);
+      if (outcome.field) setServerField({ field: outcome.field, key: 'errField' });
     }
   };
   const save = () => {

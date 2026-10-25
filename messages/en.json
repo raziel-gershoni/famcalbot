@@ -280,6 +280,7 @@
         "errTooLong": "That’s too long",
         "errDate": "Enter a valid date and time",
         "errYear": "Only one-time and yearly items can start before the year 2000",
+        "errSeriesYear": "Moving all of them would make the series start too early",
         "errEnd": "It ends before it starts",
         "errField": "Check this one"
       },

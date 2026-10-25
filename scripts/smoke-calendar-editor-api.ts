@@ -766,12 +766,12 @@ async function main() {
     const first = await post(eventBody({ start: '1900-01-01T10:00', end: '1900-01-01T11:00', repeat: 'yearly' }));
     const firstKey = `famcal|${idOf(first.body.key)}#${iso(at('2026-01-01 10:00'))}`;
     const refused = await patch({ key: firstKey, scope: 'all', changes: { start: '2025-12-31T10:00', end: '2025-12-31T11:00' } });
-    assertSame([refused.status, refused.body], [400, { error: 'invalid', field: 'start' }], 'a day back from 1 Jan puts the first date on 31 Dec 1899');
+    assertSame([refused.status, refused.body], [400, { error: 'invalid', field: 'start', reason: 'year' }], 'a day back from 1 Jan puts the first date on 31 Dec 1899 (the year reason, not a day move the rule refuses)');
     assertSame(iso(eventRow(idOf(first.body.key)).startsAt), iso(at('1900-01-01 10:00')), 'nothing written');
     const daily = await post(eventBody({ start: '2000-01-03T10:00', end: '2000-01-03T11:00', repeat: 'daily' }));
     const dailyKey = (day: string) => `famcal|${idOf(daily.body.key)}#${iso(at(`${day} 10:00`))}`;
     const back = await patch({ key: dailyKey('2026-10-20'), scope: 'all', changes: { start: '2026-10-15T10:00', end: '2026-10-15T11:00' } });
-    assertSame([back.status, back.body], [400, { error: 'invalid', field: 'start' }], 'a daily series moved five days back starts in 1999');
+    assertSame([back.status, back.body], [400, { error: 'invalid', field: 'start', reason: 'year' }], 'a daily series moved five days back starts in 1999');
     const near = await patch({ key: dailyKey('2026-10-20'), scope: 'all', changes: { start: '2026-10-21T10:00', end: '2026-10-21T11:00' } });
     assertSame([near.status, iso(eventRow(idOf(daily.body.key)).startsAt)], [200, iso(at('2000-01-04 10:00'))], 'a day later is fine');
   });
@@ -2597,6 +2597,50 @@ async function main() {
     assertSame([remNear.status, remNear.body.key, iso(eventRow(rem.id).startsAt)], [200, rem.occ('2026-03-04'), iso(at('1990-03-04 17:30'))], 'and near');
   });
 
+  await check('"All" back onto the series\' own day brings an occurrence moved on its own back (events as reminders); the bot resending the times it shows changes nothing', async () => {
+    seed();
+    const s = yearlySeries('back', '2020-03-02 10:00');
+    await patch({ key: s.occ('2026-03-02'), scope: 'single', changes: { title: 'Party', start: '2026-03-05T10:00', end: '2026-03-05T11:00' } });
+    const resend = await store.updateNativeEvent({ seriesCuid: s.id, instanceStartsAt: at('2026-03-02 10:00'), scope: 'all', actingUserId: TAL, occurrenceTimes: true, startsAt: at('2026-03-05 10:00'), endsAt: at('2026-03-05 11:00') });
+    assertSame([iso(resend.key.slot), await daysOf(s.id, '2025-01-01', '2028-01-01')], [iso(at('2026-03-02 10:00')), ['2025-03-02', '2026-03-05', '2027-03-02']], 'the bot resending where it is: still moved');
+    const r = await s.moveAll('2026-03-02', '2026-03-02');
+    assertSame([r.status, r.body.key, iso(eventRow(s.id).startsAt)], [200, s.occ('2026-03-02'), iso(at('2020-03-02 10:00'))], 'the series stays');
+    assertSame([await daysOf(s.id, '2025-01-01', '2028-01-01'), rowsOf(s.id), overrides(s.id)[0].startsAt], [['2025-03-02', '2026-03-02', '2027-03-02'], [['2026-03-02', 'OVERRIDE', 'Party']], null], 'every year on 2 March; the rename kept, its own times gone');
+    const weekly = seedSeries('wk-back', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Swim', startsAt: at('2026-01-06 10:00'), rrule: 'FREQ=WEEKLY' });
+    const wKey = `famcal|${weekly.id}#${iso(at('2026-10-20 10:00'))}`;
+    await patch({ key: wKey, scope: 'single', changes: { start: '2026-10-20T12:00', end: '2026-10-20T13:00' } });
+    const w = await patch({ key: wKey, scope: 'all', changes: { start: '2026-10-20T10:00', end: '2026-10-20T11:00' } });
+    assertSame([w.status, iso(eventRow(weekly.id).startsAt), overrides(weekly.id)[0].startsAt], [200, iso(at('2026-01-06 10:00')), null], 'a weekly occurrence moved to 12:00 comes back to 10:00 too');
+    const rem = yearlySeries('rem-back', '2020-03-02 17:30', { kind: 'REMINDER', title: 'Call Dana' });
+    await patch({ key: rem.occ('2026-03-02'), scope: 'single', changes: { start: '2026-03-05T17:30' } });
+    const m = await patch({ key: rem.occ('2026-03-02'), scope: 'all', changes: { start: '2026-03-02T17:30' } });
+    assertSame([m.status, await daysOf(rem.id, '2025-01-01', '2028-01-01')], [200, ['2025-03-02', '2026-03-02', '2027-03-02']], 'a reminder the same');
+  });
+
+  await check('yearly "All", Hebrew tail that starts on a rolled day (1 Kislev 5786) moved to 1 Kislev: the anchor moves though the start stays (events and reminders)', async () => {
+    for (const kind of ['EVENT', 'REMINDER'] as const) {
+      seed();
+      const s = hebrewSeries('heb', kind === 'REMINDER' ? { kind, title: 'Light a candle' } : {});
+      assertSame((await patch({ key: s.occ('2025-11-21'), scope: 'following', changes: { title: 'Saba' } })).status, 200, `${kind}: the tail`);
+      const tail = lastEvent();
+      assertSame([iso(tail.startsAt), tail.hebrewAnchor], [iso(at('2025-11-21 10:00')), '2022-11-24'], `${kind}: starts on 1 Kislev 5786, anchored on 30 Cheshvan 5783`);
+      const changes = kind === 'REMINDER' ? { start: '2026-11-11T10:00' } : { start: '2026-11-11T10:00', end: '2026-11-11T11:00' };
+      const r = await patch({ key: s.occ('2026-11-10', '10:00', tail.id), scope: 'all', changes });
+      assertSame([r.status, r.body.key, iso(eventRow(tail.id).startsAt), eventRow(tail.id).hebrewAnchor], [200, s.occ('2026-11-11', '10:00', tail.id), iso(at('2025-11-21 10:00')), '2022-11-25'], `${kind}: anchored on 1 Kislev 5783, its start where it was`);
+      assertSame(await daysOf(tail.id, '2025-01-01', '2029-01-01'), ['2025-11-21', '2026-11-11', '2027-12-01', '2028-11-19'], `${kind}: every year on 1 Kislev`);
+    }
+  });
+
+  await check('yearly "All", near onto 29 Feb: a COUNT whose years change becomes the moved last slot\'s date (a leap year\'s), not five leap years', async () => {
+    seed();
+    const s = yearlySeries('leap', '2021-03-01 10:00', { rrule: 'FREQ=YEARLY;COUNT=5' });
+    const r = await s.moveAll('2024-03-01', '2024-02-29');
+    assertSame([r.status, iso(eventRow(s.id).startsAt), eventRow(s.id).rrule, await daysOf(s.id, '2020-01-01', '2050-01-01')], [200, iso(at('2024-02-29 10:00')), 'FREQ=YEARLY;UNTIL=20240229', ['2024-02-29']], 'from 2021: only 2024 had 29 Feb');
+    const t = yearlySeries('leap2', '2020-03-01 10:00', { rrule: 'FREQ=YEARLY;COUNT=5' });
+    await t.moveAll('2024-03-01', '2024-02-29');
+    assertSame([eventRow(t.id).rrule, await daysOf(t.id, '2019-01-01', '2050-01-01')], ['FREQ=YEARLY;UNTIL=20240229', ['2020-02-29', '2024-02-29']], 'from 2020: the leap years in its span');
+  });
+
   await check('"All" on any other rule keeps the day shift: a monthly and a weekly series move by the days, a yearly one with fixed days is refused a day move', async () => {
     seed();
     const monthly = seedSeries('mon', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Rent', startsAt: at('2026-01-15 10:00'), rrule: 'FREQ=MONTHLY' });
@@ -2607,7 +2651,7 @@ async function main() {
     assertSame([w.status, iso(eventRow(weekly.id).startsAt)], [200, iso(at('2026-07-21 10:00'))], 'weekly: 196 days later, the same days');
     const fixed = yearlySeries('fixed', '2020-03-02 10:00', { rrule: 'FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=2' });
     const f = await fixed.moveAll('2026-03-02', '1985-03-02');
-    assertSame([f.status, f.body, iso(eventRow(fixed.id).startsAt)], [400, { error: 'invalid', field: 'start' }, iso(at('2020-03-02 10:00'))], 'a yearly rule with fixed days: refused');
+    assertSame([f.status, f.body, iso(eventRow(fixed.id).startsAt)], [400, { error: 'invalid', field: 'start' }, iso(at('2020-03-02 10:00'))], 'a yearly rule with fixed days: refused (no year reason)');
   });
 
   await check('a store failure is 500 with no title in the response, the capture or the console', async () => {

@@ -204,6 +204,7 @@ export interface DeleteItemBody {
  */
 export type WriteResponse =
   | { status: 'ok'; key?: string; leftIn?: string }
-  | { error: 'invalid'; field: string }
+  // reason 'year': an "All" move would start the series outside the years its repeat allows (not a day move the rule refuses).
+  | { error: 'invalid'; field: string; reason?: 'year' }
   | { error: 'bad_request' | 'not_allowed' | 'not_found' | 'changed' | 'internal_error' | 'busy' | 'move_failed' }
   | { error: 'reconnect'; reason: 'token' | 'scopes' };

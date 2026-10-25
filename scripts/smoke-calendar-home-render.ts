@@ -6525,6 +6525,26 @@ async function main() {
     }
   });
 
+  await check('#104c edit: an "all" move the server refuses because the series would start outside its years (reason "year") says so on the start row, not the day note or "Couldn\'t save", in each language', async () => {
+    for (const locale of LOCALES) {
+      const l = messages[locale].calendarHome;
+      const a = await hebrewHome(locale, true, { item: serveSwim(hebrewSwim('hebrew')), write: () => ({ status: 400, body: { error: 'invalid', field: 'start', reason: 'year' } }) });
+      try {
+        await openEditor(a.m, 'Swimming', l.sheet.edit);
+        await typeInto(inDialog(a.m, l.editor.startsDate), day(7));
+        a.m.click(saveButton(a.m));
+        await settle();
+        tapIn(a.m, l.scope.all);
+        await settle();
+        assert(writes().length === 1 && writes()[0].body?.scope === 'all', `${locale} sent: ${show(writes()[0]?.body)}`);
+        assert(alerts(a.m).includes(l.editor.errors.errSeriesYear), `${locale}: the year message: ${show(alerts(a.m))}`);
+        assert(!alerts(a.m).includes(l.scope.dayMoveNote) && !alerts(a.m).includes(l.editor.submitErrors.failed), `${locale}: no day note, no generic text: ${show(alerts(a.m))}`);
+      } finally {
+        a.m.unmount();
+      }
+    }
+  });
+
   await check('#104b the item sheet names the rule (spec §1, §4): a Hebrew series says "Every year on 30 Cheshvan" (the stored anchor, gematriya in Hebrew, every 2 years named) in place of the generic "Repeats", to a viewer who cannot edit too, with Hebrew dates off too; a Gregorian series keeps "Repeats"', async () => {
     const WORDS: Record<Locale, string> = { en: 'Every year on 30 Cheshvan', he: 'כל שנה בל׳ בחשון', ru: 'Каждый год 30 хешвана' };
     for (const locale of LOCALES) {

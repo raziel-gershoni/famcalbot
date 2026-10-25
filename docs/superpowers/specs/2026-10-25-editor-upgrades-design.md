@@ -72,12 +72,15 @@ series' first date (start and Hebrew anchor exactly the picked date); a nearer o
 year and puts every year on the picked month and day (Hebrew: the first Hebrew year, the picked
 Hebrew month and day, Adar per hebcal). Other rules keep the day shift. One rule for FamCal, the
 store and Google masters (the editor's All goes through the store's occurrence path, as the bot's
-does). A moved start outside the year floor is refused (`invalid`, `start`). As built: a near move
-carries a change of year (Dec 31 → Jan 1 starts a 2020 series on 2021-01-01); a far move turns a
-COUNT into an end on its last year, and one past the series' end leaves the picked date alone; a
-Hebrew near move keeps the anchor's year (the count stays); All from a rolled Hebrew year now moves
-every year to the picked day, refused only where the anchor's year lacks that date (30 Cheshvan or
-Kislev in a short year, Adar I in a common one).
+does). A moved start outside the year floor is refused (`invalid`, `start`, reason `year`, which the
+editor shows on the start row). As built: a near move carries a change of year (Dec 31 → Jan 1
+starts a 2020 series on 2021-01-01); a far move, or a near one whose years change (onto 29 Feb),
+turns a COUNT into an end on its last year, and one past the series' end leaves the picked date
+alone; a Hebrew near move keeps the anchor's year (the count stays); All from a rolled Hebrew year
+now moves every year to the picked day, refused only where the anchor's year lacks that date (30
+Cheshvan or Kislev in a short year, Adar I in a common one). All back onto the series' own day brings
+an occurrence moved on its own back to it (FamCal and Google); a Google RDATE keeps its own day, in
+its year plus the move's change of year.
 
 **Telegram and web.** CalendarHome stays the BackButton's only owner; the editor's cancel chain
 closes an open picker first, as it does the scope sheet. Settings shows the BackButton while its

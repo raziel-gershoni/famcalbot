@@ -64,7 +64,7 @@ export interface EditorForm {
 export type FieldName = 'title' | 'location' | 'notes' | 'start' | 'end';
 
 /** The copy key (calendarHome.editor.<key>) of each inline error, by field. */
-export type FieldErrors = Partial<Record<FieldName, 'errTitle' | 'errTitleLong' | 'errTooLong' | 'errDate' | 'errYear' | 'errEnd' | 'errField'>>;
+export type FieldErrors = Partial<Record<FieldName, 'errTitle' | 'errTitleLong' | 'errTooLong' | 'errDate' | 'errYear' | 'errSeriesYear' | 'errEnd' | 'errField'>>;
 
 // ---- Wall-time arithmetic ----
 

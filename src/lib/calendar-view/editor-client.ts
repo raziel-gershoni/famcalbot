@@ -27,7 +27,7 @@ const READ_TIME_LIMIT_MS = 15_000;
 export type WriteOutcome =
   /** leftIn: a cross-source move made its copy but the original is still in that calendar. */
   | { kind: 'ok'; key: string | null; leftIn?: string }
-  | { kind: 'invalid'; field: string | null }
+  | { kind: 'invalid'; field: string | null; reason?: 'year' }
   | { kind: 'notAllowed' }
   | { kind: 'notFound' }
   | { kind: 'changed' }
@@ -148,7 +148,7 @@ function outcomeOf(res: { status: number; body: unknown } | null): WriteOutcome 
     if (body.status !== 'ok') return { kind: 'failed' };
     return { kind: 'ok', key: typeof body.key === 'string' ? body.key : null, ...(typeof body.leftIn === 'string' ? { leftIn: body.leftIn } : {}) };
   }
-  if (res.status === 400 && body.error === 'invalid') return { kind: 'invalid', field: typeof body.field === 'string' ? body.field : null };
+  if (res.status === 400 && body.error === 'invalid') return { kind: 'invalid', field: typeof body.field === 'string' ? body.field : null, ...(body.reason === 'year' ? { reason: 'year' as const } : {}) };
   if (res.status === 403 && body.error === 'not_allowed') return { kind: 'notAllowed' };
   if (res.status === 403 && body.error === 'reconnect') return { kind: 'reconnect', reason: body.reason === 'scopes' ? 'scopes' : 'token' };
   if (res.status === 404) return { kind: 'notFound' };

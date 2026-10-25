@@ -52,7 +52,8 @@ export type WriteResult =
   // leftIn: a cross-source move made its copy, but the original is still in that calendar
   // (it couldn't be read again, or its copy couldn't be taken back; logged with both ids).
   | { status: 'ok'; key?: string; leftIn?: string }
-  | { status: 'invalid'; field: string }
+  // reason 'year': the moved series start would leave the years its repeat allows (editor upgrades spec §1).
+  | { status: 'invalid'; field: string; reason?: 'year' }
   | { status: 'not_allowed' | 'not_found' | 'changed' }
   // 3b, Google: the connection needs the user (a dead token, or a write scope not granted),
   // or Google failed (a rate limit, a 5xx, a timeout, anything else; already logged).
@@ -383,7 +384,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
       // The moved start can leave the years its repeat allows (a daily series moved back past 2000, a yearly
       // one from 1 Jan 1900 to 31 Dec). Refused, not clamped.
       if (moved.startsAt.getTime() !== series.startsAt.getTime() && !isDay(localDate(moved.startsAt, itemTz), floor)) {
-        return { status: 'invalid', field: 'start' };
+        return { status: 'invalid', field: 'start', reason: 'year' };
       }
       Object.assign(input, { occurrenceTimes: true, startsAt, endsAt });
     } else {
