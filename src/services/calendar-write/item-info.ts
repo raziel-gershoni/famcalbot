@@ -25,7 +25,7 @@ import {
   occurrenceAt,
   type NativeAccess,
 } from '../native-calendar/event-store';
-import { classifyRule, fixesDays, isHebrewRule, type HebrewColumns, type VirtualInstance } from '../native-calendar/recurrence';
+import { classifyRule, endOfRule, fixesDays, isHebrewRule, specOfRule, type HebrewColumns, type VirtualInstance } from '../native-calendar/recurrence';
 import { effectiveOwnerForViewer, loadViewerContext, type ViewerContext } from '../native-reminders/ownership';
 import { getReminderSupport } from '../native-reminders/support';
 import { reminderTimeOf } from '../../lib/reminder-time';
@@ -250,11 +250,28 @@ export function repeatInfo(rrule: string | null, hebrew?: HebrewColumns | null):
     const opts = RRule.parseString(rrule.startsWith('RRULE:') ? rrule.slice(6) : rrule);
     const freq = opts.freq === undefined ? undefined : FREQS[opts.freq];
     if (!freq) return null;
-    const byDay = ([] as unknown[]).concat(opts.byweekday ?? []).flatMap((d) => {
+    const days = ([] as unknown[]).concat(opts.byweekday ?? []).flatMap((d) => {
       const n = typeof d === 'number' ? d : (d as { weekday?: number }).weekday;
-      return typeof n === 'number' && WEEKDAYS[n] ? [WEEKDAYS[n]] : [];
+      const ordinal = typeof d === 'number' ? undefined : (d as { n?: number }).n;
+      return typeof n === 'number' && WEEKDAYS[n] ? [{ code: WEEKDAYS[n], ordinal: ordinal ?? null }] : [];
     });
-    const info: RepeatInfo = { freq, interval: opts.interval ?? 1, byDay, ends: opts.until != null || opts.count != null };
+    const byDay = days.map((d) => d.code);
+    const numbers = (v: unknown) => ([] as unknown[]).concat(v ?? []).filter((n): n is number => typeof n === 'number');
+    const monthDays = numbers(opts.bymonthday);
+    const months = numbers(opts.bymonth);
+    const end = endOfRule(rrule);
+    const info: RepeatInfo = {
+      freq,
+      interval: opts.interval ?? 1,
+      byDay,
+      ends: opts.until != null || opts.count != null,
+      // The rest of the rule, so a bot rule the sheet can't say still opens with its real words.
+      ...(days.some((d) => d.ordinal !== null) ? { byDayOrdinals: days.map((d) => d.ordinal) } : {}),
+      ...(monthDays.length > 0 ? { byMonthDay: monthDays } : {}),
+      ...(months.length > 0 ? { byMonth: months } : {}),
+      ...(end.until ? { until: end.until } : {}),
+      ...(end.count !== undefined ? { count: end.count } : {}),
+    };
     if (hebrew?.hebrewRule) {
       if (!isHebrewRule(hebrew.hebrewRule) || !hebrew.hebrewAnchor) return null;
       info.hebrew = { anchor: hebrew.hebrewAnchor };
@@ -320,6 +337,8 @@ export async function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, 
   const first = wallFor(series.startsAt, series.endsAt, series.allDay, userTz, itemTz);
   const ownerIsPartner = isReminder && ctx.partner !== null && effectiveOwnerForViewer(series, ctx) === ctx.partner.id;
   const classified = classifyRule(series.rrule, series.startsAt, itemTz, series);
+  // The stored rule as the Repeat sheet says it, when it can (richer repeats spec §3).
+  const spec = specOfRule(series.rrule, series.startsAt, itemTz, series);
   const rule = {
     choice: classified.choice,
     ...(classified.until ? { until: wallFor(classified.until, classified.until, series.allDay, userTz, itemTz).start.slice(0, 10) } : {}),
@@ -351,6 +370,7 @@ export async function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, 
       fixedDays: fixesDays(series.rrule),
       zone: itemTz,
       rule,
+      ...(spec ? { spec } : {}),
       first: !series.rrule || (await isFirstOccurrence(series, occurrence.instanceStartsAt)),
     },
     tz: userTz,

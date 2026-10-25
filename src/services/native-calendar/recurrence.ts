@@ -17,6 +17,7 @@ import { HDate, getBirthdayOrAnniversary } from '@hebcal/hdate';
 import type { NativeEvent, NativeEventInstance } from '@prisma/client';
 import { TIMEZONE } from '../../config/constants';
 import { captureError } from '../../lib/error-capture';
+import { REPEAT_COUNT_MAX, REPEAT_INTERVAL_MAX, WEEKDAY_CODES, type RepeatSpec, type WeekdayCode } from '../../lib/calendar-view/editor-types';
 import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
 import { hebrewDayIn, type HebrewMonthName } from '../hebrew-date-resolve';
 
@@ -748,6 +749,114 @@ export function classifyRule(rule: string | null, start: Date, zone: string, heb
     if (!matches) return withEnd('custom');
   }
   return withEnd(choice);
+}
+
+// ---- Reading a rule as the Repeat sheet says it (richer repeats spec §3, ruling 4) ----
+
+const WEEKDAY_OF_NUMBER: readonly WeekdayCode[] = WEEKDAY_CODES;
+const BY_PARTS = ['byweekday', 'bymonthday', 'bymonth'] as const;
+const daysInMonthOf = (year: number, month: number) => new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+/** A start's weekday (rrule's, Monday = 0), day of the month and the length of its month, read in `zone`. */
+function startFacts(start: Date, zone: string): { weekday: number; day: number; month: number; daysInMonth: number } {
+  const [year, month, day] = formatInTimeZone(start, zone, 'yyyy-M-d').split('-').map(Number);
+  return { weekday: Number(formatInTimeZone(start, zone, 'i')) - 1, day, month, daysInMonth: daysInMonthOf(year, month) };
+}
+
+/** The ordinal a start's day holds in its month (the 2nd Tuesday), 1..5. */
+export const weekdayOrdinalOf = (day: number): number => Math.ceil(day / 7);
+/** Whether a start is in the last seven days of its month, so "the last Tuesday" is its weekday. */
+export const inLastWeek = (day: number, daysInMonth: number): boolean => day > daysInMonth - 7;
+
+/** A rule's end as the sheet shows it: the day of an UNTIL (the series' wall clock) or a COUNT. Neither is Never. */
+export function endOfRule(rule: string | null): { until?: string; count?: number } {
+  if (!rule) return {};
+  let opts: Record<string, unknown>;
+  try {
+    opts = RRule.parseString(withInclusiveUntil(bare(rule))) as Record<string, unknown>;
+  } catch (error) {
+    captureError(error, 'native-rule-end', {}, 'warning');
+    return {};
+  }
+  // An UNTIL is read as the series' wall clock (floating), so its day is its UTC date.
+  if (opts.until instanceof Date) return { until: opts.until.toISOString().slice(0, 10) };
+  if (typeof opts.count === 'number') return { count: opts.count };
+  return {};
+}
+
+/**
+ * A stored rule as the Repeat sheet says it, read on the series' own start in its zone, or null
+ * when it can't (then it is 'custom': kept unless changed). Sayable: FREQ daily, weekly, monthly
+ * or yearly with any INTERVAL; weekly with a BYDAY that includes the start's weekday (or none:
+ * the spec then lists the start's day alone); monthly with no BY part or the start's day
+ * ('day'), or one BYDAY at the start's weekday whose ordinal is the start's own ('weekday') or
+ * -1 with the start in the month's last seven days ('last'); yearly with no BY part or a BYMONTH
+ * and BYMONTHDAY that are the start's; a Hebrew rule (`hebrew`'s pair) that is FREQ=YEARLY with at
+ * most INTERVAL, UNTIL and COUNT. An UNTIL becomes `until` (its day), a COUNT `count`. WKST is
+ * ignored. Anything else, an unreadable rule included, is null.
+ */
+export function specOfRule(rule: string | null, start: Date, zone: string, hebrew?: HebrewColumns | null): RepeatSpec | null {
+  if (!rule) return null;
+  const tz = zone || TIMEZONE;
+  let opts: Record<string, unknown>;
+  try {
+    opts = RRule.parseString(withInclusiveUntil(bare(rule))) as Record<string, unknown>;
+  } catch (error) {
+    captureError(error, 'native-rule-spec', {}, 'warning');
+    return null;
+  }
+  const interval = opts.interval === undefined ? 1 : opts.interval;
+  if (typeof interval !== 'number' || !Number.isInteger(interval) || interval < 1 || interval > REPEAT_INTERVAL_MAX) return null;
+  if (opts.count !== undefined && !(typeof opts.count === 'number' && Number.isInteger(opts.count) && opts.count >= 1 && opts.count <= REPEAT_COUNT_MAX)) return null;
+  if (opts.until !== undefined && opts.count !== undefined) return null;
+  const end = endOfRule(rule);
+  if (Object.keys(opts).some((k) => !['freq', 'interval', 'until', 'count', 'wkst', ...BY_PARTS].includes(k))) return null;
+  const present = BY_PARTS.filter((k) => opts[k] !== undefined);
+
+  if (hebrew?.hebrewRule) {
+    if (!isHebrewRule(hebrew.hebrewRule) || opts.freq !== RRule.YEARLY || present.length > 0) return null;
+    return { freq: 'hebrew', interval, ...end };
+  }
+  const facts = startFacts(start, tz);
+  const days = (opts.byweekday === undefined ? [] : asList(opts.byweekday)).map((d) => {
+    const day = d as { weekday?: number; n?: number } | number;
+    return typeof day === 'number' ? { weekday: day, n: undefined } : { weekday: day.weekday, n: day.n };
+  });
+  switch (opts.freq) {
+    case RRule.DAILY:
+      return present.length === 0 ? { freq: 'daily', interval, ...end } : null;
+    case RRule.WEEKLY: {
+      if (present.some((k) => k !== 'byweekday')) return null;
+      if (days.some((d) => d.n || typeof d.weekday !== 'number')) return null;
+      const set = new Set(days.map((d) => d.weekday as number));
+      if (set.size > 0 && !set.has(facts.weekday)) return null;
+      if (set.size === 0) set.add(facts.weekday);
+      return { freq: 'weekly', interval, byDay: [...set].sort((a, b) => a - b).map((n) => WEEKDAY_OF_NUMBER[n]), ...end };
+    }
+    case RRule.MONTHLY: {
+      if (present.length === 0) return { freq: 'monthly', interval, monthly: 'day', ...end };
+      if (present.length > 1) return null;
+      if (present[0] === 'bymonthday') {
+        const values = asList(opts.bymonthday);
+        return values.length === 1 && values[0] === facts.day ? { freq: 'monthly', interval, monthly: 'day', ...end } : null;
+      }
+      if (present[0] !== 'byweekday' || days.length !== 1 || days[0].weekday !== facts.weekday || !days[0].n) return null;
+      if (days[0].n === weekdayOrdinalOf(facts.day)) return { freq: 'monthly', interval, monthly: 'weekday', ...end };
+      if (days[0].n === -1 && inLastWeek(facts.day, facts.daysInMonth)) return { freq: 'monthly', interval, monthly: 'last', ...end };
+      return null;
+    }
+    case RRule.YEARLY: {
+      if (present.includes('byweekday')) return null;
+      const own: Record<string, number> = { bymonthday: facts.day, bymonth: facts.month };
+      for (const k of present) {
+        const values = asList(opts[k]);
+        if (values.length !== 1 || values[0] !== own[k]) return null;
+      }
+      return { freq: 'yearly', interval, ...end };
+    }
+    default:
+      return null;
+  }
 }
 
 /**

@@ -22,6 +22,37 @@ export type EditScope = 'single' | 'following' | 'all';
  */
 export type RepeatChoice = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'hebrew';
 
+/** A weekday in an RRULE's BYDAY, Monday first. */
+export const WEEKDAY_CODES = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'] as const;
+export type WeekdayCode = (typeof WEEKDAY_CODES)[number];
+
+/** The limits of a RepeatSpec (richer repeats spec, ruling 3): the server refuses beyond them and the sheet's steppers clamp to them. */
+export const REPEAT_INTERVAL_MAX = 99;
+export const REPEAT_COUNT_MAX = 999;
+
+/**
+ * A repeat the Repeat sheet can say (editor upgrades spec §3, ruling 1): never 'none' (that is
+ * the string choice). The rule is built on the server from the spec and the item's start
+ * (write.ts ruleOfSpec).
+ * - interval: every N days, weeks, months or years (1..REPEAT_INTERVAL_MAX); 'hebrew' counts years.
+ * - byDay: weekly only, a non-empty set of weekdays; the start's own day is always in the rule.
+ * - monthly: monthly only; 'day' follows the start's day of the month, 'weekday' is its n-th weekday
+ *   (the second Tuesday), 'last' its last weekday (only when the start is in the month's last seven days).
+ * - until (yyyy-MM-dd, a day not before the start's, in the item's zone) or count (1..REPEAT_COUNT_MAX)
+ *   ends it; never both, neither is Never.
+ */
+export interface RepeatSpec {
+  freq: 'daily' | 'weekly' | 'monthly' | 'yearly' | 'hebrew';
+  interval: number;
+  byDay?: WeekdayCode[];
+  monthly?: 'day' | 'weekday' | 'last';
+  until?: string;
+  count?: number;
+}
+
+/** What a body's `repeat` takes: the old string choice (cached clients) or a spec. */
+export type RepeatInput = RepeatChoice | RepeatSpec;
+
 /** A calendar the user may add events to. */
 export interface EditorCalendar {
   /** 'native:<cuid>', or a Google calendar's id (3b). */
@@ -65,6 +96,19 @@ export interface RepeatInfo {
   byDay: string[];
   /** The rule has an end (UNTIL or COUNT), as a series cut by "this one and the ones after" does. */
   ends: boolean;
+  /**
+   * The ordinals of the rule's BYDAY, parallel to `byDay` (2 for 2TU, -1 for -1TU, null for a plain
+   * day); present only when some BYDAY has one, so a bot rule "BYDAY=2TU" opens with its real words.
+   */
+  byDayOrdinals?: Array<number | null>;
+  /** The rule's BYMONTHDAY values (-1 is the last day); absent when it has none. */
+  byMonthDay?: number[];
+  /** The rule's BYMONTH values (1..12); absent when it has none. */
+  byMonth?: number[];
+  /** The day (yyyy-MM-dd, the series' wall clock) the rule's UNTIL names; absent without one. */
+  until?: string;
+  /** The rule's COUNT; absent without one. */
+  count?: number;
   /**
    * A Hebrew-date repeat (hebrew-repeats spec §3): its anchor's date
    * (yyyy-MM-dd, in the series' zone), which the words name, never the opened occurrence's
@@ -115,6 +159,13 @@ export interface ItemEditInfoResponse {
      * Hebrew series' anchor day (yyyy-MM-dd), which its words name (hebrew-repeats spec §4).
      */
     rule?: { choice: RuleChoice; words?: string; until?: string; anchor?: string };
+    /**
+     * The stored rule as the Repeat sheet says it (richer repeats spec §3), present only when it can: a
+     * FamCal or Google rule that is a daily, weekly, monthly or yearly repeat of its start, with any
+     * interval, or a Hebrew one, and its end. Absent for a one-off and for a rule the sheet can't say
+     * (it stays 'custom', kept unless changed). A weekly spec always lists its days, the start's among them.
+     */
+    spec?: RepeatSpec;
     /** 3b: this is the first occurrence the series shows (a one-off is its own first). */
     first?: boolean;
   };
@@ -166,7 +217,7 @@ export interface CreateItemBody {
   start: string;
   /** Events only; a timed event's default is an hour after the start, an all-day one's its start day. */
   end?: string;
-  repeat?: RepeatChoice;
+  repeat?: RepeatInput;
   /** Events only: the id of a calendar from the editor info ('native:<cuid>' or a Google id); default the main one. */
   calendarId?: string;
   /** Reminders only: for the partner. */
@@ -189,8 +240,11 @@ export interface UpdateItemBody {
     allDay?: boolean;
     start?: string;
     end?: string;
-    /** 3b: the repeat from this occurrence on; omitted keeps it. */
-    repeat?: RepeatChoice;
+    /**
+     * 3b: the repeat from this occurrence on; omitted keeps it. A spec always carries the end the sheet
+     * shows (neither until nor count is Never); the server compares it with the stored end (richer repeats ruling 5).
+     */
+    repeat?: RepeatInput;
     /** 3b: an event's calendar, from the item info's moveTargets; one of the other kind is the cross-source move (alone in its save). */
     calendarId?: string;
     /** 3b: a reminder for the partner, or (false) its creator. */

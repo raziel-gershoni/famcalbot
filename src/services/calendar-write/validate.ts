@@ -9,6 +9,11 @@ import {
   type EditScope,
   type ItemKind,
   type RepeatChoice,
+  type RepeatInput,
+  type RepeatSpec,
+  REPEAT_COUNT_MAX,
+  REPEAT_INTERVAL_MAX,
+  WEEKDAY_CODES,
 } from '../../lib/calendar-view/editor-types';
 import { minYearFor } from '../../lib/calendar-view/year-limits';
 import { parseAlertChoice, type AlertChoice } from '../../lib/calendar-view/alert-leads';
@@ -19,8 +24,8 @@ export type Parsed<T> = { ok: true; value: T } | { ok: false; field: string };
 const KINDS: readonly ItemKind[] = ['event', 'reminder'];
 const SCOPES: readonly EditScope[] = ['single', 'following', 'all'];
 const REPEATS: readonly RepeatChoice[] = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'hebrew'];
-/** The repeat a Google calendar can't hold (hebrew-repeats spec §4): the Google writes refuse it with 400 repeat. */
-export const isHebrewChoice = (repeat: RepeatChoice | undefined): repeat is 'hebrew' => repeat === 'hebrew';
+/** The repeat a Google calendar can't hold (hebrew-repeats spec §4): the Google writes refuse it with 400 repeat. A choice or a spec. */
+export const isHebrewChoice = (repeat: RepeatInput | undefined): boolean => (typeof repeat === 'object' ? repeat.freq === 'hebrew' : repeat === 'hebrew');
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const FAMCAL_KEY = 'famcal|';
 const GOOGLE_KEY = 'google|';
@@ -63,6 +68,39 @@ export function endFollows(start: string, end: string, allDay: boolean): boolean
   return end > start && daysBetween(dayOfWall(start), dayOfWall(end)) <= MAX_SPAN_DAYS;
 }
 
+const SPEC_KEYS = ['freq', 'interval', 'byDay', 'monthly', 'until', 'count'];
+const SPEC_FREQS: readonly RepeatSpec['freq'][] = ['daily', 'weekly', 'monthly', 'yearly', 'hebrew'];
+const MONTHLIES: readonly NonNullable<RepeatSpec['monthly']>[] = ['day', 'weekday', 'last'];
+const whole = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
+
+/**
+ * Whether `spec` is within the limits of a RepeatSpec (richer repeats ruling 3), whatever the item's
+ * start: a known freq, an interval of 1..99, byDay a non-empty set of weekday codes and only for
+ * weekly, monthly only for monthly, an until that is a real day (floor and MAX_YEAR) or a count of
+ * 1..999, never both. That the until is not before the start is the rule builder's (it knows the start).
+ */
+export function specWithinLimits(spec: unknown): spec is RepeatSpec {
+  if (!isObject(spec) || Object.keys(spec).some((k) => !SPEC_KEYS.includes(k))) return false;
+  const { freq, interval, byDay, monthly, until, count } = spec;
+  if (typeof freq !== 'string' || !(SPEC_FREQS as readonly string[]).includes(freq)) return false;
+  if (!whole(interval, 1, REPEAT_INTERVAL_MAX)) return false;
+  if (byDay !== undefined) {
+    if (freq !== 'weekly' || !Array.isArray(byDay) || byDay.length === 0) return false;
+    if (!byDay.every((d) => typeof d === 'string' && (WEEKDAY_CODES as readonly string[]).includes(d)) || new Set(byDay).size !== byDay.length) return false;
+  }
+  if (monthly !== undefined && (freq !== 'monthly' || typeof monthly !== 'string' || !(MONTHLIES as readonly string[]).includes(monthly))) return false;
+  if (until !== undefined && count !== undefined) return false;
+  if (until !== undefined && !isDay(until, minYearFor(freq as RepeatSpec['freq']))) return false;
+  if (count !== undefined && !whole(count, 1, REPEAT_COUNT_MAX)) return false;
+  return true;
+}
+
+/** A body's `repeat`: a RepeatChoice string or a RepeatSpec within its limits; undefined (and the field) otherwise. */
+export function parseRepeat(value: unknown): RepeatInput | undefined {
+  if (typeof value === 'string') return (REPEATS as readonly string[]).includes(value) ? (value as RepeatChoice) : undefined;
+  return specWithinLimits(value) ? value : undefined;
+}
+
 /** A start or end in the form `allDay` says; `minYear` is the item's floor (year-limits.ts minYearFor). */
 export const isTime = (value: unknown, allDay: boolean, minYear?: number): value is string => (allDay ? isDay(value, minYear) : isWall(value, minYear));
 
@@ -75,7 +113,7 @@ export interface CreateCommand {
   start: string;
   /** Events only; undefined when the body gave none. */
   end?: string;
-  repeat: RepeatChoice;
+  repeat: RepeatInput;
   calendarId?: string;
   forPartner: boolean;
   /** Events only; undefined when the body gave none (the default). */
@@ -96,8 +134,9 @@ export function parseCreate(raw: unknown): Parsed<CreateCommand> {
   if (description === null) return fail('description');
   if (typeof raw.allDay !== 'boolean') return fail('allDay');
   const allDay = raw.allDay;
-  if (raw.repeat !== undefined && (typeof raw.repeat !== 'string' || !(REPEATS as readonly string[]).includes(raw.repeat))) return fail('repeat');
-  const repeat = (raw.repeat ?? 'none') as RepeatChoice;
+  const parsedRepeat = raw.repeat === undefined ? 'none' : parseRepeat(raw.repeat);
+  if (parsedRepeat === undefined) return fail('repeat');
+  const repeat: RepeatInput = parsedRepeat;
   // The earliest year depends on the repeat: 1900 for a one-off or a yearly item, 2000 for the rest.
   const minYear = minYearFor(repeat);
   if (!isTime(raw.start, allDay, minYear)) return fail('start');
@@ -198,7 +237,7 @@ export interface UpdateCommand {
     start?: string;
     end?: string;
     /** 3b: the repeat from the opened occurrence on. */
-    repeat?: RepeatChoice;
+    repeat?: RepeatInput;
     /** 3b: an event's calendar, 'native:<cuid>' or a Google id; the other kind's is the cross-source move. */
     calendarId?: string;
     /** 3b: a reminder for the partner (true) or its creator (false), relative to its creator. */
@@ -254,8 +293,9 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
     changes.end = c.end;
   }
   if (c.repeat !== undefined) {
-    if (typeof c.repeat !== 'string' || !(REPEATS as readonly string[]).includes(c.repeat)) return fail('repeat');
-    changes.repeat = c.repeat as RepeatChoice;
+    const repeat = parseRepeat(c.repeat);
+    if (repeat === undefined) return fail('repeat');
+    changes.repeat = repeat;
   }
   if (c.calendarId !== undefined) {
     // Either kind: one of the other kind is the cross-source move ("Google as a connection" §5).

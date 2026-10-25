@@ -11,7 +11,7 @@
 
 import type { calendar_v3 } from '@googleapis/calendar';
 import type { CalendarAssignment, UserConfig } from '../../types';
-import type { EditorCalendar, ItemEditInfoResponse } from '../../lib/calendar-view/editor-types';
+import type { EditorCalendar, ItemEditInfoResponse, RepeatSpec } from '../../lib/calendar-view/editor-types';
 import { captureError } from '../../lib/error-capture';
 import { trackActivityAsync } from '../analytics-service';
 import { htmlToText } from '../../utils/html';
@@ -22,13 +22,14 @@ import { googleCalendarRef, googleCalendarSet } from '../calendar-read/google';
 import { sourcesFor } from '../calendar-read/index';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { classifyGoogleError, type GoogleErrorClass } from '../calendar-read/google-map';
-import { classifyRule, fixesDays } from '../native-calendar/recurrence';
+import { classifyRule, fixesDays, specOfRule } from '../native-calendar/recurrence';
+import { NativeRuleError } from '../native-calendar/event-store';
 import { repeatInfo, wallFor, writableCalendarRows } from './item-info';
 import { getPartnerUserId } from '../native-calendar/event-store';
-import { googleCrossRefusal, type CrossRefusal } from '../calendar-move/mapper';
+import { googleCrossRefusal, googleRuleLine, type CrossRefusal } from '../calendar-move/mapper';
 import { googleKeyOf, isHebrewChoice, parseGoogleKey, type CreateCommand, type DeleteCommand, type GoogleItemKey, type UpdateCommand } from './validate';
 import { dayEnd, dayStart, localDate, wallToInstant } from './walltime';
-import { createTimes, repeatChanges, resolveWallTimes, ruleFor, type WriteResult } from './write';
+import { createTimes, repeatChanges, resolveWallTimes, ruleOfSpec, ruleToWrite, specOfInput, type BuiltRule, type StoredSeries, type WriteResult } from './write';
 import { liveGoogleChoices } from '../../lib/google-state';
 import { minYearFor } from '../../lib/calendar-view/year-limits';
 import { nearestReminderLead, normalizeOverrides } from '../../lib/calendar-view/alert-leads';
@@ -166,17 +167,25 @@ const addDays = (day: string, n: number) => {
 const zoneOf = (read: GoogleItemRead, userTz: string) => read.zone ?? userTz;
 
 /** The series' rule (bare, Google's form) and how the Repeat row names it (3b spec §2.1). */
-function ruleInfo(read: GoogleItemRead, userTz: string): { rule: string | null; choice: ReturnType<typeof classifyRule>['choice']; until?: string } {
+function ruleInfo(
+  read: GoogleItemRead,
+  userTz: string
+): { rule: string | null; choice: ReturnType<typeof classifyRule>['choice']; until?: string; spec?: RepeatSpec; stored?: StoredSeries } {
   const rule = ruleOf(read.master?.recurrence ?? read.event.recurrence);
   if (!rule) return { rule: null, choice: 'none' };
   const zone = zoneOf(read, userTz);
   const series = read.master ?? read.event;
   const start = series.start?.date ? dayStart(series.start.date, zone) : new Date(series.start?.dateTime ?? NaN);
-  const classified = classifyRule(nativeRuleOf(rule, zone), start, zone);
+  const native = nativeRuleOf(rule, zone);
+  const classified = classifyRule(native, start, zone);
   const allDay = Boolean(series.start?.date);
+  // The sheet's words for it (richer repeats spec §3), when it can say the rule; the stored series is what a repeat change compares with.
+  const spec = specOfRule(native, start, zone);
   return {
     rule,
     choice: classified.choice,
+    ...(spec ? { spec } : {}),
+    stored: { rrule: native, startsAt: start, timeZone: zone },
     ...(classified.until ? { until: allDay ? localDate(classified.until, zone) : localDate(classified.until, userTz) } : {}),
   };
 }
@@ -218,10 +227,11 @@ export async function googleEditInfo(user: UserConfig, key: GoogleItemKey, userT
     series: {
       recurring,
       start: first.start,
-      repeat: repeatInfo(rule.rule),
+      repeat: repeatInfo(rule.stored?.rrule ?? null),
       fixedDays: fixesDays(rule.rule),
       zone: zoneOf(read, userTz),
       rule: { choice: rule.choice, ...(rule.until ? { until: rule.until } : {}) },
+      ...(rule.spec ? { spec: rule.spec } : {}),
       first: read.first,
     },
     tz: userTz,
@@ -280,12 +290,11 @@ function outcomeOf(error: ProviderErrorCode | undefined): WriteResult {
   }
 }
 
-/** A rule for a repeat choice as Google takes it, or null for none. */
-const googleRuleFor = (repeat: CreateCommand['repeat']): string | null => {
+/** A built rule as Google's recurrence line (an UNTIL as its type wants, googleRuleLine), or null for none. */
+const googleLineOf = (built: BuiltRule | null, allDay: boolean, zone: string): string | null => {
   // Never a Hebrew rule as a Gregorian yearly one (hebrew-repeats spec §4); the writes above refuse it first.
-  if (isHebrewChoice(repeat)) throw new Error('A Hebrew-date repeat cannot be written to Google');
-  const rule = ruleFor(repeat);
-  return rule ? `RRULE:${rule}` : null;
+  if (built?.hebrewRule) throw new Error('A Hebrew-date repeat cannot be written to Google');
+  return built ? googleRuleLine(built.rrule, allDay, zone) : null;
 };
 
 /**
@@ -311,7 +320,15 @@ export async function createGoogleItem(user: UserConfig, cmd: CreateCommand, tz:
   const target = cmd.calendarId ?? (calendars.find((c) => c.main) ?? calendars[0]).id;
   if (!calendars.some((c) => c.id === target)) return { status: 'invalid', field: 'calendarId' };
   const times = createTimes(cmd, tz);
-  const rule = googleRuleFor(cmd.repeat);
+  // One builder with FamCal's (ruleOfSpec), on the start in the zone the event is written in. A spec that can't be built is 400 repeat.
+  let rule: string | null;
+  try {
+    const spec = specOfInput(cmd.repeat);
+    rule = googleLineOf(spec ? ruleOfSpec(spec, times.startsAt, tz) : null, cmd.allDay, tz);
+  } catch (err) {
+    if (err instanceof NativeRuleError) return { status: 'invalid', field: 'repeat' };
+    throw err;
+  }
   const result = await googleProvider.createEvent(user, target, {
     title: cmd.title,
     startTime: times.startsAt,
@@ -354,13 +371,24 @@ export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { 
   const times = resolveWallTimes(c, occ, false, userTz, userTz, minYearFor(c.repeat ?? rule.choice));
   if (!times.ok) return { status: 'invalid', field: times.field };
   const { start, end, allDay, timeChanged } = times;
+  // The cut of a repeat change is the opened occurrence's slot; the new part starts there unless this save moves it.
+  const zone = zoneOf(read, userTz);
+  const slot = read.event.originalStartTime;
+  const cut = slot?.dateTime ? new Date(slot.dateTime) : slot?.date ? dayStart(slot.date, zone) : null;
+  const tailStart = timeChanged ? (allDay ? dayStart(start, userTz) : wallToInstant(start, userTz)) : (cut ?? occ.startsAt);
   const text = {
     ...(c.title !== undefined && c.title !== (read.event.summary ?? '') ? { title: c.title } : {}),
     ...(c.location !== undefined && c.location !== (read.event.location ?? '') ? { location: c.location } : {}),
     // Google keeps HTML notes and the form shows them as text: written only when the text changed.
     ...(c.description !== undefined && c.description !== (htmlToText(read.event.description) ?? '') ? { description: c.description } : {}),
   };
-  const repeat = c.repeat !== undefined && repeatChanges(c.repeat, rule.rule, rule.choice) ? c.repeat : undefined;
+  let repeat: typeof c.repeat;
+  try {
+    repeat = c.repeat !== undefined && repeatChanges(c.repeat, rule.stored ?? { rrule: null, startsAt: occ.startsAt, timeZone: zone }, rule.choice, tailStart, zone) ? c.repeat : undefined;
+  } catch (err) {
+    if (err instanceof NativeRuleError) return { status: 'invalid', field: 'repeat' };
+    throw err;
+  }
   if (c.forPartner === true) return { status: 'invalid', field: 'forPartner' };
   const moveTo = c.calendarId !== undefined && c.calendarId !== key.calendarId ? c.calendarId : undefined;
   if (moveTo !== undefined) {
@@ -376,6 +404,16 @@ export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { 
   if (masterId && repeat !== undefined) scope = 'following';
   else if (masterId && moveTo !== undefined && scope === 'single') return { status: 'invalid', field: 'scope' };
 
+  let newLine: string | null | undefined;
+  if (repeat !== undefined) {
+    try {
+      const built = repeat === 'none' ? null : ruleToWrite(repeat, rule.stored ?? null, tailStart, zone, masterId && cut ? { at: cut, first: read.first } : null);
+      newLine = googleLineOf(built, allDay, zone);
+    } catch (err) {
+      if (err instanceof NativeRuleError) return { status: 'invalid', field: 'repeat' };
+      throw err;
+    }
+  }
   const data: UpdateEventInput = {
     ...text,
     ...(timeChanged
@@ -383,7 +421,7 @@ export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { 
       : {}),
     scope,
     ...(masterId ? { recurringEventId: masterId } : {}),
-    ...(repeat !== undefined ? { rrule: googleRuleFor(repeat) } : {}),
+    ...(newLine !== undefined ? { rrule: newLine } : {}),
   };
   const changedFields = [
     ...(text.title !== undefined ? ['title'] : []),

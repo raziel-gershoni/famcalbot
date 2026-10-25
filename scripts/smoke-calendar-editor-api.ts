@@ -864,7 +864,7 @@ async function main() {
     const w = await itemOf(occurrence);
     assertSame(
       [w.body.occurrence.start, w.body.series, w.body.scopes, w.body.tz],
-      ['2026-11-03T10:00', { recurring: true, start: '2026-10-20T10:00', repeat: { freq: 'weekly', interval: 1, byDay: [], ends: false }, fixedDays: false, zone: IL, rule: { choice: 'weekly' }, first: false }, ['single', 'following', 'all'], IL],
+      ['2026-11-03T10:00', { recurring: true, start: '2026-10-20T10:00', repeat: { freq: 'weekly', interval: 1, byDay: [], ends: false }, fixedDays: false, zone: IL, rule: { choice: 'weekly' }, spec: { freq: 'weekly', interval: 1, byDay: ['TU'] }, first: false }, ['single', 'following', 'all'], IL],
       'an occurrence of a weekly series'
     );
     const allDay = await post(eventBody({ allDay: true, start: '2026-10-20', end: '2026-10-22' }));
@@ -875,7 +875,8 @@ async function main() {
     seed();
     const s = seedSeries('bot-series', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Piano', startsAt: at('2026-10-20 16:00'), rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,TH;UNTIL=20261231' });
     const r = await itemOf(`famcal|${s.id}#${iso(at('2026-10-20 16:00'))}`);
-    assertSame(r.body.series.repeat, { freq: 'weekly', interval: 2, byDay: ['TU', 'TH'], ends: true }, 'repeat');
+    assertSame(r.body.series.repeat, { freq: 'weekly', interval: 2, byDay: ['TU', 'TH'], ends: true, until: '2026-12-31' }, 'repeat');
+    assertSame(r.body.series.spec, { freq: 'weekly', interval: 2, byDay: ['TU', 'TH'], until: '2026-12-31' }, 'the sheet can say it');
     assert(r.body.series.fixedDays === true, 'BYDAY fixes the days');
     for (const [rule, fixed] of [['FREQ=MONTHLY;BYMONTHDAY=20', true], ['FREQ=YEARLY;BYMONTH=10', true], ['FREQ=WEEKLY', false], ['FREQ=DAILY;INTERVAL=2;UNTIL=20261231', false]] as const) {
       const other = seedSeries(`rule-${rule}`.replace(/[^A-Za-z0-9_-]/g, '_'), { calendarId: 'cal-tal', creatorUserId: TAL, title: 'x', startsAt: at('2026-10-20 16:00'), rrule: rule });

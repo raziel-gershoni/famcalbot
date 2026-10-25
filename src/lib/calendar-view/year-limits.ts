@@ -6,7 +6,7 @@
 // expander walks a series from its start, so a daily series from 1950 would cost about 27k
 // steps per read.
 
-import type { RuleChoice } from './editor-types';
+import type { RepeatSpec, RuleChoice } from './editor-types';
 
 /** The latest year any item may start in. */
 export const MAX_YEAR = 2100;
@@ -15,7 +15,8 @@ export const MIN_YEAR_BIRTH = 1900;
 /** The earliest year for every other repeat. */
 export const MIN_YEAR_SERIES = 2000;
 
-/** The earliest year an item with this repeat may start in. No repeat reads as a one-off. */
-export function minYearFor(repeat: RuleChoice | undefined): number {
-  return repeat === undefined || repeat === 'none' || repeat === 'yearly' || repeat === 'hebrew' ? MIN_YEAR_BIRTH : MIN_YEAR_SERIES;
+/** The earliest year an item with this repeat (a choice or a spec) may start in. No repeat reads as a one-off. */
+export function minYearFor(repeat: RuleChoice | RepeatSpec | undefined): number {
+  const choice = typeof repeat === 'object' ? repeat.freq : repeat;
+  return choice === undefined || choice === 'none' || choice === 'yearly' || choice === 'hebrew' ? MIN_YEAR_BIRTH : MIN_YEAR_SERIES;
 }

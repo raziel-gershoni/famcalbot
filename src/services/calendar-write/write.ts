@@ -15,7 +15,6 @@
 import type { NativeCalendar } from '@prisma/client';
 import type { UserConfig } from '../../types';
 import { prisma } from '../../utils/prisma';
-import { buildRecurrenceRule } from '../calendar';
 import { trackActivityAsync } from '../analytics-service';
 import { clearRecurrenceCacheForUser } from '../recurrence-cache';
 import { toUnifiedEvent } from '../calendar-provider/native-provider';
@@ -32,6 +31,7 @@ import {
   deleteNativeEvent,
   getMainNativeCalendar,
   getPartnerUserId,
+  isFirstOccurrence,
   seriesTimesFor,
   updateNativeEvent,
   type UpdateNativeEventInput,
@@ -40,9 +40,21 @@ import { stripMovedPings } from '../native-reminders/moved-pings';
 import { resolveReminderForCreate } from '../native-reminders/resolve';
 import { getReminderSupport } from '../native-reminders/support';
 import type { ParsedEvent } from '../event-parser';
-import { classifyRule, type HebrewRule } from '../native-calendar/recurrence';
+import {
+  assertStorableRule,
+  classifyRule,
+  endOfRule,
+  inLastWeek,
+  slotsBefore,
+  specOfRule,
+  weekdayOrdinalOf,
+  type HebrewColumns,
+  type HebrewRule,
+} from '../native-calendar/recurrence';
+import { formatInTimeZone } from 'date-fns-tz';
+import { WEEKDAY_CODES, type RepeatChoice, type RepeatInput, type RepeatSpec, type RuleChoice } from '../../lib/calendar-view/editor-types';
 import { isForPartner, itemZone, loadItem, wallFor, type LoadedItem } from './item-info';
-import { endFollows, isHebrewChoice, itemKeyOf, isTime, type CreateCommand, type DeleteCommand, type UpdateCommand } from './validate';
+import { endFollows, itemKeyOf, isTime, specWithinLimits, type CreateCommand, type DeleteCommand, type UpdateCommand } from './validate';
 import { sourcesFor } from '../calendar-read/index';
 import { defaultCalendarIdFor } from '../calendar-provider/user-calendars';
 import { addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween, instantToWall, isDay, localDate, wallToInstant } from './walltime';
@@ -114,17 +126,65 @@ export async function clearCaches(
   }
 }
 
-/** The stored rule for a repeat choice, as the bot's provider stores it (no RRULE: prefix). */
-export function ruleFor(repeat: CreateCommand['repeat']): string | null {
-  if (repeat === 'none') return null;
-  // The Hebrew repeat is a plain yearly rule plus the pair (hebrewRuleFor).
-  return buildRecurrenceRule({ frequency: isHebrewChoice(repeat) ? 'yearly' : repeat })[0].replace(/^RRULE:/, '');
+/** The spec a string choice stands for (cached clients send those), or null for 'none': every write goes through ruleOfSpec. */
+export function specOfChoice(choice: RepeatChoice): RepeatSpec | null {
+  return choice === 'none' ? null : { freq: choice, interval: 1 };
 }
 
-/** The Hebrew rule a repeat choice stores next to its rule (hebrew-repeats spec §2), or null for a Gregorian one. */
-export function hebrewRuleFor(repeat: CreateCommand['repeat']): HebrewRule | null {
-  return repeat === 'hebrew' ? 'anniversary' : null;
+/** The spec a body's `repeat` stands for, or null for none. */
+export const specOfInput = (repeat: RepeatInput): RepeatSpec | null => (typeof repeat === 'string' ? specOfChoice(repeat) : repeat);
+
+/** A stored rule and the pair that goes with it, as the store takes them (no RRULE: prefix). */
+export interface BuiltRule {
+  rrule: string;
+  hebrewRule: HebrewRule | null;
 }
+
+const inZone = (start: Date, zone: string) => {
+  const [year, month, day] = formatInTimeZone(start, zone, 'yyyy-M-d').split('-').map(Number);
+  return { day, daysInMonth: new Date(Date.UTC(year, month, 0)).getUTCDate(), weekday: Number(formatInTimeZone(start, zone, 'i')) - 1, date: formatInTimeZone(start, zone, 'yyyy-MM-dd') };
+};
+
+/**
+ * The rule a spec stores on a start (richer repeats spec §3, ruling 2): the one builder for every
+ * write, FamCal and Google, string choice or spec. Bare, parts in the bot's order (FREQ, INTERVAL,
+ * BYDAY, the end). INTERVAL only above 1; weekly writes BYDAY only for more days than the start's
+ * own, which is always one of them; monthly 'weekday' is the start's n-th weekday, 'last' its last
+ * one (refused unless the start is in its month's last seven days); a Hebrew repeat is FREQ=YEARLY
+ * with the pair; the end is a date-only UNTIL or a COUNT. `start` is read in `zone`, the item's.
+ * Throws NativeRuleError for a spec beyond its limits, an until before the start's day, or a rule
+ * the store won't keep (assertStorableRule).
+ */
+export function ruleOfSpec(spec: RepeatSpec, start: Date, zone: string): BuiltRule {
+  if (!specWithinLimits(spec)) throw new NativeRuleError('The repeat is beyond its limits');
+  const at = inZone(start, zone);
+  if (spec.until !== undefined && spec.until < at.date) throw new NativeRuleError('The repeat ends before it starts');
+  const parts = [`FREQ=${spec.freq === 'hebrew' ? 'YEARLY' : spec.freq.toUpperCase()}`];
+  if (spec.interval > 1) parts.push(`INTERVAL=${spec.interval}`);
+  if (spec.freq === 'weekly') {
+    const days = new Set([...(spec.byDay ?? []).map((d) => WEEKDAY_CODES.indexOf(d)), at.weekday]);
+    if (days.size > 1) parts.push(`BYDAY=${[...days].sort((a, b) => a - b).map((n) => WEEKDAY_CODES[n]).join(',')}`);
+  } else if (spec.freq === 'monthly' && spec.monthly === 'weekday') {
+    parts.push(`BYDAY=${weekdayOrdinalOf(at.day)}${WEEKDAY_CODES[at.weekday]}`);
+  } else if (spec.freq === 'monthly' && spec.monthly === 'last') {
+    if (!inLastWeek(at.day, at.daysInMonth)) throw new NativeRuleError('The start is not in its month\'s last week');
+    parts.push(`BYDAY=-1${WEEKDAY_CODES[at.weekday]}`);
+  }
+  if (spec.until !== undefined) parts.push(`UNTIL=${spec.until.replace(/-/g, '')}`);
+  else if (spec.count !== undefined) parts.push(`COUNT=${spec.count}`);
+  const built: BuiltRule = { rrule: parts.join(';'), hebrewRule: spec.freq === 'hebrew' ? 'anniversary' : null };
+  assertStorableRule(built.rrule, built.hebrewRule);
+  return built;
+}
+
+/** A spec with no end: what the rule is, apart from where it stops. */
+const withoutSpecEnd = (spec: RepeatSpec): RepeatSpec => {
+  const { until: _until, count: _count, ...rest } = spec;
+  return rest;
+};
+
+/** The series a repeat change reads: its rule, start, zone and Hebrew pair as stored. */
+export type StoredSeries = { rrule: string | null; startsAt: Date; timeZone: string | null } & HebrewColumns;
 
 /** A stored rule without its end and the parts that mean nothing for it (WKST, INTERVAL=1), to compare with a choice's. */
 function withoutEnd(rule: string): string {
@@ -137,13 +197,54 @@ function withoutEnd(rule: string): string {
 }
 
 /**
- * Whether picking `repeat` changes the stored rule (3b spec §2.1): another of the five, or
- * the same one for a rule that isn't the one that choice writes. A bot's "every Tuesday"
- * (BYDAY=TU) reads as 'weekly' but keeps its day; picked again, the rule follows the start.
+ * Whether picking `repeat` changes the stored rule (3b spec §2.1, richer repeats ruling 6).
+ * A string choice: another of the five, or the same one for a rule that isn't the one that choice
+ * writes (a bot's "every Tuesday", BYDAY=TU, re-picked as 'weekly' follows its start); ends
+ * ignored. A spec: the rule it builds on `tailStart` (the start the new part will have), end
+ * excluded, differs from the stored rule as the sheet says it (a stored rule it can't say is
+ * compared as it is), or its Hebrew pair differs, or its end is not the stored one.
  */
-export function repeatChanges(repeat: CreateCommand['repeat'], rrule: string | null, current: string): boolean {
-  if (repeat !== current) return true;
-  return repeat !== 'none' && rrule !== null && withoutEnd(rrule) !== ruleFor(repeat);
+export function repeatChanges(repeat: RepeatInput, stored: StoredSeries, current: RuleChoice, tailStart: Date, zone: string): boolean {
+  if (typeof repeat === 'string') {
+    if (repeat !== current) return true;
+    const spec = specOfChoice(repeat);
+    return spec !== null && stored.rrule !== null && withoutEnd(stored.rrule) !== ruleOfSpec(spec, stored.startsAt, zone).rrule;
+  }
+  if (stored.rrule === null) return true;
+  const built = ruleOfSpec(withoutSpecEnd(repeat), tailStart, zone);
+  if ((stored.hebrewRule ?? null) !== built.hebrewRule) return true;
+  const storedSpec = specOfRule(stored.rrule, stored.startsAt, zone, stored);
+  const storedRule = storedSpec ? ruleOfSpec(withoutSpecEnd(storedSpec), stored.startsAt, zone).rrule : stored.rrule;
+  if (withoutEnd(built.rrule) !== withoutEnd(storedRule)) return true;
+  const end = endOfRule(stored.rrule);
+  return repeat.until !== end.until || repeat.count !== end.count;
+}
+
+/**
+ * The rule a repeat change writes (richer repeats ruling 5). A string choice, and a spec whose end
+ * is the stored one, give the rule without an end: the store carries the old end (endCarriedRule).
+ * A spec with another end applies it to the part written: an until as given; a count counted from
+ * the series' first occurrence, so a part cut at a later occurrence (`cut`, with the stored series
+ * to count its slots) gets what is left of it, at least 1. From the first occurrence, or for a one-off
+ * becoming a repeat, it is the whole count. Never on a stored end removes it.
+ */
+export function ruleToWrite(
+  repeat: RepeatSpec | RepeatChoice,
+  stored: StoredSeries | null,
+  tailStart: Date,
+  zone: string,
+  cut: { at: Date; first: boolean } | null
+): BuiltRule {
+  const spec = specOfInput(repeat);
+  if (!spec) throw new NativeRuleError('No repeat to build');
+  const end = stored?.rrule ? endOfRule(stored.rrule) : {};
+  const unchanged = typeof repeat === 'string' || (spec.until === end.until && spec.count === end.count);
+  if (unchanged) return ruleOfSpec(withoutSpecEnd(spec), tailStart, zone);
+  if (spec.count !== undefined && stored?.rrule && cut && !cut.first) {
+    const left = Math.max(1, spec.count - slotsBefore({ ...stored, rrule: stored.rrule }, cut.at));
+    return ruleOfSpec({ ...spec, count: left }, tailStart, zone);
+  }
+  return ruleOfSpec(spec, tailStart, zone);
 }
 
 /** The wall times of a create as instants: an all-day item from the start of its first day to 23:59 on its last. */
@@ -165,8 +266,12 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
   }
   if (!famcal) return NOT_ALLOWED;
   try {
-    const rrule = ruleFor(cmd.repeat);
-    const hebrewRule = hebrewRuleFor(cmd.repeat);
+    // One builder for every write (ruleOfSpec): a string choice is its spec. The rule is read on the
+    // item's start in the zone the item is stored in (tz).
+    const spec = specOfInput(cmd.repeat);
+    const built = spec ? ruleOfSpec(spec, cmd.allDay ? dayStart(cmd.start, tz) : wallToInstant(cmd.start, tz), tz) : null;
+    const rrule = built?.rrule ?? null;
+    const hebrewRule = built?.hebrewRule ?? null;
     const base = {
       creatorUserId: user.id,
       title: cmd.title,
@@ -317,10 +422,23 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   const floor = minYearFor(choice);
   const times = resolveWallTimes(c, occ, reminder, userTz, itemTz, floor);
   if (!times.ok) return { status: 'invalid', field: times.field };
+  const { start, end, allDay, timeChanged } = times;
+  const startsAt = allDay ? dayStart(start, itemTz) : wallToInstant(start, userTz);
+  // The start the new part of a repeat change has: the opened slot unless this save moves it (the store's newStarts).
+  const tailStart = series.rrule && !timeChanged ? key.slot! : startsAt;
+  // A spec that can't be built on that start (a "last Tuesday" off the month's last week, an end before the start) is 400 repeat.
+  let repeatChanged = false;
+  if (c.repeat !== undefined) {
+    try {
+      repeatChanged = repeatChanges(c.repeat, series, stored, tailStart, itemTz);
+    } catch (err) {
+      if (err instanceof NativeRuleError) return { status: 'invalid', field: 'repeat' };
+      throw err;
+    }
+  }
   // A repeat change is checked against the start the item will have even when the start doesn't move
   // (a one-off from 1950 can't become a daily series, whatever the body says about the start).
-  if (c.repeat !== undefined && repeatChanges(c.repeat, series.rrule, stored) && !isDay(dayOfWall(times.start), floor)) return { status: 'invalid', field: 'start' };
-  const { start, end, allDay, timeChanged } = times;
+  if (repeatChanged && !isDay(dayOfWall(times.start), floor)) return { status: 'invalid', field: 'start' };
   const text = {
     ...(c.title !== undefined && c.title !== occ.title ? { title: c.title } : {}),
     ...(c.location !== undefined && c.location !== (occ.location ?? '') ? { location: c.location } : {}),
@@ -330,7 +448,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   // The series-level fields (3b spec §3.3), each only when it differs from what the item
   // has: a repeat other than the one the Repeat row shows, another calendar, another alert,
   // the other recipient (relative to the reminder's creator).
-  const repeat = c.repeat !== undefined && repeatChanges(c.repeat, series.rrule, stored) ? c.repeat : undefined;
+  const repeat = repeatChanged ? c.repeat : undefined;
   const calendarCuid = c.calendarId !== undefined ? decodeCalendarId(c.calendarId) : null;
   const moveTo = calendarCuid !== null && calendarCuid !== series.calendarId ? calendarCuid : undefined;
   const forPartner = c.forPartner !== undefined && c.forPartner !== isForPartner(series, item.ctx) ? c.forPartner : undefined;
@@ -350,8 +468,18 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   else if (series.rrule && seriesLevel && scope === 'single') return { status: 'invalid', field: 'scope' };
   const stop = repeat === 'none' && Boolean(series.rrule);
 
-  const startsAt = allDay ? dayStart(start, itemTz) : wallToInstant(start, userTz);
   const endsAt = reminder ? startsAt : allDay ? dayEnd(end, itemTz) : wallToInstant(end, userTz);
+  // The rule the repeat change writes (one builder, ruleToWrite); null for a stop; undefined without a repeat change.
+  let built: BuiltRule | null | undefined;
+  if (repeat !== undefined) {
+    try {
+      const cut = series.rrule ? { at: key.slot!, first: typeof repeat === 'object' && repeat.count !== undefined && (await isFirstOccurrence(series, key.slot!)) } : null;
+      built = repeat === 'none' ? null : ruleToWrite(repeat, series, tailStart, itemTz, cut);
+    } catch (err) {
+      if (err instanceof NativeRuleError) return { status: 'invalid', field: 'repeat' };
+      throw err;
+    }
+  }
   const input: UpdateNativeEventInput = {
     seriesCuid: series.id,
     instanceStartsAt: series.rrule ? key.slot : undefined,
@@ -359,7 +487,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
     actingUserId: user.id,
     ...text,
     // The pair goes with the rule, null for a Gregorian choice (hebrew-repeats spec §2).
-    ...(repeat !== undefined ? { rrule: ruleFor(repeat), hebrewRule: hebrewRuleFor(repeat) } : {}),
+    ...(built !== undefined ? { rrule: built?.rrule ?? null, hebrewRule: built?.hebrewRule ?? null } : {}),
     ...(moveTo !== undefined ? { calendarId: moveTo } : {}),
     ...(alert !== undefined ? { alert } : {}),
     ...(forUserId !== undefined ? { forUserId } : {}),
