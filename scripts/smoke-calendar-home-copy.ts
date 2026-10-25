@@ -841,7 +841,7 @@ async function main() {
       ['ru', 'editor.errors.errYear', {}, 'Раньше 2000 года могут начинаться только разовые и ежегодные записи'],
       // An "All" move that would start the series outside its years (editor upgrades spec §1): no addressee in Hebrew.
       ['en', 'editor.errors.errSeriesYear', {}, 'Moving all of them would make the series start too early'],
-      ['he', 'editor.errors.errSeriesYear', {}, 'העברה של כל המופעים תגרום לסדרה להתחיל מוקדם מדי'],
+      ['he', 'editor.errors.errSeriesYear', {}, 'העברת כל המופעים תגרום לסדרה להתחיל מוקדם מדי'],
       ['ru', 'editor.errors.errSeriesYear', {}, 'Если перенести все, серия начнётся слишком рано'],
       ['en', 'editor.repeat.until', { rule: 'Every day', date: '27 Oct' }, 'Every day, until 27 Oct'],
       ['he', 'editor.repeat.until', { rule: 'כל יום', date: '27 באוק׳' }, 'כל יום, עד 27 באוק׳'],
