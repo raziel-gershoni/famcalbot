@@ -21,6 +21,7 @@ import {
   endKindOf,
   formRepeat,
   idOfCode,
+  isHebrewForm,
   isSpec,
   monthlyOptions,
   pickFrequency,
@@ -31,6 +32,7 @@ import {
   withInterval,
   withMonthly,
   withUntil,
+  type CustomSeed,
   type EndKind,
   type RepeatForm,
   type RepeatFreq,
@@ -106,17 +108,19 @@ export interface RepeatSheetProps {
   picker: 'date' | 'time' | null;
   onPicker: (open: 'date' | 'time' | null) => void;
   pickerProps: { mode: PickerMode; minYear: number; hebrewDates: boolean; today: string; weekStart: WeekStart };
+  /** What leaving a rule the sheet can't say carries into the spec that replaces it. */
+  customSeed?: CustomSeed;
   onApply: (next: RepeatForm) => void;
   onClose: () => void;
 }
 
 const FREQS: RepeatFreq[] = ['daily', 'weekly', 'monthly', 'yearly'];
 
-export function RepeatSheet({ value, startDay, weekStart, hebrewOffered, custom, words, picker, onPicker, pickerProps, onApply, onClose }: RepeatSheetProps) {
+export function RepeatSheet({ value, startDay, weekStart, hebrewOffered, custom, customSeed, words, picker, onPicker, pickerProps, onApply, onClose }: RepeatSheetProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   const hintId = useId();
-  const [draft, setDraft] = useState<RepeatForm>(value);
+  const [draft, setDraft] = useState<RepeatForm>(() => formRepeat(value, startDay));
   const spec: RepeatSpec | null = isSpec(draft) ? draft : null;
   const own = codeOfDay(startDay);
 
@@ -126,12 +130,12 @@ export function RepeatSheet({ value, startDay, weekStart, hebrewOffered, custom,
     { value: 'none', text: t('editor.repeat.freq.none') },
     ...FREQS.map((f) => ({ value: f, text: t(`editor.repeat.freq.${f}`) })),
     // The Hebrew date is offered where the editor offers it, and to a repeat that already is one.
-    ...(hebrewOffered || spec?.freq === 'hebrew' ? [{ value: 'hebrew', text: t('editor.repeat.freq.hebrew') }] : []),
+    ...(hebrewOffered || isHebrewForm(value) || spec?.freq === 'hebrew' ? [{ value: 'hebrew', text: t('editor.repeat.freq.hebrew') }] : []),
   ];
   const chosen = draft === 'none' || draft === 'custom' ? draft : draft.freq;
   const pickFreq = (v: string) => {
     if (v === 'custom') setDraft('custom');
-    else setDraft(pickFrequency(draft === 'custom' ? 'none' : draft, v as RepeatFreq | 'none', startDay));
+    else setDraft(pickFrequency(draft, v as RepeatFreq | 'none', startDay, customSeed));
   };
 
   const edit = (next: RepeatSpec) => setDraft(next);

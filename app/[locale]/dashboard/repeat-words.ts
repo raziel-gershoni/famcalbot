@@ -58,12 +58,13 @@ export function monthlyNthText(t: CalendarHomeT, interval: number, ordinal: numb
     ordinal: ordinalWord(t, ordinal, weekday),
     day: t('editor.repeat.dayNth', { weekday }),
     g: t('editor.repeat.gender', { weekday }),
+    ord: String(ordinal),
   });
 }
 
 /** The sheet's monthly option "On the second Tuesday" / "On the last Tuesday". */
 export function monthOnNthText(t: CalendarHomeT, ordinal: number | 'last', weekday: WeekdayId): string {
-  return t('editor.repeat.monthOnNth', { ordinal: ordinalWord(t, ordinal, weekday), day: t('editor.repeat.dayNth', { weekday }) });
+  return t('editor.repeat.monthOnNth', { ord: String(ordinal), ordinal: ordinalWord(t, ordinal, weekday), day: t('editor.repeat.dayNth', { weekday }) });
 }
 
 /** A Gregorian day in the words' own form. */

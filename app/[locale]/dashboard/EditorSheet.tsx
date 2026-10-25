@@ -40,7 +40,7 @@ import {
   allOfThem,
   checkForm,
   crossesKinds,
-  dayInZone,
+  repeatDayOf,
   hebrewAnchorOf,
   isDirty,
   isHebrewRepeat,
@@ -61,7 +61,7 @@ import {
   type ScopePlan,
 } from '@/src/lib/calendar-view/editor-model';
 import { minYearFor, MIN_YEAR_BIRTH } from '@/src/lib/calendar-view/year-limits';
-import { sameRepeat, toGregorian } from '@/src/lib/calendar-view/repeat-model';
+import { type CustomSeed, sameRepeat, toGregorian } from '@/src/lib/calendar-view/repeat-model';
 import type { WeekStart } from '@/src/lib/calendar-view/types';
 import type { EditScope, EditorCalendar, ItemEditInfoResponse, ItemKind, RuleChoice } from '@/src/lib/calendar-view/editor-types';
 import { formatDayMonth } from '@/src/lib/calendar-view/format';
@@ -159,7 +159,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
 
   const edit = mode === 'edit';
   const reminder = form.kind === 'reminder';
-  const errors: FieldErrors = showErrors ? checkForm(form) : {};
+  const errors: FieldErrors = showErrors ? checkForm(form, info) : {};
   if (serverField && !errors[serverField.field]) errors[serverField.field] = serverField.key;
   const errorOf = (field: FieldName): string | null => {
     const key = errors[field];
@@ -223,12 +223,12 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   const save = () => {
     if (saving) return;
     setShowErrors(true);
-    if (Object.keys(checkForm(form)).length > 0) return;
+    if (Object.keys(checkForm(form, info)).length > 0) return;
     if (!edit) {
       void run('single');
       return;
     }
-    if (!itemKey || !info || updateBody(form, start, itemKey, 'single') === null) {
+    if (!itemKey || !info || updateBody(form, start, itemKey, 'single', info) === null) {
       onClose();
       return;
     }
@@ -249,19 +249,24 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   const famcalTarget = edit ? info?.source !== 'google' : reminder || isNativeCalendar(form.calendarId);
   const hebrewOffered = hebrewDates && famcalTarget;
   /** Where a new part would be anchored: the form's start day, in the series' zone on an edit. */
-  const startDayInZone = edit && info && day ? dayInZone(day, form.allDay ? '00:00' : form.startTime, info.tz, info.series.zone) : day;
+  const startDayInZone = repeatDayOf({ startDay: day, startTime: form.startTime, allDay: form.allDay }, edit ? info : undefined);
   const storedAnchor = edit && info ? hebrewAnchorOf(info) : null;
   const dayMoved = edit && info ? movesDay(form, start, info.tz, info.series.zone) : false;
   /** A Hebrew repeat's date: the stored anchor's (never the opened occurrence's, which may be a rolled day) unless the start moved, else the start's. */
   const anchorDay = storedAnchor && (isHebrewRepeat(start.repeat) || stored === 'hebrew' || !dayMoved) ? storedAnchor : startDayInZone;
-  const wordsCtx: WordsContext = { startDay: day, weekStart, anchorDay };
+  const wordsCtx: WordsContext = { startDay: startDayInZone, weekStart, anchorDay };
   const customOwn = start.repeat === 'custom' && info ? (info.series.rule?.words ?? infoText(t, locale, repeatWords(info.series.repeat, info.series.start), weekStart)) : null;
   const customEnded = customOwn === null ? null : withEndText(t, locale, customOwn, endOfInfo(info?.series.repeat ?? null, info?.series.rule?.until));
   const custom = start.repeat === 'custom' ? { choice: customEnded === null ? t('editor.repeat.currentPlain') : t('editor.repeat.current', { words: customEnded }), summary: customEnded ?? t('editor.repeat.currentPlain') } : null;
+  /** What leaving a rule the sheet can't say carries into the spec that replaces it: its end, and its interval for the same frequency. */
+  const customSeed: CustomSeed | undefined =
+    start.repeat === 'custom' && info
+      ? { ...(info.series.repeat ? { freq: info.series.repeat.hebrew ? ('hebrew' as const) : info.series.repeat.freq, interval: info.series.repeat.interval } : {}), ...endOfInfo(info.series.repeat, info.series.rule?.until) }
+      : undefined;
   const repeatValue = form.repeat === 'custom' ? (custom?.summary ?? t('editor.repeat.currentPlain')) : repeatFormText(t, locale, form.repeat, wordsCtx);
   /** Under the Repeat row, once the rule is changed from a later occurrence: the earlier ones keep theirs. */
   const fromHereHint =
-    edit && info && info.series.recurring && info.series.first === false && form.repeat !== 'custom' && !sameRepeat(form.repeat, start.repeat)
+    edit && info && info.series.recurring && info.series.first === false && form.repeat !== 'custom' && !sameRepeat(form.repeat, start.repeat, startDayInZone)
       ? t('editor.repeat.fromHere', { date: formatDayMonth(info.occurrence.start.slice(0, 10), locale) })
       : undefined;
   /** Under the Hebrew yearly choice: the count of years starts from the date entered, so it should be the original one. */
@@ -484,9 +489,10 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
       {repeatOpen ? (
         <RepeatSheet
           value={form.repeat}
-          startDay={day}
+          startDay={startDayInZone}
           weekStart={weekStart}
-          hebrewOffered={hebrewOffered}
+          hebrewOffered={hebrewOffered || isHebrewRepeat(start.repeat)}
+          customSeed={customSeed}
           custom={custom}
           words={wordsCtx}
           picker={picker?.row === 'repeatEnd' ? picker.which : null}

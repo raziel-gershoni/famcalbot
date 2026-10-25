@@ -36,7 +36,6 @@ import {
   type RepeatForm,
 } from './repeat-model';
 import { type AlertChoice } from './alert-leads';
-import { codeOfDay } from './repeat-model';
 import { MAX_YEAR, MIN_YEAR_BIRTH, MIN_YEAR_SERIES, minYearFor } from './year-limits';
 
 /** What a new event lasts, and the time a new one on another day starts at. */
@@ -282,7 +281,7 @@ export function editItemForm(info: ItemEditInfoResponse): EditorForm {
     startTime: allDay ? DEFAULT_EVENT_TIME : start.time,
     endDay: end.day,
     endTime: allDay ? shiftWall(start.day, DEFAULT_EVENT_TIME, DEFAULT_EVENT_MINUTES).time : end.time,
-    repeat: storedRepeat(info, start.day),
+    repeat: storedRepeat(info, repeatDayOf({ startDay: start.day, startTime: allDay ? '00:00' : start.time, allDay }, info)),
     calendarId: info.calendar.id,
     forPartner: info.forPartner === true,
     alert: info.alert ?? 'default',
@@ -309,6 +308,16 @@ export function storedRepeat(info: ItemEditInfoResponse, startDay: string): Repe
   if (until) spec.until = until;
   else if (info.series.repeat?.count !== undefined) spec.count = info.series.repeat.count;
   return formRepeat(spec, startDay);
+}
+
+/**
+ * The day the repeat is built and worded on: the form's start day on a new item, and on an edit
+ * that day in the series' own zone (the server builds the rule on the part's start there, so a
+ * start near midnight can be another weekday or day of the month than on the user's clock).
+ */
+export function repeatDayOf(form: Pick<EditorForm, 'startDay' | 'startTime' | 'allDay'>, info?: Pick<ItemEditInfoResponse, 'tz' | 'series'>): string {
+  if (!info || form.allDay || !form.startDay) return form.startDay;
+  return dayInZone(form.startDay, form.startTime || '00:00', info.tz, info.series.zone);
 }
 
 // ---- Edits ----
@@ -339,10 +348,7 @@ export function spanOf(form: EditorForm): FormSpan | null {
  * start that is not a real date or time leaves the end where it is.
  */
 export function moveStart(form: EditorForm, patch: { startDay?: string; startTime?: string }, held: FormSpan | null = null): EditorForm {
-  const moved = moveStartTimes(form, patch, held);
-  // The repeat follows the start: its weekday is never one of the weekly extras, its ordinal and
-  // "last" are the new day's. A day being typed that is not real leaves it alone.
-  return patch.startDay !== undefined && moved.startDay !== form.startDay && codeOfDay(moved.startDay) !== null && isSpec(moved.repeat) ? { ...moved, repeat: formRepeat(moved.repeat, moved.startDay) } : moved;
+  return moveStartTimes(form, patch, held);
 }
 
 function moveStartTimes(form: EditorForm, patch: { startDay?: string; startTime?: string }, held: FormSpan | null): EditorForm {
@@ -395,7 +401,7 @@ export function isDirty(form: EditorForm, initial: EditorForm): boolean {
     // A reminder has no end, and a switch-off time is not an edit.
     if (form.kind === 'reminder' && (k === 'endDay' || k === 'endTime')) return false;
     if (form.allDay && initial.allDay && (k === 'startTime' || k === 'endTime')) return false;
-    if (k === 'repeat') return !sameRepeat(form.repeat, initial.repeat);
+    if (k === 'repeat') return !sameRepeat(form.repeat, initial.repeat, form.startDay);
     return form[k] !== initial[k];
   });
 }
@@ -405,7 +411,7 @@ export function isDirty(form: EditorForm, initial: EditorForm): boolean {
 const length = (text: string) => Array.from(text).length;
 
 /** The inline errors; empty when the form can be sent. */
-export function checkForm(form: EditorForm): FieldErrors {
+export function checkForm(form: EditorForm, info?: ItemEditInfoResponse): FieldErrors {
   const errors: FieldErrors = {};
   const title = form.title.trim();
   if (title === '') errors.title = 'errTitle';
@@ -416,7 +422,7 @@ export function checkForm(form: EditorForm): FieldErrors {
   const reminder = form.kind === 'reminder';
   const timed = !form.allDay;
   const floor = floorOf(form);
-  if (endsBeforeStart(form.repeat, form.startDay)) errors.repeat = 'errRepeatEnd';
+  if (endsBeforeStart(form.repeat, repeatDayOf(form, info))) errors.repeat = 'errRepeatEnd';
   /** The year-floor error when the day is real from 1900 on but not from this repeat's floor, else the plain date error. */
   const dayError = (day: string): 'errYear' | 'errDate' => (isRealDay(day, MIN_YEAR_BIRTH) ? 'errYear' : 'errDate');
   if (!isRealDay(form.startDay, floor)) errors.start = dayError(form.startDay);
@@ -510,7 +516,7 @@ export function updateBody(
   // The series-level fields go only when the person changed them (3b spec §4). A rule kept
   // as it is ('custom' untouched, or the stored choice) is never sent: the server would read
   // a stored bot rule that classifies as one of the five as a repeat change.
-  const repeat = pickedRepeat(form, initial) ?? (scope === 'following' && info ? restatedRepeat(form, initial, info) : null);
+  const repeat = pickedRepeat(form, initial, info) ?? (scope === 'following' && info ? restatedRepeat(form, initial, info) : null);
   if (repeat !== null) changes.repeat = repeat;
   if (!reminder && form.calendarId && form.calendarId !== initial.calendarId) changes.calendarId = form.calendarId;
   if (reminder && form.forPartner !== initial.forPartner) changes.forPartner = form.forPartner;
@@ -538,9 +544,10 @@ function alertChange(form: EditorForm, initial: EditorForm): AlertChoice | null 
  * (including a custom rule left alone). A spec is compared to the stored one relative to each
  * start, so moving the start of a plain weekly or monthly series is not a change of its repeat.
  */
-function pickedRepeat(form: EditorForm, initial: EditorForm): RepeatInput | null {
-  if (form.repeat === 'custom' || sameRepeat(form.repeat, initial.repeat)) return null;
-  return repeatInput(form.repeat, form.startDay);
+function pickedRepeat(form: EditorForm, initial: EditorForm, info?: ItemEditInfoResponse): RepeatInput | null {
+  const day = repeatDayOf(form, info);
+  if (form.repeat === 'custom' || sameRepeat(form.repeat, initial.repeat, day)) return null;
+  return repeatInput(form.repeat, day);
 }
 
 /**
@@ -551,8 +558,8 @@ function pickedRepeat(form: EditorForm, initial: EditorForm): RepeatInput | null
  * it), so "this one and the ones after" can move the day (3b spec §2.1).
  */
 export function restatedRepeat(form: EditorForm, initial: EditorForm, info: ItemEditInfoResponse): RepeatSpec | null {
-  if (!info.series.recurring || !info.series.fixedDays || !isSpec(initial.repeat) || !sameRepeat(form.repeat, initial.repeat)) return null;
-  return movesDay(form, initial, info.tz, info.series.zone) ? shownSpec(form.repeat, form.startDay) : null;
+  if (!info.series.recurring || !info.series.fixedDays || !isSpec(initial.repeat) || !sameRepeat(form.repeat, initial.repeat, repeatDayOf(form, info))) return null;
+  return movesDay(form, initial, info.tz, info.series.zone) ? shownSpec(form.repeat, repeatDayOf(form, info)) : null;
 }
 
 /**
@@ -597,7 +604,7 @@ export function scopePlan(form: EditorForm, initial: EditorForm, info: ItemEditI
     return info.series.recurring ? { kind: 'sheet', choices: ['all'], note: 'crossKind' } : { kind: 'none' };
   }
   if (!info.series.recurring) return { kind: 'none' };
-  if (pickedRepeat(form, initial) !== null) return { kind: 'following' };
+  if (pickedRepeat(form, initial, info) !== null) return { kind: 'following' };
   const reminder = form.kind === 'reminder';
   const seriesLevel =
     (!reminder && !!form.calendarId && form.calendarId !== initial.calendarId) ||

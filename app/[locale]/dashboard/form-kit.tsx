@@ -317,7 +317,7 @@ button.ch-form-row:focus-visible {
   cursor: pointer;
   touch-action: manipulation;
 }
-.ch-step:disabled {
+.ch-step[aria-disabled='true'] {
   color: var(--ch-muted);
   opacity: 0.5;
   cursor: default;
@@ -662,7 +662,7 @@ export function StepperRow({
         <span>{label}</span>
       </span>
       <span className="ch-stepper" dir="ltr">
-        <button type="button" className="ch-step" aria-label={decLabel} disabled={value <= min} onClick={() => onChange(Math.max(min, value - 1))}>
+        <button type="button" className="ch-step" aria-label={decLabel} aria-disabled={value <= min || undefined} onClick={() => value > min && onChange(value - 1)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true" focusable="false">
             <path d="M5 12h14" />
           </svg>
@@ -670,7 +670,7 @@ export function StepperRow({
         <output className="ch-step-value" aria-live="polite">
           {value}
         </output>
-        <button type="button" className="ch-step" aria-label={incLabel} disabled={value >= max} onClick={() => onChange(Math.min(max, value + 1))}>
+        <button type="button" className="ch-step" aria-label={incLabel} aria-disabled={value >= max || undefined} onClick={() => value < max && onChange(value + 1)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true" focusable="false">
             <path d="M5 12h14M12 5v14" />
           </svg>

@@ -4,12 +4,14 @@
 // imports only the shared editing types.
 //
 // The form keeps a repeat as a RepeatSpec, 'none' or 'custom' (a stored rule the sheet can't
-// say, kept as it is until another choice is made). In the form a weekly spec's `byDay` is the
-// days BESIDE the start's: the start's own day is always a day of the series and follows the
-// start wherever it moves, so moving a plain weekly event is not a change of its repeat and a
-// day moved on a set-weekdays series restates it (shownSpec adds the start's day for the
-// request, Monday first, as the server's spec lists them). The monthly choice is
-// 'day' | 'weekday' | 'last' and the ordinal is never stored: the start gives it.
+// say, kept as it is until another choice is made). A weekly spec's `byDay` is the whole set of
+// days the person chose, or absent for a plain weekly, which follows its start. Moving the start
+// never edits the form: shownSpec (what the request sends and the sheet shows) adds the start's
+// day to the set, so a move adds the new start's day and moving back restores the set, and a
+// plain weekly moves with its start. The monthly choice is 'day' | 'weekday' | 'last' and the
+// ordinal is never stored: the start gives it ('last' reads as the n-th weekday once the start
+// can't hold it). All of it is built on the start's day in the series' zone (editor-model's
+// repeatDayOf), as the server builds it.
 
 import { REPEAT_COUNT_MAX, REPEAT_INTERVAL_MAX, WEEKDAY_CODES, type RepeatInput, type RepeatSpec, type WeekdayCode } from './editor-types';
 
@@ -73,37 +75,38 @@ export function weekOrder(weekStart: number): WeekdayCode[] {
 }
 
 /**
- * The spec in the form's shape for a start: the interval and end clamped to the limits, a weekly
- * spec's days beside the start's only (Monday first), 'last' only while the start is in its
- * month's last seven days, the monthly choice only on a monthly spec, one end only.
+ * The spec in the form's shape for a start: the interval and end clamped to the limits, the
+ * weekly days as the whole set, Monday first, the start's day among them (a set that is just the
+ * start's day is a plain weekly, which follows its start: no byDay), 'last' only while the start is
+ * in its month's last seven days (else the n-th weekday of the start), the monthly choice only on
+ * a monthly spec, one end only.
  */
 export function normalizeSpec(spec: RepeatSpec, startDay: string): RepeatSpec {
   const own = codeOfDay(startDay);
   const out: RepeatSpec = { freq: spec.freq, interval: clamp(spec.interval, 1, REPEAT_INTERVAL_MAX) };
   if (spec.freq === 'weekly') {
-    const extra = WEEKDAY_CODES.filter((c) => c !== own && (spec.byDay ?? []).includes(c));
-    if (extra.length > 0) out.byDay = extra;
+    const days = WEEKDAY_CODES.filter((c) => c === own || (spec.byDay ?? []).includes(c));
+    if (days.length > 1 || (own === null && days.length > 0)) out.byDay = days;
   }
   if (spec.freq === 'monthly') {
     const options = monthlyOptions(startDay);
-    out.monthly = spec.monthly === 'last' && !options?.last ? 'day' : (spec.monthly ?? 'day');
+    out.monthly = spec.monthly === 'last' && options && !options.last ? 'weekday' : (spec.monthly ?? 'day');
   }
   if (spec.until) out.until = spec.until;
   else if (spec.count !== undefined) out.count = clamp(spec.count, 1, REPEAT_COUNT_MAX);
   return out;
 }
 
-/**
- * A stored repeat in the form's shape: a spec the server reported (its weekly days list the
- * start's too), 'none' or 'custom' as they are.
- */
+/** A stored repeat in the form's shape (see normalizeSpec) for the start it is shown against. */
 export function formRepeat(repeat: RepeatForm, startDay: string): RepeatForm {
   return isSpec(repeat) ? normalizeSpec(repeat, startDay) : repeat;
 }
 
 /**
  * The spec the request sends, and the sheet shows, for a start: a weekly spec lists its days
- * Monday first with the start's day among them. Null for 'none' and 'custom' (nothing to say).
+ * Monday first with the start's day among them. Moving the start adds its day to a listed set
+ * and moves a plain weekly with it, because the form keeps what the person chose and this adds
+ * the start. Null for 'none' and 'custom' (nothing to say).
  */
 export function shownSpec(repeat: RepeatForm, startDay: string): RepeatSpec | null {
   if (!isSpec(repeat)) return null;
@@ -118,30 +121,47 @@ export function repeatInput(repeat: RepeatForm, startDay: string): RepeatInput {
   return shownSpec(repeat, startDay) ?? 'none';
 }
 
-/** The days a spec stands on, for comparing: its weekly extras (sorted), its monthly choice, its end. */
+/** A spec as the request would say it, for comparing. */
 function canonical(spec: RepeatSpec): string {
   return JSON.stringify([spec.freq, spec.interval, [...(spec.byDay ?? [])].sort(), spec.freq === 'monthly' ? (spec.monthly ?? 'day') : null, spec.until ?? null, spec.until ? null : (spec.count ?? null)]);
 }
 
-/** Whether two repeats say the same, each relative to its own start (so a start that moved is not a change). */
-export function sameRepeat(a: RepeatForm, b: RepeatForm): boolean {
+/**
+ * Whether two repeats say the same against one start: each is shown on it (shownSpec), so a start
+ * that moved is not a change, and a series stored as 'last' that the start can no longer hold is
+ * compared as the n-th weekday on both sides.
+ */
+export function sameRepeat(a: RepeatForm, b: RepeatForm, startDay: string): boolean {
   if (!isSpec(a) || !isSpec(b)) return a === b;
-  return canonical(a) === canonical(b);
+  const [x, y] = [shownSpec(a, startDay), shownSpec(b, startDay)];
+  return x !== null && y !== null && canonical(x) === canonical(y);
 }
 
 // ---- The sheet's operations ----
 
+/** What a stored rule the sheet can't say lends a spec made from it: its end, and its interval for the same frequency. */
+export interface CustomSeed {
+  freq?: RepeatFreq;
+  interval?: number;
+  until?: string;
+  count?: number;
+}
+
 /** A spec of a frequency with the interval and end it had (switching Weekly to Monthly keeps "every 2" and the end). */
-export function specOf(freq: RepeatFreq, from: RepeatForm, startDay: string): RepeatSpec {
-  const keep = isSpec(from) ? { interval: from.interval, ...(from.until ? { until: from.until } : {}), ...(!from.until && from.count !== undefined ? { count: from.count } : {}) } : { interval: 1 };
+export function specOf(freq: RepeatFreq, from: RepeatForm, startDay: string, seed?: CustomSeed): RepeatSpec {
+  const keep = isSpec(from)
+    ? { interval: from.interval, ...(from.until ? { until: from.until } : {}), ...(!from.until && from.count !== undefined ? { count: from.count } : {}) }
+    : seed
+      ? { interval: seed.freq === freq && seed.interval ? seed.interval : 1, ...(seed.until ? { until: seed.until } : {}), ...(!seed.until && seed.count !== undefined ? { count: seed.count } : {}) }
+      : { interval: 1 };
   return normalizeSpec({ freq, ...keep }, startDay);
 }
 
-/** The sheet's frequency pick: 'none' ends the repeat; the same frequency again changes nothing. */
-export function pickFrequency(from: RepeatForm, pick: RepeatFreq | 'none', startDay: string): RepeatForm {
+/** The sheet's frequency pick: 'none' ends the repeat; the same frequency again changes nothing. Leaving 'custom' carries its end (and its interval for the same frequency). */
+export function pickFrequency(from: RepeatForm, pick: RepeatFreq | 'none', startDay: string, seed?: CustomSeed): RepeatForm {
   if (pick === 'none') return 'none';
   if (isSpec(from) && from.freq === pick) return from;
-  return specOf(pick, from, startDay);
+  return specOf(pick, from, startDay, from === 'custom' ? seed : undefined);
 }
 
 /** Every N: clamped to 1..REPEAT_INTERVAL_MAX. */
@@ -149,15 +169,14 @@ export function withInterval(spec: RepeatSpec, interval: number): RepeatSpec {
   return { ...spec, interval: clamp(interval, 1, REPEAT_INTERVAL_MAX) };
 }
 
-/** A weekday chip tapped: the start's own day can't be turned off. */
+/** A weekday chip tapped: the start's own day can't be turned off. The result lists the whole set. */
 export function toggleDay(spec: RepeatSpec, code: WeekdayCode, startDay: string): RepeatSpec {
-  if (code === codeOfDay(startDay)) return spec;
-  const has = (spec.byDay ?? []).includes(code);
-  const days = WEEKDAY_CODES.filter((c) => (c === code ? !has : (spec.byDay ?? []).includes(c)));
-  const next: RepeatSpec = { ...spec };
-  if (days.length > 0) next.byDay = days;
-  else delete next.byDay;
-  return next;
+  const own = codeOfDay(startDay);
+  if (code === own) return spec;
+  const shown = shownSpec(spec, startDay);
+  const has = (shown?.byDay ?? []).includes(code);
+  const days = WEEKDAY_CODES.filter((c) => (c === code ? !has : c === own || (shown?.byDay ?? []).includes(c)));
+  return normalizeSpec({ ...spec, byDay: days }, startDay);
 }
 
 /** The monthly choice. */

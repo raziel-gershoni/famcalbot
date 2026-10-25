@@ -15,6 +15,7 @@
 import { createRequire } from 'module';
 import {
   checkForm,
+  repeatDayOf,
   createBody,
   editItemForm,
   isDirty,
@@ -85,38 +86,41 @@ const translator = (locale: Locale) => {
 const spec = (s: Partial<RepeatSpec> & Pick<RepeatSpec, 'freq'>): RepeatSpec => ({ interval: 1, ...s });
 
 /** An edit info for a series opened on `day` (a Tuesday, 20 Oct 2026, unless said). */
-function info(o: { spec?: RepeatSpec; choice?: ItemEditInfoResponse['series']['rule']; fixedDays?: boolean; first?: boolean; day?: string; recurring?: boolean }): ItemEditInfoResponse {
+function info(o: { tz?: string; zone?: string; time?: string; spec?: RepeatSpec; choice?: ItemEditInfoResponse['series']['rule']; fixedDays?: boolean; first?: boolean; day?: string; recurring?: boolean }): ItemEditInfoResponse {
   const day = o.day ?? '2026-10-20';
   return {
     kind: 'event',
     canEdit: true,
     canDelete: true,
-    occurrence: { start: `${day}T17:00`, end: `${day}T18:00`, allDay: false, title: 'Swimming', location: '', description: '' },
+    occurrence: { start: `${day}T${o.time ?? '17:00'}`, end: `${day}T18:00`, allDay: false, title: 'Swimming', location: '', description: '' },
     series: {
       recurring: o.recurring ?? true,
-      start: `${day}T17:00`,
+      start: `${day}T${o.time ?? '17:00'}`,
       repeat: { freq: 'weekly', interval: 1, byDay: [], ends: false },
       fixedDays: o.fixedDays ?? false,
-      zone: 'UTC',
+      zone: o.zone ?? 'UTC',
       ...(o.choice ? { rule: o.choice } : {}),
       ...(o.spec ? { spec: o.spec } : {}),
       first: o.first ?? true,
     },
-    tz: 'UTC',
+    tz: o.tz ?? 'UTC',
     calendar: { id: 'native:cal_me_7f3a', name: 'Family', color: null },
     forName: null,
     scopes: ['single', 'following', 'all'],
   };
 }
 const formOf = (i: ItemEditInfoResponse) => editItemForm(i);
+/** The repeat an update would carry for a move on 'all' (a pick, not a restatement), or undefined. */
+const pickedRepeatBody = (form: EditorForm, initial: EditorForm, i: ItemEditInfoResponse) => updateBody(form, initial, 'k', 'all', i)?.changes.repeat;
 const withRepeat = (f: EditorForm, repeat: RepeatForm): EditorForm => ({ ...f, repeat });
 
 async function main() {
-  await check('R1 the form holds the repeat as a spec: a server spec opens with the weekly days beside the start\'s, a choice-only info becomes a spec, a rule the sheet can\'t say stays custom, a one-off is none', () => {
+  await check('R1 the form holds the repeat as a spec: a server spec opens with its whole weekly set, a choice-only info becomes a spec, a rule the sheet can\'t say stays custom, a one-off is none', () => {
     // 20 Oct 2026 is a Tuesday: the server lists TU among the days; the form keeps the others.
     const multi = formOf(info({ spec: spec({ freq: 'weekly', interval: 2, byDay: ['TU', 'SU'], until: '2027-03-01' }), fixedDays: true, choice: { choice: 'custom' } }));
-    assertSame(multi.repeat, { freq: 'weekly', interval: 2, byDay: ['SU'], until: '2027-03-01' }, 'extras only');
-    assertSame(shownSpec(multi.repeat, multi.startDay), { freq: 'weekly', interval: 2, byDay: ['TU', 'SU'], until: '2027-03-01' }, 'the request lists the start\'s day too, Monday first');
+    assertSame(multi.repeat, { freq: 'weekly', interval: 2, byDay: ['TU', 'SU'], until: '2027-03-01' }, 'the whole set, Monday first');
+    assertSame(shownSpec(multi.repeat, multi.startDay), { freq: 'weekly', interval: 2, byDay: ['TU', 'SU'], until: '2027-03-01' }, 'the request lists the same');
+    assertSame(formOf(info({ spec: spec({ freq: 'weekly', byDay: ['TU'] }), choice: { choice: 'weekly' } })).repeat, { freq: 'weekly', interval: 1 }, 'a single day is a plain weekly: it follows its start');
     assertSame(formOf(info({ choice: { choice: 'weekly' } })).repeat, { freq: 'weekly', interval: 1 }, 'a choice from an older server');
     assertSame(formOf(info({ choice: { choice: 'daily', until: '2026-10-27' } })).repeat, { freq: 'daily', interval: 1, until: '2026-10-27' }, 'its end');
     assertSame(formOf(info({ choice: { choice: 'hebrew', anchor: '2026-10-20' } })).repeat, { freq: 'hebrew', interval: 1 }, 'hebrew');
@@ -129,27 +133,32 @@ async function main() {
     assert(createBody(withRepeat(base, 'custom')).repeat === 'none' && createBody(base).repeat === 'none', 'custom and none send none');
   });
 
-  await check('R2 the weekday chips: the start\'s own day is never an extra and can\'t be toggled; the others toggle, Monday first; the order of the week follows the week start', () => {
+  await check('R2 the weekday chips: the start\'s own day can\'t be toggled; the others toggle, the set is whole and Monday first; the order of the week follows the week start; a start move adds the new start\'s day to the set and moving back restores it, a plain weekly moves with its start', () => {
     const s = spec({ freq: 'weekly' });
     assertSame(toggleDay(s, 'TU', '2026-10-20'), s, 'the start\'s day stays as it is');
     const a = toggleDay(toggleDay(s, 'SU', '2026-10-20'), 'TH', '2026-10-20');
-    assertSame(a.byDay, ['TH', 'SU'], 'Monday-first order');
-    assertSame(toggleDay(a, 'SU', '2026-10-20').byDay, ['TH'], 'toggled off');
-    assert(toggleDay(toggleDay(s, 'SU', '2026-10-20'), 'SU', '2026-10-20').byDay === undefined, 'no extras: no byDay');
-    assertSame(normalizeSpec(spec({ freq: 'weekly', byDay: ['TU', 'WE', 'WE'] }), '2026-10-20').byDay, ['WE'], 'the start\'s day is dropped, repeats merged');
+    assertSame(a.byDay, ['TU', 'TH', 'SU'], 'the whole set, Monday-first order');
+    assertSame(toggleDay(a, 'SU', '2026-10-20').byDay, ['TU', 'TH'], 'toggled off');
+    assert(toggleDay(toggleDay(s, 'SU', '2026-10-20'), 'SU', '2026-10-20').byDay === undefined, 'only the start\'s day: a plain weekly, no byDay');
+    assertSame(normalizeSpec(spec({ freq: 'weekly', byDay: ['TU', 'WE', 'WE'] }), '2026-10-20').byDay, ['TU', 'WE'], 'merged and ordered, the start\'s day in');
+    assertSame(normalizeSpec(spec({ freq: 'weekly', byDay: ['WE'] }), '2026-10-20').byDay, ['TU', 'WE'], 'the start\'s day is added');
     assertSame(weekOrder(0), ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'], 'Sunday first');
     assertSame(weekOrder(1), ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'], 'Monday first');
     assertSame(weekOrder(6), ['SA', 'SU', 'MO', 'TU', 'WE', 'TH', 'FR'], 'Saturday first');
-    // Moving the start turns the new start's day on and the old one off (it was only the start's): the extras follow.
-    const f = withRepeat(formOf(info({ recurring: false, choice: { choice: 'none' } })), spec({ freq: 'weekly', byDay: ['TH'] }));
-    const moved = moveStart(f, { startDay: '2026-10-22' }); // Thursday
-    assertSame(moved.repeat, { freq: 'weekly', interval: 1 }, 'Thursday is the start now: no longer an extra');
-    assertSame(shownSpec(moved.repeat, moved.startDay)?.byDay, ['TH'], 'and shown as the start\'s day');
-    const moved2 = moveStart(f, { startDay: '2026-10-23' }); // Friday
-    assertSame(shownSpec(moved2.repeat, moved2.startDay)?.byDay, ['TH', 'FR'], 'the extras stay, the new start joins');
+    // A start move never edits the form: the shown set gains the new start's day and keeps the rest.
+    const f = withRepeat(formOf(info({ recurring: false, choice: { choice: 'none' } })), spec({ freq: 'weekly', byDay: ['TU', 'TH'] }));
+    const thu = moveStart(f, { startDay: '2026-10-22' });
+    assertSame(shownSpec(thu.repeat, thu.startDay)?.byDay, ['TU', 'TH'], 'moved to Thursday: both days');
+    const fri = moveStart(f, { startDay: '2026-10-23' });
+    assertSame(shownSpec(fri.repeat, fri.startDay)?.byDay, ['TU', 'TH', 'FR'], 'moved to Friday: Friday joins');
+    const back = moveStart(fri, { startDay: '2026-10-20' });
+    assertSame(shownSpec(back.repeat, back.startDay)?.byDay, ['TU', 'TH'], 'and back: both days, nothing left behind');
+    // A plain weekly (the set is just the start\'s day) follows its start.
+    const plain = withRepeat(f, spec({ freq: 'weekly' }));
+    assertSame(shownSpec(moveStart(plain, { startDay: '2026-10-22' }).repeat, '2026-10-22')?.byDay, ['TH'], 'a plain weekly moves with the start');
   });
 
-  await check('R3 the monthly options by the start: the ordinal is ceil(day / 7), "last" only in the month\'s last seven days, and a "last" falls back to the day when the start moves out of them', () => {
+  await check('R3 the monthly options by the start: the ordinal is ceil(day / 7), "last" only in the month\'s last seven days, and a "last" the start can\'t hold reads as the n-th weekday of the start', () => {
     assertSame(monthlyOptions('2026-10-14'), { ordinal: 2, last: false }, '14 Oct');
     assertSame(monthlyOptions('2026-10-07'), { ordinal: 1, last: false }, '7 Oct');
     assertSame(monthlyOptions('2026-10-08'), { ordinal: 2, last: false }, '8 Oct');
@@ -162,12 +171,13 @@ async function main() {
     assert(monthlyOptions('2026-02-31') === null && monthlyOptions('') === null, 'not a real day');
     const last = spec({ freq: 'monthly', monthly: 'last' });
     assert(normalizeSpec(last, '2026-10-27').monthly === 'last', 'kept in the last week');
-    assert(normalizeSpec(last, '2026-10-20').monthly === 'day', 'out of it, back to the day');
+    assert(normalizeSpec(last, '2026-10-20').monthly === 'weekday', 'out of it, the n-th weekday of the start');
     const f = withRepeat(formOf(info({ recurring: false, choice: { choice: 'none' }, day: '2026-10-27' })), last);
-    assert((moveStart(f, { startDay: '2026-10-20' }).repeat as RepeatSpec).monthly === 'day', 'the editor\'s move does the same');
-    assert((moveStart(f, { startDay: '2026-10-29' }).repeat as RepeatSpec).monthly === 'last', 'a move within the last week keeps it');
-    // A start typed through days that aren't real leaves the choice alone.
-    assert((moveStart(f, { startDay: '2026-10-2' }).repeat as RepeatSpec).monthly === 'last', 'a day being typed');
+    const out = moveStart(f, { startDay: '2026-10-20' });
+    assert((out.repeat as RepeatSpec).monthly === 'last' && shownSpec(out.repeat, out.startDay)?.monthly === 'weekday', 'a move leaves the form alone; what is sent and said is the n-th weekday');
+    const within = moveStart(f, { startDay: '2026-10-29' });
+    assert(shownSpec(within.repeat, within.startDay)?.monthly === 'last', 'a move within the last week keeps it');
+    assert(shownSpec(moveStart(f, { startDay: '2026-10-2' }).repeat, '2026-10-2')?.monthly === 'last', 'a day being typed');
     assert(normalizeSpec(spec({ freq: 'weekly', monthly: 'weekday' }), '2026-10-20').monthly === undefined, 'monthly only on a monthly spec');
     assert(withMonthly(spec({ freq: 'monthly' }), 'weekday').monthly === 'weekday', 'the sheet\'s monthly pick');
     assert(normalizeSpec(spec({ freq: 'monthly' }), '2026-10-20').monthly === 'day', 'a monthly spec always has its choice');
@@ -206,13 +216,14 @@ async function main() {
   await check('R5 a repeat is a change only when the spec says something else, relative to each start: moving a plain weekly or monthly series is not one; a pick, a stop and a custom rule left alone are', () => {
     const plain = formOf(info({ spec: spec({ freq: 'weekly', byDay: ['TU'] }), choice: { choice: 'weekly' } }));
     const plainMoved = moveStart(plain, { startDay: '2026-10-22' });
-    assert(sameRepeat(plainMoved.repeat, plain.repeat) && isDirty(plainMoved, plain), 'a plain weekly moved to Thursday: only the start changed, the repeat is the same');
+    assert(sameRepeat(plainMoved.repeat, plain.repeat, plainMoved.startDay) && isDirty(plainMoved, plain), 'a plain weekly moved to Thursday: only the start changed, the repeat is the same');
     assert(updateBody(plainMoved, plain, 'k', 'all')?.changes.repeat === undefined, 'and no repeat is sent');
     const nth = formOf(info({ spec: spec({ freq: 'monthly', monthly: 'weekday' }), choice: { choice: 'custom' }, day: '2026-10-13' }));
-    assert(sameRepeat(moveStart(nth, { startDay: '2026-10-20' }).repeat, nth.repeat), 'the second Tuesday moved to the third: the same spec');
-    assert(!sameRepeat(spec({ freq: 'daily' }), spec({ freq: 'daily', interval: 2 })) && !sameRepeat(spec({ freq: 'daily' }), 'none') && sameRepeat('custom', 'custom'), 'interval and none differ');
-    assert(!sameRepeat(spec({ freq: 'daily', until: '2026-10-27' }), spec({ freq: 'daily', count: 3 })), 'the end differs');
-    assert(sameRepeat(spec({ freq: 'weekly', byDay: ['SU', 'TH'] }), spec({ freq: 'weekly', byDay: ['TH', 'SU'] })), 'the order of the days is not a change');
+    assert(sameRepeat(moveStart(nth, { startDay: '2026-10-20' }).repeat, nth.repeat, '2026-10-20'), 'the second Tuesday moved to the third: the same spec');
+    const D = '2026-10-20';
+    assert(!sameRepeat(spec({ freq: 'daily' }), spec({ freq: 'daily', interval: 2 }), D) && !sameRepeat(spec({ freq: 'daily' }), 'none', D) && sameRepeat('custom', 'custom', D), 'interval and none differ');
+    assert(!sameRepeat(spec({ freq: 'daily', until: '2026-10-27' }), spec({ freq: 'daily', count: 3 }), D), 'the end differs');
+    assert(sameRepeat(spec({ freq: 'weekly', byDay: ['SU', 'TH'] }), spec({ freq: 'weekly', byDay: ['TH', 'SU', 'TU'] }), D), 'the order of the days, and the start\'s own day, are not a change');
     assert(!isDirty({ ...plain, repeat: { ...(plain.repeat as RepeatSpec), byDay: [...((plain.repeat as RepeatSpec).byDay ?? [])] } }, plain), 'an equal spec in a new object is not an edit');
     // updateBody: a pick sends the shown spec; custom left alone sends nothing; none sends 'none' with the occurrence's times.
     const picked = withRepeat(plain, spec({ freq: 'weekly', interval: 2, byDay: ['SA'], count: 6 }));
@@ -228,15 +239,26 @@ async function main() {
     assert(formRepeat(spec({ freq: 'daily', interval: 3 }), '2026-10-20') !== null, 'formRepeat');
   });
 
-  await check('R6 a day move on a series with fixed days restates the repeat: "this one and the ones after" sends the shown spec so the server rebuilds it on the new start (chips gain the new start\'s day, the ordinal follows); "only this one" sends none; a custom rule can\'t', () => {
+  await check('R6 a day move on a series with fixed days restates the repeat: "this one and the ones after" sends the shown spec, which gains the new start\'s day and keeps the rest; the question is asked even when the moved start lands on a day the set already has; "only this one" sends none; a custom rule can\'t', () => {
     const weekly = info({ spec: spec({ freq: 'weekly', byDay: ['TU', 'TH'] }), choice: { choice: 'custom' }, fixedDays: true, first: false, day: '2026-10-20' });
     const initial = formOf(weekly);
-    assertSame(initial.repeat, { freq: 'weekly', interval: 1, byDay: ['TH'] }, 'opened on the Tuesday');
-    const moved = moveStart(initial, { startDay: '2026-10-23' }); // Friday
-    assertSame(scopePlan(moved, initial, weekly), { kind: 'sheet', choices: ['single', 'following'], note: 'dayMove' }, 'the plan asks');
-    assertSame(restatedRepeat(moved, initial, weekly), { freq: 'weekly', interval: 1, byDay: ['TH', 'FR'] }, 'the shown spec: Thursday stays, Friday joins');
-    assertSame(updateBody(moved, initial, 'k', 'following', weekly)?.changes.repeat, { freq: 'weekly', interval: 1, byDay: ['TH', 'FR'] }, 'following restates');
-    assert(updateBody(moved, initial, 'k', 'single', weekly)?.changes.repeat === undefined, 'single sends no repeat');
+    assertSame(initial.repeat, { freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] }, 'opened on the Tuesday');
+    const asks = { kind: 'sheet', choices: ['single', 'following'], note: 'dayMove' };
+    // Tuesday moved to Thursday: a day the series already has. It is still a move, so the scope is asked.
+    const thu = moveStart(initial, { startDay: '2026-10-22' });
+    assertSame(scopePlan(thu, initial, weekly), asks, 'Tuesday to Thursday asks');
+    assertSame(restatedRepeat(thu, initial, weekly), { freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] }, 'and restates Tue/Thu');
+    assert(updateBody(thu, initial, 'k', 'single', weekly)?.changes.repeat === undefined, 'only this one sends no repeat');
+    assertSame(updateBody(thu, initial, 'k', 'following', weekly)?.changes.repeat, { freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] }, 'following restates');
+    // Tuesday moved to Wednesday: the shown spec is TU, WE, TH (the ruling\'s example, the server test at the same shape).
+    const wed = moveStart(initial, { startDay: '2026-10-21' });
+    assertSame(scopePlan(wed, initial, weekly), asks, 'Tuesday to Wednesday asks');
+    assertSame(restatedRepeat(wed, initial, weekly), { freq: 'weekly', interval: 1, byDay: ['TU', 'WE', 'TH'] }, 'TU, WE, TH');
+    // Away and back: the dates are as they were, so nothing is sent and nothing is asked.
+    const home = moveStart(wed, { startDay: '2026-10-20' });
+    assert(pickedRepeatBody(home, initial, weekly) === undefined && restatedRepeat(home, initial, weekly) === null, 'moved away and back: no repeat');
+    assertSame(shownSpec(home.repeat, home.startDay)?.byDay, ['TU', 'TH'], 'both days kept');
+    assertSame(updateBody({ ...home, title: 'Pool' }, initial, 'k', 'following', weekly)?.changes, { title: 'Pool' }, 'a title edit sends no repeat');
     // The second Tuesday moved to the third Tuesday: the same spec, the ordinal follows by itself.
     const nth = info({ spec: spec({ freq: 'monthly', monthly: 'weekday' }), choice: { choice: 'custom' }, fixedDays: true, first: false, day: '2026-10-13' });
     const nInitial = formOf(nth);
@@ -244,11 +266,17 @@ async function main() {
     assertSame(restatedRepeat(nMoved, nInitial, nth), { freq: 'monthly', interval: 1, monthly: 'weekday' }, 'monthly weekday restated');
     assert(restatedRepeat(nInitial, nInitial, nth) === null, 'no move, no restatement');
     assert(restatedRepeat({ ...nInitial, startTime: '18:00' }, nInitial, nth) === null, 'a new time restates nothing');
-    // The last Tuesday moved out of the last week: the choice falls to the day, which is a change of the repeat itself.
+    // The last Tuesday moved out of the last week: it reads as the n-th weekday of the new start on both sides, so it is no silent pick; "following" restates it so.
     const lastInfo = info({ spec: spec({ freq: 'monthly', monthly: 'last' }), choice: { choice: 'custom' }, fixedDays: true, day: '2026-10-27' });
     const lInitial = formOf(lastInfo);
     const lMoved = moveStart(lInitial, { startDay: '2026-10-13' });
-    assertSame(updateBody(lMoved, lInitial, 'k', 'following', lastInfo)?.changes.repeat, { freq: 'monthly', interval: 1, monthly: 'day' }, 'last out of the last week becomes the day, sent');
+    assertSame(scopePlan(lMoved, lInitial, lastInfo), { kind: 'sheet', choices: ['single', 'following'] }, 'asks (from the first occurrence: no line), never a silent pick');
+    assertSame(updateBody(lMoved, lInitial, 'k', 'following', lastInfo)?.changes.repeat, { freq: 'monthly', interval: 1, monthly: 'weekday' }, 'restated as the n-th weekday');
+    assert(updateBody(lMoved, lInitial, 'k', 'single', lastInfo)?.changes.repeat === undefined, 'only this one sends none');
+    // A single-day BYDAY series (the bot\'s every Tuesday, Google\'s): a plain weekly, restated on the new start.
+    const one = info({ spec: spec({ freq: 'weekly', byDay: ['TU'] }), choice: { choice: 'weekly' }, fixedDays: true, first: false });
+    const oInitial = formOf(one);
+    assertSame(restatedRepeat(moveStart(oInitial, { startDay: '2026-10-22' }), oInitial, one), { freq: 'weekly', interval: 1, byDay: ['TH'] }, 'follows the start');
     // A custom rule moves this one alone; a plain weekly (not fixed) is no restatement.
     const custom = info({ choice: { choice: 'custom' }, fixedDays: true });
     const cInitial = formOf(custom);
@@ -310,8 +338,8 @@ async function main() {
     assert(say(nth('last'), ctx('2026-10-27')) === 'Каждый последний вторник месяца', 'last Tuesday');
     assert(say(nth('last'), ctx('2026-10-28')) === 'Каждую последнюю среду месяца', 'last Wednesday');
     assert(say(nth('last'), ctx('2026-10-25')) === 'Каждое последнее воскресенье месяца', 'last Sunday');
-    assert(say(spec({ freq: 'monthly', interval: 2, monthly: 'weekday', count: 5 }), ctx('2026-10-13')) === 'Каждые 2 месяца: второй вторник, 5 раз', 'every 2 months, 5 times');
-    assert(say(spec({ freq: 'monthly', interval: 5, monthly: 'weekday' }), ctx('2026-10-14')) === 'Каждые 5 месяцев: вторая среда'.replace('вторая среда', 'вторую среду'), 'accusative, many');
+    assert(say(spec({ freq: 'monthly', interval: 2, monthly: 'weekday', count: 5 }), ctx('2026-10-13')) === 'Каждые 2 месяца, во второй вторник, 5 раз', 'every 2 months, 5 times');
+    assert(say(spec({ freq: 'monthly', interval: 5, monthly: 'weekday' }), ctx('2026-10-14')) === 'Каждые 5 месяцев, во вторую среду', 'accusative, many');
     assert(say(spec({ freq: 'weekly', byDay: ['TU'] }), ctx('2026-10-20')) === 'Каждую неделю, во вторник', 'one day');
     assert(say(spec({ freq: 'weekly', byDay: ['SA'] }), ctx('2026-10-24')) === 'Каждую неделю, в субботу', 'one day, Saturday');
     assert(say(spec({ freq: 'weekly', interval: 2, byDay: ['TU', 'SU'], until: '2027-03-01' }), ctx('2026-10-20')) === 'Каждые 2 недели, по вт и вс, до 1 мар.', `a list: ${say(spec({ freq: 'weekly', interval: 2, byDay: ['TU', 'SU'], until: '2027-03-01' }), ctx('2026-10-20'))}`);
@@ -360,6 +388,34 @@ async function main() {
     const base = editItemForm(info({ recurring: false, choice: { choice: 'none' } }));
     const reminder = { ...base, kind: 'reminder' as const, calendarId: cal.id, repeat: spec({ freq: 'hebrew', interval: 2 }) };
     assertSame(setKind({ ...reminder, calendarId: 'avi@gmail.com' }, 'event').repeat, { freq: 'yearly', interval: 2 }, 'Google: yearly');
+  });
+
+  await check('R11 the repeat is built and worded on the start\'s day in the series\' zone: a Tuesday 01:00 series in Jerusalem opened by a user in New York (Monday 19:00) is a plain weekly on Tuesday, not Mon and Tue; the ordinal, "last" and the end\'s minimum go by that day too', () => {
+    const ny = info({ tz: 'America/New_York', zone: 'Asia/Jerusalem', time: '19:00', day: '2026-10-26', spec: spec({ freq: 'weekly', byDay: ['TU'] }), choice: { choice: 'weekly' } });
+    const f = formOf(ny);
+    assert(f.startDay === '2026-10-26', 'the form shows the user\'s Monday');
+    assertSame(repeatDayOf(f, ny), '2026-10-27', 'the series\' day is the Tuesday');
+    assertSame(f.repeat, { freq: 'weekly', interval: 1 }, 'a plain weekly: no Monday in its set');
+    assert(updateBody({ ...f, title: 'Pool' }, f, 'k', 'single', ny)?.changes.repeat === undefined, 'a title edit sends no repeat');
+    assertSame(updateBody(withRepeat(f, spec({ freq: 'weekly', interval: 2 })), f, 'k', 'following', ny)?.changes.repeat, { freq: 'weekly', interval: 2, byDay: ['TU'] }, 'a pick says Tuesday, not Monday and Tuesday');
+    assertSame(repeatDayOf({ startDay: '2026-10-26', startTime: '19:00', allDay: true }, ny), '2026-10-26', 'all day is already the series\' day');
+    assertSame(repeatDayOf(f, undefined), '2026-10-26', 'a new item: the form\'s day');
+    const ends = withRepeat(f, spec({ freq: 'daily', until: '2026-10-26' }));
+    assertSame(checkForm({ ...ends, title: 'x' }, ny).repeat, 'errRepeatEnd', 'an end the day before the series\' start day');
+    assert(checkForm({ ...ends, title: 'x' }).repeat === undefined, 'the user\'s clock alone would let it through');
+    // "Last Monday" for the user is the last Tuesday of the series (27 Oct is in the last week, 26 Oct is too; use 20/19 across a month end).
+    const edge = info({ tz: 'America/New_York', zone: 'Asia/Jerusalem', time: '19:00', day: '2026-10-24', spec: spec({ freq: 'monthly', monthly: 'weekday' }), choice: { choice: 'custom' } });
+    assertSame(shownSpec(formOf(edge).repeat, repeatDayOf(formOf(edge), edge)), { freq: 'monthly', interval: 1, monthly: 'weekday' }, 'the weekday spec stands');
+    assertSame(monthlyOptions(repeatDayOf(formOf(edge), edge)), { ordinal: 4, last: true }, 'the series\' 25 Oct holds a "last"; the user\'s 24 Oct would not');
+  });
+
+  await check('R12 leaving a rule the sheet can\'t say carries its end, and its interval for the same frequency; a pick from Never starts clean', () => {
+    const seed = { freq: 'weekly' as const, interval: 2, until: '2026-12-01' };
+    assertSame(pickFrequency('custom', 'weekly', '2026-10-20', seed), { freq: 'weekly', interval: 2, until: '2026-12-01' }, 'same frequency: N and the end');
+    assertSame(pickFrequency('custom', 'daily', '2026-10-20', seed), { freq: 'daily', interval: 1, until: '2026-12-01' }, 'another frequency: the end only');
+    assertSame(pickFrequency('custom', 'monthly', '2026-10-20', { freq: 'monthly', interval: 3, count: 4 }), { freq: 'monthly', interval: 3, monthly: 'day', count: 4 }, 'a count too');
+    assertSame(pickFrequency('none', 'weekly', '2026-10-20', seed), { freq: 'weekly', interval: 1 }, 'from Never the seed is ignored');
+    assertSame(pickFrequency('custom', 'weekly', '2026-10-20'), { freq: 'weekly', interval: 1 }, 'no seed');
   });
 
   const failed = results.filter((r) => !r.ok);
