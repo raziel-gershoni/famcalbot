@@ -18,12 +18,25 @@ import {
   type EditorCalendar,
   type ItemEditInfoResponse,
   type ItemKind,
-  type RepeatChoice,
   type RepeatInfo,
+  type RepeatInput,
   type RuleChoice,
+  type RepeatSpec,
   type UpdateItemBody,
 } from './editor-types';
+import {
+  endsBeforeStart,
+  formRepeat,
+  isHebrewForm,
+  isSpec,
+  repeatInput,
+  sameRepeat,
+  shownSpec,
+  toGregorian,
+  type RepeatForm,
+} from './repeat-model';
 import { type AlertChoice } from './alert-leads';
+import { codeOfDay } from './repeat-model';
 import { MAX_YEAR, MIN_YEAR_BIRTH, MIN_YEAR_SERIES, minYearFor } from './year-limits';
 
 /** What a new event lasts, and the time a new one on another day starts at. */
@@ -52,10 +65,11 @@ export interface EditorForm {
   endDay: string;
   endTime: string;
   /**
-   * A new item's repeat; on an edit, the stored rule as the Repeat row names it. 'custom' is
-   * the rule the five can't say, kept as it is until another choice is picked (3b spec §2.1).
+   * A new item's repeat; on an edit, the stored rule as the Repeat sheet says it (repeat-model.ts:
+   * a weekly spec lists the days beside the start's). 'custom' is the rule the sheet can't say,
+   * kept as it is until another choice is picked (3b spec §2.1).
    */
-  repeat: RuleChoice;
+  repeat: RepeatForm;
   /** The event's calendar: a new one's, or the edited one's current calendar (a native id or a Google id). */
   calendarId: string | null;
   /** The reminder is for the partner (a new one's, or the edited one's current recipient). */
@@ -67,10 +81,10 @@ export interface EditorForm {
   alert: AlertChoice;
 }
 
-export type FieldName = 'title' | 'location' | 'notes' | 'start' | 'end' | 'alert';
+export type FieldName = 'title' | 'location' | 'notes' | 'start' | 'end' | 'alert' | 'repeat';
 
 /** The copy key (calendarHome.editor.<key>) of each inline error, by field. */
-export type FieldErrors = Partial<Record<FieldName, 'errTitle' | 'errTitleLong' | 'errTooLong' | 'errDate' | 'errYear' | 'errSeriesYear' | 'errEnd' | 'errField'>>;
+export type FieldErrors = Partial<Record<FieldName, 'errTitle' | 'errTitleLong' | 'errTooLong' | 'errDate' | 'errYear' | 'errSeriesYear' | 'errEnd' | 'errField' | 'errRepeat' | 'errRepeatEnd'>>;
 
 // ---- Wall-time arithmetic ----
 
@@ -268,7 +282,7 @@ export function editItemForm(info: ItemEditInfoResponse): EditorForm {
     startTime: allDay ? DEFAULT_EVENT_TIME : start.time,
     endDay: end.day,
     endTime: allDay ? shiftWall(start.day, DEFAULT_EVENT_TIME, DEFAULT_EVENT_MINUTES).time : end.time,
-    repeat: storedChoice(info),
+    repeat: storedRepeat(info, start.day),
     calendarId: info.calendar.id,
     forPartner: info.forPartner === true,
     alert: info.alert ?? 'default',
@@ -279,6 +293,22 @@ export function editItemForm(info: ItemEditInfoResponse): EditorForm {
 export function storedChoice(info: ItemEditInfoResponse): RuleChoice {
   if (info.series.rule) return info.series.rule.choice;
   return info.series.recurring ? 'custom' : 'none';
+}
+
+/**
+ * The form's repeat for an item: the spec the server reported it as, or, from a server that
+ * reports a choice alone, that choice as a spec (with the end it names). A rule the sheet
+ * can't say is 'custom'.
+ */
+export function storedRepeat(info: ItemEditInfoResponse, startDay: string): RepeatForm {
+  if (info.series.spec) return formRepeat(info.series.spec, startDay);
+  const choice = storedChoice(info);
+  if (choice === 'none' || choice === 'custom') return choice;
+  const spec: RepeatSpec = { freq: choice, interval: 1 };
+  const until = info.series.rule?.until;
+  if (until) spec.until = until;
+  else if (info.series.repeat?.count !== undefined) spec.count = info.series.repeat.count;
+  return formRepeat(spec, startDay);
 }
 
 // ---- Edits ----
@@ -309,6 +339,13 @@ export function spanOf(form: EditorForm): FormSpan | null {
  * start that is not a real date or time leaves the end where it is.
  */
 export function moveStart(form: EditorForm, patch: { startDay?: string; startTime?: string }, held: FormSpan | null = null): EditorForm {
+  const moved = moveStartTimes(form, patch, held);
+  // The repeat follows the start: its weekday is never one of the weekly extras, its ordinal and
+  // "last" are the new day's. A day being typed that is not real leaves it alone.
+  return patch.startDay !== undefined && moved.startDay !== form.startDay && codeOfDay(moved.startDay) !== null && isSpec(moved.repeat) ? { ...moved, repeat: formRepeat(moved.repeat, moved.startDay) } : moved;
+}
+
+function moveStartTimes(form: EditorForm, patch: { startDay?: string; startTime?: string }, held: FormSpan | null): EditorForm {
   const next = { ...form, ...patch };
   const span = spanOf(form) ?? (held && held.allDay === form.allDay ? held : null);
   if (span === null) return next;
@@ -347,7 +384,7 @@ export const isNativeCalendar = (calendarId: string | null): boolean => !calenda
  */
 export function setKind(form: EditorForm, kind: EditorForm['kind']): EditorForm {
   if (kind === form.kind) return form;
-  const repeat = kind === 'event' && isHebrewRepeat(form.repeat) && !isNativeCalendar(form.calendarId) ? 'yearly' : form.repeat;
+  const repeat = kind === 'event' && isHebrewRepeat(form.repeat) && !isNativeCalendar(form.calendarId) ? toGregorian(form.repeat, form.startDay) : form.repeat;
   return { ...form, kind, repeat };
 }
 
@@ -358,6 +395,7 @@ export function isDirty(form: EditorForm, initial: EditorForm): boolean {
     // A reminder has no end, and a switch-off time is not an edit.
     if (form.kind === 'reminder' && (k === 'endDay' || k === 'endTime')) return false;
     if (form.allDay && initial.allDay && (k === 'startTime' || k === 'endTime')) return false;
+    if (k === 'repeat') return !sameRepeat(form.repeat, initial.repeat);
     return form[k] !== initial[k];
   });
 }
@@ -378,6 +416,7 @@ export function checkForm(form: EditorForm): FieldErrors {
   const reminder = form.kind === 'reminder';
   const timed = !form.allDay;
   const floor = floorOf(form);
+  if (endsBeforeStart(form.repeat, form.startDay)) errors.repeat = 'errRepeatEnd';
   /** The year-floor error when the day is real from 1900 on but not from this repeat's floor, else the plain date error. */
   const dayError = (day: string): 'errYear' | 'errDate' => (isRealDay(day, MIN_YEAR_BIRTH) ? 'errYear' : 'errDate');
   if (!isRealDay(form.startDay, floor)) errors.start = dayError(form.startDay);
@@ -401,11 +440,8 @@ export function checkForm(form: EditorForm): FieldErrors {
 
 // ---- Requests ----
 
-/** A stored rule the Repeat row can't pick, so it is kept as it is and never sent: 'custom'. */
-const keptAsIs = (r: RuleChoice): r is Exclude<RuleChoice, RepeatChoice> => r === 'custom';
-
 /** The repeat that follows the start's Hebrew date (hebrew-repeats spec §1). */
-export const isHebrewRepeat = (r: RuleChoice): r is 'hebrew' => r === 'hebrew';
+export const isHebrewRepeat = isHebrewForm;
 
 /** A Hebrew series' anchor day (yyyy-MM-dd, in its zone), from the edit info, or null for any other. */
 export const hebrewAnchorOf = (info: ItemEditInfoResponse): string | null => info.series.rule?.anchor ?? info.series.repeat?.hebrew?.anchor ?? null;
@@ -423,7 +459,8 @@ export function createBody(form: EditorForm): Omit<CreateItemBody, 'user_id' | '
     title: form.title.trim(),
     allDay,
     start: wallOf(form.startDay, form.startTime, allDay),
-    repeat: keptAsIs(form.repeat) ? 'none' : form.repeat,
+    // A rule kept as it is has no meaning for a new item; a spec goes as the sheet shows it, end included.
+    repeat: repeatInput(form.repeat, form.startDay),
   };
   const location = form.location.trim();
   const notes = form.notes.trim();
@@ -496,22 +533,26 @@ function alertChange(form: EditorForm, initial: EditorForm): AlertChoice | null 
   return form.kind === 'event' && !form.allDay && form.alert !== initial.alert ? form.alert : null;
 }
 
-/** The repeat the person picked, or null while the row is as it was (including a custom rule left alone). */
-function pickedRepeat(form: EditorForm, initial: EditorForm): RepeatChoice | null {
-  return !keptAsIs(form.repeat) && form.repeat !== initial.repeat ? form.repeat : null;
+/**
+ * The repeat the person picked, as the request carries it, or null while the row is as it was
+ * (including a custom rule left alone). A spec is compared to the stored one relative to each
+ * start, so moving the start of a plain weekly or monthly series is not a change of its repeat.
+ */
+function pickedRepeat(form: EditorForm, initial: EditorForm): RepeatInput | null {
+  if (form.repeat === 'custom' || sameRepeat(form.repeat, initial.repeat)) return null;
+  return repeatInput(form.repeat, form.startDay);
 }
 
 /**
- * The stored choice, to send again, when the form moves the day of a set-weekdays series
- * whose rule reads as one of the five (Google's own weekly events, BYDAY=MO from a Monday;
- * the bot's "every Tuesday"); else null. The Repeat row can't pick the choice it already
- * shows, and the server reads it sent again as a change to the rule that follows the start
- * (write.ts repeatChanges), so "this one and the ones after" can move the day (3b spec §2.1).
+ * The shown spec, to send again, when the form moves the day of a set-weekdays series whose
+ * rule the sheet can say (Google's own weekly events, BYDAY=MO from a Monday; the bot's "every
+ * Tuesday"; the second Tuesday of a month); else null. The server builds it again on the new
+ * start (write.ts repeatChanges, ruling 8: the days gain the new start's, the ordinal follows
+ * it), so "this one and the ones after" can move the day (3b spec §2.1).
  */
-export function restatedRepeat(form: EditorForm, initial: EditorForm, info: ItemEditInfoResponse): RepeatChoice | null {
-  const choice = initial.repeat;
-  if (!info.series.recurring || !info.series.fixedDays || choice === 'none' || keptAsIs(choice) || form.repeat !== choice) return null;
-  return movesDay(form, initial, info.tz, info.series.zone) ? choice : null;
+export function restatedRepeat(form: EditorForm, initial: EditorForm, info: ItemEditInfoResponse): RepeatSpec | null {
+  if (!info.series.recurring || !info.series.fixedDays || !isSpec(initial.repeat) || !sameRepeat(form.repeat, initial.repeat)) return null;
+  return movesDay(form, initial, info.tz, info.series.zone) ? shownSpec(form.repeat, form.startDay) : null;
 }
 
 /**
@@ -579,6 +620,12 @@ export type RepeatWords =
   | { key: 'interval'; unit: RepeatInfo['freq']; count: number }
   /** Every N years on the anchor's Hebrew date (the editor words the date), for a rule the Hebrew choice can't say. */
   | { key: 'hebrewEvery'; count: number; anchor: string }
+  /** A weekly rule on several days (Monday first), every N weeks. */
+  | { key: 'weekdays'; interval: number; days: WeekdayId[] }
+  /** A monthly rule on the n-th (or last) weekday, every N months. */
+  | { key: 'nth'; interval: number; ordinal: number | 'last'; weekday: WeekdayId }
+  /** A monthly rule on one day of the month, every N months. */
+  | { key: 'monthDay'; interval: number; day: number }
   | { key: 'weekly' | 'monthly' | 'yearly' }
   | { key: 'other' };
 
@@ -586,13 +633,23 @@ const BYDAY: Record<string, WeekdayId> = { SU: 'sun', MO: 'mon', TU: 'tue', WE: 
 
 /**
  * What a series repeats on, from the server's rule info: "every day", "every Tuesday"
- * (a weekly rule on one day, or following the start), "every 2 weeks", the frequency
- * alone for the rest, and "other" for a rule with no words (null). A Hebrew-date rule
- * names its anchor's date, never the start's (hebrew-repeats spec §3).
+ * (a weekly rule on one day, or following the start), "every 2 weeks", the days of a weekly
+ * rule, the n-th weekday or the day of a monthly one, the frequency alone for the rest, and
+ * "other" for a rule with no words (null). A Hebrew-date rule names its anchor's date, never
+ * the start's (hebrew-repeats spec §3). A rule the Repeat sheet can say is worded from its spec
+ * instead (repeat-words.ts); this is for the rest, which open with their real words.
  */
 export function repeatWords(repeat: RepeatInfo | null, seriesStart: string): RepeatWords {
   if (!repeat) return { key: 'other' };
   if (repeat.hebrew) return { key: 'hebrewEvery', count: repeat.interval, anchor: repeat.hebrew.anchor };
+  if (repeat.freq === 'monthly' && repeat.byDay.length === 1 && BYDAY[repeat.byDay[0]] && repeat.byDayOrdinals) {
+    const n = repeat.byDayOrdinals[0];
+    if (n !== null && n !== undefined && ((n >= 1 && n <= 5) || n === -1)) return { key: 'nth', interval: repeat.interval, ordinal: n === -1 ? 'last' : n, weekday: BYDAY[repeat.byDay[0]] };
+  }
+  if (repeat.freq === 'monthly' && repeat.byDay.length === 0 && repeat.byMonthDay?.length === 1 && repeat.byMonthDay[0] >= 1) return { key: 'monthDay', interval: repeat.interval, day: repeat.byMonthDay[0] };
+  if (repeat.freq === 'weekly' && repeat.byDay.length > 1 && !repeat.byDayOrdinals && repeat.byDay.every((c) => BYDAY[c])) {
+    return { key: 'weekdays', interval: repeat.interval, days: repeat.byDay.map((c) => BYDAY[c]) };
+  }
   if (repeat.interval > 1) return { key: 'interval', unit: repeat.freq, count: repeat.interval };
   if (repeat.freq === 'daily') return { key: 'daily' };
   if (repeat.freq === 'weekly') {
@@ -608,13 +665,19 @@ export function repeatWords(repeat: RepeatInfo | null, seriesStart: string): Rep
 
 /**
  * The short name of "all of them" in the scope sheet, when the series has one: every day,
- * or every <weekday>. A series that ends (cut by "this one and the ones after"), or any
+ * every <weekday>, or, when the series' spec is richer than those, the spec in words (the same
+ * words as the Repeat row). A series that ends (cut by "this one and the ones after"), or any
  * other rule, has none.
  */
-export function allOfThem(repeat: RepeatInfo | null, seriesStart: string): { key: 'all' } | { key: 'daily' } | { key: 'weekday'; weekday: WeekdayId } {
+export function allOfThem(
+  repeat: RepeatInfo | null,
+  seriesStart: string,
+  spec?: RepeatSpec,
+): { key: 'all' } | { key: 'daily' } | { key: 'weekday'; weekday: WeekdayId } | { key: 'rule'; spec: RepeatSpec; startDay: string } {
   if (!repeat || repeat.ends) return { key: 'all' };
   const words = repeatWords(repeat, seriesStart);
   if (words.key === 'daily') return { key: 'daily' };
   if (words.key === 'weekday') return { key: 'weekday', weekday: words.weekday };
+  if (spec && !spec.until && spec.count === undefined) return { key: 'rule', spec, startDay: seriesStart.slice(0, 10) };
   return { key: 'all' };
 }
