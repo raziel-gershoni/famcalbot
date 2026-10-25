@@ -5882,6 +5882,11 @@ async function main() {
 
   const warnedBefore3b = reactWarnings.length;
   /** The edit info of the Swimming series (Tue 20 Oct 17:00), with the 3b additions. */
+  /** The editor again on the item sheet that is still open behind it. */
+  const openEditorAgain = async (m: Home, label = 'Edit') => {
+    m.click(byLabel(topDialog(m), label));
+    await settle();
+  };
   const swimSeries = (series: Partial<ItemEditInfoResponse['series']> = {}, o: Partial<ItemEditInfoResponse> = {}) =>
     swimInfo({ series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: [], ends: false }, fixedDays: false, zone: 'UTC', rule: { choice: 'weekly' }, first: true, ...series }, ...o });
   const serveSwim = (info: ItemEditInfoResponse) => (key: string) => (key === 'famcal|swim' ? ok200(info) : ({ status: 404, body: {} } as FetchAnswer));
@@ -7322,7 +7327,7 @@ async function main() {
       for (let i = 0; i < 6; i++) stepper(m, 1, '-');
       assert(summaryOf(m) === 'Every day, once' && stepButtons(m, 1)[0].getAttribute('disabled') !== null, `once, clamped at 1: ${summaryOf(m)}`);
       for (let i = 0; i < 1000; i++) stepper(m, 1, '+');
-      assert(stepValues(m)[1] === '999', `clamped at 999: ${stepValues(m)}`);
+      assert(stepValues(m)[1] === '999' && stepButtons(m, 1)[1].getAttribute('disabled') !== null, `clamped at 999, the plus is off: ${stepValues(m)}`);
       for (let i = 0; i < 993; i++) stepper(m, 1, '-');
       assert(stepValues(m)[1] === '6', 'six again');
       await sheetDone(m);
@@ -7420,6 +7425,13 @@ async function main() {
       assert(chipsOf(a.m).filter((c) => c.getAttribute('aria-pressed') === 'true').map((c) => c.textContent).join() === 'Tue,Thu', 'its days are on');
       assert(chipsOf(a.m)[2].getAttribute('aria-disabled') === 'true' && chipsOf(a.m)[4].getAttribute('aria-disabled') === null, 'the start\'s Tuesday is pinned, Thursday can be turned off');
       await sheetCancel(a.m);
+      // Done on an unchanged spec is no edit: Back leaves the editor without asking.
+      await openRepeat(a.m);
+      await sheetDone(a.m);
+      React.act(() => a.tg.fire('backButtonClicked'));
+      await settle();
+      assert(topDialog(a.m).getAttribute('aria-label') === 'Details', `Done with nothing changed, then Back: the editor closed without asking: ${show(topDialog(a.m).getAttribute('aria-label'))}`);
+      await openEditorAgain(a.m);
       await typeInto(inDialog(a.m, 'Start date'), day(8));
       a.m.click(saveButton(a.m));
       await settle();

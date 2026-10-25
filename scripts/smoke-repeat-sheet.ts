@@ -213,6 +213,7 @@ async function main() {
     assert(!sameRepeat(spec({ freq: 'daily' }), spec({ freq: 'daily', interval: 2 })) && !sameRepeat(spec({ freq: 'daily' }), 'none') && sameRepeat('custom', 'custom'), 'interval and none differ');
     assert(!sameRepeat(spec({ freq: 'daily', until: '2026-10-27' }), spec({ freq: 'daily', count: 3 })), 'the end differs');
     assert(sameRepeat(spec({ freq: 'weekly', byDay: ['SU', 'TH'] }), spec({ freq: 'weekly', byDay: ['TH', 'SU'] })), 'the order of the days is not a change');
+    assert(!isDirty({ ...plain, repeat: { ...(plain.repeat as RepeatSpec), byDay: [...((plain.repeat as RepeatSpec).byDay ?? [])] } }, plain), 'an equal spec in a new object is not an edit');
     // updateBody: a pick sends the shown spec; custom left alone sends nothing; none sends 'none' with the occurrence's times.
     const picked = withRepeat(plain, spec({ freq: 'weekly', interval: 2, byDay: ['SA'], count: 6 }));
     assertSame(updateBody(picked, plain, 'k', 'following')?.changes, { repeat: { freq: 'weekly', interval: 2, byDay: ['TU', 'SA'], count: 6 } }, 'a pick');
