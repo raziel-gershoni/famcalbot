@@ -41,7 +41,9 @@
     "header": {
       "send": "Send to chat",
       "menu": "Menu",
-      "add": "Add"
+      "add": "Add",
+      "nextHoliday": "{name} in {count, plural, one {# day} other {# days}}",
+      "nextHolidayTomorrow": "{name} tomorrow"
     },
     "send": {
       "title": "Send to chat",
@@ -1519,6 +1521,8 @@
       "roshChodesh": "Rosh Chodesh {month}",
       "sukkotCholHamoed": "Sukkot {n} (CH’’M)",
       "pesachCholHamoed": "Pesach {n} (CH’’M)",
+      "pesach": "Pesach",
+      "roshHashanaBase": "Rosh Hashana",
       "asaraBtevet": "Asara B’Tevet",
       "chagHabanot": "Chag HaBanot",
       "chanukah1Candle": "Chanukah: 1 Candle",

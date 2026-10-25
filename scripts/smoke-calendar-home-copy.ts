@@ -66,6 +66,9 @@ const KEYS: Record<string, readonly string[]> = {
   // HomeHeader (D6)
   'header.send': [],
   'header.menu': [],
+  // The next-holiday countdown under the Hebrew date (count is 2 or more; tomorrow has its own line)
+  'header.nextHoliday': ['name', 'count'],
+  'header.nextHolidayTomorrow': ['name'],
   // SendSheet (D6), with the send results of Ruling R5 (D4's outcomes)
   'send.title': [],
   'send.subtitle': [],

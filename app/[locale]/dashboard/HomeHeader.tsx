@@ -8,9 +8,9 @@
 // Until the first answer the day is a placeholder bar.
 
 import { useLocale, useTranslations } from 'next-intl';
-import { formatDayLong } from '@/src/lib/calendar-view/format';
+import { daysBetween, formatDayLong } from '@/src/lib/calendar-view/format';
 import { hebrewFullDate } from '@/src/lib/calendar-view/hebrew-date';
-import { hasChag, holidayTitles, useHolidays } from '@/src/lib/calendar-view/holidays-client';
+import { hasChag, holidayTitles, monthLanded, useHolidays, useNextHoliday } from '@/src/lib/calendar-view/holidays-client';
 import { zoneLabel } from '@/src/lib/calendar-view/home-client';
 import type { DayKey } from '@/src/lib/calendar-view/types';
 
@@ -64,6 +64,11 @@ export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSen
   const title = today ? formatDayLong(today, locale) : '';
   const hebrew = today && hebrewDates ? hebrewFullDate(today, locale, genitive) : '';
   const holidays = useHolidays(today ? [today.slice(0, 7)] : [], locale, hebrewDates)[today ?? ''];
+  // On a day with no holiday line (known once the month has landed), a muted countdown to the next
+  // holiday worth naming, counted in whole days from the server's today.
+  const quiet = !!today && monthLanded(today.slice(0, 7), locale) && !(holidays && holidays.length > 0);
+  const next = useNextHoliday(today, locale, hebrewDates && quiet);
+  const away = today && next ? daysBetween(today, next.day) : Number.NaN;
 
   return (
     <header className="ch-head">
@@ -80,6 +85,11 @@ export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSen
         {holidays && holidays.length > 0 ? (
           <p className={hasChag(holidays) ? 'ch-head-sub ch-day-holiday is-chag' : 'ch-head-sub ch-day-holiday'}>
             <bdi>{holidayTitles(holidays, locale)}</bdi>
+          </p>
+        ) : null}
+        {!holidays?.length && away >= 1 && next ? (
+          <p className="ch-head-sub">
+            <bdi>{away === 1 ? t('header.nextHolidayTomorrow', { name: next.name }) : t('header.nextHoliday', { name: next.name, count: away })}</bdi>
           </p>
         ) : null}
         {zone ? <p className="ch-head-zone">{t('shell.timesIn', { zone: zoneLabel(zone, locale) })}</p> : null}

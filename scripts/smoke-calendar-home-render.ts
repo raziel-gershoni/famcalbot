@@ -932,7 +932,7 @@ let serveEditing: (call: FetchCall) => FetchAnswer | Promise<FetchAnswer> = () =
  * answers no holidays. The holiday checks (#88 on) set serveHolidays.
  */
 const holidayCalls: FetchCall[] = [];
-let serveHolidays: (call: FetchCall) => FetchAnswer | Promise<FetchAnswer> = () => ({ status: 200, body: { days: {} } });
+let serveHolidays: (call: FetchCall) => FetchAnswer | Promise<FetchAnswer> = (call) => ({ status: 200, body: call.query.has('next') ? { next: null } : { days: {} } });
 
 async function fakeFetch(input: unknown, init: Row = {}): Promise<Row> {
   const url = String(input);
@@ -1172,7 +1172,7 @@ function resetHome() {
   (globalThis as Row).fetch = fakeFetch;
   fetchCalls.length = 0;
   holidayCalls.length = 0;
-  serveHolidays = () => ({ status: 200, body: { days: {} } });
+  serveHolidays = (call) => ({ status: 200, body: call.query.has('next') ? { next: null } : { days: {} } });
   resetHolidaysCache();
   serveEditing = () => ({ status: 500, body: { error: 'not served' } });
   pushes.length = 0;
@@ -6186,6 +6186,83 @@ async function main() {
       assert(holidayCalls.length === 1, 'and were not asked again');
     } finally {
       m.unmount();
+    }
+  });
+
+  await check('#88c the countdown under the Hebrew date on a day with no holiday line, in en, he and ru: the base name first, "tomorrow" the day before, counted in whole days from the server\'s today; none on a holiday day, with Hebrew dates off, and nothing (logged) when the request fails', async () => {
+    const COPY: Record<Locale, { name: string; far: string; tomorrow: string }> = {
+      en: { name: 'Chanukah', far: 'Chanukah in 12 days', tomorrow: 'Chanukah tomorrow' },
+      he: { name: 'חנוכה', far: 'חנוכה בעוד 12 ימים', tomorrow: 'חנוכה מחר' },
+      ru: { name: 'Ханука', far: 'Ханука через 12 дней', tomorrow: 'Ханука завтра' },
+    };
+    const nextCalls = () => holidayCalls.filter((c) => c.query.has('next'));
+    const serveNext = (names: (typeof COPY)[Locale], on: DayKey): ((c: FetchCall) => FetchAnswer) => (c) => c.query.has('next') ? ok200({ next: { day: on, name: names.name } }) : ok200({ days: {} });
+    const countdown = (m: Home, locale: Locale) => headSubs(m).filter((e) => e.textContent.includes(COPY[locale].name));
+    for (const locale of LOCALES) {
+      // Twelve days out: the line follows the Hebrew date, bidi-isolated, muted (the plain sub-line).
+      resetHome();
+      serveHolidays = serveNext(COPY[locale], day(12));
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      let m = await mountHome(locale);
+      try {
+        await settle();
+        assert(show(nextCalls().map((c) => `${c.query.get('next')} ${c.query.get('lang')}`)) === show([`${day(0)} ${locale}`]), `${locale}: one next request, from the server's today: ${show(nextCalls().map((c) => c.query.toString()))}`);
+        const [line] = countdown(m, locale);
+        assert(countdown(m, locale).length === 1 && htmlOf(line) === `<p class="ch-head-sub"><bdi>${COPY[locale].far}</bdi></p>`, `${locale}: ${show(headSubs(m).map(htmlOf))}`);
+        const subs = headSubs(m);
+        assert(subs.length === 2 && subs[1] === line && !subs[0].className.includes('ch-day-holiday'), `${locale}: the Hebrew date, then the countdown`);
+      } finally {
+        m.unmount();
+      }
+      // The day before.
+      resetHome();
+      serveHolidays = serveNext(COPY[locale], day(1));
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      m = await mountHome(locale);
+      try {
+        await settle();
+        assert(countdown(m, locale).length === 1 && countdown(m, locale)[0].textContent === COPY[locale].tomorrow, `${locale}: tomorrow: ${show(headSubs(m).map(htmlOf))}`);
+      } finally {
+        m.unmount();
+      }
+    }
+    // A holiday day shows its holiday line and asks for no countdown.
+    resetHome();
+    serveHolidays = (c) => c.query.has('next') ? ok200({ next: { day: day(12), name: 'Chanukah' } }) : serveFixtures(c);
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    let m = await mountHome('en');
+    try {
+      await settle();
+      assert(nextCalls().length === 0 && !/Chanukah in/.test(m.text()) && /Shmini Atzeret/.test(m.text()), `a holiday day: ${show(asked())}, ${show(headSubs(m).map(htmlOf))}`);
+    } finally {
+      m.unmount();
+    }
+    // Hebrew dates off: no request, no line.
+    resetHome();
+    serveHolidays = serveNext(COPY.en, day(12));
+    answerFetch = (c) => answerFor(c, { items: WEEK, hebrewDates: false });
+    m = await mountHome('en');
+    try {
+      await settle();
+      assert(holidayCalls.length === 0 && !/Chanukah/.test(m.text()), `Hebrew dates off: ${show(asked())}`);
+    } finally {
+      m.unmount();
+    }
+    // A failed request logs and shows nothing.
+    for (const failure of [{ status: 500, body: { error: 'failed' } }, { status: 200, body: { next: 'soon' } }] as FetchAnswer[]) {
+      resetHome();
+      serveHolidays = (c) => c.query.has('next') ? failure : ok200({ days: {} });
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      const logged = appLogs.length;
+      m = await mountHome('en');
+      try {
+        await settle();
+        const lines = appLogs.slice(logged).filter((l) => l.startsWith('[holidays] next'));
+        assert(lines.length === 1 && lines[0].includes(`next after ${day(0)} (en) failed`), `one log line: ${show(lines)}`);
+        assert(headSubs(m).length === 1, `nothing shown: ${show(headSubs(m).map(htmlOf))}`);
+      } finally {
+        m.unmount();
+      }
     }
   });
 

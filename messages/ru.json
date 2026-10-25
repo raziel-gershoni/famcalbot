@@ -41,7 +41,9 @@
     "header": {
       "send": "Отправить в чат",
       "menu": "Меню",
-      "add": "Добавить"
+      "add": "Добавить",
+      "nextHoliday": "{name} через {count, plural, one {# день} few {# дня} many {# дней} other {# дня}}",
+      "nextHolidayTomorrow": "{name} завтра"
     },
     "send": {
       "title": "Отправить в чат",
@@ -1519,6 +1521,8 @@
       "roshChodesh": "Рош ходеш {month}",
       "sukkotCholHamoed": "Суккот {n} (холь а-моэд)",
       "pesachCholHamoed": "Песах {n} (холь а-моэд)",
+      "pesach": "Песах",
+      "roshHashanaBase": "Рош а-Шана",
       "asaraBtevet": "Пост 10 Тевета",
       "chagHabanot": "Хаг а-Банот",
       "chanukah1Candle": "Ханука: 1-я свеча",

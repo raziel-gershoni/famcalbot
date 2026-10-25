@@ -42,6 +42,10 @@ export function resetHolidaysCache(): void {
   failed.clear();
   version++;
   listeners.forEach((listener) => listener());
+  nextLanded.clear();
+  nextInflight.clear();
+  nextVersion++;
+  nextListeners.forEach((listener) => listener());
 }
 
 function isHoliday(value: unknown): value is Holiday {
@@ -99,6 +103,11 @@ export function holidaysFor(month: MonthKey, lang: string): Promise<HolidayDays>
   return request;
 }
 
+/** Whether a month's holidays have landed (so a day without one is known to have none). */
+export function monthLanded(month: MonthKey, lang: string): boolean {
+  return landed.has(cacheKey(month, lang));
+}
+
 /**
  * Asks again for every month whose request failed (a month with a request on its way, or one that
  * landed since, is left alone). The Month calls it when the month in view changes: its grids stay
@@ -127,6 +136,71 @@ export function useHolidays(months: readonly MonthKey[], lang: string, on: boole
     // `seen` is the cache's version: a month that landed since the last read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [on, lang, monthsKey, seen]);
+}
+
+/** The next holiday worth counting down to, as the route answers it. */
+export interface NextHoliday {
+  day: DayKey;
+  name: string;
+}
+
+/** Answers that landed, by "<lang>|<after>"; null is "no holiday ahead". */
+const nextLanded = new Map<string, NextHoliday | null>();
+const nextInflight = new Set<string>();
+/** Bumped when an answer lands, so the hook reads the cache again. */
+let nextVersion = 0;
+const nextListeners = new Set<() => void>();
+
+function subscribeNext(listener: () => void): () => void {
+  nextListeners.add(listener);
+  return () => nextListeners.delete(listener);
+}
+
+function readNext(body: unknown): NextHoliday | null | undefined {
+  const next = (body as { next?: unknown } | null)?.next;
+  if (next === null) return null;
+  const n = next as Partial<NextHoliday> | undefined;
+  return typeof n === 'object' && typeof n.day === 'string' && typeof n.name === 'string' ? { day: n.day, name: n.name } : undefined;
+}
+
+async function fetchNext(after: DayKey, lang: string): Promise<void> {
+  const key = `${lang}|${after}`;
+  if (nextInflight.has(key)) return;
+  nextInflight.add(key);
+  let status = 0;
+  try {
+    const res = await fetch(`/api/calendar/holidays?next=${after}&lang=${encodeURIComponent(lang)}`);
+    status = res.status;
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const next = readNext(await res.json());
+    if (next === undefined) throw new Error('unexpected answer');
+    nextLanded.set(key, next);
+    nextVersion++;
+    nextListeners.forEach((listener) => listener());
+  } catch (error) {
+    // Not cached: the next render that wants it asks again.
+    console.error(`[holidays] next after ${after} (${lang}) failed${status ? ` with ${status}` : ''}:`, error);
+  } finally {
+    nextInflight.delete(key);
+  }
+}
+
+/**
+ * The next holiday worth counting down to after `after` (the server's today), in `lang`;
+ * null while it loads, when none is ahead or the request failed. Asks for nothing while
+ * `on` is false (no Hebrew dates, or today has a holiday line of its own).
+ */
+export function useNextHoliday(after: DayKey | null, lang: string, on: boolean): NextHoliday | null {
+  const seen = useSyncExternalStore(subscribeNext, () => nextVersion, () => 0);
+  const key = after ? `${lang}|${after}` : '';
+  const have = key ? nextLanded.has(key) : false;
+  useEffect(() => {
+    if (on && after && !have) void fetchNext(after, lang);
+  }, [on, after, lang, have]);
+  return useMemo(() => (on && key ? nextLanded.get(key) ?? null : null),
+    // `seen` is the cache's version: an answer that landed since the last read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [on, key, seen]);
 }
 
 /** The titles of a day's holidays in one line, joined the way `locale` lists things ("Chanukah: 8 Candles and Rosh Chodesh Tevet"). */

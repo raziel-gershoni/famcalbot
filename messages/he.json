@@ -41,7 +41,9 @@
     "header": {
       "send": "שליחה לצ׳אט",
       "menu": "תפריט",
-      "add": "הוספה"
+      "add": "הוספה",
+      "nextHoliday": "{name} בעוד {count, plural, =2 {יומיים} one {# יום} other {# ימים}}",
+      "nextHolidayTomorrow": "{name} מחר"
     },
     "send": {
       "title": "שליחה לצ׳אט",
@@ -1519,6 +1521,8 @@
       "roshChodesh": "ראש חודש {month}",
       "sukkotCholHamoed": "סוכות {n} (חוה״מ)",
       "pesachCholHamoed": "פסח {n} (חוה״מ)",
+      "pesach": "פסח",
+      "roshHashanaBase": "ראש השנה",
       "asaraBtevet": "עשרה בטבת",
       "chagHabanot": "חג הבנות",
       "chanukah1Candle": "חנוכה: א׳ נר",
