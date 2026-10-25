@@ -98,6 +98,8 @@ function ev(id: string, start: string, end: string, extra: Partial<ItemDTO> = {}
     tz: IL,
     recurring: false,
     repeatsDaily: false,
+    repeatsEveryDay: false,
+    canEdit: true,
     span: null,
     calendar: OWN_CAL,
     location: null,
@@ -128,7 +130,7 @@ function gev(id: string, start: string, end: string, extra: Partial<ItemDTO> = {
   return ev(id, start, end, {
     key: `google|${FAMILY_G.id}|${id}`,
     source: 'google',
-    readOnly: true,
+    readOnly: true, canEdit: false,
     seriesId: null,
     originalStart: null,
     tz: null,

@@ -130,6 +130,8 @@ function item(id: string, o: Partial<ItemDTO> & { start: string }): ItemDTO {
     tz: TZ,
     recurring: false,
     repeatsDaily: false,
+    repeatsEveryDay: false,
+    canEdit: true,
     span: null,
     calendar: MY_CAL,
     location: null,
@@ -206,7 +208,7 @@ function famcalStore(o: AnswerOpts = {}): CalendarStore {
 
 const DINNER: ItemDTO = item('dinner', {
   source: 'google',
-  readOnly: true,
+  readOnly: true, canEdit: false,
   tz: null,
   title: 'Dinner with the Cohens',
   start: '2026-10-15T19:30:00+03:00',

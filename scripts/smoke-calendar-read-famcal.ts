@@ -375,9 +375,9 @@ async function main() {
     const { read } = await readFamcal(viewer(DANA), DAY, {});
     assert(read.status === 'ok', `status ${read.status}`);
     const want: CalendarRef[] = [
-      { id: 'native:cal-dana', source: 'famcal', name: 'Dana', color: '#D50000', mine: true, inLegend: true },
-      { id: 'native:cal-raz-family', source: 'famcal', name: 'Family', color: '#33B679', mine: false, ownerName: 'Raziel', inLegend: true },
-      { id: 'native:cal-dana-kids', source: 'famcal', name: 'Kids', color: '#039BE5', mine: true, inLegend: true },
+      { id: 'native:cal-dana', source: 'famcal', name: 'Dana', color: '#D50000', mine: true, inLegend: true, canWrite: true },
+      { id: 'native:cal-raz-family', source: 'famcal', name: 'Family', color: '#33B679', mine: false, ownerName: 'Raziel', inLegend: true, canWrite: false },
+      { id: 'native:cal-dana-kids', source: 'famcal', name: 'Kids', color: '#039BE5', mine: true, inLegend: true, canWrite: true },
     ];
     assertJson(read.calendars, want, 'calendars');
     assertJson(read.partner, { name: 'Raziel' }, 'partner');
@@ -514,12 +514,23 @@ async function main() {
     }
   });
 
+  await check('readFamcal: canWrite on the legend is the viewer\'s own calendars and the partner\'s one shared for editing, never one shared to view', async () => {
+    household();
+    const dana = (await readFamcal(viewer(DANA), DAY, {})).read;
+    const raziel = (await readFamcal(viewer(RAZIEL), DAY, {})).read;
+    assert(dana.status === 'ok' && raziel.status === 'ok', 'reads');
+    if (dana.status !== 'ok' || raziel.status !== 'ok') return;
+    const canWrite = (calendars: typeof dana.calendars) => calendars.map((c) => `${c.name}:${c.canWrite}`).sort();
+    assertJson(canWrite(dana.calendars), ['Dana:true', 'Family:false', 'Kids:true'], 'Dana: her own, Raziel\'s shared-to-view one is read only');
+    assertJson(canWrite(raziel.calendars), ['Dana:true', 'Family:true', `${PRIVATE_NAME}:true`], 'Raziel: his own, Dana\'s shared-for-editing one');
+  });
+
   await check('readFamcal: Noam alone: his calendar, no partner', async () => {
     household();
     const { read, items } = await readFamcal(viewer(NOAM), DAY, {});
     assert(read.status === 'ok' && read.partner === null && read.ctx.partner === null, json(read));
     assertJson(items.map(line), ['Gym [event] @ native:cal-noam'], 'items');
-    assertJson(read.calendars, [{ id: 'native:cal-noam', source: 'famcal', name: 'Noam', color: '#039BE5', mine: true, inLegend: true }], 'calendars');
+    assertJson(read.calendars, [{ id: 'native:cal-noam', source: 'famcal', name: 'Noam', color: '#039BE5', mine: true, inLegend: true, canWrite: true }], 'calendars');
   });
 
   await check('readFamcal: a suspended partner\'s items stay (R4)', async () => {

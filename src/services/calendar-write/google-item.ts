@@ -21,7 +21,7 @@ import { nativeRuleOf, readEventForEdit, ruleOf, type GoogleItemRead } from '../
 import { googleCalendarRef, googleCalendarSet } from '../calendar-read/google';
 import { sourcesFor } from '../calendar-read/index';
 import { resolveUserTimezone } from '../../lib/timezone';
-import { classifyGoogleError, type GoogleErrorClass } from '../calendar-read/google-map';
+import { classifyGoogleError, editableInHome, WRITABLE_ROLES, type GoogleErrorClass } from '../calendar-read/google-map';
 import { classifyRule, fixesDays, specOfRule } from '../native-calendar/recurrence';
 import { NativeRuleError } from '../native-calendar/event-store';
 import { repeatInfo, wallFor, writableCalendarRows } from './item-info';
@@ -36,10 +36,11 @@ import { minYearFor } from '../../lib/calendar-view/year-limits';
 import { nearestReminderLead, normalizeOverrides } from '../../lib/calendar-view/alert-leads';
 
 export { parseGoogleKey };
+// The rule lives with the reader (calendar-read/google-map.ts), which marks each listed event with it.
+export { editableInHome };
 
 type GEvent = calendar_v3.Schema$Event;
 
-const WRITABLE_ROLES = new Set(['owner', 'writer']);
 const NOT_ALLOWED: WriteResult = { status: 'not_allowed' };
 const NOT_FOUND: WriteResult = { status: 'not_found' };
 
@@ -94,22 +95,6 @@ export async function googleEditorCalendars(user: UserConfig): Promise<GoogleEdi
     return [{ id: a.calendarId, name: ref.name, color: ref.color, main: c.primary, mine: ref.mine, ...(ref.ownerName ? { ownerName: ref.ownerName } : {}) }];
   });
   return { calendars };
-}
-
-/**
- * Whether the home may change a Google event (3b spec §2.4), read on the instance (which
- * carries its master's organizer and guests): a default event (no type, or 'default'), not
- * locked, no other guest (a room counts; guests Google left out count as unknown), and the
- * calendar it sits on organizes it, or it has no guests at all. The calendar's role is
- * checked apart.
- */
-export function editableInHome(e: GEvent): boolean {
-  if (e.eventType && e.eventType !== 'default') return false;
-  if (e.locked) return false;
-  if (e.attendeesOmitted) return false;
-  const attendees = e.attendees ?? [];
-  if (attendees.some((a) => !a.self)) return false;
-  return Boolean(e.organizer?.self) || attendees.length === 0;
 }
 
 export type Loaded =

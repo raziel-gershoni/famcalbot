@@ -42,6 +42,7 @@ import type { CalendarAssignment, UserConfig } from '../../types';
 import type { CalendarRef, GoogleRead, ReadItem, ReadRangeOptions } from './types';
 import { liveGoogleChoices } from '../../lib/google-state';
 import { googleDrawnColour } from '../../lib/calendar-colours';
+import { WRITABLE_ROLES } from './google-map';
 
 /** A Google item before its calendar is joined. This is what B7's cache stores. */
 export type GoogleItem = Omit<ReadItem, 'calendar'>;
@@ -56,17 +57,27 @@ export interface GoogleReadOptions {
 /** Live calendar colours by calendar id: '#rrggbb', lower case, the read's set only. */
 export type LiveColours = Readonly<Record<string, string>>;
 
+/** Whether the live role (owner or writer) may change a calendar's events, by calendar id: the read's set only. */
+export type LiveWritable = Readonly<Record<string, boolean>>;
+
+/** What calendarList says about the read's set: the colours and the roles. */
+export interface LiveCalendars {
+  colours: LiveColours;
+  writable: LiveWritable;
+}
+
 export interface GoogleReadResult {
   read: GoogleRead;
   items: ReadItem[];                   // empty unless read.status is 'ok'
   colours?: LiveColours;               // when asked for and calendarList answered in time
+  writable?: LiveWritable;             // the same list's roles
 }
 
 type ErrorClass = ReturnType<typeof classifyGoogleError>;
 
 const LOG_CONTEXT = 'calendar-read-google';
 const FIELDS =
-  'summary,nextPageToken,items(id,status,summary,description,location,start,end,recurringEventId,originalStartTime,eventType,attendees(self,responseStatus),htmlLink,extendedProperties(private))';
+  'summary,nextPageToken,items(id,status,summary,description,location,start,end,recurringEventId,originalStartTime,eventType,attendees(self,responseStatus),htmlLink,extendedProperties(private),organizer(self),locked,attendeesOmitted)';
 const PAGE_SIZE = 2500;
 const MAX_ITEMS_PER_CALENDAR = 5000;
 const MAX_REQUEST_TIMEOUT_MS = 10_000;
@@ -75,7 +86,7 @@ const MIN_REQUEST_TIMEOUT_MS = 1_000;
 const DEADLINE_MARGIN_MS = 500;
 /** calendarList's page: one page covers any real list; a calendar past it keeps its saved colour. */
 const COLOUR_LIST_SIZE = 250;
-const COLOUR_FIELDS = 'items(id,backgroundColor)';
+const COLOUR_FIELDS = 'items(id,backgroundColor,accessRole)';
 const HEX_COLOUR = /^#[0-9a-f]{6}$/i;
 const GONE_WARNING_TTL_S = 86_400;
 const CONFIG_ALERT_TTL_S = 3_600;
@@ -104,7 +115,7 @@ export function googleCalendarSet(
  * labelled spouse), the spouse's name, and whether it is gone. Per-event colorId is
  * ignored (spec 2026-10-16 §2.5).
  */
-export function googleCalendarRef(a: CalendarAssignment, goneIds: readonly string[], colours?: LiveColours): CalendarRef {
+export function googleCalendarRef(a: CalendarAssignment, goneIds: readonly string[], colours?: LiveColours, writable?: LiveWritable): CalendarRef {
   const spouse = (a.labels ?? []).includes('spouse');
   const live = colours && Object.hasOwn(colours, a.calendarId) ? colours[a.calendarId] : undefined;
   const ref: CalendarRef = {
@@ -118,6 +129,7 @@ export function googleCalendarRef(a: CalendarAssignment, goneIds: readonly strin
   };
   if (spouse && a.personName) ref.ownerName = a.personName;
   if (goneIds.includes(a.calendarId)) ref.unavailable = true;
+  if (writable && Object.hasOwn(writable, a.calendarId)) ref.canWrite = writable[a.calendarId];
   return ref;
 }
 
@@ -127,8 +139,9 @@ export function attachGoogleCalendars(
   set: readonly CalendarAssignment[],
   goneIds: readonly string[],
   colours?: LiveColours,
+  writable?: LiveWritable,
 ): ReadItem[] {
-  const refs = new Map(set.map(a => [a.calendarId, googleCalendarRef(a, goneIds, colours)]));
+  const refs = new Map(set.map(a => [a.calendarId, googleCalendarRef(a, goneIds, colours, writable)]));
   return items.flatMap(item => {
     const calendar = refs.get(item.event.calendarId);
     return calendar ? [{ ...item, calendar }] : [];
@@ -223,16 +236,17 @@ async function listCalendar(
 /**
  * The set's colours as Google has them now: one calendarList page, hidden calendars
  * included (a chosen calendar can be hidden in Google). Only the set's calendars are
- * kept, and only '#rrggbb'. Never rejects: a failure is a console warning and undefined
- * (a cosmetic miss is not worth a Sentry event per read), and after the deadline it
- * changes nothing.
+ * kept, and only '#rrggbb'. The same page gives each one's role, which says whether the
+ * home may drag its events (an entry with no role reads as not writable). Never rejects: a
+ * failure is a console warning and undefined (a cosmetic miss is not worth a Sentry event
+ * per read), and after the deadline it changes nothing.
  */
 async function listColours(
   cal: calendar_v3.Calendar,
   set: readonly CalendarAssignment[],
   timeoutMs: number,
   deadline: Deadline,
-): Promise<LiveColours | undefined> {
+): Promise<LiveCalendars | undefined> {
   try {
     const res = await cal.calendarList.list(
       { maxResults: COLOUR_LIST_SIZE, showHidden: true, fields: COLOUR_FIELDS },
@@ -241,12 +255,15 @@ async function listColours(
     if (deadline.expired()) return undefined;
     const wanted = new Set(set.map(a => a.calendarId));
     const colours: Record<string, string> = {};
+    const writable: Record<string, boolean> = {};
     for (const entry of res.data.items ?? []) {
-      if (entry?.id && wanted.has(entry.id) && typeof entry.backgroundColor === 'string' && HEX_COLOUR.test(entry.backgroundColor)) {
+      if (!entry?.id || !wanted.has(entry.id)) continue;
+      writable[entry.id] = WRITABLE_ROLES.has(entry.accessRole ?? '');
+      if (typeof entry.backgroundColor === 'string' && HEX_COLOUR.test(entry.backgroundColor)) {
         colours[entry.id] = entry.backgroundColor.toLowerCase();
       }
     }
-    return colours;
+    return { colours, writable };
   } catch (error) {
     if (!deadline.expired()) console.warn(`[${LOG_CONTEXT}] calendar colours unavailable:`, classifyGoogleError(error));
     return undefined;
@@ -426,9 +443,11 @@ export async function readGoogleUncached(
       settled: false,
     }));
     let colours: LiveColours | undefined;
+    let writable: LiveWritable | undefined;
     const colourList = opts.colours
       ? listColours(cal, set, timeoutMs, deadline).then(c => {
-          colours = c;
+          colours = c?.colours;
+          writable = c?.writable;
         })
       : null;
     await Promise.race([
@@ -447,8 +466,9 @@ export async function readGoogleUncached(
     // Calendars in the order of the choices, then a stable sort by start, as calendar.ts:159.
     const items = outcomes.flatMap(o => (o.kind === 'ok' ? o.items : []));
     items.sort((a, b) => new Date(a.event.start).getTime() - new Date(b.event.start).getTime());
-    const result: GoogleReadResult = { read, items: attachGoogleCalendars(items, set, read.goneIds, colours) };
+    const result: GoogleReadResult = { read, items: attachGoogleCalendars(items, set, read.goneIds, colours, writable) };
     if (colours) result.colours = colours;
+    if (writable) result.writable = writable;
     return result;
   } catch (error) {
     // Nothing above should throw; if something does, the half reports it and still answers.
@@ -520,6 +540,7 @@ interface CacheEntry {
   items: GoogleItem[];
   goneIds: string[];
   colours?: LiveColours;
+  writable?: LiveWritable;
 }
 
 /** A live read in flight for a key. */
@@ -571,7 +592,9 @@ function entryValue(raw: unknown): CacheEntry | null {
   if (typeof e.startedAt !== 'number' || !Array.isArray(e.items) || !Array.isArray(e.goneIds)) return null;
   // Unreadable colours cost the colours, not the entry: the saved ones are joined instead.
   const colours = e.colours && typeof e.colours === 'object' && !Array.isArray(e.colours) ? e.colours : undefined;
-  return { startedAt: e.startedAt, items: e.items, goneIds: e.goneIds, ...(colours ? { colours } : {}) };
+  // Likewise the roles: without them nothing is draggable until the next live read.
+  const writable = e.writable && typeof e.writable === 'object' && !Array.isArray(e.writable) ? e.writable : undefined;
+  return { startedAt: e.startedAt, items: e.items, goneIds: e.goneIds, ...(colours ? { colours } : {}), ...(writable ? { writable } : {}) };
 }
 
 /** A valid entry as a read, its calendars joined from today's choices. */
@@ -584,8 +607,9 @@ function fromEntry(entry: CacheEntry, set: readonly CalendarAssignment[], stale:
       partial: null,
       stale,
     },
-    items: attachGoogleCalendars(entry.items, set, entry.goneIds, entry.colours),
+    items: attachGoogleCalendars(entry.items, set, entry.goneIds, entry.colours, entry.writable),
     ...(entry.colours ? { colours: entry.colours } : {}),
+    ...(entry.writable ? { writable: entry.writable } : {}),
   };
 }
 
@@ -618,6 +642,7 @@ async function afterRead(r: CachedRead, flight: Flight, result: GoogleReadResult
   if (last !== undefined && last >= flight.startedAt) return;
   const entry: CacheEntry = { startedAt: flight.startedAt, items: result.items.map(withoutCalendar), goneIds: read.goneIds };
   if (result.colours) entry.colours = result.colours;
+  if (result.writable) entry.writable = result.writable;
   const value = JSON.stringify(entry);
   if (Buffer.byteLength(value, 'utf8') > MAX_ENTRY_BYTES) return;
   rememberWrite(r.key, flight.startedAt);

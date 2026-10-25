@@ -240,6 +240,8 @@ function item(id: string, o: Partial<ItemDTO> & { start: string }): ItemDTO {
     tz: TZ,
     recurring: false,
     repeatsDaily: false,
+    repeatsEveryDay: false,
+    canEdit: true,
     span: null,
     calendar: MY_CAL,
     location: null,
@@ -317,9 +319,9 @@ const G_FAMILY: ItemCalendarDTO = { id: 'family-6c1d@group.calendar.google.com',
 const G_BIRTHDAYS: ItemCalendarDTO = { id: 'addressbook#contacts@group.v.calendar.google.com', name: 'Birthdays', color: '#33B679', mine: true, inLegend: true };
 const G_NOA: ItemCalendarDTO = { id: 'noa.k@example.com', name: 'Noa', color: '#E67C73', mine: false, ownerName: 'Noa', inLegend: true };
 const HTML_LINK = 'https://www.google.com/calendar/event?eid=ZGlubmVy';
-const DINNER = item('dinner', { source: 'google', readOnly: true, tz: null, title: 'Dinner with the Cohens', start: '2026-10-15T19:30:00+03:00', end: '2026-10-15T22:00:00+03:00', calendar: G_FAMILY, htmlLink: HTML_LINK, birthday: false });
-const BIRTHDAY = item('bday', { source: 'google', readOnly: true, tz: null, title: 'Noa’s birthday', start: day(1), end: day(2), allDay: true, calendar: G_BIRTHDAYS, birthday: true, htmlLink: null });
-const YOGA = item('yoga', { source: 'google', readOnly: true, tz: null, title: 'Yoga', start: '2026-10-16T18:00:00+03:00', end: '2026-10-16T19:00:00+03:00', calendar: G_NOA, htmlLink: 'https://www.google.com/calendar/event?eid=eW9nYQ' });
+const DINNER = item('dinner', { source: 'google', readOnly: true, canEdit: false, tz: null, title: 'Dinner with the Cohens', start: '2026-10-15T19:30:00+03:00', end: '2026-10-15T22:00:00+03:00', calendar: G_FAMILY, htmlLink: HTML_LINK, birthday: false });
+const BIRTHDAY = item('bday', { source: 'google', readOnly: true, canEdit: false, tz: null, title: 'Noa’s birthday', start: day(1), end: day(2), allDay: true, calendar: G_BIRTHDAYS, birthday: true, htmlLink: null });
+const YOGA = item('yoga', { source: 'google', readOnly: true, canEdit: false, tz: null, title: 'Yoga', start: '2026-10-16T18:00:00+03:00', end: '2026-10-16T19:00:00+03:00', calendar: G_NOA, htmlLink: 'https://www.google.com/calendar/event?eid=eW9nYQ' });
 
 function googleAnswer(o: Partial<RangeResponse> & { items?: Record<DayKey, ItemDTO[]> } = {}): RangeResponse {
   return answer({
@@ -3527,7 +3529,7 @@ async function main() {
       const vars = calendarVars(color);
       return vars ? Object.entries(vars).map(([k, v]) => `${k}:${v}`).join(';') : null;
     };
-    const PLAIN = item('plain', { source: 'google', readOnly: true, tz: null, title: 'Plain', start: '2026-10-15T12:00:00+03:00', end: '2026-10-15T13:00:00+03:00', calendar: { ...G_FAMILY, color: null }, htmlLink: null, birthday: false });
+    const PLAIN = item('plain', { source: 'google', readOnly: true, canEdit: false, tz: null, title: 'Plain', start: '2026-10-15T12:00:00+03:00', end: '2026-10-15T13:00:00+03:00', calendar: { ...G_FAMILY, color: null }, htmlLink: null, birthday: false });
     const html = renderAgenda('en', model([ok(googleAnswer({ items: { [day(0)]: [DINNER, PLAIN], [day(1)]: [YOGA] } }))]));
     const chips = [...html.matchAll(/<span class="(ch-chip ch-chip-outline ch-cal-chip[^"]*)"(?: style="([^"]*)")? dir="auto">([^<]*)<\/span>/g)].map((m) => ({ cls: m[1], style: m[2] ?? null, text: m[3] }));
     // In time order: Plain (12:00), then Dinner (19:30); Yoga the next day.

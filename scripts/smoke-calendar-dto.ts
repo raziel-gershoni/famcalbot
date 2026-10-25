@@ -448,6 +448,52 @@ async function main() {
     }
   });
 
+  await check('repeatsEveryDay: FREQ=DAILY with no interval or INTERVAL=1, of an event or a reminder; never INTERVAL=2, other frequencies or a one-off', () => {
+    const at = utc('2026-10-16 08:00', IL);
+    const end = utc('2026-10-16 09:00', IL);
+    const cases: Array<[ReadItem, boolean]> = [
+      [famcal('e1', 'e', at, end, { rrule: 'FREQ=DAILY' }), true],
+      [famcal('e2', 'e', at, end, { rrule: 'RRULE:FREQ=DAILY;INTERVAL=1;UNTIL=20261231T000000Z' }), true],
+      [famcal('e3', 'e', at, end, { rrule: 'FREQ=DAILY;COUNT=5;INTERVAL=1' }), true],
+      [famcal('e4', 'e', at, end, { rrule: 'FREQ=DAILY;INTERVAL=2' }), false],
+      [famcal('e5', 'e', at, end, { rrule: 'FREQ=WEEKLY;BYDAY=MO' }), false],
+      [famcal('e6', 'e', at, end, { rrule: 'FREQ=YEARLY;BYMONTH=10' }), false],
+      [famcal('e7', 'e', at, end), false],
+      [reminder('r1', 'r', at, { rrule: 'FREQ=DAILY' }), true],
+      [reminder('r2', 'r', at, { rrule: 'FREQ=DAILY;INTERVAL=2' }), false],
+      [google('g1', 'g', '2026-10-16T08:00:00+03:00', '2026-10-16T09:00:00+03:00'), false],
+    ];
+    for (const [item, want] of cases) {
+      const dto = toItemDto(item, null, { now: NOW, open: false, openSince: null });
+      assert(dto.repeatsEveryDay === want, `${item.key} ${item.rrule}: ${dto.repeatsEveryDay}`);
+    }
+  });
+
+  await check('canEdit: FamCal by the calendar\'s write access or the reminder\'s creator; Google by the calendar\'s role and the event; unknown reads as false', () => {
+    const at = utc('2026-10-16 08:00', IL);
+    const end = utc('2026-10-16 09:00', IL);
+    const writable: CalendarRef = { ...OWN_CAL, canWrite: true };
+    const viewOnly: CalendarRef = { ...NOA_SHARED, canWrite: false };
+    const edit = (item: ReadItem) => toItemDto(item, null, { now: NOW, open: false, openSince: null }).canEdit;
+    assert(edit(famcal('a', 'a', at, end, { calendar: writable })) === true, 'own calendar');
+    assert(edit(famcal('b', 'b', at, end, { calendar: viewOnly })) === false, 'a calendar shared to view');
+    assert(edit(famcal('c', 'c', at, end)) === false, 'no write info (not known) is read only');
+    assert(edit(famcal('d', 'd', at, end, { kind: 'reminder', calendar: viewOnly, reminder: { ownerIsViewer: true, creatorIsViewer: true } })) === true, 'a reminder the viewer created, on a calendar they cannot write');
+    assert(edit(famcal('e', 'e', at, end, { kind: 'reminder', calendar: writable, reminder: { ownerIsViewer: true, creatorIsViewer: false } })) === true, 'a reminder the partner created, on a calendar the viewer may write');
+    assert(edit(famcal('f', 'f', at, end, { kind: 'reminder', calendar: MASKED, reminder: { ownerIsViewer: true, creatorIsViewer: false } })) === false, 'a partner\'s reminder on their private calendar');
+    const g = (calendar: CalendarRef, editable: boolean | undefined) => {
+      const item = google('g', 'g', '2026-10-16T08:00:00+03:00', '2026-10-16T09:00:00+03:00');
+      return edit({ ...item, calendar, google: { birthday: false, htmlLink: null, ...(editable === undefined ? {} : { editable }) } });
+    };
+    assert(g({ ...GOOGLE_CAL, canWrite: true }, true) === true, 'a writable calendar and an event the home may change');
+    assert(g({ ...GOOGLE_CAL, canWrite: true }, false) === false, 'an event with guests or of another type');
+    assert(g({ ...GOOGLE_CAL, canWrite: false }, true) === false, 'a read-only calendar');
+    assert(g(GOOGLE_CAL, true) === false, 'a calendar whose role is not known');
+    assert(g({ ...GOOGLE_CAL, canWrite: true }, undefined) === false, 'an entry cached before the event was marked');
+    const dto = toItemDto(famcal('h', 'h', at, end, { calendar: writable }), null, { now: NOW, open: false, openSince: null });
+    assert(!('canWrite' in dto.calendar), 'the calendar ref\'s canWrite stays out of the JSON');
+  });
+
   await check('readOnly, tz, id, allDay, location and description come from the read', () => {
     const fam = toItemDto(
       famcal('ser1#2026-10-16T05:00:00.000Z', 'Swim', '2026-10-16T05:00:00.000Z', '2026-10-16T06:00:00.000Z', {

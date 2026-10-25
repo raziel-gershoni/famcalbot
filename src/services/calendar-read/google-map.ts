@@ -145,6 +145,25 @@ export function isGoogleRateLimit(e: unknown): boolean {
   return status === 429 || (status === 403 && errorReasons(err).some((r) => RATE_LIMIT_REASONS.has(r)));
 }
 
+/** The calendar roles that may change events (a calendarList entry's accessRole). */
+export const WRITABLE_ROLES: ReadonlySet<string> = new Set(['owner', 'writer']);
+
+/**
+ * Whether the home may change a Google event (3b spec §2.4), read on the instance (which
+ * carries its master's organizer and guests): a default event (no type, or 'default'), not
+ * locked, no other guest (a room counts; guests Google left out count as unknown), and the
+ * calendar it sits on organizes it, or it has no guests at all. The calendar's role is
+ * checked apart.
+ */
+export function editableInHome(e: calendar_v3.Schema$Event): boolean {
+  if (e.eventType && e.eventType !== 'default') return false;
+  if (e.locked) return false;
+  if (e.attendeesOmitted) return false;
+  const attendees = e.attendees ?? [];
+  if (attendees.some((a) => !a.self)) return false;
+  return Boolean(e.organizer?.self) || attendees.length === 0;
+}
+
 /** Not events: Google's work-status blocks (Ruling R1). Every other type is kept, birthdays included. */
 const DROPPED_EVENT_TYPES = new Set(['workingLocation', 'outOfOffice', 'focusTime']);
 
@@ -193,6 +212,6 @@ export function mapGoogleEvent(raw: calendar_v3.Schema$Event, calendarId: string
     rrule: null,
     hebrewRule: null,
     hebrewAnchor: null,
-    google: { birthday: raw.eventType === 'birthday', htmlLink: raw.htmlLink ?? null },
+    google: { birthday: raw.eventType === 'birthday', htmlLink: raw.htmlLink ?? null, editable: editableInHome(raw) },
   };
 }

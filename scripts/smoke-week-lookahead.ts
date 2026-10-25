@@ -822,7 +822,7 @@ async function main() {
 
   // (h) the shared reader: its own request, the FamCal half, the week start, Google's failures
   const FIELDS =
-    'summary,nextPageToken,items(id,status,summary,description,location,start,end,recurringEventId,originalStartTime,eventType,attendees(self,responseStatus),htmlLink,extendedProperties(private))';
+    'summary,nextPageToken,items(id,status,summary,description,location,start,end,recurringEventId,originalStartTime,eventType,attendees(self,responseStatus),htmlLink,extendedProperties(private),organizer(self),locked,attendeesOmitted)';
 
   await check('(h) Israel /week and /nextweek: the reader\'s own request, a token step first, no calendars.get, its window, timeout and fields', async () => {
     const saturdayNight = new Date('2026-10-17T23:30:00+03:00');

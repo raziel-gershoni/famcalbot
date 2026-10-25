@@ -327,7 +327,7 @@ const NY = 'America/New_York';
 const DAY = '2026-10-14';
 const DAY_WINDOW = { from: startOfLocalDay(DAY, NY), to: startOfLocalDay(nextDate(DAY), NY) };
 const FIELDS =
-  'summary,nextPageToken,items(id,status,summary,description,location,start,end,recurringEventId,originalStartTime,eventType,attendees(self,responseStatus),htmlLink,extendedProperties(private))';
+  'summary,nextPageToken,items(id,status,summary,description,location,start,end,recurringEventId,originalStartTime,eventType,attendees(self,responseStatus),htmlLink,extendedProperties(private),organizer(self),locked,attendeesOmitted)';
 
 const DANA = 'dana@example.com';
 const AVI = 'avi.cohen@example.com';

@@ -36,6 +36,8 @@ function legendRef(calendar: NativeCalendar, viewerId: number, partner: Partner)
     mine,
     ...(!mine && partner ? { ownerName: partner.name } : {}),
     inLegend: true,
+    // getCalendarAccess: the owner, or the partner's calendar shared for editing.
+    canWrite: mine || calendar.privacy === 'SHARED_EDITOR',
   };
 }
 

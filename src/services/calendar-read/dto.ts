@@ -67,6 +67,23 @@ function reminderDto(item: ReadItem, opts: ItemDtoOptions): ItemReminderDTO {
   };
 }
 
+/** Whether a FamCal rule repeats every single day: FREQ=DAILY with no interval, or INTERVAL=1. */
+export function repeatsEveryDay(rrule: string | null): boolean {
+  if (!rrule || !/(^|;)FREQ=DAILY(;|$)/.test(rrule.replace(/^RRULE:/, ''))) return false;
+  const interval = /(?:^|;)INTERVAL=(\d+)(?:;|$)/.exec(rrule);
+  return !interval || Number(interval[1]) === 1;
+}
+
+/**
+ * Whether the viewer may change the item, by what the read already holds, as the editor decides
+ * (item-info.ts loadItem, google-item.ts): FamCal, a calendar the viewer may write or a reminder
+ * they created; Google, a calendar they may write (its live role) and an event the home may change.
+ */
+function canEditItem(item: ReadItem): boolean {
+  if (item.source === 'google') return item.calendar.canWrite === true && item.google?.editable === true;
+  return item.calendar.canWrite === true || (item.kind === 'reminder' && item.event.reminder?.creatorIsViewer === true);
+}
+
 /** One item as one day lists it (span is that day's daySpanOf, null when inside the day), or as a carry-over. */
 export function toItemDto(item: ReadItem, span: DaySpan | null, opts: ItemDtoOptions): ItemDTO {
   const { event } = item;
@@ -85,6 +102,8 @@ export function toItemDto(item: ReadItem, span: DaySpan | null, opts: ItemDtoOpt
     tz: item.source === 'famcal' ? (event.timeZone ?? null) : null,
     recurring: item.recurring,
     repeatsDaily: item.kind === 'reminder' && /FREQ=DAILY/.test(item.rrule ?? ''),
+    repeatsEveryDay: repeatsEveryDay(item.rrule),
+    canEdit: canEditItem(item),
     span,
     calendar: itemCalendar(item.calendar),
     location: event.location || null,

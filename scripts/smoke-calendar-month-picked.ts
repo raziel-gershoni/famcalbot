@@ -147,6 +147,8 @@ function item(id: string, o: Partial<ItemDTO> & { start: string }): ItemDTO {
     tz: TZ,
     recurring: false,
     repeatsDaily: false,
+    repeatsEveryDay: false,
+    canEdit: true,
     span: null,
     calendar: MY_CAL,
     location: null,

@@ -449,7 +449,7 @@ async function main() {
     const d = mapGoogleEvent(dentist, FAMILY, 'Family');
     assertEq(
       { source: d.source, key: d.key, title: d.title, kind: d.kind, seriesId: d.seriesId, originalStart: d.originalStart, recurring: d.recurring, rrule: d.rrule, google: d.google },
-      { source: 'google', key: 'google|family@group.calendar.google.com|ev-dentist', title: 'Dentist', kind: 'event', seriesId: null, originalStart: null, recurring: false, rrule: null, google: { birthday: false, htmlLink: 'https://www.google.com/calendar/event?eid=1' } },
+      { source: 'google', key: 'google|family@group.calendar.google.com|ev-dentist', title: 'Dentist', kind: 'event', seriesId: null, originalStart: null, recurring: false, rrule: null, google: { birthday: false, htmlLink: 'https://www.google.com/calendar/event?eid=1', editable: true } },
       'a one-off',
     );
     assert(!('calendar' in d) && !('state' in d), 'calendar or state set');
@@ -459,6 +459,26 @@ async function main() {
     assertEq([s.seriesId, s.originalStart, s.recurring], ['ev-swim', '2026-10-16T18:00:00+03:00', true], 'a moved recurring instance');
     const b = mapGoogleEvent(bday, DANA, DANA);
     assertEq([b.google?.birthday, b.originalStart, b.event.eventType, b.event.calendarName], [true, '2026-10-16', 'birthday', DANA], 'a birthday');
+  });
+
+  await check('mapGoogleEvent: google.editable is the home\'s rule on the listed event (a plain event, or one the viewer organizes alone; not other guests, guests left out, a lock, or another type; a birthday never)', () => {
+    const editable = (extra: calendar_v3.Schema$Event) => mapGoogleEvent({ id: 'x', summary: 'X', start: timed, ...extra }, FAMILY, 'Family').google?.editable;
+    assertEq(
+      [
+        editable({}),
+        editable({ eventType: 'default' }),
+        editable({ organizer: { self: true }, attendees: [{ self: true, responseStatus: 'accepted' }] }),
+        editable({ attendees: [{ responseStatus: 'accepted' }] }),
+        editable({ organizer: { self: true }, attendees: [{ self: true }, { responseStatus: 'needsAction' }] }),
+        editable({ attendees: [{ self: true }], organizer: { self: false } }),
+        editable({ attendeesOmitted: true }),
+        editable({ locked: true }),
+        editable({ eventType: 'birthday' }),
+        editable({ eventType: 'outOfOffice' }),
+      ],
+      [true, true, true, false, false, false, false, false, false, false],
+      'editable',
+    );
   });
 
   await check('mapGoogleEvent: an HTML description becomes text; one with no text is dropped', () => {

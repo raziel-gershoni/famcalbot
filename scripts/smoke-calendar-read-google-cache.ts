@@ -245,7 +245,7 @@ const fakeCalendarApi = {
 };
 
 /** calendarList's items (an unchosen calendar's too); 'error' throws a 500; 'hang' never answers. */
-let colourList: { id: string; backgroundColor?: unknown }[] | 'error' | 'hang' = [];
+let colourList: { id: string; backgroundColor?: unknown; accessRole?: unknown }[] | 'error' | 'hang' = [];
 /** Each calendarList call: its parameters and the request timeout the read gave it. */
 const colourCalls: Record<string, unknown>[] = [];
 /** How many calendarList calls Google got (a function, as listed()). */
@@ -410,7 +410,7 @@ function keyFor(ids: string[], window: { from: Date; to: Date }, tz = TZ): strin
 const KEY = keyFor([KIDS.calendarId, SPOUSE.calendarId], WEEK);
 const STAMP = 'gcal:stamp:7';
 
-type Entry = { startedAt: number; items: Record<string, unknown>[]; goneIds: string[]; colours?: Record<string, string> };
+type Entry = { startedAt: number; items: Record<string, unknown>[]; goneIds: string[]; colours?: Record<string, string>; writable?: Record<string, boolean> };
 const entryAt = (key: string) => decode(live(key)?.value) as Entry | null;
 const rangeKeys = () => [...store.keys()].filter(k => k.startsWith('gcal:range:'));
 const cacheWarned = () => captured.some(c => c.context === 'calendar-read-google-cache' && c.severity === 'warning');
@@ -954,7 +954,7 @@ async function main() {
     reset();
     colourList = LIVE;
     const r = await read();
-    assert(show(colourCalls) === show([{ maxResults: 250, showHidden: true, fields: 'items(id,backgroundColor)', timeout: 5500 }]), `calls: ${show(colourCalls)}`);
+    assert(show(colourCalls) === show([{ maxResults: 250, showHidden: true, fields: 'items(id,backgroundColor,accessRole)', timeout: 5500 }]), `calls: ${show(colourCalls)}`);
     assert(show(coloursOf(r)) === show({ [KIDS.calendarId]: '#7cb342', [SPOUSE.calendarId]: '#f4511e' }), `colours: ${show(coloursOf(r))}`);
     assert(show(entryAt(KEY)?.colours) === show({ [KIDS.calendarId]: '#7bd148' }), `entry colours: ${show(entryAt(KEY)?.colours)}`);
     assert(!live(KEY)!.value.includes('boss@corp.example'), 'an unchosen calendar\'s id reached the cache');
@@ -962,6 +962,28 @@ async function main() {
     colourList = LIVE;
     const bare = await read(googleUser({ calendarAssignments: [{ ...KIDS, color: '' }, { ...SPOUSE, color: '' }] }));
     assert(show(coloursOf(bare)) === show({ [KIDS.calendarId]: '#7cb342', [SPOUSE.calendarId]: null }), `no saved colours: ${show(coloursOf(bare))}`);
+  });
+
+  await check('roles: calendarList\'s accessRole decides canWrite (owner and writer yes, reader, freeBusyReader and none no); a hit joins the entry\'s; an entry or a list without roles leaves it unknown', async () => {
+    reset();
+    colourList = [{ id: KIDS.calendarId, backgroundColor: '#7BD148', accessRole: 'writer' }, { id: SPOUSE.calendarId, accessRole: 'reader' }];
+    const r = await read();
+    const canWrite = (x: typeof r) => show(Object.fromEntries(x.items.map(i => [i.calendar.id, i.calendar.canWrite])));
+    assert(r.read.status === 'ok' && r.items.length > 0, show(r.read));
+    assert(canWrite(r) === show({ [KIDS.calendarId]: true, [SPOUSE.calendarId]: false }), `live: ${canWrite(r)}`);
+    assert(show(entryAt(KEY)?.writable) === show({ [KIDS.calendarId]: true, [SPOUSE.calendarId]: false }), `entry: ${show(entryAt(KEY)?.writable)}`);
+    clock += 60_000;
+    colourList = [{ id: KIDS.calendarId, accessRole: 'reader' }];
+    const hit = await read();
+    assert(asked() === 1 && canWrite(hit) === show({ [KIDS.calendarId]: true, [SPOUSE.calendarId]: false }), `a hit: ${asked()} calls, ${canWrite(hit)}`);
+    assert(!r.read.calendars.some(c => 'canWrite' in c), 'the legend refs are not asked');
+    reset();
+    colourList = [{ id: KIDS.calendarId, accessRole: 'owner' }, { id: SPOUSE.calendarId, accessRole: 'freeBusyReader' }];
+    assert(canWrite(await read()) === show({ [KIDS.calendarId]: true, [SPOUSE.calendarId]: false }), 'owner and freeBusyReader');
+    reset();
+    colourList = 'error';
+    const none = await read();
+    assert(none.read.status === 'ok' && none.items.every(i => i.calendar.canWrite === undefined) && entryAt(KEY)?.writable === undefined, 'a list that failed knows no roles');
   });
 
   await check('colours: a hit joins its entry\'s colours with no calendarList call; a stale hit\'s refresh asks again and writes the new ones', async () => {

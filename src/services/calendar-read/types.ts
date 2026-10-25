@@ -20,6 +20,12 @@ export interface CalendarRef {
   inLegend: boolean;
   /** A chosen Google calendar that is gone. */
   unavailable?: boolean;
+  /**
+   * The viewer may add to and change this calendar's items: their own FamCal calendar, the partner's
+   * SHARED_EDITOR one, a Google calendar whose live role is owner or writer. Absent when not known
+   * (a masked calendar, a Google read that got no calendar list): read as false.
+   */
+  canWrite?: boolean;
 }
 
 export interface ReadItem {
@@ -43,7 +49,12 @@ export interface ReadItem {
   hebrewRule: string | null;
   hebrewAnchor: string | null;
   state?: { doneAt: Date | null; snoozedUntil: Date | null };
-  google?: { birthday: boolean; htmlLink: string | null };
+  google?: {
+    birthday: boolean;
+    htmlLink: string | null;
+    /** editableInHome on the listed instance (google-map.ts); absent in an entry cached before it was kept (read as false). */
+    editable?: boolean;
+  };
 }
 
 export interface ReadRangeOptions {

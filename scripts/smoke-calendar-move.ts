@@ -1205,7 +1205,7 @@ async function main() {
   await check('store: dropItem drops the moved item, and the rest of its series from its source, at once; nothing else', async () => {
     const item = (key: string, source: string, seriesId: string | null, date: string): Row => ({
       key, source, readOnly: false, id: key, seriesId, originalStart: null, kind: 'event', title: 'x', start: `${date}T10:00:00Z`, end: `${date}T11:00:00Z`,
-      allDay: false, tz: null, recurring: seriesId !== null, repeatsDaily: false, span: null, calendar: { id: 'c', name: 'c', color: null }, location: null, description: null,
+      allDay: false, tz: null, recurring: seriesId !== null, repeatsDaily: false, repeatsEveryDay: false, canEdit: true, span: null, calendar: { id: 'c', name: 'c', color: null }, location: null, description: null,
     });
     const days = ['2026-10-20', '2026-10-27'];
     const response = {

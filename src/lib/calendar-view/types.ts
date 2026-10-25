@@ -102,6 +102,18 @@ export interface ItemDTO {
   tz: string | null;
   recurring: boolean;
   repeatsDaily: boolean;
+  /**
+   * The series repeats every single day (FREQ=DAILY, interval 1), of any kind of item. Unlike
+   * `repeatsDaily` (a reminder's, which the Month leaves out of its cells), it only says that a day
+   * move would double a day, so the item is not lifted (editor upgrades spec §4, ruling D).
+   */
+  repeatsEveryDay: boolean;
+  /**
+   * The viewer may change this item, as the editor decides (calendar access, the reminder's creator,
+   * a Google calendar's role and an event the home may change); `readOnly` only says it is Google's.
+   * The server still checks every write, and the item's edit info is the final word on a drop.
+   */
+  canEdit: boolean;
   span: ItemSpan | null;
   calendar: ItemCalendarDTO;
   location: string | null;
