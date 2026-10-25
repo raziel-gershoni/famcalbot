@@ -855,7 +855,7 @@ async function main() {
       tz: IL,
       // The fixtures share one colour, so the sheet shows each calendar shifted apart (displayColours); the saved colour is #039BE5.
       calendar: { id: 'native:cal-tal', name: 'Tal', color: '#7987ed' },
-      forName: null, scopes: ['single'],
+      forName: null, alert: 'default', scopes: ['single'],
       canMoveCalendar: true, moveTargets: ['native:cal-tal', 'native:cal-tal-family', 'native:cal-noa-edit'],
       canChangeRecipient: false, forPartner: false, source: 'famcal',
     }, 'a one-off');
@@ -2652,6 +2652,138 @@ async function main() {
     const fixed = yearlySeries('fixed', '2020-03-02 10:00', { rrule: 'FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=2' });
     const f = await fixed.moveAll('2026-03-02', '1985-03-02');
     assertSame([f.status, f.body, iso(eventRow(fixed.id).startsAt)], [400, { error: 'invalid', field: 'start' }, iso(at('2020-03-02 10:00'))], 'a yearly rule with fixed days: refused (no year reason)');
+  });
+
+  // ================= alerts per event (editor upgrades spec §2) =================
+
+  const alertOf = (id: string) => [eventRow(id).ownAlerts, eventRow(id).alertMinutes];
+  const enableAlerts = () => {
+    tables.adminSettings = [{ id: 'global', remindersEnabled: true }];
+    tables.user.find((u) => u.id === TAL)!.remindersEnabled = true;
+  };
+
+  await check('alerts, editor info: alertsOn needs the admin switch, the user\'s own switch, a plan with reminders and Telegram; defaultLead is the user\'s lead (0 = at start)', async () => {
+    seed();
+    const tal = () => tables.user.find((u) => u.id === TAL)!;
+    const on = async () => (await editorOf()).body;
+    assertSame([(await on()).alertsOn, (await on()).defaultLead], [false, 0], 'nothing enabled yet: the admin switch and the user\'s own are off');
+    enableAlerts();
+    assertSame([(await on()).alertsOn, (await on()).defaultLead], [true, 0], 'all four: on, at start');
+    tal().defaultReminderMinutes = 15;
+    assert((await on()).defaultLead === 15, 'the user\'s lead');
+    redisStore.clear();
+    tables.adminSettings[0].remindersEnabled = false;
+    assert((await on()).alertsOn === false, 'admin switch off');
+    tables.adminSettings[0].remindersEnabled = true;
+    redisStore.clear();
+    tal().remindersEnabled = false;
+    assert((await on()).alertsOn === false, 'the user\'s own switch off');
+    tal().remindersEnabled = true;
+    noReminderPlan.add(TAL);
+    assert((await on()).alertsOn === false, 'a plan without reminders');
+    noReminderPlan.delete(TAL);
+    assert((await on()).alertsOn === true, 'back on');
+    const { alertsOnFor } = await load('src/services/calendar-write/item-info.ts');
+    assert((await alertsOnFor({ id: TAL, telegramId: null, remindersEnabled: true })) === false, 'no Telegram chat');
+    assert((await alertsOnFor({ id: TAL, telegramId: 5, remindersEnabled: true })) === true, 'with one');
+  });
+
+  await check('alerts, create: Default is stored as the default, None as an own empty list, a lead as that lead; the field omitted is the default', async () => {
+    seed();
+    const rows: Array<[unknown, unknown[]]> = [[undefined, [false, []]], ['default', [false, []]], ['none', [true, []]], [0, [true, [0]]], [15, [true, [15]]], [1440, [true, [1440]]]];
+    for (const [alert, want] of rows) {
+      const r = await post(eventBody(alert === undefined ? {} : { alert }));
+      assert(r.status === 200, `${show(alert)}: ${r.status} ${r.text}`);
+      assertSame(alertOf(idOf(r.body.key)), want, `alert ${show(alert)}`);
+    }
+    const repeating = await post(eventBody({ repeat: 'weekly', alert: 30 }));
+    assertSame(alertOf(idOf(repeating.body.key)), [true, [30]], 'a series');
+  });
+
+  await check('alerts, validation: a value off the list, of another type, or sent for a reminder or a Google calendar is 400 field alert, and nothing is written', async () => {
+    seed();
+    for (const alert of [7, 45, 2880, -5, 1.5, '30', 'never', true, null, {}, []]) {
+      const r = await post(eventBody({ alert }));
+      assertSame([r.status, r.body], [400, { error: 'invalid', field: 'alert' }], `create alert ${show(alert)}`);
+    }
+    assertSame((await post(reminderBody({ alert: 15 }))).body, { error: 'invalid', field: 'alert' }, 'a reminder');
+    assertSame((await post(reminderBody({ alert: 'default' }))).body, { error: 'invalid', field: 'alert' }, 'a reminder, even the default');
+    assertSame((await post(eventBody({ alert: 15, calendarId: 'avi@gmail.com' }))).body, { error: 'invalid', field: 'alert' }, 'a Google calendar');
+    assert(eventsAll().length === 0, 'something was written');
+    const one = await post(eventBody());
+    for (const alert of [7, '30', null, false]) {
+      assertSame((await patch({ key: one.body.key, scope: 'single', changes: { alert } })).body, { error: 'invalid', field: 'alert' }, `patch alert ${show(alert)}`);
+    }
+    const reminder = await post(reminderBody());
+    assertSame((await patch({ key: reminder.body.key, scope: 'single', changes: { alert: 5 } })).body, { error: 'invalid', field: 'alert' }, 'a patch of a reminder');
+    assertSame(alertOf(idOf(one.body.key)), [false, []], 'the event is as it was');
+  });
+
+  await check('alerts, edit a one-off: a lead, None, back to Default; the same value writes nothing; the item info reads it back', async () => {
+    seed();
+    const one = await post(eventBody());
+    const id = idOf(one.body.key);
+    assertSame((await patch({ key: one.body.key, scope: 'single', changes: { alert: 15 } })).body, { status: 'ok', key: one.body.key }, 'set');
+    assertSame([alertOf(id), (await itemOf(one.body.key)).body.alert], [[true, [15]], 15], '15');
+    await patch({ key: one.body.key, scope: 'single', changes: { alert: 'none' } });
+    assertSame([alertOf(id), (await itemOf(one.body.key)).body.alert], [[true, []], 'none'], 'none');
+    prismaCalls.length = 0;
+    const same = await patch({ key: one.body.key, scope: 'single', changes: { alert: 'none' } });
+    assert(same.status === 200 && !prismaCalls.some((c) => /\.(update|upsert|create|deleteMany)$/.test(c)), `the same alert wrote: ${prismaCalls}`);
+    await patch({ key: one.body.key, scope: 'single', changes: { alert: 'default' } });
+    assertSame([alertOf(id), (await itemOf(one.body.key)).body.alert], [[false, []], 'default'], 'default');
+    assert(tracked.some((t) => t.action === 'calendar_item_edited' && (t.meta.changed_fields as string[]).includes('alert')), 'the analytics name the field');
+  });
+
+  await check('alerts, item info: an off-list stored lead reads as it is; a reminder has none', async () => {
+    seed();
+    seedSeries('mig', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Migrated', startsAt: at('2026-10-20 10:00'), ownAlerts: true, alertMinutes: [45] });
+    assert((await itemOf('famcal|mig')).body.alert === 45, 'the migrated lead');
+    const reminder = await post(reminderBody());
+    const r = await itemOf(reminder.body.key);
+    assert(r.status === 200 && !('alert' in r.body), `a reminder carries ${show(r.body.alert)}`);
+  });
+
+  await check('alerts, a series: an alert change needs "this and after" or "all" (like a calendar); "only this one" is 400 scope and writes nothing', async () => {
+    seed();
+    const { id, occ } = await weeklySeries();
+    const before = show(tables.nativeEvent);
+    const single = await patch({ key: occ('2026-10-27'), scope: 'single', changes: { alert: 15 } });
+    assertSame([single.status, single.body, show(tables.nativeEvent) === before, overrides(id).length], [400, { error: 'invalid', field: 'scope' }, true, 0], 'single refused');
+    const all = await patch({ key: occ('2026-10-27'), scope: 'all', changes: { alert: 10 } });
+    assertSame([all.body, alertOf(id), tables.nativeEvent.length], [{ status: 'ok', key: occ('2026-10-27') }, [true, [10]], 1], 'all sets the series row');
+    const following = await patch({ key: occ('2026-11-03'), scope: 'following', changes: { alert: 'none' } });
+    const tail = lastEvent();
+    assertSame([following.status, alertOf(id), alertOf(tail.id)], [200, [true, [10]], [true, []]], 'following: the tail gets it, the head keeps its own');
+    const firstOcc = await patch({ key: occ('2026-10-20'), scope: 'following', changes: { alert: 60 } });
+    assertSame([firstOcc.status, alertOf(id), tables.nativeEvent.length], [200, [true, [60]], 2], 'following from the first occurrence is the whole series');
+  });
+
+  await check('alerts, a split carries the alert: a rename "this and after" keeps the tail\'s alert; a repeat stop gives the one-off the alert it ends up with; a reminder\'s copies stay default', async () => {
+    seed();
+    const { id, occ } = await weeklySeries({ alert: 30 });
+    assertSame(alertOf(id), [true, [30]], 'created');
+    await patch({ key: occ('2026-11-03'), scope: 'following', changes: { title: 'Renamed' } });
+    assertSame([alertOf(id), alertOf(lastEvent().id)], [[true, [30]], [true, [30]]], 'the tail keeps it');
+    const { occ: occ2 } = await weeklySeries({ alert: 15 });
+    await patch({ key: occ2('2026-11-03'), scope: 'following', changes: { repeat: 'none' } });
+    assertSame(alertOf(lastEvent().id), [true, [15]], 'a stop: the one-off keeps the series\' alert');
+    const { occ: occ3 } = await weeklySeries({ alert: 15 });
+    await patch({ key: occ3('2026-11-03'), scope: 'following', changes: { repeat: 'none', alert: 'none' } });
+    assertSame(alertOf(lastEvent().id), [true, []], 'a stop with an alert change: the one-off has the new one');
+    const rem = await post(reminderBody({ repeat: 'daily' }));
+    await patch({ key: `famcal|${idOf(rem.body.key)}#${iso(at('2026-10-22 17:30'))}`, scope: 'following', changes: { start: '2026-10-22T18:00' } });
+    assertSame(alertOf(lastEvent().id), [false, []], 'a reminder\'s tail');
+  });
+
+  await check('alerts, a cross-source move with an alert change in the same save is "move alone"; the store refuses an alert for a reminder', async () => {
+    seed();
+    const one = await post(eventBody());
+    const r = await patch({ key: one.body.key, scope: 'single', changes: { calendarId: 'avi@gmail.com', alert: 15 } });
+    assertSame([r.status, r.body], [400, { error: 'invalid', field: 'moveAlone' }], 'a move with an alert');
+    const reminder = await post(reminderBody());
+    const e = await thrownBy(() => store.updateNativeEvent({ seriesCuid: idOf(reminder.body.key), scope: 'single', actingUserId: TAL, alert: 15 }));
+    assert(e !== null && /scope/i.test(String(e)), `the store accepted an alert for a reminder: ${e}`);
   });
 
   await check('a store failure is 500 with no title in the response, the capture or the console', async () => {

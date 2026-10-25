@@ -40,6 +40,13 @@ export function alertChoiceOf(columns: AlertColumns): AlertChoice {
   return columns.alertMinutes.length === 0 ? 'none' : Math.min(...columns.alertMinutes);
 }
 
+/** A lead worded by its largest whole unit: divisible by 1440 is days, by 60 hours, else minutes (the copy's `before`). */
+export function leadParts(minutes: number): { unit: 'minute' | 'hour' | 'day'; count: number } {
+  if (minutes % 1440 === 0) return { unit: 'day', count: minutes / 1440 };
+  if (minutes % 60 === 0) return { unit: 'hour', count: minutes / 60 };
+  return { unit: 'minute', count: minutes };
+}
+
 /** The user's default lead in minutes (Settings; none set = at start). One rule for the pass and the editor. */
 export const defaultLeadOf = (user: { defaultReminderMinutes?: number | null }): number => user.defaultReminderMinutes ?? 0;
 
@@ -48,8 +55,9 @@ export const defaultLeadOf = (user: { defaultReminderMinutes?: number | null }):
  * (the pass's rule), or null when it has none. An event that also has "1 day before" is
  * reminded at its 30-minute popup too, not only a day ahead.
  */
-export function nearestReminderLead(overrides: ReadonlyArray<{ method: string; minutes: number }> | undefined): number | null {
-  if (!overrides?.length) return null;
-  const popups = overrides.filter((r) => r.method === 'popup');
-  return Math.min(...(popups.length ? popups : overrides).map((r) => r.minutes));
+export function nearestReminderLead(overrides: ReadonlyArray<{ method?: string | null; minutes?: number | null }> | null | undefined): number | null {
+  const timed = (overrides ?? []).filter((r): r is { method?: string | null; minutes: number } => typeof r.minutes === 'number');
+  if (timed.length === 0) return null;
+  const popups = timed.filter((r) => r.method === 'popup');
+  return Math.min(...(popups.length ? popups : timed).map((r) => r.minutes));
 }

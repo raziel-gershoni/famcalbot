@@ -11,6 +11,7 @@ import {
   type RepeatChoice,
 } from '../../lib/calendar-view/editor-types';
 import { minYearFor } from '../../lib/calendar-view/year-limits';
+import { parseAlertChoice, type AlertChoice } from '../../lib/calendar-view/alert-leads';
 import { MAX_SPAN_DAYS, daysBetween, dayOfWall, isDay, isWall } from './walltime';
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; field: string };
@@ -77,11 +78,13 @@ export interface CreateCommand {
   repeat: RepeatChoice;
   calendarId?: string;
   forPartner: boolean;
+  /** Events only; undefined when the body gave none (the default). */
+  alert?: AlertChoice;
 }
 
 export function parseCreate(raw: unknown): Parsed<CreateCommand> {
   if (!isObject(raw)) return fail('body');
-  const bad = unknownKey(raw, ['kind', 'title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forPartner']);
+  const bad = unknownKey(raw, ['kind', 'title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forPartner', 'alert']);
   if (bad) return fail(bad);
   if (typeof raw.kind !== 'string' || !(KINDS as readonly string[]).includes(raw.kind)) return fail('kind');
   const kind = raw.kind as ItemKind;
@@ -115,7 +118,15 @@ export function parseCreate(raw: unknown): Parsed<CreateCommand> {
   if (raw.forPartner !== undefined && typeof raw.forPartner !== 'boolean') return fail('forPartner');
   const forPartner = raw.forPartner === true;
   if (forPartner && kind !== 'reminder') return fail('forPartner');
-  return { ok: true, value: { kind, title, location, description, allDay, start, ...(end !== undefined ? { end } : {}), repeat, ...(calendarId ? { calendarId } : {}), forPartner } };
+  // An event's alert (editor upgrades spec §2): a listed value. A reminder has none; whether the
+  // calendar takes one (a Google one doesn't) is for the write, which knows the calendar.
+  let alert: AlertChoice | undefined;
+  if (raw.alert !== undefined) {
+    const parsed = parseAlertChoice(raw.alert);
+    if (kind !== 'event' || parsed === null) return fail('alert');
+    alert = parsed;
+  }
+  return { ok: true, value: { kind, title, location, description, allDay, start, ...(end !== undefined ? { end } : {}), repeat, ...(calendarId ? { calendarId } : {}), forPartner, ...(alert !== undefined ? { alert } : {}) } };
 }
 
 /** A FamCal item's key: the series, and the occurrence's original start for a repeating one. */
@@ -192,6 +203,8 @@ export interface UpdateCommand {
     calendarId?: string;
     /** 3b: a reminder for the partner (true) or its creator (false), relative to its creator. */
     forPartner?: boolean;
+    /** An event's alert, from the opened occurrence on (series-level); a FamCal event only. */
+    alert?: AlertChoice;
   };
 }
 
@@ -208,7 +221,7 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
   if (typeof raw.scope !== 'string' || !(SCOPES as readonly string[]).includes(raw.scope)) return fail('scope');
   if (!isObject(raw.changes)) return fail('changes');
   const c = raw.changes;
-  const unknown = Object.keys(c).find((k) => !['title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forPartner'].includes(k));
+  const unknown = Object.keys(c).find((k) => !['title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forPartner', 'alert'].includes(k));
   if (unknown) return fail(`changes.${unknown}`);
   if (Object.keys(c).length === 0) return fail('changes');
   const changes: UpdateCommand['changes'] = {};
@@ -252,6 +265,11 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
   if (c.forPartner !== undefined) {
     if (typeof c.forPartner !== 'boolean') return fail('forPartner');
     changes.forPartner = c.forPartner;
+  }
+  if (c.alert !== undefined) {
+    const alert = parseAlertChoice(c.alert);
+    if (alert === null) return fail('alert');
+    changes.alert = alert;
   }
   return { ok: true, value: { key, scope: raw.scope as EditScope, changes } };
 }

@@ -6,6 +6,8 @@
 // all-day item's end is its last day, inclusive. A reminder has one time: its end is its
 // start, and a date-only reminder is an all-day one.
 
+import type { AlertChoice } from './alert-leads';
+
 export const TITLE_MAX = 200;
 export const LOCATION_MAX = 200;
 export const NOTES_MAX = 2000;
@@ -46,6 +48,13 @@ export interface EditorInfoResponse {
   tz: string;
   /** The user's reminder time (HH:mm): when a reminder with no time of day pings. */
   reminderTime: string;
+  /**
+   * An alert can reach the user (editor upgrades spec §2): the admin switch, their own alerts
+   * setting, a plan with reminders and a Telegram chat. The Alert row shows only then.
+   */
+  alertsOn: boolean;
+  /** The user's default lead in minutes (0 = at start): what "Default" means in the Alert row. */
+  defaultLead: number;
 }
 
 /** How a series repeats, as its rule says; the client words it ("Every Tuesday"). */
@@ -124,6 +133,13 @@ export interface ItemEditInfoResponse {
   canChangeRecipient?: boolean;
   /** 3b: the reminder is for its creator's partner (relative to the creator). */
   forPartner?: boolean;
+  /**
+   * An event's alert (editor upgrades spec §2): 'default', 'none' or its lead in minutes (a
+   * migrated one may be off the list). Absent for a reminder. A Google item's is its own
+   * reminders' nearest lead, or 'default' when it has none, read-only (`alertReadOnly`).
+   */
+  alert?: AlertChoice;
+  alertReadOnly?: boolean;
   /** 3b: the calendar is writable but the item can only be changed in Google Calendar. */
   editableInGoogleOnly?: boolean;
   /** 3b: where the item lives. */
@@ -155,6 +171,8 @@ export interface CreateItemBody {
   calendarId?: string;
   /** Reminders only: for the partner. */
   forPartner?: boolean;
+  /** Timed FamCal events only; omitted = the default (editor upgrades spec §2). */
+  alert?: AlertChoice;
 }
 
 /** PATCH /api/calendar/items: only what the editor changed needs to be in `changes`. */
@@ -177,6 +195,8 @@ export interface UpdateItemBody {
     calendarId?: string;
     /** 3b: a reminder for the partner, or (false) its creator. */
     forPartner?: boolean;
+    /** An event's alert, from this occurrence on like the calendar (series-level); a FamCal event only. */
+    alert?: AlertChoice;
   };
 }
 

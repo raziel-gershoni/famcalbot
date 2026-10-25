@@ -1034,6 +1034,36 @@ async function main() {
     assert(first !== 'not_found' && first.series.first === true, 'first');
   });
 
+  // Editor upgrades spec §2, ruling E: a Google event's alert is shown, never written.
+  await check('alerts, item info: the nearest popup (else the nearest email) is the read-only alert, else the default; a lead off the list or over a day is shown as it is', async () => {
+    const lead = async (id: string, reminders: Row | undefined) => {
+      seed(NOA_CAL, id, { start: '2026-10-20T10:00:00', ...(reminders ? { reminders } : {}) });
+      const r = await editInfo(NOA, gkey(NOA_CAL, id));
+      assert(r !== 'not_found', 'not found');
+      return [r.alert, r.alertReadOnly];
+    };
+    const popup = (...minutes: number[]) => ({ useDefault: false, overrides: minutes.map((m) => ({ method: 'popup', minutes: m })) });
+    assertSame(await lead('a1', popup(1440, 30)), [30, true], 'the nearest popup');
+    assertSame(await lead('a2', { useDefault: false, overrides: [{ method: 'email', minutes: 60 }, { method: 'email', minutes: 1440 }] }), [60, true], 'else the nearest email');
+    assertSame(await lead('a3', { useDefault: false, overrides: [{ method: 'email', minutes: 10 }, { method: 'popup', minutes: 120 }] }), [120, true], 'a popup beats a nearer email');
+    assertSame(await lead('a4', { useDefault: true }), ['default', true], 'Google\'s own default: none of its own');
+    assertSame(await lead('a5', undefined), ['default', true], 'no reminders');
+    assertSame(await lead('a6', popup(2880)), [2880, true], 'two days, over the list');
+    assertSame(await lead('a7', popup(45)), [45, true], 'off the list');
+  });
+
+  await check('alerts, writes: an alert for a Google calendar or a Google item is 400 field alert and nothing is written', async () => {
+    const created = await write.createItem(NOA, createCmd({ kind: 'event', title: 'x', allDay: false, start: '2026-10-22T18:00', calendarId: FAMILY, alert: 15 }), IL);
+    assertSame([created, writes().length], [{ status: 'invalid', field: 'alert' }, 0], 'create');
+    WEEKLY_TUE();
+    const key = gkey(NOA_CAL, inst('wk', '2026-10-20T10:00:00'));
+    for (const scope of ['single', 'all'] as const) {
+      assertSame(await write.updateItem(NOA, patchCmd({ key, scope, changes: { alert: 'none' } }), IL), { status: 'invalid', field: 'alert' }, `patch ${scope}`);
+    }
+    assertSame(await write.updateItem(NOA, patchCmd({ key, scope: 'all', changes: { title: 'y', alert: 5 } }), IL), { status: 'invalid', field: 'alert' }, 'with other changes');
+    assertSame(writes().length, 0, 'wrote');
+  });
+
   await check('item info: set weekdays and other parts are custom; an UNTIL in UTC is its day; all-day dates are inclusive', async () => {
     WEEKLY_TUE({ recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=20261124T075959Z'] });
     const a = await editInfo(NOA, gkey(NOA_CAL, inst('wk', '2026-10-20T10:00:00')));

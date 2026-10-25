@@ -29,6 +29,9 @@ import { classifyRule, fixesDays, isHebrewRule, type HebrewColumns, type Virtual
 import { effectiveOwnerForViewer, loadViewerContext, type ViewerContext } from '../native-reminders/ownership';
 import { getReminderSupport } from '../native-reminders/support';
 import { reminderTimeOf } from '../../lib/reminder-time';
+import { alertChoiceOf, defaultLeadOf } from '../../lib/calendar-view/alert-leads';
+import { getGlobalRemindersEnabled } from '../reminder-cache';
+import { peekFeatureAccess } from '../subscription-service';
 import type { AnyItemKey, ItemKey } from './validate';
 import { sourcesFor } from '../calendar-read/index';
 import { defaultCalendarIdFor } from '../calendar-provider/user-calendars';
@@ -81,6 +84,25 @@ async function ownedWritableCalendars(user: UserConfig): Promise<EditorCalendar[
 }
 
 /**
+ * Whether an alert can reach the user (editor upgrades spec §2): the admin switch, their own
+ * alerts setting (Settings), a plan with reminders, and a Telegram chat. The same four
+ * conditions the pass applies, each read through its own function. A hint for the Alert row,
+ * not a gate (a stored alert waits until alerts are on), so a plan without reminders logs
+ * nothing; an error in the plan check fails closed.
+ */
+export async function alertsOnFor(user: Pick<UserConfig, 'id' | 'telegramId' | 'remindersEnabled'>): Promise<boolean> {
+  if (user.telegramId === null || !user.remindersEnabled) return false;
+  if (!(await getGlobalRemindersEnabled())) return false;
+  try {
+    return (await peekFeatureAccess(user.id, 'reminders')).allowed;
+  } catch (error) {
+    console.error(`[Editor] Feature check for alerts failed for user ${user.id}:`, error);
+    captureError(error, 'editor-alerts-on', { user_id: user.id }, 'warning');
+    return false;
+  }
+}
+
+/**
  * GET /api/calendar/editor: what the user can add, to which calendars, and for whom. Per
  * calendar (3b spec §3.3, and "Google as a connection" §4): the union of a FamCal part
  * (its calendars, reminders and the partner, by FamCal's rules) when the user reads FamCal,
@@ -116,6 +138,8 @@ export async function editorInfo(user: UserConfig, tz: string): Promise<EditorIn
     partner,
     tz,
     reminderTime: reminderTimeOf(user),
+    alertsOn: await alertsOnFor(user),
+    defaultLead: defaultLeadOf(user),
   };
 }
 
@@ -334,6 +358,8 @@ export async function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, 
       ? { id: null, name: ctx.partner?.name ?? '', color: null }
       : { id: encodeCalendarId(calendar.id), name: calendar.name, color: calendar.color },
     forName: ownerIsPartner && ctx.partner ? ctx.partner.name : null,
+    // An event's alert (a reminder has none); a stored lead off the list reads as it is.
+    ...(isReminder ? {} : { alert: alertChoiceOf(series) }),
     scopes: series.rrule ? ['single', 'following', 'all'] : ['single'],
     canMoveCalendar: moveTargets.length > 1,
     moveTargets,

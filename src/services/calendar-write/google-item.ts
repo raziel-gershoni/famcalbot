@@ -31,6 +31,7 @@ import { dayEnd, dayStart, localDate, wallToInstant } from './walltime';
 import { createTimes, repeatChanges, resolveWallTimes, ruleFor, type WriteResult } from './write';
 import { liveGoogleChoices } from '../../lib/google-state';
 import { minYearFor } from '../../lib/calendar-view/year-limits';
+import { nearestReminderLead } from '../../lib/calendar-view/alert-leads';
 
 export { parseGoogleKey };
 
@@ -226,6 +227,9 @@ export async function googleEditInfo(user: UserConfig, key: GoogleItemKey, userT
     tz: userTz,
     calendar: { id: key.calendarId, name: live?.name ?? ref.name, color: live?.color ?? ref.color },
     forName: null,
+    // Google's own alert, shown and not editable (ruling E): its reminders' nearest lead, else the default.
+    alert: nearestReminderLead(read.event.reminders?.overrides) ?? 'default',
+    alertReadOnly: true,
     scopes: recurring ? ['single', 'following', 'all'] : ['single'],
     canMoveCalendar: moveTargets.length > 1,
     moveTargets,
@@ -291,6 +295,8 @@ const googleRuleFor = (repeat: CreateCommand['repeat']): string | null => {
  */
 export async function createGoogleItem(user: UserConfig, cmd: CreateCommand, tz: string): Promise<WriteResult> {
   if (cmd.kind !== 'event') return NOT_ALLOWED; // reminders always live in FamCal
+  // A Google event's alert is Google's own, shown read-only (editor upgrades spec §2, ruling E).
+  if (cmd.alert !== undefined) return { status: 'invalid', field: 'alert' };
   // Google can't hold a Hebrew-date rule (hebrew-repeats spec §4): never sent as a Gregorian yearly one.
   if (isHebrewChoice(cmd.repeat)) return { status: 'invalid', field: 'repeat' };
   // A legacy Google user's chosen calendar, with the token gone (scope errors used to clear it): reconnect.
@@ -331,6 +337,7 @@ export async function createGoogleItem(user: UserConfig, cmd: CreateCommand, tz:
 export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { key: { source: 'google' } & GoogleItemKey }, userTz: string): Promise<WriteResult> {
   const key = cmd.key;
   if (isHebrewChoice(cmd.changes.repeat)) return { status: 'invalid', field: 'repeat' };
+  if (cmd.changes.alert !== undefined) return { status: 'invalid', field: 'alert' };
   const loaded = await loadGoogleItem(user, key, userTz);
   if (loaded.status === 'not_found') return NOT_FOUND;
   if (loaded.status === 'error') return loaded.result;

@@ -47,6 +47,7 @@ import { sourcesFor } from '../calendar-read/index';
 import { defaultCalendarIdFor } from '../calendar-provider/user-calendars';
 import { addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween, instantToWall, isDay, localDate, wallToInstant } from './walltime';
 import { minYearFor } from '../../lib/calendar-view/year-limits';
+import { alertChoiceOf } from '../../lib/calendar-view/alert-leads';
 
 export type WriteResult =
   // leftIn: a cross-source move made its copy, but the original is still in that calendar
@@ -181,7 +182,7 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
       const calendarCuid = placed ? decodeCalendarId(placed) : (await getMainNativeCalendar(user.id)).id;
       if (!calendarCuid) return { status: 'invalid', field: 'calendarId' };
       const times = createTimes(cmd, tz);
-      const event = await createNativeEvent({ ...base, ...times, calendarCuid });
+      const event = await createNativeEvent({ ...base, ...times, calendarCuid, ...(cmd.alert !== undefined ? { alert: cmd.alert } : {}) });
       const calendar = await prisma.nativeCalendar.findUnique({ where: { id: event.calendarId } });
       if (calendar) await clearCaches(user, [calendar], [null]);
       trackActivityAsync(user.id, 'voice_event_created', { calendar_id: placed ?? `native:${calendarCuid}`, source: 'app' });
@@ -335,12 +336,15 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   const forPartner = c.forPartner !== undefined && c.forPartner !== isForPartner(series, item.ctx) ? c.forPartner : undefined;
   if (forPartner !== undefined && (!reminder || (forPartner && !item.ctx.partner))) return { status: 'invalid', field: 'forPartner' };
   const forUserId = forPartner === undefined ? undefined : forPartner ? item.ctx.partner!.id : null;
-  const seriesLevel = repeat !== undefined || moveTo !== undefined || forUserId !== undefined;
+  // An event's alert is series-level like its calendar (editor upgrades spec §2). A reminder has none.
+  if (c.alert !== undefined && reminder) return { status: 'invalid', field: 'alert' };
+  const alert = c.alert !== undefined && c.alert !== alertChoiceOf(series) ? c.alert : undefined;
+  const seriesLevel = repeat !== undefined || moveTo !== undefined || alert !== undefined || forUserId !== undefined;
   const sameKey = itemKeyOf(series.id, key.slot);
   if (!timeChanged && Object.keys(text).length === 0 && !seriesLevel) return { status: 'ok', key: sameKey };
 
-  // A repeat change applies from the opened occurrence on; a calendar or recipient change
-  // needs a series scope, as an occurrence has neither of its own.
+  // A repeat change applies from the opened occurrence on; a calendar, alert or recipient change
+  // needs a series scope, as an occurrence has none of its own.
   let scope = effectiveScope(item, cmd.scope);
   if (series.rrule && repeat !== undefined) scope = 'following';
   else if (series.rrule && seriesLevel && scope === 'single') return { status: 'invalid', field: 'scope' };
@@ -357,6 +361,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
     // The pair goes with the rule, null for a Gregorian choice (hebrew-repeats spec §2).
     ...(repeat !== undefined ? { rrule: ruleFor(repeat), hebrewRule: hebrewRuleFor(repeat) } : {}),
     ...(moveTo !== undefined ? { calendarId: moveTo } : {}),
+    ...(alert !== undefined ? { alert } : {}),
     ...(forUserId !== undefined ? { forUserId } : {}),
   };
   if (stop) {
@@ -422,6 +427,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
       ...(timeChanged ? ['time'] : []),
       ...(repeat !== undefined ? ['repeat'] : []),
       ...(moveTo !== undefined ? ['calendar'] : []),
+      ...(alert !== undefined ? ['alert'] : []),
       ...(forUserId !== undefined ? ['recipient'] : []),
     ];
     trackActivityAsync(user.id, 'calendar_item_edited', { kind: reminder ? 'reminder' : 'event', scope, source: 'app', provider: 'famcal', changed_fields: changedFields });
