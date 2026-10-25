@@ -60,6 +60,7 @@ import {
 import { hebrewDateOf } from '../src/lib/calendar-view/hebrew-date';
 import { MIN_YEAR_BIRTH, MIN_YEAR_SERIES, minYearFor } from '../src/lib/calendar-view/year-limits';
 import { checkForm, isRealDay, type EditorForm } from '../src/lib/calendar-view/editor-model';
+import type { RepeatSpec } from '../src/lib/calendar-view/editor-types';
 import { parseCreate } from '../src/services/calendar-write/validate';
 import { addDaysToKey } from '../src/lib/calendar-view/store';
 import { formatPillDate } from '../src/lib/calendar-view/format';
@@ -347,16 +348,18 @@ async function main() {
       alert: 'default',
       ...over,
     });
+    // The form's repeat is a spec, or 'none' / 'custom' (repeat-model.ts).
+    const rf = (r: 'none' | 'custom' | RepeatSpec['freq']) => (r === 'none' || r === 'custom' ? r : ({ freq: r, interval: 1 } as RepeatSpec));
     for (const repeat of ['none', 'yearly', 'hebrew'] as const) {
-      assertEqual(checkForm(form({ repeat })), {}, `form: 1950 ${repeat} is fine`);
+      assertEqual(checkForm(form({ repeat: rf(repeat) })), {}, `form: 1950 ${repeat} is fine`);
     }
     for (const repeat of ['daily', 'weekly', 'monthly', 'custom'] as const) {
-      assertEqual(checkForm(form({ repeat })), { start: 'errYear' }, `form: 1950 ${repeat} gets the year error on the date`);
+      assertEqual(checkForm(form({ repeat: rf(repeat) })), { start: 'errYear' }, `form: 1950 ${repeat} gets the year error on the date`);
     }
-    assertEqual(checkForm(form({ startDay: '2000-01-01', endDay: '1950-01-01', repeat: 'daily' })).end, 'errYear', 'an end before the floor on a series');
+    assertEqual(checkForm(form({ startDay: '2000-01-01', endDay: '1950-01-01', repeat: rf('daily') })).end, 'errYear', 'an end before the floor on a series');
     assertEqual(checkForm(form({ startDay: '1899-12-31', endDay: '1899-12-31' })).start, 'errDate', '1899 is no date at all');
     assertEqual(checkForm(form({ startDay: '2101-01-01', endDay: '2101-01-01' })).start, 'errDate', 'nor 2101');
-    assertEqual(checkForm(form({ allDay: true, repeat: 'yearly', endDay: '1950-03-03' })), {}, 'all day, yearly');
+    assertEqual(checkForm(form({ allDay: true, repeat: rf('yearly'), endDay: '1950-03-03' })), {}, 'all day, yearly');
     assert(isRealDay('1950-03-02', MIN_YEAR_BIRTH) && !isRealDay('1950-03-02') && !isRealDay('1950-03-02', MIN_YEAR_SERIES), 'isRealDay takes the floor, 2000 by default');
     const body = (repeat: string, start = '1950-03-02T10:00', end = '1950-03-02T11:00') => ({ kind: 'event', title: 'Birthday', allDay: false, start, end, repeat });
     for (const repeat of ['none', 'yearly', 'hebrew']) {

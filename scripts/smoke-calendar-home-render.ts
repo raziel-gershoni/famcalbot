@@ -96,6 +96,7 @@ import CalendarHome, { CalendarHomeContainer, GONE_NOTE_MS, HOME_TOP_CSS, type H
 import { AgendaView, AGENDA_CSS, type AgendaViewProps } from '../app/[locale]/dashboard/AgendaView';
 import { ItemSheet, type SheetActions } from '../app/[locale]/dashboard/ItemSheet';
 import { FORM_CSS } from '../app/[locale]/dashboard/form-kit';
+import { REPEAT_CSS } from '../app/[locale]/dashboard/RepeatSheet';
 import { SendSheet } from '../app/[locale]/dashboard/SendSheet';
 import { BottomSheet } from '../app/[locale]/dashboard/BottomSheet';
 import SelectCalendarsClient from '../app/[locale]/select-calendars/SelectCalendarsClient';
@@ -4338,6 +4339,51 @@ async function main() {
     return found[0];
   };
   const selects = (m: Home) => elements(topDialog(m)).filter((e) => e.localName === 'select');
+  // The Repeat row is a button that opens the Repeat sheet (editor upgrades spec §3): the row, its shown value, and the sheet's parts.
+  const repeatRow = (m: Home) => {
+    const found = elements(topDialog(m)).filter((e) => e.localName === 'button' && e.className.includes('ch-form-row') && e.getAttribute('aria-haspopup') === 'dialog' && e.textContent.startsWith('Repeat'));
+    assert(found.length === 1, `${found.length} Repeat rows: ${show(topText(m).slice(0, 300))}`);
+    return found[0];
+  };
+  const repeatShown = (m: Home) => byClass(repeatRow(m), 'ch-form-value-text')[0].textContent;
+  const openRepeat = async (m: Home) => {
+    m.click(repeatRow(m));
+    await settle();
+    assert(topDialog(m).getAttribute('aria-label') === 'Repeat', `the Repeat sheet is on top: ${show(topDialog(m).getAttribute('aria-label'))}`);
+  };
+  /** The sheet's Cancel and Done, whatever the language. */
+  const sheetCancel = async (m: Home) => {
+    m.click(byClass(topDialog(m), 'ch-editor-cancel')[0]);
+    await settle();
+  };
+  const sheetDone = async (m: Home) => {
+    m.click(saveButton(m));
+    await settle();
+  };
+  /** The frequency radios of the open sheet: [value, text]. */
+  const freqOptions = (m: Home): [unknown, string][] => byRole(byRole(topDialog(m), 'radiogroup')[0], 'radio').map((e) => [e.getAttribute('data-value'), e.textContent.trim()]);
+  const radioGroup = (m: Home, label: string) => elements(topDialog(m)).filter((e) => e.getAttribute('role') === 'radiogroup' && e.getAttribute('aria-label') === label)[0];
+  const radiosOf = (m: Home, label: string) => byRole(radioGroup(m, label) ?? topDialog(m), 'radio');
+  const freqTexts = (m: Home) => radiosOf(m, 'How often').map((e) => e.textContent.trim());
+  const chooseIn = (m: Home, group: string, text: string) => {
+    const found = radiosOf(m, group).filter((e) => e.textContent.trim() === text);
+    assert(found.length === 1, `no ${show(text)} in ${show(group)}: ${show(radiosOf(m, group).map((e) => e.textContent))}`);
+    m.click(found[0]);
+  };
+  const summaryOf = (m: Home) => byClass(topDialog(m), 'ch-repeat-summary')[0].textContent;
+  const doneRepeat = async (m: Home, label = 'Done') => {
+    tapIn(m, label);
+    await settle();
+  };
+  /** Opens the sheet, picks a frequency by its text and applies it. */
+  const pickRepeat = async (m: Home, text: string) => {
+    await openRepeat(m);
+    chooseIn(m, 'How often', text);
+    await doneRepeat(m);
+  };
+  /** The frequency texts by the old choice names. */
+  const FREQ: Record<string, string> = { none: 'Never', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', yearly: 'Yearly', hebrew: 'Every year on the Hebrew date' };
+  const pickFreq = (m: Home, choice: string) => pickRepeat(m, FREQ[choice] ?? choice);
   const saveButton = (m: Home) => {
     const found = elements(topDialog(m)).filter((e) => e.localName === 'button' && byClass(e, 'ch-save').length + (e.className.includes('ch-save') ? 1 : 0) > 0);
     assert(found.length === 1, 'the Save button');
@@ -4389,13 +4435,16 @@ async function main() {
     assert(moveStart(f, { startTime: '' }).endTime === f.endTime, 'a cleared time leaves the end');
     assert(setAllDay(setAllDay(f, true), false).endTime === '12:00', 'all day off again brings the times back');
     // The kind switch: a Hebrew repeat does not survive a switch to an event on a Google calendar.
-    const gFam = { ...f, calendarId: 'avi@gmail.com', repeat: 'hebrew' as const };
-    assert(setKind({ ...gFam, kind: 'reminder' }, 'event').repeat === 'yearly', 'reminder to event on a Google calendar: Hebrew falls back to yearly');
+    const assertSame = (got: unknown, want: unknown, what: string) => assert(show(got) === show(want), `${what}: got ${show(got)}, want ${show(want)}`);
+    const heb = { freq: 'hebrew', interval: 2, count: 4 } as const;
+    const gFam = { ...f, calendarId: 'avi@gmail.com', repeat: heb };
+    assertSame(setKind({ ...gFam, kind: 'reminder' }, 'event').repeat, { freq: 'yearly', interval: 2, count: 4 }, 'reminder to event on a Google calendar: Hebrew falls back to yearly, keeping its interval and end');
     assert(setKind({ ...gFam, kind: 'reminder' }, 'event').kind === 'event', 'the kind is switched');
-    assert(setKind({ ...f, kind: 'reminder', repeat: 'hebrew' }, 'event').repeat === 'hebrew', 'a FamCal calendar keeps it');
-    assert(setKind({ ...f, kind: 'reminder', calendarId: null, repeat: 'hebrew' }, 'event').repeat === 'hebrew', 'no calendar (FamCal default) keeps it');
-    assert(setKind(gFam, 'reminder').repeat === 'hebrew', 'to a reminder keeps it (always FamCal)');
-    assert(setKind({ ...gFam, kind: 'reminder', repeat: 'weekly' }, 'event').repeat === 'weekly', 'a Gregorian repeat is untouched');
+    assertSame(setKind({ ...f, kind: 'reminder', repeat: heb }, 'event').repeat, heb, 'a FamCal calendar keeps it');
+    assertSame(setKind({ ...f, kind: 'reminder', calendarId: null, repeat: heb }, 'event').repeat, heb, 'no calendar (FamCal default) keeps it');
+    assertSame(setKind(gFam, 'reminder').repeat, heb, 'to a reminder keeps it (always FamCal)');
+    const wk = { freq: 'weekly', interval: 1 } as const;
+    assertSame(setKind({ ...gFam, kind: 'reminder', repeat: wk }, 'event').repeat, wk, 'a Gregorian repeat is untouched');
     // The checks.
     assert(show(checkForm({ ...f, title: '  ' })) === show({ title: 'errTitle' }), 'an empty title');
     assert(show(checkForm({ ...f, title: 'x'.repeat(201) })) === show({ title: 'errTitleLong' }), 'a long title');
@@ -4476,13 +4525,19 @@ async function main() {
       await typeInto(inDialog(m, 'End time'), '18:30');
       await typeInto(inDialog(m, 'Start time'), '16:00');
       assert(fieldValue(m, 'End time') === '19:30', `the duration kept: ${fieldValue(m, 'End time')}`);
-      // The repeat choices read from the start day (Thursday 15 October).
+      // The Repeat row opens the sheet; its frequencies are the same on every day, and its summary reads from the start day (Thursday 15 October).
       const options = (sel: Fake) => elements(sel).filter((e) => e.localName === 'option').map((e) => [propsOf(e).value, e.textContent]);
-      assert(show(options(selects(m)[0])) === show([['none', 'Never'], ['daily', 'Every day'], ['weekly', 'Every week on Thursday'], ['monthly', 'Every month on the 15th'], ['yearly', 'Every year on 15 Oct'], ['hebrew', 'Every year on 4 Cheshvan']]), `repeat: ${show(options(selects(m)[0]))}`);
+      await openRepeat(m);
+      assert(show(freqTexts(m)) === show(['Never', 'Daily', 'Weekly', 'Monthly', 'Yearly', 'Every year on the Hebrew date']), `repeat: ${show(freqTexts(m))}`);
+      chooseIn(m, 'How often', 'Monthly');
+      assert(summaryOf(m) === 'Every month on the 15th', `monthly on the 15th: ${summaryOf(m)}`);
+      await doneRepeat(m, 'Cancel');
+      assert(repeatShown(m) === 'Never', 'Cancel leaves the repeat as it was');
       await typeInto(inDialog(m, 'Start date'), '2026-10-22');
       assert(fieldValue(m, 'End date') === '2026-10-22', 'a later day carries the end');
-      assert(options(selects(m)[0])[3][1] === 'Every month on the 22nd', 'the ordinal follows the day');
-      assert(show(options(selects(m)[1])) === show([['native:cal_me_7f3a', 'Family'], ['native:cal_noa_91b2', 'Noa and the kids · Noa']]), `calendars: ${show(options(selects(m)[1]))}`);
+      await pickFreq(m, 'monthly');
+      assert(repeatShown(m) === 'Every month on the 22nd', `the ordinal follows the day: ${repeatShown(m)}`);
+      assert(show(options(selects(m)[0])) === show([['native:cal_me_7f3a', 'Family'], ['native:cal_noa_91b2', 'Noa and the kids · Noa']]), `calendars: ${show(options(selects(m)[0]))}`);
       assertHas(topText(m), ['Family'], 'the main calendar is the default');
       // All day hides the times.
       assert(elements(topDialog(m)).filter((e) => e.getAttribute('data-pill') === 'time').length === 2, 'two time pills');
@@ -4546,8 +4601,8 @@ async function main() {
       m.click(saveButton(m));
       assert(show(alerts(m)) === show(['It ends before it starts']), `end error: ${show(alerts(m))}`);
       await typeInto(inDialog(m, 'End time'), '12:30');
-      await typeInto(selects(m)[0], 'weekly');
-      await typeInto(selects(m)[1], 'native:cal_noa_91b2');
+      await pickFreq(m, 'weekly');
+      await typeInto(selects(m)[0], 'native:cal_noa_91b2');
       await typeInto(inDialog(m, 'Location'), ' School hall ');
       await typeInto(inDialog(m, 'Notes'), 'Bring the form');
       const hold = heldAnswer();
@@ -4559,7 +4614,7 @@ async function main() {
       const post = writes()[0];
       assert(post.method === 'POST' && post.headers['Content-Type'] === 'application/json' && post.credentials === 'same-origin', 'POST, JSON, same-origin');
       assert(post.headers['X-Telegram-Init-Data'] === INIT, 'the init data in the header');
-      const want = { user_id: 5550001, initData: INIT, kind: 'event', title: 'Parents’ evening', location: 'School hall', description: 'Bring the form', allDay: false, start: `${TODAY}T11:00`, end: `${TODAY}T12:30`, repeat: 'weekly', calendarId: 'native:cal_noa_91b2' };
+      const want = { user_id: 5550001, initData: INIT, kind: 'event', title: 'Parents’ evening', location: 'School hall', description: 'Bring the form', allDay: false, start: `${TODAY}T11:00`, end: `${TODAY}T12:30`, repeat: { freq: 'weekly', interval: 1, byDay: ['TH'] }, calendarId: 'native:cal_noa_91b2' };
       assert(sameBody(post.body, want), `body: ${show(post.body)}`);
       const save = saveButton(m);
       assert(save.hasAttribute('disabled') && save.getAttribute('aria-busy') === 'true' && byClass(save, 'ch-form-spinner').length === 1, 'Save is disabled and busy while it flies');
@@ -4613,10 +4668,10 @@ async function main() {
       assert(byRole(topDialog(m), 'radio').some((e) => e.textContent === 'Noa' && e.getAttribute('aria-checked') === 'true'), 'for Noa');
       await typeInto(inDialog(m, 'Date'), '2026-10-21');
       await typeInto(inDialog(m, 'Time'), '18:00');
-      await typeInto(selects(m)[0], 'yearly');
+      await pickFreq(m, 'yearly');
       m.click(saveButton(m));
       await settle();
-      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, kind: 'reminder', title: 'Buy a gift', allDay: false, start: '2026-10-21T18:00', repeat: 'yearly', forPartner: true }), `timed: ${show(writes()[0].body)}`);
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, kind: 'reminder', title: 'Buy a gift', allDay: false, start: '2026-10-21T18:00', repeat: { freq: 'yearly', interval: 1 }, forPartner: true }), `timed: ${show(writes()[0].body)}`);
       assert(!hasDialog(m), 'closed');
       tapPlus(m);
       await settle();
@@ -4733,7 +4788,7 @@ async function main() {
       assert(topDialog(m).getAttribute('aria-label') === 'Edit', 'the editor is named Edit');
       assert(fieldValue(m, 'Title') === 'Dentist' && fieldValue(m, 'Location') === 'Clinic on Herzl St' && fieldValue(m, 'Notes') === 'Bring the X-rays', 'text fields prefilled');
       assert(fieldValue(m, 'Start date') === TODAY && fieldValue(m, 'Start time') === '09:30' && fieldValue(m, 'End time') === '10:30', 'times prefilled');
-      assert(!elements(topDialog(m)).some((e) => e.getAttribute('aria-label') === 'Type') && selects(m).length === 1, 'no kind switch; the Repeat select alone (no move targets, no Calendar select)');
+      assert(!elements(topDialog(m)).some((e) => e.getAttribute('aria-label') === 'Type') && selects(m).length === 0, 'no kind switch; no select at all (the Repeat row is a button, no move targets, no Calendar select)');
       assertHas(topText(m), ['Family', 'All day', 'Starts', 'Ends', 'Repeat', 'Never'], 'the calendar as text, the Repeat row at Never');
       // Nothing changed: Save just closes the editor.
       m.click(saveButton(m));
@@ -4790,9 +4845,9 @@ async function main() {
       await openItem(r.m, 'Take out the recycling');
       r.m.click(byLabel(topDialog(r.m), 'Edit'));
       await settle();
-      assertHas(topText(r.m), ['For Noa', 'Every Tuesday (current)', 'At a set time'], 'the For line and the Repeat row at the rule it has');
+      assertHas(topText(r.m), ['For Noa', 'Every Tuesday', 'At a set time'], 'the For line and the Repeat row at the rule it has');
       assertLacks(topText(r.m), ['Family', 'Repeats every'], 'a reminder shows no calendar line');
-      assert(!hasField(r.m, 'Location') && !hasField(r.m, 'Notes') && selects(r.m).length === 1, 'no event fields; the Repeat select alone');
+      assert(!hasField(r.m, 'Location') && !hasField(r.m, 'Notes') && selects(r.m).length === 0, 'no event fields; no select (the Repeat row opens a sheet)');
       assert(!byRole(topDialog(r.m), 'radio').length, 'no For choice on an edit');
       await typeInto(inDialog(r.m, 'Time'), '17:30');
       r.m.click(saveButton(r.m));
@@ -4814,9 +4869,9 @@ async function main() {
       tapPlus(m);
       await settle();
       assertHas(topText(m), ['Repeat', 'Alert', 'Default (15 min before)'], 'the row, on Default');
-      assert(show(options(selects(m)[1])) === show([['default', 'Default (15 min before)'], ['none', 'None'], ['0', 'At start'], ['5', '5 min before'], ['10', '10 min before'], ['15', '15 min before'], ['30', '30 min before'], ['60', '1 hour before'], ['120', '2 hours before'], ['1440', '1 day before']]), `alert options: ${show(options(selects(m)[1]))}`);
+      assert(show(options(selects(m)[0])) === show([['default', 'Default (15 min before)'], ['none', 'None'], ['0', 'At start'], ['5', '5 min before'], ['10', '10 min before'], ['15', '15 min before'], ['30', '30 min before'], ['60', '1 hour before'], ['120', '2 hours before'], ['1440', '1 day before']]), `alert options: ${show(options(selects(m)[0]))}`);
       await typeInto(inDialog(m, 'Title'), 'Parents’ evening');
-      await typeInto(selects(m)[1], '30');
+      await typeInto(selects(m)[0], '30');
       assertHas(topText(m), ['30 min before'], 'the pick shows');
       serveEditingWith({ editor: withAlerts(), write: () => ok200({ status: 'ok' }) });
       m.click(saveButton(m));
@@ -4830,7 +4885,7 @@ async function main() {
       tapPlus(b.m);
       await settle();
       await typeInto(inDialog(b.m, 'Title'), 'Parents’ evening');
-      await typeInto(selects(b.m)[1], 'none');
+      await typeInto(selects(b.m)[0], 'none');
       serveEditingWith({ editor: withAlerts(), write: () => ok200({ status: 'ok' }) });
       b.m.click(saveButton(b.m));
       await settle();
@@ -4855,9 +4910,9 @@ async function main() {
     try {
       tapPlus(d.m);
       await settle();
-      assert(selects(d.m).length === 3, `repeat, alert and calendar: ${selects(d.m).length}`);
+      assert(selects(d.m).length === 2, `alert and calendar: ${selects(d.m).length}`);
       d.m.click(switchOf(d.m, 'All day'));
-      assert(selects(d.m).length === 2 && !topText(d.m).includes('Alert'), 'no Alert row all day');
+      assert(selects(d.m).length === 1 && !topText(d.m).includes('Alert'), 'no Alert row all day');
       d.m.click(switchOf(d.m, 'All day'));
       tapIn(d.m, 'Reminder');
       assert(!topText(d.m).includes('Alert'), 'no Alert row for a reminder');
@@ -4869,7 +4924,7 @@ async function main() {
     try {
       tapPlus(off.m);
       await settle();
-      assert(!topText(off.m).includes('Alert') && selects(off.m).length === 2, 'no Alert row when alerts cannot reach the user');
+      assert(!topText(off.m).includes('Alert') && selects(off.m).length === 1, 'no Alert row when alerts cannot reach the user');
     } finally {
       off.m.unmount();
     }
@@ -4890,11 +4945,11 @@ async function main() {
       tapPlus(google.m);
       await settle();
       await typeInto(inDialog(google.m, 'Title'), 'Parents’ evening');
-      await typeInto(selects(google.m)[1], '30');
-      await typeInto(selects(google.m)[2], 'avi@gmail.com');
+      await typeInto(selects(google.m)[0], '30');
+      await typeInto(selects(google.m)[1], 'avi@gmail.com');
       assertHas(topText(google.m), ['Alert', 'Default (15 min before)'], 'a read-only row');
       assertLacks(topText(google.m), ['30 min before'], 'not the lead picked before');
-      assert(selects(google.m).length === 2, `no Alert select: ${selects(google.m).length}`);
+      assert(selects(google.m).length === 1, `no Alert select: ${selects(google.m).length}`);
       serveEditingWith({ editor: ok200(EDITOR_INFO), write: () => ok200({ status: 'ok' }) });
       google.m.click(saveButton(google.m));
       await settle();
@@ -4909,7 +4964,7 @@ async function main() {
         tapPlus(l.m, messages[locale].calendarHome.header.add);
         await settle();
         assertHas(topText(l.m), [label, def], `${locale} row`);
-        assert(options(selects(l.m)[1]).some((o) => o[1] === lead), `${locale} options: ${show(options(selects(l.m)[1]))}`);
+        assert(options(selects(l.m)[0]).some((o) => o[1] === lead), `${locale} options: ${show(options(selects(l.m)[0]))}`);
       } finally {
         l.m.unmount();
       }
@@ -4925,10 +4980,10 @@ async function main() {
       a.m.click(byLabel(topDialog(a.m), 'Edit'));
       await settle();
       assertHas(topText(a.m), ['Alert', '45 min before'], 'an off-list lead shows as it is');
-      assert(show(options(selects(a.m)[1]).map((o) => o[0])) === show(['default', 'none', '0', '5', '10', '15', '30', '45', '60', '120', '1440']), `in order: ${show(options(selects(a.m)[1]))}`);
-      await typeInto(selects(a.m)[1], '30');
-      assert(options(selects(a.m)[1]).some((o) => o[0] === '45'), 'the option stays after another pick');
-      await typeInto(selects(a.m)[1], '45');
+      assert(show(options(selects(a.m)[0]).map((o) => o[0])) === show(['default', 'none', '0', '5', '10', '15', '30', '45', '60', '120', '1440']), `in order: ${show(options(selects(a.m)[0]))}`);
+      await typeInto(selects(a.m)[0], '30');
+      assert(options(selects(a.m)[0]).some((o) => o[0] === '45'), 'the option stays after another pick');
+      await typeInto(selects(a.m)[0], '45');
       // Left alone, a title change does not send the alert.
       await typeInto(inDialog(a.m, 'Title'), 'Dentist 2');
       serveEditingWith({ editor: withAlerts, item: dentistInfo({ alert: 45 }), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
@@ -4944,7 +4999,7 @@ async function main() {
       b.m.click(byLabel(topDialog(b.m), 'Edit'));
       await settle();
       assertHas(topText(b.m), ['None'], 'None prefilled');
-      await typeInto(selects(b.m)[1], 'default');
+      await typeInto(selects(b.m)[0], 'default');
       serveEditingWith({ editor: withAlerts, item: dentistInfo({ alert: 'none' }), write: () => ({ status: 400, body: { error: 'invalid', field: 'alert' } }) });
       b.m.click(saveButton(b.m));
       await settle();
@@ -4962,7 +5017,7 @@ async function main() {
       g.m.click(byLabel(topDialog(g.m), 'Edit'));
       await settle();
       assertHas(topText(g.m), ['Alert', 'From Google Calendar: 1 hour before'], 'Google\'s own alert');
-      assert(selects(g.m).length === 1, `only the Repeat select: ${selects(g.m).length}`);
+      assert(selects(g.m).length === 0, `no select: ${selects(g.m).length}`);
     } finally {
       g.m.unmount();
     }
@@ -4986,11 +5041,11 @@ async function main() {
       x.m.click(byLabel(topDialog(x.m), 'Edit'));
       await settle();
       assertHas(topText(x.m), ['30 min before'], 'the stored alert before the move is picked');
-      assert(selects(x.m).length === 3, `repeat, alert, calendar: ${selects(x.m).length}`);
-      await typeInto(selects(x.m)[2], 'avi@gmail.com');
+      assert(selects(x.m).length === 2, `alert, calendar: ${selects(x.m).length}`);
+      await typeInto(selects(x.m)[1], 'avi@gmail.com');
       assertHas(topText(x.m), ['Default (15 min before)'], 'the default it lands with');
       assertLacks(topText(x.m), ['30 min before'], 'not the old alert');
-      assert(selects(x.m).length === 2, 'read-only: no Alert select');
+      assert(selects(x.m).length === 1, 'read-only: no Alert select');
     } finally {
       x.m.unmount();
     }
@@ -5000,8 +5055,8 @@ async function main() {
       await openItem(y.m, 'Dentist');
       y.m.click(byLabel(topDialog(y.m), 'Edit'));
       await settle();
-      await typeInto(selects(y.m)[1], '10');
-      await typeInto(selects(y.m)[2], 'avi@gmail.com');
+      await typeInto(selects(y.m)[0], '10');
+      await typeInto(selects(y.m)[1], 'avi@gmail.com');
       serveEditingWith({ editor: both, item: dentistInfo({ alert: 30, canMoveCalendar: true, moveTargets: ['native:cal_me_7f3a', 'avi@gmail.com'] }), write: () => ok200({ status: 'ok', key: 'google|avi@gmail.com|dentist' }) });
       y.m.click(saveButton(y.m));
       await settle();
@@ -5015,7 +5070,7 @@ async function main() {
       await openItem(s.m, 'Swimming');
       s.m.click(byLabel(topDialog(s.m), 'Edit'));
       await settle();
-      await typeInto(selects(s.m)[1], '10');
+      await typeInto(selects(s.m)[0], '10');
       s.m.click(saveButton(s.m));
       await settle();
       assertHas(topText(s.m), ['This one and the ones after'], 'the scope sheet offers the series choices');
@@ -5033,7 +5088,7 @@ async function main() {
       await openItem(m, 'Swimming');
       m.click(byLabel(topDialog(m), 'Edit'));
       await settle();
-      assertHas(topText(m), ['Every Tuesday (current)'], 'the series\' repeat in the Repeat row');
+      assertHas(topText(m), ['Every Tuesday'], 'the series\' repeat in the Repeat row');
       await typeInto(inDialog(m, 'Location'), 'The pool');
       m.click(saveButton(m));
       await settle();
@@ -5836,17 +5891,34 @@ async function main() {
     m.click(byLabel(topDialog(m), label));
     await settle();
   };
-  /** A value row by its label ("Repeat", "Calendar"): the row, its select, its shown value, its options. */
+  /** A value row by its label ("Repeat", "Calendar"): the row, its select, its shown value, its options. The Repeat row is a button that opens the Repeat sheet. */
+  const isRepeatLabel = (label: string) => label === messages.en.calendarHome.editor.repeat.label || label === messages.he.calendarHome.editor.repeat.label || label === messages.ru.calendarHome.editor.repeat.label;
+  const isRowLike = (e: Fake, label: string) => (e.localName === 'label' || (e.localName === 'button' && e.getAttribute('aria-haspopup') === 'dialog')) && e.className.includes('ch-form-row') && e.textContent.startsWith(label);
   const valueRow = (m: Home, label: string) => {
-    const found = elements(topDialog(m)).filter((e) => e.localName === 'label' && e.className.includes('ch-form-row') && e.textContent.startsWith(label));
+    const found = elements(topDialog(m)).filter((e) => isRowLike(e, label));
     assert(found.length === 1, `${found.length} rows start with ${show(label)}: ${show(topText(m).slice(0, 400))}`);
     return found[0];
   };
-  const hasRow = (m: Home, label: string) => elements(topDialog(m)).some((e) => e.localName === 'label' && e.className.includes('ch-form-row') && e.textContent.startsWith(label));
+  const hasRow = (m: Home, label: string) => elements(topDialog(m)).some((e) => isRowLike(e, label));
   const selectIn = (m: Home, label: string) => elements(valueRow(m, label)).filter((e) => e.localName === 'select')[0];
   const shownIn = (m: Home, label: string) => byClass(valueRow(m, label), 'ch-form-value-text')[0].textContent;
-  const optionsIn = (m: Home, label: string) => elements(selectIn(m, label)).filter((e) => e.localName === 'option').map((o): [unknown, string] => [propsOf(o).value, o.textContent]);
-  const pick = (m: Home, label: string, value: string) => React.act(() => propsOf(selectIn(m, label)).onChange({ target: { value } }));
+  /** A select's options; for the Repeat row, the sheet's frequencies, read by opening it and cancelling. */
+  const optionsIn = (m: Home, label: string): [unknown, string][] => {
+    if (!isRepeatLabel(label)) return elements(selectIn(m, label)).filter((e) => e.localName === 'option').map((o): [unknown, string] => [propsOf(o).value, o.textContent]);
+    m.click(valueRow(m, label));
+    const out = freqOptions(m);
+    m.click(byClass(topDialog(m), 'ch-editor-cancel')[0]);
+    return out;
+  };
+  /** A pick: a select's value; for the Repeat row, a frequency by its value, applied with Done. */
+  const pick = async (m: Home, label: string, value: string) => {
+    if (!isRepeatLabel(label)) return React.act(() => propsOf(selectIn(m, label)).onChange({ target: { value } }));
+    m.click(valueRow(m, label));
+    const radio = byRole(byRole(topDialog(m), 'radiogroup')[0], 'radio').filter((e) => e.getAttribute('data-value') === value)[0];
+    assert(radio !== undefined, `no frequency ${show(value)} in the sheet: ${show(freqOptions(m))}`);
+    m.click(radio);
+    await sheetDone(m);
+  };
   const lastWrite = () => writes()[writes().length - 1];
   const choiceTexts = (m: Home) => elements(topDialog(m)).filter((e) => e.localName === 'button').map((e) => e.textContent.trim());
   const radioOf = (m: Home, text: string) => byRole(topDialog(m), 'radio').filter((e) => e.textContent === text)[0];
@@ -5861,7 +5933,7 @@ async function main() {
       await openEditor(a.m, 'Dentist');
       assert(shownIn(a.m, 'Repeat') === 'Never', `a one-off shows ${show(shownIn(a.m, 'Repeat'))}`);
       assert(
-        show(optionsIn(a.m, 'Repeat')) === show([['none', 'Never'], ['daily', 'Every day'], ['weekly', 'Every week on Thursday'], ['monthly', 'Every month on the 15th'], ['yearly', 'Every year on 15 Oct'], ['hebrew', 'Every year on 4 Cheshvan']]),
+        show(optionsIn(a.m, 'Repeat')) === show([['none', 'Never'], ['daily', 'Daily'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['yearly', 'Yearly'], ['hebrew', 'Every year on the Hebrew date']]),
         `options: ${show(optionsIn(a.m, 'Repeat'))}`,
       );
       assertLacks(topText(a.m), ['Earlier ones stay'], 'a one-off has no "from here" line');
@@ -5869,7 +5941,7 @@ async function main() {
       assert(shownIn(a.m, 'Repeat') === 'Every week on Thursday', 'the pick shows');
       a.m.click(saveButton(a.m));
       await settle();
-      assert(writes().length === 1 && sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { repeat: 'weekly' } }), `one-off to series: ${show(writes()[0]?.body)}`);
+      assert(writes().length === 1 && sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { repeat: { freq: 'weekly', interval: 1, byDay: ['TH'] } } }), `one-off to series: ${show(writes()[0]?.body)}`);
       assert(!hasDialog(a.m) || topDialog(a.m).getAttribute('aria-label') === 'Details', 'no scope question');
     } finally {
       a.m.unmount();
@@ -5883,7 +5955,7 @@ async function main() {
       await pick(b.m, 'Repeat', 'daily');
       b.m.click(saveButton(b.m));
       await settle();
-      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { repeat: 'daily' } }), `a repeat change: ${show(writes()[0]?.body)}`);
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { repeat: { freq: 'daily', interval: 1 } } }), `a repeat change: ${show(writes()[0]?.body)}`);
       assert(topDialog(b.m).getAttribute('aria-label') === 'Details', 'no scope sheet for a repeat change');
     } finally {
       b.m.unmount();
@@ -5915,9 +5987,9 @@ async function main() {
     const e = await editingHome('en', { item: serveSwim(custom), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
     try {
       await openEditor(e.m, 'Swimming');
-      assert(shownIn(e.m, 'Repeat') === 'Every 2 weeks (current)', `custom: ${show(shownIn(e.m, 'Repeat'))}`);
+      assert(shownIn(e.m, 'Repeat') === 'Every 2 weeks', `custom: ${show(shownIn(e.m, 'Repeat'))}`);
       const opts = optionsIn(e.m, 'Repeat');
-      assert(show(opts[0]) === show(['custom', 'Every 2 weeks (current)']) && show(opts.slice(1).map((o) => o[0])) === show(['none', 'daily', 'weekly', 'monthly', 'yearly', 'hebrew']), `custom first: ${show(opts)}`);
+      assert(show(opts[0]) === show(['custom', 'Current: Every 2 weeks']) && show(opts.slice(1).map((o) => o[0])) === show(['none', 'daily', 'weekly', 'monthly', 'yearly', 'hebrew']), `custom first: ${show(opts)}`);
       await typeInto(inDialog(e.m, 'Location'), 'The pool');
       e.m.click(saveButton(e.m));
       await settle();
@@ -5934,15 +6006,17 @@ async function main() {
     } finally {
       e.m.unmount();
     }
-    // Ends: every label gains the end, the stored one is marked; an unreadable rule is "Current repeat".
+    // Ends: the row's words gain the end, and the sheet's Ends shows it; an unreadable rule is "Current repeat".
     const ended = swimSeries({ rule: { choice: 'daily', until: day(12) }, repeat: { freq: 'daily', interval: 1, byDay: [], ends: true } });
     const f = await editingHome('en', { item: serveSwim(ended) });
     try {
       await openEditor(f.m, 'Swimming');
-      assert(
-        show(optionsIn(f.m, 'Repeat')) === show([['none', 'Never'], ['daily', 'Every day, until 27 Oct (current)'], ['weekly', 'Every week on Tuesday, until 27 Oct'], ['monthly', 'Every month on the 20th, until 27 Oct'], ['yearly', 'Every year on 20 Oct, until 27 Oct'], ['hebrew', 'Every year on 9 Cheshvan, until 27 Oct']]),
-        `ended: ${show(optionsIn(f.m, 'Repeat'))}`,
-      );
+      assert(shownIn(f.m, 'Repeat') === 'Every day, until 27 Oct', `ended: ${show(shownIn(f.m, 'Repeat'))}`);
+      await openRepeat(f.m);
+      assert(summaryOf(f.m) === 'Every day, until 27 Oct', `the sheet's summary: ${summaryOf(f.m)}`);
+      assert(radiosOf(f.m, 'Ends').filter((e) => e.getAttribute('aria-checked') === 'true').map((e) => e.textContent).join() === 'On date', 'Ends is On date');
+      assert(elements(topDialog(f.m)).some((e) => e.getAttribute('data-pill') === 'date' && e.getAttribute('data-value') === day(12)), 'its date is the stored one');
+      await sheetCancel(f.m);
     } finally {
       f.m.unmount();
     }
@@ -5950,7 +6024,7 @@ async function main() {
     const g = await editingHome('en', { item: serveSwim(customEnded) });
     try {
       await openEditor(g.m, 'Swimming');
-      assert(shownIn(g.m, 'Repeat') === 'Every 2 weeks, until 27 Oct (current)', `custom with an end: ${show(shownIn(g.m, 'Repeat'))}`);
+      assert(shownIn(g.m, 'Repeat') === 'Every 2 weeks, until 27 Oct', `custom with an end: ${show(shownIn(g.m, 'Repeat'))}`);
     } finally {
       g.m.unmount();
     }
@@ -5967,7 +6041,7 @@ async function main() {
     const r = await editingHome('en', { item: (k) => (k === 'famcal|recycling' ? ok200(remRule) : ({ status: 404, body: {} } as FetchAnswer)) });
     try {
       await openEditor(r.m, 'Take out the recycling');
-      assert(shownIn(r.m, 'Repeat') === 'Every weekday (current)', `a reminder, the server's words: ${show(shownIn(r.m, 'Repeat'))}`);
+      assert(shownIn(r.m, 'Repeat') === 'Every weekday', `a reminder, the server's words: ${show(shownIn(r.m, 'Repeat'))}`);
     } finally {
       r.m.unmount();
     }
@@ -5979,7 +6053,7 @@ async function main() {
     const moved = { start: `${day(7)}T17:00`, end: `${day(7)}T18:00` };
     for (const [pickText, scope, changes] of [
       ['Only this one (Tue 20 Oct)', 'single', moved],
-      ['This one and the ones after', 'following', { ...moved, repeat: 'weekly' }],
+      ['This one and the ones after', 'following', { ...moved, repeat: { freq: 'weekly', interval: 1, byDay: ['TH'] } }],
     ] as const) {
       const a = await editingHome('en', { item: serveSwim(later), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
       try {
@@ -6015,7 +6089,7 @@ async function main() {
     const initial = editItemForm(later);
     const dayMoved = { ...initial, startDay: day(7), endDay: day(7) };
     assertSame(scopePlan(dayMoved, initial, later), { kind: 'sheet', choices: ['single', 'following'], note: 'dayMove' }, 'the plan');
-    assertSame(updateBody(dayMoved, initial, 'famcal|swim', 'following', later)?.changes, { ...moved, repeat: 'weekly' }, 'following restates');
+    assertSame(updateBody(dayMoved, initial, 'famcal|swim', 'following', later)?.changes, { ...moved, repeat: { freq: 'weekly', interval: 1, byDay: ['TH'] } }, 'following restates');
     assertSame(updateBody(dayMoved, initial, 'famcal|swim', 'single', later)?.changes, moved, 'single keeps the rule');
     const custom = swimSeries({ fixedDays: true, repeat: { freq: 'weekly', interval: 1, byDay: ['TU', 'TH'], ends: false }, rule: { choice: 'custom' }, first: false });
     const ci = editItemForm(custom);
@@ -6030,7 +6104,7 @@ async function main() {
       b.m.click(saveButton(b.m));
       await settle();
       assert(!alerts(b.m).includes(DAY_ALONE) && writes().length === 1, `not refused: ${show(alerts(b.m))}`);
-      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { repeat: 'daily', start: `${day(7)}T17:00`, end: `${day(7)}T18:00` } }), `a move that picks one of the five: ${show(writes()[0].body)}`);
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { repeat: { freq: 'daily', interval: 1 }, start: `${day(7)}T17:00`, end: `${day(7)}T18:00` } }), `a move that picks one of the five: ${show(writes()[0].body)}`);
     } finally {
       b.m.unmount();
     }
@@ -6121,7 +6195,7 @@ async function main() {
       await pick(b.m, 'Repeat', 'daily');
       b.m.click(saveButton(b.m));
       await settle();
-      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { repeat: 'daily', calendarId: 'native:cal_noa_91b2' } }), `both: ${show(writes()[0]?.body)}`);
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { repeat: { freq: 'daily', interval: 1 }, calendarId: 'native:cal_noa_91b2' } }), `both: ${show(writes()[0]?.body)}`);
     } finally {
       b.m.unmount();
     }
@@ -6329,7 +6403,7 @@ async function main() {
     const c = await googleHome('en', { item: serve(series), write: () => ok200({ status: 'ok', key: 'google|dinner' }) });
     try {
       await openEditor(c.m, 'Dinner with the Cohens');
-      assert(shownIn(c.m, 'Repeat') === 'Every Thursday (current)', `the server's words: ${show(shownIn(c.m, 'Repeat'))}`);
+      assert(shownIn(c.m, 'Repeat') === 'Every Thursday', `the server's words: ${show(shownIn(c.m, 'Repeat'))}`);
       await typeInto(inDialog(c.m, 'Location'), 'Their place');
       c.m.click(saveButton(c.m));
       await settle();
@@ -6554,16 +6628,20 @@ async function main() {
         await settle();
         const opts = optionsIn(m, l.editor.repeat.label);
         assert(show(opts.slice(0, 5).map((o) => o[0])) === show(['none', 'daily', 'weekly', 'monthly', 'yearly']), `${locale}: the five first: ${show(opts)}`);
-        assert(show(opts.slice(5)) === show([['hebrew', HEBREW_TEXTS[locale].hebrew]]), `${locale}: the Hebrew choice: ${show(opts.slice(5))}`);
+        assert(show(opts.slice(5)) === show([['hebrew', l.editor.repeat.freq.hebrew]]), `${locale}: the Hebrew choice: ${show(opts.slice(5))}`);
+        // The sheet words the Hebrew date of the start day, in each language.
+        m.click(valueRow(m, l.editor.repeat.label));
+        m.click(byRole(topDialog(m), 'radio').filter((e) => e.getAttribute('data-value') === 'hebrew')[0]);
+        assert(summaryOf(m) === HEBREW_TEXTS[locale].hebrew, `${locale}: the summary: ${show(summaryOf(m))}`);
+        await sheetCancel(m);
         if (locale === 'en') {
           await typeInto(inDialog(m, 'Start date'), '2026-10-22');
-          assert(optionsIn(m, 'Repeat')[5][1] === 'Every year on 11 Cheshvan' && optionsIn(m, 'Repeat').length === 6, `the words follow the day: ${show(optionsIn(m, 'Repeat').slice(5))}`);
           await typeInto(inDialog(m, 'Title'), 'Grandpa');
           await pick(m, 'Repeat', 'hebrew');
           assert(shownIn(m, 'Repeat') === 'Every year on 11 Cheshvan', `the pick shows: ${show(shownIn(m, 'Repeat'))}`);
           m.click(saveButton(m));
           await settle();
-          assert(writes().length === 1 && writes()[0].body?.repeat === 'hebrew' && writes()[0].body?.kind === 'event', `sent: ${show(writes()[0]?.body)}`);
+          assert(writes().length === 1 && show(writes()[0].body?.repeat) === show({ freq: 'hebrew', interval: 1 }) && writes()[0].body?.kind === 'event', `sent: ${show(writes()[0]?.body)}`);
         }
       } finally {
         m.unmount();
@@ -6593,7 +6671,7 @@ async function main() {
       await typeInto(inDialog(a.m, 'Title'), 'Light a candle');
       a.m.click(saveButton(a.m));
       await settle();
-      assert(writes().length === 1 && writes()[0].body?.kind === 'reminder' && writes()[0].body?.repeat === 'hebrew', `a reminder sent: ${show(writes()[0]?.body)}`);
+      assert(writes().length === 1 && writes()[0].body?.kind === 'reminder' && show(writes()[0].body?.repeat) === show({ freq: 'hebrew', interval: 1 }), `a reminder sent: ${show(writes()[0]?.body)}`);
     } finally {
       a.m.unmount();
     }
@@ -6638,7 +6716,7 @@ async function main() {
         await typeInto(inDialog(a.m, 'Title'), 'Visit');
         a.m.click(saveButton(a.m));
         await settle();
-        assert(writes().length === 1 && writes()[0].body?.repeat === 'yearly' && writes()[0].body?.calendarId === 'avi@gmail.com', `${label}: sent: ${show(writes()[0]?.body)}`);
+        assert(writes().length === 1 && show(writes()[0].body?.repeat) === show({ freq: 'yearly', interval: 1 }) && writes()[0].body?.calendarId === 'avi@gmail.com', `${label}: sent: ${show(writes()[0]?.body)}`);
       } finally {
         a.m.unmount();
       }
@@ -6652,7 +6730,7 @@ async function main() {
       assert(shownIn(m, 'Repeat') === 'Every year on 30 Cheshvan', `shown: ${show(shownIn(m, 'Repeat'))}`);
       assert(
         show(optionsIn(m, 'Repeat')) ===
-          show([['none', 'Never'], ['daily', 'Every day'], ['weekly', 'Every week on Tuesday'], ['monthly', 'Every month on the 20th'], ['yearly', 'Every year on 20 Oct'], ['hebrew', 'Every year on 30 Cheshvan']]),
+          show([['none', 'Never'], ['daily', 'Daily'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['yearly', 'Yearly'], ['hebrew', 'Every year on the Hebrew date']]),
         `options: ${show(optionsIn(m, 'Repeat'))}`,
       );
       await typeInto(inDialog(m, 'Location'), 'The pool');
@@ -6667,7 +6745,7 @@ async function main() {
       await pick(m, 'Repeat', 'yearly');
       m.click(saveButton(m));
       await settle();
-      assert(sameBody(lastWrite().body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { repeat: 'yearly' } }), `back to yearly: ${show(lastWrite().body)}`);
+      assert(sameBody(lastWrite().body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { repeat: { freq: 'yearly', interval: 1 } } }), `back to yearly: ${show(lastWrite().body)}`);
     } finally {
       m.unmount();
     }
@@ -6676,11 +6754,13 @@ async function main() {
     const g = await hebrewHome('en', true, { item: serveSwim(yearly), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
     try {
       await openEditor(g.m, 'Swimming');
-      assert(optionsIn(g.m, 'Repeat')[5][1] === 'Every year on 9 Cheshvan', `worded from the opened day: ${show(optionsIn(g.m, 'Repeat').slice(5))}`);
-      await pick(g.m, 'Repeat', 'hebrew');
+      await openRepeat(g.m);
+      chooseIn(g.m, 'How often', 'Every year on the Hebrew date');
+      assert(summaryOf(g.m) === 'Every year on 9 Cheshvan', `worded from the opened day: ${show(summaryOf(g.m))}`);
+      await sheetDone(g.m);
       g.m.click(saveButton(g.m));
       await settle();
-      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { repeat: 'hebrew' } }), `sent: ${show(writes()[0]?.body)}`);
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { repeat: { freq: 'hebrew', interval: 1 } } }), `sent: ${show(writes()[0]?.body)}`);
     } finally {
       g.m.unmount();
     }
@@ -6689,7 +6769,9 @@ async function main() {
     try {
       await openEditor(moved.m, 'Swimming');
       await typeInto(inDialog(moved.m, 'Start date'), day(7));
-      assert(optionsIn(moved.m, 'Repeat')[5][1] === 'Every year on 30 Cheshvan' && optionsIn(moved.m, 'Repeat').length === 6, `after a day move: ${show(optionsIn(moved.m, 'Repeat').slice(5))}`);
+      await openRepeat(moved.m);
+      assert(summaryOf(moved.m) === 'Every year on 30 Cheshvan' && freqOptions(moved.m).length === 6, `after a day move: ${show(summaryOf(moved.m))}`);
+      await sheetCancel(moved.m);
     } finally {
       moved.m.unmount();
     }
@@ -6707,14 +6789,14 @@ async function main() {
     const ended = await hebrewHome('en', true, { item: serveSwim(hebrewSwim('hebrew', { until: day(12) })) });
     try {
       await openEditor(ended.m, 'Swimming');
-      assert(shownIn(ended.m, 'Repeat') === 'Every year on 30 Cheshvan, until 27 Oct (current)', `ended: ${show(shownIn(ended.m, 'Repeat'))}`);
+      assert(shownIn(ended.m, 'Repeat') === 'Every year on 30 Cheshvan, until 27 Oct', `ended: ${show(shownIn(ended.m, 'Repeat'))}`);
     } finally {
       ended.m.unmount();
     }
     const custom = await hebrewHome('en', true, { item: serveSwim(hebrewSwim('custom', { interval: 2 })) });
     try {
       await openEditor(custom.m, 'Swimming');
-      assert(shownIn(custom.m, 'Repeat') === 'Every 2 years on 30 Cheshvan (current)', `custom: ${show(shownIn(custom.m, 'Repeat'))}`);
+      assert(shownIn(custom.m, 'Repeat') === 'Every 2 years on 30 Cheshvan', `custom: ${show(shownIn(custom.m, 'Repeat'))}`);
       assert(optionsIn(custom.m, 'Repeat')[0][0] === 'custom', 'a first choice of its own');
     } finally {
       custom.m.unmount();
@@ -6812,7 +6894,7 @@ async function main() {
   await check('#105 the Hebrew copy in en, he and ru: real text, no key left bare, and Hebrew and Russian translated, not copied', () => {
     for (const locale of LOCALES) {
       const l = messages[locale].calendarHome.editor.repeat as unknown as Record<string, string>;
-      for (const key of ['hebrew', 'hebrewPlain', 'hebrewEvery']) {
+      for (const key of ['hebrewPlain', 'hebrewEvery']) {
         assert(typeof l[key] === 'string' && l[key].length > 0, `${locale}: editor.repeat.${key} exists`);
         if (locale !== 'en') assert(l[key] !== (messages.en.calendarHome.editor.repeat as unknown as Record<string, string>)[key], `${locale}: editor.repeat.${key} is translated`);
       }
@@ -7039,6 +7121,426 @@ async function main() {
     const m = await mountHome(locale, { ...BOTH_HOME, ...props }, fakeClock('2026-10-15T07:00:00Z'));
     return { m, tg, world };
   }
+
+  // ---- The Repeat sheet (editor upgrades spec §3, ruling 9): the row opens it, the cards, the draft, Back, the words, the errors ----
+
+  /** The sheet's parts. */
+  const chipsOf = (m: Home) => byClass(topDialog(m), 'ch-day');
+  const stepValues = (m: Home) => byClass(topDialog(m), 'ch-step-value').map((e) => e.textContent);
+  /** A stepper's buttons: [dec, inc] of the n-th stepper. */
+  const stepButtons = (m: Home, n: number) => byClass(topDialog(m), 'ch-step').slice(n * 2, n * 2 + 2);
+  const stepper = (m: Home, n: number, dir: '-' | '+') => m.click(stepButtons(m, n)[dir === '-' ? 0 : 1]);
+  const endChoices = (m: Home) => radiosOf(m, 'Ends').map((e) => [e.textContent, e.getAttribute('aria-checked')]);
+  const SHEET_TG = async (locale: Locale = 'en') => {
+    const tg = fakeTelegramHome({ version: '8.0' });
+    resetHome();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    return { tg, mount: () => mountHome(locale, {}, fakeClock('2026-10-15T07:00:00Z')) };
+  };
+
+  await check('S1 the Repeat row opens the Repeat sheet over the editor (swipes off while it is open): the summary is the row\'s value; Never shows the frequency card alone; Weekly adds "Every [-] N [+] weeks" (44px buttons, clamped 1..99) and the week\'s chips in the week-start order with the start\'s day on and disabled (with its reason as text); Done applies and closes, and the body sends the spec', async () => {
+    const { tg, mount } = await SHEET_TG();
+    serveEditingWith({ write: () => ok200({ status: 'ok', key: 'famcal|new' }) });
+    const m = await mount();
+    try {
+      tapPlus(m);
+      await settle();
+      assert(repeatShown(m) === 'Never' && repeatRow(m).getAttribute('aria-haspopup') === 'dialog', 'the row is a button showing Never');
+      const before = swipeLog(tg).length;
+      await openRepeat(m);
+      assert(swipeLog(tg).at(-1) === 'disableVerticalSwipes()' && swipeLog(tg).length > before, `swipes off while the sheet is open: ${show(swipeLog(tg))}`);
+      assert(summaryOf(m) === 'Never', `the summary: ${summaryOf(m)}`);
+      assert(show(freqTexts(m)) === show(['Never', 'Daily', 'Weekly', 'Monthly', 'Yearly', 'Every year on the Hebrew date']), 'the frequencies');
+      assert(radiosOf(m, 'How often')[0].getAttribute('aria-checked') === 'true' && stepValues(m).length === 0 && chipsOf(m).length === 0, 'Never: the frequency card alone');
+      chooseIn(m, 'How often', 'Weekly');
+      assert(summaryOf(m) === 'Every week on Thursday', `weekly: ${summaryOf(m)}`);
+      assert(stepValues(m).join() === '1', 'every 1');
+      const chips = chipsOf(m);
+      assert(show(chips.map((c) => c.textContent)) === show(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']), `chips in the week-start order (Sunday): ${show(chips.map((c) => c.textContent))}`);
+      const thu = chips[4];
+      assert(thu.getAttribute('aria-pressed') === 'true' && thu.getAttribute('aria-disabled') === 'true', 'the start\'s day is on and disabled');
+      const reason = thu.getAttribute('aria-describedby');
+      assert(reason !== null && elements(topDialog(m)).some((e) => e.getAttribute('id') === reason && e.textContent === 'The day it starts on stays selected.'), 'its reason is text');
+      m.click(thu);
+      assert(chipsOf(m)[4].getAttribute('aria-pressed') === 'true' && summaryOf(m) === 'Every week on Thursday', 'it can\'t be turned off');
+      m.click(chips[0]);
+      assert(chipsOf(m)[0].getAttribute('aria-pressed') === 'true' && summaryOf(m) === 'Every week on Sun and Thu', `Sunday joins: ${summaryOf(m)}`);
+      m.click(chips[0]);
+      assert(summaryOf(m) === 'Every week on Thursday', 'and leaves');
+      m.click(chips[0]);
+      stepper(m, 0, '+');
+      assert(stepValues(m).join() === '2' && summaryOf(m) === 'Every 2 weeks on Sun and Thu', `every 2: ${summaryOf(m)}`);
+      stepper(m, 0, '-');
+      assert(stepButtons(m, 0)[0].getAttribute('disabled') !== null, 'at 1 the minus is off');
+      for (let i = 0; i < 120; i++) stepper(m, 0, '+');
+      assert(stepValues(m).join() === '99' && stepButtons(m, 0)[1].getAttribute('disabled') !== null, `clamped at 99: ${stepValues(m)}`);
+      for (let i = 0; i < 97; i++) stepper(m, 0, '-');
+      assert(stepValues(m).join() === '2', `back to 2: ${stepValues(m)}`);
+      // Nothing outside the sheet changed yet; Done applies and closes.
+      assert(show(elements(m.container).filter((e) => e.className.includes('ch-save')).length) !== '0', 'the editor is still behind');
+      await sheetDone(m);
+      assert(editorSheetName(m) === 'New' && repeatShown(m) === 'Every 2 weeks on Sun and Thu', `the row after Done: ${show(repeatShown(m))}`);
+      assert(swipeLog(tg).at(-1) === 'enableVerticalSwipes()', 'swipes on again');
+      await typeInto(inDialog(m, 'Title'), 'Pool');
+      m.click(saveButton(m));
+      await settle();
+      assert(show(writes()[0].body?.repeat) === show({ freq: 'weekly', interval: 2, byDay: ['TH', 'SU'] }), `the body sends the spec: ${show(writes()[0]?.body)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('S2 Back, Escape and Cancel close the Repeat sheet first and drop its draft; the editor stays, with its repeat as it was; Back again leaves the editor; the pick Done applied shows when the sheet opens again', async () => {
+    const { tg, mount } = await SHEET_TG();
+    serveEditingWith();
+    const m = await mount();
+    try {
+      tapPlus(m);
+      await settle();
+      await openRepeat(m);
+      chooseIn(m, 'How often', 'Daily');
+      React.act(() => tg.fire('backButtonClicked'));
+      await settle();
+      assert(editorSheetName(m) === 'New' && repeatShown(m) === 'Never', `Back closed the sheet only: ${editorSheetName(m)} ${repeatShown(m)}`);
+      assert(swipeLog(tg).at(-1) === 'enableVerticalSwipes()', 'swipes on again');
+      await openRepeat(m);
+      assert(summaryOf(m) === 'Never', 'the draft was dropped');
+      chooseIn(m, 'How often', 'Daily');
+      m.key(topDialog(m), 'Escape');
+      await settle();
+      assert(editorSheetName(m) === 'New' && repeatShown(m) === 'Never', 'Escape does the same');
+      await openRepeat(m);
+      chooseIn(m, 'How often', 'Daily');
+      await sheetCancel(m);
+      assert(editorSheetName(m) === 'New' && repeatShown(m) === 'Never', 'and so does Cancel');
+      await pickFreq(m, 'daily');
+      assert(repeatShown(m) === 'Every day', 'Done applies');
+      await openRepeat(m);
+      assert(summaryOf(m) === 'Every day' && radiosOf(m, 'How often')[1].getAttribute('aria-checked') === 'true', 'it opens on the applied pick');
+      React.act(() => tg.fire('backButtonClicked'));
+      await settle();
+      assert(editorSheetName(m) === 'New', 'Back closed the sheet');
+      React.act(() => tg.fire('backButtonClicked'));
+      await settle();
+      assertHas(topText(m), ['Discard your changes?'], 'the next Back is the editor\'s: the repeat made it a changed form');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('S3 the monthly options follow the start: "On day 15" and "On the third Thursday" (the ordinal is the start\'s), "On the last Thursday" only in the month\'s last seven days; the choice follows a moved start by itself, and a "last" falls back to the day once the start leaves the last week', async () => {
+    const { mount } = await SHEET_TG();
+    serveEditingWith({ write: () => ok200({ status: 'ok', key: 'famcal|new' }) });
+    const m = await mount();
+    try {
+      tapPlus(m);
+      await settle();
+      await typeInto(inDialog(m, 'Title'), 'Rent');
+      await openRepeat(m);
+      chooseIn(m, 'How often', 'Monthly');
+      assert(summaryOf(m) === 'Every month on the 15th', `monthly: ${summaryOf(m)}`);
+      assert(show(radiosOf(m, 'Each month').map((e) => e.textContent)) === show(['On day 15', 'On the third Thursday']), `options: ${show(radiosOf(m, 'Each month').map((e) => e.textContent))}`);
+      chooseIn(m, 'Each month', 'On the third Thursday');
+      assert(summaryOf(m) === 'Every month on the third Thursday', `the n-th weekday: ${summaryOf(m)}`);
+      await sheetDone(m);
+      await typeInto(inDialog(m, 'Start date'), '2026-10-22');
+      assert(repeatShown(m) === 'Every month on the fourth Thursday', `the ordinal follows the start: ${repeatShown(m)}`);
+      await typeInto(inDialog(m, 'Start date'), '2026-10-29');
+      await openRepeat(m);
+      assert(show(radiosOf(m, 'Each month').map((e) => e.textContent)) === show(['On day 29', 'On the fifth Thursday', 'On the last Thursday']), `the last week: ${show(radiosOf(m, 'Each month').map((e) => e.textContent))}`);
+      chooseIn(m, 'Each month', 'On the last Thursday');
+      assert(summaryOf(m) === 'Every month on the last Thursday', `last: ${summaryOf(m)}`);
+      await sheetDone(m);
+      m.click(saveButton(m));
+      await settle();
+      assert(show(writes()[0].body?.repeat) === show({ freq: 'monthly', interval: 1, monthly: 'last' }), `sent: ${show(writes()[0]?.body)}`);
+    } finally {
+      m.unmount();
+    }
+    // Moving the start out of the last week: the choice is the day again, in the row and in the body.
+    const { mount: again } = await SHEET_TG();
+    serveEditingWith({ write: () => ok200({ status: 'ok', key: 'famcal|new' }) });
+    const n = await again();
+    try {
+      tapPlus(n);
+      await settle();
+      await typeInto(inDialog(n, 'Title'), 'Rent');
+      await typeInto(inDialog(n, 'Start date'), '2026-10-29');
+      await openRepeat(n);
+      chooseIn(n, 'How often', 'Monthly');
+      chooseIn(n, 'Each month', 'On the last Thursday');
+      await sheetDone(n);
+      await typeInto(inDialog(n, 'Start date'), '2026-10-22');
+      assert(repeatShown(n) === 'Every month on the 22nd', `back to the day: ${repeatShown(n)}`);
+      n.click(saveButton(n));
+      await settle();
+      assert(show(writes()[0].body?.repeat) === show({ freq: 'monthly', interval: 1, monthly: 'day' }), `sent: ${show(writes()[0]?.body)}`);
+    } finally {
+      n.unmount();
+    }
+  });
+
+  await check('S4 Ends: Never, On <date> (the date sheet, not before the start; Escape and Back close it before the Repeat sheet) and After N times (a stepper clamped 1..999); one end at a time; the words and the body carry it', async () => {
+    const { tg, mount } = await SHEET_TG();
+    serveEditingWith({ write: () => ok200({ status: 'ok', key: 'famcal|new' }) });
+    const m = await mount();
+    try {
+      tapPlus(m);
+      await settle();
+      await typeInto(inDialog(m, 'Title'), 'Pool');
+      await openRepeat(m);
+      assert(radioGroup(m, 'Ends') === undefined && elements(topDialog(m)).filter((e) => e.getAttribute('role') === 'radiogroup').length === 1, 'no Ends for Never');
+      chooseIn(m, 'How often', 'Daily');
+      assert(show(endChoices(m)) === show([['Never', 'true'], ['On date', 'false'], ['After', 'false']]), `Ends: ${show(endChoices(m))}`);
+      assert(!elements(topDialog(m)).some((e) => e.getAttribute('data-pill') === 'date'), 'Never has no date');
+      chooseIn(m, 'Ends', 'On date');
+      const pill = inDialog(m, 'Repeat end date');
+      assert(pill.getAttribute('data-value') === '2026-10-19', `a first end four days on: ${pill.getAttribute('data-value')}`);
+      assert(summaryOf(m) === 'Every day, until 19 Oct', `until: ${summaryOf(m)}`);
+      // The date sheet: nothing before the start; Escape and Back close it first.
+      await clickEl(pill);
+      await settle();
+      assert(editorSheetName(m) === 'Repeat end date' && swipeLog(tg).at(-1) === 'disableVerticalSwipes()', `the date sheet: ${editorSheetName(m)}`);
+      const disabled = (k: string) => cell(m, k).getAttribute('aria-disabled') === 'true';
+      assert(disabled(day(-1)) && !disabled(TODAY) && !disabled(day(1)), 'days before the start are greyed, the start\'s own day is not');
+      m.key(topDialog(m), 'Escape');
+      await settle();
+      assert(editorSheetName(m) === 'Repeat', 'Escape closed the date sheet only');
+      await clickEl(inDialog(m, 'Repeat end date'));
+      await settle();
+      React.act(() => tg.fire('backButtonClicked'));
+      await settle();
+      assert(editorSheetName(m) === 'Repeat', 'Back closed the date sheet only');
+      await typeInto(inDialog(m, 'Repeat end date'), '2026-10-25');
+      assert(editorSheetName(m) === 'Repeat' && summaryOf(m) === 'Every day, until 25 Oct', `picked: ${summaryOf(m)}`);
+      chooseIn(m, 'Ends', 'After');
+      assert(!elements(topDialog(m)).some((e) => e.getAttribute('data-pill') === 'date') && stepValues(m).join() === '1,5', `After: ${stepValues(m)}`);
+      assert(summaryOf(m) === 'Every day, 5 times', `times: ${summaryOf(m)}`);
+      stepper(m, 1, '+');
+      assert(summaryOf(m) === 'Every day, 6 times', 'six');
+      for (let i = 0; i < 6; i++) stepper(m, 1, '-');
+      assert(summaryOf(m) === 'Every day, once' && stepButtons(m, 1)[0].getAttribute('disabled') !== null, `once, clamped at 1: ${summaryOf(m)}`);
+      for (let i = 0; i < 1000; i++) stepper(m, 1, '+');
+      assert(stepValues(m)[1] === '999', `clamped at 999: ${stepValues(m)}`);
+      for (let i = 0; i < 993; i++) stepper(m, 1, '-');
+      assert(stepValues(m)[1] === '6', 'six again');
+      await sheetDone(m);
+      assert(repeatShown(m) === 'Every day, 6 times', `the row: ${repeatShown(m)}`);
+      m.click(saveButton(m));
+      await settle();
+      assert(show(writes()[0].body?.repeat) === show({ freq: 'daily', interval: 1, count: 6 }), `sent with its end: ${show(writes()[0]?.body)}`);
+    } finally {
+      m.unmount();
+    }
+    // An end the start has moved past is the Repeat row's own error, and nothing is sent.
+    const { mount: again } = await SHEET_TG();
+    serveEditingWith({ write: () => ok200({ status: 'ok', key: 'famcal|new' }) });
+    const n = await again();
+    try {
+      tapPlus(n);
+      await settle();
+      await typeInto(inDialog(n, 'Title'), 'Pool');
+      await openRepeat(n);
+      chooseIn(n, 'How often', 'Daily');
+      chooseIn(n, 'Ends', 'On date');
+      await sheetDone(n);
+      assert(repeatShown(n) === 'Every day, until 19 Oct', `until: ${repeatShown(n)}`);
+      await typeInto(inDialog(n, 'Start date'), '2026-10-30');
+      n.click(saveButton(n));
+      await settle();
+      assert(writes().length === 0 && alerts(n).includes('The repeat can\'t end before it starts'), `an end before the start: ${show(alerts(n))} ${writes().length}`);
+      assert(repeatRow(n).getAttribute('aria-describedby') !== null, 'the Repeat row points at its error');
+    } finally {
+      n.unmount();
+    }
+    // Hebrew gets the end and every N years (ruling B).
+    const h = await hebrewHome('en', true, { write: () => ok200({ status: 'ok', key: 'famcal|new' }) });
+    try {
+      tapPlus(h.m);
+      await settle();
+      await typeInto(inDialog(h.m, 'Title'), 'Grandpa');
+      await openRepeat(h.m);
+      chooseIn(h.m, 'How often', 'Every year on the Hebrew date');
+      assert(byClass(topDialog(h.m), 'ch-step-value').length === 1 && byClass(topDialog(h.m), 'ch-step-unit')[0].textContent === 'year', 'Hebrew: every N years');
+      stepper(h.m, 0, '+');
+      stepper(h.m, 0, '+');
+      chooseIn(h.m, 'Ends', 'After');
+      stepper(h.m, 1, '-');
+      stepper(h.m, 1, '-');
+      assert(summaryOf(h.m) === 'Every 3 years on 4 Cheshvan, 3 times', `Hebrew: ${summaryOf(h.m)}`);
+      await sheetDone(h.m);
+      h.m.click(saveButton(h.m));
+      await settle();
+      assert(show(writes()[0].body?.repeat) === show({ freq: 'hebrew', interval: 3, count: 3 }), `sent: ${show(writes()[0]?.body)}`);
+    } finally {
+      h.m.unmount();
+    }
+  });
+
+  await check('S5 a rule the sheet can\'t say is the first, selected choice "Current: <words>", kept unless another is made (Done on it sends nothing; going back to it after a pick sends nothing); picking another sends the spec', async () => {
+    const custom = swimSeries({ repeat: { freq: 'weekly', interval: 2, byDay: [], ends: false }, rule: { choice: 'custom' } });
+    const e = await editingHome('en', { item: serveSwim(custom), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
+    try {
+      await openEditor(e.m, 'Swimming');
+      await openRepeat(e.m);
+      assert(show(freqTexts(e.m).slice(0, 2)) === show(['Current: Every 2 weeks', 'Never']), `Current first: ${show(freqTexts(e.m))}`);
+      assert(radiosOf(e.m, 'How often')[0].getAttribute('aria-checked') === 'true' && summaryOf(e.m) === 'Every 2 weeks', 'selected, and the summary says its words');
+      assert(stepValues(e.m).length === 0 && chipsOf(e.m).length === 0, 'no controls for a rule the sheet can\'t say');
+      await sheetDone(e.m);
+      await typeInto(inDialog(e.m, 'Location'), 'The pool');
+      // Pick Daily, then change your mind: the stored rule again, nothing sent.
+      await openRepeat(e.m);
+      chooseIn(e.m, 'How often', 'Daily');
+      chooseIn(e.m, 'How often', 'Current: Every 2 weeks');
+      await sheetDone(e.m);
+      e.m.click(saveButton(e.m));
+      await settle();
+      tapIn(e.m, 'This one and the ones after');
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { location: 'The pool' } }), `no repeat: ${show(writes()[0]?.body)}`);
+      e.m.click(byLabel(topDialog(e.m), 'Edit'));
+      await settle();
+      await pickRepeat(e.m, 'Weekly');
+      e.m.click(saveButton(e.m));
+      await settle();
+      assert(sameBody(lastWrite().body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { repeat: { freq: 'weekly', interval: 1, byDay: ['TU'] } } }), `a pick sends the spec: ${show(lastWrite().body)}`);
+    } finally {
+      e.m.unmount();
+    }
+  });
+
+  await check('S6 a stored spec opens in the sheet as it is (the weekly days, N, the end, the monthly choice); a series whose rule fixes its days moved with "this one and the ones after" sends the shown spec so the days gain the new start\'s', async () => {
+    const multi = swimSeries({ spec: { freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] }, fixedDays: true, rule: { choice: 'custom' }, first: false, repeat: { freq: 'weekly', interval: 1, byDay: ['TU', 'TH'], ends: false } });
+    const a = await editingHome('en', { item: serveSwim(multi), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
+    try {
+      await openEditor(a.m, 'Swimming');
+      assert(repeatShown(a.m) === 'Every week on Tue and Thu', `the row: ${repeatShown(a.m)}`);
+      await openRepeat(a.m);
+      assert(chipsOf(a.m).filter((c) => c.getAttribute('aria-pressed') === 'true').map((c) => c.textContent).join() === 'Tue,Thu', 'its days are on');
+      assert(chipsOf(a.m)[2].getAttribute('aria-disabled') === 'true' && chipsOf(a.m)[4].getAttribute('aria-disabled') === null, 'the start\'s Tuesday is pinned, Thursday can be turned off');
+      await sheetCancel(a.m);
+      await typeInto(inDialog(a.m, 'Start date'), day(8));
+      a.m.click(saveButton(a.m));
+      await settle();
+      assert(show(choiceTexts(a.m)) === show(['Only this one (Tue 20 Oct)', 'This one and the ones after', 'Cancel']), `this one, or from here on: ${show(choiceTexts(a.m))}`);
+      tapIn(a.m, 'This one and the ones after');
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { start: `${day(8)}T17:00`, end: `${day(8)}T18:00`, repeat: { freq: 'weekly', interval: 1, byDay: ['TH', 'FR'] } } }), `restated on the new start: ${show(writes()[0]?.body)}`);
+    } finally {
+      a.m.unmount();
+    }
+    const nth = swimSeries({ spec: { freq: 'monthly', interval: 2, monthly: 'weekday', count: 4 }, fixedDays: true, rule: { choice: 'custom' }, first: true, repeat: { freq: 'monthly', interval: 2, byDay: ['TU'], byDayOrdinals: [3], ends: true, count: 4 } });
+    const b = await editingHome('en', { item: serveSwim(nth) });
+    try {
+      await openEditor(b.m, 'Swimming');
+      assert(repeatShown(b.m) === 'Every 2 months on the third Tuesday, 4 times', `monthly, ended: ${repeatShown(b.m)}`);
+      await openRepeat(b.m);
+      assert(stepValues(b.m).join() === '2,4' && endChoices(b.m)[2][1] === 'true' && radiosOf(b.m, 'Each month')[1].getAttribute('aria-checked') === 'true', 'N, the end and the choice are the stored ones');
+      await sheetCancel(b.m);
+    } finally {
+      b.m.unmount();
+    }
+  });
+
+  await check('S7 the server\'s refusal of the repeat (400 invalid, field repeat) shows under the Repeat row, not above Save; editing the repeat clears it', async () => {
+    const { mount } = await SHEET_TG();
+    serveEditingWith({ write: () => ({ status: 400, body: { error: 'invalid', field: 'repeat' } }) });
+    const m = await mount();
+    try {
+      tapPlus(m);
+      await settle();
+      await typeInto(inDialog(m, 'Title'), 'Pool');
+      await pickFreq(m, 'weekly');
+      m.click(saveButton(m));
+      await settle();
+      assert(writes().length === 1 && show(alerts(m)) === show(['Check how it repeats']), `the row's own error: ${show(alerts(m))}`);
+      assert(repeatRow(m).getAttribute('aria-describedby') !== null && repeatRow(m).getAttribute('aria-describedby') === byRole(topDialog(m), 'alert')[0].getAttribute('id'), 'the row points at its error');
+      const bar = byClass(topDialog(m), 'ch-save-bar')[0];
+      assert(!byRole(bar, 'alert').length, 'nothing above Save');
+      await pickFreq(m, 'daily');
+      assert(show(alerts(m)) === show([]), `editing clears it: ${show(alerts(m))}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('S8 the scope sheet names "all of them" by the series\' words when it is richer than every day / every <weekday> ("Every 2 weeks on Sun and Tue"); a series that ends keeps "All of them"', async () => {
+    const rich = swimSeries({ spec: { freq: 'weekly', interval: 2, byDay: ['TU', 'SU'] }, rule: { choice: 'custom' }, repeat: { freq: 'weekly', interval: 2, byDay: ['SU', 'TU'], ends: false } });
+    const a = await editingHome('en', { item: serveSwim(rich), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
+    try {
+      await openEditor(a.m, 'Swimming');
+      await typeInto(inDialog(a.m, 'Location'), 'The pool');
+      a.m.click(saveButton(a.m));
+      await settle();
+      assert(show(choiceTexts(a.m)) === show(['Only this one (Tue 20 Oct)', 'This one and the ones after', 'Every 2 weeks on Sun and Tue', 'Cancel']), `the short name: ${show(choiceTexts(a.m))}`);
+    } finally {
+      a.m.unmount();
+    }
+    const ends = swimSeries({ spec: { freq: 'weekly', interval: 2, byDay: ['TU', 'SU'], count: 5 }, rule: { choice: 'custom' }, repeat: { freq: 'weekly', interval: 2, byDay: ['SU', 'TU'], ends: true, count: 5 } });
+    const b = await editingHome('en', { item: serveSwim(ends) });
+    try {
+      await openEditor(b.m, 'Swimming');
+      await typeInto(inDialog(b.m, 'Location'), 'The pool');
+      b.m.click(saveButton(b.m));
+      await settle();
+      assert(choiceTexts(b.m).includes('All of them'), `an ending series: ${show(choiceTexts(b.m))}`);
+    } finally {
+      b.m.unmount();
+    }
+  });
+
+  await check('S9 the Repeat sheet in he and ru: real text, the words agree (Hebrew «ביום חמישי השלישי בכל חודש», Russian «каждый третий четверг месяца»), the weekday list in the locale\'s short names, the stepper reads left to right, no key left bare', async () => {
+    const WANT: Record<'he' | 'ru', { weekly: string; monthly: string; day: string; unit: string }> = {
+      he: { weekly: 'כל שבוע בימים א׳ וה׳', monthly: 'ביום חמישי השלישי בכל חודש', day: 'ה׳', unit: 'שבוע' },
+      ru: { weekly: 'Каждую неделю, по вс и чт', monthly: 'Каждый третий четверг месяца', day: 'чт', unit: 'неделю' },
+    };
+    for (const locale of ['he', 'ru'] as const) {
+      const l = messages[locale].calendarHome;
+      const { mount } = await SHEET_TG(locale);
+      serveEditingWith({ write: () => ok200({ status: 'ok', key: 'famcal|new' }) });
+      const m = await mount();
+      try {
+        tapPlus(m, l.header.add);
+        await settle();
+        await typeInto(inDialog(m, l.editor.fields.title), 'Pool');
+        m.click(valueRow(m, l.editor.repeat.label));
+        await settle();
+        assert(topDialog(m).getAttribute('aria-label') === l.editor.repeat.label, `${locale}: the sheet`);
+        assert(summaryOf(m) === l.editor.repeat.none, `${locale}: Never says ${summaryOf(m)}`);
+        m.click(byRole(topDialog(m), 'radio').filter((r) => r.getAttribute('data-value') === 'weekly')[0]);
+        const chips = chipsOf(m);
+        assert(chips.length === 7 && chips[4].textContent === WANT[locale].day && chips[4].getAttribute('aria-disabled') === 'true', `${locale}: chips: ${show(chips.map((c) => c.textContent))}`);
+        assert(chips[4].getAttribute('aria-label') !== null && !chips[4].getAttribute('aria-label')?.includes('editor.repeat'), `${locale}: a name for the chip`);
+        m.click(chips[0]);
+        assert(summaryOf(m) === WANT[locale].weekly, `${locale}: weekly: ${show(summaryOf(m))}`);
+        const stepRow = byClass(topDialog(m), 'ch-stepper')[0];
+        assert(stepRow.getAttribute('dir') === 'ltr' && byClass(topDialog(m), 'ch-step-unit')[0].textContent === WANT[locale].unit, `${locale}: the stepper is left to right, its unit ${byClass(topDialog(m), 'ch-step-unit')[0].textContent}`);
+        m.click(byRole(topDialog(m), 'radio').filter((r) => r.getAttribute('data-value') === 'monthly')[0]);
+        m.click(radiosOf(m, l.editor.repeat.monthlyLabel).filter((r) => r.getAttribute('data-value') === 'weekday')[0]);
+        assert(summaryOf(m) === WANT[locale].monthly, `${locale}: monthly: ${show(summaryOf(m))}`);
+        assertLacks(topText(m), ['editor.repeat', 'calendarHome'], `${locale}: no key left bare`);
+        await sheetDone(m);
+        assert(shownIn(m, l.editor.repeat.label) === WANT[locale].monthly, `${locale}: the row says it: ${show(shownIn(m, l.editor.repeat.label))}`);
+        m.click(saveButton(m));
+        await settle();
+        assert(show(writes()[0].body?.repeat) === show({ freq: 'monthly', interval: 1, monthly: 'weekday' }), `${locale}: sent: ${show(writes()[0]?.body)}`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('S10 the Repeat sheet\'s CSS: 44px targets (chips, steppers), logical properties only, nothing under 11px, no hover, a reduced-motion-safe transition; the form kit\'s new rows (choice rows, stepper) follow the same rules', () => {
+    for (const [what, css] of [['RepeatSheet', REPEAT_CSS], ['form kit', FORM_CSS]] as const) {
+      assert(!/:hover/.test(css) && !/\b(margin|padding)-(left|right)\b|\b(left|right)\s*:|text-align:\s*(left|right)/.test(css), `${what}: no hover, logical properties only`);
+      assert(!Array.from(css.matchAll(/font-size:\s*(\d+)px/g)).some((x) => Number(x[1]) < 11), `${what}: nothing under 11px`);
+    }
+    assert(/\.ch-day \{[^}]*min-block-size: 44px/.test(REPEAT_CSS), 'a chip is at least 44px tall');
+    assert(/\.ch-step \{[^}]*inline-size: 44px;[^}]*block-size: 44px/.test(FORM_CSS), 'a stepper button is 44px');
+    assert(/@media \(prefers-reduced-motion: no-preference\)[^@]*transition/.test(REPEAT_CSS) && !/transition/.test(REPEAT_CSS.replace(/@media \(prefers-reduced-motion: no-preference\)[\s\S]*$/, '')), 'its only transition sits behind no-preference');
+    assert(/\.ch-form-row \{[^}]*min-block-size: 48px/.test(FORM_CSS), 'a row is at least 48px');
+  });
 
   await check('#108 a connected user\'s home reads both sources: FamCal and Google are each asked, their items share the Agenda, "Show next week" and the foreground ask both, and a Google outage leaves FamCal\'s days in place', async () => {
     const { m } = await bothHome('en');

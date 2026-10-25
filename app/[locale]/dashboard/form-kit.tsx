@@ -266,6 +266,83 @@ button.ch-form-row:focus-visible {
 .ch-pill[data-invalid='true'] {
   outline: 2px solid var(--ch-danger);
 }
+.ch-choice {
+  inline-size: 100%;
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+  color: var(--ch-text);
+  font-family: inherit;
+  text-align: start;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ch-choice:focus-visible {
+  outline: 2px solid var(--ch-accent);
+  outline-offset: -2px;
+}
+.ch-choice[aria-checked='true'] {
+  font-weight: 600;
+}
+.ch-choice-check {
+  flex: none;
+  inline-size: 20px;
+  block-size: 20px;
+  color: var(--ch-accent);
+}
+.ch-step-row {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+.ch-step-row > .ch-form-label {
+  flex: none;
+}
+.ch-stepper {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}
+.ch-step {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 44px;
+  block-size: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ch-accent);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ch-step:disabled {
+  color: var(--ch-muted);
+  opacity: 0.5;
+  cursor: default;
+}
+.ch-step:focus-visible {
+  outline: 2px solid var(--ch-accent);
+  outline-offset: -2px;
+}
+.ch-step svg {
+  inline-size: 18px;
+  block-size: 18px;
+}
+.ch-step-value {
+  min-inline-size: 2.5ch;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ch-step-unit {
+  flex: 1;
+  min-inline-size: 0;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
 .ch-segmented {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -276,6 +353,7 @@ button.ch-form-row:focus-visible {
 }
 .ch-segment {
   min-block-size: 44px;
+  padding: 0 6px;
   border: 0;
   border-radius: 10px;
   background: transparent;
@@ -507,6 +585,104 @@ function Chevron() {
   );
 }
 
+function Check() {
+  return (
+    <svg className="ch-choice-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M5 12.5l4.5 4.5L19 7.5" />
+    </svg>
+  );
+}
+
+/** A row that opens a sheet, shaped like a value row (the label, the value, a chevron); the inline error sits under it. */
+export function ButtonRow({ label, hint, value, onClick, error }: { label: string; hint?: string; value: string; onClick: () => void; error?: string | null }) {
+  const id = useId();
+  return (
+    <>
+      <button type="button" className="ch-form-row" aria-haspopup="dialog" aria-describedby={error ? `${id}-error` : undefined} onClick={onClick}>
+        <span className="ch-form-label">
+          <span>{label}</span>
+          {hint ? <span className="ch-form-hint">{hint}</span> : null}
+        </span>
+        <span className="ch-form-value">
+          <span className="ch-form-value-text" dir="auto">
+            {value}
+          </span>
+        </span>
+        <Chevron />
+      </button>
+      {error ? <FieldError id={`${id}-error`} error={error} /> : null}
+    </>
+  );
+}
+
+export interface RadioCardOption {
+  value: string;
+  text: string;
+}
+
+/** A card of radio rows, one chosen (a check at its end): the whole row is the target. */
+export function RadioCard({ label, value, options, onChange }: { label: string; value: string | null; options: RadioCardOption[]; onChange: (value: string) => void }) {
+  return (
+    <div className="ch-form-card" role="radiogroup" aria-label={label}>
+      {options.map((o) => (
+        <button key={o.value} type="button" role="radio" aria-checked={o.value === value} className="ch-form-row ch-choice" data-value={o.value} onClick={() => onChange(o.value)}>
+          <span className="ch-form-label">
+            <span dir="auto">{o.text}</span>
+          </span>
+          {o.value === value ? <Check /> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** "Every [-] 2 [+] weeks": a number with 44 px buttons at both ends, clamped to min..max; the label before, the unit after. */
+export function StepperRow({
+  label,
+  unit,
+  value,
+  min,
+  max,
+  onChange,
+  decLabel,
+  incLabel,
+}: {
+  label: string;
+  unit: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+  decLabel: string;
+  incLabel: string;
+}) {
+  return (
+    <div className="ch-form-row ch-step-row" role="group" aria-label={`${label} ${value} ${unit}`}>
+      <span className="ch-form-label">
+        <span>{label}</span>
+      </span>
+      <span className="ch-stepper" dir="ltr">
+        <button type="button" className="ch-step" aria-label={decLabel} disabled={value <= min} onClick={() => onChange(Math.max(min, value - 1))}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true" focusable="false">
+            <path d="M5 12h14" />
+          </svg>
+        </button>
+        <output className="ch-step-value" aria-live="polite">
+          {value}
+        </output>
+        <button type="button" className="ch-step" aria-label={incLabel} disabled={value >= max} onClick={() => onChange(Math.min(max, value + 1))}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true" focusable="false">
+            <path d="M5 12h14M12 5v14" />
+          </svg>
+        </button>
+      </span>
+      <span className="ch-step-unit" dir="auto">
+        {unit}
+      </span>
+    </div>
+  );
+}
+
 export interface SelectOption {
   value: string;
   text: string;
@@ -686,10 +862,10 @@ export interface ChoiceOption<T extends string> {
   text: string;
 }
 
-/** A segmented control of two or more choices (the Event | Reminder switch). */
+/** A segmented control of two or more choices (the Event | Reminder switch; the Repeat sheet's Ends). */
 export function Segmented<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: ChoiceOption<T>[]; onChange: (value: T) => void }) {
   return (
-    <div className="ch-segmented" role="radiogroup" aria-label={label}>
+    <div className="ch-segmented" role="radiogroup" aria-label={label} style={options.length > 2 ? { gridTemplateColumns: `repeat(${options.length}, 1fr)` } : undefined}>
       {options.map((o) => (
         <button key={o.value} type="button" role="radio" aria-checked={o.value === value} className="ch-segment" onClick={() => onChange(o.value)}>
           {o.text}

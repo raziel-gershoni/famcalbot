@@ -178,7 +178,7 @@ async function main() {
     const base = newItemForm({ today: '2026-10-15', pickedDay: null, nowMs: Date.parse('2026-10-15T07:00:00Z'), tz: 'Asia/Jerusalem', kinds: { event: true, reminder: true }, calendars: [cal] });
     const cancelRef = { current: null } as MutableRefObject<(() => void) | null>;
     const render = (locale: 'en' | 'he' | 'ru', repeat: 'hebrew' | 'yearly') =>
-      renderToString(inHome(locale, createElement(EditorSheet, { mode: 'create', initial: { ...base, repeat }, kinds: { event: true, reminder: true }, calendars: [cal], hebrewDates: true, onSave: async () => ({ ok: true }) as never, onClose: noop, cancelRef })));
+      renderToString(inHome(locale, createElement(EditorSheet, { mode: 'create', initial: { ...base, repeat: { freq: repeat, interval: 1 } }, kinds: { event: true, reminder: true }, calendars: [cal], hebrewDates: true, onSave: async () => ({ ok: true }) as never, onClose: noop, cancelRef })));
     for (const locale of ['en', 'he', 'ru'] as const) {
       const hint = messages[locale].calendarHome.editor.repeat.hebrewCountHint as string | undefined;
       assert(typeof hint === 'string' && hint.length > 10, `${locale} key`);

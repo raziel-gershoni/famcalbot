@@ -22,7 +22,9 @@ import type { EditScope, ItemKind } from '@/src/lib/calendar-view/editor-types';
 import type { allOfThem } from '@/src/lib/calendar-view/editor-model';
 import { formatDayShort } from '@/src/lib/calendar-view/format';
 import { BottomSheet } from './BottomSheet';
+import type { WeekStart } from '@/src/lib/calendar-view/types';
 import { FORM_CSS } from './form-kit';
+import { specText } from './repeat-words';
 
 export type SubmitError = 'notAllowed' | 'changed' | 'failed' | 'busy' | 'reconnect' | 'moveFailed';
 
@@ -40,8 +42,10 @@ export interface ScopeSheetProps {
   title: string;
   /** The occurrence's day (yyyy-MM-dd), for "Only this one (Tue 20 Oct)". */
   day: string;
-  /** What "all of them" is called: every day, every <weekday>, or all of them. */
+  /** What "all of them" is called: every day, every <weekday>, the repeat in words (the Repeat row's), or all of them. */
   all: ReturnType<typeof allOfThem>;
+  /** The week's first day (0 is Sunday): the order of a weekday list in the repeat's words. */
+  weekStart?: WeekStart;
   /** What to offer, in order; all three when absent (a delete, and a save that nothing limits). */
   choices?: EditScope[];
   /**
@@ -56,14 +60,21 @@ export interface ScopeSheetProps {
   onClose: () => void;
 }
 
-export function ScopeSheet({ kind, mode, title, day, all, choices: offered = ['single', 'following', 'all'], note, busy, error, onPick, onClose }: ScopeSheetProps) {
+export function ScopeSheet({ kind, mode, title, day, all, weekStart = 0, choices: offered = ['single', 'following', 'all'], note, busy, error, onPick, onClose }: ScopeSheetProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   const errorText = useErrorText(error);
   const heading = t(`scope.${mode}.${kind}`);
   // The short name of "all of them" is the old rule's: a series-level change may replace that rule.
   const neutral = note === 'series' || note === 'crossKind';
-  const allText = !neutral && all.key === 'weekday' ? t('scope.everyWeekday', { weekday: all.weekday }) : !neutral && all.key === 'daily' ? t('scope.everyDay') : t('scope.all');
+  const allText =
+    !neutral && all.key === 'weekday'
+      ? t('scope.everyWeekday', { weekday: all.weekday })
+      : !neutral && all.key === 'daily'
+        ? t('scope.everyDay')
+        : !neutral && all.key === 'rule'
+          ? specText(t, locale, all.spec, { startDay: all.startDay, weekStart })
+          : t('scope.all');
   const text: Record<EditScope, string> = { single: t('scope.single', { date: formatDayShort(day, locale) }), following: t('scope.following'), all: allText };
   const choices = offered.map((scope): [EditScope, string] => [scope, text[scope]]);
   return (

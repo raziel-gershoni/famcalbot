@@ -40,7 +40,6 @@ import {
   checkForm,
   crossesKinds,
   dayInZone,
-  dayOfMonth,
   hebrewAnchorOf,
   isDirty,
   isHebrewRepeat,
@@ -55,21 +54,21 @@ import {
   spanOf,
   storedChoice,
   updateBody,
-  weekdayId,
   type EditorForm,
   type FieldErrors,
   type FieldName,
-  type RepeatWords,
   type ScopePlan,
 } from '@/src/lib/calendar-view/editor-model';
 import { minYearFor, MIN_YEAR_BIRTH } from '@/src/lib/calendar-view/year-limits';
+import { sameRepeat, toGregorian } from '@/src/lib/calendar-view/repeat-model';
 import type { WeekStart } from '@/src/lib/calendar-view/types';
-import type { EditScope, EditorCalendar, ItemEditInfoResponse, ItemKind, RepeatChoice, RuleChoice } from '@/src/lib/calendar-view/editor-types';
+import type { EditScope, EditorCalendar, ItemEditInfoResponse, ItemKind, RuleChoice } from '@/src/lib/calendar-view/editor-types';
 import { formatDayMonth } from '@/src/lib/calendar-view/format';
 import { ALERT_LEADS, leadParts } from '@/src/lib/calendar-view/alert-leads';
 import { BottomSheet } from './BottomSheet';
-import { hebrewLabelOf, hebrewRepeatText } from './hebrew-repeat-words';
-import { FORM_CSS, FormCard, FormRow, PillRow, preloadPickers, RadioPair, SaveBar, Segmented, SwitchRow, TextField, ValueRow, type SelectOption } from './form-kit';
+import { RepeatSheet } from './RepeatSheet';
+import { endOfInfo, infoText, repeatFormText, withEndText, type WordsContext } from './repeat-words';
+import { ButtonRow, FORM_CSS, FormCard, FormRow, PillRow, preloadPickers, RadioPair, SaveBar, Segmented, SwitchRow, TextField, ValueRow, type SelectOption } from './form-kit';
 import { ConfirmSheet, ScopeSheet, useErrorText, type SubmitError } from './ScopeSheet';
 
 /** What the container's request came to. On `ok` the container closes the editor. */
@@ -121,8 +120,6 @@ const INLINE_NOTE_KEY = {
 } as const;
 type InlineNote = keyof typeof INLINE_NOTE_KEY;
 
-const REPEATS: RepeatChoice[] = ['none', 'daily', 'weekly', 'monthly', 'yearly'];
-
 export function EditorSheet({ mode, initial, kinds, calendars = [], partner, hebrewDates = false, reminderTime = DEFAULT_REMINDER_TIME, alertsOn = false, defaultLead = 0, today = '', weekStart = 0, onPickerChange, info, itemKey, onSave, onClose, cancelRef }: EditorSheetProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
@@ -130,14 +127,16 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   const [form, setForm] = useState<EditorForm>(initial);
   const [showErrors, setShowErrors] = useState(false);
   /** A field the server refused, and what its row says (errField unless the server named why). */
-  const [serverField, setServerField] = useState<{ field: FieldName; key: 'errField' | 'errSeriesYear' } | null>(null);
+  const [serverField, setServerField] = useState<{ field: FieldName; key: 'errField' | 'errSeriesYear' | 'errRepeat' } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<SubmitError | null>(null);
   const [scopeOpen, setScopeOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
   /** The date or time sheet that is open, and for which row: it closes before the scope sheet and the editor do. */
-  const [picker, setPicker] = useState<{ row: 'start' | 'end'; which: 'date' | 'time' } | null>(null);
-  const pickerIsOpen = picker !== null;
+  const [picker, setPicker] = useState<{ row: 'start' | 'end' | 'repeatEnd'; which: 'date' | 'time' } | null>(null);
+  /** The Repeat sheet is open. It counts as an open picker (the container locks Telegram's swipes), and closes first on Back. */
+  const [repeatOpen, setRepeatOpen] = useState(false);
+  const pickerIsOpen = picker !== null || repeatOpen;
   // The first tap on a pill finds the sheets already loaded.
   useEffect(() => {
     preloadPickers();
@@ -177,6 +176,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   const cancel = () => {
     if (saving) return;
     if (picker) setPicker(null);
+    else if (repeatOpen) setRepeatOpen(false);
     else if (scopeOpen) setScopeOpen(false);
     else if (discardOpen) setDiscardOpen(false);
     else if (isDirty(form, start)) setDiscardOpen(true);
@@ -206,6 +206,11 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
         setServerField({ field: outcome.field ?? 'start', key: outcome.fieldError });
         return;
       }
+      // The repeat the server refused (a limit, a "last" the start can't hold): said under the Repeat row, with no line above Save.
+      if (outcome.field === 'repeat') {
+        setServerField({ field: 'repeat', key: 'errRepeat' });
+        return;
+      }
       // A refused day move for more than this one: the rule fixes the days (it changed after
       // the sheet opened, so the choices offered it), and retrying would fail the same way.
       if (edit && info && outcome.field === 'start' && scope !== 'single' && movesDay(form, start, info.tz, info.series.zone)) setInlineNote('dayMove');
@@ -233,35 +238,11 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   };
   const plan: ScopePlan | null = edit && info ? scopePlan(form, start, info) : null;
 
-  // The repeat choices, worded for the start day. On an edit the stored rule is selected; one
-  // the five can't say is a first choice of its own, and a stored end is named on every choice
-  // (picking another of the five keeps it, 3b spec §2.1).
+  // The Repeat row (editor upgrades spec §3): its value is the repeat in words, and it opens the
+  // Repeat sheet. A stored rule the sheet can't say ('custom') is worded from the server's rule
+  // info and offered there as the first choice, "Current: <words>", kept unless another is made.
   const day = lastDay;
-  const weekday = weekdayId(day);
   const stored: RuleChoice = edit && info ? storedChoice(info) : 'none';
-  const untilDay = edit && info ? (info.series.rule?.until ?? null) : null;
-  /** The Hebrew date of a day, in the language's own form (gematriya in Hebrew); Russian reads its month genitives. */
-  const hebrewLabel = (d: string): string => hebrewLabelOf(t, locale, d);
-  const wordsOf = (w: RepeatWords): string | null => {
-    switch (w.key) {
-      case 'daily':
-        return t('scope.everyDay');
-      case 'weekday':
-        return t('scope.everyWeekday', { weekday: w.weekday });
-      case 'interval':
-        return t(`editor.repeat.every.${w.unit}`, { count: w.count });
-      case 'weekly':
-        return t('editor.repeat.weeklyPlain');
-      case 'monthly':
-        return t('editor.repeat.monthlyPlain');
-      case 'yearly':
-        return t('editor.repeat.yearlyPlain');
-      case 'hebrewEvery':
-        return hebrewRepeatText(t, locale, w);
-      default:
-        return null;
-    }
-  };
   // The Hebrew choice (hebrew-repeats spec §4): offered with Hebrew dates and a FamCal calendar
   // (a reminder is always FamCal's); an item that already has one shows its words to anyone.
   const famcalTarget = edit ? info?.source !== 'google' : reminder || isNativeCalendar(form.calendarId);
@@ -270,41 +251,20 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   const startDayInZone = edit && info && day ? dayInZone(day, form.allDay ? '00:00' : form.startTime, info.tz, info.series.zone) : day;
   const storedAnchor = edit && info ? hebrewAnchorOf(info) : null;
   const dayMoved = edit && info ? movesDay(form, start, info.tz, info.series.zone) : false;
-  /** The Hebrew choice's words: the stored anchor's date (never the opened occurrence's, which may be a rolled day) unless the start moved, else the start's. */
-  const hebrewChoiceText = (): string => {
-    const anchorDay = storedAnchor && (stored === 'hebrew' || !dayMoved) ? storedAnchor : startDayInZone;
-    const when = hebrewLabel(anchorDay);
-    return when ? t('editor.repeat.hebrew', { date: when }) : t('editor.repeat.hebrewPlain');
-  };
-  const date = day ? formatDayMonth(day, locale) : '';
-  const dom = dayOfMonth(day) ?? 1;
-  const until = untilDay ? formatDayMonth(untilDay, locale) : null;
-  const withEnd = (text: string) => (until ? t('editor.repeat.until', { rule: text, date: until }) : text);
-  const choiceText = (r: RepeatChoice): string => {
-    if (r === 'none') return t('editor.repeat.none');
-    if (r === 'daily') return t('editor.repeat.daily');
-    if (r === 'weekly') return weekday ? t('editor.repeat.weekly', { weekday }) : t('editor.repeat.weeklyPlain');
-    if (r === 'monthly') return day ? t('editor.repeat.monthly', { day: dom }) : t('editor.repeat.monthlyPlain');
-    if (r === 'hebrew') return hebrewChoiceText();
-    return day ? t('editor.repeat.yearly', { date }) : t('editor.repeat.yearlyPlain');
-  };
-  const choices: RepeatChoice[] = hebrewOffered ? [...REPEATS, 'hebrew'] : isHebrewRepeat(stored) ? [...REPEATS, stored] : REPEATS;
-  const repeatOptions: SelectOption[] = choices.map((r): SelectOption => {
-    if (r === 'none' || !until) return { value: r, text: choiceText(r) };
-    const ended = withEnd(choiceText(r));
-    return { value: r, text: stored === r ? t('editor.repeat.current', { words: ended }) : ended };
-  });
-  if (stored === 'custom' && info) {
-    const own = info.series.rule?.words ?? wordsOf(repeatWords(info.series.repeat, info.series.start));
-    repeatOptions.unshift({ value: 'custom', text: own === null ? t('editor.repeat.currentPlain') : t('editor.repeat.current', { words: withEnd(own) }) });
-  }
+  /** A Hebrew repeat's date: the stored anchor's (never the opened occurrence's, which may be a rolled day) unless the start moved, else the start's. */
+  const anchorDay = storedAnchor && (isHebrewRepeat(start.repeat) || stored === 'hebrew' || !dayMoved) ? storedAnchor : startDayInZone;
+  const wordsCtx: WordsContext = { startDay: day, weekStart, anchorDay };
+  const customOwn = start.repeat === 'custom' && info ? (info.series.rule?.words ?? infoText(t, locale, repeatWords(info.series.repeat, info.series.start), weekStart)) : null;
+  const customEnded = customOwn === null ? null : withEndText(t, locale, customOwn, endOfInfo(info?.series.repeat ?? null, info?.series.rule?.until));
+  const custom = start.repeat === 'custom' ? { choice: customEnded === null ? t('editor.repeat.currentPlain') : t('editor.repeat.current', { words: customEnded }), summary: customEnded ?? t('editor.repeat.currentPlain') } : null;
+  const repeatValue = form.repeat === 'custom' ? (custom?.summary ?? t('editor.repeat.currentPlain')) : repeatFormText(t, locale, form.repeat, wordsCtx);
   /** Under the Repeat row, once the rule is changed from a later occurrence: the earlier ones keep theirs. */
   const fromHereHint =
-    edit && info && info.series.recurring && info.series.first === false && form.repeat !== 'custom' && form.repeat !== start.repeat
+    edit && info && info.series.recurring && info.series.first === false && form.repeat !== 'custom' && !sameRepeat(form.repeat, start.repeat)
       ? t('editor.repeat.fromHere', { date: formatDayMonth(info.occurrence.start.slice(0, 10), locale) })
       : undefined;
   /** Under the Hebrew yearly choice: the count of years starts from the date entered, so it should be the original one. */
-  const countHint = form.repeat === 'hebrew' ? t('editor.repeat.hebrewCountHint') : undefined;
+  const countHint = isHebrewRepeat(form.repeat) ? t('editor.repeat.hebrewCountHint') : undefined;
   const repeatHint = [fromHereHint, countHint].filter(Boolean).join(' ') || undefined;
 
   const toOption = (c: EditorCalendar): SelectOption => ({
@@ -373,16 +333,17 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
       error={errorOf('alert')}
     />
   );
+  const repeatRow = <ButtonRow label={t('editor.repeat.label')} hint={repeatHint} value={repeatValue} error={errorOf('repeat')} onClick={() => setRepeatOpen(true)} />;
   const heading = edit ? t('editor.titleEdit') : t('editor.titleNew');
   /** What a PillRow needs of the date sheet; a Hebrew yearly repeat opens it in Hebrew. */
   const pickerProps = {
-    mode: form.repeat === 'hebrew' ? ('hebrew' as const) : ('gregorian' as const),
+    mode: isHebrewRepeat(form.repeat) ? ('hebrew' as const) : ('gregorian' as const),
     minYear: minYearFor(form.repeat),
     hebrewDates,
     today,
     weekStart,
   };
-  const rowPicker = (row: 'start' | 'end') => ({
+  const rowPicker = (row: 'start' | 'end' | 'repeatEnd') => ({
     open: picker?.row === row ? picker.which : null,
     onOpen: (which: 'date' | 'time' | null) => setPicker(which ? { row, which } : null),
   });
@@ -423,7 +384,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
                   {...rowPicker('start')}
                 />
                 <SwitchRow label={t('editor.atTime')} hint={t('editor.atTimeHint', { time: reminderTime })} checked={!form.allDay} onChange={(on) => change(setAllDay(form, !on))} />
-                <ValueRow label={t('editor.repeat.label')} hint={repeatHint} value={form.repeat} options={repeatOptions} onChange={(repeat) => change({ ...form, repeat: repeat as RuleChoice })} />
+                {repeatRow}
               </FormCard>
             ) : (
               <FormCard>
@@ -456,7 +417,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
                   min={form.startDay}
                   {...rowPicker('end')}
                 />
-                <ValueRow label={t('editor.repeat.label')} hint={repeatHint} value={form.repeat} options={repeatOptions} onChange={(repeat) => change({ ...form, repeat: repeat as RuleChoice })} />
+                {repeatRow}
                 {alertRow}
               </FormCard>
             )}
@@ -470,7 +431,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
                   options={edit ? moveOptions : calendarOptions}
                   onChange={(calendarId) => {
                     // A Google calendar can't hold a Hebrew-date repeat: the pick falls back to the Gregorian yearly one.
-                    const next = { ...form, calendarId, repeat: isHebrewRepeat(form.repeat) && !calendarId.startsWith('native:') ? 'yearly' : form.repeat };
+                    const next = { ...form, calendarId, repeat: isHebrewRepeat(form.repeat) && !calendarId.startsWith('native:') ? toGregorian(form.repeat, form.startDay) : form.repeat };
                     // An alert doesn't cross kinds (the row turns read-only): an edited one goes back, so the move can still be saved alone.
                     change(edit && crossesKinds(next, start) ? { ...next, alert: start.alert } : next);
                   }}
@@ -519,13 +480,36 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
         </div>
         <SaveBar label={t('editor.save')} busy={saving} error={errorText ?? (inlineNote ? t(INLINE_NOTE_KEY[inlineNote]) : null)} onSave={save} />
       </BottomSheet>
+      {repeatOpen ? (
+        <RepeatSheet
+          value={form.repeat}
+          startDay={day}
+          weekStart={weekStart}
+          hebrewOffered={hebrewOffered}
+          custom={custom}
+          words={wordsCtx}
+          picker={picker?.row === 'repeatEnd' ? picker.which : null}
+          onPicker={(which) => rowPicker('repeatEnd').onOpen(which)}
+          pickerProps={{ mode: pickerProps.mode, minYear: pickerProps.minYear, hebrewDates, today, weekStart }}
+          onApply={(repeat) => {
+            change({ ...form, repeat });
+            setPicker(null);
+            setRepeatOpen(false);
+          }}
+          onClose={() => {
+            setPicker(null);
+            setRepeatOpen(false);
+          }}
+        />
+      ) : null}
       {scopeOpen && info && itemKey ? (
         <ScopeSheet
           kind={info.kind}
           mode="save"
           title={form.title.trim() || info.occurrence.title}
           day={info.occurrence.start.slice(0, 10)}
-          all={allOfThem(info.series.repeat, info.series.start)}
+          all={allOfThem(info.series.repeat, info.series.start, info.series.spec)}
+          weekStart={weekStart}
           {...(plan?.kind === 'sheet' ? { choices: plan.choices, ...(plan.note ? { note: plan.note } : {}) } : {})}
           busy={saving}
           error={error}
