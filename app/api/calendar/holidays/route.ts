@@ -3,6 +3,8 @@
  * holidays spec §4).
  *
  *   ?from=yyyy-MM-dd&to=yyyy-MM-dd[&lang=en|he|ru]
+ *   ?next=yyyy-MM-dd[&lang=en|he|ru]   the next holiday worth counting down to after that
+ *                                      day, { next: { day, name } | null } (not with from/to)
  *
  * Public data with no user in it (the Israel schedule, computed in-process), so there is no
  * auth and the answer is cached for a day, by the browser and by the CDN. An unknown lang
@@ -12,14 +14,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { captureError } from '@/src/lib/error-capture';
 import { daysBetween } from '@/src/lib/calendar-view/format';
-import { holidaysInRange } from '@/src/services/hebrew-holidays';
+import { holidaysInRange, nextHoliday } from '@/src/services/hebrew-holidays';
 
 export const runtime = 'nodejs';
 
 const MAX_DAYS = 100;
 const CACHE = 'public, max-age=86400, s-maxage=86400';
 
-function invalid(field: 'from' | 'to'): NextResponse {
+function invalid(field: 'from' | 'to' | 'next'): NextResponse {
   return NextResponse.json({ error: 'invalid', field }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
 }
 
@@ -28,6 +30,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const from = params.get('from') ?? '';
   const to = params.get('to') ?? '';
   const lang = params.get('lang') ?? 'en';
+
+  if (params.has('next')) {
+    const next = params.get('next') ?? '';
+    if (Number.isNaN(daysBetween(next, next)) || params.has('from') || params.has('to')) return invalid('next');
+    try {
+      return NextResponse.json({ next: nextHoliday(next, lang) }, { headers: { 'Cache-Control': CACHE } });
+    } catch (error) {
+      captureError(error, 'calendar-holidays', { next, lang });
+      return NextResponse.json({ error: 'failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    }
+  }
 
   // daysBetween is NaN for anything that is not a real yyyy-MM-dd day.
   if (Number.isNaN(daysBetween(from, from))) return invalid('from');

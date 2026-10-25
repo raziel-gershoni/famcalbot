@@ -247,7 +247,11 @@ async function main() {
   });
 
   await check('every holidays.names entry is used by some holiday of the year, and en, he and ru hold the same ids', () => {
-    const used = new Set(hebcalYear().map(ev => holidayNameKey(ev.getDesc(), 'en').id));
+    // The countdown's base names (nextHoliday) read the same table: by the base name's id, or "<id>Base".
+    const used = new Set(hebcalYear().flatMap(ev => {
+      const base = holidayNameKey((ev as unknown as { basename(): string }).basename(), 'en').id;
+      return [holidayNameKey(ev.getDesc(), 'en').id, base, `${base}Base`];
+    }));
     const ids = Object.keys(messages.en.holidays.names);
     assertEqual(ids.filter(id => !used.has(id)), [], 'ids no holiday uses');
     assertEqual(Object.keys(messages.he.holidays.names).sort(), [...ids].sort(), 'he ids');

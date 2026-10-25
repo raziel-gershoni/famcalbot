@@ -63,6 +63,17 @@ const NAMES: Record<string, Record<string, string>> = {
  */
 const MAJOR_MODERN_DESCS: ReadonlySet<string> = new Set(['Yom HaShoah', 'Yom HaZikaron', "Yom HaAtzma'ut", 'Yom Yerushalayim']);
 
+/**
+ * Of hebcal's MINOR_HOLIDAY events only these count as "the next holiday" of the home's
+ * header countdown (owner, 2026-10-25), by hebcal's base name: no Pesach Sheni, Purim Katan,
+ * Leil Selichot, Shushan Purim... Every yom tov (kind chag) and the four national days
+ * (MAJOR_MODERN_DESCS) count too; fasts, eves, chol hamoed and Rosh Chodesh do not.
+ */
+const COUNTDOWN_MINOR_BASENAMES: ReadonlySet<string> = new Set(['Chanukah', 'Purim', 'Tu BiShvat', 'Lag BaOmer', "Tu B'Av"]);
+
+/** How far ahead nextHoliday looks, in days. */
+const NEXT_HOLIDAY_DAYS = 400;
+
 const ROMAN: Record<string, number> = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7 };
 
 const DAY_KEY = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -176,6 +187,51 @@ export function holidaysInRange(from: string, to: string, lang: string): Record<
     sorted[key] = days[key].sort((a, b) => rank(a) - rank(b));
   }
   return sorted;
+}
+
+/** The name hebcal gives a holiday in `locale` (the Russian locale leaves some names in English). */
+function baseNameOf(ev: Event, locale: string, language: string): string {
+  // The holiday line's own wording first (holidays.names, by the base name's id; "<id>Base"
+  // where the full name carries an argument, as Rosh Hashana's year), else hebcal's.
+  const { id } = holidayNameKey(ev.basename(), locale);
+  return NAMES[language][`${id}Base`] ?? NAMES[language][id] ?? Locale.gettext(ev.basename(), locale);
+}
+
+export interface NextHoliday {
+  /** The holiday's day, yyyy-MM-dd. */
+  day: string;
+  /** Its base name in the language, no day number or year: "Chanukah", "Rosh Hashana", "Pesach". */
+  name: string;
+}
+
+/**
+ * The next holiday worth counting down to, strictly after `after` (yyyy-MM-dd): a yom tov,
+ * Chanukah, Purim, Tu BiShvat, Lag BaOmer, Tu B'Av or one of the four national days, on
+ * the Israel schedule, looking ahead at most `maxDays` days. null when there is none, or
+ * for a bad date.
+ */
+export function nextHoliday(after: string, lang: string, maxDays: number = NEXT_HOLIDAY_DAYS): NextHoliday | null {
+  const from = parseDayKey(after);
+  if (!from) return null;
+  const language = Object.hasOwn(LOCALES, lang) ? lang : 'en';
+  const locale = LOCALES[language];
+  const start = new Date(from.getFullYear(), from.getMonth(), from.getDate() + 1);
+  const end = new Date(from.getFullYear(), from.getMonth(), from.getDate() + maxDays);
+  if (start > end) return null;
+
+  const rank = (kind: HolidayKind) => KINDS.findIndex(k => k.kind === kind);
+  let best: { ev: Event; key: string; rank: number } | null = null;
+  for (const ev of HebrewCalendar.calendar({ start: new HDate(start), end: new HDate(end), il: true })) {
+    const kind = kindOf(ev);
+    if (!kind) continue;
+    if (kind === 'minor' && !COUNTDOWN_MINOR_BASENAMES.has(ev.basename())) continue;
+    if (kind !== 'chag' && kind !== 'minor' && kind !== 'modern') continue;
+    const key = dayKeyOf(ev);
+    // The events come in date order; a later day never beats the first day found.
+    if (best && key > best.key) break;
+    if (!best || rank(kind) < best.rank) best = { ev, key, rank: rank(kind) };
+  }
+  return best ? { day: best.key, name: baseNameOf(best.ev, locale, language) } : null;
 }
 
 /**
